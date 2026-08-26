@@ -112,3 +112,20 @@ export const ptyResize = (id: number, cols: number, rows: number) =>
 export const ptyKill = (id: number) => invoke<boolean>("pty_kill", { id });
 
 export const ptyAlive = (id: number) => invoke<boolean>("pty_alive", { id });
+
+// ─────────────────────────── 搜索 ───────────────────────────
+
+export interface Hit {
+  path: string;
+  line: number;
+  text: string;
+}
+
+/** 列出项目文件（相对路径），模糊匹配在前端做 */
+export const listProjectFiles = (root: string) =>
+  invoke<string[]>("list_project_files", { root });
+
+export const grepProject = (root: string, pattern: string, limit = 200) =>
+  invoke<Hit[]>("grep_project", { root, pattern, limit });
+
+export const ripgrepAvailable = () => invoke<boolean>("ripgrep_available");

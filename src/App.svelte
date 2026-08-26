@@ -3,6 +3,7 @@
   import LogPane from "./lib/logview/LogPane.svelte";
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
+  import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
   import {
     probePath,
     readText,
@@ -65,6 +66,57 @@
   let editorLoading = $state(false);
   /** 每次保存成功自增，Editor 据此重置 dirty 基线 */
   let savedTick = $state(0);
+
+  let quickOpen = $state(false);
+  let quickScope = $state<"all" | "file" | "content" | "action">("all");
+  /** 待跳转的行号；带 nonce，连点同一条结果也能重新定位 */
+  let gotoLine = $state<{ line: number; nonce: number } | null>(null);
+  let gotoNonce = 0;
+
+  const actions: Action[] = [
+    { id: "toggle-sidebar", label: "切换侧边栏", hint: "⌘1", run: () => (sidebar = !sidebar) },
+    { id: "toggle-terminal", label: "切换终端", hint: "⌘J", run: () => (panel = !panel) },
+    {
+      id: "restart-terminal",
+      label: "重启终端",
+      run: () => {
+        termCwd = root ?? termCwd;
+        termEpoch++;
+        panel = true;
+      },
+    },
+    { id: "save", label: "保存当前文件", hint: "⌘S", run: () => saveActive() },
+    {
+      id: "close-tab",
+      label: "关闭当前标签",
+      hint: "⌘W",
+      run: () => {
+        if (active) requestClose(active.id);
+      },
+    },
+    { id: "close-all", label: "关闭所有标签", run: () => closeAll() },
+  ];
+
+  function saveActive() {
+    // 触发编辑器自己的保存路径：内容以编辑器里的为准，这里只能存已知内容
+    if (active?.mode === "edit") void save(active.content ?? "");
+  }
+
+  function closeAll() {
+    for (const t of [...tabs]) {
+      if (t.mode === "log" && t.handle !== undefined) void closeLog(t.handle);
+    }
+    tabs = [];
+    activeId = null;
+    pendingClose = null;
+  }
+
+  /** 搜索结果点击：打开文件，带行号则跳过去 */
+  async function openAt(path: string, line?: number) {
+    const full = path.startsWith("/") ? path : `${root ?? ""}/${path}`;
+    await openPath(full);
+    if (line !== undefined) gotoLine = { line, nonce: ++gotoNonce };
+  }
 
   $effect(() => {
     if (!panel || TerminalComp || terminalLoading) return;
@@ -165,8 +217,44 @@
     pendingClose = null;
   }
 
+  /** 双击 Shift 的上一次时间戳；按下任何其他键即作废 */
+  let lastShiftUp = 0;
+
+  function onWindowKeyUp(e: KeyboardEvent) {
+    if (e.key !== "Shift") {
+      lastShiftUp = 0;
+      return;
+    }
+    const now = Date.now();
+    // 连按两次 Shift —— IDEA 的「随处搜索」手势。
+    // 阈值取 500ms，与系统默认双击间隔相当；太短会让手慢的人按不出来
+    if (now - lastShiftUp < 500) {
+      lastShiftUp = 0;
+      quickScope = "all";
+      quickOpen = true;
+    } else {
+      lastShiftUp = now;
+    }
+  }
+
   function onWindowKey(e: KeyboardEvent) {
+    if (e.key === "Escape" && quickOpen) {
+      quickOpen = false;
+      return;
+    }
     if (!e.metaKey) return;
+    if (e.key === "p") {
+      e.preventDefault();
+      quickScope = "file";
+      quickOpen = true;
+      return;
+    }
+    if (e.key === "f" && e.shiftKey) {
+      e.preventDefault();
+      quickScope = "content";
+      quickOpen = true;
+      return;
+    }
     if (e.key === "1") {
       e.preventDefault();
       sidebar = !sidebar;
@@ -215,7 +303,9 @@
 
 </script>
 
-<svelte:window onkeydown={onWindowKey} />
+<svelte:window onkeydown={onWindowKey} onkeyup={onWindowKeyUp} />
+
+<QuickSearch bind:open={quickOpen} bind:scope={quickScope} {root} {actions} onOpenFile={openAt} />
 
 <main class:hovering>
   <header class="titlebar" data-tauri-drag-region>
@@ -262,12 +352,13 @@
           <div class="empty">
             <div class="big">把文件或文件夹拖进来</div>
             <p>代码走编辑模式，大文件与日志自动走只读的日志模式</p>
-            <p class="keys">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏</p>
+            <p class="keys">双击 ⇧ 随处搜索 · ⌘P 找文件 · ⌘⇧F 搜内容</p>
+            <p class="keys">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏 · ⌘J 终端</p>
             {#if error}<p class="err">{error}</p>{/if}
           </div>
         {:else if active.mode === "log" && active.handle !== undefined}
           {#key active.id}
-            <LogPane handle={active.handle} onStatus={(s) => (logStatus = s)} />
+            <LogPane handle={active.handle} {gotoLine} onStatus={(s) => (logStatus = s)} />
           {/key}
         {:else if EditorComp}
           {#key active.id}
@@ -275,6 +366,7 @@
               path={active.path}
               initial={active.content ?? ""}
               {savedTick}
+              {gotoLine}
               onChange={(d) => (active!.dirty = d)}
               onSave={save}
             />
@@ -332,6 +424,7 @@
     {#if saved}<span class="cell ok">{saved}</span>{/if}
     {#if error}<span class="cell err">{error}</span>{/if}
     <span class="spacer"></span>
+    <button class="cell btn" onclick={() => { quickScope = "all"; quickOpen = true; }}>搜索 ⇧⇧</button>
     <button class="cell btn" class:on={panel} onclick={() => (panel = !panel)}>终端 ⌘J</button>
     <span class="cell dim">{tabs.length} 个标签</span>
   </footer>

@@ -14,6 +14,7 @@
     path,
     initial,
     savedTick = 0,
+    gotoLine = null,
     onChange,
     onSave,
   }: {
@@ -21,6 +22,8 @@
     initial: string;
     /** 每次保存成功后自增。用它重置 dirty 基线，比暴露组件 ref 耦合更松 */
     savedTick?: number;
+    /** 搜索结果跳转用的目标行（1-based）。同一行连点也要能重新定位，故带 nonce */
+    gotoLine?: { line: number; nonce: number } | null;
     onChange: (dirty: boolean) => void;
     onSave: (content: string) => void;
   } = $props();
@@ -104,6 +107,20 @@
     if (!view) return;
     view.dispatch({ effects: langSlot.reconfigure(ext ?? []) });
   }
+
+  // 跳到指定行并居中。nonce 变化即触发，所以连点同一条搜索结果也能重新定位
+  $effect(() => {
+    const g = gotoLine;
+    if (!view || !g) return;
+    const total = view.state.doc.lines;
+    const line = Math.min(Math.max(1, g.line), total);
+    const pos = view.state.doc.line(line).from;
+    view.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: "center" }),
+    });
+    view.focus();
+  });
 
   // 保存成功：把当前文档定为新基线（不换 state，光标与撤销栈都保住）
   $effect(() => {

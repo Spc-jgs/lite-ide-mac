@@ -374,3 +374,42 @@ pub fn pty_alive(id: u32, state: State<'_, AppState>) -> bool {
         None => false,
     }
 }
+
+// ─────────────────────────── 搜索 ───────────────────────────
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HitDto {
+    pub path: String,
+    pub line: u64,
+    pub text: String,
+}
+
+/// 列出项目里的文件（相对路径），供前端做模糊匹配。
+///
+/// 匹配放前端做是有意为之：每敲一个字符都往 Rust 跑一趟，IPC 往返会让输入发木。
+/// 几万条路径传过去也就几 MB。
+#[tauri::command]
+pub fn list_project_files(root: String) -> Result<Vec<String>, String> {
+    searchsvc::list_files(&root).map_err(|e| format!("索引项目失败：{e}"))
+}
+
+/// 全局内容搜索。有 rg 用 rg，没有就用进程内实现，两者结果一致。
+#[tauri::command]
+pub fn grep_project(root: String, pattern: String, limit: usize) -> Result<Vec<HitDto>, String> {
+    let hits = searchsvc::grep(&root, &pattern, limit).map_err(|e| format!("搜索失败：{e}"))?;
+    Ok(hits
+        .into_iter()
+        .map(|h| HitDto {
+            path: h.path,
+            line: h.line,
+            text: h.text,
+        })
+        .collect())
+}
+
+/// 界面上标注当前走的哪条搜索路径
+#[tauri::command]
+pub fn ripgrep_available() -> bool {
+    searchsvc::ripgrep_available()
+}
