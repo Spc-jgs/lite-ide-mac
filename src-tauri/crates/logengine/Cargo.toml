@@ -7,3 +7,5 @@ description = "GB 级日志的 mmap + 稀疏行索引引擎（零 Tauri 依赖�
 [dependencies]
 memmap2 = "0.9"
 memchr = "2"
+# 大小写不敏感的多模式搜索，SIMD 加速（ripgrep 同作者）
+aho-corasick = "1"

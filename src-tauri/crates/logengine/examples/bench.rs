@@ -45,6 +45,26 @@ fn main() {
 
     // ④ 索引内存 —— 「与文件大小无关」的兑现证据
     let full = s.line_count * 8;
+    // 级别扫描是与索引并行的第二个后台任务
+    let t = Instant::now();
+    f.wait_levels();
+    let lvl_ms = t.elapsed().as_secs_f64() * 1000.0;
+    let s2 = f.stat();
+    let lv = s2.levels;
+    println!("\n③b 级别扫描（并行）  {lvl_ms:>8.2} ms   （不阻塞索引与首屏）");
+    println!(
+        "   级别分布          ERROR {}  WARN {}  INFO {}  DEBUG {}  其他 {}",
+        lv.get(logengine::Level::Error),
+        lv.get(logengine::Level::Warn),
+        lv.get(logengine::Level::Info),
+        lv.get(logengine::Level::Debug),
+        lv.get(logengine::Level::None)
+    );
+    println!(
+        "   级别表内存        {:>8.1} MB   （每行 4 bit）",
+        f.levels().memory_footprint() as f64 / 1048576.0
+    );
+
     println!(
         "\n④ 稀疏索引占用      {:>8.1} KB   （全量偏移需 {:.1} MB，省 {:.0}×）",
         s.index_bytes as f64 / 1024.0,

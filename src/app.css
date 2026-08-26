@@ -15,6 +15,7 @@
   --lvl-warn: #d6ae58;
   --lvl-info: #548af7;
   --lvl-debug: #6f737b;
+  --search-hit: rgba(53, 116, 240, 0.42);
 
   --ui-font: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
   --code-font: "SF Mono", Menlo, ui-monospace, monospace;

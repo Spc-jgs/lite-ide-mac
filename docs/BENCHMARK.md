@@ -34,11 +34,16 @@ cargo run -p logengine --release --example bench -- /tmp/big.log
 
 | 指标 | 实测 | 出口标准 |
 |---|---|---|
-| 主进程 phys_footprint（含 mmap 引擎） | 39 MB | — |
-| WebKit.WebContent（渲染） | 43 MB | — |
-| **合计常驻内存** | **82 MB** | < 200 MB ✅ |
+| 主进程 phys_footprint（含 mmap 引擎） | 36 MB | — |
+| WebKit.GPU | 16 MB | — |
+| WebKit.WebContent（渲染） | 46 MB | — |
+| **合计常驻内存** | **98 MB** | < 200 MB ✅ |
 | 进程数 | **4** | ≤ 5 ✅ |
-| 二进制体积 | **3.7 MB** | 安装包约 10MB ✅ |
+| 二进制体积 | **3.8 MB** | 安装包约 10MB ✅ |
+
+数字取自 `pnpm app:build` 产出的**生产二进制**，且确认没有任何 dev server 在跑
+（原因见下面「坑四」）。M1 界面元素比 M0 多（chips、分段着色的 span），
+WebContent 因此比 M0 时略高。
 
 注：主进程 RSS 会显示约 1.1GB —— 那是 mmap 的 file-backed 页，内核可随时回收，
 不是真实内存压力。`phys_footprint`（活动监视器口径）才是可比数字。
@@ -49,6 +54,33 @@ WebKit 的 GPU / Networking 子进程空闲后会被系统回收，不计入稳�
 ④ 的 1024× 正好等于 `DEFAULT_STRIDE` —— 稀疏索引按设计生效，没有隐藏开销。
 
 前端产物：**62 KB JS / 21 KB gzip**（Svelte 5 + Vite，无 SvelteKit）。
+
+---
+
+## M1 过滤性能
+
+同一个 1GB / 914 万行样本，过滤全程在后台线程跑，界面不阻塞：
+
+| 过滤条件 | 耗时 | 命中 |
+|---|---|---|
+| 仅 ERROR（纯级别查表） | **86 ms** | 456,822 |
+| 仅 INFO（大头，考验分配） | **93 ms** | 5,026,804 |
+| 文本 `OrderService`（区分大小写） | **158 ms** | 1,143,465 |
+| 文本 `orderservice`（不区分） | **284 ms** | 1,143,465 |
+| ERROR + 文本 `Deadlock` | **98 ms** | 456,822 |
+| 文本无命中（全扫不中） | **117 ms** | 0 |
+
+纯级别过滤之所以能压到 86ms，是因为每行级别已经在扫描阶段存成 4bit 数组，
+过滤只是遍历内存，不碰文件。
+
+索引阶段的两个任务并行：
+
+| 阶段 | 耗时 | 说明 |
+|---|---|---|
+| 打开 | 0.49 ms | mmap 是 O(1) |
+| 行索引 | 143 ms | 6.97 GB/s，关键路径 |
+| 级别扫描 | 88 ms | 与索引并行，不阻塞 |
+| 级别表内存 | 4.4 MB | 每行 4 bit |
 
 ---
 
@@ -95,3 +127,50 @@ M0 的技术路线**通过验证**：mmap + 稀疏索引 + 二进制 IPC 这条�
 读取延迟比 60fps 单帧预算低两到三个数量级。
 
 引擎不是瓶颈，后续帧率取决于前端渲染。
+
+
+### 坑三：改了前端却毫无变化 —— `cargo build` 不知道 dist 变了
+
+**症状**：M1 期间反复出现「界面改了、重新编译了、跑起来还是旧的」。
+一度误判成日志文件的 fd 竞争，实际根因完全不同。
+
+**原因**：只改前端时，`pnpm build` 更新了 `dist/`，但 `cargo build` 看 Rust 代码
+没动就整个跳过编译 —— 二进制里嵌的还是上一版前端。时间戳一比就露馅：
+二进制 10:45:09，dist 10:47:08。
+
+**修法**：`build.rs` 里加一行 `println!("cargo:rerun-if-changed=../dist");`，
+并把完整构建路径固化成 npm script（`pnpm app` / `pnpm app:build`），
+不再手工分两步跑。
+
+**教训**：这个坑之所以难查，是因为它的表现是「代码没生效」而不是「报错」——
+所有信号都指向前端逻辑有问题，实际上前端代码根本没被装进去。
+遇到「改了没反应」，先比对产物时间戳，再怀疑代码。
+
+
+### 坑四：`cargo build` 产出的是「dev 模式」二进制，一直在偷偷连 dev server
+
+**症状**：停掉 vite dev server 之后，app 启动即白屏 —— 窗口在、WebKit 子进程在、
+`run()` 也进了，但 `page_load` 事件从不触发，前端一行代码都没跑。
+
+**原因**：Tauri 的 dev / prod 之分**不看 cargo profile**，而由 `tauri build` 命令决定。
+`cargo build --release` 编译出来的二进制里，窗口 URL 仍是 `http://localhost:1420/`
+（配置里的 `devUrl`），而不是嵌入资源的 `tauri://localhost`。
+
+```
+[boot] main 窗口 url = http://localhost:1420/     ← cargo build --release
+[boot] main 窗口 url = tauri://localhost          ← pnpm tauri build
+```
+
+**代价**：此前几次「端到端验证通过」其实都是经由当时还开着的 dev server 加载前端的，
+并没有验证到真正的生产二进制。这个误判持续了整个 M0 到 M1 中段。
+
+**修法**：构建路径固化成 `pnpm app:build`（`tauri build --no-bundle`），
+不再手工跑 `cargo build`。验证前先确认 `curl localhost:1420` 不通，排除 dev server 干扰。
+
+**顺带逮到一个真 bug**：换成生产二进制后立刻冒出
+`Command plugin:window|start_dragging not allowed by ACL` ——
+标题栏的 `data-tauri-drag-region` 缺 `core:window:allow-start-dragging` 权限，
+也就是拖标题栏挪不动窗口。这个缺陷在 dev 模式下没暴露。
+
+**教训**：验证环境与交付环境的差异，会让一整串「验证通过」变得没有意义。
+凡是靠外部进程（dev server）才能跑起来的验证，都要先确认那个进程在最终形态里也存在。
