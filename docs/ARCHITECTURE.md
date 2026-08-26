@@ -128,6 +128,13 @@ pub struct LineIndex {
 - 1GB 全量索引预期 **0.3–0.5s**（memchr 单线程 5–10GB/s，实际瓶颈在 page fault）
 - 先做单线程，够快就不上并行分段
 
+> **实现补记（M1）**：级别统计**不能**塞进索引扫描。顺路统计看似省一遍遍历，
+> 实测把索引从 143ms 拖到 870ms（6×）—— 级别探测要逐字节看行首，成本远高于
+> `memchr` 找换行。索引是关键路径（决定"打开后多久能准确滚动"），必须保持纯粹。
+> 级别改为独立的第二个后台任务，与索引并行，88ms 跑完；顺带把每行级别存成
+> 4bit 打包数组（1GB 约 4.4MB），级别过滤因此变成纯内存操作，点 chips 立即响应。
+> 这是本引擎唯一与行数线性相关的结构，用它换过滤的即时性。
+
 > **实现补记（M0 实测）**：索引结构**不能**用 `RwLock<LineIndex>` 让后台线程直接持写锁
 > 分块推进 —— 写者放锁后立刻重新申请，读者根本抢不进去，首屏读取被拖到 1112ms。
 > 必须改成**后台无锁构建 + 快照发布**（`Mutex<Arc<LineIndex>>`，读者只克隆 Arc）。
@@ -139,7 +146,9 @@ pub struct LineIndex {
 **坑：mmap 的映射长度在创建时固定，文件被追加写之后映射不会自动变长。**
 
 处理：
-- `notify` 监听到文件 size 增长 → 重新 `MmapOptions::new().len(new_len).map()`
+- 轮询文件 size 增长 → 重新 `MmapOptions::new().map()`
+  （**M1 实做修正**：原计划用 `notify`，改为 500ms 轮询 —— macOS 的 FSEvents
+  对单文件有秒级合并延迟，轮询反而更快更可控，还少一个依赖）
 - 旧映射用 `Arc` 持有，等正在读的块释放后自然析构 —— **绝不能直接 drop**，
   否则正在渲染的行会读到已 unmap 的内存段（段错误）
 - 只对新增字节补索引，`indexed_upto` 往后走，已有 checkpoint 不动
@@ -168,10 +177,15 @@ pub struct LineIndex {
 **反面做法**：Rust 里 grep 出所有匹配行的内容返回前端 —— 几百万命中直接爆内存。
 
 **正确做法**（lnav / glogg 同款）：
-- `rg --json --line-number <pattern> <file>` 子进程，流式解析
 - 只收集**命中行号** `Vec<u64>`：100 万命中 = 8MB，可接受
 - 前端虚拟滚动维护"视图行 → 物理行"的映射，滚到哪取哪
-- 过滤进度走 `filter:progress` 事件，可中途取消（kill 子进程）
+- 过滤进度可查询，换条件时旧任务立即取消
+
+> **M1 实做修正**：原计划起 `rg --json` 子进程，实际改为**进程内实现**
+> （`aho-corasick`，支持大小写不敏感）。两条理由：文件已经 mmap 在内存里，
+> 起 rg 会让它重新 IO 一遍 1GB；而单文件搜索用不上 rg 的看家本领
+> （多文件遍历、gitignore 处理）。rg 留给 M4 的全局搜索。
+> 实测 1GB / 914 万行：纯级别 86ms，带文本 158–284ms。
 
 ---
 
@@ -252,7 +266,7 @@ lite-ide/
 | 期 | 内容 | 时长 | 出口标准 |
 |---|---|---|---|
 | **M0 垂直切片** ★ | Tauri 空窗 + 拖入文件 + mmap 稀疏索引 + 二进制 IPC + 虚拟滚动。**丑没关系，只验证性能** | **1 周** | 拖入 1GB 日志：**打开 <1s、滚动 60fps、内存 <200MB**。达不到就地重新评估技术路线 |
-| M1 日志模式完整 | 级别着色 + chips 过滤 + rg 搜索 + tail 吸底 + 堆栈折叠 + 级别统计 | 2 周 | 日常真能拿它替代 `less` 看线上日志 |
+| M1 日志模式完整 ✅ | 级别着色 + chips 过滤 + 文本搜索 + tail 吸底 + 堆栈视觉 + 级别统计 | 2 周 | 日常真能拿它替代 `less` 看线上日志 |
 | M2 编辑模式 | CM6 + 四语言高亮 + 文件树 + 多标签 + IDEA Dark 主题落地 | 2 周 | 能舒服地改代码 |
 | M3 终端 | portable-pty zsh + 输出面板 + 退出时 kill 子进程 | 1.5 周 | 能跑 gradle/npm |
 | M4 导航 | 双击 Shift 随处搜索 + ⌘P + 全局搜索 | 1.5 周 | 手不离键盘 |
@@ -290,3 +304,5 @@ lite-ide/
 | 配置缓存只写 `com.liteide.app` 标准目录 | 卸载路径确定 |
 | bundle id 固定 `com.liteide.app`，永不改 | UNINSTALL.md 全部路径的前提 |
 | `rust-toolchain.toml` pin 版本 | 防 rustup update 后编译行为漂移 |
+| 验证必须用 `pnpm app:build`，不用 `cargo build` | `cargo build` 产出的是 dev 模式二进制，会去连 devUrl，验证的其实是 dev server（详见 BENCHMARK.md 坑四） |
+| capabilities 只开实际用到的权限 | ACL 拒绝在前端表现为静默的 rejection，缺权限很难察觉 |

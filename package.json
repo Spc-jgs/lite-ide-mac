@@ -11,7 +11,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
     "app": "tauri dev",
-    "app:build": "tauri build"
+    "app:build": "tauri build --no-bundle",
+    "app:bundle": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2"

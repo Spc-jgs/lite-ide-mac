@@ -9,6 +9,9 @@
 //! | 10 GB | 约 8000 万| 640 MB   | 620 KB              |
 //!
 //! 代价是定位任意一行最坏要扫 `stride` 行（约 100KB，约 10μs），完全无感。
+//!
+//! 刻意只做一件事：找换行。级别探测曾经塞在这里，实测把索引从 145ms 拖到 870ms，
+//! 已拆到 `level::LevelMap` 的独立后台扫描（见该模块注释）。
 
 /// 每多少行落一个 checkpoint。
 ///
@@ -27,6 +30,9 @@ pub struct LineIndex {
     indexed_upto: u64,
     /// 是否已确认扫到文件末尾（末行残行已计入 line_count）。
     sealed: bool,
+    /// 末尾那行没有 \n 结尾、且已被 seal 计入 line_count。
+    /// tail 追加时它会被续写成完整行，届时需先回退再重扫。
+    tail_partial: bool,
 }
 
 impl LineIndex {
@@ -38,6 +44,7 @@ impl LineIndex {
             line_count: 0,
             indexed_upto: 0,
             sealed: false,
+            tail_partial: false,
         }
     }
 
@@ -103,6 +110,7 @@ impl LineIndex {
         if (self.indexed_upto as usize) < data.len() {
             // 末尾还有内容且不以 \n 结束 —— 它是完整的一行
             self.line_count += 1;
+            self.tail_partial = true;
             if self.line_count.is_multiple_of(self.stride as u64) {
                 self.checkpoints.push(data.len() as u64);
             }
@@ -111,6 +119,18 @@ impl LineIndex {
         // Vec 的倍增策略会留出最多一倍余量，封口时收紧 —— 报出去的数字才诚实
         self.checkpoints.shrink_to_fit();
         self.sealed = true;
+    }
+
+    /// 撤销 seal，让索引能继续吃后续追加的内容（tail 模式）。
+    ///
+    /// 末尾那行原本没有 \n、被 seal 当作完整行计入了行数；文件一旦追加，
+    /// 它就变成了半行，必须先把这一行退掉，否则会重复计数。
+    pub fn unseal(&mut self) {
+        if self.tail_partial {
+            self.line_count -= 1;
+            self.tail_partial = false;
+        }
+        self.sealed = false;
     }
 
     /// 定位第 `line` 行的起始字节偏移。

@@ -2,18 +2,26 @@ import { mount } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App.svelte";
 import "./app.css";
+import { installMockIpc } from "./lib/dev/mock-ipc";
 
-// 开发期诊断：任何 JS 错误都要能在 Rust 侧 stderr 看到，
-// 否则 release build 没有 devtools 时前端是个黑盒。
+// 浏览器里跑 `pnpm dev` 时装 IPC 桩：改 UI 不必等壳重新编译（约 40 秒 → 毫秒）。
+//
+// 用静态 import + 条件调用而非 `await import()`，纯粹是因为不需要顶层 await 就能
+// 做到同样的事 —— 生产构建里 import.meta.env.DEV 为假，if 块被消除，
+// installMockIpc 随之无人引用，整个模块被 tree-shake 掉，产物里一个字节都不剩。
+if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
+  installMockIpc();
+}
+
+// 开发期诊断：release 没有 devtools，前端出了错在 WebView 里是黑盒，
+// 只能靠这条通道回传到 Rust 侧 stderr（需 LITE_IDE_DEBUG=1）。
 const diag = (msg: string) => {
   invoke("diag", { msg }).catch(() => {});
 };
 window.addEventListener("error", (e) =>
   diag(`window.error: ${e.message} @ ${e.filename}:${e.lineno}`),
 );
-window.addEventListener("unhandledrejection", (e) =>
-  diag(`unhandledrejection: ${e.reason}`),
-);
+window.addEventListener("unhandledrejection", (e) => diag(`unhandledrejection: ${e.reason}`));
 
 diag("main.ts 开始执行");
 let app;
