@@ -267,7 +267,7 @@ lite-ide/
 |---|---|---|---|
 | **M0 垂直切片** ★ | Tauri 空窗 + 拖入文件 + mmap 稀疏索引 + 二进制 IPC + 虚拟滚动。**丑没关系，只验证性能** | **1 周** | 拖入 1GB 日志：**打开 <1s、滚动 60fps、内存 <200MB**。达不到就地重新评估技术路线 |
 | M1 日志模式完整 ✅ | 级别着色 + chips 过滤 + 文本搜索 + tail 吸底 + 堆栈视觉 + 级别统计 | 2 周 | 日常真能拿它替代 `less` 看线上日志 |
-| M2 编辑模式 | CM6 + 四语言高亮 + 文件树 + 多标签 + IDEA Dark 主题落地 | 2 周 | 能舒服地改代码 |
+| M2 编辑模式 ✅ | CM6 + 四语言高亮 + 文件树 + 多标签 + IDEA Dark 主题落地 | 2 周 | 能舒服地改代码 |
 | M3 终端 | portable-pty zsh + 输出面板 + 退出时 kill 子进程 | 1.5 周 | 能跑 gradle/npm |
 | M4 导航 | 双击 Shift 随处搜索 + ⌘P + 全局搜索 | 1.5 周 | 手不离键盘 |
 | M5 Markdown | CM6 decoration live preview | 1 周 | 笔记体验对齐 Obsidian |
@@ -304,5 +304,6 @@ lite-ide/
 | 配置缓存只写 `com.liteide.app` 标准目录 | 卸载路径确定 |
 | bundle id 固定 `com.liteide.app`，永不改 | UNINSTALL.md 全部路径的前提 |
 | `rust-toolchain.toml` pin 版本 | 防 rustup update 后编译行为漂移 |
+| 前端入口包只放两种模式都要的东西 | CM6 核心约 340KB，静态引入会把入口从 71KB 顶到 412KB；日志模式用不上它，必须按需加载 |
 | 验证必须用 `pnpm app:build`，不用 `cargo build` | `cargo build` 产出的是 dev 模式二进制，会去连 devUrl，验证的其实是 dev server（详见 BENCHMARK.md 坑四） |
 | capabilities 只开实际用到的权限 | ACL 拒绝在前端表现为静默的 rejection，缺权限很难察觉 |

@@ -1,0 +1,5 @@
+[package]
+name = "fsservice"
+version = "0.1.0"
+edition = "2021"
+description = "文件树与文本读写（零 Tauri 依赖）"
