@@ -29,6 +29,7 @@ pub fn run() {
             commands::list_dir,
             commands::read_text,
             commands::write_text,
+            commands::file_stamp,
             commands::open_log,
             commands::log_stat,
             commands::log_lines,

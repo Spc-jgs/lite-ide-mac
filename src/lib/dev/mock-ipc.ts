@@ -184,6 +184,18 @@ const lineAt = (n: number) => LINES[n % LINES.length];
 
 let filterHits: number[] | null = null;
 
+/** 文件指纹。桩里用一个自增计数模拟 mtime */
+const STAMPS: Record<string, { mtimeMs: number; size: number }> = {};
+let clock = 1_700_000_000_000;
+function bump(path: string) {
+  clock += 1000;
+  STAMPS[path] = { mtimeMs: clock, size: FILES[path]?.length ?? 0 };
+  return STAMPS[path];
+}
+function stampOf(path: string) {
+  return STAMPS[path] ?? bump(path);
+}
+
 function runFilter(levelBits: number, pattern: string, caseSensitive: boolean): number[] {
   const hits: number[] = [];
   const pat = caseSensitive ? pattern : pattern.toLowerCase();
@@ -200,6 +212,15 @@ function runFilter(levelBits: number, pattern: string, caseSensitive: boolean): 
 }
 
 export function installMockIpc(): void {
+  // 开发期钩子：在控制台模拟「文件被编辑器外改动」，用来验证冲突处理
+  (window as unknown as Record<string, unknown>).__mockEditFileOutside = (
+    path: string,
+    content: string,
+  ) => {
+    FILES[path] = content;
+    bump(path);
+  };
+
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
     metadata: { currentWebview: { label: "main" }, currentWindow: { label: "main" } },
     transformCallback: (cb: unknown) => {
@@ -240,7 +261,9 @@ export function installMockIpc(): void {
           return FILES[String(a.path)] ?? "// 桩里没有这个文件\n";
         case "write_text":
           FILES[String(a.path)] = String(a.content);
-          return null;
+          return bump(String(a.path));
+        case "file_stamp":
+          return stampOf(String(a.path));
         case "list_project_files":
           return Object.keys(FILES).map((f) => f.replace(/^\/proj\//, ""));
         case "grep_project": {
