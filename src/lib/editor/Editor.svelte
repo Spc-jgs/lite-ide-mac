@@ -9,14 +9,17 @@
            indentUnit } from "@codemirror/language";
   import { ideaDarkTheme, ideaDarkHighlight } from "./theme-idea-dark";
   import { langOf, loadLang } from "./langs";
+  import { outlineOf, type Sym } from "./outline";
 
   let {
     path,
     initial,
     savedTick = 0,
     gotoLine = null,
+    outlineTick = 0,
     onChange,
     onSave,
+    onOutline,
   }: {
     path: string;
     initial: string;
@@ -24,8 +27,11 @@
     savedTick?: number;
     /** 搜索结果跳转用的目标行（1-based）。同一行连点也要能重新定位，故带 nonce */
     gotoLine?: { line: number; nonce: number } | null;
+    /** 自增即重新提取大纲。放在 Editor 里算是因为语法树在它手上 */
+    outlineTick?: number;
     onChange: (dirty: boolean) => void;
     onSave: (content: string) => void;
+    onOutline?: (syms: Sym[]) => void;
   } = $props();
 
   let host: HTMLDivElement | undefined = $state();
@@ -120,6 +126,13 @@
       effects: EditorView.scrollIntoView(pos, { y: "center" }),
     });
     view.focus();
+  });
+
+  // 大纲：语法树在 CM6 手上，直接从它提取，不另挂一套 parser
+  $effect(() => {
+    const tick = outlineTick;
+    if (!view || tick === 0) return;
+    onOutline?.(outlineOf(view.state));
   });
 
   // 保存成功：把当前文档定为新基线（不换 state，光标与撤销栈都保住）

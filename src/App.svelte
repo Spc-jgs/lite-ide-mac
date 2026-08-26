@@ -4,6 +4,8 @@
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
+  import Outline from "./lib/search/Outline.svelte";
+  import type { Sym } from "./lib/editor/outline";
   import { langOf, langLabel } from "./lib/editor/langs";
   import {
     probePath,
@@ -119,6 +121,17 @@
   let gotoLine = $state<{ line: number; nonce: number } | null>(null);
   let gotoNonce = 0;
 
+  // 文件结构大纲
+  let outlineOpen = $state(false);
+  let outlineTick = $state(0);
+  let symbols = $state<Sym[]>([]);
+  function openOutline() {
+    if (active?.mode !== "edit") return;
+    symbols = [];
+    outlineTick++;
+    outlineOpen = true;
+  }
+
   const actions: Action[] = [
     { id: "toggle-sidebar", label: "切换侧边栏", hint: "⌘1", run: () => (sidebar = !sidebar) },
     { id: "toggle-terminal", label: "切换终端", hint: "⌘J", run: () => (panel = !panel) },
@@ -189,6 +202,16 @@
   });
 
   let active = $derived(tabs.find((t) => t.id === activeId) ?? null);
+
+  /** 走 legacy stream parser 的语言没有语法树，界面要明说 */
+  const LEZER_LANGS = new Set([
+    "java", "javascript", "typescript", "python", "markdown", "json", "rust",
+    "yaml", "html", "css", "sass", "less", "xml", "sql", "cpp", "php", "vue", "liquid",
+  ]);
+  let outlineSupported = $derived(
+    active?.mode === "edit" && LEZER_LANGS.has(langOf(active.path) ?? ""),
+  );
+
 
   /** 正在打开的路径，防止双击或事件重放时重复探测 */
   const opening = new Set<string>();
@@ -425,6 +448,11 @@
       quickOpen = true;
       return;
     }
+    if (e.key === "o" && e.shiftKey) {
+      e.preventDefault();
+      openOutline();
+      return;
+    }
     if (e.key === "f" && e.shiftKey) {
       e.preventDefault();
       quickScope = "content";
@@ -480,6 +508,14 @@
 </script>
 
 <svelte:window onkeydown={onWindowKey} onkeyup={onWindowKeyUp} />
+
+<Outline
+  bind:open={outlineOpen}
+  {symbols}
+  fileName={active?.name ?? ""}
+  supported={outlineSupported}
+  onPick={(line) => (gotoLine = { line, nonce: ++gotoNonce })}
+/>
 
 <QuickSearch bind:open={quickOpen} bind:scope={quickScope} {root} {actions} onOpenFile={openAt} />
 
@@ -549,7 +585,7 @@
           <div class="empty">
             <div class="big">把文件或文件夹拖进来</div>
             <p>代码走编辑模式，大文件与日志自动走只读的日志模式</p>
-            <p class="keys">双击 ⇧ 随处搜索 · ⌘P 找文件 · ⌘⇧F 搜内容</p>
+            <p class="keys">双击 ⇧ 随处搜索 · ⌘P 找文件 · ⌘⇧F 搜内容 · ⌘⇧O 文件结构</p>
             <p class="keys">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏 · ⌘J 终端</p>
             {#if error}<p class="err">{error}</p>{/if}
           </div>
@@ -564,8 +600,10 @@
               initial={active.content ?? ""}
               {savedTick}
               {gotoLine}
+              {outlineTick}
               onChange={(d) => (active!.dirty = d)}
               onSave={save}
+              onOutline={(s) => (symbols = s)}
             />
           {/key}
         {:else}
