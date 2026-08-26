@@ -55,17 +55,46 @@
   /** xterm.js 约 250KB，不开终端就不该付这个钱 —— 与 CM6 同样按需加载 */
   let TerminalComp = $state<typeof import("./lib/terminal/Terminal.svelte").default | null>(null);
   let terminalLoading = $state(false);
-  /** 终端重启用：自增即重建组件 */
-  let termEpoch = $state(0);
   /**
-   * 终端的工作目录在创建时快照一次。
-   * 不跟着 root 走 —— 切项目就把正在跑的命令连根重启，是很讨厌的行为（IDEA 也不这么干）。
-   * 想换目录就点「重启」。
+   * 多个终端并存。切换标签时**不能卸载**未激活的那些 ——
+   * 组件一销毁 Session 就 drop，shell 直接被 kill，正在跑的命令全没了。
+   * 所以用 CSS 隐藏，实例一直活着。
    */
-  let termCwd = $state<string | null>(null);
+  interface TermTab {
+    id: number;
+    /** 工作目录在创建时快照一次，之后不跟着 root 走 */
+    cwd: string;
+    title: string;
+  }
+  let terms = $state<TermTab[]>([]);
+  let activeTermId = $state<number | null>(null);
+  let nextTermId = 1;
 
+  function newTerm(cwd?: string) {
+    const dir = cwd ?? root ?? "~";
+    const t: TermTab = {
+      id: nextTermId++,
+      cwd: dir,
+      title: dir === "~" ? "~" : dir.slice(dir.lastIndexOf("/") + 1) || dir,
+    };
+    terms = [...terms, t];
+    activeTermId = t.id;
+    panel = true;
+  }
+
+  function closeTerm(id: number) {
+    const idx = terms.findIndex((t) => t.id === id);
+    terms = terms.filter((t) => t.id !== id);
+    if (activeTermId === id) {
+      activeTermId = terms[Math.min(idx, terms.length - 1)]?.id ?? null;
+    }
+    // 最后一个终端关掉就把面板一起收起，省得留个空壳
+    if (terms.length === 0) panel = false;
+  }
+
+  // 打开面板时若一个终端都没有，自动起一个
   $effect(() => {
-    if (panel && termCwd === null && root !== null) termCwd = root;
+    if (panel && terms.length === 0 && root !== null) newTerm(root);
   });
   let hovering = $state(false);
   let error = $state("");
@@ -93,13 +122,12 @@
   const actions: Action[] = [
     { id: "toggle-sidebar", label: "切换侧边栏", hint: "⌘1", run: () => (sidebar = !sidebar) },
     { id: "toggle-terminal", label: "切换终端", hint: "⌘J", run: () => (panel = !panel) },
+    { id: "new-terminal", label: "新建终端", hint: "⌃⇧`", run: () => newTerm() },
     {
-      id: "restart-terminal",
-      label: "重启终端",
+      id: "close-terminal",
+      label: "关闭当前终端",
       run: () => {
-        termCwd = root ?? termCwd;
-        termEpoch++;
-        panel = true;
+        if (activeTermId !== null) closeTerm(activeTermId);
       },
     },
     {
@@ -384,6 +412,12 @@
       quickOpen = false;
       return;
     }
+    // ⌃⇧` 新建终端，与 VSCode 一致
+    if (e.ctrlKey && e.shiftKey && (e.key === "~" || e.key === "`")) {
+      e.preventDefault();
+      newTerm();
+      return;
+    }
     if (!e.metaKey) return;
     if (e.key === "p") {
       e.preventDefault();
@@ -549,21 +583,28 @@
         <div class="panel" style:height="{panelHeight}px">
           <div class="panel-head">
             <span class="tag">终端</span>
-            <span class="cwd">{termCwd ?? "…"}</span>
+            <div class="tterms">
+              {#each terms as t (t.id)}
+                <div class="tterm" class:on={t.id === activeTermId}>
+                  <button class="tt-label" onclick={() => (activeTermId = t.id)} title={t.cwd}>
+                    {t.title}
+                  </button>
+                  <button class="tt-x" onclick={() => closeTerm(t.id)} aria-label="关闭终端">✕</button>
+                </div>
+              {/each}
+              <button class="tt-add" onclick={() => newTerm()} title="新建终端 ⌃⇧`">＋</button>
+            </div>
             <span class="gap"></span>
-            <button
-              onclick={() => {
-                termCwd = root ?? termCwd;
-                termEpoch++;
-              }}
-              title="在当前项目根重新起一个 shell">重启</button>
             <button onclick={() => (panel = false)} title="收起 ⌘J">✕</button>
           </div>
           <div class="panel-body">
-            {#if TerminalComp && termCwd !== null}
-              {#key termEpoch}
-                <TerminalComp cwd={termCwd} onExit={() => {}} />
-              {/key}
+            {#if TerminalComp}
+              {#each terms as t (t.id)}
+                <!-- 隐藏而不是卸载：卸载会 kill 掉 shell -->
+                <div class="term-slot" class:hidden={t.id !== activeTermId}>
+                  <TerminalComp cwd={t.cwd} onExit={() => closeTerm(t.id)} />
+                </div>
+              {/each}
             {:else}
               <div class="loading">正在载入终端…</div>
             {/if}
@@ -597,7 +638,9 @@
     {#if error}<span class="cell err">{error}</span>{/if}
     <span class="spacer"></span>
     <button class="cell btn" onclick={() => { quickScope = "all"; quickOpen = true; }}>搜索 ⇧⇧</button>
-    <button class="cell btn" class:on={panel} onclick={() => (panel = !panel)}>终端 ⌘J</button>
+    <button class="cell btn" class:on={panel} onclick={() => (panel = !panel)}>
+      终端 ⌘J{terms.length > 1 ? ` (${terms.length})` : ""}
+    </button>
     <span class="cell dim">{tabs.length} 个标签</span>
   </footer>
 </main>
@@ -688,14 +731,6 @@
     user-select: none;
   }
   .panel-head .tag { letter-spacing: 0.06em; text-transform: uppercase; }
-  .panel-head .cwd {
-    font-family: var(--code-font);
-    font-size: 10.5px;
-    color: var(--text-faint);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
   .panel-head .gap { flex: 1; }
   .panel-head button {
     background: transparent;
@@ -707,7 +742,57 @@
     cursor: default;
   }
   .panel-head button:hover { background: var(--panel-bg-2); color: var(--text); }
-  .panel-body { overflow: hidden; }
+  .panel-body { overflow: hidden; position: relative; }
+  .term-slot { position: absolute; inset: 0; }
+  /* 用 visibility 而不是 display:none —— 后者会让 xterm 的尺寸计算拿到 0，
+     切回来时排版是乱的 */
+  .term-slot.hidden { visibility: hidden; pointer-events: none; z-index: -1; }
+
+  .tterms { display: flex; align-items: center; gap: 2px; overflow-x: auto; }
+  .tterms::-webkit-scrollbar { height: 0; }
+  .tterm {
+    display: flex;
+    align-items: center;
+    flex: none;
+    border-radius: 3px;
+    background: transparent;
+  }
+  .tterm:hover { background: var(--panel-bg-2); }
+  .tterm.on { background: var(--accent-sel); }
+  .tt-label {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-size: 10.5px;
+    font-family: var(--code-font);
+    padding: 2px 3px 2px 7px;
+    cursor: default;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tterm.on .tt-label { color: var(--text); }
+  .tt-x {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-size: 9px;
+    padding: 2px 6px 2px 2px;
+    cursor: default;
+  }
+  .tt-x:hover { color: var(--text); }
+  .tt-add {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-size: 12px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    cursor: default;
+    flex: none;
+  }
+  .tt-add:hover { background: var(--panel-bg-2); color: var(--text); }
   .loading {
     display: grid;
     place-content: center;
