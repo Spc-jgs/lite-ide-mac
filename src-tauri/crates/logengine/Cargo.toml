@@ -1,0 +1,9 @@
+[package]
+name = "logengine"
+version = "0.1.0"
+edition = "2021"
+description = "GB 级日志的 mmap + 稀疏行索引引擎（零 Tauri 依赖，可独立 bench）"
+
+[dependencies]
+memmap2 = "0.9"
+memchr = "2"

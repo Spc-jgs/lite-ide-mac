@@ -1,0 +1,36 @@
+[workspace]
+members = ["crates/logengine"]
+
+[package]
+name = "lite-ide"
+version = "0.1.0"
+description = "Mac 上 1 秒打开的个人工作台"
+edition = "2021"
+
+[lib]
+# _lib 后缀避免与 bin 同名冲突（Tauri 官方约定）
+name = "lite_ide_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+logengine = { path = "crates/logengine" }
+
+# 发布构建：体积与速度并重（安装包目标 ~10MB）
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# 开发时也让 logengine 跑在优化档，否则 1GB 索引会慢到没法验证
+[profile.dev.package.logengine]
+opt-level = 3
+[profile.dev.package.memchr]
+opt-level = 3

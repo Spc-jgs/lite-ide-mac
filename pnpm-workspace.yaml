@@ -1,0 +1,4 @@
+# pnpm 11 起，构建脚本白名单挪到这里（key 为 allowBuilds）
+# esbuild 需要 postinstall 落地平台原生二进制，vite 依赖它
+allowBuilds:
+  esbuild: true
