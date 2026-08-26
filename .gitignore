@@ -1,0 +1,19 @@
+# 依赖与构建产物 —— 全部在项目目录内，删目录即零残留（见 UNINSTALL.md）
+node_modules/
+dist/
+build/
+src-tauri/target/
+src-tauri/gen/
+
+# macOS
+.DS_Store
+._*
+
+# 编辑器与工具
+.vscode/
+.idea/
+*.log
+
+# 环境
+.env
+.env.local
