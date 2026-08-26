@@ -1,64 +1,337 @@
 /**
  * 语言支持按需懒加载。
  *
- * 每个 Lezer parser 都是几十到几百 KB，全部静态引入会让冷启动变慢 ——
- * 而"秒开"是这个项目的立身之本。改成动态 import 后，打开 .java 才付 Java 的代价。
+ * 每个 parser 都是几十到几百 KB，全部静态引入会让冷启动变慢 ——
+ * 而"秒开"是这个项目的立身之本。改成动态 import 后，打开 .java 才付 Java 的代价：
+ * 六十多种语言分散在各自的 chunk 里，入口包一个字节都不为它们买单。
+ *
+ * 两类实现：
+ * - **Lezer**（官方独立包）：增量解析，高亮质量最好，优先用
+ * - **legacy stream parser**：逐行扫描，质量略逊，但覆盖面广，
+ *   对配置文件、脚本、小众语言完全够用
  */
 
 import type { Extension } from "@codemirror/state";
 
 export type LangId =
+  | "clojure"
+  | "cmake"
+  | "cobol"
+  | "coffee"
+  | "cpp"
+  | "crystal"
+  | "csharp"
+  | "css"
+  | "d"
+  | "dart"
+  | "diff"
+  | "dockerfile"
+  | "elm"
+  | "erlang"
+  | "fortran"
+  | "gherkin"
+  | "go"
+  | "groovy"
+  | "haskell"
+  | "haxe"
+  | "html"
+  | "http"
   | "java"
   | "javascript"
-  | "typescript"
-  | "python"
-  | "markdown"
+  | "jinja2"
   | "json"
-  | "rust"
-  | "yaml"
-  | "toml"
-  | "html"
-  | "css"
-  | "xml"
-  | "sql"
-  | "shell"
+  | "julia"
+  | "kotlin"
+  | "less"
+  | "liquid"
+  | "lisp"
+  | "lua"
+  | "markdown"
+  | "mathematica"
+  | "nginx"
+  | "objc"
+  | "octave"
+  | "pascal"
+  | "perl"
+  | "php"
+  | "powershell"
   | "properties"
-  | "dockerfile"
-  | "go"
-  | "c"
+  | "protobuf"
+  | "pug"
+  | "python"
+  | "r"
+  | "ruby"
+  | "rust"
+  | "sass"
+  | "scala"
+  | "scheme"
+  | "shell"
+  | "smalltalk"
+  | "sparql"
+  | "sql"
+  | "stylus"
+  | "swift"
+  | "tcl"
+  | "toml"
+  | "turtle"
+  | "typescript"
+  | "vb"
+  | "verilog"
+  | "vhdl"
+  | "vue"
+  | "xml"
+  | "yaml"
   | null;
 
 /** 扩展名 → 语言 */
 const BY_EXT: Record<string, LangId> = {
-  java: "java",
-  js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript",
-  ts: "typescript", mts: "typescript", cts: "typescript", tsx: "typescript",
-  py: "python", pyi: "python", pyw: "python",
-  md: "markdown", markdown: "markdown",
-  json: "json", jsonc: "json", json5: "json", map: "json",
-  rs: "rust",
-  yaml: "yaml", yml: "yaml",
-  toml: "toml", lock: "toml",
-  html: "html", htm: "html", vue: "html", svelte: "html",
-  css: "css", scss: "css", less: "css",
-  xml: "xml", svg: "xml", xsd: "xml", plist: "xml", pom: "xml",
-  sql: "sql",
-  sh: "shell", bash: "shell", zsh: "shell", fish: "shell", zshrc: "shell", bashrc: "shell",
-  properties: "properties", ini: "properties", cfg: "properties", conf: "properties", env: "properties",
-  go: "go",
-  c: "c", h: "c", cpp: "c", cc: "c", cxx: "c", hpp: "c",
+  "R": "r",
+  "bas": "vb",
+  "bash": "shell",
+  "c": "cpp",
+  "cbl": "cobol",
+  "cc": "cpp",
+  "cfg": "properties",
+  "cjs": "javascript",
+  "cl": "lisp",
+  "clj": "clojure",
+  "cljc": "clojure",
+  "cljs": "clojure",
+  "cmake": "cmake",
+  "cob": "cobol",
+  "coffee": "coffee",
+  "command": "shell",
+  "conf": "properties",
+  "cpp": "cpp",
+  "cr": "crystal",
+  "cs": "csharp",
+  "css": "css",
+  "csx": "csharp",
+  "cts": "typescript",
+  "cxx": "cpp",
+  "d": "d",
+  "dart": "dart",
+  "ddl": "sql",
+  "diff": "diff",
+  "dml": "sql",
+  "dockerfile": "dockerfile",
+  "edn": "clojure",
+  "el": "lisp",
+  "elm": "elm",
+  "env": "properties",
+  "erl": "erlang",
+  "f": "fortran",
+  "f90": "fortran",
+  "f95": "fortran",
+  "feature": "gherkin",
+  "fish": "shell",
+  "for": "fortran",
+  "gemspec": "ruby",
+  "go": "go",
+  "gradle": "groovy",
+  "groovy": "groovy",
+  "gvy": "groovy",
+  "h": "cpp",
+  "hh": "cpp",
+  "hpp": "cpp",
+  "hrl": "erlang",
+  "hs": "haskell",
+  "htm": "html",
+  "html": "html",
+  "http": "http",
+  "hx": "haxe",
+  "ini": "properties",
+  "ino": "cpp",
+  "ipynb": "json",
+  "j2": "jinja2",
+  "jade": "pug",
+  "java": "java",
+  "jinja": "jinja2",
+  "jinja2": "jinja2",
+  "jl": "julia",
+  "js": "javascript",
+  "json": "json",
+  "json5": "json",
+  "jsonc": "json",
+  "jsx": "javascript",
+  "ksh": "shell",
+  "kt": "kotlin",
+  "kts": "kotlin",
+  "less": "less",
+  "lhs": "haskell",
+  "liquid": "liquid",
+  "lisp": "lisp",
+  "lock": "toml",
+  "lua": "lua",
+  "m": "objc",
+  "map": "json",
+  "markdown": "markdown",
+  "matlab": "octave",
+  "md": "markdown",
+  "mdx": "markdown",
+  "mjs": "javascript",
+  "mm": "objc",
+  "mts": "typescript",
+  "nb": "mathematica",
+  "nginxconf": "nginx",
+  "pas": "pascal",
+  "patch": "diff",
+  "php": "php",
+  "php3": "php",
+  "php4": "php",
+  "php5": "php",
+  "phtml": "php",
+  "pl": "perl",
+  "plist": "xml",
+  "pm": "perl",
+  "pom": "xml",
+  "pp": "pascal",
+  "properties": "properties",
+  "proto": "protobuf",
+  "ps1": "powershell",
+  "psd1": "powershell",
+  "psm1": "powershell",
+  "pug": "pug",
+  "py": "python",
+  "pyi": "python",
+  "pyw": "python",
+  "r": "r",
+  "rake": "ruby",
+  "rb": "ruby",
+  "rest": "http",
+  "rq": "sparql",
+  "rs": "rust",
+  "sass": "sass",
+  "sc": "scala",
+  "scala": "scala",
+  "scm": "scheme",
+  "scss": "sass",
+  "sh": "shell",
+  "sparql": "sparql",
+  "sql": "sql",
+  "ss": "scheme",
+  "st": "smalltalk",
+  "styl": "stylus",
+  "sv": "verilog",
+  "svg": "xml",
+  "svh": "verilog",
+  "swift": "swift",
+  "tcl": "tcl",
+  "toml": "toml",
+  "ts": "typescript",
+  "tsx": "typescript",
+  "ttl": "turtle",
+  "v": "verilog",
+  "vb": "vb",
+  "vbs": "vb",
+  "vhd": "vhdl",
+  "vhdl": "vhdl",
+  "vue": "vue",
+  "wl": "mathematica",
+  "wsdl": "xml",
+  "xml": "xml",
+  "xsd": "xml",
+  "xsl": "xml",
+  "yaml": "yaml",
+  "yml": "yaml",
+  "zsh": "shell",
 };
 
 /** 没有扩展名、但一眼能认出来的文件 */
 const BY_NAME: Record<string, LangId> = {
-  dockerfile: "dockerfile",
-  makefile: "shell",
-  ".zshrc": "shell",
+  ".bash_profile": "shell",
   ".bashrc": "shell",
-  ".profile": "shell",
+  ".editorconfig": "properties",
   ".env": "properties",
+  ".gitconfig": "properties",
+  ".profile": "shell",
+  ".zprofile": "shell",
+  ".zshenv": "shell",
+  ".zshrc": "shell",
+  "brewfile": "ruby",
   "cargo.lock": "toml",
-  "gemfile": "shell",
+  "cmakelists.txt": "cmake",
+  "dockerfile": "dockerfile",
+  "gemfile": "ruby",
+  "gnumakefile": "shell",
+  "justfile": "shell",
+  "makefile": "shell",
+  "nginx.conf": "nginx",
+  "pnpm-lock.yaml": "yaml",
+  "podfile": "ruby",
+  "rakefile": "ruby",
+  "vagrantfile": "ruby",
+};
+
+/** 给状态栏显示的名字 */
+const LABELS: Record<string, string> = {
+  clojure: "Clojure",
+  cmake: "CMake",
+  cobol: "COBOL",
+  coffee: "CoffeeScript",
+  cpp: "C/C++",
+  crystal: "Crystal",
+  csharp: "C#",
+  css: "CSS",
+  d: "D",
+  dart: "Dart",
+  diff: "Diff",
+  dockerfile: "Dockerfile",
+  elm: "Elm",
+  erlang: "Erlang",
+  fortran: "Fortran",
+  gherkin: "Gherkin",
+  go: "Go",
+  groovy: "Groovy",
+  haskell: "Haskell",
+  haxe: "Haxe",
+  html: "HTML",
+  http: "HTTP",
+  java: "Java",
+  javascript: "JavaScript",
+  jinja2: "Jinja2",
+  json: "JSON",
+  julia: "Julia",
+  kotlin: "Kotlin",
+  less: "Less",
+  liquid: "Liquid",
+  lisp: "Common Lisp",
+  lua: "Lua",
+  markdown: "Markdown",
+  mathematica: "Mathematica",
+  nginx: "Nginx",
+  objc: "Objective-C",
+  octave: "Octave",
+  pascal: "Pascal",
+  perl: "Perl",
+  php: "PHP",
+  powershell: "PowerShell",
+  properties: "Properties",
+  protobuf: "Protobuf",
+  pug: "Pug",
+  python: "Python",
+  r: "R",
+  ruby: "Ruby",
+  rust: "Rust",
+  sass: "Sass",
+  scala: "Scala",
+  scheme: "Scheme",
+  shell: "Shell",
+  smalltalk: "Smalltalk",
+  sparql: "SPARQL",
+  sql: "SQL",
+  stylus: "Stylus",
+  swift: "Swift",
+  tcl: "Tcl",
+  toml: "TOML",
+  turtle: "Turtle",
+  typescript: "TypeScript",
+  vb: "Visual Basic",
+  verilog: "Verilog",
+  vhdl: "VHDL",
+  vue: "Vue",
+  xml: "XML",
+  yaml: "YAML",
 };
 
 /** 认出文件用什么语言。认不出来就纯文本，不猜。 */
@@ -70,9 +343,13 @@ export function langOf(filename: string): LangId {
   if (byName) return byName;
 
   const dot = base.lastIndexOf(".");
-  // 没有点，或者点在开头（.gitignore 这种）——按整名再查一次
+  // 没有点，或点在开头（.gitignore 这种）——上面按整名查过了，这里就认输
   if (dot <= 0) return null;
   return BY_EXT[base.slice(dot + 1).toLowerCase()] ?? null;
+}
+
+export function langLabel(id: LangId): string {
+  return id ? (LABELS[id] ?? id) : "纯文本";
 }
 
 const cache = new Map<string, Extension>();
@@ -85,6 +362,19 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
 
   let ext: Extension;
   switch (id) {
+    case "markdown": {
+      const [m, live] = await Promise.all([
+        import("@codemirror/lang-markdown"),
+        import("./markdown-live"),
+      ]);
+      // base 换成 markdownLanguage：它带 GFM（删除线、表格、任务列表），
+      // 默认的 commonmarkLanguage 不认 ~~删除线~~
+      ext = [
+        m.markdown({ base: m.markdownLanguage, codeLanguages: [] }),
+        live.markdownLivePreview,
+      ];
+      break;
+    }
     case "java": {
       const m = await import("@codemirror/lang-java");
       ext = m.java();
@@ -103,19 +393,6 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
     case "python": {
       const m = await import("@codemirror/lang-python");
       ext = m.python();
-      break;
-    }
-    case "markdown": {
-      const [m, live] = await Promise.all([
-        import("@codemirror/lang-markdown"),
-        import("./markdown-live"),
-      ]);
-      // base 换成 markdownLanguage：它带 GFM（删除线、表格、任务列表），
-      // 默认的 commonmarkLanguage 不认 ~~删除线~~
-      ext = [
-        m.markdown({ base: m.markdownLanguage, codeLanguages: [] }),
-        live.markdownLivePreview,
-      ];
       break;
     }
     case "json": {
@@ -143,6 +420,16 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
       ext = m.css();
       break;
     }
+    case "sass": {
+      const m = await import("@codemirror/lang-sass");
+      ext = m.sass();
+      break;
+    }
+    case "less": {
+      const m = await import("@codemirror/lang-less");
+      ext = m.less();
+      break;
+    }
     case "xml": {
       const m = await import("@codemirror/lang-xml");
       ext = m.xml();
@@ -153,8 +440,258 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
       ext = m.sql();
       break;
     }
-    // 以下几种没有独立的 Lezer 包，走 legacy stream parser。
-    // 高亮质量略逊于 Lezer，但对配置文件和脚本完全够用。
+    case "cpp": {
+      const m = await import("@codemirror/lang-cpp");
+      ext = m.cpp();
+      break;
+    }
+    case "php": {
+      const m = await import("@codemirror/lang-php");
+      ext = m.php();
+      break;
+    }
+    case "vue": {
+      const m = await import("@codemirror/lang-vue");
+      ext = m.vue();
+      break;
+    }
+    case "liquid": {
+      const m = await import("@codemirror/lang-liquid");
+      ext = m.liquid();
+      break;
+    }
+    case "go": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/go"),
+      ]);
+      ext = StreamLanguage.define(m.go);
+      break;
+    }
+    case "csharp": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/clike"),
+      ]);
+      ext = StreamLanguage.define(m.csharp);
+      break;
+    }
+    case "kotlin": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/clike"),
+      ]);
+      ext = StreamLanguage.define(m.kotlin);
+      break;
+    }
+    case "scala": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/clike"),
+      ]);
+      ext = StreamLanguage.define(m.scala);
+      break;
+    }
+    case "objc": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/clike"),
+      ]);
+      ext = StreamLanguage.define(m.objectiveC);
+      break;
+    }
+    case "dart": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/clike"),
+      ]);
+      ext = StreamLanguage.define(m.dart);
+      break;
+    }
+    case "swift": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/swift"),
+      ]);
+      ext = StreamLanguage.define(m.swift);
+      break;
+    }
+    case "ruby": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/ruby"),
+      ]);
+      ext = StreamLanguage.define(m.ruby);
+      break;
+    }
+    case "perl": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/perl"),
+      ]);
+      ext = StreamLanguage.define(m.perl);
+      break;
+    }
+    case "lua": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/lua"),
+      ]);
+      ext = StreamLanguage.define(m.lua);
+      break;
+    }
+    case "r": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/r"),
+      ]);
+      ext = StreamLanguage.define(m.r);
+      break;
+    }
+    case "julia": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/julia"),
+      ]);
+      ext = StreamLanguage.define(m.julia);
+      break;
+    }
+    case "haskell": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/haskell"),
+      ]);
+      ext = StreamLanguage.define(m.haskell);
+      break;
+    }
+    case "clojure": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/clojure"),
+      ]);
+      ext = StreamLanguage.define(m.clojure);
+      break;
+    }
+    case "erlang": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/erlang"),
+      ]);
+      ext = StreamLanguage.define(m.erlang);
+      break;
+    }
+    case "elm": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/elm"),
+      ]);
+      ext = StreamLanguage.define(m.elm);
+      break;
+    }
+    case "scheme": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/scheme"),
+      ]);
+      ext = StreamLanguage.define(m.scheme);
+      break;
+    }
+    case "lisp": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/commonlisp"),
+      ]);
+      ext = StreamLanguage.define(m.commonLisp);
+      break;
+    }
+    case "groovy": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/groovy"),
+      ]);
+      ext = StreamLanguage.define(m.groovy);
+      break;
+    }
+    case "powershell": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/powershell"),
+      ]);
+      ext = StreamLanguage.define(m.powerShell);
+      break;
+    }
+    case "vb": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/vb"),
+      ]);
+      ext = StreamLanguage.define(m.vb);
+      break;
+    }
+    case "pascal": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/pascal"),
+      ]);
+      ext = StreamLanguage.define(m.pascal);
+      break;
+    }
+    case "fortran": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/fortran"),
+      ]);
+      ext = StreamLanguage.define(m.fortran);
+      break;
+    }
+    case "verilog": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/verilog"),
+      ]);
+      ext = StreamLanguage.define(m.verilog);
+      break;
+    }
+    case "vhdl": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/vhdl"),
+      ]);
+      ext = StreamLanguage.define(m.vhdl);
+      break;
+    }
+    case "tcl": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/tcl"),
+      ]);
+      ext = StreamLanguage.define(m.tcl);
+      break;
+    }
+    case "coffee": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/coffeescript"),
+      ]);
+      ext = StreamLanguage.define(m.coffeeScript);
+      break;
+    }
+    case "pug": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/pug"),
+      ]);
+      ext = StreamLanguage.define(m.pug);
+      break;
+    }
+    case "stylus": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/stylus"),
+      ]);
+      ext = StreamLanguage.define(m.stylus);
+      break;
+    }
     case "toml": {
       const [{ StreamLanguage }, m] = await Promise.all([
         import("@codemirror/language"),
@@ -187,36 +724,137 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
       ext = StreamLanguage.define(m.dockerFile);
       break;
     }
-    case "go": {
+    case "nginx": {
       const [{ StreamLanguage }, m] = await Promise.all([
         import("@codemirror/language"),
-        import("@codemirror/legacy-modes/mode/go"),
+        import("@codemirror/legacy-modes/mode/nginx"),
       ]);
-      ext = StreamLanguage.define(m.go);
+      ext = StreamLanguage.define(m.nginx);
       break;
     }
-    case "c": {
+    case "protobuf": {
       const [{ StreamLanguage }, m] = await Promise.all([
         import("@codemirror/language"),
-        import("@codemirror/legacy-modes/mode/clike"),
+        import("@codemirror/legacy-modes/mode/protobuf"),
       ]);
-      ext = StreamLanguage.define(m.c);
+      ext = StreamLanguage.define(m.protobuf);
       break;
     }
+    case "cmake": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/cmake"),
+      ]);
+      ext = StreamLanguage.define(m.cmake);
+      break;
+    }
+    case "diff": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/diff"),
+      ]);
+      ext = StreamLanguage.define(m.diff);
+      break;
+    }
+    case "http": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/http"),
+      ]);
+      ext = StreamLanguage.define(m.http);
+      break;
+    }
+    case "gherkin": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/gherkin"),
+      ]);
+      ext = StreamLanguage.define(m.gherkin);
+      break;
+    }
+    case "jinja2": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/jinja2"),
+      ]);
+      ext = StreamLanguage.define(m.jinja2);
+      break;
+    }
+    case "smalltalk": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/smalltalk"),
+      ]);
+      ext = StreamLanguage.define(m.smalltalk);
+      break;
+    }
+    case "crystal": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/crystal"),
+      ]);
+      ext = StreamLanguage.define(m.crystal);
+      break;
+    }
+    case "haxe": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/haxe"),
+      ]);
+      ext = StreamLanguage.define(m.haxe);
+      break;
+    }
+    case "d": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/d"),
+      ]);
+      ext = StreamLanguage.define(m.d);
+      break;
+    }
+    case "cobol": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/cobol"),
+      ]);
+      ext = StreamLanguage.define(m.cobol);
+      break;
+    }
+    case "sparql": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/sparql"),
+      ]);
+      ext = StreamLanguage.define(m.sparql);
+      break;
+    }
+    case "turtle": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/turtle"),
+      ]);
+      ext = StreamLanguage.define(m.turtle);
+      break;
+    }
+    case "mathematica": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/mathematica"),
+      ]);
+      ext = StreamLanguage.define(m.mathematica);
+      break;
+    }
+    case "octave": {
+      const [{ StreamLanguage }, m] = await Promise.all([
+        import("@codemirror/language"),
+        import("@codemirror/legacy-modes/mode/octave"),
+      ]);
+      ext = StreamLanguage.define(m.octave);
+      break;
+    }
+    default:
+      return null;
   }
   cache.set(id, ext);
   return ext;
-}
-
-/** 给状态栏显示用的名字 */
-export function langLabel(id: LangId): string {
-  if (!id) return "纯文本";
-  const names: Record<string, string> = {
-    java: "Java", javascript: "JavaScript", typescript: "TypeScript",
-    python: "Python", markdown: "Markdown", json: "JSON", rust: "Rust",
-    yaml: "YAML", toml: "TOML", html: "HTML", css: "CSS", xml: "XML",
-    sql: "SQL", shell: "Shell", properties: "Properties",
-    dockerfile: "Dockerfile", go: "Go", c: "C/C++",
-  };
-  return names[id] ?? id;
 }

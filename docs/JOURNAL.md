@@ -12,8 +12,8 @@
 | M5 Markdown | ✅ | 笔记体验对齐 Obsidian |
 | M6 格式与模式 | ✅ | 18 种语言 · 模式可手动切换 |
 | M7 外部修改检测 | ✅ | 文件被外部改动要提示 |
-| M8 语言与日志适配 | 进行中 | 常用语言与日志格式全覆盖 |
-| M9 多终端标签 | 待办 | 能同时开几个 shell |
+| M8 语言与日志适配 | ✅ | 常用语言与日志格式全覆盖 |
+| M9 多终端标签 | 进行中 | 能同时开几个 shell |
 | M10 堆栈折叠 | 待办 | 长堆栈可折叠 |
 | M11 符号索引 | 可选 | tree-sitter 跳转定义 |
 
@@ -394,6 +394,69 @@ M2 的编辑模式、语法着色、多标签、脏标记、保存、双模式�
   否则**自己的保存会在下一次检查时被当成外部修改**，无限自我告警。
 
 **结果**：59 单测通过（fsservice 从 5 涨到 7）。
+
+---
+
+## 2026-08-26 · M8 语言与日志格式全面适配
+
+**起因**：用户建议「对常用的编程语言和日志都适配一下」。
+当时只有 18 种语言，日志只认 Java 一种格式 —— 其余全部降级成纯文本。
+
+### 语言：18 → 67 种
+
+新增 C#/Kotlin/Scala/Swift/Objective-C/Dart、Ruby/Perl/Lua/R/Julia、
+Haskell/Clojure/Erlang/Elm/Scheme/Lisp、Groovy/PowerShell/VB/Pascal/Fortran、
+Verilog/VHDL/Tcl、CoffeeScript/Pug/Sass/Less/Stylus/Vue/PHP、
+Protobuf/Nginx/CMake/Diff/HTTP/Gherkin/Jinja2 等。
+
+**150 个扩展名 + 22 个特殊文件名**（Dockerfile、Makefile、.zshrc、Cargo.lock、
+CMakeLists.txt、Gemfile 这类没有扩展名的）。全部按需加载，入口包一个字节都没为它们买单。
+
+### 日志：1 → 8 种格式
+
+原来的解析器写死了 Java/Logback 的形状。重构成**格式探测 + 多解析器**：
+
+| 格式 | 样例 |
+|---|---|
+| Java / Logback | `2026-08-24 14:03:21.442 INFO [thread] c.l.Svc - msg` |
+| ISO 时间戳 | `2026-08-24T14:03:21.442Z DEBUG [worker] cache - msg` |
+| Python logging | `2026-08-24 14:03:21,442 - module - WARNING - msg` |
+| Rust env_logger | `[2026-08-24T14:03:21Z INFO module] msg` |
+| logfmt (Go) | `time="..." level=error msg="..." retries=3` |
+| JSON 结构化 | `{"@timestamp":"...","level":"warn","msg":"..."}` |
+| Nginx / Apache | `10.0.0.7 - - [24/Aug/2026:...] "GET /api HTTP/1.1" 503 1234` |
+| syslog | `Aug 24 14:03:21 host sshd[4711]: msg` |
+
+两个设计决定：
+
+- **解析结果是通用分段列表而不是固定字段**。每种格式吐自己的段（`ts`/`level`/
+  `thread`/`logger`/`key`/`meta`/`msg`/`dim`），渲染层只按类别上色 ——
+  加一种新格式不必动渲染代码。
+- **格式靠投票探测，不看第一行**。日志开头常有启动横幅、空行、乱七八糟的东西，
+  只看一行很容易被带偏。取前 60 行投票。
+- Nginx access log 没有级别字段，**用状态码推**：5xx 当 error，4xx 当 warn。
+
+### Rust 侧的级别探测也得跟上
+
+`level=error` / `"level":"warn"` 的值是**小写**的，原来只扫大写关键字，
+这些行会全部落进「其他」。加了结构化探测路径，且**必须放在大写扫描之前**——
+JSON 行的正文里常有大写 ERROR 字样，先扫大写会把 `msg":"Connection ERROR"` 误判。
+
+**过程中撞到的**
+
+18. **结构化探测让级别扫描慢了 6 倍**（88ms → 517ms）。
+    我加的 SIMD 快速排除窗口取了 200 字节，而测试日志正文里的
+    `orderId=8842011` 正好落进窗口，快速排除全部失效。
+    收紧到 **48 字节**后回到 96ms —— logfmt 的首个 `=` 必在开头附近
+    （`time=...`），JSON 行首就是 `{`，而传统日志正文里的 `=` 都在时间戳、
+    级别、线程名、logger 之后，48 字节根本够不着。
+
+19. **ISO 格式被误判成 Java**。java 的时间戳正则写了 `[ T]`，把 ISO 也吃了。
+    改成 java 只认空格分隔、T 分隔归 iso。顺带发现两者「时间戳之后」的结构
+    完全一样，抽出 `parseTimestampedRest` 共用 —— 否则同一种结构维护两遍，迟早分叉。
+
+**验证**：八种格式逐一验证识别与分段正确；造了 40MB 的 JSON 与 logfmt 日志，
+级别统计比例与样本设计完全吻合，**「其他」为 0**——每一行都被识别，没有漏网。
 
 ---
 

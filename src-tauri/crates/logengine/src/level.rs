@@ -5,9 +5,28 @@
 //!
 //! 只扫行首一段：级别标记不会出现在正文深处，扫全行既慢又容易误判
 //! （消息里出现 "ERROR" 字样的情况很常见）。
+//!
+//! 两条路径，**结构化在前**：
+//! 1. **结构化日志的 `level=` / `"level":`**（logfmt、JSON）—— 值通常是小写。
+//!    必须先走这条：JSON 行的正文里常有大写 ERROR 字样，
+//!    先扫大写会把 `msg":"Connection ERROR"` 误判成 ERROR 级别。
+//!    入口有一次 SIMD 快速排除（没有 `=` 也没有 `{` 就直接放行），
+//!    传统日志几乎不为它买单。
+//! 2. **大写关键字**（Java / syslog / 多数传统日志）—— 单次线性扫描，极快。
 
 /// 只在行首这么多字节里找级别标记。
 const SCAN_HEAD: usize = 64;
+
+/// 结构化日志的键可能排在稍后一点（JSON 里 time 字段常常在前），但也不会太靠后
+const STRUCT_SCAN_HEAD: usize = 96;
+
+/// 快速排除的探测窗口。取 48 是有讲究的：
+/// logfmt 的第一个 `=` 必在开头附近（`time=...`），JSON 行首就是 `{`；
+/// 而传统日志正文里的 `=`（`orderId=8842011` 之类）都在时间戳、级别、
+/// 线程名、logger 之后，48 字节根本够不着。
+/// 早先用 200，测试日志里的 `orderId=` 落进了窗口，快速排除全部失效，
+/// 级别扫描从 88ms 掉到 517ms。
+const STRUCT_PROBE: usize = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -44,6 +63,11 @@ impl Level {
 /// 探测一行的级别。
 #[inline]
 pub fn detect(line: &[u8]) -> Level {
+    // 结构化日志（logfmt / JSON）的级别值是小写的，专门认一次。
+    // 放在前面是因为这类行往往也含大写词，先扫大写容易误判
+    if let Some(l) = detect_structured(line) {
+        return l;
+    }
     let end = line.len().min(SCAN_HEAD);
     let head = &line[..end];
 
@@ -206,6 +230,47 @@ mod tests {
     }
 
     #[test]
+    fn 识别_logfmt_的小写级别() {
+        assert_eq!(
+            detect(br#"time="2026-08-24T14:03:21Z" level=error msg="boom""#),
+            Level::Error
+        );
+        assert_eq!(detect(br#"time="..." level=info msg="ok""#), Level::Info);
+        assert_eq!(detect(b"ts=1724500000 lvl=warn msg=retry"), Level::Warn);
+    }
+
+    #[test]
+    fn 识别_json_日志的级别() {
+        assert_eq!(
+            detect(br#"{"time":"2026-08-24T14:03:21Z","level":"error","msg":"boom"}"#),
+            Level::Error
+        );
+        assert_eq!(
+            detect(br#"{"@timestamp":"...","severity":"WARNING","msg":"x"}"#),
+            Level::Warn
+        );
+        assert_eq!(detect(br#"{"levelname":"DEBUG","msg":"x"}"#), Level::Debug);
+    }
+
+    #[test]
+    fn 不把_loglevel_这种子串当字段名() {
+        // 前面紧挨着字母，不该被当成 level 字段
+        assert_eq!(
+            detect(b"my_loglevel=error is just a message here"),
+            Level::None
+        );
+    }
+
+    #[test]
+    fn 结构化路径不影响传统日志() {
+        // 传统 Java 行里没有 level= 字段，仍走大写扫描
+        assert_eq!(
+            detect(b"2026-08-24 14:03:21.442 ERROR [http-nio-1] c.l.Svc - boom"),
+            Level::Error
+        );
+    }
+
+    #[test]
     fn 掩码过滤() {
         assert!(LevelMask::ALL.allows(Level::Error));
         assert!(LevelMask::ALL.is_all());
@@ -359,4 +424,94 @@ mod map_tests {
         }
         assert_eq!(m.memory_footprint(), 500, "1000 行应只占 500 字节");
     }
+}
+
+/// 结构化日志的级别键：`level=warn`、`"level":"error"`、`"severity":"INFO"`。
+///
+/// 只在行首一段里找 —— 正文里出现 `level=` 的概率远低于它作为字段名。
+fn detect_structured(line: &[u8]) -> Option<Level> {
+    const KEYS: [&[u8]; 4] = [b"level", b"lvl", b"severity", b"levelname"];
+    let end = line.len().min(STRUCT_SCAN_HEAD);
+    let head = &line[..end];
+
+    // 快速排除：logfmt 的首个 `=` 或 JSON 的 `{` 必在行首附近。
+    // 这一次 SIMD 扫描让绝大多数传统日志跳过下面四轮子串搜索
+    if line.first() != Some(&b'{')
+        && memchr::memchr(b'=', &line[..line.len().min(STRUCT_PROBE)]).is_none()
+    {
+        return None;
+    }
+
+    for key in KEYS {
+        let mut from = 0usize;
+        while let Some(rel) = memchr::memmem::find(&head[from..], key) {
+            let at = from + rel;
+            // 键名前面应该是引号、空格、逗号或 { —— 否则可能是 "loglevel" 这种子串
+            let ok_before =
+                at == 0 || matches!(head[at - 1], b'"' | b'\'' | b' ' | b',' | b'{' | b'\t');
+            if ok_before {
+                if let Some(l) = value_after(head, at + key.len()) {
+                    return Some(l);
+                }
+            }
+            from = at + 1;
+            if from >= head.len() {
+                break;
+            }
+        }
+    }
+    None
+}
+
+/// 跳过 `":` / `=` / 引号 / 空格，读出紧跟着的那个词并解析成级别
+fn value_after(buf: &[u8], mut i: usize) -> Option<Level> {
+    let mut saw_sep = false;
+    while i < buf.len() {
+        match buf[i] {
+            b'"' | b'\'' | b' ' | b'\t' => i += 1,
+            b':' | b'=' => {
+                saw_sep = true;
+                i += 1;
+            }
+            _ => break,
+        }
+    }
+    if !saw_sep {
+        return None;
+    }
+    let start = i;
+    while i < buf.len() && (buf[i].is_ascii_alphabetic()) {
+        i += 1;
+    }
+    if i == start {
+        return None;
+    }
+    word_to_level(&buf[start..i])
+}
+
+/// 大小写不敏感地把一个词转成级别
+fn word_to_level(w: &[u8]) -> Option<Level> {
+    const MAP: [(&[u8], Level); 11] = [
+        (b"error", Level::Error),
+        (b"fatal", Level::Error),
+        (b"critical", Level::Error),
+        (b"severe", Level::Error),
+        (b"panic", Level::Error),
+        (b"warn", Level::Warn),
+        (b"warning", Level::Warn),
+        (b"info", Level::Info),
+        (b"notice", Level::Info),
+        (b"debug", Level::Debug),
+        (b"trace", Level::Trace),
+    ];
+    for (name, lvl) in MAP {
+        if w.len() == name.len()
+            && w.iter()
+                .zip(name)
+                .all(|(a, b)| a.to_ascii_lowercase() == *b)
+        {
+            return Some(lvl);
+        }
+    }
+    None
 }

@@ -1,8 +1,11 @@
 <script lang="ts">
   import LogView from "./LogView.svelte";
   import FilterBar from "./FilterBar.svelte";
+  import { decodeBlock } from "./block";
+  import { detectFormat, FORMAT_LABEL, type LogFormat } from "./parse";
   import {
     logStat,
+    logLines,
     logFilter,
     logFilterStat,
     logRefresh,
@@ -31,6 +34,17 @@
   let filterRunning = $state(false);
   let tailing = $state(false);
   let error = $state("");
+  let format = $state<LogFormat>("plain");
+
+  // 取开头几十行投票选格式。只看第一行容易被启动横幅、空行带偏
+  $effect(() => {
+    const h = handle;
+    logLines(h, 0, 60)
+      .then((buf) => {
+        format = detectFormat(decodeBlock(buf).lines);
+      })
+      .catch(() => (format = "plain"));
+  });
 
   // 索引与级别扫描都在后台跑，轮询到两者都完成为止
   $effect(() => {
@@ -127,7 +141,7 @@
       onStatus("");
       return;
     }
-    const parts = [`${fmtNum(stat.lineCount)} 行`];
+    const parts = [`${fmtNum(stat.lineCount)} 行`, FORMAT_LABEL[format]];
     if (showFiltered) parts.push(`筛出 ${fmtNum(viewLines)}`);
     if (!stat.complete) parts.push("索引中…");
     else if (!stat.levelsComplete) parts.push("级别扫描中…");
@@ -156,6 +170,7 @@
       {caseSensitive}
       stickBottom={tailing}
       {gotoLine}
+      {format}
     />
   </div>
 </div>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ScrollMap } from "./scroll-map";
   import { LineCache, type Row } from "./line-cache";
-  import { parse, highlight } from "./parse";
+  import { parse, highlight, type LogFormat } from "./parse";
 
   let {
     handle,
@@ -11,6 +11,7 @@
     caseSensitive = false,
     stickBottom = false,
     gotoLine = null,
+    format = "plain",
   }: {
     handle: number;
     lineCount: number;
@@ -20,6 +21,8 @@
     stickBottom?: boolean;
     /** 搜索结果跳转的目标行（1-based）。带 nonce，连点同一条也能重新定位 */
     gotoLine?: { line: number; nonce: number } | null;
+    /** 日志格式，由 LogPane 从样本行探测后传入 */
+    format?: LogFormat;
   } = $props();
 
   const LINE_HEIGHT = 20;
@@ -141,21 +144,21 @@
   <div class="spacer" style:height="{map.scrollHeight}px">
     <div class="layer" style:transform="translateY({layerTop}px)">
       {#each rows as { n, row } (n)}
-        {@const seg = row ? parse(row.text) : null}
-        <div class="row" class:pending={!row} class:stack={seg?.stack}>
+        {@const seg = row ? parse(row.text, format) : null}
+        <div class="row" class:pending={!row} class:stack={seg?.stack} data-lvl={seg?.lvl}>
           <span class="gutter" style:width={gutterWidth}>{row ? row.phys + 1 : ""}</span>
           {#if seg}
-            {#if seg.ts}<span class="ts">{seg.ts}</span>{/if}
-            {#if seg.level}<span class="lvl" data-lvl={seg.lvl}>{seg.level}</span>{/if}
-            {#if seg.thread}<span class="thread">{seg.thread}</span>{/if}
-            {#if seg.logger}<span class="logger">{seg.logger}</span><span class="dash">-</span>{/if}
-            <span class="msg" data-lvl={seg.stack ? null : seg.lvl}>
-              {#each highlight(seg.msg, pattern, caseSensitive) as part, i}
-                {#if i % 2 === 1}<mark>{part}</mark>{:else}{part}{/if}
+            <span class="cells">
+              {#each seg.parts as part}
+                <span class="p" data-cls={part.cls}
+                  >{#each highlight(part.text, pattern, caseSensitive) as t, i}{#if i % 2 === 1}<mark
+                      >{t}</mark
+                    >{:else}{t}{/if}{/each}</span
+                >
               {/each}
             </span>
           {:else}
-            <span class="msg"></span>
+            <span class="cells"></span>
           {/if}
         </div>
       {/each}
@@ -201,31 +204,34 @@
     font-variant-numeric: tabular-nums;
     user-select: none;
     border-right: 1px solid var(--border-soft);
-    margin-right: 4px;
+    margin-right: 6px;
   }
-  .ts { flex: none; color: var(--text-faint); }
-  .lvl { flex: none; font-weight: 600; width: 5ch; }
-  .lvl[data-lvl="error"] { color: var(--lvl-error); }
-  .lvl[data-lvl="warn"] { color: var(--lvl-warn); }
-  .lvl[data-lvl="info"] { color: var(--lvl-info); }
-  .lvl[data-lvl="debug"] { color: var(--lvl-debug); }
-  .lvl[data-lvl="trace"] { color: var(--lvl-debug); }
-  .thread { flex: none; color: var(--text-faint); }
-  .logger { flex: none; color: var(--text-dim); }
-  .dash { flex: none; color: var(--text-faint); }
-  .msg {
-    flex: 1;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-  }
-  /* ERROR 整行都该扎眼，其余只染级别列 */
-  .msg[data-lvl="error"] { color: var(--lvl-error); }
-  .msg[data-lvl="debug"] { color: var(--text-dim); }
 
-  /* 堆栈续行：缩进 + 压暗，一眼能看出是上一条的附属 */
-  .row.stack .msg { color: var(--text-dim); padding-left: 2ch; }
+  /* 分段渲染：解析器吐什么段，这里就按 cls 上什么色。
+     加一种日志格式不必动这里 */
+  .cells { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .p[data-cls="ts"] { color: var(--text-faint); }
+  .p[data-cls="level"] { font-weight: 600; }
+  .p[data-cls="thread"] { color: var(--text-faint); }
+  .p[data-cls="logger"] { color: var(--text-dim); }
+  .p[data-cls="key"] { color: var(--lvl-warn); }
+  .p[data-cls="meta"] { color: var(--text-dim); }
+  .p[data-cls="dim"] { color: var(--text-faint); }
+  .p[data-cls="msg"] { color: var(--text); }
+
+  /* 级别色只染级别段；ERROR 例外——整行都该扎眼 */
+  .row[data-lvl="error"] .p[data-cls="level"],
+  .row[data-lvl="error"] .p[data-cls="msg"] { color: var(--lvl-error); }
+  .row[data-lvl="warn"] .p[data-cls="level"] { color: var(--lvl-warn); }
+  .row[data-lvl="info"] .p[data-cls="level"] { color: var(--lvl-info); }
+  .row[data-lvl="debug"] .p[data-cls="level"],
+  .row[data-lvl="trace"] .p[data-cls="level"] { color: var(--lvl-debug); }
+  .row[data-lvl="debug"] .p[data-cls="msg"],
+  .row[data-lvl="trace"] .p[data-cls="msg"] { color: var(--text-dim); }
+
+  /* 堆栈续行：缩进 + 压暗，一眼看出是上一条的附属 */
+  .row.stack .p { color: var(--text-dim); }
+  .row.stack .cells { padding-left: 2ch; }
   .row.stack { background: rgba(255, 255, 255, 0.02); }
 
   mark {
@@ -235,7 +241,7 @@
   }
 
   /* 块还在路上：留白而不是跳动 */
-  .pending .msg::after {
+  .pending .cells::after {
     content: "";
     display: inline-block;
     width: 34ch;
