@@ -94,10 +94,20 @@ if __name__ == "__main__":
 ## 特性
 
 - **GB 级日志秒开** —— mmap + 稀疏索引，内存与文件大小无关
-- 代码高亮够用就停
-- Markdown 所见即所得
+- 代码高亮*够用就停*
+- Markdown 所见即所得，磁盘上永远是纯 \`.md\`
+- ~~插件系统~~ 永远不做
 
-参见 [架构文档](docs/ARCHITECTURE.md)。
+### 性能
+
+打开 1GB 日志只要 \`0.38ms\`，常驻内存 98MB。
+
+---
+
+参见 [架构文档](docs/ARCHITECTURE.md) 与 [开发日志](docs/JOURNAL.md)。
+
+1. 先做最难的
+2. 再做确定的
 `,
   "/proj/vite.config.ts": `import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
