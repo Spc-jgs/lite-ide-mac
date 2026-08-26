@@ -9,6 +9,8 @@
     probePath,
     readText,
     writeText,
+    fileStamp,
+    type Stamp,
     openLog,
     closeLog,
     initialPath,
@@ -30,6 +32,10 @@
     size: number;
     /** 用户手动指定过模式；自动判定只是默认值，不该是死判决 */
     forced?: "edit" | "log";
+    /** 打开或保存时的文件指纹，用来发现外部改动 */
+    stamp?: Stamp;
+    /** 外部改动了，但本地也有未保存改动 —— 需要用户裁决 */
+    conflict?: boolean;
   }
 
   /**
@@ -188,6 +194,7 @@
         tab.handle = (await openLog(info.path)).handle;
       } else {
         tab.content = await readText(info.path);
+        tab.stamp = await fileStamp(info.path);
       }
       tabs = [...tabs, tab];
       activeId = tab.id;
@@ -204,9 +211,11 @@
     const tab = active;
     if (!tab || tab.mode !== "edit") return;
     try {
-      await writeText(tab.path, content);
+      // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改
+      tab.stamp = await writeText(tab.path, content);
       tab.dirty = false;
       tab.content = content;
+      tab.conflict = false;
       savedTick++;
       saved = `已保存 ${tab.name}`;
       setTimeout(() => (saved = ""), 1800);
@@ -214,6 +223,72 @@
       error = String(e);
     }
   }
+
+  /**
+   * 检查打开的编辑标签是否被外部改动。
+   *
+   * 时机选在窗口获得焦点时 —— 用户从别处切回来才是他关心这件事的时刻，
+   * 也不必为了这个常年跑一个轮询。另配一个 10 秒的兜底轮询，
+   * 应付「一直没离开窗口但文件被后台进程改了」的情况。
+   */
+  async function checkExternalChanges() {
+    for (const tab of tabs) {
+      if (tab.mode !== "edit") continue;
+      let now: Stamp;
+      try {
+        now = await fileStamp(tab.path);
+      } catch {
+        // 文件没了或读不到：不打扰，用户保存时自然会报错
+        continue;
+      }
+      const before = tab.stamp;
+      if (!before || (before.mtimeMs === now.mtimeMs && before.size === now.size)) continue;
+
+      if (tab.dirty) {
+        // 两边都改了，只能让用户裁决
+        tab.conflict = true;
+        tab.stamp = now;
+      } else {
+        // 本地没动过，直接跟上外部的版本 —— 这是最常见也最无害的情况
+        try {
+          tab.content = await readText(tab.path);
+          tab.stamp = now;
+          savedTick++;
+          saved = `${tab.name} 已被外部修改，已重新加载`;
+          setTimeout(() => (saved = ""), 2600);
+        } catch (e) {
+          error = String(e);
+        }
+      }
+    }
+  }
+
+  async function resolveConflict(tab: TabState, take: "disk" | "mine") {
+    tab.conflict = false;
+    if (take === "disk") {
+      try {
+        tab.content = await readText(tab.path);
+        tab.stamp = await fileStamp(tab.path);
+        tab.dirty = false;
+        savedTick++;
+      } catch (e) {
+        error = String(e);
+      }
+    }
+    // take === "mine"：什么都不做，保留编辑器里的内容，
+    // 下次 ⌘S 会覆盖磁盘 —— 指纹已经更新过，不会再重复告警
+  }
+
+  $effect(() => {
+    const onFocus = () => void checkExternalChanges();
+    window.addEventListener("focus", onFocus);
+    // 兜底：一直没离开窗口，但文件被后台进程改了
+    const id = setInterval(onFocus, 10_000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(id);
+    };
+  });
 
   /** 待确认的模式切换（大文件切到编辑模式时用） */
   let pendingSwitch = $state<TabState | null>(null);
@@ -403,6 +478,14 @@
     <section class="main">
       {#if tabs.length > 0}
         <Tabs {tabs} {activeId} onSelect={(id) => (activeId = id)} onClose={requestClose} />
+      {/if}
+
+      {#if active?.conflict}
+        <div class="confirm conflict">
+          <span><b>{active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
+          <button class="primary" onclick={() => resolveConflict(active!, "mine")}>保留我的</button>
+          <button onclick={() => resolveConflict(active!, "disk")}>用磁盘上的</button>
+        </div>
       {/if}
 
       {#if pendingSwitch}
@@ -666,6 +749,7 @@
   }
   .confirm button:hover { background: var(--panel-bg); color: var(--text); }
   .confirm button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .confirm.conflict { background: rgba(214, 174, 88, 0.12); border-bottom-color: var(--lvl-warn); }
 
   .statusbar {
     display: flex;

@@ -58,8 +58,17 @@ export const listDir = (path: string, showHidden = false) =>
 
 export const readText = (path: string) => invoke<string>("read_text", { path });
 
+export interface Stamp {
+  mtimeMs: number;
+  size: number;
+}
+
+/** 文件指纹，用于判断是否被外部改动过 */
+export const fileStamp = (path: string) => invoke<Stamp>("file_stamp", { path });
+
+/** 保存并返回新指纹 —— 必须拿它更新记录，否则自己的保存会被当成外部修改 */
 export const writeText = (path: string, content: string) =>
-  invoke<void>("write_text", { path, content });
+  invoke<Stamp>("write_text", { path, content });
 
 export const openLog = (path: string) => invoke<OpenResult>("open_log", { path });
 export const logStat = (handle: number) => invoke<LogStat>("log_stat", { handle });

@@ -130,10 +130,35 @@ pub fn read_text(path: String) -> Result<String, String> {
     fsservice::read_text(&path).map_err(|e| format!("{e}"))
 }
 
-/// 保存。先写临时文件再原子替换，中途崩溃不会留下半个文件。
+#[derive(serde::Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct StampDto {
+    pub mtime_ms: u64,
+    pub size: u64,
+}
+
+/// 取文件指纹，用于判断是否被外部改动过。
 #[tauri::command]
-pub fn write_text(path: String, content: String) -> Result<(), String> {
-    fsservice::write_text(&path, &content).map_err(|e| format!("保存失败：{e}"))
+pub fn file_stamp(path: String) -> Result<StampDto, String> {
+    let s = fsservice::stamp(&path).map_err(|e| format!("{e}"))?;
+    Ok(StampDto {
+        mtime_ms: s.mtime_ms,
+        size: s.size,
+    })
+}
+
+/// 保存。先写临时文件再原子替换，中途崩溃不会留下半个文件。
+///
+/// 返回写入后的指纹 —— 前端必须拿它更新记录，否则自己的保存
+/// 会在下一次检查时被当成"外部修改"。
+#[tauri::command]
+pub fn write_text(path: String, content: String) -> Result<StampDto, String> {
+    fsservice::write_text(&path, &content).map_err(|e| format!("保存失败：{e}"))?;
+    let s = fsservice::stamp(&path).map_err(|e| format!("{e}"))?;
+    Ok(StampDto {
+        mtime_ms: s.mtime_ms,
+        size: s.size,
+    })
 }
 
 /// 打开日志文件。mmap 是 O(1) 的，此调用不读盘，立即返回。

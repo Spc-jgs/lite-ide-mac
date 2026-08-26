@@ -53,6 +53,32 @@ pub fn list_dir(dir: impl AsRef<Path>, show_hidden: bool) -> io::Result<Vec<Entr
     Ok(out)
 }
 
+/// 文件的身份指纹，用来判断"是不是被外部改过"。
+///
+/// 用 mtime + size 而不是内容 hash：hash 要把整个文件读一遍，
+/// 而这个检查在窗口每次获得焦点时都会对所有打开的标签跑一遍。
+/// 两个字段一起看，实际使用中足够可靠。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stamp {
+    /// 修改时间（Unix 毫秒）。取不到时为 0
+    pub mtime_ms: u64,
+    pub size: u64,
+}
+
+pub fn stamp(path: impl AsRef<Path>) -> io::Result<Stamp> {
+    let meta = fs::metadata(path.as_ref())?;
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    Ok(Stamp {
+        mtime_ms,
+        size: meta.len(),
+    })
+}
+
 /// 读取文本文件。非 UTF-8 一律拒绝，理由见模块注释。
 pub fn read_text(path: impl AsRef<Path>) -> io::Result<String> {
     let bytes = fs::read(path.as_ref())?;
@@ -152,6 +178,33 @@ mod tests {
             .filter(|n| n.contains("lite-ide-tmp"))
             .collect();
         assert!(leftovers.is_empty(), "残留临时文件: {leftovers:?}");
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 指纹能认出内容变化() {
+        let d = sandbox("stamp");
+        let f = d.join("a.txt");
+        write_text(&f, "one").unwrap();
+        let s1 = stamp(&f).unwrap();
+
+        // 只改内容不改长度，靠 mtime 认出来；睡一下确保时间戳有差异
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        write_text(&f, "two").unwrap();
+        let s2 = stamp(&f).unwrap();
+        assert_ne!(s1, s2, "内容变了指纹却没变");
+
+        // 长度变化也要认出来
+        write_text(&f, "three-longer").unwrap();
+        let s3 = stamp(&f).unwrap();
+        assert_ne!(s2.size, s3.size);
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 文件不存在时取指纹报错() {
+        let d = sandbox("stamp-missing");
+        assert!(stamp(d.join("nope.txt")).is_err());
         fs::remove_dir_all(d).ok();
     }
 
