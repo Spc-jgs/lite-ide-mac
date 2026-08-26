@@ -109,6 +109,39 @@ if __name__ == "__main__":
 1. 先做最难的
 2. 再做确定的
 `,
+  "/proj/package.json": `{
+  "name": "lite-ide",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "app:build": "tauri build --no-bundle"
+  },
+  "dependencies": {
+    "@codemirror/lang-json": "^6.0.2",
+    "@tauri-apps/api": "^2"
+  },
+  "engines": { "node": ">=20" },
+  "enabled": true,
+  "retries": 5,
+  "timeout": null
+}
+`,
+  "/proj/Cargo.toml": `[package]
+name = "lite-ide"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+
+# 发布构建：体积与速度并重
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+`,
   "/proj/vite.config.ts": `import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 
@@ -122,7 +155,7 @@ export default defineConfig({
 };
 
 const DIRS: Record<string, Array<[string, boolean]>> = {
-  "/proj": [["src", true], ["logs", true], ["docs", true], ["README.md", false], ["vite.config.ts", false]],
+  "/proj": [["src", true], ["logs", true], ["docs", true], ["README.md", false], ["package.json", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   "/proj/src": [["OrderService.java", false], ["main.py", false]],
   "/proj/logs": [["access-2026-08-24.log", false]],
   "/proj/docs": [["ARCHITECTURE.md", false]],
