@@ -68,8 +68,18 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
       break;
     }
     case "markdown": {
-      const m = await import("@codemirror/lang-markdown");
-      ext = m.markdown({ codeLanguages: [] });
+      const [m, live] = await Promise.all([
+        import("@codemirror/lang-markdown"),
+        import("./markdown-live"),
+      ]);
+      // 语法解析 + live preview 一起给。渲染纯粹是显示层的事，
+      // 文档模型自始至终是那份 Markdown 源码
+      // base 换成 markdownLanguage：它带 GFM（删除线、表格、任务列表），
+      // 默认的 commonmarkLanguage 不认 ~~删除线~~
+      ext = [
+        m.markdown({ base: m.markdownLanguage, codeLanguages: [] }),
+        live.markdownLivePreview,
+      ];
       break;
     }
   }
