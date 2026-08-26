@@ -38,6 +38,7 @@ fn main() {
                 levels: only(Level::Error),
                 pattern: String::new(),
                 case_sensitive: false,
+                collapse_stacks: false,
             },
         ),
         (
@@ -46,6 +47,7 @@ fn main() {
                 levels: only(Level::Info),
                 pattern: String::new(),
                 case_sensitive: false,
+                collapse_stacks: false,
             },
         ),
         (
@@ -54,6 +56,7 @@ fn main() {
                 levels: LevelMask::ALL,
                 pattern: "OrderService".into(),
                 case_sensitive: true,
+                collapse_stacks: false,
             },
         ),
         (
@@ -62,6 +65,7 @@ fn main() {
                 levels: LevelMask::ALL,
                 pattern: "orderservice".into(),
                 case_sensitive: false,
+                collapse_stacks: false,
             },
         ),
         (
@@ -70,6 +74,25 @@ fn main() {
                 levels: only(Level::Error),
                 pattern: "Deadlock".into(),
                 case_sensitive: false,
+                collapse_stacks: false,
+            },
+        ),
+        (
+            "折叠堆栈（只留每段第一帧）",
+            FilterSpec {
+                levels: LevelMask::ALL,
+                pattern: String::new(),
+                case_sensitive: false,
+                collapse_stacks: true,
+            },
+        ),
+        (
+            "折叠 + 只看 ERROR",
+            FilterSpec {
+                levels: only(Level::Error),
+                pattern: String::new(),
+                case_sensitive: false,
+                collapse_stacks: true,
             },
         ),
         (
@@ -78,6 +101,7 @@ fn main() {
                 levels: LevelMask::ALL,
                 pattern: "zzz-not-present".into(),
                 case_sensitive: false,
+                collapse_stacks: false,
             },
         ),
     ];

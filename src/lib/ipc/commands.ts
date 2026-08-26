@@ -84,7 +84,8 @@ export const logFilter = (
   levelBits: number,
   pattern: string,
   caseSensitive: boolean,
-) => invoke<boolean>("log_filter", { handle, levelBits, pattern, caseSensitive });
+  collapseStacks: boolean,
+) => invoke<boolean>("log_filter", { handle, levelBits, pattern, caseSensitive, collapseStacks });
 
 export const logFilterStat = (handle: number) =>
   invoke<FilterStat | null>("log_filter_stat", { handle });
