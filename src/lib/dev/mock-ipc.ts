@@ -198,6 +198,29 @@ export function installMockIpc(): void {
         case "write_text":
           FILES[String(a.path)] = String(a.content);
           return null;
+        case "list_project_files":
+          return Object.keys(FILES).map((f) => f.replace(/^\/proj\//, ""));
+        case "grep_project": {
+          const pat = String(a.pattern).toLowerCase();
+          const out: Array<{ path: string; line: number; text: string }> = [];
+          for (const [full, content] of Object.entries(FILES)) {
+            const rel = full.replace(/^\/proj\//, "");
+            content.split("\n").forEach((text, i) => {
+              if (text.toLowerCase().includes(pat)) out.push({ path: rel, line: i + 1, text });
+            });
+          }
+          return out.slice(0, Number(a.limit) || 60);
+        }
+        case "ripgrep_available":
+          return true;
+        case "pty_spawn":
+          return 1;
+        case "pty_write":
+        case "pty_resize":
+          return null;
+        case "pty_kill":
+        case "pty_alive":
+          return true;
         case "open_log":
           return { handle: 1, name: "access-2026-08-24.log", size: 1_073_741_885 };
         case "log_stat":

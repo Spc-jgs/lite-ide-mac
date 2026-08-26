@@ -10,6 +10,7 @@
     pattern = "",
     caseSensitive = false,
     stickBottom = false,
+    gotoLine = null,
   }: {
     handle: number;
     lineCount: number;
@@ -17,6 +18,8 @@
     pattern?: string;
     caseSensitive?: boolean;
     stickBottom?: boolean;
+    /** 搜索结果跳转的目标行（1-based）。带 nonce，连点同一条也能重新定位 */
+    gotoLine?: { line: number; nonce: number } | null;
   } = $props();
 
   const LINE_HEIGHT = 20;
@@ -51,6 +54,16 @@
     if (!stickBottom || !viewport) return;
     lineCount;
     viewport.scrollTop = map.scrollHeight;
+  });
+
+  // 跳到指定行：压缩映射下也能算出正确的 scrollTop
+  $effect(() => {
+    const g = gotoLine;
+    if (!g || !viewport || lineCount === 0) return;
+    const target = Math.min(Math.max(0, g.line - 1), Math.max(0, lineCount - 1));
+    // 往上留几行上下文，别把目标贴在视口最顶上
+    const withContext = Math.max(0, target - 3);
+    viewport.scrollTop = map.scrollTopFor(withContext, viewportHeight);
   });
 
   let topLine = $derived(map.topLineAt(scrollTop, viewportHeight));

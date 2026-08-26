@@ -1,0 +1,9 @@
+[package]
+name = "searchsvc"
+version = "0.1.0"
+edition = "2021"
+description = "项目文件索引与全局内容搜索（零 Tauri 依赖）"
+
+[dependencies]
+memchr = "2"
+serde_json = "1"

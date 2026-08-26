@@ -269,7 +269,7 @@ lite-ide/
 | M1 日志模式完整 ✅ | 级别着色 + chips 过滤 + 文本搜索 + tail 吸底 + 堆栈视觉 + 级别统计 | 2 周 | 日常真能拿它替代 `less` 看线上日志 |
 | M2 编辑模式 ✅ | CM6 + 四语言高亮 + 文件树 + 多标签 + IDEA Dark 主题落地 | 2 周 | 能舒服地改代码 |
 | M3 终端 ✅ | portable-pty zsh + 退出时 kill 子进程 | 1.5 周 | 能跑 gradle/npm |
-| M4 导航 | 双击 Shift 随处搜索 + ⌘P + 全局搜索 | 1.5 周 | 手不离键盘 |
+| M4 导航 ✅ | 双击 Shift 随处搜索 + ⌘P + 全局搜索 | 1.5 周 | 手不离键盘 |
 | M5 Markdown | CM6 decoration live preview | 1 周 | 笔记体验对齐 Obsidian |
 | M6 可选 | tree-sitter 符号索引（跳转定义/大纲），JS/PY 轻量 LSP | 按需 | — |
 

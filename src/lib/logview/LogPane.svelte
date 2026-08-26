@@ -10,7 +10,15 @@
     type LevelCounts,
   } from "../ipc/commands";
 
-  let { handle, onStatus }: { handle: number; onStatus: (s: string) => void } = $props();
+  let {
+    handle,
+    gotoLine = null,
+    onStatus,
+  }: {
+    handle: number;
+    gotoLine?: { line: number; nonce: number } | null;
+    onStatus: (s: string) => void;
+  } = $props();
 
   const ALL_LEVELS = 0b111111;
 
@@ -147,6 +155,7 @@
       {pattern}
       {caseSensitive}
       stickBottom={tailing}
+      {gotoLine}
     />
   </div>
 </div>
