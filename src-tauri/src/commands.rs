@@ -5,6 +5,7 @@
 
 use crate::state::AppState;
 use logengine::{FilterSpec, Level, LevelMask, LogFile, Refreshed};
+use std::path::Path;
 use tauri::ipc::Response;
 use tauri::State;
 
@@ -48,9 +49,94 @@ pub struct RefreshDto {
     pub line_count: u64,
 }
 
-/// 打开日志文件。mmap 是 O(1) 的，此调用不读盘，立即返回。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathInfo {
+    /// "file" | "dir"
+    pub kind: &'static str,
+    /// "edit" | "log"，kind == "dir" 时无意义
+    pub mode: &'static str,
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    /// 判为 log 模式的原因，用于界面上说明「为什么这个文件是只读的」
+    pub reason: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirEntryDto {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
+
+/// 探测一个路径：是目录还是文件，文件该用哪种模式打开。
 ///
-/// TODO(M2)：接入编辑/日志双模式分流（判据见 ARCHITECTURE.md §1 修正 01）。
+/// 判据是复合的（ARCHITECTURE.md §1 修正 01）：大小 / 行数 / 最长行任一超标都走
+/// 日志模式。只读文件头部采样，不加载全文。
+#[tauri::command]
+pub fn probe_path(path: String) -> Result<PathInfo, String> {
+    let p = Path::new(&path);
+    let name = p
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.clone());
+    let meta = std::fs::metadata(p).map_err(|e| format!("读不到 {path}：{e}"))?;
+
+    if meta.is_dir() {
+        return Ok(PathInfo {
+            kind: "dir",
+            mode: "edit",
+            path,
+            name,
+            size: 0,
+            reason: String::new(),
+        });
+    }
+
+    let pr = logengine::probe(p).map_err(|e| format!("探测 {path} 失败：{e}"))?;
+    crate::diag!("probe {path} -> {:?} ({})", pr.mode, pr.reason);
+    Ok(PathInfo {
+        kind: "file",
+        mode: pr.mode.as_str(),
+        path,
+        name,
+        size: pr.size,
+        reason: pr.reason.to_string(),
+    })
+}
+
+/// 列一层目录。不递归 —— 文件树按需展开，大仓库才不会卡。
+#[tauri::command]
+pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<DirEntryDto>, String> {
+    let entries =
+        fsservice::list_dir(&path, show_hidden).map_err(|e| format!("列目录失败：{e}"))?;
+    Ok(entries
+        .into_iter()
+        .map(|e| DirEntryDto {
+            name: e.name,
+            path: e.path.to_string_lossy().into_owned(),
+            is_dir: e.is_dir,
+            size: e.size,
+        })
+        .collect())
+}
+
+/// 编辑模式读取全文。非 UTF-8 会被明确拒绝（见 fsservice 模块注释）。
+#[tauri::command]
+pub fn read_text(path: String) -> Result<String, String> {
+    fsservice::read_text(&path).map_err(|e| format!("{e}"))
+}
+
+/// 保存。先写临时文件再原子替换，中途崩溃不会留下半个文件。
+#[tauri::command]
+pub fn write_text(path: String, content: String) -> Result<(), String> {
+    fsservice::write_text(&path, &content).map_err(|e| format!("保存失败：{e}"))
+}
+
+/// 打开日志文件。mmap 是 O(1) 的，此调用不读盘，立即返回。
 #[tauri::command]
 pub fn open_log(path: String, state: State<'_, AppState>) -> Result<OpenResult, String> {
     crate::diag!("open_log path={path}");
@@ -188,16 +274,19 @@ pub fn close_log(handle: u32, state: State<'_, AppState>) -> bool {
     state.close(handle)
 }
 
-/// 启动参数里带的文件路径，供 `lite-ide foo.log` 直接打开。
+/// 启动参数里带的路径，供 `lite-ide foo.log` 或 `lite-ide ~/proj` 直接打开。
+///
+/// 文件和目录都接受：目录会成为项目根，文件则打开并把父目录当根。
+/// 早先只认 `is_file()`，`lite-ide <目录>` 静默什么都不做。
 #[tauri::command]
-pub fn initial_file() -> Option<String> {
+pub fn initial_path() -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
     let found = args
         .iter()
         .skip(1)
-        .find(|a| !a.starts_with('-') && std::path::Path::new(a).is_file())
+        .find(|a| !a.starts_with('-') && Path::new(a).exists())
         .cloned();
-    crate::diag!("initial_file -> {found:?}");
+    crate::diag!("initial_path -> {found:?}");
     found
 }
 

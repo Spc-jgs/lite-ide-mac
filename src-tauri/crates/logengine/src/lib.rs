@@ -12,6 +12,7 @@ pub mod block;
 pub mod filter;
 pub mod index;
 pub mod level;
+pub mod probe;
 
 use memmap2::{Advice, Mmap, MmapOptions};
 use std::fs::File;
@@ -24,6 +25,7 @@ pub use block::MAX_LINE_BYTES;
 pub use filter::{FilterSpec, FilterTask};
 pub use index::{LineIndex, DEFAULT_STRIDE};
 pub use level::{Level, LevelMap, LevelMask, LevelStats};
+pub use probe::{probe, Mode, Probe};
 
 /// 同步预扫的字节数：够填满首屏，又不会让打开变慢。
 const PRIME_BYTES: usize = 1 << 20; // 1MB

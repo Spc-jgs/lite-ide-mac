@@ -33,6 +33,34 @@ export interface RefreshResult {
   lineCount: number;
 }
 
+export interface PathInfo {
+  kind: "file" | "dir";
+  mode: "edit" | "log";
+  path: string;
+  name: string;
+  size: number;
+  /** 判为 log 模式的原因，用于说明「为什么这个文件是只读的」 */
+  reason: string;
+}
+
+export interface DirEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+}
+
+/** 探测路径：目录还是文件，文件该用哪种模式打开 */
+export const probePath = (path: string) => invoke<PathInfo>("probe_path", { path });
+
+export const listDir = (path: string, showHidden = false) =>
+  invoke<DirEntry[]>("list_dir", { path, showHidden });
+
+export const readText = (path: string) => invoke<string>("read_text", { path });
+
+export const writeText = (path: string, content: string) =>
+  invoke<void>("write_text", { path, content });
+
 export const openLog = (path: string) => invoke<OpenResult>("open_log", { path });
 export const logStat = (handle: number) => invoke<LogStat>("log_stat", { handle });
 export const closeLog = (handle: number) => invoke<boolean>("close_log", { handle });
@@ -61,7 +89,7 @@ export const logFilterMap = (handle: number, start: number, count: number) =>
 
 export const logRefresh = (handle: number) => invoke<RefreshResult>("log_refresh", { handle });
 
-/** 启动参数带的文件（`lite-ide foo.log`），没有则为 null */
-export const initialFile = () => invoke<string | null>("initial_file");
+/** 启动参数带的路径（`lite-ide foo.log` 或 `lite-ide ~/proj`），没有则为 null */
+export const initialPath = () => invoke<string | null>("initial_path");
 
 export const diag = (msg: string) => invoke<void>("diag", { msg });

@@ -1,255 +1,261 @@
 <script lang="ts">
   import { getCurrentWebview } from "@tauri-apps/api/webview";
-  import LogView from "./lib/logview/LogView.svelte";
-  import FilterBar from "./lib/logview/FilterBar.svelte";
+  import LogPane from "./lib/logview/LogPane.svelte";
+  import FileTree from "./lib/shell/FileTree.svelte";
+  import Tabs from "./lib/shell/Tabs.svelte";
   import {
+    probePath,
+    readText,
+    writeText,
     openLog,
-    logStat,
     closeLog,
-    initialFile,
-    logFilter,
-    logFilterStat,
-    logRefresh,
-    type LogStat,
-    type LevelCounts,
+    initialPath,
   } from "./lib/ipc/commands";
 
-  const ALL_LEVELS = 0b111111;
+  interface TabState {
+    id: number;
+    path: string;
+    name: string;
+    mode: "edit" | "log";
+    dirty: boolean;
+    /** log 模式的引擎句柄 */
+    handle?: number;
+    /** edit 模式打开时的磁盘内容 */
+    content?: string;
+    /** 被判为 log 模式的原因 */
+    reason?: string;
+  }
 
-  let handle = $state<number | null>(null);
-  let name = $state("");
-  let size = $state(0);
-  let stat = $state<LogStat | null>(null);
-  let error = $state("");
+  let root = $state<string | null>(null);
+  let tabs = $state<TabState[]>([]);
+  let activeId = $state<number | null>(null);
+  let nextId = 1;
+
+  let sidebar = $state(true);
   let hovering = $state(false);
+  let error = $state("");
+  let logStatus = $state("");
+  let saved = $state("");
+  /** 待确认关闭的脏标签 —— 直接丢弃改动太粗暴，也不该静默保存 */
+  let pendingClose = $state<TabState | null>(null);
 
-  // 过滤条件
-  let levelBits = $state(ALL_LEVELS);
-  let pattern = $state("");
-  let caseSensitive = $state(false);
-  let filtered = $state(false);
-  let filterHits = $state<number | null>(null);
-  let filterRunning = $state(false);
+  /**
+   * CodeMirror 6 核心约 340KB，日志模式一点也用不上 —— 静态引入会把入口包
+   * 从 71KB 顶到 412KB，与"秒开"的立身之本冲突。改成打开第一个可编辑文件时
+   * 才 import，本地加载只有几毫秒。
+   */
+  let EditorComp = $state<typeof import("./lib/editor/Editor.svelte").default | null>(null);
+  let editorLoading = $state(false);
+  /** 每次保存成功自增，Editor 据此重置 dirty 基线 */
+  let savedTick = $state(0);
 
-  // tail
-  let tailing = $state(false);
+  $effect(() => {
+    if (active?.mode !== "edit" || EditorComp || editorLoading) return;
+    editorLoading = true;
+    import("./lib/editor/Editor.svelte")
+      .then((m) => (EditorComp = m.default))
+      .catch((e) => (error = `编辑器加载失败：${e}`))
+      .finally(() => (editorLoading = false));
+  });
 
-  /** M0 起就盯着的两个数：打开耗时、索引跑完耗时 */
-  let openMs = $state(0);
-  let indexMs = $state(0);
+  let active = $derived(tabs.find((t) => t.id === activeId) ?? null);
 
-  let poll: ReturnType<typeof setInterval> | null = null;
+  /** 正在打开的路径，防止双击或事件重放时重复探测 */
+  const opening = new Set<string>();
 
-  async function open(path: string) {
+  async function openPath(path: string) {
+    if (opening.has(path)) return;
+    opening.add(path);
     error = "";
-    const t0 = performance.now();
     try {
-      if (handle !== null) await closeLog(handle);
-      const r = await openLog(path);
-      openMs = performance.now() - t0;
-      handle = r.handle;
-      name = r.name;
-      size = r.size;
-      // 换文件时把过滤条件复位，否则新文件会莫名其妙是空的
-      levelBits = ALL_LEVELS;
-      pattern = "";
-      filtered = false;
-      filterHits = null;
-      tailing = false;
-      stat = await logStat(r.handle);
-      startPolling(r.handle, t0);
+      const info = await probePath(path);
+      if (info.kind === "dir") {
+        root = info.path;
+        return;
+      }
+      const exist = tabs.find((t) => t.path === info.path);
+      if (exist) {
+        activeId = exist.id;
+        return;
+      }
+
+      const tab: TabState = {
+        id: nextId++,
+        path: info.path,
+        name: info.name,
+        mode: info.mode,
+        dirty: false,
+        reason: info.reason,
+      };
+      if (info.mode === "log") {
+        tab.handle = (await openLog(info.path)).handle;
+      } else {
+        tab.content = await readText(info.path);
+      }
+      tabs = [...tabs, tab];
+      activeId = tab.id;
+      // 没有项目根时，拿这个文件的父目录顶上，文件树才有东西显示
+      if (!root) root = info.path.slice(0, info.path.lastIndexOf("/")) || "/";
     } catch (e) {
       error = String(e);
-      handle = null;
+    } finally {
+      opening.delete(path);
     }
   }
 
-  /** 索引与级别扫描都在后台跑，轮询到两者都完成为止 */
-  function startPolling(h: number, t0: number) {
-    if (poll) clearInterval(poll);
-    indexMs = 0;
-    poll = setInterval(async () => {
-      const s = await logStat(h);
-      stat = s;
-      if (s.complete && indexMs === 0) indexMs = performance.now() - t0;
-      if (s.complete && s.levelsComplete) {
-        if (poll) clearInterval(poll);
-        poll = null;
-      }
-    }, 100);
+  async function save(content: string) {
+    const tab = active;
+    if (!tab || tab.mode !== "edit") return;
+    try {
+      await writeText(tab.path, content);
+      tab.dirty = false;
+      tab.content = content;
+      savedTick++;
+      saved = `已保存 ${tab.name}`;
+      setTimeout(() => (saved = ""), 1800);
+    } catch (e) {
+      error = String(e);
+    }
   }
 
-  // 过滤条件变化 → 重跑过滤。输入关键字时 debounce，免得每敲一个字母就扫一遍 1GB
-  $effect(() => {
-    const bits = levelBits;
-    const pat = pattern;
-    const cs = caseSensitive;
-    const h = handle;
-    if (h === null) return;
+  function requestClose(id: number) {
+    const tab = tabs.find((t) => t.id === id);
+    if (!tab) return;
+    if (tab.dirty) {
+      activeId = tab.id;
+      pendingClose = tab;
+      return;
+    }
+    doClose(tab);
+  }
 
-    const timer = setTimeout(async () => {
-      try {
-        const active = await logFilter(h, bits, pat, cs);
-        filtered = active;
-        if (!active) {
-          filterHits = null;
-          filterRunning = false;
-          return;
-        }
-        filterRunning = true;
-        // 过滤在后台跑，轮询它的进度
-        const tick = setInterval(async () => {
-          const fs = await logFilterStat(h);
-          if (!fs) {
-            clearInterval(tick);
-            return;
-          }
-          filterHits = fs.hits;
-          if (fs.complete) {
-            filterRunning = false;
-            clearInterval(tick);
-          }
-        }, 80);
-      } catch (e) {
-        error = String(e);
-      }
-    }, 180);
+  function doClose(tab: TabState) {
+    if (tab.mode === "log" && tab.handle !== undefined) void closeLog(tab.handle);
+    const idx = tabs.findIndex((t) => t.id === tab.id);
+    tabs = tabs.filter((t) => t.id !== tab.id);
+    if (activeId === tab.id) {
+      activeId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null;
+    }
+    pendingClose = null;
+  }
 
-    return () => clearTimeout(timer);
-  });
-
-  // tail：轮询文件是否追加。mmap 长度固定，Rust 侧会重新映射
-  $effect(() => {
-    const h = handle;
-    if (!tailing || h === null) return;
-    const id = setInterval(async () => {
-      try {
-        const r = await logRefresh(h);
-        if (r.kind === "grew") {
-          stat = await logStat(h);
-        } else if (r.kind === "rotated") {
-          tailing = false;
-          error = "文件已被轮转或截断，请重新打开";
-        }
-      } catch {
-        /* 文件临时不可读，下一轮再试 */
-      }
-    }, 500);
-    return () => clearInterval(id);
-  });
+  function onWindowKey(e: KeyboardEvent) {
+    if (!e.metaKey) return;
+    if (e.key === "1") {
+      e.preventDefault();
+      sidebar = !sidebar;
+    } else if (e.key === "w" && active) {
+      e.preventDefault();
+      requestClose(active.id);
+    }
+  }
 
   $effect(() => {
-    initialFile().then((p) => {
-      if (p && handle === null) open(p);
+    initialPath().then((p) => {
+      if (p && tabs.length === 0 && root === null) void openPath(p);
     });
   });
 
   $effect(() => {
     const un = getCurrentWebview().onDragDropEvent((e) => {
-      if (e.payload.type === "over") {
-        hovering = true;
-      } else if (e.payload.type === "drop") {
+      if (e.payload.type === "over") hovering = true;
+      else if (e.payload.type === "drop") {
         hovering = false;
-        const p = e.payload.paths[0];
-        if (p) open(p);
-      } else {
-        hovering = false;
-      }
+        for (const p of e.payload.paths) void openPath(p);
+      } else hovering = false;
     });
-    return () => {
-      un.then((f) => f());
-      if (poll) clearInterval(poll);
-    };
+    // 注销失败不该把整个 effect 清理链炸掉
+    return () => void un.then((f) => f()).catch(() => {});
   });
 
-  const fmtBytes = (n: number) => {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
-    return `${(n / 1024 ** 3).toFixed(2)} GB`;
-  };
-  const fmtNum = (n: number) => n.toLocaleString("en-US");
-
-  let progress = $derived(
-    stat && stat.totalBytes > 0 ? Math.min(100, (stat.indexedBytes / stat.totalBytes) * 100) : 0,
-  );
-  /**
-   * 过滤态下视图的行数是命中数，不是总行数。
-   *
-   * 关键在 `filterHits !== null` 这个条件：过滤刚启动时命中数还没回来，
-   * 若此时就切到过滤视图，行数是 0，界面会闪一下空白再填上内容。
-   * 拿到第一批计数之前继续显示旧视图 —— 与浏览器搜索同样的手感。
-   */
-  let showFiltered = $derived(filtered && filterHits !== null);
-  let viewLines = $derived(showFiltered ? (filterHits ?? 0) : (stat?.lineCount ?? 0));
-  let counts = $derived((stat?.levels ?? [0, 0, 0, 0, 0, 0]) as LevelCounts);
 </script>
+
+<svelte:window onkeydown={onWindowKey} />
 
 <main class:hovering>
   <header class="titlebar" data-tauri-drag-region>
+    <button class="side-toggle" class:on={sidebar} onclick={() => (sidebar = !sidebar)} title="侧边栏 ⌘1">☰</button>
     <span class="app">lite-ide</span>
-    <span class="sep">—</span>
-    <span class="file">{name || "M1 日志模式"}</span>
+    {#if active}
+      <span class="sep">—</span>
+      <span class="file">{active.name}</span>
+      {#if active.mode === "log" && active.reason}
+        <span class="why" title="判为只读的原因">只读 · {active.reason}</span>
+      {/if}
+    {/if}
   </header>
 
-  {#if handle === null}
-    <section class="empty">
-      <div class="drop">
-        <div class="big">把日志拖进来</div>
-        <p>级别着色 · chips 过滤 · 文本搜索 · 跟随尾部</p>
-        <p class="goal">GB 级日志秒开，内存与文件大小无关</p>
-        {#if error}<p class="err">{error}</p>{/if}
+  <div class="workspace" class:no-side={!sidebar}>
+    {#if sidebar}
+      <aside>
+        {#if root}
+          <FileTree {root} activePath={active?.path ?? ""} onOpen={(p) => void openPath(p)} />
+        {:else}
+          <div class="no-root">把文件夹拖进来</div>
+        {/if}
+      </aside>
+    {/if}
+
+    <section class="main">
+      {#if tabs.length > 0}
+        <Tabs {tabs} {activeId} onSelect={(id) => (activeId = id)} onClose={requestClose} />
+      {/if}
+
+      {#if pendingClose}
+        <div class="confirm">
+          <span><b>{pendingClose.name}</b> 有未保存的改动</span>
+          <button class="primary" onclick={() => { const t = pendingClose!; save(t.content ?? "").then(() => doClose(t)); }}>
+            保存并关闭
+          </button>
+          <button onclick={() => doClose(pendingClose!)}>丢弃改动</button>
+          <button onclick={() => (pendingClose = null)}>取消</button>
+        </div>
+      {/if}
+
+      <div class="content">
+        {#if !active}
+          <div class="empty">
+            <div class="big">把文件或文件夹拖进来</div>
+            <p>代码走编辑模式，大文件与日志自动走只读的日志模式</p>
+            <p class="keys">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏</p>
+            {#if error}<p class="err">{error}</p>{/if}
+          </div>
+        {:else if active.mode === "log" && active.handle !== undefined}
+          {#key active.id}
+            <LogPane handle={active.handle} onStatus={(s) => (logStatus = s)} />
+          {/key}
+        {:else if EditorComp}
+          {#key active.id}
+            <EditorComp
+              path={active.path}
+              initial={active.content ?? ""}
+              {savedTick}
+              onChange={(d) => (active!.dirty = d)}
+              onSave={save}
+            />
+          {/key}
+        {:else}
+          <div class="empty"><p>正在载入编辑器…</p></div>
+        {/if}
       </div>
     </section>
-  {:else}
-    <FilterBar
-      {counts}
-      levelsReady={stat?.levelsComplete ?? false}
-      bind:levelBits
-      bind:pattern
-      bind:caseSensitive
-      bind:tailing
-      {filterHits}
-      {filterRunning}
-    />
-    <section class="body">
-      <LogView
-        {handle}
-        lineCount={viewLines}
-        filtered={showFiltered}
-        {pattern}
-        {caseSensitive}
-        stickBottom={tailing}
-      />
-    </section>
-  {/if}
+  </div>
 
   <footer class="statusbar">
-    {#if stat}
-      <span class="cell">{fmtBytes(size)}</span>
-      <span class="cell">{fmtNum(stat.lineCount)} 行</span>
-      {#if showFiltered}
-        <span class="cell ok">筛出 {fmtNum(viewLines)}</span>
-      {/if}
-      {#if !stat.complete}
-        <span class="cell idx">
-          索引中 {progress.toFixed(0)}%
-          <i class="bar"><i style:width="{progress}%"></i></i>
-        </span>
-      {:else if !stat.levelsComplete}
-        <span class="cell idx">级别扫描中…</span>
+    {#if active}
+      <span class="cell">{active.mode === "log" ? "日志模式" : "编辑模式"}</span>
+      {#if active.mode === "log"}
+        <span class="cell">{logStatus}</span>
       {:else}
-        <span class="cell ok">就绪 {indexMs.toFixed(0)}ms</span>
+        <span class="cell">{active.dirty ? "已修改" : "无改动"}</span>
       {/if}
-      {#if error}<span class="cell err">{error}</span>{/if}
-      <span class="spacer"></span>
-      <span class="cell dim">打开 {openMs.toFixed(1)}ms</span>
-      <span class="cell dim">索引 {fmtBytes(stat.indexBytes)}</span>
     {:else}
       <span class="cell dim">等待文件</span>
-      <span class="spacer"></span>
-      <span class="cell dim">M1 · 日志模式</span>
     {/if}
+    {#if saved}<span class="cell ok">{saved}</span>{/if}
+    {#if error}<span class="cell err">{error}</span>{/if}
+    <span class="spacer"></span>
+    <span class="cell dim">{tabs.length} 个标签</span>
   </footer>
 </main>
 
@@ -257,7 +263,7 @@
   main {
     height: 100%;
     display: grid;
-    grid-template-rows: 38px auto 1fr 24px;
+    grid-template-rows: 38px 1fr 24px;
     background: var(--editor-bg);
   }
   main.hovering { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -273,23 +279,82 @@
     font-size: 12.5px;
     user-select: none;
   }
+  .side-toggle {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-size: 12px;
+    cursor: default;
+    padding: 2px 5px;
+    border-radius: 3px;
+  }
+  .side-toggle:hover { background: var(--panel-bg-2); color: var(--text); }
+  .side-toggle.on { color: var(--text-dim); }
   .titlebar .app { color: var(--text); font-weight: 500; }
   .titlebar .sep { color: var(--text-faint); }
   .titlebar .file { color: var(--text-dim); }
+  .titlebar .why {
+    margin-left: 4px;
+    font-family: var(--code-font);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
 
-  .body { overflow: hidden; grid-row: 3; }
+  .workspace {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    overflow: hidden;
+  }
+  .workspace.no-side { grid-template-columns: 1fr; }
+  aside { overflow: hidden; }
+  .no-root {
+    padding: 14px 12px;
+    color: var(--text-faint);
+    font-size: 12px;
+    background: var(--panel-bg);
+    border-right: 1px solid var(--border);
+    height: 100%;
+  }
+
+  .main { display: grid; grid-template-rows: auto auto 1fr; overflow: hidden; }
+  .content { overflow: hidden; grid-row: 3; }
 
   .empty {
+    height: 100%;
     display: grid;
-    place-items: center;
+    place-content: center;
+    text-align: center;
     color: var(--text-dim);
-    grid-row: 2 / 4;
   }
-  .drop { text-align: center; padding: 32px 40px; }
-  .drop .big { font-size: 17px; color: var(--text); margin-bottom: 10px; }
-  .drop p { margin: 4px 0; font-size: 12.5px; color: var(--text-faint); }
-  .drop .goal { margin-top: 14px; font-family: var(--code-font); font-size: 11.5px; }
-  .drop .err { margin-top: 14px; color: var(--lvl-error); font-family: var(--code-font); }
+  .empty .big { font-size: 17px; color: var(--text); margin-bottom: 10px; }
+  .empty p { margin: 4px 0; font-size: 12.5px; color: var(--text-faint); }
+  .empty .keys { margin-top: 14px; font-family: var(--code-font); font-size: 11.5px; }
+  .empty .err { margin-top: 14px; color: var(--lvl-error); font-family: var(--code-font); }
+
+  .confirm {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    background: var(--panel-bg-2);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .confirm b { color: var(--text); font-weight: 600; }
+  .confirm button {
+    padding: 3px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-size: 11.5px;
+    cursor: default;
+  }
+  .confirm button:hover { background: var(--panel-bg); color: var(--text); }
+  .confirm button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   .statusbar {
     display: flex;
@@ -307,14 +372,4 @@
   .statusbar .dim { color: var(--text-faint); }
   .statusbar .ok { color: var(--accent); }
   .statusbar .err { color: var(--lvl-error); }
-  .statusbar .idx { display: flex; align-items: center; gap: 7px; }
-  .bar {
-    display: block;
-    width: 70px;
-    height: 3px;
-    background: var(--panel-bg-2);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .bar > i { display: block; height: 100%; background: var(--accent); }
 </style>

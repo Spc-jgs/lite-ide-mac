@@ -18,6 +18,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::probe_path,
+            commands::list_dir,
+            commands::read_text,
+            commands::write_text,
             commands::open_log,
             commands::log_stat,
             commands::log_lines,
@@ -27,7 +31,7 @@ pub fn run() {
             commands::log_filter_map,
             commands::log_refresh,
             commands::close_log,
-            commands::initial_file,
+            commands::initial_path,
             commands::diag,
         ])
         .run(tauri::generate_context!())
