@@ -3,6 +3,7 @@
 //! 前端只拿到 u32 句柄，路径与 mmap 全留在 Rust 侧。
 
 use logengine::{FilterTask, LogFile};
+use ptysvc::Session;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,7 +13,11 @@ pub struct AppState {
     files: Mutex<HashMap<u32, Arc<LogFile>>>,
     /// 每个文件当前生效的过滤任务。换条件时旧任务会被取消并替换。
     filters: Mutex<HashMap<u32, Arc<FilterTask>>>,
+    /// 活着的终端会话。Session::drop 会 kill 掉 shell，
+    /// 所以从这张表里移除 == 终止那个终端（UNINSTALL.md 的「不留孤儿进程」）。
+    ptys: Mutex<HashMap<u32, Arc<Mutex<Session>>>>,
     next_handle: AtomicU32,
+    next_pty: AtomicU32,
 }
 
 impl AppState {
@@ -63,5 +68,31 @@ impl AppState {
         if let Some(old) = self.filters.lock().expect("过滤表锁被毒化").remove(&handle) {
             old.cancel();
         }
+    }
+}
+
+impl AppState {
+    pub fn insert_pty(&self, sess: Arc<Mutex<Session>>) -> u32 {
+        let id = self.next_pty.fetch_add(1, Ordering::Relaxed);
+        self.ptys.lock().expect("pty 表锁被毒化").insert(id, sess);
+        id
+    }
+
+    pub fn pty(&self, id: u32) -> Option<Arc<Mutex<Session>>> {
+        self.ptys.lock().expect("pty 表锁被毒化").get(&id).cloned()
+    }
+
+    pub fn kill_pty(&self, id: u32) -> bool {
+        // 移除即析构，Session::drop 负责 kill
+        self.ptys
+            .lock()
+            .expect("pty 表锁被毒化")
+            .remove(&id)
+            .is_some()
+    }
+
+    /// 窗口关闭时兜底：把所有终端一并带走
+    pub fn kill_all_ptys(&self) {
+        self.ptys.lock().expect("pty 表锁被毒化").clear();
     }
 }

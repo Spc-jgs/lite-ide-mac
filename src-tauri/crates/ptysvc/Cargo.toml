@@ -1,0 +1,8 @@
+[package]
+name = "ptysvc"
+version = "0.1.0"
+edition = "2021"
+description = "真 zsh 终端（portable-pty 封装，零 Tauri 依赖）"
+
+[dependencies]
+portable-pty = "0.9"

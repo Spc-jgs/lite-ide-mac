@@ -298,3 +298,79 @@ pub fn diag(msg: String) {
         eprintln!("[diag/web] {msg}");
     }
 }
+
+// ─────────────────────────── 终端 ───────────────────────────
+
+/// 起一个终端。输出走 Channel 流式回传，不经 JSON 数组。
+///
+/// 用真 pty 而不是模拟 shell —— vim / less / gradle 进度条全靠 pty 的行为。
+#[tauri::command]
+pub fn pty_spawn(
+    cwd: String,
+    cols: u16,
+    rows: u16,
+    on_data: tauri::ipc::Channel<Vec<u8>>,
+    state: State<'_, AppState>,
+) -> Result<u32, String> {
+    use std::io::Read;
+
+    let (sess, mut reader) =
+        ptysvc::Session::spawn(&cwd, cols, rows).map_err(|e| format!("终端起不来：{e}"))?;
+    let id = state.insert_pty(sess);
+    crate::diag!("pty_spawn id={id} cwd={cwd}");
+
+    std::thread::Builder::new()
+        .name(format!("pty-read-{id}"))
+        .spawn(move || {
+            let mut buf = [0u8; 8192];
+            loop {
+                match reader.read(&mut buf) {
+                    // EOF：shell 退出了
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        // 前端已经关掉这个终端时 send 会失败，正常收摊
+                        if on_data.send(buf[..n].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+        .map_err(|e| format!("读线程起不来：{e}"))?;
+
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn pty_write(id: u32, data: String, state: State<'_, AppState>) -> Result<(), String> {
+    let sess = state.pty(id).ok_or("终端已关闭")?;
+    // 先落成局部变量，让 MutexGuard 在本语句结束时就释放；
+    // 直接把链式表达式当返回值会让 guard 活过 sess，借用检查不过
+    let r = sess
+        .lock()
+        .expect("pty 锁被毒化")
+        .write_input(data.as_bytes());
+    r.map_err(|e| format!("写入失败：{e}"))
+}
+
+#[tauri::command]
+pub fn pty_resize(id: u32, cols: u16, rows: u16, state: State<'_, AppState>) -> Result<(), String> {
+    let sess = state.pty(id).ok_or("终端已关闭")?;
+    let r = sess.lock().expect("pty 锁被毒化").resize(cols, rows);
+    r.map_err(|e| format!("调整尺寸失败：{e}"))
+}
+
+#[tauri::command]
+pub fn pty_kill(id: u32, state: State<'_, AppState>) -> bool {
+    crate::diag!("pty_kill id={id}");
+    state.kill_pty(id)
+}
+
+/// 终端是否已自行退出（用户敲了 exit）
+#[tauri::command]
+pub fn pty_alive(id: u32, state: State<'_, AppState>) -> bool {
+    match state.pty(id) {
+        Some(sess) => sess.lock().expect("pty 锁被毒化").try_wait().is_none(),
+        None => false,
+    }
+}

@@ -6,6 +6,13 @@ mod state;
 pub fn run() {
     tauri::Builder::default()
         .manage(state::AppState::default())
+        .on_window_event(|window, event| {
+            // 窗口关了，终端必须跟着走 —— 否则留下孤儿 zsh 常驻
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                use tauri::Manager;
+                window.state::<state::AppState>().kill_all_ptys();
+            }
+        })
         .setup(|app| {
             use tauri::Manager;
             if let Some(w) = app.get_webview_window("main") {
@@ -32,6 +39,11 @@ pub fn run() {
             commands::log_refresh,
             commands::close_log,
             commands::initial_path,
+            commands::pty_spawn,
+            commands::pty_write,
+            commands::pty_resize,
+            commands::pty_kill,
+            commands::pty_alive,
             commands::diag,
         ])
         .run(tauri::generate_context!())
