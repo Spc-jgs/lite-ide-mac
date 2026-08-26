@@ -44,6 +44,7 @@
     "@xterm/xterm": "^6.0.0"
   },
   "devDependencies": {
+    "@lezer/common": "^1.5.2",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tauri-apps/cli": "^2",
     "svelte": "^5.0.0",
