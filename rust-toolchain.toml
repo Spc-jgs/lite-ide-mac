@@ -1,0 +1,8 @@
+# 固定 channel 与必备组件。
+#
+# 刻意用 "stable" 而不是具体版本号 —— rustup 把 "1.98.0" 与 "stable" 视作两个
+# 独立 toolchain，即便版本相同也会各存一份（约 500MB）。个人项目不值这个磁盘，
+# 真出现版本漂移再 pin 不迟。
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]

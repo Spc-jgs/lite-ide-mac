@@ -1,0 +1,41 @@
+/* IDEA Dark —— token 取自 PLAN.md「视觉基调备忘」，实现时以此为准 */
+:root {
+  --editor-bg: #1e1f22;
+  --panel-bg: #2b2d30;
+  --panel-bg-2: #35373b;
+  --border: #393b40;
+  --border-soft: rgba(255, 255, 255, 0.06);
+  --text: #dfe1e5;
+  --text-dim: #9da0a8;
+  --text-faint: #6f737b;
+  --accent: #3574f0;
+  --accent-sel: rgba(53, 116, 240, 0.28);
+
+  --lvl-error: #f75464;
+  --lvl-warn: #d6ae58;
+  --lvl-info: #548af7;
+  --lvl-debug: #6f737b;
+
+  --ui-font: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  --code-font: "SF Mono", Menlo, ui-monospace, monospace;
+
+  --line-height: 20px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--editor-bg);
+  color: var(--text);
+  font-family: var(--ui-font);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { height: 100%; }
+
+/* 日志是只读视图，禁掉选中拖影带来的重绘噪声（真正的复制交互 M1 再做） */
+::selection { background: var(--accent-sel); }
