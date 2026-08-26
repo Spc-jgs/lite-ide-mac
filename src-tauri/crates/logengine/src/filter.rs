@@ -23,13 +23,48 @@ pub struct FilterSpec {
     pub pattern: String,
     /// 是否区分大小写
     pub case_sensitive: bool,
+    /// 折叠异常堆栈：连续的 `at ...` 帧只保留第一帧
+    pub collapse_stacks: bool,
 }
 
 impl FilterSpec {
     /// 什么都不筛 —— 前端可据此直接走未过滤的快路径
     pub fn is_noop(&self) -> bool {
-        self.levels.is_all() && self.pattern.is_empty()
+        self.levels.is_all() && self.pattern.is_empty() && !self.collapse_stacks
     }
+}
+
+/// 这一行是不是异常堆栈的**栈帧**。
+///
+/// 只认栈帧，不认异常首行与 `Caused by:` —— 那两类有信息量（异常类型和原因），
+/// 折叠掉等于把最该看的东西藏了。被折叠的是几十行 `at com.foo.Bar(...)` 的噪声。
+///
+/// 覆盖 Java / Python / Go 三种常见形态。
+fn is_stack_frame(line: &[u8]) -> bool {
+    // Java: "\tat com.foo.Bar(Bar.java:42)" / "    at ..." / "\t... 12 more"
+    let trimmed = {
+        let mut i = 0;
+        while i < line.len() && (line[i] == b'\t' || line[i] == b' ') {
+            i += 1;
+        }
+        // 必须有缩进，否则是普通行
+        if i == 0 || i >= line.len() {
+            return false;
+        }
+        &line[i..]
+    };
+    if trimmed.starts_with(b"at ") || trimmed.starts_with(b"... ") {
+        return true;
+    }
+    // Python: '  File "/path/x.py", line 42, in fn'
+    if trimmed.starts_with(b"File \"") {
+        return true;
+    }
+    // Go: "\t/path/file.go:123 +0x1a"
+    if trimmed.first() == Some(&b'/') && memchr::memmem::find(trimmed, b".go:").is_some() {
+        return true;
+    }
+    false
 }
 
 /// 一次过滤任务的句柄。结果只在跑完时发布一次 ——
@@ -126,12 +161,24 @@ fn run(
     // 顺序推进行边界，避免每行都去查索引
     let mut pos = 0usize;
     let mut line = 0u64;
+    // 上一行是不是栈帧 —— 折叠时用它判断"连续块的第一帧"
+    let mut prev_frame = false;
 
     while line < total && pos <= data.len() {
         let end = match memchr::memchr(b'\n', &data[pos..]) {
             Some(nl) => pos + nl,
             None => data.len(),
         };
+
+        // 折叠堆栈：连续帧只留第一帧，其余跳过
+        let frame = spec.collapse_stacks && is_stack_frame(&data[pos..end]);
+        let folded = frame && prev_frame;
+        prev_frame = frame;
+        if folded {
+            pos = end + 1;
+            line += 1;
+            continue;
+        }
 
         // 先按级别筛 —— 纯内存查表，比文本匹配便宜得多
         if spec.levels.allows(levels.get(line)) {
@@ -206,7 +253,47 @@ mod tests {
             levels: mask,
             pattern: pat.into(),
             case_sensitive: cs,
+            collapse_stacks: false,
         }
+    }
+
+    const STACKY: &[u8] = b"2026-01-01 ERROR [main] a.B - boom\n\
+java.lang.IllegalStateException: pool exhausted\n\
+\tat com.zaxxer.HikariPool.createTimeout(HikariPool.java:696)\n\
+\tat com.zaxxer.HikariPool.getConnection(HikariPool.java:197)\n\
+\tat com.liteide.OrderService.persist(OrderService.java:142)\n\
+\t... 12 more\n\
+Caused by: java.sql.SQLException: timed out\n\
+\tat java.base/java.lang.Thread.run(Thread.java:840)\n\
+2026-01-01 INFO  [main] a.C - next\n";
+
+    #[test]
+    fn 折叠堆栈只留每段第一帧() {
+        let mut sp = spec(LevelMask::ALL, "", false);
+        sp.collapse_stacks = true;
+        // 保留：0 日志行、1 异常首行、2 第一帧、6 Caused by、7 它下面的第一帧、8 下一条日志
+        assert_eq!(filter(STACKY, sp), vec![0, 1, 2, 6, 7, 8]);
+    }
+
+    #[test]
+    fn 不折叠时全部保留() {
+        assert_eq!(filter(STACKY, spec(LevelMask::ALL, "", false)).len(), 9);
+    }
+
+    #[test]
+    fn 异常首行与_caused_by_永不折叠() {
+        let mut sp = spec(LevelMask::ALL, "", false);
+        sp.collapse_stacks = true;
+        let got = filter(STACKY, sp);
+        assert!(got.contains(&1), "异常首行被折叠了");
+        assert!(got.contains(&6), "Caused by 被折叠了");
+    }
+
+    #[test]
+    fn 折叠也算一种筛选条件() {
+        let mut sp = spec(LevelMask::ALL, "", false);
+        sp.collapse_stacks = true;
+        assert!(!sp.is_noop(), "只开折叠也该走过滤路径");
     }
 
     #[test]

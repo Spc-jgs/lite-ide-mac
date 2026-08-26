@@ -33,6 +33,7 @@
   let filterHits = $state<number | null>(null);
   let filterRunning = $state(false);
   let tailing = $state(false);
+  let collapseStacks = $state(false);
   let error = $state("");
   let format = $state<LogFormat>("plain");
 
@@ -70,12 +71,13 @@
     const bits = levelBits;
     const pat = pattern;
     const cs = caseSensitive;
+    const fold = collapseStacks;
     const h = handle;
     let tick: ReturnType<typeof setInterval> | null = null;
 
     const timer = setTimeout(async () => {
       try {
-        const active = await logFilter(h, bits, pat, cs);
+        const active = await logFilter(h, bits, pat, cs, fold);
         filtered = active;
         if (!active) {
           filterHits = null;
@@ -143,6 +145,7 @@
     }
     const parts = [`${fmtNum(stat.lineCount)} 行`, FORMAT_LABEL[format]];
     if (showFiltered) parts.push(`筛出 ${fmtNum(viewLines)}`);
+    if (collapseStacks) parts.push("堆栈已折叠");
     if (!stat.complete) parts.push("索引中…");
     else if (!stat.levelsComplete) parts.push("级别扫描中…");
     if (error) parts.push(error);
@@ -158,6 +161,7 @@
     bind:pattern
     bind:caseSensitive
     bind:tailing
+    bind:collapseStacks
     {filterHits}
     {filterRunning}
   />

@@ -212,6 +212,7 @@ pub fn log_filter(
     level_bits: u8,
     pattern: String,
     case_sensitive: bool,
+    collapse_stacks: bool,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
     let file = state.get(handle).ok_or("句柄已失效")?;
@@ -219,6 +220,7 @@ pub fn log_filter(
         levels: LevelMask::from_bits(level_bits),
         pattern,
         case_sensitive,
+        collapse_stacks,
     };
     if spec.is_noop() {
         state.clear_filter(handle);

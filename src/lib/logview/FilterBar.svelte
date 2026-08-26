@@ -17,6 +17,7 @@
     pattern = $bindable(),
     caseSensitive = $bindable(),
     tailing = $bindable(),
+    collapseStacks = $bindable(),
     filterHits,
     filterRunning,
   }: {
@@ -26,6 +27,7 @@
     pattern: string;
     caseSensitive: boolean;
     tailing: boolean;
+    collapseStacks: boolean;
     filterHits: number | null;
     filterRunning: boolean;
   } = $props();
@@ -90,6 +92,15 @@
   {/if}
 
   <span class="gap"></span>
+
+  <button
+    class="fold"
+    class:on={collapseStacks}
+    onclick={() => (collapseStacks = !collapseStacks)}
+    title="折叠异常堆栈：连续的 at 帧只留第一帧，异常类型与 Caused by always 保留"
+  >
+    折叠堆栈
+  </button>
 
   <button class="tail" class:on={tailing} onclick={() => (tailing = !tailing)}>
     <i class="live"></i> 跟随尾部
@@ -173,6 +184,19 @@
     flex: none;
   }
   .hits.running { color: var(--text-faint); }
+
+  .fold {
+    padding: 3px 9px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-size: 11px;
+    cursor: default;
+    flex: none;
+  }
+  .fold:hover { background: var(--panel-bg-2); }
+  .fold.on { border-color: var(--accent); color: var(--text); background: var(--accent-sel); }
 
   .tail {
     display: flex;
