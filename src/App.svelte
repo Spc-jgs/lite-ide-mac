@@ -32,6 +32,23 @@
   let nextId = 1;
 
   let sidebar = $state(true);
+  let panel = $state(false);
+  let panelHeight = $state(260);
+  /** xterm.js 约 250KB，不开终端就不该付这个钱 —— 与 CM6 同样按需加载 */
+  let TerminalComp = $state<typeof import("./lib/terminal/Terminal.svelte").default | null>(null);
+  let terminalLoading = $state(false);
+  /** 终端重启用：自增即重建组件 */
+  let termEpoch = $state(0);
+  /**
+   * 终端的工作目录在创建时快照一次。
+   * 不跟着 root 走 —— 切项目就把正在跑的命令连根重启，是很讨厌的行为（IDEA 也不这么干）。
+   * 想换目录就点「重启」。
+   */
+  let termCwd = $state<string | null>(null);
+
+  $effect(() => {
+    if (panel && termCwd === null && root !== null) termCwd = root;
+  });
   let hovering = $state(false);
   let error = $state("");
   let logStatus = $state("");
@@ -48,6 +65,15 @@
   let editorLoading = $state(false);
   /** 每次保存成功自增，Editor 据此重置 dirty 基线 */
   let savedTick = $state(0);
+
+  $effect(() => {
+    if (!panel || TerminalComp || terminalLoading) return;
+    terminalLoading = true;
+    import("./lib/terminal/Terminal.svelte")
+      .then((m) => (TerminalComp = m.default))
+      .catch((e) => (error = `终端加载失败：${e}`))
+      .finally(() => (terminalLoading = false));
+  });
 
   $effect(() => {
     if (active?.mode !== "edit" || EditorComp || editorLoading) return;
@@ -144,10 +170,29 @@
     if (e.key === "1") {
       e.preventDefault();
       sidebar = !sidebar;
+    } else if (e.key === "j") {
+      e.preventDefault();
+      panel = !panel;
     } else if (e.key === "w" && active) {
       e.preventDefault();
       requestClose(active.id);
     }
+  }
+
+  function startResize(e: PointerEvent) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = panelHeight;
+    const move = (ev: PointerEvent) => {
+      // 往上拖变高：面板贴在底部，位移要反号
+      panelHeight = Math.max(90, Math.min(window.innerHeight - 200, startH - (ev.clientY - startY)));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   }
 
   $effect(() => {
@@ -238,6 +283,38 @@
           <div class="empty"><p>正在载入编辑器…</p></div>
         {/if}
       </div>
+
+      {#if panel}
+        <div
+          class="resizer"
+          role="separator"
+          aria-label="调整终端高度"
+          onpointerdown={startResize}
+        ></div>
+        <div class="panel" style:height="{panelHeight}px">
+          <div class="panel-head">
+            <span class="tag">终端</span>
+            <span class="cwd">{termCwd ?? "…"}</span>
+            <span class="gap"></span>
+            <button
+              onclick={() => {
+                termCwd = root ?? termCwd;
+                termEpoch++;
+              }}
+              title="在当前项目根重新起一个 shell">重启</button>
+            <button onclick={() => (panel = false)} title="收起 ⌘J">✕</button>
+          </div>
+          <div class="panel-body">
+            {#if TerminalComp && termCwd !== null}
+              {#key termEpoch}
+                <TerminalComp cwd={termCwd} onExit={() => {}} />
+              {/key}
+            {:else}
+              <div class="loading">正在载入终端…</div>
+            {/if}
+          </div>
+        </div>
+      {/if}
     </section>
   </div>
 
@@ -255,6 +332,7 @@
     {#if saved}<span class="cell ok">{saved}</span>{/if}
     {#if error}<span class="cell err">{error}</span>{/if}
     <span class="spacer"></span>
+    <button class="cell btn" class:on={panel} onclick={() => (panel = !panel)}>终端 ⌘J</button>
     <span class="cell dim">{tabs.length} 个标签</span>
   </footer>
 </main>
@@ -319,8 +397,59 @@
     height: 100%;
   }
 
-  .main { display: grid; grid-template-rows: auto auto 1fr; overflow: hidden; }
+  .main { display: grid; grid-template-rows: auto auto 1fr auto auto; overflow: hidden; }
   .content { overflow: hidden; grid-row: 3; }
+
+  .resizer {
+    height: 4px;
+    background: var(--border);
+    cursor: row-resize;
+  }
+  .resizer:hover { background: var(--accent); }
+  .panel {
+    display: grid;
+    grid-template-rows: 26px 1fr;
+    overflow: hidden;
+    border-top: 1px solid var(--border);
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px;
+    background: var(--panel-bg);
+    font-size: 11px;
+    color: var(--text-dim);
+    user-select: none;
+  }
+  .panel-head .tag { letter-spacing: 0.06em; text-transform: uppercase; }
+  .panel-head .cwd {
+    font-family: var(--code-font);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .panel-head .gap { flex: 1; }
+  .panel-head button {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-size: 10.5px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    cursor: default;
+  }
+  .panel-head button:hover { background: var(--panel-bg-2); color: var(--text); }
+  .panel-body { overflow: hidden; }
+  .loading {
+    display: grid;
+    place-content: center;
+    height: 100%;
+    color: var(--text-faint);
+    font-size: 12px;
+  }
 
   .empty {
     height: 100%;
@@ -372,4 +501,16 @@
   .statusbar .dim { color: var(--text-faint); }
   .statusbar .ok { color: var(--accent); }
   .statusbar .err { color: var(--lvl-error); }
+  .statusbar .btn {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-family: var(--code-font);
+    font-size: 11.5px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    cursor: default;
+  }
+  .statusbar .btn:hover { background: var(--panel-bg-2); color: var(--text); }
+  .statusbar .btn.on { color: var(--accent); }
 </style>

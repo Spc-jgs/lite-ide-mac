@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, type Channel } from "@tauri-apps/api/core";
 
 export interface OpenResult {
   handle: number;
@@ -93,3 +93,22 @@ export const logRefresh = (handle: number) => invoke<RefreshResult>("log_refresh
 export const initialPath = () => invoke<string | null>("initial_path");
 
 export const diag = (msg: string) => invoke<void>("diag", { msg });
+
+// ─────────────────────────── 终端 ───────────────────────────
+
+/** 起一个终端；输出通过 Channel 流式回传 */
+export const ptySpawn = (
+  cwd: string,
+  cols: number,
+  rows: number,
+  onData: Channel<number[] | ArrayBuffer>,
+) => invoke<number>("pty_spawn", { cwd, cols, rows, onData });
+
+export const ptyWrite = (id: number, data: string) => invoke<void>("pty_write", { id, data });
+
+export const ptyResize = (id: number, cols: number, rows: number) =>
+  invoke<void>("pty_resize", { id, cols, rows });
+
+export const ptyKill = (id: number) => invoke<boolean>("pty_kill", { id });
+
+export const ptyAlive = (id: number) => invoke<boolean>("pty_alive", { id });
