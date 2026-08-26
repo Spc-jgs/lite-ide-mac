@@ -4,6 +4,7 @@
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
+  import { langOf, langLabel } from "./lib/editor/langs";
   import {
     probePath,
     readText,
@@ -25,7 +26,17 @@
     content?: string;
     /** 被判为 log 模式的原因 */
     reason?: string;
+    /** 文件字节数，用于判断切到编辑模式是否有风险 */
+    size: number;
+    /** 用户手动指定过模式；自动判定只是默认值，不该是死判决 */
+    forced?: "edit" | "log";
   }
+
+  /**
+   * 手动切到编辑模式时，超过这个大小要先确认。
+   * 编辑模式会把全文读进内存并交给 CodeMirror，大文件是真的会卡。
+   */
+  const CONFIRM_EDIT_BYTES = 8 << 20;
 
   let root = $state<string | null>(null);
   let tabs = $state<TabState[]>([]);
@@ -83,6 +94,13 @@
         termCwd = root ?? termCwd;
         termEpoch++;
         panel = true;
+      },
+    },
+    {
+      id: "switch-mode",
+      label: "切换编辑 / 日志模式",
+      run: () => {
+        if (active) requestSwitchMode(active);
       },
     },
     { id: "save", label: "保存当前文件", hint: "⌘S", run: () => saveActive() },
@@ -164,6 +182,7 @@
         mode: info.mode,
         dirty: false,
         reason: info.reason,
+        size: info.size,
       };
       if (info.mode === "log") {
         tab.handle = (await openLog(info.path)).handle;
@@ -193,6 +212,54 @@
       setTimeout(() => (saved = ""), 1800);
     } catch (e) {
       error = String(e);
+    }
+  }
+
+  /** 待确认的模式切换（大文件切到编辑模式时用） */
+  let pendingSwitch = $state<TabState | null>(null);
+
+  function requestSwitchMode(tab: TabState) {
+    if (tab.dirty) {
+      error = "有未保存的改动，请先保存（⌘S）再切换模式";
+      setTimeout(() => (error = ""), 2600);
+      return;
+    }
+    const to = tab.mode === "edit" ? "log" : "edit";
+    // 切到日志模式没有风险（mmap，内存与大小无关）；反方向要看体积
+    if (to === "edit" && tab.size > CONFIRM_EDIT_BYTES) {
+      pendingSwitch = tab;
+      return;
+    }
+    void doSwitch(tab, to);
+  }
+
+  async function doSwitch(tab: TabState, to: "edit" | "log") {
+    pendingSwitch = null;
+    error = "";
+    try {
+      if (tab.mode === "log" && tab.handle !== undefined) {
+        await closeLog(tab.handle);
+        tab.handle = undefined;
+      }
+      if (to === "log") {
+        tab.handle = (await openLog(tab.path)).handle;
+        tab.content = undefined;
+      } else {
+        // 非 UTF-8 会在这里明确失败，不会把文件读坏
+        tab.content = await readText(tab.path);
+      }
+      tab.mode = to;
+      tab.forced = to;
+    } catch (e) {
+      error = String(e);
+      // 切换失败要退回原状态，否则标签会停在一个既没句柄也没内容的空壳上
+      if (tab.mode === "log" && tab.handle === undefined) {
+        try {
+          tab.handle = (await openLog(tab.path)).handle;
+        } catch {
+          /* 连回退都失败，只能让用户重开 */
+        }
+      }
     }
   }
 
@@ -314,8 +381,10 @@
     {#if active}
       <span class="sep">—</span>
       <span class="file">{active.name}</span>
-      {#if active.mode === "log" && active.reason}
-        <span class="why" title="判为只读的原因">只读 · {active.reason}</span>
+      {#if active.mode === "log"}
+        <span class="why" title={active.forced ? "你手动切到了日志模式" : "自动判定的原因"}>
+          只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}
+        </span>
       {/if}
     {/if}
   </header>
@@ -334,6 +403,17 @@
     <section class="main">
       {#if tabs.length > 0}
         <Tabs {tabs} {activeId} onSelect={(id) => (activeId = id)} onClose={requestClose} />
+      {/if}
+
+      {#if pendingSwitch}
+        <div class="confirm">
+          <span>
+            <b>{pendingSwitch.name}</b> 有 {(pendingSwitch.size / 1048576).toFixed(1)}MB，
+            编辑模式会把全文读进内存，可能明显卡顿
+          </span>
+          <button class="primary" onclick={() => doSwitch(pendingSwitch!, "edit")}>仍然编辑</button>
+          <button onclick={() => (pendingSwitch = null)}>取消</button>
+        </div>
       {/if}
 
       {#if pendingClose}
@@ -412,7 +492,16 @@
 
   <footer class="statusbar">
     {#if active}
-      <span class="cell">{active.mode === "log" ? "日志模式" : "编辑模式"}</span>
+      <button
+        class="cell btn mode"
+        onclick={() => requestSwitchMode(active!)}
+        title={active.mode === "log" ? "切换到编辑模式" : "切换到日志模式（只读，带级别过滤与 tail）"}
+      >
+        {active.mode === "log" ? "日志模式" : "编辑模式"} ⇄
+      </button>
+      {#if active.mode === "edit"}
+        <span class="cell dim">{langLabel(langOf(active.path))}</span>
+      {/if}
       {#if active.mode === "log"}
         <span class="cell">{logStatus}</span>
       {:else}
@@ -606,4 +695,6 @@
   }
   .statusbar .btn:hover { background: var(--panel-bg-2); color: var(--text); }
   .statusbar .btn.on { color: var(--accent); }
+  .statusbar .btn.mode { color: var(--text-dim); }
+  .statusbar .btn.mode:hover { color: var(--accent); }
 </style>
