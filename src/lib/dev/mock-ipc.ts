@@ -29,6 +29,60 @@ const LINE_LEVEL = [2, 3, 1, 0, 5, 5, 5, 5, 5, 2, 4, 2];
 
 const TOTAL = 9_141_707;
 
+/** 造一条分支，字段与 Rust 侧 BranchDto 对齐 */
+function b(name: string, isHead: boolean, isRemote: boolean, upstream: string, subject: string) {
+  return { name, sha: name.slice(0, 7), upstream, isHead, isRemote, when: "2 天前", subject };
+}
+
+/**
+ * 一段带合并的假历史。刻意造出「分支岔出去 → 各自提交 → 合并回来」，
+ * 泳道图的三种情形（直线、分叉、汇合）在浏览器里就能一眼看全。
+ */
+const MOCK_LOG = [
+  ["h8", "合并 M12：界面打磨与使用手册", ["h7", "f2"], ["HEAD", "m13/git"]],
+  ["f2", "M12 界面打磨：侧边栏、终端字体、使用手册", ["f1"], []],
+  ["f1", "终端字体改用具体字体名", ["h7"], []],
+  ["h7", "合并 M11：符号大纲", ["h6", "e1"], ["main", "origin/main"]],
+  ["e1", "M11 符号大纲：⌘⇧O 文件结构", ["h6"], ["m11/symbols"]],
+  ["h6", "合并 M10：堆栈折叠", ["h5"], []],
+  ["h5", "M10 堆栈折叠：复用过滤机制", ["h4"], []],
+  ["h4", "M9 多终端标签", ["h3"], []],
+  ["h3", "M8 语言与日志适配", ["h2"], []],
+  ["h2", "M7 外部修改检测", ["h1"], []],
+  ["h1", "M0 日志引擎垂直切片", [], []],
+].map(([sha, subject, parents, refs], i) => ({
+  sha: sha as string,
+  short: (sha as string).padEnd(7, "0"),
+  author: i % 3 === 0 ? "pc shao" : "李兆义",
+  email: "dev@example.com",
+  when: `${i + 1} 天前`,
+  date: `2026-08-${String(26 - i).padStart(2, "0")}`,
+  subject: subject as string,
+  parents: parents as string[],
+  refs: refs as string[],
+}));
+
+/** 造一条 git 状态条目，字段与 Rust 侧 GitEntryDto 严格对齐 */
+function g(
+  path: string,
+  index: string,
+  work: string,
+  extra: { staged?: boolean; untracked?: boolean; isDir?: boolean; conflicted?: boolean; orig?: string } = {},
+) {
+  const untracked = extra.untracked ?? false;
+  return {
+    path,
+    index,
+    work,
+    untracked,
+    isDir: extra.isDir ?? false,
+    conflicted: extra.conflicted ?? false,
+    staged: !untracked && index !== "." && index !== " ",
+    unstaged: untracked || (work !== "." && work !== " "),
+    orig: extra.orig ?? null,
+  };
+}
+
 /** 桩里的假文件系统：路径 → 内容 */
 const FILES: Record<string, string> = {
   "/proj/src/OrderService.java": `package com.liteide.order;
@@ -334,6 +388,99 @@ export function installMockIpc(): void {
         case "close_log":
           filterHits = null;
           return true;
+
+        // ── Git ──
+        // 造一份含所有状态位的假仓库：改动 / 新增 / 删除 / 改名 / 未跟踪目录 /
+        // 冲突都占一条，浏览器里就能把染色和分组全看一遍。
+        case "git_root":
+          return "/proj";
+        case "git_status":
+          return {
+            root: "/proj",
+            branch: "m13/git",
+            upstream: "origin/m13/git",
+            ahead: 2,
+            behind: 0,
+            detached: false,
+            unborn: false,
+            truncated: false,
+            entries: [
+              g("src/OrderService.java", "M", ".", { staged: true }),
+              g("src/App.svelte", ".", "M"),
+              g("README.md", "A", "."),
+              g("docs/old.md", ".", "D"),
+              g("src/renamed.ts", "R", ".", { orig: "src/before.ts" }),
+              g("scratch/", ".", "?", { untracked: true, isDir: true }),
+              g("notes.txt", ".", "?", { untracked: true }),
+              g("src/conflict.rs", "U", "U", { conflicted: true }),
+            ],
+          };
+        case "git_diff":
+          return `diff --git a/${a.path} b/${a.path}
+index 1a2b3c4..5d6e7f8 100644
+--- a/${a.path}
++++ b/${a.path}
+@@ -12,7 +12,8 @@ public void persist(Order order) {
+     var conn = pool.getConnection();
+-    int timeout = 300;
++    int timeout = 5000;
+     try {
+-        repo.save(order);
++        repo.saveAndFlush(order);
++        metrics.record("order.persist", order.id());
+     } finally {
+         conn.close();
+     }`;
+        case "git_stage":
+        case "git_unstage":
+        case "git_discard":
+          return null;
+        case "git_commit":
+          return "[m13/git abc1234] 桩提交";
+        case "git_log":
+          return [
+            { sha: "a".repeat(40), short: "abc1234", author: "pc", when: "3 小时前", subject: "M12 界面打磨" },
+          ];
+        case "git_show":
+          return FILES[a.path as string] ?? "";
+
+        // 造一段带合并的历史，泳道图的分叉与汇合都能看到
+        case "git_log_entries":
+          return MOCK_LOG;
+        case "git_commit_files":
+          return [
+            g("src/OrderService.java", "M", "."),
+            g("src/App.svelte", "A", "."),
+            g("docs/gone.md", "D", "."),
+          ];
+        case "git_commit_diff":
+          return `diff --git a/${a.path || "src/OrderService.java"} b/${a.path || "src/OrderService.java"}
+@@ -8,4 +8,5 @@
+ public class OrderService {
+-    private int retries = 3;
++    private int retries = 5;
++    private Duration backoff = Duration.ofMillis(800);
+ }`;
+        case "git_branches":
+          return [
+            b("main", true, false, "origin/main", "M12 界面打磨"),
+            b("m13/git", false, false, "origin/m13/git", "M13 Git 版本管理"),
+            b("m11/symbols", false, false, "", "M11 符号大纲"),
+            b("origin/main", false, true, "", "M12 界面打磨"),
+            b("origin/dev", false, true, "", "开发主线"),
+          ];
+        case "git_switch":
+          return `Switched to branch '${a.name}'`;
+        case "git_worktrees":
+          return [
+            { path: "/proj", sha: "abc1234", branch: "m13/git", detached: false, bare: false, locked: false, current: true },
+            { path: "/proj-hotfix", sha: "def5678", branch: "hotfix/urgent", detached: false, bare: false, locked: false, current: false },
+          ];
+        case "git_worktree_add":
+          return `/proj-${a.branch || "new"}`;
+        case "git_worktree_remove":
+          return null;
+
         default:
           return null;
       }

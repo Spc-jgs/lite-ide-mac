@@ -17,6 +17,34 @@
   --lvl-debug: #6f737b;
   --search-hit: rgba(53, 116, 240, 0.42);
 
+  /* Git —— 与 IDEA 的取色一致：改动蓝、新增绿、删除红、未跟踪灰绿 */
+  --git-modified: #6ba1e8;
+  --git-added: #63b76c;
+  --git-deleted: #d1707a;
+  --git-untracked: #8a9a5b;
+  --git-renamed: #b389d6;
+  --git-conflict: #f75464;
+
+  /* 差异视图：底色要淡到能读正文，行内高亮才实 */
+  --diff-add-bg: rgba(99, 183, 108, 0.10);
+  --diff-del-bg: rgba(209, 112, 122, 0.10);
+  --diff-add-strong: rgba(99, 183, 108, 0.34);
+  --diff-del-strong: rgba(209, 112, 122, 0.34);
+  --diff-add-fg: #63b76c;
+  --diff-del-fg: #d1707a;
+
+  /* Git 状态色。约定跟 VSCode / GitHub 对齐，用户不用重新学一套 */
+  --git-mod: #d99a3f;
+  --git-add: #5aa76f;
+  --git-del: #f75464;
+  --git-new: #6f9e8a;
+  --git-conflict: #c678dd;
+  /* 差异底色：整行的浅底说"这行动过"，ink 版给行内那一小截真正变了的字 */
+  --diff-add-bg: rgba(90, 167, 111, 0.13);
+  --diff-del-bg: rgba(247, 84, 100, 0.11);
+  --diff-add-ink: rgba(90, 167, 111, 0.36);
+  --diff-del-ink: rgba(247, 84, 100, 0.32);
+
   --ui-font: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
   --code-font: "SF Mono", Menlo, ui-monospace, monospace;
 

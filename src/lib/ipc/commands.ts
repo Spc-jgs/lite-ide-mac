@@ -139,3 +139,133 @@ export const grepProject = (root: string, pattern: string, limit = 200) =>
   invoke<Hit[]>("grep_project", { root, pattern, limit });
 
 export const ripgrepAvailable = () => invoke<boolean>("ripgrep_available");
+
+// ─────────────────────────── Git ───────────────────────────
+
+export interface GitEntry {
+  /** 相对仓库根 */
+  path: string;
+  /** 暂存区状态字符：`.MADRCU` */
+  index: string;
+  /** 工作区状态字符 */
+  work: string;
+  untracked: boolean;
+  /** 折叠的未跟踪目录（路径以 / 结尾），文件树要按前缀匹配 */
+  isDir: boolean;
+  conflicted: boolean;
+  staged: boolean;
+  unstaged: boolean;
+  orig: string | null;
+}
+
+export interface GitStatus {
+  root: string;
+  branch: string;
+  upstream: string;
+  ahead: number;
+  behind: number;
+  detached: boolean;
+  /** 一个提交都还没有 */
+  unborn: boolean;
+  entries: GitEntry[];
+  truncated: boolean;
+}
+
+export interface GitCommit {
+  sha: string;
+  short: string;
+  author: string;
+  when: string;
+  subject: string;
+}
+
+/** 找路径所属仓库根；不是仓库返回 null（正常情况，Git 功能整体隐身） */
+export const gitRoot = (path: string) => invoke<string | null>("git_root", { path });
+
+export const gitStatus = (root: string) => invoke<GitStatus>("git_status", { root });
+
+export const gitDiff = (root: string, path: string, staged: boolean, untracked: boolean) =>
+  invoke<string>("git_diff", { root, path, staged, untracked });
+
+export const gitStage = (root: string, paths: string[]) =>
+  invoke<void>("git_stage", { root, paths });
+
+export const gitUnstage = (root: string, paths: string[]) =>
+  invoke<void>("git_unstage", { root, paths });
+
+/** 不可撤销 —— 调用前必须让用户确认过 */
+export const gitDiscard = (root: string, paths: string[], untracked: string[]) =>
+  invoke<void>("git_discard", { root, paths, untracked });
+
+export const gitCommit = (root: string, message: string, amend = false) =>
+  invoke<string>("git_commit", { root, message, amend });
+
+export const gitLog = (root: string, path = "", limit = 50) =>
+  invoke<GitCommit[]>("git_log", { root, path, limit });
+
+/** 某个版本里的文件内容；不存在时是空串 */
+export const gitShow = (root: string, rev: string, path: string) =>
+  invoke<string>("git_show", { root, rev, path });
+
+// ────────────── Git：历史 · 分支 · 工作树 ──────────────
+
+export interface GitLogEntry {
+  sha: string;
+  short: string;
+  author: string;
+  email: string;
+  when: string;
+  date: string;
+  subject: string;
+  /** 父提交完整 sha；合并提交有多个，泳道图靠它连线 */
+  parents: string[];
+  refs: string[];
+}
+
+export interface GitBranch {
+  name: string;
+  sha: string;
+  upstream: string;
+  isHead: boolean;
+  isRemote: boolean;
+  when: string;
+  subject: string;
+}
+
+export interface GitWorktree {
+  path: string;
+  sha: string;
+  branch: string;
+  detached: boolean;
+  bare: boolean;
+  locked: boolean;
+  current: boolean;
+}
+
+export const gitLogEntries = (root: string, limit = 200, all = false, path = "") =>
+  invoke<GitLogEntry[]>("git_log_entries", { root, limit, all, path });
+
+export const gitCommitFiles = (root: string, sha: string) =>
+  invoke<GitEntry[]>("git_commit_files", { root, sha });
+
+export const gitCommitDiff = (root: string, sha: string, path = "") =>
+  invoke<string>("git_commit_diff", { root, sha, path });
+
+export const gitBranches = (root: string) => invoke<GitBranch[]>("git_branches", { root });
+
+/** 切分支；create 为真时新建。工作区脏时 git 会拒绝，错误原样上抛 */
+export const gitSwitch = (root: string, name: string, create = false) =>
+  invoke<string>("git_switch", { root, name, create });
+
+export const gitWorktrees = (root: string) => invoke<GitWorktree[]>("git_worktrees", { root });
+
+/**
+ * 新建工作树，返回新目录绝对路径 —— 可以直接当项目根打开。
+ * 分支存不存在由 Rust 侧判断并决定加不加 `-b`。
+ */
+export const gitWorktreeAdd = (root: string, path: string, branch: string) =>
+  invoke<string>("git_worktree_add", { root, path, branch });
+
+/** 会删掉那个目录，调用前必须确认 */
+export const gitWorktreeRemove = (root: string, path: string, force = false) =>
+  invoke<void>("git_worktree_remove", { root, path, force });
