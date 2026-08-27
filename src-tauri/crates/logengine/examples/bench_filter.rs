@@ -36,7 +36,7 @@ fn main() {
             "仅 ERROR（纯级别）",
             FilterSpec {
                 levels: only(Level::Error),
-                pattern: String::new(),
+                pattern: Vec::new(),
                 case_sensitive: false,
                 collapse_stacks: false,
             },
@@ -45,7 +45,7 @@ fn main() {
             "仅 INFO（大头，考验分配）",
             FilterSpec {
                 levels: only(Level::Info),
-                pattern: String::new(),
+                pattern: Vec::new(),
                 case_sensitive: false,
                 collapse_stacks: false,
             },
@@ -54,7 +54,7 @@ fn main() {
             "文本 OrderService（敏感）",
             FilterSpec {
                 levels: LevelMask::ALL,
-                pattern: "OrderService".into(),
+                pattern: b"OrderService".to_vec(),
                 case_sensitive: true,
                 collapse_stacks: false,
             },
@@ -63,7 +63,7 @@ fn main() {
             "文本 orderservice（不敏感）",
             FilterSpec {
                 levels: LevelMask::ALL,
-                pattern: "orderservice".into(),
+                pattern: b"orderservice".to_vec(),
                 case_sensitive: false,
                 collapse_stacks: false,
             },
@@ -72,7 +72,7 @@ fn main() {
             "ERROR + 文本 Deadlock",
             FilterSpec {
                 levels: only(Level::Error),
-                pattern: "Deadlock".into(),
+                pattern: b"Deadlock".to_vec(),
                 case_sensitive: false,
                 collapse_stacks: false,
             },
@@ -81,7 +81,7 @@ fn main() {
             "折叠堆栈（只留每段第一帧）",
             FilterSpec {
                 levels: LevelMask::ALL,
-                pattern: String::new(),
+                pattern: Vec::new(),
                 case_sensitive: false,
                 collapse_stacks: true,
             },
@@ -90,7 +90,7 @@ fn main() {
             "折叠 + 只看 ERROR",
             FilterSpec {
                 levels: only(Level::Error),
-                pattern: String::new(),
+                pattern: Vec::new(),
                 case_sensitive: false,
                 collapse_stacks: true,
             },
@@ -99,7 +99,7 @@ fn main() {
             "文本 无此内容（全扫不中）",
             FilterSpec {
                 levels: LevelMask::ALL,
-                pattern: "zzz-not-present".into(),
+                pattern: b"zzz-not-present".to_vec(),
                 case_sensitive: false,
                 collapse_stacks: false,
             },
