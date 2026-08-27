@@ -52,6 +52,7 @@
   let nextId = 1;
 
   let sidebar = $state(true);
+  let sidebarWidth = $state(240);
   let panel = $state(false);
   let panelHeight = $state(260);
   /** xterm.js 约 250KB，不开终端就不该付这个钱 —— 与 CM6 同样按需加载 */
@@ -471,6 +472,22 @@
     }
   }
 
+  /** 侧边栏横向拖拽。上限留出编辑区的活路，不让它被挤没 */
+  function startSideResize(e: PointerEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    const move = (ev: PointerEvent) => {
+      sidebarWidth = Math.max(140, Math.min(window.innerWidth - 360, startW + (ev.clientX - startX)));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
   function startResize(e: PointerEvent) {
     e.preventDefault();
     const startY = e.clientY;
@@ -521,7 +538,16 @@
 
 <main class:hovering>
   <header class="titlebar" data-tauri-drag-region>
-    <button class="side-toggle" class:on={sidebar} onclick={() => (sidebar = !sidebar)} title="侧边栏 ⌘1">☰</button>
+    {#if !sidebar}
+      <!-- 侧边栏收起后，展开的入口只能放这儿；展开时它在侧边栏头部右侧 -->
+      <button class="side-toggle" onclick={() => (sidebar = true)} title="展开侧边栏 ⌘1" aria-label="展开侧边栏">
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+          <path d="M6.5 3.5 L11 8 L6.5 12.5" fill="none" stroke="currentColor" stroke-width="1.5"
+                stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M3.5 3.5 L3.5 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
+      </button>
+    {/if}
     <span class="app">lite-ide</span>
     {#if active}
       <span class="sep">—</span>
@@ -534,15 +560,31 @@
     {/if}
   </header>
 
-  <div class="workspace" class:no-side={!sidebar}>
+  <div class="workspace" class:no-side={!sidebar} style:--side-w="{sidebarWidth}px">
     {#if sidebar}
       <aside>
         {#if root}
-          <FileTree {root} activePath={active?.path ?? ""} onOpen={(p) => void openPath(p)} />
+          <FileTree
+            {root}
+            activePath={active?.path ?? ""}
+            onOpen={(p) => void openPath(p)}
+            onSearch={() => {
+              quickScope = "content";
+              quickOpen = true;
+            }}
+            onCollapse={() => (sidebar = false)}
+          />
         {:else}
           <div class="no-root">把文件夹拖进来</div>
         {/if}
       </aside>
+      <div
+        class="side-resizer"
+        role="separator"
+        aria-label="调整侧边栏宽度"
+        aria-orientation="vertical"
+        onpointerdown={startSideResize}
+      ></div>
     {/if}
 
     <section class="main">
@@ -704,16 +746,17 @@
     user-select: none;
   }
   .side-toggle {
+    display: grid;
+    place-content: center;
+    width: 22px;
+    height: 22px;
     background: transparent;
     border: none;
     color: var(--text-faint);
-    font-size: 12px;
     cursor: default;
-    padding: 2px 5px;
     border-radius: 3px;
   }
   .side-toggle:hover { background: var(--panel-bg-2); color: var(--text); }
-  .side-toggle.on { color: var(--text-dim); }
   .titlebar .app { color: var(--text); font-weight: 500; }
   .titlebar .sep { color: var(--text-faint); }
   .titlebar .file { color: var(--text-dim); }
@@ -729,10 +772,16 @@
 
   .workspace {
     display: grid;
-    grid-template-columns: 240px 1fr;
+    /* 三列：侧边栏 · 拖拽条 · 主区 */
+    grid-template-columns: var(--side-w, 240px) 4px 1fr;
     overflow: hidden;
   }
   .workspace.no-side { grid-template-columns: 1fr; }
+  .side-resizer {
+    background: var(--border);
+    cursor: col-resize;
+  }
+  .side-resizer:hover { background: var(--accent); }
   aside { overflow: hidden; }
   .no-root {
     padding: 14px 12px;
@@ -743,16 +792,24 @@
     height: 100%;
   }
 
-  .main { display: grid; grid-template-rows: auto auto 1fr auto auto; overflow: hidden; }
-  .content { overflow: hidden; grid-row: 3; }
+  /*
+   * 用 flex 列而不是 grid：这一列里的元素是**条件渲染**的（标签栏、三种确认条、
+   * 拖拽条、终端面板都可能不在），固定行数的 grid 会让后面的元素往前占位 ——
+   * 曾经导致终端面板抢到 1fr 跑到内容区上面去。
+   * flex 天然按实际存在的元素排布，content 吃掉剩余空间就行。
+   */
+  .main { display: flex; flex-direction: column; overflow: hidden; }
+  .content { flex: 1; min-height: 0; overflow: hidden; }
 
   .resizer {
+    flex: none;
     height: 4px;
     background: var(--border);
     cursor: row-resize;
   }
   .resizer:hover { background: var(--accent); }
   .panel {
+    flex: none;
     display: grid;
     grid-template-rows: 26px 1fr;
     overflow: hidden;
@@ -846,6 +903,8 @@
     text-align: center;
     color: var(--text-dim);
   }
+  /* 确认条不参与伸缩，始终贴在标签栏下方 */
+  .confirm { flex: none; }
   .empty .big { font-size: 17px; color: var(--text); margin-bottom: 10px; }
   .empty p { margin: 4px 0; font-size: 12.5px; color: var(--text-faint); }
   .empty .keys { margin-top: 14px; font-family: var(--code-font); font-size: 11.5px; }

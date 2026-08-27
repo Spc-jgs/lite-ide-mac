@@ -16,10 +16,22 @@
     let ptyId: number | null = null;
 
     const term = new Terminal({
-      fontFamily: "var(--code-font), Menlo, monospace",
-      fontSize: 12,
-      lineHeight: 1.2,
+      // 必须写具体字体名，不能用 var(--code-font)：
+      // xterm 拿这个字符串去做字符宽度测量（建一个测量元素读 offsetWidth），
+      // CSS 变量在那个上下文解析不了，整条声明作废，最后回退到浏览器默认
+      // 等宽字体——又丑、字距还不准。
+      fontFamily: '"SF Mono", "JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
+      fontSize: 12.5,
+      // 终端惯例是紧凑排布，1.2 太松散
+      lineHeight: 1.15,
+      letterSpacing: 0,
       cursorBlink: true,
+      cursorStyle: "bar",
+      cursorWidth: 2,
+      // 滚回去看构建输出，一万行够用了
+      scrollback: 10000,
+      // 双击选中时把这些也算作单词的一部分，选路径和 URL 方便
+      wordSeparator: " ()[]{}',\"`",
       // 与 app.css 的 IDEA Dark token 同源
       theme: {
         background: "#1e1f22",
