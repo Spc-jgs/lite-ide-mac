@@ -6,10 +6,14 @@
     root,
     activePath,
     onOpen,
+    onSearch,
+    onCollapse,
   }: {
     root: string;
     activePath: string;
     onOpen: (path: string, isDir: boolean) => void;
+    onSearch: () => void;
+    onCollapse: () => void;
   } = $props();
 
   /**
@@ -92,8 +96,22 @@
 </script>
 
 <div class="tree">
-  <div class="head" title={root}>
-    <span class="proj">{rootName}</span>
+  <div class="head">
+    <span class="proj" title={root}>{rootName}</span>
+    <span class="gap"></span>
+    <button class="act" onclick={onSearch} title="在项目中搜索 ⌘⇧F" aria-label="搜索">
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.2" fill="none" stroke="currentColor" stroke-width="1.4" />
+        <path d="M10.2 10.2 L13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </svg>
+    </button>
+    <button class="act" onclick={onCollapse} title="收起侧边栏 ⌘1" aria-label="收起侧边栏">
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+        <path d="M9.5 3.5 L5 8 L9.5 12.5" fill="none" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round" />
+        <path d="M12.5 3.5 L12.5 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+    </button>
   </div>
   <div class="list">
     {#each rows as row (row.path)}
@@ -131,7 +149,8 @@
     height: 30px;
     display: flex;
     align-items: center;
-    padding: 0 10px;
+    gap: 2px;
+    padding: 0 4px 0 10px;
     border-bottom: 1px solid var(--border-soft);
     font-size: 11px;
     letter-spacing: 0.06em;
@@ -140,6 +159,21 @@
     user-select: none;
   }
   .head .proj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .head .gap { flex: 1; min-width: 6px; }
+  .act {
+    flex: none;
+    display: grid;
+    place-content: center;
+    width: 22px;
+    height: 22px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-faint);
+    cursor: default;
+  }
+  .act:hover { background: var(--panel-bg-2); color: var(--text); }
+  .act:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .list { flex: 1; overflow-y: auto; padding: 4px 0; }
   .row {
     display: flex;
