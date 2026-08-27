@@ -56,7 +56,24 @@ export const probePath = (path: string) => invoke<PathInfo>("probe_path", { path
 export const listDir = (path: string, showHidden = false) =>
   invoke<DirEntry[]>("list_dir", { path, showHidden });
 
-export const readText = (path: string) => invoke<string>("read_text", { path });
+export interface TextFile {
+  content: string;
+  /** WHATWG 编码标签，如 UTF-8 / GBK */
+  encoding: string;
+  bom: boolean;
+  /** 有解不出的字节；带着它保存会把那些字节永久换成 U+FFFD */
+  lossy: boolean;
+}
+
+/** 读全文并探测编码；label 非空时按指定编码读 */
+export const readText = (path: string, label?: string) =>
+  invoke<TextFile>("read_text", { path, label: label ?? null });
+
+/** 只探测编码，读头部采样 —— 日志模式用它决定 TextDecoder 的标签 */
+export const detectEncoding = (path: string) => invoke<string>("detect_encoding", { path });
+
+/** 界面上给用户挑的编码清单：[标签, 说明][] */
+export const listEncodings = () => invoke<[string, string][]>("list_encodings");
 
 export interface Stamp {
   mtimeMs: number;
@@ -66,9 +83,12 @@ export interface Stamp {
 /** 文件指纹，用于判断是否被外部改动过 */
 export const fileStamp = (path: string) => invoke<Stamp>("file_stamp", { path });
 
-/** 保存并返回新指纹 —— 必须拿它更新记录，否则自己的保存会被当成外部修改 */
-export const writeText = (path: string, content: string) =>
-  invoke<Stamp>("write_text", { path, content });
+/**
+ * 保存并返回新指纹 —— 必须拿它更新记录，否则自己的保存会被当成外部修改。
+ * 按 label 指定的编码写回；不传就是 UTF-8。
+ */
+export const writeText = (path: string, content: string, label?: string, bom?: boolean) =>
+  invoke<Stamp>("write_text", { path, content, label: label ?? null, bom: bom ?? false });
 
 export const openLog = (path: string) => invoke<OpenResult>("open_log", { path });
 export const logStat = (handle: number) => invoke<LogStat>("log_stat", { handle });

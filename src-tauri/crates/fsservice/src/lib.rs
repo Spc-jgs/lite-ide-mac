@@ -2,9 +2,10 @@
 //!
 //! 与 logengine 同样的纪律：零 Tauri 依赖，可独立测试。
 //!
-//! 编码策略：**只支持 UTF-8 编辑**。非 UTF-8 的文本（例如老 Java 项目里的 GBK 源码）
-//! 会被明确拒绝，而不是用 lossy 解码硬开 —— 那样保存时会把原文件写坏，
-//! 是比"打不开"糟糕得多的结果。这类文件可以用日志模式只读查看。
+//! 编码策略见 [`encoding`] 模块：**探测 → 记住 → 原样写回**。
+//! 用什么编码读进来的就用什么编码存回去，保存不做「顺手转成 UTF-8」这种擅自决定。
+
+pub mod encoding;
 
 use std::fs;
 use std::io;
@@ -79,26 +80,47 @@ pub fn stamp(path: impl AsRef<Path>) -> io::Result<Stamp> {
     })
 }
 
-/// 读取文本文件。非 UTF-8 一律拒绝，理由见模块注释。
-pub fn read_text(path: impl AsRef<Path>) -> io::Result<String> {
+/// 读取文本文件并自动探测编码。
+///
+/// `label` 非空时按指定编码读（用户在状态栏点了「以其他编码重新打开」）。
+pub fn read_text_detect(path: impl AsRef<Path>, label: &str) -> io::Result<encoding::Decoded> {
     let bytes = fs::read(path.as_ref())?;
-    String::from_utf8(bytes).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "不是 UTF-8 编码的文本，暂不支持编辑（可用日志模式只读查看）",
-        )
+    Ok(if label.is_empty() {
+        encoding::decode(&bytes)
+    } else {
+        encoding::decode_as(&bytes, label)
     })
 }
 
-/// 写回文本。先写临时文件再原子替换 —— 中途崩溃不会留下半个文件。
+/// 只要内容的便捷版本，给不关心编码的调用方用（测试、内部工具）。
+pub fn read_text(path: impl AsRef<Path>) -> io::Result<String> {
+    Ok(read_text_detect(path, "")?.content)
+}
+
+/// 写回文本，按指定编码。先写临时文件再原子替换 —— 中途崩溃不会留下半个文件。
+pub fn write_text_as(
+    path: impl AsRef<Path>,
+    content: &str,
+    label: &str,
+    bom: bool,
+) -> io::Result<()> {
+    let bytes = encoding::encode(content, label, bom);
+    write_bytes(path, &bytes)
+}
+
+/// UTF-8 无 BOM 的便捷版本
 pub fn write_text(path: impl AsRef<Path>, content: &str) -> io::Result<()> {
+    write_bytes(path, content.as_bytes())
+}
+
+fn write_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     let path = path.as_ref();
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let tmp = dir.join(format!(
         ".{}.lite-ide-tmp",
         path.file_name().unwrap_or_default().to_string_lossy()
     ));
-    fs::write(&tmp, content)?;
+    fs::write(&tmp, bytes)?;
     // rename 在同一文件系统内是原子的
     match fs::rename(&tmp, path) {
         Ok(()) => Ok(()),
@@ -166,6 +188,29 @@ mod tests {
         fs::remove_dir_all(d).ok();
     }
 
+    /// 用什么编码读进来，就该用什么编码写回去 —— 保存不该偷偷改变文件的编码
+    #[test]
+    fn 非utf8文件的读写往返不改变编码() {
+        let d = sandbox("enc-roundtrip");
+        let f = d.join("gbk.txt");
+        let text = "订单处理失败\n重试中\n";
+
+        // 造一个 GBK 文件
+        fs::write(&f, encoding::encode(text, "GBK", false)).unwrap();
+
+        let got = read_text_detect(&f, "").unwrap();
+        assert_eq!(got.content, text);
+        assert!(got.encoding == "GBK" || got.encoding == "gb18030", "探测成了 {}", got.encoding);
+        assert!(!got.lossy);
+
+        // 原样写回去，磁盘字节应当和原来一致
+        let before = fs::read(&f).unwrap();
+        write_text_as(&f, &got.content, got.encoding, got.bom).unwrap();
+        assert_eq!(fs::read(&f).unwrap(), before, "保存改变了文件编码");
+
+        fs::remove_dir_all(d).ok();
+    }
+
     #[test]
     fn 保存不留临时文件() {
         let d = sandbox("atomic");
@@ -209,13 +254,22 @@ mod tests {
     }
 
     #[test]
-    fn 非_utf8_明确拒绝而不是静默损坏() {
+    /// M14 之前这里断言的是「非 UTF-8 一律报 InvalidData」。
+    /// 那条策略被换掉了：现在探测编码并如实解码，`lossy` 才是「有损坏」的信号。
+    /// 保留这条测试的位置，是为了守住换掉它之后的新契约。
+    fn 非utf8不再被拒绝而是探测出编码() {
         let d = sandbox("gbk");
         let f = d.join("gbk.txt");
         // GBK 编码的「中文」
         fs::write(&f, [0xd6, 0xd0, 0xce, 0xc4]).unwrap();
-        let err = read_text(&f).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+
+        let got = read_text_detect(&f, "").unwrap();
+        assert_ne!(got.encoding, "UTF-8", "不该判成 UTF-8");
+        assert!(!got.lossy, "这四个字节是合法 GBK，不该报有损");
+        // 短样本上 chardetng 未必能分辨 GBK / Big5 / EUC-KR，
+        // 所以只断言「按 GBK 明确读能读对」，不去要求自动探测在 4 字节上也猜准
+        assert_eq!(read_text_detect(&f, "GBK").unwrap().content, "中文");
+
         fs::remove_dir_all(d).ok();
     }
 }

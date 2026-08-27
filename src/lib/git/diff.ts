@@ -300,3 +300,58 @@ export function changeBlocks(rows: { kind: string }[]): number[] {
   }
   return starts;
 }
+
+// ─────────────────── 改动行标记 ───────────────────
+
+export type ChangeKind = "add" | "mod" | "del";
+
+/**
+ * 从 unified diff 里提取「新文件的第几行被改动了」，供编辑器缩略图 / 行标做标记。
+ *
+ * 三种情形分开：
+ * - 一段删除紧跟一段新增 → 这几行是**改的**（mod）
+ * - 只有新增 → **加的**（add）
+ * - 只有删除 → 新文件里没有对应的行，标在**缺口处**（del）。
+ *   标在缺口的下一行是有意的：用户看到的是「这里少了点东西」，
+ *   而缺口下面那一行就是缺口所在的位置。
+ */
+export function changedLines(raw: string): Map<number, ChangeKind> {
+  const out = new Map<number, ChangeKind>();
+  for (const f of parseDiff(raw)) {
+    if (f.binary) continue;
+    const lines = f.lines;
+    let i = 0;
+    /** 已经走到新文件的第几行 —— 纯删除时靠它定位缺口 */
+    let lastNew = 0;
+    while (i < lines.length) {
+      const k = lines[i].kind;
+      if (k === "ctx") {
+        lastNew = lines[i].newNo ?? lastNew;
+        i++;
+        continue;
+      }
+      if (k !== "del" && k !== "add") {
+        i++;
+        continue;
+      }
+      const dels: DiffLine[] = [];
+      while (i < lines.length && lines[i].kind === "del") dels.push(lines[i++]);
+      const adds: DiffLine[] = [];
+      while (i < lines.length && lines[i].kind === "add") adds.push(lines[i++]);
+
+      if (adds.length > 0) {
+        const kind: ChangeKind = dels.length > 0 ? "mod" : "add";
+        for (const a of adds) {
+          if (a.newNo !== undefined) {
+            out.set(a.newNo, kind);
+            lastNew = a.newNo;
+          }
+        }
+      } else if (dels.length > 0) {
+        // 纯删除：标在缺口下面那一行；缺口在文件开头时标第 1 行
+        out.set(Math.max(1, lastNew + 1), "del");
+      }
+    }
+  }
+  return out;
+}

@@ -28,6 +28,8 @@ pub fn run() {
             commands::probe_path,
             commands::list_dir,
             commands::read_text,
+            commands::detect_encoding,
+            commands::list_encodings,
             commands::write_text,
             commands::file_stamp,
             commands::open_log,

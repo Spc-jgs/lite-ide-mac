@@ -12,6 +12,7 @@
     stickBottom = false,
     gotoLine = null,
     format = "plain",
+    encoding = "utf-8",
   }: {
     handle: number;
     lineCount: number;
@@ -23,6 +24,8 @@
     gotoLine?: { line: number; nonce: number } | null;
     /** 日志格式，由 LogPane 从样本行探测后传入 */
     format?: LogFormat;
+    /** 文件编码标签，交给 TextDecoder */
+    encoding?: string;
   } = $props();
 
   const LINE_HEIGHT = 20;
@@ -30,8 +33,8 @@
   const OVERSCAN = 8;
 
   const map = new ScrollMap(LINE_HEIGHT);
-  // 缓存是 (handle, 是否过滤) 的派生物：任一变化都要重建
-  let cache = $derived(new LineCache(handle, filtered));
+  // 缓存是 (handle, 是否过滤, 编码) 的派生物：任一变化都要重建
+  let cache = $derived(new LineCache(handle, filtered, encoding));
 
   let viewport: HTMLDivElement | undefined = $state();
   let scrollTop = $state(0);

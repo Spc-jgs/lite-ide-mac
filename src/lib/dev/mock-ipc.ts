@@ -29,6 +29,15 @@ const LINE_LEVEL = [2, 3, 1, 0, 5, 5, 5, 5, 5, 2, 4, 2];
 
 const TOTAL = 9_141_707;
 
+/** 桩里按文件名猜编码，用来在浏览器里把编码相关的界面路径走一遍 */
+function encOf(path: string): string {
+  if (path.includes("gbk")) return "GBK";
+  if (path.includes("big5")) return "Big5";
+  if (path.includes("sjis")) return "Shift_JIS";
+  if (path.includes("bom")) return "UTF-8";
+  return "UTF-8";
+}
+
 /** 造一条分支，字段与 Rust 侧 BranchDto 对齐 */
 function b(name: string, isHead: boolean, isRemote: boolean, upstream: string, subject: string) {
   return { name, sha: name.slice(0, 7), upstream, isHead, isRemote, when: "2 天前", subject };
@@ -116,6 +125,31 @@ public class OrderService {
         return null;
     }
 }
+`,
+  // 一份足够长的文件，用来验证缩略图「画不下时滑动」那条路径
+  "/proj/src/long.ts": Array.from({ length: 900 }, (_, i) =>
+    i % 11 === 0
+      ? `// ${i} 分段注释：这一行是注释，缩略图上应该是灰色`
+      : i % 7 === 0
+        ? `const label${i} = "字符串 ${i}"; // 尾注`
+        : i % 5 === 0
+          ? `export function fn${i}(a: number, b: string): boolean {`
+          : i % 5 === 1
+            ? `    if (a > ${i}) { return true; }`
+            : i % 5 === 2
+              ? `    return b.length > ${i % 40};`
+              : i % 5 === 3
+                ? `}`
+                : ``,
+  ).join("\n"),
+  "/proj/src/gbk-legacy.java": `// 这个文件在桩里被当成 GBK：状态栏该显示 GBK
+public class LegacyOrder {
+    // 订单处理失败，重试中
+    private static final int RETRIES = 3;
+}
+`,
+  "/proj/src/big5-notes.txt": `訂單處理失敗，重試中
+第二行：庫存不足
 `,
   "/proj/src/main.py": `import asyncio
 from dataclasses import dataclass
@@ -210,7 +244,7 @@ export default defineConfig({
 
 const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj": [["src", true], ["logs", true], ["docs", true], ["README.md", false], ["package.json", false], ["Cargo.toml", false], ["vite.config.ts", false]],
-  "/proj/src": [["OrderService.java", false], ["main.py", false]],
+  "/proj/src": [["OrderService.java", false], ["main.py", false], ["gbk-legacy.java", false], ["big5-notes.txt", false], ["long.ts", false]],
   "/proj/logs": [["access-2026-08-24.log", false]],
   "/proj/docs": [["ARCHITECTURE.md", false]],
 };
@@ -311,8 +345,30 @@ export function installMockIpc(): void {
             size: isDir ? 0 : (FILES[`${path}/${name}`]?.length ?? 0),
           }));
         }
-        case "read_text":
-          return FILES[String(a.path)] ?? "// 桩里没有这个文件\n";
+        case "detect_encoding":
+          return encOf(String(a.path));
+        case "list_encodings":
+          return [
+            ["UTF-8", "UTF-8"],
+            ["GB18030", "GB18030（简体中文，GBK 的超集）"],
+            ["GBK", "GBK（简体中文）"],
+            ["Big5", "Big5（繁体中文）"],
+            ["Shift_JIS", "Shift_JIS（日文）"],
+            ["UTF-16LE", "UTF-16 小端"],
+          ];
+        case "read_text": {
+          // 形状必须与 Rust 侧 TextDto 一致，否则桩就失去了验证价值
+          const p = String(a.path);
+          const enc = (a.label as string) || encOf(p);
+          return {
+            content: FILES[p] ?? "// 桩里没有这个文件\n",
+            encoding: enc,
+            bom: p.includes("bom"),
+            // 桩里模拟「按 UTF-8 读一个 GBK 文件」的乱码情形：
+            // 换成 GBK 重新打开就不再有损，正好把状态栏的告警路径走一遍
+            lossy: p.includes("gbk") && enc.toLowerCase() === "utf-8",
+          };
+        }
         case "write_text":
           FILES[String(a.path)] = String(a.content);
           return bump(String(a.path));

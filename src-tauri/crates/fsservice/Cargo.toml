@@ -3,3 +3,10 @@ name = "fsservice"
 version = "0.1.0"
 edition = "2021"
 description = "文件树与文本读写（零 Tauri 依赖）"
+
+[dependencies]
+# Firefox 的编码实现与探测器，都是纯 Rust。
+# 自己写 GBK/Big5 的映射表是不可能维护对的 —— 光 GB18030 就是四字节变长、
+# 带 Unicode 补充平面映射的一大张表。
+encoding_rs = "0.8"
+chardetng = "0.1"
