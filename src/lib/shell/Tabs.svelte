@@ -18,11 +18,48 @@
     onSelect: (id: number) => void;
     onClose: (id: number) => void;
   } = $props();
+
+  let bar = $state<HTMLElement | null>(null);
+  let els = $state<Record<number, HTMLElement>>({});
+
+  /**
+   * 让当前标签始终可见。
+   *
+   * 标签多到溢出时，用 ⌘P 打开一个已存在但滚出视野的标签，界面上会「什么都没发生」
+   * —— 其实切过去了，只是那个标签在屏幕外。
+   */
+  $effect(() => {
+    const id = activeId;
+    if (id === null) return;
+    const el = els[id];
+    if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+
+  /** 竖着滚滚轮就横向滚标签栏 —— 触控板上这是最自然的手势 */
+  function onWheel(e: WheelEvent) {
+    if (!bar) return;
+    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (d === 0) return;
+    e.preventDefault();
+    bar.scrollLeft += d;
+  }
 </script>
 
-<div class="tabs" role="tablist">
+<div class="tabs" role="tablist" bind:this={bar} onwheel={onWheel}>
   {#each tabs as tab (tab.id)}
-    <div class="tab" class:active={tab.id === activeId} role="presentation">
+    <!-- 中键关标签，浏览器和各家编辑器通用的手势 -->
+    <div
+      class="tab"
+      class:active={tab.id === activeId}
+      role="presentation"
+      bind:this={els[tab.id]}
+      onauxclick={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          onClose(tab.id);
+        }
+      }}
+    >
       <button
         class="label"
         role="tab"
@@ -59,7 +96,6 @@
     overflow-y: hidden;
     user-select: none;
   }
-  .tabs::-webkit-scrollbar { height: 0; }
   .tab {
     display: flex;
     align-items: center;
@@ -71,6 +107,10 @@
     background: transparent;
   }
   .tab:hover { background: var(--panel-bg-2); }
+  /* 标签溢出时给个细滚动条，否则完全看不出还有更多标签 */
+  .tabs::-webkit-scrollbar { height: 3px; }
+  .tabs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .tabs:hover::-webkit-scrollbar-thumb { background: var(--text-faint); }
   .tab.active {
     background: var(--editor-bg);
     border-bottom-color: var(--accent);

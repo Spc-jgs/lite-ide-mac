@@ -79,15 +79,18 @@ function g(
   extra: { staged?: boolean; untracked?: boolean; isDir?: boolean; conflicted?: boolean; orig?: string } = {},
 ) {
   const untracked = extra.untracked ?? false;
+  const conflicted = extra.conflicted ?? false;
   return {
     path,
     index,
     work,
     untracked,
     isDir: extra.isDir ?? false,
-    conflicted: extra.conflicted ?? false,
-    staged: !untracked && index !== "." && index !== " ",
-    unstaged: untracked || (work !== "." && work !== " "),
+    conflicted,
+    // 与 Rust 侧 Entry::staged / unstaged 完全一致 —— 包括「冲突条目
+    // 既不算已暂存也不算未暂存」这条。桩要是和真实现分叉，它就没用了
+    staged: !conflicted && !untracked && index !== "." && index !== " ",
+    unstaged: !conflicted && (untracked || (work !== "." && work !== " ")),
     orig: extra.orig ?? null,
   };
 }

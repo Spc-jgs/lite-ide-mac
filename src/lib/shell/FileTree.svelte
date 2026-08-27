@@ -6,20 +6,19 @@
     root,
     activePath,
     gitStatus = null,
+    reloadTick = 0,
     onOpen,
-    onSearch,
-    onGit,
-    onCollapse,
   }: {
     root: string;
     activePath: string;
     /** 有仓库就给文件染色；没有就是 null，整块装饰不存在 */
     gitStatus?: GitStatus | null;
+    /**
+     * 自增即重新拉取目录内容。切分支、丢弃改动、在终端里 `mv` 之后都要刷 ——
+     * 否则文件树一直显示的是打开那一刻的快照。
+     */
+    reloadTick?: number;
     onOpen: (path: string, isDir: boolean) => void;
-    onSearch: () => void;
-    /** 切到 Git 视图；不在仓库里时上层不传，按钮就不出现 */
-    onGit?: () => void;
-    onCollapse: () => void;
   } = $props();
 
   /**
@@ -65,6 +64,43 @@
       expanded = new Set([r]);
       void load(r);
     });
+  });
+
+  /**
+   * 重新拉取**已展开的目录**，但保住展开状态。
+   *
+   * 不走「清空 children 重来」那条路：那样会把整棵树收回根节点，
+   * 而刷新最常发生在切完分支之后 —— 正是最不想丢失上下文的时候。
+   * 把所有节点收起来是最烦人的刷新方式。
+   */
+  async function reload() {
+    const dirs = [...expanded];
+    const next = new Map(children);
+    const gone: string[] = [];
+    await Promise.all(
+      dirs.map(async (d) => {
+        try {
+          next.set(d, await listDir(d, false));
+        } catch {
+          // 目录没了（切分支切掉了）：从缓存和展开集里一并摘掉
+          next.delete(d);
+          gone.push(d);
+        }
+      }),
+    );
+    children = next;
+    if (gone.length) {
+      const e = new Set(expanded);
+      for (const g of gone) e.delete(g);
+      expanded = e;
+    }
+  }
+
+  // 外部要求刷新。untrack 的理由同上一个 effect：reload() 读 children 也写 children
+  $effect(() => {
+    const t = reloadTick;
+    if (t === 0) return;
+    untrack(() => void reload());
   });
 
   function toggle(path: string) {
@@ -167,46 +203,102 @@
     if (row.isDir) toggle(row.path);
     else onOpen(row.path, false);
   }
+
+  // ─────────────────── 键盘导航 ───────────────────
+
+  /**
+   * 用**游标式 tabindex**：只有游标那一行是 tabindex=0，其余是 -1。
+   *
+   * 早先每一行都是普通 button，于是 Tab 键会一个一个走过几百个文件才能离开
+   * 文件树 —— 这是 tree 控件的标准坑，正确做法就是让整棵树只占一个 Tab 停靠点，
+   * 树内部用方向键走。
+   */
+  let cursor = $state(0);
+  let els: HTMLButtonElement[] = [];
+
+  // 行数变了（展开、收起、刷新）游标可能越界
+  $effect(() => {
+    const n = rows.length;
+    if (cursor >= n) cursor = Math.max(0, n - 1);
+  });
+
+  function focusRow(i: number) {
+    const n = rows.length;
+    if (n === 0) return;
+    cursor = Math.min(Math.max(0, i), n - 1);
+    els[cursor]?.focus();
+  }
+
+  function onRowKey(e: KeyboardEvent, i: number) {
+    const row = rows[i];
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        focusRow(i + 1);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        focusRow(i - 1);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        // 目录收着就展开，已经展开就走进去第一个子项 —— 与 Finder / IDEA 一致
+        if (row.isDir && !expanded.has(row.path)) toggle(row.path);
+        else focusRow(i + 1);
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        if (row.isDir && expanded.has(row.path)) {
+          toggle(row.path);
+        } else {
+          // 回到父目录那一行：往上找第一个层级更浅的
+          let j = i - 1;
+          while (j >= 0 && rows[j].depth >= row.depth) j--;
+          focusRow(j < 0 ? 0 : j);
+        }
+        break;
+      case "Home":
+        e.preventDefault();
+        focusRow(0);
+        break;
+      case "End":
+        e.preventDefault();
+        focusRow(rows.length - 1);
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        click(row);
+        break;
+    }
+  }
 </script>
 
 <div class="tree">
   <div class="head">
     <span class="proj" title={root}>{rootName}</span>
     <span class="gap"></span>
-    {#if onGit}
-      <button class="act" onclick={onGit} title="Git ⌘⇧G" aria-label="Git">
-        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-          <circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-          <circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-          <circle cx="11.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-          <path d="M4.5 5.3 L4.5 10.7" stroke="currentColor" stroke-width="1.3" />
-          <path d="M11.5 5.3 Q11.5 8.5 4.5 10.7" fill="none" stroke="currentColor" stroke-width="1.3" />
-        </svg>
-      </button>
-    {/if}
-    <button class="act" onclick={onSearch} title="在项目中搜索 ⌘⇧F" aria-label="搜索">
-      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-        <circle cx="7" cy="7" r="4.2" fill="none" stroke="currentColor" stroke-width="1.4" />
-        <path d="M10.2 10.2 L13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-      </svg>
-    </button>
-    <button class="act" onclick={onCollapse} title="收起侧边栏 ⌘1" aria-label="收起侧边栏">
-      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-        <path d="M9.5 3.5 L5 8 L9.5 12.5" fill="none" stroke="currentColor" stroke-width="1.5"
-              stroke-linecap="round" stroke-linejoin="round" />
-        <path d="M12.5 3.5 L12.5 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-      </svg>
-    </button>
   </div>
-  <div class="list">
-    {#each rows as row (row.path)}
+  <div class="list" role="tree" aria-label="文件树">
+    {#each rows as row, i (row.path)}
       {@const d = deco(row.path)}
       <button
+        bind:this={els[i]}
         class="row"
         class:dir={row.isDir}
         class:active={row.path === activePath}
+        role="treeitem"
+        tabindex={i === cursor ? 0 : -1}
+        aria-level={row.depth + 1}
+        aria-expanded={row.isDir ? expanded.has(row.path) : undefined}
+        aria-selected={row.path === activePath}
         style:padding-left="{6 + row.depth * 13}px"
-        onclick={() => click(row)}
+        onclick={() => {
+          cursor = i;
+          click(row);
+        }}
+        onfocus={() => (cursor = i)}
+        onkeydown={(e) => onRowKey(e, i)}
         title={row.name}
       >
         {#if row.isDir}
@@ -290,6 +382,8 @@
   .row.active { background: var(--accent-sel); color: var(--text); }
   .row.dir { color: var(--text); }
   .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  /* 键盘走到的行给个底色，光有 outline 在长列表里不够醒目 */
+  .row:focus-visible:not(.active) { background: var(--panel-bg-2); }
   .caret {
     flex: none;
     width: 11px;

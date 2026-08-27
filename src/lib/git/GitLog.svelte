@@ -109,12 +109,45 @@
   };
 
   const x = (lane: number) => lane * LANE_W + LANE_W / 2;
+
+  /**
+   * 提交列表的键盘导航。浏览历史是「一条条往下看」的动作，
+   * 每看一条都要摸鼠标是很累的。
+   */
+  let rowEls: HTMLButtonElement[] = [];
+
+  function onRowKey(e: KeyboardEvent, i: number) {
+    let to = -1;
+    if (e.key === "ArrowDown") to = i + 1;
+    else if (e.key === "ArrowUp") to = i - 1;
+    else if (e.key === "Home") to = 0;
+    else if (e.key === "End") to = shown.length - 1;
+    else return;
+    e.preventDefault();
+    to = Math.min(Math.max(0, to), shown.length - 1);
+    picked = shown[to] ?? null;
+    rowEls[to]?.focus();
+  }
+
+  /** 在过滤框里按 ↓ 直接跳进列表，不用先摸一下鼠标 */
+  function onQueryKey(e: KeyboardEvent) {
+    if (e.key !== "ArrowDown" || shown.length === 0) return;
+    e.preventDefault();
+    picked = shown[0];
+    rowEls[0]?.focus();
+  }
 </script>
 
 <div class="log">
   <div class="left">
     <div class="tools">
-      <input class="q" bind:value={q} placeholder="过滤标题 / 作者 / sha" spellcheck="false" />
+      <input
+        class="q"
+        bind:value={q}
+        onkeydown={onQueryKey}
+        placeholder="过滤标题 / 作者 / sha"
+        spellcheck="false"
+      />
       <label class="chk"><input type="checkbox" bind:checked={all} /> 全部分支</label>
       <label class="chk" class:off={!filePath}>
         <input type="checkbox" bind:checked={onlyFile} disabled={!filePath} /> 只看当前文件
@@ -134,9 +167,11 @@
         {#each shown as c, i (c.sha)}
           {@const g = graph?.rows[i]}
           <button
+            bind:this={rowEls[i]}
             class="crow"
             class:on={picked?.sha === c.sha}
             onclick={() => (picked = c)}
+            onkeydown={(e) => onRowKey(e, i)}
             title={c.subject}
           >
             {#if graph && g}

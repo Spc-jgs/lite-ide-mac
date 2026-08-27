@@ -107,6 +107,12 @@
     }
   }
 
+  /**
+   * 文件树刷新计数。切分支、丢弃、动工作树、以及窗口重新获得焦点时自增 ——
+   * 磁盘上的目录结构随时可能被终端里的命令改掉。
+   */
+  let treeTick = $state(0);
+
   let sidebar = $state(true);
   let sidebarWidth = $state(240);
   /** 侧边栏当前显示哪个视图。不在仓库里时强制回文件树 */
@@ -222,12 +228,14 @@
   }
 
   function switchBranch(name: string, create = false) {
+    banner = null;
     void gitDo(create ? "新建分支失败" : "切分支失败", async () => {
       await gitSwitch(repo!, name, create);
       saved = create ? `已新建并切到 ${name}` : `已切到 ${name}`;
       setTimeout(() => (saved = ""), 2600);
-      // 切分支会大面积改盘上的文件，打开的标签必须重新对一遍
+      // 切分支会大面积改盘上的文件：打开的标签要重新对一遍，文件树也要重列
       await checkExternalChanges();
+      treeTick++;
     });
   }
 
@@ -249,6 +257,7 @@
     void gitDo("移除工作树失败", async () => {
       await gitWorktreeRemove(repo!, w.path, force);
       saved = `已移除工作树 ${w.path}`;
+      treeTick++;
       setTimeout(() => (saved = ""), 2600);
     });
   }
@@ -297,23 +306,26 @@
   async function openCommitDiff(sha: string, short: string, rel: string) {
     if (!repo) return;
     const key = `git-commit:${sha}:${rel}`;
-    let tab = tabs.find((t) => t.path === key);
-    if (!tab) {
-      tab = {
-        id: nextId++,
-        path: key,
-        name: rel.slice(rel.lastIndexOf("/") + 1),
-        mode: "diff",
-        dirty: false,
-        size: 0,
-        rel,
-        diffSha: sha,
-        diffShort: short,
-      };
-      tabs = [...tabs, tab];
+    let id = tabs.find((t) => t.path === key)?.id;
+    if (id === undefined) {
+      id = nextId++;
+      tabs = [
+        ...tabs,
+        {
+          id,
+          path: key,
+          name: rel.slice(rel.lastIndexOf("/") + 1),
+          mode: "diff",
+          dirty: false,
+          size: 0,
+          rel,
+          diffSha: sha,
+          diffShort: short,
+        },
+      ];
     }
-    activeId = tab.id;
-    await reloadDiff(tab);
+    activeId = id;
+    await reloadDiff(id);
   }
 
   /** 换项目根就重新找仓库。找不到时把 Git 的一切都清干净 */
@@ -356,7 +368,7 @@
       // 打开着的工作区差异跟着更新，否则暂存完还停在旧内容上。
       // 历史提交的差异是不变的，重拉纯属浪费一次子进程
       await Promise.all(
-        tabs.filter((t) => t.mode === "diff" && !t.diffSha).map(reloadDiff),
+        tabs.filter((t) => t.mode === "diff" && !t.diffSha).map((t) => reloadDiff(t.id)),
       );
     } catch (e) {
       error = String(e);
@@ -366,12 +378,44 @@
     }
   }
 
-  async function reloadDiff(tab: TabState) {
-    if (!repo || tab.mode !== "diff" || !tab.rel) return;
+  /**
+   * 按 id 取标签，**必须从 `tabs` 里拿**。
+   *
+   * `tabs` 是 `$state`，数组里的元素在读取时被包成代理。往创建时那个
+   * 原始对象上写（`const tab = {...}; tabs = [...tabs, tab]; tab.x = 1`）
+   * 确实改得动底层数据，但**不会产生任何信号**，界面不会重渲染 ——
+   * 差异面板因此一直停在「没有差异」，直到别的操作碰巧引起一次重绘。
+   * 异步流程尤其容易踩：await 回来时手上那个引用早已不是响应式的那一份。
+   */
+  function tabById(id: number): TabState | null {
+    return tabs.find((t) => t.id === id) ?? null;
+  }
+
+  async function reloadDiff(id: number) {
+    const tab = tabById(id);
+    if (!tab || !repo || tab.mode !== "diff" || !tab.rel) return;
     try {
-      tab.diffRaw = tab.diffSha
-        ? await gitCommitDiff(repo, tab.diffSha, tab.rel)
-        : await gitDiff(repo, tab.rel, !!tab.diffStaged, !!tab.diffUntracked);
+      if (tab.diffSha) {
+        tab.diffRaw = await gitCommitDiff(repo, tab.diffSha, tab.rel);
+        return;
+      }
+      let raw = await gitDiff(repo, tab.rel, !!tab.diffStaged, !!tab.diffUntracked);
+      /*
+       * 这一侧空了，就看看另一侧有没有东西。
+       *
+       * 典型情形：差异标签开着，用户在改动列表里把这个文件暂存了 ——
+       * 改动跑去了暂存区，工作区侧变空，标签上就只剩一句「没有差异」，
+       * 看着像坏了。其实内容还在，只是换了一边。自动跟过去。
+       */
+      if (!raw.trim()) {
+        const other = await gitDiff(repo, tab.rel, !tab.diffStaged, false);
+        if (other.trim()) {
+          tab.diffStaged = !tab.diffStaged;
+          tab.diffUntracked = false;
+          raw = other;
+        }
+      }
+      tab.diffRaw = raw;
     } catch (e) {
       tab.diffRaw = "";
       error = String(e);
@@ -389,25 +433,29 @@
     if (!repo) return;
     const full = `${repo}/${e.path}`;
     const key = `git-merge:${e.path}`;
-    let tab = tabs.find((t) => t.path === key);
     try {
       const content = (await readText(full)).content;
-      if (!tab) {
-        tab = {
-          id: nextId++,
-          path: key,
-          name: e.path.slice(e.path.lastIndexOf("/") + 1),
-          mode: "merge",
-          dirty: false,
-          size: 0,
-          rel: e.path,
-          mergeText: content,
-        };
-        tabs = [...tabs, tab];
+      let id = tabs.find((t) => t.path === key)?.id;
+      if (id === undefined) {
+        id = nextId++;
+        tabs = [
+          ...tabs,
+          {
+            id,
+            path: key,
+            name: e.path.slice(e.path.lastIndexOf("/") + 1),
+            mode: "merge",
+            dirty: false,
+            size: 0,
+            rel: e.path,
+            mergeText: content,
+          },
+        ];
       } else {
-        tab.mergeText = content;
+        const t = tabById(id);
+        if (t) t.mergeText = content;
       }
-      activeId = tab.id;
+      activeId = id;
     } catch (err) {
       error = String(err);
     }
@@ -437,33 +485,48 @@
   async function openDiff(e: GitEntry, staged: boolean) {
     if (!repo || e.isDir) return;
     const key = `git-diff:${e.path}`;
-    let tab = tabs.find((t) => t.mode === "diff" && t.path === key);
-    if (!tab) {
-      tab = {
-        id: nextId++,
-        path: key,
-        name: e.path.slice(e.path.lastIndexOf("/") + 1),
-        mode: "diff",
-        dirty: false,
-        size: 0,
-        rel: e.path,
-      };
-      tabs = [...tabs, tab];
+    let id = tabs.find((t) => t.mode === "diff" && t.path === key)?.id;
+    if (id === undefined) {
+      id = nextId++;
+      tabs = [
+        ...tabs,
+        {
+          id,
+          path: key,
+          name: e.path.slice(e.path.lastIndexOf("/") + 1),
+          mode: "diff",
+          dirty: false,
+          size: 0,
+          rel: e.path,
+        },
+      ];
     }
+    // 从数组里重新取一次，拿到的才是响应式的那份
+    const tab = tabById(id);
+    if (!tab) return;
     tab.diffStaged = staged;
     tab.diffUntracked = e.untracked && !staged;
-    activeId = tab.id;
-    await reloadDiff(tab);
+    activeId = id;
+    await reloadDiff(id);
   }
 
   /** 差异标签上切换「已暂存 ↔ 未暂存」 */
-  async function toggleDiffSide(tab: TabState) {
+  async function toggleDiffSide(id: number) {
+    const tab = tabById(id);
+    if (!tab) return;
     tab.diffStaged = !tab.diffStaged;
     // 未跟踪文件一旦进了暂存区，就该按普通 diff 读，不能再走 --no-index
     const e = gitSt?.entries.find((x) => x.path === tab.rel);
     tab.diffUntracked = !!e?.untracked && !tab.diffStaged;
-    await reloadDiff(tab);
+    await reloadDiff(id);
   }
+
+  /**
+   * git 的错误说明是**多行**的（「你有未提交的改动，请先 commit 或 stash，
+   * 涉及这些文件：…」），塞进状态栏那一格会被截断成一句没头没尾的话。
+   * 这类消息走横幅，用户自己关。
+   */
+  let banner = $state<{ title: string; body: string } | null>(null);
 
   /** 包一层：任何 git 写操作之后都要刷新状态，也统一收口错误 */
   async function gitDo(what: string, fn: () => Promise<unknown>) {
@@ -472,8 +535,7 @@
       await fn();
       await refreshGit();
     } catch (e) {
-      error = `${what}：${e}`;
-      setTimeout(() => (error = ""), 5000);
+      banner = { title: what, body: String(e).replace(/^Error:\s*/, "") };
     }
   }
 
@@ -484,8 +546,9 @@
     const tracked = entries.filter((e) => !e.untracked).map((e) => e.path);
     const untracked = entries.filter((e) => e.untracked).map((e) => e.path);
     await gitDo("丢弃失败", () => gitDiscard(repo!, tracked, untracked));
-    // 丢弃会改磁盘，打开着的编辑标签要跟上
+    // 丢弃会改磁盘：打开着的编辑标签要跟上，未跟踪文件被删了文件树也要重列
     await checkExternalChanges();
+    treeTick++;
   }
 
   function doGitCommit(message: string, amend: boolean) {
@@ -861,10 +924,16 @@
       void checkExternalChanges();
       // 用户可能刚在终端里 commit / checkout 完切回来
       void refreshGit();
+      // 目录结构也可能变了（新建、改名、切分支）
+      treeTick++;
     };
     window.addEventListener("focus", onFocus);
-    // 兜底：一直没离开窗口，但文件被后台进程改了
-    const id = setInterval(onFocus, 10_000);
+    /*
+     * 兜底轮询只查已打开文件的指纹，**不**重列目录 ——
+     * 重列要按展开的目录数发一串 IPC，每 10 秒跑一次纯属白烧。
+     * 目录结构的变化靠焦点事件捕捉就够了。
+     */
+    const id = setInterval(() => void checkExternalChanges(), 10_000);
     return () => {
       window.removeEventListener("focus", onFocus);
       clearInterval(id);
@@ -1007,7 +1076,8 @@
       quickOpen = true;
       return;
     }
-    if (k === "1") {
+    if (k === "1" || k === "b") {
+      // ⌘B 是 VSCode 的侧边栏键位，很多人手指记的是它
       e.preventDefault();
       sidebar = !sidebar;
     } else if (k === "j") {
@@ -1019,15 +1089,24 @@
     }
   }
 
+  /**
+   * 拖拽期间关掉列宽过渡。
+   * 收起/展开侧边栏时有个 130ms 的过渡看着舒服，但拖拽时每一帧都在改宽度，
+   * 带着过渡就是一路追不上手的橡皮筋感。
+   */
+  let resizing = $state(false);
+
   /** 侧边栏横向拖拽。上限留出编辑区的活路，不让它被挤没 */
   function startSideResize(e: PointerEvent) {
     e.preventDefault();
+    resizing = true;
     const startX = e.clientX;
     const startW = sidebarWidth;
     const move = (ev: PointerEvent) => {
       sidebarWidth = Math.max(140, Math.min(window.innerWidth - 360, startW + (ev.clientX - startX)));
     };
     const up = () => {
+      resizing = false;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };
@@ -1115,16 +1194,6 @@
 
 <main class:hovering>
   <header class="titlebar" data-tauri-drag-region>
-    {#if !sidebar}
-      <!-- 侧边栏收起后，展开的入口只能放这儿；展开时它在侧边栏头部右侧 -->
-      <button class="side-toggle" onclick={() => (sidebar = true)} title="展开侧边栏 ⌘1" aria-label="展开侧边栏">
-        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-          <path d="M6.5 3.5 L11 8 L6.5 12.5" fill="none" stroke="currentColor" stroke-width="1.5"
-                stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M3.5 3.5 L3.5 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-        </svg>
-      </button>
-    {/if}
     <span class="app">lite-ide</span>
     {#if active}
       <span class="sep">—</span>
@@ -1137,7 +1206,107 @@
     {/if}
   </header>
 
-  <div class="workspace" class:no-side={!sidebar} style:--side-w="{sidebarWidth}px">
+  <div
+    class="workspace"
+    class:no-side={!sidebar}
+    class:resizing
+    style:--side-w="{sidebarWidth}px"
+  >
+    <!--
+      常驻的工具竖条。所有侧边栏控件都住在这里，收起侧边栏时竖条留着 ——
+      于是按钮在两个状态下位置完全一致。
+
+      早先的做法是「展开时按钮在侧边栏头部右侧、收起时在标题栏左边」，
+      结果同一个按钮在两个状态间横跳约 290 像素，每次都要重新找它在哪。
+      控件的位置必须是肌肉记忆能记住的。
+    -->
+    <nav class="rail" aria-label="侧边栏工具">
+      <button
+        class="rbtn"
+        class:on={sidebar}
+        onclick={() => (sidebar = !sidebar)}
+        title={sidebar ? "收起侧边栏 ⌘1" : "展开侧边栏 ⌘1"}
+        aria-label={sidebar ? "收起侧边栏" : "展开侧边栏"}
+        aria-expanded={sidebar}
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"
+                fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path d="M6.4 2.6 L6.4 13.4" stroke="currentColor" stroke-width="1.3" />
+          <rect x="1.6" y="2.6" width="4.8" height="10.8" fill="currentColor" opacity="0.28" />
+        </svg>
+      </button>
+      {#if root}
+        <button
+          class="rbtn"
+          class:on={sidebar && sideView === "files"}
+          onclick={() => {
+            sideView = "files";
+            sidebar = true;
+          }}
+          title="文件树"
+          aria-label="文件树"
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"
+                  fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+          </svg>
+        </button>
+        {#if repo}
+          <button
+            class="rbtn"
+            class:on={sidebar && sideView === "git"}
+            onclick={() => {
+              sideView = "git";
+              sidebar = true;
+            }}
+            title="Git 改动 ⌘⇧G"
+            aria-label="Git 改动"
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
+              <circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
+              <circle cx="11.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
+              <path d="M4.5 5.3 L4.5 10.7" stroke="currentColor" stroke-width="1.3" />
+              <path d="M11.5 5.3 Q11.5 8.5 4.5 10.7" fill="none" stroke="currentColor" stroke-width="1.3" />
+            </svg>
+            {#if gitSt && gitSt.entries.length > 0}
+              <span class="dot" aria-hidden="true"></span>
+            {/if}
+          </button>
+        {/if}
+        <button
+          class="rbtn"
+          onclick={() => {
+            quickScope = "content";
+            quickOpen = true;
+          }}
+          title="在项目中搜内容 ⌘⇧F"
+          aria-label="搜索"
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.2" fill="none" stroke="currentColor" stroke-width="1.4" />
+            <path d="M10.2 10.2 L13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+          </svg>
+        </button>
+      {/if}
+      <span class="rgap"></span>
+      <button
+        class="rbtn"
+        class:on={panel}
+        onclick={() => (panel = !panel)}
+        title="终端 / Git 日志 ⌘J"
+        aria-label="底部面板"
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"
+                fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path d="M1.6 9.6 L14.4 9.6" stroke="currentColor" stroke-width="1.3" />
+          <rect x="1.6" y="9.6" width="12.8" height="3.8" fill="currentColor" opacity="0.28" />
+        </svg>
+      </button>
+    </nav>
+
     {#if sidebar}
       <aside>
         {#if !root}
@@ -1152,8 +1321,6 @@
             onDiscard={(es) => (pendingDiscard = es)}
             onCommit={doGitCommit}
             onRefresh={() => void refreshGit()}
-            onFiles={() => (sideView = "files")}
-            onCollapse={() => (sidebar = false)}
           />
         {:else if sideView === "git" && repo}
           <div class="no-root">正在载入 Git 面板…</div>
@@ -1162,13 +1329,8 @@
             {root}
             activePath={active?.path ?? ""}
             gitStatus={gitSt}
+            reloadTick={treeTick}
             onOpen={(p) => void openPath(p)}
-            onSearch={() => {
-              quickScope = "content";
-              quickOpen = true;
-            }}
-            onGit={repo ? () => (sideView = "git") : undefined}
-            onCollapse={() => (sidebar = false)}
           />
         {/if}
       </aside>
@@ -1202,6 +1364,16 @@
           </span>
           <button class="primary" onclick={() => doSwitch(pendingSwitch!, "edit")}>仍然编辑</button>
           <button onclick={() => (pendingSwitch = null)}>取消</button>
+        </div>
+      {/if}
+
+      {#if banner}
+        <div class="confirm err-banner">
+          <span class="btext">
+            <b>{banner.title}</b>
+            <span class="bbody">{banner.body}</span>
+          </span>
+          <button onclick={() => (banner = null)}>知道了</button>
         </div>
       {/if}
 
@@ -1270,7 +1442,7 @@
               path={active.rel ?? active.name}
               staged={!!active.diffStaged}
               commit={active.diffShort ?? ""}
-              onToggleStaged={() => void toggleDiffSide(active!)}
+              onToggleStaged={() => void toggleDiffSide(active!.id)}
             />
           {/key}
         {:else if active.mode === "diff"}
@@ -1484,18 +1656,6 @@
     font-size: 12.5px;
     user-select: none;
   }
-  .side-toggle {
-    display: grid;
-    place-content: center;
-    width: 22px;
-    height: 22px;
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    cursor: default;
-    border-radius: 3px;
-  }
-  .side-toggle:hover { background: var(--panel-bg-2); color: var(--text); }
   .titlebar .app { color: var(--text); font-weight: 500; }
   .titlebar .sep { color: var(--text-faint); }
   .titlebar .file { color: var(--text-dim); }
@@ -1511,11 +1671,56 @@
 
   .workspace {
     display: grid;
-    /* 三列：侧边栏 · 拖拽条 · 主区 */
-    grid-template-columns: var(--side-w, 240px) 4px 1fr;
+    /* 四列：常驻竖条 · 侧边栏 · 拖拽条 · 主区 */
+    grid-template-columns: 34px var(--side-w, 240px) 4px 1fr;
+    overflow: hidden;
+    transition: grid-template-columns 0.13s ease;
+  }
+  /* 拖拽时不要过渡，否则是一路追不上手的橡皮筋 */
+  .workspace.resizing { transition: none; }
+  @media (prefers-reduced-motion: reduce) { .workspace { transition: none; } }
+  /* 收起侧边栏只去掉中间两列，竖条留着 —— 按钮的位置不能动 */
+  .workspace.no-side { grid-template-columns: 34px 1fr; }
+
+  .rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 5px 0 6px;
+    background: var(--panel-bg);
+    border-right: 1px solid var(--border);
     overflow: hidden;
   }
-  .workspace.no-side { grid-template-columns: 1fr; }
+  .rail .rgap { flex: 1; }
+  .rbtn {
+    position: relative;
+    flex: none;
+    display: grid;
+    place-content: center;
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    color: var(--text-faint);
+    cursor: default;
+    transition: background 0.09s, color 0.09s;
+  }
+  .rbtn:hover { background: var(--panel-bg-2); color: var(--text); }
+  .rbtn.on { color: var(--accent); background: var(--accent-sel); }
+  .rbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  /* 有未提交改动时给 Git 图标一个小红点，收起侧边栏也知道有东西 */
+  .rbtn .dot {
+    position: absolute;
+    right: 4px;
+    top: 4px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--git-modified);
+  }
+  @media (prefers-reduced-motion: reduce) { .rbtn { transition: none; } }
   .side-resizer {
     background: var(--border);
     cursor: col-resize;
@@ -1695,6 +1900,23 @@
   .confirm.conflict { background: rgba(214, 174, 88, 0.12); border-bottom-color: var(--lvl-warn); }
   /* 不可撤销的操作用红色描边，别让它长得跟普通确认一样 */
   .confirm.danger { background: rgba(247, 84, 100, 0.10); border-bottom-color: var(--lvl-error); }
+  .confirm.err-banner {
+    align-items: flex-start;
+    background: rgba(247, 84, 100, 0.10);
+    border-bottom-color: var(--lvl-error);
+  }
+  .err-banner .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .err-banner b { color: var(--lvl-error); }
+  /* git 的说明本来就是分行排版的，保住换行；太长时可以滚 */
+  .err-banner .bbody {
+    white-space: pre-wrap;
+    font-family: var(--code-font);
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--text-dim);
+    max-height: 7.5em;
+    overflow-y: auto;
+  }
   .confirm button.danger {
     background: var(--lvl-error);
     border-color: var(--lvl-error);

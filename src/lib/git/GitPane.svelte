@@ -10,8 +10,6 @@
     onDiscard,
     onCommit,
     onRefresh,
-    onCollapse,
-    onFiles,
   }: {
     status: GitStatus | null;
     busy: boolean;
@@ -22,8 +20,6 @@
     onDiscard: (entries: GitEntry[]) => void;
     onCommit: (message: string, amend: boolean) => void;
     onRefresh: () => void;
-    onCollapse: () => void;
-    onFiles: () => void;
   } = $props();
 
   let message = $state("");
@@ -87,25 +83,12 @@
   <div class="head">
     <span class="title">GIT</span>
     <span class="gap"></span>
-    <button class="act" onclick={onFiles} title="回到文件树 ⌘⇧G" aria-label="文件树">
-      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-        <path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"
-              fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
-      </svg>
-    </button>
     <button class="act" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:spin={busy}>
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
         <path d="M13 8a5 5 0 1 1-1.6-3.7" fill="none" stroke="currentColor" stroke-width="1.4"
               stroke-linecap="round" />
         <path d="M13 2.2 L13 5 L10.2 5" fill="none" stroke="currentColor" stroke-width="1.4"
               stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-    </button>
-    <button class="act" onclick={onCollapse} title="收起侧边栏 ⌘1" aria-label="收起侧边栏">
-      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-        <path d="M9.5 3.5 L5 8 L9.5 12.5" fill="none" stroke="currentColor" stroke-width="1.5"
-              stroke-linecap="round" stroke-linejoin="round" />
-        <path d="M12.5 3.5 L12.5 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
       </svg>
     </button>
   </div>
