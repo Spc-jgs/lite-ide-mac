@@ -31,12 +31,15 @@ interface Block {
 export class LineCache {
   private handle: number;
   private filtered: boolean;
+  /** 这个文件的编码标签，交给 TextDecoder 用 */
+  private encoding: string;
   private blocks = new Map<number, Block>();
   private inflight = new Set<number>();
 
-  constructor(handle: number, filtered: boolean) {
+  constructor(handle: number, filtered: boolean, encoding = "utf-8") {
     this.handle = handle;
     this.filtered = filtered;
+    this.encoding = encoding;
   }
 
   /** 同步取一行；未命中返回 undefined，由调用方渲染占位并等待 onLoad */
@@ -79,14 +82,14 @@ export class LineCache {
     const start = id * BLOCK_LINES;
     if (!this.filtered) {
       const buf = await logLines(this.handle, start, BLOCK_LINES);
-      return { texts: decodeBlock(buf).lines, phys: null };
+      return { texts: decodeBlock(buf, this.encoding).lines, phys: null };
     }
     // 内容与行号映射并行取，省一个来回
     const [buf, phys] = await Promise.all([
       logLinesFiltered(this.handle, start, BLOCK_LINES),
       logFilterMap(this.handle, start, BLOCK_LINES),
     ]);
-    return { texts: decodeBlock(buf).lines, phys };
+    return { texts: decodeBlock(buf, this.encoding).lines, phys };
   }
 
   /** 行数增长（索引还在跑 / tail 追加）时，末块可能不完整，丢掉让它重取 */

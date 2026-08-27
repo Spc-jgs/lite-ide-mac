@@ -8,7 +8,7 @@
 
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { tags as t } from "@lezer/highlight";
+import { tags as t, tagHighlighter, type Tag } from "@lezer/highlight";
 
 const BG = "#1e1f22";
 const GUTTER_FG = "#4b5059";
@@ -74,8 +74,15 @@ export const ideaDarkTheme = EditorView.theme(
   { dark: true },
 );
 
-export const ideaDarkHighlight = syntaxHighlighting(
-  HighlightStyle.define([
+/**
+ * 语法着色的唯一真源。
+ *
+ * 抽成独立的表是因为**缩略图要用同一套颜色**：`HighlightStyle` 产出的是
+ * CSS 类名，canvas 上没法用。让两边各写一份色值，迟早会走样。
+ * 这里定义一次，编辑器走 `HighlightStyle`，缩略图走 `tagHighlighter`
+ * ——后者能把标签映射成任意字符串，正好用来直接映射成色值。
+ */
+export const HIGHLIGHT_SPEC: { tag: Tag | Tag[]; color: string; fontStyle?: string; fontWeight?: string; textDecoration?: string }[] = [
     // 关键字系：IDEA 里那个标志性的暖橙
     { tag: [t.keyword, t.moduleKeyword, t.controlKeyword, t.operatorKeyword], color: "#cf8e6d" },
     { tag: [t.self, t.null, t.bool, t.atom], color: "#cf8e6d" },
@@ -106,5 +113,19 @@ export const ideaDarkHighlight = syntaxHighlighting(
     { tag: [t.monospace], color: "#6aab73" },
     { tag: [t.quote], color: "#7a7e85", fontStyle: "italic" },
     { tag: [t.list], color: "#cf8e6d" },
-  ]),
+];
+
+export const ideaDarkHighlight = syntaxHighlighting(HighlightStyle.define(HIGHLIGHT_SPEC));
+
+/**
+ * 给缩略图用的高亮器：把语法标签直接映射成色值字符串。
+ *
+ * `tagHighlighter` 的第二个字段名叫 `class`，但它对返回值不作任何解释 ——
+ * 传什么字符串就回传什么。canvas 需要的是色值，正好。
+ */
+export const minimapHighlighter = tagHighlighter(
+  HIGHLIGHT_SPEC.map((r) => ({ tag: r.tag, class: r.color })),
 );
+
+/** 没有语法信息时的兜底色（未解析区域、纯文本文件） */
+export const MINIMAP_DEFAULT = "#8b8f97";

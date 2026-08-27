@@ -10,6 +10,7 @@
   import { ideaDarkTheme, ideaDarkHighlight } from "./theme-idea-dark";
   import { langOf, loadLang } from "./langs";
   import { outlineOf, type Sym } from "./outline";
+  import { minimap, setMinimapMarks, type MarkKind } from "./minimap";
 
   let {
     path,
@@ -17,6 +18,8 @@
     savedTick = 0,
     gotoLine = null,
     outlineTick = 0,
+    marks = null,
+    showMinimap = true,
     onChange,
     onSave,
     onOutline,
@@ -29,6 +32,9 @@
     gotoLine?: { line: number; nonce: number } | null;
     /** 自增即重新提取大纲。放在 Editor 里算是因为语法树在它手上 */
     outlineTick?: number;
+    /** 相对 HEAD 的改动行，画在缩略图左缘。null 表示不在仓库里或没有改动 */
+    marks?: Map<number, MarkKind> | null;
+    showMinimap?: boolean;
     onChange: (dirty: boolean) => void;
     onSave: (content: string) => void;
     onOutline?: (syms: Sym[]) => void;
@@ -38,6 +44,8 @@
   let view: EditorView | null = null;
   /** 语言扩展放在 compartment 里，切文件时热替换而不重建整个 state */
   const langSlot = new Compartment();
+  /** 缩略图同理：开关一下不该把光标和撤销栈也重置掉 */
+  const mapSlot = new Compartment();
   /** dirty 判定的基线：当前磁盘上的内容。挂载与换文件时更新，不在顶层读 prop */
   let baseline = "";
 
@@ -58,6 +66,7 @@
         bracketMatching(),
         highlightSelectionMatches(),
         search({ top: true }),
+        mapSlot.of(showMinimap ? minimap() : []),
         indentUnit.of("    "),
         langSlot.of([]),
         ideaDarkTheme,
@@ -133,6 +142,20 @@
     const tick = outlineTick;
     if (!view || tick === 0) return;
     onOutline?.(outlineOf(view.state));
+  });
+
+  // 缩略图开关：热替换而不重建 state
+  $effect(() => {
+    const on = showMinimap;
+    if (!view) return;
+    view.dispatch({ effects: mapSlot.reconfigure(on ? minimap() : []) });
+  });
+
+  // 改动标记：换文件或 git 状态变了都要重下
+  $effect(() => {
+    const m = marks;
+    if (!view) return;
+    view.dispatch({ effects: setMinimapMarks.of(m ?? new Map()) });
   });
 
   // 保存成功：把当前文档定为新基线（不换 state，光标与撤销栈都保住）

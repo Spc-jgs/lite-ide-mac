@@ -124,10 +124,54 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<DirEntryDto>, Str
         .collect())
 }
 
-/// 编辑模式读取全文。非 UTF-8 会被明确拒绝（见 fsservice 模块注释）。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDto {
+    pub content: String,
+    /// WHATWG 编码标签，如 `UTF-8` / `GBK`
+    pub encoding: String,
+    pub bom: bool,
+    /// 有解不出的字节 —— 界面必须把这件事说出来，
+    /// 带着它保存等于把那些字节永久换成 U+FFFD
+    pub lossy: bool,
+}
+
+/// 编辑模式读取全文，自动探测编码。
+///
+/// `label` 非空时按指定编码读（用户点了「以其他编码重新打开」）。
 #[tauri::command]
-pub fn read_text(path: String) -> Result<String, String> {
-    fsservice::read_text(&path).map_err(|e| format!("{e}"))
+pub fn read_text(path: String, label: Option<String>) -> Result<TextDto, String> {
+    let d = fsservice::read_text_detect(&path, label.as_deref().unwrap_or(""))
+        .map_err(|e| format!("{e}"))?;
+    Ok(TextDto {
+        content: d.content,
+        encoding: d.encoding.to_string(),
+        bom: d.bom,
+        lossy: d.lossy,
+    })
+}
+
+/// 探测一个文件的编码，只读头部采样。日志模式用它决定 TextDecoder 的标签。
+///
+/// 采样 256KB 而不是读全文：日志可能有 1GB，而编码特征在头部就足够明显。
+#[tauri::command]
+pub fn detect_encoding(path: String) -> Result<String, String> {
+    use std::io::Read;
+    const SAMPLE: usize = 256 << 10;
+    let mut f = std::fs::File::open(&path).map_err(|e| format!("读不到 {path}：{e}"))?;
+    let mut buf = vec![0u8; SAMPLE];
+    let n = f.read(&mut buf).map_err(|e| format!("{e}"))?;
+    buf.truncate(n);
+    Ok(fsservice::encoding::decode(&buf).encoding.to_string())
+}
+
+/// 界面上给用户挑的编码清单
+#[tauri::command]
+pub fn list_encodings() -> Vec<(String, String)> {
+    fsservice::encoding::COMMON
+        .iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect()
 }
 
 #[derive(serde::Serialize, Clone, Copy)]
@@ -149,11 +193,21 @@ pub fn file_stamp(path: String) -> Result<StampDto, String> {
 
 /// 保存。先写临时文件再原子替换，中途崩溃不会留下半个文件。
 ///
+/// 按 `label` 指定的编码写回 —— 用什么编码读进来的就用什么存回去，
+/// 不做「顺手转成 UTF-8」这种擅自决定。
+///
 /// 返回写入后的指纹 —— 前端必须拿它更新记录，否则自己的保存
 /// 会在下一次检查时被当成"外部修改"。
 #[tauri::command]
-pub fn write_text(path: String, content: String) -> Result<StampDto, String> {
-    fsservice::write_text(&path, &content).map_err(|e| format!("保存失败：{e}"))?;
+pub fn write_text(
+    path: String,
+    content: String,
+    label: Option<String>,
+    bom: Option<bool>,
+) -> Result<StampDto, String> {
+    let label = label.unwrap_or_else(|| "UTF-8".into());
+    fsservice::write_text_as(&path, &content, &label, bom.unwrap_or(false))
+        .map_err(|e| format!("保存失败：{e}"))?;
     let s = fsservice::stamp(&path).map_err(|e| format!("{e}"))?;
     Ok(StampDto {
         mtime_ms: s.mtime_ms,

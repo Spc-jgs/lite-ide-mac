@@ -1,12 +1,12 @@
 <script lang="ts">
   import { getCurrentWebview } from "@tauri-apps/api/webview";
-  import LogPane from "./lib/logview/LogPane.svelte";
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
   import Outline from "./lib/search/Outline.svelte";
   import type { Sym } from "./lib/editor/outline";
   import { langOf, langLabel } from "./lib/editor/langs";
+  import type { ChangeKind } from "./lib/git/diff";
   import {
     probePath,
     readText,
@@ -27,6 +27,7 @@
     gitSwitch,
     gitWorktreeAdd,
     gitWorktreeRemove,
+    detectEncoding,
     type GitEntry,
     type GitStatus,
     type GitWorktree,
@@ -63,6 +64,14 @@
     diffShort?: string;
     /** 冲突标签：带冲突标记的工作区原文 */
     mergeText?: string;
+    /**
+     * 文件编码标签（WHATWG，如 `UTF-8` / `GBK`）。
+     * 读进来是什么就用什么存回去 —— 保存不该顺手改变文件的编码。
+     */
+    encoding?: string;
+    bom?: boolean;
+    /** 解码时有解不出的字节；带着它保存会把那些字节永久换成 U+FFFD */
+    lossy?: boolean;
   }
 
   /**
@@ -75,6 +84,28 @@
   let tabs = $state<TabState[]>([]);
   let activeId = $state<number | null>(null);
   let nextId = 1;
+
+  /**
+   * 缩略图开关。存 localStorage —— 这是个纯偏好，没必要为它建一套配置文件；
+   * 读失败（隐私模式、站点数据被清）就用默认值，不能让它把启动流程炸掉。
+   */
+  let showMinimap = $state(readPref("minimap", true));
+  $effect(() => {
+    try {
+      localStorage.setItem("lite-ide.minimap", showMinimap ? "1" : "0");
+    } catch {
+      /* 存不下就算了，下次开还是默认值 */
+    }
+  });
+
+  function readPref(key: string, dflt: boolean): boolean {
+    try {
+      const v = localStorage.getItem(`lite-ide.${key}`);
+      return v === null ? dflt : v === "1";
+    } catch {
+      return dflt;
+    }
+  }
 
   let sidebar = $state(true);
   let sidebarWidth = $state(240);
@@ -136,6 +167,60 @@
   /** 分支 / 工作树选择器 */
   let branchOpen = $state(false);
 
+  // ─────────────────────────── 编码 ───────────────────────────
+
+  let encOpen = $state(false);
+  let EncPickerComp = $state<
+    typeof import("./lib/encoding/EncodingPicker.svelte").default | null
+  >(null);
+
+  $effect(() => {
+    if (!encOpen || EncPickerComp) return;
+    import("./lib/encoding/EncodingPicker.svelte")
+      .then((m) => (EncPickerComp = m.default))
+      .catch((e) => (error = `编码选择器加载失败：${e}`));
+  });
+
+  /** 按新编码重新解码当前文件 */
+  async function reopenWith(label: string) {
+    const tab = active;
+    if (!tab) return;
+    try {
+      if (tab.mode === "log") {
+        // 日志模式只是换个 TextDecoder 标签，不用重开句柄
+        tab.encoding = label;
+        return;
+      }
+      if (tab.dirty) {
+        error = "有未保存的改动，请先保存（⌘S）再换编码重新打开";
+        setTimeout(() => (error = ""), 3000);
+        return;
+      }
+      const t = await readText(tab.path, label);
+      tab.content = t.content;
+      tab.encoding = t.encoding;
+      tab.bom = t.bom;
+      tab.lossy = t.lossy;
+      savedTick++;
+      saved = `已按 ${t.encoding} 重新打开${t.lossy ? "（仍有解不出的字节）" : ""}`;
+      setTimeout(() => (saved = ""), 3000);
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  /** 只改「将来存成什么编码」，不动当前内容 */
+  function saveAsEncoding(label: string, bom: boolean) {
+    const tab = active;
+    if (!tab || tab.mode !== "edit") return;
+    tab.encoding = label;
+    tab.bom = bom;
+    // 内容没变但目标编码变了，得让用户知道要按 ⌘S 才会真的落盘
+    tab.dirty = true;
+    saved = `下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`;
+    setTimeout(() => (saved = ""), 3600);
+  }
+
   function switchBranch(name: string, create = false) {
     void gitDo(create ? "新建分支失败" : "切分支失败", async () => {
       await gitSwitch(repo!, name, create);
@@ -167,6 +252,46 @@
       setTimeout(() => (saved = ""), 2600);
     });
   }
+
+  /**
+   * 当前编辑文件相对 HEAD 的改动行，喂给编辑器缩略图。
+   *
+   * 数据源是 `git diff` 而不是自己在前端算：算法现成的，而且和差异视图
+   * 用的是同一份输出，两处显示不会打架。
+   *
+   * 已知的不足：标记反映的是**磁盘上那份**。编辑器里改了还没存时，标记不会跟着动 ——
+   * 要做到 IDEA 那种实时跟随，得拿 HEAD 版本在前端跑一遍 diff，那是另一件事。
+   * 保存之后 refreshGit 会把它带新。
+   */
+  let editorMarks = $state<Map<number, ChangeKind> | null>(null);
+
+  $effect(() => {
+    const tab = active;
+    const st = gitSt;
+    const r = repo;
+    if (!tab || tab.mode !== "edit" || !r || !st) {
+      editorMarks = null;
+      return;
+    }
+    const prefix = `${st.root}/`;
+    if (!tab.path.startsWith(prefix)) {
+      editorMarks = null;
+      return;
+    }
+    const rel = tab.path.slice(prefix.length);
+    const e = st.entries.find((x) => x.path === rel);
+    // 干净的文件不用跑 diff；未跟踪的文件整份都是新的，标满一屏没有信息量
+    if (!e || e.untracked) {
+      editorMarks = null;
+      return;
+    }
+    // 动态引入：静态引会把整个 diff 解析模块（约 7KB）拽进入口包，
+    // 而它只在「打开了一个仓库里被改过的文件」时才用得上。
+    // 动态引之后它和 Git 那几个组件共用同一个按需块，一次都不会白加载。
+    void Promise.all([gitDiff(r, rel, false, false), import("./lib/git/diff")])
+      .then(([raw, m]) => (editorMarks = m.changedLines(raw)))
+      .catch(() => (editorMarks = null));
+  });
 
   /** 从日志里打开某次提交中某个文件的差异 */
   async function openCommitDiff(sha: string, short: string, rel: string) {
@@ -266,7 +391,7 @@
     const key = `git-merge:${e.path}`;
     let tab = tabs.find((t) => t.path === key);
     try {
-      const content = await readText(full);
+      const content = (await readText(full)).content;
       if (!tab) {
         tab = {
           id: nextId++,
@@ -292,7 +417,7 @@
   async function resolveMerge(tab: TabState, content: string, resolved: boolean) {
     if (!repo || !tab.rel) return;
     try {
-      await writeText(`${repo}/${tab.rel}`, content);
+      await writeText(`${repo}/${tab.rel}`, content, tab.encoding);
       if (resolved) {
         await gitStage(repo, [tab.rel]);
         saved = `${tab.name} 已标记为解决`;
@@ -433,6 +558,23 @@
    */
   let EditorComp = $state<typeof import("./lib/editor/Editor.svelte").default | null>(null);
   let editorLoading = $state(false);
+
+  /*
+   * 日志视图同样按需加载 —— 和 Editor 对称。
+   * 早先它是静态引入的，等于只写代码的人一直在为整套日志视图
+   * （虚拟滚动 + 过滤条 + 8 种格式的解析着色）付钱。
+   */
+  let LogPaneComp = $state<typeof import("./lib/logview/LogPane.svelte").default | null>(null);
+  let logPaneLoading = $state(false);
+
+  $effect(() => {
+    if (active?.mode !== "log" || LogPaneComp || logPaneLoading) return;
+    logPaneLoading = true;
+    import("./lib/logview/LogPane.svelte")
+      .then((m) => (LogPaneComp = m.default))
+      .catch((e) => (error = `日志视图加载失败：${e}`))
+      .finally(() => (logPaneLoading = false));
+  });
   /** 每次保存成功自增，Editor 据此重置 dirty 基线 */
   let savedTick = $state(0);
 
@@ -496,6 +638,22 @@
       },
     },
     { id: "git-refresh", label: "Git：刷新状态", run: () => void refreshGit() },
+    {
+      id: "toggle-minimap",
+      label: "切换代码缩略图",
+      run: () => (showMinimap = !showMinimap),
+    },
+    {
+      id: "encoding",
+      label: "文件编码：查看 / 重新打开 / 换编码保存",
+      run: () => {
+        if (active) encOpen = true;
+        else {
+          error = "先打开一个文件";
+          setTimeout(() => (error = ""), 2200);
+        }
+      },
+    },
     {
       id: "git-diff-current",
       label: "Git：查看当前文件的改动",
@@ -600,8 +758,14 @@
       };
       if (info.mode === "log") {
         tab.handle = (await openLog(info.path)).handle;
+        // 日志模式在前端用 TextDecoder 解码，只需要标签
+        tab.encoding = await detectEncoding(info.path).catch(() => "UTF-8");
       } else {
-        tab.content = await readText(info.path);
+        const t = await readText(info.path);
+        tab.content = t.content;
+        tab.encoding = t.encoding;
+        tab.bom = t.bom;
+        tab.lossy = t.lossy;
         tab.stamp = await fileStamp(info.path);
       }
       tabs = [...tabs, tab];
@@ -620,7 +784,7 @@
     if (!tab || tab.mode !== "edit") return;
     try {
       // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改
-      tab.stamp = await writeText(tab.path, content);
+      tab.stamp = await writeText(tab.path, content, tab.encoding, tab.bom);
       tab.dirty = false;
       tab.content = content;
       tab.conflict = false;
@@ -661,7 +825,10 @@
       } else {
         // 本地没动过，直接跟上外部的版本 —— 这是最常见也最无害的情况
         try {
-          tab.content = await readText(tab.path);
+          // 沿用已知编码重读，不重新探测 —— 文件只是内容变了，编码没道理换
+          const t = await readText(tab.path, tab.encoding);
+          tab.content = t.content;
+          tab.lossy = t.lossy;
           tab.stamp = now;
           savedTick++;
           saved = `${tab.name} 已被外部修改，已重新加载`;
@@ -677,7 +844,7 @@
     tab.conflict = false;
     if (take === "disk") {
       try {
-        tab.content = await readText(tab.path);
+        tab.content = (await readText(tab.path, tab.encoding)).content;
         tab.stamp = await fileStamp(tab.path);
         tab.dirty = false;
         savedTick++;
@@ -734,8 +901,11 @@
         tab.handle = (await openLog(tab.path)).handle;
         tab.content = undefined;
       } else {
-        // 非 UTF-8 会在这里明确失败，不会把文件读坏
-        tab.content = await readText(tab.path);
+        const t = await readText(tab.path, tab.forced ? tab.encoding : undefined);
+        tab.content = t.content;
+        tab.encoding = t.encoding;
+        tab.bom = t.bom;
+        tab.lossy = t.lossy;
       }
       tab.mode = to;
       tab.forced = to;
@@ -895,8 +1065,14 @@
         for (const p of e.payload.paths) void openPath(p);
       } else hovering = false;
     });
-    // 注销失败不该把整个 effect 清理链炸掉
-    return () => void un.then((f) => f()).catch(() => {});
+    /*
+     * 立刻挂上 catch，而不是只在清理函数里挂。
+     * 浏览器里跑（没有 Tauri）时这个 promise 会直接 reject，
+     * 而清理函数要等 effect 销毁才跑 —— 中间这段时间就是一条
+     * "Uncaught (in promise)"，把控制台的真错误淹掉。
+     */
+    const reg = un.catch(() => null);
+    return () => void reg.then((f) => f?.());
   });
 
 </script>
@@ -912,6 +1088,18 @@
 />
 
 <QuickSearch bind:open={quickOpen} bind:scope={quickScope} {root} {actions} onOpenFile={openAt} />
+
+{#if EncPickerComp && active}
+  <EncPickerComp
+    bind:open={encOpen}
+    current={active.encoding ?? "UTF-8"}
+    bom={!!active.bom}
+    lossy={!!active.lossy}
+    readonly={active.mode !== "edit"}
+    onReopen={(l) => void reopenWith(l)}
+    onSaveAs={saveAsEncoding}
+  />
+{/if}
 
 {#if BranchPickerComp && repo}
   <BranchPickerComp
@@ -1087,10 +1275,17 @@
           {/key}
         {:else if active.mode === "diff"}
           <div class="empty"><p>正在载入差异视图…</p></div>
-        {:else if active.mode === "log" && active.handle !== undefined}
+        {:else if active.mode === "log" && active.handle !== undefined && LogPaneComp}
           {#key active.id}
-            <LogPane handle={active.handle} {gotoLine} onStatus={(s) => (logStatus = s)} />
+            <LogPaneComp
+              handle={active.handle}
+              {gotoLine}
+              encoding={active.encoding ?? "utf-8"}
+              onStatus={(s) => (logStatus = s)}
+            />
           {/key}
+        {:else if active.mode === "log"}
+          <div class="empty"><p>正在载入日志视图…</p></div>
         {:else if EditorComp}
           {#key active.id}
             <EditorComp
@@ -1099,6 +1294,8 @@
               {savedTick}
               {gotoLine}
               {outlineTick}
+              marks={editorMarks}
+              {showMinimap}
               onChange={(d) => (active!.dirty = d)}
               onSave={save}
               onOutline={(s) => (symbols = s)}
@@ -1192,12 +1389,22 @@
         {active.mode === "log" ? "日志模式" : "编辑模式"} ⇄
       </button>
       {#if active.mode === "edit"}
-        <span class="cell dim">{langLabel(langOf(active.path))}</span>
+        <span class="cell dim drop-2">{langLabel(langOf(active.path))}</span>
       {/if}
+      <button
+        class="cell btn enc"
+        class:bad={active.lossy}
+        onclick={() => (encOpen = true)}
+        title={active.lossy
+          ? "有解不出的字节，点这里换个编码重新打开"
+          : "文件编码 —— 点击可换编码重新打开或另存"}
+      >
+        {active.encoding ?? "UTF-8"}{active.bom ? " ·BOM" : ""}{active.lossy ? " ⚠" : ""}
+      </button>
       {#if active.mode === "log"}
         <span class="cell">{logStatus}</span>
       {:else}
-        <span class="cell">{active.dirty ? "已修改" : "无改动"}</span>
+        <span class="cell drop-2">{active.dirty ? "已修改" : "无改动"}</span>
       {/if}
       {#if activeEntry}
         <button
@@ -1253,7 +1460,7 @@
     <button class="cell btn" class:on={panel} onclick={() => (panel = !panel)}>
       终端 ⌘J{terms.length > 1 ? ` (${terms.length})` : ""}
     </button>
-    <span class="cell dim">{tabs.length} 个标签</span>
+    <span class="cell dim drop-1">{tabs.length} 个标签</span>
   </footer>
 </main>
 
@@ -1497,6 +1704,10 @@
   .statusbar {
     display: flex;
     align-items: center;
+    flex-wrap: nowrap;
+    /* 窗口窄的时候宁可把右边挤掉，也不能换行 —— 换行会把状态栏撑成两行，
+       把编辑区顶掉一截 */
+    overflow: hidden;
     gap: 16px;
     padding: 0 12px;
     background: var(--panel-bg);
@@ -1506,11 +1717,22 @@
     font-family: var(--code-font);
     user-select: none;
   }
-  .statusbar .spacer { flex: 1; }
+  .statusbar .spacer { flex: 1; min-width: 0; }
+  .statusbar > * { flex: none; white-space: nowrap; }
+  /* 窄窗口下先让信息类的格子退场，动作按钮留到最后 */
+  @media (max-width: 900px) {
+    .statusbar .drop-1 { display: none; }
+  }
+  @media (max-width: 740px) {
+    .statusbar .drop-2 { display: none; }
+  }
   .statusbar .dim { color: var(--text-faint); }
   .statusbar .ok { color: var(--accent); }
   .statusbar .err { color: var(--lvl-error); }
   .statusbar .warn { color: var(--lvl-warn); }
+  .statusbar .btn.enc { font-size: 11px; }
+  /* 解码有损是必须让人看见的事，不能只做成一个安静的标签 */
+  .statusbar .btn.enc.bad { color: var(--lvl-error); }
   .statusbar .btn {
     background: transparent;
     border: none;

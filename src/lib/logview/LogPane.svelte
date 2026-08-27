@@ -16,10 +16,13 @@
   let {
     handle,
     gotoLine = null,
+    encoding = "utf-8",
     onStatus,
   }: {
     handle: number;
     gotoLine?: { line: number; nonce: number } | null;
+    /** 文件编码标签；由上层探测后传下来 */
+    encoding?: string;
     onStatus: (s: string) => void;
   } = $props();
 
@@ -42,7 +45,7 @@
     const h = handle;
     logLines(h, 0, 60)
       .then((buf) => {
-        format = detectFormat(decodeBlock(buf).lines);
+        format = detectFormat(decodeBlock(buf, encoding).lines);
       })
       .catch(() => (format = "plain"));
   });
@@ -175,6 +178,7 @@
       stickBottom={tailing}
       {gotoLine}
       {format}
+      {encoding}
     />
   </div>
 </div>
