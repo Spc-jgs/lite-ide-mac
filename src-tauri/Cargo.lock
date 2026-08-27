@@ -1112,6 +1112,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "gitsvc"
+version = "0.1.0"
+
+[[package]]
 name = "glib"
 version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1770,6 +1774,7 @@ name = "lite-ide"
 version = "0.1.0"
 dependencies = [
  "fsservice",
+ "gitsvc",
  "logengine",
  "ptysvc",
  "searchsvc",

@@ -1,0 +1,7 @@
+[package]
+name = "gitsvc"
+version = "0.1.0"
+edition = "2021"
+description = "Git 状态与差异读取（零 Tauri 依赖，走 git CLI 子进程）"
+
+[dependencies]

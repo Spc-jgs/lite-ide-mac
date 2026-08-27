@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/logengine", "crates/fsservice", "crates/ptysvc", "crates/searchsvc"]
+members = ["crates/logengine", "crates/fsservice", "crates/ptysvc", "crates/searchsvc", "crates/gitsvc"]
 
 [package]
 name = "lite-ide"
@@ -23,6 +23,7 @@ logengine = { path = "crates/logengine" }
 fsservice = { path = "crates/fsservice" }
 ptysvc = { path = "crates/ptysvc" }
 searchsvc = { path = "crates/searchsvc" }
+gitsvc = { path = "crates/gitsvc" }
 
 # 发布构建：体积与速度并重（安装包目标 ~10MB）
 [profile.release]

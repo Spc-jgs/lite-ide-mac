@@ -16,13 +16,27 @@
     openLog,
     closeLog,
     initialPath,
+    gitRoot,
+    gitStatus,
+    gitDiff,
+    gitStage,
+    gitUnstage,
+    gitDiscard,
+    gitCommit,
+    gitCommitDiff,
+    gitSwitch,
+    gitWorktreeAdd,
+    gitWorktreeRemove,
+    type GitEntry,
+    type GitStatus,
+    type GitWorktree,
   } from "./lib/ipc/commands";
 
   interface TabState {
     id: number;
     path: string;
     name: string;
-    mode: "edit" | "log";
+    mode: "edit" | "log" | "diff" | "merge";
     dirty: boolean;
     /** log 模式的引擎句柄 */
     handle?: number;
@@ -38,6 +52,17 @@
     stamp?: Stamp;
     /** 外部改动了，但本地也有未保存改动 —— 需要用户裁决 */
     conflict?: boolean;
+    /** 差异标签：相对仓库根的路径 */
+    rel?: string;
+    /** 看的是暂存区还是工作区 */
+    diffStaged?: boolean;
+    diffUntracked?: boolean;
+    diffRaw?: string;
+    /** 非空表示这是「某次提交里的差异」，只读历史，不是工作区 */
+    diffSha?: string;
+    diffShort?: string;
+    /** 冲突标签：带冲突标记的工作区原文 */
+    mergeText?: string;
   }
 
   /**
@@ -53,8 +78,302 @@
 
   let sidebar = $state(true);
   let sidebarWidth = $state(240);
+  /** 侧边栏当前显示哪个视图。不在仓库里时强制回文件树 */
+  let sideView = $state<"files" | "git">("files");
+
+  // ─────────────────────────── Git ───────────────────────────
+
+  /** 项目所属仓库的根；不是仓库就是 null，整块 Git 功能随之隐身 */
+  let repo = $state<string | null>(null);
+  let gitSt = $state<GitStatus | null>(null);
+  let gitBusy = $state(false);
+  /** 待确认丢弃的条目 —— 丢弃不可撤销，必须过用户这一关 */
+  let pendingDiscard = $state<GitEntry[] | null>(null);
+
+  /*
+   * Git 面板与差异视图按需加载，和 CM6、xterm 同一条纪律
+   * （ARCHITECTURE.md 红线：入口包只放两种模式都要的东西）。
+   * 静态引入时入口包从 120KB 涨到 140KB —— 而这两样东西，
+   * 只看日志的人一次都不会用到。
+   *
+   * 文件树上的 git 染色不在这里面：那只是 FileTree 里的一个 $derived，
+   * 没有额外模块，打开就该看见。
+   */
+  let GitPaneComp = $state<typeof import("./lib/git/GitPane.svelte").default | null>(null);
+  let DiffViewComp = $state<typeof import("./lib/git/DiffView.svelte").default | null>(null);
+  let GitLogComp = $state<typeof import("./lib/git/GitLog.svelte").default | null>(null);
+  let MergeViewComp = $state<typeof import("./lib/git/MergeView.svelte").default | null>(null);
+  let BranchPickerComp = $state<typeof import("./lib/git/BranchPicker.svelte").default | null>(null);
+  let gitLoading = $state(false);
+
+  $effect(() => {
+    const need =
+      (sideView === "git" && !!repo) ||
+      tabs.some((t) => t.mode === "diff" || t.mode === "merge") ||
+      (panel && panelView === "log") ||
+      branchOpen;
+    if (!need || gitLoading || GitPaneComp) return;
+    gitLoading = true;
+    // 四个一起拉：进了 Git 就基本都会用到，分四次只是多三次往返
+    Promise.all([
+      import("./lib/git/GitPane.svelte"),
+      import("./lib/git/DiffView.svelte"),
+      import("./lib/git/GitLog.svelte"),
+      import("./lib/git/BranchPicker.svelte"),
+      import("./lib/git/MergeView.svelte"),
+    ])
+      .then(([g, d, l, b, m]) => {
+        GitPaneComp = g.default;
+        DiffViewComp = d.default;
+        GitLogComp = l.default;
+        BranchPickerComp = b.default;
+        MergeViewComp = m.default;
+      })
+      .catch((e) => (error = `Git 面板加载失败：${e}`))
+      .finally(() => (gitLoading = false));
+  });
+
+  /** 分支 / 工作树选择器 */
+  let branchOpen = $state(false);
+
+  function switchBranch(name: string, create = false) {
+    void gitDo(create ? "新建分支失败" : "切分支失败", async () => {
+      await gitSwitch(repo!, name, create);
+      saved = create ? `已新建并切到 ${name}` : `已切到 ${name}`;
+      setTimeout(() => (saved = ""), 2600);
+      // 切分支会大面积改盘上的文件，打开的标签必须重新对一遍
+      await checkExternalChanges();
+    });
+  }
+
+  function newWorktree(dir: string, branch: string) {
+    void gitDo("新建工作树失败", async () => {
+      // 分支存不存在由 gitsvc 判，这里只管「要一个跑着这个分支的目录」
+      const path = await gitWorktreeAdd(repo!, dir, branch);
+      saved = `工作树已建在 ${path}`;
+      setTimeout(() => (saved = ""), 3600);
+      await openPath(path);
+    });
+  }
+
+  /** 待确认移除的工作树 —— 会删目录，必须过用户这一关 */
+  let pendingWtRemove = $state<GitWorktree | null>(null);
+
+  function doRemoveWorktree(w: GitWorktree, force: boolean) {
+    pendingWtRemove = null;
+    void gitDo("移除工作树失败", async () => {
+      await gitWorktreeRemove(repo!, w.path, force);
+      saved = `已移除工作树 ${w.path}`;
+      setTimeout(() => (saved = ""), 2600);
+    });
+  }
+
+  /** 从日志里打开某次提交中某个文件的差异 */
+  async function openCommitDiff(sha: string, short: string, rel: string) {
+    if (!repo) return;
+    const key = `git-commit:${sha}:${rel}`;
+    let tab = tabs.find((t) => t.path === key);
+    if (!tab) {
+      tab = {
+        id: nextId++,
+        path: key,
+        name: rel.slice(rel.lastIndexOf("/") + 1),
+        mode: "diff",
+        dirty: false,
+        size: 0,
+        rel,
+        diffSha: sha,
+        diffShort: short,
+      };
+      tabs = [...tabs, tab];
+    }
+    activeId = tab.id;
+    await reloadDiff(tab);
+  }
+
+  /** 换项目根就重新找仓库。找不到时把 Git 的一切都清干净 */
+  $effect(() => {
+    const r = root;
+    if (!r) {
+      repo = null;
+      gitSt = null;
+      return;
+    }
+    gitRoot(r)
+      .then((found) => {
+        repo = found;
+        if (!found) {
+          gitSt = null;
+          sideView = "files";
+        } else {
+          void refreshGit();
+        }
+      })
+      .catch(() => {
+        repo = null;
+        gitSt = null;
+      });
+  });
+
+  /**
+   * 刷新一次 git 状态。
+   *
+   * 触发点是「窗口获得焦点」「保存之后」「做完任一 git 动作」，不是定时轮询 ——
+   * 每次都要起一个 git 子进程（约 5–15ms），常年轮询是白烧电。
+   * 用户在终端里 commit 完切回来，焦点事件正好把状态带新。
+   */
+  async function refreshGit() {
+    const r = repo;
+    if (!r) return;
+    gitBusy = true;
+    try {
+      gitSt = await gitStatus(r);
+      // 打开着的工作区差异跟着更新，否则暂存完还停在旧内容上。
+      // 历史提交的差异是不变的，重拉纯属浪费一次子进程
+      await Promise.all(
+        tabs.filter((t) => t.mode === "diff" && !t.diffSha).map(reloadDiff),
+      );
+    } catch (e) {
+      error = String(e);
+      setTimeout(() => (error = ""), 4000);
+    } finally {
+      gitBusy = false;
+    }
+  }
+
+  async function reloadDiff(tab: TabState) {
+    if (!repo || tab.mode !== "diff" || !tab.rel) return;
+    try {
+      tab.diffRaw = tab.diffSha
+        ? await gitCommitDiff(repo, tab.diffSha, tab.rel)
+        : await gitDiff(repo, tab.rel, !!tab.diffStaged, !!tab.diffUntracked);
+    } catch (e) {
+      tab.diffRaw = "";
+      error = String(e);
+    }
+  }
+
+  /**
+   * 打开冲突合并标签。
+   *
+   * 读的是**工作区文件**而不是 `git show :2:` / `:3:` 那三个暂存位 ——
+   * 工作区那份才是用户此刻真正会提交的东西，他可能已经手改过一部分，
+   * 从暂存位重建会把那些手改悄悄抹掉。
+   */
+  async function openMerge(e: GitEntry) {
+    if (!repo) return;
+    const full = `${repo}/${e.path}`;
+    const key = `git-merge:${e.path}`;
+    let tab = tabs.find((t) => t.path === key);
+    try {
+      const content = await readText(full);
+      if (!tab) {
+        tab = {
+          id: nextId++,
+          path: key,
+          name: e.path.slice(e.path.lastIndexOf("/") + 1),
+          mode: "merge",
+          dirty: false,
+          size: 0,
+          rel: e.path,
+          mergeText: content,
+        };
+        tabs = [...tabs, tab];
+      } else {
+        tab.mergeText = content;
+      }
+      activeId = tab.id;
+    } catch (err) {
+      error = String(err);
+    }
+  }
+
+  /** 冲突解决完写回文件；全部决定完的才 git add 标记已解决 */
+  async function resolveMerge(tab: TabState, content: string, resolved: boolean) {
+    if (!repo || !tab.rel) return;
+    try {
+      await writeText(`${repo}/${tab.rel}`, content);
+      if (resolved) {
+        await gitStage(repo, [tab.rel]);
+        saved = `${tab.name} 已标记为解决`;
+        doClose(tab);
+      } else {
+        tab.mergeText = content;
+        saved = `${tab.name} 进度已保存`;
+      }
+      setTimeout(() => (saved = ""), 2600);
+      await refreshGit();
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  /** 打开（或复用）一个差异标签 */
+  async function openDiff(e: GitEntry, staged: boolean) {
+    if (!repo || e.isDir) return;
+    const key = `git-diff:${e.path}`;
+    let tab = tabs.find((t) => t.mode === "diff" && t.path === key);
+    if (!tab) {
+      tab = {
+        id: nextId++,
+        path: key,
+        name: e.path.slice(e.path.lastIndexOf("/") + 1),
+        mode: "diff",
+        dirty: false,
+        size: 0,
+        rel: e.path,
+      };
+      tabs = [...tabs, tab];
+    }
+    tab.diffStaged = staged;
+    tab.diffUntracked = e.untracked && !staged;
+    activeId = tab.id;
+    await reloadDiff(tab);
+  }
+
+  /** 差异标签上切换「已暂存 ↔ 未暂存」 */
+  async function toggleDiffSide(tab: TabState) {
+    tab.diffStaged = !tab.diffStaged;
+    // 未跟踪文件一旦进了暂存区，就该按普通 diff 读，不能再走 --no-index
+    const e = gitSt?.entries.find((x) => x.path === tab.rel);
+    tab.diffUntracked = !!e?.untracked && !tab.diffStaged;
+    await reloadDiff(tab);
+  }
+
+  /** 包一层：任何 git 写操作之后都要刷新状态，也统一收口错误 */
+  async function gitDo(what: string, fn: () => Promise<unknown>) {
+    if (!repo) return;
+    try {
+      await fn();
+      await refreshGit();
+    } catch (e) {
+      error = `${what}：${e}`;
+      setTimeout(() => (error = ""), 5000);
+    }
+  }
+
+  async function doDiscard(entries: GitEntry[]) {
+    pendingDiscard = null;
+    if (!repo) return;
+    // 跟踪的走 git restore，未跟踪的只能直接删 —— gitsvc 里分了两条路
+    const tracked = entries.filter((e) => !e.untracked).map((e) => e.path);
+    const untracked = entries.filter((e) => e.untracked).map((e) => e.path);
+    await gitDo("丢弃失败", () => gitDiscard(repo!, tracked, untracked));
+    // 丢弃会改磁盘，打开着的编辑标签要跟上
+    await checkExternalChanges();
+  }
+
+  function doGitCommit(message: string, amend: boolean) {
+    void gitDo("提交失败", async () => {
+      const out = await gitCommit(repo!, message, amend);
+      saved = out.split("\n")[0] || "已提交";
+      setTimeout(() => (saved = ""), 3000);
+    });
+  }
   let panel = $state(false);
   let panelHeight = $state(260);
+  /** 底部面板当前是哪个工具窗。终端实例永不卸载，只是藏起来 */
+  let panelView = $state<"term" | "log">("term");
   /** xterm.js 约 250KB，不开终端就不该付这个钱 —— 与 CM6 同样按需加载 */
   let TerminalComp = $state<typeof import("./lib/terminal/Terminal.svelte").default | null>(null);
   let terminalLoading = $state(false);
@@ -95,9 +414,10 @@
     if (terms.length === 0) panel = false;
   }
 
-  // 打开面板时若一个终端都没有，自动起一个
+  // 打开面板时若一个终端都没有，自动起一个。
+  // 只在终端页上做 —— 冲着 Git 日志来的人不该莫名多出一个 shell
   $effect(() => {
-    if (panel && terms.length === 0 && root !== null) newTerm(root);
+    if (panel && panelView === "term" && terms.length === 0 && root !== null) newTerm(root);
   });
   let hovering = $state(false);
   let error = $state("");
@@ -161,7 +481,43 @@
       },
     },
     { id: "close-all", label: "关闭所有标签", run: () => closeAll() },
+    {
+      id: "git-view",
+      label: "Git：改动列表",
+      hint: "⌘⇧G",
+      run: () => {
+        if (!repo) {
+          error = "当前项目不是 Git 仓库";
+          setTimeout(() => (error = ""), 2600);
+          return;
+        }
+        sideView = "git";
+        sidebar = true;
+      },
+    },
+    { id: "git-refresh", label: "Git：刷新状态", run: () => void refreshGit() },
+    {
+      id: "git-diff-current",
+      label: "Git：查看当前文件的改动",
+      run: () => {
+        const e = activeEntry;
+        if (e) void openDiff(e, false);
+        else {
+          error = "当前文件没有未提交的改动";
+          setTimeout(() => (error = ""), 2600);
+        }
+      },
+    },
   ];
+
+  /** 当前编辑的文件在 git 状态里对应的那条，没有就是干净的 */
+  let activeEntry = $derived.by(() => {
+    if (!gitSt || !active || active.mode === "diff") return null;
+    const prefix = `${gitSt.root}/`;
+    if (!active.path.startsWith(prefix)) return null;
+    const rel = active.path.slice(prefix.length);
+    return gitSt.entries.find((e) => e.path === rel) ?? null;
+  });
 
   function saveActive() {
     // 触发编辑器自己的保存路径：内容以编辑器里的为准，这里只能存已知内容
@@ -271,6 +627,8 @@
       savedTick++;
       saved = `已保存 ${tab.name}`;
       setTimeout(() => (saved = ""), 1800);
+      // 保存八成改变了 git 状态，顺手刷一下，文件树的标记才跟得上
+      void refreshGit();
     } catch (e) {
       error = String(e);
     }
@@ -332,7 +690,11 @@
   }
 
   $effect(() => {
-    const onFocus = () => void checkExternalChanges();
+    const onFocus = () => {
+      void checkExternalChanges();
+      // 用户可能刚在终端里 commit / checkout 完切回来
+      void refreshGit();
+    };
     window.addEventListener("focus", onFocus);
     // 兜底：一直没离开窗口，但文件被后台进程改了
     const id = setInterval(onFocus, 10_000);
@@ -432,6 +794,12 @@
   }
 
   function onWindowKey(e: KeyboardEvent) {
+    /*
+     * 按住 Shift 时 e.key 给的是**大写字母**（规范如此：key 是修饰后的字符值），
+     * 所以 `e.key === "g" && e.shiftKey` 永远不成立 —— ⌘⇧G / ⌘⇧O / ⌘⇧F
+     * 全都因为这个悄悄失效过。统一小写化之后两种情况都对。
+     */
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     if (e.key === "Escape" && quickOpen) {
       quickOpen = false;
       return;
@@ -443,30 +811,39 @@
       return;
     }
     if (!e.metaKey) return;
-    if (e.key === "p") {
+    if (k === "p") {
       e.preventDefault();
       quickScope = "file";
       quickOpen = true;
       return;
     }
-    if (e.key === "o" && e.shiftKey) {
+    if (k === "o" && e.shiftKey) {
       e.preventDefault();
       openOutline();
       return;
     }
-    if (e.key === "f" && e.shiftKey) {
+    if (k === "g" && e.shiftKey) {
+      e.preventDefault();
+      if (repo) {
+        // 已经在 Git 视图上再按一次就切回去，来回都是同一个手势
+        sideView = sidebar && sideView === "git" ? "files" : "git";
+        sidebar = true;
+      }
+      return;
+    }
+    if (k === "f" && e.shiftKey) {
       e.preventDefault();
       quickScope = "content";
       quickOpen = true;
       return;
     }
-    if (e.key === "1") {
+    if (k === "1") {
       e.preventDefault();
       sidebar = !sidebar;
-    } else if (e.key === "j") {
+    } else if (k === "j") {
       e.preventDefault();
       panel = !panel;
-    } else if (e.key === "w" && active) {
+    } else if (k === "w" && active) {
       e.preventDefault();
       requestClose(active.id);
     }
@@ -536,6 +913,18 @@
 
 <QuickSearch bind:open={quickOpen} bind:scope={quickScope} {root} {actions} onOpenFile={openAt} />
 
+{#if BranchPickerComp && repo}
+  <BranchPickerComp
+    bind:open={branchOpen}
+    {repo}
+    onSwitch={(n) => switchBranch(n)}
+    onNewBranch={(n) => switchBranch(n, true)}
+    onOpenWorktree={(p) => void openPath(p)}
+    onNewWorktree={newWorktree}
+    onRemoveWorktree={(w) => (pendingWtRemove = w)}
+  />
+{/if}
+
 <main class:hovering>
   <header class="titlebar" data-tauri-drag-region>
     {#if !sidebar}
@@ -563,19 +952,36 @@
   <div class="workspace" class:no-side={!sidebar} style:--side-w="{sidebarWidth}px">
     {#if sidebar}
       <aside>
-        {#if root}
+        {#if !root}
+          <div class="no-root">把文件夹拖进来</div>
+        {:else if sideView === "git" && repo && GitPaneComp}
+          <GitPaneComp
+            status={gitSt}
+            busy={gitBusy}
+            onOpenDiff={(e, staged) => void (e.conflicted ? openMerge(e) : openDiff(e, staged))}
+            onStage={(paths) => void gitDo("暂存失败", () => gitStage(repo!, paths))}
+            onUnstage={(paths) => void gitDo("取消暂存失败", () => gitUnstage(repo!, paths))}
+            onDiscard={(es) => (pendingDiscard = es)}
+            onCommit={doGitCommit}
+            onRefresh={() => void refreshGit()}
+            onFiles={() => (sideView = "files")}
+            onCollapse={() => (sidebar = false)}
+          />
+        {:else if sideView === "git" && repo}
+          <div class="no-root">正在载入 Git 面板…</div>
+        {:else}
           <FileTree
             {root}
             activePath={active?.path ?? ""}
+            gitStatus={gitSt}
             onOpen={(p) => void openPath(p)}
             onSearch={() => {
               quickScope = "content";
               quickOpen = true;
             }}
+            onGit={repo ? () => (sideView = "git") : undefined}
             onCollapse={() => (sidebar = false)}
           />
-        {:else}
-          <div class="no-root">把文件夹拖进来</div>
         {/if}
       </aside>
       <div
@@ -611,6 +1017,34 @@
         </div>
       {/if}
 
+      {#if pendingWtRemove}
+        <div class="confirm danger">
+          <span>
+            要移除工作树 <b>{pendingWtRemove.path}</b> 吗？
+            <b>那个目录会被删掉</b>，里面未提交的改动会一起没
+          </span>
+          <button class="danger" onclick={() => doRemoveWorktree(pendingWtRemove!, false)}>移除</button>
+          <button class="danger" onclick={() => doRemoveWorktree(pendingWtRemove!, true)}>强制移除</button>
+          <button onclick={() => (pendingWtRemove = null)}>取消</button>
+        </div>
+      {/if}
+
+      {#if pendingDiscard}
+        <div class="confirm danger">
+          <span>
+            要丢弃
+            {#if pendingDiscard.length === 1}
+              <b>{pendingDiscard[0].path}</b>
+            {:else}
+              <b>{pendingDiscard.length} 个文件</b>
+            {/if}
+            的改动吗？未跟踪的文件会被直接删除，<b>这一步不可撤销</b>
+          </span>
+          <button class="danger" onclick={() => void doDiscard(pendingDiscard!)}>丢弃</button>
+          <button onclick={() => (pendingDiscard = null)}>取消</button>
+        </div>
+      {/if}
+
       {#if pendingClose}
         <div class="confirm">
           <span><b>{pendingClose.name}</b> 有未保存的改动</span>
@@ -628,9 +1062,31 @@
             <div class="big">把文件或文件夹拖进来</div>
             <p>代码走编辑模式，大文件与日志自动走只读的日志模式</p>
             <p class="keys">双击 ⇧ 随处搜索 · ⌘P 找文件 · ⌘⇧F 搜内容 · ⌘⇧O 文件结构</p>
-            <p class="keys">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏 · ⌘J 终端</p>
+            <p class="keys">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏 · ⌘J 终端 · ⌘⇧G 改动</p>
             {#if error}<p class="err">{error}</p>{/if}
           </div>
+        {:else if active.mode === "merge" && MergeViewComp}
+          {#key active.id}
+            <MergeViewComp
+              text={active.mergeText ?? ""}
+              path={active.rel ?? active.name}
+              onResolve={(c, r) => void resolveMerge(active!, c, r)}
+            />
+          {/key}
+        {:else if active.mode === "merge"}
+          <div class="empty"><p>正在载入合并视图…</p></div>
+        {:else if active.mode === "diff" && DiffViewComp}
+          {#key active.id}
+            <DiffViewComp
+              raw={active.diffRaw ?? ""}
+              path={active.rel ?? active.name}
+              staged={!!active.diffStaged}
+              commit={active.diffShort ?? ""}
+              onToggleStaged={() => void toggleDiffSide(active!)}
+            />
+          {/key}
+        {:else if active.mode === "diff"}
+          <div class="empty"><p>正在载入差异视图…</p></div>
         {:else if active.mode === "log" && active.handle !== undefined}
           {#key active.id}
             <LogPane handle={active.handle} {gotoLine} onStatus={(s) => (logStatus = s)} />
@@ -662,8 +1118,16 @@
         ></div>
         <div class="panel" style:height="{panelHeight}px">
           <div class="panel-head">
-            <span class="tag">终端</span>
-            <div class="tterms">
+            <button class="tool" class:on={panelView === "term"} onclick={() => (panelView = "term")}>
+              终端{terms.length > 1 ? ` (${terms.length})` : ""}
+            </button>
+            {#if repo}
+              <button class="tool" class:on={panelView === "log"} onclick={() => (panelView = "log")}>
+                Git 日志
+              </button>
+            {/if}
+            <span class="vsep"></span>
+            <div class="tterms" class:hidden={panelView !== "term"}>
               {#each terms as t (t.id)}
                 <div class="tterm" class:on={t.id === activeTermId}>
                   <button class="tt-label" onclick={() => (activeTermId = t.id)} title={t.cwd}>
@@ -678,15 +1142,33 @@
             <button onclick={() => (panel = false)} title="收起 ⌘J">✕</button>
           </div>
           <div class="panel-body">
-            {#if TerminalComp}
-              {#each terms as t (t.id)}
-                <!-- 隐藏而不是卸载：卸载会 kill 掉 shell -->
-                <div class="term-slot" class:hidden={t.id !== activeTermId}>
-                  <TerminalComp cwd={t.cwd} onExit={() => closeTerm(t.id)} />
-                </div>
-              {/each}
-            {:else}
-              <div class="loading">正在载入终端…</div>
+            <!--
+              终端整块只藏不卸载：组件一销毁 Session 就 drop，shell 直接被 kill。
+              切到 Git 日志页时正在跑的命令必须还在跑。
+            -->
+            <div class="tool-slot" class:hidden={panelView !== "term"}>
+              {#if TerminalComp}
+                {#each terms as t (t.id)}
+                  <div class="term-slot" class:hidden={t.id !== activeTermId}>
+                    <TerminalComp cwd={t.cwd} onExit={() => closeTerm(t.id)} />
+                  </div>
+                {/each}
+              {:else}
+                <div class="loading">正在载入终端…</div>
+              {/if}
+            </div>
+            {#if panelView === "log" && repo}
+              <div class="tool-slot">
+                {#if GitLogComp}
+                  <GitLogComp
+                    {repo}
+                    filePath={active?.mode === "edit" ? active.path : ""}
+                    onOpenCommitDiff={(sha, short, p) => void openCommitDiff(sha, short, p)}
+                  />
+                {:else}
+                  <div class="loading">正在载入 Git 日志…</div>
+                {/if}
+              </div>
             {/if}
           </div>
         </div>
@@ -695,7 +1177,13 @@
   </div>
 
   <footer class="statusbar">
-    {#if active}
+    {#if active?.mode === "merge"}
+      <span class="cell warn">冲突合并</span>
+    {:else if active?.mode === "diff"}
+      <span class="cell dim">
+        {active.diffSha ? `提交 ${active.diffShort}` : `差异 · ${active.diffStaged ? "已暂存" : "未暂存"}`}
+      </span>
+    {:else if active}
       <button
         class="cell btn mode"
         onclick={() => requestSwitchMode(active!)}
@@ -711,12 +1199,56 @@
       {:else}
         <span class="cell">{active.dirty ? "已修改" : "无改动"}</span>
       {/if}
+      {#if activeEntry}
+        <button
+          class="cell btn git"
+          onclick={() => void openDiff(activeEntry!, false)}
+          title="查看这个文件的改动"
+        >
+          {activeEntry.untracked ? "未跟踪" : "有改动"}
+        </button>
+      {/if}
     {:else}
       <span class="cell dim">等待文件</span>
     {/if}
     {#if saved}<span class="cell ok">{saved}</span>{/if}
     {#if error}<span class="cell err">{error}</span>{/if}
     <span class="spacer"></span>
+    {#if gitSt}
+      <button
+        class="cell btn branch"
+        onclick={() => (branchOpen = true)}
+        title={`切换分支 / 工作树${gitSt.upstream ? ` · 跟踪 ${gitSt.upstream}` : "（没有上游分支）"}`}
+      >
+        <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+          <circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4" />
+          <circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4" />
+          <circle cx="11.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4" />
+          <path d="M4.5 5.3 L4.5 10.7" stroke="currentColor" stroke-width="1.4" />
+          <path d="M11.5 5.3 Q11.5 8.5 4.5 10.7" fill="none" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        {gitSt.branch || "游离"}{gitSt.ahead ? ` ↑${gitSt.ahead}` : ""}{gitSt.behind ? ` ↓${gitSt.behind}` : ""}
+        {#if gitSt.entries.length}<span class="chg">{gitSt.entries.length}</span>{/if}
+      </button>
+      <button
+        class="cell btn"
+        class:on={sidebar && sideView === "git"}
+        onclick={() => {
+          sideView = sidebar && sideView === "git" ? "files" : "git";
+          sidebar = true;
+        }}
+        title="改动列表 ⌘⇧G"
+      >改动</button>
+      <button
+        class="cell btn"
+        class:on={panel && panelView === "log"}
+        onclick={() => {
+          panelView = "log";
+          panel = true;
+        }}
+        title="提交历史"
+      >历史</button>
+    {/if}
     <button class="cell btn" onclick={() => { quickScope = "all"; quickOpen = true; }}>搜索 ⇧⇧</button>
     <button class="cell btn" class:on={panel} onclick={() => (panel = !panel)}>
       终端 ⌘J{terms.length > 1 ? ` (${terms.length})` : ""}
@@ -825,7 +1357,29 @@
     color: var(--text-dim);
     user-select: none;
   }
-  .panel-head .tag { letter-spacing: 0.06em; text-transform: uppercase; }
+  .panel-head .tool {
+    flex: none;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-faint);
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: default;
+  }
+  .panel-head .tool:hover { background: var(--panel-bg-2); color: var(--text); }
+  .panel-head .tool.on { color: var(--text); background: var(--accent-sel); }
+  .panel-head .vsep {
+    flex: none;
+    width: 1px;
+    height: 12px;
+    background: var(--border);
+    margin: 0 2px;
+  }
+  .tterms.hidden { display: none; }
+  /* 工具页整块叠在一起，只切可见性 —— 终端不能卸载 */
+  .tool-slot { position: absolute; inset: 0; }
+  .tool-slot.hidden { visibility: hidden; pointer-events: none; z-index: -1; }
   .panel-head .gap { flex: 1; }
   .panel-head button {
     background: transparent;
@@ -932,6 +1486,13 @@
   .confirm button:hover { background: var(--panel-bg); color: var(--text); }
   .confirm button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .confirm.conflict { background: rgba(214, 174, 88, 0.12); border-bottom-color: var(--lvl-warn); }
+  /* 不可撤销的操作用红色描边，别让它长得跟普通确认一样 */
+  .confirm.danger { background: rgba(247, 84, 100, 0.10); border-bottom-color: var(--lvl-error); }
+  .confirm button.danger {
+    background: var(--lvl-error);
+    border-color: var(--lvl-error);
+    color: #fff;
+  }
 
   .statusbar {
     display: flex;
@@ -949,6 +1510,7 @@
   .statusbar .dim { color: var(--text-faint); }
   .statusbar .ok { color: var(--accent); }
   .statusbar .err { color: var(--lvl-error); }
+  .statusbar .warn { color: var(--lvl-warn); }
   .statusbar .btn {
     background: transparent;
     border: none;
@@ -963,4 +1525,18 @@
   .statusbar .btn.on { color: var(--accent); }
   .statusbar .btn.mode { color: var(--text-dim); }
   .statusbar .btn.mode:hover { color: var(--accent); }
+  .statusbar .btn.git { color: var(--git-modified); }
+  .statusbar .btn.branch {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 260px;
+  }
+  .statusbar .btn.branch .chg {
+    background: var(--panel-bg-2);
+    border-radius: 7px;
+    padding: 0 5px;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
 </style>

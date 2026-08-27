@@ -3,7 +3,7 @@
     id: number;
     path: string;
     name: string;
-    mode: "edit" | "log";
+    mode: "edit" | "log" | "diff" | "merge";
     dirty: boolean;
   }
 
@@ -31,6 +31,8 @@
         title={tab.path}
       >
         {#if tab.mode === "log"}<span class="badge">日志</span>{/if}
+        {#if tab.mode === "diff"}<span class="badge diff">差异</span>{/if}
+        {#if tab.mode === "merge"}<span class="badge merge">冲突</span>{/if}
         <span class="name">{tab.name}</span>
       </button>
       <button
@@ -98,6 +100,8 @@
     color: var(--text-faint);
     font-family: var(--code-font);
   }
+  .badge.diff { color: var(--git-modified); }
+  .badge.merge { color: var(--lvl-warn); }
   .close {
     flex: none;
     width: 20px;

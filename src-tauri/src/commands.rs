@@ -440,3 +440,286 @@ pub fn grep_project(root: String, pattern: String, limit: usize) -> Result<Vec<H
 pub fn ripgrep_available() -> bool {
     searchsvc::ripgrep_available()
 }
+
+// ─────────────────────────── Git ───────────────────────────
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitEntryDto {
+    pub path: String,
+    /// 暂存区状态字符
+    pub index: String,
+    /// 工作区状态字符
+    pub work: String,
+    pub untracked: bool,
+    /// 是折叠的未跟踪目录，文件树要按前缀匹配
+    pub is_dir: bool,
+    pub conflicted: bool,
+    pub staged: bool,
+    pub unstaged: bool,
+    pub orig: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStatusDto {
+    /// 仓库根的绝对路径。前端拿它把相对路径拼成绝对路径去对文件树
+    pub root: String,
+    pub branch: String,
+    pub upstream: String,
+    pub ahead: u32,
+    pub behind: u32,
+    pub detached: bool,
+    pub unborn: bool,
+    pub entries: Vec<GitEntryDto>,
+    pub truncated: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitDto {
+    pub sha: String,
+    pub short: String,
+    pub author: String,
+    pub when: String,
+    pub subject: String,
+}
+
+/// 找 `path` 所属的仓库根。不是仓库返回 null —— 这是正常情况，
+/// 界面据此让整块 Git 功能隐身，而不是弹错误。
+#[tauri::command]
+pub fn git_root(path: String) -> Option<String> {
+    gitsvc::discover(&path).map(|p| p.to_string_lossy().into_owned())
+}
+
+/// 读一次仓库状态。分支、领先落后、变更文件一次拿全。
+#[tauri::command]
+pub fn git_status(root: String) -> Result<GitStatusDto, String> {
+    let st = gitsvc::status_full(&root).map_err(|e| format!("{e}"))?;
+    Ok(GitStatusDto {
+        root,
+        branch: st.branch,
+        upstream: st.upstream,
+        ahead: st.ahead,
+        behind: st.behind,
+        detached: st.detached,
+        unborn: st.unborn,
+        truncated: st.truncated,
+        entries: st
+            .entries
+            .into_iter()
+            .map(|e| GitEntryDto {
+                staged: e.staged(),
+                unstaged: e.unstaged(),
+                index: e.index.to_string(),
+                work: e.work.to_string(),
+                path: e.path,
+                untracked: e.untracked,
+                is_dir: e.is_dir,
+                conflicted: e.conflicted,
+                orig: e.orig,
+            })
+            .collect(),
+    })
+}
+
+#[tauri::command]
+pub fn git_diff(
+    root: String,
+    path: String,
+    staged: bool,
+    untracked: bool,
+) -> Result<String, String> {
+    gitsvc::diff(&root, &path, staged, untracked).map_err(|e| format!("{e}"))
+}
+
+#[tauri::command]
+pub fn git_stage(root: String, paths: Vec<String>) -> Result<(), String> {
+    gitsvc::stage(&root, &paths).map_err(|e| format!("暂存失败：{e}"))
+}
+
+#[tauri::command]
+pub fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String> {
+    gitsvc::unstage(&root, &paths).map_err(|e| format!("取消暂存失败：{e}"))
+}
+
+/// 丢弃工作区改动。**不可撤销** —— 前端必须先让用户确认过才准调。
+#[tauri::command]
+pub fn git_discard(
+    root: String,
+    paths: Vec<String>,
+    untracked: Vec<String>,
+) -> Result<(), String> {
+    crate::diag!("git_discard {} 个跟踪 + {} 个未跟踪", paths.len(), untracked.len());
+    gitsvc::discard(&root, &paths, &untracked).map_err(|e| format!("丢弃失败：{e}"))
+}
+
+#[tauri::command]
+pub fn git_commit(root: String, message: String, amend: bool) -> Result<String, String> {
+    gitsvc::commit(&root, &message, amend).map_err(|e| format!("{e}"))
+}
+
+#[tauri::command]
+pub fn git_log(root: String, path: String, limit: usize) -> Result<Vec<GitCommitDto>, String> {
+    let cs = gitsvc::log(&root, &path, limit).map_err(|e| format!("读历史失败：{e}"))?;
+    Ok(cs
+        .into_iter()
+        .map(|c| GitCommitDto {
+            sha: c.sha,
+            short: c.short,
+            author: c.author,
+            when: c.when,
+            subject: c.subject,
+        })
+        .collect())
+}
+
+/// 某个版本里的文件内容。编辑器的改动标记要拿 HEAD 版本做基线。
+#[tauri::command]
+pub fn git_show(root: String, rev: String, path: String) -> Result<String, String> {
+    gitsvc::show(&root, &rev, &path).map_err(|e| format!("{e}"))
+}
+
+// ─────────────── Git：历史 · 分支 · 工作树 ───────────────
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogEntryDto {
+    pub sha: String,
+    pub short: String,
+    pub author: String,
+    pub email: String,
+    pub when: String,
+    pub date: String,
+    pub subject: String,
+    /// 父提交完整 sha；合并提交有多个，泳道图靠它连线
+    pub parents: Vec<String>,
+    pub refs: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchDto {
+    pub name: String,
+    pub sha: String,
+    pub upstream: String,
+    pub is_head: bool,
+    pub is_remote: bool,
+    pub when: String,
+    pub subject: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeDto {
+    pub path: String,
+    pub sha: String,
+    pub branch: String,
+    pub detached: bool,
+    pub bare: bool,
+    pub locked: bool,
+    pub current: bool,
+}
+
+#[tauri::command]
+pub fn git_log_entries(
+    root: String,
+    limit: usize,
+    all: bool,
+    path: String,
+) -> Result<Vec<LogEntryDto>, String> {
+    let es = gitsvc::log_entries(&root, limit, all, &path).map_err(|e| format!("读历史失败：{e}"))?;
+    Ok(es
+        .into_iter()
+        .map(|c| LogEntryDto {
+            sha: c.sha,
+            short: c.short,
+            author: c.author,
+            email: c.email,
+            when: c.when,
+            date: c.date,
+            subject: c.subject,
+            parents: c.parents,
+            refs: c.refs,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn git_commit_files(root: String, sha: String) -> Result<Vec<GitEntryDto>, String> {
+    let es = gitsvc::commit_files(&root, &sha).map_err(|e| format!("读提交内容失败：{e}"))?;
+    Ok(es
+        .into_iter()
+        .map(|e| GitEntryDto {
+            staged: true,
+            unstaged: false,
+            index: e.index.to_string(),
+            work: e.work.to_string(),
+            path: e.path,
+            untracked: false,
+            is_dir: false,
+            conflicted: false,
+            orig: e.orig,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn git_commit_diff(root: String, sha: String, path: String) -> Result<String, String> {
+    gitsvc::commit_diff(&root, &sha, &path).map_err(|e| format!("{e}"))
+}
+
+#[tauri::command]
+pub fn git_branches(root: String) -> Result<Vec<BranchDto>, String> {
+    let bs = gitsvc::branches(&root).map_err(|e| format!("读分支失败：{e}"))?;
+    Ok(bs
+        .into_iter()
+        .map(|b| BranchDto {
+            name: b.name,
+            sha: b.sha,
+            upstream: b.upstream,
+            is_head: b.is_head,
+            is_remote: b.is_remote,
+            when: b.when,
+            subject: b.subject,
+        })
+        .collect())
+}
+
+/// 切分支。工作区脏时 git 会自己拒绝，错误原样上抛 —— 它的措辞比我们准。
+#[tauri::command]
+pub fn git_switch(root: String, name: String, create: bool) -> Result<String, String> {
+    crate::diag!("git_switch {name} create={create}");
+    gitsvc::switch_branch(&root, &name, create).map_err(|e| format!("{e}"))
+}
+
+#[tauri::command]
+pub fn git_worktrees(root: String) -> Result<Vec<WorktreeDto>, String> {
+    let ws = gitsvc::worktrees(&root).map_err(|e| format!("读工作树失败：{e}"))?;
+    Ok(ws
+        .into_iter()
+        .map(|w| WorktreeDto {
+            path: w.path,
+            sha: w.sha,
+            branch: w.branch,
+            detached: w.detached,
+            bare: w.bare,
+            locked: w.locked,
+            current: w.current,
+        })
+        .collect())
+}
+
+/// 新建工作树，返回新目录的绝对路径 —— 前端可以直接把它当项目根打开。
+#[tauri::command]
+pub fn git_worktree_add(root: String, path: String, branch: String) -> Result<String, String> {
+    crate::diag!("git_worktree_add path={path} branch={branch}");
+    gitsvc::worktree_add(&root, &path, &branch).map_err(|e| format!("{e}"))
+}
+
+/// 移除工作树。**会删掉那个目录**，前端必须先确认。
+#[tauri::command]
+pub fn git_worktree_remove(root: String, path: String, force: bool) -> Result<(), String> {
+    crate::diag!("git_worktree_remove path={path} force={force}");
+    gitsvc::worktree_remove(&root, &path, force).map_err(|e| format!("{e}"))
+}
