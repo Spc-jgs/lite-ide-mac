@@ -837,6 +837,73 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// 远程分支要能检出。
+    ///
+    /// `git switch origin/foo` 会直接失败，必须翻译成 `--track origin/foo`。
+    /// 这条造一个真的「远程」（用本地目录当 remote），走完整流程。
+    #[test]
+    fn 检出远程分支要建跟踪分支() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("gitsvc-remote-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let origin = base.join("origin");
+        let clone = base.join("clone");
+        std::fs::create_dir_all(&origin).unwrap();
+
+        let cfg = |d: &Path| {
+            run(d, &["config", "user.email", "t@t.t"]).unwrap();
+            run(d, &["config", "user.name", "t"]).unwrap();
+        };
+        run(&origin, &["init", "-q", "-b", "main"]).unwrap();
+        cfg(&origin);
+        std::fs::write(origin.join("a.txt"), "1").unwrap();
+        run(&origin, &["add", "-A"]).unwrap();
+        run(&origin, &["commit", "-qm", "base"]).unwrap();
+        // 在 origin 上再造一条分支
+        run(&origin, &["switch", "-q", "-c", "feature/x"]).unwrap();
+        std::fs::write(origin.join("b.txt"), "2").unwrap();
+        run(&origin, &["add", "-A"]).unwrap();
+        run(&origin, &["commit", "-qm", "feature"]).unwrap();
+        run(&origin, &["switch", "-q", "main"]).unwrap();
+
+        run(
+            &base,
+            &["clone", "-q", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        )
+        .unwrap();
+        cfg(&clone);
+
+        // 克隆之后本地只有 main，feature/x 只存在于 origin/ 下
+        let bs = branches(&clone).unwrap();
+        assert!(
+            bs.iter().any(|b| b.name == "origin/feature/x" && b.is_remote),
+            "没列出远程分支：{:?}",
+            bs.iter().map(|b| &b.name).collect::<Vec<_>>()
+        );
+        assert!(
+            !bs.iter().any(|b| b.name == "feature/x" && !b.is_remote),
+            "本地不该已经有 feature/x"
+        );
+
+        // 关键：传全名也必须能切过去
+        switch_branch(&clone, "origin/feature/x", false)
+            .unwrap_or_else(|e| panic!("检出远程分支失败：{e}"));
+        let st = status_full(&clone).unwrap();
+        assert_eq!(st.branch, "feature/x", "应该切到了本地跟踪分支");
+        assert_eq!(st.upstream, "origin/feature/x", "上游没设对");
+        assert!(clone.join("b.txt").exists(), "工作区内容没跟着切过来");
+
+        // 再切回去，然后用全名切第二次 —— 这次本地已有同名分支，不该重复新建
+        switch_branch(&clone, "main", false).unwrap();
+        switch_branch(&clone, "origin/feature/x", false).unwrap();
+        assert_eq!(status_full(&clone).unwrap().branch, "feature/x");
+
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
     /// 不是仓库的目录必须安静地返回 None，不能报错
     #[test]
     fn 非仓库目录返回none() {
@@ -1098,21 +1165,50 @@ pub fn branches(root: impl AsRef<Path>) -> R<Vec<Branch>> {
 /// 切分支。
 ///
 /// - `create` 为真：新建并切过去（`switch -c`）
-/// - 名字形如 `origin/foo` 且本地没有同名分支时，git 会自动建一个跟踪分支，
-///   这正是想要的行为，不用特殊处理
+/// - 名字是**远程分支全名**（如 `origin/foo`）时走 `--track`，
+///   建一个跟踪它的同名本地分支
+///
+/// 关于远程分支有个坑：`git switch origin/foo` 会直接失败 ——
+/// `fatal: a branch is expected, got remote branch 'origin/foo'`。
+/// git 的 DWIM（自动建跟踪分支）只对**短名**生效：本地没有 `foo` 而
+/// `origin/foo` 存在时，`git switch foo` 才会自动建。传全名反而不行。
+/// 界面上列出来的是全名（要区分 origin/foo 和 upstream/foo），
+/// 所以这里得把这层翻译做掉。
 ///
 /// 工作区脏的时候 git 会自己拒绝并说清楚原因，我们把 stderr 原样上抛 ——
 /// 它的措辞比我们能写的更准。
 pub fn switch_branch(root: impl AsRef<Path>, name: &str, create: bool) -> R<String> {
-    if name.trim().is_empty() {
+    let name = name.trim();
+    if name.is_empty() {
         return Err(Error::Git("分支名不能为空".into()));
     }
-    let args: Vec<&str> = if create {
-        vec!["switch", "-c", name]
-    } else {
-        vec!["switch", name]
+    let root = root.as_ref();
+    if create {
+        return run(root, &["switch", "-c", name]);
+    }
+
+    let exists = |r: &str| {
+        run(root, &["rev-parse", "--verify", "--quiet", r])
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
     };
-    run(root.as_ref(), &args)
+
+    // 本地就有同名分支：直接切，最常见的情形
+    if exists(&format!("refs/heads/{name}")) {
+        return run(root, &["switch", name]);
+    }
+    // 是个远程分支：建跟踪分支切过去
+    if exists(&format!("refs/remotes/{name}")) {
+        let short = name.split_once('/').map(|(_, b)| b).unwrap_or(name);
+        // 本地已经有同名短分支了（跟踪的可能是别的远程），就切到那个，
+        // 别再建一个重名的
+        if exists(&format!("refs/heads/{short}")) {
+            return run(root, &["switch", short]);
+        }
+        return run(root, &["switch", "--track", name]);
+    }
+    // 既不是本地也不是远程：交给 git 自己判断（可能是 tag 或 sha）
+    run(root, &["switch", name])
 }
 
 /// 工作树列表。`--porcelain` 的记录以空行分隔，每行是 `键 值`。

@@ -52,10 +52,17 @@
     return out;
   });
 
-  let rows = $derived<{ kind: string }[]>(side ? sideRows : uniRows);
-  let blocks = $derived(changeBlocks(rows));
-  let total = $derived(rows.length);
+  let total = $derived(side ? sideRows.length : uniRows.length);
   let truncated = $derived(total > MAX_ROWS);
+  /** 实际渲染出来的那些行 —— 两种视图各切一份，类型才不会退化成 { kind } */
+  let sideShown = $derived(sideRows.slice(0, MAX_ROWS));
+  let uniShown = $derived(uniRows.slice(0, MAX_ROWS));
+  /**
+   * 跳转目标只能取**渲染出来的**那些块。
+   * 早先是在全部行上算的，于是超过 MAX_ROWS 的差异里，「下一处改动」会把
+   * 视图滚到一片空白 —— 那些行根本没渲染。
+   */
+  let blocks = $derived(changeBlocks(side ? sideShown : uniShown));
 
   // 换文件 / 换视图就把跳转游标归零，否则会停在一个已经不存在的位置
   $effect(() => {
@@ -124,7 +131,7 @@
       <div class="none">二进制文件，不显示差异</div>
     {:else if side}
       <div class="grid">
-        {#each sideRows.slice(0, MAX_ROWS) as r, i (i)}
+        {#each sideShown as r, i (i)}
           {#if r.kind === "hunk" || r.kind === "meta"}
             <div class="span4 {r.kind}">{r.text || "⋯"}</div>
           {:else}
@@ -143,7 +150,7 @@
       </div>
     {:else}
       <div class="uni">
-        {#each uniRows.slice(0, MAX_ROWS) as l, i (i)}
+        {#each uniShown as l, i (i)}
           {#if l.kind === "hunk" || l.kind === "meta"}
             <div class="row {l.kind}">
               <span class="no"></span><span class="no"></span><span class="sign"></span>
@@ -294,16 +301,25 @@
     left: 0;
     background: var(--editor-bg);
   }
+  /*
+   * 吸住的列**背景必须不透明**，否则横向滚动时正文会从行号底下透出来。
+   * 增删行的底色是半透明的（要让它叠在编辑器底色上才是对的颜色），
+   * 所以这里把它和一层不透明底色叠起来，而不是另写一组死色值 ——
+   * 色值只有一份，改 --diff-*-bg 时不会漏掉这里。
+   */
+  .no.del { background: linear-gradient(var(--diff-del-bg), var(--diff-del-bg)), var(--editor-bg); }
+  .no.add { background: linear-gradient(var(--diff-add-bg), var(--diff-add-bg)), var(--editor-bg); }
+  .no.blank { background: var(--editor-bg); }
   .no.mid {
     left: auto;
     position: static;
     border-left: 1px solid var(--border);
   }
   .tx { padding: 0 14px 0 4px; }
-  .tx.del, .no.del { background: var(--diff-del-bg); }
-  .tx.add, .no.add { background: var(--diff-add-bg); }
+  .tx.del { background: var(--diff-del-bg); }
+  .tx.add { background: var(--diff-add-bg); }
   /* 对面没有对应行：画成静音的斜纹底，一眼看出「这里本来就没东西」 */
-  .tx.blank, .no.blank {
+  .tx.blank {
     background: repeating-linear-gradient(
       45deg,
       transparent,
@@ -313,7 +329,18 @@
     );
   }
 
-  .uni .row { display: flex; white-space: pre; min-width: min-content; }
+  /*
+   * 每一行必须**正好** ROW_H 高，「上一处 / 下一处改动」是按 下标 × 行高
+   * 算滚动位置的。hunk 行带上下边框，不锁死高度就会比别的行高 2px，
+   * 跳几次之后目标就偏出屏幕了。box-sizing 是全局 border-box，
+   * 所以边框算在这 19px 里面。
+   */
+  .uni .row {
+    display: flex;
+    height: 19px;
+    white-space: pre;
+    min-width: min-content;
+  }
   .uni .no {
     flex: none;
     width: 46px;

@@ -21,6 +21,16 @@ pub fn run() {
                 if std::env::var("LITE_IDE_ONTOP").is_ok() {
                     let _ = w.set_always_on_top(true);
                 }
+                // 同上：LITE_IDE_POS=x,y 把窗口摆到指定位置。
+                // 多显示器时窗口会记住上次开在哪，而副屏上的窗口有时截不到图，
+                // 有个办法把它拉回主屏能省很多事。
+                if let Ok(pos) = std::env::var("LITE_IDE_POS") {
+                    if let Some((x, y)) = pos.split_once(',') {
+                        if let (Ok(x), Ok(y)) = (x.trim().parse::<i32>(), y.trim().parse::<i32>()) {
+                            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+                        }
+                    }
+                }
             }
             Ok(())
         })
