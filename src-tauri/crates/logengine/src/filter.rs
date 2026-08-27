@@ -20,7 +20,12 @@ pub struct FilterSpec {
     /// 允许显示的级别
     pub levels: LevelMask,
     /// 文本关键字，空表示不按文本筛
-    pub pattern: String,
+    /// 要搜的**字节**，不是 String。
+    ///
+    /// 文件可能是 GBK / Big5，而前端敲进来的关键字是 UTF-8 —— 直接拿 UTF-8
+    /// 字节去搜 GBK 文件，中文永远搜不到。所以由命令层先按文件的编码把关键字
+    /// 编成对应字节再传下来。这一层只管字节比对，不掺和编码。
+    pub pattern: Vec<u8>,
     /// 是否区分大小写
     pub case_sensitive: bool,
     /// 折叠异常堆栈：连续的 `at ...` 帧只保留第一帧
@@ -151,7 +156,7 @@ fn run(
     } else {
         AhoCorasick::builder()
             .ascii_case_insensitive(!spec.case_sensitive)
-            .build([spec.pattern.as_bytes()])
+            .build([spec.pattern.as_slice()])
             .ok()
     };
 
@@ -251,10 +256,54 @@ mod tests {
     fn spec(mask: LevelMask, pat: &str, cs: bool) -> FilterSpec {
         FilterSpec {
             levels: mask,
-            pattern: pat.into(),
+            pattern: pat.as_bytes().to_vec(),
             case_sensitive: cs,
             collapse_stacks: false,
         }
+    }
+
+    /// 非 UTF-8 日志里搜非 ASCII 关键字。
+    ///
+    /// 这条守的是「GBK 日志里搜中文搜不到」那个 bug：过滤器只做**字节**比对，
+    /// 关键字必须由上层先编成文件那套字节。这里直接用 GBK 字节构造，
+    /// 断言「用 GBK 的『订单』能搜到，用 UTF-8 的『订单』搜不到」。
+    #[test]
+    fn 非utf8日志按字节比对() {
+        // "订单" 的 GBK 是 B6 A9 B5 A5；"库存" 是 BF E2 B4 E6
+        let gbk_订单: &[u8] = &[0xB6, 0xA9, 0xB5, 0xA5];
+        let gbk_库存: &[u8] = &[0xBF, 0xE2, 0xB4, 0xE6];
+
+        let mut body = Vec::new();
+        body.extend_from_slice(b"2026-01-01 ERROR [main] a.B - ");
+        body.extend_from_slice(gbk_订单);
+        body.extend_from_slice(b" 8001\n");
+        body.extend_from_slice(b"2026-01-01 INFO  [main] a.C - ");
+        body.extend_from_slice(gbk_库存);
+        body.extend_from_slice(b" ok\n");
+
+        let hit_gbk = filter(
+            &body,
+            FilterSpec {
+                levels: LevelMask::ALL,
+                pattern: gbk_订单.to_vec(),
+                case_sensitive: false,
+                collapse_stacks: false,
+            },
+        );
+        assert_eq!(hit_gbk, vec![0], "GBK 字节的关键字应该命中第 1 行");
+
+        // 同一个词的 UTF-8 字节（E8 AE A2 E5 8D 95）在 GBK 文件里搜不到 ——
+        // 这正是为什么关键字必须在命令层按文件编码编一次
+        let hit_utf8 = filter(
+            &body,
+            FilterSpec {
+                levels: LevelMask::ALL,
+                pattern: "订单".as_bytes().to_vec(),
+                case_sensitive: false,
+                collapse_stacks: false,
+            },
+        );
+        assert!(hit_utf8.is_empty(), "UTF-8 字节不该在 GBK 文件里命中");
     }
 
     const STACKY: &[u8] = b"2026-01-01 ERROR [main] a.B - boom\n\
