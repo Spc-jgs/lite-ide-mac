@@ -80,7 +80,7 @@
 
     const timer = setTimeout(async () => {
       try {
-        const active = await logFilter(h, bits, pat, cs, fold);
+        const active = await logFilter(h, bits, pat, cs, fold, encoding);
         filtered = active;
         if (!active) {
           filterHits = null;

@@ -98,14 +98,28 @@ export const closeLog = (handle: number) => invoke<boolean>("close_log", { handl
 export const logLines = (handle: number, start: number, count: number) =>
   invoke<ArrayBuffer>("log_lines", { handle, start, count });
 
-/** 启动过滤；返回 false 表示条件为空、已清除过滤 */
+/**
+ * 启动过滤；返回 false 表示条件为空、已清除过滤。
+ *
+ * `label` 是文件编码 —— 关键字要先编成文件那套字节才搜得到，
+ * 否则在 GBK 日志里搜中文永远是零命中。
+ */
 export const logFilter = (
   handle: number,
   levelBits: number,
   pattern: string,
   caseSensitive: boolean,
   collapseStacks: boolean,
-) => invoke<boolean>("log_filter", { handle, levelBits, pattern, caseSensitive, collapseStacks });
+  label = "UTF-8",
+) =>
+  invoke<boolean>("log_filter", {
+    handle,
+    levelBits,
+    pattern,
+    caseSensitive,
+    collapseStacks,
+    label,
+  });
 
 export const logFilterStat = (handle: number) =>
   invoke<FilterStat | null>("log_filter_stat", { handle });

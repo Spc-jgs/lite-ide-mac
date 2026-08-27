@@ -260,19 +260,31 @@ pub fn log_lines(handle: u32, start: u64, count: u32, state: State<'_, AppState>
 }
 
 /// 启动过滤。传空 pattern + 全级别掩码等于清除过滤。
+///
+/// `label` 是这个文件的编码。关键字要**先编成文件那套字节**再下去搜 ——
+/// 一份 GBK 日志里搜「订单」，拿 UTF-8 的「订单」去比对是永远搜不到的。
+/// 编码这件事只有这一层知道（前端探测出来传上来），所以在这里做。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn log_filter(
     handle: u32,
     level_bits: u8,
     pattern: String,
     case_sensitive: bool,
     collapse_stacks: bool,
+    label: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
     let file = state.get(handle).ok_or("句柄已失效")?;
+    let label = label.unwrap_or_else(|| "UTF-8".into());
+    let bytes = if pattern.is_empty() {
+        Vec::new()
+    } else {
+        fsservice::encoding::encode(&pattern, &label, false)
+    };
     let spec = FilterSpec {
         levels: LevelMask::from_bits(level_bits),
-        pattern,
+        pattern: bytes,
         case_sensitive,
         collapse_stacks,
     };
