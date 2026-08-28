@@ -27,6 +27,15 @@ window.addEventListener("error", (e) => {
   if (!document.getElementById("app")?.hasChildNodes()) fatal(e.error ?? e.message, "加载脚本");
 });
 window.addEventListener("unhandledrejection", (e) => diag(`unhandledrejection: ${e.reason}`));
+/*
+ * CSP 违规不会触发 window.error —— 被挡掉的资源就那么静静地没加载，
+ * 界面上只表现为「某个东西不好使了」，查起来毫无线索。
+ * 收紧 CSP 的同时必须给它配一条回传通道，否则下次加个依赖被 CSP 挡了，
+ * 得从零开始猜。
+ */
+document.addEventListener("securitypolicyviolation", (e) =>
+  diag(`CSP 挡下: ${e.violatedDirective} ← ${e.blockedURI} @ ${e.sourceFile}:${e.lineNumber}`),
+);
 
 /**
  * 挂载失败时的最后一道兜底。
