@@ -3,6 +3,7 @@
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
+  import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import Outline from "./lib/search/Outline.svelte";
   import type { Sym } from "./lib/editor/outline";
   import { langOf, langLabel } from "./lib/editor/langs";
@@ -128,20 +129,25 @@
   let pendingDiscard = $state<GitEntry[] | null>(null);
 
   /*
-   * Git 面板与差异视图按需加载，和 CM6、xterm 同一条纪律
-   * （ARCHITECTURE.md 红线：入口包只放两种模式都要的东西）。
-   * 静态引入时入口包从 120KB 涨到 140KB —— 而这两样东西，
-   * 只看日志的人一次都不会用到。
+   * Git 那一套按需加载，和 CM6、xterm 同一条纪律（ARCHITECTURE.md 红线：
+   * 入口包只放两种模式都要的东西）。静态引入时入口包从 120KB 涨到 140KB，
+   * 而这些东西只看日志的人一次都不会用到。
+   *
+   * 五个一起拉：进了 Git 就基本都会用到，分五次只是多四次往返。
    *
    * 文件树上的 git 染色不在这里面：那只是 FileTree 里的一个 $derived，
    * 没有额外模块，打开就该看见。
    */
-  let GitPaneComp = $state<typeof import("./lib/git/GitPane.svelte").default | null>(null);
-  let DiffViewComp = $state<typeof import("./lib/git/DiffView.svelte").default | null>(null);
-  let GitLogComp = $state<typeof import("./lib/git/GitLog.svelte").default | null>(null);
-  let MergeViewComp = $state<typeof import("./lib/git/MergeView.svelte").default | null>(null);
-  let BranchPickerComp = $state<typeof import("./lib/git/BranchPicker.svelte").default | null>(null);
-  let gitLoading = $state(false);
+  const git = lazyGroup(
+    {
+      pane: () => import("./lib/git/GitPane.svelte"),
+      diff: () => import("./lib/git/DiffView.svelte"),
+      log: () => import("./lib/git/GitLog.svelte"),
+      branch: () => import("./lib/git/BranchPicker.svelte"),
+      merge: () => import("./lib/git/MergeView.svelte"),
+    },
+    "Git 面板",
+  );
 
   $effect(() => {
     const need =
@@ -149,25 +155,7 @@
       tabs.some((t) => t.mode === "diff" || t.mode === "merge") ||
       (panel && panelView === "log") ||
       branchOpen;
-    if (!need || gitLoading || GitPaneComp) return;
-    gitLoading = true;
-    // 四个一起拉：进了 Git 就基本都会用到，分四次只是多三次往返
-    Promise.all([
-      import("./lib/git/GitPane.svelte"),
-      import("./lib/git/DiffView.svelte"),
-      import("./lib/git/GitLog.svelte"),
-      import("./lib/git/BranchPicker.svelte"),
-      import("./lib/git/MergeView.svelte"),
-    ])
-      .then(([g, d, l, b, m]) => {
-        GitPaneComp = g.default;
-        DiffViewComp = d.default;
-        GitLogComp = l.default;
-        BranchPickerComp = b.default;
-        MergeViewComp = m.default;
-      })
-      .catch((e) => (error = `Git 面板加载失败：${e}`))
-      .finally(() => (gitLoading = false));
+    if (need) git.load();
   });
 
   /** 分支 / 工作树选择器 */
@@ -176,15 +164,9 @@
   // ─────────────────────────── 编码 ───────────────────────────
 
   let encOpen = $state(false);
-  let EncPickerComp = $state<
-    typeof import("./lib/encoding/EncodingPicker.svelte").default | null
-  >(null);
-
+  const encPicker = lazy(() => import("./lib/encoding/EncodingPicker.svelte"), "编码选择器");
   $effect(() => {
-    if (!encOpen || EncPickerComp) return;
-    import("./lib/encoding/EncodingPicker.svelte")
-      .then((m) => (EncPickerComp = m.default))
-      .catch((e) => (error = `编码选择器加载失败：${e}`));
+    if (encOpen) encPicker.load();
   });
 
   /** 按新编码重新解码当前文件 */
@@ -563,8 +545,7 @@
   /** 底部面板当前是哪个工具窗。终端实例永不卸载，只是藏起来 */
   let panelView = $state<"term" | "log">("term");
   /** xterm.js 约 250KB，不开终端就不该付这个钱 —— 与 CM6 同样按需加载 */
-  let TerminalComp = $state<typeof import("./lib/terminal/Terminal.svelte").default | null>(null);
-  let terminalLoading = $state(false);
+  const terminal = lazy(() => import("./lib/terminal/Terminal.svelte"), "终端");
   /**
    * 多个终端并存。切换标签时**不能卸载**未激活的那些 ——
    * 组件一销毁 Session 就 drop，shell 直接被 kill，正在跑的命令全没了。
@@ -619,24 +600,17 @@
    * 从 71KB 顶到 412KB，与"秒开"的立身之本冲突。改成打开第一个可编辑文件时
    * 才 import，本地加载只有几毫秒。
    */
-  let EditorComp = $state<typeof import("./lib/editor/Editor.svelte").default | null>(null);
-  let editorLoading = $state(false);
+  const editor = lazy(() => import("./lib/editor/Editor.svelte"), "编辑器");
 
   /*
    * 日志视图同样按需加载 —— 和 Editor 对称。
    * 早先它是静态引入的，等于只写代码的人一直在为整套日志视图
    * （虚拟滚动 + 过滤条 + 8 种格式的解析着色）付钱。
    */
-  let LogPaneComp = $state<typeof import("./lib/logview/LogPane.svelte").default | null>(null);
-  let logPaneLoading = $state(false);
+  const logPane = lazy(() => import("./lib/logview/LogPane.svelte"), "日志视图");
 
   $effect(() => {
-    if (active?.mode !== "log" || LogPaneComp || logPaneLoading) return;
-    logPaneLoading = true;
-    import("./lib/logview/LogPane.svelte")
-      .then((m) => (LogPaneComp = m.default))
-      .catch((e) => (error = `日志视图加载失败：${e}`))
-      .finally(() => (logPaneLoading = false));
+    if (active?.mode === "log") logPane.load();
   });
   /** 每次保存成功自增，Editor 据此重置 dirty 基线 */
   let savedTick = $state(0);
@@ -762,24 +736,22 @@
   }
 
   $effect(() => {
-    if (!panel || TerminalComp || terminalLoading) return;
-    terminalLoading = true;
-    import("./lib/terminal/Terminal.svelte")
-      .then((m) => (TerminalComp = m.default))
-      .catch((e) => (error = `终端加载失败：${e}`))
-      .finally(() => (terminalLoading = false));
+    if (panel) terminal.load();
   });
 
   $effect(() => {
-    if (active?.mode !== "edit" || EditorComp || editorLoading) return;
-    editorLoading = true;
-    import("./lib/editor/Editor.svelte")
-      .then((m) => (EditorComp = m.default))
-      .catch((e) => (error = `编辑器加载失败：${e}`))
-      .finally(() => (editorLoading = false));
+    if (active?.mode === "edit") editor.load();
   });
 
   let active = $derived(tabs.find((t) => t.id === activeId) ?? null);
+
+  // 按需加载失败要说出来。以前每个 import 各自 catch 到 error 里，
+  // 抽成 lazy() 之后错误存在各自的 store 上，这里统一汇到状态栏。
+  $effect(() => {
+    const e =
+      editor.error || logPane.error || terminal.error || git.error || encPicker.error;
+    if (e) error = e;
+  });
 
   /** 走 legacy stream parser 的语言没有语法树，界面要明说 */
   const LEZER_LANGS = new Set([
@@ -1168,8 +1140,8 @@
 
 <QuickSearch bind:open={quickOpen} bind:scope={quickScope} {root} {actions} onOpenFile={openAt} />
 
-{#if EncPickerComp && active}
-  <EncPickerComp
+{#if encPicker.comp && active}
+  <encPicker.comp
     bind:open={encOpen}
     current={active.encoding ?? "UTF-8"}
     bom={!!active.bom}
@@ -1180,8 +1152,8 @@
   />
 {/if}
 
-{#if BranchPickerComp && repo}
-  <BranchPickerComp
+{#if git.comps.branch && repo}
+  <git.comps.branch
     bind:open={branchOpen}
     {repo}
     onSwitch={(n) => switchBranch(n)}
@@ -1311,8 +1283,8 @@
       <aside>
         {#if !root}
           <div class="no-root">把文件夹拖进来</div>
-        {:else if sideView === "git" && repo && GitPaneComp}
-          <GitPaneComp
+        {:else if sideView === "git" && repo && git.comps.pane}
+          <git.comps.pane
             status={gitSt}
             busy={gitBusy}
             onOpenDiff={(e, staged) => void (e.conflicted ? openMerge(e) : openDiff(e, staged))}
@@ -1425,9 +1397,9 @@
             <p class="keys">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏 · ⌘J 终端 · ⌘⇧G 改动</p>
             {#if error}<p class="err">{error}</p>{/if}
           </div>
-        {:else if active.mode === "merge" && MergeViewComp}
+        {:else if active.mode === "merge" && git.comps.merge}
           {#key active.id}
-            <MergeViewComp
+            <git.comps.merge
               text={active.mergeText ?? ""}
               path={active.rel ?? active.name}
               onResolve={(c, r) => void resolveMerge(active!, c, r)}
@@ -1435,9 +1407,9 @@
           {/key}
         {:else if active.mode === "merge"}
           <div class="empty"><p>正在载入合并视图…</p></div>
-        {:else if active.mode === "diff" && DiffViewComp}
+        {:else if active.mode === "diff" && git.comps.diff}
           {#key active.id}
-            <DiffViewComp
+            <git.comps.diff
               raw={active.diffRaw ?? ""}
               path={active.rel ?? active.name}
               staged={!!active.diffStaged}
@@ -1447,9 +1419,9 @@
           {/key}
         {:else if active.mode === "diff"}
           <div class="empty"><p>正在载入差异视图…</p></div>
-        {:else if active.mode === "log" && active.handle !== undefined && LogPaneComp}
+        {:else if active.mode === "log" && active.handle !== undefined && logPane.comp}
           {#key active.id}
-            <LogPaneComp
+            <logPane.comp
               handle={active.handle}
               {gotoLine}
               encoding={active.encoding ?? "utf-8"}
@@ -1458,9 +1430,9 @@
           {/key}
         {:else if active.mode === "log"}
           <div class="empty"><p>正在载入日志视图…</p></div>
-        {:else if EditorComp}
+        {:else if editor.comp}
           {#key active.id}
-            <EditorComp
+            <editor.comp
               path={active.path}
               initial={active.content ?? ""}
               {savedTick}
@@ -1516,10 +1488,10 @@
               切到 Git 日志页时正在跑的命令必须还在跑。
             -->
             <div class="tool-slot" class:hidden={panelView !== "term"}>
-              {#if TerminalComp}
+              {#if terminal.comp}
                 {#each terms as t (t.id)}
                   <div class="term-slot" class:hidden={t.id !== activeTermId}>
-                    <TerminalComp cwd={t.cwd} onExit={() => closeTerm(t.id)} />
+                    <terminal.comp cwd={t.cwd} onExit={() => closeTerm(t.id)} />
                   </div>
                 {/each}
               {:else}
@@ -1528,8 +1500,8 @@
             </div>
             {#if panelView === "log" && repo}
               <div class="tool-slot">
-                {#if GitLogComp}
-                  <GitLogComp
+                {#if git.comps.log}
+                  <git.comps.log
                     {repo}
                     filePath={active?.mode === "edit" ? active.path : ""}
                     onOpenCommitDiff={(sha, short, p) => void openCommitDiff(sha, short, p)}

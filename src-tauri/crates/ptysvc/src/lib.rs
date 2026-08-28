@@ -80,11 +80,6 @@ impl Session {
             .map_err(to_io)
     }
 
-    /// 子进程是否已经退出
-    pub fn try_wait(&mut self) -> Option<u32> {
-        self.child.try_wait().ok().flatten().map(|s| s.exit_code())
-    }
-
     pub fn kill(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();

@@ -459,15 +459,6 @@ pub fn pty_kill(id: u32, state: State<'_, AppState>) -> bool {
     state.kill_pty(id)
 }
 
-/// 终端是否已自行退出（用户敲了 exit）
-#[tauri::command]
-pub fn pty_alive(id: u32, state: State<'_, AppState>) -> bool {
-    match state.pty(id) {
-        Some(sess) => sess.lock().expect("pty 锁被毒化").try_wait().is_none(),
-        None => false,
-    }
-}
-
 // ─────────────────────────── 搜索 ───────────────────────────
 
 #[derive(serde::Serialize)]
@@ -499,12 +490,6 @@ pub fn grep_project(root: String, pattern: String, limit: usize) -> Result<Vec<H
             text: h.text,
         })
         .collect())
-}
-
-/// 界面上标注当前走的哪条搜索路径
-#[tauri::command]
-pub fn ripgrep_available() -> bool {
-    searchsvc::ripgrep_available()
 }
 
 // ─────────────────────────── Git ───────────────────────────
@@ -539,16 +524,6 @@ pub struct GitStatusDto {
     pub unborn: bool,
     pub entries: Vec<GitEntryDto>,
     pub truncated: bool,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GitCommitDto {
-    pub sha: String,
-    pub short: String,
-    pub author: String,
-    pub when: String,
-    pub subject: String,
 }
 
 /// 找 `path` 所属的仓库根。不是仓库返回 null —— 这是正常情况，
@@ -623,27 +598,6 @@ pub fn git_discard(
 #[tauri::command]
 pub fn git_commit(root: String, message: String, amend: bool) -> Result<String, String> {
     gitsvc::commit(&root, &message, amend).map_err(|e| format!("{e}"))
-}
-
-#[tauri::command]
-pub fn git_log(root: String, path: String, limit: usize) -> Result<Vec<GitCommitDto>, String> {
-    let cs = gitsvc::log(&root, &path, limit).map_err(|e| format!("读历史失败：{e}"))?;
-    Ok(cs
-        .into_iter()
-        .map(|c| GitCommitDto {
-            sha: c.sha,
-            short: c.short,
-            author: c.author,
-            when: c.when,
-            subject: c.subject,
-        })
-        .collect())
-}
-
-/// 某个版本里的文件内容。编辑器的改动标记要拿 HEAD 版本做基线。
-#[tauri::command]
-pub fn git_show(root: String, rev: String, path: String) -> Result<String, String> {
-    gitsvc::show(&root, &rev, &path).map_err(|e| format!("{e}"))
 }
 
 // ─────────────── Git：历史 · 分支 · 工作树 ───────────────

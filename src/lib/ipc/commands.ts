@@ -155,7 +155,6 @@ export const ptyResize = (id: number, cols: number, rows: number) =>
 
 export const ptyKill = (id: number) => invoke<boolean>("pty_kill", { id });
 
-export const ptyAlive = (id: number) => invoke<boolean>("pty_alive", { id });
 
 // ─────────────────────────── 搜索 ───────────────────────────
 
@@ -172,7 +171,6 @@ export const listProjectFiles = (root: string) =>
 export const grepProject = (root: string, pattern: string, limit = 200) =>
   invoke<Hit[]>("grep_project", { root, pattern, limit });
 
-export const ripgrepAvailable = () => invoke<boolean>("ripgrep_available");
 
 // ─────────────────────────── Git ───────────────────────────
 
@@ -205,13 +203,6 @@ export interface GitStatus {
   truncated: boolean;
 }
 
-export interface GitCommit {
-  sha: string;
-  short: string;
-  author: string;
-  when: string;
-  subject: string;
-}
 
 /** 找路径所属仓库根；不是仓库返回 null（正常情况，Git 功能整体隐身） */
 export const gitRoot = (path: string) => invoke<string | null>("git_root", { path });
@@ -234,12 +225,7 @@ export const gitDiscard = (root: string, paths: string[], untracked: string[]) =
 export const gitCommit = (root: string, message: string, amend = false) =>
   invoke<string>("git_commit", { root, message, amend });
 
-export const gitLog = (root: string, path = "", limit = 50) =>
-  invoke<GitCommit[]>("git_log", { root, path, limit });
 
-/** 某个版本里的文件内容；不存在时是空串 */
-export const gitShow = (root: string, rev: string, path: string) =>
-  invoke<string>("git_show", { root, rev, path });
 
 // ────────────── Git：历史 · 分支 · 工作树 ──────────────
 

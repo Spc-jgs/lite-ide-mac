@@ -347,20 +347,6 @@
   }
   .head .proj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .head .gap { flex: 1; min-width: 6px; }
-  .act {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 22px;
-    height: 22px;
-    background: transparent;
-    border: none;
-    border-radius: 3px;
-    color: var(--text-faint);
-    cursor: default;
-  }
-  .act:hover { background: var(--panel-bg-2); color: var(--text); }
-  .act:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .list { flex: 1; overflow-y: auto; padding: 4px 0; }
   .row {
     display: flex;

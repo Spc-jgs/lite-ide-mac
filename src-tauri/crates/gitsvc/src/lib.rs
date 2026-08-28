@@ -90,17 +90,6 @@ pub struct Status {
     pub truncated: bool,
 }
 
-/// 一条提交记录
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Commit {
-    pub sha: String,
-    pub short: String,
-    pub author: String,
-    /// 相对时间，git 自己算的（"3 hours ago"）
-    pub when: String,
-    pub subject: String,
-}
-
 #[derive(Debug)]
 pub enum Error {
     /// 机器上没有 git，或者起不来
@@ -403,17 +392,6 @@ pub fn diff(root: impl AsRef<Path>, path: &str, staged: bool, untracked: bool) -
     run(root, &args)
 }
 
-/// 取某个版本里的文件内容，`rev` 传 "HEAD" 就是「我改之前长什么样」。
-/// 文件在那个版本里不存在时返回空串而不是报错 —— 新增文件本来就没有旧版本。
-pub fn show(root: impl AsRef<Path>, rev: &str, path: &str) -> R<String> {
-    let spec = format!("{rev}:{path}");
-    match run(root.as_ref(), &["--no-pager", "show", &spec]) {
-        Ok(s) => Ok(s),
-        Err(Error::Git(_)) => Ok(String::new()),
-        Err(e) => Err(e),
-    }
-}
-
 pub fn stage(root: impl AsRef<Path>, paths: &[String]) -> R<()> {
     if paths.is_empty() {
         return Ok(());
@@ -483,47 +461,6 @@ pub fn commit(root: impl AsRef<Path>, message: &str, amend: bool) -> R<String> {
     run(root.as_ref(), &args)
 }
 
-/// 提交历史。`path` 非空时只看那个文件的历史。
-///
-/// 分隔符用 `\x1f`（ASCII Unit Separator）而不是逗号或制表符：
-/// 提交标题里出现制表符是完全可能的，US 则几乎不可能。
-pub fn log(root: impl AsRef<Path>, path: &str, limit: usize) -> R<Vec<Commit>> {
-    let n = format!("-{limit}");
-    let mut args = vec![
-        "--no-pager",
-        "log",
-        &n,
-        "--format=%H\x1f%h\x1f%an\x1f%ar\x1f%s",
-    ];
-    if !path.is_empty() {
-        args.push("--");
-        args.push(path);
-    }
-    let out = match run(root.as_ref(), &args) {
-        Ok(s) => s,
-        // 空仓库没有历史，这不是错误
-        Err(Error::Git(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e),
-    };
-    Ok(out
-        .lines()
-        .filter(|l| !l.is_empty())
-        .filter_map(|l| {
-            let f: Vec<&str> = l.split('\x1f').collect();
-            if f.len() < 5 {
-                return None;
-            }
-            Some(Commit {
-                sha: f[0].to_string(),
-                short: f[1].to_string(),
-                author: f[2].to_string(),
-                when: f[3].to_string(),
-                subject: f[4].to_string(),
-            })
-        })
-        .collect())
-}
-
 /// git 在不在。不在就整块功能隐身。
 pub fn available() -> bool {
     Command::new("git")
@@ -536,387 +473,7 @@ pub fn available() -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    /// 解析器的输入是字节，用 `\0` 拼真实格式，不走 git
-    fn rec(parts: &[&str]) -> Vec<u8> {
-        let mut v = Vec::new();
-        for p in parts {
-            v.extend_from_slice(p.as_bytes());
-            v.push(0);
-        }
-        v
-    }
-
-    #[test]
-    fn 表头带出分支与领先落后() {
-        let raw = rec(&[
-            "# branch.oid abc123",
-            "# branch.head main",
-            "# branch.upstream origin/main",
-            "# branch.ab +3 -1",
-        ]);
-        let st = parse_status(&raw);
-        assert_eq!(st.branch, "main");
-        assert_eq!(st.upstream, "origin/main");
-        assert_eq!(st.ahead, 3);
-        assert_eq!(st.behind, 1);
-        assert!(!st.detached);
-    }
-
-    #[test]
-    fn 普通变更条目的xy与路径() {
-        let raw = rec(&[
-            "# branch.head main",
-            "1 M. N... 100644 100644 100644 aaa bbb src/main.rs",
-            "1 .M N... 100644 100644 100644 ccc ddd README.md",
-        ]);
-        let st = parse_status(&raw);
-        assert_eq!(st.entries.len(), 2);
-        // 排序后 README 在前
-        assert_eq!(st.entries[0].path, "README.md");
-        assert_eq!(st.entries[0].index, '.');
-        assert_eq!(st.entries[0].work, 'M');
-        assert!(st.entries[0].unstaged() && !st.entries[0].staged());
-        assert_eq!(st.entries[1].path, "src/main.rs");
-        assert!(st.entries[1].staged() && !st.entries[1].unstaged());
-    }
-
-    /// 这是 -z 格式最容易写错的地方：改名占两条记录
-    #[test]
-    fn 改名条目要吃掉紧随其后的源路径记录() {
-        let raw = rec(&[
-            "# branch.head main",
-            "2 R. N... 100644 100644 100644 aaa bbb R100 新名字.rs",
-            "旧名字.rs",
-            "1 .M N... 100644 100644 100644 ccc ddd z.txt",
-        ]);
-        let st = parse_status(&raw);
-        // 源路径不能变成第三条畸形条目
-        assert_eq!(st.entries.len(), 2, "源路径被误当成独立条目了");
-        let renamed = st.entries.iter().find(|e| e.path == "新名字.rs").unwrap();
-        assert_eq!(renamed.orig.as_deref(), Some("旧名字.rs"));
-        assert_eq!(renamed.index, 'R');
-        assert!(st.entries.iter().any(|e| e.path == "z.txt"));
-    }
-
-    #[test]
-    fn 带空格的路径不能被切断() {
-        let raw = rec(&[
-            "# branch.head main",
-            "1 .M N... 100644 100644 100644 aaa bbb docs/my notes/a b.md",
-            "? 未跟踪 的文件.txt",
-        ]);
-        let st = parse_status(&raw);
-        assert!(st.entries.iter().any(|e| e.path == "docs/my notes/a b.md"));
-        let u = st.entries.iter().find(|e| e.untracked).unwrap();
-        assert_eq!(u.path, "未跟踪 的文件.txt");
-    }
-
-    #[test]
-    fn 未跟踪与冲突与忽略() {
-        let raw = rec(&[
-            "# branch.head main",
-            "? new.txt",
-            "! ignored.log",
-            "u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.rs",
-        ]);
-        let st = parse_status(&raw);
-        // 已忽略的不进列表
-        assert!(!st.entries.iter().any(|e| e.path == "ignored.log"));
-        assert!(st.entries.iter().any(|e| e.untracked && e.path == "new.txt"));
-        let c = st.entries.iter().find(|e| e.conflicted).unwrap();
-        assert_eq!(c.path, "conflict.rs");
-    }
-
-    /// 冲突条目不能既算「已暂存」又算「改动」—— 那会让它在界面上出现三次
-    #[test]
-    fn 冲突条目既不算暂存也不算未暂存() {
-        let raw = rec(&[
-            "# branch.head main",
-            "u UU N... 100644 100644 100644 100644 aaa bbb ccc both.rs",
-            "1 M. N... 100644 100644 100644 aaa bbb staged.rs",
-            "1 .M N... 100644 100644 100644 ccc ddd dirty.rs",
-        ]);
-        let st = parse_status(&raw);
-        let c = st.entries.iter().find(|e| e.conflicted).unwrap();
-        assert!(!c.staged(), "冲突条目不该算已暂存");
-        assert!(!c.unstaged(), "冲突条目不该算未暂存");
-        // 其余两条不受影响
-        assert!(st.entries.iter().find(|e| e.path == "staged.rs").unwrap().staged());
-        assert!(st.entries.iter().find(|e| e.path == "dirty.rs").unwrap().unstaged());
-    }
-
-    #[test]
-    fn detached与空仓库的表头() {
-        let d = parse_status(&rec(&["# branch.oid a1b2c3d4e5", "# branch.head (detached)"]));
-        assert!(d.detached);
-        let u = parse_status(&rec(&["# branch.oid (initial)", "# branch.head main"]));
-        assert!(u.unborn);
-        assert_eq!(u.branch, "main");
-    }
-
-    #[test]
-    fn 超过上限要截断而不是撑爆前端() {
-        let mut parts: Vec<String> = vec!["# branch.head main".into()];
-        for i in 0..(MAX_ENTRIES + 10) {
-            parts.push(format!("? f{i}.txt"));
-        }
-        let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
-        let st = parse_status(&rec(&refs));
-        assert_eq!(st.entries.len(), MAX_ENTRIES);
-        assert!(st.truncated);
-    }
-
-    /// 端到端：真起 git 建个临时仓库跑一遍。
-    /// 没装 git 的机器上直接跳过，不让 CI 假红。
-    #[test]
-    fn 真仓库上的状态与暂存往返() {
-        if !available() {
-            eprintln!("跳过：机器上没有 git");
-            return;
-        }
-        let dir = std::env::temp_dir().join(format!("gitsvc-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
-        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
-        run(&dir, &["config", "user.name", "t"]).unwrap();
-
-        // 空仓库：discover 能找到根，status 报 unborn
-        assert!(discover(&dir).is_some());
-        let st = status_full(&dir).unwrap();
-        assert!(st.unborn, "刚 init 的仓库应该是 unborn");
-
-        std::fs::write(dir.join("a.txt"), "hello\n").unwrap();
-        let st = status_full(&dir).unwrap();
-        assert!(st.entries.iter().any(|e| e.path == "a.txt" && e.untracked));
-
-        // 空仓库上取消暂存必须走 rm --cached，不能崩
-        stage(&dir, &["a.txt".into()]).unwrap();
-        assert!(status_full(&dir).unwrap().entries[0].staged());
-        unstage(&dir, &["a.txt".into()]).unwrap();
-        assert!(status_full(&dir).unwrap().entries[0].untracked, "取消暂存后应变回未跟踪");
-
-        stage(&dir, &["a.txt".into()]).unwrap();
-        commit(&dir, "首次提交", false).unwrap();
-        let st = status_full(&dir).unwrap();
-        assert!(st.entries.is_empty(), "提交后工作区应该是干净的");
-        assert!(!st.unborn);
-        assert_eq!(st.branch, "main");
-
-        // 改一行，diff 里应该同时有加和减
-        std::fs::write(dir.join("a.txt"), "world\n").unwrap();
-        let d = diff(&dir, "a.txt", false, false).unwrap();
-        assert!(d.contains("-hello") && d.contains("+world"), "diff 不对：{d}");
-
-        // show HEAD 拿的是改之前的内容
-        assert_eq!(show(&dir, "HEAD", "a.txt").unwrap(), "hello\n");
-
-        // 丢弃改动
-        discard(&dir, &["a.txt".into()], &[]).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "hello\n");
-
-        let l = log(&dir, "", 10).unwrap();
-        assert_eq!(l.len(), 1);
-        assert_eq!(l[0].subject, "首次提交");
-
-        // 带空格和中文的路径要能完整往返。
-        // 注意：整个目录都是未跟踪时，git 折叠成一条 "有 空格/" —— 这是它的
-        // 默认行为，也是我们要的，所以断言的是折叠后的形态。
-        std::fs::create_dir_all(dir.join("有 空格")).unwrap();
-        std::fs::write(dir.join("有 空格/中 文.md"), "x\n").unwrap();
-        let st = status_full(&dir).unwrap();
-        let d = st
-            .entries
-            .iter()
-            .find(|e| e.path.starts_with("有 空格"))
-            .unwrap_or_else(|| panic!("带空格的中文路径没解析对：{:?}", st.entries));
-        assert_eq!(d.path, "有 空格/");
-        assert!(d.is_dir && d.untracked);
-
-        // 目录里的单个文件被跟踪之后，路径就是完整的（不再折叠）
-        stage(&dir, &["有 空格/中 文.md".into()]).unwrap();
-        let st = status_full(&dir).unwrap();
-        let f = st.entries.iter().find(|e| e.path.contains("中 文")).unwrap();
-        assert_eq!(f.path, "有 空格/中 文.md");
-        assert!(!f.is_dir);
-        commit(&dir, "加个带空格的中文路径", false).unwrap();
-
-        // 改名要能带出源路径
-        std::fs::rename(dir.join("a.txt"), dir.join("b.txt")).unwrap();
-        stage(&dir, &["a.txt".into(), "b.txt".into()]).unwrap();
-        let st = status_full(&dir).unwrap();
-        let r = st.entries.iter().find(|e| e.path == "b.txt").unwrap();
-        assert_eq!(r.orig.as_deref(), Some("a.txt"), "改名源路径丢了：{r:?}");
-
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    /// 泳道图的前提：log 必须是拓扑序 —— 任何一条提交的父，都要排在它**后面**。
-    ///
-    /// 这条测试是冲着 `--topo-order` 去的。默认的提交时间序在「父子提交时间戳
-    /// 相同」时会把父排到子前面，图就画歪了。造仓库时刻意把所有提交压在同一个
-    /// 时间戳上，正是为了让默认序必然出错、而拓扑序必然正确。
-    #[test]
-    fn 提交历史必须是拓扑序() {
-        if !available() {
-            eprintln!("跳过：机器上没有 git");
-            return;
-        }
-        let dir = std::env::temp_dir().join(format!("gitsvc-topo-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        // 所有提交同一个时间戳：这样提交时间序完全无法区分先后
-        let stamp = "2026-01-01T00:00:00+00:00";
-        let git = |args: &[&str]| {
-            Command::new("git")
-                .args(args)
-                .current_dir(&dir)
-                .env("GIT_AUTHOR_DATE", stamp)
-                .env("GIT_COMMITTER_DATE", stamp)
-                .env("GIT_AUTHOR_NAME", "t")
-                .env("GIT_AUTHOR_EMAIL", "t@t.t")
-                .env("GIT_COMMITTER_NAME", "t")
-                .env("GIT_COMMITTER_EMAIL", "t@t.t")
-                .env("LC_ALL", "C")
-                .stdin(Stdio::null())
-                .output()
-                .unwrap()
-        };
-
-        git(&["init", "-q", "-b", "main"]);
-        std::fs::write(dir.join("a"), "1").unwrap();
-        git(&["add", "-A"]);
-        git(&["commit", "-qm", "base"]);
-
-        // 分出一条支线，各提交一次，再合并回来
-        git(&["switch", "-q", "-c", "side"]);
-        std::fs::write(dir.join("b"), "1").unwrap();
-        git(&["add", "-A"]);
-        git(&["commit", "-qm", "side-1"]);
-
-        git(&["switch", "-q", "main"]);
-        std::fs::write(dir.join("c"), "1").unwrap();
-        git(&["add", "-A"]);
-        git(&["commit", "-qm", "main-1"]);
-
-        git(&["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
-
-        let es = log_entries(&dir, 100, true, "").unwrap();
-        assert!(es.len() >= 4, "应该有至少 4 条提交，实得 {}", es.len());
-
-        // 核心断言：每条提交的父，位置都必须比它自己靠后
-        let pos: std::collections::HashMap<&str, usize> = es
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (e.sha.as_str(), i))
-            .collect();
-        for (i, e) in es.iter().enumerate() {
-            for p in &e.parents {
-                if let Some(&j) = pos.get(p.as_str()) {
-                    assert!(
-                        j > i,
-                        "拓扑序被破坏：{} 的父 {} 排在了它前面（{i} vs {j}）\n完整顺序：{:?}",
-                        e.subject,
-                        &p[..7],
-                        es.iter().map(|x| &x.subject).collect::<Vec<_>>()
-                    );
-                }
-            }
-        }
-
-        // 顺带确认合并提交确实带出了两个父，泳道图才有岔路可画
-        let merge = es.iter().find(|e| e.subject == "merge side").unwrap();
-        assert_eq!(merge.parents.len(), 2, "合并提交该有两个父");
-
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    /// 远程分支要能检出。
-    ///
-    /// `git switch origin/foo` 会直接失败，必须翻译成 `--track origin/foo`。
-    /// 这条造一个真的「远程」（用本地目录当 remote），走完整流程。
-    #[test]
-    fn 检出远程分支要建跟踪分支() {
-        if !available() {
-            eprintln!("跳过：机器上没有 git");
-            return;
-        }
-        let base = std::env::temp_dir().join(format!("gitsvc-remote-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        let origin = base.join("origin");
-        let clone = base.join("clone");
-        std::fs::create_dir_all(&origin).unwrap();
-
-        let cfg = |d: &Path| {
-            run(d, &["config", "user.email", "t@t.t"]).unwrap();
-            run(d, &["config", "user.name", "t"]).unwrap();
-        };
-        run(&origin, &["init", "-q", "-b", "main"]).unwrap();
-        cfg(&origin);
-        std::fs::write(origin.join("a.txt"), "1").unwrap();
-        run(&origin, &["add", "-A"]).unwrap();
-        run(&origin, &["commit", "-qm", "base"]).unwrap();
-        // 在 origin 上再造一条分支
-        run(&origin, &["switch", "-q", "-c", "feature/x"]).unwrap();
-        std::fs::write(origin.join("b.txt"), "2").unwrap();
-        run(&origin, &["add", "-A"]).unwrap();
-        run(&origin, &["commit", "-qm", "feature"]).unwrap();
-        run(&origin, &["switch", "-q", "main"]).unwrap();
-
-        run(
-            &base,
-            &["clone", "-q", origin.to_str().unwrap(), clone.to_str().unwrap()],
-        )
-        .unwrap();
-        cfg(&clone);
-
-        // 克隆之后本地只有 main，feature/x 只存在于 origin/ 下
-        let bs = branches(&clone).unwrap();
-        assert!(
-            bs.iter().any(|b| b.name == "origin/feature/x" && b.is_remote),
-            "没列出远程分支：{:?}",
-            bs.iter().map(|b| &b.name).collect::<Vec<_>>()
-        );
-        assert!(
-            !bs.iter().any(|b| b.name == "feature/x" && !b.is_remote),
-            "本地不该已经有 feature/x"
-        );
-
-        // 关键：传全名也必须能切过去
-        switch_branch(&clone, "origin/feature/x", false)
-            .unwrap_or_else(|e| panic!("检出远程分支失败：{e}"));
-        let st = status_full(&clone).unwrap();
-        assert_eq!(st.branch, "feature/x", "应该切到了本地跟踪分支");
-        assert_eq!(st.upstream, "origin/feature/x", "上游没设对");
-        assert!(clone.join("b.txt").exists(), "工作区内容没跟着切过来");
-
-        // 再切回去，然后用全名切第二次 —— 这次本地已有同名分支，不该重复新建
-        switch_branch(&clone, "main", false).unwrap();
-        switch_branch(&clone, "origin/feature/x", false).unwrap();
-        assert_eq!(status_full(&clone).unwrap().branch, "feature/x");
-
-        std::fs::remove_dir_all(&base).unwrap();
-    }
-
-    /// 不是仓库的目录必须安静地返回 None，不能报错
-    #[test]
-    fn 非仓库目录返回none() {
-        let dir = std::env::temp_dir().join(format!("gitsvc-norepo-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        // 临时目录本身可能落在某个仓库里（少见但可能），只在确实不在仓库时断言
-        if discover(std::env::temp_dir()).is_none() {
-            assert!(discover(&dir).is_none());
-        }
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-}
 
 // ─────────────────── 历史 · 分支 · 工作树 ───────────────────
 
@@ -1334,7 +891,382 @@ pub fn worktree_remove(root: impl AsRef<Path>, path: &str, force: bool) -> R<()>
     run(root.as_ref(), &args).map(|_| ())
 }
 
-/// 清掉已经不存在的工作树登记项（目录被手动删了的那些）
-pub fn worktree_prune(root: impl AsRef<Path>) -> R<()> {
-    run(root.as_ref(), &["worktree", "prune"]).map(|_| ())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 解析器的输入是字节，用 `\0` 拼真实格式，不走 git
+    fn rec(parts: &[&str]) -> Vec<u8> {
+        let mut v = Vec::new();
+        for p in parts {
+            v.extend_from_slice(p.as_bytes());
+            v.push(0);
+        }
+        v
+    }
+
+    #[test]
+    fn 表头带出分支与领先落后() {
+        let raw = rec(&[
+            "# branch.oid abc123",
+            "# branch.head main",
+            "# branch.upstream origin/main",
+            "# branch.ab +3 -1",
+        ]);
+        let st = parse_status(&raw);
+        assert_eq!(st.branch, "main");
+        assert_eq!(st.upstream, "origin/main");
+        assert_eq!(st.ahead, 3);
+        assert_eq!(st.behind, 1);
+        assert!(!st.detached);
+    }
+
+    #[test]
+    fn 普通变更条目的xy与路径() {
+        let raw = rec(&[
+            "# branch.head main",
+            "1 M. N... 100644 100644 100644 aaa bbb src/main.rs",
+            "1 .M N... 100644 100644 100644 ccc ddd README.md",
+        ]);
+        let st = parse_status(&raw);
+        assert_eq!(st.entries.len(), 2);
+        // 排序后 README 在前
+        assert_eq!(st.entries[0].path, "README.md");
+        assert_eq!(st.entries[0].index, '.');
+        assert_eq!(st.entries[0].work, 'M');
+        assert!(st.entries[0].unstaged() && !st.entries[0].staged());
+        assert_eq!(st.entries[1].path, "src/main.rs");
+        assert!(st.entries[1].staged() && !st.entries[1].unstaged());
+    }
+
+    /// 这是 -z 格式最容易写错的地方：改名占两条记录
+    #[test]
+    fn 改名条目要吃掉紧随其后的源路径记录() {
+        let raw = rec(&[
+            "# branch.head main",
+            "2 R. N... 100644 100644 100644 aaa bbb R100 新名字.rs",
+            "旧名字.rs",
+            "1 .M N... 100644 100644 100644 ccc ddd z.txt",
+        ]);
+        let st = parse_status(&raw);
+        // 源路径不能变成第三条畸形条目
+        assert_eq!(st.entries.len(), 2, "源路径被误当成独立条目了");
+        let renamed = st.entries.iter().find(|e| e.path == "新名字.rs").unwrap();
+        assert_eq!(renamed.orig.as_deref(), Some("旧名字.rs"));
+        assert_eq!(renamed.index, 'R');
+        assert!(st.entries.iter().any(|e| e.path == "z.txt"));
+    }
+
+    #[test]
+    fn 带空格的路径不能被切断() {
+        let raw = rec(&[
+            "# branch.head main",
+            "1 .M N... 100644 100644 100644 aaa bbb docs/my notes/a b.md",
+            "? 未跟踪 的文件.txt",
+        ]);
+        let st = parse_status(&raw);
+        assert!(st.entries.iter().any(|e| e.path == "docs/my notes/a b.md"));
+        let u = st.entries.iter().find(|e| e.untracked).unwrap();
+        assert_eq!(u.path, "未跟踪 的文件.txt");
+    }
+
+    #[test]
+    fn 未跟踪与冲突与忽略() {
+        let raw = rec(&[
+            "# branch.head main",
+            "? new.txt",
+            "! ignored.log",
+            "u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.rs",
+        ]);
+        let st = parse_status(&raw);
+        // 已忽略的不进列表
+        assert!(!st.entries.iter().any(|e| e.path == "ignored.log"));
+        assert!(st.entries.iter().any(|e| e.untracked && e.path == "new.txt"));
+        let c = st.entries.iter().find(|e| e.conflicted).unwrap();
+        assert_eq!(c.path, "conflict.rs");
+    }
+
+    /// 冲突条目不能既算「已暂存」又算「改动」—— 那会让它在界面上出现三次
+    #[test]
+    fn 冲突条目既不算暂存也不算未暂存() {
+        let raw = rec(&[
+            "# branch.head main",
+            "u UU N... 100644 100644 100644 100644 aaa bbb ccc both.rs",
+            "1 M. N... 100644 100644 100644 aaa bbb staged.rs",
+            "1 .M N... 100644 100644 100644 ccc ddd dirty.rs",
+        ]);
+        let st = parse_status(&raw);
+        let c = st.entries.iter().find(|e| e.conflicted).unwrap();
+        assert!(!c.staged(), "冲突条目不该算已暂存");
+        assert!(!c.unstaged(), "冲突条目不该算未暂存");
+        // 其余两条不受影响
+        assert!(st.entries.iter().find(|e| e.path == "staged.rs").unwrap().staged());
+        assert!(st.entries.iter().find(|e| e.path == "dirty.rs").unwrap().unstaged());
+    }
+
+    #[test]
+    fn detached与空仓库的表头() {
+        let d = parse_status(&rec(&["# branch.oid a1b2c3d4e5", "# branch.head (detached)"]));
+        assert!(d.detached);
+        let u = parse_status(&rec(&["# branch.oid (initial)", "# branch.head main"]));
+        assert!(u.unborn);
+        assert_eq!(u.branch, "main");
+    }
+
+    #[test]
+    fn 超过上限要截断而不是撑爆前端() {
+        let mut parts: Vec<String> = vec!["# branch.head main".into()];
+        for i in 0..(MAX_ENTRIES + 10) {
+            parts.push(format!("? f{i}.txt"));
+        }
+        let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
+        let st = parse_status(&rec(&refs));
+        assert_eq!(st.entries.len(), MAX_ENTRIES);
+        assert!(st.truncated);
+    }
+
+    /// 端到端：真起 git 建个临时仓库跑一遍。
+    /// 没装 git 的机器上直接跳过，不让 CI 假红。
+    #[test]
+    fn 真仓库上的状态与暂存往返() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+
+        // 空仓库：discover 能找到根，status 报 unborn
+        assert!(discover(&dir).is_some());
+        let st = status_full(&dir).unwrap();
+        assert!(st.unborn, "刚 init 的仓库应该是 unborn");
+
+        std::fs::write(dir.join("a.txt"), "hello\n").unwrap();
+        let st = status_full(&dir).unwrap();
+        assert!(st.entries.iter().any(|e| e.path == "a.txt" && e.untracked));
+
+        // 空仓库上取消暂存必须走 rm --cached，不能崩
+        stage(&dir, &["a.txt".into()]).unwrap();
+        assert!(status_full(&dir).unwrap().entries[0].staged());
+        unstage(&dir, &["a.txt".into()]).unwrap();
+        assert!(status_full(&dir).unwrap().entries[0].untracked, "取消暂存后应变回未跟踪");
+
+        stage(&dir, &["a.txt".into()]).unwrap();
+        commit(&dir, "首次提交", false).unwrap();
+        let st = status_full(&dir).unwrap();
+        assert!(st.entries.is_empty(), "提交后工作区应该是干净的");
+        assert!(!st.unborn);
+        assert_eq!(st.branch, "main");
+
+        // 改一行，diff 里应该同时有加和减
+        std::fs::write(dir.join("a.txt"), "world\n").unwrap();
+        let d = diff(&dir, "a.txt", false, false).unwrap();
+        assert!(d.contains("-hello") && d.contains("+world"), "diff 不对：{d}");
+
+        // 丢弃改动
+        discard(&dir, &["a.txt".into()], &[]).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "hello\n");
+
+        let l = log_entries(&dir, 10, false, "").unwrap();
+        assert_eq!(l.len(), 1);
+        assert_eq!(l[0].subject, "首次提交");
+        assert!(l[0].parents.is_empty(), "首次提交没有父");
+
+        // 带空格和中文的路径要能完整往返。
+        // 注意：整个目录都是未跟踪时，git 折叠成一条 "有 空格/" —— 这是它的
+        // 默认行为，也是我们要的，所以断言的是折叠后的形态。
+        std::fs::create_dir_all(dir.join("有 空格")).unwrap();
+        std::fs::write(dir.join("有 空格/中 文.md"), "x\n").unwrap();
+        let st = status_full(&dir).unwrap();
+        let d = st
+            .entries
+            .iter()
+            .find(|e| e.path.starts_with("有 空格"))
+            .unwrap_or_else(|| panic!("带空格的中文路径没解析对：{:?}", st.entries));
+        assert_eq!(d.path, "有 空格/");
+        assert!(d.is_dir && d.untracked);
+
+        // 目录里的单个文件被跟踪之后，路径就是完整的（不再折叠）
+        stage(&dir, &["有 空格/中 文.md".into()]).unwrap();
+        let st = status_full(&dir).unwrap();
+        let f = st.entries.iter().find(|e| e.path.contains("中 文")).unwrap();
+        assert_eq!(f.path, "有 空格/中 文.md");
+        assert!(!f.is_dir);
+        commit(&dir, "加个带空格的中文路径", false).unwrap();
+
+        // 改名要能带出源路径
+        std::fs::rename(dir.join("a.txt"), dir.join("b.txt")).unwrap();
+        stage(&dir, &["a.txt".into(), "b.txt".into()]).unwrap();
+        let st = status_full(&dir).unwrap();
+        let r = st.entries.iter().find(|e| e.path == "b.txt").unwrap();
+        assert_eq!(r.orig.as_deref(), Some("a.txt"), "改名源路径丢了：{r:?}");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 泳道图的前提：log 必须是拓扑序 —— 任何一条提交的父，都要排在它**后面**。
+    ///
+    /// 这条测试是冲着 `--topo-order` 去的。默认的提交时间序在「父子提交时间戳
+    /// 相同」时会把父排到子前面，图就画歪了。造仓库时刻意把所有提交压在同一个
+    /// 时间戳上，正是为了让默认序必然出错、而拓扑序必然正确。
+    #[test]
+    fn 提交历史必须是拓扑序() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-topo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 所有提交同一个时间戳：这样提交时间序完全无法区分先后
+        let stamp = "2026-01-01T00:00:00+00:00";
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .env("GIT_AUTHOR_DATE", stamp)
+                .env("GIT_COMMITTER_DATE", stamp)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t.t")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t.t")
+                .env("LC_ALL", "C")
+                .stdin(Stdio::null())
+                .output()
+                .unwrap()
+        };
+
+        git(&["init", "-q", "-b", "main"]);
+        std::fs::write(dir.join("a"), "1").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "base"]);
+
+        // 分出一条支线，各提交一次，再合并回来
+        git(&["switch", "-q", "-c", "side"]);
+        std::fs::write(dir.join("b"), "1").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "side-1"]);
+
+        git(&["switch", "-q", "main"]);
+        std::fs::write(dir.join("c"), "1").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "main-1"]);
+
+        git(&["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
+
+        let es = log_entries(&dir, 100, true, "").unwrap();
+        assert!(es.len() >= 4, "应该有至少 4 条提交，实得 {}", es.len());
+
+        // 核心断言：每条提交的父，位置都必须比它自己靠后
+        let pos: std::collections::HashMap<&str, usize> = es
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.sha.as_str(), i))
+            .collect();
+        for (i, e) in es.iter().enumerate() {
+            for p in &e.parents {
+                if let Some(&j) = pos.get(p.as_str()) {
+                    assert!(
+                        j > i,
+                        "拓扑序被破坏：{} 的父 {} 排在了它前面（{i} vs {j}）\n完整顺序：{:?}",
+                        e.subject,
+                        &p[..7],
+                        es.iter().map(|x| &x.subject).collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
+
+        // 顺带确认合并提交确实带出了两个父，泳道图才有岔路可画
+        let merge = es.iter().find(|e| e.subject == "merge side").unwrap();
+        assert_eq!(merge.parents.len(), 2, "合并提交该有两个父");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 远程分支要能检出。
+    ///
+    /// `git switch origin/foo` 会直接失败，必须翻译成 `--track origin/foo`。
+    /// 这条造一个真的「远程」（用本地目录当 remote），走完整流程。
+    #[test]
+    fn 检出远程分支要建跟踪分支() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("gitsvc-remote-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let origin = base.join("origin");
+        let clone = base.join("clone");
+        std::fs::create_dir_all(&origin).unwrap();
+
+        let cfg = |d: &Path| {
+            run(d, &["config", "user.email", "t@t.t"]).unwrap();
+            run(d, &["config", "user.name", "t"]).unwrap();
+        };
+        run(&origin, &["init", "-q", "-b", "main"]).unwrap();
+        cfg(&origin);
+        std::fs::write(origin.join("a.txt"), "1").unwrap();
+        run(&origin, &["add", "-A"]).unwrap();
+        run(&origin, &["commit", "-qm", "base"]).unwrap();
+        // 在 origin 上再造一条分支
+        run(&origin, &["switch", "-q", "-c", "feature/x"]).unwrap();
+        std::fs::write(origin.join("b.txt"), "2").unwrap();
+        run(&origin, &["add", "-A"]).unwrap();
+        run(&origin, &["commit", "-qm", "feature"]).unwrap();
+        run(&origin, &["switch", "-q", "main"]).unwrap();
+
+        run(
+            &base,
+            &["clone", "-q", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        )
+        .unwrap();
+        cfg(&clone);
+
+        // 克隆之后本地只有 main，feature/x 只存在于 origin/ 下
+        let bs = branches(&clone).unwrap();
+        assert!(
+            bs.iter().any(|b| b.name == "origin/feature/x" && b.is_remote),
+            "没列出远程分支：{:?}",
+            bs.iter().map(|b| &b.name).collect::<Vec<_>>()
+        );
+        assert!(
+            !bs.iter().any(|b| b.name == "feature/x" && !b.is_remote),
+            "本地不该已经有 feature/x"
+        );
+
+        // 关键：传全名也必须能切过去
+        switch_branch(&clone, "origin/feature/x", false)
+            .unwrap_or_else(|e| panic!("检出远程分支失败：{e}"));
+        let st = status_full(&clone).unwrap();
+        assert_eq!(st.branch, "feature/x", "应该切到了本地跟踪分支");
+        assert_eq!(st.upstream, "origin/feature/x", "上游没设对");
+        assert!(clone.join("b.txt").exists(), "工作区内容没跟着切过来");
+
+        // 再切回去，然后用全名切第二次 —— 这次本地已有同名分支，不该重复新建
+        switch_branch(&clone, "main", false).unwrap();
+        switch_branch(&clone, "origin/feature/x", false).unwrap();
+        assert_eq!(status_full(&clone).unwrap().branch, "feature/x");
+
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// 不是仓库的目录必须安静地返回 None，不能报错
+    #[test]
+    fn 非仓库目录返回none() {
+        let dir = std::env::temp_dir().join(format!("gitsvc-norepo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // 临时目录本身可能落在某个仓库里（少见但可能），只在确实不在仓库时断言
+        if discover(std::env::temp_dir()).is_none() {
+            assert!(discover(&dir).is_none());
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
