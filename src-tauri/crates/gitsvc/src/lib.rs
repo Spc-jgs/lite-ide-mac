@@ -702,8 +702,16 @@ pub fn branches(root: impl AsRef<Path>) -> R<Vec<Branch>> {
             if f.len() < 7 {
                 return None;
             }
-            // origin/HEAD 是个软链，不是能检出的分支，列出来只会碍事
-            if f[0].ends_with("/HEAD") {
+            /*
+             * `refs/remotes/origin/HEAD` 是个符号引用（指向远程的默认分支），
+             * 不是能检出的东西，列出来只会碍事。
+             *
+             * **必须按全名判断**：git 缩写远程 HEAD 时会把 `/HEAD` 一起吃掉，
+             * `refs/remotes/origin/HEAD` 的 `%(refname:short)` 是 **`origin`**，
+             * 不是 `origin/HEAD`。所以按短名过滤永远匹配不上，
+             * 界面上就会多出一条叫「origin」的假分支，点了必然报错。
+             */
+            if f[6].ends_with("/HEAD") {
                 return None;
             }
             Some(Branch {
@@ -1234,6 +1242,12 @@ mod tests {
         assert!(
             bs.iter().any(|b| b.name == "origin/feature/x" && b.is_remote),
             "没列出远程分支：{:?}",
+            bs.iter().map(|b| &b.name).collect::<Vec<_>>()
+        );
+        // refs/remotes/origin/HEAD 的短名就是 "origin"，它不是分支，不能出现在列表里
+        assert!(
+            !bs.iter().any(|b| b.name == "origin"),
+            "远程 HEAD 混进分支列表了：{:?}",
             bs.iter().map(|b| &b.name).collect::<Vec<_>>()
         );
         assert!(
