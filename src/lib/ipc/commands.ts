@@ -209,8 +209,19 @@ export const gitRoot = (path: string) => invoke<string | null>("git_root", { pat
 
 export const gitStatus = (root: string) => invoke<GitStatus>("git_status", { root });
 
+export interface DiffText {
+  text: string;
+  /**
+   * 超过 Rust 侧上限（1MB）被掐断了。
+   *
+   * 界面必须把这件事说出来 —— 一份看着完整、其实少了后半截的差异，
+   * 比一句「显示不下」危险得多。
+   */
+  truncated: boolean;
+}
+
 export const gitDiff = (root: string, path: string, staged: boolean, untracked: boolean) =>
-  invoke<string>("git_diff", { root, path, staged, untracked });
+  invoke<DiffText>("git_diff", { root, path, staged, untracked });
 
 export const gitStage = (root: string, paths: string[]) =>
   invoke<void>("git_stage", { root, paths });
@@ -269,7 +280,7 @@ export const gitCommitFiles = (root: string, sha: string) =>
   invoke<GitEntry[]>("git_commit_files", { root, sha });
 
 export const gitCommitDiff = (root: string, sha: string, path = "") =>
-  invoke<string>("git_commit_diff", { root, sha, path });
+  invoke<DiffText>("git_commit_diff", { root, sha, path });
 
 export const gitBranches = (root: string) => invoke<GitBranch[]>("git_branches", { root });
 

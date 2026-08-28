@@ -564,14 +564,34 @@ pub fn git_status(root: String) -> Result<GitStatusDto, String> {
     })
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffDto {
+    pub text: String,
+    /// 超过 `gitsvc::MAX_DIFF_BYTES` 被掐断了。界面必须把这件事说出来 ——
+    /// 一份看着完整、其实少了后半截的差异，比一句「显示不下」危险得多
+    pub truncated: bool,
+}
+
+impl From<gitsvc::Diff> for DiffDto {
+    fn from(d: gitsvc::Diff) -> Self {
+        Self {
+            text: d.text,
+            truncated: d.truncated,
+        }
+    }
+}
+
 #[tauri::command]
 pub fn git_diff(
     root: String,
     path: String,
     staged: bool,
     untracked: bool,
-) -> Result<String, String> {
-    gitsvc::diff(&root, &path, staged, untracked).map_err(|e| format!("{e}"))
+) -> Result<DiffDto, String> {
+    gitsvc::diff(&root, &path, staged, untracked)
+        .map(DiffDto::from)
+        .map_err(|e| format!("{e}"))
 }
 
 #[tauri::command]
@@ -685,8 +705,10 @@ pub fn git_commit_files(root: String, sha: String) -> Result<Vec<GitEntryDto>, S
 }
 
 #[tauri::command]
-pub fn git_commit_diff(root: String, sha: String, path: String) -> Result<String, String> {
-    gitsvc::commit_diff(&root, &sha, &path).map_err(|e| format!("{e}"))
+pub fn git_commit_diff(root: String, sha: String, path: String) -> Result<DiffDto, String> {
+    gitsvc::commit_diff(&root, &sha, &path)
+        .map(DiffDto::from)
+        .map_err(|e| format!("{e}"))
 }
 
 #[tauri::command]

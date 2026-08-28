@@ -471,7 +471,9 @@ export function installMockIpc(): void {
             ],
           };
         case "git_diff":
-          return `diff --git a/${a.path} b/${a.path}
+          return {
+            truncated: false,
+            text: `diff --git a/${a.path} b/${a.path}
 index 1a2b3c4..5d6e7f8 100644
 --- a/${a.path}
 +++ b/${a.path}
@@ -485,7 +487,8 @@ index 1a2b3c4..5d6e7f8 100644
 +        metrics.record("order.persist", order.id());
      } finally {
          conn.close();
-     }`;
+     }`,
+          };
         case "git_stage":
         case "git_unstage":
         case "git_discard":
@@ -503,13 +506,16 @@ index 1a2b3c4..5d6e7f8 100644
             g("docs/gone.md", "D", "."),
           ];
         case "git_commit_diff":
-          return `diff --git a/${a.path || "src/OrderService.java"} b/${a.path || "src/OrderService.java"}
+          return {
+            truncated: false,
+            text: `diff --git a/${a.path || "src/OrderService.java"} b/${a.path || "src/OrderService.java"}
 @@ -8,4 +8,5 @@
  public class OrderService {
 -    private int retries = 3;
 +    private int retries = 5;
 +    private Duration backoff = Duration.ofMillis(800);
- }`;
+ }`,
+          };
         case "git_branches":
           return [
             b("main", true, false, "origin/main", "M12 界面打磨"),

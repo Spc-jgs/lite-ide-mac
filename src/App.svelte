@@ -62,6 +62,8 @@
     diffStaged?: boolean;
     diffUntracked?: boolean;
     diffRaw?: string;
+    /** 差异被 Rust 侧的 1MB 上限掐断了，界面要说出来 */
+    diffCapped?: boolean;
     /** 非空表示这是「某次提交里的差异」，只读历史，不是工作区 */
     diffSha?: string;
     diffShort?: string;
@@ -271,7 +273,7 @@
     // 而它只在「打开了一个仓库里被改过的文件」时才用得上。
     // 动态引之后它和 Git 那几个组件共用同一个按需块，一次都不会白加载。
     void Promise.all([gitDiff(r, rel, false, false), import("./lib/git/diff")])
-      .then(([raw, m]) => (editorMarks = m.changedLines(raw)))
+      .then(([d, m]) => (editorMarks = m.changedLines(d.text)))
       .catch(() => (editorMarks = null));
   });
 
@@ -386,10 +388,12 @@
     if (!tab || !repo || tab.mode !== "diff" || !tab.rel) return;
     try {
       if (tab.diffSha) {
-        tab.diffRaw = await gitCommitDiff(repo, tab.diffSha, tab.rel);
+        const d = await gitCommitDiff(repo, tab.diffSha, tab.rel);
+        tab.diffRaw = d.text;
+        tab.diffCapped = d.truncated;
         return;
       }
-      let raw = await gitDiff(repo, tab.rel, !!tab.diffStaged, !!tab.diffUntracked);
+      let d = await gitDiff(repo, tab.rel, !!tab.diffStaged, !!tab.diffUntracked);
       /*
        * 这一侧空了，就看看另一侧有没有东西。
        *
@@ -397,17 +401,19 @@
        * 改动跑去了暂存区，工作区侧变空，标签上就只剩一句「没有差异」，
        * 看着像坏了。其实内容还在，只是换了一边。自动跟过去。
        */
-      if (!raw.trim()) {
+      if (!d.text.trim()) {
         const other = await gitDiff(repo, tab.rel, !tab.diffStaged, false);
-        if (other.trim()) {
+        if (other.text.trim()) {
           tab.diffStaged = !tab.diffStaged;
           tab.diffUntracked = false;
-          raw = other;
+          d = other;
         }
       }
-      tab.diffRaw = raw;
+      tab.diffRaw = d.text;
+      tab.diffCapped = d.truncated;
     } catch (e) {
       tab.diffRaw = "";
+      tab.diffCapped = false;
       notify.fail(String(e));
     }
   }
@@ -1477,6 +1483,7 @@
           {#key active.id}
             <git.comps.diff
               raw={active.diffRaw ?? ""}
+              capped={!!active.diffCapped}
               path={active.rel ?? active.name}
               staged={!!active.diffStaged}
               commit={active.diffShort ?? ""}

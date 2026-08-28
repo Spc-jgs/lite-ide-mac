@@ -7,6 +7,7 @@
     staged,
     commit = "",
     untracked = false,
+    capped = false,
     onToggleStaged,
   }: {
     raw: string;
@@ -22,6 +23,13 @@
      * 和「这一侧没有改动」是完全不同的两件事，却都渲染成一片空白。
      */
     untracked?: boolean;
+    /**
+     * 差异在 Rust 侧就被 1MB 上限掐断了，`raw` 只是前半截。
+     *
+     * 跟下面的 `truncated`（前端渲染行数上限）是两件事，措辞必须分开 ——
+     * 「共 N 行」在这种情况下是假的，N 本身就已经不全了。
+     */
+    capped?: boolean;
     onToggleStaged: () => void;
   } = $props();
 
@@ -178,7 +186,12 @@
         {/each}
       </div>
     {/if}
-    {#if truncated}
+    {#if capped}
+      <div class="none">
+        这份差异过大，只取了前 1MB{#if truncated}，其中显示了前 {MAX_ROWS} 行{/if}
+        —— 完整内容请用 <code>git diff</code> 看
+      </div>
+    {:else if truncated}
       <div class="none">差异太长，只显示了前 {MAX_ROWS} 行（共 {total} 行）</div>
     {/if}
   </div>
