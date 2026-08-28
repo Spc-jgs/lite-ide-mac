@@ -250,7 +250,17 @@
    * 树内部用方向键走。
    */
   let cursor = $state(0);
-  let els: HTMLButtonElement[] = [];
+  /*
+   * 按序号从容器里取行，而不是 `bind:this={els[i]}` 存一个数组。
+   *
+   * 那种写法 Svelte 每渲染一行就警告一次「binding to a non-reactive property」，
+   * 一次展开刷七条 —— 真正该看的警告全被埋在里面了。而且 `{#each}` 是按
+   * row.path keyed 的，下标和数组位置对不上，收起目录之后数组里留着一串
+   * 早已不存在的行。查一次 DOM 就没这两个问题，按方向键是人手速度，不值得优化。
+   */
+  let listEl = $state<HTMLElement | null>(null);
+  const rowAt = (i: number) =>
+    listEl?.querySelectorAll<HTMLElement>('[role="treeitem"]')[i] ?? null;
 
   // 行数变了（展开、收起、刷新）游标可能越界
   $effect(() => {
@@ -262,7 +272,7 @@
     const n = rows.length;
     if (n === 0) return;
     cursor = Math.min(Math.max(0, i), n - 1);
-    els[cursor]?.focus();
+    rowAt(cursor)?.focus();
   }
 
   function onRowKey(e: KeyboardEvent, i: number) {
@@ -315,12 +325,11 @@
     <span class="proj" title={root}>{rootName}</span>
     <span class="gap"></span>
   </div>
-  <div class="list" role="tree" aria-label="文件树">
+  <div class="list" role="tree" aria-label="文件树" bind:this={listEl}>
     {#each rows as row, i (row.path)}
       {@const d = deco(row.path)}
       {@const gl = glyphOf(row.name, row.isDir)}
       <button
-        bind:this={els[i]}
         class="row"
         class:dir={row.isDir}
         class:active={row.path === activePath}
