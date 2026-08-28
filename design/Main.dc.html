@@ -1,0 +1,245 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; background: #1e1f22; }
+    a { color: #6ba1e8; } a:hover { color: #8fbcf0; }
+    .lt { font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+  </style>
+</helmet>
+
+<div class="lt" style="width: 1440px; height: 900px; display: grid; grid-template-rows: 38px 1fr 24px; background: #1e1f22; color: #dfe1e5; font-size: 13px; overflow: hidden;">
+
+  <!-- ① 标题栏：原本这里只有「lite-ide — package.json」，右侧约 1800px 是空的 -->
+  <div style="display: flex; align-items: center; gap: 8px; padding: 0 12px 0 78px; background: #2b2d30; border-bottom: 1px solid #393b40; font-size: 12.5px;">
+    <span style="display: flex; align-items: center; gap: 5px; min-width: 0;">
+      <span style="color: #9da0a8;">lite-ide</span>
+      <span style="color: #6f737b;">›</span>
+      <span style="color: #9da0a8;">src</span>
+      <span style="color: #6f737b;">›</span>
+      <span style="color: #9da0a8;">lib</span>
+      <span style="color: #6f737b;">›</span>
+      <span style="color: #9da0a8;">git</span>
+      <span style="color: #6f737b;">›</span>
+      <span style="color: #dfe1e5;">DiffView.svelte</span>
+    </span>
+    <span style="flex: 1;"></span>
+    <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #6f737b;">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3">
+        <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+        <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+      </svg>
+      <span class="mono">m16/cleanup</span>
+      <span style="color: #3574f0;">↑2</span>
+    </span>
+  </div>
+
+  <!-- 工作区：34px 竖条 · 240px 侧边栏 · 4px 拖拽条 · 1fr 主区 -->
+  <div style="display: grid; grid-template-columns: 34px 240px 4px 1fr; overflow: hidden;">
+
+    <!-- 常驻竖条 -->
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 0 6px; background: #2b2d30; border-right: 1px solid #393b40;">
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; background: rgba(53,116,240,.28); color: #3574f0;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M6.4 2.6 L6.4 13.4"/>
+          <rect x="1.6" y="2.6" width="4.8" height="10.8" fill="currentColor" stroke="none" opacity=".28"/>
+        </svg>
+      </div>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; background: rgba(53,116,240,.28); color: #3574f0;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+          <path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"/>
+        </svg>
+      </div>
+      <div style="position: relative; display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+          <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+        </svg>
+        <span style="position: absolute; right: 4px; top: 4px; width: 5px; height: 5px; border-radius: 50%; background: #6ba1e8;"></span>
+      </div>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+          <circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2 L13.5 13.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <span style="flex: 1;"></span>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 9.6 L14.4 9.6"/>
+          <rect x="1.6" y="9.6" width="12.8" height="3.8" fill="currentColor" stroke="none" opacity=".28"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ③ 文件树：加了类型字形 -->
+    <div style="display: flex; flex-direction: column; background: #2b2d30; border-right: 1px solid #393b40; overflow: hidden;">
+      <div style="flex: none; height: 30px; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #9da0a8;">
+        <span>lite-ide</span>
+      </div>
+      <div style="flex: 1; padding: 4px 0; display: flex; flex-direction: column;">
+        <!-- 目录 -->
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; color: #dfe1e5; font-size: 12.5px;">
+          <span style="width: 11px; color: #6f737b; font-size: 9px; transform: rotate(90deg);">▸</span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.2" stroke-linejoin="round"><path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"/></svg>
+          <span>src</span>
+          <span style="flex: 1;"></span>
+          <span style="width: 5px; height: 5px; border-radius: 50%; background: #6ba1e8; opacity: .55;"></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 19px; color: #dfe1e5; font-size: 12.5px;">
+          <span style="width: 11px; color: #6f737b; font-size: 9px; transform: rotate(90deg);">▸</span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.2" stroke-linejoin="round"><path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"/></svg>
+          <span>lib</span>
+          <span style="flex: 1;"></span>
+          <span style="width: 5px; height: 5px; border-radius: 50%; background: #6ba1e8; opacity: .55;"></span>
+        </div>
+        <!-- 选中行 -->
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 32px; background: rgba(53,116,240,.28); color: #dfe1e5; font-size: 12.5px;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8a9a5b" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.2 L3 8 L6 12.8"/><path d="M10 3.2 L13 8 L10 12.8"/></svg>
+          <span style="color: #6ba1e8;">DiffView.svelte</span>
+          <span style="flex: 1;"></span>
+          <span class="mono" style="font-size: 10.5px; font-weight: 600; color: #6ba1e8;">M</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 32px; color: #9da0a8; font-size: 12.5px;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.2 L3 8 L6 12.8"/><path d="M10 3.2 L13 8 L10 12.8"/></svg>
+          <span>GitPane.svelte</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 32px; color: #9da0a8; font-size: 12.5px;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.25" stroke-linecap="round"><path d="M4.2 2.8 h5.2 l3 3 v7.6 a.9 .9 0 0 1-.9 .9 H4.2 a.9 .9 0 0 1-.9-.9 V3.7 a.9 .9 0 0 1 .9-.9 z"/><path d="M9.2 2.9 v3.1 h3.1"/></svg>
+          <span>graph.ts</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 32px; color: #9da0a8; font-size: 12.5px;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.25" stroke-linecap="round"><path d="M4.2 2.8 h5.2 l3 3 v7.6 a.9 .9 0 0 1-.9 .9 H4.2 a.9 .9 0 0 1-.9-.9 V3.7 a.9 .9 0 0 1 .9-.9 z"/><path d="M9.2 2.9 v3.1 h3.1"/></svg>
+          <span>diff.ts</span>
+        </div>
+        <!-- 配置 -->
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; color: #9da0a8; font-size: 12.5px;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#d6ae58" stroke-width="1.25"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.9 v1.6 M8 12.5 v1.6 M1.9 8 h1.6 M12.5 8 h1.6 M3.7 3.7 l1.1 1.1 M11.2 11.2 l1.1 1.1 M12.3 3.7 l-1.1 1.1 M4.8 11.2 l-1.1 1.1"/></svg>
+          <span>package.json</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; color: #9da0a8; font-size: 12.5px;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.25" stroke-linecap="round"><rect x="2.6" y="3.4" width="10.8" height="9.2" rx="1"/><path d="M4.8 6.6 h3.2 M4.8 9.4 h6"/></svg>
+          <span>PLAN.md</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; color: #9da0a8; font-size: 12.5px;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8a9a5b" stroke-width="1.25" stroke-linecap="round"><path d="M2.8 12.4 V4.4 a1 1 0 0 1 1-1 h8.4 a1 1 0 0 1 1 1 v8"/><path d="M5.2 6.6 h5.6 M5.2 9.2 h3.4"/></svg>
+          <span style="color: #8a9a5b;">notes.txt</span>
+          <span style="flex: 1;"></span>
+          <span class="mono" style="font-size: 10.5px; font-weight: 600; color: #8a9a5b;">?</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="background: #393b40;"></div>
+
+    <!-- 主区 -->
+    <div style="display: flex; flex-direction: column; overflow: hidden;">
+      <!-- ⑥ 标签：模式用左侧色条，不再是文字徽章 -->
+      <div style="flex: none; display: flex; height: 32px; background: #2b2d30; border-bottom: 1px solid #393b40;">
+        <div style="display: flex; align-items: center; max-width: 200px; border-right: 1px solid rgba(255,255,255,.06); border-bottom: 2px solid #3574f0; background: #1e1f22;">
+          <span style="width: 2px; height: 100%; background: transparent;"></span>
+          <span style="padding-left: 9px; color: #dfe1e5; font-size: 12.5px;">DiffView.svelte</span>
+          <span style="width: 20px; padding-right: 11px; text-align: right; color: #3574f0; font-size: 9px;">●</span>
+        </div>
+        <div style="display: flex; align-items: center; max-width: 200px; border-right: 1px solid rgba(255,255,255,.06); border-bottom: 2px solid transparent;">
+          <span style="width: 2px; height: 100%; background: #6ba1e8;"></span>
+          <span style="padding-left: 9px; color: #9da0a8; font-size: 12.5px;">App.svelte</span>
+          <span style="width: 20px; padding-right: 11px; text-align: right; color: #6f737b; font-size: 10px;">✕</span>
+        </div>
+        <div style="display: flex; align-items: center; max-width: 200px; border-right: 1px solid rgba(255,255,255,.06); border-bottom: 2px solid transparent;">
+          <span style="width: 2px; height: 100%; background: #d6ae58;"></span>
+          <span style="padding-left: 9px; color: #9da0a8; font-size: 12.5px;">app-2026-08.log</span>
+          <span style="width: 20px; padding-right: 11px; text-align: right; color: #6f737b; font-size: 10px;">✕</span>
+        </div>
+      </div>
+
+      <!-- 编辑器 -->
+      <div style="flex: 1; display: flex; overflow: hidden; background: #1e1f22;">
+        <div class="mono" style="flex: 1; padding: 6px 0 0; font-size: 13px; line-height: 20px; overflow: hidden;">
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">18</span><span><span style="color: #cf8e6d;">let</span> <span style="color: #dfe1e5;">files</span> = <span style="color: #dfe1e5;">$derived</span>&lt;<span style="color: #b389d6;">DiffFile</span>[]&gt;(<span style="color: #dfe1e5;">parseDiff</span>(<span style="color: #dfe1e5;">raw</span>));</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">19</span><span></span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">20</span><span style="color: #7a7e85;">/** 实际渲染出来的那些行 —— 两种视图各切一份 */</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">21</span><span><span style="color: #cf8e6d;">let</span> <span style="color: #dfe1e5;">sideShown</span> = <span style="color: #dfe1e5;">$derived</span>(<span style="color: #dfe1e5;">sideRows</span>.<span style="color: #dfe1e5;">slice</span>(<span style="color: #2aacb8;">0</span>, <span style="color: #c77dbb;">MAX_ROWS</span>));</span></div>
+          <div style="display: flex; background: rgba(53,116,240,.10);"><span style="width: 52px; text-align: right; padding-right: 16px; color: #dfe1e5;">22</span><span><span style="color: #cf8e6d;">let</span> <span style="color: #dfe1e5;">uniShown</span> = <span style="color: #dfe1e5;">$derived</span>(<span style="color: #dfe1e5;">uniRows</span>.<span style="color: #dfe1e5;">slice</span>(<span style="color: #2aacb8;">0</span>, <span style="color: #c77dbb;">MAX_ROWS</span>));</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">23</span><span></span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">24</span><span style="color: #7a7e85;">/**</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">25</span><span style="color: #7a7e85;"> * 跳转目标只能取<span style="color: #9da0a8;">渲染出来的</span>那些块。</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">26</span><span style="color: #7a7e85;"> * 早先是在全部行上算的，于是超过 MAX_ROWS 的差异里，「下一处改动」</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">27</span><span style="color: #7a7e85;"> * 会把视图滚到一片空白 —— 那些行根本没渲染。</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">28</span><span style="color: #7a7e85;"> */</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">29</span><span><span style="color: #cf8e6d;">let</span> <span style="color: #dfe1e5;">blocks</span> = <span style="color: #dfe1e5;">$derived</span>(<span style="color: #dfe1e5;">changeBlocks</span>(<span style="color: #dfe1e5;">side</span> ? <span style="color: #dfe1e5;">sideShown</span> : <span style="color: #dfe1e5;">uniShown</span>));</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">30</span><span></span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">31</span><span><span style="color: #cf8e6d;">function</span> <span style="color: #56a8f5;">jump</span>(<span style="color: #dfe1e5;">dir</span>: <span style="color: #b389d6;">1</span> | <span style="color: #b389d6;">-1</span>) {</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">32</span><span>  <span style="color: #cf8e6d;">if</span> (<span style="color: #dfe1e5;">blocks</span>.<span style="color: #dfe1e5;">length</span> === <span style="color: #2aacb8;">0</span> || !<span style="color: #dfe1e5;">box</span>) <span style="color: #cf8e6d;">return</span>;</span></div>
+          <div style="display: flex;"><span style="width: 52px; text-align: right; padding-right: 16px; color: #4b4f57;">33</span><span>  <span style="color: #cf8e6d;">let</span> <span style="color: #dfe1e5;">next</span> = <span style="color: #dfe1e5;">cur</span> + <span style="color: #dfe1e5;">dir</span>;</span></div>
+        </div>
+        <!-- 缩略图 -->
+        <div style="flex: none; width: 88px; background: #1e1f22; border-left: 1px solid rgba(255,255,255,.06); position: relative; padding-top: 6px;">
+          <div style="position: absolute; left: 0; right: 0; top: 6px; height: 46px; background: rgba(255,255,255,.06); border-top: 1px solid rgba(255,255,255,.09); border-bottom: 1px solid rgba(255,255,255,.09);"></div>
+          <div style="display: flex; flex-direction: column; gap: 1px; padding-left: 6px;">
+            <div style="height: 2px; width: 58px; background: #cf8e6d; opacity: .92;"></div>
+            <div style="height: 2px; width: 0;"></div>
+            <div style="height: 2px; width: 44px; background: #7a7e85; opacity: .92;"></div>
+            <div style="height: 2px; width: 52px; background: #dfe1e5; opacity: .92;"></div>
+            <div style="height: 2px; width: 50px; background: #dfe1e5; opacity: .92;"></div>
+            <div style="height: 2px; width: 0;"></div>
+            <div style="height: 2px; width: 12px; background: #7a7e85; opacity: .92;"></div>
+            <div style="height: 2px; width: 46px; background: #7a7e85; opacity: .92;"></div>
+            <div style="height: 2px; width: 62px; background: #7a7e85; opacity: .92;"></div>
+            <div style="height: 2px; width: 54px; background: #7a7e85; opacity: .92;"></div>
+            <div style="height: 2px; width: 14px; background: #7a7e85; opacity: .92;"></div>
+            <div style="height: 2px; width: 60px; background: #dfe1e5; opacity: .92;"></div>
+            <div style="height: 2px; width: 0;"></div>
+            <div style="height: 2px; width: 40px; background: #56a8f5; opacity: .92;"></div>
+            <div style="height: 2px; width: 48px; background: #dfe1e5; opacity: .92;"></div>
+            <div style="height: 2px; width: 32px; background: #dfe1e5; opacity: .92;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ② 状态栏：左边是文档事实，右边是动作，中间用竖线分组 -->
+  <div class="mono" style="display: flex; align-items: center; gap: 10px; padding: 0 12px; background: #2b2d30; border-top: 1px solid #393b40; font-size: 11.5px; color: #9da0a8;">
+    <span style="color: #9da0a8;">编辑模式 ⇄</span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #6f737b;">Svelte</span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #6f737b;">UTF-8</span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #6f737b;">行 22 · 列 48</span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #3574f0;">已修改</span>
+    <span style="flex: 1;"></span>
+    <span style="display: inline-flex; align-items: center; gap: 5px; color: #dfe1e5;">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+        <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+        <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+      </svg>
+      m16/cleanup <span style="color: #3574f0;">↑2</span>
+      <span style="background: #35373b; border-radius: 7px; padding: 0 5px; font-size: 10px; color: #9da0a8;">7</span>
+    </span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #6f737b;">改动</span>
+    <span style="color: #6f737b;">历史</span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #6f737b;">搜索 ⇧⇧</span>
+    <span style="color: #6f737b;">终端 ⌘J</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

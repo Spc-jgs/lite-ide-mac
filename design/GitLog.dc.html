@@ -1,0 +1,272 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; background: #1e1f22; }
+    a { color: #6ba1e8; } a:hover { color: #8fbcf0; }
+    .lt { font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .crow { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 10px 0 4px; font-size: 12.5px; color: #9da0a8; white-space: nowrap; }
+    .subj { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .who { flex: none; width: 92px; color: #6f737b; font-size: 11.5px; }
+    .when { flex: none; width: 84px; color: #6f737b; font-size: 11px; text-align: right; }
+    .refc { display: inline-block; margin-right: 5px; padding: 0 5px; border-radius: 8px; font-size: 10px;
+            font-family: "SF Mono", Menlo, ui-monospace, monospace; background: #35373b; color: #9da0a8; border: 1px solid #393b40; }
+  </style>
+</helmet>
+
+<div class="lt" style="width: 1440px; height: 900px; display: grid; grid-template-rows: 38px 1fr 24px; background: #1e1f22; color: #dfe1e5; font-size: 13px; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 8px; padding: 0 12px 0 78px; background: #2b2d30; border-bottom: 1px solid #393b40; font-size: 12.5px;">
+    <span style="display: flex; align-items: center; gap: 5px;">
+      <span style="color: #9da0a8;">lite-ide</span><span style="color: #6f737b;">›</span>
+      <span style="color: #9da0a8;">docs</span><span style="color: #6f737b;">›</span>
+      <span style="color: #dfe1e5;">JOURNAL.md</span>
+    </span>
+    <span style="flex: 1;"></span>
+    <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #6f737b;">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3">
+        <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+        <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+      </svg>
+      <span class="mono">main</span>
+    </span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 34px 1fr; overflow: hidden;">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 0 6px; background: #2b2d30; border-right: 1px solid #393b40;">
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M6.4 2.6 L6.4 13.4"/>
+        </svg>
+      </div>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+          <path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"/>
+        </svg>
+      </div>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+          <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+        </svg>
+      </div>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+          <circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2 L13.5 13.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <span style="flex: 1;"></span>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; background: rgba(53,116,240,.28); color: #3574f0;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 9.6 L14.4 9.6"/>
+          <rect x="1.6" y="9.6" width="12.8" height="3.8" fill="currentColor" stroke="none" opacity=".28"/>
+        </svg>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; overflow: hidden;">
+      <!-- 内容区（收窄，给日志让位） -->
+      <div style="flex: 1; display: flex; align-items: center; justify-content: center; color: #4b4f57; font-size: 12px;">编辑区</div>
+
+      <div style="flex: none; height: 4px; background: #393b40;"></div>
+
+      <!-- 底部工具窗 -->
+      <div style="flex: none; height: 420px; display: grid; grid-template-rows: 26px 1fr; border-top: 1px solid #393b40; overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 0 8px; background: #2b2d30; font-size: 11px; color: #9da0a8;">
+          <span style="border-radius: 3px; font-size: 11px; padding: 2px 8px; color: #6f737b;">终端</span>
+          <span style="border-radius: 3px; font-size: 11px; padding: 2px 8px; color: #dfe1e5; background: rgba(53,116,240,.28);">Git 日志</span>
+          <span style="width: 1px; height: 12px; background: #393b40;"></span>
+          <span style="flex: 1;"></span>
+          <span style="color: #6f737b; font-size: 10.5px;">✕</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 320px; overflow: hidden; background: #1e1f22;">
+          <div style="display: flex; flex-direction: column; overflow: hidden;">
+            <div style="flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 8px; background: #2b2d30; border-bottom: 1px solid #393b40; font-size: 11px; color: #9da0a8;">
+              <span style="width: 200px; background: #1e1f22; border: 1px solid #393b40; border-radius: 3px; font-size: 11.5px; padding: 2px 7px; color: #6f737b;">过滤标题 / 作者 / sha</span>
+              <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 11px; height: 11px; border: 1px solid #3574f0; background: #3574f0; border-radius: 2px; display: inline-block;"></span>全部分支</span>
+              <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 11px; height: 11px; border: 1px solid #6f737b; border-radius: 2px; display: inline-block;"></span>只看当前文件</span>
+              <span style="flex: 1;"></span>
+              <span class="mono" style="font-size: 10.5px; color: #6f737b;">147 条</span>
+            </div>
+
+            <div style="flex: 1; overflow: hidden;">
+              <!-- 泳道图：合并 → 分叉 → 汇合 -->
+              <div class="crow" style="background: rgba(53,116,240,.28); color: #dfe1e5;">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="11" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <path d="M6.5 11 C19.5 11 19.5 11 19.5 22" fill="none" stroke="#63b76c" stroke-width="1.5"/>
+                  <circle cx="6.5" cy="11" r="3.4" fill="#1e1f22" stroke="#4f9ee3" stroke-width="2"/>
+                </svg>
+                <span class="subj"><span class="refc" style="color: #3574f0; border-color: #3574f0;">HEAD</span><span class="refc">main</span>合并 M16：清理与架构</span>
+                <span class="who" style="color: #9da0a8;">pc shao</span><span class="when">3 分钟前</span>
+              </div>
+              <div class="crow">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="0" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <line x1="19.5" y1="0" x2="19.5" y2="11" stroke="#63b76c" stroke-width="1.5"/>
+                  <circle cx="19.5" cy="11" r="3.4" fill="#1e1f22" stroke="#63b76c" stroke-width="2"/>
+                  <line x1="19.5" y1="11" x2="19.5" y2="22" stroke="#63b76c" stroke-width="1.5"/>
+                </svg>
+                <span class="subj"><span class="refc" style="color: #8a9a5b;">origin/m16</span>M16 清理：删死代码、抽掉按需加载样板</span>
+                <span class="who">pc shao</span><span class="when">12 分钟前</span>
+              </div>
+              <div class="crow">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="0" x2="6.5" y2="11" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <path d="M19.5 0 C19.5 11 6.5 11 6.5 11" fill="none" stroke="#63b76c" stroke-width="1.5"/>
+                  <circle cx="6.5" cy="11" r="3.4" fill="#1e1f22" stroke="#4f9ee3" stroke-width="2"/>
+                  <line x1="6.5" y1="11" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                </svg>
+                <span class="subj">合并 M15：交互打磨</span>
+                <span class="who">pc shao</span><span class="when">2 小时前</span>
+              </div>
+              <div class="crow">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="0" x2="6.5" y2="11" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <circle cx="6.5" cy="11" r="3.4" fill="#1e1f22" stroke="#4f9ee3" stroke-width="2"/>
+                  <line x1="6.5" y1="11" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                </svg>
+                <span class="subj">M15 交互打磨：侧边栏竖条、缩略图瓦片缓存</span>
+                <span class="who">pc shao</span><span class="when">3 小时前</span>
+              </div>
+              <div class="crow">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="0" x2="6.5" y2="11" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <path d="M6.5 11 C32.5 11 32.5 11 32.5 22" fill="none" stroke="#d6ae58" stroke-width="1.5"/>
+                  <circle cx="6.5" cy="11" r="3.4" fill="#1e1f22" stroke="#4f9ee3" stroke-width="2"/>
+                  <line x1="6.5" y1="11" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                </svg>
+                <span class="subj">合并 M14：编码与缩略图</span>
+                <span class="who">pc shao</span><span class="when">昨天 21:40</span>
+              </div>
+              <div class="crow">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="0" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <line x1="32.5" y1="0" x2="32.5" y2="11" stroke="#d6ae58" stroke-width="1.5"/>
+                  <circle cx="32.5" cy="11" r="3.4" fill="#1e1f22" stroke="#d6ae58" stroke-width="2"/>
+                  <line x1="32.5" y1="11" x2="32.5" y2="22" stroke="#d6ae58" stroke-width="1.5"/>
+                </svg>
+                <span class="subj">M14 编码集：GBK / Big5 / UTF-16 与 BOM 往返</span>
+                <span class="who">pc shao</span><span class="when">昨天 20:15</span>
+              </div>
+              <div class="crow">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="0" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <line x1="32.5" y1="0" x2="32.5" y2="11" stroke="#d6ae58" stroke-width="1.5"/>
+                  <path d="M32.5 11 C32.5 22 6.5 22 6.5 22" fill="none" stroke="#d6ae58" stroke-width="1.5"/>
+                  <circle cx="32.5" cy="11" r="3.4" fill="#1e1f22" stroke="#d6ae58" stroke-width="2"/>
+                </svg>
+                <span class="subj">代码缩略图：canvas 画，不复制一份 DOM</span>
+                <span class="who">pc shao</span><span class="when">昨天 18:02</span>
+              </div>
+              <div class="crow">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="0" x2="6.5" y2="11" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <circle cx="6.5" cy="11" r="3.4" fill="#1e1f22" stroke="#4f9ee3" stroke-width="2"/>
+                  <line x1="6.5" y1="11" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                </svg>
+                <span class="subj">合并 M13：Git 版本管理</span>
+                <span class="who">pc shao</span><span class="when">昨天 15:30</span>
+              </div>
+              <div class="crow">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="0" x2="6.5" y2="11" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <circle cx="6.5" cy="11" r="3.4" fill="#1e1f22" stroke="#4f9ee3" stroke-width="2"/>
+                  <line x1="6.5" y1="11" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                </svg>
+                <span class="subj">M13 Git：改动列表 · 泳道日志 · 分支 · 工作树</span>
+                <span class="who">pc shao</span><span class="when">昨天 14:11</span>
+              </div>
+              <div class="crow">
+                <svg width="39" height="22" viewBox="0 0 39 22" style="flex: none; display: block;">
+                  <line x1="6.5" y1="0" x2="6.5" y2="11" stroke="#4f9ee3" stroke-width="1.5"/>
+                  <circle cx="6.5" cy="11" r="3.4" fill="#1e1f22" stroke="#4f9ee3" stroke-width="2"/>
+                  <line x1="6.5" y1="11" x2="6.5" y2="22" stroke="#4f9ee3" stroke-width="1.5"/>
+                </svg>
+                <span class="subj">合并 M12：界面打磨与使用手册</span>
+                <span class="who">pc shao</span><span class="when">2 天前</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 提交详情 -->
+          <div style="display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid #393b40; background: #2b2d30;">
+            <div style="flex: none; padding: 10px; border-bottom: 1px solid rgba(255,255,255,.06);">
+              <div style="color: #dfe1e5; font-size: 13px; line-height: 1.45; margin-bottom: 7px;">合并 M16：清理与架构</div>
+              <div style="display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: #9da0a8;">
+                <span class="mono" style="color: #3574f0;">15a5cd9</span>
+                <span>pc shao</span>
+                <span style="color: #6f737b;">2026-08-28 · 3 分钟前</span>
+              </div>
+              <div style="margin-top: 6px;">
+                <span style="font-size: 10px; color: #d6ae58; border: 1px solid #d6ae58; border-radius: 3px; padding: 0 4px; opacity: .85;">合并提交 · 2 个父</span>
+              </div>
+            </div>
+            <div style="flex: 1; overflow: hidden;">
+              <div style="padding: 7px 10px 4px; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: #6f737b;">9 个文件</div>
+              <div style="display: flex; align-items: center; gap: 6px; height: 21px; padding: 0 8px 0 10px; font-size: 12px; color: #9da0a8;">
+                <span class="mono" style="width: 11px; text-align: center; font-size: 10.5px; font-weight: 600; color: #6ba1e8;">M</span>
+                <span>App.svelte</span><span style="flex: 1;"></span>
+                <span style="font-size: 10.5px; color: #6f737b; direction: rtl;">src</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; height: 21px; padding: 0 8px 0 10px; font-size: 12px; color: #9da0a8;">
+                <span class="mono" style="width: 11px; text-align: center; font-size: 10.5px; font-weight: 600; color: #63b76c;">A</span>
+                <span>lazy.svelte.ts</span><span style="flex: 1;"></span>
+                <span style="font-size: 10.5px; color: #6f737b; direction: rtl;">src/lib/lazy</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; height: 21px; padding: 0 8px 0 10px; font-size: 12px; color: #9da0a8;">
+                <span class="mono" style="width: 11px; text-align: center; font-size: 10.5px; font-weight: 600; color: #6ba1e8;">M</span>
+                <span>commands.rs</span><span style="flex: 1;"></span>
+                <span style="font-size: 10.5px; color: #6f737b; direction: rtl;">src-tauri/src</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; height: 21px; padding: 0 8px 0 10px; font-size: 12px; color: #9da0a8;">
+                <span class="mono" style="width: 11px; text-align: center; font-size: 10.5px; font-weight: 600; color: #6ba1e8;">M</span>
+                <span>lib.rs</span><span style="flex: 1;"></span>
+                <span style="font-size: 10.5px; color: #6f737b; direction: rtl;">…/crates/gitsvc/src</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; height: 21px; padding: 0 8px 0 10px; font-size: 12px; color: #9da0a8;">
+                <span class="mono" style="width: 11px; text-align: center; font-size: 10.5px; font-weight: 600; color: #d1707a;">D</span>
+                <span>a-quiet-light.html</span><span style="flex: 1;"></span>
+                <span style="font-size: 10.5px; color: #6f737b; direction: rtl;">mockups</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; height: 21px; padding: 0 8px 0 10px; font-size: 12px; color: #9da0a8;">
+                <span class="mono" style="width: 11px; text-align: center; font-size: 10.5px; font-weight: 600; color: #d1707a;">D</span>
+                <span>b-midnight.html</span><span style="flex: 1;"></span>
+                <span style="font-size: 10.5px; color: #6f737b; direction: rtl;">mockups</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mono" style="display: flex; align-items: center; gap: 10px; padding: 0 12px; background: #2b2d30; border-top: 1px solid #393b40; font-size: 11.5px; color: #9da0a8;">
+    <span style="color: #6f737b;">等待文件</span>
+    <span style="flex: 1;"></span>
+    <span style="display: inline-flex; align-items: center; gap: 5px; color: #dfe1e5;">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+        <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+        <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+      </svg>
+      main
+    </span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #6f737b;">改动</span>
+    <span style="color: #3574f0;">历史</span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #6f737b;">搜索 ⇧⇧</span>
+    <span style="color: #6f737b;">终端 ⌘J</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

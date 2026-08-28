@@ -33,18 +33,6 @@
   --diff-add-fg: #63b76c;
   --diff-del-fg: #d1707a;
 
-  /* Git 状态色。约定跟 VSCode / GitHub 对齐，用户不用重新学一套 */
-  --git-mod: #d99a3f;
-  --git-add: #5aa76f;
-  --git-del: #f75464;
-  --git-new: #6f9e8a;
-  --git-conflict: #c678dd;
-  /* 差异底色：整行的浅底说"这行动过"，ink 版给行内那一小截真正变了的字 */
-  --diff-add-bg: rgba(90, 167, 111, 0.13);
-  --diff-del-bg: rgba(247, 84, 100, 0.11);
-  --diff-add-ink: rgba(90, 167, 111, 0.36);
-  --diff-del-ink: rgba(247, 84, 100, 0.32);
-
   --ui-font: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
   --code-font: "SF Mono", Menlo, ui-monospace, monospace;
 

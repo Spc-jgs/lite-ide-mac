@@ -1,0 +1,255 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; background: #1e1f22; }
+    a { color: #6ba1e8; } a:hover { color: #8fbcf0; }
+    .lt { font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+  </style>
+</helmet>
+
+<div class="lt" style="width: 1440px; height: 900px; display: grid; grid-template-rows: 38px 1fr 24px; background: #1e1f22; color: #dfe1e5; font-size: 13px; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 8px; padding: 0 12px 0 78px; background: #2b2d30; border-bottom: 1px solid #393b40; font-size: 12.5px;">
+    <span style="display: flex; align-items: center; gap: 5px;">
+      <span style="color: #9da0a8;">lite-ide</span><span style="color: #6f737b;">›</span>
+      <span style="color: #9da0a8;">src</span><span style="color: #6f737b;">›</span>
+      <span style="color: #9da0a8;">lib</span><span style="color: #6f737b;">›</span>
+      <span style="color: #9da0a8;">git</span><span style="color: #6f737b;">›</span>
+      <span style="color: #dfe1e5;">DiffView.svelte</span>
+    </span>
+    <span style="flex: 1;"></span>
+    <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #6f737b;">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3">
+        <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+        <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+      </svg>
+      <span class="mono">m16/cleanup</span><span style="color: #3574f0;">↑2</span>
+    </span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 34px 288px 4px 1fr; overflow: hidden;">
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 0 6px; background: #2b2d30; border-right: 1px solid #393b40;">
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; background: rgba(53,116,240,.28); color: #3574f0;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M6.4 2.6 L6.4 13.4"/>
+          <rect x="1.6" y="2.6" width="4.8" height="10.8" fill="currentColor" stroke="none" opacity=".28"/>
+        </svg>
+      </div>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+          <path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"/>
+        </svg>
+      </div>
+      <div style="position: relative; display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; background: rgba(53,116,240,.28); color: #3574f0;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+          <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+        </svg>
+        <span style="position: absolute; right: 4px; top: 4px; width: 5px; height: 5px; border-radius: 50%; background: #6ba1e8;"></span>
+      </div>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+          <circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2 L13.5 13.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <span style="flex: 1;"></span>
+      <div style="display: grid; place-content: center; width: 26px; height: 26px; border-radius: 5px; color: #6f737b;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 9.6 L14.4 9.6"/>
+          <rect x="1.6" y="9.6" width="12.8" height="3.8" fill="currentColor" stroke="none" opacity=".28"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Git 面板 -->
+    <div style="display: flex; flex-direction: column; background: #2b2d30; border-right: 1px solid #393b40; overflow: hidden;">
+      <div style="flex: none; height: 30px; display: flex; align-items: center; padding: 0 4px 0 10px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 11px; letter-spacing: .06em; color: #9da0a8;">
+        <span>GIT</span><span style="flex: 1;"></span>
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.4" stroke-linecap="round" style="margin-right: 6px;">
+          <path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13 2.2 L13 5 L10.2 5" stroke-linejoin="round"/>
+        </svg>
+      </div>
+
+      <div style="flex: none; display: flex; align-items: center; gap: 5px; padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 12px;">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3">
+          <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+          <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+        </svg>
+        <span class="mono" style="font-size: 11.5px;">m16/cleanup</span>
+        <span class="mono" style="font-size: 11px; color: #3574f0;">↑2</span>
+      </div>
+
+      <!-- ⑤ 提交框：有暂存内容时展开 -->
+      <div style="flex: none; padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.06);">
+        <div style="background: #1e1f22; border: 1px solid #3574f0; border-radius: 4px; padding: 6px 8px; font-size: 12px; line-height: 1.5; color: #dfe1e5; min-height: 44px;">删掉重复的第二套 git 颜色</div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+          <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #6f737b;">
+            <span style="width: 11px; height: 11px; border: 1px solid #6f737b; border-radius: 2px; display: inline-block;"></span>改写上一条
+          </span>
+          <span style="flex: 1;"></span>
+          <span style="background: #3574f0; border-radius: 4px; color: #fff; font-size: 11.5px; padding: 3px 12px;">提交 (3)</span>
+        </div>
+      </div>
+
+      <div style="flex: 1; overflow: hidden; padding-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 6px; padding: 8px 8px 4px 10px; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: #6f737b;">
+          <span>已暂存</span>
+          <span class="mono" style="background: #35373b; border-radius: 8px; padding: 0 5px; font-size: 10px;">3</span>
+          <span style="flex: 1;"></span>
+          <span style="font-size: 10.5px; text-transform: none; letter-spacing: 0;">全部取消</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; font-size: 12.5px; color: #9da0a8;">
+          <span class="mono" style="width: 12px; text-align: center; font-size: 11px; font-weight: 600; color: #6ba1e8;">M</span>
+          <span>app.css</span><span style="flex: 1;"></span>
+          <span style="font-size: 11px; color: #6f737b; direction: rtl;">src</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; font-size: 12.5px; color: #9da0a8;">
+          <span class="mono" style="width: 12px; text-align: center; font-size: 11px; font-weight: 600; color: #6ba1e8;">M</span>
+          <span>DiffView.svelte</span><span style="flex: 1;"></span>
+          <span style="font-size: 11px; color: #6f737b; direction: rtl;">src/lib/git</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; font-size: 12.5px; color: #9da0a8;">
+          <span class="mono" style="width: 12px; text-align: center; font-size: 11px; font-weight: 600; color: #b389d6;">R</span>
+          <span>lazy.svelte.ts</span><span style="flex: 1;"></span>
+          <span style="font-size: 11px; color: #6f737b; direction: rtl;">src/lib/lazy</span>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 6px; padding: 12px 8px 4px 10px; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: #6f737b;">
+          <span>改动</span>
+          <span class="mono" style="background: #35373b; border-radius: 8px; padding: 0 5px; font-size: 10px;">4</span>
+          <span style="flex: 1;"></span>
+          <span style="font-size: 10.5px; text-transform: none; letter-spacing: 0;">全部丢弃</span>
+          <span style="font-size: 10.5px; text-transform: none; letter-spacing: 0;">全部暂存</span>
+        </div>
+        <!-- 选中行 + hover 出来的行内操作 -->
+        <div style="display: flex; align-items: center; height: 22px; background: #35373b;">
+          <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 0 4px 0 10px; font-size: 12.5px; color: #dfe1e5;">
+            <span class="mono" style="width: 12px; text-align: center; font-size: 11px; font-weight: 600; color: #6ba1e8;">M</span>
+            <span>App.svelte</span><span style="flex: 1;"></span>
+            <span style="font-size: 11px; color: #6f737b; direction: rtl;">src</span>
+          </div>
+          <span style="width: 20px; text-align: center; color: #9da0a8; font-size: 12px;">↺</span>
+          <span style="width: 20px; text-align: center; color: #9da0a8; font-size: 12px;">＋</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; font-size: 12.5px; color: #9da0a8;">
+          <span class="mono" style="width: 12px; text-align: center; font-size: 11px; font-weight: 600; color: #d1707a;">D</span>
+          <span style="text-decoration: line-through; opacity: .65;">a-quiet-light.html</span><span style="flex: 1;"></span>
+          <span style="font-size: 11px; color: #6f737b; direction: rtl;">mockups</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; font-size: 12.5px; color: #9da0a8;">
+          <span class="mono" style="width: 12px; text-align: center; font-size: 11px; font-weight: 600; color: #8a9a5b;">?</span>
+          <span style="color: #8a9a5b;">design/</span><span style="flex: 1;"></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; font-size: 12.5px; color: #9da0a8;">
+          <span class="mono" style="width: 12px; text-align: center; font-size: 11px; font-weight: 600; color: #8a9a5b;">?</span>
+          <span style="color: #8a9a5b;">notes.txt</span><span style="flex: 1;"></span>
+        </div>
+      </div>
+    </div>
+
+    <div style="background: #393b40;"></div>
+
+    <!-- 差异 -->
+    <div style="display: flex; flex-direction: column; overflow: hidden;">
+      <div style="flex: none; display: flex; height: 32px; background: #2b2d30; border-bottom: 1px solid #393b40;">
+        <div style="display: flex; align-items: center; border-right: 1px solid rgba(255,255,255,.06); border-bottom: 2px solid #3574f0; background: #1e1f22;">
+          <span style="width: 2px; height: 100%; background: #6ba1e8;"></span>
+          <span style="padding-left: 9px; color: #dfe1e5; font-size: 12.5px;">app.css</span>
+          <span style="width: 20px; padding-right: 11px; text-align: right; color: #6f737b; font-size: 10px;">✕</span>
+        </div>
+      </div>
+
+      <div style="flex: none; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; background: #2b2d30; border-bottom: 1px solid #393b40; font-size: 11.5px; color: #9da0a8;">
+        <span class="mono" style="color: #dfe1e5;">src/app.css</span>
+        <span style="flex: 1;"></span>
+        <span class="mono" style="font-size: 11px;"><span style="color: #63b76c; font-weight: 500;">+0</span> <span style="color: #d1707a; font-weight: 500;">−12</span></span>
+        <span style="border: 1px solid #393b40; border-radius: 3px; padding: 2px 8px; font-size: 11px;">⌃ 1/1 ⌄</span>
+        <span style="border: 1px solid #3574f0; border-radius: 3px; padding: 2px 8px; font-size: 11px; color: #dfe1e5;">双栏</span>
+        <span style="border: 1px solid #393b40; border-radius: 3px; padding: 2px 8px; font-size: 11px;">统一</span>
+        <span style="border: 1px solid #393b40; border-radius: 3px; padding: 2px 8px; font-size: 11px;">已暂存 ⇄</span>
+      </div>
+
+      <div class="mono" style="flex: 1; font-size: 12.5px; line-height: 19px; overflow: hidden; background: #1e1f22;">
+        <div style="display: grid; grid-template-columns: 46px 1fr 46px 1fr;">
+          <div style="grid-column: 1 / -1; height: 19px; background: #2b2d30; color: #6f737b; font-size: 11.5px; font-style: italic; padding-left: 12px; border-top: 1px solid rgba(255,255,255,.06); border-bottom: 1px solid rgba(255,255,255,.06);">:root {</div>
+
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px;">27</div>
+          <div style="padding-left: 8px; color: #9da0a8;">  --git-renamed: #b389d6;</div>
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px;">27</div>
+          <div style="padding-left: 8px; color: #9da0a8;">  --git-renamed: #b389d6;</div>
+
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: rgba(209,112,122,.10);">28</div>
+          <div style="padding-left: 8px; background: rgba(209,112,122,.10); color: #dfe1e5;">  --git-conflict: <span style="background: rgba(209,112,122,.34); border-radius: 2px;">#f75464</span>;</div>
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px;">28</div>
+          <div style="padding-left: 8px; color: #9da0a8;">  --git-conflict: #f75464;</div>
+
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: rgba(209,112,122,.10);">29</div>
+          <div style="padding-left: 8px; background: rgba(209,112,122,.10); color: #dfe1e5;"></div>
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+          <div style="background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: rgba(209,112,122,.10);">30</div>
+          <div style="padding-left: 8px; background: rgba(209,112,122,.10); color: #dfe1e5;"><span style="background: rgba(209,112,122,.34); border-radius: 2px;">  /* Git 状态色。约定跟 VSCode / GitHub 对齐 */</span></div>
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+          <div style="background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: rgba(209,112,122,.10);">31</div>
+          <div style="padding-left: 8px; background: rgba(209,112,122,.10); color: #dfe1e5;"><span style="background: rgba(209,112,122,.34); border-radius: 2px;">  --git-mod: #d99a3f;</span></div>
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+          <div style="background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: rgba(209,112,122,.10);">32</div>
+          <div style="padding-left: 8px; background: rgba(209,112,122,.10); color: #dfe1e5;"><span style="background: rgba(209,112,122,.34); border-radius: 2px;">  --git-conflict: #c678dd;</span></div>
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+          <div style="background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: rgba(209,112,122,.10);">33</div>
+          <div style="padding-left: 8px; background: rgba(209,112,122,.10); color: #dfe1e5;"><span style="background: rgba(209,112,122,.34); border-radius: 2px;">  --diff-add-bg: rgba(90, 167, 111, 0.13);</span></div>
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px; background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+          <div style="background: repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 4px, transparent 4px 8px);"></div>
+
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px;">34</div>
+          <div style="padding-left: 8px; color: #9da0a8;"></div>
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px;">29</div>
+          <div style="padding-left: 8px; color: #9da0a8;"></div>
+
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px;">35</div>
+          <div style="padding-left: 8px; color: #9da0a8;">  --ui-font: -apple-system, …;</div>
+          <div style="text-align: right; padding-right: 8px; color: #6f737b; font-size: 11px;">30</div>
+          <div style="padding-left: 8px; color: #9da0a8;">  --ui-font: -apple-system, …;</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mono" style="display: flex; align-items: center; gap: 10px; padding: 0 12px; background: #2b2d30; border-top: 1px solid #393b40; font-size: 11.5px; color: #9da0a8;">
+    <span style="color: #6f737b;">差异 · 已暂存</span>
+    <span style="flex: 1;"></span>
+    <span style="display: inline-flex; align-items: center; gap: 5px; color: #dfe1e5;">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+        <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+        <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+      </svg>
+      m16/cleanup <span style="color: #3574f0;">↑2</span>
+      <span style="background: #35373b; border-radius: 7px; padding: 0 5px; font-size: 10px; color: #9da0a8;">7</span>
+    </span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #3574f0;">改动</span>
+    <span style="color: #6f737b;">历史</span>
+    <span style="width: 1px; height: 11px; background: #393b40;"></span>
+    <span style="color: #6f737b;">搜索 ⇧⇧</span>
+    <span style="color: #6f737b;">终端 ⌘J</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
