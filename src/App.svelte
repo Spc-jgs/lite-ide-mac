@@ -1635,7 +1635,13 @@
           onclick={() => void openDiff(activeEntry!, false)}
           title="查看这个文件的改动"
         >
-          {activeEntry.untracked ? "未跟踪" : "有改动"}
+          <!--
+            这里说的是「相对 git 有没有未提交的改动」，跟左边那格的
+            「无改动 / 已修改」（缓冲区有没有未保存的编辑）是两件事。
+            原本写「有改动」，于是状态栏上会并排出现「无改动」和「有改动」，
+            读起来自相矛盾。改成「未提交」，两格就能同时成立且不打架。
+          -->
+          {activeEntry.untracked ? "未跟踪" : "未提交"}
         </button>
       {/if}
     {:else}

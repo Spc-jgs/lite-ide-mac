@@ -50,10 +50,19 @@ Java 服务日志。Chromium 的字符串模型决定了大文件要么卡死要
 
 ```bash
 pnpm install
-pnpm app:install     # 打包并装到 ~/Applications
+pnpm app:bundle      # 打包
 ```
 
-产物全在项目目录里（`src-tauri/target/release/bundle/`），不往系统里写别的东西。
+产物就在项目目录里，**不往系统里装任何东西**：
+
+```
+src-tauri/target/release/bundle/
+├── macos/lite-ide.app     ← 双击它就能用，Spotlight 也搜得到
+└── dmg/*.dmg              ← 发给别人的
+```
+
+刻意不往 `~/Applications` 复制一份：两份 `.app` 只会在 Spotlight 里出现两个
+同名条目，而它们迟早分叉 —— 点错的那次，你调的是几天前的构建。
 
 日常开发：
 
@@ -62,8 +71,8 @@ pnpm app             # Tauri 开发模式（改 Rust 要等重编译）
 pnpm dev             # 纯前端 + IPC 桩，改 UI 是毫秒级热更新
 ```
 
-> `pnpm app:build` 只编可执行文件，**不会更新 `.app`** —— 双击启动的是后者。
-> 标题栏上把鼠标停在「lite-ide」上可以看到当前构建时间。
+> `pnpm app:build` 只编可执行文件，**不会更新 `.app`**。
+> 拿不准手上跑的是哪个构建：标题栏上把鼠标停在项目名/应用名上，提示里有构建时间。
 
 完整用法、快捷键、卸载见 [docs/USAGE.md](docs/USAGE.md)。
 

@@ -21,8 +21,7 @@ src-tauri/target/release/
 | 命令 | 产出 | 什么时候用 |
 |---|---|---|
 | `pnpm app:build` | 只有 `target/release/lite-ide` 这个可执行文件 | 迭代时最快，改完 Rust 想跑一下 |
-| `pnpm app:bundle` | `.app` + `.dmg` | 要发给别人，或者要装到 `~/Applications` |
-| `pnpm app:install` | 打包 + 装到 `~/Applications` | **日常用这个** |
+| `pnpm app:bundle` | `.app` + `.dmg` | 要更新那个能双击的 `.app`，或者要发给别人 |
 
 > ⚠️ **`app:build` 不会更新 `.app`。** `bundle/macos/lite-ide.app` 里那份是上一次
 > `app:bundle` 留下的，可能差好几天 —— 而你双击启动的正是它。
@@ -31,25 +30,23 @@ src-tauri/target/release/
 > 最后发现跑的是前一天的 `.app`。
 >
 > **怎么核对**：标题栏上把鼠标停在应用名（或面包屑的项目名）上，提示里有构建时间。
+>
+> 顺带一提，`cargo clean` 或删掉 `target/` 会把 `.app` 一起带走 —— 重新
+> `pnpm app:bundle` 就有了。产物是可再生的，这也是不往系统里装的另一个理由。
 
-## 装到本机
+## 用它
 
-```bash
-pnpm app:install
-```
+**不用装。** 打完包直接双击 `src-tauri/target/release/bundle/macos/lite-ide.app`，
+Spotlight 也搜得到它。
 
-等价于：
+> 曾经往 `~/Applications` 复制过一份，结果是 Spotlight 里出现**两个**同名
+> `lite-ide.app`。两份只要有一次「打包了没重装」就分叉 —— 而你不会知道
+> 自己点的是哪一个。盘上只留一份，就没有点错的可能。
 
-```bash
-pnpm app:bundle
-rm -rf ~/Applications/lite-ide.app
-cp -r src-tauri/target/release/bundle/macos/lite-ide.app ~/Applications/
-```
-
-装完之后 Spotlight 能搜到，也可以给二进制做个软链当命令用：
+要当命令用的话，给二进制做个软链：
 
 ```bash
-ln -sf ~/Applications/lite-ide.app/Contents/MacOS/lite-ide /usr/local/bin/lite
+ln -sf "$PWD/src-tauri/target/release/bundle/macos/lite-ide.app/Contents/MacOS/lite-ide" /usr/local/bin/lite
 lite ~/some-project
 lite huge.log
 ```
@@ -124,7 +121,7 @@ pnpm tauri build --target universal-apple-darwin
 # 产物：src-tauri/target/universal-apple-darwin/release/bundle/dmg/
 ```
 
-注意 universal 包大约是单架构的两倍大。日常自用没必要，`pnpm app:install` 就够。
+注意 universal 包大约是单架构的两倍大。日常自用没必要，`pnpm app:bundle` 就够。
 
 ## CI 在做什么
 

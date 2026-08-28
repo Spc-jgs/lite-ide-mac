@@ -26,12 +26,14 @@ macOS 个人工作台。Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研�
 
 `pnpm app:build` 只编 `target/release/lite-ide` 这个可执行文件。
 `target/release/bundle/macos/lite-ide.app` 里那份是上一次 `app:bundle` 留下的，
-可能差好几天 —— 而双击启动的正是后者。
-
-要更新用户实际会打开的那个：`pnpm app:install`。
+可能差好几天 —— 而双击启动的正是后者。要更新它：`pnpm app:bundle`。
 
 **报上来的 bug 复现不了时，先确认对方跑的是哪个构建**：标题栏悬停应用名会显示
 构建时间。已经发生过一次「照着现象查了半天代码，最后发现 bug 早就修好了」。
+
+**不要往 `~/Applications` 复制一份。** 试过，结果是 Spotlight 里出现两个
+同名 `lite-ide.app`，而它们只要有一次「打包了没重装」就分叉 ——
+从 Spotlight 点错的那次，调的是几天前的构建。盘上只留一份，就没有点错的可能。
 
 ### 改前端后 Rust 侧要能感知
 
@@ -207,7 +209,7 @@ pnpm install
 pnpm dev                                  # 浏览器 + IPC 桩，改 UI 用这个
 pnpm app                                  # Tauri 开发模式
 pnpm app:build                            # 只编可执行文件
-pnpm app:install                          # 打包并装到 ~/Applications
+pnpm app:bundle                           # 打包（产物在 target/release/bundle/）
 pnpm check                                # 类型检查
 pnpm test                                 # 前端纯函数测试（tests/*.test.ts）
 cd src-tauri && cargo test --workspace    # Rust 测试

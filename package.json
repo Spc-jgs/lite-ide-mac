@@ -1,6 +1,6 @@
 {
   "name": "lite-ide",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Mac 上 1 秒打开的个人工作台",
   "type": "module",
   "private": true,
@@ -14,7 +14,6 @@
     "app": "tauri dev",
     "app:build": "tauri build --no-bundle",
     "app:bundle": "tauri build",
-    "app:install": "pnpm app:bundle && rm -rf ~/Applications/lite-ide.app && cp -r src-tauri/target/release/bundle/macos/lite-ide.app ~/Applications/ && echo \"已安装到 ~/Applications/lite-ide.app\"",
     "test": "node tests/run.mjs"
   },
   "dependencies": {

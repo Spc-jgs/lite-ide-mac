@@ -39,14 +39,23 @@ pnpm app:build        # 只编译，产物 src-tauri/target/release/lite-ide
 
 ---
 
-## 三、安装
+## 三、怎么用它
 
-```bash
-cp -r src-tauri/target/release/bundle/macos/lite-ide.app ~/Applications/
+**不用装。** `pnpm app:bundle` 打完包，直接双击
+
+```
+src-tauri/target/release/bundle/macos/lite-ide.app
 ```
 
-放 `~/Applications`（当前用户）或 `/Applications`（全机器）都行 ——
-`UNINSTALL.md` 两处都会清理。
+Spotlight 也搜得到它，`open -a lite-ide` 一样能开。
+
+> 曾经往 `~/Applications` 复制过一份，结果是 Spotlight 里出现**两个**同名
+> `lite-ide.app`。两份只要有一次「打包了没重装」就分叉，而你不会知道自己
+> 点开的是哪一个 —— 这正好是踩过的那个坑（照着旧构建的现象查了半天代码）。
+> 盘上只留一份，就没有点错的可能。
+>
+> 代价是 `cargo clean` 或删掉 `target/` 会把它一起带走。产物本来就是可再生的，
+> 重新 `pnpm app:bundle` 即可。
 
 ### 关于 Gatekeeper
 
@@ -56,7 +65,7 @@ cp -r src-tauri/target/release/bundle/macos/lite-ide.app ~/Applications/
 **自己本地构建的不受影响**：quarantine 标记是文件"从网络下载"时才会被打上的，
 本地编译出来的没有，双击直接能开。实测确认过。
 
-**如果把 .dmg 传到另一台机器**（AirDrop、网盘、U 盘都算），
+**如果把 .dmg 传到另一台机器**（AirDrop、网盘、U 盘、GitHub Release 都算），
 那份文件会带上 quarantine，首次打开会弹"无法验证开发者"。两种处理：
 
 ```bash
@@ -71,18 +80,17 @@ xattr -dr com.apple.quarantine /Applications/lite-ide.app
 
 ## 四、命令行启动
 
-装好之后可以直接从终端开：
-
 ```bash
 open -a lite-ide                          # 空窗口
 open -a lite-ide ~/some-project           # 打开一个项目目录
 open -a lite-ide /var/log/system.log      # 打开单个文件
 ```
 
-也可以给二进制做个软链，更顺手：
+也可以给二进制做个软链，更顺手（在项目目录下执行）：
 
 ```bash
-ln -sf ~/Applications/lite-ide.app/Contents/MacOS/lite-ide /usr/local/bin/lite
+ln -sf "$PWD/src-tauri/target/release/bundle/macos/lite-ide.app/Contents/MacOS/lite-ide" \
+       /usr/local/bin/lite
 lite ~/some-project
 lite huge.log
 ```
@@ -286,7 +294,7 @@ KOI8-R。日志模式同样认这些编码。
 重新打包覆盖即可：
 
 ```bash
-pnpm app:install
+pnpm app:bundle
 ```
 
 打包细节、产物位置、发版流程见 [RELEASE.md](RELEASE.md)。
@@ -301,7 +309,7 @@ pnpm app:install
 > 最后发现跑的是前一天编出来的 `.app`。
 
 **怎么确认自己跑的是哪个构建**：标题栏上把鼠标停在「lite-ide」几个字上，
-提示里会显示构建时间。跟你上次 `pnpm app:install` 的时间对不上，就是旧的。
+提示里会显示构建时间。跟你上次 `pnpm app:bundle` 的时间对不上，就是旧的。
 
 没有自动更新器 —— 自用工具不值得为它引入一套更新基础设施，
 也就没有"更新服务器挂了怎么办"这类问题。

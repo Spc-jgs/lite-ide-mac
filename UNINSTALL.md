@@ -44,7 +44,8 @@ cp ~/.zshrc ~/.zshrc.bak && sed -i '' '/\.cargo\/env/d' ~/.zshrc   # 自动方�
 ## 第 ③ 层：应用与数据（bundle id 统一为 `com.liteide.app`）
 
 ```bash
-rm -rf ~/Applications/lite-ide.app            # 你 build 出来拖去哪就删哪（也可能在 /Applications）
+rm -rf ~/Applications/lite-ide.app            # 默认不装到这儿，但你自己拷过去的话删这里
+rm -rf /Applications/lite-ide.app             # 同上
 
 rm -rf ~/Library/"Application Support"/com.liteide.app   # 设置/工作区记录
 rm -rf ~/Library/Caches/com.liteide.app                  # 缓存
