@@ -41,7 +41,26 @@
   const ROW_H = 19;
 
   /** 双栏对照是 IDEA 的默认形态，也确实更好读；统一视图留着给窄窗口用 */
+  /**
+   * 用户**想要**哪种视图。实际显示的是下面的 `sideOn` ——
+   * 窄到读不了的时候会被强制成统一视图，但这里记着的意图不变，
+   * 窗口一拉宽就自动回到双栏。（直接改 `side` 的话，
+   * 拉宽之后回不去，等于把用户的选择偷偷改掉了。）
+   */
   let side = $state(true);
+  let boxW = $state(0);
+  /**
+   * 双栏的下限宽度。
+   *
+   * 实测 760px 窗口下内容区只有 482px，每列剩四十来个字符 ——
+   * 一行 Java 代码都放不下，两栏都在横向滚动，比统一视图还难读。
+   * 而模板里那句「统一视图（窄窗口更合适）」一直只是句提示，
+   * 从来没人替用户按下去过。
+   */
+  const SIDE_MIN = 720;
+  let narrow = $derived(boxW > 0 && boxW < SIDE_MIN);
+  /** 真正在显示的形态 */
+  let sideOn = $derived(side && !narrow);
   let box = $state<HTMLElement | null>(null);
   let cur = $state(-1);
 
@@ -68,7 +87,7 @@
     return out;
   });
 
-  let total = $derived(side ? sideRows.length : uniRows.length);
+  let total = $derived(sideOn ? sideRows.length : uniRows.length);
   let truncated = $derived(total > MAX_ROWS);
   /** 实际渲染出来的那些行 —— 两种视图各切一份，类型才不会退化成 { kind } */
   let sideShown = $derived(sideRows.slice(0, MAX_ROWS));
@@ -78,12 +97,12 @@
    * 早先是在全部行上算的，于是超过 MAX_ROWS 的差异里，「下一处改动」会把
    * 视图滚到一片空白 —— 那些行根本没渲染。
    */
-  let blocks = $derived(changeBlocks(side ? sideShown : uniShown));
+  let blocks = $derived(changeBlocks(sideOn ? sideShown : uniShown));
 
   // 换文件 / 换视图就把跳转游标归零，否则会停在一个已经不存在的位置
   $effect(() => {
     raw;
-    side;
+    sideOn;
     cur = -1;
   });
 
@@ -109,7 +128,7 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="diff">
+<div class="diff" bind:clientWidth={boxW}>
   <div class="bar">
     <span class="path" title={path}>{path}</span>
     {#if files[0]?.oldPath}
@@ -127,8 +146,13 @@
     {/if}
 
     <span class="segs">
-      <button class:on={side} onclick={() => (side = true)} title="左右分栏对照">双栏</button>
-      <button class:on={!side} onclick={() => (side = false)} title="统一视图（窄窗口更合适）">统一</button>
+      <button
+        class:on={sideOn}
+        disabled={narrow}
+        onclick={() => (side = true)}
+        title={narrow ? "窗口太窄，双栏每列放不下一行代码；拉宽就会自动切回来" : "左右分栏对照"}
+      >双栏</button>
+      <button class:on={!sideOn} onclick={() => (side = false)} title="统一视图（窄窗口更合适）">统一</button>
     </span>
 
     {#if commit}
@@ -147,7 +171,7 @@
       </div>
     {:else if files[0].binary}
       <div class="none">二进制文件，不显示差异</div>
-    {:else if side}
+    {:else if sideOn}
       <div class="grid">
         {#each sideShown as r, i (i)}
           {#if r.kind === "hunk" || r.kind === "meta"}
@@ -261,7 +285,10 @@
     font-size: 11px;
     padding: 2px 8px;
     cursor: default;
+    /* 窄窗口下「双栏」会断成两行，把 28px 的工具条撑到 34px 还错位 */
+    white-space: nowrap;
   }
+  .segs button:disabled { opacity: .45; }
   .segs button:hover { background: var(--panel-bg-2); color: var(--text); }
   .segs button.on { background: var(--accent-sel); color: var(--text); }
   .seg {
@@ -272,6 +299,7 @@
     font-size: 11px;
     padding: 2px 8px;
     cursor: default;
+    white-space: nowrap;
   }
   .seg:hover { background: var(--panel-bg-2); color: var(--text); }
 
