@@ -4,6 +4,7 @@
   "description": "Mac 上 1 秒打开的个人工作台",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@11.21.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
