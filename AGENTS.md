@@ -257,6 +257,26 @@ cleanup 只能清掉它**当时看得见**的东西。`await` 回来时那次 cl
 
 （`LogPane` 的过滤轮询踩过：在 1GB 文件上连打十个字 = 十个 80ms 的轮询一起烧 IPC。）
 
+### 「只藏不卸载」要一路贯彻到最外层
+
+底部面板那块踩过：切「终端 ↔ Git 日志」时用的是 `class:hidden`，
+注释也写清了「组件一销毁 Session 就 drop，shell 直接被 kill」——
+但**外面还包着一层 `{#if panel}`**，⌘J 一收起，正在跑的 gradle build 当场就没。
+
+判据很简单：**这个组件的销毁有没有副作用？** 有的话（起了子进程、占了句柄、
+连着流），它的每一层可见性条件都得是 `class:hidden`，不能是 `{#if}`。
+只做对里面那一层，等于没做。
+
+### CM6 的扩展可能「装了不生效」
+
+`rectangularSelection()` / `crosshairCursor()` 都在扩展列表里，但少了
+`EditorState.allowMultipleSelections.of(true)`，CM6 会把每次事务的选区
+`asSingle()` 压成一个 —— 矩形选择、⌥ 点加光标、「选中所有匹配」全部无效。
+
+**扩展进了列表不等于功能可用。** 这类 bug 不报错不崩溃，只是「按了没反应」，
+而人第一反应是自己按错了快捷键。加完 CM6 扩展要实际按一下，
+或者在页面里 dispatch 一个构造好的 state 验证。
+
 ### 状态消息走 `notify`
 
 别直接写 `error = …` 再自己 `setTimeout` 清除。
