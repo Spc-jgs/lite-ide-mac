@@ -52,7 +52,7 @@ macOS 个人工作台。Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研�
 ### 命令层不写业务
 
 `src-tauri/src/commands.rs` 只做三件事：解包参数、查句柄、转错误。
-一行业务逻辑都不写。业务全在 `crates/` 里 —— 那四个 crate **不依赖 Tauri**，
+一行业务逻辑都不写。业务全在 `crates/` 里 —— 那五个 crate **不依赖 Tauri**，
 才能脱离 GUI 单测和跑 bench。
 
 日志引擎是这个项目唯一的技术未知数，它必须能独立验证。别把它跟 Tauri 绑死。
@@ -79,6 +79,30 @@ macOS 个人工作台。Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研�
 
 用 `cat >>` 往文件尾追加过一次，结果生产代码落到了 `#[cfg(test)] mod tests` 后面，
 读文件的人会以为测试模块之后就没东西了。
+
+### ptysvc 的测试会间歇性挂住（已知，根因不在本仓库）
+
+`工作目录生效` 那条大约一半的运行会卡住不返回。测试体外面套了
+`with_deadline(25, …)`：**每次尝试有硬期限，最多试三次，三次全挂才算失败**。
+加上重试之后连跑 8 次全绿。
+
+排查记录（省得下一个人重走一遍）：
+
+| 怀疑过 | 结论 |
+|---|---|
+| `child.wait()` 阻塞 | 否。portable-pty 的 `kill()` 发 SIGKILL，shell 即使 `trap '' HUP TERM INT` 也照样死，drop 只要 55ms |
+| 登录 shell 启动慢 | 否。`zsh -l -c pwd` 在 /usr 和 /tmp 各 20 次，全是 0.0x 秒 |
+| 并发跑测试 | 否。串行（`--test-threads=1`）失败率**更高**，6 次挂 5 次 |
+| 孤儿 `zsh -l` 干扰 | 否。清干净之后照样挂 |
+
+决定性的一条：用**纯 Python 的 `pty.fork()`** 写同样的复现（完全不碰这个 crate），
+一样会挂。所以问题在「交互式 shell 挂在 pty 上」这件事本身，多半是某个 shell
+插件或提示符在特定目录下的行为，跟 lite-ide 无关。
+
+**教训**：我提交过一版基于错误诊断的「修复」（把 `wait()` 改成非阻塞 + 后台收尸），
+改完看着好了 —— 但把旧写法放回去也一样不挂，说明那次只是没触发。
+写的回归测试在新旧两版下都通过，等于没测。**没复现出根因之前，
+不要提交猜出来的修复；不会失败的测试比没有测试更糟。**
 
 ### git 的短名会吃掉 `/HEAD`
 
@@ -130,11 +154,14 @@ CM6 把一帧切成读、写两个阶段，正是为了避免读写交替触发�
 CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.svelte.ts` 里的
 `lazy()` / `lazyGroup()`，别再手写一遍 then/catch/finally 样板。
 
-改完跑一下，确认入口包没长（当前 126 KB）：
+**CI 会卡这条线**：入口包超过 160 KB 直接失败。本地想先看一眼：
 
 ```bash
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
+
+（当前 134 KB。崩溃屏 `Crash.svelte` 是刻意静态引入的 —— 需要它的时候，
+正是模块加载可能已经不可信的时候。）
 
 ### 状态消息走 `notify`
 
@@ -182,8 +209,11 @@ pnpm app                                  # Tauri 开发模式
 pnpm app:build                            # 只编可执行文件
 pnpm app:install                          # 打包并装到 ~/Applications
 pnpm check                                # 类型检查
+pnpm test                                 # 前端纯函数测试（tests/*.test.ts）
 cd src-tauri && cargo test --workspace    # Rust 测试
 ```
+
+发版和 CI 见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 日志引擎的 bench（需要先生成样本）：
 

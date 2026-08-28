@@ -20,6 +20,9 @@
     collapseStacks = $bindable(),
     filterHits,
     filterRunning,
+    hitIndex = 0,
+    onlyHits = $bindable(true),
+    onJump,
   }: {
     counts: LevelCounts;
     levelsReady: boolean;
@@ -30,6 +33,16 @@
     collapseStacks: boolean;
     filterHits: number | null;
     filterRunning: boolean;
+    /** 当前停在第几条命中，1-based；0 表示还没跳过 */
+    hitIndex?: number;
+    /**
+     * 只看命中（过滤视图）还是看全文（命中之间跳）。
+     *
+     * 这两件事在 GB 级日志里是**不同的需求**：
+     * 「这个订单号出现过几次」要过滤，「这条报错前后发生了什么」要上下文。
+     */
+    onlyHits?: boolean;
+    onJump?: (dir: 1 | -1) => void;
   } = $props();
 
   const ALL = 0b111111;
@@ -73,6 +86,12 @@
       bind:value={pattern}
       spellcheck="false"
       autocomplete="off"
+      onkeydown={(e) => {
+        // 敲完关键字直接回车就跳到第一处，不用再摸鼠标
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        onJump?.(e.shiftKey ? -1 : 1);
+      }}
     />
     <button
       class="cs"
@@ -86,9 +105,37 @@
   </div>
 
   {#if filterHits !== null}
+    <div class="nav">
+      <button
+        class="seg"
+        class:on={onlyHits}
+        onclick={() => (onlyHits = true)}
+        title="只显示命中的行"
+      >只看命中</button>
+      <button
+        class="seg"
+        class:on={!onlyHits}
+        onclick={() => (onlyHits = false)}
+        title="显示全文，在命中之间跳转 —— 看得到上下文"
+      >全文</button>
+    </div>
     <span class="hits" class:running={filterRunning}>
-      {fmt(filterHits)} 条{filterRunning ? " …" : ""}
+      {#if hitIndex > 0}<b>{fmt(hitIndex)}</b>/{/if}{fmt(filterHits)} 条{filterRunning ? " …" : ""}
     </span>
+    <div class="jump">
+      <button onclick={() => onJump?.(-1)} disabled={!filterHits} title="上一处 ⇧↵ / ⇧F3" aria-label="上一处">
+        <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
+          <path d="M2.5 7.5 L6 4 L9.5 7.5" fill="none" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+      <button onclick={() => onJump?.(1)} disabled={!filterHits} title="下一处 ↵ / F3" aria-label="下一处">
+        <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
+          <path d="M2.5 4.5 L6 8 L9.5 4.5" fill="none" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+    </div>
   {/if}
 
   <span class="gap"></span>
@@ -108,21 +155,30 @@
 </div>
 
 <style>
+  /*
+   * 窄窗口下必须优雅退化。这条栏上有六个级别 chip、搜索框、两个分段按钮、
+   * 计数、两个跳转按钮 —— 加起来约 1180px，而侧边栏和终端都开着时
+   * 内容区可能只有 600px。原本是 overflow: hidden，溢出的部分**直接看不见** ——
+   * 用户不会知道有个「下一处」按钮被挤到了屏幕外。
+   *
+   * 退化顺序按「丢了最不心疼」排：先让级别计数消失，再让搜索框收窄，
+   * 最后整条栏换行 —— 会变高，但每个控件都还在。
+   */
   .bar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 0 10px;
-    height: 34px;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 5px 10px;
+    min-height: 34px;
     background: var(--panel-bg);
     border-bottom: 1px solid var(--border);
     font-size: 11.5px;
     user-select: none;
-    overflow: hidden;
   }
   .gap { flex: 1; }
 
-  .chips { display: flex; gap: 4px; flex: none; }
+  .chips { display: flex; gap: 4px; flex: 0 1 auto; min-width: 0; flex-wrap: wrap; }
   .chip {
     display: flex;
     align-items: center;
@@ -148,9 +204,10 @@
   .chip.off .dot { background: var(--text-faint) !important; }
   .chip:focus-visible { outline: 1px solid var(--accent); }
 
-  .search { display: flex; align-items: center; gap: 2px; flex: none; }
+  .search { display: flex; align-items: center; gap: 2px; flex: 1 1 150px; min-width: 110px; }
   .search input {
-    width: 190px;
+    width: 100%;
+    min-width: 0;
     height: 22px;
     padding: 0 7px;
     background: var(--editor-bg);
@@ -184,6 +241,46 @@
     flex: none;
   }
   .hits.running { color: var(--text-faint); }
+  .hits b { color: var(--text); font-weight: 600; }
+
+  /* 「只看命中 / 全文」是二选一，做成连在一起的分段控件而不是两个独立按钮 */
+  .nav { display: flex; flex: none; }
+  .seg {
+    padding: 3px 9px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-faint);
+    font-family: var(--ui-font);
+    font-size: 11.5px;
+    cursor: default;
+    white-space: nowrap;
+  }
+  .seg:first-child { border-radius: 3px 0 0 3px; }
+  .seg:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+  .seg:hover { background: var(--panel-bg-2); color: var(--text); }
+  .seg.on { background: var(--accent-sel); color: var(--text); border-color: var(--accent); }
+  .seg.on + .seg { border-left-color: var(--accent); }
+
+  .jump { display: flex; gap: 1px; flex: none; }
+  .jump button {
+    display: grid;
+    place-content: center;
+    width: 22px;
+    height: 21px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: default;
+  }
+  .jump button:first-child { border-radius: 3px 0 0 3px; }
+  .jump button:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+  .jump button:hover:not(:disabled) { background: var(--panel-bg-2); color: var(--text); }
+  .jump button:disabled { opacity: 0.35; }
+
+  /* 极窄时先牺牲级别计数 —— 它是参考信息，而按钮是操作入口 */
+  @container (max-width: 640px) {
+    .chip .num { display: none; }
+  }
 
   .fold {
     padding: 3px 9px;

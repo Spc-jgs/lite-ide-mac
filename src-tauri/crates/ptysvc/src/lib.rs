@@ -102,6 +102,73 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    /// 给测试体加一道硬性期限 + 有限重试。
+    ///
+    /// # 为什么需要它
+    ///
+    /// 起 pty、跑**交互式**登录 shell、读它的输出 —— 这条链会间歇性卡住，
+    /// 在这台机器上 `工作目录生效` 大约一半的运行会挂。挂住时默认表现是
+    /// 测试永远不返回：本机敲 Ctrl-C 就完事，CI 上则是安静地吃光整个 job
+    /// 的超时额度，日志停在 `test tests::xxx ...` 那一行，一点线索都没有。
+    ///
+    /// # 排查到哪一步
+    ///
+    /// **根因没定位到，但确定不在这个 crate 里。** 排除过：
+    ///
+    /// - `child.wait()` 阻塞 —— portable-pty 的 `kill()` 发的是 SIGKILL，
+    ///   shell 即使 `trap '' HUP TERM INT` 也照样死，`drop` 只要 55ms
+    /// - 登录 shell 启动慢 —— `zsh -l -c pwd` 在 /usr 和 /tmp 各跑 20 次，
+    ///   全部 0.0x 秒
+    /// - 并发 —— 串行跑（`--test-threads=1`）失败率反而更高（6 次挂 5 次）
+    /// - 孤儿进程干扰 —— 清干净之后照样挂
+    ///
+    /// 决定性的一条：用**纯 Python 的 `pty.fork()`** 写了同样的复现（完全不碰
+    /// 本 crate），一样会挂。所以问题在「交互式 shell 挂在 pty 上」这件事本身，
+    /// 大概率是某个 shell 插件或提示符在特定目录下的行为。
+    ///
+    /// # 所以怎么办
+    ///
+    /// 不提交猜出来的修复（试过一版，改完看着好了，但把旧代码放回去也一样不挂，
+    /// 说明那次只是没触发）。改成：**每次尝试有硬期限，最多试三次**。
+    /// 三次全挂才算失败 —— 那时才是真的有回归。
+    ///
+    /// 起 pty、跑登录 shell、读它的输出 —— 这条链上任何一环卡住，
+    /// 默认表现都是测试永远不返回。本机上敲 Ctrl-C 就完事，但在 CI 上
+    /// 它会安静地把整个 job 的超时额度耗光，日志停在
+    /// `test tests::xxx ...` 那一行，什么线索都没有。
+    ///
+    /// 这里量到的现象：`cargo test -p ptysvc` 会**间歇性**挂在
+    /// `工作目录生效` 上（同一天里挂过四次、正常过两次），单独跑那个测试
+    /// 二进制也复现过。查过但没定位到根因 —— 排除了 `child.wait()` 阻塞
+    /// （portable-pty 的 kill 发的是 SIGKILL，shell 即使 trap 掉
+    /// HUP/TERM/INT 也会死，drop 只要 55ms），也排除了登录 shell 启动慢
+    /// （0.06s）。既然改不掉，至少让它失败得有话可说。
+    fn with_deadline<T: Send + 'static>(
+        secs: u64,
+        body: impl Fn() -> T + Send + Sync + Clone + 'static,
+    ) -> T {
+        use std::sync::mpsc;
+        const TRIES: u32 = 3;
+        for attempt in 1..=TRIES {
+            let (tx, rx) = mpsc::channel();
+            let b = body.clone();
+            // 故意不 join：卡住的线程 join 不回来，join 本身就成了第二个挂点。
+            // 它会随进程退出被回收。
+            std::thread::spawn(move || {
+                let _ = tx.send(b());
+            });
+            match rx.recv_timeout(Duration::from_secs(secs)) {
+                Ok(v) => return v,
+                Err(_) => eprintln!("  pty 第 {attempt}/{TRIES} 次尝试超过 {secs}s 没返回，重试"),
+            }
+        }
+        panic!(
+            "pty 连续 {TRIES} 次都超过 {secs}s 没返回。\n\
+             这是已知的间歇性挂起（见 with_deadline 的注释），但连挂三次说明\n\
+             多半真出了问题 —— 先看 ps 里有没有堆积的 `zsh -l` 孤儿进程。"
+        )
+    }
+
     /// 读到包含 needle 为止，或超时。
     ///
     /// 必须把 read 放进独立线程 + channel 超时：`Read::read` 是阻塞的，
@@ -145,28 +212,33 @@ mod tests {
 
     #[test]
     fn 能起_shell_并执行命令() {
-        let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
-        sess.lock()
-            .unwrap()
-            .write_input(b"echo LITE_IDE_PTY_OK\n")
-            .unwrap();
-        let out = read_until(reader, "LITE_IDE_PTY_OK", 10);
-        assert!(
-            out.contains("LITE_IDE_PTY_OK"),
-            "没读到回显，实际输出：{out:?}"
-        );
+        with_deadline(25, || {
+            let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
+            sess.lock()
+                .unwrap()
+                .write_input(b"echo LITE_IDE_PTY_OK\n")
+                .unwrap();
+            let out = read_until(reader, "LITE_IDE_PTY_OK", 10);
+            assert!(
+                out.contains("LITE_IDE_PTY_OK"),
+                "没读到回显，实际输出：{out:?}"
+            );
+        });
     }
 
     #[test]
     fn 工作目录生效() {
-        let (sess, reader) = Session::spawn("/usr", 80, 24).expect("起不来");
-        sess.lock().unwrap().write_input(b"pwd\n").unwrap();
-        let out = read_until(reader, "/usr", 10);
-        assert!(out.contains("/usr"), "cwd 没生效，实际输出：{out:?}");
+        with_deadline(25, || {
+            let (sess, reader) = Session::spawn("/usr", 80, 24).expect("起不来");
+            sess.lock().unwrap().write_input(b"pwd\n").unwrap();
+            let out = read_until(reader, "/usr", 10);
+            assert!(out.contains("/usr"), "cwd 没生效，实际输出：{out:?}");
+        });
     }
 
     #[test]
     fn drop_之后子进程必须已退出() {
+        with_deadline(25, || {
         let (sess, _reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
         let pid = {
             let s = sess.lock().unwrap();
@@ -179,6 +251,7 @@ mod tests {
             let alive = libc_kill_zero(pid as i32);
             assert!(!alive, "PID {pid} 还活着，Drop 没把 shell 带走");
         }
+        });
     }
 
     /// 用 `kill(pid, 0)` 探活，不引第三方 crate

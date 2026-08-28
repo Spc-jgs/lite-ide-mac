@@ -5,6 +5,7 @@
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
+  import Crash from "./lib/shell/Crash.svelte";
   import Outline from "./lib/search/Outline.svelte";
   import type { Sym } from "./lib/editor/outline";
   import { langOf, langLabel } from "./lib/editor/langs";
@@ -736,6 +737,30 @@
 
   let active = $derived(tabs.find((t) => t.id === activeId) ?? null);
 
+  /**
+   * 标题栏面包屑：项目名 › 中间目录 › 文件名。
+   *
+   * 只对真实文件算 —— 差异/合并标签的 path 是 `git-diff:xxx` 这类合成 key，
+   * 拿它切路径会得到一堆垃圾段。那种情况退回显示标签名。
+   */
+  let crumbs = $derived.by(() => {
+    const t = active;
+    if (!t) return [] as { name: string; path: string; dir: boolean }[];
+    const root0 = root;
+    if (!root0 || !t.path.startsWith(`${root0}/`)) {
+      return [{ name: t.name, path: t.path, dir: false }];
+    }
+    const rootName = root0.slice(root0.lastIndexOf("/") + 1) || root0;
+    const rel = t.path.slice(root0.length + 1).split("/");
+    const out = [{ name: rootName, path: root0, dir: true }];
+    let acc = root0;
+    rel.forEach((seg, i) => {
+      acc += `/${seg}`;
+      out.push({ name: seg, path: acc, dir: i < rel.length - 1 });
+    });
+    return out;
+  });
+
   // 按需加载失败要说出来。以前每个 import 各自 catch 到 error 里，
   // 抽成 lazy() 之后错误存在各自的 store 上，这里统一汇到状态栏。
   $effect(() => {
@@ -1152,15 +1177,43 @@
 
 <main class:hovering>
   <header class="titlebar" data-tauri-drag-region>
-    <span class="app" title="lite-ide · 构建于 {__BUILD_TIME__}">lite-ide</span>
-    {#if active}
-      <span class="sep">—</span>
-      <span class="file">{active.name}</span>
-      {#if active.mode === "log"}
+    {#if crumbs.length > 0}
+      <!--
+        面包屑。标签上只有文件名，目录深了之后「我在哪」得回头看文件树；
+        顺带占掉右边那块常年空着的地方（1440 宽的窗口上原本有约 1200px 是空的）。
+      -->
+      <nav class="crumbs" aria-label="当前文件路径">
+        {#each crumbs as c, i (c.path)}
+          {#if i > 0}<span class="sep" aria-hidden="true">›</span>{/if}
+          {#if c.dir}
+            <button class="crumb" onclick={() => void openPath(c.path)} title={c.path}>{c.name}</button>
+          {:else}
+            <span class="crumb here" title={c.path}>{c.name}</span>
+          {/if}
+        {/each}
+      </nav>
+      {#if active?.mode === "log"}
         <span class="why" title={active.forced ? "你手动切到了日志模式" : "自动判定的原因"}>
           只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}
         </span>
       {/if}
+    {:else}
+      <span class="app" title="lite-ide · 构建于 {__BUILD_TIME__}">lite-ide</span>
+    {/if}
+    <span class="tgap" data-tauri-drag-region></span>
+    {#if gitSt}
+      <button class="tbranch" onclick={() => (branchOpen = true)} title="切换分支 / 工作树">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+          <circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <circle cx="11.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path d="M4.5 5.3 L4.5 10.7" stroke="currentColor" stroke-width="1.3" />
+          <path d="M11.5 5.3 Q11.5 8.5 4.5 10.7" fill="none" stroke="currentColor" stroke-width="1.3" />
+        </svg>
+        <span class="bn">{gitSt.branch || "游离"}</span>
+        {#if gitSt.ahead}<span class="ab">↑{gitSt.ahead}</span>{/if}
+        {#if gitSt.behind}<span class="ab">↓{gitSt.behind}</span>{/if}
+      </button>
     {/if}
   </header>
 
@@ -1267,6 +1320,7 @@
 
     {#if sidebar}
       <aside>
+        <svelte:boundary>
         {#if !root}
           <div class="no-root">把文件夹拖进来</div>
         {:else if sideView === "git" && repo && git.comps.pane}
@@ -1291,6 +1345,10 @@
             onOpen={(p) => void openPath(p)}
           />
         {/if}
+        {#snippet failed(err, reset)}
+          <Crash error={err} scope="侧边栏" onReset={reset} />
+        {/snippet}
+        </svelte:boundary>
       </aside>
       <div
         class="side-resizer"
@@ -1374,14 +1432,36 @@
         </div>
       {/if}
 
+      <!--
+        内容区单独设边界：编辑器 / 日志 / 差异里任何一处抛异常，
+        都不该把整个外壳一起带走 —— 文件树、终端、状态栏还得能用。
+        boundary 的 reset 会重建这棵子树，多数一次性的渲染错误重试一下就好了。
+      -->
+      <svelte:boundary onerror={(e) => notify.fail(`内容区出错：${e}`)}>
       <div class="content">
         {#if !active}
+          <!--
+            收进一张卡片。原本是四行居中文字铺在整个内容区里 —— 1440 宽的窗口上
+            读起来是散的，眼睛没有落点。快捷键排成两列之后它才像个「起点」。
+          -->
           <div class="empty">
-            <div class="big">把文件或文件夹拖进来</div>
-            <p>代码走编辑模式，大文件与日志自动走只读的日志模式</p>
-            <p class="keys">双击 ⇧ 随处搜索 · ⌘P 找文件 · ⌘⇧F 搜内容 · ⌘⇧O 文件结构</p>
-            <p class="keys">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏 · ⌘J 终端 · ⌘⇧G 改动</p>
-            {#if notify.error}<p class="err">{notify.error}</p>{/if}
+            <div class="card">
+              <div class="big">把文件或文件夹拖进来</div>
+              <p>代码走编辑模式，大文件与日志自动走只读的日志模式</p>
+              <div class="keymap">
+                <span><b>⇧⇧</b> 随处搜索</span>
+                <span><b>⌘S</b> 保存</span>
+                <span><b>⌘P</b> 找文件</span>
+                <span><b>⌘W</b> 关闭标签</span>
+                <span><b>⌘⇧F</b> 搜内容</span>
+                <span><b>⌘1</b> 侧边栏</span>
+                <span><b>⌘⇧O</b> 文件结构</span>
+                <span><b>⌘J</b> 终端</span>
+                <span><b>⌘⇧G</b> 改动</span>
+                <span><b>F3</b> 日志里跳命中</span>
+              </div>
+              {#if notify.error}<p class="err">{notify.error}</p>{/if}
+            </div>
           </div>
         {:else if active.mode === "merge" && git.comps.merge}
           {#key active.id}
@@ -1436,6 +1516,13 @@
           <div class="empty"><p>正在载入编辑器…</p></div>
         {/if}
       </div>
+
+      {#snippet failed(err, reset)}
+        <div class="content">
+          <Crash error={err} scope={active ? `${active.name} 的视图` : "内容区"} onReset={reset} />
+        </div>
+      {/snippet}
+      </svelte:boundary>
 
       {#if panel}
         <div
@@ -1520,8 +1607,10 @@
         {active.mode === "log" ? "日志模式" : "编辑模式"} ⇄
       </button>
       {#if active.mode === "edit"}
+        <span class="vsep" aria-hidden="true"></span>
         <span class="cell dim drop-2">{langLabel(langOf(active.path))}</span>
       {/if}
+      <span class="vsep" aria-hidden="true"></span>
       <button
         class="cell btn enc"
         class:bad={active.lossy}
@@ -1532,10 +1621,13 @@
       >
         {active.encoding ?? "UTF-8"}{active.bom ? " ·BOM" : ""}{active.lossy ? " ⚠" : ""}
       </button>
+      <span class="vsep" aria-hidden="true"></span>
       {#if active.mode === "log"}
         <span class="cell">{logStatus}</span>
       {:else}
-        <span class="cell drop-2">{active.dirty ? "已修改" : "无改动"}</span>
+        <span class="cell drop-2" class:accent={active.dirty}>
+          {active.dirty ? "已修改" : "无改动"}
+        </span>
       {/if}
       {#if activeEntry}
         <button
@@ -1552,22 +1644,8 @@
     {#if notify.info}<span class="cell ok">{notify.info}</span>{/if}
     {#if notify.error}<span class="cell err">{notify.error}</span>{/if}
     <span class="spacer"></span>
+    <!-- 分支挪到标题栏了（离文件上下文更近），这里只留动作，不重复显示同一件事 -->
     {#if gitSt}
-      <button
-        class="cell btn branch"
-        onclick={() => (branchOpen = true)}
-        title={`切换分支 / 工作树${gitSt.upstream ? ` · 跟踪 ${gitSt.upstream}` : "（没有上游分支）"}`}
-      >
-        <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
-          <circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4" />
-          <circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4" />
-          <circle cx="11.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4" />
-          <path d="M4.5 5.3 L4.5 10.7" stroke="currentColor" stroke-width="1.4" />
-          <path d="M11.5 5.3 Q11.5 8.5 4.5 10.7" fill="none" stroke="currentColor" stroke-width="1.4" />
-        </svg>
-        {gitSt.branch || "游离"}{gitSt.ahead ? ` ↑${gitSt.ahead}` : ""}{gitSt.behind ? ` ↓${gitSt.behind}` : ""}
-        {#if gitSt.entries.length}<span class="chg">{gitSt.entries.length}</span>{/if}
-      </button>
       <button
         class="cell btn"
         class:on={sidebar && sideView === "git"}
@@ -1576,7 +1654,7 @@
           sidebar = true;
         }}
         title="改动列表 ⌘⇧G"
-      >改动</button>
+      >改动{#if gitSt.entries.length}<span class="chg">{gitSt.entries.length}</span>{/if}</button>
       <button
         class="cell btn"
         class:on={panel && panelView === "log"}
@@ -1586,6 +1664,7 @@
         }}
         title="提交历史"
       >历史</button>
+      <span class="vsep" aria-hidden="true"></span>
     {/if}
     <button class="cell btn" onclick={() => { quickScope = "all"; quickOpen = true; }}>搜索 ⇧⇧</button>
     <button class="cell btn" class:on={panel} onclick={() => (panel = !panel)}>
@@ -1616,8 +1695,57 @@
     user-select: none;
   }
   .titlebar .app { color: var(--text); font-weight: 500; }
-  .titlebar .sep { color: var(--text-faint); }
-  .titlebar .file { color: var(--text-dim); }
+  .titlebar .tgap { flex: 1; min-width: 12px; }
+
+  .crumbs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .crumbs .sep { flex: none; color: var(--text-faint); font-size: 11px; }
+  .crumb {
+    flex: none;
+    max-width: 180px;
+    padding: 1px 3px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-family: var(--ui-font);
+    font-size: 12.5px;
+    cursor: default;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* 只有目录段可点（点了把它设成项目根），文件段是 span，不该有 hover 反馈 */
+  button.crumb:hover { background: var(--panel-bg-2); color: var(--text); }
+  .crumb.here { color: var(--text); flex: 0 1 auto; min-width: 40px; }
+
+  .tbranch {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    max-width: 240px;
+    padding: 2px 7px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-faint);
+    font-size: 11px;
+    cursor: default;
+  }
+  .tbranch:hover { background: var(--panel-bg-2); color: var(--text-dim); }
+  .tbranch .bn {
+    font-family: var(--code-font);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tbranch .ab { color: var(--accent); font-family: var(--code-font); flex: none; }
   .titlebar .why {
     margin-left: 4px;
     font-family: var(--code-font);
@@ -1830,10 +1958,34 @@
   }
   /* 确认条不参与伸缩，始终贴在标签栏下方 */
   .confirm { flex: none; }
-  .empty .big { font-size: 17px; color: var(--text); margin-bottom: 10px; }
-  .empty p { margin: 4px 0; font-size: 12.5px; color: var(--text-faint); }
-  .empty .keys { margin-top: 14px; font-family: var(--code-font); font-size: 11.5px; }
-  .empty .err { margin-top: 14px; color: var(--lvl-error); font-family: var(--code-font); }
+  .empty .card {
+    width: min(420px, 90%);
+    padding: 18px 20px 16px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-align: left;
+  }
+  .empty .big { font-size: 14.5px; color: var(--text); margin-bottom: 4px; }
+  .empty p { margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--text-faint); }
+  .empty .keymap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px 20px;
+    margin-top: 14px;
+    font-family: var(--code-font);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .empty .keymap b { color: var(--text-faint); font-weight: 400; margin-right: 4px; }
+  .empty .err {
+    margin-top: 14px;
+    padding-top: 11px;
+    border-top: 1px solid var(--border-soft);
+    color: var(--lvl-error);
+    font-family: var(--code-font);
+    font-size: 11px;
+  }
 
   .confirm {
     display: flex;
@@ -1929,13 +2081,21 @@
   .statusbar .btn.mode { color: var(--text-dim); }
   .statusbar .btn.mode:hover { color: var(--accent); }
   .statusbar .btn.git { color: var(--git-modified); }
-  .statusbar .btn.branch {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    max-width: 260px;
+  /*
+   * 分组竖线。原本八项同字号、同颜色、同间距 —— 哪些是「状态」哪些是「按钮」
+   * 得逐项读才知道。左边一组是文档事实，右边一组是动作，中间用 1px 分开。
+   */
+  .statusbar .vsep {
+    flex: none;
+    width: 1px;
+    height: 11px;
+    background: var(--border);
   }
-  .statusbar .btn.branch .chg {
+  /* 「已修改」是唯一会改变你下一步动作的那一项，值得提到 accent */
+  .statusbar .accent { color: var(--accent); }
+  .statusbar .chg {
+    display: inline-block;
+    margin-left: 4px;
     background: var(--panel-bg-2);
     border-radius: 7px;
     padding: 0 5px;

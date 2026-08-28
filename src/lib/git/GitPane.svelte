@@ -24,6 +24,21 @@
 
   let message = $state("");
   let amend = $state(false);
+  /**
+   * 提交框展不展开。
+   *
+   * 没东西可提交时，那个空输入框加按钮占着约 110px，还摆出一副「可以提交」
+   * 的样子；而「工作区干净」这条真正的信息被顶到一片空白的下面。
+   * 有暂存内容、或者用户主动点开、或者已经写了一半时才展开。
+   */
+  let composing = $state(false);
+  let box = $state<HTMLTextAreaElement | null>(null);
+
+  function beginCompose() {
+    composing = true;
+    // 等 textarea 真的出现在 DOM 里再聚焦
+    queueMicrotask(() => box?.focus());
+  }
 
   let staged = $derived(status?.entries.filter((e) => e.staged) ?? []);
   let unstaged = $derived(status?.entries.filter((e) => e.unstaged) ?? []);
@@ -76,6 +91,8 @@
     onCommit(message, amend);
     message = "";
     amend = false;
+    // 提交完就收回去 —— 刚提交完通常没有下一条要写
+    composing = false;
   }
 </script>
 
@@ -111,8 +128,32 @@
       {#if status.behind}<span class="ab">↓{status.behind}</span>{/if}
     </div>
 
+    {#if !(composing || staged.length > 0 || message.trim() !== "")}
+      <button class="collapsed" onclick={beginCompose} title="写提交信息">
+        {#if conflicts.length > 0}
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+            <path d="M8 2.4 L14.6 13.6 H1.4 Z" fill="none" stroke="var(--lvl-error)"
+                  stroke-width="1.3" stroke-linejoin="round" />
+          </svg>
+          <span class="warn">先解决 {conflicts.length} 处冲突</span>
+        {:else if status.entries.length === 0}
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+            <path d="M3.5 8.4 L6.6 11.4 L12.5 4.9" fill="none" stroke="currentColor"
+                  stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>工作区干净</span>
+        {:else}
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+            <path d="M8 3.4 v9.2 M3.4 8 h9.2" stroke="currentColor" stroke-width="1.3"
+                  stroke-linecap="round" />
+          </svg>
+          <span>写提交信息…</span>
+        {/if}
+      </button>
+    {:else}
     <div class="commit">
       <textarea
+        bind:this={box}
         bind:value={message}
         onkeydown={onKey}
         placeholder={amend ? "改写上一条提交信息…" : "提交信息（⌘↵ 提交）"}
@@ -132,6 +173,7 @@
         </button>
       </div>
     </div>
+    {/if}
 
     <div class="list">
       {#if conflicts.length > 0}
@@ -274,6 +316,24 @@
   }
 
   .commit { flex: none; padding: 8px 10px; border-bottom: 1px solid var(--border-soft); }
+  .collapsed {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px 10px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-faint);
+    font-family: var(--ui-font);
+    font-size: 11.5px;
+    text-align: left;
+    cursor: default;
+  }
+  .collapsed:hover { background: var(--panel-bg-2); color: var(--text-dim); }
+  .collapsed .warn { color: var(--lvl-warn); }
   .commit textarea {
     width: 100%;
     resize: vertical;
