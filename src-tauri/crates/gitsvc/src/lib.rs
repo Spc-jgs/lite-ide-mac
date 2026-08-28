@@ -30,6 +30,16 @@ use std::process::{Command, Stdio};
 /// node_modules）时，几十万条记录传到前端只会把界面拖死，不如明确截断。
 pub const MAX_ENTRIES: usize = 5_000;
 
+/// 一次 `git diff` 最多收多少字节。
+///
+/// **为什么必须有这道闸**：一个 30MB 的新增文件，`git diff` 会原样吐出 30MB。
+/// 实测这份文本过一趟 JSON IPC 再在前端解析成行对象，堆占用涨到 126MB ——
+/// 而界面**最多只渲染 3000 行**。为三千行付两百多兆，纯亏。
+///
+/// 1MB 按差异行平均 100 字节算约合一万行，仍是渲染上限的三倍多，
+/// 留足了余量：正常情况下先撞上前端的 3000 行截断，这道闸根本不会触发。
+pub const MAX_DIFF_BYTES: usize = 1 << 20;
+
 /// 单个文件在工作区里的处境。
 ///
 /// 暂存区和工作区是**两个独立的位面**：同一个文件可以「已暂存的修改」+
@@ -115,9 +125,12 @@ type R<T> = Result<T, Error>;
 ///
 /// stdout 保持 `Vec<u8>` 不转 String：路径在 git 眼里是字节串，
 /// macOS 上确实可能有非 UTF-8 的文件名，提前 `from_utf8` 会在这类仓库上直接崩。
-fn run_raw(cwd: &Path, args: &[&str]) -> R<Vec<u8>> {
-    let out = Command::new("git")
-        .args(args)
+/// 建一条环境干净的 git 命令。所有对外的调用都必须经过这里 ——
+/// 少一条 `env_remove` 或少一个 `GIT_TERMINAL_PROMPT=0`，
+/// 表现就是「某个仓库上偶发地查到别处去」或者「后台调用挂着等密码」。
+fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
+    let mut c = Command::new("git");
+    c.args(args)
         .current_dir(cwd)
         // 不继承父进程的 GIT_DIR / GIT_WORK_TREE —— 从终端里启动 lite-ide 时，
         // 这俩环境变量可能指向另一个仓库，会让所有查询串到别处去
@@ -128,9 +141,12 @@ fn run_raw(cwd: &Path, args: &[&str]) -> R<Vec<u8>> {
         .env("GIT_OPTIONAL_LOCKS", "0")
         // 输出必须是稳定的英文机器格式，用户 locale 是中文时不能让 git 翻译它
         .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .output()
-        .map_err(Error::NoGit)?;
+        .stdin(Stdio::null());
+    c
+}
+
+fn run_raw(cwd: &Path, args: &[&str]) -> R<Vec<u8>> {
+    let out = git_cmd(cwd, args).output().map_err(Error::NoGit)?;
 
     if !out.status.success() {
         let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -145,6 +161,75 @@ fn run_raw(cwd: &Path, args: &[&str]) -> R<Vec<u8>> {
 
 fn run(cwd: &Path, args: &[&str]) -> R<String> {
     Ok(String::from_utf8_lossy(&run_raw(cwd, args)?).into_owned())
+}
+
+/// 一份差异文本，以及它是不是被 [`MAX_DIFF_BYTES`] 截断了。
+///
+/// `truncated` 必须一路传到界面上。少了这一位，用户看到的是一份**看起来完整**
+/// 的差异，而后半截根本没来过 —— 一个会说谎的界面比一个说「我显示不下」的界面糟得多。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Diff {
+    pub text: String,
+    pub truncated: bool,
+}
+
+/// 跑一条 git 命令，最多收 `MAX_DIFF_BYTES` 字节 stdout，超了就掐掉子进程。
+///
+/// `ok_codes` 是除 0 之外还算成功的退出码 —— `diff --no-index` 有差异时返回 1，
+/// 那不是失败。
+fn run_capped(cwd: &Path, args: &[&str], ok_codes: &[i32]) -> R<Diff> {
+    use std::io::Read;
+
+    let mut child = git_cmd(cwd, args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(Error::NoGit)?;
+
+    let mut out = Vec::new();
+    {
+        let stdout = child.stdout.as_mut().expect("stdout 已 piped");
+        // 多读一个字节：正好读满 cap 和「后面还有」是两回事，
+        // 差这一个字节就分不清，会给一份完整的差异误报截断
+        stdout
+            .take(MAX_DIFF_BYTES as u64 + 1)
+            .read_to_end(&mut out)
+            .map_err(Error::NoGit)?;
+    }
+
+    let truncated = out.len() > MAX_DIFF_BYTES;
+    if truncated {
+        out.truncate(MAX_DIFF_BYTES);
+        // 切回最后一个完整行 —— 切在半行上，前端解析出来的末行是残缺的，
+        // 会显示成一条看着像真的、其实少了半截的改动
+        if let Some(i) = out.iter().rposition(|&c| c == b'\n') {
+            out.truncate(i + 1);
+        }
+        // 别让 git 为一份没人要看的差异继续跑完
+        let _ = child.kill();
+    }
+
+    // stderr 也要限量读：管道写满时 git 会阻塞，而我们已经不读 stdout 了
+    let mut err = Vec::new();
+    if let Some(stderr) = child.stderr.as_mut() {
+        let _ = stderr.take(8 << 10).read_to_end(&mut err);
+    }
+    let status = child.wait().map_err(Error::NoGit)?;
+
+    // 被我们掐掉的进程，退出码没有意义，不能当成失败
+    if !truncated && !status.success() && !ok_codes.contains(&status.code().unwrap_or(-1)) {
+        let msg = String::from_utf8_lossy(&err).trim().to_string();
+        return Err(Error::Git(if msg.is_empty() {
+            format!("git {} 失败", args.first().copied().unwrap_or(""))
+        } else {
+            msg
+        }));
+    }
+
+    Ok(Diff {
+        text: String::from_utf8_lossy(&out).into_owned(),
+        truncated,
+    })
 }
 
 /// 找到 `path` 所属仓库的根。不是仓库（或没有 git）时返回 `None` —— 
@@ -352,35 +437,21 @@ pub fn status_full(root: impl AsRef<Path>) -> R<Status> {
 /// `staged` 为真时比的是「暂存区 ↔ HEAD」，否则是「工作区 ↔ 暂存区」。
 /// 未跟踪文件两边都没有记录，走 `--no-index` 跟 /dev/null 比，
 /// 效果是整份文件显示成新增 —— 这正是用户想看的。
-pub fn diff(root: impl AsRef<Path>, path: &str, staged: bool, untracked: bool) -> R<String> {
+pub fn diff(root: impl AsRef<Path>, path: &str, staged: bool, untracked: bool) -> R<Diff> {
     let root = root.as_ref();
     // 统一关掉外部 diff 驱动和分页器：pager 会让子进程等一个永远不来的终端
     let common = ["--no-pager", "-c", "core.pager=cat"];
 
     if untracked {
         if path.ends_with('/') {
-            return Ok(String::new());
+            return Ok(Diff::default());
         }
         let full = root.join(path);
         let full = full.to_string_lossy().into_owned();
-        // --no-index 在有差异时退出码是 1，这不是失败 —— 单独处理
-        let out = Command::new("git")
-            .args(common)
-            .args(["diff", "--no-index", "--no-color", "--", "/dev/null", &full])
-            .current_dir(root)
-            .env_remove("GIT_DIR")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("LC_ALL", "C")
-            .stdin(Stdio::null())
-            .output()
-            .map_err(Error::NoGit)?;
+        let mut args: Vec<&str> = common.to_vec();
+        args.extend_from_slice(&["diff", "--no-index", "--no-color", "--", "/dev/null", &full]);
         // 退出码 0 = 无差异（空文件），1 = 有差异，≥2 才是真出错
-        if out.status.code().unwrap_or(2) >= 2 {
-            return Err(Error::Git(
-                String::from_utf8_lossy(&out.stderr).trim().to_string(),
-            ));
-        }
-        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+        return run_capped(root, &args, &[1]);
     }
 
     let mut args: Vec<&str> = common.to_vec();
@@ -389,7 +460,7 @@ pub fn diff(root: impl AsRef<Path>, path: &str, staged: bool, untracked: bool) -
         args.push("--cached");
     }
     args.extend_from_slice(&["--", path]);
-    run(root, &args)
+    run_capped(root, &args, &[])
 }
 
 pub fn stage(root: impl AsRef<Path>, paths: &[String]) -> R<()> {
@@ -645,7 +716,7 @@ pub fn commit_files(root: impl AsRef<Path>, sha: &str) -> R<Vec<Entry>> {
 }
 
 /// 某次提交里某个文件的差异。`path` 为空则给整次提交的差异。
-pub fn commit_diff(root: impl AsRef<Path>, sha: &str, path: &str) -> R<String> {
+pub fn commit_diff(root: impl AsRef<Path>, sha: &str, path: &str) -> R<Diff> {
     let spec = format!("{sha}^!");
     let mut args = vec![
         "--no-pager",
@@ -661,7 +732,7 @@ pub fn commit_diff(root: impl AsRef<Path>, sha: &str, path: &str) -> R<String> {
         args.push(path);
     }
     // 首次提交没有父，`sha^!` 会失败 —— 退回与空树比
-    match run(root.as_ref(), &args) {
+    match run_capped(root.as_ref(), &args, &[]) {
         Ok(s) => Ok(s),
         Err(Error::Git(_)) => {
             let mut a2 = vec![
@@ -676,7 +747,7 @@ pub fn commit_diff(root: impl AsRef<Path>, sha: &str, path: &str) -> R<String> {
                 a2.push("--");
                 a2.push(path);
             }
-            run(root.as_ref(), &a2)
+            run_capped(root.as_ref(), &a2, &[])
         }
         Err(e) => Err(e),
     }
@@ -1073,7 +1144,7 @@ mod tests {
 
         // 改一行，diff 里应该同时有加和减
         std::fs::write(dir.join("a.txt"), "world\n").unwrap();
-        let d = diff(&dir, "a.txt", false, false).unwrap();
+        let d = diff(&dir, "a.txt", false, false).unwrap().text;
         assert!(d.contains("-hello") && d.contains("+world"), "diff 不对：{d}");
 
         // 丢弃改动
@@ -1225,6 +1296,8 @@ mod tests {
         assert!(e.untracked && !e.is_dir, "应该是一条未跟踪的文件条目：{e:?}");
 
         let d = diff(&dir, rel, false, true).unwrap();
+        assert!(!d.truncated, "这么小的文件不该触发截断");
+        let d = d.text;
         assert!(!d.trim().is_empty(), "未跟踪文件的差异不能是空的");
         assert!(d.contains("new file mode"), "应标成新增文件：{d}");
         assert!(
@@ -1250,7 +1323,46 @@ mod tests {
         let st = status_full(&dir).unwrap();
         let d2 = st.entries.iter().find(|e| e.is_dir).unwrap();
         assert_eq!(d2.path, "brand-new/");
-        assert_eq!(diff(&dir, &d2.path, false, true).unwrap(), "");
+        assert_eq!(diff(&dir, &d2.path, false, true).unwrap(), Diff::default());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 大文件的差异必须被掐在上限内，而且要如实说自己被截断了。
+    ///
+    /// 这条挡的是一个实测出来的内存问题：一个 30MB 的新增文件，`git diff`
+    /// 原样吐 30MB，过一趟 JSON IPC 再在前端解析成行对象，堆占用涨到 126MB ——
+    /// 而界面最多只渲染 3000 行。
+    #[test]
+    fn 大差异要截断且如实上报() {
+        let dir = std::env::temp_dir().join(format!("gitsvc-bigdiff-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+
+        // 造一份稳超 1MB 的未跟踪文件
+        let mut body = String::new();
+        while body.len() < MAX_DIFF_BYTES * 3 {
+            body.push_str("这一行有点长，重复很多遍就能把差异撑过上限 0123456789\n");
+        }
+        std::fs::write(dir.join("big.txt"), &body).unwrap();
+
+        let d = diff(&dir, "big.txt", false, true).unwrap();
+        assert!(d.truncated, "超过上限的差异必须标成截断");
+        assert!(
+            d.text.len() <= MAX_DIFF_BYTES,
+            "截断后不该还超上限：{} > {MAX_DIFF_BYTES}",
+            d.text.len()
+        );
+        // 切在半行上，前端会把残行当成一条真改动显示出来
+        assert!(d.text.ends_with('\n'), "必须切在完整行的边界上");
+        assert!(d.text.contains("new file mode"), "开头那段该原样保留");
+
+        // 小文件走同一条路径，不能被误报成截断
+        std::fs::write(dir.join("small.txt"), "一行\n").unwrap();
+        let s = diff(&dir, "small.txt", false, true).unwrap();
+        assert!(!s.truncated, "小文件不该报截断");
+        assert!(s.text.contains("+一行"));
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

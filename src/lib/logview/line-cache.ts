@@ -1,11 +1,8 @@
 import { decodeBlock } from "./block";
 import { logLines, logLinesFiltered, logFilterMap } from "../ipc/commands";
+import { BLOCK_LINES, overBudget } from "./cache-budget";
 
-/** 一次向 Rust 取多少行。太小则请求频繁，太大则单次延迟变高。 */
-export const BLOCK_LINES = 512;
-
-/** 最多缓存多少块：512 × 96 ≈ 5 万行，几 MB 量级，滚动时命中率足够。 */
-const MAX_BLOCKS = 96;
+export { BLOCK_LINES };
 
 export interface Row {
   text: string;
@@ -17,6 +14,8 @@ interface Block {
   texts: string[];
   /** 过滤态下每行对应的物理行号；未过滤时为 null，行号由视图行号推出 */
   phys: number[] | null;
+  /** 这一块的文本字符数，用来算驱逐预算 —— 见 cache-budget.ts */
+  chars: number;
 }
 
 /**
@@ -35,6 +34,8 @@ export class LineCache {
   private encoding: string;
   private blocks = new Map<number, Block>();
   private inflight = new Set<number>();
+  /** 缓存里所有块的文本字符数之和，增删块时同步维护 */
+  private chars = 0;
 
   constructor(handle: number, filtered: boolean, encoding = "utf-8") {
     this.handle = handle;
@@ -66,6 +67,7 @@ export class LineCache {
       this.load(id)
         .then((b) => {
           this.blocks.set(id, b);
+          this.chars += b.chars;
           this.evict();
         })
         .catch(() => {
@@ -82,27 +84,43 @@ export class LineCache {
     const start = id * BLOCK_LINES;
     if (!this.filtered) {
       const buf = await logLines(this.handle, start, BLOCK_LINES);
-      return { texts: decodeBlock(buf, this.encoding).lines, phys: null };
+      const texts = decodeBlock(buf, this.encoding).lines;
+      return { texts, phys: null, chars: countChars(texts) };
     }
     // 内容与行号映射并行取，省一个来回
     const [buf, phys] = await Promise.all([
       logLinesFiltered(this.handle, start, BLOCK_LINES),
       logFilterMap(this.handle, start, BLOCK_LINES),
     ]);
-    return { texts: decodeBlock(buf, this.encoding).lines, phys };
+    const texts = decodeBlock(buf, this.encoding).lines;
+    return { texts, phys, chars: countChars(texts) };
   }
 
   /** 行数增长（索引还在跑 / tail 追加）时，末块可能不完整，丢掉让它重取 */
   invalidateTail(lineCount: number): void {
     const lastId = Math.floor(Math.max(0, lineCount - 1) / BLOCK_LINES);
-    this.blocks.delete(lastId);
+    this.drop(lastId);
+  }
+
+  /** 丢一块，同时把它的字符数从账上减掉 —— 少减一次，预算就永久偏高 */
+  private drop(id: number): void {
+    const b = this.blocks.get(id);
+    if (!b) return;
+    this.chars -= b.chars;
+    this.blocks.delete(id);
   }
 
   private evict(): void {
-    while (this.blocks.size > MAX_BLOCKS) {
+    while (overBudget(this.blocks.size, this.chars)) {
       const oldest = this.blocks.keys().next().value;
       if (oldest === undefined) break;
-      this.blocks.delete(oldest);
+      this.drop(oldest);
     }
   }
 }
+
+const countChars = (texts: string[]): number => {
+  let n = 0;
+  for (const t of texts) n += t.length;
+  return n;
+};

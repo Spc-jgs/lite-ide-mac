@@ -108,8 +108,21 @@ impl LogFile {
         let map = if size == 0 {
             MmapOptions::new().len(0).map_anon()?.make_read_only()?
         } else {
-            // SAFETY: 只读映射。外部进程截断文件可能导致 SIGBUS，
-            // 由 M1 的 logrotate 检测（inode / size 变化）负责规避。
+            /*
+             * SAFETY: 只读映射。
+             *
+             * **风险如实说**：外部进程在我们读某一页的**当口**把文件截断，
+             * 会触发 SIGBUS —— 整个进程直接死，连崩溃屏都来不及画。
+             *
+             * `refresh()` 的 inode / size 检测**规避不了**这一条：它是 500ms
+             * 一次的轮询，只能在事后发现「文件被换掉了」，拦不住扫描线程正踩着
+             * 的那一页。真要堵死得装 SIGBUS handler + siglongjmp，
+             * 对一个个人工具不值当。
+             *
+             * 接受它的理由：less / lnav / glogg 全都是这个模型。日志被
+             * logrotate 换掉是常态（那是改名 + 新建，老 inode 还在，读得下去），
+             * 而**原地截断**（`> app.log`）才是危险动作，本来就少见。
+             */
             let m = unsafe { MmapOptions::new().map(&file)? };
             // 索引是一次从头扫到尾的顺序访问。不给提示的话，1GB 要触发约 26 万次
             // minor page fault，实测吞吐被压到 0.77GB/s —— 远低于 memchr 本身的能力。

@@ -80,7 +80,7 @@ fn main() {
         n += 1;
 
         // 每约 5 万行插一段异常堆栈 —— 这是日志查看器真正的压力来源
-        if n % 50_000 == 0 {
+        if n.is_multiple_of(50_000) {
             let stack = "java.lang.IllegalStateException: connection pool exhausted\n\
                 \tat com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)\n\
                 \tat com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:197)\n\
