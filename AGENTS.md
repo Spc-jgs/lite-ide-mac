@@ -77,16 +77,72 @@ macOS 个人工作台。Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研�
 
 另外 `LC_ALL=C`：用户 locale 是中文时，别让 git 把机器格式翻译了。
 
+### 子进程输出必须设闸
+
+`git diff` 会为一个 30MB 的新增文件**原样吐 30MB**。这份文本走一趟 JSON IPC
+再在前端解析成行对象，实测堆占用 +114MB、解析 57ms —— 而差异面板
+**最多只渲染 3000 行**。为三千行付一百多兆，纯亏。
+
+`gitsvc::MAX_DIFF_BYTES`（1MB）在 Rust 侧就掐断：piped stdout 读 `cap+1` 字节，
+超了就 `child.kill()`，再切回最后一个完整换行（切在半行上，前端会把残行
+当成一条真改动画出来）。截断后 2ms / +5MB，还剩 14,534 行，仍是渲染上限的四倍多。
+
+两条配套的：**被掐掉的子进程退出码没有意义，不能当失败**；
+`truncated` 必须一路传到界面（一份看着完整、其实少了后半截的差异，
+比一句「显示不下」危险得多）。
+
+新加任何「跑子进程读它 stdout」的功能，先问一句：这东西的输出有上限吗。
+
+### 过 IPC 的 DTO 靠测试卡住，不是靠自觉
+
+`src-tauri/tests/dto_sync.rs` 解析 `commands.rs` 的 `#[derive(serde::Serialize)]`
+结构体和 `commands.ts` 的 `export interface`，逐字段比，并强制每个 DTO 都带
+`#[serde(rename_all = "camelCase")]`。
+
+新加一个过 IPC 的 DTO 必须在它的 `PAIRS` 表里登记一行 —— 忘了就红。
+（ARCHITECTURE.md 曾经宣称这件事由 `ts-rs` 做，那套东西从来没落地过。）
+
 ### 新代码加在测试模块**之前**
 
 用 `cat >>` 往文件尾追加过一次，结果生产代码落到了 `#[cfg(test)] mod tests` 后面，
 读文件的人会以为测试模块之后就没东西了。
 
-### ptysvc 的测试会间歇性挂住（已知，根因不在本仓库）
+### ptysvc 的测试会间歇性挂住（根因**未定**，别信旧结论）
 
-`工作目录生效` 那条大约一半的运行会卡住不返回。测试体外面套了
-`with_deadline(25, …)`：**每次尝试有硬期限，最多试三次，三次全挂才算失败**。
-加上重试之后连跑 8 次全绿。
+`工作目录生效` 那条会卡住不返回。测试体外面套了 `with_deadline(25, …)`：
+**每次尝试有硬期限，最多试三次，三次全挂才算失败**。
+
+**2026-08-28 复测，两个数字都变了：**
+
+| | 当时写的 | 今天量的 |
+|---|---|---|
+| 加重试后的成功率 | 连跑 8 次全绿 | **连跑 3 次挂 1 次**（三次重试全超时，白烧 75s） |
+| 纯 Python `pty.fork()` 复现 | 一样会挂 → 判定与本仓库无关 | **`/usr` `/tmp` 临时目录 `$HOME` 各 10 次，40/40 全过** |
+
+顺带量的：`zsh -l -c pwd` 0.07s、`zsh -l -i -c pwd` 0.17s —— 登录 shell 不慢。
+
+所以下面那句「根因不在本仓库」**现在没有证据支撑了**。可能是当时那次
+Python 复现有别的干扰，也可能是这台机器的 shell 配置这段时间变过。
+**在重新定位到根因之前，谁都别改 ptysvc 的代码** —— 理由见本节末尾那条教训。
+
+时间戳插桩**已经做过了**，正常运行长这样（`spawn` 4.6ms、
+起 shell 到吐提示符 186ms、`Drop` 54.7ms、整条链 0.19s）——
+也就是说挂住时不是「慢了一点」，是**彻底不动**。
+
+**但它从来没抓到挂住的那次**，原因在 `with_deadline` 的写法：超时之后那个线程
+被丢掉了（注释里写明「故意不 join」），它攒着的 `eprintln!` 输出跟着一起没了。
+每次挂住，恰恰是唯一有诊断价值的那次，什么都留不下。
+
+**下一步是把探针改成边跑边往文件里追加并 flush**，而不是攒到最后一起打印。
+挂住时文件最后一行就是它走到的最后一个阶段，一次就能分出是 spawn / read / drop。
+
+**已经能推出一半**：`read_until` 自己的超时是 10s，外层 deadline 是 25s。
+挂在读取上的话，测试会在 10s 左右**失败**（读不到 `/usr`）；
+而实际观察到的是 3 × 25s = 75s，**deadline 每次都打满** ——
+所以挂点大概率在 `Session::spawn` 或 `Drop`，不在读取。
+**这仍然只是推理**，在探针真抓到一次失败现场之前不算数。
+
+详见 [issue #2](https://github.com/Spc-jgs/lite-ide-mac/issues/2)。
 
 排查记录（省得下一个人重走一遍）：
 
@@ -97,9 +153,10 @@ macOS 个人工作台。Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研�
 | 并发跑测试 | 否。串行（`--test-threads=1`）失败率**更高**，6 次挂 5 次 |
 | 孤儿 `zsh -l` 干扰 | 否。清干净之后照样挂 |
 
-决定性的一条：用**纯 Python 的 `pty.fork()`** 写同样的复现（完全不碰这个 crate），
-一样会挂。所以问题在「交互式 shell 挂在 pty 上」这件事本身，多半是某个 shell
-插件或提示符在特定目录下的行为，跟 lite-ide 无关。
+~~决定性的一条：用纯 Python 的 `pty.fork()` 写同样的复现（完全不碰这个 crate），
+一样会挂。所以问题在「交互式 shell 挂在 pty 上」这件事本身，跟 lite-ide 无关。~~
+**这条 2026-08-28 复测没复现出来（40/40 全过），已作废** —— 见本节开头的表。
+上面那张「怀疑过」的表里的结论也都是那次排查得出的，同样需要重新验证。
 
 **教训**：我提交过一版基于错误诊断的「修复」（把 `wait()` 改成非阻塞 + 后台收尸），
 改完看着好了 —— 但把旧写法放回去也一样不挂，说明那次只是没触发。
@@ -164,6 +221,41 @@ pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | h
 
 （当前 134 KB。崩溃屏 `Crash.svelte` 是刻意静态引入的 —— 需要它的时候，
 正是模块加载可能已经不可信的时候。）
+
+### CSP 写在两个地方，改一处要改两处
+
+`src-tauri/tauri.conf.json` 的 `app.security.csp` 和 `vite.config.ts` 的
+`server.headers`。后者是为了让 `pnpm dev` 也跑在同一条 CSP 下 —— 理由和
+mock-ipc 一样：**CSP 挡下东西不会报错**，只表现为「某处不好使了」，
+要是只有打包后的壳带 CSP，这类问题得等 45 秒的 Tauri 构建才撞得上。
+
+两条不能动的：
+
+- `style-src` 必须留 `'unsafe-inline'` —— CM6 和 xterm 都在运行时往 head 里
+  插 `<style>`，去掉这条编辑器和终端直接白给。
+- `main.ts` 里那个 `securitypolicyviolation` 监听不能删，它是唯一的线索来源。
+
+改完 CSP 必须实测：起 `pnpm dev`，**开一个文件（CM6）+ 开终端（xterm）**，
+看控制台有没有违规。只看首屏渲染正常是不够的，那两个组件是懒加载的。
+
+### 异步 effect 里 `await` 之后要检查自己是不是已经被清理了
+
+```js
+$effect(() => {
+  let tick = null;
+  const timer = setTimeout(async () => {
+    await something();          // ← cleanup 可能正好在这中间跑
+    tick = setInterval(...);    // ← 装出一个再也没人清的轮询
+  }, 180);
+  return () => { clearTimeout(timer); if (tick) clearInterval(tick); };
+});
+```
+
+cleanup 只能清掉它**当时看得见**的东西。`await` 回来时那次 cleanup 早过去了，
+`tick` 是在它身后才被赋值的。加一个 `let dead = false`，cleanup 里置位，
+每个 await 之后先判它。
+
+（`LogPane` 的过滤轮询踩过：在 1GB 文件上连打十个字 = 十个 80ms 的轮询一起烧 IPC。）
 
 ### 状态消息走 `notify`
 

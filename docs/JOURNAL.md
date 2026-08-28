@@ -1000,3 +1000,218 @@ git 的 DWIM（自动建跟踪分支）**只对短名生效**：本地没有 `fo
 
 多显示器下窗口会记住上次开在哪，而副屏/别的 Space 上的窗口截不到图。
 加了个和 `LITE_IDE_ONTOP` 同类的开关把窗口摆到指定位置。
+
+---
+
+## 2026-08-28 · M18 全面审计：内存 · CPU · 安全 · 架构漂移
+
+不加功能，只做一件事：把「有没有问题」这句话变成有数字的答案。
+
+### 先把基线量出来
+
+打开 1GB 日志（`/private/tmp/big.log`，914 万行）之后：
+
+| 进程 | phys_footprint |
+|---|---|
+| lite-ide 主进程 | **34 MB** |
+| WebKit.WebContent | 105 MB |
+| WebKit.GPU | 16 MB |
+| WebKit.Networking | 4.5 MB |
+| **合计** | **≈ 160 MB** |
+
+ARCHITECTURE §7 写的是 <200MB，兑现了。
+
+**但 `ps` 报的 RSS 是 1,156,816 KB —— 1.1GB。** 这个数字会吓人，得说清楚：
+`vmmap` 里那 1040MB 全在 `mapped file` 一栏，是 mmap 进来的**干净的、
+文件背书的页**，内核随时可以回收，不占 swap。Activity Monitor 的
+「内存」列看的是 phys_footprint（34MB），`ps` 的 RSS 看的是驻留页总数。
+**报内存别报 RSS**，对 mmap 型程序它没有意义。
+
+### 一个真实的内存问题：`git diff` 没有上限
+
+一个 30MB 的新增文件，`git diff` 原样吐 30MB。这份文本要走
+JSON 序列化 → IPC → `JSON.parse` → `parseDiff` 解析成行对象。实测：
+
+| | 过 IPC | 解析+双栏 | 堆增 | 行数 |
+|---|---|---|---|---|
+| 修之前 | 30 MB | 57 ms | **+114 MB** | 400,001 |
+| 修之后 | 1 MB | 2 ms | +5 MB | 14,534 |
+
+而差异面板**最多只渲染 3000 行**。也就是说，为了三千行付了一百多兆，
+而且这还没算 IPC 那一程（30MB 的 JSON 字符串在 WebView 里 parse 成
+UTF-16 是另外 60MB 的瞬时占用）。
+
+`gitsvc::MAX_DIFF_BYTES = 1MB`：piped stdout 只读 `cap+1` 字节（多读一个
+用来区分「正好读满」和「后面还有」），超了 `child.kill()`，再切回最后一个
+完整换行 —— 切在半行上，前端会把那条残行当成一条真改动画出来。
+截断后仍有 14,534 行，是渲染上限的四倍多，正常文件根本撞不到这道闸。
+
+配套两条：被自己掐掉的进程**退出码没有意义，不能当失败**；`truncated`
+一路传到界面，因为**一份看着完整、其实少了后半截的差异比一句「显示不下」危险得多**。
+
+### 一个真实的泄漏：`await` 之后才装的定时器没人清
+
+`LogPane` 的过滤 effect：
+
+```js
+const timer = setTimeout(async () => {
+  const active = await logFilter(...);   // ← cleanup 可能正好在这中间跑
+  tick = setInterval(pollStat, 80);      // ← 装出一个再也没人清的轮询
+}, 180);
+return () => { clearTimeout(timer); if (tick) clearInterval(tick); };
+```
+
+cleanup 只能清掉它**当时看得见**的东西 —— 它跑的时候 `tick` 还是 null。
+在 1GB 文件上连打十个字，就是十个 80ms 的轮询一起烧 IPC。
+（它们最终会因为 `fs.complete` 自己停下，所以表现不是「卡死」而是
+「打字时莫名其妙地卡一阵」，这类症状最难往泄漏上想。）
+
+加一个 `dead` 标志，cleanup 里置位，每个 await 之后先判。
+
+### 安全：CSP 一直是 `null`
+
+`tauri.conf.json` 里 `"csp": null` —— 完全没有 Content-Security-Policy。
+
+现状没有活的注入点（全仓库零 `{@html}`、零 `innerHTML` 赋值，`main.ts`
+那处是 `= ""` 清空），所以这不是「正在被利用」，是**没有纵深**：
+Tauri 里的 XSS 不止是弹窗，它直接等于拿到全部 IPC —— 任意读写文件、起子进程。
+而 xterm 处理的是子进程的原始输出，CM6 渲染的是任意文件内容，
+这两个都是「喂不可信数据」的组件。
+
+收紧成：
+
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost;
+object-src 'none'; base-uri 'none'; frame-src 'none'
+```
+
+`style-src` 必须留 `'unsafe-inline'`：CM6 和 xterm 都在运行时往 head 里插
+`<style>`。这是有代价的妥协，但 `script-src 'self'` 才是挡 XSS 的那一条。
+
+两件配套的事：
+
+1. **`vite.config.ts` 的 `server.headers` 也加同一条**。理由和 mock-ipc 一样 ——
+   只有打包后的壳带 CSP 的话，这类问题得等 45 秒的 Tauri 构建才撞得上。
+2. **`main.ts` 挂 `securitypolicyviolation` 回传 diag**。CSP 挡下东西
+   *不触发* `window.error`，被挡的资源就那么静静地没加载，界面上只表现为
+   「某处不好使了」，没有这条通道下次得从零开始猜。
+
+验证方式：`pnpm dev` 下开一个文件（CM6 起来了，Markdown 实时预览、缩略图都在）
++ 开终端（xterm 起来了），控制台零违规。**只看首屏是不够的 —— 那两个组件是懒加载的。**
+
+### 架构漂移：`ts-rs` 那套从来没落地过
+
+ARCHITECTURE §4 白纸黑字写着「Rust 侧结构体用 `ts-rs` 导出到
+`src/lib/ipc/types.ts`，**杜绝手写两遍类型定义然后慢慢漂移**」。
+
+**`src/lib/ipc/` 下只有 `commands.ts` 一个文件，仓库里 `ts-rs` 零命中。**
+两侧一直是手写两遍，而文档一直宣称这件事有人管。逐字段核对下来
+15 个 DTO 目前**碰巧还是一致的** —— 但「碰巧一致」不是能维持的状态：
+漏改一侧不报错，只在运行时变成一个 `undefined`，而 `undefined` 在界面上
+通常表现为一片空白，没人会往类型上想。
+
+没上 ts-rs（要加依赖、加生成步骤、把生成物提交进仓库，而全部 DTO 只有 15 个
+且都在一个文件里），改成 `src-tauri/tests/dto_sync.rs`：**只读源码的一条测试**，
+解析两边的定义逐字段比，顺带卡住 `#[serde(rename_all = "camelCase")]`
+（少了它 `line_count` 会原样序列化，而 TS 侧写的是 `lineCount`）。
+新 DTO 必须在 `PAIRS` 表里登记一行，忘了就红。
+
+按 AGENTS.md 的规矩验过会失败：把 TS 侧 `lineCount` 改成 `lineCountt`，
+测试报 `StatDto ↔ LogStat 字段对不上：只在 Rust ["lineCount"] / 只在 TS ["lineCountt"]`。
+
+### 一条说过头的注释
+
+logengine 里 mmap 那处写的是「外部进程截断文件可能导致 SIGBUS，
+**由 logrotate 检测（inode / size 变化）负责规避**」。
+
+规避不了。那个检测是 500ms 一次的轮询，只能事后发现「文件被换掉了」，
+拦不住扫描线程正踩着的那一页。真要堵死得装 SIGBUS handler + siglongjmp，
+对个人工具不值当。改成如实写风险 + 写清楚为什么接受它
+（less / lnav / glogg 全是这个模型；logrotate 是改名+新建，老 inode 还在，
+真正危险的是原地截断 `> app.log`，那本来就少见）。
+
+**错的注释比没有注释更害人** —— 这条在 AGENTS.md 里写着，这次是自己撞上。
+
+### 顺手：7 条被无视的警告
+
+`FileTree.svelte` 每渲染一行就警告一次
+`bind:this={els[i]} is binding to a non-reactive property`，一次展开刷七条。
+它本身没造成 bug（`els` 只在事件处理里读），但**七条噪声足够把真警告埋掉**。
+而且 `{#each}` 是按 `row.path` keyed 的，下标和数组位置对不上。
+
+改成从容器里 `querySelectorAll('[role="treeitem"]')[i]` 取 —— 按方向键是
+人手速度，不值得为它维护一个和 keyed each 对不齐的数组。
+键盘导航实测仍然对：↓ src→logs→docs，↑ 回 logs，→ 展开（7 行→8 行）。
+
+### 一条被推翻的旧结论：ptysvc 那个挂起
+
+AGENTS.md 里写着「根因不在本仓库」，依据是**用纯 Python 的 `pty.fork()`
+写同样的复现，一样会挂**。今天重跑了这个复现：
+
+```
+/usr        读不到 pwd：0/10
+/tmp        读不到 pwd：0/10
+临时目录     读不到 pwd：0/10
+$HOME       读不到 pwd：0/10
+```
+
+**40/40 全过。** 顺带量的登录 shell 启动：`zsh -l -c pwd` 0.07s、
+`zsh -l -i -c pwd` 0.17s —— 一点都不慢。
+
+而 Rust 那边 `cargo test -p ptysvc` 连跑三次挂了一次（三次重试全超时，
+白烧 75s）。旧文档还写着「加上重试之后连跑 8 次全绿」，也不成立了。
+
+**没有提交任何猜出来的修复**（记在 [issue #2](https://github.com/Spc-jgs/lite-ide-mac/issues/2)）。
+这正是 AGENTS.md 里那条教训说的情况 ——
+上一次就是基于错误诊断改了一版，改完看着好了，但把旧写法放回去也一样不挂。
+改成把两个数字如实记下来、把那条已作废的结论划掉。
+
+**收尾清理临时文件时又翻出一件事**：那个「在三处各打时间戳」的插桩
+**其实早就做过了**（我在 issue 里写「至今没人做过」，错了）。正常运行
+`spawn` 4.6ms、起 shell 到吐提示符 186ms、`Drop` 54.7ms，整条链 0.19s ——
+所以挂住时不是慢，是彻底不动。
+
+**但它从来没抓到挂住的那次**：`with_deadline` 超时后把那个线程丢掉了
+（注释里写明「故意不 join」），它攒着的 `eprintln!` 输出跟着一起没了。
+每次挂住，恰恰是唯一有诊断价值的那次，什么都留不下。
+下一步是把探针改成**边跑边往文件里追加并 flush**。
+
+CI 那边不用改：`cargo test --workspace` 那一步已经单独设了 25 分钟超时，
+挂的时候是**红**而不是把整个 job 的额度吃光。代价是 CI 会有大约三分之一
+的概率红在这条上。
+
+### 行缓存原来只按块数限，不按字节限
+
+`LineCache` 的上限是「最多 96 块」，注释写着「512 × 96 ≈ 5 万行，几 MB 量级」。
+那个估算暗含一个前提：**每行一百来字节**。
+
+而日志模式的触发条件之一恰恰是 `maxLineLen > 10k`（ARCHITECTURE §1）——
+长行文件是这个模式的**目标用户**，不是意外情况。一份每行 10KB 的访问日志
+（带完整请求体的那种，Java 后端很常见），滚过 49,152 行 =
+缓存里躺着 **480MB**。而 §7 写的是「1GB 日志常驻内存 < 200MB，
+**与文件大小无关**」—— 按块数限，这条保证只对短行文件成立。
+
+改成两条同时生效（`src/lib/logview/cache-budget.ts`）：块数超了一定驱逐；
+字节超了也驱逐，但至少留 4 块。为什么要保底：光按字节限会走到另一个极端，
+10KB/行时 8M 字符只够 1.5 块，装不下一屏上下文，滚动会来回抖。
+
+长行文件的最坏占用因此变成 `4 × 512 × 行长`，10KB/行时约 40MB，有上限。
+而普通日志塞满 96 块也才 590 万字符，**撞不到字节线，行为一个字都没变**——
+测试里专门钉了这一条，改坏了会红。
+
+单独拆成 `cache-budget.ts` 是为了能被 `tests/` 直接跑：`line-cache.ts` 引了 IPC，
+裸 node 加载不了它。这个文件里只有纯计算，零 import。
+
+### 没改的那条：⌘P 模糊匹配
+
+5 万文件时 14–21ms/击键，超过 16ms 帧预算。拆开量了一遍才发现**猜错了热点**：
+`toLowerCase()` 只占 1.3ms，真正的开销在 `isBoundary` 对**每个候选字符**
+做单字符 `toLowerCase()`（候选数是 `文本长度 × query 长度` 量级，
+所以 query 越长越慢：`handler` 20.8ms > `ha` 14.0ms）。
+
+没顺手改：`fuzzy.ts` 是个**打分函数**，而它一条测试都没有 ——
+改动很容易在不报错的情况下把排序质量弄差。连「只优化排序」都不是零风险
+（V8 的 `sort` 稳定，同分保持插入顺序，朴素 top-K 堆会打乱它）。
+先补刻画测试再动，那是独立一件事。记在
+[issue #1](https://github.com/Spc-jgs/lite-ide-mac/issues/1)。

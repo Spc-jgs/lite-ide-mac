@@ -217,8 +217,20 @@ filter:progress    { filter_id, hits, done }
 fs:changed         { path, kind }
 ```
 
-**类型同步**：Rust 侧结构体用 `ts-rs` 导出 TypeScript 类型到 `src/lib/ipc/types.ts`，
-`cargo test` 时自动重新生成。**杜绝手写两遍类型定义然后慢慢漂移**。
+**类型同步**（**已偏离原计划，2026-08-28 修正**）：原文写的是「用 `ts-rs` 导出到
+`src/lib/ipc/types.ts`」。那套东西**从来没落地过** —— 两侧一直是手写两遍，
+而这份文档一直宣称它存在。
+
+不上 ts-rs 的理由（事后确认，不是偷懒）：要给 crate 加依赖、加生成步骤、
+把生成物提交进仓库，而全部 DTO 只有 15 个、且都集中在 `commands.rs` 一个文件里。
+代价与收益不成比例。
+
+真正落地的是 `src-tauri/tests/dto_sync.rs`：**一条只读源码的测试**，解析
+`commands.rs` 里带 `#[derive(serde::Serialize)]` 的结构体和 `commands.ts` 里的
+`export interface`，逐字段比。漏改一侧就红，还会强制新 DTO 到 `PAIRS` 表里登记一行。
+它同时卡住 `#[serde(rename_all = "camelCase")]` —— 少了它，`line_count` 会原样
+序列化成 snake_case，而 TS 侧写的是 `lineCount`，运行时就是一个 `undefined`，
+界面上表现为一片空白，没人会往类型上想。
 
 ---
 
@@ -232,7 +244,7 @@ lite-ide/
 │  ├─ App.svelte
 │  ├─ app.css                    # IDEA Dark design tokens（见 PLAN 附表）
 │  └─ lib/
-│     ├─ ipc/                    # commands.ts（invoke 封装） + types.ts（ts-rs 生成，勿手改）
+│     ├─ ipc/                    # commands.ts（invoke 封装 + 手写 DTO，靠 dto_sync 测试卡住漂移）
 │     ├─ logview/    ★           # LogView.svelte / virtual-list.ts / line-cache.ts
 │     │                          # colorize.ts / filter-bar.svelte
 │     ├─ editor/                 # Editor.svelte / theme-idea-dark.ts
@@ -307,6 +319,8 @@ lite-ide/
 | 前端入口包只放两种模式都要的东西 | CM6 核心约 340KB，静态引入会把入口从 71KB 顶到 412KB；日志模式用不上它，必须按需加载 |
 | 验证必须用 `pnpm app:build`，不用 `cargo build` | `cargo build` 产出的是 dev 模式二进制，会去连 devUrl，验证的其实是 dev server（详见 BENCHMARK.md 坑四） |
 | capabilities 只开实际用到的权限 | ACL 拒绝在前端表现为静默的 rejection，缺权限很难察觉 |
+| CSP 不能为 `null`，且 `tauri.conf.json` 与 `vite.config.ts` 两处保持一致 | WebView 里的 XSS 在 Tauri 下等于拿到全部 IPC（任意读写文件 + 起子进程）。`style-src` 必须带 `'unsafe-inline'`：CM6 与 xterm 都在运行时往 head 里插 `<style>`。CSP 挡下东西不报错，只表现为「某处不好使」，所以 `main.ts` 里挂了 `securitypolicyviolation` 回传 |
+| 任何可能无上限的子进程输出都要设闸 | `git diff` 会为一个 30MB 的新增文件原样吐 30MB。见 `gitsvc::MAX_DIFF_BYTES` |
 
 ---
 
