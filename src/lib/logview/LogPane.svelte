@@ -153,10 +153,20 @@
     const fold = collapseStacks;
     const h = handle;
     let tick: ReturnType<typeof setInterval> | null = null;
+    /*
+     * `dead` 不能省。
+     *
+     * cleanup 只能清掉它**当时看得见**的东西：如果它正好赶在 `logFilter`
+     * 的 await 中间跑，`tick` 还是 null，清了个寂寞 —— 而 await 回来之后
+     * 那行 `tick = setInterval(...)` 照样执行，装出一个再也没人清的轮询。
+     * 在 1GB 文件上连打十个字，就是十个 80ms 的轮询一起烧 IPC。
+     */
+    let dead = false;
 
     const timer = setTimeout(async () => {
       try {
         const active = await logFilter(h, bits, pat, cs, fold, encoding);
+        if (dead) return;
         filtered = active;
         if (!active) {
           filterHits = null;
@@ -166,6 +176,7 @@
         filterRunning = true;
         tick = setInterval(async () => {
           const fs = await logFilterStat(h);
+          if (dead) return;
           if (!fs) {
             if (tick) clearInterval(tick);
             return;
@@ -177,11 +188,12 @@
           }
         }, 80);
       } catch (e) {
-        error = String(e);
+        if (!dead) error = String(e);
       }
     }, 180);
 
     return () => {
+      dead = true;
       clearTimeout(timer);
       if (tick) clearInterval(tick);
     };
