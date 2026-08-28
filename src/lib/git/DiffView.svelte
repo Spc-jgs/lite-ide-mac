@@ -6,6 +6,7 @@
     path,
     staged,
     commit = "",
+    untracked = false,
     onToggleStaged,
   }: {
     raw: string;
@@ -14,6 +15,13 @@
     staged: boolean;
     /** 非空表示这是某次提交里的差异（只读历史），此时没有暂存/未暂存之分 */
     commit?: string;
+    /**
+     * 这是个未跟踪（新增）的文件。
+     *
+     * 用来把两种「什么都没有」分开：新增的**空文件**本来就没有内容可显示，
+     * 和「这一侧没有改动」是完全不同的两件事，却都渲染成一片空白。
+     */
+    untracked?: boolean;
     onToggleStaged: () => void;
   } = $props();
 
@@ -126,7 +134,9 @@
 
   <div class="body" bind:this={box}>
     {#if files.length === 0}
-      <div class="none">没有差异</div>
+      <div class="none">
+        {#if untracked}新增的文件，内容为空{:else}这一侧没有改动{/if}
+      </div>
     {:else if files[0].binary}
       <div class="none">二进制文件，不显示差异</div>
     {:else if side}

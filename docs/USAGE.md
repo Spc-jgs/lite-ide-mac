@@ -272,10 +272,20 @@ KOI8-R。日志模式同样认这些编码。
 重新打包覆盖即可：
 
 ```bash
-pnpm app:bundle
-rm -rf ~/Applications/lite-ide.app
-cp -r src-tauri/target/release/bundle/macos/lite-ide.app ~/Applications/
+pnpm app:install
 ```
+
+它等价于「打包 → 删掉旧的 → 拷过去」三步，合成一条是有原因的：
+
+> **`pnpm app:build` 不会更新 `.app`。** 它只编出 `target/release/lite-ide`
+> 这个可执行文件；`target/release/bundle/macos/lite-ide.app` 里那份是上一次
+> `app:bundle` 留下的，可能已经很旧了。而你双击启动的正是后者。
+>
+> 这坑踩过一次：一个已经修好的 bug 又被报上来，照着现象查了半天代码，
+> 最后发现跑的是前一天编出来的 `.app`。
+
+**怎么确认自己跑的是哪个构建**：标题栏上把鼠标停在「lite-ide」几个字上，
+提示里会显示构建时间。跟你上次 `pnpm app:install` 的时间对不上，就是旧的。
 
 没有自动更新器 —— 自用工具不值得为它引入一套更新基础设施，
 也就没有"更新服务器挂了怎么办"这类问题。

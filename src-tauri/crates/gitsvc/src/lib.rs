@@ -1198,6 +1198,63 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// 未跟踪文件必须整份显示成新增 —— 这是 VS Code / IDEA 的一致行为，
+    /// 也是唯一有意义的显示：它没有「旧版本」可比，左栏本来就该是空的。
+    #[test]
+    fn 未跟踪文件的差异是整份新增() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-untracked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("docs/tasks")).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        std::fs::write(dir.join("docs/tasks/old.md"), "old\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        run(&dir, &["commit", "-qm", "base"]).unwrap();
+
+        // 目录本身已被跟踪，所以新文件会以完整路径出现，不会被折叠成 "docs/tasks/"
+        let rel = "docs/tasks/2026-08-27-new.md";
+        std::fs::write(dir.join(rel), "# 标题\n\n第一行\n第二行\n").unwrap();
+
+        let st = status_full(&dir).unwrap();
+        let e = st.entries.iter().find(|e| e.path == rel).unwrap();
+        assert!(e.untracked && !e.is_dir, "应该是一条未跟踪的文件条目：{e:?}");
+
+        let d = diff(&dir, rel, false, true).unwrap();
+        assert!(!d.trim().is_empty(), "未跟踪文件的差异不能是空的");
+        assert!(d.contains("new file mode"), "应标成新增文件：{d}");
+        assert!(
+            d.contains("+# 标题") && d.contains("+第一行") && d.contains("+第二行"),
+            "整份内容都该是新增行：{d}"
+        );
+        assert!(
+            !d.lines().any(|l| l.starts_with('-') && !l.starts_with("---")),
+            "新增文件不该有删除行：{d}"
+        );
+
+        // 空的未跟踪文件：git 退出码 0、没有输出。这是合法情形，不能报错
+        let empty_rel = "docs/tasks/empty.md";
+        std::fs::write(dir.join(empty_rel), "").unwrap();
+        assert!(
+            diff(&dir, empty_rel, false, true).is_ok(),
+            "空的未跟踪文件不该报错"
+        );
+
+        // 被折叠的未跟踪目录：没有单文件差异可言，返回空串而不是报错
+        std::fs::create_dir_all(dir.join("brand-new")).unwrap();
+        std::fs::write(dir.join("brand-new/a.txt"), "x\n").unwrap();
+        let st = status_full(&dir).unwrap();
+        let d2 = st.entries.iter().find(|e| e.is_dir).unwrap();
+        assert_eq!(d2.path, "brand-new/");
+        assert_eq!(diff(&dir, &d2.path, false, true).unwrap(), "");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// 远程分支要能检出。
     ///
     /// `git switch origin/foo` 会直接失败，必须翻译成 `--track origin/foo`。

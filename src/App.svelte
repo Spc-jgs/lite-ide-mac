@@ -1152,7 +1152,7 @@
 
 <main class:hovering>
   <header class="titlebar" data-tauri-drag-region>
-    <span class="app">lite-ide</span>
+    <span class="app" title="lite-ide · 构建于 {__BUILD_TIME__}">lite-ide</span>
     {#if active}
       <span class="sep">—</span>
       <span class="file">{active.name}</span>
@@ -1400,6 +1400,7 @@
               path={active.rel ?? active.name}
               staged={!!active.diffStaged}
               commit={active.diffShort ?? ""}
+              untracked={!!active.diffUntracked}
               onToggleStaged={() => void toggleDiffSide(active!.id)}
             />
           {/key}
