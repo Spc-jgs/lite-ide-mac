@@ -17,3 +17,7 @@ src-tauri/gen/
 # 环境
 .env
 .env.local
+
+# 设计画布的打包产物（约 2.5MB，含第三方编辑器代码）。
+# 画板源文件 design/*.dc.html 和 canvas.json 是要提交的，重新打包见 design/README.md
+design/lite-ide-interface-polish.html
