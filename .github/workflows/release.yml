@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发的标签，如 v0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # universal 包要同时编两个架构
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 版本号三处必须一致
+        # .dmg 的文件名取自 tauri.conf.json，三处不一致会发出一个名字对不上的包
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          want="${tag#v}"
+          pkg=$(node -p "require('./package.json').version")
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          cargo=$(grep -m1 '^version' src-tauri/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          echo "标签 $want · package.json $pkg · tauri.conf.json $conf · Cargo.toml $cargo"
+          for v in "$pkg" "$conf" "$cargo"; do
+            if [ "$v" != "$want" ]; then
+              echo "::error::版本号对不上：标签是 $want，但有一处是 $v"
+              echo "::error::package.json / src-tauri/Cargo.toml / src-tauri/tauri.conf.json 三处都要改"
+              exit 1
+            fi
+          done
+
+      - name: 测试
+        working-directory: src-tauri
+        run: cargo test --workspace --locked
+
+      - name: 打 universal 包
+        run: pnpm tauri build --target universal-apple-darwin
+
+      - name: 建草稿 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          echo "产物：$dmg ($(du -h "$dmg" | cut -f1))"
+          cat > notes.md <<'NOTES'
+          ## 安装
+
+          下载 `.dmg` → 拖进「应用程序」。
+
+          **首次打开会被 Gatekeeper 拦住** —— 这个包没有做代码签名和公证
+          （个人工具，不值得为它买开发者账号）。执行一次：
+
+          ```bash
+          xattr -dr com.apple.quarantine /Applications/lite-ide.app
+          ```
+
+          或者右键点图标 → 打开 → 再点「打开」。
+
+          仅支持 macOS，Intel 与 Apple Silicon 都能跑（universal 包）。
+
+          ---
+
+          变化见下（发布前请补充）。
+          NOTES
+          gh release create "$tag" "$dmg" \
+            --title "$tag" \
+            --notes-file notes.md \
+            --draft
+          echo "草稿已建好，去 GitHub 上补说明再点 Publish"

@@ -289,6 +289,8 @@ KOI8-R。日志模式同样认这些编码。
 pnpm app:install
 ```
 
+打包细节、产物位置、发版流程见 [RELEASE.md](RELEASE.md)。
+
 它等价于「打包 → 删掉旧的 → 拷过去」三步，合成一条是有原因的：
 
 > **`pnpm app:build` 不会更新 `.app`。** 它只编出 `target/release/lite-ide`

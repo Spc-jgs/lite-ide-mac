@@ -1,5 +1,7 @@
 # lite-ide
 
+[![CI](https://github.com/Spc-jgs/lite-ide-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/Spc-jgs/lite-ide-mac/actions/workflows/ci.yml)
+
 macOS 上 1 秒打开的个人工作台。GB 级日志秒开不卡，代码高亮够用就停，Markdown 所见即所得。
 
 Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研（mmap + 稀疏索引）。
@@ -50,6 +52,8 @@ Java 服务日志。Chromium 的字符串模型决定了大文件要么卡死要
 pnpm install
 pnpm app:install     # 打包并装到 ~/Applications
 ```
+
+产物全在项目目录里（`src-tauri/target/release/bundle/`），不往系统里写别的东西。
 
 日常开发：
 
@@ -108,6 +112,7 @@ libgit2 静态链进来要多 2MB，整个 `.app` 现在才 4.9MB。
 | [BENCHMARK.md](docs/BENCHMARK.md) | 性能数字与实现陷阱 |
 | [JOURNAL.md](docs/JOURNAL.md) | 时间线上每一步的经过与取舍，含每个踩过的坑 |
 | [USAGE.md](docs/USAGE.md) | 怎么装、快捷键速查、两种模式的区别 |
+| [RELEASE.md](docs/RELEASE.md) | 打包、产物在哪、怎么发版、CI 在做什么 |
 | [PLAN.md](PLAN.md) | 立项时的调研与产品方案（历史文档，已被 ARCHITECTURE 修正过） |
 | [UNINSTALL.md](UNINSTALL.md) | 怎么卸干净 |
 
@@ -138,10 +143,16 @@ src-tauri/
 ```bash
 cd src-tauri && cargo test --workspace    # Rust 95 条
 pnpm check                                # 类型检查
+pnpm test                                 # 前端纯函数 87 条断言
 ```
 
-前端的纯函数（diff 解析、双栏对照、泳道布局、冲突解析、改动行标记）另有 87 条断言，
-用 Node 原生剥类型直接跑 `.ts`，不引测试框架。
+前端那 87 条不引测试框架：测的全是纯函数（diff 解析、双栏对照、泳道布局、
+冲突解析、改动行标记），输入输出都是普通数据结构，Node 22+ 能直接跑 `.ts`。
+为它们装一套 vitest 加一堆 transform 配置，维护成本比被测代码还高。
+
+CI 每次 push 都跑这三样，外加一道**入口包体积门禁**（超过 160 KB 就失败）——
+「重的东西不进入口包」这条红线很容易在「顺手加个 import」时破掉，
+而破了之后没有任何症状，只是启动慢了一点。
 
 ## 状态
 
