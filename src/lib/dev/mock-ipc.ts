@@ -541,6 +541,21 @@ index 1a2b3c4..5d6e7f8 100644
       }
     },
   };
+
+  /*
+   * 事件插件的内部对象。
+   *
+   * `@tauri-apps/api/event` 的 unlisten 走的是**这个**对象上的
+   * `unregisterListener`，不是 __TAURI_INTERNALS__ 上的。少了它，
+   * App 里那个 onDragDropEvent 的清理函数一跑就抛
+   * 「Cannot read properties of undefined」—— 而且是 uncaught，
+   * 每次热更新刷一条，正是它要淹掉的那类真错误。
+   *
+   * 桩与真实现分叉就失去了全部价值。这里补齐它。
+   */
+  (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener: () => {},
+  };
   // eslint-disable-next-line no-console
   console.info("[dev] Tauri IPC 桩已装载 —— 数据是假的，用于纯前端调试");
 }
