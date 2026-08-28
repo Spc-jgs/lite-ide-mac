@@ -1,0 +1,281 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; background: #2b2d30; }
+    a { color: #6ba1e8; } a:hover { color: #8fbcf0; }
+    .lt { font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .row { display: grid; grid-template-columns: 34px 1fr 1fr 300px; gap: 20px; align-items: start;
+           padding: 22px 0; border-top: 1px solid #393b40; }
+    .num { font-family: "SF Mono", Menlo, ui-monospace, monospace; font-size: 20px; color: #4b4f57; line-height: 1; padding-top: 20px; }
+    .cap { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #6f737b; margin-bottom: 8px; }
+    .cap.now { color: #6f737b; }
+    .cap.new { color: #63b76c; }
+    .frame { background: #1e1f22; border: 1px solid #393b40; border-radius: 5px; overflow: hidden; }
+    .why h3 { margin: 0 0 6px; font-size: 13px; color: #dfe1e5; font-weight: 500; }
+    .why p { margin: 0; font-size: 12px; line-height: 1.65; color: #9da0a8; }
+    .why em { color: #dfe1e5; font-style: normal; }
+  </style>
+</helmet>
+
+<div class="lt" style="width: 1240px; background: #2b2d30; color: #dfe1e5; font-size: 13px; padding: 34px 28px 30px;">
+
+  <div style="margin-bottom: 6px; font-size: 22px; letter-spacing: -.01em;">界面打磨提案</div>
+  <p style="margin: 0 0 4px; font-size: 12.5px; line-height: 1.7; color: #9da0a8; max-width: 780px;">
+    六处改动，全部在现有 IDEA Dark 体系内 —— 不引入新颜色、新字体、新圆角。
+    每一处的出发点都是「打开 app 之后真的被绊到的地方」，右栏写清为什么。
+  </p>
+  <p style="margin: 0 0 8px; font-size: 12px; line-height: 1.7; color: #6f737b; max-width: 780px;">
+    色值与尺寸直接取自 <span class="mono" style="color: #9da0a8;">src/app.css</span> 与各组件源码，没有重新取色。
+  </p>
+
+  <!-- ① 标题栏 -->
+  <div class="row">
+    <div class="num">01</div>
+    <div>
+      <div class="cap now">现在</div>
+      <div class="frame">
+        <div style="display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px 0 66px; background: #2b2d30; font-size: 12.5px;">
+          <span style="color: #dfe1e5; font-weight: 500;">lite-ide</span>
+          <span style="color: #6f737b;">—</span>
+          <span style="color: #9da0a8;">DiffView.svelte</span>
+        </div>
+        <div style="height: 26px; background: #1e1f22; display: flex; align-items: center; justify-content: center; color: #4b4f57; font-size: 10.5px;">右侧约 1800px 是空的</div>
+      </div>
+    </div>
+    <div>
+      <div class="cap new">提案</div>
+      <div class="frame">
+        <div style="display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px 0 66px; background: #2b2d30; font-size: 12.5px;">
+          <span style="display: flex; align-items: center; gap: 5px; min-width: 0;">
+            <span style="color: #9da0a8;">lite-ide</span><span style="color: #6f737b;">›</span>
+            <span style="color: #9da0a8;">lib</span><span style="color: #6f737b;">›</span>
+            <span style="color: #9da0a8;">git</span><span style="color: #6f737b;">›</span>
+            <span style="color: #dfe1e5;">DiffView.svelte</span>
+          </span>
+          <span style="flex: 1;"></span>
+          <span class="mono" style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #6f737b;">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3">
+              <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="3.5" r="1.8"/>
+              <path d="M4.5 5.3 L4.5 10.7"/><path d="M11.5 5.3 Q11.5 8.5 4.5 10.7"/>
+            </svg>m16/cleanup <span style="color: #3574f0;">↑2</span>
+          </span>
+        </div>
+        <div style="height: 26px; background: #1e1f22;"></div>
+      </div>
+    </div>
+    <div class="why">
+      <h3>标题栏改成面包屑</h3>
+      <p>文件树深了之后，标签上只有一个文件名，「我在哪个目录」得回头看树。面包屑把路径摊开，顺手占掉那块常年空着的地方。分支挪到右端 —— 它在状态栏最右，视线跨了整个窗口。</p>
+    </div>
+  </div>
+
+  <!-- ② 状态栏 -->
+  <div class="row">
+    <div class="num">02</div>
+    <div>
+      <div class="cap now">现在</div>
+      <div class="frame">
+        <div class="mono" style="display: flex; align-items: center; gap: 16px; height: 24px; padding: 0 12px; background: #2b2d30; font-size: 11.5px; color: #9da0a8;">
+          <span>编辑模式 ⇄</span><span style="color: #6f737b;">Svelte</span><span style="color: #6f737b;">UTF-8</span><span>无改动</span>
+          <span style="flex: 1;"></span>
+          <span style="color: #6f737b;">main</span><span style="color: #6f737b;">改动</span><span style="color: #6f737b;">历史</span>
+        </div>
+      </div>
+      <p style="margin: 8px 0 0; font-size: 11.5px; line-height: 1.6; color: #6f737b;">八项同字号、同颜色、同间距 —— 哪些是「状态」哪些是「按钮」看不出来。</p>
+    </div>
+    <div>
+      <div class="cap new">提案</div>
+      <div class="frame">
+        <div class="mono" style="display: flex; align-items: center; gap: 10px; height: 24px; padding: 0 12px; background: #2b2d30; font-size: 11.5px; color: #9da0a8;">
+          <span>编辑模式 ⇄</span>
+          <span style="width: 1px; height: 11px; background: #393b40;"></span>
+          <span style="color: #6f737b;">Svelte</span>
+          <span style="width: 1px; height: 11px; background: #393b40;"></span>
+          <span style="color: #6f737b;">UTF-8</span>
+          <span style="width: 1px; height: 11px; background: #393b40;"></span>
+          <span style="color: #3574f0;">已修改</span>
+          <span style="flex: 1;"></span>
+          <span style="color: #dfe1e5;">main <span style="color: #3574f0;">↑2</span> <span style="background: #35373b; border-radius: 7px; padding: 0 5px; font-size: 10px;">7</span></span>
+          <span style="width: 1px; height: 11px; background: #393b40;"></span>
+          <span style="color: #6f737b;">改动</span><span style="color: #6f737b;">历史</span>
+        </div>
+      </div>
+      <p style="margin: 8px 0 0; font-size: 11.5px; line-height: 1.6; color: #6f737b;">左边是文档事实，右边是动作，中间用 1px 竖线分组；分支提到最亮的一档。</p>
+    </div>
+    <div class="why">
+      <h3>状态栏分组</h3>
+      <p>状态栏本来该是「一眼扫过去就知道现在什么情况」的地方。全部同权重时，眼睛得逐项读。<em>已修改</em> 用 accent 是因为它是唯一会改变你下一步动作的那一项。</p>
+    </div>
+  </div>
+
+  <!-- ③ 文件树 -->
+  <div class="row">
+    <div class="num">03</div>
+    <div>
+      <div class="cap now">现在</div>
+      <div class="frame" style="padding: 5px 0;">
+        <div style="display: flex; align-items: center; gap: 3px; height: 22px; padding-left: 10px; font-size: 12.5px; color: #dfe1e5;"><span style="width: 11px; color: #6f737b; font-size: 9px;">▸</span>src</div>
+        <div style="display: flex; align-items: center; gap: 3px; height: 22px; padding-left: 10px; font-size: 12.5px; color: #9da0a8;"><span style="width: 11px;"></span>package.json</div>
+        <div style="display: flex; align-items: center; gap: 3px; height: 22px; padding-left: 10px; font-size: 12.5px; color: #9da0a8;"><span style="width: 11px;"></span>PLAN.md</div>
+        <div style="display: flex; align-items: center; gap: 3px; height: 22px; padding-left: 10px; font-size: 12.5px; color: #9da0a8;"><span style="width: 11px;"></span>vite.config.ts</div>
+      </div>
+    </div>
+    <div>
+      <div class="cap new">提案</div>
+      <div class="frame" style="padding: 5px 0;">
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding-left: 8px; font-size: 12.5px; color: #dfe1e5;">
+          <span style="width: 11px; color: #6f737b; font-size: 9px;">▸</span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.2" stroke-linejoin="round"><path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"/></svg>src</div>
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding-left: 8px; font-size: 12.5px; color: #9da0a8;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#d6ae58" stroke-width="1.25"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.9 v1.6 M8 12.5 v1.6 M1.9 8 h1.6 M12.5 8 h1.6 M3.7 3.7 l1.1 1.1 M11.2 11.2 l1.1 1.1 M12.3 3.7 l-1.1 1.1 M4.8 11.2 l-1.1 1.1"/></svg>package.json</div>
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding-left: 8px; font-size: 12.5px; color: #9da0a8;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.25" stroke-linecap="round"><rect x="2.6" y="3.4" width="10.8" height="9.2" rx="1"/><path d="M4.8 6.6 h3.2 M4.8 9.4 h6"/></svg>PLAN.md</div>
+        <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding-left: 8px; font-size: 12.5px; color: #9da0a8;">
+          <span style="width: 11px;"></span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.25" stroke-linecap="round"><path d="M4.2 2.8 h5.2 l3 3 v7.6 a.9 .9 0 0 1-.9 .9 H4.2 a.9 .9 0 0 1-.9-.9 V3.7 a.9 .9 0 0 1 .9-.9 z"/><path d="M9.2 2.9 v3.1 h3.1"/></svg>vite.config.ts</div>
+      </div>
+    </div>
+    <div class="why">
+      <h3>文件类型字形</h3>
+      <p>五种字形就够：目录、代码、标记文档、配置、纯文本。<em>单色描边，不是彩色图标包</em> —— 颜色这条通道已经被 git 状态占了，再上一层彩色图标两边都读不清。配置类给一点 warn 黄，因为改错它的代价最大。</p>
+    </div>
+  </div>
+
+  <!-- ④ 标签模式 -->
+  <div class="row">
+    <div class="num">04</div>
+    <div>
+      <div class="cap now">现在</div>
+      <div class="frame">
+        <div style="display: flex; height: 32px; background: #2b2d30;">
+          <div style="display: flex; align-items: center; gap: 6px; padding: 0 11px; border-right: 1px solid rgba(255,255,255,.06); border-bottom: 2px solid #3574f0; background: #1e1f22; font-size: 12.5px; color: #dfe1e5;">
+            <span class="mono" style="font-size: 9px; padding: 1px 4px; border-radius: 2px; background: #35373b; color: #6ba1e8;">差异</span>App.svelte
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; padding: 0 11px; border-right: 1px solid rgba(255,255,255,.06); font-size: 12.5px; color: #9da0a8;">
+            <span class="mono" style="font-size: 9px; padding: 1px 4px; border-radius: 2px; background: #35373b; color: #6f737b;">日志</span>app.log
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="cap new">提案</div>
+      <div class="frame">
+        <div style="display: flex; height: 32px; background: #2b2d30;">
+          <div style="display: flex; align-items: center; border-right: 1px solid rgba(255,255,255,.06); border-bottom: 2px solid #3574f0; background: #1e1f22;">
+            <span style="width: 2px; align-self: stretch; background: #6ba1e8;"></span>
+            <span style="padding: 0 11px; font-size: 12.5px; color: #dfe1e5;">App.svelte</span>
+          </div>
+          <div style="display: flex; align-items: center; border-right: 1px solid rgba(255,255,255,.06);">
+            <span style="width: 2px; align-self: stretch; background: #d6ae58;"></span>
+            <span style="padding: 0 11px; font-size: 12.5px; color: #9da0a8;">app.log</span>
+          </div>
+          <div style="display: flex; align-items: center; border-right: 1px solid rgba(255,255,255,.06);">
+            <span style="width: 2px; align-self: stretch; background: #b389d6;"></span>
+            <span style="padding: 0 11px; font-size: 12.5px; color: #9da0a8;">conflict.rs</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="why">
+      <h3>模式用色条，不用文字徽章</h3>
+      <p>「差异」「日志」两个汉字要吃掉约 34px，而标签上限只有 200px —— 文件名先被挤没的正是徽章。2px 色条一样能区分，占的是本来就有的边框位置。蓝=差异，黄=日志，紫=冲突，与 git 状态色同源。</p>
+    </div>
+  </div>
+
+  <!-- ⑤ Git 提交框 -->
+  <div class="row">
+    <div class="num">05</div>
+    <div>
+      <div class="cap now">现在 · 工作区干净时</div>
+      <div class="frame" style="width: 240px;">
+        <div style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.06);">
+          <div style="background: #1e1f22; border: 1px solid #393b40; border-radius: 4px; padding: 6px 8px; min-height: 44px; font-size: 12px; color: #6f737b;">提交信息（⌘↵ 提交）</div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+            <span style="font-size: 11px; color: #6f737b; opacity: .4;">改写上一条</span>
+            <span style="flex: 1;"></span>
+            <span style="border: 1px solid #393b40; border-radius: 4px; color: #6f737b; font-size: 11.5px; padding: 3px 12px;">提交</span>
+          </div>
+        </div>
+        <div style="padding: 14px 12px; text-align: center; color: #6f737b; font-size: 12px;">工作区干净</div>
+      </div>
+    </div>
+    <div>
+      <div class="cap new">提案 · 没东西可提交就收起来</div>
+      <div class="frame" style="width: 240px;">
+        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 11.5px; color: #6f737b;">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3" stroke-linecap="round"><path d="M3.5 8.4 L6.6 11.4 L12.5 4.9"/></svg>
+          <span>工作区干净</span>
+        </div>
+        <div style="height: 116px; background: #2b2d30;"></div>
+      </div>
+      <p style="margin: 8px 0 0; font-size: 11.5px; line-height: 1.6; color: #6f737b;">一有暂存内容（或点一下）就展开成完整的提交框。</p>
+    </div>
+    <div class="why">
+      <h3>提交框按需展开</h3>
+      <p>没东西可提交的时候，那个空输入框加按钮占着约 110px，还摆出一副「可以提交」的样子。收成一行之后，「工作区干净」这条信息终于出现在视线落点上，而不是被顶到一片空白的下面。</p>
+    </div>
+  </div>
+
+  <!-- ⑥ 空状态 -->
+  <div class="row">
+    <div class="num">06</div>
+    <div>
+      <div class="cap now">现在</div>
+      <div class="frame" style="height: 168px; display: grid; place-content: center; text-align: center;">
+        <div style="font-size: 15px; color: #dfe1e5; margin-bottom: 8px;">把文件或文件夹拖进来</div>
+        <div style="font-size: 11.5px; color: #6f737b; margin-bottom: 10px;">代码走编辑模式，大文件与日志自动走只读的日志模式</div>
+        <div class="mono" style="font-size: 10.5px; color: #6f737b;">双击 ⇧ 随处搜索 · ⌘P 找文件 · ⌘⇧F 搜内容 · ⌘⇧O 文件结构</div>
+        <div class="mono" style="font-size: 10.5px; color: #6f737b; margin-top: 4px;">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏 · ⌘J 终端 · ⌘⇧G 改动</div>
+      </div>
+    </div>
+    <div>
+      <div class="cap new">提案</div>
+      <div class="frame" style="height: 168px; display: grid; place-content: center;">
+        <div style="width: 400px; background: #2b2d30; border: 1px solid #393b40; border-radius: 8px; padding: 16px 18px;">
+          <div style="font-size: 14px; color: #dfe1e5; margin-bottom: 3px;">把文件或文件夹拖进来</div>
+          <div style="font-size: 11.5px; color: #6f737b; margin-bottom: 12px;">代码走编辑模式，大文件与日志自动走只读的日志模式</div>
+          <div class="mono" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px 20px; font-size: 11px; color: #9da0a8;">
+            <span><span style="color: #6f737b;">⇧⇧</span> 随处搜索</span>
+            <span><span style="color: #6f737b;">⌘S</span> 保存</span>
+            <span><span style="color: #6f737b;">⌘P</span> 找文件</span>
+            <span><span style="color: #6f737b;">⌘⇧G</span> 改动</span>
+            <span><span style="color: #6f737b;">⌘⇧F</span> 搜内容</span>
+            <span><span style="color: #6f737b;">⌘J</span> 终端</span>
+          </div>
+          <div style="margin-top: 13px; padding-top: 11px; border-top: 1px solid rgba(255,255,255,.06);">
+            <div style="font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: #6f737b; margin-bottom: 5px;">最近</div>
+            <div style="display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #9da0a8;">
+              <span>lite-ide <span style="color: #6f737b; font-size: 11px;">~/playground</span></span>
+              <span>some-service <span style="color: #6f737b; font-size: 11px;">~/work</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="why">
+      <h3>空状态收进卡片</h3>
+      <p>四行居中文字铺在 1900px 宽的空间里，读起来是散的 —— 眼睛没有落点。收进一张 400px 的卡片、快捷键排成两列之后，它才像个「起点」。<em>「最近」是新增功能</em>，需要你点头才做。</p>
+    </div>
+  </div>
+
+  <div style="border-top: 1px solid #393b40; padding-top: 18px; margin-top: 4px;">
+    <p style="margin: 0; font-size: 12px; line-height: 1.75; color: #6f737b; max-width: 860px;">
+      顺带一说：画这版时翻 <span class="mono" style="color: #9da0a8;">app.css</span> 发现 git 颜色被定义了两套，
+      第二套静默覆盖了 <span class="mono" style="color: #9da0a8;">--git-conflict</span> 和两个差异底色 ——
+      冲突标记一直在按紫色渲染，和「改名」的紫几乎分不开。已经删掉重复的那套。
+    </p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

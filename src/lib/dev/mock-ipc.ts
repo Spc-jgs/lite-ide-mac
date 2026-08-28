@@ -390,16 +390,12 @@ export function installMockIpc(): void {
           }
           return out.slice(0, Number(a.limit) || 60);
         }
-        case "ripgrep_available":
-          return true;
         case "pty_spawn":
           return 1;
         case "pty_write":
         case "pty_resize":
           return null;
         case "pty_kill":
-        case "pty_alive":
-          return true;
         case "open_log":
           return { handle: 1, name: "access-2026-08-24.log", size: 1_073_741_885 };
         case "log_stat":
@@ -496,12 +492,6 @@ index 1a2b3c4..5d6e7f8 100644
           return null;
         case "git_commit":
           return "[m13/git abc1234] 桩提交";
-        case "git_log":
-          return [
-            { sha: "a".repeat(40), short: "abc1234", author: "pc", when: "3 小时前", subject: "M12 界面打磨" },
-          ];
-        case "git_show":
-          return FILES[a.path as string] ?? "";
 
         // 造一段带合并的历史，泳道图的分叉与汇合都能看到
         case "git_log_entries":

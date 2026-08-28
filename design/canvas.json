@@ -1,0 +1,12 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "主界面 · 编辑模式" },
+    { "file": "GitReview.dc.html", "x": 1560, "y": 0, "w": 1440, "h": 900, "title": "Git 改动 · 差异" },
+    { "file": "GitLog.dc.html", "x": 3120, "y": 0, "w": 1440, "h": 900, "title": "Git 日志 · 底部工具窗" },
+    { "file": "Chrome.dc.html", "x": 0, "y": 1060, "w": 1240, "h": 1620, "title": "六处改动 · 前后对照" }
+  ],
+  "annotations": [
+    { "id": "read-me-first", "x": 1320, "y": 1060, "w": 300, "text": "先看这张「六处改动 · 前后对照」——\n它是提案本身。\n\n上面三张整窗是把六处改动放回真实界面里，\n看它们凑在一起是什么样。\n\n色值与尺寸都取自 src/app.css 和组件源码，\n没有另起一套。" }
+  ],
+  "launch": { "view": "canvas" }
+}

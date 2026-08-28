@@ -54,7 +54,6 @@ pub fn run() {
             commands::initial_path,
             commands::list_project_files,
             commands::grep_project,
-            commands::ripgrep_available,
             commands::git_root,
             commands::git_status,
             commands::git_diff,
@@ -62,8 +61,6 @@ pub fn run() {
             commands::git_unstage,
             commands::git_discard,
             commands::git_commit,
-            commands::git_log,
-            commands::git_show,
             commands::git_log_entries,
             commands::git_commit_files,
             commands::git_commit_diff,
@@ -76,7 +73,6 @@ pub fn run() {
             commands::pty_write,
             commands::pty_resize,
             commands::pty_kill,
-            commands::pty_alive,
             commands::diag,
         ])
         .run(tauri::generate_context!())
