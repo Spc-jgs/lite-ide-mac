@@ -1140,7 +1140,9 @@
      * "Uncaught (in promise)"，把控制台的真错误淹掉。
      */
     const reg = un.catch(() => null);
-    return () => void reg.then((f) => f?.());
+    // 注销这一半也要兜住：拿到的 unlisten 函数**自己**也可能抛
+    // （窗口正在拆、或者桩不完整），而它抛出来同样是一条 uncaught
+    return () => void reg.then((f) => f?.()).catch(() => {});
   });
 
 </script>
@@ -1531,14 +1533,25 @@
       {/snippet}
       </svelte:boundary>
 
-      {#if panel}
+      <!--
+        条件是 `panel || terms.length > 0`，不是 `panel`。
+
+        收起面板**不能卸载**这一块：组件一销毁 Session 就 drop，shell 被 kill。
+        跑着 gradle build 的时候按 ⌘J 腾点地方，构建就没了 —— 而且没有任何提示。
+        （下面切 Git 日志页那处早就想到了这一层，这里漏了一级。）
+
+        `terms.length > 0` 那半边保证「从没开过终端」时不会白挂一块 DOM，
+        也保证关掉最后一个终端后这块能真正消失（closeTerm 会清空 terms）。
+      -->
+      {#if panel || terms.length > 0}
         <div
           class="resizer"
+          class:hidden={!panel}
           role="separator"
           aria-label="调整终端高度"
           onpointerdown={startResize}
         ></div>
-        <div class="panel" style:height="{panelHeight}px">
+        <div class="panel" class:hidden={!panel} style:height="{panelHeight}px">
           <div class="panel-head">
             <button class="tool" class:on={panelView === "term"} onclick={() => (panelView = "term")}>
               终端{terms.length > 1 ? ` (${terms.length})` : ""}
@@ -1579,7 +1592,8 @@
                 <div class="loading">正在载入终端…</div>
               {/if}
             </div>
-            {#if panelView === "log" && repo}
+            <!-- 收起时别去拉 git log：那是一串没人看的子进程 -->
+            {#if panel && panelView === "log" && repo}
               <div class="tool-slot">
                 {#if git.comps.log}
                   <git.comps.log
@@ -1852,6 +1866,9 @@
     cursor: row-resize;
   }
   .resizer:hover { background: var(--accent); }
+  /* 收起时整块不占位也不可见，但**仍然挂在 DOM 上** —— 见上面那段注释 */
+  .resizer.hidden,
+  .panel.hidden { display: none; }
   .panel {
     flex: none;
     display: grid;

@@ -58,6 +58,17 @@
         highlightActiveLine(),
         highlightSpecialChars(),
         drawSelection(),
+        /*
+         * 这一行不能省，`rectangularSelection` 和 `crosshairCursor` 全靠它。
+         *
+         * CM6 没开这个 facet 时，**每次事务的选区都会被 `asSingle()` 压成一个**
+         * （@codemirror/state 里 `tr.startState.facet(allowMultipleSelections)
+         * ? tr.newSelection : tr.newSelection.asSingle()`）。
+         * 结果是 ⌥ 拖矩形选择、⌥ 点加光标、搜索里的「选中所有匹配」
+         * 三样**全都装了却不生效** —— 扩展照样进包，只是什么也不做。
+         * 这类 bug 不报错、不崩溃，只是「按了没反应」。
+         */
+        EditorState.allowMultipleSelections.of(true),
         rectangularSelection(),
         crosshairCursor(),
         history(),

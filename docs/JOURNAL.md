@@ -1215,3 +1215,78 @@ CI 那边不用改：`cargo test --workspace` 那一步已经单独设了 25 分
 （V8 的 `sort` 稳定，同分保持插入顺序，朴素 top-K 堆会打乱它）。
 先补刻画测试再动，那是独立一件事。记在
 [issue #1](https://github.com/Spc-jgs/lite-ide-mac/issues/1)。
+
+---
+
+## 2026-08-28 · M19 第二轮扫：UI、交互与「装了不生效」
+
+M18 那轮偏内存/安全/架构，这轮换角度：实际把界面驱动起来看。
+三个问题都属于**不报错、不崩溃、只是不对**的那一类。
+
+### 一、⌘J 收起面板会杀掉正在跑的 shell
+
+`{#if panel}` 包住整块底部面板，收起时 Terminal 组件跟着卸载，
+effect 清理里的 `ptyKill` 就把 shell 带走了。跑着 gradle build 时
+按一下 ⌘J 腾地方，构建当场没，且没有任何提示。
+
+**同一份代码在下一层已经想到过这件事**：切「终端 ↔ Git 日志」用的是
+`class:hidden`，注释写着「组件一销毁 Session 就 drop，shell 直接被 kill」。
+Terminal.svelte 里那句 `catch { /* 面板收起时容器为 0，忽略 */ }` 更说明
+作者本来就以为收起只是把容器变成 0。**只是漏了上面那一级。**
+
+浏览器里挂 IPC 桩录调用序列，对照很干净：
+
+```
+修前：开 → pty_spawn    收 → pty_kill{id:1}    开 → pty_spawn（新的）
+修后：开 → pty_spawn    收 → （无）            开 → （无，复用）
+```
+
+留下的判据写进 AGENTS.md：**这个组件的销毁有没有副作用？**
+有的话它每一层可见性条件都得是 `class:hidden`，不能是 `{#if}`。
+
+### 二、多光标一直是装了不生效的
+
+`rectangularSelection()` 和 `crosshairCursor()` 都在扩展列表里，
+但 `EditorState.allowMultipleSelections` 没设。CM6 的实现里：
+
+```js
+let selection = tr.startState.facet(allowMultipleSelections)
+  ? tr.newSelection : tr.newSelection.asSingle();
+```
+
+**没开这个 facet，每次事务的选区都被压成一个。** ⌥ 拖矩形选择、
+⌥ 点加光标、搜索里的「选中所有匹配」三样全废，而扩展照样进包。
+
+在页面里直接 dispatch 一个三段选区验的：去掉那行 → 实际 1 段；
+加上 → 实际 3 段。
+
+（顺带一提，验证过程本身有个坑：改完靠 HMR 是测不出来的 ——
+`build()` 只在挂载时跑一次，热更新不会重建已有的 EditorView。必须整页重载。）
+
+### 三、窄窗口下双栏差异挤到读不了
+
+760px 窗口下差异区只剩 482px，双栏每列四十来个字符，一行 Java 代码
+都放不下，两栏都在横向滚（scrollWidth 790 / clientWidth 482）。
+而按钮的 title 写着「统一视图（窄窗口更合适）」—— **一直只是句提示，
+从来没人替用户按下去过。**
+
+同时「双栏」「统一」缺 `white-space: nowrap`，断成两行把 28px 的
+工具条撑到 34px。
+
+改法上有个取舍值得记：**不直接改 `side`**，而是分成
+`side`（用户意图）和 `sideOn = side && !narrow`（实际形态）。
+直接改 `side` 的话窗口拉宽后回不去，等于把用户的选择偷偷改掉了。
+窄的时候按钮置灰并说明原因 —— 不做一个按了没反应的按钮。
+
+实测 760px：按钮回到 19px，自动切统一，scrollWidth 790 → 513；
+拉回 1400px：自动切回双栏，1122 == 1122 零溢出。
+
+### 顺带修的一条控制台噪声
+
+`onDragDropEvent` 的**注销**没兜住。注册那半边早有 catch 和注释
+（「浏览器里跑时这个 promise 会 reject」），但拿到的 unlisten 函数
+自己也会抛 —— 桩里缺 `__TAURI_EVENT_PLUGIN_INTERNALS__`，
+而真实现的 unlisten 走的正是这个对象，不是 `__TAURI_INTERNALS__`。
+两边都补：桩补齐对象，清理函数补 `.catch()`。
+
+**桩与真实现分叉就失去了全部价值** —— 这条 AGENTS.md 里写着，又撞了一次。
