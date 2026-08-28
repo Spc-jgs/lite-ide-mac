@@ -60,6 +60,12 @@
         }
       }}
     >
+      <!--
+        模式用左侧色条，不用文字徽章：「差异」「日志」两个汉字要吃掉约 34px，
+        而标签上限只有 200px —— 先被挤没的正是文件名。色条占的是本来就有的
+        边框位置。蓝=差异，黄=日志，紫=冲突，与 git 状态色同源。
+      -->
+      <span class="mode {tab.mode}" aria-hidden="true"></span>
       <button
         class="label"
         role="tab"
@@ -67,8 +73,7 @@
         onclick={() => onSelect(tab.id)}
         title={tab.path}
       >
-        {#if tab.mode === "log"}<span class="badge">日志</span>{/if}
-        {#if tab.mode === "diff"}<span class="badge diff">差异</span>{/if}
+
         {#if tab.mode === "merge"}<span class="badge merge">冲突</span>{/if}
         <span class="name">{tab.name}</span>
       </button>
@@ -115,11 +120,15 @@
     background: var(--editor-bg);
     border-bottom-color: var(--accent);
   }
+  .mode { flex: none; width: 2px; align-self: stretch; background: transparent; }
+  .mode.log { background: var(--lvl-warn); }
+  .mode.diff { background: var(--git-modified); }
+  .mode.merge { background: var(--git-renamed); }
   .label {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 0 4px 0 11px;
+    padding: 0 4px 0 9px;
     height: 100%;
     background: transparent;
     border: none;
