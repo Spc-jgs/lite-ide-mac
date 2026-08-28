@@ -5,6 +5,7 @@
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
+  import Crash from "./lib/shell/Crash.svelte";
   import Outline from "./lib/search/Outline.svelte";
   import type { Sym } from "./lib/editor/outline";
   import { langOf, langLabel } from "./lib/editor/langs";
@@ -1267,6 +1268,7 @@
 
     {#if sidebar}
       <aside>
+        <svelte:boundary>
         {#if !root}
           <div class="no-root">把文件夹拖进来</div>
         {:else if sideView === "git" && repo && git.comps.pane}
@@ -1291,6 +1293,10 @@
             onOpen={(p) => void openPath(p)}
           />
         {/if}
+        {#snippet failed(err, reset)}
+          <Crash error={err} scope="侧边栏" onReset={reset} />
+        {/snippet}
+        </svelte:boundary>
       </aside>
       <div
         class="side-resizer"
@@ -1374,6 +1380,12 @@
         </div>
       {/if}
 
+      <!--
+        内容区单独设边界：编辑器 / 日志 / 差异里任何一处抛异常，
+        都不该把整个外壳一起带走 —— 文件树、终端、状态栏还得能用。
+        boundary 的 reset 会重建这棵子树，多数一次性的渲染错误重试一下就好了。
+      -->
+      <svelte:boundary onerror={(e) => notify.fail(`内容区出错：${e}`)}>
       <div class="content">
         {#if !active}
           <div class="empty">
@@ -1436,6 +1448,13 @@
           <div class="empty"><p>正在载入编辑器…</p></div>
         {/if}
       </div>
+
+      {#snippet failed(err, reset)}
+        <div class="content">
+          <Crash error={err} scope={active ? `${active.name} 的视图` : "内容区"} onReset={reset} />
+        </div>
+      {/snippet}
+      </svelte:boundary>
 
       {#if panel}
         <div

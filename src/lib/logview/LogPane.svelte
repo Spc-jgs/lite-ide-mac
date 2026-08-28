@@ -9,6 +9,7 @@
     logFilter,
     logFilterStat,
     logRefresh,
+    logFilterMap,
     type LogStat,
     type LevelCounts,
   } from "../ipc/commands";
@@ -39,6 +40,81 @@
   let collapseStacks = $state(false);
   let error = $state("");
   let format = $state<LogFormat>("plain");
+
+  /**
+   * 只看命中，还是看全文、在命中之间跳。
+   *
+   * 这两件事在 GB 级日志里是不同的需求：「这个订单号出现过几次」要过滤，
+   * 「这条报错前后发生了什么」要上下文。以前只有前者 —— 一输关键字整个文件
+   * 就只剩命中行，想看上下文只能把关键字删掉，然后自己找回刚才那个位置。
+   */
+  let onlyHits = $state(true);
+  /** 当前停在第几条命中，1-based；0 表示还没跳过 */
+  let hitIndex = $state(0);
+  /** 传给 LogView 的跳转指令 */
+  let jumpTo = $state<{ line: number; nonce: number } | null>(null);
+  let jumpNonce = 0;
+
+  /**
+   * 跳到上/下一处命中。
+   *
+   * 两种视图下「行号」的含义不同，这是这段唯一需要小心的地方：
+   * - 只看命中：视图第 i 行**就是**第 i 条命中，直接跳
+   * - 看全文：得问 Rust 要第 i 条命中的**物理行号**（logFilterMap）
+   *
+   * ⚠️ 两边的基数不一样，踩过一次：
+   * `gotoLine.line` 全程按 **1-based** 用（LogView 里做 `line - 1`），
+   * 而 `logFilterMap` 返回的是 **0-based** 物理行号（与 `row.phys` 同源，
+   * 行号栏显示的是 `phys + 1`）。所以走全文那条路必须 +1。
+   * 只看命中那条恰好没踩到 —— 命中序号本来就是 1-based，纯属运气。
+   *
+   * 不缓存整张命中表 —— 900 万行的文件上它可能有几百万条，
+   * 传到前端纯属浪费。每次只取一条。
+   */
+  async function jumpHit(dir: 1 | -1) {
+    const total = filterHits ?? 0;
+    if (!filtered || total === 0) return;
+    // 循环：到底了回到第一条，符合「一直按下一处」的直觉
+    let next = hitIndex + dir;
+    if (next < 1) next = total;
+    if (next > total) next = 1;
+    hitIndex = next;
+
+    if (onlyHits) {
+      jumpTo = { line: next, nonce: ++jumpNonce };
+      return;
+    }
+    try {
+      const [physical] = await logFilterMap(handle, next - 1, 1);
+      // physical 是 0-based，换成全局约定的 1-based
+      if (physical !== undefined) jumpTo = { line: physical + 1, nonce: ++jumpNonce };
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  /*
+   * F3 / ⇧F3 跳命中。挂在 window 上而不是某个元素上：翻日志时焦点可能在
+   * 滚动区、过滤框、级别按钮上的任何一个，绑到具体元素就会时灵时不灵。
+   * 这个组件只在日志模式下挂载，卸载时监听跟着走，不会串到编辑模式去。
+   */
+  $effect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "F3") return;
+      e.preventDefault();
+      void jumpHit(e.shiftKey ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  // 换关键字 / 换文件就把游标归零，否则「3/12」会停在一个已经不存在的位置
+  $effect(() => {
+    pattern;
+    levelBits;
+    handle;
+    hitIndex = 0;
+  });
 
   // 取开头几十行投票选格式。只看第一行容易被启动横幅、空行带偏
   $effect(() => {
@@ -136,7 +212,7 @@
    * 拿到首批命中计数之前继续显示旧视图 —— 否则行数为 0，
    * 界面会闪一下空白再填上内容。
    */
-  let showFiltered = $derived(filtered && filterHits !== null);
+  let showFiltered = $derived(filtered && filterHits !== null && onlyHits);
   let viewLines = $derived(showFiltered ? (filterHits ?? 0) : (stat?.lineCount ?? 0));
   let counts = $derived((stat?.levels ?? [0, 0, 0, 0, 0, 0]) as LevelCounts);
 
@@ -167,6 +243,9 @@
     bind:collapseStacks
     {filterHits}
     {filterRunning}
+    {hitIndex}
+    bind:onlyHits
+    onJump={(d) => void jumpHit(d)}
   />
   <div class="body">
     <LogView
@@ -176,7 +255,8 @@
       {pattern}
       {caseSensitive}
       stickBottom={tailing}
-      {gotoLine}
+      gotoLine={jumpTo ?? gotoLine}
+      currentLine={jumpTo?.line ?? 0}
       {format}
       {encoding}
     />
@@ -184,6 +264,14 @@
 </div>
 
 <style>
-  .pane { display: grid; grid-template-rows: auto 1fr; height: 100%; overflow: hidden; }
+  /* container-type 让过滤栏能按**自己所在容器**的宽度退化，而不是看整个窗口 ——
+     侧边栏和终端面板都会吃掉宽度，vw 在这里是错的参照物 */
+  .pane {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100%;
+    overflow: hidden;
+    container-type: inline-size;
+  }
   .body { overflow: hidden; }
 </style>

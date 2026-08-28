@@ -11,6 +11,7 @@
     caseSensitive = false,
     stickBottom = false,
     gotoLine = null,
+    currentLine = 0,
     format = "plain",
     encoding = "utf-8",
   }: {
@@ -22,6 +23,13 @@
     stickBottom?: boolean;
     /** 搜索结果跳转的目标行（1-based）。带 nonce，连点同一条也能重新定位 */
     gotoLine?: { line: number; nonce: number } | null;
+    /**
+     * 当前停在哪一行（视图行号，1-based；0 表示没有）。
+     *
+     * 「跳到下一处」把行滚到中间是不够的 —— 屏幕上十几行长得都一样，
+     * 高亮的关键字每行都有，用户没法一眼认出「就是这一行」。
+     */
+    currentLine?: number;
     /** 日志格式，由 LogPane 从样本行探测后传入 */
     format?: LogFormat;
     /** 文件编码标签，交给 TextDecoder */
@@ -148,7 +156,13 @@
     <div class="layer" style:transform="translateY({layerTop}px)">
       {#each rows as { n, row } (n)}
         {@const seg = row ? parse(row.text, format) : null}
-        <div class="row" class:pending={!row} class:stack={seg?.stack} data-lvl={seg?.lvl}>
+        <div
+          class="row"
+          class:pending={!row}
+          class:stack={seg?.stack}
+          class:current={currentLine > 0 && n === currentLine - 1}
+          data-lvl={seg?.lvl}
+        >
           <span class="gutter" style:width={gutterWidth}>{row ? row.phys + 1 : ""}</span>
           {#if seg}
             <span class="cells">
@@ -198,6 +212,15 @@
     padding-right: 12px;
   }
   .row:hover { background: rgba(255, 255, 255, 0.035); }
+  /*
+   * 当前停在的那一行。用左侧一条 accent 竖线 + 淡底，而不是整行反色 ——
+   * 行内的关键字高亮已经在抢注意力了，再来一层强底色两个都看不清。
+   */
+  .row.current {
+    background: rgba(53, 116, 240, 0.13);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  .row.current .gutter { color: var(--accent); }
 
   .gutter {
     flex: none;
