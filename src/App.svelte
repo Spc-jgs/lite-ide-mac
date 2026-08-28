@@ -4,6 +4,7 @@
   import Tabs from "./lib/shell/Tabs.svelte";
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
+  import { notify } from "./lib/state/notify.svelte";
   import Outline from "./lib/search/Outline.svelte";
   import type { Sym } from "./lib/editor/outline";
   import { langOf, langLabel } from "./lib/editor/langs";
@@ -108,10 +109,7 @@
     }
   }
 
-  /**
-   * 文件树刷新计数。切分支、丢弃、动工作树、以及窗口重新获得焦点时自增 ——
-   * 磁盘上的目录结构随时可能被终端里的命令改掉。
-   */
+  /** 文件树刷新计数，由 workingTreeChanged() 推进 */
   let treeTick = $state(0);
 
   let sidebar = $state(true);
@@ -180,8 +178,7 @@
         return;
       }
       if (tab.dirty) {
-        error = "有未保存的改动，请先保存（⌘S）再换编码重新打开";
-        setTimeout(() => (error = ""), 3000);
+        notify.fail("有未保存的改动，请先保存（⌘S）再换编码重新打开", 3000);
         return;
       }
       const t = await readText(tab.path, label);
@@ -190,10 +187,9 @@
       tab.bom = t.bom;
       tab.lossy = t.lossy;
       savedTick++;
-      saved = `已按 ${t.encoding} 重新打开${t.lossy ? "（仍有解不出的字节）" : ""}`;
-      setTimeout(() => (saved = ""), 3000);
+      notify.ok(`已按 ${t.encoding} 重新打开${t.lossy ? "（仍有解不出的字节）" : ""}`, 3000);
     } catch (e) {
-      error = String(e);
+      notify.fail(String(e));
     }
   }
 
@@ -205,19 +201,15 @@
     tab.bom = bom;
     // 内容没变但目标编码变了，得让用户知道要按 ⌘S 才会真的落盘
     tab.dirty = true;
-    saved = `下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`;
-    setTimeout(() => (saved = ""), 3600);
+    notify.ok(`下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`, 3600);
   }
 
   function switchBranch(name: string, create = false) {
-    banner = null;
+    notify.closeBanner();
     void gitDo(create ? "新建分支失败" : "切分支失败", async () => {
       await gitSwitch(repo!, name, create);
-      saved = create ? `已新建并切到 ${name}` : `已切到 ${name}`;
-      setTimeout(() => (saved = ""), 2600);
-      // 切分支会大面积改盘上的文件：打开的标签要重新对一遍，文件树也要重列
-      await checkExternalChanges();
-      treeTick++;
+      notify.ok(create ? `已新建并切到 ${name}` : `已切到 ${name}`, 2600);
+      await workingTreeChanged();
     });
   }
 
@@ -225,8 +217,7 @@
     void gitDo("新建工作树失败", async () => {
       // 分支存不存在由 gitsvc 判，这里只管「要一个跑着这个分支的目录」
       const path = await gitWorktreeAdd(repo!, dir, branch);
-      saved = `工作树已建在 ${path}`;
-      setTimeout(() => (saved = ""), 3600);
+      notify.ok(`工作树已建在 ${path}`, 3600);
       await openPath(path);
     });
   }
@@ -238,9 +229,8 @@
     pendingWtRemove = null;
     void gitDo("移除工作树失败", async () => {
       await gitWorktreeRemove(repo!, w.path, force);
-      saved = `已移除工作树 ${w.path}`;
-      treeTick++;
-      setTimeout(() => (saved = ""), 2600);
+      notify.ok(`已移除工作树 ${w.path}`);
+      await workingTreeChanged();
     });
   }
 
@@ -353,8 +343,7 @@
         tabs.filter((t) => t.mode === "diff" && !t.diffSha).map((t) => reloadDiff(t.id)),
       );
     } catch (e) {
-      error = String(e);
-      setTimeout(() => (error = ""), 4000);
+      notify.fail(String(e), 4000);
     } finally {
       gitBusy = false;
     }
@@ -369,6 +358,24 @@
    * 差异面板因此一直停在「没有差异」，直到别的操作碰巧引起一次重绘。
    * 异步流程尤其容易踩：await 回来时手上那个引用早已不是响应式的那一份。
    */
+  /**
+   * 盘上的文件被改了 —— 不是被我们改的。
+   *
+   * 切分支、丢弃改动、移除工作树、以及用户切出去在终端里敲完命令切回来，
+   * 都属于这一类：**内容和目录结构都可能变了**。两件事必须一起做，
+   * 少做哪一件都会留下一个说谎的界面：
+   *
+   * - 只重读文件内容 → 树上还挂着已经不存在的文件
+   * - 只重列目录 → 打开的标签还显示着旧分支的内容
+   *
+   * 早先这两行是在四个地方各写一遍的，其中一处只写了后半句。
+   * 给它一个名字，就不会再漏。
+   */
+  async function workingTreeChanged() {
+    await checkExternalChanges();
+    treeTick++;
+  }
+
   function tabById(id: number): TabState | null {
     return tabs.find((t) => t.id === id) ?? null;
   }
@@ -400,7 +407,7 @@
       tab.diffRaw = raw;
     } catch (e) {
       tab.diffRaw = "";
-      error = String(e);
+      notify.fail(String(e));
     }
   }
 
@@ -439,7 +446,7 @@
       }
       activeId = id;
     } catch (err) {
-      error = String(err);
+      notify.fail(String(err));
     }
   }
 
@@ -450,16 +457,15 @@
       await writeText(`${repo}/${tab.rel}`, content, tab.encoding);
       if (resolved) {
         await gitStage(repo, [tab.rel]);
-        saved = `${tab.name} 已标记为解决`;
+        notify.ok(`${tab.name} 已标记为解决`);
         doClose(tab);
       } else {
         tab.mergeText = content;
-        saved = `${tab.name} 进度已保存`;
+        notify.ok(`${tab.name} 进度已保存`);
       }
-      setTimeout(() => (saved = ""), 2600);
       await refreshGit();
     } catch (e) {
-      error = String(e);
+      notify.fail(String(e));
     }
   }
 
@@ -503,13 +509,6 @@
     await reloadDiff(id);
   }
 
-  /**
-   * git 的错误说明是**多行**的（「你有未提交的改动，请先 commit 或 stash，
-   * 涉及这些文件：…」），塞进状态栏那一格会被截断成一句没头没尾的话。
-   * 这类消息走横幅，用户自己关。
-   */
-  let banner = $state<{ title: string; body: string } | null>(null);
-
   /** 包一层：任何 git 写操作之后都要刷新状态，也统一收口错误 */
   async function gitDo(what: string, fn: () => Promise<unknown>) {
     if (!repo) return;
@@ -517,7 +516,7 @@
       await fn();
       await refreshGit();
     } catch (e) {
-      banner = { title: what, body: String(e).replace(/^Error:\s*/, "") };
+      notify.block(what, e);
     }
   }
 
@@ -528,16 +527,13 @@
     const tracked = entries.filter((e) => !e.untracked).map((e) => e.path);
     const untracked = entries.filter((e) => e.untracked).map((e) => e.path);
     await gitDo("丢弃失败", () => gitDiscard(repo!, tracked, untracked));
-    // 丢弃会改磁盘：打开着的编辑标签要跟上，未跟踪文件被删了文件树也要重列
-    await checkExternalChanges();
-    treeTick++;
+    await workingTreeChanged();
   }
 
   function doGitCommit(message: string, amend: boolean) {
     void gitDo("提交失败", async () => {
       const out = await gitCommit(repo!, message, amend);
-      saved = out.split("\n")[0] || "已提交";
-      setTimeout(() => (saved = ""), 3000);
+      notify.ok(out.split("\n")[0] || "已提交", 3000);
     });
   }
   let panel = $state(false);
@@ -589,9 +585,7 @@
     if (panel && panelView === "term" && terms.length === 0 && root !== null) newTerm(root);
   });
   let hovering = $state(false);
-  let error = $state("");
   let logStatus = $state("");
-  let saved = $state("");
   /** 待确认关闭的脏标签 —— 直接丢弃改动太粗暴，也不该静默保存 */
   let pendingClose = $state<TabState | null>(null);
 
@@ -666,8 +660,7 @@
       hint: "⌘⇧G",
       run: () => {
         if (!repo) {
-          error = "当前项目不是 Git 仓库";
-          setTimeout(() => (error = ""), 2600);
+          notify.fail("当前项目不是 Git 仓库", 2600);
           return;
         }
         sideView = "git";
@@ -686,8 +679,7 @@
       run: () => {
         if (active) encOpen = true;
         else {
-          error = "先打开一个文件";
-          setTimeout(() => (error = ""), 2200);
+          notify.fail("先打开一个文件", 2200);
         }
       },
     },
@@ -698,8 +690,7 @@
         const e = activeEntry;
         if (e) void openDiff(e, false);
         else {
-          error = "当前文件没有未提交的改动";
-          setTimeout(() => (error = ""), 2600);
+          notify.fail("当前文件没有未提交的改动", 2600);
         }
       },
     },
@@ -750,7 +741,7 @@
   $effect(() => {
     const e =
       editor.error || logPane.error || terminal.error || git.error || encPicker.error;
-    if (e) error = e;
+    if (e) notify.fail(e);
   });
 
   /** 走 legacy stream parser 的语言没有语法树，界面要明说 */
@@ -769,7 +760,7 @@
   async function openPath(path: string) {
     if (opening.has(path)) return;
     opening.add(path);
-    error = "";
+    notify.clear();
     try {
       const info = await probePath(path);
       if (info.kind === "dir") {
@@ -808,7 +799,7 @@
       // 没有项目根时，拿这个文件的父目录顶上，文件树才有东西显示
       if (!root) root = info.path.slice(0, info.path.lastIndexOf("/")) || "/";
     } catch (e) {
-      error = String(e);
+      notify.fail(String(e));
     } finally {
       opening.delete(path);
     }
@@ -824,12 +815,11 @@
       tab.content = content;
       tab.conflict = false;
       savedTick++;
-      saved = `已保存 ${tab.name}`;
-      setTimeout(() => (saved = ""), 1800);
+      notify.ok(`已保存 ${tab.name}`, 1800);
       // 保存八成改变了 git 状态，顺手刷一下，文件树的标记才跟得上
       void refreshGit();
     } catch (e) {
-      error = String(e);
+      notify.fail(String(e));
     }
   }
 
@@ -866,10 +856,9 @@
           tab.lossy = t.lossy;
           tab.stamp = now;
           savedTick++;
-          saved = `${tab.name} 已被外部修改，已重新加载`;
-          setTimeout(() => (saved = ""), 2600);
+          notify.ok(`${tab.name} 已被外部修改，已重新加载`, 2600);
         } catch (e) {
-          error = String(e);
+          notify.fail(String(e));
         }
       }
     }
@@ -884,7 +873,7 @@
         tab.dirty = false;
         savedTick++;
       } catch (e) {
-        error = String(e);
+        notify.fail(String(e));
       }
     }
     // take === "mine"：什么都不做，保留编辑器里的内容，
@@ -893,11 +882,9 @@
 
   $effect(() => {
     const onFocus = () => {
-      void checkExternalChanges();
-      // 用户可能刚在终端里 commit / checkout 完切回来
+      // 用户可能刚切出去，在终端里 commit / checkout / mv 完再切回来
+      void workingTreeChanged();
       void refreshGit();
-      // 目录结构也可能变了（新建、改名、切分支）
-      treeTick++;
     };
     window.addEventListener("focus", onFocus);
     /*
@@ -917,8 +904,7 @@
 
   function requestSwitchMode(tab: TabState) {
     if (tab.dirty) {
-      error = "有未保存的改动，请先保存（⌘S）再切换模式";
-      setTimeout(() => (error = ""), 2600);
+      notify.fail("有未保存的改动，请先保存（⌘S）再切换模式", 2600);
       return;
     }
     const to = tab.mode === "edit" ? "log" : "edit";
@@ -932,7 +918,7 @@
 
   async function doSwitch(tab: TabState, to: "edit" | "log") {
     pendingSwitch = null;
-    error = "";
+    notify.clear();
     try {
       if (tab.mode === "log" && tab.handle !== undefined) {
         await closeLog(tab.handle);
@@ -951,7 +937,7 @@
       tab.mode = to;
       tab.forced = to;
     } catch (e) {
-      error = String(e);
+      notify.fail(String(e));
       // 切换失败要退回原状态，否则标签会停在一个既没句柄也没内容的空壳上
       if (tab.mode === "log" && tab.handle === undefined) {
         try {
@@ -1339,13 +1325,13 @@
         </div>
       {/if}
 
-      {#if banner}
+      {#if notify.banner}
         <div class="confirm err-banner">
           <span class="btext">
-            <b>{banner.title}</b>
-            <span class="bbody">{banner.body}</span>
+            <b>{notify.banner.title}</b>
+            <span class="bbody">{notify.banner.body}</span>
           </span>
-          <button onclick={() => (banner = null)}>知道了</button>
+          <button onclick={() => notify.closeBanner()}>知道了</button>
         </div>
       {/if}
 
@@ -1395,7 +1381,7 @@
             <p>代码走编辑模式，大文件与日志自动走只读的日志模式</p>
             <p class="keys">双击 ⇧ 随处搜索 · ⌘P 找文件 · ⌘⇧F 搜内容 · ⌘⇧O 文件结构</p>
             <p class="keys">⌘S 保存 · ⌘W 关闭标签 · ⌘1 侧边栏 · ⌘J 终端 · ⌘⇧G 改动</p>
-            {#if error}<p class="err">{error}</p>{/if}
+            {#if notify.error}<p class="err">{notify.error}</p>{/if}
           </div>
         {:else if active.mode === "merge" && git.comps.merge}
           {#key active.id}
@@ -1562,8 +1548,8 @@
     {:else}
       <span class="cell dim">等待文件</span>
     {/if}
-    {#if saved}<span class="cell ok">{saved}</span>{/if}
-    {#if error}<span class="cell err">{error}</span>{/if}
+    {#if notify.info}<span class="cell ok">{notify.info}</span>{/if}
+    {#if notify.error}<span class="cell err">{notify.error}</span>{/if}
     <span class="spacer"></span>
     {#if gitSt}
       <button
