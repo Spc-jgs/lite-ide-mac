@@ -69,14 +69,31 @@ xattr -dr com.apple.quarantine /Applications/lite-ide.app
 
 ## 发一个版本
 
-### 1. 改版本号（三处必须一致）
+### 1. 改版本号（三处必须一致，外加一处自动生成的）
 
 ```bash
 # package.json · src-tauri/Cargo.toml · src-tauri/tauri.conf.json
 ```
 
-三处都得改，`.dmg` 的文件名取自 `tauri.conf.json`。改完跑一次 `pnpm app:bundle`
-确认文件名对得上。
+三处都得改，`.dmg` 的文件名取自 `tauri.conf.json`。
+
+**改完必须在本地跑一次 cargo，把 `src-tauri/Cargo.lock` 一起提交。**
+CI 用的是 `cargo test --workspace --locked`，它会拒绝更新 lock 文件：
+
+```
+error: cannot update the lock file ... because --locked was passed to prevent this
+```
+
+这条踩过一次 —— v0.3.0 第一次打标签，CI 和发版工作流双双在「Rust 测试」
+那步红掉，而本地怎么跑都是绿的（本地没有 `--locked`）。
+`pnpm app:bundle` 或任意一条 `cargo` 命令都会顺手把 lock 改好：
+
+```bash
+cd src-tauri && cargo metadata --format-version 1 > /dev/null
+git add src-tauri/Cargo.lock
+```
+
+改完再跑一次 `pnpm app:bundle` 确认 `.dmg` 的文件名对得上。
 
 ### 2. 打标签推上去
 
