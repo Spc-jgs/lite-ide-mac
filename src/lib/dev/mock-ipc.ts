@@ -330,6 +330,17 @@ export function installMockIpc(): void {
             return { kind: "dir", mode: "edit", path, name: path.split("/").pop(), size: 0, reason: "" };
           }
           const isLog = path.endsWith(".log");
+          /*
+           * 不认识的路径要**报错**，不能凭空造一个文件出来。
+           *
+           * 原来对任意路径都返回一个假文件，于是「打开一个不存在的文件」
+           * 这条路在浏览器里根本走不到 —— 而真实现是直接 Err。会话恢复
+           * 正好高度依赖这条路（上次开着的文件这次可能已经删了/换分支没了），
+           * 桩不还原它，那部分逻辑就等于没测过。
+           */
+          if (!isLog && FILES[path] === undefined) {
+            throw new Error(`读不到 ${path}：No such file or directory (os error 2)`);
+          }
           return {
             kind: "file",
             mode: isLog ? "log" : "edit",

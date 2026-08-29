@@ -5,6 +5,7 @@
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
+  import * as session from "./lib/state/session";
   import Crash from "./lib/shell/Crash.svelte";
   import Outline from "./lib/search/Outline.svelte";
   import type { Sym } from "./lib/editor/outline";
@@ -85,6 +86,38 @@
    */
   const CONFIRM_EDIT_BYTES = 8 << 20;
 
+  /**
+   * 上次退出时的现场。**同步读一次**，不放进 effect ——
+   * 布局要用它做 `$state` 的初值，晚一拍读就会看见侧边栏从 240 跳到
+   * 上次的宽度，那一下闪比不恢复还难受。
+   *
+   * 读不出来（第一次跑、隐私模式、数据被清、存的是坏数据）就是 null，
+   * 一切照默认走。`session.parse` 保证不抛。
+   */
+  const saved = (() => {
+    try {
+      return session.parse(localStorage.getItem(session.KEY));
+    } catch {
+      return null;
+    }
+  })();
+  const savedLayout = saved?.layout ?? session.DEFAULT_LAYOUT;
+
+  /**
+   * 每个文件上次停在第几行。
+   *
+   * **刻意不做成 `$state`**：它在编辑时每换一行就写一次，做成响应式等于
+   * 每换行都惊动一次渲染，而界面上没有任何地方要显示它 —— 它只在存快照
+   * 和恢复时被读。普通 Map 就够。
+   */
+  const posByPath = new Map<string, number>();
+  /**
+   * 还没兑现的恢复位置。标签被恢复出来时不能立刻跳 ——
+   * 那时组件还没挂上。等它第一次成为活动标签再跳，跳完就从这里删掉，
+   * 否则之后每次切回这个标签都会被拽回那一行。
+   */
+  const pendingPos = new Map<string, number>();
+
   let root = $state<string | null>(null);
   let tabs = $state<TabState[]>([]);
   let activeId = $state<number | null>(null);
@@ -115,10 +148,10 @@
   /** 文件树刷新计数，由 workingTreeChanged() 推进 */
   let treeTick = $state(0);
 
-  let sidebar = $state(true);
-  let sidebarWidth = $state(240);
+  let sidebar = $state(savedLayout.sidebar);
+  let sidebarWidth = $state(savedLayout.sidebarWidth);
   /** 侧边栏当前显示哪个视图。不在仓库里时强制回文件树 */
-  let sideView = $state<"files" | "git">("files");
+  let sideView = $state<"files" | "git">(savedLayout.sideView);
 
   // ─────────────────────────── Git ───────────────────────────
 
@@ -543,10 +576,10 @@
       notify.ok(out.split("\n")[0] || "已提交", 3000);
     });
   }
-  let panel = $state(false);
-  let panelHeight = $state(260);
+  let panel = $state(savedLayout.panel);
+  let panelHeight = $state(savedLayout.panelHeight);
   /** 底部面板当前是哪个工具窗。终端实例永不卸载，只是藏起来 */
-  let panelView = $state<"term" | "log">("term");
+  let panelView = $state<"term" | "log">(savedLayout.panelView);
   /** xterm.js 约 250KB，不开终端就不该付这个钱 —— 与 CM6 同样按需加载 */
   const terminal = lazy(() => import("./lib/terminal/Terminal.svelte"), "终端");
   /**
@@ -788,10 +821,15 @@
   /** 正在打开的路径，防止双击或事件重放时重复探测 */
   const opening = new Set<string>();
 
-  async function openPath(path: string) {
+  /**
+   * `quiet` 给会话恢复用：上次开着的文件这次可能已经不在了
+   * （删了、改名了、切到了没有它的分支）。那是完全正常的事，
+   * 逐个弹「读不到 xxx」只会在启动时糊一屏红字。
+   */
+  async function openPath(path: string, quiet = false) {
     if (opening.has(path)) return;
     opening.add(path);
-    notify.clear();
+    if (!quiet) notify.clear();
     try {
       const info = await probePath(path);
       if (info.kind === "dir") {
@@ -830,11 +868,156 @@
       // 没有项目根时，拿这个文件的父目录顶上，文件树才有东西显示
       if (!root) root = info.path.slice(0, info.path.lastIndexOf("/")) || "/";
     } catch (e) {
-      notify.fail(String(e));
+      if (!quiet) notify.fail(String(e));
     } finally {
       opening.delete(path);
     }
   }
+
+  /**
+   * 把上次的现场摆回来。
+   *
+   * 全程「能恢复多少算多少」：项目根没了就不设，文件没了就跳过，
+   * 一个都没恢复出来就是一个干净的空界面 —— 都不该报错。
+   * 启动流程里任何一句 throw 都等于应用打不开。
+   */
+  async function restoreSession() {
+    if (!saved) return;
+    if (saved.root) {
+      const ok = await probePath(saved.root)
+        .then((i) => i.kind === "dir")
+        .catch(() => false);
+      if (ok) root = saved.root;
+    }
+    /*
+     * **先记位置，再开文件。** 反过来写过一版，位置恢复整个不生效：
+     * `openPath` 一把标签加进去，activeId 就变了，兑现位置的那个 effect
+     * 当场就跑 —— 而那时 `pendingPos` 里还什么都没有。等 effect 跑完再写进去，
+     * activeId 已经不会再变，effect 也就不会再跑第二次了。
+     */
+    for (const t of saved.tabs) {
+      if (t.line !== undefined) pendingPos.set(t.path, t.line);
+    }
+    /*
+     * 串行开，不并行。
+     *
+     * 并行看着快，但每个文件都要 probe + 读全文（或 mmap + 探编码），
+     * 二十个文件一起冲进 IPC 会把启动的头一秒占满，首屏反而更晚出来。
+     * 而且 `openPath` 里 `if (!root) root = 父目录` 这句依赖顺序。
+     */
+    for (const t of saved.tabs) await openPath(t.path, true);
+    const want = saved.tabs[saved.active]?.path;
+    const hit = want ? tabs.find((t) => t.path === want) : null;
+    if (hit) activeId = hit.id;
+    // 上次开着、这次已经不在的文件：从记忆里也删掉，不然它们
+    // 会一直躺在快照里，每次启动都白试一遍
+    for (const t of saved.tabs) {
+      if (!tabs.some((x) => x.path === t.path)) pendingPos.delete(t.path);
+    }
+  }
+
+  /**
+   * 活动标签换了：如果它带着一个待兑现的恢复位置，跳过去并**销号**。
+   *
+   * 销号是关键 —— 不删的话，以后每次切回这个标签都会被拽回那一行，
+   * 用户在别处读到一半切走再切回来就莫名其妙跳走了。
+   */
+  $effect(() => {
+    const t = active;
+    if (!t) return;
+    const line = pendingPos.get(t.path);
+    if (line === undefined) return;
+    pendingPos.delete(t.path);
+    gotoLine = { line, nonce: ++gotoNonce };
+  });
+
+  /** 按当前状态拍一张快照 */
+  function snapshot(): session.Session {
+    return {
+      root,
+      tabs: tabs.map((t) => {
+        const line = posByPath.get(t.path);
+        return line === undefined ? { path: t.path } : { path: t.path, line };
+      }),
+      active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
+      layout: { sidebar, sidebarWidth, sideView, panel, panelHeight, panelView },
+    };
+  }
+
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * 恢复期间不写。
+   *
+   * 保存的 effect 在挂载时就会跑一次，而那时 `restoreSession()` 还没开始
+   * （它要等 `initialPath()` 这个 IPC 回来）—— 400ms 的防抖一到，
+   * 就会拿一个「什么都没打开」的空状态**盖掉上次的快照**。
+   * 本次运行看不出问题（`saved` 早在初始化时就读进内存了），
+   * 但恢复途中退出的话，上次的现场就真没了。
+   */
+  let restoring = $state(true);
+
+  function writeSession() {
+    saveTimer = null;
+    if (restoring) return;
+    try {
+      localStorage.setItem(session.KEY, session.serialize(snapshot()));
+    } catch {
+      /* 存不下（配额满、隐私模式）就算了，下次开是干净的默认界面 */
+    }
+  }
+
+  /**
+   * 防抖 400ms 后存。
+   *
+   * 拖侧边栏、移光标、滚日志都会走这里，每次都写 localStorage 是**同步 IO**，
+   * 不防抖的话拖动时能明显感觉到滞手。
+   */
+  function scheduleSave() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(writeSession, 400);
+  }
+
+  /**
+   * 记下某个文件当前停在哪一行。
+   *
+   * **必须自己调 `scheduleSave()`**，不能指望下面那个 effect ——
+   * `posByPath` 是普通 Map（故意的，见它的声明），改它不产生任何信号。
+   * 少了这一句，「开文件 → 滚到第 5000 行 → 退出」这条最典型的路径
+   * 就什么都没存下来，而快照看着还挺正常，最难查。
+   */
+  function markPos(path: string, line: number) {
+    if (line < 1) return;
+    posByPath.set(path, line);
+    scheduleSave();
+  }
+
+  // 响应式那一半：布局、标签、项目根变了就存
+  $effect(() => {
+    // 显式读一遍，让 effect 订阅上它们
+    void [root, tabs.length, activeId, sidebar, sidebarWidth, sideView, panel, panelHeight, panelView];
+    scheduleSave();
+  });
+
+  /*
+   * 退出前补一次。
+   *
+   * 防抖有 400ms 的窗口，而「移完光标马上 ⌘Q」正好落在里面 ——
+   * 那次移动就丢了。pagehide 比 beforeunload 可靠（Safari/WKWebView 上
+   * beforeunload 不一定触发），两个都挂上，写两次也无所谓。
+   */
+  $effect(() => {
+    const flush = () => {
+      if (saveTimer) clearTimeout(saveTimer);
+      writeSession();
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  });
 
   async function save(content: string) {
     const tab = active;
@@ -1120,9 +1303,32 @@
   }
 
   $effect(() => {
-    initialPath().then((p) => {
-      if (p && tabs.length === 0 && root === null) void openPath(p);
-    });
+    initialPath()
+      .then(async (p) => {
+        if (tabs.length > 0 || root !== null) return;
+        if (!p) {
+          await restoreSession();
+          return;
+        }
+        /*
+         * 命令行（或拖到图标上）指名了路径。分两种情况：
+         *
+         * - 指的是**文件**：先把上次的现场恢复出来，再把这个文件开在上面。
+         *   `lite-ide a.rs` 的意思是「顺手看一眼这个文件」，不是
+         *   「把我的工作区清空」—— VS Code 的 `code a.js` 就是这个行为。
+         * - 指的是**另一个目录**：那是在切项目，旧项目的标签铺过来只会碍事。
+         *   同一个目录则照常恢复。
+         */
+        const info = await probePath(p).catch(() => null);
+        const switchingProject = info?.kind === "dir" && info.path !== saved?.root;
+        if (!switchingProject) await restoreSession();
+        await openPath(p);
+      })
+      .catch(() => {})
+      .finally(() => {
+        restoring = false;
+        scheduleSave();
+      });
   });
 
   $effect(() => {
@@ -1502,6 +1708,7 @@
               {gotoLine}
               encoding={active.encoding ?? "utf-8"}
               onStatus={(s) => (logStatus = s)}
+              onTop={(l) => markPos(active!.path, l)}
             />
           {/key}
         {:else if active.mode === "log"}
@@ -1519,6 +1726,7 @@
               onChange={(d) => (active!.dirty = d)}
               onSave={save}
               onOutline={(s) => (symbols = s)}
+              onCursor={(l) => markPos(active!.path, l)}
             />
           {/key}
         {:else}

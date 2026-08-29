@@ -23,6 +23,7 @@
     onChange,
     onSave,
     onOutline,
+    onCursor,
   }: {
     path: string;
     initial: string;
@@ -38,6 +39,13 @@
     onChange: (dirty: boolean) => void;
     onSave: (content: string) => void;
     onOutline?: (syms: Sym[]) => void;
+    /**
+     * 光标换行时报一次（1-based）。会话快照用它记住「上次看到哪」。
+     *
+     * 只在**行号变了**时才报 —— 同一行里左右移动一个字符也回调的话，
+     * 敲一行字就是几十次无谓调用。
+     */
+    onCursor?: (line: number) => void;
   } = $props();
 
   let host: HTMLDivElement | undefined = $state();
@@ -48,6 +56,8 @@
   const mapSlot = new Compartment();
   /** dirty 判定的基线：当前磁盘上的内容。挂载与换文件时更新，不在顶层读 prop */
   let baseline = "";
+  /** 上次报出去的光标行，用来把「同一行内移动」滤掉 */
+  let lastLine = 0;
 
   function build(doc: string) {
     return EditorState.create({
@@ -100,6 +110,13 @@
         ]),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChange(u.state.doc.toString() !== baseline);
+          if (onCursor && (u.selectionSet || u.docChanged)) {
+            const line = u.state.doc.lineAt(u.state.selection.main.head).number;
+            if (line !== lastLine) {
+              lastLine = line;
+              onCursor(line);
+            }
+          }
         }),
       ],
     });
