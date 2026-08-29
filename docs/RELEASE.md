@@ -129,9 +129,9 @@ pnpm tauri build --target universal-apple-darwin
 
 | 步骤 | 为什么 |
 |---|---|
-| `cargo test --workspace` | 95 条 Rust 测试 |
+| `cargo test --workspace` | 97 条 Rust 测试（含 IPC 两侧 DTO 的一致性检查） |
 | `pnpm check` | Svelte + TS 类型检查 |
-| 前端纯函数测试 | 87 条断言（diff 解析、双栏对照、泳道布局、冲突解析、改动行标记） |
+| 前端纯函数测试 | 143 条断言（diff 解析、双栏对照、泳道布局、冲突解析、改动行标记、行缓存预算、会话快照） |
 | `pnpm build` | 确认前端能构建 |
 | 入口包体积门禁 | 超过 160 KB 就失败 —— 见下 |
 
