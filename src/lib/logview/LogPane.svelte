@@ -19,12 +19,20 @@
     gotoLine = null,
     encoding = "utf-8",
     onStatus,
+    onTop,
   }: {
     handle: number;
     gotoLine?: { line: number; nonce: number } | null;
     /** 文件编码标签；由上层探测后传下来 */
     encoding?: string;
     onStatus: (s: string) => void;
+    /**
+     * 顶部可见的**物理**行号，给会话快照记「上次读到哪」。
+     *
+     * 过滤态下**不报**：那时的视图行号是「第几条命中」，换个关键字
+     * 就完全对不上了，拿它当位置恢复出来会落在一个毫不相干的地方。
+     */
+    onTop?: (line: number) => void;
   } = $props();
 
   const ALL_LEVELS = 0b111111;
@@ -271,6 +279,7 @@
       currentLine={jumpTo?.line ?? 0}
       {format}
       {encoding}
+      onTop={showFiltered ? undefined : onTop}
     />
   </div>
 </div>

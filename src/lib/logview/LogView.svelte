@@ -14,6 +14,7 @@
     currentLine = 0,
     format = "plain",
     encoding = "utf-8",
+    onTop,
   }: {
     handle: number;
     lineCount: number;
@@ -34,6 +35,11 @@
     format?: LogFormat;
     /** 文件编码标签，交给 TextDecoder */
     encoding?: string;
+    /**
+     * 顶部可见行变了就报一次（1-based）。会话快照用它记住「上次读到哪」——
+     * 在 1GB 日志里这件事比在代码文件里值钱得多。
+     */
+    onTop?: (line: number) => void;
   } = $props();
 
   const LINE_HEIGHT = 20;
@@ -107,8 +113,18 @@
     }
   });
 
+  /** 上次报出去的顶部行，把「同一行内的像素级滚动」滤掉 */
+  let lastTop = 0;
+
   function onScroll() {
-    if (viewport) scrollTop = viewport.scrollTop;
+    if (!viewport) return;
+    scrollTop = viewport.scrollTop;
+    if (!onTop) return;
+    const line = map.topLineAt(scrollTop, viewportHeight) + 1;
+    if (line !== lastTop) {
+      lastTop = line;
+      onTop(line);
+    }
   }
 
   function onKeydown(e: KeyboardEvent) {
