@@ -174,3 +174,74 @@ M0 的技术路线**通过验证**：mmap + 稀疏索引 + 二进制 IPC 这条�
 
 **教训**：验证环境与交付环境的差异，会让一整串「验证通过」变得没有意义。
 凡是靠外部进程（dev server）才能跑起来的验证，都要先确认那个进程在最终形态里也存在。
+
+
+---
+
+# ⌘P 模糊匹配（2026-08-31）
+
+日志引擎之外唯一进过基准的热点。它跑在**每一次击键**上，预算是 60fps 的 16ms 单帧。
+
+## 基准
+
+5 万条路径（`MAX_FILES` 上限，形态接近真实 Java 单体仓库）：
+
+```ts
+import { rank } from "../src/lib/search/fuzzy.ts";
+const segs = ["src", "lib", "components", "utils", "internal", "api", "model", "test"];
+const files: string[] = [];
+for (let i = 0; i < 50_000; i++)
+  files.push(`${segs[i % 8]}/${segs[(i >> 3) % 8]}/${segs[(i >> 6) % 8]}/File${i}Handler.ts`);
+for (const q of ["a", "ha", "handler", "sluhandler"]) {
+  rank(files, q, (f) => f, 40); // 预热
+  const t = performance.now();
+  for (let k = 0; k < 5; k++) rank(files, q, (f) => f, 40);
+  console.log(`${q}: ${((performance.now() - t) / 5).toFixed(1)} ms`);
+}
+```
+
+## 结果
+
+| query | 改前 | 改后 |
+|---|---|---|
+| `a` | 13.2 ms | 4.8 ms |
+| `ha` | 12.7 ms | 5.2 ms |
+| `handler` | **20.7 ms** | **8.2 ms** |
+| `sluhandler`（命中少） | 8.9 ms | 3.7 ms |
+
+query 越长越慢，因为内层扫描的候选字符数是「文本长度 × query 长度」量级。
+
+## 时间花在哪
+
+改前拆段（5 万条）：
+
+| 段 | 耗时 |
+|---|---|
+| 只做 `toLowerCase` | 1.3 ms |
+| 完整 `fuzzyMatch` | **13.4 ms** |
+| 全量排序 5 万条 | 5.7 ms |
+| （对照）5 万次 `indexOf` | 0.9 ms |
+
+一开始猜是 `toLowerCase()` 的分配，**猜错了** —— 它只占 1.3ms。热点在
+`isBoundary`：它对每一个候选字符做 `prev.toLowerCase()` 和 `s[i].toLowerCase()`，
+每次分配一个单字符串。
+
+## 三处改动，各值多少
+
+| 改动 | `handler` |
+|---|---|
+| 起点 | 20.7 ms |
+| `isBoundary` 改成码点比较，不再分配 | 9.9 ms |
+| `SEP.has(prev)` 展开成比较链（它在最内层） | 7.3 ms |
+| 全量 `sort` → 有界插入（排序 5.7ms → 0.3ms） | 8.2 ms 附近波动 |
+
+最后一行看着变慢是测量噪声 —— 分段量的时候 `rank` 与 `fuzzyMatch` 的差
+（也就是排序开销）从 5.7ms 降到了 0.3ms，这一项是实的。
+
+## 两条不能丢的性质
+
+- **同分保持输入顺序。** 候选按目录序来，同分打乱表现为「同一个 query
+  两次结果不一样」，而人是靠肌肉记忆按第几条的。有界插入必须插在同分项**之后**。
+- **对原来就能匹配的候选，选出的位置和分数一个字节都不能变。**
+  完备性修复（见 JOURNAL M21 / issue #1）靠的正是这条：新加的上界只在
+  原来会失败的候选上起作用。
