@@ -83,16 +83,31 @@ impl AppState {
     }
 
     pub fn kill_pty(&self, id: u32) -> bool {
-        // 移除即析构，Session::drop 负责 kill
-        self.ptys
-            .lock()
-            .expect("pty 表锁被毒化")
-            .remove(&id)
-            .is_some()
+        // 先把它**摘出来**，放掉表锁，再让它在锁外面析构。
+        //
+        // 原来是 `self.ptys.lock()….remove(&id).is_some()` —— 临时值的析构
+        // 发生在语句末尾，那时候 MutexGuard 还活着，于是 Session::drop → kill()
+        // 整个跑在锁里面。kill() 一慢，所有终端操作（开、写、改大小、关）
+        // 全部堵在这把锁上；kill() 挂住就是永久堵死，只能重启应用。
+        //
+        // kill() 现在自己保证有界返回了（见 ptysvc），但**没有理由把一个
+        // 可能起线程、发信号、等收尸的操作放在全局锁里**。issue #2。
+        let sess = self.ptys.lock().expect("pty 表锁被毒化").remove(&id);
+        sess.is_some()
     }
 
-    /// 窗口关闭时兜底：把所有终端一并带走
+    /// 窗口关闭时兜底：把所有终端一并带走。
+    ///
+    /// 同样先摘出来再在锁外析构 —— 这条还在退出路径上，
+    /// 卡住的表现是「点了关闭，窗口没反应」。
     pub fn kill_all_ptys(&self) {
-        self.ptys.lock().expect("pty 表锁被毒化").clear();
+        let all: Vec<_> = self
+            .ptys
+            .lock()
+            .expect("pty 表锁被毒化")
+            .drain()
+            .map(|(_, s)| s)
+            .collect();
+        drop(all);
     }
 }

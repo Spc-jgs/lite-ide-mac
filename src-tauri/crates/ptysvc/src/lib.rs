@@ -9,6 +9,7 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// spawn 的返回：会话本身（可共享）与它的输出流。
 /// 输出流刻意不放进 Session —— 读是独占的长循环，跟写/resize 不该抢同一把锁。
@@ -80,9 +81,47 @@ impl Session {
             .map_err(to_io)
     }
 
+    /// 杀掉 shell 并收尸。**保证有界返回** —— 它跑在 `Drop` 里，
+    /// 而 `Drop` 又跑在持着 pty 表锁的地方，挂住就是整个终端功能全死。
+    ///
+    /// 两道措施，都是 issue #2 实测出来的：
+    ///
+    /// # 一、杀之前先接上排空线程
+    ///
+    /// 退出中的 shell 还会往 tty 写，而这时候读的那一方通常已经收摊了
+    /// （前端关标签 → `on_data.send` 失败 → 读线程 break；测试里是
+    /// `read_until` 返回后 rx 被丢）。master 缓冲区一满，shell 就卡在写上
+    /// 收不了尾 —— `ps` 看是 `?Es`，而 `wait()` 永远等不到。
+    ///
+    /// A/B 实测：不排空 15 次尝试挂 6 次，排空 10 次尝试挂 0 次。
+    ///
+    /// 不 `join` 这个线程：万一有孙子进程攥着 slave 不放，EOF 就不会来，
+    /// join 本身就成了第二个挂点。它会在 master EOF 或进程退出时自己走。
+    ///
+    /// # 二、收尸有界
+    ///
+    /// 即使排空线程因为什么原因没起来（`try_clone_reader` 失败），
+    /// 也不能退回阻塞的 `wait()`。宁可留一个僵尸到进程退出，
+    /// 也不能让界面永久卡死 —— 前者用户察觉不到，后者要重启应用。
     pub fn kill(&mut self) {
+        let _drain = self.master.try_clone_reader().ok().map(|mut r| {
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                while matches!(r.read(&mut buf), Ok(n) if n > 0) {}
+            })
+        });
+
         let _ = self.child.kill();
-        let _ = self.child.wait();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match self.child.try_wait() {
+                // 收到了，或者已经被别处收过 —— 两种都不用再等
+                Ok(Some(_)) | Err(_) => break,
+                Ok(None) if Instant::now() >= deadline => break,
+                Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+            }
+        }
     }
 }
 
@@ -100,7 +139,6 @@ fn to_io(e: impl std::fmt::Display) -> std::io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
 
     // ─────────────────── 挂起现场探针 ───────────────────
     //
@@ -227,27 +265,40 @@ mod tests {
     /// （`zsh -l -c pwd` 0.084s、`-i` 0.183s）；挂住不留孤儿
     /// （11 次挂住的尝试新增孤儿 0 个 —— 进程退出时 master 关闭，shell 才走得掉）。
     ///
-    /// # 生产侧是同一个形状
+    /// # 已经修了（2026-08-31 同一天）
     ///
-    /// `commands.rs` 的 pty 读线程也是 `on_data.send(..).is_err() → break`，
-    /// 而 `send` 失败正是前端关掉终端标签的时候，紧接着就调 `pty_kill`。
-    /// 更糟的是 `state.rs` 的 `kill_pty` **持着整张 pty 表的锁**就地析构 ——
-    /// `wait()` 一挂，那把锁再也不放，之后所有终端操作全部堵死。
+    /// `Session::kill()` 里杀之前先接排空线程 + 收尸有界；
+    /// `state.rs` 的 `kill_pty` / `kill_all_ptys` 改成先摘出来再在锁外析构
+    /// （原来整个 `kill()` 跑在全局 pty 表锁里，挂住就是所有终端一起死）。
     ///
-    /// 修复是独立的一轮，要配一个在旧代码上会红的回归测试。详见 issue #2。
+    /// 回归测试是下面的 `关掉不排空的终端不能把kill卡死`：
+    /// 原始 `kill()` 上 10/10 红，修复后 0/10 红。
     ///
-    /// # 这个重试机制还留着
+    /// # 所以这里为什么还留着
     ///
-    /// 在修复落地并验证之前，它仍然是唯一挡住 CI 被拖死的东西。
-    /// 上一次的教训还有效：不提交猜出来的修复 —— 试过一版（`wait()` 改非阻塞
-    /// + 后台收尸），改完看着好了，但把旧写法放回去也一样不挂，
-    /// 配套的回归测试在新旧两版下都通过，等于没测。
+    /// 只留**硬期限**，重试已经去掉（`TRIES` 3 → 1，见下）。期限的作用变了：
+    /// 不再是磨平已知的挂起，而是**万一回归，让它在 25s 内失败**，
+    /// 而不是安静地吃光 CI 整个 job 的额度、日志停在
+    /// `test tests::xxx ...` 那一行什么都没有。
+    ///
+    /// 老教训仍然有效，而且这轮又验证了一次：不提交猜出来的修复。
+    /// 更早试过一版（`wait()` 改非阻塞 + 后台收尸），改完看着好了，
+    /// 但把旧写法放回去也一样不挂 —— 配套的回归测试在新旧两版下都通过，
+    /// 等于没测。这次是先让测试在旧代码上 10/10 红，才动的手。
     fn with_deadline<T: Send + 'static>(
         secs: u64,
         body: impl Fn() -> T + Send + Sync + Clone + 'static,
     ) -> T {
         use std::sync::mpsc;
-        const TRIES: u32 = 3;
+        // 曾经是 3。根因（issue #2）修掉之后改回 1 —— **重试现在只会盖住回归**。
+        //
+        // 它当初的作用是把间歇性挂起磨平，代价是把真实情况也磨没了：
+        // 每次尝试 55% 会挂，被三次重试盖成了每轮 25% 的可见失败率，
+        // 差一倍多，两个数还各自被记进了两处文档，看着像互相矛盾。
+        //
+        // 硬期限留着：挂住时它让测试在 25s 内**失败**，而不是安静地
+        // 吃光 CI 整个 job 的额度、日志停在 `test tests::xxx ...` 那一行。
+        const TRIES: u32 = 1;
         for attempt in 1..=TRIES {
             let (tx, rx) = mpsc::channel();
             let b = body.clone();
@@ -271,9 +322,11 @@ mod tests {
             }
         }
         panic!(
-            "pty 连续 {TRIES} 次都超过 {secs}s 没返回。\n\
-             这是已知的间歇性挂起（见 with_deadline 的注释），但连挂三次说明\n\
-             多半真出了问题 —— 先看 ps 里有没有堆积的 `zsh -l` 孤儿进程。"
+            "pty 超过 {secs}s 没返回。\n\
+             issue #2 那个挂起已经修掉了（kill 时排空 master），所以这多半是**回归**。\n\
+             第一步：用探针看它卡在哪个阶段 ——\n\
+             \x20  PTYSVC_PROBE=/tmp/pty.log cargo test -p ptysvc --lib\n\
+             文件最后一行就是它走到的最后一步。"
         )
     }
 
@@ -360,6 +413,60 @@ mod tests {
             drop(sess);
             probe("  drop 回来了 ✓ 整条链走完");
         });
+    }
+
+    /// issue #2 的回归测试：**没人排空 master 时，kill 不能被卡死**。
+    ///
+    /// 复现的是生产里最常见的那条路 —— 前端关掉终端标签 → 读线程的
+    /// `on_data.send` 失败 → 读线程退出 → 没人排空 master → 紧接着 `pty_kill`。
+    ///
+    /// 这里用 `yes` 灌满 master 缓冲区来加压：真实场景下 shell 退出时
+    /// 自己吐的那点输出就够触发，但只有 40% 的挂率，做不成可靠的红。
+    ///
+    /// 注意**必须自己带超时**：挂住时默认表现是永远不返回，
+    /// 一条挂住的测试会安静地吃光 CI 整个 job 的额度。这里 8s 到点就判失败。
+    #[test]
+    fn 关掉不排空的终端不能把kill卡死() {
+        let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
+
+        // 不靠提示符长什么样 —— 用户的 zsh 主题里 $ / % / ❯ 都可能
+        sess.lock().unwrap().write_input(b"echo READY\n").unwrap();
+        let out = read_until(reader, "READY", 10);
+        assert!(out.contains("READY"), "shell 没起来，实际输出：{out:?}");
+        // read_until 返回时 rx 已经丢了：读线程下一次 read 醒来就会 break 退出，
+        // 从这一刻起没人再排空 master —— 正是要复现的状态
+
+        // 灌满 master 缓冲区。**有界**，不能用 `yes` ——
+        // 无限流会让排空线程全速空转烧掉一个核，把并行跑的兄弟测试拖到超时
+        // （踩过：`工作目录生效` 因此在 10s 读超时上红了 8/15 次）。
+        // pty 缓冲区只有几十 KB，seq 到 10 万行（约 600KB）绰绰有余，而且它会自己结束。
+        sess.lock().unwrap().write_input(b"seq 1 100000\n").unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+
+        // 卡的阈值是 2s，不是「别永久挂住」那种宽松的上限。理由：
+        // `kill()` 里有两道独立的措施（排空线程 + 有界收尸），任一条都能
+        // 让这个测试不挂 —— 只断言「最终返回了」的话，把排空线程删掉它照样绿，
+        // 而那时 kill 要等满 5s 的兜底 deadline 才返回。
+        //
+        // 实测：有排空 55ms，去掉排空 5214ms。2s 卡在中间，
+        // 离正常值有 36 倍余量，离退化值有 2.6 倍余量。
+        let t0 = Instant::now();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            drop(sess); // → Session::drop → kill()
+            let _ = tx.send(());
+        });
+        let done = rx.recv_timeout(Duration::from_secs(8)).is_ok();
+        let ms = t0.elapsed().as_millis();
+        assert!(
+            done,
+            "drop 超过 8s 没回来 —— 收尸又被没排空的 pty 卡死了（issue #2）"
+        );
+        assert!(
+            ms < 2000,
+            "drop 花了 {ms}ms。没挂死，但也远超正常的 ~55ms —— \
+             多半是 kill() 里的排空线程没了，只剩有界收尸在硬等 deadline（issue #2）"
+        );
     }
 
     #[test]
