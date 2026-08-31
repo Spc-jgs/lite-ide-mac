@@ -504,13 +504,31 @@ export function installMockIpc(): void {
             ],
           };
         case "git_diff":
+          /*
+           * 两个 hunk 是有意的：
+           *
+           * - 第一个是「连续新增一段长 import」。双栏差异的两个已知问题
+           *   （右列横向溢出、左边一大块连续斜纹）只在这种形态下才看得出来，
+           *   而原来的桩只有一处两行的小改动，在浏览器里怎么看都是好的。
+           * - 第二个是普通的行内小改动，保住原来那份覆盖。
+           */
           return {
             truncated: false,
             text: `diff --git a/${a.path} b/${a.path}
 index 1a2b3c4..5d6e7f8 100644
 --- a/${a.path}
 +++ b/${a.path}
-@@ -12,7 +12,8 @@ public void persist(Order order) {
+@@ -14,6 +14,11 @@ import java.util.List;
+ import java.util.List;
+ import java.util.Optional;
++import com.etianqu.evaluation.client.EvaluationTemplateFeignClient;
++import com.etianqu.evaluation.client.dto.EvaluationTemplateQueryRequest;
++import com.etianqu.evaluation.client.dto.EvaluationTemplateDetailResponse;
++import com.etianqu.evaluation.common.exception.EvaluationServiceException;
++import com.etianqu.evaluation.common.constant.EvaluationTemplateConstants;
+ import org.springframework.stereotype.Service;
+ import org.springframework.beans.factory.annotation.Autowired;
+@@ -42,7 +47,8 @@ public void persist(Order order) {
      var conn = pool.getConnection();
 -    int timeout = 300;
 +    int timeout = 5000;

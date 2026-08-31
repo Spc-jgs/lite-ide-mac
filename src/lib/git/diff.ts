@@ -301,6 +301,41 @@ export function changeBlocks(rows: { kind: string }[]): number[] {
   return starts;
 }
 
+/**
+ * 连续多少行空白之后，把斜纹底换成纯色。
+ *
+ * 一两行斜纹是「对面本来就没东西」的提示，正合适。但一口气新增五行 import 时，
+ * 对面那一整块连续斜纹的视觉重量会盖过旁边真正的代码 ——
+ * 人先看到的是纹理，不是绿色的新增行。IDEA 在这种位置用的是一层很淡的纯色。
+ */
+export const FLAT_BLANK_RUN = 3;
+
+/**
+ * 标出「哪些行落在一段够长的空白里」，左右各一份。
+ *
+ * 放在这里而不是组件里，是为了能单测 —— 这是纯数据变换，
+ * 而「第 N 行到底该不该换成纯色」正是最容易在改动里悄悄错掉的那种细节。
+ */
+export function blankRuns(rows: SideRow[]): { left: boolean[]; right: boolean[] } {
+  const mark = (pick: (r: SideRow) => DiffLine | null) => {
+    const out = new Array<boolean>(rows.length).fill(false);
+    let run = 0;
+    // 多跑一格（i === rows.length）好让结尾那一段也被结算
+    for (let i = 0; i <= rows.length; i++) {
+      const r = i < rows.length ? rows[i] : null;
+      // hunk / meta 是跨四列的整行，不参与空白块 —— 它天然把上下两段隔开
+      if (r && r.kind !== "hunk" && r.kind !== "meta" && !pick(r)) {
+        run++;
+        continue;
+      }
+      if (run > FLAT_BLANK_RUN) for (let k = i - run; k < i; k++) out[k] = true;
+      run = 0;
+    }
+    return out;
+  };
+  return { left: mark((r) => r.left), right: mark((r) => r.right) };
+}
+
 // ─────────────────── 改动行标记 ───────────────────
 
 export type ChangeKind = "add" | "mod" | "del";
