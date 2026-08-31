@@ -106,6 +106,21 @@ git push origin v0.2.0
 构建 **universal（Intel + Apple Silicon 通吃）** 的 `.dmg`，建一个草稿 Release
 并把包传上去。
 
+> **⚠️ 下一次发版要多看一眼前几步**（写于 2026-08-31，验证通过后请删掉这段）
+>
+> `release.yml` 里的三个 action 刚从 v4 升到 Node 24 那一代
+> （`actions/checkout@v7`、`actions/setup-node@v7`、`pnpm/action-setup@v6`，
+> 见 [issue #3](https://github.com/Spc-jgs/lite-ide-mac/issues/3)）。
+>
+> **这套改动还没被真正跑过。** `ci.yml` 那半边是完整验证过的（两次全绿、
+> Node 20 的 annotation 消失、`cache: pnpm` 第一次跑就命中），但
+> `release.yml` **只在 push tag 时触发**，改完之后的几次 push 都跑不到它 ——
+> 所以下一个 tag 就是它的第一次真实验证。
+>
+> 如果 Release 工作流在「装依赖」之前的任何一步红了，先怀疑这三行，
+> 而不是去查版本号或者 lock 文件。回退办法就是把它们改回 `@v4`
+> （只会重新出现那条 Node 20 的告警，不影响能不能发版）。
+
 ### 3. 补发布说明，然后发布
 
 草稿建好后去 GitHub 上补说明，确认无误再点 Publish。模板：
@@ -148,7 +163,7 @@ pnpm tauri build --target universal-apple-darwin
 |---|---|
 | `cargo test --workspace` | 97 条 Rust 测试（含 IPC 两侧 DTO 的一致性检查） |
 | `pnpm check` | Svelte + TS 类型检查 |
-| 前端纯函数测试 | 143 条断言（diff 解析、双栏对照、泳道布局、冲突解析、改动行标记、行缓存预算、会话快照） |
+| 前端纯函数测试 | 230 条断言（diff 解析、双栏对照、泳道布局、冲突解析、改动行标记、行缓存预算、会话快照、模糊匹配排序） |
 | `pnpm build` | 确认前端能构建 |
 | 入口包体积门禁 | 超过 160 KB 就失败 —— 见下 |
 
