@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { listDir, type DirEntry, type GitEntry, type GitStatus } from "../ipc/commands";
 
   let {
@@ -7,6 +7,8 @@
     activePath,
     gitStatus = null,
     reloadTick = 0,
+    revealPath = "",
+    revealTick = 0,
     onOpen,
   }: {
     root: string;
@@ -18,6 +20,14 @@
      * 否则文件树一直显示的是打开那一刻的快照。
      */
     reloadTick?: number;
+    /**
+     * 「定位到这个路径」：展开沿途每一层，滚过去，闪一下。
+     *
+     * 和 reloadTick 一样用自增计数触发，而不是靠 revealPath 变化 ——
+     * 连点同一个面包屑两次（中间可能手动把它收起来了）也得生效。
+     */
+    revealPath?: string;
+    revealTick?: number;
     onOpen: (path: string, isDir: boolean) => void;
   } = $props();
 
@@ -38,12 +48,25 @@
   let loading = $state(new Set<string>());
   let error = $state("");
 
+  /**
+   * 拿到 dir 的子项，没加载过就去加载。
+   *
+   * 跟 `load` 分开是因为**定位需要回传内容** —— 逐层往下走时要判每一段
+   * 到底是目录还是文件（是文件就不该展开，也走不下去了）。
+   */
+  async function ensure(dir: string): Promise<DirEntry[]> {
+    const got = children.get(dir);
+    if (got) return got;
+    const items = await listDir(dir, false);
+    children = new Map(children).set(dir, items);
+    return items;
+  }
+
   async function load(dir: string) {
     if (children.has(dir) || loading.has(dir)) return;
     loading = new Set(loading).add(dir);
     try {
-      const items = await listDir(dir, false);
-      children = new Map(children).set(dir, items);
+      await ensure(dir);
     } catch (e) {
       error = String(e);
     } finally {
@@ -275,6 +298,86 @@
     rowAt(cursor)?.focus();
   }
 
+  /** 刚定位到的那一行，短暂高亮 */
+  let flash = $state("");
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 并发守卫：连点两个面包屑时，只让最后一次的结果落地 */
+  let revealSeq = 0;
+
+  /**
+   * 展开到 path 并滚过去。
+   *
+   * 必须逐层 `await`：下一层的行是在上一层的子项加载回来之后才存在的，
+   * 一次性把所有祖先塞进 `expanded` 没用 —— `rows` 的 walk 只递归
+   * `children` 里有的目录，没加载的那层直接断在那里。
+   */
+  async function reveal(path: string) {
+    const seq = ++revealSeq;
+    const base = root.endsWith("/") ? root : `${root}/`;
+    if (path !== root && !path.startsWith(base)) return;
+
+    const next = new Set(expanded).add(root);
+    let acc = root;
+    for (const seg of path === root ? [] : path.slice(base.length).split("/")) {
+      let items: DirEntry[];
+      try {
+        items = await ensure(acc);
+      } catch (e) {
+        error = String(e);
+        return;
+      }
+      if (seq !== revealSeq) return; // 中途又点了别处
+      const hit = items.find((it) => it.name === seg);
+      if (!hit) return; // 路径断了（外部删掉/改名了），什么都不做
+      acc = hit.path;
+      // 目标自身是目录也展开 —— 点面包屑想看的正是「这个目录里有什么」
+      if (hit.isDir) next.add(acc);
+    }
+    if (next.has(acc)) {
+      try {
+        await ensure(acc);
+      } catch (e) {
+        error = String(e);
+      }
+      if (seq !== revealSeq) return;
+    }
+    expanded = next;
+
+    // 等这一轮渲染落地，那一行才在 DOM 里
+    await tick();
+    if (seq !== revealSeq) return;
+    const i = rows.findIndex((r) => r.path === acc);
+    if (i < 0) return;
+    cursor = i;
+    rowAt(i)?.scrollIntoView({ block: "nearest" });
+
+    // 目标可能本来就在视野里，滚动等于没反应 —— 闪一下才知道点中了
+    flash = acc;
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+      flash = "";
+      flashTimer = null;
+    }, 900);
+  }
+
+  $effect(() => {
+    const t = revealTick;
+    const p = revealPath;
+    if (t === 0 || !p) return;
+    untrack(() => void reveal(p));
+    return () => {
+      /*
+       * 组件被销毁时，正在 await 的那次 reveal 还会往下走：它会
+       * 装一个 900ms 的定时器，而这次 cleanup 早就跑完了，没人再清它。
+       * 递一下 seq，在飞的那次下一个检查点就自己退出 ——
+       * cleanup 只能清掉它当时看得见的东西，await 之后的赋值它看不见。
+       */
+      revealSeq++;
+      if (flashTimer) clearTimeout(flashTimer);
+      flashTimer = null;
+    };
+  });
+
   function onRowKey(e: KeyboardEvent, i: number) {
     const row = rows[i];
     switch (e.key) {
@@ -333,6 +436,7 @@
         class="row"
         class:dir={row.isDir}
         class:active={row.path === activePath}
+        class:flash={row.path === flash}
         role="treeitem"
         tabindex={i === cursor ? 0 : -1}
         aria-level={row.depth + 1}
@@ -439,6 +543,11 @@
   .row.active { background: var(--accent-sel); color: var(--text); }
   .row.dir { color: var(--text); }
   .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  /*
+   * 定位命中：只描一圈边，不改底色 —— 底色是 git 装饰和 .active 在用的，
+   * 抢过来会让「这行是当前文件」和「这行刚被定位到」混成一个样子。
+   */
+  .row.flash { outline: 1px solid var(--accent); outline-offset: -1px; }
   /* 键盘走到的行给个底色，光有 outline 在长列表里不够醒目 */
   .row:focus-visible:not(.active) { background: var(--panel-bg-2); }
   .caret {
