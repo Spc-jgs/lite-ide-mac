@@ -83,6 +83,9 @@ export interface Stamp {
 /** 文件指纹，用于判断是否被外部改动过 */
 export const fileStamp = (path: string) => invoke<Stamp>("file_stamp", { path });
 
+/** 在 Finder 里选中并显示。路径不在盘上时 reject */
+export const revealInFinder = (path: string) => invoke<void>("reveal_in_finder", { path });
+
 /**
  * 保存并返回新指纹 —— 必须拿它更新记录，否则自己的保存会被当成外部修改。
  * 按 label 指定的编码写回；不传就是 UTF-8。

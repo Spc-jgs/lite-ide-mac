@@ -7,9 +7,11 @@
 
 pub mod encoding;
 
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
@@ -128,6 +130,75 @@ fn write_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
             let _ = fs::remove_file(&tmp);
             Err(e)
         }
+    }
+}
+
+/// `open -R` 的参数。
+///
+/// 抽成纯函数是为了能测 —— 真去 spawn 会把 Finder 弹到用户脸上，
+/// 测试里不能干这事；而这里唯一值得钉死的性质（`--` 必须在路径之前）
+/// 恰好是纯数据。
+///
+/// **`--` 不是防御性的摆设。** 实测一个名叫 `-Q` 的文件：
+///
+/// ```text
+/// open -R "-Q"       →  open: invalid option -- Q
+/// open -R -- "-Q"    →  正常显示
+/// ```
+///
+/// 也就是说少了它，文件名就能变成命令行开关 —— 与 AGENTS.md 里
+/// gitsvc / searchsvc 那条「路径前一律加 `--`」是同一条纪律。
+fn reveal_args(path: &Path) -> Vec<OsString> {
+    vec![
+        OsString::from("-R"),
+        OsString::from("--"),
+        path.as_os_str().to_os_string(),
+    ]
+}
+
+/// 路径在不在盘上 —— **只看这个条目本身，不跟随符号链接**。
+///
+/// 抽出来是为了让 reveal 的存在性判定可测：直接测 `reveal_in_finder`
+/// 就得让它真的把 Finder 弹出来，而不测的话，这行改成 `try_exists`
+/// 也没人会发现（试过，测试照样绿）。
+fn exists_for_reveal(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok()
+}
+
+/// 在 Finder 里选中并显示一个路径。
+///
+/// 路径不存在时**自己报错，不去起子进程**：`open` 对不存在的路径会打印
+/// 一句英文并返回 1，那句话里带着完整绝对路径，糊在状态栏那一格里
+/// 既读不完也说不清。自己判一次，给一句中文。
+///
+/// 用 `symlink_metadata` 而不是 `try_exists`：后者会跟随符号链接，
+/// 于是一个指向已删除目标的坏链接会被判成"不存在" —— 但链接本身在盘上，
+/// Finder 完全显示得出来，这种时候不该拦。
+pub fn reveal_in_finder(path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
+    if !exists_for_reveal(path) {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} 不在盘上了", path.display()),
+        ));
+    }
+
+    // 绝对路径而不是靠 PATH：`open` 在 macOS 上固定在这儿，
+    // 而从终端启动 lite-ide 时 PATH 是用户的，不该让它决定我们调到哪个 open
+    let st = Command::new("/usr/bin/open")
+        .args(reveal_args(path))
+        // 绝不让子进程卡住等输入（AGENTS.md）。open 本身不读 stdin，
+        // 但 `-f` 那类开关是读的 —— 万一参数构造出了错，宁可它立刻 EOF
+        .stdin(Stdio::null())
+        .status()?;
+
+    if st.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "Finder 没能显示它（open 退出码 {}）",
+            st.code().map_or_else(|| "被信号中断".to_string(), |c| c.to_string())
+        )))
     }
 }
 
@@ -272,4 +343,63 @@ mod tests {
 
         fs::remove_dir_all(d).ok();
     }
+
+    // ── reveal_in_finder ──
+    //
+    // 这里**不测真的弹 Finder**：那既会打断跑测试的人，也依赖 GUI 会话
+    // （CI 上是没有的）。测的是两件不用起子进程就能定死的事。
+
+    #[test]
+    fn reveal的路径前面一定紧挨着双横线() {
+        // 一个名叫 -Q 的文件。少了 `--`，open 会把它当开关：
+        // 实测 `open -R "-Q"` → `open: invalid option -- Q`
+        let a = reveal_args(Path::new("-Q"));
+        assert_eq!(
+            a,
+            vec![
+                OsString::from("-R"),
+                OsString::from("--"),
+                OsString::from("-Q")
+            ]
+        );
+        // 真正要守的性质：路径是最后一个参数，而它前面紧挨着 `--`
+        assert_eq!(a.last().unwrap(), &OsString::from("-Q"));
+        assert_eq!(a[a.len() - 2], OsString::from("--"), "路径前必须有 --");
+    }
+
+    #[test]
+    fn reveal的路径整个只占一个参数() {
+        // 带空格和引号的路径不能被拆开 —— Command::arg 本来就不过 shell，
+        // 这条钉的是「别哪天改成拼字符串」
+        let weird = "/tmp/a b/c\"d\"/e f.txt";
+        let a = reveal_args(Path::new(weird));
+        assert_eq!(a.len(), 3, "参数个数必须恒为 3，路径不该被拆");
+        assert_eq!(a[2], OsString::from(weird));
+    }
+
+    #[test]
+    fn reveal不存在的路径不去起子进程() {
+        let e = reveal_in_finder("/这个路径/根本/不存在.txt").unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
+        assert!(
+            e.to_string().contains("不在盘上了"),
+            "要给一句中文，而不是把 open 的英文原样透出来，实得：{e}"
+        );
+    }
+
+    #[test]
+    fn reveal坏掉的符号链接仍然算存在() {
+        // 链接本身在盘上，Finder 显示得出来 —— 不该被"目标不存在"拦掉。
+        // 这条是 try_exists 和 symlink_metadata 的分水岭
+        let d = sandbox("reveal-symlink");
+        let link = d.join("断链");
+        std::os::unix::fs::symlink(d.join("目标早没了"), &link).unwrap();
+        assert!(!link.try_exists().unwrap(), "前提：try_exists 判它不存在");
+        assert!(
+            exists_for_reveal(&link),
+            "但 reveal 的判定必须放它过去 —— 链接本身在盘上，Finder 显示得出来"
+        );
+        fs::remove_dir_all(d).ok();
+    }
+
 }
