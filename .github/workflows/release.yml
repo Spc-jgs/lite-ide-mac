@@ -18,11 +18,12 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      # 版本读 package.json 的 packageManager 字段，与 ci.yml 一致
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      # 版本读 package.json 的 packageManager 字段，与 ci.yml 一致；
+      # 顺序也一致（先 pnpm 再 node，cache: pnpm 才找得到 store）
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
