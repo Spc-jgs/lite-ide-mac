@@ -101,6 +101,21 @@ export const HIGHLIGHT_SPEC: { tag: Tag | Tag[]; color: string; fontStyle?: stri
     { tag: [t.constant(t.variableName), t.standard(t.variableName)], color: "#c77dbb" },
 
     { tag: [t.typeName, t.className, t.namespace], color: TEXT },
+    /*
+     * XML / HTML 的标签名。**只需要这一条**。
+     *
+     * `@lezer/highlight` 里这几个 tag 都是有父 tag 的：
+     * `attributeName→propertyName`、`attributeValue→string`、
+     * `angleBracket→bracket`、`processingInstruction→meta` ——
+     * 上面那些规则已经把它们覆盖到了，实测 pom.xml 里属性名是粉的、
+     * 属性值是绿的、尖括号是灰蓝的。唯独 `tagName→typeName` 撞上了
+     * 「IDEA 里类名就是正文色」这条，于是元素名跟正文一个色，
+     * 看起来像是「没上色」。这里把它单独拎出来给暗黄。
+     *
+     * （`tagName` 比 `typeName` 更具体，HighlightStyle 取最具体的那条，
+     * 所以只会影响 XML/HTML/JSX，不会动 Java 的类名。）
+     */
+    { tag: [t.tagName], color: "#e8bf6a" },
     { tag: [t.annotation, t.meta], color: "#b3ae60" },
     { tag: [t.operator, t.punctuation, t.bracket, t.separator], color: "#a9b7c6" },
     { tag: [t.invalid], color: "#f75464" },

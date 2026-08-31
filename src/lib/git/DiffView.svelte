@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { parseDiff, segs, toSideBySide, changeBlocks, type DiffFile, type DiffLine } from "./diff";
+  import {
+    parseDiff,
+    segs,
+    toSideBySide,
+    changeBlocks,
+    blankRuns,
+    type DiffFile,
+    type DiffLine,
+  } from "./diff";
 
   let {
     raw,
@@ -98,6 +106,8 @@
    * 视图滚到一片空白 —— 那些行根本没渲染。
    */
   let blocks = $derived(changeBlocks(sideOn ? sideShown : uniShown));
+  /** 哪些空白行落在够长的连续空白块里 —— 那些换纯色底，见 blankRuns 的注释 */
+  let flat = $derived(blankRuns(sideShown));
 
   // 换文件 / 换视图就把跳转游标归零，否则会停在一个已经不存在的位置
   $effect(() => {
@@ -180,11 +190,11 @@
             {@const L = r.left}
             {@const R = r.right}
             <div class="no {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}">{L?.oldNo ?? ""}</div>
-            <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}">
+            <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:flat={flat.left[i]}>
               {#if L}{@const s = segs(L)}{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}{/if}
             </div>
             <div class="no mid {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}">{R?.newNo ?? ""}</div>
-            <div class="tx {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}">
+            <div class="tx {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:flat={flat.right[i]}>
               {#if R}{@const s = segs(R)}{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}{/if}
             </div>
           {/if}
@@ -379,6 +389,12 @@
       rgba(255, 255, 255, 0.028) 10px
     );
   }
+  /*
+   * 连着好几行的空白块改成纯色。斜纹的视觉重量是按面积累加的：
+   * 一两行合适，五行 import 那么一整块就盖过了旁边真正的代码。
+   * 哪些行算「连着好几行」由 diff.ts 的 blankRuns 决定（那边有测试）。
+   */
+  .tx.blank.flat { background: rgba(255, 255, 255, 0.022); }
 
   /*
    * 每一行必须**正好** ROW_H 高，「上一处 / 下一处改动」是按 下标 × 行高

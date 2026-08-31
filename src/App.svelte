@@ -776,6 +776,28 @@
 
   let active = $derived(tabs.find((t) => t.id === activeId) ?? null);
 
+  /** 传给文件树的「定位到这里」请求。自增 tick 触发，理由见 FileTree 的 props 注释 */
+  let revealPath = $state("");
+  let revealTick = $state(0);
+
+  /**
+   * 在文件树里定位一个路径。目前只有面包屑用。
+   *
+   * 面包屑的目录段以前直接调 `openPath`，而 `openPath` 遇到目录会把
+   * **项目根整个换掉** —— 文件树重列、Git 仓库重探、⌘P 索引重建，
+   * 而人只是想看一眼那个目录在哪；换完还回不去（除非重新拖一次文件夹）。
+   * 面包屑是「我现在在哪」的指示器，点它的合理预期是导航过去，不是改项目。
+   *
+   * 换根仍然是显式动作：拖文件夹进来、命令行参数、打开工作树。
+   * 这里只改面包屑这一条调用点，`openPath` 本身不动。
+   */
+  function revealInTree(path: string) {
+    sideView = "files";
+    sidebar = true;
+    revealPath = path;
+    revealTick++;
+  }
+
   /**
    * 标题栏面包屑：项目名 › 中间目录 › 文件名。
    *
@@ -1400,7 +1422,7 @@
         {#each crumbs as c, i (c.path)}
           {#if i > 0}<span class="sep" aria-hidden="true">›</span>{/if}
           {#if c.dir}
-            <button class="crumb" onclick={() => void openPath(c.path)} title={c.path}>{c.name}</button>
+            <button class="crumb" onclick={() => revealInTree(c.path)} title="在文件树中显示 {c.path}">{c.name}</button>
           {:else}
             <span class="crumb here" title={c.path}>{c.name}</span>
           {/if}
@@ -1556,6 +1578,8 @@
             activePath={active?.path ?? ""}
             gitStatus={gitSt}
             reloadTick={treeTick}
+            {revealPath}
+            {revealTick}
             onOpen={(p) => void openPath(p)}
           />
         {/if}
