@@ -410,6 +410,18 @@ export function installMockIpc(): void {
           return bump(String(a.path));
         case "file_stamp":
           return stampOf(String(a.path));
+        /*
+         * 浏览器里没有 Finder。桩不能一律返回成功 ——「路径不在盘上就报错」
+         * 是这条命令唯一有分支的行为，桩里抹平它，前端的错误处理就等于没测过。
+         */
+        case "reveal_in_finder": {
+          const path = String(a.path);
+          if (!DIRS[path] && FILES[path] === undefined) {
+            throw new Error(`${path} 不在盘上了`);
+          }
+          console.info(`[mock] 在 Finder 中显示 ${path}`);
+          return null;
+        }
         case "list_project_files":
           return Object.keys(FILES).map((f) => f.replace(/^\/proj\//, ""));
         case "grep_project": {

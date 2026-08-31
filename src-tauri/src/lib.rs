@@ -42,6 +42,7 @@ pub fn run() {
             commands::list_encodings,
             commands::write_text,
             commands::file_stamp,
+            commands::reveal_in_finder,
             commands::open_log,
             commands::log_stat,
             commands::log_lines,

@@ -191,6 +191,12 @@ pub fn file_stamp(path: String) -> Result<StampDto, String> {
     })
 }
 
+/// 在 Finder 里显示。业务在 fsservice —— 这里只转错误。
+#[tauri::command]
+pub fn reveal_in_finder(path: String) -> Result<(), String> {
+    fsservice::reveal_in_finder(&path).map_err(|e| format!("{e}"))
+}
+
 /// 保存。先写临时文件再原子替换，中途崩溃不会留下半个文件。
 ///
 /// 按 `label` 指定的编码写回 —— 用什么编码读进来的就用什么存回去，
