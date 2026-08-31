@@ -97,6 +97,28 @@ function g(
 
 /** 桩里的假文件系统：路径 → 内容 */
 const FILES: Record<string, string> = {
+  /*
+   * XML 单独占一条：`tagName` 继承 `typeName`（IDEA 里类名就是正文色），
+   * 元素名会跟正文一个颜色，看起来像「没上色」。桩里没有 XML 文件的时候
+   * 这个问题在浏览器里根本看不出来 —— 而这正是 issue #5。
+   */
+  "/proj/pom.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<!-- Maven 项目描述，用于在浏览器里验证 XML 着色 -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.liteide</groupId>
+  <artifactId>order-service</artifactId>
+  <version>1.0.0</version>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <scope>compile</scope>
+    </dependency>
+  </dependencies>
+</project>
+`,
   "/proj/src/OrderService.java": `package com.liteide.order;
 
 import java.util.List;
@@ -246,7 +268,7 @@ export default defineConfig({
 };
 
 const DIRS: Record<string, Array<[string, boolean]>> = {
-  "/proj": [["src", true], ["logs", true], ["docs", true], ["README.md", false], ["package.json", false], ["Cargo.toml", false], ["vite.config.ts", false]],
+  "/proj": [["src", true], ["logs", true], ["docs", true], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   "/proj/src": [["OrderService.java", false], ["main.py", false], ["gbk-legacy.java", false], ["big5-notes.txt", false], ["long.ts", false]],
   "/proj/logs": [["access-2026-08-24.log", false]],
   "/proj/docs": [["ARCHITECTURE.md", false]],
