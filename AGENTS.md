@@ -107,7 +107,7 @@ macOS 个人工作台。Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研�
 用 `cat >>` 往文件尾追加过一次，结果生产代码落到了 `#[cfg(test)] mod tests` 后面，
 读文件的人会以为测试模块之后就没东西了。
 
-### ptysvc 的测试会间歇性挂住（根因**未定**，别信旧结论）
+### ptysvc 的测试会间歇性挂住（根因**已定位**：`child.wait()` 收不到尸）
 
 `工作目录生效` 那条会卡住不返回。测试体外面套了 `with_deadline(25, …)`：
 **每次尝试有硬期限，最多试三次，三次全挂才算失败**。
@@ -140,26 +140,66 @@ macOS 个人工作台。Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研�
 顺带量的：`zsh -l -c pwd` 0.084s、`zsh -l -i -c pwd` 0.183s（各 10 次取中位，
 与 2026-08-28 的 0.07 / 0.17 基本一致）—— 登录 shell 不慢。
 
-所以下面那句「根因不在本仓库」**现在没有证据支撑了**。可能是当时那次
-Python 复现有别的干扰，也可能是这台机器的 shell 配置这段时间变过。
-**在重新定位到根因之前，谁都别改 ptysvc 的代码** —— 理由见本节末尾那条教训。
+## 2026-08-31：探针抓到现场，根因定位到了
 
-时间戳插桩**已经做过了**，正常运行长这样（`spawn` 4.6ms、
-起 shell 到吐提示符 186ms、`Drop` 54.7ms、整条链 0.19s）——
-也就是说挂住时不是「慢了一点」，是**彻底不动**。
+探针改成**边跑边往文件里追加并 flush**（原来攒着最后 `eprintln!`，
+而超时那个线程被丢掉了，攒的东西跟着一起没 —— 挂住的那次恰恰是唯一
+有诊断价值的一次）。开关是 `PTYSVC_PROBE`：
 
-**但它从来没抓到挂住的那次**，原因在 `with_deadline` 的写法：超时之后那个线程
-被丢掉了（注释里写明「故意不 join」），它攒着的 `eprintln!` 输出跟着一起没了。
-每次挂住，恰恰是唯一有诊断价值的那次，什么都留不下。
+```bash
+PTYSVC_PROBE=/tmp/pty.log cargo test -p ptysvc --lib -- 工作目录生效
+```
 
-**下一步是把探针改成边跑边往文件里追加并 flush**，而不是攒到最后一起打印。
-挂住时文件最后一行就是它走到的最后一个阶段，一次就能分出是 spawn / read / drop。
+第一次跑就抓到了，三次尝试完全一致：
 
-**已经能推出一半**：`read_until` 自己的超时是 10s，外层 deadline 是 25s。
-挂在读取上的话，测试会在 10s 左右**失败**（读不到 `/usr`）；
-而实际观察到的是 3 × 25s = 75s，**deadline 每次都打满** ——
-所以挂点大概率在 `Session::spawn` 或 `Drop`，不在读取。
-**这仍然只是推理**，在探针真抓到一次失败现场之前不算数。
+```text
+    0.4ms  spawn 前
+    3.9ms  spawn 回来了            ← spawn 没问题，每次都 4ms
+  196.2ms  read_until 回来了       ← 读也没问题
+  196.3ms  断言过了，开始 drop
+  411.7ms  child.kill() 回来了     ← kill 回来了
+           （child.wait() 一次都没回来）
+25001.3ms  第 1/3 次尝试超时
+```
+
+**挂点是 `Drop` → `kill()` → `child.wait()`。** 因果链：
+
+1. `read_until` 返回后，它的读线程在下一次 `read` 醒来时因为 `tx.send`
+   失败而退出 —— **没人再排空 pty master**
+2. `child.kill()` 先发 SIGHUP，5×50ms 宽限期轮询 `try_wait()`（正好是
+   实测的 215ms），都没死才补 SIGKILL
+3. 退出中的 shell 继续往 tty 写，master 缓冲区满且无人排空，卡在写上收不了尾
+   （`ps` 显示 `?Es`、命令名带括号）
+4. `child.wait()` 于是永远等不到
+
+**A/B 对照坐实了第 1 步**：kill 期间另起线程持续排空 master，
+15 次尝试挂 6 次 → **10 次尝试挂 0 次**，连一次 25s 的重试都没有。
+
+### 两条被推翻的旧结论
+
+**一、「`kill()` 发 SIGKILL」——错，是 SIGHUP。** portable-pty 0.9.0：
+
+```rust
+// On unix, we send the SIGHUP signal instead of trying to kill
+libc::kill(self.id() as i32, libc::SIGHUP)
+```
+
+「shell 即使 trap 掉 HUP 也照样死」这个前提不成立，而排查表里
+「`child.wait()` 阻塞 → 否」正是建立在它上面的 —— 挂点恰恰就是它。
+
+**二、「纯 Python `pty.fork()` 复现也会挂 → 根因不在本仓库」——已作废**
+（2026-08-28 复测 40/40 全过）。现在也说得通了：那份复现多半一直在读 master。
+
+### 生产侧是同一个形状，而且更糟
+
+`commands.rs` 的 pty 读线程也是 `on_data.send(..).is_err() → break`，
+而 `send` 失败正是前端关掉终端标签的时候，紧接着就调 `pty_kill`。
+更糟的是 `state.rs` 的 `kill_pty` **持着整张 pty 表的锁**就地析构 ——
+`wait()` 一挂，那把锁再也不放，之后所有终端操作全部堵死。
+
+**修复还没做**，它是独立的一轮，要配一个在旧代码上会红的回归测试
+（现在知道怎么稳定触发了）。在那之前 `with_deadline` 的重试仍然留着 ——
+它是唯一挡住 CI 被拖死的东西。
 
 详见 [issue #2](https://github.com/Spc-jgs/lite-ide-mac/issues/2)。
 
@@ -167,7 +207,7 @@ Python 复现有别的干扰，也可能是这台机器的 shell 配置这段时
 
 | 怀疑过 | 结论 |
 |---|---|
-| `child.wait()` 阻塞 | 否。portable-pty 的 `kill()` 发 SIGKILL，shell 即使 `trap '' HUP TERM INT` 也照样死，drop 只要 55ms |
+| `child.wait()` 阻塞 | ~~否~~ **就是它**。2026-08-31 探针抓到，见本节开头。当初那条排除建立在一个错事实上：portable-pty 的 `kill()` 发的是 **SIGHUP** 不是 SIGKILL |
 | 登录 shell 启动慢 | 否。`zsh -l -c pwd` 在 /usr 和 /tmp 各 20 次，全是 0.0x 秒 |
 | 并发跑测试 | 否。串行（`--test-threads=1`）失败率**更高**，6 次挂 5 次 |
 | 孤儿 `zsh -l` 干扰 | 否。清干净之后照样挂 |
