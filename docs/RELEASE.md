@@ -161,7 +161,7 @@ pnpm tauri build --target universal-apple-darwin
 
 | 步骤 | 为什么 |
 |---|---|
-| `cargo test --workspace` | 97 条 Rust 测试（含 IPC 两侧 DTO 的一致性检查） |
+| `cargo test --workspace` | 113 条 Rust 测试（含 IPC 两侧 DTO 的一致性检查）。另有 1 条 `#[ignore]` 的：它会往跑测试的人的废纸篓里扔文件，得手动跑 |
 | `pnpm check` | Svelte + TS 类型检查 |
 | 前端纯函数测试 | 230 条断言（diff 解析、双栏对照、泳道布局、冲突解析、改动行标记、行缓存预算、会话快照、模糊匹配排序） |
 | `pnpm build` | 确认前端能构建 |
