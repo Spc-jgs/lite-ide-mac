@@ -118,7 +118,22 @@ impl Session {
             match self.child.try_wait() {
                 // 收到了，或者已经被别处收过 —— 两种都不用再等
                 Ok(Some(_)) | Err(_) => break,
-                Ok(None) if Instant::now() >= deadline => break,
+                Ok(None) if Instant::now() >= deadline => {
+                    /*
+                     * 到点还没收到尸：留一个僵尸到进程退出，界面继续走。
+                     * 这个取舍是有意的（界面永久卡死比一个僵尸糟得多），
+                     * 但**不能是静默的** —— 兜底一旦真的被用到，说明排空线程
+                     * 那条路又漏了，而那正是 issue #2 的形状。
+                     *
+                     * 无条件打印，不挂在 diag 开关后面：它每次运行最多出现
+                     * 几次，而漏掉它的代价是下次又要从零查一遍。
+                     */
+                    eprintln!(
+                        "[ptysvc] pid {:?} 在 5s 内没收到尸，留一个僵尸到进程退出（issue #2）",
+                        self.child.process_id()
+                    );
+                    break;
+                }
                 Ok(None) => std::thread::sleep(Duration::from_millis(5)),
             }
         }

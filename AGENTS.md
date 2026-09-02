@@ -77,6 +77,48 @@ macOS 个人工作台。Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研�
 
 另外 `LC_ALL=C`：用户 locale 是中文时，别让 git 把机器格式翻译了。
 
+### 改盘的 std API 默认都会吃掉已有文件
+
+写文件树的新建/改名时实测过，两条都不是理论风险：
+
+| 顺手的写法 | 它对已存在的目标做什么 |
+|---|---|
+| `File::create(p)` | **截断成 0 字节**。新文件手滑取成已有文件的名字，那份内容当场就没 |
+| `fs::rename(a, b)` | **静默覆盖 b**。这是 rename(2) 的语义，不是 Rust 的选择 |
+| `fs::create_dir_all(p)` | 对已存在的目录返回 `Ok`。于是「新建」一个早就在的文件夹会报成功 |
+
+对应的写法是 `OpenOptions::create_new(true)` / 自己先查一次 / `fs::create_dir`。
+`fsservice` 里那三条测试都**先把 std 的行为演示一遍**再断言我们拦住了 ——
+不演示的话，下一个人会以为那几行是可有可无的防御性代码。
+
+存在性检查一律用 `symlink_metadata`，不用 `exists()` / `try_exists()`：
+后者跟随符号链接，于是一个指向已删除目标的坏链接被判成"不存在"，
+然后被 rename 覆盖掉 —— 丢的是链接本身。
+
+**大小写要靠 inode 判，不能比路径字符串。** macOS 默认的 APFS 卷大小写不敏感，
+`readme.md` → `README.md` 时目标"已存在"，而存在的正是源文件自己。
+比 `dev + ino`（`MetadataExt`）就不用先问「这个卷敏不敏感」，
+两种卷上都对。少了这条，「把 readme 改成 README」永远失败。
+
+### 删除只走废纸篓
+
+`fsservice::move_to_trash` 是应用里唯一的删除路径，**没有 `remove_file`**。
+它调系统 API（macOS 上 `NSFileManager` 的 `trashItemAtURL:`，由 `trash` crate 包装），
+不是自己往 `~/.Trash` 里 rename —— Finder 的「放回原处」靠一份系统维护的元数据，
+外部卷的废纸篓在卷自己的 `.Trashes` 里，同名冲突还要按 Finder 的规则改名。
+判据和「.gitignore 的规则以 git 为准，所以起 git 子进程」是同一条。
+
+那条真去扔文件的测试标了 `#[ignore]`（它会往跑测试的人的废纸篓里扔东西）。
+**它必须被手动跑过**，否则 `trash::delete` 换成 `Ok(())` 剩下的测试照样全绿：
+
+```bash
+cargo test -p fsservice -- --ignored 真的把文件移进废纸篓
+```
+
+顺带一条环境陷阱：终端没有完全磁盘访问权限时 `ls ~/.Trash` 会
+`Operation not permitted`，但 `stat ~/.Trash/具体文件名` 读得到。
+验证「东西真的进了废纸篓」要按具体路径查，别看目录列表为空就下结论。
+
 ### 子进程输出必须设闸
 
 `git diff` 会为一个 30MB 的新增文件**原样吐 30MB**。这份文本走一趟 JSON IPC
@@ -311,7 +353,10 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（当前 134 KB。崩溃屏 `Crash.svelte` 是刻意静态引入的 —— 需要它的时候，
+（**当前 148 KB，红线 160 KB，只剩 12 KB 余量**；超过 150 KB CI 会先告警。
+这个数字每轮都要重量一次 —— 它在 M20/M22/M24 三轮里从 126 涨到 148，
+而 README 和这里各记了一个旧值，看着像互相矛盾。
+崩溃屏 `Crash.svelte` 是刻意静态引入的 —— 需要它的时候，
 正是模块加载可能已经不可信的时候。）
 
 ### CSP 写在两个地方，改一处要改两处
@@ -405,6 +450,11 @@ effect 也就不会再跑第二次。
 `src/lib/dev/mock-ipc.ts` 是浏览器里调 UI 用的（`pnpm dev`，热更新毫秒级，
 比等 Tauri 重编译快得多）。它喂的数据结构**必须**和 Rust 侧 DTO 一致 ——
 分叉之后它就失去了全部价值，还会骗人。改 DTO 记得同步改桩。
+
+**「严格对齐」包括排序这类不起眼的行为。** 桩的 `list_dir` 原来按写死的顺序返回，
+而 Rust 侧是「目录在前、同名不区分大小写」—— 于是新建出来的文件在浏览器里
+永远吊在列表最后，而真实现会把它排到该在的位置。「新建完滚过去」那段交互
+就是在这种地方白验的。
 
 生产构建里 `import.meta.env.DEV` 为假，整个模块会被 tree-shake 掉。
 

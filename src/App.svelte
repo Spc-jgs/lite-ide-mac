@@ -412,6 +412,61 @@
     treeTick++;
   }
 
+  /**
+   * 一个标签是不是「在 p 底下」。目录要连子树一起算 ——
+   * 改名或删掉一个目录，里面开着的每个文件都受影响。
+   */
+  function underPath(tabPath: string, p: string, isDir: boolean) {
+    return tabPath === p || (isDir && tabPath.startsWith(`${p}/`));
+  }
+
+  /** 传给文件树：这条路径底下有几个未保存的标签（删除确认框要说清楚） */
+  function dirtyUnder(p: string): number {
+    return tabs.filter((t) => t.dirty && underPath(t.path, p, true)).length;
+  }
+
+  /**
+   * 在文件树里改完名，打开着的标签要跟着走。
+   *
+   * 少了这一步的表现是：标签还挂着旧名字，按 ⌘S 报「文件不在盘上了」——
+   * 而名字是人刚刚亲手改的，最不会去怀疑的就是这件事。
+   */
+  function renameOpenTabs(from: string, to: string, isDir: boolean) {
+    for (const t of tabs) {
+      if (!underPath(t.path, from, isDir)) continue;
+      const np = to + t.path.slice(from.length);
+      // 位置记忆的 key 也是路径，一起搬 —— 不搬的话切回这个文件会跳回第一行
+      const pos = posByPath.get(t.path);
+      if (pos !== undefined) {
+        posByPath.delete(t.path);
+        posByPath.set(np, pos);
+      }
+      t.path = np;
+      t.name = np.slice(np.lastIndexOf("/") + 1);
+      // 差异/冲突标签的 rel 是相对仓库根的，跟着重算 ——
+      // 不算的话下一次刷新会拿一条已经不存在的路径去问 git
+      if (t.rel && repo && np.startsWith(`${repo}/`)) t.rel = np.slice(repo.length + 1);
+    }
+  }
+
+  /** 进废纸篓的东西，开着的标签一并关掉（确认框已经说过会关几个未保存的） */
+  function closeTabsUnder(p: string, isDir: boolean) {
+    for (const t of tabs.filter((t) => underPath(t.path, p, isDir))) doClose(t);
+  }
+
+  /**
+   * 文件树里改完盘之后的收尾。
+   *
+   * 三件事一起做：重读打开的文件 + 重列目录（`workingTreeChanged`），
+   * 再刷一次 git 状态 —— 新建出来的文件是未跟踪的，删掉的要显示成 D，
+   * 少这一下文件树上的染色就停在改动之前。
+   */
+  async function afterFsChange(openThis: string | null) {
+    if (openThis) await openPath(openThis);
+    await workingTreeChanged();
+    void refreshGit();
+  }
+
   function tabById(id: number): TabState | null {
     return tabs.find((t) => t.id === id) ?? null;
   }
@@ -1581,6 +1636,16 @@
             {revealPath}
             {revealTick}
             onOpen={(p) => void openPath(p)}
+            {dirtyUnder}
+            onCreated={(p, isDir) => void afterFsChange(isDir ? null : p)}
+            onRenamed={(from, to, isDir) => {
+              renameOpenTabs(from, to, isDir);
+              void afterFsChange(null);
+            }}
+            onTrashed={(p, isDir) => {
+              closeTabsUnder(p, isDir);
+              void afterFsChange(null);
+            }}
           />
         {/if}
         {#snippet failed(err, reset)}

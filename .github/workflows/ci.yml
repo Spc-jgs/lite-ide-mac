@@ -74,6 +74,12 @@ jobs:
             echo "::error::入口包 ${kb} KB 超过 160 KB 上限。"
             echo "::error::重的依赖要按需加载 —— 用 src/lib/lazy/lazy.svelte.ts 里的 lazy()。"
             exit 1
+          elif [ "$kb" -gt 150 ]; then
+            # 提前一轮预警。红线只有撞上才知道，而它一撞就是「CI 红了，
+            # 而我这轮压根没打算动打包」—— 两轮之间悄悄涨了十几 KB
+            # （M20 会话恢复 + M22 右键菜单 126 → 142，M24 又 → 148）
+            # 正是这么发生的，三处文档记的数字还各不相同。
+            echo "::warning::入口包 ${kb} KB，离 160 KB 红线只剩 $((160 - kb)) KB。"
           fi
 
       - name: 构建 app（确认 Tauri 壳能编出来）

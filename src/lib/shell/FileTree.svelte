@@ -1,6 +1,15 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { listDir, revealInFinder, type DirEntry, type GitEntry, type GitStatus } from "../ipc/commands";
+  import {
+    createEntry,
+    listDir,
+    renameEntry,
+    revealInFinder,
+    trashEntry,
+    type DirEntry,
+    type GitEntry,
+    type GitStatus,
+  } from "../ipc/commands";
   import { notify } from "../state/notify.svelte";
 
   let {
@@ -11,6 +20,10 @@
     revealPath = "",
     revealTick = 0,
     onOpen,
+    dirtyUnder,
+    onCreated,
+    onRenamed,
+    onTrashed,
   }: {
     root: string;
     activePath: string;
@@ -30,6 +43,19 @@
     revealPath?: string;
     revealTick?: number;
     onOpen: (path: string, isDir: boolean) => void;
+    /**
+     * 这条路径（含子树）下有几个**未保存**的标签。
+     *
+     * 文件树自己不知道有哪些标签开着，而「移到废纸篓」的确认框必须说清
+     * 会连带丢掉多少未保存的改动 —— 一句「确定删除吗」在这种时候是不够的。
+     */
+    dirtyUnder?: (path: string) => number;
+    /** 新建成功。App 负责决定要不要打开它，以及刷新 git 状态 */
+    onCreated?: (path: string, isDir: boolean) => void;
+    /** 改名成功。App 负责把打开着的标签的路径一起改掉 */
+    onRenamed?: (from: string, to: string, isDir: boolean) => void;
+    /** 进了废纸篓。App 负责关掉受影响的标签 */
+    onTrashed?: (path: string, isDir: boolean) => void;
   } = $props();
 
   /**
@@ -437,15 +463,18 @@
   // ─────────────────── 右键菜单 ───────────────────
 
   /**
-   * 第一批只放**无破坏性**的三项（见 issue #6）。
+   * 菜单两批：M22 立壳时只放了无破坏性的三项，这一轮（M24）补上会改盘的四项。
    *
-   * 新建 / 重命名 / 删除是有破坏性的，值得单独一轮 —— 删除必须走废纸篓
-   * （这是个人工具，误删一个目录没有任何补救手段：没有回收站，
-   * 未跟踪的文件 Git 也救不回来），重命名要让打开着的标签跟着改路径。
-   * 那些都得配确认对话框，不该和"立个菜单壳"混在一起做。
+   * **破坏性的那几项各自带一道闸**：新建撞名在 Rust 侧就失败（不覆盖），
+   * 改名的目标已存在同样失败（`fs::rename` 自己是静默覆盖的），
+   * 删除只进废纸篓 —— 应用里没有第二条删除路径。
+   *
+   * 项目根那一行（头部那个项目名）也能开菜单，但只有「新建」和只读那三项：
+   * 改名或删掉工作区根，整棵树当场就散了。
    */
-  let menu = $state<{ x: number; y: number; row: Row } | null>(null);
+  let menu = $state<{ x: number; y: number; row: Row; fromHead?: boolean } | null>(null);
   let menuEl = $state<HTMLElement | null>(null);
+  let headEl = $state<HTMLElement | null>(null);
   /** 菜单里的键盘游标 */
   let menuCursor = $state(0);
 
@@ -454,14 +483,38 @@
     return p.startsWith(base) ? p.slice(base.length) : p;
   };
 
+  const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/")) || "/";
+
+  interface MenuItem {
+    label: string;
+    run: () => void;
+    /** 这一项上面画一条分隔线 */
+    sep?: boolean;
+    danger?: boolean;
+  }
+
+  /*
+   * 分隔线做成条目自己的一个标记，而不是往数组里塞一个 `{ sep: true }` 占位 ——
+   * 占位项会让键盘游标走到一条线上，于是 onMenuKey 里要额外写跳过逻辑，
+   * 而那段逻辑一旦漏了边界，↑↓ 就会在菜单头尾卡住。
+   */
   let items = $derived.by(() => {
     const row = menu?.row;
-    if (!row) return [] as { label: string; run: () => void }[];
-    return [
-      { label: "在 Finder 中显示", run: () => void showInFinder(row.path) },
-      { label: "复制路径", run: () => void copy(row.path, "路径") },
-      { label: "复制相对路径", run: () => void copy(relOf(row.path), "相对路径") },
+    if (!row) return [] as MenuItem[];
+    // 在目录上右键 → 建在它里面；在文件上右键 → 建在它旁边（同 Finder / IDEA）
+    const dir = row.isDir ? row.path : parentOf(row.path);
+    const out: MenuItem[] = [
+      { label: "新建文件…", run: () => openAsk("newFile", dir) },
+      { label: "新建文件夹…", run: () => openAsk("newDir", dir) },
     ];
+    if (row.path !== root) {
+      out.push({ label: "重命名…", sep: true, run: () => openAsk("rename", parentOf(row.path), row) });
+      out.push({ label: "移到废纸篓", danger: true, run: () => openTrashAsk(row) });
+    }
+    out.push({ label: "在 Finder 中显示", sep: true, run: () => void showInFinder(row.path) });
+    out.push({ label: "复制路径", run: () => void copy(row.path, "路径") });
+    out.push({ label: "复制相对路径", run: () => void copy(relOf(row.path), "相对路径") });
+    return out;
   });
 
   // 名字别叫 reveal —— 上面那个 reveal() 是「在文件树里定位」（issue #4），
@@ -489,6 +542,133 @@
     }
   }
 
+  // ─────────────────── 会改盘的那几项 ───────────────────
+
+  /**
+   * 输入框：新建文件 / 新建文件夹 / 重命名共用一个。
+   *
+   * 错误显示在**框里**而不是走 notify：这时候人正站在输入框前，
+   * 「已经有一个叫 x 的了」要就地看见并改掉，而不是被甩到状态栏那一格里，
+   * 输入框还傻站着。
+   */
+  let ask = $state<{
+    kind: "newFile" | "newDir" | "rename";
+    x: number;
+    y: number;
+    /** 建在哪个目录 / 改的是哪个目录里的东西 */
+    dir: string;
+    /** 只有 rename 用：被改名的那一行 */
+    row?: Row;
+    name: string;
+    error: string;
+    busy: boolean;
+  } | null>(null);
+  let askEl = $state<HTMLElement | null>(null);
+  let askInput = $state<HTMLInputElement | null>(null);
+
+  /** 废纸篓确认 */
+  let trash = $state<{ x: number; y: number; row: Row; dirty: number; busy: boolean } | null>(null);
+  let trashEl = $state<HTMLElement | null>(null);
+
+  const ASK_TITLE = {
+    newFile: "新建文件",
+    newDir: "新建文件夹",
+    rename: "重命名",
+  } as const;
+
+  function openAsk(kind: "newFile" | "newDir" | "rename", dir: string, row?: Row) {
+    const at = menu ?? { x: 0, y: 0 };
+    ask = {
+      kind,
+      x: at.x,
+      y: at.y,
+      dir,
+      row,
+      name: kind === "rename" ? (row?.name ?? "") : "",
+      error: "",
+      busy: false,
+    };
+  }
+
+  function openTrashAsk(row: Row) {
+    const at = menu ?? { x: 0, y: 0 };
+    trash = { x: at.x, y: at.y, row, dirty: dirtyUnder?.(row.path) ?? 0, busy: false };
+  }
+
+  /** 把 p 和它子树下的缓存与展开状态全忘掉 —— 改名之后这些 key 已经不存在了 */
+  function forgetSubtree(p: string) {
+    const c = new Map(children);
+    const e = new Set(expanded);
+    for (const k of [...c.keys()]) if (k === p || k.startsWith(`${p}/`)) c.delete(k);
+    for (const k of [...e]) if (k === p || k.startsWith(`${p}/`)) e.delete(k);
+    children = c;
+    expanded = e;
+  }
+
+  /** 让某个目录下次被读到时重新拉 */
+  function invalidate(dir: string) {
+    const c = new Map(children);
+    c.delete(dir);
+    children = c;
+  }
+
+  const msgOf = (e: unknown) => String(e).replace(/^Error:\s*/, "");
+
+  async function submitAsk() {
+    const a = ask;
+    if (!a || a.busy) return;
+    const name = a.name;
+    ask = { ...a, error: "", busy: true };
+    try {
+      if (a.kind === "rename") {
+        const from = a.row!.path;
+        const to = await renameEntry(from, name);
+        if (to !== from) {
+          // 子树的 key 全变了，父目录也要重列
+          forgetSubtree(from);
+          invalidate(a.dir);
+          onRenamed?.(from, to, a.row!.isDir);
+        }
+        ask = null;
+        await reveal(to);
+        notify.ok(`已改名为 ${to.slice(to.lastIndexOf("/") + 1)}`);
+      } else {
+        const isDir = a.kind === "newDir";
+        const path = await createEntry(a.dir, name, isDir);
+        invalidate(a.dir);
+        expanded = new Set(expanded).add(a.dir);
+        onCreated?.(path, isDir);
+        ask = null;
+        await reveal(path);
+        notify.ok(`已新建 ${name}`);
+      }
+    } catch (e) {
+      // 失败时**留着输入框和已经打好的字** —— 撞名之后要改的是那个名字，
+      // 框一关人得从右键菜单重走一遍
+      ask = { ...a, error: msgOf(e), busy: false };
+      askInput?.focus();
+      askInput?.select();
+    }
+  }
+
+  async function doTrash() {
+    const t = trash;
+    if (!t || t.busy) return;
+    trash = { ...t, busy: true };
+    try {
+      await trashEntry(t.row.path);
+      forgetSubtree(t.row.path);
+      invalidate(parentOf(t.row.path));
+      onTrashed?.(t.row.path, t.row.isDir);
+      trash = null;
+      await reload();
+      notify.ok(`已移到废纸篓：${t.row.name}`);
+    } catch (e) {
+      trash = null;
+      notify.fail(msgOf(e));
+    }
+  }
+
   function openMenu(e: MouseEvent, i: number) {
     e.preventDefault();
     // 右键也要选中这一行 —— 与 Finder / IDEA 一致。
@@ -507,10 +687,37 @@
     menu = { x: r.left + 12, y: r.bottom - 2, row: rows[i] };
   }
 
+  /**
+   * 项目根的菜单（头部那个项目名）。
+   *
+   * 没有它，「在项目根下新建」就只能靠右键某个顶层条目再指望人明白
+   * 「文件上右键是建在它旁边」—— 那是把功能藏起来。
+   * 根这一行不在 `rows` 里（rows 从根的子项开始），所以现造一个 Row。
+   */
+  function openMenuAtHead(x: number, y: number) {
+    menuCursor = 0;
+    menu = {
+      x,
+      y,
+      row: { name: rootName, path: root, isDir: true, depth: -1 },
+      fromHead: true,
+    };
+  }
+
   function closeMenu(refocus = true) {
     if (!menu) return;
+    const head = menu.fromHead;
     menu = null;
-    if (refocus) rowAt(cursor)?.focus();
+    // 菜单项刚开出一个输入框/确认框时不要抢焦点回来：
+    // 那两个浮层自己会把焦点接过去，这里再插一脚就成了「输入框开着但打不了字」
+    if (refocus && !ask && !trash) (head ? headEl : rowAt(cursor))?.focus();
+  }
+
+  /** 三个浮层同时只会开一个，但关的时候一起关，省得漏 */
+  function closeAll(refocus = true) {
+    closeMenu(refocus);
+    ask = null;
+    trash = null;
   }
 
   /*
@@ -518,18 +725,60 @@
    * 写回 state 会让这个 effect 依赖自己写的值，一不小心就是 update 循环。
    * 这里读一次布局、写一次样式，一帧就完事。
    */
+  function clamp(el: HTMLElement, at: { x: number; y: number }) {
+    const r = el.getBoundingClientRect();
+    const pad = 6;
+    el.style.left = `${Math.max(pad, Math.min(at.x, window.innerWidth - r.width - pad))}px`;
+    el.style.top = `${Math.max(pad, Math.min(at.y, window.innerHeight - r.height - pad))}px`;
+  }
+
   $effect(() => {
     const el = menuEl;
     const m = menu;
     if (!el || !m) return;
-    const r = el.getBoundingClientRect();
-    const pad = 6;
-    const x = Math.max(pad, Math.min(m.x, window.innerWidth - r.width - pad));
-    const y = Math.max(pad, Math.min(m.y, window.innerHeight - r.height - pad));
-    el.style.left = `${x}px`;
-    el.style.top = `${y}px`;
+    clamp(el, m);
     // 开完就把焦点交给菜单，否则 Esc 和方向键都落不到它身上
     el.focus();
+  });
+
+  // 输入框和确认框同样要钳进视口 —— 它们从菜单原地长出来，
+  // 而它们比菜单矮，右下角开的时候位置不一样
+  $effect(() => {
+    const el = askEl;
+    const a = ask;
+    if (!el || !a) return;
+    clamp(el, a);
+  });
+  $effect(() => {
+    const el = trashEl;
+    const t = trash;
+    if (!el || !t) return;
+    clamp(el, t);
+    /*
+     * 焦点落在**第一个按钮（取消）**上，不是落在框上。
+     *
+     * 差别在于顺手一个回车会发生什么：焦点在框上时回车什么都不做（还行），
+     * 焦点在取消上时回车是取消（更好）—— 而这两种都比"回车即删除"强，
+     * 所以下面 onTrashKey 里也没有把 Enter 绑到删除上。
+     */
+    el.querySelector("button")?.focus();
+  });
+
+  /*
+   * 输入框开出来就选中已有的名字。
+   *
+   * 重命名时**只选中扩展名之前那段** —— 改名十有八九是改主干，
+   * 连着 `.java` 一起选中，人得先按一下 → 再退回去。Finder / IDEA 都是这样。
+   */
+  $effect(() => {
+    const el = askInput;
+    const a = ask;
+    if (!el || !a) return;
+    untrack(() => {
+      el.focus();
+      const dot = a.name.lastIndexOf(".");
+      el.setSelectionRange(0, dot > 0 ? dot : a.name.length);
+    });
   });
 
   /*
@@ -539,11 +788,13 @@
    * 不捕获的话，滚一下菜单就飘在半空中指着一行早已滚走的东西。
    */
   $effect(() => {
-    if (!menu) return;
+    if (!menu && !ask && !trash) return;
+    const cur = () => menuEl ?? askEl ?? trashEl;
     const onDown = (e: PointerEvent) => {
-      if (menuEl && !menuEl.contains(e.target as Node)) closeMenu(false);
+      const el = cur();
+      if (el && !el.contains(e.target as Node)) closeAll(false);
     };
-    const onScroll = () => closeMenu(false);
+    const onScroll = () => closeAll(false);
     window.addEventListener("pointerdown", onDown, true);
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onScroll);
@@ -560,7 +811,9 @@
   $effect(() => {
     void root;
     void reloadTick;
-    untrack(() => closeMenu(false));
+    // 输入框和确认框也要关：它们指着的那一行可能已经不存在了，
+    // 而「确认删除」框指着一个已经没了的东西是危险的
+    untrack(() => closeAll(false));
   });
 
   function onMenuKey(e: KeyboardEvent) {
@@ -594,11 +847,57 @@
         break;
     }
   }
+
+  function onAskKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      ask = null;
+      rowAt(cursor)?.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      void submitAsk();
+    }
+  }
+
+  function onTrashKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      trash = null;
+      rowAt(cursor)?.focus();
+    }
+    // **Enter 故意不绑到「移到废纸篓」上。** 焦点默认停在「取消」，
+    // 于是顺手一个回车是取消而不是删除 —— 删除要么点，要么 Tab 过去再按
+  }
 </script>
 
 <div class="tree">
   <div class="head">
-    <span class="proj" title={root}>{rootName}</span>
+    <!--
+      项目名是个按钮，因为「在项目根下新建」得有个地方点。
+      左键也开菜单：一个只认右键的按钮，等于没有告诉任何人它能点。
+    -->
+    <button
+      class="proj"
+      bind:this={headEl}
+      title="{root}（右键或点击：项目根的操作）"
+      onclick={(e) => {
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        openMenuAtHead(r.left, r.bottom + 2);
+      }}
+      oncontextmenu={(e) => {
+        e.preventDefault();
+        openMenuAtHead(e.clientX, e.clientY);
+      }}
+      onkeydown={(e) => {
+        if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
+          e.preventDefault();
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          openMenuAtHead(r.left, r.bottom + 2);
+        }
+      }}
+    >{rootName}</button>
     <span class="gap"></span>
   </div>
   <div class="list" role="tree" aria-label="文件树" bind:this={listEl}>
@@ -692,6 +991,8 @@
       <button
         class="mitem"
         class:on={i === menuCursor}
+        class:sep={it.sep}
+        class:danger={it.danger}
         role="menuitem"
         tabindex="-1"
         onmouseenter={() => (menuCursor = i)}
@@ -703,6 +1004,94 @@
         {it.label}
       </button>
     {/each}
+  </div>
+{/if}
+
+{#if ask}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="pop"
+    role="dialog"
+    tabindex="-1"
+    aria-label={ASK_TITLE[ask.kind]}
+    bind:this={askEl}
+    style:left="{ask.x}px"
+    style:top="{ask.y}px"
+    onkeydown={onAskKey}
+  >
+    <div class="mhead" title={ask.kind === "rename" ? ask.row?.path : ask.dir}>
+      {ASK_TITLE[ask.kind]}{ask.kind === "rename" ? "" : ` · ${relOf(ask.dir) || rootName}`}
+    </div>
+    <input
+      class="pinput"
+      bind:this={askInput}
+      bind:value={ask.name}
+      oninput={() => {
+        // 报错留在框里不动的话，改完名字它还在那儿说"已经有一个叫 xxx 的了"，
+        // 而 xxx 已经不是框里这个名字了 —— 一句过期的错误比没有错误更难判断
+        if (ask) ask.error = "";
+      }}
+      spellcheck="false"
+      autocapitalize="off"
+      autocorrect="off"
+      placeholder={ask.kind === "newDir" ? "文件夹名" : "文件名"}
+    />
+    {#if ask.error}
+      <div class="perr">{ask.error}</div>
+    {/if}
+    <div class="prow">
+      <button
+        class="pbtn"
+        onclick={() => {
+          ask = null;
+          rowAt(cursor)?.focus();
+        }}>取消</button
+      >
+      <button class="pbtn primary" disabled={ask.busy} onclick={() => void submitAsk()}>
+        {ask.kind === "rename" ? "改名" : "新建"}
+      </button>
+    </div>
+  </div>
+{/if}
+
+{#if trash}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="pop"
+    role="dialog"
+    aria-label="移到废纸篓"
+    tabindex="-1"
+    bind:this={trashEl}
+    style:left="{trash.x}px"
+    style:top="{trash.y}px"
+    onkeydown={onTrashKey}
+  >
+    <div class="mhead" title={trash.row.path}>移到废纸篓</div>
+    <div class="ptext">
+      「<b>{trash.row.name}</b>」{trash.row.isDir ? "连同里面的全部内容" : ""}会被移到废纸篓，
+      可以在 Finder 里放回原处。
+    </div>
+    {#if trash.dirty > 0}
+      <!--
+        未保存的改动在废纸篓里是**找不回来的**：文件回来的是磁盘上那一份，
+        编辑器里没保存的那些字随着标签一起没。这句必须说在前面
+      -->
+      <div class="pwarn">
+        有 {trash.dirty} 个未保存的标签会被一起关掉，那些改动找不回来。
+      </div>
+    {/if}
+    <div class="prow">
+      <button
+        class="pbtn"
+        onclick={() => {
+          trash = null;
+          rowAt(cursor)?.focus();
+        }}>取消</button
+      >
+      <button class="pbtn danger" disabled={trash.busy} onclick={() => void doTrash()}>
+        移到废纸篓
+      </button>
+    </div>
   </div>
 {/if}
 
@@ -729,7 +1118,22 @@
     color: var(--text-dim);
     user-select: none;
   }
-  .head .proj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 项目名现在是个按钮（要能开菜单），外观得跟原来那个 span 一模一样 */
+  .head .proj {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: default;
+  }
+  .head .proj:hover { color: var(--text); }
+  .head .proj:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .head .gap { flex: 1; min-width: 6px; }
   .list { flex: 1; overflow-y: auto; padding: 4px 0; }
   .row {
@@ -840,6 +1244,89 @@
   }
   /* 鼠标和键盘共用一个高亮：菜单里同时有两个高亮是最容易看错的写法 */
   .mitem.on { background: var(--accent-sel); }
+
+  .mitem.sep {
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border-soft);
+    border-radius: 0 0 3px 3px;
+  }
+  /*
+   * 危险项常驻红色，不是只在 hover 时变红：手滑点中的那一下发生在 hover 之后，
+   * 而人是靠"扫一眼菜单"决定往哪儿点的
+   */
+  .mitem.danger { color: var(--lvl-error); }
+  .mitem.danger.on { background: rgba(247, 84, 100, 0.16); }
+
+  /* 输入框 / 确认框：位置和外观都跟着菜单走，它们是从菜单原地长出来的 */
+  .pop {
+    position: fixed;
+    z-index: 60;
+    width: 260px;
+    padding: 4px 4px 6px;
+    background: var(--panel-bg-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    outline: none;
+  }
+  .pinput {
+    width: 100%;
+    margin: 2px 0 0;
+    padding: 5px 8px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--code-font);
+    font-size: 12.5px;
+  }
+  .pinput:focus { outline: none; border-color: var(--accent); }
+  .ptext {
+    padding: 4px 6px 2px;
+    color: var(--text-dim);
+    font-family: var(--ui-font);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .ptext b { color: var(--text); font-weight: 600; }
+  .perr {
+    padding: 5px 6px 1px;
+    color: var(--lvl-error);
+    font-size: 11.5px;
+    line-height: 1.5;
+  }
+  .pwarn {
+    margin: 5px 4px 0;
+    padding: 5px 7px;
+    background: rgba(247, 84, 100, 0.1);
+    border-radius: 4px;
+    color: var(--lvl-error);
+    font-size: 11.5px;
+    line-height: 1.5;
+  }
+  .prow {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 0 2px;
+  }
+  .pbtn {
+    padding: 4px 11px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-family: var(--ui-font);
+    font-size: 12px;
+    cursor: default;
+  }
+  .pbtn:hover { background: var(--panel-bg); color: var(--text); }
+  .pbtn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pbtn.danger { border-color: var(--lvl-error); color: var(--lvl-error); }
+  .pbtn.danger:hover { background: rgba(247, 84, 100, 0.14); }
+  .pbtn:disabled { opacity: 0.55; }
 
   .err {
     padding: 8px 10px;
