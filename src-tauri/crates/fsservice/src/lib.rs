@@ -202,6 +202,161 @@ pub fn reveal_in_finder(path: impl AsRef<Path>) -> io::Result<()> {
     }
 }
 
+// ─────────────────── 新建 / 重命名 / 移到废纸篓 ───────────────────
+//
+// issue #6 把这三样和「复制路径」那批刻意分开：那批只是读，这批**会改盘上的东西**。
+// 三条共同的纪律：
+//
+// 1. **绝不静默覆盖。** std 里最顺手的那两个 API（`File::create`、`fs::rename`）
+//    默认都会吃掉已有文件，各自的注释里有实测对照。
+// 2. **名字在这一层校验，前端不拼路径。** 前端只递「在哪个目录、叫什么」，
+//    join 和校验都发生在这里 —— 少一个前端拼错路径把文件写到别处的机会。
+// 3. **删除只进废纸篓。** 个人工具，误删一个目录没有任何补救手段：
+//    没有回收站，未跟踪的文件 git 也救不回来。
+
+/// 单个路径组件的字节上限。APFS / HFS+ 都是 255 **字节**，不是 255 个字符 ——
+/// 中文名到 85 个字就顶到头了，而那时错误信息说「太长」得说清是按字节算的。
+const MAX_NAME_BYTES: usize = 255;
+
+/// 校验一个新名字。
+///
+/// 单独抽出来是因为它是这批改动里唯一**能穷举**的部分：其余三个函数都要碰盘，
+/// 而这里全是纯判断，可以把每条规则连同它的理由一起钉死。
+pub fn validate_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() {
+        // 全是空白的名字在文件树里就是一行空的，点不着也删不掉 —— 一定是手滑
+        return Err("名字不能为空".into());
+    }
+    if name.contains('/') {
+        // macOS 上 `/` 是路径分隔符（Finder 里显示成 `:` 是另一回事）。
+        // 放它过去，「新建 a/b」就变成了往别的目录里写东西
+        return Err("名字里不能有 /".into());
+    }
+    if name.contains('\0') {
+        // 到不了系统调用就会被 Rust 挡下，但错误是英文的 NulError
+        return Err("名字里不能有空字符".into());
+    }
+    if name == "." || name == ".." {
+        return Err("不能叫 . 或 ..".into());
+    }
+    if name.len() > MAX_NAME_BYTES {
+        return Err(format!(
+            "名字太长（上限 {MAX_NAME_BYTES} 字节，这个 {} 字节）",
+            name.len()
+        ));
+    }
+    Ok(())
+}
+
+/// 两份元数据指的是不是同一个盘上条目。
+///
+/// 用 dev + ino 而不是比较路径字符串：`a.txt` 和 `A.txt` 在 macOS 默认的
+/// APFS 卷上是同一个文件，而在大小写敏感的卷上是两个 —— 问系统要 inode
+/// 就不用先判断「这个卷敏不敏感」。
+fn same_entry(a: &fs::Metadata, b: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    a.dev() == b.dev() && a.ino() == b.ino()
+}
+
+/// 在 `dir` 里新建一个文件或目录，返回新路径。
+///
+/// 撞名一律失败，**不覆盖也不复用**。
+pub fn create_entry(dir: impl AsRef<Path>, name: &str, is_dir: bool) -> io::Result<PathBuf> {
+    validate_name(name).map_err(|m| io::Error::new(io::ErrorKind::InvalidInput, m))?;
+    let path = dir.as_ref().join(name);
+
+    // 预检查只为了给一句中文 —— 真正的保护是下面两个 API 自带的原子性。
+    // 两者不能互相替代：光有预检查会被 TOCTOU 绕过，光有原子保护则会
+    // 把「File exists (os error 17)」这句英文糊到状态栏里
+    if fs::symlink_metadata(&path).is_ok() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("这里已经有一个叫「{name}」的了"),
+        ));
+    }
+
+    if is_dir {
+        // `create_dir` 而不是 `create_dir_all`：后者对**已存在**的目录返回 Ok，
+        // 于是「新建一个已经有的文件夹」会静悄悄地什么都不做，界面还报「已新建」
+        fs::create_dir(&path)?;
+    } else {
+        // `create_new(true)` 而不是 `File::create`：后者对已存在的文件是
+        // **截断成 0 字节**（实测见测试 `新建文件绝不截断已有文件`）。
+        // 新文件手滑取成一个已有文件的名字是最容易发生的手滑，
+        // 而那份内容当场就没了 —— 连废纸篓都进不了
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+    }
+    Ok(path)
+}
+
+/// 在原地改名（同一个父目录），返回新路径。
+///
+/// 换目录的移动**不在这里做** —— 那是拖拽的事，需要的判断完全不同
+/// （跨卷、目标是不是自己的子目录）。
+pub fn rename_entry(path: impl AsRef<Path>, new_name: &str) -> io::Result<PathBuf> {
+    validate_name(new_name).map_err(|m| io::Error::new(io::ErrorKind::InvalidInput, m))?;
+    let path = path.as_ref();
+    let from_meta = fs::symlink_metadata(path).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} 不在盘上了", path.display()),
+        )
+    })?;
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "这个路径没有上级目录，改不了名")
+    })?;
+    let to = parent.join(new_name);
+    if to == path {
+        return Ok(to); // 名字没变，别去惊动文件系统
+    }
+
+    /*
+     * `fs::rename` 在 Unix 上**静默覆盖**已存在的目标 —— 这是 rename(2)
+     * 的语义，不是 Rust 的选择。少了这道检查，把 a.txt 改名成一个已有的
+     * b.txt，b.txt 就没了；而且它不进废纸篓，是真的没了。
+     *
+     * 用 `symlink_metadata` 而不是 `to.exists()`：后者跟随符号链接，
+     * 于是一个指向已删除目标的坏链接会被判成"不存在"，然后被 rename 覆盖掉 ——
+     * 丢的是链接本身。这条和 reveal 那边是同一个判据。
+     */
+    if let Ok(to_meta) = fs::symlink_metadata(&to) {
+        // 例外：只改大小写。APFS 默认大小写不敏感，a.txt → A.txt 时
+        // 目标"已存在"，而存在的正是源文件自己 —— 这时候必须放行
+        if !same_entry(&to_meta, &from_meta) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("这里已经有一个叫「{new_name}」的了"),
+            ));
+        }
+    }
+
+    fs::rename(path, &to)?;
+    Ok(to)
+}
+
+/// 移到废纸篓。**不做真删除** —— 整个应用里没有任何一条路会 `remove_file`。
+///
+/// 走系统 API（macOS 上是 `NSFileManager` 的 `trashItemAtURL:`，由 trash crate
+/// 包装）而不是自己往 `~/.Trash` 里 rename：Finder 的「放回原处」依赖一份
+/// 系统维护的元数据，外部卷的废纸篓在卷自己的 `.Trashes` 里，同名冲突还要
+/// 按 Finder 的规则改名。这几条规则的定义方是系统 —— 和「.gitignore 的
+/// 优先级规则以 git 为准，所以起 git 子进程」是同一条判据。
+pub fn move_to_trash(path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
+    // 自己判一次存在性，理由同 reveal_in_finder：「文件已经不在了」是最常见的
+    // 失败（刚在终端里删过、切了分支），而 trash 的错误是英文的
+    if fs::symlink_metadata(path).is_err() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} 不在盘上了", path.display()),
+        ));
+    }
+    trash::delete(path).map_err(|e| io::Error::other(format!("移到废纸篓失败：{e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,4 +557,226 @@ mod tests {
         fs::remove_dir_all(d).ok();
     }
 
+    // ── 新建 / 重命名 / 废纸篓 ──
+    //
+    // 这一批里有三条**先证明前提**再断言：std 的默认行为（截断、覆盖、复用）
+    // 正是这些保护存在的理由，不把它演示一遍，读代码的人会以为
+    // `create_new` 和那道存在性检查是可有可无的防御性代码。
+
+    #[test]
+    fn 名字校验挡住五类坏名字() {
+        assert!(validate_name("正常.txt").is_ok());
+        assert!(validate_name(" 前导空格也放行").is_ok(), "首尾空格是合法文件名，不该越权拦");
+
+        let bad = |n: &str| validate_name(n).unwrap_err();
+        assert!(bad("").contains("不能为空"));
+        assert!(bad("   ").contains("不能为空"), "全空白的名字在树里就是一行空的");
+        assert!(bad("a/b").contains("不能有 /"), "放它过去就是往别的目录写东西");
+        assert!(bad("a\0b").contains("空字符"));
+        assert!(bad(".").contains(". 或 .."));
+        assert!(bad("..").contains(". 或 .."));
+
+        // 255 是**字节**不是字符：85 个中文正好 255 字节，86 个就超
+        assert!(validate_name(&"中".repeat(85)).is_ok());
+        let e = bad(&"中".repeat(86));
+        assert!(e.contains("258 字节"), "错误里要说清按字节算，实得：{e}");
+    }
+
+    #[test]
+    fn 新建文件绝不截断已有文件() {
+        let d = sandbox("create-file");
+
+        // 前提：std 最顺手的那个写法会把已有文件截成 0 字节
+        let victim = d.join("victim.txt");
+        write_text(&victim, "本来有内容").unwrap();
+        fs::File::create(&victim).unwrap();
+        assert_eq!(
+            fs::metadata(&victim).unwrap().len(),
+            0,
+            "前提不成立：File::create 不再截断了？那这条保护的理由要重写"
+        );
+
+        // 我们的：撞名报错，内容一个字节都不动
+        let keep = d.join("keep.txt");
+        write_text(&keep, "别动我").unwrap();
+        let e = create_entry(&d, "keep.txt", false).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        assert!(e.to_string().contains("已经有一个叫"), "实得：{e}");
+        assert_eq!(read_text(&keep).unwrap(), "别动我");
+
+        // 正常路径：新文件是空的，路径带回来
+        let p = create_entry(&d, "新建.java", false).unwrap();
+        assert_eq!(p, d.join("新建.java"));
+        assert_eq!(read_text(&p).unwrap(), "");
+
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 新建文件夹撞名要报错而不是复用() {
+        let d = sandbox("create-dir");
+        let sub = d.join("已有目录");
+        fs::create_dir(&sub).unwrap();
+
+        // 前提：create_dir_all 对已存在的目录返回 Ok —— 用它就会「新建成功」
+        // 一个早就存在的目录，界面报了「已新建」而盘上什么都没发生
+        assert!(fs::create_dir_all(&sub).is_ok(), "前提不成立");
+
+        let e = create_entry(&d, "已有目录", true).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+
+        let p = create_entry(&d, "新目录", true).unwrap();
+        assert!(p.is_dir());
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 新建撞的是一个文件还是目录都要拦() {
+        // 撞名检查看的是「这个名字被占了没有」，不该只在同类之间比
+        let d = sandbox("create-cross");
+        fs::create_dir(d.join("x")).unwrap();
+        // 断言的是**我们自己那句中文**，不只是 is_err()：std 对跨类型撞名
+        // 本来就会 EEXIST，只断言"报错了"的话，把预检查改成只在同类之间比
+        // 也照样绿（试过）
+        let e = create_entry(&d, "x", false).unwrap_err();
+        assert!(e.to_string().contains("已经有一个叫"), "同名目录占着，实得：{e}");
+
+        write_text(d.join("y"), "内容").unwrap();
+        let e = create_entry(&d, "y", true).unwrap_err();
+        assert!(e.to_string().contains("已经有一个叫"), "同名文件占着，实得：{e}");
+        assert_eq!(read_text(d.join("y")).unwrap(), "内容");
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 改名不覆盖已存在的目标() {
+        let d = sandbox("rename-clobber");
+
+        // 前提：fs::rename 静默覆盖 —— 这是 rename(2) 的语义，不是 Rust 的选择
+        let a = d.join("a0.txt");
+        let b = d.join("b0.txt");
+        write_text(&a, "源").unwrap();
+        write_text(&b, "本来的 b").unwrap();
+        fs::rename(&a, &b).unwrap();
+        assert_eq!(read_text(&b).unwrap(), "源", "前提不成立：rename 不再覆盖了？");
+        assert!(!a.exists());
+
+        // 我们的：拦住，两边内容都不变
+        let x = d.join("x.txt");
+        let y = d.join("y.txt");
+        write_text(&x, "我是 x").unwrap();
+        write_text(&y, "我是 y").unwrap();
+        let e = rename_entry(&x, "y.txt").unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(read_text(&x).unwrap(), "我是 x");
+        assert_eq!(read_text(&y).unwrap(), "我是 y", "被覆盖的话这里就是「我是 x」");
+
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 改名之后旧路径没了新路径在() {
+        let d = sandbox("rename-ok");
+        let a = d.join("旧名.java");
+        write_text(&a, "内容").unwrap();
+
+        let to = rename_entry(&a, "新名.java").unwrap();
+        assert_eq!(to, d.join("新名.java"));
+        assert!(!a.exists(), "旧路径还在");
+        assert_eq!(read_text(&to).unwrap(), "内容", "改名不该动内容");
+
+        // 名字没变：直接返回，不去惊动文件系统
+        let same = rename_entry(&to, "新名.java").unwrap();
+        assert_eq!(same, to);
+        assert_eq!(read_text(&to).unwrap(), "内容");
+
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 只改大小写要能成功() {
+        // APFS 默认大小写不敏感：a.txt → A.txt 时目标"已存在"，
+        // 而存在的正是源文件自己。靠 dev+ino 认出这一点，不然这条永远失败 ——
+        // 而「把 readme.md 改成 README.md」是真实需求
+        let d = sandbox("rename-case");
+        let a = d.join("readme.md");
+        write_text(&a, "内容").unwrap();
+
+        let to = rename_entry(&a, "README.md").unwrap();
+        assert_eq!(to, d.join("README.md"));
+
+        let names: Vec<String> = list_dir(&d, false).unwrap().into_iter().map(|e| e.name).collect();
+        assert_eq!(names, vec!["README.md"], "盘上的名字没跟着换大小写");
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 改名的目标是坏软链也不许覆盖() {
+        // to.exists() 会跟随软链，于是一个指向已删除目标的坏链接被判成
+        // "不存在"，然后 rename 把链接本身覆盖掉。这条是 exists 和
+        // symlink_metadata 的分水岭，和 reveal 那边同一个判据
+        let d = sandbox("rename-symlink");
+        let src = d.join("src.txt");
+        write_text(&src, "源").unwrap();
+        let link = d.join("断链");
+        std::os::unix::fs::symlink(d.join("目标早没了"), &link).unwrap();
+        assert!(!link.try_exists().unwrap(), "前提：try_exists 判它不存在");
+
+        let e = rename_entry(&src, "断链").unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink(), "链接被覆盖掉了");
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 改名先校验名字() {
+        let d = sandbox("rename-name");
+        let a = d.join("a.txt");
+        write_text(&a, "x").unwrap();
+        // 带斜杠的名字要在碰盘之前就被挡下，否则就是「改名」变成「移动到别处」
+        let e = rename_entry(&a, "../跑出去.txt").unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidInput);
+        assert!(a.exists());
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 改不存在的东西要报中文() {
+        let d = sandbox("rename-missing");
+        let e = rename_entry(d.join("没有这个.txt"), "新名").unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
+        assert!(e.to_string().contains("不在盘上了"), "实得：{e}");
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 废纸篓拒绝不存在的路径() {
+        // 和 reveal 一样：自己判一次给一句中文，而不是把 trash 的英文透出来
+        let e = move_to_trash("/这个路径/根本/不存在.txt").unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
+        assert!(e.to_string().contains("不在盘上了"), "实得：{e}");
+    }
+
+    /// **默认不跑**：它会往跑测试的人的废纸篓里真的扔一个文件进去。
+    ///
+    /// 但这条路必须有人验过 —— 上面那条只测了守卫，一行 `trash::delete`
+    /// 换成 `Ok(())` 它照样绿。手动跑：
+    ///
+    /// ```bash
+    /// cargo test -p fsservice -- --ignored 真的把文件移进废纸篓
+    /// ```
+    #[test]
+    #[ignore = "会往用户的废纸篓里扔文件"]
+    fn 真的把文件移进废纸篓() {
+        let d = sandbox("trash-real");
+        let f = d.join("lite-ide-废纸篓测试.txt");
+        write_text(&f, "这个文件应该出现在废纸篓里").unwrap();
+
+        move_to_trash(&f).unwrap();
+        assert!(
+            fs::symlink_metadata(&f).is_err(),
+            "文件还在原处 —— trash::delete 什么都没做"
+        );
+        fs::remove_dir_all(d).ok();
+    }
 }

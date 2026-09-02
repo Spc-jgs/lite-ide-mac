@@ -10,3 +10,14 @@ description = "文件树与文本读写（零 Tauri 依赖）"
 # 带 Unicode 补充平面映射的一大张表。
 encoding_rs = "0.8"
 chardetng = "0.1"
+
+# 移到废纸篓走系统 API（macOS 上是 NSFileManager 的 trashItemAtURL:）。
+#
+# 自己往 ~/.Trash 里 rename 是做不对的：Finder 的「放回原处」靠一份
+# 系统维护的元数据，外部卷的废纸篓在卷自己的 .Trashes 里，同名冲突还要
+# 按 Finder 的规则改名。这几条规则的定义方在系统，不在我们这儿 ——
+# 和「git 的 .gitignore 规则以 git 为准」是同一条判据。
+#
+# default-features = false 是为了甩掉 chrono：它只服务 os_limited::list()
+# （列废纸篓内容），我们只删不列。
+trash = { version = "5", default-features = false }

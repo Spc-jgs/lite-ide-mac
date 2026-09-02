@@ -273,6 +273,53 @@ const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj/logs": [["access-2026-08-24.log", false]],
   "/proj/docs": [["ARCHITECTURE.md", false]],
 };
+
+/**
+ * 桩里的名字校验。**规则必须和 `fsservice::validate_name` 一条不差** ——
+ * 分叉之后前端的错误提示就是在浏览器里对着一份假规则调的。
+ */
+function checkName(name: string): string | null {
+  if (name.trim() === "") return "名字不能为空";
+  if (name.includes("/")) return "名字里不能有 /";
+  if (name.includes("\0")) return "名字里不能有空字符";
+  if (name === "." || name === "..") return "不能叫 . 或 ..";
+  const bytes = new TextEncoder().encode(name).length;
+  if (bytes > 255) return `名字太长（上限 255 字节，这个 ${bytes} 字节）`;
+  return null;
+}
+
+const existsInMock = (p: string) => DIRS[p] !== undefined || FILES[p] !== undefined;
+const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/"));
+
+/** 把 old 前缀下的所有条目搬到 next 前缀 —— 改一个目录的名字要连子树一起搬 */
+function movePrefix(old: string, next: string) {
+  for (const [k, v] of Object.entries(FILES)) {
+    if (k === old || k.startsWith(`${old}/`)) {
+      FILES[next + k.slice(old.length)] = v;
+      delete FILES[k];
+    }
+  }
+  for (const [k, v] of Object.entries(DIRS)) {
+    if (k === old || k.startsWith(`${old}/`)) {
+      DIRS[next + k.slice(old.length)] = v;
+      delete DIRS[k];
+    }
+  }
+}
+
+/** 把 p 及其子树整个抹掉 */
+function dropSubtree(p: string) {
+  for (const k of Object.keys(FILES)) {
+    if (k === p || k.startsWith(`${p}/`)) delete FILES[k];
+  }
+  for (const k of Object.keys(DIRS)) {
+    if (k === p || k.startsWith(`${p}/`)) delete DIRS[k];
+  }
+  const par = DIRS[parentOf(p)];
+  const name = p.slice(p.lastIndexOf("/") + 1);
+  if (par) DIRS[parentOf(p)] = par.filter(([n]) => n !== name);
+}
+
 const enc = new TextEncoder();
 
 /** 与 Rust 侧 block::encode 完全一致的线格式 */
@@ -374,7 +421,15 @@ export function installMockIpc(): void {
         }
         case "list_dir": {
           const path = String(a.path);
-          return (DIRS[path] ?? []).map(([name, isDir]) => ({
+          // 排序规则抄 Rust 侧 list_dir：目录在前，同类按名称不区分大小写。
+          // 桩里原来是按写死的顺序返回的 —— 新建一个文件之后它会吊在列表最后，
+          // 而真实现会把它排到该在的位置，「新建完滚过去」那段交互就白验了
+          const sorted = [...(DIRS[path] ?? [])].sort(
+            (x, y) =>
+              Number(y[1]) - Number(x[1]) ||
+              x[0].toLowerCase().localeCompare(y[0].toLowerCase()),
+          );
+          return sorted.map(([name, isDir]) => ({
             name,
             path: `${path}/${name}`,
             isDir,
@@ -420,6 +475,54 @@ export function installMockIpc(): void {
             throw new Error(`${path} 不在盘上了`);
           }
           console.info(`[mock] 在 Finder 中显示 ${path}`);
+          return null;
+        }
+        /*
+         * 新建 / 改名 / 废纸篓：桩里**保留每一条错误分支**。
+         * 抹平它们，前端那几条错误提示就等于从没走到过 —— 而它们恰恰是
+         * 这批功能里最该验的部分（撞名、非法名字、目标已存在）。
+         */
+        case "create_entry": {
+          const dir = String(a.dir);
+          const name = String(a.name);
+          const isDir = Boolean(a.isDir);
+          const bad = checkName(name);
+          if (bad) throw new Error(bad);
+          const path = `${dir}/${name}`;
+          if (existsInMock(path)) throw new Error(`这里已经有一个叫「${name}」的了`);
+          DIRS[dir] = [...(DIRS[dir] ?? []), [name, isDir]];
+          if (isDir) DIRS[path] = [];
+          else {
+            FILES[path] = "";
+            bump(path);
+          }
+          return path;
+        }
+        case "rename_entry": {
+          const path = String(a.path);
+          const name = String(a.name);
+          // 校验顺序跟着 Rust 侧走：先看名字，再看源在不在
+          const bad = checkName(name);
+          if (bad) throw new Error(bad);
+          if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
+          const parent = parentOf(path);
+          const to = `${parent}/${name}`;
+          if (to === path) return to;
+          if (existsInMock(to)) throw new Error(`这里已经有一个叫「${name}」的了`);
+          const wasDir = DIRS[path] !== undefined;
+          movePrefix(path, to);
+          const old = path.slice(path.lastIndexOf("/") + 1);
+          DIRS[parent] = (DIRS[parent] ?? []).map(
+            ([n, d]) => (n === old ? [name, d] : [n, d]) as [string, boolean],
+          );
+          if (!wasDir) bump(to);
+          return to;
+        }
+        case "trash_entry": {
+          const path = String(a.path);
+          if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
+          dropSubtree(path);
+          console.info(`[mock] 移到废纸篓 ${path}`);
           return null;
         }
         case "list_project_files":

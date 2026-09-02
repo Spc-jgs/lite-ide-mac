@@ -197,6 +197,29 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     fsservice::reveal_in_finder(&path).map_err(|e| format!("{e}"))
 }
 
+/// 新建文件或目录，返回新路径。业务在 fsservice —— 这里只转错误。
+///
+/// 参数是「哪个目录、叫什么」而不是一条拼好的路径：**join 和名字校验都在
+/// Rust 侧**，前端少一个把文件写到别处去的机会。
+#[tauri::command]
+pub fn create_entry(dir: String, name: String, is_dir: bool) -> Result<String, String> {
+    let p = fsservice::create_entry(&dir, &name, is_dir).map_err(|e| format!("{e}"))?;
+    Ok(p.to_string_lossy().into_owned())
+}
+
+/// 原地改名，返回新路径。
+#[tauri::command]
+pub fn rename_entry(path: String, name: String) -> Result<String, String> {
+    let p = fsservice::rename_entry(&path, &name).map_err(|e| format!("{e}"))?;
+    Ok(p.to_string_lossy().into_owned())
+}
+
+/// 移到废纸篓。**整个应用里没有第二条删除路径** —— 没有 remove_file。
+#[tauri::command]
+pub fn trash_entry(path: String) -> Result<(), String> {
+    fsservice::move_to_trash(&path).map_err(|e| format!("{e}"))
+}
+
 /// 保存。先写临时文件再原子替换，中途崩溃不会留下半个文件。
 ///
 /// 按 `label` 指定的编码写回 —— 用什么编码读进来的就用什么存回去，
@@ -427,7 +450,18 @@ pub fn pty_spawn(
                     // EOF：shell 退出了
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        // 前端已经关掉这个终端时 send 会失败，正常收摊
+                        /*
+                         * 前端已经关掉这个终端时 send 会失败，正常收摊。
+                         *
+                         * **但这一 break 是有代价的**：这里退出之后就再没人排空
+                         * pty master，而紧接着到来的正是 pty_kill。退出中的 shell
+                         * 写满缓冲区就卡在写上收不了尾，`child.wait()` 于是永远
+                         * 等不到 —— M23 那次界面永久卡死就是这么来的（issue #2）。
+                         *
+                         * 现在不挂住，靠的是 `ptysvc::Session::kill()` 在杀之前
+                         * 自己接了一条临时排空线程。**改那边之前先看这里** ——
+                         * 回归测试在 ptysvc 里，动这个 break 的人不一定会跑到。
+                         */
                         if on_data.send(buf[..n].to_vec()).is_err() {
                             break;
                         }

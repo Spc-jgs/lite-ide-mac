@@ -87,6 +87,22 @@ export const fileStamp = (path: string) => invoke<Stamp>("file_stamp", { path })
 export const revealInFinder = (path: string) => invoke<void>("reveal_in_finder", { path });
 
 /**
+ * 新建文件或目录，返回新路径。
+ *
+ * 递的是「哪个目录、叫什么」而不是拼好的路径：**join 和名字校验都在 Rust 侧**，
+ * 前端少一个把文件写到别处去的机会。撞名一律 reject，绝不覆盖。
+ */
+export const createEntry = (dir: string, name: string, isDir: boolean) =>
+  invoke<string>("create_entry", { dir, name, isDir });
+
+/** 原地改名，返回新路径。目标已存在时 reject（fs::rename 本身会静默覆盖） */
+export const renameEntry = (path: string, name: string) =>
+  invoke<string>("rename_entry", { path, name });
+
+/** 移到废纸篓。应用里没有第二条删除路径 —— 不存在真删除 */
+export const trashEntry = (path: string) => invoke<void>("trash_entry", { path });
+
+/**
  * 保存并返回新指纹 —— 必须拿它更新记录，否则自己的保存会被当成外部修改。
  * 按 label 指定的编码写回；不传就是 UTF-8。
  */
