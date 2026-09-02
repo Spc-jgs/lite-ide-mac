@@ -46,7 +46,6 @@
    * 但也不能不给看 —— 截断并说清楚还剩多少。
    */
   const MAX_ROWS = 3000;
-  const ROW_H = 19;
 
   /** 双栏对照是 IDEA 的默认形态，也确实更好读；统一视图留着给窄窗口用 */
   /**
@@ -56,6 +55,14 @@
    * 拉宽之后回不去，等于把用户的选择偷偷改掉了。）
    */
   let side = $state(true);
+  /**
+   * 软换行。默认关着 —— 代码差异按行读，换行会把「这是一行」这个信息弄糊。
+   * 开着的时候长行折进列宽里，整块差异不再横向溢出。
+   *
+   * 这两件事是配套的，缺一条都不成立：折行之后每行高度不再是常数，
+   * 所以 `jump()` 必须去问真实几何（见那边的注释）。
+   */
+  let wrap = $state(false);
   let boxW = $state(0);
   /**
    * 双栏的下限宽度。
@@ -122,16 +129,42 @@
     if (next < 0) next = blocks.length - 1;
     if (next >= blocks.length) next = 0;
     cur = next;
+    /*
+     * 位置**问 DOM**，不按「下标 × 行高」算。
+     *
+     * 算术版要求每一行正好等高，而软换行一开这个前提就没了 ——
+     * 一条 120 字符的 import 占两行、旁边的上下文占一行，
+     * 算出来的 y 会越跳越偏。（这正是 issue #7 里判断「软换行和跳转冲突、
+     * 不是调 CSS 能收尾的」的由来，其实冲突的只是这一行算术。）
+     *
+     * 用 rect 差而不是 offsetTop：行号列是 position: sticky，
+     * offsetTop 在吸住的元素上各家浏览器口径不一；而 rect 和 scrollTop
+     * 是同一时刻的同一套坐标，平滑滚动进行中读也是自洽的。
+     */
+    const el = box.querySelector<HTMLElement>(`[data-row="${blocks[cur]}"]`);
+    if (!el) return;
+    const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
     // 目标块放到可视区上三分之一处：改动上下的上下文都看得见
-    const y = blocks[cur] * ROW_H - box.clientHeight / 3;
-    box.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+    box.scrollTo({ top: Math.max(0, top - box.clientHeight / 3), behavior: "smooth" });
   }
 
   function onKey(e: KeyboardEvent) {
+    /*
+     * 这个监听挂在 window 上，而差异标签是打开着的时候底部终端可能正被聚焦 ——
+     * 不排除掉可输入的目标，⌥Z 就会被我们截走，用户以为终端吞了键。
+     */
+    const t = e.target as HTMLElement | null;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     // F7 / ⇧F7 是 IDEA 的「下一处 / 上一处差异」
     if (e.key === "F7") {
       e.preventDefault();
       jump(e.shiftKey ? -1 : 1);
+      return;
+    }
+    // ⌥Z 跟 VS Code 一致。macOS 上 ⌥z 的 e.key 是「Ω」，只能认 code
+    if (e.altKey && e.code === "KeyZ") {
+      e.preventDefault();
+      wrap = !wrap;
     }
   }
 </script>
@@ -165,6 +198,14 @@
       <button class:on={!sideOn} onclick={() => (side = false)} title="统一视图（窄窗口更合适）">统一</button>
     </span>
 
+    <button
+      class="seg"
+      class:on={wrap}
+      onclick={() => (wrap = !wrap)}
+      title="软换行 ⌥Z —— 长行折进列宽，不用横向滚"
+      aria-pressed={wrap}
+    >换行</button>
+
     {#if commit}
       <span class="sha" title="这是历史提交里的差异，只读">{commit}</span>
     {:else}
@@ -182,14 +223,19 @@
     {:else if files[0].binary}
       <div class="none">二进制文件，不显示差异</div>
     {:else if sideOn}
-      <div class="grid">
+      <!--
+        data-row 是跳转的锚点。双栏里一行是 4 个 grid 子元素拼出来的，
+        没有「行」这个元素，所以标在每行的**第一个**子元素上 ——
+        两个分支都要标，漏掉 span4 的话落在 hunk 行上的跳转会静默失败。
+      -->
+      <div class="grid" class:wrap>
         {#each sideShown as r, i (i)}
           {#if r.kind === "hunk" || r.kind === "meta"}
-            <div class="span4 {r.kind}">{r.text || "⋯"}</div>
+            <div class="span4 {r.kind}" data-row={i}>{r.text || "⋯"}</div>
           {:else}
             {@const L = r.left}
             {@const R = r.right}
-            <div class="no {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}">{L?.oldNo ?? ""}</div>
+            <div class="no {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" data-row={i}>{L?.oldNo ?? ""}</div>
             <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:flat={flat.left[i]}>
               {#if L}{@const s = segs(L)}{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}{/if}
             </div>
@@ -201,16 +247,16 @@
         {/each}
       </div>
     {:else}
-      <div class="uni">
+      <div class="uni" class:wrap>
         {#each uniShown as l, i (i)}
           {#if l.kind === "hunk" || l.kind === "meta"}
-            <div class="row {l.kind}">
+            <div class="row {l.kind}" data-row={i}>
               <span class="no"></span><span class="no"></span><span class="sign"></span>
               <span class="txt">{l.text || "⋯"}</span>
             </div>
           {:else}
             {@const s = segs(l)}
-            <div class="row {l.kind}">
+            <div class="row {l.kind}" data-row={i}>
               <span class="no">{l.oldNo ?? ""}</span>
               <span class="no">{l.newNo ?? ""}</span>
               <span class="sign">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : ""}</span>
@@ -312,6 +358,7 @@
     white-space: nowrap;
   }
   .seg:hover { background: var(--panel-bg-2); color: var(--text); }
+  .seg.on { background: var(--accent-sel); color: var(--text); border-color: transparent; }
 
   .body {
     flex: 1;
@@ -397,10 +444,40 @@
   .tx.blank.flat { background: rgba(255, 255, 255, 0.022); }
 
   /*
-   * 每一行必须**正好** ROW_H 高，「上一处 / 下一处改动」是按 下标 × 行高
-   * 算滚动位置的。hunk 行带上下边框，不锁死高度就会比别的行高 2px，
-   * 跳几次之后目标就偏出屏幕了。box-sizing 是全局 border-box，
+   * 软换行。两件事一起做才有意义：
+   *
+   * 1. 列宽从 minmax(max-content, 1fr) 换成 1fr —— max-content 的下限就是
+   *    「最长那行有多宽」，只要它还在，折不折行都一样会溢出。
+   * 2. overflow-wrap: anywhere 兜住没有空格可断的长串（压缩过的一行、
+   *    一条长 URL）。只写 pre-wrap 的话它们照样顶出去。
+   *
+   * 双栏左右对齐是白拿的：一行的 4 个格子在同一个 grid row 里，
+   * 行高取两边的较大者，左边折成 3 行右边就跟着长到 3 行。
+   * （这也是当初选「一个 grid」而不是「两个并排容器」的红利。）
+   */
+  .grid.wrap { grid-template-columns: 46px 1fr 46px 1fr; }
+  .grid.wrap > div {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    height: auto;
+    min-height: 19px;
+  }
+  .uni.wrap .row {
+    height: auto;
+    min-height: 19px;
+    /* min-content 会按最长那行撑宽整行，留着就等于没开换行 */
+    min-width: 0;
+  }
+  .uni.wrap .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  /*
+   * 锁死 19px 是为了行距整齐 —— hunk 行带上下边框，不锁就比别的行高 2px，
+   * 一屏里几条 hunk 就是几处台阶。box-sizing 是全局 border-box，
    * 所以边框算在这 19px 里面。
+   *
+   * 这**不再是**跳转的前提。以前「上一处 / 下一处改动」按 下标 × 行高 算，
+   * 于是等高变成了一条藏在 CSS 里的隐性契约（改样式的人无从知道自己在动它）；
+   * 现在 jump() 直接问 DOM 要位置，软换行开着、行高各不相同也照样对。
    */
   .uni .row {
     display: flex;

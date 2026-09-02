@@ -482,6 +482,25 @@ effect 也就不会再跑第二次。
 
 生产构建里 `import.meta.env.DEV` 为假，整个模块会被 tree-shake 掉。
 
+### 自动化浏览器里「验不了」的那几样，要认出来
+
+它是个**后台标签页**（`document.hidden === true`），于是：
+
+| 你想验的 | 实际发生的 |
+|---|---|
+| `scrollTo({behavior:"smooth"})` | **完全不动**。`scrollTop` 一直是 0，看着像功能坏了 |
+| `await requestAnimationFrame` | **永远不回调**，整个 `javascript_tool` 调用挂到 45s 超时 |
+| 按钮的原生激活（`↵`） | 不触发 —— 合成事件的 `keyCode` 是 0 |
+| `⇧F10` 之类带修饰键的 | 修饰键传不下去，到手时 `shiftKey === false` |
+
+前两条一次坑掉半小时：滚动位置算得对、`scrollTo` 也调了（monkey-patch
+`Element.prototype.scrollTo` 能看到参数），就是不动。
+**验滚动要验「传给 scrollTo 的目标值」，不要验 `scrollTop`**；
+等待一律用 `setTimeout`，不要用 rAF。
+
+后两条见 [issue #2](https://github.com/Spc-jgs/lite-ide-mac/issues/2) 那轮的记录 ——
+在它上面验不了的东西，别写成「验过了」。
+
 ---
 
 ## 怎么写文档和提交信息
