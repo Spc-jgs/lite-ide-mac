@@ -15,6 +15,7 @@
   let {
     path,
     initial,
+    baseline = null,
     savedTick = 0,
     gotoLine = null,
     outlineTick = 0,
@@ -22,11 +23,21 @@
     showMinimap = true,
     onChange,
     onSave,
+    onStash,
     onOutline,
     onCursor,
   }: {
     path: string;
+    /** 要显示的文本。有未保存的草稿时**是草稿**，不是磁盘上那份 */
     initial: string;
+    /**
+     * 磁盘上那份，dirty 的判据。null 表示「和 initial 一样」。
+     *
+     * 必须和 `initial` **分开**：切标签时草稿会被交回 App 存起来，
+     * 切回来时 `initial` 就是草稿了 —— 只有一个字段的话，基线会被草稿顶掉，
+     * 于是「有未保存改动」这个标记当场消失，而人完全看不出自己丢了东西。
+     */
+    baseline?: string | null;
     /** 每次保存成功后自增。用它重置 dirty 基线，比暴露组件 ref 耦合更松 */
     savedTick?: number;
     /** 搜索结果跳转用的目标行（1-based）。同一行连点也要能重新定位，故带 nonce */
@@ -38,6 +49,17 @@
     showMinimap?: boolean;
     onChange: (dirty: boolean) => void;
     onSave: (content: string) => void;
+    /**
+     * 换文件或组件被销毁**之前**，把编辑器里的实时文本交出去。
+     *
+     * 没有这一步，`{#key active.id}` 一销毁重建，未保存的改动就没了 ——
+     * 而且是静悄悄地没：新实例拿 `initial` 当基线，算出来「不脏」，
+     * 连标签上那个圆点都跟着消失。
+     *
+     * 带上 path 是因为**销毁时读 prop 已经是新标签的值了** ——
+     * 组件自己在挂载时快照了一份，交的是它自己那份。
+     */
+    onStash?: (path: string, text: string) => void;
     onOutline?: (syms: Sym[]) => void;
     /**
      * 光标换行时报一次（1-based）。会话快照用它记住「上次看到哪」。
@@ -55,7 +77,14 @@
   /** 缩略图同理：开关一下不该把光标和撤销栈也重置掉 */
   const mapSlot = new Compartment();
   /** dirty 判定的基线：当前磁盘上的内容。挂载与换文件时更新，不在顶层读 prop */
-  let baseline = "";
+  let baseText = "";
+  /**
+   * 视图里现在装的是哪个文件。
+   *
+   * 换文件和销毁时都要把草稿**还给上一个路径**，而那时 `path` 这个 prop
+   * 已经指向新的了 —— 所以自己记一份。
+   */
+  let curPath = "";
   /** 上次报出去的光标行，用来把「同一行内移动」滤掉 */
   let lastLine = 0;
 
@@ -109,7 +138,7 @@
           indentWithTab,
         ]),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) onChange(u.state.doc.toString() !== baseline);
+          if (u.docChanged) onChange(u.state.doc.toString() !== baseText);
           if (onCursor && (u.selectionSet || u.docChanged)) {
             const line = u.state.doc.lineAt(u.state.selection.main.head).number;
             if (line !== lastLine) {
@@ -122,13 +151,28 @@
     });
   }
 
+  /**
+   * 把编辑器里的实时文本交回 App。换文件之前、销毁之前各调一次。
+   *
+   * 交的是 `curPath`（自己挂载时记下的那个），不是 `path` ——
+   * 销毁发生在切标签之后，那时 `path` 这个 prop 已经是新标签的了。
+   */
+  function stash() {
+    if (!view) return;
+    onStash?.(curPath, view.state.doc.toString());
+  }
+
   // 建视图：只在挂载时做一次
   $effect(() => {
     if (!host || view) return;
-    baseline = initial;
+    curPath = path;
+    baseText = baseline ?? initial;
     view = new EditorView({ state: build(initial), parent: host });
     void applyLang(path);
+    // 草稿恢复回来时它本来就是脏的，得说出来 —— 不说的话标签上的圆点不会亮
+    onChange(initial !== baseText);
     return () => {
+      stash();
       view?.destroy();
       view = null;
     };
@@ -138,11 +182,15 @@
   $effect(() => {
     const p = path;
     const text = initial;
+    const base = baseline;
     if (!view) return;
-    baseline = text;
+    // 真换了文件才收草稿；同一个文件只是内容被外部改了（重读），不能当草稿收走
+    if (p !== curPath) stash();
+    curPath = p;
+    baseText = base ?? text;
     view.setState(build(text));
     void applyLang(p);
-    onChange(false);
+    onChange(text !== baseText);
   });
 
   async function applyLang(p: string) {

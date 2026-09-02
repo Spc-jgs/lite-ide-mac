@@ -4,13 +4,14 @@
     createEntry,
     listDir,
     renameEntry,
-    revealInFinder,
     trashEntry,
     type DirEntry,
     type GitEntry,
     type GitStatus,
   } from "../ipc/commands";
   import { notify } from "../state/notify.svelte";
+  import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
+  import { copyText, relTo, showInFinder } from "./pathactions";
 
   let {
     root,
@@ -473,31 +474,11 @@
    * 改名或删掉工作区根，整棵树当场就散了。
    */
   let menu = $state<{ x: number; y: number; row: Row; fromHead?: boolean } | null>(null);
-  let menuEl = $state<HTMLElement | null>(null);
   let headEl = $state<HTMLElement | null>(null);
-  /** 菜单里的键盘游标 */
-  let menuCursor = $state(0);
 
-  const relOf = (p: string) => {
-    const base = root.endsWith("/") ? root : `${root}/`;
-    return p.startsWith(base) ? p.slice(base.length) : p;
-  };
-
+  const relOf = (p: string) => relTo(root, p);
   const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/")) || "/";
 
-  interface MenuItem {
-    label: string;
-    run: () => void;
-    /** 这一项上面画一条分隔线 */
-    sep?: boolean;
-    danger?: boolean;
-  }
-
-  /*
-   * 分隔线做成条目自己的一个标记，而不是往数组里塞一个 `{ sep: true }` 占位 ——
-   * 占位项会让键盘游标走到一条线上，于是 onMenuKey 里要额外写跳过逻辑，
-   * 而那段逻辑一旦漏了边界，↑↓ 就会在菜单头尾卡住。
-   */
   let items = $derived.by(() => {
     const row = menu?.row;
     if (!row) return [] as MenuItem[];
@@ -512,35 +493,10 @@
       out.push({ label: "移到废纸篓", danger: true, run: () => openTrashAsk(row) });
     }
     out.push({ label: "在 Finder 中显示", sep: true, run: () => void showInFinder(row.path) });
-    out.push({ label: "复制路径", run: () => void copy(row.path, "路径") });
-    out.push({ label: "复制相对路径", run: () => void copy(relOf(row.path), "相对路径") });
+    out.push({ label: "复制路径", run: () => void copyText(row.path, "路径") });
+    out.push({ label: "复制相对路径", run: () => void copyText(relOf(row.path), "相对路径") });
     return out;
   });
-
-  // 名字别叫 reveal —— 上面那个 reveal() 是「在文件树里定位」（issue #4），
-  // 两件事同名，读代码的人得每次回头确认调的是哪一个
-  async function showInFinder(path: string) {
-    try {
-      await revealInFinder(path);
-    } catch (e) {
-      // 盘上没了是最常见的失败（切了分支、在终端里删了），一句话说得清 → fail
-      notify.fail(String(e).replace(/^Error:\s*/, ""));
-    }
-  }
-
-  async function copy(text: string, what: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      notify.ok(`已复制${what}：${text}`);
-    } catch {
-      /*
-       * 复制失败要说清是**剪贴板**不让写，不能只说"复制失败" ——
-       * 后者会让人以为是路径有问题，去查文件树。
-       * 顺带把内容放进消息里，至少能手动选中。
-       */
-      notify.fail(`剪贴板不可用，${what}是：${text}`);
-    }
-  }
 
   // ─────────────────── 会改盘的那几项 ───────────────────
 
@@ -674,7 +630,6 @@
     // 右键也要选中这一行 —— 与 Finder / IDEA 一致。
     // 少了这句，菜单作用在哪一行全靠人自己记，而高亮还停在别处
     cursor = i;
-    menuCursor = 0;
     menu = { x: e.clientX, y: e.clientY, row: rows[i] };
   }
 
@@ -682,7 +637,6 @@
     const el = rowAt(i);
     if (!el) return;
     const r = el.getBoundingClientRect();
-    menuCursor = 0;
     // 贴着行的左下角弹，和鼠标右键的落点语义一致
     menu = { x: r.left + 12, y: r.bottom - 2, row: rows[i] };
   }
@@ -695,7 +649,6 @@
    * 根这一行不在 `rows` 里（rows 从根的子项开始），所以现造一个 Row。
    */
   function openMenuAtHead(x: number, y: number) {
-    menuCursor = 0;
     menu = {
       x,
       y,
@@ -731,15 +684,6 @@
     el.style.left = `${Math.max(pad, Math.min(at.x, window.innerWidth - r.width - pad))}px`;
     el.style.top = `${Math.max(pad, Math.min(at.y, window.innerHeight - r.height - pad))}px`;
   }
-
-  $effect(() => {
-    const el = menuEl;
-    const m = menu;
-    if (!el || !m) return;
-    clamp(el, m);
-    // 开完就把焦点交给菜单，否则 Esc 和方向键都落不到它身上
-    el.focus();
-  });
 
   // 输入框和确认框同样要钳进视口 —— 它们从菜单原地长出来，
   // 而它们比菜单矮，右下角开的时候位置不一样
@@ -792,9 +736,10 @@
    * 根本打不开 —— tail 每 500ms 让日志面板自动滚一次，菜单开出来不到半秒
    * 就被清掉，看上去就像右键失灵。M24 之后更糟，连输入框都会在打字途中消失。
    */
+  // 菜单的这套监听在 ContextMenu 里，这里只管输入框和确认框
   $effect(() => {
-    if (!menu && !ask && !trash) return;
-    const cur = () => menuEl ?? askEl ?? trashEl;
+    if (!ask && !trash) return;
+    const cur = () => askEl ?? trashEl;
     const onDown = (e: PointerEvent) => {
       const el = cur();
       if (el && !el.contains(e.target as Node)) closeAll(false);
@@ -825,38 +770,6 @@
     // 而「确认删除」框指着一个已经没了的东西是危险的
     untrack(() => closeAll(false));
   });
-
-  function onMenuKey(e: KeyboardEvent) {
-    const n = items.length;
-    switch (e.key) {
-      case "Escape":
-        e.preventDefault();
-        closeMenu();
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        menuCursor = (menuCursor + 1) % n;
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        menuCursor = (menuCursor - 1 + n) % n;
-        break;
-      case "Home":
-        e.preventDefault();
-        menuCursor = 0;
-        break;
-      case "End":
-        e.preventDefault();
-        menuCursor = n - 1;
-        break;
-      case "Enter":
-      case " ":
-        e.preventDefault();
-        items[menuCursor]?.run();
-        closeMenu();
-        break;
-    }
-  }
 
   function onAskKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
@@ -980,41 +893,16 @@
   </div>
 </div>
 
-<!--
-  菜单挂在 .tree **外面**：.list 是 overflow-y: auto，画在里面会被裁掉半截，
-  还会跟着滚。position: fixed 逃得出 overflow，但逃不出 transform 祖先 ——
-  将来给侧边栏加动画时要留意这条。
--->
 {#if menu}
-  <div
-    class="menu"
-    role="menu"
-    tabindex="-1"
-    aria-label="{menu.row.name} 的操作"
-    bind:this={menuEl}
-    style:left="{menu.x}px"
-    style:top="{menu.y}px"
-    onkeydown={onMenuKey}
-  >
-    <div class="mhead" title={menu.row.path}>{menu.row.name}</div>
-    {#each items as it, i (it.label)}
-      <button
-        class="mitem"
-        class:on={i === menuCursor}
-        class:sep={it.sep}
-        class:danger={it.danger}
-        role="menuitem"
-        tabindex="-1"
-        onmouseenter={() => (menuCursor = i)}
-        onclick={() => {
-          it.run();
-          closeMenu();
-        }}
-      >
-        {it.label}
-      </button>
-    {/each}
-  </div>
+  <ContextMenu
+    x={menu.x}
+    y={menu.y}
+    title={menu.row.name}
+    titleTip={menu.row.path}
+    label="{menu.row.name} 的操作"
+    {items}
+    onclose={closeMenu}
+  />
 {/if}
 
 {#if ask}
@@ -1215,17 +1103,7 @@
   .g-conflict { color: var(--git-conflict); }
   /* 删除的文件划掉，但右端那个 D 字母不划 */
   .name.g-deleted { text-decoration: line-through; }
-  .menu {
-    position: fixed;
-    z-index: 60;
-    min-width: 168px;
-    padding: 4px;
-    background: var(--panel-bg-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    outline: none;
-  }
+  /* 菜单本体的样式在 ContextMenu.svelte；这条留着是因为输入框和确认框也用它当标题 */
   .mhead {
     padding: 3px 9px 5px;
     margin-bottom: 3px;
@@ -1238,36 +1116,6 @@
     text-overflow: ellipsis;
     max-width: 260px;
   }
-  .mitem {
-    display: block;
-    width: 100%;
-    padding: 4px 9px;
-    background: transparent;
-    border: none;
-    border-radius: 3px;
-    color: var(--text);
-    font-family: var(--ui-font);
-    font-size: 12.5px;
-    text-align: left;
-    white-space: nowrap;
-    cursor: default;
-  }
-  /* 鼠标和键盘共用一个高亮：菜单里同时有两个高亮是最容易看错的写法 */
-  .mitem.on { background: var(--accent-sel); }
-
-  .mitem.sep {
-    margin-top: 4px;
-    padding-top: 6px;
-    border-top: 1px solid var(--border-soft);
-    border-radius: 0 0 3px 3px;
-  }
-  /*
-   * 危险项常驻红色，不是只在 hover 时变红：手滑点中的那一下发生在 hover 之后，
-   * 而人是靠"扫一眼菜单"决定往哪儿点的
-   */
-  .mitem.danger { color: var(--lvl-error); }
-  .mitem.danger.on { background: rgba(247, 84, 100, 0.16); }
-
   /* 输入框 / 确认框：位置和外观都跟着菜单走，它们是从菜单原地长出来的 */
   .pop {
     position: fixed;
