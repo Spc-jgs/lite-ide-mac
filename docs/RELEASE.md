@@ -106,20 +106,11 @@ git push origin v0.2.0
 构建 **universal（Intel + Apple Silicon 通吃）** 的 `.dmg`，建一个草稿 Release
 并把包传上去。
 
-> **⚠️ 下一次发版要多看一眼前几步**（写于 2026-08-31，验证通过后请删掉这段）
->
-> `release.yml` 里的三个 action 刚从 v4 升到 Node 24 那一代
+> `release.yml` 里那三个 action 升到 Node 24 那一代
 > （`actions/checkout@v7`、`actions/setup-node@v7`、`pnpm/action-setup@v6`，
-> 见 [issue #3](https://github.com/Spc-jgs/lite-ide-mac/issues/3)）。
->
-> **这套改动还没被真正跑过。** `ci.yml` 那半边是完整验证过的（两次全绿、
-> Node 20 的 annotation 消失、`cache: pnpm` 第一次跑就命中），但
-> `release.yml` **只在 push tag 时触发**，改完之后的几次 push 都跑不到它 ——
-> 所以下一个 tag 就是它的第一次真实验证。
->
-> 如果 Release 工作流在「装依赖」之前的任何一步红了，先怀疑这三行，
-> 而不是去查版本号或者 lock 文件。回退办法就是把它们改回 `@v4`
-> （只会重新出现那条 Node 20 的告警，不影响能不能发版）。
+> [issue #3](https://github.com/Spc-jgs/lite-ide-mac/issues/3)）**已经在
+> v0.4.0 上真跑过一次了**（2026-09-02，全绿，universal `.dmg` 5.4MB 正常上传）。
+> 这里原来有一段「还没被验证过」的警告，现在可以不用管了。
 
 ### 3. 补发布说明，然后发布
 
