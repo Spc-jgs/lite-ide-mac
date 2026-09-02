@@ -45,8 +45,20 @@
     dirty: boolean;
     /** log 模式的引擎句柄 */
     handle?: number;
-    /** edit 模式打开时的磁盘内容 */
+    /** edit 模式打开时的磁盘内容 —— **dirty 的基线**，不是编辑器里的实时文本 */
     content?: string;
+    /**
+     * 未保存的实时文本。只有改过才有。
+     *
+     * 为什么要单独存一份：编辑器是 `{#key active.id}` 包着的，切标签就销毁重建，
+     * 而重建时拿的是这里的字段。以前只有 `content` 一个字段，编辑器里的改动
+     * 从来没回写过 —— 切走再切回来，改动和「有未保存改动」的标记**一起**消失，
+     * 人完全察觉不到自己丢了东西。
+     *
+     * 存两份而不是一份，是因为 dirty 要靠「实时文本 ≠ 磁盘那份」算出来；
+     * 只留一个字段的话基线会被草稿顶掉，标记就再也亮不起来了。
+     */
+    draft?: string;
     /** 被判为 log 模式的原因 */
     reason?: string;
     /** 文件字节数，用于判断切到编辑模式是否有风险 */
@@ -777,7 +789,7 @@
         if (active) requestClose(active.id);
       },
     },
-    { id: "close-all", label: "关闭所有标签", run: () => closeAll() },
+    { id: "close-all", label: "关闭所有标签", run: () => closeMany(tabs.map((t) => t.id)) },
     {
       id: "git-view",
       label: "Git：改动列表",
@@ -829,18 +841,31 @@
     return gitSt.entries.find((e) => e.path === rel) ?? null;
   });
 
-  function saveActive() {
-    // 触发编辑器自己的保存路径：内容以编辑器里的为准，这里只能存已知内容
-    if (active?.mode === "edit") void save(active.content ?? "");
+  /**
+   * 编辑器交回来的实时文本 —— 换文件或销毁前调一次。
+   *
+   * **按 path 找标签，不能用 `active`**：这个回调发生在切标签之后，
+   * 那时 `active` 已经是新的那个了，写回去就是把 A 的内容盖到 B 头上。
+   */
+  function stashDraft(path: string, text: string) {
+    const t = tabs.find((x) => x.path === path && x.mode === "edit");
+    if (!t) return; // 标签已经被关掉了，草稿跟着作废
+    if (text === (t.content ?? "")) {
+      // 改回原样了：草稿要清掉，否则下次切回来还顶着一份「和磁盘一样的草稿」
+      t.draft = undefined;
+      t.dirty = false;
+    } else {
+      t.draft = text;
+      t.dirty = true;
+    }
   }
 
-  function closeAll() {
-    for (const t of [...tabs]) {
-      if (t.mode === "log" && t.handle !== undefined) void closeLog(t.handle);
-    }
-    tabs = [];
-    activeId = null;
-    pendingClose = null;
+  /** 这个标签当前该保存的文本：有草稿用草稿，没有就是磁盘那份 */
+  const liveText = (t: TabState) => t.draft ?? t.content ?? "";
+
+  function saveActive() {
+    // 触发编辑器自己的保存路径：内容以编辑器里的为准，这里只能存已知内容
+    if (active?.mode === "edit") void save(liveText(active));
   }
 
   /** 搜索结果点击：打开文件，带行号则跳过去 */
@@ -1125,21 +1150,33 @@
     };
   });
 
-  async function save(content: string) {
+  /**
+   * 保存当前编辑标签。**返回是否真的写成了。**
+   *
+   * 以前是 `Promise<void>` 而错误在这里就被 notify 吃掉了，于是
+   * 「保存并关闭」写成 `save(...).then(() => doClose(t))` —— 磁盘写失败
+   * （满了、没权限、文件被外部删了）时它照样把标签关掉，改动当场就没。
+   * 批量关闭把这条路走得多得多，所以先把成败传出去。
+   */
+  async function save(content: string): Promise<boolean> {
     const tab = active;
-    if (!tab || tab.mode !== "edit") return;
+    if (!tab || tab.mode !== "edit") return false;
     try {
       // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改
       tab.stamp = await writeText(tab.path, content, tab.encoding, tab.bom);
       tab.dirty = false;
       tab.content = content;
+      // 写进盘里了，草稿的使命就结束了 —— 留着它下次切回来会顶掉新基线
+      tab.draft = undefined;
       tab.conflict = false;
       savedTick++;
       notify.ok(`已保存 ${tab.name}`, 1800);
       // 保存八成改变了 git 状态，顺手刷一下，文件树的标记才跟得上
       void refreshGit();
+      return true;
     } catch (e) {
       notify.fail(String(e));
+      return false;
     }
   }
 
@@ -1191,6 +1228,9 @@
         tab.content = (await readText(tab.path, tab.encoding)).content;
         tab.stamp = await fileStamp(tab.path);
         tab.dirty = false;
+        // 选了「用磁盘上的」就是不要自己那份了 —— 草稿必须一起丢掉，
+        // 留着它下次切回这个标签会把刚读回来的磁盘内容顶掉
+        tab.draft = undefined;
         savedTick++;
       } catch (e) {
         notify.fail(String(e));
@@ -1278,6 +1318,73 @@
       return;
     }
     doClose(tab);
+  }
+
+  /**
+   * 批量关闭时还没问过的标签 —— **只装有未保存改动的那些**。
+   *
+   * 干净的标签在 `closeMany` 里当场就关了，不进队列：为一堆没改动的文件
+   * 逐个弹确认框，没有任何信息量。
+   */
+  let closeQueue = $state<number[]>([]);
+
+  /**
+   * 关掉一批标签。干净的直接关，有改动的排队逐个问。
+   *
+   * **不能直接全关**：标签栏的「关闭其他 / 关闭右侧 / 关闭全部」一按下去，
+   * 可能带走好几个正在改的文件，而它们的改动没有任何地方找得回来
+   * （不像删文件还进废纸篓）。
+   */
+  function closeMany(ids: number[]) {
+    const dirty: number[] = [];
+    for (const id of ids) {
+      const t = tabById(id);
+      if (!t) continue;
+      if (t.dirty) dirty.push(id);
+      else doClose(t);
+    }
+    closeQueue = dirty;
+    askNextClose();
+  }
+
+  /** 从队列里取下一个来问；队列空了就把横幅收掉 */
+  function askNextClose() {
+    while (closeQueue.length) {
+      const id = closeQueue[0];
+      closeQueue = closeQueue.slice(1);
+      const t = tabById(id);
+      if (!t) continue; // 中途被别处关掉了
+      activeId = t.id; // 让人看见要丢的到底是什么
+      pendingClose = t;
+      return;
+    }
+    pendingClose = null;
+  }
+
+  /**
+   * 「保存并关闭 / 丢弃改动 / 取消」三个按钮的落点。
+   *
+   * 取消**把整批都停掉**，不是只跳过这一个：连着弹五次确认框、每次都得
+   * 再点一次取消，比没有批量关闭还烦人。
+   */
+  async function resolveClose(kind: "save" | "discard" | "cancel") {
+    const t = pendingClose;
+    if (!t) return;
+    if (kind === "cancel") {
+      closeQueue = [];
+      pendingClose = null;
+      return;
+    }
+    if (kind === "save") {
+      activeId = t.id;
+      // 写失败就停在这儿，别往下关 —— 关了改动就真没了
+      if (!(await save(liveText(t)))) {
+        closeQueue = [];
+        return;
+      }
+    }
+    doClose(t);
+    askNextClose();
   }
 
   function doClose(tab: TabState) {
@@ -1691,7 +1798,15 @@
 
     <section class="main">
       {#if tabs.length > 0}
-        <Tabs {tabs} {activeId} onSelect={(id) => (activeId = id)} onClose={requestClose} />
+        <Tabs
+          {tabs}
+          {activeId}
+          root={root ?? ""}
+          onSelect={(id) => (activeId = id)}
+          onClose={requestClose}
+          onCloseMany={closeMany}
+          onRevealInTree={revealInTree}
+        />
       {/if}
 
       {#if active?.conflict}
@@ -1754,11 +1869,13 @@
       {#if pendingClose}
         <div class="confirm">
           <span><b>{pendingClose.name}</b> 有未保存的改动</span>
-          <button class="primary" onclick={() => { const t = pendingClose!; save(t.content ?? "").then(() => doClose(t)); }}>
-            保存并关闭
-          </button>
-          <button onclick={() => doClose(pendingClose!)}>丢弃改动</button>
-          <button onclick={() => (pendingClose = null)}>取消</button>
+          {#if closeQueue.length}
+            <!-- 批量关闭时要说清后面还有几个，否则人不知道这个框还要弹几次 -->
+            <span class="rest">（后面还有 {closeQueue.length} 个）</span>
+          {/if}
+          <button class="primary" onclick={() => void resolveClose("save")}>保存并关闭</button>
+          <button onclick={() => void resolveClose("discard")}>丢弃改动</button>
+          <button onclick={() => void resolveClose("cancel")}>取消</button>
         </div>
       {/if}
 
@@ -1833,7 +1950,8 @@
           {#key active.id}
             <editor.comp
               path={active.path}
-              initial={active.content ?? ""}
+              initial={active.draft ?? active.content ?? ""}
+              baseline={active.content ?? ""}
               {savedTick}
               {gotoLine}
               {outlineTick}
@@ -1841,6 +1959,7 @@
               {showMinimap}
               onChange={(d) => (active!.dirty = d)}
               onSave={save}
+              onStash={stashDraft}
               onOutline={(s) => (symbols = s)}
               onCursor={(l) => markPos(active!.path, l)}
             />
@@ -2351,6 +2470,7 @@
     font-size: 12px;
   }
   .confirm b { color: var(--text); font-weight: 600; }
+  .confirm .rest { color: var(--text-faint); font-size: 11.5px; }
   .confirm button {
     padding: 3px 10px;
     background: transparent;
