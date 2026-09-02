@@ -431,7 +431,8 @@
    * 少了这一步的表现是：标签还挂着旧名字，按 ⌘S 报「文件不在盘上了」——
    * 而名字是人刚刚亲手改的，最不会去怀疑的就是这件事。
    */
-  function renameOpenTabs(from: string, to: string, isDir: boolean) {
+  async function renameOpenTabs(from: string, to: string, isDir: boolean) {
+    const moved: number[] = [];
     for (const t of tabs) {
       if (!underPath(t.path, from, isDir)) continue;
       const np = to + t.path.slice(from.length);
@@ -446,6 +447,34 @@
       // 差异/冲突标签的 rel 是相对仓库根的，跟着重算 ——
       // 不算的话下一次刷新会拿一条已经不存在的路径去问 git
       if (t.rel && repo && np.startsWith(`${repo}/`)) t.rel = np.slice(repo.length + 1);
+      moved.push(t.id);
+    }
+
+    /*
+     * 日志模式还要把引擎句柄换掉。
+     *
+     * 引擎记着的是**打开时那条路径**（`LogFile { path, .. }`），而
+     * `refresh()` 走 `std::fs::metadata(&self.path)` —— 改完名那条路径没了。
+     * 症状很隐蔽：已经映射好的内容照样翻得动（mmap 还在），只有 tail
+     * 和「文件长了」的检测一直报刷新失败，而标签看上去一切正常。
+     *
+     * 重开一个句柄再把旧的关掉，顺序不能反：先关的话中间那一下
+     * 标签会短暂地没有句柄，而渲染随时可能发生。
+     */
+    for (const id of moved) {
+      const before = tabById(id);
+      if (!before || before.mode !== "log" || before.handle === undefined) continue;
+      const stale = before.handle;
+      try {
+        const h = (await openLog(before.path)).handle;
+        // await 回来必须按 id 重新取一次 —— 手上那个引用可能已经不是
+        // 响应式的那一份了（AGENTS.md 里那条 $state 数组的坑）
+        const now = tabById(id);
+        if (now) now.handle = h;
+        void closeLog(stale);
+      } catch (e) {
+        notify.fail(`${before.name} 改名后重开日志失败，tail 会停：${String(e)}`);
+      }
     }
   }
 
@@ -1638,10 +1667,8 @@
             onOpen={(p) => void openPath(p)}
             {dirtyUnder}
             onCreated={(p, isDir) => void afterFsChange(isDir ? null : p)}
-            onRenamed={(from, to, isDir) => {
-              renameOpenTabs(from, to, isDir);
-              void afterFsChange(null);
-            }}
+            onRenamed={(from, to, isDir) =>
+              void renameOpenTabs(from, to, isDir).then(() => afterFsChange(null))}
             onTrashed={(p, isDir) => {
               closeTabsUnder(p, isDir);
               void afterFsChange(null);

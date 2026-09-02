@@ -786,6 +786,11 @@
    *
    * scroll 用捕获阶段：文件树自己那个 .list 滚动不冒泡到 window，
    * 不捕获的话，滚一下菜单就飘在半空中指着一行早已滚走的东西。
+   *
+   * **但捕获阶段听到的是整个应用的滚动**，而这里只该关心「菜单锚着的那一行
+   * 动没动」。M22 少了这层过滤，症状是：日志 tail 开着的时候右键菜单
+   * 根本打不开 —— tail 每 500ms 让日志面板自动滚一次，菜单开出来不到半秒
+   * 就被清掉，看上去就像右键失灵。M24 之后更糟，连输入框都会在打字途中消失。
    */
   $effect(() => {
     if (!menu && !ask && !trash) return;
@@ -794,7 +799,12 @@
       const el = cur();
       if (el && !el.contains(e.target as Node)) closeAll(false);
     };
-    const onScroll = () => closeAll(false);
+    const onScroll = (e: Event) => {
+      const t = e.target as Node | null;
+      // 只有文件树自己的列表（或整页）滚了才关。别的面板滚动跟这个菜单没关系
+      if (t && t !== document && listEl && !t.contains(listEl)) return;
+      closeAll(false);
+    };
     window.addEventListener("pointerdown", onDown, true);
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onScroll);

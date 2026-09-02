@@ -288,8 +288,21 @@ function checkName(name: string): string | null {
   return null;
 }
 
-const existsInMock = (p: string) => DIRS[p] !== undefined || FILES[p] !== undefined;
 const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/"));
+const nameOf = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+
+/**
+ * 桩里这条路径存不存在。
+ *
+ * 三处都要查：`DIRS` 的键（目录自己）、`FILES`（有内容的文件），
+ * **以及父目录的清单** —— 日志文件只在清单里出现，`FILES` 里没有它
+ * （`probe_path` 是按 `.log` 后缀判的）。少了第三条，右键改名一个 `.log`
+ * 会报「不在盘上了」，而它明明就在树上摆着。
+ */
+const existsInMock = (p: string) =>
+  DIRS[p] !== undefined ||
+  FILES[p] !== undefined ||
+  (DIRS[parentOf(p)] ?? []).some(([n]) => n === nameOf(p));
 
 /** 把 old 前缀下的所有条目搬到 next 前缀 —— 改一个目录的名字要连子树一起搬 */
 function movePrefix(old: string, next: string) {
@@ -316,8 +329,7 @@ function dropSubtree(p: string) {
     if (k === p || k.startsWith(`${p}/`)) delete DIRS[k];
   }
   const par = DIRS[parentOf(p)];
-  const name = p.slice(p.lastIndexOf("/") + 1);
-  if (par) DIRS[parentOf(p)] = par.filter(([n]) => n !== name);
+  if (par) DIRS[parentOf(p)] = par.filter(([n]) => n !== nameOf(p));
 }
 
 const enc = new TextEncoder();
@@ -343,6 +355,10 @@ function encodeBlock(first: number, texts: string[]): ArrayBuffer {
 const lineAt = (n: number) => LINES[n % LINES.length];
 
 let filterHits: number[] | null = null;
+
+/** 句柄 → 打开时那条路径。真实现的 LogFile 也是这么存的 */
+const LOG_PATHS: Record<number, string> = {};
+let nextLogHandle = 1;
 
 /** 文件指纹。桩里用一个自增计数模拟 mtime */
 const STAMPS: Record<string, { mtimeMs: number; size: number }> = {};
@@ -511,7 +527,7 @@ export function installMockIpc(): void {
           if (existsInMock(to)) throw new Error(`这里已经有一个叫「${name}」的了`);
           const wasDir = DIRS[path] !== undefined;
           movePrefix(path, to);
-          const old = path.slice(path.lastIndexOf("/") + 1);
+          const old = nameOf(path);
           DIRS[parent] = (DIRS[parent] ?? []).map(
             ([n, d]) => (n === old ? [name, d] : [n, d]) as [string, boolean],
           );
@@ -544,8 +560,18 @@ export function installMockIpc(): void {
         case "pty_resize":
           return null;
         case "pty_kill":
-        case "open_log":
-          return { handle: 1, name: "access-2026-08-24.log", size: 1_073_741_885 };
+        case "open_log": {
+          /*
+           * 记住**打开时那条路径**，因为真实现就是这么存的
+           * （`LogFile { path, inode, .. }`），而 refresh 走的是
+           * `std::fs::metadata(&self.path)`。桩里原来 refresh 一律返回
+           * "none"，于是「文件被改名之后 tail 还能不能用」这条路
+           * 在浏览器里根本走不到 —— 而它是真会断的。
+           */
+          const h = nextLogHandle++;
+          LOG_PATHS[h] = String(a.path);
+          return { handle: h, name: nameOf(String(a.path)), size: 1_073_741_885 };
+        }
         case "log_stat":
           return {
             lineCount: TOTAL,
@@ -586,9 +612,16 @@ export function installMockIpc(): void {
           return filterHits
             ? filterHits.slice(Number(a.start), Number(a.start) + Number(a.count))
             : [];
-        case "log_refresh":
+        case "log_refresh": {
+          const p = LOG_PATHS[Number(a.handle)];
+          if (p === undefined) throw new Error("句柄已失效");
+          // 真实现在这里会 metadata(&self.path) 失败 —— 文件改了名，
+          // 而引擎记着的还是旧路径
+          if (!existsInMock(p)) throw new Error(`刷新失败：${p} (os error 2)`);
           return { kind: "none", newLines: 0, lineCount: TOTAL };
+        }
         case "close_log":
+          delete LOG_PATHS[Number(a.handle)];
           filterHits = null;
           return true;
 
