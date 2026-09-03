@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "./Icon.svelte";
   import { diag } from "../ipc/commands";
 
   let {
@@ -63,12 +64,7 @@
 <div class="crash">
   <div class="box">
     <div class="head">
-      <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
-        <path d="M10 2.6 L18.4 17 H1.6 Z" fill="none" stroke="currentColor"
-              stroke-width="1.5" stroke-linejoin="round" />
-        <path d="M10 7.6 v4.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-        <circle cx="10" cy="14.6" r=".9" fill="currentColor" />
-      </svg>
+      <Icon name="warn" size={16} />
       <span>{scope}出错了</span>
     </div>
 

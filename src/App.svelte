@@ -1752,13 +1752,7 @@
     <span class="tgap" data-tauri-drag-region></span>
     {#if gitSt}
       <button class="tbranch" onclick={() => (branchOpen = true)} title="切换分支 / 工作树">
-        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-          <circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-          <circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-          <circle cx="11.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-          <path d="M4.5 5.3 L4.5 10.7" stroke="currentColor" stroke-width="1.3" />
-          <path d="M11.5 5.3 Q11.5 8.5 4.5 10.7" fill="none" stroke="currentColor" stroke-width="1.3" />
-        </svg>
+        <Icon name="git" size={12} />
         <span class="bn">{gitSt.branch || "游离"}</span>
         {#if gitSt.ahead}<span class="ab">↑{gitSt.ahead}</span>{/if}
         {#if gitSt.behind}<span class="ab">↓{gitSt.behind}</span>{/if}

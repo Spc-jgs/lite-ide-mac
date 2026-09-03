@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../shell/Icon.svelte";
   import type { LevelCounts } from "../ipc/commands";
 
   // 位序必须与 Rust 侧 Level 一致：error/warn/info/debug/trace/other
@@ -124,16 +125,10 @@
     </span>
     <div class="jump">
       <button onclick={() => onJump?.(-1)} disabled={!filterHits} title="上一处 ⇧↵ / ⇧F3" aria-label="上一处">
-        <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
-          <path d="M2.5 7.5 L6 4 L9.5 7.5" fill="none" stroke="currentColor"
-                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
+        <Icon name="chevron-up" size={11} />
       </button>
       <button onclick={() => onJump?.(1)} disabled={!filterHits} title="下一处 ↵ / F3" aria-label="下一处">
-        <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
-          <path d="M2.5 4.5 L6 8 L9.5 4.5" fill="none" stroke="currentColor"
-                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
+        <Icon name="chevron-down" size={11} />
       </button>
     </div>
   {/if}

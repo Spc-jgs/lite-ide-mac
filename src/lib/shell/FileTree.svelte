@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "./Icon.svelte";
   import { tick, untrack } from "svelte";
   import {
     createEntry,
@@ -852,11 +853,16 @@
         {:else}
           <span class="caret spacer"></span>
         {/if}
+        <!--
+          目录用的是共用图标（Icon 的 files），别的类型是文件树自己那一套
+          「按扩展名分色」的字形，两者不是一个家族，不必强行统一。
+          但**文件夹这一个形状必须只有一处定义** —— 导轨上和树里画的是同一样东西。
+        -->
+        {#if gl === "dir"}
+          <span class="glyph dir"><Icon name="files" size={14} /></span>
+        {:else}
         <svg class="glyph {gl}" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-          {#if gl === "dir"}
-            <path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"
-                  fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
-          {:else if gl === "code"}
+          {#if gl === "code"}
             <path d="M6 3.2 L3 8 L6 12.8" fill="none" stroke="currentColor" stroke-width="1.25"
                   stroke-linecap="round" stroke-linejoin="round" />
             <path d="M10 3.2 L13 8 L10 12.8" fill="none" stroke="currentColor" stroke-width="1.25"
@@ -877,6 +883,7 @@
                   stroke-linecap="round" />
           {/if}
         </svg>
+        {/if}
         <span class="name g-{d?.cls ?? 'none'}">{row.name}</span>
         {#if d}
           <span class="gap"></span>
@@ -1070,7 +1077,7 @@
   }
   .caret.open { transform: rotate(90deg); }
   .caret.spacer { visibility: hidden; }
-  .glyph { flex: none; color: var(--text-faint); }
+  .glyph { flex: none; display: flex; color: var(--text-faint); }
   /* 只有配置类破例给个颜色 —— 改错它的代价最大 */
   .glyph.conf { color: var(--lvl-warn); opacity: 0.75; }
   .row.active .glyph, .row:hover .glyph { color: var(--text-dim); }

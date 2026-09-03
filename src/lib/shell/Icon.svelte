@@ -1,5 +1,16 @@
 <script module lang="ts">
-  export type IconName = "sidebar" | "files" | "git" | "search" | "panel";
+  export type IconName =
+    | "sidebar"
+    | "files"
+    | "git"
+    | "search"
+    | "panel"
+    | "refresh"
+    | "check"
+    | "plus"
+    | "warn"
+    | "chevron-up"
+    | "chevron-down";
 </script>
 
 <script lang="ts">
@@ -78,6 +89,25 @@
     <path d="M2 9.6 H14" />
     <path d="M2 9.6 H14 V11 A2 2 0 0 1 12 13 H4 A2 2 0 0 1 2 11 Z"
           fill="currentColor" stroke="none" opacity="0.28" />
+  {:else if name === "refresh"}
+    <path d="M13 8 A5 5 0 1 1 11.4 4.3" />
+    <path d="M13 2.6 V5.2 H10.4" />
+  {:else if name === "check"}
+    <path d="M3.6 8.3 L6.6 11.3 L12.4 5" />
+  {:else if name === "plus"}
+    <path d="M8 3.6 V12.4 M3.6 8 H12.4" />
+  {:else if name === "warn"}
+    <!--
+      三角感叹号。Crash.svelte 原来自己画了一个 viewBox 20 的版本 ——
+      同一个意思在两个网格上画两遍，粗细也不一样。
+    -->
+    <path d="M8 2.8 L14.4 13.4 H1.6 Z" />
+    <path d="M8 6.9 V9.8" />
+    <circle cx="8" cy="11.7" r="0.75" fill="currentColor" stroke="none" />
+  {:else if name === "chevron-up"}
+    <path d="M4.2 9.6 L8 5.8 L11.8 9.6" />
+  {:else if name === "chevron-down"}
+    <path d="M4.2 6.4 L8 10.2 L11.8 6.4" />
   {/if}
 </svg>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../shell/Icon.svelte";
   import type { GitEntry, GitStatus } from "../ipc/commands";
 
   let {
@@ -101,12 +102,7 @@
     <span class="title">GIT</span>
     <span class="gap"></span>
     <button class="act" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:spin={busy}>
-      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-        <path d="M13 8a5 5 0 1 1-1.6-3.7" fill="none" stroke="currentColor" stroke-width="1.4"
-              stroke-linecap="round" />
-        <path d="M13 2.2 L13 5 L10.2 5" fill="none" stroke="currentColor" stroke-width="1.4"
-              stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
+      <Icon name="refresh" size={13} />
     </button>
   </div>
 
@@ -114,13 +110,7 @@
     <div class="hint">不是 Git 仓库</div>
   {:else}
     <div class="branch" title={status.upstream ? `跟踪 ${status.upstream}` : "没有设置上游分支"}>
-      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" class="bicon">
-        <circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-        <circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-        <circle cx="11.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-        <path d="M4.5 5.3 L4.5 10.7" stroke="currentColor" stroke-width="1.3" />
-        <path d="M11.5 5.3 Q11.5 8.5 4.5 10.7" fill="none" stroke="currentColor" stroke-width="1.3" />
-      </svg>
+      <span class="bicon"><Icon name="git" size={12} /></span>
       <span class="bname">{status.branch || "（无分支）"}</span>
       {#if status.detached}<span class="tagx">游离</span>{/if}
       {#if status.unborn}<span class="tagx">尚无提交</span>{/if}
@@ -131,22 +121,13 @@
     {#if !(composing || staged.length > 0 || message.trim() !== "")}
       <button class="collapsed" onclick={beginCompose} title="写提交信息">
         {#if conflicts.length > 0}
-          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-            <path d="M8 2.4 L14.6 13.6 H1.4 Z" fill="none" stroke="var(--lvl-error)"
-                  stroke-width="1.3" stroke-linejoin="round" />
-          </svg>
+          <span class="conflict-mark"><Icon name="warn" size={12} /></span>
           <span class="warn">先解决 {conflicts.length} 处冲突</span>
         {:else if status.entries.length === 0}
-          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-            <path d="M3.5 8.4 L6.6 11.4 L12.5 4.9" fill="none" stroke="currentColor"
-                  stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
+          <Icon name="check" size={12} />
           <span>工作区干净</span>
         {:else}
-          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-            <path d="M8 3.4 v9.2 M3.4 8 h9.2" stroke="currentColor" stroke-width="1.3"
-                  stroke-linecap="round" />
-          </svg>
+          <Icon name="plus" size={12} />
           <span>写提交信息…</span>
         {/if}
       </button>
@@ -378,6 +359,8 @@
     white-space: nowrap;
   }
   .primary:disabled { background: transparent; border-color: var(--border); color: var(--text-faint); }
+  /* 冲突三角走 currentColor，颜色由这层给 —— 图标自己不带颜色 */
+  .conflict-mark { display: flex; color: var(--lvl-error); }
   .blocked {
     margin: 6px 0 0;
     font-size: 11px;
