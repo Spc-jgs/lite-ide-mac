@@ -9,7 +9,7 @@
 
 use std::io;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// 不进这些目录。大仓库里它们占了绝大多数文件，进去只会把索引撑爆。
 const SKIP_DIRS: &[&str] = &[
@@ -112,7 +112,28 @@ pub fn ripgrep_available() -> bool {
         .unwrap_or(false)
 }
 
+/**
+ * rg 输出的读取上限。
+ *
+ * 命中够数就掐掉进程，这一条只是兜底：万一 rg 吐出的一「行」大到离谱
+ * （比如一个没有换行符的压缩文件），不设闸就会把它整份读进内存。
+ */
+const MAX_RG_BYTES: u64 = 8 << 20;
+
+/*
+ * **边读边解析，够数就掐掉 rg。**
+ *
+ * 原来是 `.output()` —— 先把 rg 的**全部** stdout 缓冲进内存，再截成 60 条。
+ * 实测在本仓库（已排除 node_modules/target/.git）搜一个 `e`：
+ * 5,663,558 字节换 60 条命中。大仓库上按倍数放大。
+ *
+ * 这正是 AGENTS.md 自己那条规矩漏掉的一处：「新加任何跑子进程读它 stdout
+ * 的功能，先问一句：这东西的输出有上限吗」。gitsvc 有 MAX_DIFF_BYTES，
+ * searchsvc 一直没有。
+ */
 fn grep_rg(root: &Path, pattern: &str, limit: usize) -> io::Result<Vec<Hit>> {
+    use std::io::{BufRead, BufReader, Read};
+
     let mut cmd = Command::new("rg");
     cmd.args([
         "--json",
@@ -128,49 +149,89 @@ fn grep_rg(root: &Path, pattern: &str, limit: usize) -> io::Result<Vec<Hit>> {
     for d in SKIP_DIRS {
         cmd.arg("--glob").arg(format!("!**/{d}/**"));
     }
-    let out = cmd.args(["-e", pattern]).arg(root).output()?;
+    /*
+     * `--` 之后才是路径。
+     *
+     * 这里是**防御性的，不是在补一个已知漏洞**：root 一路来自 `probe_path`，
+     * 永远是绝对路径，开头是 `/` 而不是 `-`。之所以还是加上，是因为
+     * 「路径前一律加 --」是本仓库对所有子进程调用的统一纪律，
+     * 例外一多，下次真有人传相对路径进来时就没人记得这回事了。
+     * （试着为它写过一条测试，发现测不出来 —— 绝对路径根本触发不了，
+     * 而不会失败的测试比没有测试更糟，所以只留这段注释。）
+     */
+    let mut child = cmd
+        .args(["-e", pattern])
+        .arg("--")
+        .arg(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
     // rg 一般原样保留传入的前缀，但遇到软链时可能吐出解析后的真实路径
     // （macOS 上 /var → /private/var）。两个前缀都试，否则结果里会混进绝对路径。
     let canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
 
-    // rg 的退出码：0 = 有命中，1 = 无命中（正常），>=2 才是真出错
-    if out.status.code().is_some_and(|c| c >= 2) {
-        return Err(io::Error::other(format!(
-            "rg 执行失败：{}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        )));
+    let mut hits = Vec::new();
+    let mut 掐掉了 = false;
+    {
+        let stdout = child.stdout.take().expect("stdout 已 piped");
+        let mut reader = BufReader::new(stdout.take(MAX_RG_BYTES));
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+            if let Some(h) = parse_rg_line(&line, root, &canon) {
+                hits.push(h);
+                if hits.len() >= limit {
+                    掐掉了 = true;
+                    break;
+                }
+            }
+        }
+    }
+    // 够了就别让 rg 为没人要看的命中继续遍历整个仓库
+    if 掐掉了 {
+        let _ = child.kill();
     }
 
-    let mut hits = Vec::new();
-    for line in out.stdout.split(|b| *b == b'\n') {
-        if hits.len() >= limit {
-            break;
-        }
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(v) = serde_json::from_slice::<serde_json::Value>(line) else {
-            continue;
-        };
-        if v["type"] != "match" {
-            continue;
-        }
-        let d = &v["data"];
-        let (Some(path), Some(num), Some(text)) = (
-            d["path"]["text"].as_str(),
-            d["line_number"].as_u64(),
-            d["lines"]["text"].as_str(),
-        ) else {
-            continue;
-        };
-        hits.push(Hit {
-            path: rel(root, &canon, path),
-            line: num,
-            text: clip(text.trim_end()),
-        });
+    // stderr 也要限量读：管道写满时 rg 会阻塞，而我们已经不读 stdout 了
+    let mut err = Vec::new();
+    if let Some(stderr) = child.stderr.as_mut() {
+        let _ = stderr.take(8 << 10).read_to_end(&mut err);
+    }
+    let status = child.wait()?;
+
+    // 被我们掐掉的进程退出码没有意义，不能当成失败。
+    // 没掐的情况下：0 = 有命中，1 = 无命中（正常），>=2 才是真出错
+    if !掐掉了 && status.code().is_some_and(|c| c >= 2) {
+        return Err(io::Error::other(format!(
+            "rg 执行失败：{}",
+            String::from_utf8_lossy(&err).trim()
+        )));
     }
     Ok(hits)
+}
+
+/// 解析 rg `--json` 的一行。不是命中、或者解不出来都返回 None。
+fn parse_rg_line(line: &[u8], root: &Path, canon: &Path) -> Option<Hit> {
+    if line.is_empty() {
+        return None;
+    }
+    let v = serde_json::from_slice::<serde_json::Value>(line).ok()?;
+    if v["type"] != "match" {
+        return None;
+    }
+    let d = &v["data"];
+    Some(Hit {
+        path: rel(root, canon, d["path"]["text"].as_str()?),
+        line: d["line_number"].as_u64()?,
+        text: clip(d["lines"]["text"].as_str()?.trim_end()),
+    })
 }
 
 /// 进程内回落实现：遍历索引到的文件逐个扫。
@@ -250,6 +311,50 @@ mod tests {
         fs::write(d.join("node_modules/pkg/index.js"), "needle in noise\n").unwrap();
         fs::write(d.join(".git/config"), "needle\n").unwrap();
         d
+    }
+
+    /*
+     * 够数就掐掉 rg：命中远多于 limit 时只要 limit 条，而且**不能报错**。
+     *
+     * 被我们 kill 掉的进程退出码没有意义 —— 原来是 `.output()` 全缓冲，
+     * 没有这个问题也没有这道防线；改成边读边掐之后，「掐了算不算失败」
+     * 就成了一个必须钉住的判断（gitsvc 那边踩过同一个坑）。
+     */
+    #[test]
+    fn rg_命中够数就停下且不算失败() {
+        if !ripgrep_available() {
+            return; // 机器上没有 rg，这条不适用
+        }
+        let d = std::env::temp_dir().join("searchsvc-test-cap");
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        // 300 行全是命中，只要 3 条
+        let body = "needle\n".repeat(300);
+        fs::write(d.join("many.txt"), &body).unwrap();
+
+        let hits = grep_rg(&d, "needle", 3).expect("掐掉子进程不能被当成失败");
+        assert_eq!(hits.len(), 3, "要几条给几条");
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn rg_单行解析() {
+        let root = Path::new("/proj");
+        let one = br#"{"type":"match","data":{"path":{"text":"/proj/src/a.rs"},"line_number":7,"lines":{"text":"  hit here\n"}}}"#;
+        let h = parse_rg_line(one, root, root).expect("这是一条命中");
+        assert_eq!(h.path, "src/a.rs", "路径要转成相对根的");
+        assert_eq!(h.line, 7);
+        assert_eq!(h.text, "  hit here", "行尾换行要去掉，行首缩进要留着");
+
+        // 不是命中的、坏的、空的，一律 None，不能 panic
+        assert!(parse_rg_line(br#"{"type":"begin","data":{}}"#, root, root).is_none());
+        assert!(parse_rg_line(b"{ this is not json", root, root).is_none());
+        assert!(parse_rg_line(b"", root, root).is_none());
+        assert!(
+            parse_rg_line(br#"{"type":"match","data":{"path":{"text":"/proj/a"}}}"#, root, root)
+                .is_none(),
+            "缺字段的命中要当没有，不能 unwrap 崩掉"
+        );
     }
 
     #[test]
