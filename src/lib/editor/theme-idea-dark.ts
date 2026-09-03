@@ -1,23 +1,35 @@
 /**
- * IDEA Dark 的 CodeMirror 6 主题。
+ * 编辑器的 CodeMirror 6 主题。
  *
  * 分两层：`ideaDarkTheme` 管编辑器外壳（背景、光标、选区、行号栏），
- * `ideaDarkHighlight` 管语法着色。色值取自 IntelliJ IDEA 新 UI 的 Darcula，
- * 与 app.css 里的 token 同源，两边改色要一起改。
+ * `ideaDarkHighlight` 管语法着色。
+ *
+ * # 外壳色值全部走 CSS 变量，这一层不该出现 `#`
+ *
+ * 原来这个文件把 app.css 的色值又抄了一遍，文件头写着「两边改色要一起改」——
+ * 一条靠人记住的规矩。换皮肤时它就是第一个走样的地方：外壳变了、
+ * 编辑器还是老底色，两块背景差几个色阶，看着像没加载完。
+ *
+ * CM6 的 theme 只是生成一张样式表，`var(--x)` 原样写进去就能用。
+ * 于是调色板只有 app.css 一处，这个文件只负责"哪个部件用哪个 token"。
+ *
+ * 语法着色（下面的 HIGHLIGHT_SPEC）**仍然是字面色值**，这是有意的：
+ * 那是一整套配色方案，几十个色互相之间才有意义，拆成几十个
+ * CSS 变量既没人看得懂也没人会去调。它换的时候是整套换。
  */
 
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t, tagHighlighter, type Tag } from "@lezer/highlight";
 
-const BG = "#1e1f22";
-const GUTTER_FG = "#4b5059";
-const GUTTER_FG_ACTIVE = "#a1a3ab";
-const TEXT = "#dfe1e5";
-const CARET = "#cdd0d5";
-const SELECTION = "#214283";
-const ACTIVE_LINE = "#26282e";
-const MATCH = "rgba(53, 116, 240, 0.42)";
+const BG = "var(--editor-bg)";
+const GUTTER_FG = "var(--gutter-fg)";
+const GUTTER_FG_ACTIVE = "var(--gutter-fg-active)";
+const TEXT = "var(--text)";
+const CARET = "var(--caret)";
+const SELECTION = "var(--editor-sel)";
+const ACTIVE_LINE = "var(--editor-active-line)";
+const MATCH = "var(--search-hit)";
 
 export const ideaDarkTheme = EditorView.theme(
   {
@@ -42,34 +54,34 @@ export const ideaDarkTheme = EditorView.theme(
       backgroundColor: BG,
       color: GUTTER_FG,
       border: "none",
-      borderRight: "1px solid rgba(255,255,255,.06)",
+      borderRight: "1px solid var(--border-soft)",
     },
     ".cm-activeLineGutter": { backgroundColor: ACTIVE_LINE, color: GUTTER_FG_ACTIVE },
     ".cm-lineNumbers .cm-gutterElement": { padding: "0 12px 0 16px" },
     ".cm-foldPlaceholder": {
-      backgroundColor: "#35373b",
+      backgroundColor: "var(--panel-bg-2)",
       border: "none",
-      color: "#9da0a8",
+      color: "var(--text-dim)",
       padding: "0 6px",
-      borderRadius: "3px",
+      borderRadius: "var(--r-sm)",
     },
     ".cm-searchMatch": { backgroundColor: MATCH, outline: "none" },
-    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "#3574f0" },
-    ".cm-selectionMatch": { backgroundColor: "rgba(53,116,240,.18)" },
+    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--accent)" },
+    ".cm-selectionMatch": { backgroundColor: "var(--selection-match)" },
     ".cm-matchingBracket, .cm-nonmatchingBracket": {
-      backgroundColor: "rgba(60,115,75,.45)",
+      backgroundColor: "var(--bracket-match)",
       outline: "none",
     },
-    ".cm-panels": { backgroundColor: "#2b2d30", color: TEXT, borderColor: "#393b40" },
+    ".cm-panels": { backgroundColor: "var(--panel-bg)", color: TEXT, borderColor: "var(--border)" },
     ".cm-panels input, .cm-panels button": {
       backgroundColor: BG,
       color: TEXT,
-      border: "1px solid #393b40",
-      borderRadius: "3px",
+      border: "1px solid var(--border)",
+      borderRadius: "var(--r-sm)",
       padding: "2px 6px",
       fontFamily: "var(--code-font)",
     },
-    ".cm-tooltip": { backgroundColor: "#2b2d30", border: "1px solid #393b40", color: TEXT },
+    ".cm-tooltip": { backgroundColor: "var(--panel-bg)", border: "1px solid var(--border)", color: TEXT },
   },
   { dark: true },
 );
