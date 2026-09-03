@@ -82,11 +82,46 @@ pub fn stamp(path: impl AsRef<Path>) -> io::Result<Stamp> {
     })
 }
 
+/**
+ * 编辑模式一次能读多少。
+ *
+ * `logengine::probe` 的 `MAX_EDIT_BYTES`（32MB）决定的是「自动判定走哪种模式」，
+ * 用户可以手动强制切回编辑模式 —— 那条逃生门要留着。这里是它上面的**硬顶**。
+ *
+ * 为什么必须有：`probe_path` 的体积判定只在**首次打开**时把关，而
+ * 「外部改动后重读」「换编码重开」「工作树变了重读」三条路都是直接
+ * `read_text`，一次都不再问体积。一个打开时 1KB、后来涨到 2GB 的文件
+ * （日志正是这样）会从这几条路里进来，然后 `fs::read` 把它整份吞进内存 ——
+ * 再加上解码一份、JSON 序列化一份、JS 字符串一份。
+ *
+ * 判据和 `gitsvc::MAX_DIFF_BYTES` 是同一条：**读子进程/读文件之前先问一句
+ * 这东西有没有上限**。超了就报错，让用户用日志模式打开（mmap，多大都不占内存）。
+ */
+pub const MAX_READ_BYTES: u64 = 64 << 20;
+
 /// 读取文本文件并自动探测编码。
 ///
 /// `label` 非空时按指定编码读（用户在状态栏点了「以其他编码重新打开」）。
 pub fn read_text_detect(path: impl AsRef<Path>, label: &str) -> io::Result<encoding::Decoded> {
-    let bytes = fs::read(path.as_ref())?;
+    read_capped(path.as_ref(), label, MAX_READ_BYTES)
+}
+
+/// 上限可注入，测试用 —— 真造一个 64MB 的临时文件太贵，而这条闸必须被测到。
+fn read_capped(path: &Path, label: &str, cap: u64) -> io::Result<encoding::Decoded> {
+    use std::io::Read;
+    // 边读边卡，不先 stat 再读：文件可能在这两步之间涨大（tail 里的日志就是），
+    // 那样 stat 说没超、读进来的却超了。多读一个字节，是为了把
+    // 「正好等于上限」和「后面还有」分开 —— 差这一个字节就会误报超限。
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(cap + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > cap {
+        return Err(io::Error::other(format!(
+            "文件超过 {} MB，编辑模式读不下 —— 用日志模式打开（mmap，多大都不占内存）",
+            cap >> 20
+        )));
+    }
     Ok(if label.is_empty() {
         encoding::decode(&bytes)
     } else {
@@ -366,6 +401,32 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /*
+     * 读文件的硬顶。上限可注入是有意的 —— 真造一个 64MB 的临时文件来测
+     * 太贵（跑测试的人的盘和时间都要付账），而这条闸必须被测到：
+     * 它挡的是「打开时 1KB、后来涨到 2GB」那类文件从重读路径进来。
+     */
+    #[test]
+    fn 超过上限的文件不读进内存() {
+        let d = std::env::temp_dir().join("fsservice-cap");
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        let f = d.join("big.txt");
+        fs::write(&f, "0123456789ABCDEF").unwrap(); // 16 字节
+
+        // 正好等于上限：要能读，不能误报
+        let ok = read_capped(&f, "", 16).expect("正好等于上限应当读得出来");
+        assert_eq!(ok.content, "0123456789ABCDEF");
+
+        // 超一个字节：必须报错，而且话要说得让人知道下一步干什么
+        let err = read_capped(&f, "", 15).expect_err("超限必须报错");
+        let msg = err.to_string();
+        assert!(msg.contains("读不下"), "错误里要说明读不下：{msg}");
+        assert!(msg.contains("日志模式"), "要指出下一步该怎么办：{msg}");
+
+        fs::remove_dir_all(d).ok();
     }
 
     #[test]
