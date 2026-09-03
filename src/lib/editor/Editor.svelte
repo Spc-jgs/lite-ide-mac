@@ -9,7 +9,8 @@
   import { bracketMatching, foldGutter, foldKeymap, indentOnInput,
            indentUnit } from "@codemirror/language";
   import { ideaDarkTheme, ideaDarkHighlight } from "./theme-idea-dark";
-  import { langOf, loadLang } from "./langs";
+  import { langOf } from "./langs";
+  import { loadLang } from "./langs-load";
   import { outlineOf, type Sym } from "./outline";
   import { minimap, setMinimapMarks, type MarkKind } from "./minimap";
 

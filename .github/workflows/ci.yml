@@ -70,16 +70,21 @@ jobs:
           size=$(wc -c < "dist/$entry")
           kb=$((size / 1024))
           echo "入口包 dist/$entry = ${kb} KB"
-          if [ "$kb" -gt 160 ]; then
-            echo "::error::入口包 ${kb} KB 超过 160 KB 上限。"
+          if [ "$kb" -gt 150 ]; then
+            echo "::error::入口包 ${kb} KB 超过 150 KB 上限。"
             echo "::error::重的依赖要按需加载 —— 用 src/lib/lazy/lazy.svelte.ts 里的 lazy()。"
             exit 1
-          elif [ "$kb" -gt 150 ]; then
+          elif [ "$kb" -gt 138 ]; then
             # 提前一轮预警。红线只有撞上才知道，而它一撞就是「CI 红了，
             # 而我这轮压根没打算动打包」—— 两轮之间悄悄涨了十几 KB
-            # （M20 会话恢复 + M22 右键菜单 126 → 142，M24 又 → 148）
-            # 正是这么发生的，三处文档记的数字还各不相同。
-            echo "::warning::入口包 ${kb} KB，离 160 KB 红线只剩 $((160 - kb)) KB。"
+            # （M20 会话恢复 + M22 右键菜单 126 → 142，M24 又 → 148，
+            # 到 M25 之后是 157）正是这么发生的。
+            #
+            # 2026-09-03 把线从 160/150 收到 150/138：那天拆掉 langs 的加载表
+            # （-11.8KB）、把 @tauri-apps/api/webview 改成动态 import（-17.3KB），
+            # 入口包 157 → 125 KB。**红线要跟着实际值收**，
+            # 不然 35KB 的余量等于把绊线拆了。
+            echo "::warning::入口包 ${kb} KB，离 150 KB 红线只剩 $((150 - kb)) KB。"
           fi
 
       - name: 构建 app（确认 Tauri 壳能编出来）

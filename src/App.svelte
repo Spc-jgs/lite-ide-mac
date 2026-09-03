@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { getCurrentWebview } from "@tauri-apps/api/webview";
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
@@ -1666,21 +1665,34 @@
       });
   });
 
+  /*
+   * 拖放监听。**`@tauri-apps/api/webview` 是动态 import 的，不是顶上那一排。**
+   *
+   * 静态引它一个 `getCurrentWebview`，会把 webview.js + window.js + dpi.js
+   * 一整串拽进入口包 —— sourcemap 归因量到 15,572 字节，而入口包是首屏之前
+   * 必须解析执行完的那一段。为一个"把文件拖进来"的监听付这个价不值。
+   *
+   * 换成动态之后它落到自己的 chunk 里，在首屏渲染完之后才加载；
+   * 拖放本来就不可能在窗口出现之前发生。
+   */
   $effect(() => {
-    const un = getCurrentWebview().onDragDropEvent((e) => {
-      if (e.payload.type === "over") hovering = true;
-      else if (e.payload.type === "drop") {
-        hovering = false;
-        for (const p of e.payload.paths) void openPath(p);
-      } else hovering = false;
-    });
     /*
      * 立刻挂上 catch，而不是只在清理函数里挂。
      * 浏览器里跑（没有 Tauri）时这个 promise 会直接 reject，
      * 而清理函数要等 effect 销毁才跑 —— 中间这段时间就是一条
      * "Uncaught (in promise)"，把控制台的真错误淹掉。
      */
-    const reg = un.catch(() => null);
+    const reg = import("@tauri-apps/api/webview")
+      .then((m) =>
+        m.getCurrentWebview().onDragDropEvent((e) => {
+          if (e.payload.type === "over") hovering = true;
+          else if (e.payload.type === "drop") {
+            hovering = false;
+            for (const p of e.payload.paths) void openPath(p);
+          } else hovering = false;
+        }),
+      )
+      .catch(() => null);
     // 注销这一半也要兜住：拿到的 unlisten 函数**自己**也可能抛
     // （窗口正在拆、或者桩不完整），而它抛出来同样是一条 uncaught
     return () => void reg.then((f) => f?.()).catch(() => {});
