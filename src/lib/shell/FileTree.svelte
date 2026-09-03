@@ -1042,14 +1042,16 @@
   .head .proj:hover { color: var(--text); }
   .head .proj:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .head .gap { flex: 1; min-width: 6px; }
-  .list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  /* 横向 6px 是给行的圆角块留的余地 —— 贴着面板边的圆角看着像被切了一半 */
+  .list { flex: 1; overflow-y: auto; padding: 4px 6px; }
   .row {
     display: flex;
     align-items: center;
     gap: 3px;
     width: 100%;
-    height: 22px;
+    height: 24px;
     padding-right: 8px;
+    border-radius: var(--r-md);
     background: transparent;
     border: none;
     color: var(--text-dim);
@@ -1059,8 +1061,15 @@
     cursor: default;
     white-space: nowrap;
   }
-  .row:hover { background: var(--panel-bg-2); }
-  .row.active { background: var(--accent-sel); color: var(--text); }
+  /*
+   * 悬停/选中是**内缩的圆角块**，不是通栏色条。
+   *
+   * 通栏色条是文件管理器的做法：它在说"这一整行都是它"。而在侧边栏里
+   * 一行就是一个条目，圆角块把它框成一个"物件"，边缘不贴着面板的边，
+   * 看着轻得多。列表容器给 6px 的横向内边距，就是给这个留的。
+   */
+  .row:hover { background: var(--hover); }
+  .row.active { background: var(--selected); color: var(--text); }
   .row.dir { color: var(--text); }
   .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   /*

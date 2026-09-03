@@ -367,12 +367,13 @@
     color: var(--lvl-warn);
   }
 
-  .list { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+  /* 横向 6px 是给行的圆角块留的余地，和文件树同一套 */
+  .list { flex: 1; overflow-y: auto; padding: 0 6px 8px; }
   .sec {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 8px 4px 10px;
+    padding: 8px 2px 4px 6px;
     font-size: 10.5px;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -410,8 +411,9 @@
   .mini:hover { background: var(--panel-bg-2); color: var(--text); }
 
   /* 行操作按钮平时不占视觉，hover 才浮出来 —— 列表安静，动作随手可及 */
-  .frow-wrap { display: flex; align-items: center; }
-  .frow-wrap:hover { background: var(--panel-bg-2); }
+  /* 悬停是内缩圆角块，和文件树同一套 —— 两边挨着，做法不一样一眼看得出来 */
+  .frow-wrap { display: flex; align-items: center; border-radius: var(--r-md); }
+  .frow-wrap:hover { background: var(--hover); }
   .frow-wrap .rowact { opacity: 0; }
   .frow-wrap:hover .rowact { opacity: 1; }
   .rowact {
@@ -434,8 +436,8 @@
     gap: 6px;
     flex: 1;
     min-width: 0;
-    height: 22px;
-    padding: 0 4px 0 10px;
+    height: 24px;
+    padding: 0 4px 0 6px;
     background: transparent;
     border: none;
     color: var(--text-dim);
