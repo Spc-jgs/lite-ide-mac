@@ -1536,6 +1536,26 @@
       return;
     }
     if (!e.metaKey) return;
+    /*
+     * ⌘S 也要在编辑器**没有焦点**时管用。
+     *
+     * 原来它只挂在 CM6 的 keymap 上 —— 焦点在文件树、Git 面板或者终端上时
+     * 按 ⌘S 什么也不发生，**而且没有任何提示**。而欢迎页一直把它和 ⌘P、⌘J
+     * 并排列成全局快捷键。
+     *
+     * `defaultPrevented` 是防重的关键：焦点在编辑器里时 CM6 已经处理过并
+     * preventDefault 了，事件照样会冒到 window —— 不判这一句就是存两次
+     * （两次写盘、两条「已保存」）。
+     *
+     * 走 `saveActive()` 拿的是编辑器里的实时文本（见 liveText），
+     * 不是几步之前的草稿。
+     */
+    if (k === "s") {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      saveActive();
+      return;
+    }
     if (k === "p") {
       e.preventDefault();
       quickScope = "file";
