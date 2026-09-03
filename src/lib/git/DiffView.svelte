@@ -315,7 +315,7 @@
     font-size: 11px;
     color: var(--accent);
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     padding: 1px 7px;
   }
 
@@ -325,7 +325,7 @@
     height: 18px;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-faint);
     font-size: 10px;
     cursor: default;
@@ -333,7 +333,7 @@
   .nav button:hover { background: var(--panel-bg-2); color: var(--text); }
   .nav .pos { font-family: var(--code-font); font-size: 10px; color: var(--text-faint); min-width: 30px; text-align: center; }
 
-  .segs { display: inline-flex; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+  .segs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
   .segs button {
     background: transparent;
     border: none;
@@ -350,7 +350,7 @@
   .seg {
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: 11px;
     padding: 2px 8px;
@@ -508,7 +508,7 @@
   .uni .row.meta { color: var(--text-faint); font-size: 11px; }
 
   /* 行内高亮：颜色更实，把真正改动的那几个字挑出来 */
-  mark { background: transparent; color: inherit; border-radius: 2px; padding: 0 1px; }
+  mark { background: transparent; color: inherit; border-radius: var(--r-sm); padding: 0 1px; }
   .tx.del mark, .uni .row.del mark { background: var(--diff-del-strong); color: var(--text); }
   .tx.add mark, .uni .row.add mark { background: var(--diff-add-strong); color: var(--text); }
 

@@ -146,7 +146,7 @@
   .bar button {
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: 11px;
     padding: 2px 9px;
@@ -173,7 +173,7 @@
   .cf {
     margin: 6px 0;
     border: 1px solid var(--lvl-warn);
-    border-radius: 4px;
+    border-radius: var(--r-sm);
     overflow: hidden;
   }
   /* 决定完的块褪成中性色：眼睛该被还没处理的那些吸引过去 */
@@ -196,7 +196,7 @@
   .cfhead button {
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-faint);
     font-size: 10.5px;
     padding: 1px 7px;

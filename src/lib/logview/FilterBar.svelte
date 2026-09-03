@@ -181,7 +181,7 @@
     padding: 3px 8px;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-family: var(--code-font);
     font-size: 11px;
@@ -207,7 +207,7 @@
     padding: 0 7px;
     background: var(--editor-bg);
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--code-font);
     font-size: 11.5px;
@@ -220,7 +220,7 @@
     min-width: 22px;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-faint);
     font-family: var(--code-font);
     font-size: 10.5px;
@@ -250,8 +250,8 @@
     cursor: default;
     white-space: nowrap;
   }
-  .seg:first-child { border-radius: 3px 0 0 3px; }
-  .seg:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+  .seg:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+  .seg:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; border-left: none; }
   .seg:hover { background: var(--panel-bg-2); color: var(--text); }
   .seg.on { background: var(--accent-sel); color: var(--text); border-color: var(--accent); }
   .seg.on + .seg { border-left-color: var(--accent); }
@@ -267,8 +267,8 @@
     color: var(--text-dim);
     cursor: default;
   }
-  .jump button:first-child { border-radius: 3px 0 0 3px; }
-  .jump button:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+  .jump button:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+  .jump button:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; border-left: none; }
   .jump button:hover:not(:disabled) { background: var(--panel-bg-2); color: var(--text); }
   .jump button:disabled { opacity: 0.35; }
 
@@ -281,7 +281,7 @@
     padding: 3px 9px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: 11px;
     cursor: default;
@@ -297,7 +297,7 @@
     padding: 3px 9px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: 11px;
     cursor: pointer;

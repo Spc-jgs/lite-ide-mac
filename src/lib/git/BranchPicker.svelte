@@ -267,7 +267,7 @@
     flex-direction: column;
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--r-md);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
     z-index: 41;
     overflow: hidden;
@@ -297,7 +297,7 @@
   }
 
   .rowwrap { display: flex; align-items: center; }
-  .rowwrap.on { background: var(--accent-sel); }
+  .rowwrap.on { background: var(--selected); }
   .row {
     display: flex;
     align-items: center;
@@ -331,7 +331,7 @@
     flex: none;
     font-size: 10px;
     padding: 0 5px;
-    border-radius: 8px;
+    border-radius: var(--r-md);
     background: var(--panel-bg-2);
     color: var(--text-faint);
   }
@@ -343,7 +343,7 @@
     margin-right: 8px;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-faint);
     font-size: 10px;
     cursor: default;
@@ -359,7 +359,7 @@
     border: 1.6px solid var(--git-modified);
   }
   .ic.remote { border-color: var(--git-untracked); }
-  .ic.worktree { border: 1.6px solid var(--git-renamed); border-radius: 2px; }
+  .ic.worktree { border: 1.6px solid var(--git-renamed); border-radius: var(--r-sm); }
   .ic.newBranch, .ic.newWorktree {
     border-radius: 50%;
     border: 1.6px dashed var(--text-faint);
@@ -384,7 +384,7 @@
     flex: 1;
     background: var(--editor-bg);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--code-font);
     font-size: 12px;
@@ -398,7 +398,7 @@
     padding: 4px 12px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: 12px;
     cursor: default;

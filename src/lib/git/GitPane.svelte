@@ -265,7 +265,7 @@
     height: 22px;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-faint);
     cursor: default;
   }
@@ -297,7 +297,7 @@
     font-size: 10px;
     color: var(--lvl-warn);
     border: 1px solid var(--lvl-warn);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     padding: 0 4px;
     opacity: 0.8;
   }
@@ -324,14 +324,19 @@
   .commit textarea {
     width: 100%;
     resize: vertical;
-    background: var(--editor-bg);
+    /*
+     * 抬起面：底比面板亮，边是 15% 的白。这两样加上大圆角就是那个
+     * "一块摞上去的板"的观感 —— 输入框在 ChatGPT 里正是这么处理的
+     * （#212121 + #ffffff26 + 28px 圆角）。
+     */
+    background: var(--panel-bg-2);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--r-md);
     color: var(--text);
     font-family: var(--ui-font);
     font-size: 12px;
     line-height: 1.5;
-    padding: 6px 8px;
+    padding: 8px 10px;
   }
   .commit textarea:focus { outline: none; border-color: var(--accent); }
   .commit textarea::placeholder { color: var(--text-faint); }
@@ -351,7 +356,7 @@
   .primary {
     background: var(--accent);
     border: 1px solid var(--accent);
-    border-radius: 4px;
+    border-radius: var(--r-sm);
     color: #fff;
     font-size: 11.5px;
     padding: 3px 12px;
@@ -393,7 +398,7 @@
   .sec .cnt {
     font-family: var(--code-font);
     background: var(--panel-bg-2);
-    border-radius: 8px;
+    border-radius: var(--r-md);
     padding: 0 5px;
     font-size: 10px;
   }
@@ -402,8 +407,8 @@
     border: none;
     color: var(--text-faint);
     font-size: 10.5px;
-    padding: 1px 5px;
-    border-radius: 3px;
+    padding: 1px 6px;
+    border-radius: var(--r-sm);
     cursor: default;
     text-transform: none;
     letter-spacing: 0;
@@ -425,7 +430,7 @@
     color: var(--text-faint);
     font-size: 12px;
     cursor: default;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
   }
   .rowact:hover { background: var(--panel-bg); color: var(--text); }
   .rowact:focus-visible { opacity: 1; outline: 1px solid var(--accent); }

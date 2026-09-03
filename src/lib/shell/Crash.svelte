@@ -109,7 +109,7 @@
     max-width: 680px;
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--r-md);
     padding: 18px 20px 16px;
   }
   .head {
@@ -137,7 +137,7 @@
     overflow: auto;
     background: var(--editor-bg);
     border: 1px solid var(--border);
-    border-radius: 5px;
+    border-radius: var(--r-md);
     font-family: var(--code-font);
     font-size: 11px;
     line-height: 1.65;
@@ -152,7 +152,7 @@
     padding: 4px 12px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-family: var(--ui-font);
     font-size: 12px;

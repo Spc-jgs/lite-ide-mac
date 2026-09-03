@@ -295,7 +295,7 @@
     width: 200px;
     background: var(--editor-bg);
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font);
     font-size: 11.5px;
@@ -325,7 +325,7 @@
     white-space: nowrap;
   }
   .crow:hover { background: var(--panel-bg-2); }
-  .crow.on { background: var(--accent-sel); color: var(--text); }
+  .crow.on { background: var(--selected); color: var(--text); }
   .crow:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .g { flex: none; display: block; }
   .subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -337,7 +337,7 @@
     display: inline-block;
     margin-right: 5px;
     padding: 0 5px;
-    border-radius: 8px;
+    border-radius: var(--r-md);
     font-size: 10px;
     font-family: var(--code-font);
     background: var(--panel-bg-2);
@@ -366,7 +366,7 @@
     font-size: 10px;
     color: var(--lvl-warn);
     border: 1px solid var(--lvl-warn);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     padding: 0 4px;
     opacity: 0.85;
   }

@@ -2288,7 +2288,7 @@
     padding: 1px 3px;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-family: var(--ui-font);
     font-size: 12.5px;
@@ -2310,7 +2310,7 @@
     padding: 2px 7px;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-faint);
     font-size: 11px;
     cursor: default;
@@ -2329,7 +2329,7 @@
     font-size: 10.5px;
     color: var(--text-faint);
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     padding: 1px 5px;
   }
 
@@ -2366,7 +2366,7 @@
     height: 26px;
     background: transparent;
     border: none;
-    border-radius: 5px;
+    border-radius: var(--r-md);
     color: var(--text-faint);
     cursor: default;
     transition: background 0.09s, color 0.09s;
@@ -2440,7 +2440,7 @@
     flex: none;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-faint);
     font-size: 11px;
     padding: 2px 8px;
@@ -2466,7 +2466,7 @@
     color: var(--text-faint);
     font-size: 10.5px;
     padding: 2px 6px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     cursor: default;
   }
   .panel-head button:hover { background: var(--panel-bg-2); color: var(--text); }
@@ -2482,7 +2482,7 @@
     display: flex;
     align-items: center;
     flex: none;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     background: transparent;
   }
   .tterm:hover { background: var(--panel-bg-2); }
@@ -2516,7 +2516,7 @@
     color: var(--text-faint);
     font-size: 12px;
     padding: 1px 6px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     cursor: default;
     flex: none;
   }
@@ -2543,7 +2543,7 @@
     padding: 18px 20px 16px;
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--r-md);
     text-align: left;
   }
   .empty .big { font-size: 14.5px; color: var(--text); margin-bottom: 4px; }
@@ -2582,7 +2582,7 @@
     padding: 3px 10px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: 11.5px;
     cursor: default;
@@ -2654,7 +2654,7 @@
     font-family: var(--code-font);
     font-size: 11.5px;
     padding: 1px 6px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     cursor: default;
   }
   .statusbar .btn:hover { background: var(--panel-bg-2); color: var(--text); }
@@ -2678,7 +2678,7 @@
     display: inline-block;
     margin-left: 4px;
     background: var(--panel-bg-2);
-    border-radius: 7px;
+    border-radius: var(--r-md);
     padding: 0 5px;
     font-size: 10px;
     color: var(--text-dim);

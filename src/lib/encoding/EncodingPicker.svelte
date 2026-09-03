@@ -128,7 +128,7 @@
     flex-direction: column;
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--r-md);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
     z-index: 41;
     overflow: hidden;
@@ -189,7 +189,7 @@
     padding: 3px 11px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: 11.5px;
     cursor: default;

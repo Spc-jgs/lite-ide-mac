@@ -162,11 +162,12 @@
     position: fixed;
     z-index: 60;
     min-width: 168px;
-    padding: 4px;
+    padding: 5px;
     background: var(--panel-bg-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    border-radius: var(--r-md);
+    /* 底是纯黑的时候，靠色阶已经拉不开距离了 —— 投影要更深、更散 */
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
     outline: none;
   }
   .mhead {
@@ -187,7 +188,7 @@
     padding: 4px 9px;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font);
     font-size: 12.5px;
@@ -196,12 +197,13 @@
     cursor: default;
   }
   /* 鼠标和键盘共用一个高亮：菜单里同时有两个高亮是最容易看错的写法 */
-  .mitem.on { background: var(--accent-sel); }
+  /* 菜单里「键盘走到哪一项」是弱状态，中性白就够；强调色会让它比内容还抢眼 */
+  .mitem.on { background: var(--selected); }
   .mitem.sep {
     margin-top: 4px;
     padding-top: 6px;
     border-top: 1px solid var(--border-soft);
-    border-radius: 0 0 3px 3px;
+    border-radius: 0 0 var(--r-sm) var(--r-sm);
   }
   /*
    * 危险项常驻红色，不是只在 hover 时才红：手滑点中的那一下发生在 hover 之后，

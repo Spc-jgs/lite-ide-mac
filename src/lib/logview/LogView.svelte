@@ -279,7 +279,7 @@
   mark {
     background: var(--search-hit);
     color: var(--text);
-    border-radius: 1px;
+    border-radius: var(--r-sm);
   }
 
   /* 块还在路上：留白而不是跳动 */
@@ -289,6 +289,6 @@
     width: 34ch;
     height: 9px;
     background: var(--panel-bg);
-    border-radius: 2px;
+    border-radius: var(--r-sm);
   }
 </style>

@@ -123,7 +123,7 @@
     flex-direction: column;
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--r-md);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
     z-index: 41;
     overflow: hidden;
@@ -169,13 +169,14 @@
     cursor: default;
     font-size: 12.5px;
   }
-  .row.sel { background: var(--accent-sel); }
+  /* 列表里的当前项一律中性白叠加，强调色留给真正抢注意力的东西 */
+  .row.sel { background: var(--selected); }
   .kind {
     flex: none;
     font-size: 9.5px;
     font-family: var(--code-font);
     padding: 1px 5px;
-    border-radius: 2px;
+    border-radius: var(--r-sm);
     background: var(--panel-bg-2);
     color: var(--text-faint);
     min-width: 3.4em;
