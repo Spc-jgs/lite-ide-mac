@@ -159,15 +159,21 @@
         placeholder={amend ? "改写上一条提交信息…" : "提交信息（⌘↵ 提交）"}
         rows="2"
       ></textarea>
+      <!--
+        冲突提示单独占一行，不挤在按钮那一排里。
+        挤在一起时（侧边栏默认 240px）三样东西都放不下，于是每一样都
+        在字中间断行 ——「改写上一/条」「先解决 1 处冲/突」「提交/(3)」。
+        而且这句话正是那一刻最要紧的信息，值得一整行。
+      -->
+      {#if conflicts.length > 0}
+        <p class="blocked">先解决 {conflicts.length} 处冲突</p>
+      {/if}
       <div class="crow">
         <label class="amend" class:off={!canAmend}>
           <input type="checkbox" bind:checked={amend} disabled={!canAmend} />
           改写上一条
         </label>
         <span class="gap"></span>
-        {#if conflicts.length > 0}
-          <span class="blocked">先解决 {conflicts.length} 处冲突</span>
-        {/if}
         <button class="primary" disabled={!canCommit} onclick={doCommit}>
           提交 {staged.length > 0 ? `(${staged.length})` : ""}
         </button>
@@ -356,6 +362,8 @@
     font-size: 11px;
     color: var(--text-faint);
     user-select: none;
+    /* 侧边栏能拖到 160px，不锁住就会断成「改写上一/条」 */
+    white-space: nowrap;
   }
   .amend.off { opacity: 0.4; }
   .amend input { margin: 0; accent-color: var(--accent); }
@@ -367,9 +375,14 @@
     font-size: 11.5px;
     padding: 3px 12px;
     cursor: default;
+    white-space: nowrap;
   }
   .primary:disabled { background: transparent; border-color: var(--border); color: var(--text-faint); }
-  .blocked { font-size: 10.5px; color: var(--lvl-warn); }
+  .blocked {
+    margin: 6px 0 0;
+    font-size: 11px;
+    color: var(--lvl-warn);
+  }
 
   .list { flex: 1; overflow-y: auto; padding-bottom: 8px; }
   .sec {
@@ -382,7 +395,17 @@
     text-transform: uppercase;
     color: var(--text-faint);
     user-select: none;
+    /*
+     * 侧边栏能拖到 160px，那时「改动 4 全部丢弃 全部暂存」放不下。
+     * 允许整行折，但每一块自己不许断 —— 否则会断成「改/动」「全部/丢弃」，
+     * 一个两字的词竖着排下来根本认不出。折行之后是：
+     *
+     *     改动  4
+     *       全部丢弃  全部暂存
+     */
+    flex-wrap: wrap;
   }
+  .sec > * { white-space: nowrap; }
   .sec .cnt {
     font-family: var(--code-font);
     background: var(--panel-bg-2);

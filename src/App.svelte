@@ -8,6 +8,7 @@
   import * as session from "./lib/state/session";
   import { textToSave, settled, stashed } from "./lib/state/doc";
   import Crash from "./lib/shell/Crash.svelte";
+  import Icon from "./lib/shell/Icon.svelte";
   import Outline from "./lib/search/Outline.svelte";
   import type { Sym } from "./lib/editor/outline";
   import { langOf, langLabel } from "./lib/editor/langs";
@@ -1788,12 +1789,7 @@
         aria-label={sidebar ? "收起侧边栏" : "展开侧边栏"}
         aria-expanded={sidebar}
       >
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"
-                fill="none" stroke="currentColor" stroke-width="1.3" />
-          <path d="M6.4 2.6 L6.4 13.4" stroke="currentColor" stroke-width="1.3" />
-          <rect x="1.6" y="2.6" width="4.8" height="10.8" fill="currentColor" opacity="0.28" />
-        </svg>
+        <Icon name="sidebar" />
       </button>
       {#if root}
         <button
@@ -1806,10 +1802,7 @@
           title="文件树"
           aria-label="文件树"
         >
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-            <path d="M1.8 12.5 V4.2 a1 1 0 0 1 1-1 h3.1 l1.4 1.6 h5.9 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1-1 1 H2.8 a1 1 0 0 1-1-1 z"
-                  fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
-          </svg>
+          <Icon name="files" />
         </button>
         {#if repo}
           <button
@@ -1822,13 +1815,7 @@
             title="Git 改动 ⌘⇧G"
             aria-label="Git 改动"
           >
-            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-              <circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-              <circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-              <circle cx="11.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
-              <path d="M4.5 5.3 L4.5 10.7" stroke="currentColor" stroke-width="1.3" />
-              <path d="M11.5 5.3 Q11.5 8.5 4.5 10.7" fill="none" stroke="currentColor" stroke-width="1.3" />
-            </svg>
+            <Icon name="git" />
             {#if gitSt && gitSt.entries.length > 0}
               <span class="dot" aria-hidden="true"></span>
             {/if}
@@ -1843,10 +1830,7 @@
           title="在项目中搜内容 ⌘⇧F"
           aria-label="搜索"
         >
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-            <circle cx="7" cy="7" r="4.2" fill="none" stroke="currentColor" stroke-width="1.4" />
-            <path d="M10.2 10.2 L13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-          </svg>
+          <Icon name="search" />
         </button>
       {/if}
       <span class="rgap"></span>
@@ -1857,12 +1841,7 @@
         title="终端 / Git 日志 ⌘J"
         aria-label="底部面板"
       >
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-          <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"
-                fill="none" stroke="currentColor" stroke-width="1.3" />
-          <path d="M1.6 9.6 L14.4 9.6" stroke="currentColor" stroke-width="1.3" />
-          <rect x="1.6" y="9.6" width="12.8" height="3.8" fill="currentColor" opacity="0.28" />
-        </svg>
+        <Icon name="panel" />
       </button>
     </nav>
 
