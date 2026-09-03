@@ -69,3 +69,27 @@ html, body {
 
 /* 日志是只读视图，禁掉选中拖影带来的重绘噪声（真正的复制交互 M1 再做） */
 ::selection { background: var(--accent-sel); }
+
+/*
+ * 滚动条。系统默认那条实测 **15px 宽** —— 在 240px 的侧边栏里占掉 6%，
+ * 而且是常驻占位（不是 overlay 那种滑过才出现的），一条文件路径本来就快放不下了。
+ *
+ * **只用标准属性，不写 `::-webkit-scrollbar`。**
+ *
+ * 写过一版 webkit 伪元素的（9px 轨 + 2px 透明边框做出 5px 细滑块），
+ * 实测**一行都没生效**：新引擎里只要出现了 `scrollbar-width`，
+ * 那一整套伪元素就被忽略（把 `scrollbar-width` 改回 auto，宽度立刻从 11px
+ * 弹回系统默认的 15px —— 说明 9px 的规则从头到尾没参与过）。
+ *
+ * 两套一起留着的坏处不是多几行代码，是**两个引擎可能各听各的**：
+ * `pnpm dev` 的 Chromium 用标准属性、打包后的 WKWebView 用伪元素，
+ * 于是浏览器里调好的样子和 .app 里的不是一回事。这跟「桩必须和真实现
+ * 严格对齐」是同一条理由。
+ *
+ * 轨道设成 transparent 而不是给个底色：一条常年横在那儿的浅色沟槽，
+ * 比滚动条本身更显眼。
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}

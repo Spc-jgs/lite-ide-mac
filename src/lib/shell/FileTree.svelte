@@ -849,7 +849,9 @@
         title={row.name}
       >
         {#if row.isDir}
-          <span class="caret" class:open={expanded.has(row.path)}>▸</span>
+          <span class="caret" class:open={expanded.has(row.path)}>
+            <Icon name="chevron-right" size={10} />
+          </span>
         {:else}
           <span class="caret spacer"></span>
         {/if}
@@ -1068,12 +1070,24 @@
   .row.flash { outline: 1px solid var(--accent); outline-offset: -1px; }
   /* 键盘走到的行给个底色，光有 outline 在长列表里不够醒目 */
   .row:focus-visible:not(.active) { background: var(--panel-bg-2); }
+  /*
+   * 展开箭头。**必须是 SVG，不能是文字里的 ▸。**
+   *
+   * 原来是 `<span style="font-size:9px">▸</span>` + `rotate(90deg)`。
+   * 盒子确实是垂直居中的（上下各 4.8px），但**字形在自己的 em 盒里本来就偏上**，
+   * 一旋转，那点偏移就从"偏上"变成"偏左上"，箭头看着离开了它该在的位置。
+   * 加上 9px 的字本来就渲染得糊，两件事叠在一起就是"这里怎么怪怪的"。
+   *
+   * SVG 的几何是自己说了算的：给一个方盒、内容居中，绕盒心转 90° 前后都对齐。
+   */
   .caret {
     flex: none;
-    width: 11px;
-    font-size: 9px;
+    display: grid;
+    place-content: center;
+    width: 12px;
+    height: 12px;
     color: var(--text-faint);
-    transition: transform 0.1s;
+    transition: transform 0.12s ease;
   }
   .caret.open { transform: rotate(90deg); }
   .caret.spacer { visibility: hidden; }

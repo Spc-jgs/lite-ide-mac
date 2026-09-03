@@ -10,7 +10,8 @@
     | "plus"
     | "warn"
     | "chevron-up"
-    | "chevron-down";
+    | "chevron-down"
+    | "chevron-right";
 </script>
 
 <script lang="ts">
@@ -108,6 +109,8 @@
     <path d="M4.2 9.6 L8 5.8 L11.8 9.6" />
   {:else if name === "chevron-down"}
     <path d="M4.2 6.4 L8 10.2 L11.8 6.4" />
+  {:else if name === "chevron-right"}
+    <path d="M6.4 4.2 L10.2 8 L6.4 11.8" />
   {/if}
 </svg>
 
