@@ -5,6 +5,8 @@ import {
   DEFAULT_LAYOUT,
   VERSION,
   MAX_TABS,
+  MAX_DRAFT_CHARS,
+  MAX_DRAFTS_CHARS,
   type Session,
 } from "../src/lib/state/session.ts";
 
@@ -139,6 +141,71 @@ ok(parse(empty)?.active === 0, "没有标签时活动下标是 0");
 // ── 9. 空会话也要能表达 ──
 const blank = parse(serialize({ root: null, tabs: [], active: 0, layout: DEFAULT_LAYOUT }));
 ok(blank !== null && blank.root === null && blank.tabs.length === 0, "空会话要能存能读");
+
+// ── 10. 草稿：存得住，也拦得住 ──
+
+const 带草稿: Session = {
+  root: "/p",
+  tabs: [{ path: "/p/a.ts", line: 3, draft: "改了一半", stamp: { mtimeMs: 111, size: 22 } }],
+  active: 0,
+  layout: DEFAULT_LAYOUT,
+};
+const 回来 = parse(serialize(带草稿));
+ok(回来?.tabs[0].draft === "改了一半", "草稿要能存能读");
+ok(回来?.tabs[0].stamp?.mtimeMs === 111 && 回来?.tabs[0].stamp?.size === 22, "指纹跟着草稿一起存");
+ok(回来?.tabs[0].line === 3, "草稿不影响原有字段");
+
+// 单份超限：只丢这一份草稿，标签本身照存
+const 超长: Session = {
+  root: "/p",
+  tabs: [{ path: "/p/big.ts", draft: "x".repeat(MAX_DRAFT_CHARS + 1) }, { path: "/p/ok.ts", draft: "小的" }],
+  active: 0,
+  layout: DEFAULT_LAYOUT,
+};
+const 超长回来 = parse(serialize(超长));
+ok(超长回来?.tabs.length === 2, "草稿超限不能把标签也丢掉");
+ok(超长回来?.tabs[0].draft === undefined, "超限的那份草稿要丢掉");
+ok(超长回来?.tabs[1].draft === "小的", "别人的草稿不受牵连");
+
+// 总额度：先来的存下，后面的丢掉
+const 每份 = MAX_DRAFT_CHARS;
+const 份数 = Math.floor(MAX_DRAFTS_CHARS / 每份) + 1;
+const 一堆: Session = {
+  root: "/p",
+  tabs: Array.from({ length: 份数 }, (_, i) => ({ path: `/p/${i}.ts`, draft: "y".repeat(每份) })),
+  active: 0,
+  layout: DEFAULT_LAYOUT,
+};
+const 一堆回来 = parse(serialize(一堆));
+const 存下的 = (一堆回来?.tabs ?? []).filter((t) => t.draft !== undefined).length;
+ok(一堆回来?.tabs.length === 份数, "总额度用完也不能丢标签");
+ok(存下的 === Math.floor(MAX_DRAFTS_CHARS / 每份), `总额度要卡住，实得 ${存下的} 份`);
+
+// 退一步的那一档：写不下时把草稿全去掉重存
+const 无草稿 = parse(serialize(带草稿, false));
+ok(无草稿?.tabs[0].draft === undefined, "withDrafts=false 时不写草稿");
+ok(无草稿?.tabs[0].path === "/p/a.ts" && 无草稿?.tabs[0].line === 3, "退一步也要保住路径和行号");
+
+// 坏数据一律当没有，不能抛
+const 坏草稿 = JSON.stringify({
+  v: VERSION,
+  root: "/p",
+  tabs: [
+    { path: "/p/a.ts", draft: 42 },
+    { path: "/p/b.ts", draft: "有草稿没指纹" },
+    { path: "/p/c.ts", draft: "指纹是坏的", stamp: { mtimeMs: "x" } },
+    { path: "/p/d.ts", draft: "" },
+  ],
+  active: 0,
+  layout: DEFAULT_LAYOUT,
+});
+const 坏的回来 = parse(坏草稿);
+ok(坏的回来?.tabs[0].draft === undefined, "draft 不是字符串就当没有");
+ok(坏的回来?.tabs[1].draft === "有草稿没指纹", "没有指纹的草稿照样收（恢复时按「盘上可能变过」处理）");
+ok(坏的回来?.tabs[1].stamp === undefined, "缺指纹就是 undefined");
+ok(坏的回来?.tabs[2].draft === "指纹是坏的" && 坏的回来?.tabs[2].stamp === undefined, "指纹坏了只丢指纹");
+ok(坏的回来?.tabs[3].draft === undefined, "空串草稿当没有");
+ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
 
 console.log(`${fail === 0 ? "✅" : "❌"} 会话快照：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);
