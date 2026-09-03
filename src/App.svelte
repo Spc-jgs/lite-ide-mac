@@ -1052,6 +1052,29 @@
      * 而且 `openPath` 里 `if (!root) root = 父目录` 这句依赖顺序。
      */
     for (const t of saved.tabs) await openPath(t.path, true);
+    /*
+     * 兑现草稿。**必须在文件都读进来之后**：判据是「草稿和盘上现在那份一不一样」，
+     * 盘上那份要先有。
+     *
+     * 三种情况，都不需要我们替谁做主（见 state/session.ts 的长注释）：
+     * - 盘上没变 → 原样恢复，dirty 由 `stashed` 按内容算出来
+     * - 盘上变了而草稿还不一样 → 就是应用运行中早就有的那个冲突，
+     *   摆出「用磁盘上的 / 保留我的」让用户选
+     * - 草稿恰好和盘上现在一样 → `stashed` 自己会把它丢掉，也就不脏
+     */
+    for (const snapTab of saved.tabs) {
+      if (snapTab.draft === undefined) continue;
+      const tab = tabs.find((t) => t.path === snapTab.path && t.mode === "edit");
+      if (!tab) continue;
+      Object.assign(tab, stashed(tab, snapTab.draft));
+      if (!tab.dirty) continue;
+      const 盘上变了 =
+        !snapTab.stamp ||
+        !tab.stamp ||
+        snapTab.stamp.mtimeMs !== tab.stamp.mtimeMs ||
+        snapTab.stamp.size !== tab.stamp.size;
+      if (盘上变了) tab.conflict = true;
+    }
     const want = saved.tabs[saved.active]?.path;
     const hit = want ? tabs.find((t) => t.path === want) : null;
     if (hit) activeId = hit.id;
@@ -1083,7 +1106,22 @@
       root,
       tabs: tabs.map((t) => {
         const line = posByPath.get(t.path);
-        return line === undefined ? { path: t.path } : { path: t.path, line };
+        const snap: session.TabSnap = { path: t.path };
+        if (line !== undefined) snap.line = line;
+        /*
+         * 有未保存改动就把草稿一起存下来 —— 「没手动保存就退出，改动直接没」
+         * 是这个应用最容易咬人的一条，而会话恢复对外说的是「回到上次的现场」。
+         *
+         * `liveText` 而不是 `t.draft`：当前标签的编辑器还活着，草稿字段
+         * 可能停在几步之前（见 state/doc.ts）。
+         * `stamp` 必须一起存，恢复时要靠它判断盘上那份有没有被人动过。
+         * 超限的草稿由 `session.serialize` 丢掉，这里不预先筛。
+         */
+        if (t.mode === "edit" && t.dirty) {
+          snap.draft = liveText(t);
+          if (t.stamp) snap.stamp = { mtimeMs: t.stamp.mtimeMs, size: t.stamp.size };
+        }
+        return snap;
       }),
       active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
       layout: { sidebar, sidebarWidth, sideView, panel, panelHeight, panelView },
@@ -1103,13 +1141,36 @@
    */
   let restoring = $state(true);
 
+  /** 上一次真正写进去的那串。草稿让写变频了，一模一样就别再写一遍 */
+  let lastWritten = "";
+
   function writeSession() {
     saveTimer = null;
     if (restoring) return;
+    const snap = snapshot();
+    let text: string;
     try {
-      localStorage.setItem(session.KEY, session.serialize(snapshot()));
+      text = session.serialize(snap);
     } catch {
-      /* 存不下（配额满、隐私模式）就算了，下次开是干净的默认界面 */
+      return; // 序列化都失败就彻底放弃，不能让它冒到启动路径上
+    }
+    if (text === lastWritten) return;
+    try {
+      localStorage.setItem(session.KEY, text);
+      lastWritten = text;
+    } catch {
+      /*
+       * 写不下多半是草稿把配额撑爆了。**退一步再存一次**：宁可丢草稿，
+       * 也不能连「上次开了哪些文件、光标在哪」一起赔进去 ——
+       * 后者是草稿进来之前就有的保证，不该被新功能连累。
+       */
+      try {
+        const plain = session.serialize(snap, false);
+        localStorage.setItem(session.KEY, plain);
+        lastWritten = plain;
+      } catch {
+        /* 隐私模式之类，连基本的都写不下就算了 */
+      }
     }
   }
 
@@ -1137,6 +1198,36 @@
     posByPath.set(path, line);
     scheduleSave();
   }
+
+  /** 已经为「草稿太大存不下」提醒过的文件，一个文件只说一次 */
+  const warnedBig = new Set<string>();
+
+  /*
+   * 有未保存改动时定期落一次盘。
+   *
+   * 下面那条响应式 effect 订阅的是布局、标签、项目根 —— **打字不动其中任何一个**，
+   * 所以光靠它，「改了半天一直没切标签也没退出」这个最该被记住的状态一次都不会存。
+   * 退出前的 pagehide 补写能兜住正常退出，但兜不住崩溃（Rust 侧是 panic = abort，
+   * 一个 panic 就是进程当场死，没有 pagehide）。
+   *
+   * 4 秒一次，而且只在真有脏标签时才动；`writeSession` 里还有一道
+   * 「和上次一模一样就不写」。
+   */
+  $effect(() => {
+    const id = setInterval(() => {
+      const dirty = tabs.filter((t) => t.mode === "edit" && t.dirty);
+      if (dirty.length === 0) return;
+      // 存不下的那种要当面说 —— 不说的话用户以为自己被记住了
+      for (const t of dirty) {
+        if (warnedBig.has(t.path)) continue;
+        if (liveText(t).length <= session.MAX_DRAFT_CHARS) continue;
+        warnedBig.add(t.path);
+        notify.fail(`${t.name} 太大，未保存的改动不会被记住 —— 请 ⌘S 保存`, 6000);
+      }
+      scheduleSave();
+    }, 4000);
+    return () => clearInterval(id);
+  });
 
   // 响应式那一半：布局、标签、项目根变了就存
   $effect(() => {
@@ -1445,6 +1536,26 @@
       return;
     }
     if (!e.metaKey) return;
+    /*
+     * ⌘S 也要在编辑器**没有焦点**时管用。
+     *
+     * 原来它只挂在 CM6 的 keymap 上 —— 焦点在文件树、Git 面板或者终端上时
+     * 按 ⌘S 什么也不发生，**而且没有任何提示**。而欢迎页一直把它和 ⌘P、⌘J
+     * 并排列成全局快捷键。
+     *
+     * `defaultPrevented` 是防重的关键：焦点在编辑器里时 CM6 已经处理过并
+     * preventDefault 了，事件照样会冒到 window —— 不判这一句就是存两次
+     * （两次写盘、两条「已保存」）。
+     *
+     * 走 `saveActive()` 拿的是编辑器里的实时文本（见 liveText），
+     * 不是几步之前的草稿。
+     */
+    if (k === "s") {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      saveActive();
+      return;
+    }
     if (k === "p") {
       e.preventDefault();
       quickScope = "file";

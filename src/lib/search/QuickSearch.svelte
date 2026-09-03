@@ -72,13 +72,32 @@
       return;
     }
     searching = true;
+    /*
+     * `dead` 不能省 —— 和 LogPane 里那条是同一个形状。
+     *
+     * cleanup 只能清掉它**当时看得见**的东西：`clearTimeout` 拦得住还没发出去的，
+     * 拦不住已经在飞的那一趟。于是打字快一点时，先发的慢请求后到，
+     * 把新查询的结果**盖回成旧的** —— 屏幕上是一份和输入框对不上的列表，
+     * 而人只会觉得"搜得不准"。
+     *
+     * 这里不做真正的取消（IPC 没有取消通道），但 Rust 侧现在命中够数就
+     * 掐掉 rg 了，在飞的那趟本身也短了很多。
+     */
+    let dead = false;
     const timer = setTimeout(() => {
       grepProject(r, q, 60)
-        .then((h) => (hits = h))
-        .catch(() => (hits = []))
-        .finally(() => (searching = false));
+        .then((h) => {
+          if (!dead) hits = h;
+        })
+        .catch(() => {
+          if (!dead) hits = [];
+        })
+        .finally(() => {
+          if (!dead) searching = false;
+        });
     }, 220);
     return () => {
+      dead = true;
       clearTimeout(timer);
       searching = false;
     };
