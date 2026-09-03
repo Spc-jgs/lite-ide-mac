@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { EditorState, Compartment } from "@codemirror/state";
   import { EditorView, keymap, lineNumbers, highlightActiveLine,
            highlightActiveLineGutter, drawSelection, rectangularSelection,
@@ -24,6 +25,7 @@
     onChange,
     onSave,
     onStash,
+    onLive,
     onOutline,
     onCursor,
   }: {
@@ -60,6 +62,20 @@
      * 组件自己在挂载时快照了一份，交的是它自己那份。
      */
     onStash?: (path: string, text: string) => void;
+    /**
+     * 把「读出编辑器里此刻的文本」这个能力交给 App。挂载时给一个取值函数，
+     * 销毁时给 null。
+     *
+     * 为什么非要这条通道：`onStash` 只在换文件或销毁时回写一次，
+     * 而「保存并关闭」「命令面板里的保存」发生在编辑器**还活着**的时候 ——
+     * App 手里的 `draft` 和 `content` 那时都可能停在几步之前。
+     * 原来它就是拿 `draft ?? content` 去写盘的：打开文件打几个字直接点
+     * 「保存并关闭」，写回去的是**磁盘原文**，界面还说「已保存」。
+     *
+     * 交函数而不是每次 onChange 都把全文传出去：后者在大文件上等于
+     * 每敲一个键复制一份全文。
+     */
+    onLive?: (path: string, get: (() => string) | null) => void;
     onOutline?: (syms: Sym[]) => void;
     /**
      * 光标换行时报一次（1-based）。会话快照用它记住「上次看到哪」。
@@ -87,6 +103,8 @@
   let curPath = "";
   /** 上次报出去的光标行，用来把「同一行内移动」滤掉 */
   let lastLine = 0;
+  /** 已经认过的 savedTick。挂载时对齐一次，见「保存成功」那条 effect */
+  let seenTick = 0;
 
   function build(doc: string) {
     return EditorState.create({
@@ -162,17 +180,39 @@
     onStash?.(curPath, view.state.doc.toString());
   }
 
-  // 建视图：只在挂载时做一次
+  /*
+   * 建视图：只在挂载时做一次。
+   *
+   * **整个函数体套在 `untrack` 里，这不是可有可无的。** effect 的依赖集是
+   * 由「第一次实际读了哪些信号」决定的 —— 不 untrack 的话，`path`、
+   * `baseline`、`initial`，以及 `build()` 里那个 `showMinimap`，全都会进去。
+   * 于是**每次保存都会重建整个编辑器**：`save()` 把 `tab.content` 换成新的
+   * → `baseline` 变 → cleanup 跑 → `view.destroy()`。
+   *
+   * 表现是保存之后**光标跳回文件开头、撤销栈整个清空**（实测：光标 120 → 0，
+   * view 换了一个实例，⌘Z 撤不回刚才那次修改）。而下面「保存成功」那条
+   * effect 的注释一直写着「不换 state，光标与撤销栈都保住」——
+   * 它自己是对的，是被这里连累的。切缩略图同理。
+   *
+   * `host` 留在外面：它是唯一该触发重建的东西（`bind:this` 从 undefined
+   * 变成真元素那一次）。
+   */
   $effect(() => {
-    if (!host || view) return;
-    curPath = path;
-    baseText = baseline ?? initial;
-    view = new EditorView({ state: build(initial), parent: host });
-    void applyLang(path);
-    // 草稿恢复回来时它本来就是脏的，得说出来 —— 不说的话标签上的圆点不会亮
-    onChange(initial !== baseText);
+    if (!host) return;
+    untrack(() => {
+      curPath = path;
+      baseText = baseline ?? initial;
+      view = new EditorView({ state: build(initial), parent: host });
+      void applyLang(path);
+      // 草稿恢复回来时它本来就是脏的，得说出来 —— 不说的话标签上的圆点不会亮
+      onChange(initial !== baseText);
+      // 对齐计数器：挂载不是一次「刚保存」，见下面那条 effect 的注释
+      seenTick = savedTick;
+      onLive?.(curPath, () => view?.state.doc.toString() ?? "");
+    });
     return () => {
       stash();
+      untrack(() => onLive?.(curPath, null));
       view?.destroy();
       view = null;
     };
@@ -184,13 +224,33 @@
     const text = initial;
     const base = baseline;
     if (!view) return;
+    const 换了文件 = p !== curPath;
     // 真换了文件才收草稿；同一个文件只是内容被外部改了（重读），不能当草稿收走
-    if (p !== curPath) stash();
+    if (换了文件) {
+      stash();
+      untrack(() => onLive?.(curPath, null));
+    }
     curPath = p;
     baseText = base ?? text;
-    view.setState(build(text));
-    void applyLang(p);
+    /*
+     * 文本没变就**不能**换 state。
+     *
+     * 保存成功时 `baseline` 会变（磁盘那份成了新基线），这条 effect 因此
+     * 被叫醒 —— 但那时文档本身一个字都没动。照旧 `setState` 的话，
+     * 光标回到文件开头、撤销栈整个清空，而这正是保存最不该干的事。
+     * （上面那条 mount effect 的 untrack 解决的是「view 被整个重建」，
+     * 这里解决的是「view 还在但 state 被换掉」—— 两处都得堵，
+     * 只堵一处的表现是一样的：⌘S 之后 ⌘Z 撤不回来。）
+     *
+     * 先比长度再比内容：外部重读时才真的要换，那时长度多半也不一样。
+     */
+    const 文本变了 = text.length !== view.state.doc.length || text !== view.state.doc.toString();
+    if (换了文件 || 文本变了) {
+      view.setState(build(text));
+      void applyLang(p);
+    }
     onChange(text !== baseText);
+    untrack(() => onLive?.(p, () => view?.state.doc.toString() ?? ""));
   });
 
   async function applyLang(p: string) {
@@ -234,11 +294,24 @@
     view.dispatch({ effects: setMinimapMarks.of(m ?? new Map()) });
   });
 
-  // 保存成功：把当前文档定为新基线（不换 state，光标与撤销栈都保住）
+  /*
+   * 保存成功：把当前文档定为新基线（不换 state，光标与撤销栈都保住）。
+   *
+   * **必须跟上次见到的值比，不能只判非零。** 组件是 `{#key active.id}` 包着的，
+   * 切标签就是一个全新实例，而 `savedTick` 是 App 上的累计值 ——
+   * 只要这个会话里保存过一次，新实例挂载时它就已经非零，这条 effect
+   * 于是当场跑一次 `onChange(false)`，把刚从草稿恢复出来的「有未保存改动」
+   * 抹掉。表现和 M25 修的那个 bug 一模一样：**字还在，标签上的圆点没了** ——
+   * 而圆点没了，⌘W 就不会拦你。
+   *
+   * 另外写的是 `baseText` 而不是 `baseline` 那个 prop：改 prop 会让上面
+   * 两条读它的 effect 跟着醒来，绕一圈回来又是一次 setState。
+   */
   $effect(() => {
-    savedTick;
-    if (!view || savedTick === 0) return;
-    baseline = view.state.doc.toString();
+    const t = savedTick;
+    if (!view || t === seenTick) return;
+    seenTick = t;
+    baseText = view.state.doc.toString();
     onChange(false);
   });
 </script>

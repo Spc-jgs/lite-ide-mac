@@ -6,6 +6,7 @@
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import * as session from "./lib/state/session";
+  import { textToSave, settled, stashed } from "./lib/state/doc";
   import Crash from "./lib/shell/Crash.svelte";
   import Outline from "./lib/search/Outline.svelte";
   import type { Sym } from "./lib/editor/outline";
@@ -850,21 +851,35 @@
   function stashDraft(path: string, text: string) {
     const t = tabs.find((x) => x.path === path && x.mode === "edit");
     if (!t) return; // 标签已经被关掉了，草稿跟着作废
-    if (text === (t.content ?? "")) {
-      // 改回原样了：草稿要清掉，否则下次切回来还顶着一份「和磁盘一样的草稿」
-      t.draft = undefined;
-      t.dirty = false;
-    } else {
-      t.draft = text;
-      t.dirty = true;
-    }
+    Object.assign(t, stashed(t, text));
   }
 
-  /** 这个标签当前该保存的文本：有草稿用草稿，没有就是磁盘那份 */
-  const liveText = (t: TabState) => t.draft ?? t.content ?? "";
+  /**
+   * 当前挂载着的那个编辑器，以及从它里面读实时文本的口子。
+   *
+   * 只可能有一个 —— 编辑器是 `{#key active.id}` 包着的，同一时刻只挂一个。
+   * 记路径是为了**认领**：切标签时新实例可能先挂、旧实例后卸，
+   * 旧实例交回的那个 null 不能把新实例的口子抹掉。
+   */
+  let live: { path: string; get: () => string } | null = null;
 
+  function onEditorLive(path: string, get: (() => string) | null) {
+    if (get) live = { path, get };
+    else if (live?.path === path) live = null;
+  }
+
+  /**
+   * 这个标签当前该保存的文本。
+   *
+   * 编辑器还活着就以它为准 —— `draft` 只在换文件/销毁时回写一次，
+   * `content` 是磁盘那份，两个都可能停在几步之前。
+   * 判据和取值都在 `state/doc.ts` 里，那边有测试。
+   */
+  const liveText = (t: TabState) =>
+    textToSave(t, live?.path === t.path && t.mode === "edit" ? live.get() : null);
+
+  /** ⌘S 之外的保存入口（命令面板）。编辑器里的 ⌘S 走 CM6 自己的 keymap */
   function saveActive() {
-    // 触发编辑器自己的保存路径：内容以编辑器里的为准，这里只能存已知内容
     if (active?.mode === "edit") void save(liveText(active));
   }
 
@@ -1164,10 +1179,9 @@
     try {
       // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改
       tab.stamp = await writeText(tab.path, content, tab.encoding, tab.bom);
-      tab.dirty = false;
-      tab.content = content;
-      // 写进盘里了，草稿的使命就结束了 —— 留着它下次切回来会顶掉新基线
-      tab.draft = undefined;
+      // 磁盘那份成了准。草稿一起清掉 —— 三处「读回磁盘」共用 settled 这一个出口，
+      // 原来各写一遍，其中一处漏了清草稿（见 state/doc.ts 的注释）
+      Object.assign(tab, settled(content));
       tab.conflict = false;
       savedTick++;
       notify.ok(`已保存 ${tab.name}`, 1800);
@@ -1209,7 +1223,7 @@
         try {
           // 沿用已知编码重读，不重新探测 —— 文件只是内容变了，编码没道理换
           const t = await readText(tab.path, tab.encoding);
-          tab.content = t.content;
+          Object.assign(tab, settled(t.content));
           tab.lossy = t.lossy;
           tab.stamp = now;
           savedTick++;
@@ -1225,12 +1239,8 @@
     tab.conflict = false;
     if (take === "disk") {
       try {
-        tab.content = (await readText(tab.path, tab.encoding)).content;
+        Object.assign(tab, settled((await readText(tab.path, tab.encoding)).content));
         tab.stamp = await fileStamp(tab.path);
-        tab.dirty = false;
-        // 选了「用磁盘上的」就是不要自己那份了 —— 草稿必须一起丢掉，
-        // 留着它下次切回这个标签会把刚读回来的磁盘内容顶掉
-        tab.draft = undefined;
         savedTick++;
       } catch (e) {
         notify.fail(String(e));
@@ -1960,6 +1970,7 @@
               onChange={(d) => (active!.dirty = d)}
               onSave={save}
               onStash={stashDraft}
+              onLive={onEditorLive}
               onOutline={(s) => (symbols = s)}
               onCursor={(l) => markPos(active!.path, l)}
             />
