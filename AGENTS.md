@@ -332,6 +332,48 @@ tab.diffRaw = raw;       // ← 改得动数据，但**不产生信号**，界�
 const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
 ```
 
+### effect 的依赖集是**第一次跑**时读出来的
+
+```js
+$effect(() => {
+  if (!host || view) return;      // ← 只有这两个是「守卫」
+  view = new EditorView({ state: build(initial), parent: host });
+  baseText = baseline ?? initial;  // ← path / baseline / initial / build() 里的
+});                                //   showMinimap 全都进了依赖集
+```
+
+写这段的人想的是「只在挂载时做一次」，但 effect 不认这个意图 ——
+它记下第一次实际读过的每一个信号。于是 `baseline` 一变（保存成功把磁盘那份
+换成新的），cleanup 就跑，`view.destroy()`，**整个编辑器被重建**。
+
+表现是：**⌘S 之后光标跳回文件开头、撤销栈整个清空**。实测光标 120 → 0，
+`view` 换了实例，⌘Z 撤不回刚才那次修改。而旁边「保存成功」那条 effect 的
+注释一直写着「不换 state，光标与撤销栈都保住」—— 它自己没错，是被连累的。
+
+**要真的「只做一次」，就得把读 prop 的那几行套进 `untrack`**，只留下真正
+该触发重建的那个（这里是 `host`）。
+
+同一个 bug 有第二层：另一条 effect 会 `view.setState(build(text))`，
+`view` 是同一个但 state 被换掉了 —— 光标和撤销栈照样没。**两处都要堵**，
+只堵一处的现象和没堵一模一样。判据是「文本真变了才换 state」。
+
+### 累计计数器当 prop + `{#key}` 重建 = 挂载当场触发一次
+
+`savedTick` 是 App 上只增不减的计数。组件被 `{#key active.id}` 包着，
+切标签就是全新实例，而这条 effect 判的是「非零」：
+
+```js
+$effect(() => {
+  savedTick;
+  if (!view || savedTick === 0) return;   // ← 这个会话里存过一次，它就永远非零
+  onChange(false);                         // ← 于是每次挂载都当成「刚保存过」
+});
+```
+
+结果：**只要保存过一次，带未保存改动的标签切走再切回来，圆点就没了**
+（字还在，但 ⌘W 不再拦你）—— 和 M25 修的那个形状一模一样。
+判据要跟**上次见到的值**比，并且在挂载时先对齐一次。
+
 ### CM6：不能在 `update()` 里读布局
 
 会抛 `Reading the editor layout isn't allowed during an update`。
@@ -456,6 +498,19 @@ dirty 就再也算不出来了。保存成功、选「用磁盘上的」时都�
 effect 也就不会再跑第二次。
 
 **凡是「A 触发 B 去读 C」的结构，C 必须在 A 之前就位。**
+
+### 同一件事写在三个地方，早晚有一处少一行
+
+「磁盘那份成了准」这件事发生在三处：保存成功、外部改动后重读、冲突时选
+「用磁盘上的」。每处都要做同样的三件事（换 content、**清 draft**、清 dirty），
+而重读那一处漏了清 draft —— 另外两处不但做了，还各写了一条注释说明为什么必须做。
+
+漏掉的后果：切走再切回来，陈草稿把刚读回来的内容顶掉，还被算成「有未保存改动」。
+
+现在只有 `state/doc.ts` 的 `settled()` 一个出口，三处 `Object.assign(tab, settled(x))`。
+**测这种函数要贴到一个已经带着旧值的对象上测**：它返回的是新对象，
+「没有 draft 这个键」和 `draft: undefined` 读出来都是 `undefined`，
+只看返回值的话，把那一行删掉测试照样绿（第一版测试就是这么写的，验红时才发现）。
 
 ### 状态消息走 `notify`
 
