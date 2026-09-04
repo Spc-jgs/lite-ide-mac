@@ -2502,4 +2502,5 @@ Svelte 只渲染最后那一次。真实 IPC 有毫秒级往返，才会一帧�
 界面上已经在显示 `↑2 ↓3` 了，那是一个做不到的承诺 —— 决定做
 `fetch` → `pull` → `push`，理由和三条硬约束（凭据、流式进度与取消、
 push 是第一个会改到别人东西的动作）写在
-[ARCHITECTURE.md](ARCHITECTURE.md) 的路线图里。
+[ARCHITECTURE.md](ARCHITECTURE.md) 的路线图和
+[issue #8](https://github.com/Spc-jgs/lite-ide-mac/issues/8) 里。

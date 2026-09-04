@@ -284,7 +284,7 @@ lite-ide/
 | M4 导航 ✅ | 双击 Shift 随处搜索 + ⌘P + 全局搜索 | 1.5 周 | 手不离键盘 |
 | M5 Markdown ✅ | CM6 decoration live preview | 1 周 | 笔记体验对齐 Obsidian |
 | M6 可选 | tree-sitter 符号索引（跳转定义/大纲），JS/PY 轻量 LSP | 按需 | — |
-| **M7 拉取与推送**（2026-09-04 决定要做） | `fetch` → `pull` → `push`，按这个顺序 | 按需 | 提交完不用再切终端 |
+| **M7 拉取与推送**（[issue #8](https://github.com/Spc-jgs/lite-ide-mac/issues/8)） | `fetch` → `pull` → `push`，按这个顺序 | 按需 | 提交完不用再切终端 |
 
 ### M7 为什么值得做，以及它和前面所有 Git 功能都不是一类
 
