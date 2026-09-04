@@ -265,10 +265,10 @@
     max-height: 66vh;
     display: flex;
     flex-direction: column;
-    background: var(--panel-bg);
+    background: var(--elevated);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-pop);
     z-index: 41;
     overflow: hidden;
   }
@@ -332,7 +332,7 @@
     font-size: 10px;
     padding: 0 5px;
     border-radius: var(--r-md);
-    background: var(--panel-bg-2);
+    background: var(--elevated-hi);
     color: var(--text-faint);
   }
   .now { color: var(--accent); }
@@ -382,7 +382,7 @@
   .form label > span { flex: none; width: 34px; }
   .fi {
     flex: 1;
-    background: var(--editor-bg);
+    background: var(--elevated-hi);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--text);
@@ -403,7 +403,7 @@
     font-size: 12px;
     cursor: default;
   }
-  .frow button:hover { background: var(--panel-bg-2); color: var(--text); }
+  .frow button:hover { background: var(--hover); color: var(--text); }
   .frow button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .frow button.primary:disabled { background: transparent; border-color: var(--border); color: var(--text-faint); }
 </style>

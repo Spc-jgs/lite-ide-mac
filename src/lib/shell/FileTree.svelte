@@ -1078,7 +1078,7 @@
    */
   .row.flash { outline: 1px solid var(--accent); outline-offset: -1px; }
   /* 键盘走到的行给个底色，光有 outline 在长列表里不够醒目 */
-  .row:focus-visible:not(.active) { background: var(--panel-bg-2); }
+  .row:focus-visible:not(.active) { background: var(--hover); }
   /*
    * 展开箭头。**必须是 SVG，不能是文字里的 ▸。**
    *
@@ -1152,17 +1152,17 @@
     z-index: 60;
     width: 260px;
     padding: 4px 4px 6px;
-    background: var(--panel-bg-2);
+    background: var(--elevated);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--shadow-pop);
     outline: none;
   }
   .pinput {
     width: 100%;
     margin: 2px 0 0;
     padding: 5px 8px;
-    background: var(--panel-bg);
+    background: var(--elevated-hi);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--text);
@@ -1210,7 +1210,7 @@
     font-size: 12px;
     cursor: default;
   }
-  .pbtn:hover { background: var(--panel-bg); color: var(--text); }
+  .pbtn:hover { background: var(--hover); color: var(--text); }
   .pbtn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .pbtn.danger { border-color: var(--lvl-error); color: var(--lvl-error); }
   .pbtn.danger:hover { background: rgba(247, 84, 100, 0.14); }

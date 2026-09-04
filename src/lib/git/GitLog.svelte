@@ -203,7 +203,7 @@
                   {/if}
                 {/each}
                 <circle cx={x(g.lane)} cy={ROW_H / 2} r={DOT_R}
-                        fill="var(--panel-bg)" stroke={laneColor(g.lane)} stroke-width="2" />
+                        fill="var(--content-bg)" stroke={laneColor(g.lane)} stroke-width="2" />
               </svg>
             {/if}
             <span class="subject">
@@ -275,7 +275,7 @@
     flex-direction: column;
     overflow: hidden;
     border-left: 1px solid var(--border);
-    background: var(--panel-bg);
+    background: var(--hover);
   }
 
   .tools {
@@ -293,7 +293,7 @@
   .tools .gap { flex: 1; }
   .q {
     width: 200px;
-    background: var(--editor-bg);
+    background: var(--elevated-hi);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--text);
@@ -324,7 +324,7 @@
     cursor: default;
     white-space: nowrap;
   }
-  .crow:hover { background: var(--panel-bg-2); }
+  .crow:hover { background: var(--hover); }
   .crow.on { background: var(--selected); color: var(--text); }
   .crow:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .g { flex: none; display: block; }
@@ -340,7 +340,7 @@
     border-radius: var(--r-md);
     font-size: 10px;
     font-family: var(--code-font);
-    background: var(--panel-bg-2);
+    background: var(--selected);
     color: var(--text-dim);
     border: 1px solid var(--border);
   }
@@ -396,7 +396,7 @@
     cursor: default;
     white-space: nowrap;
   }
-  .drow:hover { background: var(--panel-bg-2); }
+  .drow:hover { background: var(--hover); }
   .drow:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .fname { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
   .fdir {

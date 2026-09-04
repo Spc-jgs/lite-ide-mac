@@ -2256,7 +2256,13 @@
     height: 100%;
     display: grid;
     grid-template-rows: 38px 1fr 24px;
-    background: var(--editor-bg);
+    /*
+     * **不要在这儿画底。** 窗口的底是 Rust 侧挂的那块 NSVisualEffectView，
+     * 这里填任何不透明色都会把它整块盖住 —— 表现是「vibrancy 没生效」，
+     * 而 Rust 侧一切正常，从那头查不出来。
+     * 该挡光的是内容层（编辑器 / 日志 / 终端），它们各自画自己的。
+     */
+    background: transparent;
   }
   main.hovering { outline: 2px solid var(--accent); outline-offset: -2px; }
 
@@ -2266,7 +2272,8 @@
     gap: 8px;
     /* 给 macOS 红绿灯让位 */
     padding: 0 12px 0 78px;
-    background: var(--panel-bg);
+    /* 贴着窗口上边，窗口阴影在这条边上最弱 —— 浅色壁纸下不压一层，小字糊进桌面 */
+    background: var(--chrome-scrim);
     border-bottom: 1px solid var(--border);
     font-size: 12.5px;
     user-select: none;
@@ -2298,7 +2305,7 @@
     white-space: nowrap;
   }
   /* 只有目录段可点（点了把它设成项目根），文件段是 span，不该有 hover 反馈 */
-  button.crumb:hover { background: var(--panel-bg-2); color: var(--text); }
+  button.crumb:hover { background: var(--hover); color: var(--text); }
   .crumb.here { color: var(--text); flex: 0 1 auto; min-width: 40px; }
 
   .tbranch {
@@ -2315,7 +2322,7 @@
     font-size: 11px;
     cursor: default;
   }
-  .tbranch:hover { background: var(--panel-bg-2); color: var(--text-dim); }
+  .tbranch:hover { background: var(--hover); color: var(--text-dim); }
   .tbranch .bn {
     font-family: var(--code-font);
     overflow: hidden;
@@ -2371,8 +2378,14 @@
     cursor: default;
     transition: background 0.09s, color 0.09s;
   }
-  .rbtn:hover { background: var(--panel-bg-2); color: var(--text); }
-  .rbtn.on { color: var(--accent); background: var(--accent-sel); }
+  .rbtn:hover { background: var(--hover); color: var(--text); }
+  /*
+   * 选中态用中性白，不用 accent —— accent 在这一列里已经有活儿干了：
+   * 旁边那个「有未提交改动」的红点。两个都上色就分不出哪个是状态、
+   * 哪个是"你现在在这儿"。
+   */
+  .rbtn.on { color: var(--text); background: var(--selected); }
+  .rbtn:active { background: var(--pressed); }
   .rbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   /* 有未提交改动时给 Git 图标一个小红点，收起侧边栏也知道有东西 */
   .rbtn .dot {
@@ -2385,11 +2398,34 @@
     background: var(--git-modified);
   }
   @media (prefers-reduced-motion: reduce) { .rbtn { transition: none; } }
+  /*
+   * 拖拽条：**热区和画出来的线要分开。**
+   *
+   * 原来是 `background: var(--border)` —— 热区多宽，亮条就多宽，
+   * 于是界面正中间横着一条 4px 的白条（876px 高，玻璃上更扎眼）。
+   * 但 4px 是好按的下限，不能为了好看把热区缩掉。
+   *
+   * 所以底留空，只用一个居中的 1px 伪元素画线。悬停时线变 accent，
+   * 按住时才把整条 4px 点亮 —— 那时人已经在拖了，反馈越实越好。
+   */
   .side-resizer {
-    background: var(--border);
+    position: relative;
+    background: transparent;
     cursor: col-resize;
   }
-  .side-resizer:hover { background: var(--accent); }
+  .side-resizer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 1.5px;
+    width: 1px;
+    background: var(--border);
+    transition: background 0.1s;
+  }
+  .side-resizer:hover::after { background: var(--accent); }
+  .side-resizer:active { background: var(--accent); }
+  @media (prefers-reduced-motion: reduce) { .side-resizer::after { transition: none; } }
   aside { overflow: hidden; }
   .no-root {
     padding: 14px 12px;
@@ -2409,13 +2445,27 @@
   .main { display: flex; flex-direction: column; overflow: hidden; }
   .content { flex: 1; min-height: 0; overflow: hidden; }
 
+  /* 与 .side-resizer 同一条判据：热区 4px，画出来的只有居中 1px */
   .resizer {
+    position: relative;
     flex: none;
     height: 4px;
-    background: var(--border);
+    background: transparent;
     cursor: row-resize;
   }
-  .resizer:hover { background: var(--accent); }
+  .resizer::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 1.5px;
+    height: 1px;
+    background: var(--border);
+    transition: background 0.1s;
+  }
+  .resizer:hover::after { background: var(--accent); }
+  .resizer:active { background: var(--accent); }
+  @media (prefers-reduced-motion: reduce) { .resizer::after { transition: none; } }
   /* 收起时整块不占位也不可见，但**仍然挂在 DOM 上** —— 见上面那段注释 */
   .resizer.hidden,
   .panel.hidden { display: none; }
@@ -2446,7 +2496,7 @@
     padding: 2px 8px;
     cursor: default;
   }
-  .panel-head .tool:hover { background: var(--panel-bg-2); color: var(--text); }
+  .panel-head .tool:hover { background: var(--hover); color: var(--text); }
   .panel-head .tool.on { color: var(--text); background: var(--accent-sel); }
   .panel-head .vsep {
     flex: none;
@@ -2469,7 +2519,7 @@
     border-radius: var(--r-sm);
     cursor: default;
   }
-  .panel-head button:hover { background: var(--panel-bg-2); color: var(--text); }
+  .panel-head button:hover { background: var(--hover); color: var(--text); }
   .panel-body { overflow: hidden; position: relative; }
   .term-slot { position: absolute; inset: 0; }
   /* 用 visibility 而不是 display:none —— 后者会让 xterm 的尺寸计算拿到 0，
@@ -2485,7 +2535,7 @@
     border-radius: var(--r-sm);
     background: transparent;
   }
-  .tterm:hover { background: var(--panel-bg-2); }
+  .tterm:hover { background: var(--hover); }
   .tterm.on { background: var(--accent-sel); }
   .tt-label {
     background: transparent;
@@ -2520,7 +2570,7 @@
     cursor: default;
     flex: none;
   }
-  .tt-add:hover { background: var(--panel-bg-2); color: var(--text); }
+  .tt-add:hover { background: var(--hover); color: var(--text); }
   .loading {
     display: grid;
     place-content: center;
@@ -2541,7 +2591,8 @@
   .empty .card {
     width: min(420px, 90%);
     padding: 18px 20px 16px;
-    background: var(--panel-bg);
+    /* 空态卡片是浮层：外壳层是透的，卡片跟着透就成了一圈没有底的框 */
+    background: var(--elevated);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     text-align: left;
@@ -2572,7 +2623,7 @@
     align-items: center;
     gap: 10px;
     padding: 7px 12px;
-    background: var(--panel-bg-2);
+    background: var(--elevated);
     border-bottom: 1px solid var(--border);
     font-size: 12px;
   }
@@ -2587,7 +2638,7 @@
     font-size: 11.5px;
     cursor: default;
   }
-  .confirm button:hover { background: var(--panel-bg); color: var(--text); }
+  .confirm button:hover { background: var(--hover); color: var(--text); }
   .confirm button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .confirm.conflict { background: rgba(214, 174, 88, 0.12); border-bottom-color: var(--lvl-warn); }
   /* 不可撤销的操作用红色描边，别让它长得跟普通确认一样 */
@@ -2624,7 +2675,8 @@
     overflow: hidden;
     gap: 16px;
     padding: 0 12px;
-    background: var(--panel-bg);
+    /* 同标题栏：贴着窗口下边，需要一层 scrim 兜住 11.5px 的小字 */
+    background: var(--chrome-scrim);
     border-top: 1px solid var(--border);
     font-size: 11.5px;
     color: var(--text-dim);
@@ -2657,7 +2709,7 @@
     border-radius: var(--r-sm);
     cursor: default;
   }
-  .statusbar .btn:hover { background: var(--panel-bg-2); color: var(--text); }
+  .statusbar .btn:hover { background: var(--hover); color: var(--text); }
   .statusbar .btn.on { color: var(--accent); }
   .statusbar .btn.mode { color: var(--text-dim); }
   .statusbar .btn.mode:hover { color: var(--accent); }
@@ -2677,7 +2729,7 @@
   .statusbar .chg {
     display: inline-block;
     margin-left: 4px;
-    background: var(--panel-bg-2);
+    background: var(--selected);
     border-radius: var(--r-md);
     padding: 0 5px;
     font-size: 10px;

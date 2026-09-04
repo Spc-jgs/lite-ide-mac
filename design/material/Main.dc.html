@@ -1,0 +1,312 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 1520px; height: 1000px; position: relative; overflow: hidden; background: #1b2430;">
+
+  <!-- 壁纸：只是为了让「透光」看得见。真实现里这块是桌面，不归 app 管 -->
+  <div style="position: absolute; inset: 0; background:
+      radial-gradient(1100px 700px at 12% 8%, #4a6fa8 0%, rgba(74,111,168,0) 62%),
+      radial-gradient(900px 800px at 88% 22%, #8f5a7c 0%, rgba(143,90,124,0) 60%),
+      radial-gradient(1200px 900px at 62% 96%, #2f6f63 0%, rgba(47,111,99,0) 58%),
+      linear-gradient(160deg, #1c2533 0%, #262233 48%, #17262a 100%);"></div>
+
+  <!-- 窗口 -->
+  <div style="position: absolute; left: 60px; top: 62px; width: 1400px; height: 876px;
+              border-radius: 12px; overflow: hidden;
+              box-shadow: 0 34px 80px rgba(0,0,0,0.55), 0 0 0 0.5px rgba(255,255,255,0.13);">
+
+    <!-- 材质层 = NSVisualEffectView(Sidebar, BehindWindow)。这一层不是 CSS 画的，
+         这里用 backdrop-filter 只是把它在画板里演出来 -->
+    <div style="position: absolute; inset: 0; background: rgba(28,28,30,0.62);
+                backdrop-filter: blur(50px) saturate(185%);"></div>
+
+    <div style="position: absolute; inset: 0; display: flex; flex-direction: column;">
+
+      <!-- 标题栏 38px：外壳层，透光 + 一层压暗 scrim -->
+      <div style="flex: none; height: 38px; display: flex; align-items: center; gap: 8px;
+                  padding: 0 12px 0 78px; background: rgba(0,0,0,0.20);
+                  border-bottom: 1px solid rgba(255,255,255,0.09); font-size: 12.5px;">
+        <div style="position: absolute; left: 14px; top: 14px; display: flex; gap: 8px;">
+          <div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57;"></div>
+          <div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e;"></div>
+          <div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840;"></div>
+        </div>
+        <span style="color: #ffffff; font-weight: 500;">lite-ide</span>
+        <div style="display: flex; align-items: center; gap: 4px; color: #cdcdcd;">
+          <span style="color: #8a8a8a; font-size: 11px;">›</span>
+          <span>src-tauri</span>
+          <span style="color: #8a8a8a; font-size: 11px;">›</span>
+          <span>crates</span>
+          <span style="color: #8a8a8a; font-size: 11px;">›</span>
+          <span style="color: #ffffff;">ptysvc</span>
+          <span style="color: #8a8a8a; font-size: 11px;">›</span>
+          <span style="color: #ffffff;">lib.rs</span>
+        </div>
+        <div style="flex: 1;"></div>
+        <div style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px;
+                    border-radius: 6px; color: #8a8a8a; font-size: 11px;">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/>
+            <path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/>
+          </svg>
+          <span class="mono">main</span>
+          <span class="mono" style="color: #5b8def;">↑2</span>
+        </div>
+      </div>
+
+      <div style="flex: 1; min-height: 0; display: flex;">
+
+        <!-- 竖条 34px：外壳层，全透 -->
+        <div style="flex: none; width: 34px; display: flex; flex-direction: column; align-items: center;
+                    gap: 2px; padding: 5px 0 6px; background: transparent;
+                    border-right: 1px solid rgba(255,255,255,0.09);">
+          <div style="width: 26px; height: 26px; border-radius: 10px; display: grid; place-content: center;
+                      background: rgba(255,255,255,0.11); color: #ffffff;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <path d="M1.8 3.4h4.3l1.2 1.5h6.9v7.7H1.8z"/>
+            </svg>
+          </div>
+          <div style="position: relative; width: 26px; height: 26px; border-radius: 10px; display: grid;
+                      place-content: center; color: #8a8a8a;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/>
+              <path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/>
+            </svg>
+            <div style="position: absolute; right: 4px; top: 4px; width: 5px; height: 5px;
+                        border-radius: 50%; background: #6ba1e8;"></div>
+          </div>
+          <div style="width: 26px; height: 26px; border-radius: 10px; display: grid; place-content: center; color: #8a8a8a;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <circle cx="7" cy="7" r="4.4"/><path d="M10.3 10.3 14 14"/>
+            </svg>
+          </div>
+          <div style="flex: 1;"></div>
+          <div style="width: 26px; height: 26px; border-radius: 10px; display: grid; place-content: center; color: #8a8a8a;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <path d="M3 4.5 6 8l-3 3.5M8 11.5h5"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- 侧边栏 240px：外壳层，全透。整个 app 里最能看出「颜色会变」的地方 -->
+        <div style="flex: none; width: 240px; display: flex; flex-direction: column;
+                    background: transparent; border-right: 1px solid rgba(255,255,255,0.09);">
+          <div style="flex: none; height: 30px; display: flex; align-items: center; padding: 0 4px 0 10px;
+                      border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 11px;
+                      letter-spacing: 0.06em; text-transform: uppercase; color: #cdcdcd;">
+            <span>lite-ide</span>
+            <div style="flex: 1;"></div>
+            <span style="color: #8a8a8a; font-size: 13px; padding-right: 6px;">⋯</span>
+          </div>
+          <div style="flex: 1; padding: 4px 6px; display: flex; flex-direction: column; gap: 0;">
+            <div style="display: flex; align-items: center; gap: 3px; height: 24px; padding-right: 8px;
+                        border-radius: 10px; color: #ffffff; font-size: 12.5px;">
+              <span style="width: 16px; display: grid; place-content: center; color: #8a8a8a;">
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><path d="M2 1.2 7.4 5 2 8.8z"/></svg>
+              </span>
+              <span>src</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px 0 16px;
+                        border-radius: 10px; color: #cdcdcd; font-size: 12.5px;">
+              <span style="width: 16px;"></span><span>App.svelte</span>
+              <div style="flex: 1;"></div><span class="mono" style="color: #6ba1e8; font-size: 11px;">M</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px 0 16px;
+                        border-radius: 10px; color: #cdcdcd; font-size: 12.5px;">
+              <span style="width: 16px;"></span><span>app.css</span>
+              <div style="flex: 1;"></div><span class="mono" style="color: #6ba1e8; font-size: 11px;">M</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 3px; height: 24px; padding-right: 8px;
+                        border-radius: 10px; color: #ffffff; font-size: 12.5px;">
+              <span style="width: 16px; display: grid; place-content: center; color: #8a8a8a;">
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><path d="M2 1.2 7.4 5 2 8.8z"/></svg>
+              </span>
+              <span>src-tauri</span>
+            </div>
+            <!-- hover：半透明叠加，不是不透明块 -->
+            <div style="display: flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px 0 16px;
+                        border-radius: 10px; background: rgba(255,255,255,0.07); color: #cdcdcd; font-size: 12.5px;">
+              <span style="width: 16px;"></span><span>Cargo.toml</span>
+            </div>
+            <!-- selected：同一套叠加，只是更重一档 -->
+            <div style="display: flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px 0 16px;
+                        border-radius: 10px; background: rgba(255,255,255,0.11); color: #ffffff; font-size: 12.5px;">
+              <span style="width: 16px;"></span><span>lib.rs</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px 0 16px;
+                        border-radius: 10px; color: #cdcdcd; font-size: 12.5px;">
+              <span style="width: 16px;"></span><span>tauri.conf.json</span>
+              <div style="flex: 1;"></div><span class="mono" style="color: #6ba1e8; font-size: 11px;">M</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px 0 16px;
+                        border-radius: 10px; color: #8a9a5b; font-size: 12.5px;">
+              <span style="width: 16px;"></span><span>design/</span>
+              <div style="flex: 1;"></div><span class="mono" style="color: #8a9a5b; font-size: 11px;">?</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 拖拽条：不再是 4px 的亮条，是 4px 的热区 + 居中 1px 发丝线 -->
+        <div style="flex: none; width: 4px; background: transparent; position: relative;">
+          <div style="position: absolute; left: 1.5px; top: 0; bottom: 0; width: 1px;
+                      background: rgba(255,255,255,0.09);"></div>
+        </div>
+
+        <!-- 主区 -->
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+
+          <!-- 标签栏 32px：外壳层，透光 -->
+          <div style="flex: none; height: 32px; display: flex; align-items: stretch;
+                      background: transparent; border-bottom: 1px solid rgba(255,255,255,0.09);">
+            <div style="display: flex; align-items: center; max-width: 200px; padding: 0 11px 0 9px;
+                        border-right: 1px solid rgba(255,255,255,0.05); border-bottom: 2px solid transparent;
+                        color: #cdcdcd; font-size: 12.5px; gap: 6px;">
+              <span>App.svelte</span>
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: #cdcdcd;"></span>
+            </div>
+            <div style="display: flex; align-items: center; max-width: 200px; padding: 0 11px 0 9px;
+                        border-right: 1px solid rgba(255,255,255,0.05); border-bottom: 2px solid transparent;
+                        color: #cdcdcd; font-size: 12.5px; gap: 6px; background: rgba(255,255,255,0.07);">
+              <span>app.css</span>
+            </div>
+            <!-- 活动标签 = 内容层的底色伸上来，等于「这一格是内容」 -->
+            <div style="display: flex; align-items: center; max-width: 200px; padding: 0 11px 0 9px;
+                        border-right: 1px solid rgba(255,255,255,0.05); border-bottom: 2px solid #5b8def;
+                        background: rgba(10,10,11,0.94); color: #ffffff; font-size: 12.5px; gap: 6px;">
+              <span style="width: 2px; align-self: stretch; background: transparent;"></span>
+              <span>lib.rs</span>
+              <span style="color: #8a8a8a; font-size: 10px;">✕</span>
+            </div>
+            <div style="display: flex; align-items: center; max-width: 200px; padding: 0 11px 0 9px;
+                        border-right: 1px solid rgba(255,255,255,0.05); color: #cdcdcd; font-size: 12.5px; gap: 6px;">
+              <span style="width: 2px; align-self: stretch; background: #d6ae58; margin-right: 3px;"></span>
+              <span>app.log</span>
+              <span class="mono" style="font-size: 9px; padding: 1px 4px; border-radius: 6px;
+                        background: rgba(255,255,255,0.07); color: #8a8a8a;">LOG</span>
+            </div>
+          </div>
+
+          <!-- 内容层：不透光。壁纸只透过来一点点色调，正文对比度不动 -->
+          <div style="flex: 1; min-height: 0; display: flex; background: rgba(10,10,11,0.94);">
+            <div style="flex: none; width: 52px; padding: 8px 10px 0 0; text-align: right;
+                        font-family: 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 20px; color: #4a4a4d;">
+              <div>294</div><div>295</div><div>296</div><div>297</div><div>298</div>
+              <div style="color: #cdcdcd;">299</div>
+              <div>300</div><div>301</div><div>302</div><div>303</div><div>304</div>
+              <div>305</div><div>306</div><div>307</div><div>308</div><div>309</div><div>310</div>
+              <div>311</div><div>312</div><div>313</div><div>314</div>
+            </div>
+            <div style="flex: 1; min-width: 0; padding: 8px 0 0; font-family: 'SF Mono', Menlo, monospace;
+                        font-size: 12.5px; line-height: 20px; color: #cdcdcd; white-space: pre; overflow: hidden;">
+<div><span style="color:#6f737b;">    /// 只留</span><span style="color:#6f737b;">**硬期限**，重试已经去掉（`TRIES` 3 → 1）。</span></div>
+<div><span style="color:#6f737b;">    /// 期限的作用变了：不再是「多试几次撞运气」，</span></div>
+<div><span style="color:#6f737b;">    /// 是「挂住时 25s 内失败，而不是吃光 CI 的额度」。</span></div>
+<div>    <span style="color:#cf8e6d;">fn</span> <span style="color:#57aaf7;">with_deadline</span>&lt;<span style="color:#c77dbb;">T</span>: <span style="color:#c77dbb;">Send</span> + <span style="color:#c77dbb;">'static</span>&gt;(</div>
+<div>        secs: <span style="color:#c77dbb;">u64</span>,</div>
+<div style="background: rgba(255,255,255,0.035);">        body: <span style="color:#cf8e6d;">impl</span> <span style="color:#c77dbb;">Fn</span>() -&gt; <span style="color:#c77dbb;">T</span> + <span style="color:#c77dbb;">Send</span> + <span style="color:#c77dbb;">Sync</span> + <span style="color:#c77dbb;">'static</span>,</div>
+<div>    ) -&gt; <span style="color:#c77dbb;">T</span> {</div>
+<div>        <span style="color:#cf8e6d;">const</span> <span style="color:#c77dbb;">TRIES</span>: <span style="color:#c77dbb;">u32</span> = <span style="color:#2aacb8;">1</span>;</div>
+<div>        <span style="color:#cf8e6d;">for</span> attempt <span style="color:#cf8e6d;">in</span> <span style="color:#2aacb8;">1</span>..=<span style="color:#c77dbb;">TRIES</span> {</div>
+<div>            <span style="color:#cf8e6d;">let</span> (tx, rx) = mpsc::<span style="color:#57aaf7;">channel</span>();</div>
+<div>            <span style="color:#cf8e6d;">let</span> body = <span style="color:#c77dbb;">Arc</span>::<span style="color:#57aaf7;">clone</span>(&amp;body);</div>
+<div>            thread::<span style="color:#57aaf7;">spawn</span>(<span style="color:#cf8e6d;">move</span> || {</div>
+<div>                <span style="color:#cf8e6d;">let</span> _ = tx.<span style="color:#57aaf7;">send</span>(<span style="color:#57aaf7;">body</span>());</div>
+<div>            });</div>
+<div>            <span style="color:#cf8e6d;">match</span> rx.<span style="color:#57aaf7;">recv_timeout</span>(<span style="color:#c77dbb;">Duration</span>::<span style="color:#57aaf7;">from_secs</span>(secs)) {</div>
+<div>                <span style="color:#c77dbb;">Ok</span>(v) =&gt; <span style="color:#cf8e6d;">return</span> v,</div>
+<div>                <span style="color:#c77dbb;">Err</span>(_) =&gt; <span style="color:#57aaf7;">eprintln!</span>(<span style="color:#6aab73;">"  pty 第 {attempt} 次超过 {secs}s 没返回"</span>),</div>
+<div>            }</div>
+<div>        }</div>
+<div>        <span style="color:#57aaf7;">panic!</span>(<span style="color:#6aab73;">"pty 在 {secs}s 内没返回 —— 先看 ps 有没有堆积的孤儿"</span>)</div>
+<div>    }</div>
+              </div>
+            <!-- 缩略图 -->
+            <div style="flex: none; width: 74px; padding: 8px 8px 0 0; opacity: 0.42;
+                        display: flex; flex-direction: column; gap: 3px;">
+              <div style="height: 2px; width: 72%; background: #6f737b;"></div>
+              <div style="height: 2px; width: 58%; background: #6f737b;"></div>
+              <div style="height: 2px; width: 64%; background: #6f737b;"></div>
+              <div style="height: 2px; width: 46%; background: #cf8e6d;"></div>
+              <div style="height: 2px; width: 30%; background: #c77dbb;"></div>
+              <div style="height: 2px; width: 68%; background: #c77dbb;"></div>
+              <div style="height: 2px; width: 22%; background: #cdcdcd;"></div>
+              <div style="height: 2px; width: 54%; background: #2aacb8;"></div>
+              <div style="height: 2px; width: 60%; background: #cf8e6d;"></div>
+              <div style="height: 2px; width: 76%; background: #57aaf7;"></div>
+              <div style="height: 2px; width: 44%; background: #57aaf7;"></div>
+              <div style="height: 2px; width: 66%; background: #cdcdcd;"></div>
+              <div style="height: 2px; width: 38%; background: #6aab73;"></div>
+              <div style="height: 2px; width: 70%; background: #cdcdcd;"></div>
+            </div>
+          </div>
+
+          <!-- 底部面板：头是外壳层（透光），身是内容层（不透光） -->
+          <div style="flex: none; height: 186px; display: flex; flex-direction: column;
+                      border-top: 1px solid rgba(255,255,255,0.09);">
+            <div style="flex: none; height: 26px; display: flex; align-items: center; gap: 8px;
+                        padding: 0 8px; background: transparent; font-size: 11px; color: #cdcdcd;">
+              <span style="padding: 2px 8px; border-radius: 6px; background: rgba(255,255,255,0.11); color: #ffffff;">终端</span>
+              <span style="padding: 2px 8px; border-radius: 6px; color: #8a8a8a;">Git 日志</span>
+              <span style="width: 1px; height: 12px; background: rgba(255,255,255,0.09);"></span>
+              <span class="mono" style="font-size: 10.5px; padding: 2px 7px; border-radius: 6px;
+                        background: rgba(255,255,255,0.11); color: #ffffff;">zsh</span>
+              <span class="mono" style="font-size: 10.5px; padding: 2px 7px; border-radius: 6px; color: #8a8a8a;">cargo</span>
+              <div style="flex: 1;"></div>
+              <span style="color: #8a8a8a; font-size: 10.5px;">⌘J 收起</span>
+            </div>
+            <div style="flex: 1; background: rgba(10,10,11,0.94); padding: 6px 12px;
+                        font-family: 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 18px;
+                        color: #cdcdcd; white-space: pre; overflow: hidden;">
+<div><span style="color:#6aab73;">➜</span>  <span style="color:#57aaf7;">lite-ide</span> cargo test -p ptysvc --lib</div>
+<div style="color:#8a8a8a;">   Compiling ptysvc v0.4.1 (/Users/shaopc/playground/lite-ide/src-tauri/crates/ptysvc)</div>
+<div style="color:#8a8a8a;">    Finished `test` profile in 3.41s</div>
+<div>running 4 tests</div>
+<div><span style="color:#6aab73;">test</span> 关掉不排空的终端不能把kill卡死 ... <span style="color:#6aab73;">ok</span></div>
+<div><span style="color:#6aab73;">test</span> 工作目录生效 ... <span style="color:#6aab73;">ok</span></div>
+<div>test result: <span style="color:#6aab73;">ok</span>. 4 passed; 0 failed; finished in 1.31s</div>
+<div><span style="color:#6aab73;">➜</span>  <span style="color:#57aaf7;">lite-ide</span> <span style="background:#e8e8ea; color:transparent;">&nbsp;</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态栏 24px：外壳层，透光 + scrim -->
+      <div style="flex: none; height: 24px; display: flex; align-items: center; gap: 16px; padding: 0 12px;
+                  background: rgba(0,0,0,0.20); border-top: 1px solid rgba(255,255,255,0.09);
+                  font-family: 'SF Mono', Menlo, monospace; font-size: 11.5px; color: #cdcdcd;">
+        <span>行 299，列 9</span>
+        <span style="color: #8a8a8a;">UTF-8</span>
+        <span style="color: #8a8a8a;">LF</span>
+        <span style="color: #8a8a8a;">Rust</span>
+        <div style="flex: 1;"></div>
+        <span style="color: #6ba1e8;">3 处改动</span>
+        <span style="color: #8a8a8a;">构建 09-04 09:42</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 说明 -->
+  <div style="position: absolute; left: 60px; top: 16px; display: flex; align-items: baseline; gap: 14px;">
+    <span style="color: #ffffff; font-size: 15px; font-weight: 600;">外壳透光，内容不透光</span>
+    <span style="color: rgba(255,255,255,0.62); font-size: 12.5px;">
+      标题栏 · 竖条 · 侧边栏 · 标签栏 · 面板头 · 状态栏 = 壁纸透得过去；编辑器 · 终端 = 透 6%，只让色调跟着走
+    </span>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

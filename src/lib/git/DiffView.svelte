@@ -330,7 +330,7 @@
     font-size: 10px;
     cursor: default;
   }
-  .nav button:hover { background: var(--panel-bg-2); color: var(--text); }
+  .nav button:hover { background: var(--hover); color: var(--text); }
   .nav .pos { font-family: var(--code-font); font-size: 10px; color: var(--text-faint); min-width: 30px; text-align: center; }
 
   .segs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
@@ -345,7 +345,7 @@
     white-space: nowrap;
   }
   .segs button:disabled { opacity: .45; }
-  .segs button:hover { background: var(--panel-bg-2); color: var(--text); }
+  .segs button:hover { background: var(--hover); color: var(--text); }
   .segs button.on { background: var(--accent-sel); color: var(--text); }
   .seg {
     background: transparent;
@@ -357,7 +357,7 @@
     cursor: default;
     white-space: nowrap;
   }
-  .seg:hover { background: var(--panel-bg-2); color: var(--text); }
+  .seg:hover { background: var(--hover); color: var(--text); }
   .seg.on { background: var(--accent-sel); color: var(--text); border-color: transparent; }
 
   .body {
@@ -386,7 +386,7 @@
   .span4 {
     grid-column: 1 / -1;
     padding-left: 12px;
-    background: var(--panel-bg);
+    background: var(--hover);
     color: var(--text-faint);
     font-size: 11.5px;
     font-style: italic;
@@ -396,7 +396,7 @@
   .span4.meta {
     font-style: normal;
     color: var(--text);
-    background: var(--panel-bg-2);
+    background: var(--selected);
   }
   .no {
     padding-right: 8px;
@@ -407,7 +407,7 @@
     /* 行号列吸在左边：横向滚动时仍然知道自己在第几行 */
     position: sticky;
     left: 0;
-    background: var(--editor-bg);
+    background: var(--content-solid);
   }
   /*
    * 吸住的列**背景必须不透明**，否则横向滚动时正文会从行号底下透出来。
@@ -415,9 +415,9 @@
    * 所以这里把它和一层不透明底色叠起来，而不是另写一组死色值 ——
    * 色值只有一份，改 --diff-*-bg 时不会漏掉这里。
    */
-  .no.del { background: linear-gradient(var(--diff-del-bg), var(--diff-del-bg)), var(--editor-bg); }
-  .no.add { background: linear-gradient(var(--diff-add-bg), var(--diff-add-bg)), var(--editor-bg); }
-  .no.blank { background: var(--editor-bg); }
+  .no.del { background: linear-gradient(var(--diff-del-bg), var(--diff-del-bg)), var(--content-solid); }
+  .no.add { background: linear-gradient(var(--diff-add-bg), var(--diff-add-bg)), var(--content-solid); }
+  .no.blank { background: var(--content-solid); }
   .no.mid {
     left: auto;
     position: static;
@@ -498,7 +498,7 @@
   .uni .row.del .sign { color: var(--diff-del-fg); }
   .uni .row.ctx { color: var(--text-dim); }
   .uni .row.hunk {
-    background: var(--panel-bg);
+    background: var(--hover);
     color: var(--text-faint);
     font-size: 11.5px;
     border-top: 1px solid var(--border-soft);

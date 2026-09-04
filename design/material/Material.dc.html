@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .h { color: #ffffff; font-size: 15px; font-weight: 600; letter-spacing: 0.01em; }
+    .p { color: #a8a8ac; font-size: 12.5px; line-height: 1.7; }
+    .cap { color: #7a7a80; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .card { background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; }
+  </style>
+</helmet>
+
+<div style="width: 1300px; min-height: 1180px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 34px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="color: #ffffff; font-size: 24px; font-weight: 600;">材质分层</div>
+    <div class="p" style="max-width: 900px;">
+      现在的配色是<strong style="color:#d1707a;">不透明的纯黑</strong>（<span class="mono">--panel-bg: #000</span>），
+      换皮换的只是色号，观感还是一块死板子。ChatGPT Mac 版那种「透亮、颜色会变」不是 CSS 调出来的 ——
+      它是 <span class="mono" style="color:#cdcdcd;">NSVisualEffectView</span>，由 WindowServer 在<strong style="color:#cdcdcd;">窗口后面</strong>把桌面模糊+提饱和，
+      所以换张壁纸整个界面的色调就跟着变。webview 里的 <span class="mono">backdrop-filter</span> 做不到这件事：
+      它只能模糊<strong style="color:#cdcdcd;">页面自己</strong>的内容，桌面在 webview 之外。
+    </div>
+  </div>
+
+  <!-- 四层 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">四层，自下而上</div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px;">
+
+      <div class="card" style="padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="height: 74px; border-radius: 10px; position: relative; overflow: hidden;
+                    background: radial-gradient(200px 140px at 20% 15%, #4a6fa8 0%, rgba(74,111,168,0) 65%),
+                                radial-gradient(180px 160px at 85% 80%, #8f5a7c 0%, rgba(143,90,124,0) 62%),
+                                linear-gradient(150deg, #1c2533, #17262a);">
+          <div style="position: absolute; inset: 0; background: rgba(28,28,30,0.62); backdrop-filter: blur(18px) saturate(185%);"></div>
+        </div>
+        <div class="h">1 · 材质层</div>
+        <div class="p" style="font-size: 12px;">
+          <span class="mono" style="color:#cdcdcd;">NSVisualEffectView</span><br>
+          material <span class="mono" style="color:#cdcdcd;">Sidebar</span>，blending <span class="mono" style="color:#cdcdcd;">BehindWindow</span>。
+          Rust 侧一次性挂在 webview <strong style="color:#cdcdcd;">下面</strong>，前端碰不到它。
+        </div>
+      </div>
+
+      <div class="card" style="padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="height: 74px; border-radius: 10px; position: relative; overflow: hidden;
+                    background: radial-gradient(200px 140px at 20% 15%, #4a6fa8 0%, rgba(74,111,168,0) 65%),
+                                radial-gradient(180px 160px at 85% 80%, #8f5a7c 0%, rgba(143,90,124,0) 62%),
+                                linear-gradient(150deg, #1c2533, #17262a);">
+          <div style="position: absolute; inset: 0; background: rgba(28,28,30,0.62); backdrop-filter: blur(18px) saturate(185%);"></div>
+          <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.20);"></div>
+          <div style="position: absolute; left: 12px; top: 12px; color: #ffffff; font-size: 12px;">侧边栏 / 标题栏</div>
+        </div>
+        <div class="h">2 · 外壳层（透光）</div>
+        <div class="p" style="font-size: 12px;">
+          <span class="mono" style="color:#cdcdcd;">transparent</span>，或压一层
+          <span class="mono" style="color:#cdcdcd;">rgba(0,0,0,.20)</span> scrim。<br>
+          这一层是「颜色会变」的全部来源。
+        </div>
+      </div>
+
+      <div class="card" style="padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="height: 74px; border-radius: 10px; position: relative; overflow: hidden;
+                    background: radial-gradient(200px 140px at 20% 15%, #4a6fa8 0%, rgba(74,111,168,0) 65%),
+                                radial-gradient(180px 160px at 85% 80%, #8f5a7c 0%, rgba(143,90,124,0) 62%),
+                                linear-gradient(150deg, #1c2533, #17262a);">
+          <div style="position: absolute; inset: 0; background: rgba(28,28,30,0.62); backdrop-filter: blur(18px) saturate(185%);"></div>
+          <div style="position: absolute; inset: 0; background: rgba(10,10,11,0.94);"></div>
+          <div style="position: absolute; left: 12px; top: 12px; color: #cdcdcd; font-size: 12px; font-family: 'SF Mono', Menlo, monospace;">fn main() {</div>
+        </div>
+        <div class="h">3 · 内容层（挡光）</div>
+        <div class="p" style="font-size: 12px;">
+          <span class="mono" style="color:#cdcdcd;">rgba(10,10,11,.94)</span>。<br>
+          代码和 GB 级日志<strong style="color:#cdcdcd;">不能</strong>骑在壁纸上读 —— 留 6% 只为让色调跟着窗口走。
+        </div>
+      </div>
+
+      <div class="card" style="padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="height: 74px; border-radius: 10px; position: relative; overflow: hidden;
+                    background: radial-gradient(200px 140px at 20% 15%, #4a6fa8 0%, rgba(74,111,168,0) 65%),
+                                radial-gradient(180px 160px at 85% 80%, #8f5a7c 0%, rgba(143,90,124,0) 62%),
+                                linear-gradient(150deg, #1c2533, #17262a);">
+          <div style="position: absolute; inset: 0; background: rgba(28,28,30,0.62); backdrop-filter: blur(18px) saturate(185%);"></div>
+          <div style="position: absolute; left: 14px; top: 14px; right: 14px; bottom: 14px;
+                      background: #232326; border: 1px solid rgba(255,255,255,0.13); border-radius: 10px;
+                      box-shadow: 0 10px 26px rgba(0,0,0,0.5); color: #cdcdcd; font-size: 11.5px;
+                      padding: 8px 10px;">在终端中打开</div>
+        </div>
+        <div class="h">4 · 浮层（不透明）</div>
+        <div class="p" style="font-size: 12px;">
+          <span class="mono" style="color:#cdcdcd;">#232326</span> + 边 + 投影。<br>
+          菜单不能半透明：桌面在 webview 之外，<span class="mono">backdrop-filter</span> 模糊不了它，
+          做半透明就是让壁纸<strong style="color:#d1707a;">清晰地</strong>透过菜单。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- token 前后 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">token 前后</div>
+    <div class="card" style="padding: 4px 0 6px;">
+      <div style="display: grid; grid-template-columns: 200px 1fr 1fr 1.5fr; gap: 0; align-items: center;
+                  padding: 10px 20px; color: #7a7a80; font-size: 11px; letter-spacing: 0.06em;
+                  border-bottom: 1px solid rgba(255,255,255,0.09);">
+        <span>token</span><span>现在</span><span>改成</span><span>为什么</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 200px 1fr 1fr 1.5fr; gap: 0; align-items: center;
+                  padding: 13px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+        <span class="mono" style="color: #cdcdcd; font-size: 12px;">--panel-bg</span>
+        <span class="mono" style="color: #d1707a; font-size: 12px;">#000000</span>
+        <span class="mono" style="color: #6aab73; font-size: 12px;">transparent</span>
+        <span class="p" style="font-size: 11.5px;">外壳的底就是材质层本身，别再画一遍</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 200px 1fr 1fr 1.5fr; gap: 0; align-items: center;
+                  padding: 13px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+        <span class="mono" style="color: #cdcdcd; font-size: 12px;">--editor-bg</span>
+        <span class="mono" style="color: #d1707a; font-size: 12px;">#0a0a0b</span>
+        <span class="mono" style="color: #6aab73; font-size: 12px;">rgba(10,10,11,.94)</span>
+        <span class="p" style="font-size: 11.5px;">同一个颜色，只是让它透 6%</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 200px 1fr 1fr 1.5fr; gap: 0; align-items: center;
+                  padding: 13px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+        <span class="mono" style="color: #cdcdcd; font-size: 12px;">--panel-bg-2</span>
+        <span class="mono" style="color: #d1707a; font-size: 12px;">#212121 <span style="color:#7a7a80;">当 hover 用了 40 处</span></span>
+        <span class="mono" style="color: #6aab73; font-size: 12px;">拆成两个</span>
+        <span class="p" style="font-size: 11.5px;">
+          hover 归 <span class="mono">--hover</span>，真·浮层归 <span class="mono">--elevated</span>。
+          不透明色当 hover 用，在玻璃上是<strong style="color:#d1707a;">凿一个洞</strong>
+        </span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 200px 1fr 1fr 1.5fr; gap: 0; align-items: center;
+                  padding: 13px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+        <span class="mono" style="color: #cdcdcd; font-size: 12px;">--border</span>
+        <span class="mono" style="color: #d1707a; font-size: 12px;">rgba(255,255,255,.15)</span>
+        <span class="mono" style="color: #6aab73; font-size: 12px;">rgba(255,255,255,.09)</span>
+        <span class="p" style="font-size: 11.5px;">15% 是给纯黑底调的；玻璃自带亮度，同样的线在上面糊成一道白墙</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 200px 1fr 1fr 1.5fr; gap: 0; align-items: center;
+                  padding: 13px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+        <span class="mono" style="color: #cdcdcd; font-size: 12px;">--accent-sel</span>
+        <span class="mono" style="color: #d1707a; font-size: 12px;">蓝 18%（12 处 .on）</span>
+        <span class="mono" style="color: #6aab73; font-size: 12px;">白 11%</span>
+        <span class="p" style="font-size: 11.5px;">
+          app.css 自己写着「交互态一律中性白叠加，不用强调色」—— 12 个 <span class="mono">.on</span> 没照做
+        </span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 200px 1fr 1fr 1.5fr; gap: 0; align-items: center;
+                  padding: 13px 20px;">
+        <span class="mono" style="color: #cdcdcd; font-size: 12px;">--surface-3</span>
+        <span class="mono" style="color: #d1707a; font-size: 12px;">#2f2f2f <span style="color:#7a7a80;">0 处引用</span></span>
+        <span class="mono" style="color: #6aab73; font-size: 12px;">删掉</span>
+        <span class="p" style="font-size: 11.5px;">定义了没人用的 token，是下一个人照着抄错的起点</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 三条硬约束 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">三条硬约束</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;">
+      <div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 9px;">
+        <div class="h" style="font-size: 13.5px;">透明窗口没有退路</div>
+        <div class="p" style="font-size: 12px;">
+          <span class="mono">transparent: true</span> 之后，vibrancy 一旦没挂上，窗口后面<strong style="color:#d1707a;">什么都没有</strong>。
+          <span class="mono">pnpm dev</span> 在浏览器里跑更是如此。
+          所以 <span class="mono">main.ts</span> 挂载前同步打一个
+          <span class="mono" style="color:#cdcdcd;">data-shell</span>，
+          非 Tauri 一律回落到不透明底。
+        </div>
+      </div>
+      <div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 9px;">
+        <div class="h" style="font-size: 13.5px;">交互态只能叠加</div>
+        <div class="p" style="font-size: 12px;">
+          hover / selected / pressed 全部是
+          <span class="mono" style="color:#cdcdcd;">rgba(255,255,255,α)</span>，
+          α 走 <strong style="color:#cdcdcd;">.07 / .11 / .14</strong> 三档。
+          任何一处填不透明色，那一块就从玻璃上掉出来。
+        </div>
+      </div>
+      <div class="card" style="padding: 18px; display: flex; flex-direction: column; gap: 9px;">
+        <div class="h" style="font-size: 13.5px;">壁纸不参与阅读</div>
+        <div class="p" style="font-size: 12px;">
+          编辑器、日志、差异、终端一律走内容层。
+          在 1GB 日志上滚动时，把上百万行文本合成到一块实时模糊的表面上，
+          既费帧也读不清 —— HIG 自己就是这么规定的。
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

@@ -33,6 +33,8 @@
       // 双击选中时把这些也算作单词的一部分，选路径和 URL 方便
       wordSeparator: " ()[]{}',\"`",
       // 与 app.css 的 IDEA Dark token 同源
+      // 这几个色值必须跟 --content-solid / --text-dim 对齐：xterm 的 theme
+      // 只吃字面色，读不了 CSS 变量。改调色板时**这里是唯一需要手动跟的地方**。
       theme: {
         background: "#1e1f22",
         foreground: "#dfe1e5",
@@ -111,7 +113,16 @@
 </div>
 
 <style>
-  .term-wrap { position: relative; height: 100%; background: var(--editor-bg); overflow: hidden; }
+  /*
+   * 这里用**不透明**的那一份，而不是 --content-bg。
+   *
+   * xterm 在自己的画布上画底色，要让它跟着窗口透光就得开
+   * `allowTransparency` —— 那个开关的代价是每一帧都要做一次额外的合成，
+   * 而终端恰恰是全应用里滚得最快的地方（`cargo build` 刷屏时）。
+   * 于是容器也用实色：不然画布够不到的那一圈边会透光，画布本身不透，
+   * 看着像终端边上镶了一道亮边。
+   */
+  .term-wrap { position: relative; height: 100%; background: var(--content-solid); overflow: hidden; }
   .term { height: 100%; padding: 4px 0 0 8px; }
   .status {
     position: absolute;

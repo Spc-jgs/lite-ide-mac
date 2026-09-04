@@ -288,7 +288,7 @@
     display: inline-block;
     width: 34ch;
     height: 9px;
-    background: var(--panel-bg);
+    background: var(--hover);
     border-radius: var(--r-sm);
   }
 </style>

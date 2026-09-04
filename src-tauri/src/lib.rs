@@ -16,6 +16,7 @@ pub fn run() {
         .setup(|app| {
             use tauri::Manager;
             if let Some(w) = app.get_webview_window("main") {
+                apply_window_material(&w);
                 let _ = w.set_focus();
                 // 开发期验证用：LITE_IDE_ONTOP=1 让窗口置顶，方便截图取证
                 if std::env::var("LITE_IDE_ONTOP").is_ok() {
@@ -81,4 +82,45 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 启动失败");
+}
+
+/// 给窗口挂上 macOS 的材质层。
+///
+/// 这是整套「透亮」外观**唯一**的来源，webview 里做不出来：
+/// `NSVisualEffectView` 用的是 `BehindWindow` 混合模式，模糊的是
+/// **窗口后面的桌面**，而桌面在 webview 之外 —— CSS 的 `backdrop-filter`
+/// 只能模糊页面自己的内容，换张壁纸它一动不动。
+///
+/// 这块 view 由 window-vibrancy 插在 webview **下面**（`NSWindowOrderingMode::Below`），
+/// 所以前端要透光的地方把背景留空就行，不需要（也没办法）参与合成。
+///
+/// 两个参数是选过的：
+///
+/// - `Sidebar`：macOS 给边栏用的那档，暗色下压得住白字，又不像 `HudWindow`
+///   那么厚。`UnderWindowBackground` 更淡，代码字压不住浅色壁纸。
+/// - `Active` 而不是 `FollowsWindowActiveState`：这个应用的常态就是
+///   「在别的窗口里敲命令，拿眼角瞟着这边的日志」。跟随焦点的话，
+///   每次切走整扇窗户褪成灰色，那一下比壁纸本身还抢注意力。
+///
+/// **失败了要让前端知道。** `transparent: true` 的窗口后面什么都没有，
+/// 材质没挂上就是一扇能看见桌面的空窗。把 `data-shell` 打回 `web`，
+/// CSS 里那套不透明回落就会接上（同一个开关也服务浏览器里的 `pnpm dev`）。
+#[cfg(target_os = "macos")]
+fn apply_window_material(w: &tauri::WebviewWindow) {
+    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+
+    if let Err(e) = apply_vibrancy(
+        w,
+        NSVisualEffectMaterial::Sidebar,
+        Some(NSVisualEffectState::Active),
+        None,
+    ) {
+        eprintln!("窗口材质没挂上，回落到不透明底：{e}");
+        let _ = w.eval("document.documentElement.dataset.shell = 'web'");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_window_material(w: &tauri::WebviewWindow) {
+    let _ = w.eval("document.documentElement.dataset.shell = 'web'");
 }

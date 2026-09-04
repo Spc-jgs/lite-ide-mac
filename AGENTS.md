@@ -160,10 +160,16 @@ cargo test -p fsservice -- --ignored 真的把文件移进废纸篓
 用 `cat >>` 往文件尾追加过一次，结果生产代码落到了 `#[cfg(test)] mod tests` 后面，
 读文件的人会以为测试模块之后就没东西了。
 
-### ptysvc 的测试会间歇性挂住（根因**已定位**：`child.wait()` 收不到尸）
+### ptysvc 的测试曾间歇性挂住（**根因已定位并修掉**：`child.wait()` 收不到尸）
 
-`工作目录生效` 那条会卡住不返回。测试体外面套了 `with_deadline(25, …)`：
-**每次尝试有硬期限，最多试三次，三次全挂才算失败**。
+**先说现在的状态**：根因在 2026-08-31 修掉了，`TRIES` 已经是 **1**（不再重试），
+测试体外面只剩 `with_deadline(25, …)` 这道硬期限 —— 它的作用不是撞运气，
+是让挂住时 25s 内失败，而不是安静吃光 CI 整个 job 的额度。
+
+**下面整节是排查过程的留档**，其中带删除线的是当时得出、后来被推翻的结论。
+读的时候按「结论在最后」看，不要照着中间任何一段改代码。
+（这一节曾经自相矛盾：开头写着「最多试三次」，一百行后又写「重试去掉了」，
+而代码里是 1 —— 2026-09-04 修正。）
 
 **2026-08-28 复测，两个数字都变了：**
 
@@ -423,6 +429,83 @@ pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | h
 
 判据是同一条：**入口包是首屏之前必须解析执行完的那一段**。
 问一句「这东西在窗口出现之前有用吗」，没用就该出去。
+
+### 窗口是半透明的，所以「填个底色」不再是安全操作
+
+2026-09-04 起，窗口后面挂着一块 `NSVisualEffectView`（`Sidebar` 材质、
+`BehindWindow` 混合），由 WindowServer 把桌面模糊后透上来。这不是配色，
+是**材质**，webview 里的 `backdrop-filter` 顶不上 —— 它只能模糊页面自己的内容，
+桌面在 webview 之外，写多少 blur 都一动不动。
+
+于是 CSS 里每一处 `background:` 都要先回答一个问题：**这块面在第几层？**
+
+| 层 | 谁 | 用什么 |
+|---|---|---|
+| 外壳 | 标题栏 · 竖条 · 侧边栏 · 标签栏 · 面板头 · 工具条 · 状态栏 | `--panel-bg`（transparent）/ `--chrome-scrim` |
+| 内容 | 编辑器 · 日志 · 差异 · 终端 | `--content-bg`（透 6%） |
+| 交互态 | hover / selected / pressed | `--hover` / `--selected` / `--pressed`，**一律白叠加** |
+| 浮层 | 菜单 · 弹窗 · 输入框 · 徽章 | `--elevated` / `--elevated-hi`，**不透明** + `--shadow-pop` |
+
+四条会咬人的：
+
+1. **不透明色不能当 hover 用。** 原来 40 处写的是
+   `:hover { background: var(--panel-bg-2) }`（`#212121` 实色）——
+   在玻璃上那是**凿一个洞**，一块生硬的矩形浮在表面上。
+   `--panel-bg-2` 因此被拆掉了（hover 归 `--hover`，浮层归 `--elevated`），
+   **不留别名** —— 留一个 0 引用的别名就是下一个 `--surface-3`
+   （那个 token 定义了从来没人用，2026-09-04 一起删了）。
+
+2. **浮层必须不透明。** 这条最反直觉：菜单做成半透明的话，
+   桌面在 webview 之外，`backdrop-filter` 模糊不到它 —— 壁纸会**清晰地**
+   穿过菜单，字直接糊掉。「实心卡片摞在玻璃上」才是对的观感，
+   抬起靠 `--shadow-pop` 不靠透明。
+
+3. **要「挡住底下滚过去的东西」的地方用 `--content-solid`，不是 `--content-bg`。**
+   CM6 的行号栏、差异视图那根吸在左边的行号列，背景不是装饰是遮挡。
+   DiffView 里那段注释早就写着「背景必须不透明」，而它依赖的正是
+   `--editor-bg` 曾经是实色 —— 内容层一透，这个依赖就断了，
+   表现是横向滚动时正文从行号底下透出来。
+
+4. **内容层只画一次。** 两层半透明叠起来，6% 透光被压成 0.36%，
+   于是编辑器比旁边的日志视图明显"更实"，两块内容区的色调对不上。
+   编辑器的底画在 `Editor.svelte` 的 `.editor` 上，CM6 主题里的 `BG`
+   已经改成 `transparent`。
+
+配套的三处，动了要一起动：
+
+- `tauri.conf.json` 的 `transparent: true` 和 `Cargo.toml` 的
+  `tauri = { features = ["macos-private-api"] }` **必须成对**。
+  只写配置不加 feature，`build.rs` 直接把构建拦下来
+  （报的是「features 与 allowlist 不匹配」，不是「窗口不透明」，
+  第一次撞上会往错的方向查）。
+- `tauri.conf.json` **不能再有 `backgroundColor`**。它原来是 `#1E1F22`
+  （上上版的 IDEA 灰），透明窗口下就是糊在玻璃前面的一层实色。
+- `html, body` 必须是 `transparent`。body 有一点不透明的底，
+  NSVisualEffectView 就整块被盖住 —— 表现是「vibrancy 好像没生效」，
+  而 Rust 侧一切正常，**从那头是查不出来的**。
+
+### 透明窗口没有退路，所以有一个 `data-shell` 开关
+
+`transparent: true` 之后窗口自己不画底。材质层没挂上（或者根本不在 Tauri 里跑），
+外壳层留空透出来的就是**空**。而改 UI 的主循环恰恰是浏览器里的 `pnpm dev`，
+那里一块 NSVisualEffectView 都没有。
+
+`main.ts` 在 mount **之前同步**打一个 `data-shell`：
+
+```js
+document.documentElement.dataset.shell =
+  "__TAURI_INTERNALS__" in window ? "tauri" : "web";
+```
+
+用这个判据而不是「深色还是浅色」，是因为要问的其实是「这个壳有没有材质层」。
+用 `__TAURI_INTERNALS__` 而不是 `invoke` 一次，是因为它**同步、零成本**——
+这行在 mount 之前跑，晚一帧就是一帧的白闪。
+macOS 上 `apply_vibrancy` 万一失败，`lib.rs` 会 `eval` 把它打回 `web`。
+
+回落那组值不是随便填的：**浏览器里调好的层级，装进 .app 里不能反过来。**
+踩过一次 —— `--chrome-scrim` 在 web 下留成 `transparent`，标题栏就露出 body 的底，
+而 body 是内容色，于是浏览器里标题栏比侧边栏**浅**，
+装进 .app 里（材质 + 黑 20% scrim）又比侧边栏**深**，层级整个倒过来。
 
 ### CSP 写在两个地方，改一处要改两处
 

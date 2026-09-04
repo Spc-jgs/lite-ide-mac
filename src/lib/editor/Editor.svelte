@@ -320,10 +320,12 @@
 <div class="editor" bind:this={host}></div>
 
 <style>
+  /* 内容层在这儿画，且**只在这儿画一次** —— CM6 主题里的 BG 已经改成
+     transparent，见 theme-idea-dark.ts 顶上那段 */
   .editor {
     height: 100%;
     overflow: hidden;
-    background: var(--editor-bg);
+    background: var(--content-bg);
   }
   /* CM6 自己管内部 DOM，这里只保证它撑满容器 */
   .editor :global(.cm-editor) { height: 100%; }

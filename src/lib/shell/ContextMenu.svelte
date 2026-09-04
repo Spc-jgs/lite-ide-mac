@@ -163,11 +163,11 @@
     z-index: 60;
     min-width: 168px;
     padding: 5px;
-    background: var(--panel-bg-2);
+    background: var(--elevated);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     /* 底是纯黑的时候，靠色阶已经拉不开距离了 —— 投影要更深、更散 */
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+    box-shadow: var(--shadow-pop);
     outline: none;
   }
   .mhead {

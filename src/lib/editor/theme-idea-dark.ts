@@ -22,7 +22,14 @@ import { EditorView } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t, tagHighlighter, type Tag } from "@lezer/highlight";
 
-const BG = "var(--editor-bg)";
+/*
+ * 内容层由 `Editor.svelte` 的 `.editor` 容器画，**这里不再画一遍** ——
+ * 两层半透明叠起来会把 6% 透光压成 0.36%，于是编辑器比旁边的日志视图
+ * 明显"更实"，两块内容区的色调对不上。
+ */
+const BG = "transparent";
+/* 行号栏是吸住的，正文从它底下滚过去 —— 这里必须挡光 */
+const GUTTER_BG = "var(--content-solid)";
 const GUTTER_FG = "var(--gutter-fg)";
 const GUTTER_FG_ACTIVE = "var(--gutter-fg-active)";
 const TEXT = "var(--text)";
@@ -51,7 +58,7 @@ export const ideaDarkTheme = EditorView.theme(
     },
     ".cm-activeLine": { backgroundColor: ACTIVE_LINE },
     ".cm-gutters": {
-      backgroundColor: BG,
+      backgroundColor: GUTTER_BG,
       color: GUTTER_FG,
       border: "none",
       borderRight: "1px solid var(--border-soft)",
@@ -59,7 +66,7 @@ export const ideaDarkTheme = EditorView.theme(
     ".cm-activeLineGutter": { backgroundColor: ACTIVE_LINE, color: GUTTER_FG_ACTIVE },
     ".cm-lineNumbers .cm-gutterElement": { padding: "0 12px 0 16px" },
     ".cm-foldPlaceholder": {
-      backgroundColor: "var(--panel-bg-2)",
+      backgroundColor: "var(--selected)",
       border: "none",
       color: "var(--text-dim)",
       padding: "0 6px",
@@ -72,16 +79,21 @@ export const ideaDarkTheme = EditorView.theme(
       backgroundColor: "var(--bracket-match)",
       outline: "none",
     },
-    ".cm-panels": { backgroundColor: "var(--panel-bg)", color: TEXT, borderColor: "var(--border)" },
+    ".cm-panels": { backgroundColor: "var(--elevated)", color: TEXT, borderColor: "var(--border)" },
     ".cm-panels input, .cm-panels button": {
-      backgroundColor: BG,
+      backgroundColor: "var(--elevated-hi)",
       color: TEXT,
       border: "1px solid var(--border)",
       borderRadius: "var(--r-sm)",
       padding: "2px 6px",
       fontFamily: "var(--code-font)",
     },
-    ".cm-tooltip": { backgroundColor: "var(--panel-bg)", border: "1px solid var(--border)", color: TEXT },
+    ".cm-tooltip": {
+      backgroundColor: "var(--elevated)",
+      border: "1px solid var(--border)",
+      color: TEXT,
+      boxShadow: "var(--shadow-pop)",
+    },
   },
   { dark: true },
 );

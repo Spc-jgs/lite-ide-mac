@@ -222,7 +222,7 @@
     border-bottom: 2px solid transparent;
     background: transparent;
   }
-  .tab:hover { background: var(--panel-bg-2); }
+  .tab:hover { background: var(--hover); }
   /* 标签溢出时给个细滚动条，否则完全看不出还有更多标签 */
   .tabs::-webkit-scrollbar { height: 3px; }
   .tabs::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--r-sm); }
@@ -256,7 +256,7 @@
     font-size: 9px;
     padding: 1px 4px;
     border-radius: var(--r-sm);
-    background: var(--panel-bg-2);
+    background: var(--selected);
     color: var(--text-faint);
     font-family: var(--code-font);
   }

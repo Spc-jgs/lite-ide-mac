@@ -4,6 +4,21 @@ import App from "./App.svelte";
 import "./app.css";
 import { installMockIpc } from "./lib/dev/mock-ipc";
 
+/*
+ * 窗口后面有没有材质层，这一行说了算。
+ *
+ * 透明窗口是没有退路的：`transparent: true` 之后窗口自己不画底，
+ * 全靠 Rust 侧挂的那块 NSVisualEffectView。而浏览器里跑 `pnpm dev`
+ * 根本没有那块 view —— 外壳层要是照样留空，透出来的就是浏览器的白底。
+ *
+ * 所以判据不能是「深色还是浅色」，得是「这个壳到底有没有材质层」。
+ * 用 `__TAURI_INTERNALS__` 是因为它**同步、零成本、不用等 IPC** ——
+ * 这行代码在 mount 之前跑，晚一帧就是一帧的白闪。
+ * （挂载失败时 Rust 侧会 eval 把它打回 `web`，见 lib.rs 的 apply_window_material。）
+ */
+document.documentElement.dataset.shell =
+  "__TAURI_INTERNALS__" in window ? "tauri" : "web";
+
 // 浏览器里跑 `pnpm dev` 时装 IPC 桩：改 UI 不必等壳重新编译（约 40 秒 → 毫秒）。
 //
 // 用静态 import + 条件调用而非 `await import()`，纯粹是因为不需要顶层 await 就能
@@ -62,11 +77,11 @@ function fatal(e: unknown, phase: string) {
   const box = document.createElement("div");
   box.style.cssText =
     "height:100%;display:grid;place-content:center;padding:24px;" +
-    "font-family:-apple-system,'PingFang SC',system-ui,sans-serif;color:#dfe1e5";
+    "font-family:-apple-system,'PingFang SC',system-ui,sans-serif;color:#cdcdcd";
   const inner = document.createElement("div");
   inner.style.cssText =
-    "width:min(680px,90vw);background:#2b2d30;border:1px solid #393b40;" +
-    "border-radius:8px;padding:18px 20px";
+    "width:min(680px,90vw);background:#232326;border:1px solid rgba(255,255,255,.13);" +
+    "border-radius:14px;padding:18px 20px";
   const h = document.createElement("div");
   h.textContent = "启动失败";
   h.style.cssText = "color:#f75464;font-size:14px;margin-bottom:10px";
@@ -74,12 +89,13 @@ function fatal(e: unknown, phase: string) {
   pre.textContent = detail;
   pre.style.cssText =
     "margin:0 0 14px;padding:10px 12px;max-height:300px;overflow:auto;background:#1e1f22;" +
-    "border:1px solid #393b40;border-radius:5px;font-family:'SF Mono',Menlo,monospace;" +
-    "font-size:11px;line-height:1.65;color:#9da0a8;white-space:pre-wrap;user-select:text";
+    "border:1px solid rgba(255,255,255,.09);border-radius:6px;" +
+    "font-family:'SF Mono',Menlo,monospace;" +
+    "font-size:11px;line-height:1.65;color:#8a8a8a;white-space:pre-wrap;user-select:text";
   const btn = document.createElement("button");
   btn.textContent = "重载窗口";
   btn.style.cssText =
-    "padding:4px 12px;background:#3574f0;border:1px solid #3574f0;border-radius:4px;" +
+    "padding:4px 12px;background:#5b8def;border:1px solid #5b8def;border-radius:6px;" +
     "color:#fff;font-size:12px";
   btn.onclick = () => location.reload();
   inner.append(h, pre, btn);

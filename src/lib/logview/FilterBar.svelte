@@ -187,7 +187,7 @@
     font-size: 11px;
     cursor: pointer;
   }
-  .chip:hover { background: var(--panel-bg-2); }
+  .chip:hover { background: var(--hover); }
   .chip .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
   .chip.error .dot { background: var(--lvl-error); }
   .chip.warn .dot { background: var(--lvl-warn); }
@@ -205,7 +205,7 @@
     min-width: 0;
     height: 22px;
     padding: 0 7px;
-    background: var(--editor-bg);
+    background: var(--elevated-hi);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--text);
@@ -226,7 +226,7 @@
     font-size: 10.5px;
     cursor: pointer;
   }
-  .cs:hover, .clr:hover { background: var(--panel-bg-2); color: var(--text); }
+  .cs:hover, .clr:hover { background: var(--hover); color: var(--text); }
   .cs.on { background: var(--accent-sel); color: var(--text); }
 
   .hits {
@@ -252,7 +252,7 @@
   }
   .seg:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
   .seg:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; border-left: none; }
-  .seg:hover { background: var(--panel-bg-2); color: var(--text); }
+  .seg:hover { background: var(--hover); color: var(--text); }
   .seg.on { background: var(--accent-sel); color: var(--text); border-color: var(--accent); }
   .seg.on + .seg { border-left-color: var(--accent); }
 
@@ -269,7 +269,7 @@
   }
   .jump button:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
   .jump button:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; border-left: none; }
-  .jump button:hover:not(:disabled) { background: var(--panel-bg-2); color: var(--text); }
+  .jump button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
   .jump button:disabled { opacity: 0.35; }
 
   /* 极窄时先牺牲级别计数 —— 它是参考信息，而按钮是操作入口 */
@@ -287,7 +287,7 @@
     cursor: default;
     flex: none;
   }
-  .fold:hover { background: var(--panel-bg-2); }
+  .fold:hover { background: var(--hover); }
   .fold.on { border-color: var(--accent); color: var(--text); background: var(--accent-sel); }
 
   .tail {
@@ -303,7 +303,7 @@
     cursor: pointer;
     flex: none;
   }
-  .tail:hover { background: var(--panel-bg-2); }
+  .tail:hover { background: var(--hover); }
   .tail .live {
     width: 6px; height: 6px; border-radius: 50%;
     background: var(--text-faint); flex: none;

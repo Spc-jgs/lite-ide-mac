@@ -1,0 +1,204 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12px; line-height: 1.7; }
+    .cap { color: #7a7a80; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .glass { position: relative; border-radius: 12px; overflow: hidden;
+      background: radial-gradient(340px 220px at 18% 12%, #4a6fa8 0%, rgba(74,111,168,0) 66%),
+                  radial-gradient(300px 240px at 86% 84%, #8f5a7c 0%, rgba(143,90,124,0) 62%),
+                  linear-gradient(150deg, #1c2533, #17262a); }
+    .glass > .veil { position: absolute; inset: 0; background: rgba(28,28,30,0.62);
+      backdrop-filter: blur(26px) saturate(185%); }
+    .row { display: flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px 0 16px;
+      border-radius: 10px; color: #cdcdcd; font-size: 12.5px; }
+    .tag { font-size: 10.5px; letter-spacing: 0.04em; }
+  </style>
+</helmet>
+
+<div style="width: 1300px; min-height: 900px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 34px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="color: #ffffff; font-size: 24px; font-weight: 600;">交互态与发丝线</div>
+    <div class="p" style="max-width: 920px; font-size: 12.5px;">
+      配色换了材质，交互态跟着换判据：<strong style="color:#cdcdcd;">在玻璃上，任何一块不透明的填充都会从表面掉下来。</strong>
+      下面五处是现在真的在填不透明色、或者线画太粗的地方。
+    </div>
+  </div>
+
+  <!-- 1 hover -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">一 · hover / selected —— 40 处填的是 <span class="mono" style="text-transform:none;letter-spacing:0">#212121</span></div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;">
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="glass" style="height: 214px;">
+          <div class="veil"></div>
+          <div style="position: relative; padding: 14px 12px; display: flex; flex-direction: column; gap: 2px;">
+            <div class="row">App.svelte</div>
+            <div class="row" style="background: #212121;">app.css <span style="flex:1"></span>
+              <span class="tag mono" style="color:#d1707a;">hover · #212121</span></div>
+            <div class="row" style="background: rgba(91,141,239,0.18); color:#ffffff;">lib.rs <span style="flex:1"></span>
+              <span class="tag mono" style="color:#d1707a;">on · 蓝 18%</span></div>
+            <div class="row">Cargo.toml</div>
+            <div class="row" style="background: #212121;">tauri.conf.json <span style="flex:1"></span>
+              <span class="tag mono" style="color:#d1707a;">键盘焦点</span></div>
+          </div>
+        </div>
+        <div class="p"><span style="color:#d1707a;">现在</span> ——
+          三块不透明矩形浮在玻璃上，边缘生硬；蓝底还跟「未提交改动」的蓝抢注意力。</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="glass" style="height: 214px;">
+          <div class="veil"></div>
+          <div style="position: relative; padding: 14px 12px; display: flex; flex-direction: column; gap: 2px;">
+            <div class="row">App.svelte</div>
+            <div class="row" style="background: rgba(255,255,255,0.07);">app.css <span style="flex:1"></span>
+              <span class="tag mono" style="color:#6aab73;">hover · 白 7%</span></div>
+            <div class="row" style="background: rgba(255,255,255,0.11); color:#ffffff;">lib.rs <span style="flex:1"></span>
+              <span class="tag mono" style="color:#6aab73;">on · 白 11%</span></div>
+            <div class="row">Cargo.toml</div>
+            <div class="row" style="background: rgba(255,255,255,0.07); box-shadow: inset 0 0 0 1px #5b8def;">
+              tauri.conf.json <span style="flex:1"></span>
+              <span class="tag mono" style="color:#6aab73;">焦点 = 底色 + 环</span></div>
+          </div>
+        </div>
+        <div class="p"><span style="color:#6aab73;">改成</span> ——
+          同一族白叠加，三档 <span class="mono">.07 / .11 / .14</span>，壁纸从每一档里透过去。
+          键盘焦点靠<strong style="color:#cdcdcd;">环</strong>区分，不靠另一种底色。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 分隔线 + 拖拽条 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">二 · 分隔线与拖拽条</div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;">
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="glass" style="height: 152px;">
+          <div class="veil"></div>
+          <div style="position: relative; height: 100%; display: flex;">
+            <div style="width: 150px; padding: 12px; color: #cdcdcd; font-size: 12px;">侧边栏</div>
+            <div style="width: 4px; background: rgba(255,255,255,0.15);"></div>
+            <div style="flex: 1; background: rgba(10,10,11,0.94); padding: 12px; color: #cdcdcd; font-size: 12px;">编辑区</div>
+          </div>
+        </div>
+        <div class="p"><span style="color:#d1707a;">现在</span> ——
+          <span class="mono">.side-resizer { background: var(--border) }</span>：
+          热区多宽，亮条就多宽。<strong style="color:#cdcdcd;">4px 的白条</strong>横在界面正中间，
+          玻璃上更扎眼。<span class="mono">.resizer</span>（底部面板）一模一样。</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="glass" style="height: 152px;">
+          <div class="veil"></div>
+          <div style="position: relative; height: 100%; display: flex;">
+            <div style="width: 150px; padding: 12px; color: #cdcdcd; font-size: 12px;">侧边栏</div>
+            <div style="width: 4px; position: relative;">
+              <div style="position: absolute; left: 1.5px; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.09);"></div>
+            </div>
+            <div style="flex: 1; background: rgba(10,10,11,0.94); padding: 12px; color: #cdcdcd; font-size: 12px;">编辑区</div>
+          </div>
+        </div>
+        <div class="p"><span style="color:#6aab73;">改成</span> ——
+          热区还是 4px（<strong style="color:#cdcdcd;">好按</strong>不能退），画出来的只有居中 1px 发丝线。
+          悬停时那 1px 变 <span class="mono">--accent</span>，按住时整条 4px 才亮。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3 浮层 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">三 · 浮层：唯一不许透的一层</div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;">
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="glass" style="height: 184px;">
+          <div class="veil"></div>
+          <div style="position: absolute; left: 26px; top: 24px; width: 216px;
+                      background: rgba(33,33,33,0.72); border: 1px solid rgba(255,255,255,0.15);
+                      border-radius: 10px; padding: 5px 0; box-shadow: 0 12px 30px rgba(0,0,0,0.5);">
+            <div style="padding: 6px 12px; color: #cdcdcd; font-size: 12px;">在终端中打开</div>
+            <div style="padding: 6px 12px; color: #cdcdcd; font-size: 12px;">在访达中显示</div>
+            <div style="height: 1px; background: rgba(255,255,255,0.05); margin: 4px 0;"></div>
+            <div style="padding: 6px 12px; color: #d1707a; font-size: 12px;">移到废纸篓</div>
+          </div>
+        </div>
+        <div class="p"><span style="color:#d1707a;">别这么干</span> ——
+          菜单做半透明的话，桌面在 webview <strong style="color:#cdcdcd;">之外</strong>，
+          <span class="mono">backdrop-filter</span> 模糊不到它：壁纸会<strong style="color:#d1707a;">清晰地</strong>穿过菜单，字直接糊掉。</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="glass" style="height: 184px;">
+          <div class="veil"></div>
+          <div style="position: absolute; left: 26px; top: 24px; width: 216px;
+                      background: #232326; border: 1px solid rgba(255,255,255,0.13);
+                      border-radius: 10px; padding: 5px 0; box-shadow: 0 14px 34px rgba(0,0,0,0.58);">
+            <div style="padding: 6px 12px; color: #cdcdcd; font-size: 12px;">在终端中打开</div>
+            <div style="padding: 6px 12px; color: #ffffff; font-size: 12px; background: rgba(255,255,255,0.11);
+                        margin: 0 5px; border-radius: 6px;">在访达中显示</div>
+            <div style="height: 1px; background: rgba(255,255,255,0.05); margin: 4px 0;"></div>
+            <div style="padding: 6px 12px; color: #d1707a; font-size: 12px;">移到废纸篓</div>
+          </div>
+        </div>
+        <div class="p"><span style="color:#6aab73;">改成</span> ——
+          不透明 <span class="mono">#232326</span> + 13% 边 + 投影。
+          「一块实心卡片摞在玻璃上」本来就是对的观感，投影负责把它抬起来。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 其余 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">四 · 顺带修掉的</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;">
+      <div style="background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px;
+                  padding: 18px; display: flex; flex-direction: column; gap: 9px;">
+        <div style="color:#ffffff; font-size: 13.5px; font-weight: 600;">启动闪一下旧色</div>
+        <div class="p">
+          <span class="mono">tauri.conf.json</span> 的
+          <span class="mono" style="color:#d1707a;">backgroundColor: "#1E1F22"</span>
+          还是上上版 IDEA 灰。窗口先按它画，前端起来才换成黑
+          —— 换成透明窗口后这行必须去掉，否则玻璃前面糊着一层灰。
+        </div>
+      </div>
+      <div style="background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px;
+                  padding: 18px; display: flex; flex-direction: column; gap: 9px;">
+        <div style="color:#ffffff; font-size: 13.5px; font-weight: 600;">崩溃屏还是老皮肤</div>
+        <div class="p">
+          <span class="mono">main.ts</span> 的兜底屏写死
+          <span class="mono" style="color:#d1707a;">#2b2d30/ #393b40 / #3574f0</span>
+          —— 三个都是被换掉的 IDEA 色。它不能引模块（走到那步模块已不可信），
+          但色值该跟上。
+        </div>
+      </div>
+      <div style="background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px;
+                  padding: 18px; display: flex; flex-direction: column; gap: 9px;">
+        <div style="color:#ffffff; font-size: 13.5px; font-weight: 600;">窗口失焦不变脸</div>
+        <div class="p">
+          vibrancy 的 state 走
+          <span class="mono" style="color:#6aab73;">Active</span>，不走
+          <span class="mono">FollowsWindowActiveState</span>：
+          在终端里敲命令、盯着这边看日志是常态，一失焦整窗变灰太吵。
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

@@ -16,7 +16,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# macos-private-api：透明窗口要它。`macOSPrivateApi: true` 和这个 feature
+# 必须成对出现 —— 只写配置不加 feature，build.rs 会直接把构建拦下来
+# （报的是「features 与 allowlist 不匹配」，不是「窗口不透明」）。
+tauri = { version = "2", features = ["macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 logengine = { path = "crates/logengine" }
@@ -24,6 +27,11 @@ fsservice = { path = "crates/fsservice" }
 ptysvc = { path = "crates/ptysvc" }
 searchsvc = { path = "crates/searchsvc" }
 gitsvc = { path = "crates/gitsvc" }
+
+# 窗口材质。**只在 macOS 上编进来** —— 这个 crate 在 Linux 上是空实现、
+# 在 Windows 上会拽进 windows-sys，而这个项目只发 macOS。
+[target.'cfg(target_os = "macos")'.dependencies]
+window-vibrancy = "0.6"
 
 # 发布构建：体积与速度并重（安装包目标 ~10MB）
 [profile.release]

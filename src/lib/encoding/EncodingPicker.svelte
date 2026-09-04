@@ -126,10 +126,10 @@
     max-height: 62vh;
     display: flex;
     flex-direction: column;
-    background: var(--panel-bg);
+    background: var(--elevated);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-pop);
     z-index: 41;
     overflow: hidden;
   }
@@ -194,6 +194,6 @@
     font-size: 11.5px;
     cursor: default;
   }
-  .foot button:hover { background: var(--panel-bg-2); color: var(--text); }
+  .foot button:hover { background: var(--hover); color: var(--text); }
   .foot button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 </style>

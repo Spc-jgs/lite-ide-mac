@@ -121,10 +121,10 @@
     max-height: 70vh;
     display: flex;
     flex-direction: column;
-    background: var(--panel-bg);
+    background: var(--elevated);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-pop);
     z-index: 41;
     overflow: hidden;
   }
@@ -177,7 +177,7 @@
     font-family: var(--code-font);
     padding: 1px 5px;
     border-radius: var(--r-sm);
-    background: var(--panel-bg-2);
+    background: var(--elevated-hi);
     color: var(--text-faint);
     min-width: 3.4em;
     text-align: center;

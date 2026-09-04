@@ -269,7 +269,7 @@
     color: var(--text-faint);
     cursor: default;
   }
-  .act:hover { background: var(--panel-bg-2); color: var(--text); }
+  .act:hover { background: var(--hover); color: var(--text); }
   .act.spin { color: var(--accent); }
 
   .branch {
@@ -319,7 +319,7 @@
     text-align: left;
     cursor: default;
   }
-  .collapsed:hover { background: var(--panel-bg-2); color: var(--text-dim); }
+  .collapsed:hover { background: var(--hover); color: var(--text-dim); }
   .collapsed .warn { color: var(--lvl-warn); }
   .commit textarea {
     width: 100%;
@@ -329,7 +329,7 @@
      * "一块摞上去的板"的观感 —— 输入框在 ChatGPT 里正是这么处理的
      * （#212121 + #ffffff26 + 28px 圆角）。
      */
-    background: var(--panel-bg-2);
+    background: var(--elevated);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     color: var(--text);
@@ -397,7 +397,7 @@
   .sec > * { white-space: nowrap; }
   .sec .cnt {
     font-family: var(--code-font);
-    background: var(--panel-bg-2);
+    background: var(--selected);
     border-radius: var(--r-md);
     padding: 0 5px;
     font-size: 10px;
@@ -413,7 +413,7 @@
     text-transform: none;
     letter-spacing: 0;
   }
-  .mini:hover { background: var(--panel-bg-2); color: var(--text); }
+  .mini:hover { background: var(--hover); color: var(--text); }
 
   /* 行操作按钮平时不占视觉，hover 才浮出来 —— 列表安静，动作随手可及 */
   /* 悬停是内缩圆角块，和文件树同一套 —— 两边挨着，做法不一样一眼看得出来 */
@@ -432,7 +432,7 @@
     cursor: default;
     border-radius: var(--r-sm);
   }
-  .rowact:hover { background: var(--panel-bg); color: var(--text); }
+  .rowact:hover { background: var(--hover); color: var(--text); }
   .rowact:focus-visible { opacity: 1; outline: 1px solid var(--accent); }
 
   .frow {

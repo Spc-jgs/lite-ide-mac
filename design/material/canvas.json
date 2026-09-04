@@ -1,0 +1,17 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1520, "h": 1000, "title": "主界面 · 材质落回真实布局" },
+    { "file": "Material.dc.html", "x": 1640, "y": 0, "w": 1300, "h": 1180, "title": "材质分层 · 提案本身" },
+    { "file": "States.dc.html", "x": 3060, "y": 0, "w": 1300, "h": 900, "title": "交互态与发丝线 · 前后对照" }
+  ],
+  "annotations": [
+    {
+      "id": "read-me-first",
+      "x": 0,
+      "y": -170,
+      "w": 460,
+      "text": "先看中间那张「材质分层」——它是提案本身。\n\n一句话：现在的「配色」是一层不透明的纯黑板子，换皮只换色号。\nChatGPT Mac 版那种透亮不是 CSS 调出来的，是窗口后面挂了一块\nNSVisualEffectView，桌面由 WindowServer 模糊后透上来。\n\n左边是把它放回真实布局的样子，右边是交互态跟着改的五处。\n所有尺寸与色值取自 src/app.css 和组件源码，没有另起一套。"
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

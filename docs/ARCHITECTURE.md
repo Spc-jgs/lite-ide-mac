@@ -242,7 +242,7 @@ lite-ide/
 ├─ package.json / pnpm-workspace.yaml
 ├─ src/                          # 前端（Svelte 5）
 │  ├─ App.svelte
-│  ├─ app.css                    # IDEA Dark design tokens（见 PLAN 附表）
+│  ├─ app.css                    # 材质分层：外壳透光 / 内容挡光 / 浮层不透
 │  └─ lib/
 │     ├─ ipc/                    # commands.ts（invoke 封装 + 手写 DTO，靠 dto_sync 测试卡住漂移）
 │     ├─ logview/    ★           # LogView.svelte / virtual-list.ts / line-cache.ts

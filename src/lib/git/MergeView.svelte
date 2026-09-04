@@ -152,7 +152,7 @@
     padding: 2px 9px;
     cursor: default;
   }
-  .bar button:hover { background: var(--panel-bg-2); color: var(--text); }
+  .bar button:hover { background: var(--hover); color: var(--text); }
   .bar button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   .body { flex: 1; overflow: auto; font-family: var(--code-font); font-size: 12.5px; line-height: 19px; }
@@ -164,7 +164,7 @@
     color: var(--text-faint);
     font-family: var(--ui-font);
     font-size: 11px;
-    background: var(--panel-bg);
+    background: var(--hover);
     border-top: 1px solid var(--border-soft);
     border-bottom: 1px solid var(--border-soft);
     user-select: none;
@@ -183,7 +183,7 @@
     align-items: center;
     gap: 8px;
     padding: 3px 8px;
-    background: var(--panel-bg);
+    background: var(--hover);
     font-family: var(--ui-font);
     font-size: 11px;
     color: var(--text-faint);
@@ -216,7 +216,7 @@
     gap: 8px;
     width: 100%;
     padding: 2px 12px;
-    background: var(--panel-bg);
+    background: var(--hover);
     border: none;
     border-bottom: 1px solid var(--border-soft);
     color: var(--text-faint);
@@ -228,7 +228,7 @@
   /* 「取这边」平时不出现，鼠标到了才浮出来 —— 标题栏保持安静，
      但一靠近就明确告诉你这一整条是可以点的 */
   .pick .hint { margin-left: auto; opacity: 0; color: var(--accent); }
-  .pick:hover { background: var(--panel-bg-2); color: var(--text); }
+  .pick:hover { background: var(--hover); color: var(--text); }
   .pick:hover .hint { opacity: 1; }
   .pick.on { color: var(--text); background: var(--accent-sel); }
   .pick.on .hint { opacity: 1; color: var(--diff-add-fg); }

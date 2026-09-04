@@ -234,10 +234,10 @@
     max-height: 66vh;
     display: flex;
     flex-direction: column;
-    background: var(--panel-bg);
+    background: var(--elevated);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-pop);
     z-index: 41;
     overflow: hidden;
   }
@@ -259,7 +259,7 @@
     font-size: 12px;
     cursor: default;
   }
-  .tab:hover { background: var(--panel-bg-2); }
+  .tab:hover { background: var(--hover); }
   .tab.on { background: var(--accent-sel); color: var(--text); }
   .tabs .gap { flex: 1; }
   .tabs .hint { font-size: 10.5px; color: var(--text-faint); font-family: var(--code-font); }
@@ -298,7 +298,7 @@
     font-family: var(--code-font);
     padding: 1px 4px;
     border-radius: var(--r-sm);
-    background: var(--panel-bg-2);
+    background: var(--elevated-hi);
     color: var(--text-faint);
   }
   .kind.action { color: var(--lvl-warn); }

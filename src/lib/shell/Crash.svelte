@@ -107,7 +107,7 @@
      */
     width: 100%;
     max-width: 680px;
-    background: var(--panel-bg);
+    background: var(--elevated);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     padding: 18px 20px 16px;
@@ -135,7 +135,7 @@
     padding: 10px 12px;
     max-height: 220px;
     overflow: auto;
-    background: var(--editor-bg);
+    background: var(--content-solid);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     font-family: var(--code-font);
@@ -158,7 +158,7 @@
     font-size: 12px;
     cursor: default;
   }
-  button:hover { background: var(--panel-bg-2); color: var(--text); }
+  button:hover { background: var(--hover); color: var(--text); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger:hover { background: var(--lvl-error); border-color: var(--lvl-error); color: #fff; }
 </style>
