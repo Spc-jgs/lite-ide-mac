@@ -968,6 +968,25 @@
   const opening = new Set<string>();
 
   /**
+   * 正在把上次的标签摆回来。**唯一的作用是拦住 `openPath` 去动 `activeId`。**
+   *
+   * 内容区是 `{#key active.id}` 包着的 —— activeId 一变就销毁重建。
+   * 而恢复是一个一个 `await openPath()` 的，每开一个就把 activeId 顶成它，
+   * 于是恢复 8 个标签 = **把编辑器建了 8 次**，界面一个文件一个文件地闪过去。
+   * （CM6 还是懒加载的，第一次要等 chunk 到位，闪得更明显。）
+   *
+   * 改成由 `restoreSession` 在**恰好走到该激活的那个标签时**设一次 activeId，
+   * 编辑器只建一次。标签仍按存下来的顺序逐个进列表 —— 那只是标签条在长，
+   * 不重建任何东西。
+   *
+   * **和下面那个 `restoring` 是两回事，不能合并。** 那个管的是「恢复期不写快照」，
+   * 它要一直盖到启动路径的最后 —— 包括命令行传进来的那个文件
+   * （`lite-ide a.rs`）。而那个文件**恰恰应该**被激活，合并了就等于
+   * `lite-ide a.rs` 打开却不切过去。
+   */
+  let restoringTabs = false;
+
+  /**
    * `quiet` 给会话恢复用：上次开着的文件这次可能已经不在了
    * （删了、改名了、切到了没有它的分支）。那是完全正常的事，
    * 逐个弹「读不到 xxx」只会在启动时糊一屏红字。
@@ -984,7 +1003,7 @@
       }
       const exist = tabs.find((t) => t.path === info.path);
       if (exist) {
-        activeId = exist.id;
+        if (!restoringTabs) activeId = exist.id;
         return;
       }
 
@@ -1010,7 +1029,8 @@
         tab.stamp = await fileStamp(info.path);
       }
       tabs = [...tabs, tab];
-      activeId = tab.id;
+      // 恢复期不抢：见 `restoringTabs` 上面那段
+      if (!restoringTabs) activeId = tab.id;
       // 没有项目根时，拿这个文件的父目录顶上，文件树才有东西显示
       if (!root) root = info.path.slice(0, info.path.lastIndexOf("/")) || "/";
     } catch (e) {
@@ -1050,8 +1070,31 @@
      * 并行看着快，但每个文件都要 probe + 读全文（或 mmap + 探编码），
      * 二十个文件一起冲进 IPC 会把启动的头一秒占满，首屏反而更晚出来。
      * 而且 `openPath` 里 `if (!root) root = 父目录` 这句依赖顺序。
+     *
+     * **但串行不等于要一个一个地闪。** `restoringTabs` 期间 `openPath`
+     * 不碰 `activeId`（见它上面那段），所以内容区一次都不重建；
+     * 走到该激活的那个标签时点一次，编辑器**只建一次**，
+     * 剩下的标签在它后面继续往标签条里填。
+     *
+     * 顺序仍是存下来的顺序 —— 把该激活的那个提到最前面能让它更早出来，
+     * 但标签条的顺序就跟上次不一样了，那是个更难受的毛病。
      */
-    for (const t of saved.tabs) await openPath(t.path, true);
+    const wantPath = saved.tabs[saved.active]?.path;
+    restoringTabs = true;
+    try {
+      for (const t of saved.tabs) {
+        await openPath(t.path, true);
+        if (t.path === wantPath) {
+          const hit = tabs.find((x) => x.path === t.path);
+          // 这一下是整个恢复过程里唯一一次内容区渲染
+          if (hit) activeId = hit.id;
+        }
+      }
+    } finally {
+      // 这里必须 finally：漏掉的话 activeId 就永久失灵，
+      // 而 openPath 是会抛的（文件没了、读不动、编码探测失败）
+      restoringTabs = false;
+    }
     /*
      * 兑现草稿。**必须在文件都读进来之后**：判据是「草稿和盘上现在那份一不一样」，
      * 盘上那份要先有。
@@ -1075,9 +1118,13 @@
         snapTab.stamp.size !== tab.stamp.size;
       if (盘上变了) tab.conflict = true;
     }
-    const want = saved.tabs[saved.active]?.path;
-    const hit = want ? tabs.find((t) => t.path === want) : null;
-    if (hit) activeId = hit.id;
+    /*
+     * 兜底。正常路径上 activeId 在上面那个循环里就点过了 ——
+     * 这里只服务两种情况：上次激活的那个文件这次不在了（循环里没命中），
+     * 或者 `saved.active` 越界。那时退到第一个恢复成功的标签，
+     * 总比停在一个空内容区上好。
+     */
+    if (activeId === null && tabs.length > 0) activeId = tabs[0].id;
     // 上次开着、这次已经不在的文件：从记忆里也删掉，不然它们
     // 会一直躺在快照里，每次启动都白试一遍
     for (const t of saved.tabs) {
