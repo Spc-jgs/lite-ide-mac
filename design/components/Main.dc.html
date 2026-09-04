@@ -1,0 +1,252 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px;
+      border-radius: 10px; color: #cdcdcd; font-size: 12.5px; }
+    .m { flex: none; width: 12px; text-align: center; font-size: 11px; }
+    .fdir { color: #6f737b; font-size: 11px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; flex: 1; min-width: 0; }
+    .sec { display: flex; align-items: center; gap: 6px; padding: 6px 8px 3px;
+      font-size: 10.5px; letter-spacing: 0.06em; color: #7a7a80; text-transform: uppercase; }
+    .tab { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+      border-radius: 8px; color: #a8a8ac; font-size: 12.5px; }
+    /* 标注气泡 */
+    .pin { position: absolute; display: flex; align-items: center; gap: 7px; z-index: 5; }
+    .pin .dot { width: 20px; height: 20px; border-radius: 50%; display: grid; place-content: center;
+      background: #5b8def; color: #fff; font-size: 11px; font-weight: 600;
+      font-family: "SF Mono", Menlo, monospace; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+    .pin .txt { background: rgba(10,10,12,.86); border: 1px solid rgba(255,255,255,.13);
+      border-radius: 8px; padding: 4px 9px; color: #e6e6e8; font-size: 11.5px; white-space: nowrap; }
+  </style>
+</helmet>
+
+<div style="width: 1560px; height: 1080px; position: relative; overflow: hidden; background: #12161d;">
+
+  <div style="position: absolute; inset: 0; background:
+      radial-gradient(1100px 700px at 12% 8%, #4a6fa8 0%, rgba(74,111,168,0) 62%),
+      radial-gradient(900px 800px at 88% 22%, #8f5a7c 0%, rgba(143,90,124,0) 60%),
+      radial-gradient(1200px 900px at 62% 96%, #2f6f63 0%, rgba(47,111,99,0) 58%),
+      linear-gradient(160deg, #1c2533 0%, #262233 48%, #17262a 100%);"></div>
+
+  <div style="position: absolute; left: 60px; top: 96px; width: 1440px; height: 900px;
+              border-radius: 12px; overflow: hidden;
+              box-shadow: 0 34px 80px rgba(0,0,0,0.55), 0 0 0 0.5px rgba(255,255,255,0.13);">
+    <div style="position: absolute; inset: 0; background: rgba(28,28,30,0.62);
+                backdrop-filter: blur(50px) saturate(185%);"></div>
+
+    <div style="position: absolute; inset: 0; display: flex; flex-direction: column;">
+
+      <!-- 标题栏 -->
+      <div style="flex: none; height: 38px; display: flex; align-items: center; gap: 8px;
+                  padding: 0 12px 0 78px; background: rgba(0,0,0,0.20);
+                  border-bottom: 1px solid rgba(255,255,255,0.09); font-size: 12.5px;">
+        <div style="position: absolute; left: 14px; top: 14px; display: flex; gap: 8px;">
+          <div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57;"></div>
+          <div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e;"></div>
+          <div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840;"></div>
+        </div>
+        <span style="color: #ffffff; font-weight: 500;">lite-ide</span>
+        <span style="color: #8a8a8a; font-size: 11px;">›</span>
+        <span style="color: #cdcdcd;">src</span>
+        <span style="color: #8a8a8a; font-size: 11px;">›</span>
+        <span style="color: #ffffff;">app.css</span>
+        <div style="flex: 1;"></div>
+      </div>
+
+      <div style="flex: 1; min-height: 0; display: flex;">
+
+        <!-- 竖条 -->
+        <div style="flex: none; width: 34px; display: flex; flex-direction: column; align-items: center;
+                    gap: 2px; padding: 5px 0 6px; border-right: 1px solid rgba(255,255,255,0.09);">
+          <div style="width: 26px; height: 26px; border-radius: 10px; display: grid; place-content: center; color: #8a8a8a;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.8 3.4h4.3l1.2 1.5h6.9v7.7H1.8z"/></svg></div>
+          <div style="position: relative; width: 26px; height: 26px; border-radius: 10px; display: grid;
+                      place-content: center; background: rgba(255,255,255,0.11); color: #ffffff;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg>
+            <div style="position: absolute; right: 4px; top: 4px; width: 5px; height: 5px;
+                        border-radius: 50%; background: #6ba1e8;"></div></div>
+          <div style="width: 26px; height: 26px; border-radius: 10px; display: grid; place-content: center; color: #8a8a8a;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="4.4"/><path d="M10.3 10.3 14 14"/></svg></div>
+          <div style="flex: 1;"></div>
+          <div style="width: 26px; height: 26px; border-radius: 10px; display: grid; place-content: center; color: #8a8a8a;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4.5 6 8l-3 3.5M8 11.5h5"/></svg></div>
+        </div>
+
+        <!-- Git 栏（改后） -->
+        <div style="flex: none; width: 240px; display: flex; flex-direction: column;
+                    border-right: 1px solid rgba(255,255,255,0.09);">
+          <div style="flex: none; display: flex; align-items: center; gap: 6px; height: 34px;
+                      padding: 0 6px 0 10px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span style="color:#8a8a8a;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg></span>
+            <span class="mono" style="font-size: 12px; color: #ffffff;">main</span>
+            <span style="color:#6f737b; font-size: 9px;">▾</span>
+            <span style="flex:1"></span>
+            <span class="mono" style="font-size: 10.5px; color: #cdcdcd; padding: 1px 7px;
+                        border-radius: 6px; background: rgba(255,255,255,0.11);">6 处改动</span>
+          </div>
+          <div style="padding: 6px 6px 0;">
+            <div style="background: #2e2e31; border: 1px solid rgba(255,255,255,0.09);
+                        border-radius: 10px; padding: 7px 9px; color: #cdcdcd; font-size: 11.5px;
+                        line-height: 1.5;">标签栏改成圆角块，去掉竖线<span style="color:#e8e8ea;">▏</span></div>
+            <div style="display: flex; align-items: center; gap: 6px; margin-top: 7px;">
+              <span style="color:#6f737b;font-size:11px;">改写上一条</span>
+              <span style="flex:1"></span>
+              <span style="padding: 3px 12px; border-radius: 6px; background: #5b8def;
+                          color: #fff; font-size: 11.5px;">提交 (2)</span>
+            </div>
+          </div>
+          <div style="padding: 10px 6px 4px; flex: 1; min-height: 0;">
+            <div class="sec">已暂存 <span class="mono" style="font-size:10px;padding:0 5px;border-radius:10px;background:rgba(255,255,255,0.11);color:#8a8a8a;">2</span></div>
+            <div class="row"><span class="m" style="color:#6ba1e8;">M</span><span>Tabs.svelte</span><span class="fdir">src/lib/shell</span></div>
+            <div class="row"><span class="m" style="color:#6ba1e8;">M</span><span>app.css</span><span class="fdir">src</span></div>
+            <div class="sec">改动 <span class="mono" style="font-size:10px;padding:0 5px;border-radius:10px;background:rgba(255,255,255,0.11);color:#8a8a8a;">4</span>
+              <span style="flex:1"></span>
+              <span style="font-size:10.5px;color:#8a8a8a;text-transform:none;padding:1px 6px;
+                          border-radius:6px;background:rgba(255,255,255,0.07);">全部暂存</span></div>
+            <div class="row"><span class="m" style="color:#6ba1e8;">M</span><span>GitPane.svelte</span><span class="fdir">src/lib/git</span></div>
+            <div class="row" style="background: rgba(255,255,255,0.07);">
+              <span class="m" style="color:#6ba1e8;">M</span><span style="color:#fff;">QuickSearch.svelte</span>
+              <span class="fdir">src/lib/search</span>
+              <span style="flex:none;display:flex;gap:1px;color:#8a8a8a;">
+                <span style="width:20px;height:22px;display:grid;place-content:center;border-radius:6px;">↺</span>
+                <span style="width:20px;height:22px;display:grid;place-content:center;border-radius:6px;background:rgba(255,255,255,0.11);color:#fff;">＋</span></span></div>
+            <div class="row"><span class="m" style="color:#6ba1e8;">M</span><span>BranchPicker.svelte</span><span class="fdir">src/lib/git</span></div>
+            <div class="row"><span class="m" style="color:#8a9a5b;">?</span><span>components/</span><span class="fdir">design</span></div>
+          </div>
+        </div>
+
+        <div style="flex: none; width: 4px; position: relative;">
+          <div style="position: absolute; left: 1.5px; top: 0; bottom: 0; width: 1px;
+                      background: rgba(255,255,255,0.09);"></div></div>
+
+        <!-- 主区 -->
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+
+          <!-- 标签栏（改后）：无竖线、无常驻 ✕、有类型图标 -->
+          <div style="flex: none; height: 38px; display: flex; align-items: center; gap: 2px;
+                      padding: 0 6px; border-bottom: 1px solid rgba(255,255,255,0.09);">
+            <div class="tab">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#c77dbb" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+              Tabs.svelte</div>
+            <div class="tab" style="background: rgba(255,255,255,0.11); color: #ffffff;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#6aab73" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+              app.css
+              <span style="width:6px;height:6px;border-radius:50%;background:#cdcdcd;margin-right:1px;"></span></div>
+            <div class="tab">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#c77dbb" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+              GitPane.svelte</div>
+            <div class="tab">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3"><path d="M2.5 12V4l3 4 3-4v8M11 4v6.5M11 10.5 13.5 8M11 10.5 8.5 8"/></svg>
+              AGENTS.md</div>
+            <div class="tab">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#6ba1e8" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+              app.css ↔ HEAD
+              <span class="mono" style="font-size:9px;padding:1px 4px;border-radius:5px;
+                           background:rgba(255,255,255,0.07);color:#6ba1e8;">差异</span></div>
+          </div>
+
+          <!-- 内容层 -->
+          <div style="flex: 1; min-height: 0; display: flex; background: rgba(30,31,34,0.94);">
+            <div style="flex: none; width: 52px; padding: 8px 10px 0 0; text-align: right;
+                        font-family: 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 20px; color: #4a4a4d;">
+              <div>104</div><div>105</div><div>106</div><div>107</div><div>108</div>
+              <div style="color: #cdcdcd;">109</div><div>110</div><div>111</div><div>112</div>
+              <div>113</div><div>114</div><div>115</div><div>116</div><div>117</div><div>118</div>
+            </div>
+            <div style="flex: 1; min-width: 0; padding: 8px 0 0; font-family: 'SF Mono', Menlo, monospace;
+                        font-size: 12.5px; line-height: 20px; color: #cdcdcd; white-space: pre; overflow: hidden;">
+<div><span style="color:#6f737b;">  /* ── 交互态：一律叠加，三档 ─────────────────── */</span></div>
+<div></div>
+<div><span style="color:#6f737b;">  /*</span></div>
+<div><span style="color:#6f737b;">   * 这三个值是这套材质里最不能破例的地方。</span></div>
+<div><span style="color:#6f737b;">   * 任何一处填不透明色，那一块就从玻璃表面掉下来。</span></div>
+<div style="background: rgba(255,255,255,0.035);"><span style="color:#6f737b;">   */</span></div>
+<div>  <span style="color:#c77dbb;">--hover</span>: <span style="color:#6aab73;">rgba</span>(<span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">0.07</span>);</div>
+<div>  <span style="color:#c77dbb;">--selected</span>: <span style="color:#6aab73;">rgba</span>(<span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">0.11</span>);</div>
+<div>  <span style="color:#c77dbb;">--pressed</span>: <span style="color:#6aab73;">rgba</span>(<span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">0.14</span>);</div>
+<div></div>
+<div><span style="color:#6f737b;">  /* ── 线 ─────────────────────────────────────── */</span></div>
+<div></div>
+<div>  <span style="color:#c77dbb;">--border</span>: <span style="color:#6aab73;">rgba</span>(<span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">0.09</span>);</div>
+<div>  <span style="color:#c77dbb;">--border-soft</span>: <span style="color:#6aab73;">rgba</span>(<span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">255</span>, <span style="color:#2aacb8;">0.05</span>);</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态栏 -->
+      <div style="flex: none; height: 24px; display: flex; align-items: center; gap: 16px; padding: 0 12px;
+                  background: rgba(0,0,0,0.20); border-top: 1px solid rgba(255,255,255,0.09);
+                  font-family: 'SF Mono', Menlo, monospace; font-size: 11.5px; color: #cdcdcd;">
+        <span>行 109，列 3</span><span style="color: #8a8a8a;">UTF-8</span>
+        <span style="color: #8a8a8a;">LF</span><span style="color: #8a8a8a;">CSS</span>
+        <div style="flex: 1;"></div>
+        <span style="color: #6ba1e8;">6 处改动</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 搜索浮层压在上面，说明它和这套外壳是一体的 -->
+  <div style="position: absolute; left: 520px; top: 240px; width: 620px;
+              background: #232326; border: 1px solid rgba(255,255,255,0.13); border-radius: 14px;
+              box-shadow: 0 22px 54px rgba(0,0,0,0.62); overflow: hidden; z-index: 4;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 13px 16px;">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8a8a8a" stroke-width="1.4"><circle cx="7" cy="7" r="4.4"/><path d="M10.3 10.3 14 14"/></svg>
+      <span style="color: #e6e6e8; font-size: 15px;">hover<span style="color:#e8e8ea;">▏</span></span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 2px; padding: 0 14px 9px;
+                border-bottom: 1px solid rgba(255,255,255,0.05);">
+      <span style="padding:3px 11px;border-radius:6px;background:rgba(255,255,255,0.11);color:#fff;font-size:12px;">全部</span>
+      <span style="padding:3px 11px;border-radius:6px;color:#a8a8ac;font-size:12px;">文件</span>
+      <span style="padding:3px 11px;border-radius:6px;color:#a8a8ac;font-size:12px;">内容</span>
+      <span style="padding:3px 11px;border-radius:6px;color:#a8a8ac;font-size:12px;">操作</span>
+    </div>
+    <div style="padding: 2px 0 4px;">
+      <div style="padding: 7px 14px 3px; font-size: 10.5px; letter-spacing: .06em;
+                  text-transform: uppercase; color: #7a7a80;">内容</div>
+      <div style="display:flex;align-items:center;gap:9px;background:rgba(255,255,255,0.11);
+                  margin:0 6px;border-radius:8px;padding:6px 8px;font-size:12.5px;color:#fff;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6aab73" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+        <span class="mono" style="font-size:11.5px;">--<mark style="background:rgba(91,141,239,.38);color:#fff;border-radius:2px;">hover</mark>: rgba(255, 255, 255, 0.07);</span>
+        <span style="margin-left:auto;color:#6f737b;font-size:11px;">src/app.css:109</span></div>
+      <div style="display:flex;align-items:center;gap:9px;padding:6px 14px;font-size:12.5px;color:#cdcdcd;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#c77dbb" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+        <span class="mono" style="font-size:11.5px;">.row:<mark style="background:rgba(91,141,239,.38);color:#fff;border-radius:2px;">hover</mark> { background: var(--hover); }</span>
+        <span style="margin-left:auto;color:#6f737b;font-size:11px;">FileTree.svelte:1071</span></div>
+      <div style="padding: 7px 14px 3px; font-size: 10.5px; letter-spacing: .06em;
+                  text-transform: uppercase; color: #7a7a80;">文件</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:6px 14px;font-size:12.5px;color:#cdcdcd;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6aab73" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+        app.css<span style="margin-left:auto;color:#6f737b;font-size:11px;">src</span></div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; padding: 7px 14px;
+                border-top: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.16);">
+      <span style="font-size:10.5px;color:#8a8a8a;"><span class="mono" style="background:rgba(255,255,255,.07);border-radius:4px;padding:1px 5px;">↑↓</span> 选择</span>
+      <span style="font-size:10.5px;color:#8a8a8a;"><span class="mono" style="background:rgba(255,255,255,.07);border-radius:4px;padding:1px 5px;">↵</span> 打开</span>
+      <span style="font-size:10.5px;color:#8a8a8a;"><span class="mono" style="background:rgba(255,255,255,.07);border-radius:4px;padding:1px 5px;">Tab</span> 换范围</span>
+      <span style="flex:1"></span>
+      <span style="font-size:10.5px;color:#8a8a8a;"><span class="mono" style="background:rgba(255,255,255,.07);border-radius:4px;padding:1px 5px;">esc</span> 关闭</span>
+    </div>
+  </div>
+
+  <!-- 标注 -->
+  <div class="pin" style="left: 60px; top: 40px;"><div class="dot">1</div><div class="txt">Git 栏：分支行即入口，提交框直接摊开，行动作 hover 浮出</div></div>
+  <div class="pin" style="left: 700px; top: 40px;"><div class="dot">2</div><div class="txt">文件栏：零竖线、零常驻 ✕、有类型图标</div></div>
+  <div class="pin" style="left: 1150px; top: 40px;"><div class="dot">3</div><div class="txt">搜索：输入在上、结果分组、键位在脚栏</div></div>
+  <div class="pin" style="left: 60px; top: 1030px;"><div class="dot">4</div><div class="txt">分支面板见「Git 分支」那张画板 —— 点上面那个 main ▾ 打开</div></div>
+
+</div>
+</x-dc>
+</body>
+</html>

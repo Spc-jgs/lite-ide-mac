@@ -1,0 +1,283 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12px; line-height: 1.7; }
+    .cap { color: #7a7a80; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .lab { font-size: 12.5px; font-weight: 600; }
+    .bad { color: #d1707a; } .good { color: #6aab73; }
+    /* 侧边栏是外壳层：底就是材质，这里用玻璃演出来 */
+    .glass { position: relative; border-radius: 12px; overflow: hidden;
+      background: radial-gradient(340px 260px at 15% 10%, #40608f 0%, rgba(64,96,143,0) 66%),
+                  radial-gradient(300px 300px at 88% 88%, #7d5070 0%, rgba(125,80,112,0) 62%),
+                  linear-gradient(155deg, #1b2330, #16242a); }
+    .glass > .veil { position: absolute; inset: 0; background: rgba(28,28,30,0.62);
+      backdrop-filter: blur(28px) saturate(185%); }
+    .pane { position: relative; height: 100%; display: flex; flex-direction: column;
+      border-right: 1px solid rgba(255,255,255,0.09); }
+    .row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px;
+      border-radius: 10px; color: #cdcdcd; font-size: 12.5px; }
+    .m { flex: none; width: 12px; text-align: center; font-size: 11px; }
+    .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fdir { color: #6f737b; font-size: 11px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; flex: 1; min-width: 0; }
+    .sec { display: flex; align-items: center; gap: 6px; padding: 5px 8px 3px;
+      font-size: 10.5px; letter-spacing: 0.06em; color: #7a7a80; text-transform: uppercase; }
+    .cnt { font-family: "SF Mono", Menlo, monospace; font-size: 10px; padding: 0 5px;
+      border-radius: 10px; background: rgba(255,255,255,0.11); color: #8a8a8a; }
+    .note { display: flex; gap: 9px; align-items: flex-start; }
+    .num { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid;
+      place-content: center; font-size: 10.5px; font-family: "SF Mono", Menlo, monospace;
+      background: rgba(255,255,255,0.11); color: #cdcdcd; margin-top: 1px; }
+  </style>
+</helmet>
+
+<div style="width: 1320px; min-height: 1000px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 30px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="color: #ffffff; font-size: 24px; font-weight: 600;">Git 栏</div>
+    <div class="p" style="max-width: 940px; font-size: 12.5px;">
+      交互按 IDEA 的提交工具窗：<strong style="color:#cdcdcd;">分支挂件就是分支操作的入口</strong>，
+      改动按「冲突 / 已暂存 / 未暂存」分组，行动作 hover 才浮出来。
+      外观按现在这套材质：外壳透光、行是内缩圆角块、交互态一律白叠加。
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 300px 300px 1fr; gap: 26px; align-items: start;">
+
+    <!-- 现状 -->
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="lab bad">现状 · 工作区干净时</div>
+      <div class="glass" style="height: 470px;">
+        <div class="veil"></div>
+        <div class="pane">
+          <div style="display: flex; align-items: center; height: 30px; padding: 0 4px 0 10px;
+                      border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 11px;
+                      letter-spacing: 0.06em; color: #cdcdcd;">
+            <span>GIT</span><span style="flex:1"></span>
+            <span style="color:#8a8a8a; padding-right: 6px;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13 2v3h-3"/></svg>
+            </span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 5px; padding: 7px 10px; font-size: 12px;
+                      color: #ffffff; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span style="color:#8a8a8a;">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg>
+            </span>
+            <span class="mono" style="font-size: 11.5px;">dev</span>
+            <span class="mono" style="font-size: 11px; color: #5b8def;">↓3</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; padding: 7px 10px;
+                      border-bottom: 1px solid rgba(255,255,255,0.05); color: #8a8a8a; font-size: 11.5px;">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8.4l3.2 3.2L13 4.8"/></svg>
+            <span>工作区干净</span>
+          </div>
+          <div style="padding: 22px 0; text-align: center; color: #8a8a8a; font-size: 12px;">工作区干净</div>
+        </div>
+      </div>
+      <div class="p" style="font-size: 11.5px;">
+        <span class="bad">「工作区干净」印了两遍</span> —— 一遍在折叠起来的提交按钮里，
+        一遍在列表的空态里。下面还剩 300px 什么都没有。
+      </div>
+    </div>
+
+    <!-- 改成 -->
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="lab good">改成</div>
+      <div class="glass" style="height: 470px;">
+        <div class="veil"></div>
+        <div class="pane">
+          <!-- 分支行升为标题行：它就是分支操作的入口（IDEA 的分支挂件） -->
+          <div style="display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 10px;
+                      border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span style="color:#8a8a8a;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg>
+            </span>
+            <span class="mono" style="font-size: 12px; color: #ffffff;">dev</span>
+            <span style="color:#6f737b; font-size: 9px;">▾</span>
+            <span class="mono" style="font-size: 10.5px; color: #8a8a8a; padding: 0 4px;
+                        border-radius: 6px; background: rgba(255,255,255,0.07);">↓3</span>
+            <span style="flex:1"></span>
+            <span style="color:#8a8a8a; width: 22px; height: 22px; display: grid; place-content: center;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13 2v3h-3"/></svg>
+            </span>
+          </div>
+          <!-- 空态只出现一次，而且给出下一步 -->
+          <div style="flex: 1; display: grid; place-content: center; justify-items: center; gap: 10px;
+                      padding: 0 24px; text-align: center;">
+            <div style="width: 34px; height: 34px; border-radius: 50%; display: grid; place-content: center;
+                        background: rgba(255,255,255,0.07); color: #6aab73;">
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8.4l3.2 3.2L13 4.8"/></svg>
+            </div>
+            <div style="color: #cdcdcd; font-size: 12.5px;">工作区干净</div>
+            <div style="color: #6f737b; font-size: 11px; line-height: 1.6;">
+              和 <span class="mono">origin/dev</span> 比落后 3 个提交
+            </div>
+            <div style="display: flex; gap: 6px; margin-top: 2px;">
+              <span style="padding: 3px 10px; border-radius: 6px; background: rgba(255,255,255,0.07);
+                          color: #cdcdcd; font-size: 11.5px;">看提交历史</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="p" style="font-size: 11.5px;">
+        <span class="good">空态只印一遍</span>，而且把那片空白用起来：
+        说清「干净」之后紧接着的那件事是什么。
+      </div>
+    </div>
+
+    <!-- 为什么 -->
+    <div style="display: flex; flex-direction: column; gap: 14px; padding-top: 26px;">
+      <div class="note"><div class="num">1</div><div class="p">
+        <strong style="color:#fff;">分支行变成按钮，点了开分支面板。</strong>
+        IDEA 里分支挂件<strong style="color:#cdcdcd;">就是</strong>分支操作的入口。
+        现在这行只是块只读文字，而分支面板藏在标题栏右上角 ——
+        人在 Git 栏里想切分支，眼睛落在的是这一行。
+      </div></div>
+      <div class="note"><div class="num">2</div><div class="p">
+        <strong style="color:#fff;"><span class="mono">↓3</span> 要说清是什么。</strong>
+        这个项目<strong style="color:#cdcdcd;">没有 pull / push</strong>（gitsvc 不起网络子进程），
+        所以它纯粹是条信息。做成一个不可点的胶囊 + 悬停说明
+        「落后 origin/dev 3 个提交」，别让人去点它。
+      </div></div>
+      <div class="note"><div class="num">3</div><div class="p">
+        <strong style="color:#fff;">「GIT」那行标题去掉。</strong>
+        它占 30px、只说了一件侧边栏图标已经说过的事。
+        刷新按钮挪到分支行右端 —— 那本来就是「这行数据新不新」的位置。
+      </div></div>
+      <div class="note"><div class="num">4</div><div class="p">
+        <strong style="color:#fff;">空态给下一步，不是给句号。</strong>
+        干净时唯一还能做的事是看历史，那就把它放出来。
+      </div></div>
+    </div>
+  </div>
+
+  <!-- 有改动时 -->
+  <div style="display: grid; grid-template-columns: 300px 300px 1fr; gap: 26px; align-items: start;">
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="lab bad">现状 · 有改动时</div>
+      <div class="glass" style="height: 400px;">
+        <div class="veil"></div>
+        <div class="pane">
+          <div style="display: flex; align-items: center; height: 30px; padding: 0 10px;
+                      border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 11px;
+                      letter-spacing: 0.06em; color: #cdcdcd;">GIT</div>
+          <div style="display: flex; align-items: center; gap: 5px; padding: 7px 10px; font-size: 12px;
+                      color: #ffffff; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span class="mono" style="font-size: 11.5px;">dev</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; padding: 7px 10px;
+                      border-bottom: 1px solid rgba(255,255,255,0.05); color: #8a8a8a; font-size: 11.5px;">
+            <span style="font-size: 13px;">+</span><span>写提交信息…</span>
+          </div>
+          <div style="padding: 4px 6px;">
+            <div class="sec" style="padding-left: 8px;">改动 <span class="cnt">4</span>
+              <span style="flex:1"></span>
+              <span style="font-size:10.5px; color:#6f737b; text-transform:none;">全部丢弃</span>
+              <span style="font-size:10.5px; color:#6f737b; text-transform:none;">全部暂存</span>
+            </div>
+            <div class="row"><span class="m" style="color:#6ba1e8;">M</span><span class="fname">App.svelte</span><span class="fdir">src</span></div>
+            <div class="row"><span class="m" style="color:#6ba1e8;">M</span><span class="fname">app.css</span><span class="fdir">src</span></div>
+            <div class="row"><span class="m" style="color:#63b76c;">A</span><span class="fname">Tabs.dc.html</span><span class="fdir">design/components</span></div>
+            <div class="row"><span class="m" style="color:#8a9a5b;">?</span><span class="fname">notes.md</span><span class="fdir"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="p" style="font-size: 11.5px;">
+        <span class="bad">三条分隔线摞在顶上</span>（标题 / 分支 / 提交），
+        每条都吃 30px 左右，真正的改动列表从 100px 才开始。
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="lab good">改成</div>
+      <div class="glass" style="height: 400px;">
+        <div class="veil"></div>
+        <div class="pane">
+          <div style="display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 10px;
+                      border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span style="color:#8a8a8a;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg>
+            </span>
+            <span class="mono" style="font-size: 12px; color: #ffffff;">dev</span>
+            <span style="color:#6f737b; font-size: 9px;">▾</span>
+            <span style="flex:1"></span>
+            <span class="mono" style="font-size: 10.5px; color: #cdcdcd; padding: 1px 7px;
+                        border-radius: 6px; background: rgba(255,255,255,0.11);">4 处改动</span>
+          </div>
+          <div style="padding: 6px 6px 0;">
+            <!-- 提交框直接摊开，不再折叠成一行按钮 -->
+            <div style="background: #2e2e31; border: 1px solid rgba(255,255,255,0.09);
+                        border-radius: 10px; padding: 7px 9px; color: #6f737b; font-size: 11.5px;">
+              提交信息（⌘↵ 提交）
+            </div>
+          </div>
+          <div style="padding: 8px 6px 4px;">
+            <div class="sec">改动 <span class="cnt">4</span>
+              <span style="flex:1"></span>
+              <span style="font-size:10.5px; color:#8a8a8a; text-transform:none; padding: 1px 6px;
+                          border-radius: 6px; background: rgba(255,255,255,0.07);">全部暂存</span>
+            </div>
+            <div class="row"><span class="m" style="color:#6ba1e8;">M</span><span class="fname">App.svelte</span><span class="fdir">src</span></div>
+            <!-- hover 行：动作浮出来 -->
+            <div class="row" style="background: rgba(255,255,255,0.07);">
+              <span class="m" style="color:#6ba1e8;">M</span><span class="fname" style="color:#fff;">app.css</span>
+              <span class="fdir">src</span>
+              <span style="flex:none; display:flex; gap:1px; color:#8a8a8a;">
+                <span style="width:20px;height:22px;display:grid;place-content:center;border-radius:6px;">↺</span>
+                <span style="width:20px;height:22px;display:grid;place-content:center;border-radius:6px;background:rgba(255,255,255,0.11);color:#fff;">＋</span>
+              </span>
+            </div>
+            <div class="row"><span class="m" style="color:#63b76c;">A</span><span class="fname">Tabs.dc.html</span><span class="fdir">design/components</span></div>
+            <div class="row"><span class="m" style="color:#8a9a5b;">?</span><span class="fname">notes.md</span><span class="fdir"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="p" style="font-size: 11.5px;">
+        <span class="good">顶上只剩一行</span>，列表从 40px 开始 ——
+        240px 宽的侧边栏里，纵向每一格都值钱。
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 14px; padding-top: 26px;">
+      <div class="note"><div class="num">5</div><div class="p">
+        <strong style="color:#fff;">提交框不折叠。</strong>
+        现在它折成一行「写提交信息…」，要点一下才展开 ——
+        而侧边栏开着 Git 页的时候，人十有八九就是要提交。
+        IDEA 的提交工具窗也是直接摊开的。
+        <strong style="color:#cdcdcd;">干净时它自动收起</strong>（那时没东西可提交）。
+      </div></div>
+      <div class="note"><div class="num">6</div><div class="p">
+        <strong style="color:#fff;">改动条数移到分支行右端。</strong>
+        它跟分支是同一类信息（「这个仓库现在什么状态」），
+        而且省掉了 sec 里那个重复的计数。
+      </div></div>
+      <div class="note"><div class="num">7</div><div class="p">
+        <strong style="color:#fff;">「全部丢弃」从常驻位置撤掉。</strong>
+        它和「全部暂存」现在并排、同样大小、同样颜色 ——
+        而一个不可撤销、一个随手可逆。
+        丢弃移进右键菜单，误点的代价不该只隔着 2px。
+      </div></div>
+      <div class="note"><div class="num">8</div><div class="p">
+        <strong style="color:#fff;">分组头吸顶。</strong>
+        改动多的时候（上限 5000 条），滚到一半就不知道
+        现在看的是「已暂存」还是「改动」了。
+      </div></div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

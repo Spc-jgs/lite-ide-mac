@@ -1728,6 +1728,8 @@
   <git.comps.branch
     bind:open={branchOpen}
     {repo}
+    ahead={gitSt?.ahead ?? 0}
+    behind={gitSt?.behind ?? 0}
     onSwitch={(n) => switchBranch(n)}
     onNewBranch={(n) => switchBranch(n, true)}
     onOpenWorktree={(p) => void openPath(p)}
@@ -1866,6 +1868,13 @@
             onDiscard={(es) => (pendingDiscard = es)}
             onCommit={doGitCommit}
             onRefresh={() => void refreshGit()}
+            onOpenBranches={() => (branchOpen = true)}
+            onOpenLog={() => {
+              panelView = "log";
+              panel = true;
+            }}
+            ahead={gitSt?.ahead ?? 0}
+            behind={gitSt?.behind ?? 0}
           />
         {:else if sideView === "git" && repo}
           <div class="no-root">正在载入 Git 面板…</div>

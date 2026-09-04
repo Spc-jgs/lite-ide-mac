@@ -1,0 +1,189 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12px; line-height: 1.7; }
+    .cap { color: #7a7a80; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .lab { font-size: 12.5px; font-weight: 600; }
+    .bad { color: #d1707a; } .good { color: #6aab73; }
+    .glass { position: relative; border-radius: 12px; overflow: hidden;
+      background: radial-gradient(420px 240px at 12% 8%, #40608f 0%, rgba(64,96,143,0) 66%),
+                  radial-gradient(380px 260px at 90% 86%, #7d5070 0%, rgba(125,80,112,0) 62%),
+                  linear-gradient(155deg, #1b2330, #16242a); }
+    .glass > .veil { position: absolute; inset: 0; background: rgba(28,28,30,0.62);
+      backdrop-filter: blur(28px) saturate(185%); }
+    .note { display: flex; gap: 9px; align-items: flex-start; }
+    .num { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid;
+      place-content: center; font-size: 10.5px; font-family: "SF Mono", Menlo, monospace;
+      background: rgba(255,255,255,0.11); color: #cdcdcd; margin-top: 1px; }
+    .card { background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; }
+  </style>
+</helmet>
+
+<div style="width: 1320px; min-height: 940px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 30px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="color: #ffffff; font-size: 24px; font-weight: 600;">文件栏（标签）</div>
+    <div class="p" style="max-width: 940px; font-size: 12.5px;">
+      现在这排标签是<strong style="color:#cdcdcd;">用竖线切出来的格子</strong>，
+      八个标签就是八道 1px 竖线 —— 那是表格的做法，不是标签的做法。
+      现代 macOS（Safari 26 / Xcode）和 ChatGPT desktop 都是同一条：
+      <strong style="color:#cdcdcd;">不画分隔线，靠一块圆角块指出"当前在哪一个"</strong>，其余全部留白。
+    </div>
+  </div>
+
+  <!-- 现状 -->
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div class="lab bad">现状</div>
+    <div class="glass" style="height: 74px;">
+      <div class="veil"></div>
+      <div style="position: relative; height: 32px; display: flex; align-items: stretch;
+                  border-bottom: 1px solid rgba(255,255,255,0.09);">
+        <div style="display:flex;align-items:center;gap:6px;padding:0 11px 0 9px;color:#cdcdcd;font-size:12.5px;
+                    border-right:1px solid rgba(255,255,255,0.05);border-bottom:2px solid transparent;">
+          index.html <span style="color:#8a8a8a;font-size:10px;">✕</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:0 11px 0 9px;color:#cdcdcd;font-size:12.5px;
+                    border-right:1px solid rgba(255,255,255,0.05);">
+          LICENSE <span style="color:#8a8a8a;font-size:10px;">✕</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:0 11px 0 9px;color:#cdcdcd;font-size:12.5px;
+                    border-right:1px solid rgba(255,255,255,0.05);">
+          build.bat <span style="color:#8a8a8a;font-size:10px;">✕</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:0 11px 0 9px;color:#cdcdcd;font-size:12.5px;
+                    border-right:1px solid rgba(255,255,255,0.05);">
+          <span style="width:2px;align-self:stretch;background:#d6ae58;margin-right:3px;"></span>
+          favicon.ico <span style="color:#8a8a8a;font-size:10px;">✕</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:0 11px 0 9px;color:#ffffff;font-size:12.5px;
+                    border-right:1px solid rgba(255,255,255,0.05);border-bottom:2px solid #5b8def;
+                    background:rgba(30,31,34,0.94);">
+          china.json <span style="color:#8a8a8a;font-size:10px;">✕</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:0 11px 0 9px;color:#cdcdcd;font-size:12.5px;
+                    border-right:1px solid rgba(255,255,255,0.05);">
+          bankAccount.ts <span style="color:#8a8a8a;font-size:10px;">✕</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:0 11px 0 9px;color:#cdcdcd;font-size:12.5px;
+                    border-right:1px solid rgba(255,255,255,0.05);">
+          feedback.ts <span style="color:#8a8a8a;font-size:10px;">✕</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:0 11px 0 9px;color:#cdcdcd;font-size:12.5px;
+                    border-right:1px solid rgba(255,255,255,0.05);">
+          CONTEXT.md <span style="color:#8a8a8a;font-size:10px;">✕</span></div>
+      </div>
+    </div>
+    <div class="p" style="font-size: 11.5px;">
+      八道竖线 + 八个常驻的 ✕ = <span class="bad">十六个要一直看着的东西</span>，
+      而其中十五个此刻都用不上。文件类型完全没有提示 ——
+      <span class="mono">build.bat</span> 和 <span class="mono">bankAccount.ts</span> 在这排里长得一模一样。
+    </div>
+  </div>
+
+  <!-- 改成 -->
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div class="lab good">改成</div>
+    <div class="glass" style="height: 82px;">
+      <div class="veil"></div>
+      <div style="position: relative; height: 38px; display: flex; align-items: center; gap: 2px;
+                  padding: 0 6px; border-bottom: 1px solid rgba(255,255,255,0.09);">
+        <!-- 普通标签：无边框、无关闭钮，只有图标 + 名字 -->
+        <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;
+                    color:#a8a8ac;font-size:12.5px;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#c77dbb" stroke-width="1.3"><path d="M6 3.5 2.5 8 6 12.5M10 3.5 13.5 8 10 12.5"/></svg>
+          index.html</div>
+        <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;
+                    color:#a8a8ac;font-size:12.5px;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#8a8a8a" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+          LICENSE</div>
+        <!-- hover 标签：底浮出来，✕ 顶掉图标位置 -->
+        <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;
+                    background:rgba(255,255,255,0.07);color:#cdcdcd;font-size:12.5px;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#6aab73" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+          build.bat
+          <span style="width:16px;height:16px;display:grid;place-content:center;border-radius:5px;
+                       background:rgba(255,255,255,0.11);color:#fff;font-size:9px;margin-right:-4px;">✕</span></div>
+        <!-- 有未保存改动：圆点，不是 ✕ -->
+        <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;
+                    color:#a8a8ac;font-size:12.5px;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#d6ae58" stroke-width="1.3"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1"/></svg>
+          favicon.ico
+          <span style="width:6px;height:6px;border-radius:50%;background:#cdcdcd;margin-right:1px;"></span></div>
+        <!-- 当前标签：一块摞上去的圆角块 -->
+        <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;
+                    background:rgba(255,255,255,0.11);color:#ffffff;font-size:12.5px;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#d6ae58" stroke-width="1.3"><path d="M6.5 2.5H5A1.5 1.5 0 0 0 3.5 4v2.5A1.5 1.5 0 0 1 2 8a1.5 1.5 0 0 1 1.5 1.5V12A1.5 1.5 0 0 0 5 13.5h1.5M9.5 2.5H11A1.5 1.5 0 0 1 12.5 4v2.5A1.5 1.5 0 0 0 14 8a1.5 1.5 0 0 0-1.5 1.5V12a1.5 1.5 0 0 1-1.5 1.5H9.5"/></svg>
+          china.json
+          <span class="mono" style="font-size:9px;padding:1px 4px;border-radius:5px;
+                       background:rgba(255,255,255,0.11);color:#d6ae58;">日志</span>
+          <span style="width:16px;height:16px;display:grid;place-content:center;border-radius:5px;
+                       color:#8a8a8a;font-size:9px;margin-right:-4px;">✕</span></div>
+        <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;
+                    color:#a8a8ac;font-size:12.5px;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+          bankAccount.ts</div>
+        <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;
+                    color:#a8a8ac;font-size:12.5px;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+          feedback.ts</div>
+        <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;
+                    color:#a8a8ac;font-size:12.5px;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3"><path d="M2.5 12V4l3 4 3-4v8M11 4v6.5M11 10.5 13.5 8M11 10.5 8.5 8"/></svg>
+          CONTEXT.md</div>
+      </div>
+    </div>
+    <div class="p" style="font-size: 11.5px;">
+      <span class="good">零竖线、零常驻 ✕</span>。当前标签是一块 11% 白的圆角块；
+      hover 才浮出 7% 的底和关闭钮；有未保存改动的标签常驻一个圆点
+      —— hover 时它才变成 ✕（点哪儿都是关闭，位置不跳）。
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 26px;">
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="note"><div class="num">1</div><div class="p">
+        <strong style="color:#fff;">分隔线整排删掉。</strong>
+        它们是"格子"的语言。当前项已经由一块底色说清楚了，
+        再画线就是同一件事说两遍 —— 而线是常驻的，底色只有一块。
+      </div></div>
+      <div class="note"><div class="num">2</div><div class="p">
+        <strong style="color:#fff;">当前标签不再靠 2px 下划线。</strong>
+        那是 IDEA 的平角标签做法，在玻璃上尤其不成立（一条 2px 的蓝线
+        飘在半透明的条上）。改成整块圆角底 ——
+        <strong style="color:#cdcdcd;">和文件树的选中行是同一套</strong>，两边挨着，做法该一样。
+      </div></div>
+      <div class="note"><div class="num">3</div><div class="p">
+        <strong style="color:#fff;">加文件类型图标。</strong>
+        文件树里有，标签栏里没有 —— 而标签栏才是文件名被截断得最狠的地方
+        （上限 200px）。图标是那 13px 里信息密度最高的一块。
+      </div></div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="note"><div class="num">4</div><div class="p">
+        <strong style="color:#fff;">关闭钮 hover 才出。</strong>
+        八个标签就是八个常驻的 ✕，而任何一刻最多只关得掉一个。
+        <strong style="color:#cdcdcd;">但「有未保存改动」那个圆点必须常驻</strong> ——
+        它不是装饰，是"这个标签关掉要问你"。
+      </div></div>
+      <div class="note"><div class="num">5</div><div class="p">
+        <strong style="color:#fff;">模式色条改成图标着色 + 徽章。</strong>
+        原来是标签最左边一条 2px 的竖色带，在没有分隔线之后它会
+        看着像"标签又被切了一刀"。日志/差异/冲突改成给图标上色，
+        当前标签额外带一个小徽章。
+      </div></div>
+      <div class="note"><div class="num">6</div><div class="p">
+        <strong style="color:#fff;">条高 32 → 38px，标签 28px。</strong>
+        圆角块要有呼吸位，贴着上下边的圆角看着像被切掉一半
+        —— 文件树的列表容器留 6px 横向内边距就是这个理由。
+      </div></div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

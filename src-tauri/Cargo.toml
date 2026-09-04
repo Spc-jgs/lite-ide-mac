@@ -3,7 +3,7 @@ members = ["crates/logengine", "crates/fsservice", "crates/ptysvc", "crates/sear
 
 [package]
 name = "lite-ide"
-version = "0.4.1"
+version = "0.5.0"
 description = "Mac 上 1 秒打开的个人工作台"
 edition = "2021"
 

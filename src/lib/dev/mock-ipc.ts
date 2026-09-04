@@ -717,8 +717,14 @@ index 1a2b3c4..5d6e7f8 100644
           };
         case "git_branches":
           return [
-            b("main", true, false, "origin/main", "M12 界面打磨"),
-            b("m13/git", false, false, "origin/m13/git", "M13 Git 版本管理"),
+            /*
+             * `isHead` 必须和 `git_status` 的 `branch` 是同一个分支。
+             * 真实现里两者都来自 checkout 的那一个（`%(HEAD)` 只标它），
+             * 而这里原来 status 说 m13/git、branches 却把 main 标成 HEAD ——
+             * 于是分支面板的「当前」和 Git 栏的分支名各说各的。
+             */
+            b("main", false, false, "origin/main", "M12 界面打磨"),
+            b("m13/git", true, false, "origin/m13/git", "M13 Git 版本管理"),
             b("m11/symbols", false, false, "", "M11 符号大纲"),
             b("origin/main", false, true, "", "M12 界面打磨"),
             b("origin/dev", false, true, "", "开发主线"),

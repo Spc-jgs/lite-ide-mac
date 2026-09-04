@@ -1,10 +1,13 @@
 <script lang="ts">
   import type { GitBranch, GitWorktree } from "../ipc/commands";
   import { gitBranches, gitWorktrees } from "../ipc/commands";
+  import Icon from "../shell/Icon.svelte";
 
   let {
     open = $bindable(false),
     repo,
+    ahead = 0,
+    behind = 0,
     onSwitch,
     onNewBranch,
     onOpenWorktree,
@@ -13,6 +16,12 @@
   }: {
     open?: boolean;
     repo: string;
+    /**
+     * 当前分支与上游差多少。**这两个值在 `GitStatus` 上，不在 `GitBranch` 上**，
+     * 所以只能由 App 传进来。切分支之前最想知道的就是「我现在在哪、差多少」。
+     */
+    ahead?: number;
+    behind?: number;
     onSwitch: (name: string) => void;
     onNewBranch: (name: string) => void;
     onOpenWorktree: (path: string) => void;
@@ -54,8 +63,32 @@
     queueMicrotask(() => input?.focus());
   });
 
+  /**
+   * `kind` 决定**按下去做什么**，`group` 决定**排在哪一档**。
+   * 拆开是因为当前分支要被钉到最上面单独成一组，但它按下去仍然是个分支。
+   */
+  type Group = "current" | "branch" | "worktree" | "remote" | "action";
+
+  const GROUP_LABEL: Record<Group, string> = {
+    current: "当前",
+    branch: "本地分支",
+    worktree: "工作树",
+    remote: "远程分支",
+    action: "",
+  };
+
+  /** ↵ 对不同条目做的事不一样，脚栏要说清是哪一件 */
+  const ENTER_LABEL: Record<Item["kind"], string> = {
+    branch: "切换",
+    remote: "检出",
+    worktree: "打开",
+    newBranch: "新建",
+    newWorktree: "新建",
+  };
+
   interface Item {
     kind: "branch" | "remote" | "worktree" | "newBranch" | "newWorktree";
+    group: Group;
     label: string;
     hint: string;
     tag?: string;
@@ -64,39 +97,73 @@
     tree?: GitWorktree;
   }
 
+  /**
+   * `/Users/shaopc/` 在每一行里都一样，而它吃掉的正是路径里唯一有区分度的那一截。
+   * 这里不读环境变量：工作树都在同一个用户下，按第一段 `/Users/<name>/` 缩就够。
+   */
+  function shortPath(p: string) {
+    const m = /^\/Users\/[^/]+\//.exec(p);
+    return m ? `~/${p.slice(m[0].length)}` : p;
+  }
+
   let items = $derived.by(() => {
     const k = q.trim().toLowerCase();
     const hit = (s: string) => !k || s.toLowerCase().includes(k);
     const out: Item[] = [];
 
-    for (const b of branches.filter((b) => !b.isRemote && hit(b.name))) {
+    const local = branches.filter((b) => !b.isRemote && hit(b.name));
+    // 当前分支钉到最上面单独成一组：切分支之前最想确认的就是「我现在在哪」，
+    // 混在按名字排的列表里就得先找一遍
+    for (const b of local.filter((b) => b.isHead)) {
       out.push({
         kind: "branch",
+        group: "current",
         label: b.name,
         hint: b.subject,
         tag: b.upstream ? `↗ ${b.upstream}` : "",
-        current: b.isHead,
+        current: true,
+        branch: b,
+      });
+    }
+    for (const b of local.filter((b) => !b.isHead)) {
+      out.push({
+        kind: "branch",
+        group: "branch",
+        label: b.name,
+        hint: b.subject,
+        tag: b.upstream ? `↗ ${b.upstream}` : "",
         branch: b,
       });
     }
     for (const w of trees.filter((w) => hit(w.branch || w.path))) {
       out.push({
         kind: "worktree",
+        group: "worktree",
         label: w.branch || `(${w.sha})`,
-        hint: w.path,
+        hint: shortPath(w.path),
         tag: w.locked ? "已锁定" : "",
         current: w.current,
         tree: w,
       });
     }
     for (const b of branches.filter((b) => b.isRemote && hit(b.name))) {
-      out.push({ kind: "remote", label: b.name, hint: b.subject, branch: b });
+      out.push({ kind: "remote", group: "remote", label: b.name, hint: b.subject, branch: b });
     }
     // 输入了名字但没有同名分支 —— 直接给个「新建」出口，不用先切到别的界面
     if (k && !branches.some((b) => b.name.toLowerCase() === k)) {
-      out.push({ kind: "newBranch", label: `新建分支「${q.trim()}」`, hint: "从当前 HEAD 分出" });
+      out.push({
+        kind: "newBranch",
+        group: "action",
+        label: `新建分支「${q.trim()}」`,
+        hint: "从当前 HEAD 分出",
+      });
     }
-    out.push({ kind: "newWorktree", label: "新建工作树…", hint: "把另一个分支检出到独立目录" });
+    out.push({
+      kind: "newWorktree",
+      group: "action",
+      label: "新建工作树…",
+      hint: "把另一个分支检出到独立目录",
+    });
     return out;
   });
 
@@ -186,20 +253,50 @@
           <div class="none">没有匹配</div>
         {:else}
           {#each items as it, i (it.kind + it.label)}
-            {#if i === 0 || items[i - 1].kind !== it.kind}
-              <div class="sec">
-                {#if it.kind === "branch"}本地分支
-                {:else if it.kind === "worktree"}工作树
-                {:else if it.kind === "remote"}远程分支
-                {:else}操作{/if}
-              </div>
+            {#if i === 0 || items[i - 1].group !== it.group}
+              {#if it.group === "action"}
+                <!--
+                  「操作」和分支不同类：分支是「去哪儿」，它是「做什么」。
+                  照 macOS 菜单的做法用一条分隔线隔开，不给它一个分组标题。
+                -->
+                <div class="divider"></div>
+              {:else}
+                <div class="sec">{GROUP_LABEL[it.group]}</div>
+              {/if}
             {/if}
             <div class="rowwrap" class:on={i === sel}>
               <button class="row" onclick={() => pick(it)} onmouseenter={() => (sel = i)}>
-                <span class="ic {it.kind}"></span>
+                <!--
+                  四种条目四个图标。列表最长会有几十行，而**分组头一滚就看不见了** ——
+                  「origin/dev 是远程的」不该靠记得自己滚过哪个标题。
+                -->
+                <span class="ic {it.kind}" class:cur={it.group === "current"}>
+                  {#if it.kind === "worktree"}
+                    <Icon name="files" size={14} />
+                  {:else if it.kind === "newBranch" || it.kind === "newWorktree"}
+                    <Icon name="plus" size={14} />
+                  {:else if it.kind === "remote"}
+                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+                         stroke-width="1.25" aria-hidden="true">
+                      <circle cx="8" cy="8" r="5.8" />
+                      <path d="M2.4 8h11.2" stroke-linecap="round" />
+                      <path d="M8 2.2c1.5 1.7 2.3 3.7 2.3 5.8S9.5 12.1 8 13.8C6.5 12.1 5.7 10.1 5.7 8S6.5 3.9 8 2.2z" />
+                    </svg>
+                  {:else if it.group === "current"}
+                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+                         stroke-width="1.4" aria-hidden="true">
+                      <circle cx="8" cy="8" r="3.1" />
+                      <circle cx="8" cy="8" r="6.1" opacity="0.45" />
+                    </svg>
+                  {:else}
+                    <Icon name="git" size={14} />
+                  {/if}
+                </span>
                 <span class="lb" class:cur={it.current}>{it.label}</span>
-                {#if it.current}<span class="now">当前</span>{/if}
                 {#if it.tag}<span class="tg">{it.tag}</span>{/if}
+                {#if it.group === "current" && behind}<span class="ab">↓{behind}</span>{/if}
+                {#if it.group === "current" && ahead}<span class="ab">↑{ahead}</span>{/if}
+                {#if it.kind === "worktree" && it.current}<span class="now">当前</span>{/if}
                 <span class="ht">{it.hint}</span>
               </button>
               {#if it.kind === "worktree" && it.tree && !it.current && !it.tree.bare}
@@ -214,8 +311,12 @@
           {/each}
         {/if}
       </div>
+      <!-- 脚栏和随处搜索长一样：两个都是「⌘ 系浮层 + 过滤 + 列表 + 键盘驱动」 -->
       <div class="foot">
-        <span>↑↓ 选择 · ↵ 确认 · esc 关闭</span>
+        <span><kbd>↑↓</kbd> 选择</span>
+        <span><kbd>↵</kbd> {items[sel] ? ENTER_LABEL[items[sel].kind] : "确认"}</span>
+        <span class="gap"></span>
+        <span><kbd>esc</kbd> 关闭</span>
       </div>
     {:else}
       <div class="form">
@@ -288,6 +389,11 @@
   .none { padding: 18px 14px; color: var(--text-faint); font-size: 12.5px; text-align: center; }
   .none.err { color: var(--lvl-error); font-family: var(--code-font); text-align: left; }
   .sec {
+    /* 列表一长，分组头一滚就没了 —— 吸顶。图标那条是它的补充，不是替代 */
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--elevated);
     padding: 7px 14px 3px;
     font-size: 10.5px;
     letter-spacing: 0.05em;
@@ -296,8 +402,15 @@
     user-select: none;
   }
 
-  .rowwrap { display: flex; align-items: center; }
+  /* 当前项是内缩圆角块，和随处搜索、文件树、大纲同一套 */
+  .rowwrap {
+    display: flex;
+    align-items: center;
+    margin: 0 6px;
+    border-radius: var(--r-md);
+  }
   .rowwrap.on { background: var(--selected); }
+  .divider { height: 1px; background: var(--border-soft); margin: 6px 14px; }
   .row {
     display: flex;
     align-items: center;
@@ -305,7 +418,7 @@
     flex: 1;
     min-width: 0;
     height: 26px;
-    padding: 0 6px 0 14px;
+    padding: 0 4px 0 8px;
     background: transparent;
     border: none;
     color: var(--text-dim);
@@ -336,6 +449,11 @@
     color: var(--text-faint);
   }
   .now { color: var(--accent); }
+  /*
+   * 落后/领先只是**信息**，不做成按钮：这个项目没有 pull / push
+   * （gitsvc 不起网络子进程），点了没有下文比不显示更糟。
+   */
+  .ab { flex: none; font-family: var(--code-font); font-size: 10.5px; color: var(--accent); }
   .rm {
     flex: none;
     width: 22px;
@@ -352,27 +470,37 @@
   .rowwrap:hover .rm { opacity: 1; }
   .rm:hover { background: var(--lvl-error); color: #fff; }
 
-  /* 图标用纯 CSS 画，省一个 SVG：分支是圆点，工作树是方块，操作是加号 */
-  .ic { flex: none; width: 9px; height: 9px; }
-  .ic.branch, .ic.remote {
-    border-radius: 50%;
-    border: 1.6px solid var(--git-modified);
-  }
-  .ic.remote { border-color: var(--git-untracked); }
-  .ic.worktree { border: 1.6px solid var(--git-renamed); border-radius: var(--r-sm); }
-  .ic.newBranch, .ic.newWorktree {
-    border-radius: 50%;
-    border: 1.6px dashed var(--text-faint);
-  }
+  /*
+   * 四种条目四个形状。原来是四个 9px 的圆/方框，只靠边框颜色区分 ——
+   * 在 12px 的行里那点色差根本读不出来，九行看着就是九个一样的圈。
+   */
+  .ic { flex: none; display: flex; color: var(--text-faint); }
+  .ic.branch { color: var(--git-modified); }
+  .ic.remote { color: var(--lvl-info); }
+  .ic.worktree { color: var(--git-renamed); }
+  .ic.cur { color: var(--git-added); }
 
+  /* 与随处搜索的脚栏一模一样：两个都是「⌘ 系浮层 + 过滤 + 列表 + 键盘驱动」 */
   .foot {
     flex: none;
-    padding: 6px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 14px;
     border-top: 1px solid var(--border-soft);
+    background: var(--chrome-scrim);
     font-size: 10.5px;
     color: var(--text-faint);
-    font-family: var(--code-font);
     user-select: none;
+  }
+  .foot .gap { flex: 1; }
+  kbd {
+    font-family: var(--code-font);
+    font-size: 10px;
+    background: var(--hover);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-right: 3px;
   }
 
   .form { padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 10px; }

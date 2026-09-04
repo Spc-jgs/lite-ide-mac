@@ -1,0 +1,190 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12px; line-height: 1.7; }
+    .lab { font-size: 12.5px; font-weight: 600; }
+    .bad { color: #d1707a; } .good { color: #6aab73; }
+    .pop { background: #232326; border: 1px solid rgba(255,255,255,0.13); border-radius: 14px;
+      box-shadow: 0 14px 34px rgba(0,0,0,0.58); overflow: hidden; }
+    .note { display: flex; gap: 9px; align-items: flex-start; }
+    .num { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid;
+      place-content: center; font-size: 10.5px; font-family: "SF Mono", Menlo, monospace;
+      background: rgba(255,255,255,0.11); color: #cdcdcd; margin-top: 1px; }
+    .r { display: flex; align-items: center; gap: 9px; padding: 6px 14px; font-size: 12.5px; color: #cdcdcd; }
+    .side { color: #6f737b; font-size: 11px; margin-left: auto; }
+    .sec { padding: 7px 14px 3px; font-size: 10.5px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #7a7a80; }
+    .key { font-family: "SF Mono", Menlo, monospace; font-size: 10px; color: #8a8a8a;
+      background: rgba(255,255,255,0.07); border-radius: 4px; padding: 1px 5px; }
+  </style>
+</helmet>
+
+<div style="width: 1320px; min-height: 1020px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 30px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="color: #ffffff; font-size: 24px; font-weight: 600;">搜索（双击 ⇧ 随处搜索）</div>
+    <div class="p" style="max-width: 940px; font-size: 12.5px;">
+      结构照 IDEA 的 Search Everywhere：范围在上、输入在中、结果分组、键位提示在<strong style="color:#cdcdcd;">脚上</strong>。
+      现在这三样挤在同一行里 —— 范围按钮和一串 10.5px 的键位说明肩并肩，
+      而键位说明是这里面最不需要一直看的东西。
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 26px; align-items: start;">
+
+    <!-- 现状 -->
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="lab bad">现状</div>
+      <div class="pop">
+        <div style="display: flex; align-items: center; gap: 2px; padding: 6px 8px;
+                    border-bottom: 1px solid rgba(255,255,255,0.05);">
+          <span style="padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.11);color:#fff;font-size:12px;">全部</span>
+          <span style="padding:3px 10px;border-radius:6px;color:#cdcdcd;font-size:12px;">文件</span>
+          <span style="padding:3px 10px;border-radius:6px;color:#cdcdcd;font-size:12px;">内容</span>
+          <span style="padding:3px 10px;border-radius:6px;color:#cdcdcd;font-size:12px;">操作</span>
+          <span style="flex:1"></span>
+          <span class="mono" style="font-size:10.5px;color:#8a8a8a;">Tab 切换范围 · ↑↓ 选择 · ↵ 打开 · Esc 关闭</span>
+        </div>
+        <div style="padding: 11px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);
+                    color: #8a8a8a; font-size: 15px;">输入文件名、内容或操作…</div>
+        <div style="padding: 4px 0 8px;">
+          <div class="r"><span class="mono" style="font-size:9.5px;padding:1px 4px;border-radius:6px;background:#2e2e31;color:#d6ae58;">操作</span>切换侧边栏<span class="side mono">1⌘</span></div>
+          <div class="r"><span class="mono" style="font-size:9.5px;padding:1px 4px;border-radius:6px;background:#2e2e31;color:#d6ae58;">操作</span>切换终端<span class="side mono">J⌘</span></div>
+          <div class="r"><span class="mono" style="font-size:9.5px;padding:1px 4px;border-radius:6px;background:#2e2e31;color:#d6ae58;">操作</span>新建终端<span class="side mono">`⇧^</span></div>
+          <div class="r"><span class="mono" style="font-size:9.5px;padding:1px 4px;border-radius:6px;background:#2e2e31;color:#8a8a8a;">文件</span>AGENTS.md</div>
+          <div class="r"><span class="mono" style="font-size:9.5px;padding:1px 4px;border-radius:6px;background:#2e2e31;color:#8a8a8a;">文件</span>CONTEXT.md</div>
+          <div class="r"><span class="mono" style="font-size:9.5px;padding:1px 4px;border-radius:6px;background:#2e2e31;color:#8a8a8a;">文件</span>Dockerfile</div>
+          <div class="r" style="background:rgba(255,255,255,0.11);color:#fff;"><span class="mono" style="font-size:9.5px;padding:1px 4px;border-radius:6px;background:#2e2e31;color:#8a8a8a;">文件</span>package.bat<span class="side">bin</span></div>
+        </div>
+      </div>
+      <div class="p" style="font-size: 11.5px;">
+        <span class="bad">「操作」「文件」两个字重复了七遍</span>，
+        每遍都占一块带底色的胶囊 —— 而分组本来就能说清这件事。
+        键位提示挂在顶栏，跟范围按钮抢同一行。
+      </div>
+    </div>
+
+    <!-- 改成 -->
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="lab good">改成</div>
+      <div class="pop">
+        <!-- 输入排第一：这是打开面板后眼睛落的地方 -->
+        <div style="display: flex; align-items: center; gap: 10px; padding: 13px 16px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8a8a8a" stroke-width="1.4"><circle cx="7" cy="7" r="4.4"/><path d="M10.3 10.3 14 14"/></svg>
+          <span style="color: #6f737b; font-size: 15px;">输入文件名、内容或操作…</span>
+        </div>
+        <!-- 范围紧贴输入，做成一条分段控件 -->
+        <div style="display: flex; align-items: center; gap: 2px; padding: 0 14px 9px;
+                    border-bottom: 1px solid rgba(255,255,255,0.05);">
+          <span style="padding:3px 11px;border-radius:6px;background:rgba(255,255,255,0.11);color:#fff;font-size:12px;">全部</span>
+          <span style="padding:3px 11px;border-radius:6px;color:#a8a8ac;font-size:12px;">文件</span>
+          <span style="padding:3px 11px;border-radius:6px;color:#a8a8ac;font-size:12px;">内容</span>
+          <span style="padding:3px 11px;border-radius:6px;color:#a8a8ac;font-size:12px;">操作</span>
+        </div>
+        <div style="padding: 2px 0 4px;">
+          <div class="sec">操作</div>
+          <div class="r">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#d6ae58" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6 3v10"/></svg>
+            切换侧边栏<span class="side"><span class="key">⌘1</span></span></div>
+          <div class="r">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#d6ae58" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M4.8 6.4 6.6 8l-1.8 1.6M8.4 10h3"/></svg>
+            切换终端<span class="side"><span class="key">⌘J</span></span></div>
+          <div class="r">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#d6ae58" stroke-width="1.3"><path d="M8 3.5v9M3.5 8h9"/></svg>
+            新建终端<span class="side"><span class="key">⌃⇧`</span></span></div>
+          <div class="sec">文件</div>
+          <div class="r">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3"><path d="M2.5 12V4l3 4 3-4v8M11 4v6.5M11 10.5 13.5 8M11 10.5 8.5 8"/></svg>
+            AGENTS.md</div>
+          <div class="r">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6f737b" stroke-width="1.3"><path d="M2.5 12V4l3 4 3-4v8M11 4v6.5M11 10.5 13.5 8M11 10.5 8.5 8"/></svg>
+            CONTEXT.md</div>
+          <div class="r">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+            Dockerfile</div>
+          <div class="r" style="background:rgba(255,255,255,0.11);color:#fff;margin:0 6px;border-radius:8px;padding:6px 8px;">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#6aab73" stroke-width="1.3"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></svg>
+            <span>package.<mark style="background:rgba(91,141,239,0.38);color:#fff;border-radius:2px;">bat</mark></span>
+            <span class="side">bin</span></div>
+        </div>
+        <!-- 键位提示挪到脚上 -->
+        <div style="display: flex; align-items: center; gap: 12px; padding: 7px 14px;
+                    border-top: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.16);">
+          <span style="font-size:10.5px;color:#8a8a8a;"><span class="key">↑↓</span> 选择</span>
+          <span style="font-size:10.5px;color:#8a8a8a;"><span class="key">↵</span> 打开</span>
+          <span style="font-size:10.5px;color:#8a8a8a;"><span class="key">Tab</span> 换范围</span>
+          <span style="flex:1"></span>
+          <span style="font-size:10.5px;color:#8a8a8a;"><span class="key">esc</span> 关闭</span>
+        </div>
+      </div>
+      <div class="p" style="font-size: 11.5px;">
+        <span class="good">胶囊换成分组头 + 图标</span>：同一个信息只印一次，
+        而图标顺带说清了文件类型。选中行是内缩圆角块，和文件树同一套。
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 26px;">
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="note"><div class="num">1</div><div class="p">
+        <strong style="color:#fff;">输入框排到最上面。</strong>
+        面板打开的下一个动作永远是打字。现在第一行是四个范围按钮，
+        而范围<strong style="color:#cdcdcd;">十次里有九次不用改</strong>。
+      </div></div>
+      <div class="note"><div class="num">2</div><div class="p">
+        <strong style="color:#fff;">类型胶囊换成分组头。</strong>
+        结果本来就是按类型排的，每行再印一遍类型是把分组信息
+        摊到了每一行上 —— 七行结果七个胶囊，横着扫一眼全是噪声。
+      </div></div>
+      <div class="note"><div class="num">3</div><div class="p">
+        <strong style="color:#fff;">键位提示挪到脚栏。</strong>
+        它是"忘了才看"的东西，不该和范围切换抢顶栏那一行。
+        脚栏还顺带给了面板一个下边界 —— 现在结果列表是直接切在圆角上的。
+      </div></div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="note"><div class="num">4</div><div class="p">
+        <strong style="color:#fff;">快捷键被翻转了 —— 这是个真 bug。</strong>
+        界面上显示的是 <span class="mono">1⌘</span> / <span class="mono">J⌘</span> /
+        <span class="mono">`⇧^</span>，而源码里写的是
+        <span class="mono">⌘1</span> / <span class="mono">⌘J</span> / <span class="mono">⌃⇧`</span>，
+        <strong style="color:#cdcdcd;">一个字都没错</strong>。
+        <br><br>
+        翻转的是 CSS：<span class="mono">.side { direction: rtl }</span>。
+        那行是为了让长路径<strong style="color:#cdcdcd;">从左边</strong>省略（路径有用的是尾巴），
+        但 <span class="mono">.side</span> 被三种行共用 —— 文件的目录、内容的
+        <span class="mono">路径:行号</span>，以及操作的快捷键。
+        <span class="mono">⌘</span>(U+2318) 在 bidi 里是<strong style="color:#cdcdcd;">中性字符</strong>，
+        在 RTL 段落里跟着段落方向走，于是跑到了字母/数字的右边。
+        <br><br>
+        修法：快捷键单独一个类，不带 <span class="mono">direction</span> ——
+        它永远只有两三个字符，从来不需要省略。
+      </div></div>
+      <div class="note"><div class="num">5</div><div class="p">
+        <strong style="color:#fff;">命中片段要标出来。</strong>
+        「操作」那一档已经在标了（<span class="mono">row.seg</span> 里有 hit 段），
+        文件名那一档没有 —— 同一个列表里两种行为。
+      </div></div>
+      <div class="note"><div class="num">6</div><div class="p">
+        <strong style="color:#fff;">选中行改成内缩圆角块。</strong>
+        现在是通栏色条，而文件树、大纲、分支列表全都是内缩圆角块。
+        <strong style="color:#cdcdcd;">同一个应用里"当前项"该长一个样。</strong>
+      </div></div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

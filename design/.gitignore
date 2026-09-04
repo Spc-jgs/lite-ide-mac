@@ -1,2 +1,4 @@
-lite-ide-interface-polish.html
-material/lite-ide-vibrancy.html
+# 打包后的画布是 2–3MB 的一次性产物，画板源文件（*.dc.html + canvas.json）
+# 才是要留的。要看画布就照 README 里那条命令重新打一份。
+*.html
+!*.dc.html

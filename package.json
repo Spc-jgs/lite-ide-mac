@@ -1,6 +1,6 @@
 {
   "name": "lite-ide",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Mac 上 1 秒打开的个人工作台",
   "type": "module",
   "private": true,
