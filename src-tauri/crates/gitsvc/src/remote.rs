@@ -154,11 +154,24 @@ fn run_streaming(
     cancel: &Cancel,
     on_progress: &mut dyn FnMut(Progress),
 ) -> R<()> {
-    let mut child = crate::git_cmd(cwd, args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(RemoteError::NoGit)?;
+    /*
+     * 放进**自己的进程组**，取消时才杀得干净。
+     *
+     * `git fetch` 会派生 `git-remote-https` 当孙进程，而**孙子攥着 stderr
+     * 管道**。只 kill 直接子进程的话，读循环等不到 EOF，只能干等 TCP 超时 ——
+     * CI 上实测取消花了 **75 秒**（本地碰巧快，没暴露出来）。
+     *
+     * `process_group(0)` 让子进程成为新组的组长，于是 `killpg` 能一锅端。
+     */
+    let mut cmd = crate::git_cmd(cwd, args);
+    cmd.stdout(Stdio::null()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = cmd.spawn().map_err(RemoteError::NoGit)?;
+    let pid = child.id();
 
     let stderr = child.stderr.take().expect("stderr 已 piped");
     let child = Arc::new(Mutex::new(child));
@@ -172,16 +185,29 @@ fn run_streaming(
     let done = Arc::new(AtomicBool::new(false));
     let watcher = {
         let (cancel, done, child) = (cancel.clone(), done.clone(), child.clone());
+        // pid 按值拷进去 —— 杀组只要它，不用碰 Child，也就不用抢锁
         std::thread::Builder::new()
             .name("git-remote-cancel".into())
             .spawn(move || {
                 while !done.load(Ordering::Relaxed) {
                     if cancel.load(Ordering::Relaxed) {
+                        /*
+                         * 先杀整个进程组，再杀直接子进程兜底。
+                         *
+                         * 杀组是关键那一下：孙进程（`git-remote-https`）
+                         * 攥着 stderr 管道，它不死读循环就等不到 EOF。
+                         * `killpg` 不需要锁 —— 只要 pid，所以这一下永远是
+                         * 瞬间的，不会被表锁拖住。
+                         */
+                        #[cfg(unix)]
+                        unsafe {
+                            libc::killpg(pid as i32, libc::SIGKILL);
+                        }
                         // 摘不到锁就下一轮再来 —— 绝不在这儿阻塞等锁
                         if let Ok(mut c) = child.try_lock() {
                             let _ = c.kill();
-                            return;
                         }
+                        return;
                     }
                     std::thread::sleep(Duration::from_millis(50));
                 }
@@ -423,7 +449,23 @@ mod tests {
     #[test]
     fn 取消令牌能让操作立刻回来() {
         // 用一个必然慢的命令：clone 一个不存在的地址会卡在连接上
+        /*
+         * 目录名带上进程 id + 时间戳，并且**开跑前先清一次**。
+         *
+         * 固定名字的那一版有个卫生问题：这条测试失败时会在清理之前 panic，
+         * 于是残留目录让下一次 `git clone` 立刻失败（0.06s），
+         * 看起来像「取消变快了」——**一个测完全测错了东西还绿着的形状**。
+         */
         let dir = std::env::temp_dir();
+        let name = format!(
+            "_lite_cancel_probe_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        );
+        let _ = std::fs::remove_dir_all(dir.join(&name));
         let cancel: Cancel = Arc::new(AtomicBool::new(false));
         {
             let c = cancel.clone();
@@ -435,15 +477,25 @@ mod tests {
         let t0 = Instant::now();
         let r = run_streaming(
             &dir,
-            &["clone", "--progress", "https://192.0.2.1/nope.git", "_cancel_probe"],
+            &["clone", "--progress", "https://192.0.2.1/nope.git", &name],
             true,
             &cancel,
             &mut |_| {},
         );
         let took = t0.elapsed();
         assert!(matches!(r, Err(RemoteError::Cancelled)), "实得 {r:?}");
-        // 192.0.2.1 是 TEST-NET-1，连不通；不取消的话要等系统的 TCP 超时（分钟级）
-        assert!(took < Duration::from_secs(10), "取消花了 {took:?}，太久了");
-        let _ = std::fs::remove_dir_all(dir.join("_cancel_probe"));
+        /*
+         * 阈值卡 2s，不是 10s。
+         *
+         * 10s 那一版**在本地拦不住** —— 少了杀组时本地实测 5.15s，照样绿，
+         * 而同一份代码在 CI 上是 **75s**（`git` 派生的 `git-remote-https`
+         * 攥着 stderr 管道，只 kill 直接子进程的话读循环要等 TCP 超时）。
+         * 这个 bug 就是这么漏到 CI 才被抓住的。
+         *
+         * 修好之后是 0.22s（取消令牌 200ms 置位 + 看门线程 50ms 轮询），
+         * 2s 留了近十倍余量，同时把 5s 那档挡在外面。
+         */
+        assert!(took < Duration::from_secs(2), "取消花了 {took:?} —— 进程组没杀干净？");
+        let _ = std::fs::remove_dir_all(dir.join(&name));
     }
 }

@@ -5,3 +5,8 @@ edition = "2021"
 description = "Git 状态与差异读取（零 Tauri 依赖，走 git CLI 子进程）"
 
 [dependencies]
+
+# 取消时要杀**整个进程组**，不只是直接子进程 —— 见 remote.rs 里那段。
+# 标准库能建进程组（`process_group`），但杀组只能靠 killpg。
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
