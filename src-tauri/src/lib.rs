@@ -1,11 +1,26 @@
 mod commands;
 pub mod diag;
+pub mod menu;
 mod state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
+        /*
+         * 菜单项按下去做什么，**一律转给前端**。
+         *
+         * 唯一的例外是「打开文件夹…」：那个原生面板必须在 Rust 侧开
+         * （见 `commands::pick_folder`）。剩下的动作全在前端 ——
+         * 它们要读的状态（当前标签、当前仓库、终端列表）都在那边，
+         * 搬到 Rust 来就是把一份状态存两处。
+         */
+        .on_menu_event(|app, event| {
+            use tauri::Emitter;
+            let id = event.id().0.as_str();
+            let _ = app.emit("menu", id);
+        })
         .on_window_event(|window, event| {
             // 窗口关了，终端必须跟着走 —— 否则留下孤儿 zsh 常驻
             if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -15,6 +30,16 @@ pub fn run() {
         })
         .setup(|app| {
             use tauri::Manager;
+            /*
+             * 菜单必须在这里建，不能等前端 ready 之后再让它下发 ——
+             * 那中间的几百毫秒里菜单栏是 Tauri 的默认英文菜单，
+             * 看着像另一个应用。代价是 `menu.rs` 里存着一份 keymap.ts
+             * 的拷贝，由 `tests/menu_sync.rs` 卡住。
+             */
+            let (m, handles) = menu::build(app.handle())?;
+            app.set_menu(m)?;
+            app.manage(handles);
+
             if let Some(w) = app.get_webview_window("main") {
                 apply_window_material(&w);
                 let _ = w.set_focus();
@@ -79,6 +104,10 @@ pub fn run() {
             commands::pty_resize,
             commands::pty_kill,
             commands::diag,
+            commands::pick_folder,
+            commands::set_recent,
+            commands::sync_menu_state,
+            commands::open_external,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 启动失败");

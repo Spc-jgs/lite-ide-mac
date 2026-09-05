@@ -805,3 +805,72 @@ pub fn git_worktree_remove(root: String, path: String, force: bool) -> Result<()
     crate::diag!("git_worktree_remove path={path} force={force}");
     gitsvc::worktree_remove(&root, &path, force).map_err(|e| format!("{e}"))
 }
+
+// ── 菜单栏 ───────────────────────────────────────────────────────────
+
+/// 开原生的「选择文件夹」面板，返回选中的路径；取消返回 `None`。
+///
+/// **必须在 Rust 侧开。** `NSOpenPanel` 是主线程亲和的原生控件，
+/// webview 里没有等价物（HTML 的 `<input webkitdirectory>` 给的是
+/// 一堆文件条目，不是目录路径，而且拿不到绝对路径）。
+///
+/// 用 `blocking_pick_folder` 而不是回调版：这个命令跑在 Tauri 的命令线程上，
+/// 不是主线程 —— 插件内部会把面板调度到主线程，这里阻塞等它就行。
+/// 反过来（在主线程上 blocking）才会死锁。
+#[tauri::command]
+pub async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    crate::diag!("pick_folder 打开面板");
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("打开文件夹")
+        .blocking_pick_folder();
+    picked.map(|p| p.to_string())
+}
+
+/// 刷新「最近打开」子菜单。
+///
+/// 列表存在前端的会话快照里（那本来就是「上次开的是哪个项目」的归属地），
+/// 变了就把整张表推过来重建 —— 最多 8 项，不值得算增量。
+#[tauri::command]
+pub fn set_recent(app: tauri::AppHandle, paths: Vec<String>) -> Result<(), String> {
+    crate::menu::refresh_recent(&app, &paths).map_err(|e| format!("刷新最近打开失败：{e}"))
+}
+
+/// 按当下的上下文让菜单项变灰。
+///
+/// 今天所有键位都是 window 级监听，**不管当下有没有意义都会触发** ——
+/// 没有标签时按 ⌘S、不是 Git 仓库时按 ⇧⌘G，都是走一遍然后什么也没发生。
+/// 灰掉的菜单项本身就是一句解释：不是坏了，是现在用不上。
+#[tauri::command]
+pub fn sync_menu_state(app: tauri::AppHandle, has_tab: bool, has_repo: bool, has_term: bool) {
+    crate::menu::sync_enabled(&app, has_tab, has_repo, has_term);
+}
+
+/// 交给系统默认浏览器打开一个网址。目前只服务「帮助 › 项目主页」。
+///
+/// **只认 `https://`。** 这是个能让应用启动任意外部程序的口子 ——
+/// `open` 会按 scheme 派发，`file://` 能拉起任意程序、自定义 scheme
+/// 更是。前端目前只用常量调它，但把判据写在 Rust 侧才算数：
+/// 命令一旦存在，它的约束就不能靠调用方自觉。
+///
+/// 绝对路径而不是靠 PATH，理由同 `fsservice::reveal_in_finder`：
+/// 从终端启动时 PATH 是用户的，不该让它决定我们调到哪个 `open`。
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err(format!("只允许 https 链接，实得：{url}"));
+    }
+    crate::diag!("open_external {url}");
+    let st = std::process::Command::new("/usr/bin/open")
+        .arg("--")
+        .arg(&url)
+        .status()
+        .map_err(|e| format!("起不来 open：{e}"))?;
+    if st.success() {
+        Ok(())
+    } else {
+        Err(format!("打不开 {url}"))
+    }
+}

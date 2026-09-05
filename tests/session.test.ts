@@ -7,6 +7,7 @@ import {
   MAX_TABS,
   MAX_DRAFT_CHARS,
   MAX_DRAFTS_CHARS,
+  RECENT_MAX,
   type Session,
 } from "../src/lib/state/session.ts";
 
@@ -26,6 +27,7 @@ const base: Session = {
   tabs: [{ path: "/proj/a.ts", line: 12 }, { path: "/proj/b.md" }],
   active: 1,
   layout: { ...DEFAULT_LAYOUT, sidebarWidth: 300, panel: true },
+  recent: ["/proj", "/other"],
 };
 
 // ── 1. 存进去能原样读回来 ──
@@ -37,6 +39,38 @@ ok(round?.tabs[0].line === 12, "光标行要还原");
 ok(round?.tabs[1].line === undefined, "没记光标的标签不该凭空多出一个行号");
 ok(round?.active === 1, "活动标签下标要还原");
 ok(round?.layout.sidebarWidth === 300 && round?.layout.panel === true, "布局要还原");
+ok(round?.recent.length === 2 && round?.recent[0] === "/proj", "最近打开要还原");
+
+// ── 最近打开：坏数据一律当它不存在 ──
+
+/*
+ * 这几条和别的字段同一条判据 —— 这段在启动路径上，抛一次应用就打不开。
+ * 值可能来自上一个版本、也可能被人手改过。
+ */
+{
+  const bad = (recent: unknown) =>
+    parse(JSON.stringify({ v: VERSION, root: null, tabs: [], active: 0, layout: DEFAULT_LAYOUT, recent }));
+  ok(bad(undefined)?.recent.length === 0, "没有 recent 字段（旧版本存的）要退成空列表");
+  ok(bad("不是数组")?.recent.length === 0, "不是数组就当空的");
+  ok(bad([1, null, {}])?.recent.length === 0, "元素不是字符串就跳过");
+  ok(bad(["/a", "/a", "/b"])?.recent.length === 2, "重复的要去掉");
+  ok(bad(["/a", ""])?.recent.length === 1, "空串不算一个项目");
+  const many = Array.from({ length: 20 }, (_, i) => `/p${i}`);
+  ok(bad(many)?.recent.length === RECENT_MAX, `超过 ${RECENT_MAX} 条要截断`);
+  ok(bad(many)?.recent[0] === "/p0", "截断保留的是最前面那些（最新的排最前）");
+}
+
+// serialize 少给字段也不能抛 —— 它和 parse 一样贴着保存路径
+{
+  let threw = false;
+  try {
+    // @ts-expect-error 故意少给 recent，模拟调用方漏传
+    serialize({ root: null, tabs: [], active: 0, layout: DEFAULT_LAYOUT });
+  } catch {
+    threw = true;
+  }
+  ok(!threw, "serialize 少一个字段不该抛 —— 抛一次这一轮的现场就没了");
+}
 
 // ── 2. 坏数据一律返回 null，绝不抛 ──
 // 这段跑在启动路径上：抛一次应用就打不开，而用户没法清掉那份坏数据

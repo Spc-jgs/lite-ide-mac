@@ -108,6 +108,13 @@ export interface Session {
   /** 活动标签在 `tabs` 里的下标；越界或为空时由调用方回退到 0 */
   active: number;
   layout: Layout;
+  /**
+   * 最近打开过的项目根，最新的排最前。
+   *
+   * 记的是**项目根不是文件**：这个应用的会话恢复本来就以 root 为单位，
+   * 开回一个项目上次的标签会跟着回来，比记住散落的文件有用得多。
+   */
+  recent: string[];
 }
 
 export const DEFAULT_LAYOUT: Layout = {
@@ -126,6 +133,15 @@ export const DEFAULT_LAYOUT: Layout = {
  * 一个 4000px 的侧边栏会把内容区挤没，而**界面上没有任何地方能把它拉回来** ——
  * 拖动手柄本身就在屏幕外。所以读回来一定要夹一遍。
  */
+/**
+ * 最近打开的上限。
+ *
+ * 8 是照 macOS 自己的「最近使用的项目」来的。再多子菜单会长过一屏，
+ * 而「最近」的价值恰恰在于不用找。**Rust 侧 `menu.rs` 的 RECENT_MAX
+ * 是同一个数**，那边只是防御性地再截一次。
+ */
+export const RECENT_MAX = 8;
+
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 640;
 const PANEL_MIN = 80;
@@ -213,11 +229,26 @@ export function parse(raw: string | null | undefined): Session | null {
       ? clamp(o.active, 0, Math.max(0, tabs.length - 1))
       : 0;
 
+  /*
+   * 最近列表按和别的字段同一条来：**任何形式的坏数据都只当它不存在**。
+   * 不是数组就当空的，元素不是字符串就跳过，重复的去掉，最后截到上限。
+   * 这段在启动路径上，抛一次应用就打不开（见文件头那段）。
+   */
+  const recent: string[] = [];
+  if (Array.isArray(o.recent)) {
+    for (const r of o.recent) {
+      if (!isStr(r) || r === "" || recent.includes(r)) continue;
+      recent.push(r);
+      if (recent.length >= RECENT_MAX) break;
+    }
+  }
+
   return {
     root: isStr(o.root) ? o.root : null,
     tabs,
     active,
     layout: toLayout(o.layout),
+    recent,
   };
 }
 
@@ -244,5 +275,12 @@ export function serialize(s: Session, withDrafts = true): string {
     tabs,
     active: clamp(s.active, 0, Math.max(0, Math.min(s.tabs.length, MAX_TABS) - 1)),
     layout: s.layout,
+    /*
+     * 写出去也截一次：内存里那份被谁 push 多了，不该顺着写进磁盘。
+     *
+     * `?? []` 不是多余的防御：这个函数和 parse 一样贴着启动/保存路径，
+     * 调用方少给一个字段就该退成空列表，不能抛 —— 抛一次这一轮的现场就没了。
+     */
+    recent: (s.recent ?? []).slice(0, RECENT_MAX),
   });
 }

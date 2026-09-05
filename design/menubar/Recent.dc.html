@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12px; line-height: 1.7; }
+    .lab { font-size: 12.5px; font-weight: 600; }
+    .bad { color: #d1707a; } .good { color: #6aab73; }
+    .menu { background: rgba(46,46,48,0.98); border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 7px; padding: 4px 0; box-shadow: 0 16px 40px rgba(0,0,0,0.6); }
+    .mi { display: flex; align-items: baseline; gap: 8px; padding: 3px 14px 3px 20px;
+      font-size: 12.5px; color: #e6e6e8; white-space: nowrap; }
+    .mi .dim { color: #9a9a9e; font-size: 11.5px; }
+    .mi.sel { background: #3b6fd4; color: #fff; }
+    .mi.sel .dim { color: #d8e3fb; }
+    .mi.off { color: #6f6f74; }
+    .msep { height: 1px; background: rgba(255,255,255,0.10); margin: 4px 10px; }
+    .note { display: flex; gap: 9px; align-items: flex-start; }
+    .num { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid;
+      place-content: center; font-size: 10.5px; font-family: "SF Mono", Menlo, monospace;
+      background: rgba(255,255,255,0.11); color: #cdcdcd; margin-top: 1px; }
+    .card { background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; }
+    /* 空态卡片走应用自己那套材质 */
+    .glass { position: relative; border-radius: 12px; overflow: hidden;
+      background: radial-gradient(340px 240px at 15% 10%, #40608f 0%, rgba(64,96,143,0) 66%),
+                  radial-gradient(320px 260px at 88% 88%, #7d5070 0%, rgba(125,80,112,0) 62%),
+                  linear-gradient(155deg, #1b2330, #16242a); }
+    .glass > .veil { position: absolute; inset: 0; background: rgba(28,28,30,0.62);
+      backdrop-filter: blur(28px) saturate(185%); }
+  </style>
+</helmet>
+
+<div style="width: 1360px; min-height: 900px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 30px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="color: #ffffff; font-size: 24px; font-weight: 600;">打开文件夹 · 最近打开</div>
+    <div class="p" style="max-width: 980px; font-size: 12.5px;">
+      今天换项目只有三条路：把文件夹拖进窗口、命令行 <span class="mono">lite-ide &lt;dir&gt;</span>、
+      点面包屑里的目录段（只能在当前树内往上走）。
+      <span class="mono">session.ts</span> 里存的是<strong style="color:#cdcdcd;">一个</strong>
+      <span class="mono">root</span>，没有列表。
+      在两三个项目之间来回，每次都得去访达找一遍。
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 330px 330px 1fr; gap: 26px; align-items: start;">
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="lab good">最近打开 · 有记录</div>
+      <div class="menu" style="width: 330px;">
+        <div class="mi sel">etianqu-admin <span class="dim">~/IdeaProjects</span></div>
+        <div class="mi">lite-ide <span class="dim">~/playground</span></div>
+        <div class="mi">admin <span class="dim">~/work/alpha</span></div>
+        <div class="mi">admin <span class="dim">~/work/beta</span></div>
+        <div class="mi">logs <span class="dim">/var/log/app</span></div>
+        <div class="msep"></div>
+        <div class="mi">清除最近记录</div>
+      </div>
+      <div class="p" style="font-size: 11.5px;">
+        显示成 <strong style="color:#cdcdcd;">目录名 + 上一级</strong>。
+        中间那两个 <span class="mono">admin</span> 就是理由 ——
+        只显示目录名的话它们一模一样，而多项目下都有 <span class="mono">admin</span> 是常态。
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="lab" style="color:#cdcdcd;">最近打开 · 还没有</div>
+      <div class="menu" style="width: 330px;">
+        <div class="mi off">（还没有）</div>
+      </div>
+      <div class="p" style="font-size: 11.5px;">
+        空的时候放一条<strong style="color:#cdcdcd;">禁用的</strong>占位，不要让子菜单整个消失 ——
+        菜单项时有时无比灰着更让人困惑。
+      </div>
+
+      <div class="lab" style="color:#cdcdcd; margin-top: 8px;">路径没了怎么办</div>
+      <div class="menu" style="width: 330px;">
+        <div class="mi">lite-ide <span class="dim">~/playground</span></div>
+        <div class="mi off">old-project <span class="dim">~/tmp（已不存在）</span></div>
+      </div>
+      <div class="p" style="font-size: 11.5px;">
+        <strong style="color:#cdcdcd;">不预先探测。</strong> 每次开菜单去 stat 一遍 8 个路径，
+        碰上没挂载的网络卷会把菜单卡住。改成<strong style="color:#cdcdcd;">点了才发现</strong>：
+        打不开就报一句并把它从列表里摘掉。
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 14px; padding-top: 26px;">
+      <div class="note"><div class="num">1</div><div class="p">
+        <strong style="color:#fff;">上限 8 条。</strong>
+        照 macOS 自己的「最近使用的项目」。再多子菜单会长过一屏，
+        而「最近」的价值恰恰在于**不用找**。
+      </div></div>
+      <div class="note"><div class="num">2</div><div class="p">
+        <strong style="color:#fff;">记的是项目根，不是文件。</strong>
+        这个应用的会话恢复本来就以 <span class="mono">root</span> 为单位
+        —— 开回一个项目，上次的标签跟着回来，比记住散落的文件有用得多。
+      </div></div>
+      <div class="note"><div class="num">3</div><div class="p">
+        <strong style="color:#fff;">存在 session 里，跟着现有那套走。</strong>
+        <span class="mono">session.ts</span> 已经有「任何输入都只返回 null，绝不抛」的约定
+        —— 最近列表按同一条来：不是数组就当空的，路径不是字符串就跳过。
+        <strong style="color:#cdcdcd;">它在启动路径上，抛一次应用就打不开。</strong>
+      </div></div>
+      <div class="note"><div class="num">4</div><div class="p">
+        <strong style="color:#fff;">切项目要走已有的那条路。</strong>
+        <span class="mono">App.svelte</span> 里已经有「指的是另一个目录 = 在切项目，
+        旧标签铺过来只会碍事」的判断（命令行传目录时用的）。
+        从菜单选一个最近项目，走的必须是同一条 —— 不能另起一套。
+      </div></div>
+    </div>
+  </div>
+
+  <!-- 空态卡片 -->
+  <div style="display: flex; flex-direction: column; gap: 12px;">
+    <div class="cap" style="color:#7a7a80;font-size:11px;letter-spacing:.08em;">空态卡片也要加入口</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 26px; align-items: start;">
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="lab bad">现状</div>
+        <div class="glass" style="height: 210px;">
+          <div class="veil"></div>
+          <div style="position:relative;height:100%;display:grid;place-content:center;justify-items:center;">
+            <div style="width: 380px; background:#232326; border:1px solid rgba(255,255,255,.13);
+                        border-radius:10px; padding:18px 20px 16px;">
+              <div style="font-size:14.5px;color:#fff;margin-bottom:4px;">把文件或文件夹拖进来</div>
+              <div style="font-size:11.5px;line-height:1.6;color:#8a8a8a;">
+                代码走编辑模式，大文件与日志自动走只读的日志模式</div>
+            </div>
+          </div>
+        </div>
+        <div class="p" style="font-size:11.5px;">
+          <span class="bad">「拖进来」是唯一的说法</span> —— 而拖拽是这里面最不像
+          macOS 的一种开法。
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="lab good">改成</div>
+        <div class="glass" style="height: 210px;">
+          <div class="veil"></div>
+          <div style="position:relative;height:100%;display:grid;place-content:center;justify-items:center;">
+            <div style="width: 380px; background:#232326; border:1px solid rgba(255,255,255,.13);
+                        border-radius:10px; padding:18px 20px 16px;">
+              <div style="font-size:14.5px;color:#fff;margin-bottom:4px;">打开一个文件夹开始</div>
+              <div style="font-size:11.5px;line-height:1.6;color:#8a8a8a;margin-bottom:12px;">
+                也可以直接把文件或文件夹拖进来 ——<br>
+                代码走编辑模式，大文件与日志自动走只读的日志模式</div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="padding:4px 12px;border-radius:6px;background:#5b8def;color:#fff;font-size:12px;">
+                  打开文件夹…</span>
+                <span class="mono" style="font-size:10.5px;color:#8a8a8a;background:rgba(255,255,255,.07);
+                            border-radius:4px;padding:1px 5px;">⌘O</span>
+                <span style="flex:1"></span>
+                <span style="font-size:11.5px;color:#8a8a8a;">最近：</span>
+                <span style="font-size:11.5px;color:#7fa8f5;">lite-ide</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="p" style="font-size:11.5px;">
+          <span class="good">主动作是按钮</span>，拖拽退成第二说法。
+          右边挂一条最近记录 —— 空态是最需要它的时刻。
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

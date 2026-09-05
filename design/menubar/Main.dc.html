@@ -1,0 +1,230 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12px; line-height: 1.7; }
+    .lab { font-size: 12.5px; font-weight: 600; }
+    .bad { color: #d1707a; } .good { color: #6aab73; }
+    /* macOS 菜单：系统画的，不归我们那套材质管 —— 这里照系统的样子摆 */
+    .bar { display: flex; align-items: center; gap: 0; height: 26px; padding: 0 8px;
+      background: rgba(46,46,48,0.96); border-radius: 7px 7px 0 0;
+      border: 1px solid rgba(255,255,255,0.10); border-bottom: none; }
+    .bar span { padding: 0 10px; font-size: 12.5px; color: #e6e6e8; line-height: 26px; }
+    .bar span.on { background: #3b6fd4; border-radius: 5px; color: #fff; }
+    .menu { width: 250px; background: rgba(46,46,48,0.98); border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 7px; padding: 4px 0; box-shadow: 0 16px 40px rgba(0,0,0,0.6); }
+    .mi { display: flex; align-items: center; gap: 10px; padding: 3px 12px 3px 20px;
+      font-size: 12.5px; color: #e6e6e8; }
+    .mi .k { margin-left: auto; color: #9a9a9e; font-family: "SF Mono", Menlo, monospace; font-size: 11.5px; }
+    .mi.dim { color: #6f6f74; }
+    .mi.arrow::after { content: "›"; margin-left: auto; color: #9a9a9e; font-size: 14px; }
+    .msep { height: 1px; background: rgba(255,255,255,0.10); margin: 4px 10px; }
+    .col { display: flex; flex-direction: column; gap: 10px; }
+    .tag { font-size: 10px; padding: 1px 6px; border-radius: 5px; font-family: "SF Mono", Menlo, monospace; }
+    .t-new { background: rgba(106,171,115,0.18); color: #8fce97; }
+    .t-sys { background: rgba(255,255,255,0.08); color: #9a9a9e; }
+  </style>
+</helmet>
+
+<div style="width: 1560px; min-height: 1180px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 32px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="color: #ffffff; font-size: 24px; font-weight: 600;">菜单栏</div>
+    <div class="p" style="max-width: 1000px; font-size: 12.5px;">
+      现在挂的是 Tauri 的默认菜单。用 AppleScript 从跑着的 <span class="mono">.app</span> 里挖出来是这样：
+      <strong style="color:#d1707a;">文件只有 Close Window / Close All，视图只有 Toggle Full Screen，帮助是空的</strong>，
+      而且全英文。
+      <br><br>
+      更要紧的不是英文 —— 是 <span class="mono">⌘S ⌘P ⇧⌘F ⇧⌘O ⇧⌘G ⌘J ⌘1 ⌃⇧`</span> 和「连按两下 ⇧」
+      <strong style="color:#cdcdcd;">一条都不在里面</strong>，它们只活在 <span class="mono">App.svelte</span> 的
+      keydown 监听里。快捷键表只在空态那张卡片上出现过一次，开了文件就再也找不到。
+      <strong style="color:#cdcdcd;">这个应用的功能只有作者知道。</strong>
+    </div>
+  </div>
+
+  <!-- 现状 -->
+  <div style="display: flex; flex-direction: column; gap: 12px;">
+    <div class="lab bad">现状 · Tauri 默认菜单（实测）</div>
+    <div style="display: flex; gap: 16px; align-items: flex-start;">
+      <div class="col">
+        <div class="bar"><span>lite-ide</span><span class="on">File</span><span>Edit</span><span>View</span><span>Window</span><span>Help</span></div>
+        <div class="menu" style="width: 190px;">
+          <div class="mi">Close Window</div>
+          <div class="mi">Close All</div>
+        </div>
+      </div>
+      <div class="col" style="padding-top: 36px;">
+        <div class="menu" style="width: 190px;">
+          <div class="mi">Toggle Full Screen</div>
+        </div>
+        <div class="p" style="font-size: 11.5px; width: 190px;">View —— 一条</div>
+      </div>
+      <div class="col" style="padding-top: 36px;">
+        <div class="menu" style="width: 190px; padding: 14px 0; text-align: center;">
+          <div class="mi dim" style="justify-content: center; padding-left: 12px;">（空）</div>
+        </div>
+        <div class="p" style="font-size: 11.5px; width: 190px;">Help —— 空的</div>
+      </div>
+      <div class="p" style="font-size: 11.5px; max-width: 420px; padding-top: 36px;">
+        Edit 那一栏（Undo/Cut/Copy/Paste）是 WebKit 自带的，能用 —— 这一栏**要保留**，
+        只是把文案换成中文。它挂的是 NSResponder 链上的
+        <span class="mono">undo:</span> <span class="mono">copy:</span> 这些选择器，
+        <strong style="color:#cdcdcd;">自己撸一份发事件到前端，在 CM6 和 xterm 里都会走样</strong>。
+      </div>
+    </div>
+  </div>
+
+  <!-- 改成 -->
+  <div style="display: flex; flex-direction: column; gap: 12px;">
+    <div class="lab good">改成 · 九个菜单</div>
+    <div class="bar" style="width: fit-content;">
+      <span>lite-ide</span><span>文件</span><span>编辑</span><span>视图</span>
+      <span>转到</span><span>Git</span><span>终端</span><span>窗口</span><span>帮助</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 18px; margin-top: 4px;">
+
+      <div class="col">
+        <div class="lab" style="color:#cdcdcd;">文件</div>
+        <div class="menu">
+          <div class="mi">打开文件夹…<span class="k">⌘O</span></div>
+          <div class="mi arrow">最近打开</div>
+          <div class="msep"></div>
+          <div class="mi">保存<span class="k">⌘S</span></div>
+          <div class="msep"></div>
+          <div class="mi">关闭标签<span class="k">⌘W</span></div>
+          <div class="mi">关闭所有标签</div>
+          <div class="msep"></div>
+          <div class="mi">关闭窗口<span class="k">⇧⌘W</span></div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          <span class="tag t-new">新</span> 打开文件夹、最近打开 —— 今天换项目只能拖进来
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="lab" style="color:#cdcdcd;">编辑</div>
+        <div class="menu">
+          <div class="mi">撤销<span class="k">⌘Z</span></div>
+          <div class="mi">重做<span class="k">⇧⌘Z</span></div>
+          <div class="msep"></div>
+          <div class="mi">剪切<span class="k">⌘X</span></div>
+          <div class="mi">复制<span class="k">⌘C</span></div>
+          <div class="mi">粘贴<span class="k">⌘V</span></div>
+          <div class="mi">全选<span class="k">⌘A</span></div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          <span class="tag t-sys">系统</span> 全部走 predefined，只换文案
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="lab" style="color:#cdcdcd;">视图</div>
+        <div class="menu">
+          <div class="mi">侧边栏<span class="k">⌘1</span></div>
+          <div class="mi">终端面板<span class="k">⌘J</span></div>
+          <div class="msep"></div>
+          <div class="mi">代码缩略图</div>
+          <div class="mi">切换编辑 / 日志模式</div>
+          <div class="msep"></div>
+          <div class="mi">进入全屏<span class="k">⌃⌘F</span></div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          <span class="tag t-sys">系统</span> 全屏那条是 predefined
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="lab" style="color:#cdcdcd;">转到</div>
+        <div class="menu">
+          <div class="mi" style="padding-right: 12px;">随处搜索<span class="k">连按两下 ⇧</span></div>
+          <div class="mi">找文件…<span class="k">⌘P</span></div>
+          <div class="mi">在项目中搜索…<span class="k">⇧⌘F</span></div>
+          <div class="mi">文件结构…<span class="k">⇧⌘O</span></div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          「连按两下 ⇧」表达不成 accelerator，写进标签 ——
+          <strong style="color:#cdcdcd;">菜单是它唯一的说明书</strong>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="lab" style="color:#cdcdcd;">Git</div>
+        <div class="menu">
+          <div class="mi">改动列表<span class="k">⇧⌘G</span></div>
+          <div class="mi">查看当前文件的改动</div>
+          <div class="mi">提交历史</div>
+          <div class="msep"></div>
+          <div class="mi">分支与工作树…</div>
+          <div class="mi">刷新状态</div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          不是 Git 仓库时整栏禁用，别让人点了没反应
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="lab" style="color:#cdcdcd;">终端</div>
+        <div class="menu">
+          <div class="mi">新建终端<span class="k">⌃⇧`</span></div>
+          <div class="mi">关闭当前终端</div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          <span class="tag t-new">新</span> ⌃⇧` 今天完全没有可见入口
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="lab" style="color:#cdcdcd;">窗口</div>
+        <div class="menu">
+          <div class="mi">最小化<span class="k">⌘M</span></div>
+          <div class="mi">缩放</div>
+          <div class="msep"></div>
+          <div class="mi">前置全部窗口</div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          <span class="tag t-sys">系统</span> 认作 NSApp 的窗口菜单，系统会自己往里塞窗口列表
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="lab" style="color:#cdcdcd;">帮助</div>
+        <div class="menu">
+          <div class="mi">快捷键速查<span class="k">⌘/</span></div>
+          <div class="msep"></div>
+          <div class="mi">项目主页</div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          <span class="tag t-new">新</span> 认作 NSApp 的帮助菜单，系统会加上那个搜索框。
+          速查是个真界面，见「快捷键速查」那张画板
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px;
+              padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+    <div style="color:#fff;font-size:13.5px;font-weight:600;">⌘F 一个字都不许进菜单</div>
+    <div class="p">
+      那是 CM6 查找面板的键位。菜单项一旦带上 accelerator，AppKit 会**先把键吃掉**，
+      webview 收不到 —— 进了菜单就等于把编辑器的查找抢没了，而且是静默的。
+      项目内搜索是 <span class="mono">⇧⌘F</span>，跟它不冲突。
+      <br>
+      同一条判据下还有谁归谁，见「键位归属」那张画板 —— <strong style="color:#cdcdcd;">那是这次最容易做错的地方</strong>。
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

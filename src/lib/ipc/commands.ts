@@ -319,3 +319,28 @@ export const gitWorktreeAdd = (root: string, path: string, branch: string) =>
 /** 会删掉那个目录，调用前必须确认 */
 export const gitWorktreeRemove = (root: string, path: string, force = false) =>
   invoke<void>("git_worktree_remove", { root, path, force });
+
+// ── 菜单栏 ───────────────────────────────────────────────────────────
+
+/**
+ * 开原生的「选择文件夹」面板。取消返回 null。
+ *
+ * 面板必须由 Rust 侧开 —— HTML 的 `<input webkitdirectory>` 给的是
+ * 一堆文件条目而不是目录路径，而且拿不到绝对路径。
+ */
+export const pickFolder = () => invoke<string | null>("pick_folder");
+
+/** 刷新「最近打开」子菜单。列表存在会话快照里，变了就把整张表推过来 */
+export const setRecent = (paths: string[]) => invoke<void>("set_recent", { paths });
+
+/**
+ * 按当下的上下文让菜单项变灰。
+ *
+ * 没有标签时的「保存」、不是 Git 仓库时的「改动列表」—— 灰掉的菜单项
+ * 本身就是一句解释：不是坏了，是现在用不上。
+ */
+export const syncMenuState = (hasTab: boolean, hasRepo: boolean, hasTerm: boolean) =>
+  invoke<void>("sync_menu_state", { hasTab, hasRepo, hasTerm });
+
+/** 交给系统默认浏览器打开。Rust 侧只放行 https —— 见那边的注释 */
+export const openExternal = (url: string) => invoke<void>("open_external", { url });

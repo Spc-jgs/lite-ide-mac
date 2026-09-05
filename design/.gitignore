@@ -2,3 +2,5 @@
 # 才是要留的。要看画布就照 README 里那条命令重新打一份。
 *.html
 !*.dc.html
+menubar/lite-ide-menubar.html
+components/lite-ide-git-search-tabs.html

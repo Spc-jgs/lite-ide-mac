@@ -28,6 +28,16 @@ ptysvc = { path = "crates/ptysvc" }
 searchsvc = { path = "crates/searchsvc" }
 gitsvc = { path = "crates/gitsvc" }
 
+# 「打开文件夹…」的原生选择框。
+#
+# 只在 Rust 侧用（菜单栏的处理函数里），**前端一行都不引** ——
+# 引了就要把它的 JS 包拽进入口包，而入口包是首屏之前必须解析执行完的那段。
+#
+# 不自己撸 NSOpenPanel：判据和当初选 `trash` crate 一样 ——
+# 系统面板有一堆自己的规矩（沙盒、最近位置、main thread 亲和性），
+# 这些应该由维护着的库去对，不是我们。
+tauri-plugin-dialog = "2"
+
 # 窗口材质。**只在 macOS 上编进来** —— 这个 crate 在 Linux 上是空实现、
 # 在 Windows 上会拽进 windows-sys，而这个项目只发 macOS。
 [target.'cfg(target_os = "macos")'.dependencies]

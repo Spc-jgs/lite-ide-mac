@@ -1,0 +1,142 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12px; line-height: 1.7; }
+    .lab { font-size: 12.5px; font-weight: 600; }
+    .bad { color: #d1707a; } .good { color: #6aab73; }
+    .pop { background: #232326; border: 1px solid rgba(255,255,255,0.13); border-radius: 14px;
+      box-shadow: 0 14px 34px rgba(0,0,0,0.58); overflow: hidden; }
+    .sec { padding: 9px 16px 4px; font-size: 10.5px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #7a7a80; background: #232326; }
+    .r { display: flex; align-items: center; gap: 10px; padding: 5px 16px; font-size: 12.5px; color: #cdcdcd; }
+    .k { margin-left: auto; font-family: "SF Mono", Menlo, monospace; font-size: 11.5px; color: #e6e6e8;
+      background: rgba(255,255,255,0.07); border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
+    .note { display: flex; gap: 9px; align-items: flex-start; }
+    .num { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid;
+      place-content: center; font-size: 10.5px; font-family: "SF Mono", Menlo, monospace;
+      background: rgba(255,255,255,0.11); color: #cdcdcd; margin-top: 1px; }
+    .card { background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; }
+  </style>
+</helmet>
+
+<div style="width: 1360px; min-height: 1000px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 30px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="color: #ffffff; font-size: 24px; font-weight: 600;">快捷键速查（帮助 › 快捷键速查，⌘/）</div>
+    <div class="p" style="max-width: 980px; font-size: 12.5px;">
+      今天这份表<strong style="color:#cdcdcd;">只在空态那张卡片上出现过一次</strong> ——
+      开了文件就再也找不到，而那恰恰是开始需要它的时候。
+      菜单栏能解决大半，但「连按两下 ⇧」「⌘B 是 ⌘1 的别名」「⌘F 归编辑器」
+      这些说不进菜单的，得有个地方讲。
+      <br><br>
+      骨架照 AGENTS.md 定死的那套（输入 → 分组结果 → 脚栏），
+      跟随处搜索、分支面板是同一副 —— <strong style="color:#cdcdcd;">第三个浮层了，不再另起一套。</strong>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 560px 1fr; gap: 30px; align-items: start;">
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="lab good">浮层</div>
+      <div class="pop">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 13px 16px;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8a8a8a" stroke-width="1.4"><circle cx="7" cy="7" r="4.4"/><path d="M10.3 10.3 14 14"/></svg>
+          <span style="color: #6f737b; font-size: 15px;">过滤，比如「终端」或「⌘」…</span>
+        </div>
+
+        <div style="border-top: 1px solid rgba(255,255,255,0.05); max-height: 470px; overflow: hidden;">
+          <div class="sec">导航</div>
+          <div class="r">随处搜索<span class="k">连按两下 ⇧</span></div>
+          <div class="r">找文件<span class="k">⌘P</span></div>
+          <div class="r">在项目中搜索<span class="k">⇧⌘F</span></div>
+          <div class="r">文件结构<span class="k">⇧⌘O</span></div>
+
+          <div class="sec">编辑</div>
+          <div class="r">保存<span class="k">⌘S</span></div>
+          <div class="r">在当前文件里查找<span class="k">⌘F</span></div>
+          <div class="r">查找并替换<span class="k">⌥⌘F</span></div>
+          <div class="r">关闭标签<span class="k">⌘W</span></div>
+
+          <div class="sec">视图</div>
+          <div class="r">侧边栏<span class="k">⌘1</span><span class="k" style="margin-left:6px;">⌘B</span></div>
+          <div class="r">终端面板<span class="k">⌘J</span></div>
+          <div class="r">新建终端<span class="k">⌃⇧`</span></div>
+
+          <div class="sec">Git</div>
+          <div class="r">改动列表<span class="k">⇧⌘G</span></div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; padding: 7px 16px;
+                    border-top: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.16);">
+          <span style="font-size:10.5px;color:#8a8a8a;">
+            <span class="mono" style="background:rgba(255,255,255,.07);border-radius:4px;padding:1px 5px;">⌘/</span> 随时打开</span>
+          <span style="flex:1"></span>
+          <span style="font-size:10.5px;color:#8a8a8a;">
+            <span class="mono" style="background:rgba(255,255,255,.07);border-radius:4px;padding:1px 5px;">esc</span> 关闭</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 14px; padding-top: 26px;">
+      <div class="note"><div class="num">1</div><div class="p">
+        <strong style="color:#fff;">别名并排列出来。</strong>
+        <span class="mono">⌘1</span> 和 <span class="mono">⌘B</span> 是同一件事，
+        菜单里只能写一个 —— 这张表是唯一能把两个都说清的地方。
+      </div></div>
+      <div class="note"><div class="num">2</div><div class="p">
+        <strong style="color:#fff;">把编辑器自带的也列进来。</strong>
+        <span class="mono">⌘F</span> / <span class="mono">⌥⌘F</span> 是 CM6 给的，
+        代码里一行都没写 —— 正因为如此，它们在别处一个字都不会出现。
+        对用的人来说「谁实现的」不重要，「按了有没有用」才重要。
+      </div></div>
+      <div class="note"><div class="num">3</div><div class="p">
+        <strong style="color:#fff;">这张表是从一处生成的，不是手抄的。</strong>
+        菜单栏、随处搜索的「操作」、这张速查表，三处显示同一批键位。
+        手抄三份的话，改一个键位就会漏掉两处 —— 而
+        <strong style="color:#cdcdcd;">显示错的快捷键比不显示更糟</strong>
+        （刚发的 v0.5.0 里那个 <span class="mono">1⌘</span> 就是先例）。
+      </div></div>
+      <div class="note"><div class="num">4</div><div class="p">
+        <strong style="color:#fff;">过滤框而不是分栏。</strong>
+        键位会一直长（M7 之后还有拉取推送）。
+        分栏排版每加一条都要重新拿捏，过滤框不用。
+      </div></div>
+      <div class="note"><div class="num">5</div><div class="p">
+        <strong style="color:#fff;"><span class="mono">⌘/</span> 不进 keydown。</strong>
+        它进菜单（帮助 › 快捷键速查）。理由和别的一样：
+        菜单项能在标签里自己说明自己，keydown 不能。
+      </div></div>
+    </div>
+  </div>
+
+  <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+    <div style="color:#fff;font-size:13.5px;font-weight:600;">一处定义，三处用</div>
+    <div class="p">
+      现在键位散在三个地方：<span class="mono">App.svelte</span> 的 keydown 分支、
+      随处搜索那张 <span class="mono">actions</span> 表（带 <span class="mono">hint</span> 字符串）、
+      以及空态卡片里手写的一份。菜单栏会是<strong style="color:#cdcdcd;">第四处</strong>。
+      <br><br>
+      所以这一轮顺带把它收成一张表：<span class="mono">{ id, 标签, 键位, 分组, 归谁接 }</span>。
+      菜单从它生成、速查表从它渲染、随处搜索的 <span class="mono">hint</span> 从它取 ——
+      <strong style="color:#cdcdcd;">「归谁接」这一列同时也是 keydown 分支的判据</strong>，
+      归菜单的键位在 keydown 里就不该再有分支。
+      <br><br>
+      这也是「键位归属」那张画板能落地的前提：靠人记着两边别重复，早晚会重复。
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

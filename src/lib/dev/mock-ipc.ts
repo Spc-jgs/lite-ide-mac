@@ -741,6 +741,30 @@ index 1a2b3c4..5d6e7f8 100644
         case "git_worktree_remove":
           return null;
 
+        // ── 菜单栏 ──
+
+        /*
+         * 浏览器里没有原生面板，也没有菜单栏 —— 这三条**必须有桩**，
+         * 不能落到 default 去。
+         *
+         * 落到 default 返回 null 的话，`pickFolder()` 拿到 null 看着
+         * 就像"用户取消了"，于是「打开文件夹」这个按钮在浏览器里
+         * 点了永远没反应，而**没有任何报错** —— 排查时会先怀疑按钮没绑上。
+         * 返回一个假目录，至少那条路是通的。
+         */
+        case "pick_folder":
+          return "/proj";
+        // 菜单在浏览器里不存在，这两条是空操作 —— 但要显式写出来
+        case "set_recent":
+        case "sync_menu_state":
+          return null;
+        case "open_external": {
+          // 真实现只放行 https，桩也照做：不然浏览器里试不出那条约束
+          const url = String(a.url ?? "");
+          if (!url.startsWith("https://")) throw new Error(`只允许 https 链接，实得：${url}`);
+          return null;
+        }
+
         default:
           return null;
       }

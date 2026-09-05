@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
@@ -9,12 +10,18 @@
   import Crash from "./lib/shell/Crash.svelte";
   import Icon from "./lib/shell/Icon.svelte";
   import Outline from "./lib/search/Outline.svelte";
+  import { KEYS, byId as keyById } from "./lib/state/keymap";
   import type { Sym } from "./lib/editor/outline";
   import { langOf, langLabel } from "./lib/editor/langs";
   import type { ChangeKind } from "./lib/git/diff";
   import {
     probePath,
     readText,
+    pickFolder,
+    setRecent,
+    syncMenuState,
+    openExternal,
+    diag,
     writeText,
     fileStamp,
     type Stamp,
@@ -212,6 +219,12 @@
 
   let encOpen = $state(false);
   const encPicker = lazy(() => import("./lib/encoding/EncodingPicker.svelte"), "编码选择器");
+  /*
+   * 速查表是「忘了才看」的东西，一次都不点开也很正常 ——
+   * 让它在首屏之前被解析执行不划算。判据同 ARCHITECTURE 那条：
+   * 问一句「这东西在窗口出现之前有用吗」。
+   */
+  const keysPanel = lazy(() => import("./lib/search/Keys.svelte"), "快捷键速查");
   $effect(() => {
     if (encOpen) encPicker.load();
   });
@@ -755,6 +768,22 @@
   // 文件结构大纲
   let outlineOpen = $state(false);
   let outlineTick = $state(0);
+  /**
+   * 空态卡片上列的那几条。
+   *
+   * 不是全表 —— 全表在 ⌘/ 的速查浮层里。这里只留「不知道就上不了手」的，
+   * 顺序即显示顺序（两列铺开）。**从 keymap.ts 取，不手抄**：
+   * 原来手抄的那份把 ⌘⇧F / ⌘⇧O / ⌘⇧G 三处修饰键次序全写反了。
+   */
+  const HINT_IDS = [
+    "quick-all", "save", "quick-file", "close-tab", "quick-content",
+    "toggle-sidebar", "outline", "toggle-panel", "git-changes", "log-next-hit",
+  ];
+  const keyHints = HINT_IDS.map((id) => keyById(id)).filter((k) => k !== undefined);
+
+  /** 快捷键速查浮层。⌘/ 归菜单（帮助 › 快捷键速查），这里只存开合 */
+  let keysOpen = $state(false);
+
   let symbols = $state<Sym[]>([]);
   function openOutline() {
     if (active?.mode !== "edit") return;
@@ -763,75 +792,29 @@
     outlineOpen = true;
   }
 
-  const actions: Action[] = [
-    { id: "toggle-sidebar", label: "切换侧边栏", hint: "⌘1", run: () => (sidebar = !sidebar) },
-    { id: "toggle-terminal", label: "切换终端", hint: "⌘J", run: () => (panel = !panel) },
-    { id: "new-terminal", label: "新建终端", hint: "⌃⇧`", run: () => newTerm() },
-    {
-      id: "close-terminal",
-      label: "关闭当前终端",
-      run: () => {
-        if (activeTermId !== null) closeTerm(activeTermId);
-      },
-    },
-    {
-      id: "switch-mode",
-      label: "切换编辑 / 日志模式",
-      run: () => {
-        if (active) requestSwitchMode(active);
-      },
-    },
-    { id: "save", label: "保存当前文件", hint: "⌘S", run: () => saveActive() },
-    {
-      id: "close-tab",
-      label: "关闭当前标签",
-      hint: "⌘W",
-      run: () => {
-        if (active) requestClose(active.id);
-      },
-    },
-    { id: "close-all", label: "关闭所有标签", run: () => closeMany(tabs.map((t) => t.id)) },
-    {
-      id: "git-view",
-      label: "Git：改动列表",
-      hint: "⌘⇧G",
-      run: () => {
-        if (!repo) {
-          notify.fail("当前项目不是 Git 仓库", 2600);
-          return;
-        }
-        sideView = "git";
-        sidebar = true;
-      },
-    },
-    { id: "git-refresh", label: "Git：刷新状态", run: () => void refreshGit() },
-    {
-      id: "toggle-minimap",
-      label: "切换代码缩略图",
-      run: () => (showMinimap = !showMinimap),
-    },
-    {
-      id: "encoding",
-      label: "文件编码：查看 / 重新打开 / 换编码保存",
-      run: () => {
-        if (active) encOpen = true;
-        else {
-          notify.fail("先打开一个文件", 2200);
-        }
-      },
-    },
-    {
-      id: "git-diff-current",
-      label: "Git：查看当前文件的改动",
-      run: () => {
-        const e = activeEntry;
-        if (e) void openDiff(e, false);
-        else {
-          notify.fail("当前文件没有未提交的改动", 2600);
-        }
-      },
-    },
-  ];
+  /**
+   * 随处搜索里的「操作」。**从键位表生成，不再手写第二份。**
+   *
+   * 加菜单栏之前这里是一张 69 行的手写表，标签和 `hint` 各写一遍 ——
+   * 而同样的信息在菜单栏、速查表、空态卡片里还各有一份。四处手抄的结果
+   * 是可预见的：改一个键位漏掉三处。
+   *
+   * # 它同时是浏览器里唯一的入口
+   *
+   * `pnpm dev` 跑在浏览器里，**那儿没有菜单栏** —— 归菜单的动作
+   * （⌘S ⌘O ⇧⌘G ⌘/ …）在那里一个都够不着，改 UI 的主循环就废了一半。
+   * 让这张表覆盖全部动作之后，两边都通：Tauri 里走菜单，浏览器里走这儿。
+   *
+   * `cm6` 那一档不进来 —— 它们是编辑器内部的键位（⌘F 查找面板），
+   * 不是这个应用能"执行"的动作。
+   */
+  const actions: Action[] = KEYS.filter((k) => k.owner !== "cm6").map((k) => ({
+    id: k.id,
+    // Git 那一摊加前缀：单看「刷新状态」「提交历史」不知道是谁的
+    label: k.group === "Git" ? `Git：${k.label}` : k.label,
+    hint: k.accel ?? k.gesture,
+    run: () => void runMenu(k.id),
+  }));
 
   /** 当前编辑的文件在 git 状态里对应的那条，没有就是干净的 */
   let activeEntry = $derived.by(() => {
@@ -1041,6 +1024,56 @@
   }
 
   /**
+   * 最近打开过的项目根，最新的排最前。
+   *
+   * 记的是**项目根不是文件**：会话恢复本来就以 root 为单位，
+   * 开回一个项目上次的标签会跟着回来，比记住散落的文件有用得多。
+   */
+  let recent = $state<string[]>(saved?.recent ?? []);
+
+  /** 把一个目录顶到最近列表最前面。已经在里面就是往前挪，不是加一条 */
+  function remember(dir: string) {
+    recent = [dir, ...recent.filter((r) => r !== dir)].slice(0, session.RECENT_MAX);
+  }
+
+  /**
+   * 开原生的选择文件夹面板。取消了什么也不做。
+   *
+   * 选中之后走的是 `openPath` —— 它对目录的处理就是把 root 设过去，
+   * 和拖一个文件夹进来、命令行传目录**是同一条路**。
+   * 另起一套的话，「切项目要不要清掉旧标签」这类判断就会有两份。
+   */
+  async function openFolder() {
+    const dir = await pickFolder().catch(() => null);
+    if (!dir) return;
+    await openPath(dir);
+  }
+
+  /**
+   * 从菜单里选一个最近项目。
+   *
+   * **不预先探测存在性。** 每次开菜单去 stat 一遍 8 个路径，
+   * 碰上没挂载的网络卷会把菜单卡住 —— 改成点了才发现：
+   * 打不开就报一句并把它从列表里摘掉，那时用户已经知道自己在等什么了。
+   */
+  async function openRecent(dir: string) {
+    const info = await probePath(dir).catch(() => null);
+    if (info?.kind !== "dir") {
+      notify.fail(`打不开 ${dir} —— 已从最近记录里移除`, 3200);
+      recent = recent.filter((r) => r !== dir);
+      return;
+    }
+    await openPath(dir);
+  }
+
+  /** 项目主页。交给系统默认浏览器 —— 这个应用自己不开网页 */
+  async function openRepoPage() {
+    await openExternal("https://github.com/Spc-jgs/lite-ide-mac").catch(() => {
+      notify.fail("打不开项目主页", 2600);
+    });
+  }
+
+  /**
    * 把上次的现场摆回来。
    *
    * 全程「能恢复多少算多少」：项目根没了就不设，文件没了就跳过，
@@ -1172,6 +1205,7 @@
       }),
       active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
       layout: { sidebar, sidebarWidth, sideView, panel, panelHeight, panelView },
+      recent: [...recent],
     };
   }
 
@@ -1576,69 +1610,103 @@
       quickOpen = false;
       return;
     }
-    // ⌃⇧` 新建终端，与 VSCode 一致
-    if (e.ctrlKey && e.shiftKey && (e.key === "~" || e.key === "`")) {
-      e.preventDefault();
-      newTerm();
-      return;
-    }
     if (!e.metaKey) return;
     /*
-     * ⌘S 也要在编辑器**没有焦点**时管用。
+     * ── 这里只剩两条 ──
      *
-     * 原来它只挂在 CM6 的 keymap 上 —— 焦点在文件树、Git 面板或者终端上时
-     * 按 ⌘S 什么也不发生，**而且没有任何提示**。而欢迎页一直把它和 ⌘P、⌘J
-     * 并排列成全局快捷键。
+     * 2026-09-05 加菜单栏时，**归菜单的键位全部从这儿摘掉了**
+     * （⌘S ⌘W ⌘1 ⌘J ⇧⌘F ⇧⌘O ⇧⌘G ⌃⇧` ⌘O ⌘/）。
      *
-     * `defaultPrevented` 是防重的关键：焦点在编辑器里时 CM6 已经处理过并
-     * preventDefault 了，事件照样会冒到 window —— 不判这一句就是存两次
-     * （两次写盘、两条「已保存」）。
+     * 不是为了少写几行：菜单项一旦带上 accelerator，AppKit 会**先把键吃掉**，
+     * webview 根本收不到 —— 两边都留着的话，要么双触发（⌘W 一下关两个标签），
+     * 要么某一天 accelerator 没生效而 keydown 悄悄兜住了，
+     * 于是「菜单坏了」这件事永远暴露不出来。
      *
-     * 走 `saveActive()` 拿的是编辑器里的实时文本（见 liveText），
-     * 不是几步之前的草稿。
+     * 谁归谁的判据在 `src/lib/state/keymap.ts` 的 `owner` 列，
+     * `src-tauri/tests/menu_sync.rs` 卡着两边不许漂。
      */
-    if (k === "s") {
-      if (e.defaultPrevented) return;
-      e.preventDefault();
-      saveActive();
-      return;
-    }
+
+    /*
+     * ⌘P 故意留在这儿（keymap.ts 里 owner = "key"）。
+     *
+     * 进菜单的话，焦点在终端里按 ⌘P 会被菜单抢走 —— 而终端里的 ⌘P
+     * 更可能是想给 shell 的（zsh 的历史上一条）。菜单项只写标签、不挂键位。
+     */
     if (k === "p") {
       e.preventDefault();
       quickScope = "file";
       quickOpen = true;
       return;
     }
-    if (k === "o" && e.shiftKey) {
-      e.preventDefault();
-      openOutline();
-      return;
-    }
-    if (k === "g" && e.shiftKey) {
-      e.preventDefault();
-      if (repo) {
-        // 已经在 Git 视图上再按一次就切回去，来回都是同一个手势
-        sideView = sidebar && sideView === "git" ? "files" : "git";
-        sidebar = true;
-      }
-      return;
-    }
-    if (k === "f" && e.shiftKey) {
-      e.preventDefault();
-      quickScope = "content";
-      quickOpen = true;
-      return;
-    }
-    if (k === "1" || k === "b") {
-      // ⌘B 是 VSCode 的侧边栏键位，很多人手指记的是它
+    /*
+     * ⌘B 是 ⌘1 的别名（VSCode 手感，很多人手指记的是它）。
+     * macOS 菜单一项只能挂一个 accelerator —— 主键位 ⌘1 进了菜单，
+     * 别名只能留在这儿。速查表是唯一能把两个都说清的地方。
+     */
+    if (k === "b") {
       e.preventDefault();
       sidebar = !sidebar;
-    } else if (k === "j") {
-      e.preventDefault();
-      panel = !panel;
-    } else if (k === "w" && active) {
-      e.preventDefault();
-      requestClose(active.id);
+    }
+  }
+
+  /**
+   * 菜单项按下去做什么。
+   *
+   * id 与 `keymap.ts`、`menu.rs` 三处同一套 —— 那两处由
+   * `tests/menu_sync.rs` 卡着，这里是第三处，漏一个 case 的表现是
+   * 「点了没反应」，所以末尾留了一条 diag。
+   */
+  async function runMenu(id: string) {
+    if (id.startsWith("recent:")) {
+      await openRecent(id.slice("recent:".length));
+      return;
+    }
+    switch (id) {
+      case "open-folder": return void openFolder();
+      case "recent-clear": recent = []; return;
+      case "save": return saveActive();
+      case "encoding":
+        if (active) encOpen = true;
+        return;
+      case "close-tab":
+        if (active) requestClose(active.id);
+        return;
+      case "close-all-tabs": return closeMany(tabs.map((t) => t.id));
+      case "toggle-mode":
+        if (active) requestSwitchMode(active);
+        return;
+      case "quick-all": quickScope = "all"; quickOpen = true; return;
+      case "quick-file": quickScope = "file"; quickOpen = true; return;
+      case "quick-content": quickScope = "content"; quickOpen = true; return;
+      case "outline": return openOutline();
+      case "toggle-sidebar": sidebar = !sidebar; return;
+      case "toggle-panel": panel = !panel; return;
+      case "toggle-minimap": showMinimap = !showMinimap; return;
+      case "new-terminal": return newTerm();
+      case "close-terminal":
+        if (activeTermId !== null) closeTerm(activeTermId);
+        return;
+      case "git-changes":
+        // 已经在 Git 视图上再点一次就切回去，和 ⇧⌘G 是同一个手势
+        sideView = sidebar && sideView === "git" ? "files" : "git";
+        sidebar = true;
+        return;
+      case "git-file-diff": {
+        const en = activeEntry;
+        if (en) void openDiff(en, false);
+        else notify.fail("当前文件没有未提交的改动", 2600);
+        return;
+      }
+      case "git-log": panel = true; panelView = "log"; return;
+      case "git-branches": branchOpen = true; return;
+      case "git-refresh": return void refreshGit();
+      case "help-keys":
+        keysPanel.load();
+        keysOpen = true;
+        return;
+      case "help-repo": return void openRepoPage();
+      default:
+        diag(`菜单项 ${id} 没有对应的处理`);
     }
   }
 
@@ -1745,9 +1813,71 @@
     return () => void reg.then((f) => f?.()).catch(() => {});
   });
 
+  /**
+   * 菜单事件。
+   *
+   * `@tauri-apps/api/event` 同样走动态 import，理由和拖放那条一样 ——
+   * 静态引会把它连着 core 的一串拽进入口包，而菜单在窗口出现之前
+   * 一次都点不到。
+   */
+  $effect(() => {
+    const reg = import("@tauri-apps/api/event")
+      .then((m) => m.listen<string>("menu", (e) => void runMenu(e.payload)))
+      .catch(() => null);
+    return () => void reg.then((f) => f?.()).catch(() => {});
+  });
+
+  /**
+   * 最近列表变了就推给 Rust 重建子菜单。
+   *
+   * 只在 Tauri 里有意义（浏览器里 invoke 走的是桩），失败一律吞掉 ——
+   * 菜单没刷新是件不影响干活的事，不值得弹一条错误。
+   */
+  $effect(() => {
+    void setRecent([...recent]).catch(() => {});
+  });
+
+  /**
+   * 让用不上的菜单项变灰。
+   *
+   * 这是加菜单栏白捡的：今天所有键位都是 window 级监听，**不管当下
+   * 有没有意义都会触发** —— 没有标签时按 ⌘S、不是 Git 仓库时按 ⇧⌘G，
+   * 都是走一遍然后什么也没发生。灰掉的菜单项本身就是一句解释。
+   */
+  $effect(() => {
+    void syncMenuState(active !== null, repo !== null, activeTermId !== null).catch(() => {});
+  });
+
+  /**
+   * 项目根换了就记一笔。
+   *
+   * 放 effect 里而不是在 `openPath` 里调，是因为 root 有四条来路
+   * （拖放、命令行、面包屑、菜单）—— 挂在赋值点上要写四遍，
+   * 而**写四遍就等于早晚漏一遍**。
+   */
+  $effect(() => {
+    const r = root;
+    if (!r) return;
+    /*
+     * **必须 untrack。**
+     *
+     * `remember` 里读了 `recent`（要去重、要截断），而它写的也是 `recent` ——
+     * 不套 untrack 的话这条 effect 就是「读一个状态又写同一个状态」，
+     * Svelte 直接抛 `effect_update_depth_exceeded`，整个内容区变成崩溃屏。
+     * （第一次跑就撞上了，不是什么边角情况。）
+     *
+     * 这条 effect 该依赖的只有 `root` —— 项目根换了才记一笔。
+     */
+    untrack(() => remember(r));
+  });
+
 </script>
 
 <svelte:window onkeydown={onWindowKey} onkeyup={onWindowKeyUp} />
+
+{#if keysPanel.comp}
+  <keysPanel.comp bind:open={keysOpen} />
+{/if}
 
 <Outline
   bind:open={outlineOpen}
@@ -2055,19 +2185,28 @@
           -->
           <div class="empty">
             <div class="card">
-              <div class="big">把文件或文件夹拖进来</div>
-              <p>代码走编辑模式，大文件与日志自动走只读的日志模式</p>
+              <div class="big">打开一个文件夹开始</div>
+              <p>也可以直接把文件或文件夹拖进来 —— 代码走编辑模式，大文件与日志自动走只读的日志模式</p>
+              <div class="go">
+                <button class="primary" onclick={() => void openFolder()}>打开文件夹…</button>
+                <kbd>⌘O</kbd>
+                <span class="gap"></span>
+                {#if recent.length > 0}
+                  <span class="lastly">最近：</span>
+                  <button class="link" onclick={() => void openRecent(recent[0])}>
+                    {recent[0].slice(recent[0].lastIndexOf("/") + 1) || recent[0]}
+                  </button>
+                {/if}
+              </div>
+              <!--
+                这份表原来是**手抄的第三份**，而且抄错了：⌘⇧F / ⌘⇧O / ⌘⇧G
+                三处修饰键次序都反了（Apple 的次序是 ⌃⌥⇧⌘）。
+                现在从 keymap.ts 渲染 —— 那张表由 tests/keymap.test.ts 卡着次序。
+              -->
               <div class="keymap">
-                <span><b>⇧⇧</b> 随处搜索</span>
-                <span><b>⌘S</b> 保存</span>
-                <span><b>⌘P</b> 找文件</span>
-                <span><b>⌘W</b> 关闭标签</span>
-                <span><b>⌘⇧F</b> 搜内容</span>
-                <span><b>⌘1</b> 侧边栏</span>
-                <span><b>⌘⇧O</b> 文件结构</span>
-                <span><b>⌘J</b> 终端</span>
-                <span><b>⌘⇧G</b> 改动</span>
-                <span><b>F3</b> 日志里跳命中</span>
+                {#each keyHints as k (k.id)}
+                  <span><b>{k.gesture ?? k.accel}</b> {k.label}</span>
+                {/each}
               </div>
               {#if notify.error}<p class="err">{notify.error}</p>{/if}
             </div>
@@ -2655,6 +2794,55 @@
   }
   .empty .big { font-size: 14.5px; color: var(--text); margin-bottom: 4px; }
   .empty p { margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--text-faint); }
+  /*
+   * 主动作是按钮，拖拽退成第二说法 —— 拖拽是这几种开法里最不像 macOS 的一种，
+   * 而它原来是卡片上唯一的说法。
+   */
+  .empty .go {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .empty .go .gap { flex: 1; }
+  .empty .primary {
+    padding: 4px 12px;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--r-sm);
+    color: #fff;
+    font-family: var(--ui-font);
+    font-size: 12px;
+    cursor: default;
+  }
+  .empty .primary:hover { filter: brightness(1.08); }
+  .empty .go kbd {
+    font-family: var(--code-font);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    background: var(--hover);
+    border-radius: var(--r-sm);
+    padding: 1px 5px;
+  }
+  .empty .lastly { font-size: 11.5px; color: var(--text-faint); }
+  /* 空态是最需要「最近」的时刻 —— 那时侧边栏还没有任何内容 */
+  .empty .link {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--accent);
+    font-family: var(--ui-font);
+    font-size: 11.5px;
+    cursor: default;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .empty .link:hover { text-decoration: underline; }
+  .empty .primary:focus-visible,
+  .empty .link:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
   .empty .keymap {
     display: grid;
     grid-template-columns: 1fr 1fr;

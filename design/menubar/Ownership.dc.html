@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12px; line-height: 1.7; }
+    .cap { color: #7a7a80; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .card { background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; }
+    .k { font-family: "SF Mono", Menlo, monospace; font-size: 12px; color: #e6e6e8;
+      background: rgba(255,255,255,0.07); border-radius: 5px; padding: 2px 7px; }
+    .row { display: grid; grid-template-columns: 130px 190px 1fr; gap: 0; align-items: center;
+      padding: 11px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .own { font-size: 11.5px; padding: 2px 9px; border-radius: 6px; width: fit-content; }
+    .o-menu { background: rgba(91,141,239,0.18); color: #8fb4f5; }
+    .o-key { background: rgba(214,174,88,0.16); color: #d6ae58; }
+    .o-cm { background: rgba(106,171,115,0.16); color: #8fce97; }
+  </style>
+</helmet>
+
+<div style="width: 1360px; min-height: 1060px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 30px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="color: #ffffff; font-size: 24px; font-weight: 600;">键位归属</div>
+    <div class="p" style="max-width: 980px; font-size: 12.5px;">
+      <strong style="color:#cdcdcd;">这是这次唯一会静默做错的地方。</strong>
+      菜单项一旦带上 accelerator，AppKit 会先把键吃掉，webview 收不到。
+      所以同一个键位<strong style="color:#cdcdcd;">不能两边都接</strong> ——
+      两边都接是双触发（⌘W 关掉两个标签），两边都不接是按了没反应，
+      而两种都不报错。
+    </div>
+  </div>
+
+  <div class="card" style="padding: 4px 0 0;">
+    <div style="display: grid; grid-template-columns: 130px 190px 1fr; padding: 11px 20px;
+                color: #7a7a80; font-size: 11px; letter-spacing: 0.06em;
+                border-bottom: 1px solid rgba(255,255,255,0.09);">
+      <span>键位</span><span>谁接</span><span>为什么</span>
+    </div>
+
+    <div class="row"><span class="k">⌘O</span><span class="own o-menu">菜单</span>
+      <span class="p" style="font-size:11.5px;">新增的动作，本来就没人接</span></div>
+    <div class="row"><span class="k">⌘S</span><span class="own o-menu">菜单</span>
+      <span class="p" style="font-size:11.5px;">
+        从 keydown 挪过去。顺带解决一件事：现在焦点在终端里时 ⌘S 也会被
+        window 监听吃掉，而那时"保存"没有意义 —— 菜单项能按「有没有活动标签」禁用</span></div>
+    <div class="row"><span class="k">⌘W</span><span class="own o-menu">菜单</span>
+      <span class="p" style="font-size:11.5px;">同上，无标签时禁用</span></div>
+    <div class="row"><span class="k">⌘1</span><span class="own o-menu">菜单</span>
+      <span class="p" style="font-size:11.5px;">主键位进菜单</span></div>
+    <div class="row"><span class="k">⌘B</span><span class="own o-key">keydown</span>
+      <span class="p" style="font-size:11.5px;">
+        ⌘1 的<strong style="color:#cdcdcd;">别名</strong>（VSCode 手感）。macOS 菜单一项只能挂一个
+        accelerator，别名留给 keydown —— 菜单上只写主键位，写两个反而让人不知道该记哪个</span></div>
+    <div class="row"><span class="k">⌘J</span><span class="own o-menu">菜单</span>
+      <span class="p" style="font-size:11.5px;">主键位进菜单</span></div>
+    <div class="row"><span class="k">⇧⌘F</span><span class="own o-menu">菜单</span>
+      <span class="p" style="font-size:11.5px;">项目内搜索</span></div>
+    <div class="row"><span class="k">⇧⌘O</span><span class="own o-menu">菜单</span>
+      <span class="p" style="font-size:11.5px;">文件结构</span></div>
+    <div class="row"><span class="k">⇧⌘G</span><span class="own o-menu">菜单</span>
+      <span class="p" style="font-size:11.5px;">Git 改动列表</span></div>
+    <div class="row"><span class="k">⌃⇧`</span><span class="own o-menu">菜单</span>
+      <span class="p" style="font-size:11.5px;">
+        新建终端。<strong style="color:#cdcdcd;">这条尤其该进菜单</strong> ——
+        焦点在 xterm 里时它今天能不能触发，取决于 xterm 有没有吞掉这个组合</span></div>
+    <div class="row"><span class="k">⌘P</span><span class="own o-key">keydown</span>
+      <span class="p" style="font-size:11.5px;">
+        <strong style="color:#cdcdcd;">故意留在 keydown。</strong>
+        进菜单的话，焦点在终端里按 ⌘P 会被菜单抢走 ——
+        而终端里 ⌘P 更可能是想给 shell 的。菜单里只写标签、不挂 accelerator</span></div>
+    <div class="row"><span class="k">连按两下 ⇧</span><span class="own o-key">keydown</span>
+      <span class="p" style="font-size:11.5px;">
+        它是「两次抬起」的手势，不是 accelerator 能表达的。
+        菜单项照常放（那是它唯一的说明书），只是把键位写进标签文字里</span></div>
+    <div class="row" style="border-bottom:none;"><span class="k">⌘F</span><span class="own o-cm">CM6</span>
+      <span class="p" style="font-size:11.5px;">
+        <strong style="color:#d1707a;">一个字都不许进菜单。</strong>
+        那是 CM6 查找面板的键位，进了菜单等于把编辑器的查找抢没了，而且是静默的</span></div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 18px;">
+    <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="color:#fff;font-size:13.5px;font-weight:600;">改完必须实测这三条</div>
+      <div class="p">
+        「两边都接」和「两边都不接」都不报错，只能按出来验：
+        <br><br>
+        1. <strong style="color:#cdcdcd;">⌘W 只关一个标签</strong>（双触发的话关两个）<br>
+        2. <strong style="color:#cdcdcd;">焦点在终端里按 ⌘S</strong> —— 菜单项应当是灰的，按了没反应<br>
+        3. <strong style="color:#cdcdcd;">编辑器里按 ⌘F</strong> —— CM6 的查找面板照常弹出来
+      </div>
+    </div>
+    <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="color:#fff;font-size:13.5px;font-weight:600;">禁用态是这次的附赠品</div>
+      <div class="p">
+        今天所有键位都是 window 级监听，<strong style="color:#cdcdcd;">不管当下有没有意义都会触发</strong>：
+        没有标签时按 ⌘S、不是 Git 仓库时按 ⇧⌘G，都是走一遍然后什么也没发生。
+        <br><br>
+        菜单项有 <span class="mono">enabled</span>，前端把状态同步过去就能让它变灰 ——
+        <strong style="color:#cdcdcd;">灰掉的菜单项本身就是一句解释</strong>：
+        不是坏了，是现在用不上。
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
