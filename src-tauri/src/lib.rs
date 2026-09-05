@@ -108,6 +108,11 @@ pub fn run() {
             commands::set_recent,
             commands::sync_menu_state,
             commands::open_external,
+            commands::git_fetch,
+            commands::git_push,
+            commands::git_merge_upstream,
+            commands::git_cancel,
+            commands::git_outgoing,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 启动失败");

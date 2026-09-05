@@ -37,6 +37,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("LogEntryDto", "GitLogEntry"),
     ("BranchDto", "GitBranch"),
     ("WorktreeDto", "GitWorktree"),
+    ("ProgressDto", "RemoteProgress"),
+    ("RemoteErrDto", "RemoteErr"),
 ];
 
 struct RustStruct {

@@ -142,6 +142,13 @@ export const KEYS: KeyDef[] = [
 
   // ── Git ──
   { id: "git-changes", label: "改动列表", accel: "⇧⌘G", group: "Git", owner: "menu" },
+  /*
+   * 拉取 = fetch + 本地合并两步，不是 `git pull`。
+   * 键位照 IDEA：⇧⌘P 更新项目、⌥⌘P 推送。
+   */
+  { id: "git-pull", label: "拉取", accel: "⇧⌘P", group: "Git", owner: "menu" },
+  { id: "git-push", label: "推送…", accel: "⌥⌘P", group: "Git", owner: "menu" },
+  { id: "git-fetch", label: "抓取远程", group: "Git", owner: "menu" },
   { id: "git-file-diff", label: "查看当前文件的改动", group: "Git", owner: "menu" },
   { id: "git-log", label: "提交历史", group: "Git", owner: "menu" },
   { id: "git-branches", label: "分支与工作树…", group: "Git", owner: "menu" },

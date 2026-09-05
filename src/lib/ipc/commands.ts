@@ -344,3 +344,75 @@ export const syncMenuState = (hasTab: boolean, hasRepo: boolean, hasTerm: boolea
 
 /** 交给系统默认浏览器打开。Rust 侧只放行 https —— 见那边的注释 */
 export const openExternal = (url: string) => invoke<void>("open_external", { url });
+
+// ── 拉取与推送 ───────────────────────────────────────────────────────
+
+/**
+ * 一条进度。
+ *
+ * `percent` / `done` / `total` 可能是 null —— git 的进度文案不是稳定接口
+ * （`LC_ALL=C` 只保证是英文，不保证措辞不变）。认不出来时 `phase` 里是
+ * 整段原文，界面显示成一行状态而不是进度条。
+ */
+export interface RemoteProgress {
+  phase: string;
+  percent: number | null;
+  done: number | null;
+  total: number | null;
+  finished: boolean;
+}
+
+/**
+ * 远程操作失败。
+ *
+ * `kind` 决定界面显示什么；`raw` 是 git 的原话，**必须留着能展开看** ——
+ * 转译错了的时候人得有办法绕过我们（同差异视图的 `truncated`）。
+ */
+export interface RemoteErr {
+  kind: "auth-https" | "auth-ssh" | "cancelled" | "rejected" | "conflict" | "other";
+  message: string;
+  raw: string;
+}
+
+/**
+ * 抓远程。只读，不动工作区 —— 失败了没有任何后果。
+ *
+ * **`opId` 由调用方给，不是 Rust 返回的。**
+ * 反过来写过一版（Rust 生成、跟着返回值给出去），而那样取消按钮
+ * **永远点不动**：返回值要等操作跑完才到前端。
+ *
+ * 进度走 `Channel`，和终端那条是同一套机制。
+ */
+export const gitFetch = (
+  root: string,
+  remote: string,
+  opId: number,
+  onProgress: Channel<RemoteProgress>,
+) => invoke<void>("git_fetch", { root, remote, opId, onProgress });
+
+/** 推送当前分支。`setUpstream` 只在这个分支还没有上游时传真 */
+export const gitPush = (
+  root: string,
+  remote: string,
+  branch: string,
+  setUpstream: boolean,
+  opId: number,
+  onProgress: Channel<RemoteProgress>,
+) => invoke<void>("git_push", { root, remote, branch, setUpstream, opId, onProgress });
+
+/**
+ * 把已经抓下来的上游合进当前分支。不走网络。
+ *
+ * 拉取 = `gitFetch` + 这个，不是 `git pull` —— 复合命令失败时分不清
+ * 是网络断了还是合并冲突了。
+ */
+export const gitMergeUpstream = (root: string, upstream: string, mode: "ff-only" | "merge" | "rebase") =>
+  invoke<void>("git_merge_upstream", { root, upstream, mode });
+
+/** 取消一个正在跑的远程操作。只对 fetch 开放 —— push 中途取消状态不确定 */
+export const gitCancel = (id: number) => invoke<boolean>("git_cancel", { id });
+
+
+/** 推上去会送出哪些提交。照 IDEA：列出提交，不是只给计数 */
+export const gitOutgoing = (root: string, upstream: string, branch: string) =>
+  invoke<string[]>("git_outgoing", { root, upstream, branch });

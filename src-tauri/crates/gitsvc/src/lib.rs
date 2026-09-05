@@ -22,6 +22,9 @@
 //!    `GIT_OPTIONAL_LOCKS=0` 让 `status` 不去抢 index 锁（用户正在终端里
 //!    跑 `git rebase` 时，我们的后台刷新不该把它顶失败 —— VSCode 同款处理）。
 
+pub mod progress;
+pub mod remote;
+
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -128,7 +131,7 @@ type R<T> = Result<T, Error>;
 /// 建一条环境干净的 git 命令。所有对外的调用都必须经过这里 ——
 /// 少一条 `env_remove` 或少一个 `GIT_TERMINAL_PROMPT=0`，
 /// 表现就是「某个仓库上偶发地查到别处去」或者「后台调用挂着等密码」。
-fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
+pub(crate) fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
     let mut c = Command::new("git");
     c.args(args)
         .current_dir(cwd)
@@ -159,7 +162,7 @@ fn run_raw(cwd: &Path, args: &[&str]) -> R<Vec<u8>> {
     Ok(out.stdout)
 }
 
-fn run(cwd: &Path, args: &[&str]) -> R<String> {
+pub(crate) fn run(cwd: &Path, args: &[&str]) -> R<String> {
     Ok(String::from_utf8_lossy(&run_raw(cwd, args)?).into_owned())
 }
 
@@ -968,6 +971,14 @@ pub fn worktree_remove(root: impl AsRef<Path>, path: &str, force: bool) -> R<()>
     }
     args.push(path);
     run(root.as_ref(), &args).map(|_| ())
+}
+
+/// 一个远程的 URL。用来判协议 —— HTTPS 和 SSH 拿不到凭据时，
+/// 该给的提示完全不同（一个是去存钥匙串，一个是 ssh-add）。
+///
+/// 判协议而不是让前端猜：URL 在 `.git/config` 里，可能是别人克隆时写的。
+pub fn remote_url(root: impl AsRef<Path>, remote: &str) -> R<String> {
+    Ok(run(root.as_ref(), &["remote", "get-url", remote])?.trim().to_string())
 }
 
 #[cfg(test)]

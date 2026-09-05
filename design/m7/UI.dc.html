@@ -1,0 +1,309 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12px; line-height: 1.7; }
+    .lab { font-size: 12.5px; font-weight: 600; }
+    .bad { color: #d1707a; } .good { color: #6aab73; }
+    .cap { color: #7a7a80; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .card { background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; }
+    .m { font-family: "SF Mono", Menlo, monospace; font-size: 11.5px;
+      background: rgba(255,255,255,0.07); border-radius: 5px; padding: 1px 6px; color: #e6e6e8; }
+    /* 侧边栏是外壳层，用玻璃演 */
+    .glass { position: relative; border-radius: 12px; overflow: hidden;
+      background: radial-gradient(300px 240px at 15% 10%, #40608f 0%, rgba(64,96,143,0) 66%),
+                  radial-gradient(280px 260px at 88% 88%, #7d5070 0%, rgba(125,80,112,0) 62%),
+                  linear-gradient(155deg, #1b2330, #16242a); }
+    .glass > .veil { position: absolute; inset: 0; background: rgba(28,28,30,0.62);
+      backdrop-filter: blur(28px) saturate(185%); }
+    .head { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .bn { font-family: "SF Mono", Menlo, monospace; font-size: 12px; color: #fff; }
+    .pill { font-family: "SF Mono", Menlo, monospace; font-size: 10.5px; padding: 1px 7px;
+      border-radius: 6px; background: rgba(255,255,255,0.07); color: #8a8a8a; }
+    .note { display: flex; gap: 9px; align-items: flex-start; }
+    .num { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid;
+      place-content: center; font-size: 10.5px; font-family: "SF Mono", Menlo, monospace;
+      background: rgba(255,255,255,0.11); color: #cdcdcd; margin-top: 1px; }
+    .menu { background: rgba(46,46,48,0.98); border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 7px; padding: 4px 0; box-shadow: 0 16px 40px rgba(0,0,0,0.6); width: 230px; }
+    .mi { display: flex; align-items: center; gap: 10px; padding: 4px 12px 4px 20px;
+      font-size: 12.5px; color: #e6e6e8; }
+    .mi .k { margin-left: auto; color: #9a9a9e; font-family: "SF Mono", Menlo, monospace; font-size: 11px; }
+    .mi.off { color: #6f6f74; }
+    .msep { height: 1px; background: rgba(255,255,255,0.10); margin: 4px 10px; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 1360px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 30px;">
+
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div style="color: #ffffff; font-size: 26px; font-weight: 600;">界面</div>
+    <div class="p" style="max-width: 1040px; font-size: 12.5px;">
+      <span class="m">↓3</span> 现在是个<strong style="color:#cdcdcd;">不可点的胶囊</strong>，
+      当初的理由写在 v0.5.0 里：「点了没有下文比不显示更糟」。
+      M7 做完之后它才该变成按钮 —— <strong style="color:#cdcdcd;">这一轮就是来兑现那句话的</strong>。
+      新界面全部长在已有的骨架上（Git 栏的分支行、菜单栏、状态栏），不新开面板。
+    </div>
+  </div>
+
+  <!-- 分支行四态 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">一 · Git 栏的分支行：四个状态</div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px;">
+
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="lab" style="color:#cdcdcd;">同步了</div>
+        <div class="glass" style="height: 92px;">
+          <div class="veil"></div>
+          <div style="position:relative;">
+            <div class="head">
+              <span style="color:#8a8a8a;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg></span>
+              <span class="bn">main</span><span style="color:#6f737b;font-size:9px;">▾</span>
+              <span style="flex:1"></span>
+              <span style="color:#8a8a8a;width:22px;height:22px;display:grid;place-content:center;">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13 2v3h-3"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <div class="p" style="font-size:11px;">没有胶囊。<strong style="color:#cdcdcd;">「一切正常」不需要占位置</strong></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="lab good">落后 · 可点</div>
+        <div class="glass" style="height: 92px;">
+          <div class="veil"></div>
+          <div style="position:relative;">
+            <div class="head">
+              <span style="color:#8a8a8a;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg></span>
+              <span class="bn">dev</span><span style="color:#6f737b;font-size:9px;">▾</span>
+              <span style="flex:1"></span>
+              <span class="pill" style="background:rgba(255,255,255,0.11);color:#fff;">↓3 拉取</span>
+            </div>
+          </div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          胶囊<strong style="color:#cdcdcd;">带上动词</strong>才知道点了会发生什么
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="lab good">领先 · 可点</div>
+        <div class="glass" style="height: 92px;">
+          <div class="veil"></div>
+          <div style="position:relative;">
+            <div class="head">
+              <span style="color:#8a8a8a;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg></span>
+              <span class="bn">dev</span><span style="color:#6f737b;font-size:9px;">▾</span>
+              <span style="flex:1"></span>
+              <span class="pill" style="background:rgba(91,141,239,0.22);color:#8fb4f5;">↑2 推送</span>
+            </div>
+          </div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          推送用 accent —— <strong style="color:#cdcdcd;">它是唯一会改到别人东西的那个</strong>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="lab" style="color:#d6ae58;">两边都有 · 分岔</div>
+        <div class="glass" style="height: 92px;">
+          <div class="veil"></div>
+          <div style="position:relative;">
+            <div class="head">
+              <span style="color:#8a8a8a;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg></span>
+              <span class="bn">dev</span><span style="color:#6f737b;font-size:9px;">▾</span>
+              <span style="flex:1"></span>
+              <span class="pill" style="background:rgba(214,174,88,0.18);color:#d6ae58;">↑2 ↓3 已分岔</span>
+            </div>
+          </div>
+        </div>
+        <div class="p" style="font-size:11px;">
+          <strong style="color:#cdcdcd;">不给一键动作</strong> ——
+          这时要先决定合并还是变基，见下面
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 进行中 / 分岔 -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;">
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div class="cap">二 · 进行中</div>
+      <div class="glass" style="height: 150px;">
+        <div class="veil"></div>
+        <div style="position:relative;">
+          <div class="head">
+            <span style="color:#8a8a8a;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.3v5.4M6.3 3.5h2.4a1.6 1.6 0 0 1 1.6 1.6v1.3"/></svg></span>
+            <span class="bn">dev</span>
+            <span style="flex:1"></span>
+            <span class="pill">取消</span>
+          </div>
+          <div style="padding:10px 10px 0;">
+            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
+              <span style="color:#cdcdcd;font-size:11.5px;">正在接收对象</span>
+              <span style="flex:1"></span>
+              <span class="mono" style="font-size:11px;color:#8a8a8a;">62%</span>
+            </div>
+            <div style="height:3px;border-radius:2px;background:rgba(255,255,255,0.07);overflow:hidden;">
+              <div style="width:62%;height:100%;background:#5b8def;"></div>
+            </div>
+            <div class="mono" style="font-size:10.5px;color:#6f737b;margin-top:6px;">774 / 1248</div>
+          </div>
+        </div>
+      </div>
+      <div class="p" style="font-size:11px;">
+        进度条长在分支行下面，<strong style="color:#cdcdcd;">不弹模态</strong> ——
+        拉取的时候人还想接着看代码
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div class="cap">三 · 分岔了要先决定</div>
+      <div class="glass" style="height: 150px;">
+        <div class="veil"></div>
+        <div style="position:relative;">
+          <div class="head">
+            <span class="bn" style="margin-left:4px;">dev</span>
+            <span style="flex:1"></span>
+            <span class="pill" style="background:rgba(214,174,88,0.18);color:#d6ae58;">↑2 ↓3</span>
+          </div>
+          <div style="padding:10px;">
+            <div style="color:#cdcdcd;font-size:12px;line-height:1.6;margin-bottom:9px;">
+              本地和 <span class="m">origin/dev</span> 分岔了 ——
+              快进不了，得选一种</div>
+            <div style="display:flex;gap:6px;">
+              <span style="padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.11);
+                          color:#fff;font-size:11.5px;">合并</span>
+              <span style="padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.07);
+                          color:#cdcdcd;font-size:11.5px;">变基</span>
+              <span style="flex:1"></span>
+              <span style="color:#6f737b;font-size:11px;align-self:center;">看看差什么</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="p" style="font-size:11px;">
+        <strong style="color:#cdcdcd;">没有默认选项</strong> —— 这两个的后果不一样，
+        替人选一个是越权
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div class="cap">四 · 推送前确认（照 IDEA：列出要推的提交）</div>
+      <div class="glass" style="height: 150px;">
+        <div class="veil"></div>
+        <div style="position:relative;">
+          <div class="head"><span class="bn" style="margin-left:4px;">feature/notary</span></div>
+          <div style="padding:10px;">
+            <div style="color:#cdcdcd;font-size:12px;line-height:1.6;margin-bottom:7px;">
+              要推 2 个提交到 <span class="m">origin/feature/notary</span>
+              —— 这个分支还没有上游，会<strong style="color:#fff;">新建</strong>它</div>
+            <div style="font-family:'SF Mono',Menlo,monospace;font-size:10.5px;color:#8a8a8a;
+                        line-height:1.7;margin-bottom:9px;">
+              <div>· feat(notary): 补公证订单字段</div>
+              <div>· fix(notary): 退款审核状态对不上</div>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span style="padding:3px 12px;border-radius:6px;background:#5b8def;color:#fff;font-size:11.5px;">
+                推送并跟踪</span>
+              <span style="padding:3px 10px;border-radius:6px;color:#cdcdcd;font-size:11.5px;">取消</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="p" style="font-size:11px;">
+        <strong style="color:#cdcdcd;">列出提交</strong>是照 IDEA 的推送对话框 ——
+        看清到底送什么出去。<span class="m">--set-upstream</span> 不做成沉默的开关
+      </div>
+    </div>
+  </div>
+
+  <!-- 菜单 + 被拒 -->
+  <div style="display: grid; grid-template-columns: 300px 1fr; gap: 26px; align-items: start;">
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div class="cap">五 · Git 菜单加三项</div>
+      <div class="menu">
+        <div class="mi">改动列表<span class="k">⇧⌘G</span></div>
+        <div class="mi">查看当前文件的改动</div>
+        <div class="mi">提交历史</div>
+        <div class="msep"></div>
+        <div class="mi">拉取<span class="k">⇧⌘P</span></div>
+        <div class="mi">推送<span class="k">⌥⌘P</span></div>
+        <div class="mi">抓取远程</div>
+        <div class="msep"></div>
+        <div class="mi">分支与工作树…</div>
+        <div class="mi">刷新状态</div>
+      </div>
+      <div class="p" style="font-size:11px;">
+        三项都要登记进 <span class="m">keymap.ts</span>，
+        否则 <span class="m">menu_sync.rs</span> 当场红 —— 那正是它该干的
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="cap">六 · 推送被拒：说人话，但留着原文</div>
+      <div class="card" style="padding: 18px 20px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#d6ae58" stroke-width="1.4"><path d="M8 1.8 15 14H1z"/><path d="M8 6.2v3.4M8 11.6v.6"/></svg>
+          <span style="color:#fff;font-size:13px;">远程比你多了东西，推不上去</span>
+        </div>
+        <div class="p" style="margin-bottom:10px;">
+          <span class="m">origin/dev</span> 上有 3 个你本地还没有的提交。
+          先拉下来，再推。
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">
+          <span style="padding:3px 12px;border-radius:6px;background:rgba(255,255,255,0.11);
+                      color:#fff;font-size:11.5px;">先拉取</span>
+          <span style="padding:3px 10px;border-radius:6px;color:#cdcdcd;font-size:11.5px;">知道了</span>
+        </div>
+        <div style="border-top:1px solid rgba(255,255,255,0.05);padding-top:9px;">
+          <div style="color:#6f737b;font-size:11px;margin-bottom:6px;">▾ git 的原话</div>
+          <div style="padding:8px 10px;background:#0e0e10;border-radius:8px;
+                      border:1px solid rgba(255,255,255,0.07);font-family:'SF Mono',Menlo,monospace;
+                      font-size:11px;line-height:1.6;color:#8a8a8a;">
+! [rejected]  dev -> dev (non-fast-forward)<br>
+error: failed to push some refs to 'https://github.com/…'<br>
+hint: Updates were rejected because the tip of your current branch is behind…
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="note"><div class="num">1</div><div class="p">
+          <strong style="color:#fff;">转译 + 原文，两个都要。</strong>
+          转译错了的时候人得有办法绕过我们 —— 和差异视图
+          <span class="m">truncated</span> 那条同一个道理。
+        </div></div>
+        <div class="note"><div class="num">2</div><div class="p">
+          <strong style="color:#fff;">给下一步，不是给句号。</strong>
+          「先拉取」直接接上，不用人自己想到该去点哪儿。
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+    <div style="color:#fff;font-size:14px;font-weight:600;">状态栏那格也要动</div>
+    <div class="p">
+      状态栏现在有「改动 8」。加一格 <span class="m">↑2 ↓3</span>，
+      <strong style="color:#cdcdcd;">和分支行是同一份数据、同一个可点性</strong> ——
+      侧边栏收起来的时候，那是唯一还看得见的地方。
+      <br>
+      窄窗口下它走已有的 <span class="m">.drop-1 / .drop-2</span> 退场规则，不新开一套。
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

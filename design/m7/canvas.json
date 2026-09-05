@@ -1,0 +1,19 @@
+{
+  "artboards": [
+    { "file": "Survey.dc.html", "x": 0, "y": 0, "w": 1500, "h": 1180, "title": "① 各家是怎么做的 · 我的四处偏差" },
+    { "file": "Main.dc.html", "x": 1620, "y": 0, "w": 1440, "h": 1500, "title": "② 底层选型与架构" },
+    { "file": "Credentials.dc.html", "x": 0, "y": 1300, "w": 1500, "h": 1300, "title": "③ 凭据 · 照抄 askpass" },
+    { "file": "Progress.dc.html", "x": 1620, "y": 1620, "w": 1440, "h": 1280, "title": "④ 进度与取消" },
+    { "file": "UI.dc.html", "x": 3180, "y": 0, "w": 1440, "h": 1360, "title": "⑤ 界面" }
+  ],
+  "annotations": [
+    {
+      "id": "read-me-first",
+      "x": 3180,
+      "y": 1480,
+      "w": 440,
+      "text": "先看①。「不自己找方案，抄现成的」查下来，\n我上一版有四处偏差，其中凭据那处是方向错了。\n\n· 底层：VS Code 和 IDEA 都是子进程调 git 可执行文件，\n  IDEA 还是从 JGit 撤回来的 —— 这条我原来就选对了\n· 凭据：两家都不是「关掉提问」，是把提问接管过来\n  （GIT_ASKPASS 指向自家脚本）。我原来写「让用户去\n  终端认证一次」，是自己发明的，改掉\n· 推送：IDEA 列出将要推的每个提交，不是只给计数\n· ↓3：不 fetch 就是陈的，要配后台 fetch\n  （抄 VS Code：默认关，180s）\n\n有一条要你定：force 做不做。\n主流做（IDEA 放在 Push 下拉里，用 --force-with-lease），\n而你在 issue #8 里写的是不做入口。\n我倾向按你原来的判据，理由在①右下角那张卡片。"
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

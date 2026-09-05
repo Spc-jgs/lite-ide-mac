@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { Channel } from "@tauri-apps/api/core";
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
@@ -21,6 +22,13 @@
     setRecent,
     syncMenuState,
     openExternal,
+    gitFetch,
+    gitPush,
+    gitMergeUpstream,
+    gitCancel,
+    gitOutgoing,
+    type RemoteProgress,
+    type RemoteErr,
     diag,
     writeText,
     fileStamp,
@@ -199,6 +207,7 @@
       log: () => import("./lib/git/GitLog.svelte"),
       branch: () => import("./lib/git/BranchPicker.svelte"),
       merge: () => import("./lib/git/MergeView.svelte"),
+      bars: () => import("./lib/git/RemoteBars.svelte"),
     },
     "Git 面板",
   );
@@ -1073,6 +1082,189 @@
     });
   }
 
+  // ── 拉取与推送 ────────────────────────────────────────────────
+
+  /**
+   * 远程操作的 id。**前端发号，不是等 Rust 返回。**
+   *
+   * 等返回值的话取消按钮永远点不动 —— 返回值要等操作跑完才到。
+   * 这是实测点了一次取消、发现 `git_cancel` 压根没被调到才发现的。
+   */
+  let nextOpId = 0;
+
+  /** 正在跑的远程操作。null = 没有 */
+  let syncing = $state<{
+    what: "pull" | "push" | "fetch";
+    id: number;
+    phase: string;
+    percent: number | null;
+  } | null>(null);
+
+  /** 分岔了要先决定合并还是变基。null = 没在问 */
+  let pendingDiverge = $state<{ upstream: string } | null>(null);
+
+  /**
+   * 上次选的合并方式。
+   *
+   * IDEA 的「记住这次选择」——分岔是常态，每次都问同一个问题很烦。
+   * **但只记在内存里**：跨重启还记着的话，下次分岔时会用一个人早就忘了的
+   * 策略默默合并，那比多问一次糟。
+   */
+  let lastMergeMode = $state<"merge" | "rebase" | null>(null);
+
+  /** 推送前的确认。列出要推的提交（照 IDEA），而不是只给一个计数 */
+  let pendingPush = $state<{ branch: string; setUpstream: boolean; commits: string[] } | null>(null);
+
+  /** 远程操作失败时展开的那块。`raw` 是 git 的原话 */
+  let remoteErr = $state<(RemoteErr & { hint: string }) | null>(null);
+
+  /**
+   * 把 RemoteErr 变成一句能照着做的话。
+   *
+   * git 的原话不能直接给用户看 ——「terminal prompts disabled」会让人以为是
+   * 我们的开关设错了，而真正该做的事是去认证一次。
+   * **但原话要留着能展开**：转译错了的时候人得有办法绕过我们。
+   */
+  async function toHint(e: RemoteErr): Promise<string> {
+    if (e.kind === "auth-https") {
+      return `在终端里跑一次，输一遍账号密码，之后就一直有效：\n  git -C ${root} fetch`;
+    }
+    if (e.kind === "auth-ssh") {
+      return "把私钥加进 ssh-agent：\n  ssh-add --apple-use-keychain ~/.ssh/id_ed25519";
+    }
+    if (e.kind === "rejected") return "远程上有你本地还没有的提交。先拉下来，再推。";
+    return "";
+  }
+
+  async function showRemoteErr(e: RemoteErr) {
+    if (e.kind === "cancelled") return; // 用户自己取消的，不是错误
+    remoteErr = { ...e, hint: await toHint(e) };
+  }
+
+  /** 进度通道。每次操作新建一个 —— Channel 是一次性的 */
+  function progressChannel(what: "pull" | "push" | "fetch") {
+    const ch = new Channel<RemoteProgress>();
+    ch.onmessage = (p) => {
+      if (!syncing) return;
+      syncing = { ...syncing, what, phase: p.phase, percent: p.percent };
+    };
+    return ch;
+  }
+
+  /**
+   * 抓远程。只读，不动工作区 —— 失败了没有任何后果。
+   * 拉取的第一步也是它。
+   */
+  async function doFetch(what: "pull" | "fetch"): Promise<boolean> {
+    if (!repo || syncing) return false;
+    git.load();
+    remoteErr = null;
+    const opId = ++nextOpId;
+    syncing = { what, id: opId, phase: "正在连接…", percent: null };
+    try {
+      await gitFetch(repo, "origin", opId, progressChannel(what));
+      await refreshGit();
+      return true;
+    } catch (e) {
+      await showRemoteErr(e as RemoteErr);
+      return false;
+    } finally {
+      syncing = null;
+    }
+  }
+
+  /**
+   * 拉取 = fetch + 本地合并两步，**不是 `git pull`**。
+   *
+   * 复合命令失败时分不清是网络断了还是合并冲突了（退出码都非零）。
+   * 拆开之后：第一步失败就是纯网络/凭据，第二步失败就是冲突，
+   * 而冲突有 MergeView 接着。
+   *
+   * 默认只允许快进 —— 永远不会「拉一下，凭空多出一个合并提交」。
+   * 快进不了就停下来问（或者用上次记住的选择）。
+   */
+  async function doPull(mode?: "merge" | "rebase") {
+    if (!repo) return;
+    // 确认条在 Git 那一组里（懒的）。从菜单直接拉时它可能还没到位 ——
+    // 不先拉一下的话，分岔决策条不会出现，看着像「点了没反应」
+    git.load();
+    const upstream = gitSt?.upstream;
+    if (!upstream) {
+      notify.fail("这个分支没有上游，先推送一次", 3000);
+      return;
+    }
+    if (!mode && !(await doFetch("pull"))) return;
+    try {
+      await gitMergeUpstream(repo, upstream, mode ?? "ff-only");
+      await workingTreeChanged();
+      await refreshGit();
+      notify.ok(mode === "rebase" ? "已变基到上游" : "已合并上游");
+    } catch (e) {
+      const err = e as RemoteErr;
+      // 快进不了 = 分岔了，要先做决定。这不是错误，是个岔路口
+      if (err.kind === "conflict" && !mode) {
+        // 记过一次就直接用，不再问（IDEA 的「记住这次选择」）
+        if (lastMergeMode) {
+          void doPull(lastMergeMode);
+          return;
+        }
+        pendingDiverge = { upstream };
+        return;
+      }
+      await showRemoteErr(err);
+      // 合并冲突之后工作区变了，得把界面对上
+      await workingTreeChanged();
+      await refreshGit();
+    }
+  }
+
+  /** 推送。先把要推的提交列出来让人看清 —— 照 IDEA 的推送对话框 */
+  async function askPush() {
+    if (!repo || !gitSt) return;
+    git.load();
+    const branch = gitSt.branch;
+    if (!branch) {
+      notify.fail("游离状态下不能推送", 2600);
+      return;
+    }
+    const setUpstream = !gitSt.upstream;
+    let commits: string[] = [];
+    try {
+      commits = await gitOutgoing(repo, gitSt.upstream ?? "", branch);
+    } catch {
+      commits = []; // 列不出来不该挡住推送，只是少了一份确认信息
+    }
+    pendingPush = { branch, setUpstream, commits };
+  }
+
+  async function doPush() {
+    const req = pendingPush;
+    pendingPush = null;
+    if (!repo || !req || syncing) return;
+    remoteErr = null;
+    const opId = ++nextOpId;
+    syncing = { what: "push", id: opId, phase: "正在连接…", percent: null };
+    try {
+      await gitPush(repo, "origin", req.branch, req.setUpstream, opId, progressChannel("push"));
+      await refreshGit();
+      notify.ok("已推送");
+    } catch (e) {
+      await showRemoteErr(e as RemoteErr);
+    } finally {
+      syncing = null;
+    }
+  }
+
+  /**
+   * 取消。**只对 fetch 开放。**
+   *
+   * push 中途 kill 掉的是本地这一端，而远程可能已经收完了 ——
+   * 一个点了之后状态不确定的取消按钮，比没有按钮更糟。
+   */
+  function cancelSync() {
+    if (syncing) void gitCancel(syncing.id);
+  }
+
   /**
    * 把上次的现场摆回来。
    *
@@ -1700,6 +1892,9 @@
       case "git-log": panel = true; panelView = "log"; return;
       case "git-branches": branchOpen = true; return;
       case "git-refresh": return void refreshGit();
+      case "git-pull": return void doPull();
+      case "git-push": return void askPush();
+      case "git-fetch": return void doFetch("fetch");
       case "help-keys":
         keysPanel.load();
         keysOpen = true;
@@ -2052,6 +2247,9 @@
             }}
             ahead={gitSt?.ahead ?? 0}
             behind={gitSt?.behind ?? 0}
+            onSync={(what) => void (what === "push" ? askPush() : doPull())}
+            syncing={syncing ? { what: syncing.what, phase: syncing.phase, percent: syncing.percent } : null}
+            onCancelSync={syncing && syncing.what !== "push" ? cancelSync : null}
           />
         {:else if sideView === "git" && repo}
           <div class="no-root">正在载入 Git 面板…</div>
@@ -2156,6 +2354,31 @@
           <button class="danger" onclick={() => void doDiscard(pendingDiscard!)}>丢弃</button>
           <button onclick={() => (pendingDiscard = null)}>取消</button>
         </div>
+      {/if}
+
+      {#if git.comps.bars && (pendingDiverge || pendingPush || remoteErr)}
+        <git.comps.bars
+          diverge={pendingDiverge}
+          push={pendingPush}
+          err={remoteErr}
+          upstream={gitSt?.upstream ?? ""}
+          ahead={gitSt?.ahead ?? 0}
+          onMerge={(mode, rem) => {
+            if (rem) lastMergeMode = mode;
+            pendingDiverge = null;
+            void doPull(mode);
+          }}
+          onPush={() => void doPush()}
+          onPull={() => {
+            remoteErr = null;
+            void doPull();
+          }}
+          onDismiss={(which) => {
+            if (which === "diverge") pendingDiverge = null;
+            else if (which === "push") pendingPush = null;
+            else remoteErr = null;
+          }}
+        />
       {/if}
 
       {#if pendingClose}
@@ -2883,6 +3106,7 @@
     cursor: default;
   }
   .confirm button:hover { background: var(--hover); color: var(--text); }
+
   .confirm button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .confirm.conflict { background: rgba(214, 174, 88, 0.12); border-bottom-color: var(--lvl-warn); }
   /* 不可撤销的操作用红色描边，别让它长得跟普通确认一样 */

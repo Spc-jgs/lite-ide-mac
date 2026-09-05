@@ -1,0 +1,259 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12.5px; line-height: 1.75; }
+    .card { background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; }
+    .cap { color: #7a7a80; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .yes { color: #6aab73; } .no { color: #d1707a; } .mid { color: #d6ae58; }
+    table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+    th { text-align: left; color: #7a7a80; font-size: 11px; letter-spacing: .06em;
+      font-weight: 400; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.09); }
+    td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);
+      color: #cdcdcd; vertical-align: top; line-height: 1.6; }
+    tr:last-child td { border-bottom: none; }
+    .num { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid;
+      place-content: center; font-size: 11px; font-family: "SF Mono", Menlo, monospace;
+      background: rgba(255,255,255,0.11); color: #cdcdcd; margin-top: 1px; }
+    .note { display: flex; gap: 10px; align-items: flex-start; }
+    .m { font-family: "SF Mono", Menlo, monospace; font-size: 11.5px;
+      background: rgba(255,255,255,0.07); border-radius: 5px; padding: 1px 6px; color: #e6e6e8; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 1500px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 32px;">
+
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div style="color: #ffffff; font-size: 26px; font-weight: 600;">M7 拉取与推送 · 方案</div>
+    <div class="p" style="max-width: 1040px;">
+      先调研再设计。这张是<strong style="color:#cdcdcd;">底层选型</strong>：
+      三条路量下来，<strong style="color:#cdcdcd;">留在子进程</strong>。
+      <br>
+      <strong style="color:#d6ae58;">「各家是怎么做的」那张是这张的修正</strong> ——
+      按主流对齐之后，这里的凭据和 push 界面两节有改动，以那张为准。
+    </div>
+  </div>
+
+  <!-- 调研 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">一 · 三条路，都量过</div>
+    <div class="card">
+      <table>
+        <tr>
+          <th style="width: 150px;"></th>
+          <th style="width: 300px;">子进程 git（现状）</th>
+          <th style="width: 320px;">git2 / libgit2</th>
+          <th>gix（纯 Rust）</th>
+        </tr>
+        <tr>
+          <td style="color:#fff;">push</td>
+          <td><span class="yes">✓</span></td>
+          <td><span class="yes">✓</span></td>
+          <td><span class="no">✗ 没有</span> —— 官方状态页把 push 列在
+              <strong style="color:#cdcdcd;">1.0 路线图</strong>上，「create (thin) pack」还没做。
+              <strong style="color:#d1707a;">M7 的终点就是 push，这一条直接出局。</strong></td>
+        </tr>
+        <tr>
+          <td style="color:#fff;">凭据</td>
+          <td><span class="yes">✓ 白得</span> —— git 自己跑 credential helper 和 ssh-agent，
+              <strong style="color:#cdcdcd;">和用户终端里的行为一模一样</strong>。
+              实测：精简环境 + <span class="m">GIT_TERMINAL_PROMPT=0</span> 的 fetch
+              <strong style="color:#6aab73;">退出码 0</strong></td>
+          <td><span class="no">✗ 只给接口，不给方案</span> —— libgit2 把凭据甩给调用方回调，
+              你要自己写「ssh-agent → helper → 用户名密码」的优先级，
+              还要<strong style="color:#cdcdcd;">自己防 libgit2 无限重试</strong>。
+              cargo 为这件事专门写了一个 <span class="m">with_authentication</span></td>
+          <td><span class="mid">⚠</span> gix-credentials 在「usable, initial development」档</td>
+        </tr>
+        <tr>
+          <td style="color:#fff;">进度</td>
+          <td><span class="mid">⚠</span> 要解析 <span class="m">\r</span> 分隔的文本</td>
+          <td><span class="yes">✓</span> 结构化回调，直接给数字</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td style="color:#fff;">取消</td>
+          <td><span class="mid">⚠</span> kill 子进程</td>
+          <td><span class="yes">✓</span> 回调返回 false</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td style="color:#fff;">体积</td>
+          <td>0</td>
+          <td><span class="no">+0.85 MB</span> —— 实测（空壳 0.29 → 带 git2 1.13，
+              release + LTO + strip）。二进制现在 <strong style="color:#cdcdcd;">5.12 MB</strong>，
+              这是 <strong style="color:#d1707a;">+17%</strong></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td style="color:#fff;">依赖</td>
+          <td>0</td>
+          <td>13 个传递依赖，含 <span class="m">libgit2-sys</span> ——
+              <strong style="color:#cdcdcd;">一个要用 cc 现编的 C 库</strong></td>
+          <td><span class="no">204 个 crate</span></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="padding: 22px 24px; display: flex; flex-direction: column; gap: 12px;">
+    <div style="color:#fff;font-size:15px;font-weight:600;">结论：留在子进程</div>
+    <div class="p">
+      <strong style="color:#cdcdcd;">gix 没有 push，出局。</strong> 剩下的是子进程和 libgit2 之争，
+      而 libgit2 在<strong style="color:#cdcdcd;">最难的那件事上不提供解决方案</strong> ——
+      凭据。它给的是接口，方案还得自己写，而且要写得比 cargo 那个
+      <span class="m">with_authentication</span> 更小心（那是个带无限重试防护的函数）。
+      <br><br>
+      它换来的是两样：结构化进度、结构化取消。代价是 <strong style="color:#d1707a;">0.85MB
+      + 一个要现编的 C 依赖</strong>。而那两样的自制版本，各自只有几十行 —— 见后面两张画板。
+      <br><br>
+      <strong style="color:#cdcdcd;">这和「用 trash crate 而不是自己往 ~/.Trash 里 rename」不矛盾。</strong>
+      那次的判据是「系统 API 有一堆自己的规矩，该由维护着的库去对」；
+      这次的判据是同一条 —— <strong style="color:#cdcdcd;">git 的凭据规矩该由 git 自己去对</strong>，
+      而 <span class="m">git</span> 这个可执行文件就是那个「维护着的实现」。
+      libgit2 反而是把这套规矩<strong style="color:#cdcdcd;">重新实现了一遍</strong>的那一方。
+    </div>
+  </div>
+
+  <!-- 命令面 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">二 · 命令面</div>
+    <div class="card">
+      <table>
+        <tr><th style="width: 300px;">命令</th><th style="width: 250px;">git 实参</th><th>说明</th></tr>
+        <tr>
+          <td class="mono" style="color:#fff;">git_fetch(root, on_progress)</td>
+          <td class="mono">fetch --progress --prune origin</td>
+          <td>只读。<span class="m">--prune</span> 让远程删掉的分支在本地也消失 ——
+              不加的话分支面板里会一直挂着已经不存在的 <span class="m">origin/*</span></td>
+        </tr>
+        <tr>
+          <td class="mono" style="color:#fff;">git_pull(root, mode, on_progress)</td>
+          <td class="mono">merge --ff-only / --no-ff / rebase</td>
+          <td><strong style="color:#cdcdcd;">先 fetch 再本地合并，不用 <span class="m">git pull</span></strong> ——
+              见下面「pull 拆成两步」</td>
+        </tr>
+        <tr>
+          <td class="mono" style="color:#fff;">git_push(root, set_upstream, on_progress)</td>
+          <td class="mono">push [--set-upstream origin &lt;br&gt;]</td>
+          <td><strong style="color:#d6ae58;">force 做不做待定</strong> ——
+              主流（IDEA）做，藏在 Push 下拉里且是 <span class="m">--force-with-lease</span>；
+              issue #8 里你写的是不做入口。见「各家是怎么做的」那张右下角</td>
+        </tr>
+        <tr>
+          <td class="mono" style="color:#fff;">git_cancel(id)</td>
+          <td class="mono">—</td>
+          <td>kill 那个子进程。句柄表和 pty 用同一套（<span class="m">AppState</span>）</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- pull 策略 -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card" style="padding: 22px 24px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="color:#fff;font-size:15px;font-weight:600;">pull 拆成两步，不用 <span class="m">git pull</span></div>
+      <div class="p">
+        <span class="m">git pull</span> 是 fetch + merge 的复合命令，而它默认建合并提交。
+        问题不在于合并本身，在于<strong style="color:#cdcdcd;">出错时分不清是哪一半错了</strong>：
+        网络断了和合并冲突了，退出码都是非零。
+        <br><br>
+        拆成两步之后：
+        <br>
+        <strong style="color:#cdcdcd;">第一步 fetch</strong> —— 走网络、要凭据、要进度、可取消，
+        <strong style="color:#cdcdcd;">但绝不动工作区</strong>。失败了就是纯网络/凭据问题。
+        <br>
+        <strong style="color:#cdcdcd;">第二步本地合并</strong> —— 不走网络、瞬间完成、
+        失败就是冲突，而冲突有 <span class="m">MergeView</span> 接着。
+        <br><br>
+        默认 <span class="m">--ff-only</span>：能快进就快进，
+        <strong style="color:#cdcdcd;">不能快进时停下来问</strong>（合并还是变基）。
+        这样永远不会「拉一下，凭空多出一个合并提交」。
+      </div>
+    </div>
+    <div class="card" style="padding: 22px 24px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="color:#fff;font-size:15px;font-weight:600;">push 是第一个会改到别人东西的动作</div>
+      <div class="p">
+        在此之前所有操作只碰本地盘。三条：
+        <br><br>
+        <strong style="color:#cdcdcd;">一、没有 force。</strong> 连
+        <span class="m">--force-with-lease</span> 都不做入口 ——
+        真要强推的人会去开终端，而那个动作值得多花那十秒。
+        <br>
+        <strong style="color:#cdcdcd;">二、<span class="m">--set-upstream</span> 只在没有上游时出现</strong>，
+        而且要把「它要建立什么」写在按钮旁边，不是一个沉默的开关。
+        <br>
+        <strong style="color:#cdcdcd;">三、被拒绝要说人话。</strong>
+        <span class="m">non-fast-forward</span> 的真实含义是「远程比你多了东西」，
+        下一步是先拉。git 的原文（<span class="m">Updates were rejected because…</span>）
+        要转译，但<strong style="color:#cdcdcd;">原文也要留着能展开看</strong> ——
+        转译错了的时候人得有办法绕过我们。
+      </div>
+    </div>
+  </div>
+
+  <!-- 分层 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">三 · 代码放在哪</div>
+    <div class="card" style="padding: 22px 24px;">
+      <div class="p">
+        <div class="note" style="margin-bottom: 14px;"><div class="num">1</div><div>
+          <strong style="color:#fff;"><span class="m">crates/gitsvc</span> —— 业务全在这儿，不依赖 Tauri。</strong>
+          新增 <span class="m">remote.rs</span>：<span class="m">fetch()</span> /
+          <span class="m">merge()</span> / <span class="m">push()</span>，
+          进度通过一个 <span class="m">FnMut(Progress)</span> 回调往外抛，
+          取消通过一个 <span class="m">Arc&lt;AtomicBool&gt;</span> 往里传。
+          <strong style="color:#cdcdcd;">这两个都不是 Tauri 的类型</strong> ——
+          所以这一层能脱离 GUI 单测，和现有五个 crate 一致。
+        </div></div>
+        <div class="note" style="margin-bottom: 14px;"><div class="num">2</div><div>
+          <strong style="color:#fff;"><span class="m">src/commands.rs</span> —— 只解包、查句柄、转错误。</strong>
+          把 <span class="m">tauri::ipc::Channel</span> 包成上面那个回调，
+          把句柄表里的 flag 传下去。<strong style="color:#cdcdcd;">一行业务都不写</strong>，
+          这条是 AGENTS.md 里既有的规矩。
+        </div></div>
+        <div class="note"><div class="num">3</div><div>
+          <strong style="color:#fff;">进度通道复用 pty 那套。</strong>
+          <span class="m">tauri::ipc::Channel&lt;T&gt;</span> 已经在
+          <span class="m">pty_spawn</span> 上用着了，是这个仓库里
+          「Rust 往前端持续推数据」的既有做法 —— 不新起一套。
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="padding: 22px 24px; display: flex; flex-direction: column; gap: 10px;">
+    <div style="color:#fff;font-size:15px;font-weight:600;">
+      做的顺序：fetch → pull → push → askpass → 后台 fetch</div>
+    <div class="p" style="margin-bottom: 4px;">
+      <strong style="color:#cdcdcd;">askpass 排在 push 之后**不是因为它不重要**</strong> ——
+      是因为前三步用现有凭据（钥匙串里已经有了，实测通的）就能全部跑通并验收，
+      而 askpass 服务的是「第一次连一个新远程」。
+      把它排前面的话，前三步的验收要等一整套 socket + 弹框先写完。
+      <br>
+      后台 fetch 排最后：它默认关，而且只有前面都稳了才敢让它自己跑。
+    </div>
+    <div class="p">
+      <strong style="color:#cdcdcd;">顺序本身就是判据。</strong>
+      fetch 只读、失败没有后果 —— 拿它把「凭据」和「进度/取消」这两块地基趟平。
+      pull 会产生冲突，而冲突有现成的 MergeView。push 最后。
+      <br>
+      反过来先做 push 的话，第一次撞上的就是
+      <strong style="color:#cdcdcd;">「凭据没配好 + 已经改了远程 + 不知道改成什么样了」</strong>。
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

@@ -16,6 +16,12 @@ pub struct AppState {
     /// 活着的终端会话。Session::drop 会 kill 掉 shell，
     /// 所以从这张表里移除 == 终止那个终端（UNINSTALL.md 的「不留孤儿进程」）。
     ptys: Mutex<HashMap<u32, Arc<Mutex<Session>>>>,
+    /// 正在跑的远程操作（fetch / push）的取消令牌。
+    ///
+    /// 存的是令牌不是子进程句柄：kill 由 `gitsvc::remote` 里的看门线程做，
+    /// 这儿只负责「让谁看得见这个开关」。**这样这张表上永远不会发生
+    /// 「持着锁去 kill 一个子进程」**——那正是 `kill_pty` 踩过的坑。
+    remotes: Mutex<HashMap<u32, gitsvc::remote::Cancel>>,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
 }
@@ -94,6 +100,43 @@ impl AppState {
         // 可能起线程、发信号、等收尸的操作放在全局锁里**。issue #2。
         let sess = self.ptys.lock().expect("pty 表锁被毒化").remove(&id);
         sess.is_some()
+    }
+
+    /// 登记一个正在跑的远程操作，返回它的取消令牌。
+    ///
+    /// **id 由前端给，不是这里生成的。**
+    ///
+    /// 反过来（这里生成、跟着返回值给出去）写过一版，而那个取消按钮
+    /// **永远点不动**：返回值要等操作跑完才到前端，那时已经没什么可取消的了。
+    /// 这个 bug 在浏览器里点了一次取消、发现 `git_cancel` 压根没被调到才发现 ——
+    /// 类型是对的、编译是过的、界面看着也对。
+    pub fn begin_remote(&self, id: u32) -> gitsvc::remote::Cancel {
+        let flag: gitsvc::remote::Cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.remotes
+            .lock()
+            .expect("远程操作表锁被毒化")
+            .insert(id, flag.clone());
+        flag
+    }
+
+    /// 操作结束（成功、失败、被取消都算）时把登记划掉。
+    pub fn end_remote(&self, id: u32) {
+        self.remotes.lock().expect("远程操作表锁被毒化").remove(&id);
+    }
+
+    /// 取消一个正在跑的远程操作。找不到就返回 false（多半是已经结束了）。
+    ///
+    /// **只置位，不 kill。** 置位之后由那条操作自己的看门线程去 kill ——
+    /// 这样这个函数永远是瞬间返回的，不会把表锁攥在手里等一个子进程死。
+    pub fn cancel_remote(&self, id: u32) -> bool {
+        let flag = self.remotes.lock().expect("远程操作表锁被毒化").get(&id).cloned();
+        match flag {
+            Some(f) => {
+                f.store(true, Ordering::Relaxed);
+                true
+            }
+            None => false,
+        }
     }
 
     /// 窗口关闭时兜底：把所有终端一并带走。

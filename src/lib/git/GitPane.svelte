@@ -16,6 +16,9 @@
     onOpenLog,
     ahead = 0,
     behind = 0,
+    onSync,
+    syncing = null,
+    onCancelSync = null,
   }: {
     status: GitStatus | null;
     busy: boolean;
@@ -38,7 +41,35 @@
     onOpenLog: () => void;
     ahead?: number;
     behind?: number;
+    /**
+     * 拉取 / 推送 / 抓取。**由上层做**，因为它们要开进度、要能取消、
+     * 失败时要弹的东西（认证提示、被拒提示）横跨整个内容区。
+     * 这里只负责把「现在该显示哪个动作」算出来。
+     */
+    onSync?: (what: "pull" | "push" | "fetch") => void;
+    /** 正在跑的远程操作。null 表示没有 */
+    syncing?: { what: "pull" | "push" | "fetch"; phase: string; percent: number | null } | null;
+    /** 取消当前操作。push 进行中不给（状态不确定），由上层决定传不传 */
+    onCancelSync?: (() => void) | null;
   } = $props();
+
+  /*
+   * 分支行右边那个胶囊现在显示什么。
+   *
+   * v0.5.0 里它是个**不可点的**胶囊，理由写在那时的设计里：
+   * 「点了没有下文比不显示更糟」。M7 就是来兑现那句话的。
+   *
+   * 四态照 IDEA 的分支挂件：同步了不显示（「一切正常」不需要占位置）、
+   * 只落后给拉取、只领先给推送、**两边都有就不给一键动作** ——
+   * 那时要先决定合并还是变基，替人选一个是越权。
+   */
+  let syncState = $derived.by(() => {
+    if (!status?.upstream) return null;
+    if (behind && ahead) return { kind: "diverged" as const };
+    if (behind) return { kind: "pull" as const };
+    if (ahead) return { kind: "push" as const };
+    return null;
+  });
 
   let message = $state("");
   let amend = $state(false);
@@ -157,13 +188,50 @@
         改动条数和分支是同一类信息（「这个仓库现在什么状态」），
         放在一起就省掉了分组头里那个重复的计数。
       -->
-      {#if status.entries.length > 0}
+      {#if syncing}
+        <!-- 进行中：胶囊让位给「取消」，进度条长在下面一行 -->
+        {#if onCancelSync}
+          <button class="sync cancel" onclick={onCancelSync}>取消</button>
+        {/if}
+      {:else if syncState?.kind === "pull"}
+        <!-- 胶囊带上动词才知道点了会发生什么 -->
+        <button class="sync" onclick={() => onSync?.("pull")} title="抓取远程并合并到本地">
+          ↓{behind} 拉取
+        </button>
+      {:else if syncState?.kind === "push"}
+        <!-- 推送用 accent —— 它是唯一会改到别人东西的那个 -->
+        <button class="sync push" onclick={() => onSync?.("push")} title="把本地提交推到远程">
+          ↑{ahead} 推送
+        </button>
+      {:else if syncState?.kind === "diverged"}
+        <button class="sync diverged" onclick={() => onSync?.("pull")} title="本地和远程分岔了，要先决定怎么合">
+          ↑{ahead} ↓{behind} 已分岔
+        </button>
+      {:else if status.entries.length > 0}
         <span class="chgs">{status.entries.length} 处改动</span>
       {/if}
       <button class="act" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:spin={busy}>
         <Icon name="refresh" size={13} />
       </button>
     </div>
+
+    {#if syncing}
+      <!--
+        进度长在分支行下面，**不弹模态** —— 拉取的时候人还想接着看代码。
+        百分比可能是 null（git 的措辞不是稳定接口），那时只显示一行文字。
+      -->
+      <div class="prog">
+        <div class="pline">
+          <span class="ptext">{syncing.phase}</span>
+          {#if syncing.percent !== null}<span class="ppct">{syncing.percent}%</span>{/if}
+        </div>
+        <div class="pbar" class:indet={syncing.percent === null}>
+          {#if syncing.percent !== null}
+            <div class="pfill" style:width="{syncing.percent}%"></div>
+          {/if}
+        </div>
+      </div>
+    {/if}
 
     {#if status.entries.length === 0 && !composing && message.trim() === ""}
       <!--
@@ -319,6 +387,73 @@
     cursor: default;
   }
   .act:hover { background: var(--hover); color: var(--text); }
+
+  /*
+   * 分支行右端的同步胶囊。
+   *
+   * 尺寸和 `.chgs` 一致 —— 它们占的是同一个位置，切换时那一行不该跳。
+   */
+  .sync {
+    flex: none;
+    font-family: var(--code-font);
+    font-size: 10.5px;
+    padding: 1px 7px;
+    border-radius: var(--r-sm);
+    background: var(--selected);
+    border: none;
+    color: var(--text);
+    cursor: default;
+    white-space: nowrap;
+  }
+  .sync:hover { background: var(--pressed); }
+  /* 推送是唯一会改到别人东西的动作，给它 accent */
+  .sync.push { background: rgba(91, 141, 239, 0.22); color: #8fb4f5; }
+  .sync.push:hover { background: rgba(91, 141, 239, 0.32); }
+  /* 分岔要先做决定，用警告色但不是错误色 —— 它不是坏事 */
+  .sync.diverged { background: rgba(214, 174, 88, 0.18); color: var(--lvl-warn); }
+  .sync.diverged:hover { background: rgba(214, 174, 88, 0.28); }
+  .sync.cancel { background: var(--hover); color: var(--text-dim); }
+  .sync:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+  /* 进度：长在分支行下面，不弹模态 —— 拉取时人还想接着看代码 */
+  .prog {
+    flex: none;
+    padding: 7px 10px 8px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .pline { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+  .ptext {
+    flex: 1;
+    min-width: 0;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ppct { flex: none; font-family: var(--code-font); font-size: 11px; color: var(--text-faint); }
+  .pbar { height: 3px; border-radius: 2px; background: var(--hover); overflow: hidden; }
+  .pfill { height: 100%; background: var(--accent); transition: width 0.12s linear; }
+  /*
+   * 认不出百分比时走这条：一条来回跑的条，只说「还在动」。
+   * **不能显示成 0%** —— 那是在报一个我们并不知道的数。
+   */
+  .pbar.indet::after {
+    content: "";
+    display: block;
+    width: 34%;
+    height: 100%;
+    background: var(--accent);
+    animation: slide 1.1s ease-in-out infinite;
+  }
+  @keyframes slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pbar.indet::after { animation: none; width: 100%; opacity: 0.4; }
+    .pfill { transition: none; }
+  }
   .act.spin { color: var(--accent); }
 
   /*

@@ -154,10 +154,18 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&outline)
         .build()?;
 
+    let git_pull = item(app, "git-pull", "拉取", Some("Shift+CmdOrCtrl+P"))?;
+    let git_push = item(app, "git-push", "推送…", Some("Alt+CmdOrCtrl+P"))?;
+    let git_fetch = item(app, "git-fetch", "抓取远程", None)?;
+
     let git = SubmenuBuilder::new(app, "Git")
         .item(&git_changes)
         .item(&git_file_diff)
         .item(&git_log)
+        .separator()
+        .item(&git_pull)
+        .item(&git_push)
+        .item(&git_fetch)
         .separator()
         .item(&git_branches)
         .item(&git_refresh)
@@ -210,7 +218,9 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let handles = MenuHandles {
         recent,
         needs_tab: vec![save, close_tab, close_all, encoding, toggle_mode, outline, git_file_diff],
-        needs_repo: vec![git_changes, git_log, git_branches, git_refresh],
+        needs_repo: vec![
+            git_changes, git_log, git_branches, git_refresh, git_pull, git_push, git_fetch,
+        ],
         needs_term: vec![close_terminal],
     };
     Ok((menu, handles))

@@ -1,0 +1,230 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    a { color: #7fa8f5; } a:hover { color: #a6c3fa; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+    .p { color: #a8a8ac; font-size: 12.5px; line-height: 1.75; }
+    .card { background: #141416; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; }
+    .cap { color: #7a7a80; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+    th { text-align: left; color: #7a7a80; font-size: 11px; letter-spacing: .06em; font-weight: 400;
+      padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.09); }
+    td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);
+      color: #cdcdcd; vertical-align: top; line-height: 1.65; }
+    tr:last-child td { border-bottom: none; }
+    .m { font-family: "SF Mono", Menlo, monospace; font-size: 11.5px;
+      background: rgba(255,255,255,0.07); border-radius: 5px; padding: 1px 6px; color: #e6e6e8; }
+    .keep { color: #6aab73; } .chg { color: #d6ae58; } .no { color: #d1707a; }
+    .badge { font-size: 10.5px; padding: 1px 8px; border-radius: 6px; }
+    .b-keep { background: rgba(106,171,115,0.18); color: #8fce97; }
+    .b-chg { background: rgba(214,174,88,0.18); color: #d6ae58; }
+    .b-ask { background: rgba(209,112,122,0.18); color: #e3949c; }
+  </style>
+</helmet>
+
+<div style="width: 1500px; min-height: 1180px; background: #08080a; padding: 40px 44px 48px;
+            display: flex; flex-direction: column; gap: 30px;">
+
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div style="color: #ffffff; font-size: 26px; font-weight: 600;">各家是怎么做的</div>
+    <div class="p" style="max-width: 1080px;">
+      「不自己找方案，用现成的，底层原理抄他们的」。查完之后
+      <strong style="color:#cdcdcd;">我上一版方案有四处要改</strong> ——
+      其中一处（凭据）是整个方向都错了。
+    </div>
+  </div>
+
+  <!-- 谁在用什么 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">底层：三家都是子进程</div>
+    <div class="card">
+      <table>
+        <tr><th style="width: 170px;"></th><th style="width: 250px;">怎么跑 git</th><th>凭据</th></tr>
+        <tr>
+          <td style="color:#fff;">VS Code</td>
+          <td>子进程调 <span class="m">git</span> 可执行文件</td>
+          <td><span class="m">GIT_ASKPASS</span> 指向自家的
+              <span class="m">askpass.sh</span>，脚本通过 IPC 管道回到编辑器里弹框</td>
+        </tr>
+        <tr>
+          <td style="color:#fff;">IntelliJ IDEA</td>
+          <td><span class="m">git4idea</span> <strong style="color:#cdcdcd;">要求外部 git 命令行</strong>，
+              路径在设置里配</td>
+          <td>同样是 <span class="m">GIT_ASKPASS</span> —— 生成一个临时
+              <span class="m">.sh</span>，由 <span class="m">GitAskPassApp</span> 接住弹框。
+              <strong style="color:#cdcdcd;">这套是从 JGit 撤回来之后做的</strong>，
+              当初撤的原因正是认证和代理问题</td>
+        </tr>
+        <tr>
+          <td style="color:#fff;">GitKraken</td>
+          <td>历史上走 libgit2（nodegit）</td>
+          <td>—— 而它恰恰是这几家里认证问题被抱怨最多的</td>
+        </tr>
+      </table>
+    </div>
+    <div class="p" style="font-size: 12px;">
+      <strong style="color:#cdcdcd;">「子进程」这条我原来就选对了，但理由现在更硬</strong>：
+      不是「我们已经这么做了」，是 IDEA <strong style="color:#cdcdcd;">试过库、然后撤回了子进程</strong>。
+    </div>
+  </div>
+
+  <!-- 四处要改 -->
+  <div style="display: flex; flex-direction: column; gap: 14px;">
+    <div class="cap">我上一版的四处偏差</div>
+    <div class="card">
+      <table>
+        <tr>
+          <th style="width: 210px;">我原来写的</th>
+          <th style="width: 380px;">主流做法</th>
+          <th style="width: 380px;">改成</th>
+          <th style="width: 90px;"></th>
+        </tr>
+
+        <tr>
+          <td style="color:#fff;">保持 <span class="m">GIT_TERMINAL_PROMPT=0</span>，
+              拿不到凭据就让用户去终端认证一次</td>
+          <td><strong style="color:#d1707a;">方向就不对。</strong>
+              两家都不是「关掉提问」，是<strong style="color:#cdcdcd;">把提问重定向到自己</strong> ——
+              <span class="m">GIT_ASKPASS</span> 指向一个小脚本，
+              脚本把 git 的提示串通过 IPC 送回应用，应用弹框，
+              答案从脚本的 stdout 回给 git</td>
+          <td>照抄 askpass。<span class="m">GIT_TERMINAL_PROMPT=0</span> 仍然留着 ——
+              它管的是「回退到终端」，而 askpass 优先级在它之前。
+              <strong style="color:#cdcdcd;">两者不冲突，是配套的</strong></td>
+          <td><span class="badge b-chg">改</span></td>
+        </tr>
+
+        <tr>
+          <td style="color:#fff;">「应用自己不碰凭据，这是功能边界」</td>
+          <td>两家都收密码 —— <strong style="color:#cdcdcd;">但都不自己存</strong>。
+              填完之后由 git 的 <span class="m">credential.helper</span>
+              写进钥匙串，应用只是个转发的框</td>
+          <td>采纳。边界重画：<strong style="color:#cdcdcd;">不存储、不管理、不同步</strong>，
+              只在 git 问的那一刻转发一次。这条边界站得住，
+              上一版那条（连问都不问）站不住</td>
+          <td><span class="badge b-chg">改</span></td>
+        </tr>
+
+        <tr>
+          <td style="color:#fff;">推送界面只显示 <span class="m">↑2</span> 计数</td>
+          <td>IDEA 的推送对话框<strong style="color:#cdcdcd;">列出将要推送的每一个提交</strong>，
+              按仓库分组，能看清到底要送什么出去</td>
+          <td>采纳，而且便宜 —— <span class="m">git_log_entries</span>
+              和 <span class="m">GitLog</span> 组件已经有了，
+              范围换成 <span class="m">origin/dev..dev</span> 就是那张列表</td>
+          <td><span class="badge b-chg">改</span></td>
+        </tr>
+
+        <tr>
+          <td style="color:#fff;">完全不做 force（issue #8 里写的
+              「<span class="m">--force</span> 一律不做入口」）</td>
+          <td>IDEA <strong style="color:#cdcdcd;">有</strong>，藏在 Push 按钮的下拉里，
+              而且是 <span class="m">--force-with-lease</span>
+              （远程在你上次 fetch 之后动过就拒绝，不是无脑覆盖）</td>
+          <td><strong style="color:#d6ae58;">这条要你定</strong> ——
+              主流做法和 issue 里你自己写的判据冲突。
+              我的建议在右边那张卡片里</td>
+          <td><span class="badge b-ask">待定</span></td>
+        </tr>
+
+        <tr>
+          <td style="color:#fff;"><span class="m">↓3</span> 直接显示</td>
+          <td>这个数来自<strong style="color:#cdcdcd;">本地的远程跟踪 ref</strong>，
+              不 fetch 就永远不变。VS Code 因此有
+              <span class="m">git.autofetch</span>（<strong style="color:#cdcdcd;">默认关</strong>，
+              周期 <span class="m">180s</span>）</td>
+          <td>加后台 fetch，<strong style="color:#cdcdcd;">默认关</strong>，
+              周期照抄 180s。不加的话 <span class="m">↓3</span>
+              可能是几天前的数 —— 那就又变成一个会说谎的界面</td>
+          <td><span class="badge b-chg">新增</span></td>
+        </tr>
+
+        <tr>
+          <td style="color:#fff;">分岔时问「合并还是变基」</td>
+          <td>IDEA 一样，而且有<strong style="color:#cdcdcd;">「记住这次选择」</strong></td>
+          <td>采纳「记住」，存进会话快照</td>
+          <td><span class="badge b-chg">改</span></td>
+        </tr>
+
+        <tr>
+          <td style="color:#fff;">子进程 / 不上 libgit2</td>
+          <td>VS Code 和 IDEA 都是子进程；IDEA 还是<strong style="color:#cdcdcd;">从 JGit 撤回来的</strong></td>
+          <td>不变，理由更硬了</td>
+          <td><span class="badge b-keep">保留</span></td>
+        </tr>
+
+        <tr>
+          <td style="color:#fff;">pull 拆成 fetch + 本地合并</td>
+          <td>IDEA 的 Update Project 就是这个形状（先抓，再按选定策略合）</td>
+          <td>不变</td>
+          <td><span class="badge b-keep">保留</span></td>
+        </tr>
+
+        <tr>
+          <td style="color:#fff;">不设超时，靠取消</td>
+          <td>两家都不给 git 设超时，都靠进度 + 取消</td>
+          <td>不变。<strong style="color:#cdcdcd;">但我们现在连取消都没有</strong> ——
+              见下</td>
+          <td><span class="badge b-keep">保留</span></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- 现有 git 的问题 + force -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card" style="padding: 22px 24px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="color:#fff;font-size:15px;font-weight:600;">审我们自己的 git：一条超时都没有</div>
+      <div class="p">
+        <span class="m">crates/gitsvc</span> 1455 行，
+        <strong style="color:#d1707a;">grep 不到任何 timeout / deadline</strong>。
+        每一条 git 调用都是跑到底为止。
+        <br><br>
+        <strong style="color:#cdcdcd;">这在今天不算 bug</strong> —— 全是本地命令，毫秒级。
+        主流也不给 git 设超时。
+        <br>
+        <strong style="color:#cdcdcd;">但它意味着 M7 要从零建「进行中 / 可取消」这套东西</strong>，
+        而这个仓库里已经有一份现成的：<span class="m">ptysvc</span> 的
+        句柄表 + <span class="m">with_deadline</span> + 「先摘出来再在锁外 kill」。
+        <br><br>
+        照抄它，包括它踩过的坑：<strong style="color:#cdcdcd;">别持着整张表的锁去析构</strong>
+        （<span class="m">kill_pty</span> 那次一挂就是所有终端操作全堵死）。
+      </div>
+    </div>
+
+    <div class="card" style="padding: 22px 24px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="color:#fff;font-size:15px;font-weight:600;">
+        <span style="color:#d6ae58;">要你定</span> · force 到底做不做</div>
+      <div class="p">
+        <strong style="color:#cdcdcd;">主流：做。</strong> IDEA 放在 Push 按钮的下拉第二项，
+        用的是 <span class="m">--force-with-lease</span> ——
+        它会先检查「远程现在的位置是不是我上次 fetch 时看到的那个」，
+        不是就拒绝。所以它防的正是「覆盖掉别人刚推的东西」。
+        <br><br>
+        <strong style="color:#cdcdcd;">你在 issue #8 里写的：不做入口。</strong>
+        理由是「真要强推的人会去开终端，而那个动作值得多花那十秒」。
+        <br><br>
+        <strong style="color:#cdcdcd;">我倾向按你原来的判据，不做。</strong>
+        理由：IDEA 面对的是团队，改错了有人拦；这是个人工具，
+        <strong style="color:#cdcdcd;">强推错了没有第二道门</strong>。
+        而 <span class="m">--force-with-lease</span> 只防「别人推了新东西」，
+        不防「你自己搞错了分支」。
+        <br>
+        真要做，也该是<strong style="color:#cdcdcd;">推送被拒之后</strong>才出现的第三个按钮，
+        不是常驻下拉 —— 那时人已经知道自己在覆盖什么了。
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
