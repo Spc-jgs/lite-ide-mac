@@ -412,7 +412,7 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 125 KB，红线 150 KB**；超过 138 KB CI 会先告警。
+（**当前 131 KB，红线 150 KB**；超过 138 KB CI 会先告警。
 这个数字每轮都要重量一次 —— 它在 M20/M22/M24/M25 里从 126 一路涨到 157，
 而 README 和这里各记了一个旧值，看着像互相矛盾。
 崩溃屏 `Crash.svelte` 是刻意静态引入的 —— 需要它的时候，
@@ -448,7 +448,7 @@ pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | h
 
 四条会咬人的：
 
-1. **不透明色不能当 hover 用。** 原来 40 处写的是
+1. **不透明色不能当 hover 用。** 原来共 43 处引用，其中 **29 处**写的是
    `:hover { background: var(--panel-bg-2) }`（`#212121` 实色）——
    在玻璃上那是**凿一个洞**，一块生硬的矩形浮在表面上。
    `--panel-bg-2` 因此被拆掉了（hover 归 `--hover`，浮层归 `--elevated`），
@@ -856,16 +856,41 @@ effect 也就不会再跑第二次。
 |---|---|
 | `scrollTo({behavior:"smooth"})` | **完全不动**。`scrollTop` 一直是 0，看着像功能坏了 |
 | `await requestAnimationFrame` | **永远不回调**，整个 `javascript_tool` 调用挂到 45s 超时 |
-| 按钮的原生激活（`↵`） | 不触发 —— 合成事件的 `keyCode` 是 0 |
-| `⇧F10` 之类带修饰键的 | 修饰键传不下去，到手时 `shiftKey === false` |
+| `e.code` | **永远是空串** —— 每一个键都是，包括裸的 `a` |
+| `e.keyCode` | **永远是 0**，于是按钮的原生激活（`↵`）不触发 |
+| `↵` 的 `e.key` | 也是空串 |
 
-前两条一次坑掉半小时：滚动位置算得对、`scrollTo` 也调了（monkey-patch
+滚动那条一次坑掉半小时：位置算得对、`scrollTo` 也调了（monkey-patch
 `Element.prototype.scrollTo` 能看到参数），就是不动。
-**验滚动要验「传给 scrollTo 的目标值」，不要验 `scrollTop`**；
+**验滚动要验「传给 `scrollTo` 的目标值」，不要验 `scrollTop`**；
 等待一律用 `setTimeout`，不要用 rAF。
+（2026-09-05 差异视图那轮又用上了一次：跳转目标算得准，`scrollTop` 全程是 0。）
 
-后两条见 [issue #2](https://github.com/Spc-jgs/lite-ide-mac/issues/2) 那轮的记录 ——
-在它上面验不了的东西，别写成「验过了」。
+**`e.code` 是空串这条比看上去要紧。** 凡是靠 `e.code` 判的键位，
+在这上面**一次都不会触发** —— 比如差异视图的 `⌥Z`
+（`e.altKey && e.code === "KeyZ"`，因为 macOS 上 ⌥z 的 `e.key` 是「Ω」）。
+不是功能坏了，是这里验不了。要验就去点按钮，或者在真 `.app` 上按。
+
+#### 修饰键**现在传得下去了**（2026-09-05 复测，原来写的是传不下去）
+
+这条以前写的是「修饰键传不下去，到手时 `shiftKey === false`」，
+[issue #2](https://github.com/Spc-jgs/lite-ide-mac/issues/2) 那轮的记录。
+2026-09-05 用 `computer` 的 key 动作连按六次、在 window 上捕获 keydown 实测：
+
+| 按下 | 到手 |
+|---|---|
+| `shift+F10` | `key:"F10"` `shiftKey:true` |
+| `cmd+s` | `key:"s"` `metaKey:true` |
+| `ctrl+shift+\`` | ``key:"`"`` `ctrlKey:true` `shiftKey:true` |
+| `alt+z` | `key:"z"` `altKey:true` |
+
+四个修饰键全都到位。**工具改好了，这条是过时不是错**——
+但同一次量到的 `e.code` 为空、`keyCode` 为 0 仍然成立（见上表），
+所以 `⌥Z` 那类依旧验不了：`alt+z` 到手的 `e.key` 是 `"z"` 而不是真机上的 `"Ω"`，
+`e.code` 又是空的，两条路都对不上。
+
+在它上面验不了的东西，别写成「验过了」——
+但也别把「以前验不了」当成永远验不了，**这一条就是复测之后翻过来的**。
 
 ---
 
