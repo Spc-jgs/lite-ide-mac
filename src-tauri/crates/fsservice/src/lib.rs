@@ -21,19 +21,30 @@ pub struct Entry {
     pub size: u64,
 }
 
+/// 构建产物目录：**永远不列**。
+///
+/// 它们不是「隐藏文件」，是**别人生成的东西** —— 里面几万个文件没有一个是手写的，
+/// 而 `target/` 在这个仓库里就有 1GB 多。点文件都列（见 [`list_dir`]），
+/// 但这四个不列。
+const BUILD_DIRS: [&str; 4] = ["node_modules", "target", "dist", "build"];
+
 /// 列出一层目录。不递归 —— 文件树按需展开，避免大仓库一次性遍历。
 ///
+/// **点文件和点目录一律列出来。** 原来它们跟着 `show_hidden` 一起被藏了，
+/// 于是 `.gitignore` `.github/` `.env` `.claude/` 这些**天天要改的项目文件**
+/// 在文件树里根本不存在，只能靠 ⌘P 摸黑打开。
+///
+/// 藏它们的那个理由（「否则文件树被淹没」）说的其实是 `node_modules` 那一类，
+/// 而那一类现在由 [`BUILD_DIRS`] 单独挡着 —— 两件事本来就不该共用一个开关。
+/// `.git/` 也照列：树是懒展开的，不点开它就只是一行。
+///
 /// 排序：目录在前，同类按名称不区分大小写排列，与 Finder / IDEA 一致。
-pub fn list_dir(dir: impl AsRef<Path>, show_hidden: bool) -> io::Result<Vec<Entry>> {
+pub fn list_dir(dir: impl AsRef<Path>) -> io::Result<Vec<Entry>> {
     let mut out = Vec::new();
     for ent in fs::read_dir(dir.as_ref())? {
         let ent = ent?;
         let name = ent.file_name().to_string_lossy().into_owned();
-        if !show_hidden && name.starts_with('.') {
-            continue;
-        }
-        // 构建产物目录默认不展示，否则文件树被淹没
-        if !show_hidden && matches!(name.as_str(), "node_modules" | "target" | "dist" | "build") {
+        if BUILD_DIRS.contains(&name.as_str()) {
             continue;
         }
         let meta = match ent.metadata() {
@@ -437,7 +448,7 @@ mod tests {
         fs::create_dir(d.join("zeta")).unwrap();
         fs::create_dir(d.join("Mid")).unwrap();
 
-        let got: Vec<String> = list_dir(&d, false)
+        let got: Vec<String> = list_dir(&d)
             .unwrap()
             .into_iter()
             .map(|e| e.name)
@@ -446,23 +457,29 @@ mod tests {
         fs::remove_dir_all(d).ok();
     }
 
+    /// 点文件要列出来，构建产物不列。
+    ///
+    /// 这两件事以前共用一个 `show_hidden` 开关，于是 `.gitignore` 这类
+    /// 天天要改的文件跟着 `node_modules` 一起消失了。
     #[test]
-    fn 默认隐藏点文件与构建产物() {
+    fn 点文件要列出来而构建产物不列() {
         let d = sandbox("hidden");
         fs::write(d.join("visible.rs"), "x").unwrap();
         fs::write(d.join(".env"), "x").unwrap();
+        fs::create_dir(d.join(".github")).unwrap();
+        fs::create_dir(d.join(".git")).unwrap();
         fs::create_dir(d.join("node_modules")).unwrap();
         fs::create_dir(d.join("target")).unwrap();
+        fs::create_dir(d.join("dist")).unwrap();
+        fs::create_dir(d.join("build")).unwrap();
 
-        let got: Vec<String> = list_dir(&d, false)
+        let got: Vec<String> = list_dir(&d)
             .unwrap()
             .into_iter()
             .map(|e| e.name)
             .collect();
-        assert_eq!(got, vec!["visible.rs"]);
-
-        let all = list_dir(&d, true).unwrap().len();
-        assert_eq!(all, 4, "show_hidden 时应全部列出");
+        // 目录在前、同类不区分大小写排序 —— 点目录也照这条规矩排
+        assert_eq!(got, vec![".git", ".github", ".env", "visible.rs"]);
         fs::remove_dir_all(d).ok();
     }
 
@@ -503,7 +520,7 @@ mod tests {
         let d = sandbox("atomic");
         let f = d.join("a.txt");
         write_text(&f, "content").unwrap();
-        let leftovers: Vec<String> = list_dir(&d, true)
+        let leftovers: Vec<String> = list_dir(&d)
             .unwrap()
             .into_iter()
             .map(|e| e.name)
@@ -766,7 +783,7 @@ mod tests {
         let to = rename_entry(&a, "README.md").unwrap();
         assert_eq!(to, d.join("README.md"));
 
-        let names: Vec<String> = list_dir(&d, false).unwrap().into_iter().map(|e| e.name).collect();
+        let names: Vec<String> = list_dir(&d).unwrap().into_iter().map(|e| e.name).collect();
         assert_eq!(names, vec!["README.md"], "盘上的名字没跟着换大小写");
         fs::remove_dir_all(d).ok();
     }

@@ -76,7 +76,7 @@ function g(
   path: string,
   index: string,
   work: string,
-  extra: { staged?: boolean; untracked?: boolean; isDir?: boolean; conflicted?: boolean; orig?: string } = {},
+  extra: { staged?: boolean; untracked?: boolean; conflicted?: boolean; orig?: string } = {},
 ) {
   const untracked = extra.untracked ?? false;
   const conflicted = extra.conflicted ?? false;
@@ -85,7 +85,6 @@ function g(
     index,
     work,
     untracked,
-    isDir: extra.isDir ?? false,
     conflicted,
     // 与 Rust 侧 Entry::staged / unstaged 完全一致 —— 包括「冲突条目
     // 既不算已暂存也不算未暂存」这条。桩要是和真实现分叉，它就没用了
@@ -97,6 +96,26 @@ function g(
 
 /** 桩里的假文件系统：路径 → 内容 */
 const FILES: Record<string, string> = {
+  // 点文件也要能打开 —— 只在 DIRS 里列出来、点开却是空的，那是另一种骗人
+  "/proj/.gitignore": `node_modules/
+dist/
+target/
+.DS_Store
+`,
+  "/proj/.env": `# 桩数据，不是真密钥
+API_BASE=http://localhost:8080
+LOG_LEVEL=debug
+`,
+  "/proj/.github/workflows/ci.yml": `name: CI
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pnpm install
+      - run: pnpm check && pnpm test
+`,
   /*
    * XML 单独占一条：`tagName` 继承 `typeName`（IDEA 里类名就是正文色），
    * 元素名会跟正文一个颜色，看起来像「没上色」。桩里没有 XML 文件的时候
@@ -267,8 +286,18 @@ export default defineConfig({
 `,
 };
 
+/*
+ * 桩里要有点文件和点目录。真实现 2026-09-06 起把它们列出来了
+ * （`fsservice::list_dir` 不再有 `show_hidden`），桩里一个都没有的话，
+ * 浏览器里的文件树和 `.app` 里长得不一样 —— 而改 UI 的主循环就在浏览器里。
+ *
+ * `node_modules` / `target` / `dist` / `build` 那四个**故意不放**：
+ * 真实现永远不列它们，桩里放了反而是假的。
+ */
 const DIRS: Record<string, Array<[string, boolean]>> = {
-  "/proj": [["src", true], ["logs", true], ["docs", true], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
+  "/proj": [["src", true], ["logs", true], ["docs", true], [".github", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
+  "/proj/.github": [["workflows", true]],
+  "/proj/.github/workflows": [["ci.yml", false]],
   "/proj/src": [["OrderService.java", false], ["main.py", false], ["gbk-legacy.java", false], ["big5-notes.txt", false], ["long.ts", false]],
   "/proj/logs": [["access-2026-08-24.log", false]],
   "/proj/docs": [["ARCHITECTURE.md", false]],
@@ -647,13 +676,20 @@ export function installMockIpc(): void {
             detached: false,
             unborn: false,
             truncated: false,
+            /*
+             * 整个未跟踪的目录**不在 entries 里** —— 真实现把它摊成里面的
+             * 文件，目录名单独走这一路给文件树。桩要照着摊，否则在浏览器里
+             * 改动列表长得和 .app 里不一样。
+             */
+            untrackedDirs: ["scratch/"],
             entries: [
               g("src/OrderService.java", "M", ".", { staged: true }),
               g("src/App.svelte", ".", "M"),
               g("README.md", "A", "."),
               g("docs/old.md", ".", "D"),
               g("src/renamed.ts", "R", ".", { orig: "src/before.ts" }),
-              g("scratch/", ".", "?", { untracked: true, isDir: true }),
+              g("scratch/draft.md", ".", "?", { untracked: true }),
+              g("scratch/tmp/notes.md", ".", "?", { untracked: true }),
               g("notes.txt", ".", "?", { untracked: true }),
               g("src/conflict.rs", "U", "U", { conflicted: true }),
             ],

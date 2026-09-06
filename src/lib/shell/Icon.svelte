@@ -4,7 +4,10 @@
     | "files"
     | "git"
     | "search"
-    | "panel"
+    | "terminal"
+    | "history"
+    | "more-v"
+    | "minus"
     | "refresh"
     | "check"
     | "plus"
@@ -84,12 +87,30 @@
   {:else if name === "search"}
     <circle cx="7" cy="7" r="4" />
     <path d="M9.95 9.95 L13.2 13.2" />
-  {:else if name === "panel"}
-    <!-- 底部面板开关：和 sidebar 同一个外框，实心块换到下面 -->
+  {:else if name === "terminal"}
+    <!--
+      终端。原来这里是个「底部面板」开关（同 sidebar 的外框、实心块在下面）——
+      导轨上不再有「面板」这个笼统的开关，改成两个具体的工具窗，
+      于是图标也得说清是哪一个：提示符 + 光标下划线。
+    -->
     <rect x="2" y="3" width="12" height="10" rx="2" />
-    <path d="M2 9.6 H14" />
-    <path d="M2 9.6 H14 V11 A2 2 0 0 1 12 13 H4 A2 2 0 0 1 2 11 Z"
-          fill="currentColor" stroke="none" opacity="0.28" />
+    <path d="M5.1 6.5 L7.2 8.5 L5.1 10.5" />
+    <path d="M8.6 10.6 H11.1" />
+  {:else if name === "history"}
+    <!--
+      提交历史。**不能复用 `git` 那个分支图标** —— 导轨上「Git 改动」已经
+      占着它了，同一列里出现两个一样的形状，人只能靠位置记忆去分。
+    -->
+    <circle cx="8" cy="8" r="5.4" />
+    <path d="M8 4.8 V8.2 L10.4 9.7" />
+  {:else if name === "more-v"}
+    <!-- 更多操作。竖排三点是工具窗头上的惯例位置（横排的 ⋯ 归区段头） -->
+    <circle cx="8" cy="3.9" r="0.95" fill="currentColor" stroke="none" />
+    <circle cx="8" cy="8" r="0.95" fill="currentColor" stroke="none" />
+    <circle cx="8" cy="12.1" r="0.95" fill="currentColor" stroke="none" />
+  {:else if name === "minus"}
+    <!-- 收起工具窗。一条线，不是 ✕ —— 东西还在，只是不占地方了 -->
+    <path d="M4 8 H12" />
   {:else if name === "refresh"}
     <path d="M13 8 A5 5 0 1 1 11.4 4.3" />
     <path d="M13 2.6 V5.2 H10.4" />

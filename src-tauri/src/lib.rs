@@ -3,8 +3,37 @@ pub mod diag;
 pub mod menu;
 mod state;
 
+/// 把 Tauri 的 async runtime 换成一个小的。
+///
+/// 默认那个是 `tokio::runtime::Runtime::new()`，worker 数 = 逻辑核数 ——
+/// 这台机器上 18 核，于是 `sample` 出来的主进程里有 **18 条常驻空转的
+/// `tokio-rt-worker`**，占了 24 条线程里的四分之三。而这个应用同一时刻
+/// 最多跑一两个异步命令，剩下十几条是纯开销。
+///
+/// **会阻塞的活不跑在 worker 上**，走 `spawn_blocking`（见 `commands::blocking`）——
+/// 那个池是按需长、空闲了自己收的，所以 worker 给 2 个就够。
+/// 反过来把阻塞命令直接扔给 worker 的话，两条并发的 git 就能把 2 个 worker 占满，
+/// 之后所有异步命令一起卡住。
+///
+/// `set()` 只存 Handle，**不接管 runtime 的所有权** —— 它一 drop，
+/// 那个 handle 就是废的。所以这里 leak 掉，让它活到进程结束。
+fn install_runtime() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .thread_name("lite-ide-rt")
+        .build()
+        .expect("建不起 tokio runtime");
+    tauri::async_runtime::set(rt.handle().clone());
+    Box::leak(Box::new(rt));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 必须在 Builder 之前 —— Tauri 的 RUNTIME 是个 OnceLock，
+    // 谁先碰它谁就把默认那个 18 worker 的装进去了，之后 set() 直接 panic
+    install_runtime();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())

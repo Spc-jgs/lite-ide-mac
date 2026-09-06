@@ -10,6 +10,7 @@
   import { textToSave, settled, stashed } from "./lib/state/doc";
   import Crash from "./lib/shell/Crash.svelte";
   import Icon from "./lib/shell/Icon.svelte";
+  import ContextMenu, { type MenuItem } from "./lib/shell/ContextMenu.svelte";
   import Outline from "./lib/search/Outline.svelte";
   import { KEYS, byId as keyById } from "./lib/state/keymap";
   import type { Sym } from "./lib/editor/outline";
@@ -216,7 +217,7 @@
     const need =
       (sideView === "git" && !!repo) ||
       tabs.some((t) => t.mode === "diff" || t.mode === "merge") ||
-      (panel && panelView === "log") ||
+      (panel && panelTool === "log") ||
       branchOpen;
     if (need) git.load();
   });
@@ -630,7 +631,7 @@
 
   /** 打开（或复用）一个差异标签 */
   async function openDiff(e: GitEntry, staged: boolean) {
-    if (!repo || e.isDir) return;
+    if (!repo) return;
     const key = `git-diff:${e.path}`;
     let id = tabs.find((t) => t.mode === "diff" && t.path === key)?.id;
     if (id === undefined) {
@@ -699,6 +700,18 @@
   let panelHeight = $state(savedLayout.panelHeight);
   /** 底部面板当前是哪个工具窗。终端实例永不卸载，只是藏起来 */
   let panelView = $state<"term" | "log">(savedLayout.panelView);
+  /**
+   * 实际在渲染的那个工具窗。
+   *
+   * `panelView` 是**存下来的偏好**，它可以是 `log` 而当下并没有仓库 ——
+   * 上次在一个 git 仓库里看着提交历史退出，这次打开的是个普通文件夹。
+   * 那时面板头写着「提交历史」，底下却是一片空白（历史那块的渲染条件
+   * 带着 `&& repo`），而头上已经没有「切回终端」的按钮了（切换搬去了导轨）。
+   *
+   * 所以渲染一律看这个，写状态才写 `panelView` —— 偏好留着，
+   * 下次真打开仓库时提交历史还在。
+   */
+  let panelTool = $derived<"term" | "log">(panelView === "log" && repo ? "log" : "term");
   /** xterm.js 约 250KB，不开终端就不该付这个钱 —— 与 CM6 同样按需加载 */
   const terminal = lazy(() => import("./lib/terminal/Terminal.svelte"), "终端");
   /**
@@ -718,11 +731,15 @@
 
   function newTerm(cwd?: string) {
     const dir = cwd ?? root ?? "~";
-    const t: TermTab = {
-      id: nextTermId++,
-      cwd: dir,
-      title: dir === "~" ? "~" : dir.slice(dir.lastIndexOf("/") + 1) || dir,
-    };
+    const base = dir === "~" ? "~" : dir.slice(dir.lastIndexOf("/") + 1) || dir;
+    /*
+     * 重名要带序号。终端的标题取自工作目录名，而绝大多数时候几个终端开的
+     * 是**同一个**目录（项目根）—— 于是三个标签页全写着 `proj`，
+     * 标签栏和「全部终端」下拉都变成「随便点一个」。
+     */
+    let title = base;
+    for (let n = 2; terms.some((t) => t.title === title); n++) title = `${base} (${n})`;
+    const t: TermTab = { id: nextTermId++, cwd: dir, title };
     terms = [...terms, t];
     activeTermId = t.id;
     panel = true;
@@ -738,10 +755,76 @@
     if (terms.length === 0) panel = false;
   }
 
+  /**
+   * 导轨上的工具窗开关：点别的就切过去，点当前这个就收起。
+   *
+   * 和最上面 sidebar 那个开关同一个手势 —— 一个按钮既是「去那儿」
+   * 也是「不看了」，不用再去找第二个地方收起。
+   */
+  function togglePanelView(v: "term" | "log") {
+    // 判据是**正在显示的那个**，不是存下来的偏好 —— 偏好是 log 而没有仓库时
+    // 亮着的是终端那个按钮，再点它就该收起，而不是「切到终端」（已经在了）
+    if (panel && panelTool === v) {
+      panel = false;
+      return;
+    }
+    panelView = v;
+    panel = true;
+  }
+
+  /** 面板头右边那两个下拉：`list` 是全部终端，`more` 是更多操作 */
+  let panelMenu = $state<{ x: number; y: number; kind: "list" | "more" } | null>(null);
+
+  function openPanelMenu(e: MouseEvent, kind: "list" | "more") {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    panelMenu = { x: r.left, y: r.bottom + 2, kind };
+  }
+
+  let panelMenuItems = $derived.by<MenuItem[]>(() => {
+    if (!panelMenu) return [];
+    if (panelMenu.kind === "list") {
+      // 前面那个格子标出当前项。全角空格占位，切换时标题不会左右跳
+      return terms.map((t) => ({
+        label: `${t.id === activeTermId ? "●" : "\u3000"} ${t.title}`,
+        run: () => (activeTermId = t.id),
+      }));
+    }
+    const items: MenuItem[] = [{ label: "新建终端", run: () => newTerm() }];
+    if (activeTermId !== null) {
+      const id = activeTermId;
+      items.push({ label: "关闭当前终端", run: () => closeTerm(id) });
+    }
+    if (terms.length > 1) {
+      const keep = activeTermId;
+      items.push({
+        label: "关闭其他终端",
+        run: () => {
+          for (const t of [...terms]) if (t.id !== keep) closeTerm(t.id);
+        },
+      });
+    }
+    /*
+     * 「全部关闭」带 danger，和 Git 栏的「全部丢弃」同一条判据：
+     * 关掉一个终端等于 kill 掉里面正在跑的东西，撤不回来。一个一个关，
+     * 每一下都还在看着标题；一下关掉全部，跑着的 gradle build 就没了。
+     */
+    if (terms.length > 1) {
+      items.push({
+        label: "全部关闭",
+        sep: true,
+        danger: true,
+        run: () => {
+          for (const t of [...terms]) closeTerm(t.id);
+        },
+      });
+    }
+    return items;
+  });
+
   // 打开面板时若一个终端都没有，自动起一个。
   // 只在终端页上做 —— 冲着 Git 日志来的人不该莫名多出一个 shell
   $effect(() => {
-    if (panel && panelView === "term" && terms.length === 0 && root !== null) newTerm(root);
+    if (panel && panelTool === "term" && terms.length === 0 && root !== null) newTerm(root);
   });
   let hovering = $state(false);
   let logStatus = $state("");
@@ -1074,6 +1157,58 @@
     }
     await openPath(dir);
   }
+
+  /**
+   * 标题栏项目挂件的下拉。
+   *
+   * 照 IDEA 的 project widget：显示当前项目名，点开是最近项目 + 打开 + 清除。
+   * 这三件事的逻辑**一条都不是新写的** —— `recent` / `openRecent` / `openFolder`
+   * 早就在了，以前只有 macOS 菜单栏的「最近打开」子菜单用得着它们，
+   * 而 `pnpm dev` 跑在浏览器里，那儿一个菜单项都没有。
+   */
+  let projMenu = $state<{ x: number; y: number } | null>(null);
+
+  function openProjMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    projMenu = { x: r.left, y: r.bottom + 2 };
+  }
+
+  /**
+   * 分支浮层挂在挂件底下，所以要把挂件的位置一起交出去。
+   *
+   * **位置在打开之前就得定下来**，和 `git_fetch` 的 op_id 是同一条判据：
+   * 凡是「先开始、后返回句柄」的东西，句柄必须早于用它的人。这里更直接 ——
+   * 浮层渲染的那一帧就要知道往哪儿掉。
+   */
+  let branchAnchor = $state<{ x: number; y: number } | null>(null);
+  let branchBtn = $state<HTMLElement | null>(null);
+
+  /**
+   * 一律从挂件底下掉下来，**不管是谁开的**：点挂件、Git 栏里的分支行、
+   * 菜单里的「分支与工作树」，三条路都读同一个元素的位置。
+   * 三处各写各的话，从菜单开出来的那次就会掉在别的地方。
+   */
+  function openBranchPicker() {
+    const r = branchBtn?.getBoundingClientRect();
+    branchAnchor = r ? { x: r.left, y: r.bottom + 4 } : null;
+    branchOpen = true;
+  }
+
+  let projName = $derived(root ? root.slice(root.lastIndexOf("/") + 1) || root : "lite-ide");
+  /** 方块里那个字。IDEA 用项目名首字母，中文项目名就直接用第一个字 */
+  let projInitial = $derived((projName[0] ?? "?").toUpperCase());
+
+  let projMenuItems = $derived.by<MenuItem[]>(() => {
+    if (!projMenu) return [];
+    // 前面那个格子标出当前项目。全角空格占位，切换时名字不会左右跳
+    const items: MenuItem[] = recent.map((r) => ({
+      label: `${r === root ? "●" : "\u3000"} ${r.slice(r.lastIndexOf("/") + 1) || r}`,
+      run: () => void openRecent(r),
+    }));
+    items.push({ label: "打开文件夹…", sep: items.length > 0, run: () => void openFolder() });
+    if (recent.length > 0) items.push({ label: "清除最近记录", run: () => (recent = []) });
+    return items;
+  });
 
   /** 项目主页。交给系统默认浏览器 —— 这个应用自己不开网页 */
   async function openRepoPage() {
@@ -1890,7 +2025,7 @@
         return;
       }
       case "git-log": panel = true; panelView = "log"; return;
-      case "git-branches": branchOpen = true; return;
+      case "git-branches": openBranchPicker(); return;
       case "git-refresh": return void refreshGit();
       case "git-pull": return void doPull();
       case "git-push": return void askPush();
@@ -2099,6 +2234,7 @@
 {#if git.comps.branch && repo}
   <git.comps.branch
     bind:open={branchOpen}
+    anchor={branchAnchor}
     {repo}
     ahead={gitSt?.ahead ?? 0}
     behind={gitSt?.behind ?? 0}
@@ -2110,40 +2246,69 @@
   />
 {/if}
 
+{#if projMenu}
+  <ContextMenu
+    x={projMenu.x}
+    y={projMenu.y}
+    label="项目"
+    items={projMenuItems}
+    onclose={() => (projMenu = null)}
+  />
+{/if}
+
+{#if panelMenu}
+  <ContextMenu
+    x={panelMenu.x}
+    y={panelMenu.y}
+    label={panelMenu.kind === "list" ? "全部终端" : "终端的操作"}
+    items={panelMenuItems}
+    onclose={() => (panelMenu = null)}
+  />
+{/if}
+
 <main class:hovering>
+  <!--
+    标题栏 = IDEA 的 main toolbar：**「哪个项目 / 哪个分支」，只有这两件事。**
+
+    面包屑原来在这儿（那时的理由是「顺带占掉右边那块常年空着的地方」），
+    2026-09-06 搬到状态栏左边去了 —— IDEA 的导航栏就在那儿，而且路径属于
+    「我在哪个文件」，和底下那排文件状态是同一组信息。
+    腾出来的右边不是浪费，是**窗口拖动区**。
+  -->
   <header class="titlebar" data-tauri-drag-region>
-    {#if crumbs.length > 0}
-      <!--
-        面包屑。标签上只有文件名，目录深了之后「我在哪」得回头看文件树；
-        顺带占掉右边那块常年空着的地方（1440 宽的窗口上原本有约 1200px 是空的）。
-      -->
-      <nav class="crumbs" aria-label="当前文件路径">
-        {#each crumbs as c, i (c.path)}
-          {#if i > 0}<span class="sep" aria-hidden="true">›</span>{/if}
-          {#if c.dir}
-            <button class="crumb" onclick={() => revealInTree(c.path)} title="在文件树中显示 {c.path}">{c.name}</button>
-          {:else}
-            <span class="crumb here" title={c.path}>{c.name}</span>
-          {/if}
-        {/each}
-      </nav>
-      {#if active?.mode === "log"}
-        <span class="why" title={active.forced ? "你手动切到了日志模式" : "自动判定的原因"}>
-          只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}
-        </span>
-      {/if}
-    {:else}
-      <span class="app" title="lite-ide · 构建于 {__BUILD_TIME__}">lite-ide</span>
-    {/if}
-    <span class="tgap" data-tauri-drag-region></span>
+    <!--
+      项目挂件。没打开项目时显示应用名 —— **按钮位置在两个状态下完全一致**，
+      和导轨上那条「控件的位置必须是肌肉记忆能记住的」是同一条。
+
+      tooltip 第二行是构建时间，别删：报上来的 bug 复现不了时，
+      第一件事就是确认对方跑的是哪个构建（为此白查过一次代码）。
+      它原来挂在这儿那个 `lite-ide` 字样上，而那个字样现在只有空项目时才出现。
+    -->
+    <button
+      class="twidget proj"
+      onclick={(e) => openProjMenu(e)}
+      title="{root ?? '还没打开文件夹'}&#10;lite-ide · 构建于 {__BUILD_TIME__}"
+    >
+      <span class="sq" aria-hidden="true">{projInitial}</span>
+      <span class="wlabel">{projName}</span>
+      <Icon name="chevron-down" size={10} />
+    </button>
     {#if gitSt}
-      <button class="tbranch" onclick={() => (branchOpen = true)} title="切换分支 / 工作树">
+      <button
+        class="twidget"
+        class:on={branchOpen}
+        bind:this={branchBtn}
+        onclick={openBranchPicker}
+        title="切换分支 / 工作树"
+      >
         <Icon name="git" size={12} />
-        <span class="bn">{gitSt.branch || "游离"}</span>
+        <span class="wlabel">{gitSt.branch || "游离"}</span>
         {#if gitSt.ahead}<span class="ab">↑{gitSt.ahead}</span>{/if}
         {#if gitSt.behind}<span class="ab">↓{gitSt.behind}</span>{/if}
+        <Icon name="chevron-down" size={10} />
       </button>
     {/if}
+    <span class="tgap" data-tauri-drag-region></span>
   </header>
 
   <div
@@ -2196,8 +2361,15 @@
             aria-label="Git 改动"
           >
             <Icon name="git" />
+            <!--
+              角标带数字。原来是个不带数字的 5px 圆点，而改动条数印在状态栏的
+              「改动 9」按钮上 —— 那个按钮和这个图标是同一件事的两份入口，
+              删掉按钮时计数不能跟着一起没。IDEA 的提交工具窗图标就是这么标的。
+              99 是上限：三位数会把 26px 的按钮撑变形，而「到底是 128 还是 132」
+              在这个位置上没人要看。
+            -->
             {#if gitSt && gitSt.entries.length > 0}
-              <span class="dot" aria-hidden="true"></span>
+              <span class="badge">{gitSt.entries.length > 99 ? "99+" : gitSt.entries.length}</span>
             {/if}
           </button>
         {/if}
@@ -2214,15 +2386,36 @@
         </button>
       {/if}
       <span class="rgap"></span>
+      <!--
+        底部工具窗的开关住在导轨上，和上面的文件树 / Git 改动同一套。
+
+        原来这里是一个笼统的「面板」开关，而**切哪个工具窗**摆在面板头上 ——
+        于是「换一个工具窗」这件事在同一个应用里有两种长相：侧边栏在导轨上换，
+        底部在面板头上换。IDEA 只有一处，就是导轨；面板头腾出来留给
+        工具窗自己的名字和它的标签页。
+
+        点当前这个就收起 —— 和最上面 sidebar 那个开关是同一个手势。
+      -->
       <button
         class="rbtn"
-        class:on={panel}
-        onclick={() => (panel = !panel)}
-        title="终端 / Git 日志 ⌘J"
-        aria-label="底部面板"
+        class:on={panel && panelTool === "term"}
+        onclick={() => togglePanelView("term")}
+        title="终端 ⌘J"
+        aria-label="终端"
       >
-        <Icon name="panel" />
+        <Icon name="terminal" />
       </button>
+      {#if repo}
+        <button
+          class="rbtn"
+          class:on={panel && panelTool === "log"}
+          onclick={() => togglePanelView("log")}
+          title="提交历史"
+          aria-label="提交历史"
+        >
+          <Icon name="history" />
+        </button>
+      {/if}
     </nav>
 
     {#if sidebar}
@@ -2240,7 +2433,7 @@
             onDiscard={(es) => (pendingDiscard = es)}
             onCommit={doGitCommit}
             onRefresh={() => void refreshGit()}
-            onOpenBranches={() => (branchOpen = true)}
+            onOpenBranches={openBranchPicker}
             onOpenLog={() => {
               panelView = "log";
               panel = true;
@@ -2520,36 +2713,84 @@
           onpointerdown={startResize}
         ></div>
         <div class="panel" class:hidden={!panel} style:height="{panelHeight}px">
+          <!--
+            工具窗的头：**名字在最左，标签页跟在后面，动作靠右**。
+
+            工具窗之间的切换不在这里（在导轨上），所以这一行只讲一件事：
+            「你现在看的是哪个工具窗、它有哪几个标签页」。名字比标签亮一档 ——
+            面板收起再展开时，第一眼要能认出这是哪个工具窗。
+          -->
           <div class="panel-head">
-            <button class="tool" class:on={panelView === "term"} onclick={() => (panelView = "term")}>
-              终端{terms.length > 1 ? ` (${terms.length})` : ""}
-            </button>
-            {#if repo}
-              <button class="tool" class:on={panelView === "log"} onclick={() => (panelView = "log")}>
-                Git 日志
+            <span class="tw-name">{panelTool === "term" ? "终端" : "提交历史"}</span>
+            {#if panelTool === "term"}
+              <div class="ptabs">
+                {#each terms as t (t.id)}
+                  <div class="ptab" class:on={t.id === activeTermId}>
+                    <button class="pt-label" onclick={() => (activeTermId = t.id)} title={t.cwd}>
+                      {t.title}
+                    </button>
+                    <button
+                      class="pt-x"
+                      onclick={() => closeTerm(t.id)}
+                      aria-label="关闭 {t.title}"
+                      title="关闭 {t.title}"
+                    >✕</button>
+                  </div>
+                {/each}
+              </div>
+              <button
+                class="phbtn"
+                onclick={() => newTerm()}
+                title="新建终端 ⌃⇧`"
+                aria-label="新建终端"
+              >
+                <Icon name="plus" />
+              </button>
+              <!--
+                标签页多到溢出时，横向滚动条是看不见的（高度 0）——
+                这个下拉是唯一能一眼看全、并且直接跳过去的路
+              -->
+              {#if terms.length > 1}
+                <button
+                  class="phbtn"
+                  onclick={(e) => openPanelMenu(e, "list")}
+                  title="全部终端"
+                  aria-label="全部终端"
+                >
+                  <Icon name="chevron-down" />
+                </button>
+              {/if}
+            {/if}
+            <span class="gap"></span>
+            <!--
+              「更多」只在终端页出 —— 提交历史那边一条真动作都没有，
+              摆一个点开是空的按钮，比没有这个按钮糟。
+            -->
+            {#if panelTool === "term" && terms.length > 0}
+              <button
+                class="phbtn"
+                onclick={(e) => openPanelMenu(e, "more")}
+                title="更多操作"
+                aria-label="更多操作"
+              >
+                <Icon name="more-v" />
               </button>
             {/if}
-            <span class="vsep"></span>
-            <div class="tterms" class:hidden={panelView !== "term"}>
-              {#each terms as t (t.id)}
-                <div class="tterm" class:on={t.id === activeTermId}>
-                  <button class="tt-label" onclick={() => (activeTermId = t.id)} title={t.cwd}>
-                    {t.title}
-                  </button>
-                  <button class="tt-x" onclick={() => closeTerm(t.id)} aria-label="关闭终端">✕</button>
-                </div>
-              {/each}
-              <button class="tt-add" onclick={() => newTerm()} title="新建终端 ⌃⇧`">＋</button>
-            </div>
-            <span class="gap"></span>
-            <button onclick={() => (panel = false)} title="收起 ⌘J">✕</button>
+            <button
+              class="phbtn"
+              onclick={() => (panel = false)}
+              title="收起 ⌘J"
+              aria-label="收起面板"
+            >
+              <Icon name="minus" />
+            </button>
           </div>
           <div class="panel-body">
             <!--
               终端整块只藏不卸载：组件一销毁 Session 就 drop，shell 直接被 kill。
               切到 Git 日志页时正在跑的命令必须还在跑。
             -->
-            <div class="tool-slot" class:hidden={panelView !== "term"}>
+            <div class="tool-slot" class:hidden={panelTool !== "term"}>
               {#if terminal.comp}
                 {#each terms as t (t.id)}
                   <div class="term-slot" class:hidden={t.id !== activeTermId}>
@@ -2561,7 +2802,7 @@
               {/if}
             </div>
             <!-- 收起时别去拉 git log：那是一串没人看的子进程 -->
-            {#if panel && panelView === "log" && repo}
+            {#if panel && panelTool === "log" && repo}
               <div class="tool-slot">
                 {#if git.comps.log}
                   <git.comps.log
@@ -2580,7 +2821,42 @@
     </section>
   </div>
 
+  <!--
+    状态栏 = IDEA 的 status bar，**左右两半各管一件事**：
+
+    - 左：我在哪个文件（导航栏 / 面包屑）。IDEA 里不用导航栏时这块显示最近的
+      事件消息 —— 这里照抄：`notify` 一来就顶掉路径。以前提示消息挤在挂件中间，
+      窗口一窄它先被挤掉，而它恰恰是最该让人看见的。
+    - 右：这个文件什么状态，而且**点了都能改**（模式 / 编码 / 差异）。
+
+    这里以前还挂着「搜索 ⇧⇧」「终端 ⌘J」「改动 N」「历史」四个 —— 全是**打开某个
+    工具窗**，而那四件事导轨上一个不落地都有（搜索还有双击 ⇧）。同一件事在一屏里
+    说两遍，正是上一轮「工具窗切换只能有一处」那条判据本身。
+    「改动 N」的计数没丢，挪到导轨 Git 图标的角标上了。
+  -->
   <footer class="statusbar">
+    <!-- 左槽 -->
+    {#if notify.info}
+      <span class="cell ok navslot">{notify.info}</span>
+    {:else if notify.error}
+      <span class="cell err navslot">{notify.error}</span>
+    {:else if crumbs.length > 0}
+      <nav class="crumbs navslot" aria-label="当前文件路径">
+        {#each crumbs as c, i (c.path)}
+          {#if i > 0}<span class="sep" aria-hidden="true">›</span>{/if}
+          {#if c.dir}
+            <button class="crumb" onclick={() => revealInTree(c.path)} title="在文件树中显示 {c.path}">{c.name}</button>
+          {:else}
+            <span class="crumb here" title={c.path}>{c.name}</span>
+          {/if}
+        {/each}
+      </nav>
+    {:else}
+      <span class="cell dim navslot">{root ? projName : "等待文件夹"}</span>
+    {/if}
+    <span class="spacer"></span>
+
+    <!-- 右槽 -->
     {#if active?.mode === "merge"}
       <span class="cell warn">冲突合并</span>
     {:else if active?.mode === "diff"}
@@ -2595,8 +2871,21 @@
       >
         {active.mode === "log" ? "日志模式" : "编辑模式"} ⇄
       </button>
-      {#if active.mode === "edit"}
-        <span class="vsep" aria-hidden="true"></span>
+      <!--
+        **竖线跟着它后面那格一起退场。**
+
+        窄窗口下 `drop-2` 会藏掉语言、只读原因、保存状态，而竖线原来是
+        独立的、不带 drop 类的 —— 于是 640px 宽时状态栏上出现两条挨着的竖线，
+        末尾还吊着一条后面什么都没有的。分隔线分的是「区」，区没了线也该没。
+      -->
+      <span class="vsep drop-2" aria-hidden="true"></span>
+      {#if active.mode === "log"}
+        <!-- 「为什么是只读」原来在标题栏。它说的是当前文件的状态，该和别的状态挂件在一起 -->
+        <span
+          class="cell dim drop-2"
+          title={active.forced ? "你手动切到了日志模式" : "自动判定的原因"}
+        >只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}</span>
+      {:else}
         <span class="cell dim drop-2">{langLabel(langOf(active.path))}</span>
       {/if}
       <span class="vsep" aria-hidden="true"></span>
@@ -2610,15 +2899,17 @@
       >
         {active.encoding ?? "UTF-8"}{active.bom ? " ·BOM" : ""}{active.lossy ? " ⚠" : ""}
       </button>
-      <span class="vsep" aria-hidden="true"></span>
       {#if active.mode === "log"}
+        <span class="vsep" aria-hidden="true"></span>
         <span class="cell">{logStatus}</span>
       {:else}
+        <span class="vsep drop-2" aria-hidden="true"></span>
         <span class="cell drop-2" class:accent={active.dirty}>
           {active.dirty ? "已修改" : "无改动"}
         </span>
       {/if}
       {#if activeEntry}
+        <span class="vsep" aria-hidden="true"></span>
         <button
           class="cell btn git"
           onclick={() => void openDiff(activeEntry!, false)}
@@ -2633,39 +2924,7 @@
           {activeEntry.untracked ? "未跟踪" : "未提交"}
         </button>
       {/if}
-    {:else}
-      <span class="cell dim">等待文件</span>
     {/if}
-    {#if notify.info}<span class="cell ok">{notify.info}</span>{/if}
-    {#if notify.error}<span class="cell err">{notify.error}</span>{/if}
-    <span class="spacer"></span>
-    <!-- 分支挪到标题栏了（离文件上下文更近），这里只留动作，不重复显示同一件事 -->
-    {#if gitSt}
-      <button
-        class="cell btn"
-        class:on={sidebar && sideView === "git"}
-        onclick={() => {
-          sideView = sidebar && sideView === "git" ? "files" : "git";
-          sidebar = true;
-        }}
-        title="改动列表 ⌘⇧G"
-      >改动{#if gitSt.entries.length}<span class="chg">{gitSt.entries.length}</span>{/if}</button>
-      <button
-        class="cell btn"
-        class:on={panel && panelView === "log"}
-        onclick={() => {
-          panelView = "log";
-          panel = true;
-        }}
-        title="提交历史"
-      >历史</button>
-      <span class="vsep" aria-hidden="true"></span>
-    {/if}
-    <button class="cell btn" onclick={() => { quickScope = "all"; quickOpen = true; }}>搜索 ⇧⇧</button>
-    <button class="cell btn" class:on={panel} onclick={() => (panel = !panel)}>
-      终端 ⌘J{terms.length > 1 ? ` (${terms.length})` : ""}
-    </button>
-    <span class="cell dim drop-1">{tabs.length} 个标签</span>
   </footer>
 </main>
 
@@ -2696,67 +2955,102 @@
     font-size: 12.5px;
     user-select: none;
   }
-  .titlebar .app { color: var(--text); font-weight: 500; }
+  /* tgap 是**拖动区**，不是留白 —— 面包屑搬走之后这一大片正是拿窗口的地方 */
   .titlebar .tgap { flex: 1; min-width: 12px; }
 
-  .crumbs {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .crumbs .sep { flex: none; color: var(--text-faint); font-size: 11px; }
-  .crumb {
-    flex: none;
-    max-width: 180px;
-    padding: 1px 3px;
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-family: var(--ui-font);
-    font-size: 12.5px;
-    cursor: default;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* 只有目录段可点（点了把它设成项目根），文件段是 span，不该有 hover 反馈 */
-  button.crumb:hover { background: var(--hover); color: var(--text); }
-  .crumb.here { color: var(--text); flex: 0 1 auto; min-width: 40px; }
-
-  .tbranch {
+  /*
+   * 标题栏挂件（项目 / 分支）。两个长得一模一样，**中间不画竖线** ——
+   * 线只分区不分项，而它们本来就是同一组「我现在在哪个项目的哪个分支上」。
+   */
+  .twidget {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     flex: none;
     max-width: 240px;
-    padding: 2px 7px;
+    height: 24px;
+    padding: 0 6px;
     background: transparent;
     border: none;
     border-radius: var(--r-sm);
     color: var(--text-faint);
-    font-size: 11px;
+    font-family: var(--ui-font);
+    font-size: 12px;
     cursor: default;
   }
-  .tbranch:hover { background: var(--hover); color: var(--text-dim); }
-  .tbranch .bn {
-    font-family: var(--code-font);
+  .twidget:hover { background: var(--hover); color: var(--text-dim); }
+  /* 浮层开着时挂件保持点亮 —— 否则那块浮层看着像凭空冒出来的 */
+  .twidget.on { background: var(--selected); color: var(--text-dim); }
+  .twidget:active { background: var(--pressed); }
+  .twidget:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  .twidget .wlabel {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .tbranch .ab { color: var(--accent); font-family: var(--code-font); flex: none; }
-  .titlebar .why {
-    margin-left: 4px;
-    font-family: var(--code-font);
-    font-size: 10.5px;
-    color: var(--text-faint);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 1px 5px;
+  .twidget.proj .wlabel { color: var(--text); }
+  /*
+   * 项目名首字的方块。IDEA 的项目挂件就是这个形状，它的用处不是装饰：
+   * 同时开着两个窗口时，一眼认出「这个窗口是哪个项目」靠的是这个色块，
+   * 不是去读那几个字。
+   */
+  .twidget .sq {
+    flex: none;
+    display: grid;
+    place-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    background: var(--selected);
+    color: var(--text);
+    font-size: 9.5px;
+    font-weight: 600;
   }
+  .twidget:hover .sq { background: var(--pressed); }
+
+  /*
+   * 面包屑。2026-09-06 从标题栏搬到状态栏左边 —— IDEA 的导航栏就在那儿，
+   * 而且「我在哪个文件」和右边那排「这个文件什么状态」是同一组信息。
+   */
+  .statusbar .crumbs {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    /*
+     * `.statusbar > * { flex: none }` 会让这一条**不收缩**，窄窗口下
+     * 一条长路径能把右边的状态挂件整个顶出屏幕。必须在这里覆回来。
+     */
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    /* 状态栏整体是 code-font，而路径是可读文本不是标识符 */
+    font-family: var(--ui-font);
+  }
+  .statusbar .crumbs .sep { flex: none; color: var(--text-faint); font-size: 10px; }
+  .crumb {
+    flex: none;
+    max-width: 160px;
+    height: 17px;
+    padding: 0 4px;
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    color: var(--text-faint);
+    font-family: var(--ui-font);
+    font-size: 11.5px;
+    line-height: 17px;
+    cursor: default;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* 只有目录段可点（点了在文件树里定位），文件段是 span，不该有 hover 反馈 */
+  button.crumb:hover { background: var(--hover); color: var(--text); }
+  .crumb.here { color: var(--text-dim); flex: 0 1 auto; min-width: 40px; }
+  /* 左槽整块：路径、项目名、以及顶掉它们的那条提示消息 */
+  .statusbar .navslot { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 分支名是标识符，用等宽；ahead/behind 用 accent，它是「该做点什么」的信号 */
+  .twidget .ab { color: var(--accent); font-family: var(--code-font); flex: none; font-size: 11px; }
 
   .workspace {
     display: grid;
@@ -2805,15 +3099,31 @@
   .rbtn.on { color: var(--text); background: var(--selected); }
   .rbtn:active { background: var(--pressed); }
   .rbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-  /* 有未提交改动时给 Git 图标一个小红点，收起侧边栏也知道有东西 */
-  .rbtn .dot {
+  /* 有未提交改动时给 Git 图标一个角标，收起侧边栏也知道有几处 */
+  .rbtn .badge {
     position: absolute;
-    right: 4px;
-    top: 4px;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
+    right: 0;
+    top: 0;
+    display: grid;
+    place-content: center;
+    min-width: 13px;
+    height: 13px;
+    padding: 0 3px;
+    border-radius: 7px;
     background: var(--git-modified);
+    /*
+      深色字压在 --git-modified（#6ba1e8，浅蓝）上，深浅两套主题里这个底色是同一个，
+      所以这里直接写死一个近黑而不是用 --text：--text 在浅色主题下是深的、
+      深色主题下是白的，而白字压在浅蓝上读不清。
+
+      **不描边。** 角标会盖住图标右上那个结点，直觉是用外壳色描一圈把它抠出来 ——
+      但外壳层是 transparent（后面是 NSVisualEffectView），描一圈实色就是在玻璃上
+      凿一个洞。角标本身不透明，压住一段描边足够说清「它在上面」。
+    */
+    color: #101014;
+    font-family: var(--code-font);
+    font-size: 9px;
+    font-weight: 600;
   }
   @media (prefers-reduced-motion: reduce) { .rbtn { transition: none; } }
   /*
@@ -2890,105 +3200,125 @@
   .panel {
     flex: none;
     display: grid;
-    grid-template-rows: 26px 1fr;
+    /* 26 → 32：22px 的圆角标签要有呼吸位，贴着上下边看着像被切掉一半 */
+    grid-template-rows: 32px 1fr;
     overflow: hidden;
     border-top: 1px solid var(--border);
   }
   .panel-head {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 0 8px;
+    gap: 2px;
+    padding: 0 4px 0 9px;
     background: var(--panel-bg);
-    font-size: 11px;
     color: var(--text-dim);
     user-select: none;
   }
-  .panel-head .tool {
+  /*
+   * 工具窗的名字。**它不是按钮** —— 切工具窗在导轨上，这里只回答
+   * 「你现在看的是哪个」。比标签亮一档，右边那点留白就是分隔，
+   * 不画竖线：线只用来分区，不用来分项。
+   */
+  .tw-name {
     flex: none;
+    font-size: 12px;
+    color: var(--text);
+    padding-right: 7px;
+  }
+  .panel-head .gap { flex: 1; }
+  /*
+   * 头上的动作按钮：＋ / ⌄ / ⋮ / —。都是 22px 的方格子，
+   * 和标签一样高 —— 一行里两种高度会让人以为它们不是一类东西。
+   */
+  .phbtn {
+    flex: none;
+    display: grid;
+    place-content: center;
+    width: 22px;
+    height: 22px;
     background: transparent;
     border: none;
     border-radius: var(--r-sm);
     color: var(--text-faint);
-    font-size: 11px;
-    padding: 2px 8px;
     cursor: default;
   }
-  .panel-head .tool:hover { background: var(--hover); color: var(--text); }
-  .panel-head .tool.on { color: var(--text); background: var(--accent-sel); }
-  .panel-head .vsep {
-    flex: none;
-    width: 1px;
-    height: 12px;
-    background: var(--border);
-    margin: 0 2px;
+  .phbtn:hover { background: var(--hover); color: var(--text); }
+  .phbtn:active { background: var(--pressed); }
+  .phbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+  /*
+   * 终端标签页。和上面的编辑器标签栏是**同一套**：内缩的圆角块 + `--selected`，
+   * 没有竖线也没有下划线。两条标签栏在同一个窗口里，长相必须一致 ——
+   * 否则人会以为它们是两种不同的东西。
+   */
+  .ptabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
-  .tterms.hidden { display: none; }
+  .ptabs::-webkit-scrollbar { height: 0; }
+  .ptab {
+    display: flex;
+    align-items: center;
+    flex: none;
+    height: 22px;
+    border-radius: var(--r-sm);
+    background: transparent;
+  }
+  .ptab:hover { background: var(--hover); }
+  .ptab.on { background: var(--selected); }
+  .pt-label {
+    height: 100%;
+    max-width: 140px;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 11.5px;
+    padding: 0 2px 0 9px;
+    cursor: default;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ptab.on .pt-label { color: var(--text); }
+  /*
+   * ✕ 的格子固定 16px，平时透明，hover / 当前项才显形 ——
+   * 常驻的话每个标签一个 ✕，而任何一刻最多只关得掉一个；
+   * 而格子固定，点击目标就不会跟着 hover 左右挪。
+   */
+  .pt-x {
+    flex: none;
+    display: grid;
+    place-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 3px;
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    color: var(--text-faint);
+    font-size: 9px;
+    line-height: 1;
+    cursor: default;
+    opacity: 0;
+  }
+  .ptab:hover .pt-x, .ptab.on .pt-x { opacity: 1; }
+  /* 当前标签的底已经是 --selected 了，hover 再用它等于没反馈 */
+  .pt-x:hover { background: var(--pressed); color: var(--text); }
+  .pt-x:focus-visible { opacity: 1; outline: 1px solid var(--accent); outline-offset: -1px; }
+
   /* 工具页整块叠在一起，只切可见性 —— 终端不能卸载 */
   .tool-slot { position: absolute; inset: 0; }
   .tool-slot.hidden { visibility: hidden; pointer-events: none; z-index: -1; }
-  .panel-head .gap { flex: 1; }
-  .panel-head button {
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    font-size: 10.5px;
-    padding: 2px 6px;
-    border-radius: var(--r-sm);
-    cursor: default;
-  }
-  .panel-head button:hover { background: var(--hover); color: var(--text); }
   .panel-body { overflow: hidden; position: relative; }
   .term-slot { position: absolute; inset: 0; }
   /* 用 visibility 而不是 display:none —— 后者会让 xterm 的尺寸计算拿到 0，
      切回来时排版是乱的 */
   .term-slot.hidden { visibility: hidden; pointer-events: none; z-index: -1; }
 
-  .tterms { display: flex; align-items: center; gap: 2px; overflow-x: auto; }
-  .tterms::-webkit-scrollbar { height: 0; }
-  .tterm {
-    display: flex;
-    align-items: center;
-    flex: none;
-    border-radius: var(--r-sm);
-    background: transparent;
-  }
-  .tterm:hover { background: var(--hover); }
-  .tterm.on { background: var(--accent-sel); }
-  .tt-label {
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    font-size: 10.5px;
-    font-family: var(--code-font);
-    padding: 2px 3px 2px 7px;
-    cursor: default;
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .tterm.on .tt-label { color: var(--text); }
-  .tt-x {
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    font-size: 9px;
-    padding: 2px 6px 2px 2px;
-    cursor: default;
-  }
-  .tt-x:hover { color: var(--text); }
-  .tt-add {
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    font-size: 12px;
-    padding: 1px 6px;
-    border-radius: var(--r-sm);
-    cursor: default;
-    flex: none;
-  }
-  .tt-add:hover { background: var(--hover); color: var(--text); }
   .loading {
     display: grid;
     place-content: center;
@@ -3153,10 +3483,7 @@
   }
   .statusbar .spacer { flex: 1; min-width: 0; }
   .statusbar > * { flex: none; white-space: nowrap; }
-  /* 窄窗口下先让信息类的格子退场，动作按钮留到最后 */
-  @media (max-width: 900px) {
-    .statusbar .drop-1 { display: none; }
-  }
+  /* 窄窗口下先让「知道了也不改变下一步」的那几格退场：语言、只读原因、保存状态 */
   @media (max-width: 740px) {
     .statusbar .drop-2 { display: none; }
   }
@@ -3178,13 +3505,15 @@
     cursor: default;
   }
   .statusbar .btn:hover { background: var(--hover); color: var(--text); }
-  .statusbar .btn.on { color: var(--accent); }
   .statusbar .btn.mode { color: var(--text-dim); }
   .statusbar .btn.mode:hover { color: var(--accent); }
   .statusbar .btn.git { color: var(--git-modified); }
   /*
-   * 分组竖线。原本八项同字号、同颜色、同间距 —— 哪些是「状态」哪些是「按钮」
-   * 得逐项读才知道。左边一组是文档事实，右边一组是动作，中间用 1px 分开。
+   * 挂件之间的竖线。**这是分区不是分项** —— 模式、语言/只读原因、编码、
+   * 保存状态、git 状态，五组各说一件事，同字号同颜色排在一起时得有个断点。
+   *
+   * （它原来的理由是「左边一组是文档事实、右边一组是动作」，而右边那组
+   * 打开工具窗的按钮 2026-09-06 整组撤了 —— 那些事导轨上都有。）
    */
   .statusbar .vsep {
     flex: none;
@@ -3194,13 +3523,4 @@
   }
   /* 「已修改」是唯一会改变你下一步动作的那一项，值得提到 accent */
   .statusbar .accent { color: var(--accent); }
-  .statusbar .chg {
-    display: inline-block;
-    margin-left: 4px;
-    background: var(--selected);
-    border-radius: var(--r-md);
-    padding: 0 5px;
-    font-size: 10px;
-    color: var(--text-dim);
-  }
 </style>

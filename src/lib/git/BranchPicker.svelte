@@ -5,6 +5,7 @@
 
   let {
     open = $bindable(false),
+    anchor = null,
     repo,
     ahead = 0,
     behind = 0,
@@ -15,6 +16,19 @@
     onRemoveWorktree,
   }: {
     open?: boolean;
+    /**
+     * 挂件的位置（视口坐标，通常传它的 `left` / `bottom`）。
+     *
+     * **这个浮层是从分支挂件底下掉下来的，不是弹在屏幕中间的对话框。**
+     * 居中弹窗那种做法有两处不对：一是它长得像「要你先处理完才能干别的」，
+     * 而切分支只是随手看一眼；二是它离触发它的那个挂件十万八千里，
+     * 眼睛要从左上角跳到屏幕中央再跳回来。IDEA 的分支挂件就挂在下面。
+     *
+     * 给 `null` 时退回居中。**正常路径上不会是 null** —— 三个入口
+     * （挂件、Git 栏的分支行、菜单）都从同一个挂件元素上读位置；
+     * 它是挂件还没挂上时的兜底，不是另一种用法。
+     */
+    anchor?: { x: number; y: number } | null;
     repo: string;
     /**
      * 当前分支与上游差多少。**这两个值在 `GitStatus` 上，不在 `GitBranch` 上**，
@@ -41,6 +55,25 @@
   let wtDir = $state("");
   let wtBranch = $state("");
   let mode = $state<"list" | "newWorktree">("list");
+  let popEl = $state<HTMLElement | null>(null);
+
+  /*
+   * 位置钳进视口。抄 `ContextMenu` 那一套：**改的是 DOM 而不是 props** ——
+   * 写回状态会让这个 effect 依赖自己写的值，一不小心就是 update 循环。
+   *
+   * 依赖里要带上 `items` 和 `mode`：过滤一改高度就变，钳完的 top 会过时，
+   * 长列表筛成两行之后浮层底边会吊在半空。
+   */
+  $effect(() => {
+    const e = popEl;
+    const a = anchor;
+    if (!e || !a) return;
+    void [items.length, mode, loading];
+    const r = e.getBoundingClientRect();
+    const pad = 8;
+    e.style.left = `${Math.max(pad, Math.min(a.x, window.innerWidth - r.width - pad))}px`;
+    e.style.top = `${Math.max(pad, Math.min(a.y, window.innerHeight - r.height - pad))}px`;
+  });
 
   // 每次打开都重新拉：分支和工作树在终端里随时会变，缓存只会骗人
   $effect(() => {
@@ -235,8 +268,19 @@
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <!--
+    scrim **不压暗**：这是个从挂件底下掉出来的浮层，不是要你先处理完的对话框。
+    压暗一层等于告诉人「后面那些现在都别碰」，而切分支只是随手看一眼。
+    它留着只干一件事 —— 点外面关掉。
+  -->
   <div class="scrim" onclick={() => (open = false)}></div>
-  <div class="popup" role="dialog" aria-label="分支与工作树">
+  <div
+    class="popup"
+    class:anchored={!!anchor}
+    bind:this={popEl}
+    role="dialog"
+    aria-label="分支与工作树"
+  >
     {#if mode === "list"}
       <input
         bind:this={input}
@@ -356,7 +400,7 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
+  .scrim { position: fixed; inset: 0; z-index: 40; }
   .popup {
     position: fixed;
     top: 14vh;
@@ -372,6 +416,18 @@
     box-shadow: var(--shadow-pop);
     z-index: 41;
     overflow: hidden;
+  }
+  /*
+   * 挂在挂件底下时：不居中、窄一档（挨着窗口左上角，620px 会横穿大半个屏幕），
+   * 高度也收一点 —— 从标题栏往下掉的浮层贴到屏幕底边就不像「掉下来」了。
+   * left/top 由上面那个 effect 写进 style，这里只负责关掉居中那套。
+   */
+  .popup.anchored {
+    top: 0;
+    left: 0;
+    transform: none;
+    width: min(520px, calc(100vw - 16px));
+    max-height: min(70vh, calc(100vh - 60px));
   }
   .popup > input {
     border: none;

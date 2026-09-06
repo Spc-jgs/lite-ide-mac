@@ -53,8 +53,8 @@ export interface DirEntry {
 /** 探测路径：目录还是文件，文件该用哪种模式打开 */
 export const probePath = (path: string) => invoke<PathInfo>("probe_path", { path });
 
-export const listDir = (path: string, showHidden = false) =>
-  invoke<DirEntry[]>("list_dir", { path, showHidden });
+/** 列一层目录。点文件一律列出来，`node_modules` / `target` / `dist` / `build` 一律不列 */
+export const listDir = (path: string) => invoke<DirEntry[]>("list_dir", { path });
 
 export interface TextFile {
   content: string;
@@ -201,8 +201,6 @@ export interface GitEntry {
   /** 工作区状态字符 */
   work: string;
   untracked: boolean;
-  /** 折叠的未跟踪目录（路径以 / 结尾），文件树要按前缀匹配 */
-  isDir: boolean;
   conflicted: boolean;
   staged: boolean;
   unstaged: boolean;
@@ -218,7 +216,18 @@ export interface GitStatus {
   detached: boolean;
   /** 一个提交都还没有 */
   unborn: boolean;
+  /**
+   * **只有文件。** 整个未跟踪的目录不在这里 —— 改动列表要回答
+   * 「我改了哪些文件」，一个目录点不开差异，也说不清里面到底多了什么。
+   */
   entries: GitEntry[];
+  /**
+   * 整个未跟踪的目录（路径以 `/` 结尾，相对仓库根）。
+   *
+   * 里面的文件已经摊开进了 `entries`；这份名单只给文件树 ——
+   * 它靠这个前缀给目录本身上「未跟踪」的色，而不是只显示冒泡标记。
+   */
+  untrackedDirs: string[];
   truncated: boolean;
 }
 

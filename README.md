@@ -39,8 +39,8 @@ Java 服务日志。Chromium 的字符串模型决定了大文件要么卡死要
 | 索引全文 | 145 ms | 6.87 GB/s，后台跑 |
 | 索引内存 | **69.8 KB** | 每 1024 行一个 checkpoint；全量偏移要 69.7 MB |
 | 按级别过滤 | 86 ms | 45.6 万条命中 |
-| 常驻内存 | **98 MB** | 含 mmap 引擎 + WebKit 两个进程 |
-| 二进制 | 4.9 MB | `.dmg` 2.7 MB |
+| 常驻内存 | **155–238 MB** | 4 个进程合计。我们自己那个只占 **32 MB**，其余是 WebKit |
+| 二进制 | 5.3 MB | `.dmg` 2.9 MB |
 
 细节与踩过的坑见 [docs/BENCHMARK.md](docs/BENCHMARK.md)。
 

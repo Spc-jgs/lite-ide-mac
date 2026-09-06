@@ -33,6 +33,13 @@ use std::process::{Command, Stdio};
 /// node_modules）时，几十万条记录传到前端只会把界面拖死，不如明确截断。
 pub const MAX_ENTRIES: usize = 5_000;
 
+/// 展开未跟踪目录时，`git ls-files` 的输出最多收多少字节。
+///
+/// 一个几万文件的未跟踪目录（误建的 `node_modules`、没进 .gitignore 的
+/// `target/`）能吐出好几 MB 路径，而列表最多只显示 [`MAX_ENTRIES`] 条。
+/// 「跑子进程读它 stdout」一律先问一句：这东西的输出有上限吗。
+const MAX_UNTRACKED_BYTES: usize = 1 << 20;
+
 /// 一次 `git diff` 最多收多少字节。
 ///
 /// **为什么必须有这道闸**：一个 30MB 的新增文件，`git diff` 会原样吐出 30MB。
@@ -57,13 +64,6 @@ pub struct Entry {
     pub work: char,
     /// 未跟踪
     pub untracked: bool,
-    /// 这条其实是**整个未跟踪的目录**（路径以 `/` 结尾）。
-    ///
-    /// `--untracked-files=normal` 会把一个完全未跟踪的目录折叠成一条记录，
-    /// 而不是列出里面每个文件 —— 这是对的：新建一个目录不该在 Git 面板里
-    /// 炸出几百行。但文件树要靠这个标记做**前缀匹配**，才能把目录里的文件
-    /// 也标成未跟踪。别让前端去猜末尾的斜杠。
-    pub is_dir: bool,
     /// 冲突中（unmerged）
     pub conflicted: bool,
     /// rename/copy 的来源路径
@@ -98,7 +98,18 @@ pub struct Status {
     pub detached: bool,
     /// 仓库里一个提交都还没有
     pub unborn: bool,
+    /// **只有文件。** 未跟踪的目录见 [`Status::untracked_dirs`]
     pub entries: Vec<Entry>,
+    /// 整个未跟踪的目录，路径以 `/` 结尾。
+    ///
+    /// `--untracked-files=normal` 把这样的目录折叠成一条记录。它**不进
+    /// `entries`** —— 改动列表要回答「我改了哪些文件」，一个目录点不开差异，
+    /// 也说不清里面到底多了什么；里面的文件由 [`expand_untracked_dirs`]
+    /// 摊开后进 `entries`。
+    ///
+    /// 目录名本身还是要留给文件树：它靠这个前缀给目录自己上「未跟踪」的色，
+    /// 而不是只显示「里面有东西改了」的冒泡标记。别让前端去猜末尾的斜杠。
+    pub untracked_dirs: Vec<String>,
     /// 条目被 MAX_ENTRIES 截断了
     pub truncated: bool,
 }
@@ -181,6 +192,25 @@ pub struct Diff {
 /// `ok_codes` 是除 0 之外还算成功的退出码 —— `diff --no-index` 有差异时返回 1，
 /// 那不是失败。
 fn run_capped(cwd: &Path, args: &[&str], ok_codes: &[i32]) -> R<Diff> {
+    let (mut out, truncated) = run_capped_raw(cwd, args, MAX_DIFF_BYTES, ok_codes)?;
+    if truncated {
+        // 切回最后一个完整行 —— 切在半行上，前端解析出来的末行是残缺的，
+        // 会显示成一条看着像真的、其实少了半截的改动
+        if let Some(i) = out.iter().rposition(|&c| c == b'\n') {
+            out.truncate(i + 1);
+        }
+    }
+    Ok(Diff {
+        text: String::from_utf8_lossy(&out).into_owned(),
+        truncated,
+    })
+}
+
+/// 跑一条 git 命令，最多收 `cap` 字节 stdout，超了就掐掉子进程。
+///
+/// 返回 `(stdout, 是否被截断)`。**截断后留给调用方的是一份半截的字节流** ——
+/// 记录边界（换行、NUL）由调用方自己切齐，这里不猜。
+fn run_capped_raw(cwd: &Path, args: &[&str], cap: usize, ok_codes: &[i32]) -> R<(Vec<u8>, bool)> {
     use std::io::Read;
 
     let mut child = git_cmd(cwd, args)
@@ -193,22 +223,17 @@ fn run_capped(cwd: &Path, args: &[&str], ok_codes: &[i32]) -> R<Diff> {
     {
         let stdout = child.stdout.as_mut().expect("stdout 已 piped");
         // 多读一个字节：正好读满 cap 和「后面还有」是两回事，
-        // 差这一个字节就分不清，会给一份完整的差异误报截断
+        // 差这一个字节就分不清，会给一份完整的输出误报截断
         stdout
-            .take(MAX_DIFF_BYTES as u64 + 1)
+            .take(cap as u64 + 1)
             .read_to_end(&mut out)
             .map_err(Error::NoGit)?;
     }
 
-    let truncated = out.len() > MAX_DIFF_BYTES;
+    let truncated = out.len() > cap;
     if truncated {
-        out.truncate(MAX_DIFF_BYTES);
-        // 切回最后一个完整行 —— 切在半行上，前端解析出来的末行是残缺的，
-        // 会显示成一条看着像真的、其实少了半截的改动
-        if let Some(i) = out.iter().rposition(|&c| c == b'\n') {
-            out.truncate(i + 1);
-        }
-        // 别让 git 为一份没人要看的差异继续跑完
+        out.truncate(cap);
+        // 别让 git 为一份没人要看的输出继续跑完
         let _ = child.kill();
     }
 
@@ -229,10 +254,7 @@ fn run_capped(cwd: &Path, args: &[&str], ok_codes: &[i32]) -> R<Diff> {
         }));
     }
 
-    Ok(Diff {
-        text: String::from_utf8_lossy(&out).into_owned(),
-        truncated,
-    })
+    Ok((out, truncated))
 }
 
 /// 找到 `path` 所属仓库的根。不是仓库（或没有 git）时返回 `None` —— 
@@ -266,7 +288,75 @@ pub fn status(root: impl AsRef<Path>) -> R<Status> {
             "--untracked-files=normal",
         ],
     )?;
-    Ok(parse_status(&raw))
+    let mut st = parse_status(&raw);
+    expand_untracked_dirs(root, &mut st);
+    Ok(st)
+}
+
+/// 把折叠出来的未跟踪目录摊成里面的具体文件，追加进 `entries`。
+///
+/// **为什么不直接用 `--untracked-files=all`**：那样 git 就不再告诉我们哪些
+/// 目录是*整个*未跟踪的了。文件树要这个信息给目录本身上色 —— 少了它，
+/// 一个全新的目录只剩「里面有东西改了」的冒泡标记，和一个改了一行的
+/// 老目录长得一模一样。这里两样都留下：目录名在 `untracked_dirs`，
+/// 里面的文件在 `entries`。
+///
+/// 代价是多起一个子进程，只在真有折叠目录时才起。
+fn expand_untracked_dirs(root: &Path, st: &mut Status) {
+    if st.untracked_dirs.is_empty() || st.entries.len() >= MAX_ENTRIES {
+        return;
+    }
+    let mut args: Vec<&str> = vec!["ls-files", "--others", "--exclude-standard", "-z", "--"];
+    args.extend(st.untracked_dirs.iter().map(String::as_str));
+
+    // 读不动就算了：目录名已经在 untracked_dirs 里，文件树照样能标色，
+    // 只是改动列表少了那几条。为这个把整次 status 判成失败不划算。
+    let Ok((raw, capped)) = run_capped_raw(root, &args, MAX_UNTRACKED_BYTES, &[]) else {
+        return;
+    };
+    if capped {
+        st.truncated = true;
+    }
+
+    for path in split_nul_records(&raw, capped) {
+        if st.entries.len() >= MAX_ENTRIES {
+            st.truncated = true;
+            break;
+        }
+        st.entries.push(Entry {
+            path,
+            index: '.',
+            work: '?',
+            untracked: true,
+            conflicted: false,
+            orig: None,
+        });
+    }
+    // parse_status 排过一次，但那是在这些文件进来之前
+    st.entries.sort_by(|a, b| a.path.cmp(&b.path));
+}
+
+/// 把 `-z` 的输出切成一条条记录。
+///
+/// `capped` 为真时**末尾那条要丢掉** —— `run_capped_raw` 是按字节掐的，
+/// 掐点落在哪儿全看运气，末尾多半是半条路径。留着它，改动列表里就会多出一个
+/// **看着像真的、其实是半截的**文件名（`src/OrderServ`），点开报「文件不存在」。
+/// 这和差异截断要切回最后一个完整换行是同一条：宁可少一条，不能多一条假的。
+fn split_nul_records(raw: &[u8], capped: bool) -> Vec<String> {
+    let end = if capped {
+        // 没有任何一个 NUL：连一条完整记录都没读到，一条都不能要
+        match raw.iter().rposition(|&b| b == 0) {
+            Some(i) => i + 1,
+            None => 0,
+        }
+    } else {
+        raw.len()
+    };
+    raw[..end]
+        .split(|&b| b == 0)
+        .filter(|r| !r.is_empty())
+        .map(|r| String::from_utf8_lossy(r).into_owned())
+        .collect()
 }
 
 /// v2 + `-z` 的记录解析。
@@ -306,12 +396,17 @@ fn parse_status(raw: &[u8]) -> Status {
         match kind {
             '?' => {
                 if let Some(p) = line.get(2..) {
+                    // 整个未跟踪的目录被 git 折叠成一条 `dir/`，它走另一个口子 ——
+                    // 见 Status::untracked_dirs
+                    if p.ends_with('/') {
+                        st.untracked_dirs.push(p.to_string());
+                        continue;
+                    }
                     st.entries.push(Entry {
                         path: p.to_string(),
                         index: '.',
                         work: '?',
                         untracked: true,
-                        is_dir: p.ends_with('/'),
                         conflicted: false,
                         orig: None,
                     });
@@ -343,7 +438,6 @@ fn parse_status(raw: &[u8]) -> Status {
                     index: x,
                     work: y,
                     untracked: false,
-                    is_dir: false,
                     conflicted: kind == 'u',
                     orig,
                 });
@@ -709,7 +803,6 @@ pub fn commit_files(root: impl AsRef<Path>, sha: &str) -> R<Vec<Entry>> {
             index: code,
             work: '.',
             untracked: false,
-            is_dir: false,
             conflicted: false,
             orig,
         });
@@ -1076,6 +1169,39 @@ mod tests {
         assert_eq!(c.path, "conflict.rs");
     }
 
+    /// 折叠的未跟踪目录不进 `entries`，只留下目录名给文件树
+    #[test]
+    fn 折叠的未跟踪目录走另一个口子() {
+        let raw = rec(&["# branch.head main", "? scratch/", "? notes.txt"]);
+        let st = parse_status(&raw);
+        assert_eq!(st.untracked_dirs, vec!["scratch/".to_string()]);
+        assert_eq!(
+            st.entries.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(),
+            vec!["notes.txt"],
+            "目录不该出现在改动列表里：{:?}",
+            st.entries
+        );
+    }
+
+    /// 被字节上限掐掉时，末尾那条半截路径必须丢掉。
+    ///
+    /// 留着它，改动列表里会多出一个**看着像真的、其实是半截的**文件名 ——
+    /// 而一个说谎的界面比一句「显示不下」危险得多（和差异截断切回换行同一条）。
+    #[test]
+    fn 截断的路径列表要丢掉末尾那条半截的() {
+        let raw = b"a/one.txt b/two.txt c/thre".to_vec();
+
+        // 没截断：末尾那条是完整的，三条都要
+        assert_eq!(
+            split_nul_records(&raw, false),
+            vec!["a/one.txt", "b/two.txt", "c/thre"],
+        );
+        // 截断了：`c/thre` 是半截的
+        assert_eq!(split_nul_records(&raw, true), vec!["a/one.txt", "b/two.txt"]);
+        // 连一个 NUL 都没有 —— 一条完整记录都没读到，一条都不能要
+        assert!(split_nul_records(b"c/thre", true).is_empty());
+    }
+
     /// 冲突条目不能既算「已暂存」又算「改动」—— 那会让它在界面上出现三次
     #[test]
     fn 冲突条目既不算暂存也不算未暂存() {
@@ -1167,26 +1293,27 @@ mod tests {
         assert_eq!(l[0].subject, "首次提交");
         assert!(l[0].parents.is_empty(), "首次提交没有父");
 
-        // 带空格和中文的路径要能完整往返。
-        // 注意：整个目录都是未跟踪时，git 折叠成一条 "有 空格/" —— 这是它的
-        // 默认行为，也是我们要的，所以断言的是折叠后的形态。
+        // 带空格和中文的路径要能完整往返。整个目录都是未跟踪时 git 折叠成
+        // 一条 "有 空格/"，我们把它摊开：目录名进 untracked_dirs，
+        // 里面的文件进 entries。
         std::fs::create_dir_all(dir.join("有 空格")).unwrap();
         std::fs::write(dir.join("有 空格/中 文.md"), "x\n").unwrap();
         let st = status_full(&dir).unwrap();
-        let d = st
+        assert_eq!(st.untracked_dirs, vec!["有 空格/".to_string()]);
+        let f = st
             .entries
             .iter()
             .find(|e| e.path.starts_with("有 空格"))
             .unwrap_or_else(|| panic!("带空格的中文路径没解析对：{:?}", st.entries));
-        assert_eq!(d.path, "有 空格/");
-        assert!(d.is_dir && d.untracked);
+        assert_eq!(f.path, "有 空格/中 文.md", "目录不该出现在改动列表里");
+        assert!(f.untracked);
 
-        // 目录里的单个文件被跟踪之后，路径就是完整的（不再折叠）
+        // 目录里的单个文件被跟踪之后，git 自己就报完整路径，不再折叠
         stage(&dir, &["有 空格/中 文.md".into()]).unwrap();
         let st = status_full(&dir).unwrap();
+        assert!(st.untracked_dirs.is_empty());
         let f = st.entries.iter().find(|e| e.path.contains("中 文")).unwrap();
         assert_eq!(f.path, "有 空格/中 文.md");
-        assert!(!f.is_dir);
         commit(&dir, "加个带空格的中文路径", false).unwrap();
 
         // 改名要能带出源路径
@@ -1304,7 +1431,7 @@ mod tests {
 
         let st = status_full(&dir).unwrap();
         let e = st.entries.iter().find(|e| e.path == rel).unwrap();
-        assert!(e.untracked && !e.is_dir, "应该是一条未跟踪的文件条目：{e:?}");
+        assert!(e.untracked, "应该是一条未跟踪的文件条目：{e:?}");
 
         let d = diff(&dir, rel, false, true).unwrap();
         assert!(!d.truncated, "这么小的文件不该触发截断");
@@ -1328,13 +1455,27 @@ mod tests {
             "空的未跟踪文件不该报错"
         );
 
-        // 被折叠的未跟踪目录：没有单文件差异可言，返回空串而不是报错
-        std::fs::create_dir_all(dir.join("brand-new")).unwrap();
+        // 被折叠的未跟踪目录：目录名只出现在 untracked_dirs 里，
+        // 改动列表拿到的是里面的文件。真给 diff 传一个目录路径也不能炸 ——
+        // 没有单文件差异可言，返回空串而不是报错。
+        std::fs::create_dir_all(dir.join("brand-new/sub")).unwrap();
         std::fs::write(dir.join("brand-new/a.txt"), "x\n").unwrap();
+        std::fs::write(dir.join("brand-new/sub/b.txt"), "y\n").unwrap();
         let st = status_full(&dir).unwrap();
-        let d2 = st.entries.iter().find(|e| e.is_dir).unwrap();
-        assert_eq!(d2.path, "brand-new/");
-        assert_eq!(diff(&dir, &d2.path, false, true).unwrap(), Diff::default());
+        assert_eq!(st.untracked_dirs, vec!["brand-new/".to_string()]);
+        let inside: Vec<&str> = st
+            .entries
+            .iter()
+            .filter(|e| e.path.starts_with("brand-new/"))
+            .map(|e| e.path.as_str())
+            .collect();
+        assert_eq!(
+            inside,
+            vec!["brand-new/a.txt", "brand-new/sub/b.txt"],
+            "折叠的目录要摊成里面的每个文件：{:?}",
+            st.entries
+        );
+        assert_eq!(diff(&dir, "brand-new/", false, true).unwrap(), Diff::default());
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

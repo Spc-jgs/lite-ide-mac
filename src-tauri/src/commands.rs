@@ -109,10 +109,12 @@ pub fn probe_path(path: String) -> Result<PathInfo, String> {
 }
 
 /// 列一层目录。不递归 —— 文件树按需展开，大仓库才不会卡。
+///
+/// 没有 `show_hidden` 这个开关了：点文件一律列，构建产物一律不列。
+/// 留一个前端永远传同一个值的参数，就是下一个没人敢动的死开关。
 #[tauri::command]
-pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<DirEntryDto>, String> {
-    let entries =
-        fsservice::list_dir(&path, show_hidden).map_err(|e| format!("列目录失败：{e}"))?;
+pub fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
+    let entries = fsservice::list_dir(&path).map_err(|e| format!("列目录失败：{e}"))?;
     Ok(entries
         .into_iter()
         .map(|e| DirEntryDto {
@@ -214,10 +216,54 @@ pub fn rename_entry(path: String, name: String) -> Result<String, String> {
     Ok(p.to_string_lossy().into_owned())
 }
 
+/// 把一段**会阻塞**的活挪到 tokio 的阻塞池上。
+///
+/// # 为什么必须有这个
+///
+/// Tauri 的同步命令**跑在主线程上**（官方文档原话：「Commands without the
+/// async keyword are executed on the main thread」）。主线程就是 NSApplication
+/// 的事件循环 —— 它一堵，窗口就不响应了：菜单点不开、拖不动、转菊花。
+///
+/// 绝大多数命令不需要这个。实测（M 系列，1.1GB / 3518 文件的仓库，热缓存）：
+///
+/// | 命令 | 耗时 |
+/// |---|---|
+/// | `git status --porcelain=v2 -uall` | 0.04s |
+/// | `rg --files` | 0.02s |
+/// | `rg` 全文搜一个高频词 | 0.07s |
+/// | `git log -300` | 0.02s |
+///
+/// 40ms 卡在主线程上是两帧半，不值得为它换来「命令之间不再串行」这个新变量。
+/// **真正要挪走的是时长不可控的那几条**：
+///
+/// - `git commit` —— pre-commit 钩子跑 eslint 能跑三十秒，这条最凶
+/// - `git switch` / `worktree add` / `merge` —— 检出几千个文件是秒级
+/// - `rg` —— 仓库多大是用户说了算，不是我们
+/// - 落盘/废纸篓 —— 网络卷上是另一个数量级
+/// - `fetch` / `push` —— 走网络，本来就是「几十秒」那一档
+///
+/// # 为什么不是 `#[tauri::command(async)]`
+///
+/// 那个宏对同步函数生成的是 `async_runtime::spawn`，**活还是跑在 worker 上**
+/// （`sync_threadpool` 只是个 tracing 标签，不是 spawn_blocking）。
+/// 而 worker 只有 2 个（见 `lib.rs::install_runtime`），两条并发的 git
+/// 就能把它占满。阻塞池是按需长、空闲自己收的，这才是这类活该待的地方。
+async fn blocking<T, F>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("后台任务没跑完：{e}"))?
+}
+
 /// 移到废纸篓。**整个应用里没有第二条删除路径** —— 没有 remove_file。
+///
+/// 走阻塞池：外部卷/网络卷上的 `trashItemAtURL:` 是秒级的。
 #[tauri::command]
-pub fn trash_entry(path: String) -> Result<(), String> {
-    fsservice::move_to_trash(&path).map_err(|e| format!("{e}"))
+pub async fn trash_entry(path: String) -> Result<(), String> {
+    blocking(move || fsservice::move_to_trash(&path).map_err(|e| format!("{e}"))).await
 }
 
 /// 保存。先写临时文件再原子替换，中途崩溃不会留下半个文件。
@@ -228,20 +274,23 @@ pub fn trash_entry(path: String) -> Result<(), String> {
 /// 返回写入后的指纹 —— 前端必须拿它更新记录，否则自己的保存
 /// 会在下一次检查时被当成"外部修改"。
 #[tauri::command]
-pub fn write_text(
+pub async fn write_text(
     path: String,
     content: String,
     label: Option<String>,
     bom: Option<bool>,
 ) -> Result<StampDto, String> {
-    let label = label.unwrap_or_else(|| "UTF-8".into());
-    fsservice::write_text_as(&path, &content, &label, bom.unwrap_or(false))
-        .map_err(|e| format!("保存失败：{e}"))?;
-    let s = fsservice::stamp(&path).map_err(|e| format!("{e}"))?;
-    Ok(StampDto {
-        mtime_ms: s.mtime_ms,
-        size: s.size,
+    blocking(move || {
+        let label = label.unwrap_or_else(|| "UTF-8".into());
+        fsservice::write_text_as(&path, &content, &label, bom.unwrap_or(false))
+            .map_err(|e| format!("保存失败：{e}"))?;
+        let s = fsservice::stamp(&path).map_err(|e| format!("{e}"))?;
+        Ok(StampDto {
+            mtime_ms: s.mtime_ms,
+            size: s.size,
+        })
     })
+    .await
 }
 
 /// 打开日志文件。mmap 是 O(1) 的，此调用不读盘，立即返回。
@@ -514,22 +563,25 @@ pub struct HitDto {
 /// 匹配放前端做是有意为之：每敲一个字符都往 Rust 跑一趟，IPC 往返会让输入发木。
 /// 几万条路径传过去也就几 MB。
 #[tauri::command]
-pub fn list_project_files(root: String) -> Result<Vec<String>, String> {
-    searchsvc::list_files(&root).map_err(|e| format!("索引项目失败：{e}"))
+pub async fn list_project_files(root: String) -> Result<Vec<String>, String> {
+    blocking(move || searchsvc::list_files(&root).map_err(|e| format!("索引项目失败：{e}"))).await
 }
 
 /// 全局内容搜索。有 rg 用 rg，没有就用进程内实现，两者结果一致。
 #[tauri::command]
-pub fn grep_project(root: String, pattern: String, limit: usize) -> Result<Vec<HitDto>, String> {
-    let hits = searchsvc::grep(&root, &pattern, limit).map_err(|e| format!("搜索失败：{e}"))?;
-    Ok(hits
-        .into_iter()
-        .map(|h| HitDto {
-            path: h.path,
-            line: h.line,
-            text: h.text,
-        })
-        .collect())
+pub async fn grep_project(root: String, pattern: String, limit: usize) -> Result<Vec<HitDto>, String> {
+    blocking(move || {
+        let hits = searchsvc::grep(&root, &pattern, limit).map_err(|e| format!("搜索失败：{e}"))?;
+        Ok(hits
+            .into_iter()
+            .map(|h| HitDto {
+                path: h.path,
+                line: h.line,
+                text: h.text,
+            })
+            .collect())
+    })
+    .await
 }
 
 // ─────────────────────────── Git ───────────────────────────
@@ -543,8 +595,6 @@ pub struct GitEntryDto {
     /// 工作区状态字符
     pub work: String,
     pub untracked: bool,
-    /// 是折叠的未跟踪目录，文件树要按前缀匹配
-    pub is_dir: bool,
     pub conflicted: bool,
     pub staged: bool,
     pub unstaged: bool,
@@ -562,7 +612,10 @@ pub struct GitStatusDto {
     pub behind: u32,
     pub detached: bool,
     pub unborn: bool,
+    /// 只有文件；整个未跟踪的目录在 `untracked_dirs` 里
     pub entries: Vec<GitEntryDto>,
+    /// 整个未跟踪的目录（路径以 `/` 结尾）。文件树按前缀匹配用
+    pub untracked_dirs: Vec<String>,
     pub truncated: bool,
 }
 
@@ -585,6 +638,7 @@ pub fn git_status(root: String) -> Result<GitStatusDto, String> {
         behind: st.behind,
         detached: st.detached,
         unborn: st.unborn,
+        untracked_dirs: st.untracked_dirs,
         truncated: st.truncated,
         entries: st
             .entries
@@ -596,7 +650,6 @@ pub fn git_status(root: String) -> Result<GitStatusDto, String> {
                 work: e.work.to_string(),
                 path: e.path,
                 untracked: e.untracked,
-                is_dir: e.is_dir,
                 conflicted: e.conflicted,
                 orig: e.orig,
             })
@@ -646,18 +699,20 @@ pub fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String> {
 
 /// 丢弃工作区改动。**不可撤销** —— 前端必须先让用户确认过才准调。
 #[tauri::command]
-pub fn git_discard(
+pub async fn git_discard(
     root: String,
     paths: Vec<String>,
     untracked: Vec<String>,
 ) -> Result<(), String> {
     crate::diag!("git_discard {} 个跟踪 + {} 个未跟踪", paths.len(), untracked.len());
-    gitsvc::discard(&root, &paths, &untracked).map_err(|e| format!("丢弃失败：{e}"))
+    blocking(move || gitsvc::discard(&root, &paths, &untracked).map_err(|e| format!("丢弃失败：{e}"))).await
 }
 
+/// 提交。**这条是最该挪出主线程的一条** —— `pre-commit` 钩子跑什么
+/// 完全是仓库说了算，跑一遍 eslint 三十秒也不奇怪。
 #[tauri::command]
-pub fn git_commit(root: String, message: String, amend: bool) -> Result<String, String> {
-    gitsvc::commit(&root, &message, amend).map_err(|e| format!("{e}"))
+pub async fn git_commit(root: String, message: String, amend: bool) -> Result<String, String> {
+    blocking(move || gitsvc::commit(&root, &message, amend).map_err(|e| format!("{e}"))).await
 }
 
 // ─────────────── Git：历史 · 分支 · 工作树 ───────────────
@@ -737,7 +792,6 @@ pub fn git_commit_files(root: String, sha: String) -> Result<Vec<GitEntryDto>, S
             work: e.work.to_string(),
             path: e.path,
             untracked: false,
-            is_dir: false,
             conflicted: false,
             orig: e.orig,
         })
@@ -770,9 +824,9 @@ pub fn git_branches(root: String) -> Result<Vec<BranchDto>, String> {
 
 /// 切分支。工作区脏时 git 会自己拒绝，错误原样上抛 —— 它的措辞比我们准。
 #[tauri::command]
-pub fn git_switch(root: String, name: String, create: bool) -> Result<String, String> {
+pub async fn git_switch(root: String, name: String, create: bool) -> Result<String, String> {
     crate::diag!("git_switch {name} create={create}");
-    gitsvc::switch_branch(&root, &name, create).map_err(|e| format!("{e}"))
+    blocking(move || gitsvc::switch_branch(&root, &name, create).map_err(|e| format!("{e}"))).await
 }
 
 #[tauri::command]
@@ -794,16 +848,16 @@ pub fn git_worktrees(root: String) -> Result<Vec<WorktreeDto>, String> {
 
 /// 新建工作树，返回新目录的绝对路径 —— 前端可以直接把它当项目根打开。
 #[tauri::command]
-pub fn git_worktree_add(root: String, path: String, branch: String) -> Result<String, String> {
+pub async fn git_worktree_add(root: String, path: String, branch: String) -> Result<String, String> {
     crate::diag!("git_worktree_add path={path} branch={branch}");
-    gitsvc::worktree_add(&root, &path, &branch).map_err(|e| format!("{e}"))
+    blocking(move || gitsvc::worktree_add(&root, &path, &branch).map_err(|e| format!("{e}"))).await
 }
 
 /// 移除工作树。**会删掉那个目录**，前端必须先确认。
 #[tauri::command]
-pub fn git_worktree_remove(root: String, path: String, force: bool) -> Result<(), String> {
+pub async fn git_worktree_remove(root: String, path: String, force: bool) -> Result<(), String> {
     crate::diag!("git_worktree_remove path={path} force={force}");
-    gitsvc::worktree_remove(&root, &path, force).map_err(|e| format!("{e}"))
+    blocking(move || gitsvc::worktree_remove(&root, &path, force).map_err(|e| format!("{e}"))).await
 }
 
 // ── 菜单栏 ───────────────────────────────────────────────────────────
@@ -935,7 +989,23 @@ fn pump(ch: &tauri::ipc::Channel<ProgressDto>) -> impl FnMut(gitsvc::progress::P
     }
 }
 
+/// `spawn_blocking` 自己失败时的错误（线程池满、任务 panic）。
+///
+/// 只有 `kind: "other"` 一档 —— 这不是 git 的错，界面照样得说点什么。
+fn join_err_dto(e: impl std::fmt::Display) -> RemoteErrDto {
+    RemoteErrDto {
+        kind: "other".into(),
+        message: format!("后台任务没跑完：{e}"),
+        raw: String::new(),
+    }
+}
+
 /// 抓远程。**只读，不动工作区。**
+///
+/// 活跑在**阻塞池**上，不在 async worker 上。`async fn` 里直接调一个
+/// 阻塞几十秒的函数，占住的是 runtime 的 worker —— 而 worker 只有 2 个
+/// （见 `lib.rs::install_runtime`），一次 fetch 加一次 push 就能把它占满，
+/// 之后所有异步命令一起卡住。这是本轮审查里最先要修的一条。
 #[tauri::command]
 pub async fn git_fetch(
     root: String,
@@ -947,9 +1017,14 @@ pub async fn git_fetch(
     let id = op_id;
     let cancel = state.begin_remote(id);
     crate::diag!("git_fetch id={id} remote={remote}");
-    let r = gitsvc::remote::fetch(&root, &remote, &cancel, &mut pump(&on_progress));
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        gitsvc::remote::fetch(&root, &remote, &cancel, &mut pump(&on_progress))
+    })
+    .await;
+    // end_remote 必须无论如何都跑到 —— 漏一次，那个 id 就永远留在表里，
+    // 而 `git_cancel` 会对着一个早就结束的操作返回 true
     state.end_remote(id);
-    r.map_err(to_err_dto)
+    r.map_err(join_err_dto)?.map_err(to_err_dto)
 }
 
 /// 推送当前分支。**这是第一个会改到别人东西的操作。**
@@ -970,17 +1045,26 @@ pub async fn git_push(
     let cancel = state.begin_remote(id);
     crate::diag!("git_push id={id} remote={remote} branch={branch} set_upstream={set_upstream}");
     let opts = gitsvc::remote::PushOpts { set_upstream };
-    let r = gitsvc::remote::push(&root, &remote, &branch, opts, &cancel, &mut pump(&on_progress));
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        gitsvc::remote::push(&root, &remote, &branch, opts, &cancel, &mut pump(&on_progress))
+    })
+    .await;
     state.end_remote(id);
-    r.map_err(to_err_dto)
+    r.map_err(join_err_dto)?.map_err(to_err_dto)
 }
 
 /// 把已经抓下来的上游合进当前分支。**不走网络，瞬间完成。**
 ///
 /// 拉取 = `git_fetch` + 这个，不是 `git pull`：复合命令失败时分不清
 /// 是网络断了还是合并冲突了（退出码都非零）。
+/// 注释说它「瞬间完成」，那是指**不走网络**；merge/rebase 本身要检出文件，
+/// 几千个文件的分支上是秒级的，所以照样走阻塞池。
 #[tauri::command]
-pub fn git_merge_upstream(root: String, upstream: String, mode: String) -> Result<(), RemoteErrDto> {
+pub async fn git_merge_upstream(
+    root: String,
+    upstream: String,
+    mode: String,
+) -> Result<(), RemoteErrDto> {
     use gitsvc::remote::MergeMode;
     let mode = match mode.as_str() {
         "merge" => MergeMode::Merge,
@@ -989,7 +1073,12 @@ pub fn git_merge_upstream(root: String, upstream: String, mode: String) -> Resul
         _ => MergeMode::FfOnly,
     };
     crate::diag!("git_merge_upstream {upstream} mode={mode:?}");
-    gitsvc::remote::merge_upstream(&root, &upstream, mode).map_err(to_err_dto)
+    tauri::async_runtime::spawn_blocking(move || {
+        gitsvc::remote::merge_upstream(&root, &upstream, mode)
+    })
+    .await
+    .map_err(join_err_dto)?
+    .map_err(to_err_dto)
 }
 
 /// 取消一个正在跑的远程操作。
@@ -1013,4 +1102,22 @@ pub fn git_outgoing(
 ) -> Result<Vec<String>, String> {
     // 20 条是对话框的显示上限 —— 再多也没人读，而且要走一趟 IPC
     gitsvc::remote::outgoing(&root, &upstream, &branch, 20).map_err(|e| format!("{e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    /// `blocking` 必须**真的把活挪到别的线程上** —— 这是它存在的全部理由。
+    ///
+    /// 退化成「原地调用一下」的话：编译照过、类型照对、返回值照样正确，
+    /// 而主线程照样被堵住，界面照样转菊花。这种回归没有任何编译期信号，
+    /// 只能靠一条断言线程 id 的测试卡着。
+    #[test]
+    fn blocking_把活挪到别的线程上() {
+        let here = std::thread::current().id();
+        let there = tauri::async_runtime::block_on(super::blocking(move || {
+            Ok::<_, String>(std::thread::current().id())
+        }))
+        .expect("blocking 自己不该失败");
+        assert_ne!(here, there, "blocking 没把活挪走，还在调用者的线程上");
+    }
 }

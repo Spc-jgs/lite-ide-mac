@@ -102,7 +102,7 @@
   /** 状态字符 → 显示用的单字母 + 语义类名 */
   function mark(e: GitEntry, side: "index" | "work"): { ch: string; cls: string } {
     if (e.conflicted) return { ch: "!", cls: "conflict" };
-    if (e.untracked) return { ch: e.isDir ? "?" : "?", cls: "untracked" };
+    if (e.untracked) return { ch: "?", cls: "untracked" };
     const c = side === "index" ? e.index : e.work;
     switch (c) {
       case "M": return { ch: "M", cls: "modified" };
@@ -327,12 +327,7 @@
         </div>
         {#each unstaged as e (e.path)}
           <div class="frow-wrap">
-            <button
-              class="frow"
-              onclick={() => onOpenDiff(e, false)}
-              title={e.isDir ? `${e.path}（整个目录未跟踪）` : e.path}
-              disabled={e.isDir}
-            >
+            <button class="frow" onclick={() => onOpenDiff(e, false)} title={e.path}>
               <span class="m {mark(e, 'work').cls}">{mark(e, "work").ch}</span>
               <span class="fname" class:gone={e.work === "D"}>{baseName(e.path)}</span>
               <span class="fdir">{dirName(e.path)}</span>

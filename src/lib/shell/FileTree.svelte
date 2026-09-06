@@ -87,7 +87,7 @@
   async function ensure(dir: string): Promise<DirEntry[]> {
     const got = children.get(dir);
     if (got) return got;
-    const items = await listDir(dir, false);
+    const items = await listDir(dir);
     children = new Map(children).set(dir, items);
     return items;
   }
@@ -133,7 +133,7 @@
     await Promise.all(
       dirs.map(async (d) => {
         try {
-          next.set(d, await listDir(d, false));
+          next.set(d, await listDir(d));
         } catch {
           // 目录没了（切分支切掉了）：从缓存和展开集里一并摘掉
           next.delete(d);
@@ -190,8 +190,11 @@
    * - `own`  —— 文件/目录**自身**的状态
    * - `roll` —— 祖先目录的「里面有东西改了」冒泡标记。IDE 里最有用的那个提示：
    *   目录收着也知道里面有动静
-   * - `utDirs` —— 被折叠的未跟踪目录前缀。git 把整个未跟踪目录报成一条 `dir/`，
-   *   里面的文件根本不在 entries 里，只能靠前缀匹配补上
+   * - `utDirs` —— 整个未跟踪的目录。里面的文件 Rust 侧已经摊开进 entries 了，
+   *   这份名单是给**目录自己**上色用的：少了它，一个全新的目录只剩
+   *   「里面有东西改了」的冒泡标记，和一个改了一行的老目录长得一样。
+   *   前缀匹配那半边留着兜底 —— 条目撞上 5000 条上限被截断时，
+   *   里面的文件可能一条都没进来
    */
   let git = $derived.by(() => {
     const own = new Map<string, string>();
@@ -200,12 +203,8 @@
     const st = gitStatus;
     if (!st) return { own, roll, utDirs };
 
-    for (const e of st.entries) {
-      const rel = e.isDir ? e.path.slice(0, -1) : e.path;
-      const abs = `${st.root}/${rel}`;
-      own.set(abs, klass(e));
-      if (e.isDir) utDirs.push(`${abs}/`);
-      // 一路冒泡到仓库根为止
+    // 一路冒泡到仓库根为止
+    const bubble = (abs: string) => {
       let p = abs;
       for (;;) {
         const i = p.lastIndexOf("/");
@@ -214,6 +213,19 @@
         if (p.length <= st.root.length) break;
         roll.add(p);
       }
+    };
+
+    for (const e of st.entries) {
+      const abs = `${st.root}/${e.path}`;
+      own.set(abs, klass(e));
+      bubble(abs);
+    }
+    // 目录名带着末尾的斜杠，去掉它才是目录自己的路径
+    for (const d of st.untrackedDirs ?? []) {
+      const abs = `${st.root}/${d.slice(0, -1)}`;
+      own.set(abs, "untracked");
+      utDirs.push(`${abs}/`);
+      bubble(abs);
     }
     return { own, roll, utDirs };
   });

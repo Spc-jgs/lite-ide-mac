@@ -138,7 +138,14 @@
   {#if title}
     <div class="mhead" title={titleTip}>{title}</div>
   {/if}
-  {#each items as it, i (it.label)}
+  <!--
+    **按下标做 key，不按 label。** 菜单是一次性建好的静态列表，换一批条目
+    就是整块换掉，没有"同一项挪了位置"这回事，下标是稳的。
+    而 label 会重：三个终端都开在同一个目录里，标题就都是 `proj` ——
+    那时 Svelte 抛 `each_key_duplicate`，整个菜单**一条都不渲染**
+    （表现是「点了没反应」，控制台里才有线索）。
+  -->
+  {#each items as it, i (i)}
     <button
       class="mitem"
       class:on={i === cursor}

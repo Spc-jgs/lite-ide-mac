@@ -241,30 +241,51 @@ lite-ide/
 ├─ rust-toolchain.toml          # pin 住 stable-1.98.0，防止 rustup update 后行为漂移
 ├─ package.json / pnpm-workspace.yaml
 ├─ src/                          # 前端（Svelte 5）
-│  ├─ App.svelte
+│  ├─ App.svelte                 # ⚠ 3500 行，见下面「已知的架构偏移」
 │  ├─ app.css                    # 材质分层：外壳透光 / 内容挡光 / 浮层不透
 │  └─ lib/
 │     ├─ ipc/                    # commands.ts（invoke 封装 + 手写 DTO，靠 dto_sync 测试卡住漂移）
-│     ├─ logview/    ★           # LogView.svelte / virtual-list.ts / line-cache.ts
-│     │                          # colorize.ts / filter-bar.svelte
-│     ├─ editor/                 # Editor.svelte / theme-idea-dark.ts
-│     │                          # langs.ts（四语言懒加载）/ markdown-live.ts
-│     ├─ shell/                  # Toolbar / FileTree / Tabs / StatusBar
-│     ├─ search/                 # 双击 Shift 随处搜索浮窗
+│     ├─ logview/    ★           # LogView / LogPane / FilterBar + line-cache
+│     ├─ editor/                 # Editor.svelte / theme / markdown-live
+│     │                          # langs.ts（识别，入口包要）+ langs-load.ts（67 种，跟着编辑器懒加载）
+│     ├─ shell/                  # FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
+│     ├─ git/                    # GitPane / GitLog / DiffView / MergeView / BranchPicker / RemoteBars
+│     ├─ search/                 # 双击 Shift 随处搜索 + 大纲 + 键位速查
 │     ├─ terminal/               # xterm.js 封装
-│     └─ stores/                 # Svelte 5 runes
+│     ├─ state/                  # Svelte 5 runes（keymap / session / doc / notify）
+│     ├─ lazy/                   # lazy() / lazyGroup()，按需加载的唯一出处
+│     └─ dev/                    # mock-ipc.ts，只在 DEV 构建里存在
 └─ src-tauri/
    ├─ tauri.conf.json            # bundle id 固定 com.liteide.app（UNINSTALL.md 的前提）
    ├─ src/
-   │  ├─ main.rs
-   │  ├─ commands/               # #[tauri::command] 薄封装，不写业务逻辑
-   │  └─ state.rs                # 会话表 handle -> LogSession
+   │  ├─ main.rs / lib.rs        # lib.rs 里装小 runtime、建菜单、挂窗口材质
+   │  ├─ commands.rs             # #[tauri::command] 薄封装，不写业务逻辑
+   │  ├─ menu.rs                 # 菜单栏（keymap.ts 的一份拷贝，menu_sync 卡住）
+   │  └─ state.rs                # 句柄表：日志会话 / 过滤任务 / pty / 远程操作
    └─ crates/
-      ├─ logengine/   ★          # src/{index,mmap,reader,session}.rs + benches/
+      ├─ logengine/   ★          # index / mmap / reader / filter / level + benches
       ├─ fsservice/
       ├─ searchsvc/
+      ├─ gitsvc/                 # 含 progress.rs / remote.rs（M7 的网络那半边）
       └─ ptysvc/
 ```
+
+### 已知的架构偏移（2026-09-06 审查）
+
+**`App.svelte` 3526 行、68 个函数、20 个 `$state`、21 个 `$effect`。**
+上面这张图说前端按 `lib/` 分模块，而实际上「顶层壳 + 所有跨组件状态」全挤在一个文件里：
+标签管理、会话恢复、Git 动作、面板与终端、菜单事件、快捷键分派、拖放。
+
+它还没到「改不动」的程度（每一块内部都有注释说清了判据），但**下一次加功能之前该拆**。
+拆的顺序按「依赖最少的先走」：
+
+1. `lib/state/tabs.svelte.ts` —— 标签表 + `openPath` / `doClose` / `settled` 那一族（约 400 行）
+2. `lib/state/panel.svelte.ts` —— 底部工具窗 + 终端列表（约 150 行）
+3. `lib/git/actions.ts` —— `gitDo` 包着的那十几个动作（约 300 行）
+4. 剩下的才是真正的「壳」：布局、菜单事件、键盘分派
+
+**不要为了拆而拆**：`$state` 跨文件用要走 `.svelte.ts`，而组件里 `$derived`
+的依赖收集不跨模块边界失效 —— 这条得先在一个小块上验过再往下推。
 
 **纪律：`commands/` 里只做参数解包和错误转换，一行业务逻辑都不写。**
 业务全在 crates 里，这样才能脱离 Tauri 单测和 bench。
@@ -333,12 +354,34 @@ lite-ide/
 | 冷启动到可交互 | **< 0.5s** | ~3.0s |
 | 打开 1GB 日志（M0 实测 1.76ms） | **< 1s** ✅ | 卡死 |
 | 空闲内存 | **< 200MB** | 650MB+ |
+| 进程数（实测 4） | ≤ 5 ✅ | 23+ |
 | 打开 1GB 日志到首屏 | **< 1s** | 卡死 |
 | 1GB 日志滚动帧率 | **60fps** | 不可用 |
 | 1GB 日志常驻内存 | **< 200MB**（与文件大小无关） | 不可用 |
 | 全文过滤 1GB | **< 2s**（rg 子进程） | 不可用 |
 | 安装包 | **~10MB** | 100MB+ |
-| 进程数 | ≤ 5 | 23+ |
+
+### 2026-09-06 实测（`.app`，会话恢复了几个标签 + 一个终端）
+
+| 进程 | 线程 | Physical footprint |
+|---|---|---|
+| `lite-ide`（我们自己的） | 8–10 | **32 MB** |
+| `WebKit.WebContent` | 4 | 106–173 MB |
+| `WebKit.GPU` | 6–8 | 16–29 MB |
+| `WebKit.Networking` | 3–4 | 4.5 MB |
+| **合计** | **21–26** | **155–238 MB** |
+
+三条要说清的：
+
+- **Rust 侧只占 32MB**，涨的那部分全在 WebKit 的渲染进程上，随着打开的
+  编辑器 / 终端 / 日志走。「< 200MB」这条预算**在开了几个标签之后会破**，
+  它当初写的是「空闲」，而这个应用没有真正的空闲态（会话恢复会把上次的标签开回来）。
+- 主进程线程数 **24 → 13**：Tauri 默认的 async runtime 起 `available_parallelism()`
+  个 worker，这台 18 核机器上就是 18 条常驻空转的 `tokio-rt-worker`。
+  换成 2 个 worker + 阻塞池（`lib.rs::install_runtime`）。
+- **线程少了 11 条，footprint 没降**（29MB 上下，在噪声里）——
+  空转线程的栈是虚拟的，几乎不落物理页。这条改动买的是结构正确性
+  （阻塞的活不占 worker），不是内存。
 
 ---
 
