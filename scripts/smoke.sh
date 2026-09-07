@@ -27,6 +27,10 @@
 #      粘贴不过输入法（⌘V 这种带修饰键的组合本身不受影响）。
 #   4. 别记 AX 路径 —— 界面一变它就断（暂存之后「提交」会变成「提交 (1)」）。
 #      每次按角色 + 名字重新递归查。
+#   5. **`$VAR` 后面紧跟中文，变量名会被吃掉一截**：`echo "分支 $BR，远程 ..."`
+#      里的 `$BR，` 被 bash 当成了变量 `BR<那几个字节>`，`set -u` 下直接
+#      `unbound variable` 把脚本打断。这个脚本正文全是中文，撞上的概率很高 ——
+#      **变量一律写 `${VAR}`**。写这段自检的提示文案时又踩了第二次。
 #
 # # 断言尽量落在盘上
 #
@@ -46,7 +50,7 @@ KEEP=0
 for a in "$@"; do
   case "$a" in
     --keep) KEEP=1 ;;
-    *) echo "未知参数: $a（支持 --keep）"; exit 2 ;;
+    *) echo "未知参数: ${a}（支持 --keep）"; exit 2 ;;
   esac
 done
 
@@ -83,9 +87,9 @@ cleanup() {
   # 剪贴板是用户的东西，借来用完要还
   [ -f "$CLIP" ] && pbcopy < "$CLIP"
   if [ "$KEEP" = 1 ]; then
-    echo; echo "临时仓库留着了：$FIX（日志在 $LOG）"
+    echo; echo "临时仓库留着了：${FIX}（日志在 ${LOG}）"
   else
-    rm -rf "$FIX" "$WORK"
+    rm -rf "$FIX" "$WORK"   # $REMOTE / $OTHER 都在 $WORK 底下
   fi
 }
 trap cleanup EXIT
@@ -227,6 +231,16 @@ keys() { osascript -e "tell application \"System Events\" to tell process \"lite
   $1
 end tell" >/dev/null 2>&1; }
 
+# 点原生菜单栏。**能走菜单栏就别敲快捷键** —— 菜单栏是真的 AppKit 菜单，
+# 点得到就说明那条命令确实被触发了；而快捷键是发给 webview 的，
+# 焦点在别处（比如浮层里的输入框）时会被吃掉，表现成「命令没反应」，
+# 排查方向却指向命令本身。
+menu() { osascript -e "tell application \"System Events\" to tell process \"lite-ide\"
+  set frontmost to true
+  delay 0.2
+  click menu item \"$2\" of menu 1 of menu bar item \"$1\" of menu bar 1
+end tell" >/dev/null 2>&1; }
+
 # 选中全部再粘贴（绕开输入法，见文件头第 3 条）。
 # `$1` 是目标元素的角色，`$2` 是要粘的文本
 paste_into() {
@@ -281,6 +295,11 @@ printf '#!/bin/sh\necho hello\n' > run.sh; chmod 755 run.sh
 mkdir -p real; printf '原始内容\n第二行\n' > real/config.txt
 ln -s real/config.txt link.txt
 printf 'v1\n' > note.txt
+# ⇧⌘F 要搜的那根针。**两行是有讲究的**：搜第一行的词，命中行会显示在
+# 结果列表里 —— 断言它等于「浮层上有这段字」，浮层没关就永远绿。
+# 所以断言认第二行：那句只有真把文件打开才看得见。
+mkdir -p deep/nested
+printf 'ZQXJ_SMOKE_NEEDLE\n这一行要把文件打开才看得见\n' > deep/nested/needle.txt
 # 大日志：**必须带中文，而且要大过 detect_encoding 的 256KB 样本** ——
 # 那个乱码 bug 正是「样本按字节截，边界切在多字节字符中间」造出来的
 awk 'BEGIN{for(i=0;i<400000;i++) printf "2026-09-07 12:00:00 INFO  服务处理完成，第 %d 条记录\n", i}' > big.log
@@ -294,12 +313,35 @@ echo "  大日志 $(du -h big.log | cut -f1)，钩子 3000 行"
 
 say "起 .app"
 LITE_IDE_DEBUG=1 LITE_IDE_ONTOP=1 LITE_IDE_POS=0,40 "$APP" "$FIX" > "$LOG" 2>&1 &
+# 从作业表里摘掉：不摘的话 cleanup 里的 pkill 会让 bash 在最后印一行
+# `Terminated: 15`，那行看着像脚本自己出错了，实际是收尾正常杀进程
+disown
 if wait_for 20 'grep -q "App 已挂载" '"$LOG"; then
   ok "挂载成功"
 else
   bad "20 秒内没挂起来，后面全跳过"; exit 1
 fi
 sleep 2
+
+# **拿得到窗口才往下跑。**
+#
+# 没有「辅助功能」权限时 System Events 不报权限错，只是把窗口数报成 0，
+# 于是后面每一条断言都红 —— 12 条全红看起来像应用整个坏掉了，
+# 而真正的原因和被测的东西一点关系都没有。2026-09-07 被这个骗过一轮。
+#
+# 特别注意：`name of every process` **不需要**授权也能用，所以
+# 「osascript 能列出进程」不能拿来当权限已给的证据 —— 我就是这么判错的。
+WINS=$(osascript -e 'tell application "System Events" to tell process "lite-ide" to get count of windows' 2>/dev/null)
+if [ "${WINS:-0}" = "0" ]; then
+  printf '\n\033[31m拿不到 lite-ide 的窗口（count of windows = 0），后面全部跳过。\033[0m\n'
+  echo "两种可能，按概率排："
+  echo "  1. 跑这个脚本的终端没有「辅助功能」权限。"
+  echo "     系统设置 → 隐私与安全性 → 辅助功能 → 勾上你的终端，然后**重开终端**。"
+  echo "     （注意是跑脚本的那个终端，不是 lite-ide 自己。)"
+  echo "  2. 应用真的没建出窗口 —— 看 ${LOG}。"
+  exit 2
+fi
+ok "AX 拿得到窗口（$WINS 个）"
 
 # **把遗留的横幅关掉再开始。**
 #
@@ -455,13 +497,128 @@ echo "  RSS $RSS_BEFORE → $RSS_AFTER KB"
 
 # ─────────────────── 收尾 ───────────────────
 
-say "⑧ 界面自己有没有报错"
+# ─────────────────── 6. 全局搜索 / 废纸篓 / 远程 ───────────────────
+#
+# 下面这三段补的是 issue #11 清单里剩下的那几条命令。它们和上面几条一起在
+# 2026-09-06 那轮被挪到了 tokio 的阻塞池，但一直只有「提交 / 切分支 / 保存」
+# 在真 .app 里被点过 —— `grep_project`、`trash_entry`、`git_fetch`、`git_push`
+# 一次都没有。补齐之前说「#11 验完了」是说满了。
+
+say "⑧ ⇧⌘F 全局搜索（grep_project）"
+# 先把焦点收回文件树：上一步刚关掉日志标签，焦点可能还在日志面板上，
+# 而 ⇧⌘F 是发给 webview 的
+[ "$(ax click AXButton "文件树")" = "OK" ] || true
+sleep 1
+keys 'keystroke "f" using {command down, shift down}'
+sleep 1.5
+if ! paste_into AXTextField "ZQXJ_SMOKE_NEEDLE"; then
+  bad "⇧⌘F 的输入框找不到（浮层没出来？）"
+else
+  # 搜索要扫整个 fixture，里面躺着那个 26MB 的大日志 —— 给足时间
+  if wait_has AXStaticText "needle.txt" 25; then
+    ok "搜到了 deep/nested/needle.txt"
+    keys 'key code 36'   # ↵ 打开第一条命中
+    # 断言认第二行 —— 第一行是命中行，浮层上本来就印着它
+    if wait_has AXStaticText "这一行要把文件打开才看得见" 10; then
+      ok "点得开，打开的确实是那个文件"
+    else
+      bad "搜到了但没打开（命令回来了，前端跳转那一步断了？）"
+    fi
+  else
+    bad "25 秒内没搜到那根针"
+    keys 'key code 53'
+  fi
+fi
+sleep 0.8
+
+say "⑨ 移到废纸篓（trash_entry）：不能是真删除"
+# 键盘开上下文菜单。`click at {x, y}` 在 webview 里被系统拒（-25208，见文件头），
+# 所以右键点不出来 —— ⇧F10 是文件树自己认的第二个入口（FileTree.svelte:430）
+[ "$(ax click AXButton "文件树")" = "OK" ] || true
+sleep 1
+if [ "$(ax row "" "note.txt")" != "OK" ]; then
+  bad "文件树里找不到 note.txt"
+else
+  sleep 0.6
+  keys 'key code 109 using {shift down}'   # ⇧F10
+  sleep 1.2
+  if [ "$(ax click AXButton "移到废纸篓")" != "OK" ]; then
+    bad "⇧F10 没开出上下文菜单（或者菜单里没有这一项）"
+  else
+    sleep 1
+    # 确认框上的按钮和菜单项同名，点第二次是在确认框上点
+    [ "$(ax click AXButton "移到废纸篓")" = "OK" ] || bad "确认框上点不到「移到废纸篓」"
+    if wait_for 15 '[ ! -e "'"$FIX"'/note.txt" ]'; then
+      ok "note.txt 从工作区没了"
+      # **进废纸篓才算对，不是真删除。** 找到了也不去动它 ——
+      # 那是用户的废纸篓，脚本只读不写（结尾会提示一句）
+      if find ~/.Trash -maxdepth 1 -name 'note*.txt' -newermt '-5 minutes' 2>/dev/null | grep -q .; then
+        ok "在废纸篓里找得到（Finder 里可以「放回原处」）"
+        TRASHED=1
+      else
+        bad "工作区没了，但废纸篓里找不到 —— 这就成真删除了"
+      fi
+    else
+      bad "15 秒内文件还在"
+    fi
+  fi
+fi
+
+say "⑩ 推送 / 拉取（git_push / git_fetch）"
+# **remote 是这一步现加的，不写进 fixture。** 一开始就有上游的话，
+# 分支按钮的名字会跟着变（`main` → 带上 ↑N 之类），而 ⑤ 是按精确名字点它的 ——
+# 会把上面那条搞红，且失败信息完全指不到这里。
+REMOTE="$WORK/origin.git"
+OTHER="$WORK/other"
+git init -q --bare "$REMOTE"
+git remote add origin "$REMOTE"
+BR=$(git rev-parse --abbrev-ref HEAD)
+echo "  当前分支 ${BR}，远程 ${REMOTE}"
+
+menu "Git" "推送…"
+sleep 1.5
+# 没有上游时按钮是「推送并跟踪」，有上游时是「推送」—— 这里必然是前者
+if [ "$(ax click AXButton "推送并跟踪")" != "OK" ]; then
+  bad "推送确认条没出来（或按钮不叫这个名字）"
+else
+  if wait_for 30 'git -C "'"$REMOTE"'" rev-parse --verify -q "'"$BR"'"'; then
+    check "$(git -C "$REMOTE" rev-parse "$BR")" "$(git rev-parse HEAD)" "推上去的 sha 和本地一致"
+  else
+    bad "30 秒内没推上去"
+  fi
+fi
+
+# 造一个「别人推了新东西」的远程，再从界面上拉
+git clone -q "$REMOTE" "$OTHER" 2>/dev/null
+git -C "$OTHER" config user.email smoke@local
+git -C "$OTHER" config user.name smoke
+printf '从另一个克隆推上来的\n' > "$OTHER/from-remote.txt"
+git -C "$OTHER" add -A
+git -C "$OTHER" commit -qm "远程的新提交"
+if git -C "$OTHER" push -q origin "HEAD:$BR" 2>/dev/null; then
+  UP=$(git -C "$OTHER" rev-parse HEAD)
+  menu "Git" "拉取"
+  # 拉取 = fetch + 本地合并两步（不是 git pull）。这里必然是快进：
+  # 新提交只加了一个文件，碰不到 ③④ 改过的那两个
+  if wait_for 40 '[ "$(git -C "'"$FIX"'" rev-parse HEAD)" = "'"$UP"'" ]'; then
+    ok "拉取把本地推进到了远程那一条（$(echo "$UP" | cut -c1-7)）"
+    [ -f "$FIX/from-remote.txt" ] && ok "新文件落到了工作区" || bad "HEAD 动了但文件没落盘"
+  else
+    bad "40 秒内没拉下来（HEAD 还停在 $(git -C "$FIX" rev-parse --short HEAD)）"
+  fi
+else
+  bad "造不出远程的新提交 —— 这一步是脚本自己的问题，不是应用的"
+fi
+
+say "⑪ 界面自己有没有报错"
 ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "$LOG")
 check "$ERRS" "0" "诊断通道里没有前端报错 / CSP 违规"
 
 # 把开出来的标签关掉，别把 fixture 的路径留在会话快照里 ——
 # 下次启动会话恢复会去开一个已经删掉的目录
 for f in run.sh link.txt; do ax "click~" AXButton "关闭 $f" >/dev/null; sleep 0.5; done
+
+[ "${TRASHED:-0}" = 1 ] && echo "  （⑨ 往废纸篓里放了一个 note.txt，脚本不动它 —— 自己清或者放回原处）"
 
 printf '\n\033[1m通过 %d 条，失败 %d 条\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
