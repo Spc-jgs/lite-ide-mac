@@ -7,3 +7,6 @@ description = "项目文件索引与全局内容搜索（零 Tauri 依赖）"
 [dependencies]
 memchr = "2"
 serde_json = "1"
+
+# 跳过哪些目录：与 fsservice 共用同一份名单（不共用会出「完全够不着」的目录）
+excludes = { path = "../excludes" }

@@ -21,3 +21,6 @@ chardetng = "0.1"
 # default-features = false 是为了甩掉 chrono：它只服务 os_limited::list()
 # （列废纸篓内容），我们只删不列。
 trash = { version = "5", default-features = false }
+
+# 目录名单：文件树和搜索必须用同一份，理由见该 crate 的模块注释
+excludes = { path = "../excludes" }

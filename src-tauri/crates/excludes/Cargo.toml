@@ -1,0 +1,7 @@
+[package]
+name = "excludes"
+version = "0.1.0"
+edition = "2021"
+description = "哪些目录不进视野 —— 文件树与搜索共用的唯一一份名单（零依赖）"
+
+[dependencies]

@@ -12,22 +12,13 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 /// 不进这些目录。大仓库里它们占了绝大多数文件，进去只会把索引撑爆。
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    ".next",
-    ".nuxt",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".gradle",
-    ".idea",
-    ".vscode",
-    "vendor",
-];
+///
+/// **名单在 `excludes` crate 里，和文件树共用同一份。** 原来这里自己有一份
+/// 十四个的、fsservice 自己有一份四个的，于是「树里看不见」和「搜不到」
+/// 是两套判据 —— 合起来能造出一个在应用里完全够不着的目录。见 issue #13。
+fn skip_dir(name: &str) -> bool {
+    excludes::search_skip_dirs().any(|d| d == name)
+}
 
 /// 索引上限。超过这个数就停 —— 再多前端也没法有意义地展示。
 pub const MAX_FILES: usize = 50_000;
@@ -65,7 +56,7 @@ fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<String>) {
             continue;
         }
         if ft.is_dir() {
-            if !SKIP_DIRS.contains(&name.as_str()) {
+            if !skip_dir(&name) {
                 subdirs.push(ent.path());
             }
         } else if let Ok(rel) = ent.path().strip_prefix(root) {
@@ -143,10 +134,10 @@ fn grep_rg(root: &Path, pattern: &str, limit: usize) -> io::Result<Vec<Hit>> {
         "--max-filesize",
         "8M",
     ]);
-    // 与内置实现的 SKIP_DIRS 对齐。
+    // 与内置实现跳的是同一批目录（同一份名单，见 `skip_dir`）。
     // rg 靠 .gitignore 跳过 node_modules 之类，但项目不一定有 .gitignore ——
     // 那样「装了 rg」和「没装 rg」搜出来的结果就不一样了，这是不能接受的。
-    for d in SKIP_DIRS {
+    for d in excludes::search_skip_dirs() {
         cmd.arg("--glob").arg(format!("!**/{d}/**"));
     }
     /*
@@ -310,6 +301,12 @@ mod tests {
         fs::write(d.join("src/main.rs"), "fn main() {\n    // needle\n}\n").unwrap();
         fs::write(d.join("node_modules/pkg/index.js"), "needle in noise\n").unwrap();
         fs::write(d.join(".git/config"), "needle\n").unwrap();
+        // 名单里的每一个都造一份带命中的噪声 —— 循环而不是照抄名字，
+        // 这样往 excludes 里加一个目录名，跳过它这件事自动就被验到了
+        for name in excludes::GENERATED_DIRS {
+            fs::create_dir_all(d.join(name)).unwrap();
+            fs::write(d.join(name).join("noise.txt"), "needle in noise\n").unwrap();
+        }
         d
     }
 
@@ -363,10 +360,12 @@ mod tests {
         let files = list_files(&d).unwrap();
         assert!(files.contains(&"README.md".to_string()));
         assert!(files.contains(&"src/main.rs".to_string()));
-        assert!(
-            !files.iter().any(|f| f.contains("node_modules")),
-            "node_modules 不该进索引：{files:?}"
-        );
+        for name in excludes::GENERATED_DIRS {
+            assert!(
+                !files.iter().any(|f| f.contains(name)),
+                "{name} 不该进索引：{files:?}"
+            );
+        }
         assert!(
             !files.iter().any(|f| f.contains(".git")),
             "点目录不该进索引"
@@ -381,7 +380,9 @@ mod tests {
         let paths: Vec<&str> = hits.iter().map(|h| h.path.as_str()).collect();
         assert!(paths.contains(&"README.md"));
         assert!(paths.contains(&"src/main.rs"));
-        assert!(!paths.iter().any(|p| p.contains("node_modules")));
+        for name in excludes::GENERATED_DIRS {
+            assert!(!paths.iter().any(|p| p.contains(name)), "{name} 不该被搜到");
+        }
         // 行号必须是 1-based，与编辑器一致
         let readme = hits.iter().find(|h| h.path == "README.md").unwrap();
         assert_eq!(readme.line, 2);
@@ -404,12 +405,14 @@ mod tests {
         let d = sandbox("entry");
         let hits = grep(&d, "needle", 50).unwrap();
         assert!(!hits.is_empty(), "无论走 rg 还是回落，都该有命中");
-        assert!(hits.iter().all(|h| !h.path.contains("node_modules")));
+        for name in excludes::GENERATED_DIRS {
+            assert!(hits.iter().all(|h| !h.path.contains(name)), "{name} 不该被搜到");
+        }
         fs::remove_dir_all(d).ok();
     }
 
     /// 装没装 rg 都该搜出同一批结果 —— 这个不变量真的破过：
-    /// 内置实现靠 SKIP_DIRS 跳过 node_modules，而 rg 靠 .gitignore，
+    /// 内置实现靠自己那份名单跳过 node_modules，而 rg 靠 .gitignore，
     /// 项目没有 .gitignore 时两边就分岔了。
     #[test]
     fn 两条实现路径结果必须一致() {

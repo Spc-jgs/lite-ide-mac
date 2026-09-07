@@ -21,13 +21,6 @@ pub struct Entry {
     pub size: u64,
 }
 
-/// 构建产物目录：**永远不列**。
-///
-/// 它们不是「隐藏文件」，是**别人生成的东西** —— 里面几万个文件没有一个是手写的，
-/// 而 `target/` 在这个仓库里就有 1GB 多。点文件都列（见 [`list_dir`]），
-/// 但这四个不列。
-const BUILD_DIRS: [&str; 4] = ["node_modules", "target", "dist", "build"];
-
 /// 列出一层目录。不递归 —— 文件树按需展开，避免大仓库一次性遍历。
 ///
 /// **点文件和点目录一律列出来。** 原来它们跟着 `show_hidden` 一起被藏了，
@@ -35,8 +28,12 @@ const BUILD_DIRS: [&str; 4] = ["node_modules", "target", "dist", "build"];
 /// 在文件树里根本不存在，只能靠 ⌘P 摸黑打开。
 ///
 /// 藏它们的那个理由（「否则文件树被淹没」）说的其实是 `node_modules` 那一类，
-/// 而那一类现在由 [`BUILD_DIRS`] 单独挡着 —— 两件事本来就不该共用一个开关。
-/// `.git/` 也照列：树是懒展开的，不点开它就只是一行。
+/// 而那一类现在由 [`excludes::GENERATED_DIRS`] 单独挡着 —— 两件事本来就不该
+/// 共用一个开关。`.git/` 也照列：树是懒展开的，不点开它就只是一行。
+///
+/// 那份名单是**和搜索共用的同一份**。原来这里自己有四个、searchsvc 自己有十四个，
+/// 于是「树里看不见」和「⌘P 搜不到」是两套判据，合起来能造出一个完全够不着的
+/// 目录，而且各自演化。名单本身该不该这么长，是 issue #13 的正题。
 ///
 /// 排序：目录在前，同类按名称不区分大小写排列，与 Finder / IDEA 一致。
 pub fn list_dir(dir: impl AsRef<Path>) -> io::Result<Vec<Entry>> {
@@ -44,7 +41,7 @@ pub fn list_dir(dir: impl AsRef<Path>) -> io::Result<Vec<Entry>> {
     for ent in fs::read_dir(dir.as_ref())? {
         let ent = ent?;
         let name = ent.file_name().to_string_lossy().into_owned();
-        if BUILD_DIRS.contains(&name.as_str()) {
+        if excludes::is_generated_dir(&name) {
             continue;
         }
         let meta = match ent.metadata() {
@@ -457,21 +454,24 @@ mod tests {
         fs::remove_dir_all(d).ok();
     }
 
-    /// 点文件要列出来，构建产物不列。
+    /// 点文件要列出来，生成物目录不列。
     ///
     /// 这两件事以前共用一个 `show_hidden` 开关，于是 `.gitignore` 这类
     /// 天天要改的文件跟着 `node_modules` 一起消失了。
+    ///
+    /// 造目录是**按 [`excludes::GENERATED_DIRS`] 循环**，不是照抄四个名字：
+    /// 往那份名单里加一个名字，这条测试自动就覆盖到了 —— 而写死名字的话，
+    /// 名单长了测试却还只验老那几个，正是当初两份名单分岔的形状。
     #[test]
-    fn 点文件要列出来而构建产物不列() {
+    fn 点文件要列出来而生成物目录不列() {
         let d = sandbox("hidden");
         fs::write(d.join("visible.rs"), "x").unwrap();
         fs::write(d.join(".env"), "x").unwrap();
         fs::create_dir(d.join(".github")).unwrap();
         fs::create_dir(d.join(".git")).unwrap();
-        fs::create_dir(d.join("node_modules")).unwrap();
-        fs::create_dir(d.join("target")).unwrap();
-        fs::create_dir(d.join("dist")).unwrap();
-        fs::create_dir(d.join("build")).unwrap();
+        for name in excludes::GENERATED_DIRS {
+            fs::create_dir(d.join(name)).unwrap();
+        }
 
         let got: Vec<String> = list_dir(&d)
             .unwrap()

@@ -291,7 +291,8 @@ export default defineConfig({
  * （`fsservice::list_dir` 不再有 `show_hidden`），桩里一个都没有的话，
  * 浏览器里的文件树和 `.app` 里长得不一样 —— 而改 UI 的主循环就在浏览器里。
  *
- * `node_modules` / `target` / `dist` / `build` 那四个**故意不放**：
+ * 生成物目录（`node_modules` / `target` / `dist` / `build` / `venv` /
+ * `__pycache__` / `vendor`，名单在 `crates/excludes`）**故意不放**：
  * 真实现永远不列它们，桩里放了反而是假的。
  */
 /**

@@ -53,7 +53,7 @@ export interface DirEntry {
 /** 探测路径：目录还是文件，文件该用哪种模式打开 */
 export const probePath = (path: string) => invoke<PathInfo>("probe_path", { path });
 
-/** 列一层目录。点文件一律列出来，`node_modules` / `target` / `dist` / `build` 一律不列 */
+/** 列一层目录。点文件一律列出来，生成物目录（`excludes` crate 那份名单）一律不列 */
 export const listDir = (path: string) => invoke<DirEntry[]>("list_dir", { path });
 
 export interface TextFile {

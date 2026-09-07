@@ -1,5 +1,12 @@
 [workspace]
-members = ["crates/logengine", "crates/fsservice", "crates/ptysvc", "crates/searchsvc", "crates/gitsvc"]
+members = [
+    "crates/logengine",
+    "crates/excludes",
+    "crates/fsservice",
+    "crates/ptysvc",
+    "crates/searchsvc",
+    "crates/gitsvc",
+]
 
 [package]
 name = "lite-ide"

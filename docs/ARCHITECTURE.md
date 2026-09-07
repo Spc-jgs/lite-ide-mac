@@ -264,6 +264,7 @@ lite-ide/
    │  └─ state.rs                # 句柄表：日志会话 / 过滤任务 / pty / 远程操作
    └─ crates/
       ├─ logengine/   ★          # index / mmap / reader / filter / level + benches
+      ├─ excludes/               # 哪些目录不进视野：文件树与搜索共用的唯一一份名单
       ├─ fsservice/
       ├─ searchsvc/
       ├─ gitsvc/                 # 含 progress.rs / remote.rs（M7 的网络那半边）
