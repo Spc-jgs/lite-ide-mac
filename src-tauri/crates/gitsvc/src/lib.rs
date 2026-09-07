@@ -202,6 +202,17 @@ type R<T> = Result<T, Error>;
 ///
 /// 真正的解法是「这个目录信不信得过」那一套（VS Code 的受限模式），
 /// 那是另一件事；这里先把**不用点就会跑**的那条路堵死。
+///
+/// # `diff.external=` 是 fail-closed 的，这是有意的
+///
+/// 把它设成**空串**之后，一条没带 `--no-ext-diff` 的 `git diff` 不会「照常出
+/// 差异」，而是**直接失败**：git 去执行那条空命令，报
+/// `error: cannot run : No such file or directory`。
+///
+/// 留着这个行为，不换成 `/usr/bin/true` 之类「无害的真命令」——
+/// 那样忘了 [`DIFF_SAFE`] 的新入口会**悄悄拿到一份空差异**，而现在它会当场炸。
+/// 宁可报一句难看的错，也不能让「忘了加参数」变成一次静默的安全回退。
+/// 有一条测试钉着这件事，别把它「修」成不报错。
 const HARDENING: &[&str] = &[
     "-c",
     "core.fsmonitor=",
@@ -2057,6 +2068,18 @@ mod tests {
         // ④ 首次提交没有父，`sha^!` 会失败而回退到 git show —— 那条当初完全没设防
         let _ = commit_diff(&dir, &first, "a.txt");
         assert!(!marker.exists(), "首次提交的 show 回退执行了仓库自带的脚本");
+
+        // ⑤ **忘了 DIFF_SAFE 的新入口必须当场炸，不能悄悄拿到一份空差异。**
+        //
+        // `-c diff.external=` 让 git 去执行一条空命令，于是这种调用直接失败。
+        // 这是有意的 fail-closed，理由见 HARDENING 的注释。
+        // 2026-09-07 拿真仓库验收时正是从这条错误消息上发现这个行为的。
+        let e = run_raw(&dir, &["diff", "--", "a.txt"]).expect_err("忘了 DIFF_SAFE 就该失败");
+        assert!(
+            format!("{e}").contains("cannot run"),
+            "失败的理由要能看出是外部 diff 驱动，实得：{e}"
+        );
+        assert!(!marker.exists(), "忘了 DIFF_SAFE 竟然把仓库自带的脚本跑了");
 
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_file(&marker).ok();

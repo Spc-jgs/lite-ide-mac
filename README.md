@@ -150,12 +150,12 @@ src-tauri/
 ## 测试
 
 ```bash
-cd src-tauri && cargo test --workspace    # Rust 95 条
+cd src-tauri && cargo test --workspace    # Rust 162 条
 pnpm check                                # 类型检查
-pnpm test                                 # 前端纯函数 87 条断言
+pnpm test                                 # 前端纯函数 324 条断言
 ```
 
-前端那 87 条不引测试框架：测的全是纯函数（diff 解析、双栏对照、泳道布局、
+前端那 324 条不引测试框架：测的全是纯函数（diff 解析、双栏对照、泳道布局、
 冲突解析、改动行标记），输入输出都是普通数据结构，Node 22+ 能直接跑 `.ts`。
 为它们装一套 vitest 加一堆 transform 配置，维护成本比被测代码还高。
 
