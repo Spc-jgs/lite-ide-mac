@@ -164,7 +164,10 @@ pub fn detect_encoding(path: String) -> Result<String, String> {
     let mut buf = vec![0u8; SAMPLE];
     let n = f.read(&mut buf).map_err(|e| format!("{e}"))?;
     buf.truncate(n);
-    Ok(fsservice::encoding::decode(&buf).encoding.to_string())
+    // 用 detect_label 而不是 decode：样本是按字节截的，末尾多半切在一个
+    // 多字节字符中间，而 decode 会把那当成「这不是 UTF-8」去猜别的编码。
+    // 一个 26MB 的中文 UTF-8 日志就是这么整份渲染成乱码的
+    Ok(fsservice::encoding::detect_label(&buf).to_string())
 }
 
 /// 界面上给用户挑的编码清单

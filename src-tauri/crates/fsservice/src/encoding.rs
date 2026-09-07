@@ -36,6 +36,39 @@ pub struct Decoded {
     pub lossy: bool,
 }
 
+/// 只判编码标签，**给「按字节数截出来的样本」用**。
+///
+/// # 为什么不能直接用 [`decode`]
+///
+/// 样本是拿 `read` 截的，末尾极可能正好切在一个多字节字符中间。
+/// 那时 `std::str::from_utf8` 会失败 —— 而这个失败**不是**「这不是 UTF-8」，
+/// 是「这段还没读完」。[`decode`] 分不清这两者，于是掉进第 3 步去猜，
+/// 而那一步 `allow_utf8 = false`，猜出来的必然是别的编码。
+///
+/// 后果实测过（2026-09-07，拿真 `.app` 验收时撞见的）：一个 26MB、
+/// 全是中文的 UTF-8 日志，`detect_encoding` 取 256KB 样本，边界正好落在
+/// `，`（`ef bc 8c`）的第三个字节上，于是整份日志在界面上渲染成
+/// `æœåŠ¡å¤„ç†å®Œæˆ` 那样的乱码。**而这正是这个应用的主场景** ——
+/// 带中文的大日志，撞上的概率是 2/3。
+///
+/// `Utf8Error::error_len()` 返回 `None` 就表示「结尾被切断」，
+/// 这里认的就是它。
+pub fn detect_label(sample: &[u8]) -> &'static str {
+    if let Some((enc, _)) = sniff_bom(sample) {
+        return enc.name();
+    }
+    match std::str::from_utf8(sample) {
+        Ok(_) => return UTF_8.name(),
+        // 只在「前面都是好的、坏在结尾」时才认。`valid_up_to() == 0`
+        // （整个样本就是半个字符）说明证据不足，还是交给统计探测
+        Err(e) if e.error_len().is_none() && e.valid_up_to() > 0 => return UTF_8.name(),
+        Err(_) => {}
+    }
+    let mut det = chardetng::EncodingDetector::new();
+    det.feed(sample, true);
+    det.guess(None, false).name()
+}
+
 /// 探测并解码。
 pub fn decode(bytes: &[u8]) -> Decoded {
     // 1. BOM 是文件自己的声明，优先级最高
@@ -164,6 +197,45 @@ pub fn canonical(label: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **样本被切在多字节字符中间，仍然要判成 UTF-8。**
+    ///
+    /// 这是 2026-09-07 拿真 `.app` 验收时撞见的 bug：一个 26MB 全中文的
+    /// UTF-8 日志，`detect_encoding` 取 256KB 样本，边界落在 `，` 的第三个
+    /// 字节上 —— 于是判成了别的编码，整份日志渲染成乱码。
+    #[test]
+    fn 样本切在半个字符上仍要判成utf8() {
+        let text = "2026-09-07 INFO  服务处理完成，第 1 条记录\n".repeat(500);
+        let bytes = text.as_bytes();
+        // 找一个切在多字节字符中间的位置
+        let mut cut = bytes.len() - 1;
+        while std::str::from_utf8(&bytes[..cut]).is_ok() {
+            cut -= 1;
+        }
+        assert!(
+            std::str::from_utf8(&bytes[..cut]).is_err(),
+            "这个切点应该是坏的，测试才有意义"
+        );
+        assert_eq!(
+            detect_label(&bytes[..cut]),
+            "UTF-8",
+            "切在半个字符上就把一份 UTF-8 判成别的编码 —— 整份日志会渲染成乱码"
+        );
+        // 完整的样本当然也要对
+        assert_eq!(detect_label(bytes), "UTF-8");
+    }
+
+    /// 反过来也要成立：真的不是 UTF-8 的样本，不能被上面那条放过去
+    #[test]
+    fn 真的gbk样本不能被判成utf8() {
+        let (gbk, _, _) = encoding_rs::GBK.encode("服务处理完成，第 1 条记录\n服务启动\n");
+        assert!(std::str::from_utf8(&gbk).is_err(), "GBK 字节不该是合法 UTF-8");
+        assert_ne!(
+            detect_label(&gbk),
+            "UTF-8",
+            "把 GBK 判成 UTF-8 会让正文变成一片替换字符"
+        );
+    }
 
     #[test]
     fn 纯ascii判成utf8而不是去猜() {
