@@ -342,8 +342,14 @@
         这里原来还有一句「工作区干净」。它和折叠起来的提交按钮里那句
         一模一样，同屏印了两遍 —— 空态现在只由上面那块 .empty 负责。
       -->
+      <!--
+        条数写实际值，不写死 5000。`truncated` 现在有两个来源：条目数撞上
+        `MAX_ENTRIES`（5000），或者 `git status` 的 stdout 撞上字节上限
+        （2026-09-07 给它设的闸）。后者截在哪儿看运气，写死 5000 就是
+        一句和眼前列表对不上的话。
+      -->
       {#if status.truncated}
-        <div class="hint">改动过多，只列出了前 5000 条</div>
+        <div class="hint">改动过多，只列出了前 {status.entries.length} 条</div>
       {/if}
     </div>
   {/if}

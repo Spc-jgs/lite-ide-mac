@@ -40,6 +40,23 @@ pub const MAX_ENTRIES: usize = 5_000;
 /// 「跑子进程读它 stdout」一律先问一句：这东西的输出有上限吗。
 const MAX_UNTRACKED_BYTES: usize = 1 << 20;
 
+/// 一条 git 命令的 stdout 最多收多少字节。
+///
+/// **AGENTS.md 那条「跑子进程读它 stdout，先问一句这东西的输出有上限吗」
+/// 在这里漏了第三次。** 前两次是 `searchsvc::grep_rg` 和
+/// `fsservice::read_text_detect`，都记在 rules/rust.md 里；这一次是
+/// `run_raw` 自己 —— 它用 `.output()`，把整份 stdout 全缓冲进内存。
+///
+/// 走这条路的里头有两条输出真的没上界：
+/// - `status`：改动文件数由仓库说了算。`MAX_ENTRIES` 只截**解析出来的条目**，
+///   截不住已经读进内存的那几 MB。而它是全应用最高频的一条，还跑在主线程上。
+/// - `commit`：pre-commit 钩子想打印多少打印多少（rules/rust.md 自己说
+///   钩子能跑三十秒的 eslint）。
+///
+/// 4MB 是「正常情况下永远撞不到、病态情况下不至于把内存吃穿」那一档：
+/// 本仓库 `git status` 全改动约 40KB，`for-each-ref` 全分支约 3KB。
+const MAX_STDOUT_BYTES: usize = 4 << 20;
+
 /// 一次 `git diff` 最多收多少字节。
 ///
 /// **为什么必须有这道闸**：一个 30MB 的新增文件，`git diff` 会原样吐出 30MB。
@@ -159,10 +176,6 @@ impl std::error::Error for Error {}
 
 type R<T> = Result<T, Error>;
 
-/// 跑一条 git 命令，返回 stdout 的原始字节。
-///
-/// stdout 保持 `Vec<u8>` 不转 String：路径在 git 眼里是字节串，
-/// macOS 上确实可能有非 UTF-8 的文件名，提前 `from_utf8` 会在这类仓库上直接崩。
 /// 仓库自带的配置里，**能让 git 去执行一条命令**的那几项，一律就地掐掉。
 ///
 /// 这不是理论风险。`.git/config` 是仓库自己带的文件 —— 别人给你一个目录
@@ -225,18 +238,130 @@ pub(crate) fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
     c
 }
 
-fn run_raw(cwd: &Path, args: &[&str]) -> R<Vec<u8>> {
-    let out = git_cmd(cwd, args).output().map_err(Error::NoGit)?;
+/// 起一条线程把 stderr 排空，最多**留下** `cap` 字节。
+///
+/// **不能先把 stdout 读完再去读 stderr。** 那是个真的会挂住的死锁：两个管道
+/// 各有几十 KB 缓冲，子进程写满 stderr 就阻塞在写上，而我们正等着 stdout 的
+/// EOF —— 那个 EOF 要等子进程退出才来。
+///
+/// 这不是理论风险，是**实测撞上的**：git 2.50 把 pre-commit 钩子的 stdout
+/// **转到了 stderr**（实测一个 200 行的钩子：stdout 89 字节、stderr 2892 字节），
+/// 于是一个话多的钩子就能让 `git commit` 和我们互相等到天荒地老 ——
+/// 界面上表现为「点了提交，然后什么都不再发生」。
+///
+/// 原来的 `.output()` 反而没这个问题：它内部就是并发读两个管道的。
+/// 手写顺序读的那一刻就得把这条一起写下来。
+///
+/// 线程里**超过 cap 也要继续读**，只是不再存 —— 停下来就是同一个死锁。
+fn drain_stderr(mut src: std::process::ChildStderr, cap: usize) -> std::thread::JoinHandle<Vec<u8>> {
+    use std::io::Read;
+    std::thread::spawn(move || {
+        let mut kept = Vec::new();
+        let mut chunk = [0u8; 8 << 10];
+        loop {
+            match src.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if kept.len() < cap {
+                        let room = cap - kept.len();
+                        kept.extend_from_slice(&chunk[..n.min(room)]);
+                    }
+                }
+            }
+        }
+        kept
+    })
+}
 
-    if !out.status.success() {
-        let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+/// stderr 留多少字节 —— 够拼出一句能读的报错就行
+const MAX_STDERR_BYTES: usize = 8 << 10;
+
+/// 跑一条 git 命令，返回 stdout 的原始字节。**输出有上限**（[`MAX_STDOUT_BYTES`]）。
+///
+/// stdout 保持 `Vec<u8>` 不转 String：路径在 git 眼里是字节串，
+/// macOS 上确实可能有非 UTF-8 的文件名，提前 `from_utf8` 会在这类仓库上直接崩。
+///
+/// 走这条路的命令，输出都该是**由构造决定的有界量**（一个 sha、一个分支名、
+/// 一份分支列表）。所以超上限时**报错而不是截断**：一份少了后半截的分支列表
+/// 看着和完整的一模一样，而它会让「这个分支存不存在」这类判断悄悄给出错答案。
+/// 判据同差异那条 `truncated` —— 宁可说「我读不下」，不能给一份假的完整。
+///
+/// 输出**本来就可能很大**的两条不走这里：`status` 用 [`status_capped`]
+/// （截断了标 `truncated`），`commit` 用 [`run_drained`]（钩子话多不算失败）。
+fn run_raw(cwd: &Path, args: &[&str]) -> R<Vec<u8>> {
+    run_raw_capped(cwd, args, MAX_STDOUT_BYTES)
+}
+
+/// 上限可注入的版本，**为了能测**。
+///
+/// 判据同 `fsservice::read_text_detect` 那个可注入上限：真造一个 4MB 输出的
+/// 仓库来测这道闸不现实，而不测的话，把这道闸删掉所有测试照样绿。
+fn run_raw_capped(cwd: &Path, args: &[&str], cap: usize) -> R<Vec<u8>> {
+    let (out, truncated) = run_capped_raw(cwd, args, cap, &[])?;
+    if truncated {
+        return Err(Error::Git(format!(
+            "git {} 的输出超过 {} KB —— 这条命令的输出本该是有界的，多半是仓库处在病态状态",
+            args.first().copied().unwrap_or(""),
+            cap / 1024
+        )));
+    }
+    Ok(out)
+}
+
+/// 跑一条 git 命令，最多**留下** `cap` 字节 stdout，但把剩下的**读完再扔掉**。
+///
+/// 和 [`run_capped_raw`] 的区别是这里**不 kill 子进程**。给 `commit` 用：
+/// 它的退出码必须是可信的 —— 掐掉进程会让「提交成功但钩子话多」和
+/// 「提交失败」变得分不出来，而**把一次成功的提交报成失败，比截断一段输出
+/// 危险得多**（用户会照着那句话再提交一次）。
+///
+/// 代价只是把超出的字节读完扔掉：内存仍然是有界的，省不掉的只有 I/O。
+fn run_drained(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool)> {
+    use std::io::Read;
+
+    let mut child = git_cmd(cwd, args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(Error::NoGit)?;
+
+    // 先把 stderr 挂到自己的线程上再读 stdout —— 次序反了就是死锁，见 drain_stderr
+    let errs = drain_stderr(
+        child.stderr.take().expect("stderr 已 piped"),
+        MAX_STDERR_BYTES,
+    );
+
+    let mut out = Vec::new();
+    // 数总量而不是「out 满没满」：正好读满 cap 而后面再没有了，那不算截断
+    let mut total = 0usize;
+    {
+        let stdout = child.stdout.as_mut().expect("stdout 已 piped");
+        let mut buf = [0u8; 16 << 10];
+        loop {
+            match stdout.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    total += n;
+                    if out.len() < cap {
+                        let room = cap - out.len();
+                        out.extend_from_slice(&buf[..n.min(room)]);
+                    }
+                }
+            }
+        }
+    }
+    let truncated = total > cap;
+    let err = errs.join().unwrap_or_default();
+    let status = child.wait().map_err(Error::NoGit)?;
+    if !status.success() {
+        let msg = String::from_utf8_lossy(&err).trim().to_string();
         return Err(Error::Git(if msg.is_empty() {
             format!("git {} 失败", args.first().copied().unwrap_or(""))
         } else {
             msg
         }));
     }
-    Ok(out.stdout)
+    Ok((out, truncated))
 }
 
 pub(crate) fn run(cwd: &Path, args: &[&str]) -> R<String> {
@@ -285,6 +410,19 @@ fn run_capped_raw(cwd: &Path, args: &[&str], cap: usize, ok_codes: &[i32]) -> R<
         .spawn()
         .map_err(Error::NoGit)?;
 
+    /*
+     * stderr 先挂到自己的线程上，再读 stdout。
+     *
+     * 原来是「读完 stdout 再顺序读 stderr」，注释写的是「stderr 也要限量读：
+     * 管道写满时 git 会阻塞」—— 限量是对的，**顺序是错的**：子进程写满 stderr
+     * 就卡在写上，而我们在等 stdout 的 EOF，那个 EOF 要等它退出才来。
+     * 2026-09-07 在 `git commit` 上真的挂住了一次（见 drain_stderr）。
+     */
+    let errs = drain_stderr(
+        child.stderr.take().expect("stderr 已 piped"),
+        MAX_STDERR_BYTES,
+    );
+
     let mut out = Vec::new();
     {
         let stdout = child.stdout.as_mut().expect("stdout 已 piped");
@@ -303,11 +441,7 @@ fn run_capped_raw(cwd: &Path, args: &[&str], cap: usize, ok_codes: &[i32]) -> R<
         let _ = child.kill();
     }
 
-    // stderr 也要限量读：管道写满时 git 会阻塞，而我们已经不读 stdout 了
-    let mut err = Vec::new();
-    if let Some(stderr) = child.stderr.as_mut() {
-        let _ = stderr.take(8 << 10).read_to_end(&mut err);
-    }
+    let err = errs.join().unwrap_or_default();
     let status = child.wait().map_err(Error::NoGit)?;
 
     // 被我们掐掉的进程，退出码没有意义，不能当成失败
@@ -343,8 +477,17 @@ pub fn discover(path: impl AsRef<Path>) -> Option<PathBuf> {
 /// - `-z` 用 NUL 分隔记录，路径不做 C 风格转义 —— v1 遇到带空格或中文的
 ///   路径会加引号并转义，解析端要反过来解一遍，纯属自找麻烦。
 pub fn status(root: impl AsRef<Path>) -> R<Status> {
-    let root = root.as_ref();
-    let raw = run_raw(
+    status_capped(root.as_ref(), MAX_STDOUT_BYTES)
+}
+
+/// 上限可注入的版本，**为了能测**（判据同 [`run_raw_capped`]）。
+///
+/// status **不能像 [`run_raw`] 那样超上限就报错**：改动多是仓库的正常状态，
+/// 把整块 Git 功能变成一条报错，比少列几条改动糟得多。所以这条路截断，
+/// 而截断了要标 `truncated` —— 界面据此说「还有更多」，
+/// 和 `MAX_ENTRIES` 截断走的是同一个出口。
+fn status_capped(root: &Path, cap: usize) -> R<Status> {
+    let (raw, capped) = run_capped_raw(
         root,
         &[
             "status",
@@ -353,8 +496,16 @@ pub fn status(root: impl AsRef<Path>) -> R<Status> {
             "-z",
             "--untracked-files=normal",
         ],
+        cap,
+        &[],
     )?;
-    let mut st = parse_status(&raw);
+    // 掐点落在哪儿全看运气，末尾多半是半条路径 —— 丢掉它。
+    // 留着就会在改动列表里多出一个看着像真的、其实是半截的文件名
+    let raw = if capped { trim_to_last_record(&raw) } else { &raw[..] };
+    let mut st = parse_status(raw);
+    if capped {
+        st.truncated = true;
+    }
     expand_untracked_dirs(root, &mut st);
     Ok(st)
 }
@@ -402,6 +553,16 @@ fn expand_untracked_dirs(root: &Path, st: &mut Status) {
     st.entries.sort_by(|a, b| a.path.cmp(&b.path));
 }
 
+/// 砍到最后一条**完整**记录为止（`-z` 的记录以 NUL 结尾）。
+///
+/// 一个 NUL 都没有 = 连一条完整记录都没读到，那就一条都不能要。
+fn trim_to_last_record(raw: &[u8]) -> &[u8] {
+    match raw.iter().rposition(|&b| b == 0) {
+        Some(i) => &raw[..i + 1],
+        None => &[],
+    }
+}
+
 /// 把 `-z` 的输出切成一条条记录。
 ///
 /// `capped` 为真时**末尾那条要丢掉** —— `run_capped_raw` 是按字节掐的，
@@ -409,16 +570,8 @@ fn expand_untracked_dirs(root: &Path, st: &mut Status) {
 /// **看着像真的、其实是半截的**文件名（`src/OrderServ`），点开报「文件不存在」。
 /// 这和差异截断要切回最后一个完整换行是同一条：宁可少一条，不能多一条假的。
 fn split_nul_records(raw: &[u8], capped: bool) -> Vec<String> {
-    let end = if capped {
-        // 没有任何一个 NUL：连一条完整记录都没读到，一条都不能要
-        match raw.iter().rposition(|&b| b == 0) {
-            Some(i) => i + 1,
-            None => 0,
-        }
-    } else {
-        raw.len()
-    };
-    raw[..end]
+    let head = if capped { trim_to_last_record(raw) } else { raw };
+    head
         .split(|&b| b == 0)
         .filter(|r| !r.is_empty())
         .map(|r| String::from_utf8_lossy(r).into_owned())
@@ -695,7 +848,17 @@ pub fn commit(root: impl AsRef<Path>, message: &str, amend: bool) -> R<String> {
     if amend {
         args.push("--amend");
     }
-    run(root.as_ref(), &args)
+    // 走 run_drained 而不是 run：pre-commit 钩子想打印多少打印多少，
+    // 而**掐掉子进程会让退出码失去意义** —— 那时「提交成功但钩子话多」和
+    // 「提交失败」就分不出来了，而把一次成功的提交报成失败，
+    // 会让用户照着那句话再提交一次。
+    let (out, truncated) = run_drained(root.as_ref(), &args, MAX_STDOUT_BYTES)?;
+    let mut s = String::from_utf8_lossy(&out).into_owned();
+    if truncated {
+        // 前端只取第一行显示，但这句得留在里头 —— 万一以后有人整段展示
+        s.push_str("\n（钩子输出太长，已截断）");
+    }
+    Ok(s)
 }
 
 /// git 在不在。不在就整块功能隐身。
@@ -1788,6 +1951,15 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// 一个干净的临时目录。名字带 pid —— 失败时不清理，
+    /// 而残留目录会让下一次 `git init` 撞上（remote 那边踩过这个坑）
+    fn tmpdir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("gitsvc-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
     /// 造一个「配置里挂着一条可执行脚本」的仓库。
     ///
     /// 返回 `(仓库路径, 痕迹文件)` —— 脚本一旦被 git 执行，痕迹文件就会出现。
@@ -1888,5 +2060,182 @@ mod tests {
 
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_file(&marker).ok();
+    }
+
+    /// **输出本该有界的命令，超上限要报错，不能闷头收下。**
+    ///
+    /// `run_raw` 原来用 `.output()` —— 把整份 stdout 全缓冲进内存，没有任何上限。
+    /// 这是 AGENTS.md 那条「跑子进程读它 stdout，先问一句有没有上限」
+    /// 第三次漏在同一个形状上。
+    ///
+    /// 上限可注入正是为了这条测试：真造一个 4MB 输出的仓库不现实，
+    /// 而不测的话，把这道闸删掉所有测试照样绿。
+    #[test]
+    fn 输出超过上限的命令要报错而不是给一份半截的() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = tmpdir("cap-run");
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次提交", false).unwrap();
+
+        // ① 接线：走真正的 `run_raw`（用真正的 MAX_STDOUT_BYTES）。
+        //
+        // 这一段是有代价的 —— 要真造一份 5MB 的输出。**但省不掉**：
+        // 只测可注入上限的那个版本，把 `run_raw` 改回 `.output()` 之后
+        // 测试照样绿（试过），那就成了一条测不到接线的断言。
+        let big = "这一行是用来把输出撑到 4MB 以上的噪声\n".repeat(100_000);
+        assert!(big.len() > MAX_STDOUT_BYTES, "造出来的得比上限大");
+        std::fs::write(dir.join("big.txt"), &big).unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "一个大文件", false).unwrap();
+
+        let e = run_raw(&dir, &["show", "HEAD:big.txt"]).expect_err("超上限必须报错");
+        let msg = format!("{e}");
+        assert!(
+            msg.contains("输出超过"),
+            "报错要说清是被上限拦下的，实得：{msg}"
+        );
+
+        // ② 上限本身：可注入的版本，两边界各验一次
+        let args = ["for-each-ref", "--format=%(refname)"];
+        assert!(
+            run_raw_capped(&dir, &args, 16 << 10).is_ok(),
+            "正常大小不该被拦"
+        );
+        assert!(
+            run_raw_capped(&dir, &args, 4).is_err(),
+            "4 字节的上限必须拦下分支列表"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **status 的输出被掐断时：标 `truncated`，而且不许留下半截路径。**
+    ///
+    /// status 不能像别的命令那样超上限就报错 —— 改动多是仓库的正常状态，
+    /// 把整块 Git 功能变成一条报错，比少列几条改动糟得多。所以它截断，
+    /// 而截断必须说出来，且末尾那条半截记录必须丢掉：
+    /// 留着就是改动列表里一个**看着像真的、其实点不开**的文件名。
+    #[test]
+    fn status_被掐断时要标出来且不留半截路径() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = tmpdir("cap-status");
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        // 名字取长一点，好让「掐在半条路径上」真的发生
+        let names: Vec<String> = (0..40)
+            .map(|i| format!("一个名字相当长的未跟踪文件-{i:02}.txt"))
+            .collect();
+        for n in &names {
+            std::fs::write(dir.join(n), "x\n").unwrap();
+        }
+
+        let full = status_capped(&dir, MAX_STDOUT_BYTES).unwrap();
+        assert!(!full.truncated, "这点输出不该被截断");
+        assert_eq!(full.entries.len(), 40);
+
+        let cut = status_capped(&dir, 512).unwrap();
+        assert!(cut.truncated, "掐断了必须标 truncated");
+        assert!(cut.entries.len() < 40, "掐断了条目就该变少");
+        for e in &cut.entries {
+            assert!(
+                names.contains(&e.path),
+                "留下了一条半截路径：{:?} —— 它在改动列表里点不开",
+                e.path
+            );
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **钩子话多，不能把提交挂住。**
+    ///
+    /// 这条是并发排空 stderr（`drain_stderr`）存在的全部理由，而且是**真的挂过**：
+    /// 第一版把 `run_drained` 写成「先把 stdout 读完，再顺序读 stderr」，
+    /// 跑这条测试时 `git commit` 和测试进程互相等着，最后是手动 kill 掉的。
+    ///
+    /// 根因是一个反直觉的事实：**git 2.50 把 pre-commit 钩子的 stdout 转到了
+    /// stderr** —— 实测一个 200 行的钩子，git 的 stdout 只有 89 字节，
+    /// stderr 有 2892 字节。于是钩子一话多就写满 stderr 那几十 KB 缓冲，
+    /// 卡在写上；而我们在等 stdout 的 EOF，那个 EOF 要等它退出才来。
+    ///
+    /// 界面上的表现是「点了提交，然后什么都不再发生」。
+    ///
+    /// 卡 20 秒：修好之后实测不到 1 秒，挂住的那一版会走满 20 秒。
+    #[test]
+    fn 钩子话多不能把提交挂住() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tmpdir("noisy-hook");
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+
+        // 5000 行约 150KB，稳稳超过管道那几十 KB 的缓冲
+        let hook = dir.join(".git/hooks/pre-commit");
+        std::fs::write(
+            &hook,
+            "#!/bin/sh\nfor i in $(seq 1 5000); do echo \"eslint: 一切正常，这行纯属噪声 $i\"; done\nexit 0\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let d = dir.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(commit(&d, "钩子话很多", false).is_ok());
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(20)) {
+            Ok(ok) => assert!(ok, "钩子退出码是 0，提交不该失败"),
+            Err(_) => panic!("提交挂住了 —— stderr 没有被并发排空（见 drain_stderr）"),
+        }
+        assert!(
+            status_full(&dir).unwrap().entries.is_empty(),
+            "提交应该真的发生了，工作区该是干净的"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `run_drained` 的另一半：**stdout 超上限时留下的字节要被管住，但不算失败。**
+    ///
+    /// 和 `run_raw` 那条相反 —— 那边超上限是报错（输出本该有界），
+    /// 这边是截断（钩子话多是正常的，报错等于把成功的提交说成失败）。
+    #[test]
+    fn run_drained_超上限只截断不报错() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = tmpdir("drain-cap");
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次提交", false).unwrap();
+
+        let args = ["for-each-ref", "--format=%(refname)"];
+        let (out, truncated) = run_drained(&dir, &args, 4).expect("截断不是失败");
+        assert!(truncated, "输出比 4 字节长，应该报截断");
+        assert!(out.len() <= 4, "留下的字节要被上限管住，实得 {}", out.len());
+
+        let (out, truncated) = run_drained(&dir, &args, 16 << 10).unwrap();
+        assert!(!truncated, "正常大小不该报截断");
+        assert!(String::from_utf8_lossy(&out).contains("refs/heads/main"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
