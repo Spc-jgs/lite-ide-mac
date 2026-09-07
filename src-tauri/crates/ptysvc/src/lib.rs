@@ -345,68 +345,132 @@ mod tests {
         )
     }
 
-    /// 读到包含 needle 为止，或超时。
+    /// pty 的输出累加器。**可以反复等**，这是它和原来那个一次性
+    /// `read_until` 的唯一区别，而那个区别是必须的（见 [`Output::wait_for`]）。
     ///
     /// 必须把 read 放进独立线程 + channel 超时：`Read::read` 是阻塞的，
     /// 在主线程里循环判 deadline 根本判不到 —— 没数据时它就卡死在那儿了。
-    fn read_until(mut reader: Box<dyn Read + Send>, needle: &str, secs: u64) -> String {
-        use std::sync::mpsc::{self, RecvTimeoutError};
-        let (tx, rx) = mpsc::channel::<String>();
-        std::thread::spawn(move || {
-            probe("    read 线程起来了");
-            let mut buf = [0u8; 4096];
-            let mut first = true;
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) | Err(_) => {
-                        probe("    read 到 EOF/错误，退出");
-                        break;
-                    }
-                    Ok(n) => {
-                        if first {
-                            probe("    read 拿到第一批数据");
-                            first = false;
-                        }
-                        if tx
-                            .send(String::from_utf8_lossy(&buf[..n]).into_owned())
-                            .is_err()
-                        {
+    struct Output {
+        rx: std::sync::mpsc::Receiver<String>,
+        acc: String,
+    }
+
+    impl Output {
+        fn new(mut reader: Box<dyn Read + Send>) -> Self {
+            use std::sync::mpsc;
+            let (tx, rx) = mpsc::channel::<String>();
+            std::thread::spawn(move || {
+                probe("    read 线程起来了");
+                let mut buf = [0u8; 4096];
+                let mut first = true;
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) | Err(_) => {
+                            probe("    read 到 EOF/错误，退出");
                             break;
                         }
+                        Ok(n) => {
+                            if first {
+                                probe("    read 拿到第一批数据");
+                                first = false;
+                            }
+                            if tx
+                                .send(String::from_utf8_lossy(&buf[..n]).into_owned())
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
                     }
+                }
+            });
+            Self { rx, acc: String::new() }
+        }
+
+        /// 等到累计输出里出现 `needle`，或者超时。已经收到的内容会留着。
+        fn wait_for(&mut self, needle: &str, secs: u64) -> bool {
+            use std::sync::mpsc::RecvTimeoutError;
+            if self.acc.contains(needle) {
+                return true;
+            }
+            let deadline = Instant::now() + Duration::from_secs(secs);
+            while Instant::now() < deadline {
+                match self.rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(chunk) => {
+                        self.acc.push_str(&chunk);
+                        if self.acc.contains(needle) {
+                            return true;
+                        }
+                    }
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => break,
                 }
             }
-        });
+            false
+        }
 
-        let mut acc = String::new();
-        let deadline = Instant::now() + Duration::from_secs(secs);
-        while Instant::now() < deadline {
-            match rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(chunk) => {
-                    acc.push_str(&chunk);
-                    if acc.contains(needle) {
-                        break;
-                    }
+        /// 等到 shell 吐出**任何**东西（也就是提示符）为止。
+        ///
+        /// 这一步是 [issue #16] 的解药。原来的测试是 spawn 完**立刻**往 pty 里
+        /// 写命令，而登录 shell 那时还在 source rc 文件 —— tty 的行规程会把
+        /// 敲进去的字回显出来（所以输出里看得到 `pwd\r\n`），但 rc 里只要有
+        /// 一处清输入队列的动作（instant prompt、`zle` 复位、`stty`），
+        /// **那条命令就永远不会被执行**，而不是「晚一点执行」。
+        ///
+        /// 表现正是当初抓到的那个形状：只读到回显，10s 内等不到结果。
+        /// 机器一忙、rc 一慢，撞上的概率就高 —— 所以它是间歇的。
+        ///
+        /// 真人不会这么用：人是看见提示符才敲的。测试也照做。
+        ///
+        /// [issue #16]: https://github.com/Spc-jgs/lite-ide-mac/issues/16
+        fn wait_prompt(&mut self, secs: u64) -> bool {
+            use std::sync::mpsc::RecvTimeoutError;
+            let deadline = Instant::now() + Duration::from_secs(secs);
+            while self.acc.trim().is_empty() && Instant::now() < deadline {
+                match self.rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(chunk) => self.acc.push_str(&chunk),
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => break,
                 }
-                Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            !self.acc.trim().is_empty()
+        }
+
+        fn text(&self) -> &str {
+            &self.acc
+        }
+    }
+
+    /// 写一条命令并等它的输出，**写不中就再写一遍**。
+    ///
+    /// 等提示符已经把绝大多数情况挡掉了，这一层是兜底：有的 rc 会先画一个
+    /// 提示符、然后接着跑（p10k 的 instant prompt 就是这样），那一段里打进去的
+    /// 字照样可能被清掉。重写一遍是无害的 —— 多跑一次 `pwd` 而已。
+    ///
+    /// **它不会把「cwd 错了」磨绿**：断言的是输出里有没有那个路径，
+    /// cwd 真错的话写多少遍都等不到，最后照样红（只是慢 20 秒）。
+    fn send_until(sess: &Arc<Mutex<Session>>, cmd: &[u8], needle: &str, out: &mut Output) -> bool {
+        for _ in 0..20 {
+            if sess.lock().unwrap().write_input(cmd).is_err() {
+                return false;
+            }
+            if out.wait_for(needle, 1) {
+                return true;
             }
         }
-        acc
+        false
     }
 
     #[test]
     fn 能起_shell_并执行命令() {
         with_deadline(25, || {
             let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
-            sess.lock()
-                .unwrap()
-                .write_input(b"echo LITE_IDE_PTY_OK\n")
-                .unwrap();
-            let out = read_until(reader, "LITE_IDE_PTY_OK", 10);
+            let mut out = Output::new(reader);
+            assert!(out.wait_prompt(10), "10s 内 shell 一个字都没吐出来");
             assert!(
-                out.contains("LITE_IDE_PTY_OK"),
-                "没读到回显，实际输出：{out:?}"
+                send_until(&sess, b"echo LITE_IDE_PTY_OK\n", "LITE_IDE_PTY_OK", &mut out),
+                "没读到回显，实际输出：{:?}",
+                out.text()
             );
         });
     }
@@ -417,11 +481,13 @@ mod tests {
             probe("  spawn 前");
             let (sess, reader) = Session::spawn("/usr", 80, 24).expect("起不来");
             probe("  spawn 回来了");
-            sess.lock().unwrap().write_input(b"pwd\n").unwrap();
-            probe("  write_input 回来了");
-            let out = read_until(reader, "/usr", 10);
-            probe("  read_until 回来了");
-            assert!(out.contains("/usr"), "cwd 没生效，实际输出：{out:?}");
+            let mut out = Output::new(reader);
+            // 先等提示符再敲命令 —— issue #16，理由见 Output::wait_prompt
+            assert!(out.wait_prompt(10), "10s 内 shell 一个字都没吐出来");
+            probe("  等到提示符了");
+            let ok = send_until(&sess, b"pwd\n", "/usr", &mut out);
+            probe("  send_until 回来了");
+            assert!(ok, "cwd 没生效，实际输出：{:?}", out.text());
             probe("  断言过了，开始 drop");
             // drop 写成显式的，否则它发生在闭包末尾，量不到边界。
             // 时机和原来的隐式 drop 完全一样 —— 后面没人再用 sess
@@ -445,11 +511,17 @@ mod tests {
         let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
 
         // 不靠提示符长什么样 —— 用户的 zsh 主题里 $ / % / ❯ 都可能
-        sess.lock().unwrap().write_input(b"echo READY\n").unwrap();
-        let out = read_until(reader, "READY", 10);
-        assert!(out.contains("READY"), "shell 没起来，实际输出：{out:?}");
-        // read_until 返回时 rx 已经丢了：读线程下一次 read 醒来就会 break 退出，
-        // 从这一刻起没人再排空 master —— 正是要复现的状态
+        let mut out = Output::new(reader);
+        assert!(out.wait_prompt(10), "10s 内 shell 一个字都没吐出来");
+        assert!(
+            send_until(&sess, b"echo READY\n", "READY", &mut out),
+            "shell 没起来，实际输出：{:?}",
+            out.text()
+        );
+        // **这一句是这条测试的一半**：丢掉 rx，读线程下一次 read 醒来就 break 退出，
+        // 从这一刻起没人再排空 master —— 正是要复现的状态。
+        // 原来它是 `read_until` 返回时隐式发生的，看不出来是有意的
+        drop(out);
 
         // 灌满 master 缓冲区。**有界**，不能用 `yes` ——
         // 无限流会让排空线程全速空转烧掉一个核，把并行跑的兄弟测试拖到超时

@@ -290,6 +290,18 @@ git 的 stdout 89 字节、stderr 2892 字节）。钩子一话多就写满 stde
 
 排查全过程见 [docs/JOURNAL.md](../../docs/JOURNAL.md) 与 [issue #2](https://github.com/Spc-jgs/lite-ide-mac/issues/2)。
 
+**pty 测试要先等提示符，再敲命令。** 原来三条测试都是 spawn 完立刻
+`write_input`，而登录 shell 那时还在 source rc 文件 —— tty 的行规程会把敲进去的
+字**回显**出来（所以输出里看得到 `pwd\r\n`），但 rc 里只要有一处清输入队列的
+动作（instant prompt、`zle` 复位、`stty`），**那条命令就永远不会被执行**，
+不是「晚一点执行」。表现就是 issue #16 抓到的形状：只读到回显，10s 内等不到结果，
+机器一忙就更容易撞上，所以它是间歇的。
+
+真人不会这么用 —— 人是看见提示符才敲的，测试也照做（`Output::wait_prompt`），
+外加一层「写不中就再写一遍」的兜底（`send_until`，最多 20 次、每次等 1s）。
+**重写不会把「cwd 错了」磨绿**：断言的是输出里有没有那个路径，真错的话
+写多少遍都等不到。
+
 ## 走网络的 git：三条硬约束的答案
 
 M7（拉取推送）加了 `crates/gitsvc/src/{progress,remote}.rs`。三条判据：
