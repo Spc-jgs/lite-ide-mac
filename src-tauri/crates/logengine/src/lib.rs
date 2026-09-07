@@ -33,6 +33,72 @@ const PRIME_BYTES: usize = 1 << 20; // 1MB
 /// 后台索引每次推进的块大小。锁只在单块期间持有，约 3ms。
 const CHUNK_BYTES: usize = 16 << 20; // 16MB
 
+/// 逐行探测级别，扫完整个 `m`。**被取消时返回 `None`** —— 半份 `LevelMap`
+/// 比没有更糟：它会让「这个文件里有几条 error」给出一个偏小的答案。
+///
+/// # 为什么拎成函数而不是留在线程闭包里
+///
+/// **为了能测。** 整份扫描很快 —— 实测 51.8MB / **14.9ms**（M 系列、热缓存，
+/// 约 3.5GB/s）。想靠「造一个大到来不及扫完的文件」去验证取消开关，得造到
+/// GB 级：跑一次好几秒，还要往盘上写一 GB。拎出来之后，把开关**预先置位**
+/// 再调用它，一毫秒都不用等，而且结果是确定的，不靠赛跑。
+fn scan_levels(m: &[u8], cancel: &AtomicBool, prog: &AtomicU64) -> Option<LevelMap> {
+    // 日志行平均百来字节，按 100 估容量，宁可略大也不反复扩容
+    let mut local = LevelMap::with_capacity((m.len() / 100).max(16));
+    let mut pos = 0usize;
+    for nl in memchr::memchr_iter(b'\n', m) {
+        local.push(level::detect(&m[pos..nl]));
+        pos = nl + 1;
+        // 只报进度，不发布快照 —— LevelMap 有 MB 级，
+        // 中途反复克隆的拷贝量比扫描本身还贵
+        if local.lines().is_multiple_of(1 << 20) {
+            prog.store(pos as u64, Ordering::Relaxed);
+        }
+        // 每 64K 行问一次「还有人要吗」。一次 relaxed load 摊到 65536 行上
+        // 可以忽略不计，而它把「关掉标签之后还要扫完整份文件」缩到
+        // 「最多再扫一小段」
+        if local.lines().is_multiple_of(1 << 16) && cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+    }
+    if pos < m.len() {
+        local.push(level::detect(&m[pos..]));
+    }
+    local.shrink();
+    prog.store(m.len() as u64, Ordering::Relaxed);
+    Some(local)
+}
+
+/// 从 `head` 接着把索引推到文件末尾，每块结束发布一份快照。
+/// **被取消时返回 `false`**，此时不 seal、也不发布最终快照。
+///
+/// 同样是为了能测才拎出来，判据见 [`scan_levels`]。
+fn build_index(
+    m: &[u8],
+    head: LineIndex,
+    slot: &Mutex<Arc<LineIndex>>,
+    cancel: &AtomicBool,
+) -> bool {
+    // 本地推进，全程不持锁
+    let mut local = head;
+    let total = m.len();
+    let mut upto = PRIME_BYTES;
+    while upto < total {
+        // 每块问一次。块是 16MB、约 3ms，这个粒度足够细了
+        if cancel.load(Ordering::Relaxed) {
+            return false;
+        }
+        let end = (upto + CHUNK_BYTES).min(total);
+        local.extend(&m[..end]);
+        upto = end;
+        // 发布快照：锁只在这一次 memcpy 期间持有
+        *slot.lock().expect("index 锁被毒化") = Arc::new(local.clone());
+    }
+    local.seal(m);
+    *slot.lock().expect("index 锁被毒化") = Arc::new(local);
+    true
+}
+
 /// 一次打开的日志文件。
 ///
 /// 索引用「后台无锁构建 + 快照发布」而非共享可变结构：后台线程在自己的
@@ -58,6 +124,27 @@ pub struct LogFile {
     levels_done: Arc<AtomicBool>,
     /// 级别扫描进度（已扫描字节），只用于进度显示，故用原子量而非快照
     levels_progress: Arc<AtomicU64>,
+    /// 后台扫描的取消开关。**`LogFile` 一析构就置位**，见 [`LogFile::drop`]。
+    cancel: Arc<AtomicBool>,
+}
+
+/// 关掉标签就该停下来。
+///
+/// 两条后台线程（索引、级别探测）原来**没有取消开关**：`close_log` 只是把句柄
+/// 从 `AppState` 的表里摘掉，而线程各自攥着一份 `Arc<Mmap>`，照样把整个文件
+/// 扫完 —— 打开一个 1GB 日志、看一眼、关掉，后台还要 memchr 完 1GB、
+/// 建完约 5MB 的 `LevelMap`，那段时间里 mmap 也一直吊着。连开几个就是
+/// 几条线程叠着扫。
+///
+/// 同一个 crate 里的 [`FilterTask`] 明明有 `cancel()`（换过滤条件时旧任务立刻停），
+/// 所以这不是设计取舍，是漏了。
+///
+/// 放在 `Drop` 而不是给 `close_log` 加一行调用：**放在调用点就会有人忘**，
+/// 而这里只要最后一个 `Arc<LogFile>` 没了就一定跑到。
+impl Drop for LogFile {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Release);
+    }
 }
 
 /// `refresh` 的结果。
@@ -145,60 +232,44 @@ impl LogFile {
         let levels = Arc::new(Mutex::new(Arc::new(LevelMap::default())));
         let levels_done = Arc::new(AtomicBool::new(false));
         let levels_progress = Arc::new(AtomicU64::new(0));
+        let cancel = Arc::new(AtomicBool::new(false));
 
         // 第二个后台任务：逐行探测级别。
         // 与索引分开跑是因为级别探测要看行首内容，塞进索引会把它拖慢 6 倍。
         {
-            let (m, slot, done, prog) = (
+            let (m, slot, done, prog, stop) = (
                 Arc::clone(&map_arc),
                 levels.clone(),
                 levels_done.clone(),
                 levels_progress.clone(),
+                cancel.clone(),
             );
             std::thread::Builder::new()
                 .name("logengine-levels".into())
                 .spawn(move || {
-                    // 日志行平均百来字节，按 100 估容量，宁可略大也不反复扩容
-                    let mut local = LevelMap::with_capacity((m.len() / 100).max(16));
-                    let mut pos = 0usize;
-                    for nl in memchr::memchr_iter(b'\n', &m) {
-                        local.push(level::detect(&m[pos..nl]));
-                        pos = nl + 1;
-                        // 只报进度，不发布快照 —— LevelMap 有 MB 级，
-                        // 中途反复克隆的拷贝量比扫描本身还贵
-                        if local.lines().is_multiple_of(1 << 20) {
-                            prog.store(pos as u64, Ordering::Relaxed);
-                        }
-                    }
-                    if pos < m.len() {
-                        local.push(level::detect(&m[pos..]));
-                    }
-                    local.shrink();
-                    prog.store(m.len() as u64, Ordering::Relaxed);
+                    // 被取消就直接走人：不发布快照、也不置 done。
+                    // 半份 LevelMap 比没有更糟
+                    let Some(local) = scan_levels(&m, &stop, &prog) else {
+                        return;
+                    };
                     *slot.lock().expect("levels 锁被毒化") = Arc::new(local);
                     done.store(true, Ordering::Release);
                 })?;
         }
 
         if !fully_scanned {
-            let (m, slot, done) = (Arc::clone(&map_arc), index.clone(), complete.clone());
+            let (m, slot, done, stop) = (
+                Arc::clone(&map_arc),
+                index.clone(),
+                complete.clone(),
+                cancel.clone(),
+            );
             std::thread::Builder::new()
                 .name("logengine-index".into())
                 .spawn(move || {
-                    // 本地推进，全程不持锁
-                    let mut local = head;
-                    let total = m.len();
-                    let mut upto = PRIME_BYTES;
-                    while upto < total {
-                        let end = (upto + CHUNK_BYTES).min(total);
-                        local.extend(&m[..end]);
-                        upto = end;
-                        // 发布快照：锁只在这一次 memcpy 期间持有
-                        *slot.lock().expect("index 锁被毒化") = Arc::new(local.clone());
+                    if build_index(&m, head, &slot, &stop) {
+                        done.store(true, Ordering::Release);
                     }
-                    local.seal(&m);
-                    *slot.lock().expect("index 锁被毒化") = Arc::new(local);
-                    done.store(true, Ordering::Release);
                 })?;
         } else {
             complete.store(true, Ordering::Release);
@@ -214,11 +285,22 @@ impl LogFile {
             levels,
             levels_done,
             levels_progress,
+            cancel,
         })
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// 后台扫描的取消开关，两条线程各持一份。
+    ///
+    /// 公开出来**只为一件事**：让回归测试在 `LogFile` 已经析构之后还观察得到
+    /// 那两条线程 —— `Arc::strong_count` 掉回 1 就说明它们都退出了。
+    /// 没有这个出口，「扫描真的停了」在外面根本看不见，那条测试也就写不出来
+    /// （而写不出测试的修复，下一个人删掉它时不会有任何信号）。
+    pub fn cancel_token(&self) -> Arc<AtomicBool> {
+        self.cancel.clone()
     }
 
     pub fn size(&self) -> u64 {
@@ -563,5 +645,93 @@ mod tests {
             format!("2026-08-26 INFO  line {}", n - 1)
         );
         std::fs::remove_file(p).ok();
+    }
+
+    /// 造一份 7 万行的日志文本。**行数要跨过 65536** —— `scan_levels` 每 64K 行
+    /// 才问一次取消开关，行数不够的话那个检查一次都不会执行，
+    /// 于是「取消生效」这条断言会变成一条永远绿的假断言。
+    fn 七万行() -> Vec<u8> {
+        (0..70_000u32)
+            .flat_map(|i| format!("2026-09-07 12:00:00 INFO  第 {i} 行\n").into_bytes())
+            .collect()
+    }
+
+    /// **`LogFile` 一析构，取消开关就该置位。**
+    ///
+    /// 放在 `Drop` 而不是让 `close_log` 记得调一下 —— 调用点会有人忘，
+    /// 而 `Drop` 只要最后一个 `Arc<LogFile>` 没了就一定跑到。
+    #[test]
+    fn 关掉日志文件就置位取消开关() {
+        let p = temp_log("cancel-drop", b"a\nb\nc\n");
+        let f = LogFile::open(&p).unwrap();
+        let token = f.cancel_token();
+        assert!(!token.load(Ordering::Acquire), "还开着的时候不该是取消态");
+        drop(f);
+        assert!(
+            token.load(Ordering::Acquire),
+            "LogFile 析构了，后台扫描却没被通知 —— 它会接着把整个文件扫完，\
+             而那段时间里 mmap 也一直吊着"
+        );
+        std::fs::remove_file(p).ok();
+    }
+
+    /// **级别扫描要认那个开关，而且是半路就认。**
+    ///
+    /// 不靠赛跑：开关**预先置位**，然后看它返不返回 `None`。
+    /// （整份扫描实测 3.5GB/s，想靠「造个大到扫不完的文件」来验证，
+    /// 得造到 GB 级 —— 那种测试既慢又不稳。）
+    #[test]
+    fn 级别扫描被取消时不扫完也不交半份结果() {
+        let body = 七万行();
+        let prog = AtomicU64::new(0);
+
+        // ① 没人喊停：扫完，进度停在文件末尾
+        let go = AtomicBool::new(false);
+        let full = scan_levels(&body, &go, &prog).expect("没取消就该给出完整结果");
+        assert_eq!(full.lines(), 70_000);
+        assert_eq!(prog.load(Ordering::Relaxed), body.len() as u64);
+
+        // ② 预先置位：半路走人，**不交半份**
+        prog.store(0, Ordering::Relaxed);
+        let stop = AtomicBool::new(true);
+        assert!(
+            scan_levels(&body, &stop, &prog).is_none(),
+            "取消了还把整份扫完并交出结果 —— 关掉的标签不该继续烧 CPU"
+        );
+        assert!(
+            prog.load(Ordering::Relaxed) < body.len() as u64,
+            "取消之后进度不该走到末尾"
+        );
+    }
+
+    /// **索引推进也要认那个开关。** 它按 16MB 一块推进，每块问一次。
+    #[test]
+    fn 索引推进被取消时立刻返回() {
+        let body = 七万行();
+        assert!(
+            body.len() > PRIME_BYTES,
+            "要超过首屏预扫的 1MB，才会走到后台那段循环"
+        );
+        let head = {
+            let mut h = LineIndex::new(DEFAULT_STRIDE);
+            h.extend(&body[..PRIME_BYTES]);
+            h
+        };
+
+        let slot = Mutex::new(Arc::new(head.clone()));
+        let stop = AtomicBool::new(true);
+        assert!(
+            !build_index(&body, head.clone(), &slot, &stop),
+            "取消了还把索引推到底"
+        );
+        let cancelled_lines = slot.lock().unwrap().line_count();
+
+        let go = AtomicBool::new(false);
+        assert!(build_index(&body, head, &slot, &go), "没取消就该推到底");
+        assert_eq!(slot.lock().unwrap().line_count(), 70_000);
+        assert!(
+            cancelled_lines < 70_000,
+            "被取消那次不该已经推到底（实得 {cancelled_lines} 行）"
+        );
     }
 }
