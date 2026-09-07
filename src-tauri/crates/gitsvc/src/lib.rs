@@ -163,12 +163,54 @@ type R<T> = Result<T, Error>;
 ///
 /// stdout 保持 `Vec<u8>` 不转 String：路径在 git 眼里是字节串，
 /// macOS 上确实可能有非 UTF-8 的文件名，提前 `from_utf8` 会在这类仓库上直接崩。
+/// 仓库自带的配置里，**能让 git 去执行一条命令**的那几项，一律就地掐掉。
+///
+/// 这不是理论风险。`.git/config` 是仓库自己带的文件 —— 别人给你一个目录
+/// （clone 下来的、解压出来的、U 盘里的），里面就可以写：
+///
+/// ```text
+/// [core]
+///     fsmonitor = /path/to/仓库里的脚本
+/// ```
+///
+/// 而 lite-ide 在项目根一变就自动 `git_root` → `git status`（App.svelte 里
+/// 那条 effect），**不需要用户多点一下**，会话恢复还让它每次启动都再跑一遍。
+/// 实测：那个脚本真的被执行了；加上 `-c core.fsmonitor=` 之后不再执行。
+///
+/// 放在这里而不是各个调用点，是因为**已经漏过一次**：`--no-ext-diff` 当初
+/// 只写在四个产生 diff 的地方里的两个上（`--no-index` 那条和 `commit_diff`
+/// 的 `show` 回退没有）。同一条纪律写四遍，就是迟早漏一遍。
+///
+/// **这里挡不住的**，如实记着：
+/// - `filter.<名字>.smudge` / `.clean` —— 检出时跑，名字是任意的，`-c` 点不着。
+///   要用户主动切分支才碰得到。
+/// - `remote.<名字>.url = ext::sh -c …` —— fetch/push 时跑，同样要用户主动动手。
+/// - textconv 也是任意名字，靠 [`DIFF_SAFE`] 的 `--no-textconv` 挡。
+///
+/// 真正的解法是「这个目录信不信得过」那一套（VS Code 的受限模式），
+/// 那是另一件事；这里先把**不用点就会跑**的那条路堵死。
+const HARDENING: &[&str] = &[
+    "-c",
+    "core.fsmonitor=",
+    "-c",
+    "diff.external=",
+];
+
+/// 产生差异的命令统一带上这两个。
+///
+/// `--no-ext-diff` 关 `diff.external`，`--no-textconv` 关
+/// `diff.<名字>.textconv`（`.gitattributes` 里挂一句 `*.txt diff=x` 就能触发）。
+/// 实测只加 `--no-ext-diff` 挡不住 textconv。
+pub(crate) const DIFF_SAFE: &[&str] = &["--no-ext-diff", "--no-textconv"];
+
 /// 建一条环境干净的 git 命令。所有对外的调用都必须经过这里 ——
 /// 少一条 `env_remove` 或少一个 `GIT_TERMINAL_PROMPT=0`，
 /// 表现就是「某个仓库上偶发地查到别处去」或者「后台调用挂着等密码」。
 pub(crate) fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
     let mut c = Command::new("git");
-    c.args(args)
+    // `-c` 必须在子命令之前，而且优先级高于仓库自己的 .git/config
+    c.args(HARDENING)
+        .args(args)
         .current_dir(cwd)
         // 不继承父进程的 GIT_DIR / GIT_WORK_TREE —— 从终端里启动 lite-ide 时，
         // 这俩环境变量可能指向另一个仓库，会让所有查询串到别处去
@@ -560,7 +602,7 @@ pub fn status_full(root: impl AsRef<Path>) -> R<Status> {
 /// 效果是整份文件显示成新增 —— 这正是用户想看的。
 pub fn diff(root: impl AsRef<Path>, path: &str, staged: bool, untracked: bool) -> R<Diff> {
     let root = root.as_ref();
-    // 统一关掉外部 diff 驱动和分页器：pager 会让子进程等一个永远不来的终端
+    // 关掉分页器：pager 会让子进程等一个永远不来的终端
     let common = ["--no-pager", "-c", "core.pager=cat"];
 
     if untracked {
@@ -570,13 +612,16 @@ pub fn diff(root: impl AsRef<Path>, path: &str, staged: bool, untracked: bool) -
         let full = root.join(path);
         let full = full.to_string_lossy().into_owned();
         let mut args: Vec<&str> = common.to_vec();
-        args.extend_from_slice(&["diff", "--no-index", "--no-color", "--", "/dev/null", &full]);
+        args.extend_from_slice(&["diff", "--no-index", "--no-color"]);
+        args.extend_from_slice(DIFF_SAFE);
+        args.extend_from_slice(&["--", "/dev/null", &full]);
         // 退出码 0 = 无差异（空文件），1 = 有差异，≥2 才是真出错
         return run_capped(root, &args, &[1]);
     }
 
     let mut args: Vec<&str> = common.to_vec();
-    args.extend_from_slice(&["diff", "--no-color", "--no-ext-diff"]);
+    args.extend_from_slice(&["diff", "--no-color"]);
+    args.extend_from_slice(DIFF_SAFE);
     if staged {
         args.push("--cached");
     }
@@ -838,15 +883,9 @@ pub fn commit_files(root: impl AsRef<Path>, sha: &str) -> R<Vec<Entry>> {
 /// 某次提交里某个文件的差异。`path` 为空则给整次提交的差异。
 pub fn commit_diff(root: impl AsRef<Path>, sha: &str, path: &str) -> R<Diff> {
     let spec = format!("{sha}^!");
-    let mut args = vec![
-        "--no-pager",
-        "-c",
-        "core.pager=cat",
-        "diff",
-        "--no-color",
-        "--no-ext-diff",
-        &spec,
-    ];
+    let mut args = vec!["--no-pager", "-c", "core.pager=cat", "diff", "--no-color"];
+    args.extend_from_slice(DIFF_SAFE);
+    args.push(&spec);
     if !path.is_empty() {
         args.push("--");
         args.push(path);
@@ -855,14 +894,9 @@ pub fn commit_diff(root: impl AsRef<Path>, sha: &str, path: &str) -> R<Diff> {
     match run_capped(root.as_ref(), &args, &[]) {
         Ok(s) => Ok(s),
         Err(Error::Git(_)) => {
-            let mut a2 = vec![
-                "--no-pager",
-                "show",
-                "--no-color",
-                "--format=",
-                "--root",
-                sha,
-            ];
+            let mut a2 = vec!["--no-pager", "show", "--no-color", "--format=", "--root"];
+            a2.extend_from_slice(DIFF_SAFE);
+            a2.push(sha);
             if !path.is_empty() {
                 a2.push("--");
                 a2.push(path);
@@ -1752,5 +1786,107 @@ mod tests {
             assert!(discover(&dir).is_none());
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 造一个「配置里挂着一条可执行脚本」的仓库。
+    ///
+    /// 返回 `(仓库路径, 痕迹文件)` —— 脚本一旦被 git 执行，痕迹文件就会出现。
+    /// 痕迹刻意放在**仓库外面**：放里面的话它自己会变成一个未跟踪文件，
+    /// 后面几步的差异就跟着变了。
+    fn trapped_repo(name: &str) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("gitsvc-trap-{name}-{}", std::process::id()));
+        let marker = std::env::temp_dir().join(format!("gitsvc-trap-{name}-{}.痕迹", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&marker);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+
+        let hook = dir.join("hook.sh");
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (dir, marker)
+    }
+
+    /// **打开一个别人给的仓库，不许因此执行仓库自带的脚本。**
+    ///
+    /// `core.fsmonitor` 是这一族里最凶的一条：它由 `git status` 触发，
+    /// 而 lite-ide 在项目根一变就自动跑 status（App.svelte 里那条 effect），
+    /// 用户一次都不用点；会话恢复还让它每次启动都再跑一遍。
+    ///
+    /// 这条测试是照着真的能打中的形状写的 —— 先在裸 git 上验证过它确实
+    /// 会被执行，再加的 `-c core.fsmonitor=`。
+    #[test]
+    fn 仓库自带的_fsmonitor_不许被执行() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let (dir, marker) = trapped_repo("fsmonitor");
+        let hook = dir.join("hook.sh");
+        run(&dir, &["config", "core.fsmonitor", hook.to_str().unwrap()]).unwrap();
+        std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+
+        let _ = status(&dir);
+
+        assert!(
+            !marker.exists(),
+            "git status 执行了仓库 .git/config 里挂的脚本 —— 打开一个别人的目录就等于让他在这台机器上跑代码"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_file(&marker).ok();
+    }
+
+    /// 同一族的另一半：看差异不许执行仓库自带的脚本。
+    ///
+    /// 四条产生差异的路要一起验 —— `--no-ext-diff` 当初**只写在其中两条上**，
+    /// 而 `--no-textconv` 一条都没有。挨个点一遍才发现漏了哪几个。
+    #[test]
+    fn 仓库自带的_diff_驱动不许被执行() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let (dir, marker) = trapped_repo("diff");
+        let hook = dir.join("hook.sh");
+        let hook_s = hook.to_str().unwrap().to_string();
+        run(&dir, &["config", "diff.external", &hook_s]).unwrap();
+        run(&dir, &["config", "diff.ev.textconv", &hook_s]).unwrap();
+        // 一句 .gitattributes 就够把 textconv 挂上去。
+        // **逐个文件写，不写 `*`** —— 写 `*` 时实测第一步打不中（git 对通配
+        // 属性的处理和显式路径不一样），于是那一步会变成一条永远绿的断言
+        std::fs::write(dir.join(".gitattributes"), "a.txt diff=ev\nb.txt diff=ev\n").unwrap();
+
+        std::fs::write(dir.join("a.txt"), "第一版\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次提交", false).unwrap();
+        let first = run(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+        std::fs::write(dir.join("a.txt"), "第二版\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "第二次提交", false).unwrap();
+        let second = run(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+
+        // ① 工作区里已跟踪文件的差异
+        std::fs::write(dir.join("a.txt"), "改了一行\n").unwrap();
+        let _ = diff(&dir, "a.txt", false, false);
+        assert!(!marker.exists(), "已跟踪文件的差异执行了仓库自带的脚本（textconv 那条路）");
+
+        // ② 未跟踪文件走的是 diff --no-index，另一条路
+        std::fs::write(dir.join("b.txt"), "全新的\n").unwrap();
+        let _ = diff(&dir, "b.txt", false, true);
+        assert!(!marker.exists(), "未跟踪文件的 --no-index 差异执行了仓库自带的脚本");
+
+        // ③ 历史提交的差异（有父提交，走主路径）
+        let _ = commit_diff(&dir, &second, "a.txt");
+        assert!(!marker.exists(), "历史提交的差异执行了仓库自带的脚本");
+
+        // ④ 首次提交没有父，`sha^!` 会失败而回退到 git show —— 那条当初完全没设防
+        let _ = commit_diff(&dir, &first, "a.txt");
+        assert!(!marker.exists(), "首次提交的 show 回退执行了仓库自带的脚本");
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_file(&marker).ok();
     }
 }

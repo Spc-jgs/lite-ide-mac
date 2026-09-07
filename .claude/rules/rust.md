@@ -59,7 +59,7 @@ Tauri 的 `#[tauri::command] fn`（不带 `async`）**跑在主线程上** —�
 而 60fps 单帧预算只有 16ms。用 `tauri::ipc::Response` 传 `Vec<u8>`，
 线格式在 `crates/logengine/src/block.rs`。
 
-## 起子进程时的两条硬纪律
+## 起子进程时的三条硬纪律
 
 `gitsvc` 和 `searchsvc` 都起子进程（`git` / `rg`）：
 
@@ -68,6 +68,20 @@ Tauri 的 `#[tauri::command] fn`（不带 `async`）**跑在主线程上** —�
 2. **绝不让子进程卡住等输入**。`GIT_TERMINAL_PROMPT=0` 关掉凭据提问；
    `GIT_OPTIONAL_LOCKS=0` 让 `git status` 不抢 index 锁（用户正在终端里
    跑 rebase 时，后台刷新不该把它顶失败）。
+3. **绝不让仓库自己的配置决定 git 去执行什么。** `.git/config` 是**仓库带来的
+   文件**，不是用户写的。里面一句 `core.fsmonitor = ./脚本` 就能让一条普通的
+   `git status` 去执行它 —— 实测确认，而 lite-ide 在项目根一变就自动跑 status
+   （App.svelte 那条 effect），**用户一次都不用点**，会话恢复还让它每次启动都再跑一遍。
+   也就是说：**别人给你一个目录 = 别人在你机器上跑代码**。
+
+   `gitsvc::HARDENING` 给每条 git 都带上 `-c core.fsmonitor= -c diff.external=`，
+   产生差异的命令另外带 `DIFF_SAFE`（`--no-ext-diff --no-textconv`）。
+   **加固放在 `git_cmd` 上而不是各个调用点** —— `--no-ext-diff` 当初只写在四个
+   产生 diff 的地方里的两个上，同一条纪律写四遍就是迟早漏一遍。
+
+   挡不住的如实记着：`filter.*.smudge`（检出时跑）、`remote.*.url = ext::…`
+   （fetch/push 时跑）—— 这两条都要用户主动动手才碰得到。真正的解法是
+   「这个目录信不信得过」那一套，那是另一件事。
 
 另外 `LC_ALL=C`：用户 locale 是中文时，别让 git 把机器格式翻译了。
 
@@ -88,6 +102,25 @@ Tauri 的 `#[tauri::command] fn`（不带 `async`）**跑在主线程上** —�
 存在性检查一律用 `symlink_metadata`，不用 `exists()` / `try_exists()`：
 后者跟随符号链接，于是一个指向已删除目标的坏链接被判成"不存在"，
 然后被 rename 覆盖掉 —— 丢的是链接本身。
+
+**保存一份已有文件，要抄回它的三样东西。** 「临时文件 + rename」这条路
+默认全丢，实测（`write_text` 的探针，2026-09-07）：
+
+| | 修之前 | 为什么要命 |
+|---|---|---|
+| 权限位 | `0755` → `0644` | 编辑一个脚本，保存完它**不能执行了**，而界面报「已保存」 |
+| 软链 | 链接被换成普通文件 | 改动写进了新文件，真身一字未动 —— `~/.zshrc` 指向 dotfiles 仓库这种用法正好踩中 |
+| 硬链接 | inode 变了，链接组被拆 | 「同一个文件」悄悄变成两个，另一头再也收不到改动 |
+
+现在的分法照 vim 的 `backupcopy=auto`：**软链先解引用，硬链接改成原地覆写，
+其余走临时文件 + rename 并把权限抄过去**。三条各有一条会红的测试。
+
+还有一条**测不出来**的：`rename` 之前必须 `fsync` 那个临时文件。
+rename 只保证「要么旧的要么新的」，不保证新那份的内容已经落盘 ——
+掉电之后可能拿到一个 0 字节文件盖掉了原文。进程崩溃没有这个问题
+（内核已经收下数据），所以这条只能写在注释里，造不出测试。
+（macOS 的 `fsync` 还刷不穿硬盘自己的写缓存，那要 `F_FULLFSYNC` 和一个
+libc 依赖 —— 没引，我们要的只是「数据先于 rename」这个次序。）
 
 **大小写要靠 inode 判，不能比路径字符串。** macOS 默认的 APFS 卷大小写不敏感，
 `readme.md` → `README.md` 时目标"已存在"，而存在的正是源文件自己。

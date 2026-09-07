@@ -158,17 +158,99 @@ pub fn write_text(path: impl AsRef<Path>, content: &str) -> io::Result<()> {
     write_bytes(path, content.as_bytes())
 }
 
+/// 软链要写进它**指向的那个文件**。
+///
+/// 不解引用的话，「临时文件 + rename」会把**软链本身**换成一个普通文件 ——
+/// 实测过：改动写不进真身（真身内容一字未动），而链接也没了。
+/// 编辑 `~/.zshrc` 这种指向 dotfiles 仓库的软链，正好踩个正着。
+///
+/// 断掉的软链直接报错，不往下走：那种情况下 rename 会「成功」，
+/// 代价是把一条链接悄悄变成普通文件。
+fn resolve_link(path: &Path) -> io::Result<PathBuf> {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        // 还不在盘上（新建文件的第一次保存），按原路径写
+        return Ok(path.to_path_buf());
+    };
+    if !meta.file_type().is_symlink() {
+        return Ok(path.to_path_buf());
+    }
+    fs::canonicalize(path).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("{} 是一条断掉的软链，写不进去", path.display()),
+        )
+    })
+}
+
+/// 原地覆写。**只给硬链接用。**
+///
+/// 丢掉了「rename 是原子的」这条性质，换来的是「这一份还留在链接组里」。
+/// vim 也是这么分的（`backupcopy=auto`：多个硬链接或软链时改用覆写），
+/// 判据一样 —— 用户建硬链接就是要它们是同一个文件，
+/// 保存一次把它摘出去，比崩在写一半更难发现。
+fn write_in_place(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    let mut f = fs::OpenOptions::new().write(true).truncate(true).open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
 fn write_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
-    let path = path.as_ref();
-    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    use std::io::Write;
+    use std::os::unix::fs::MetadataExt;
+
+    let target = resolve_link(path.as_ref())?;
+    let target = target.as_path();
+    let meta = fs::symlink_metadata(target).ok();
+
+    // 硬链接组里的一份：rename 会把它摘出去，只能原地覆写
+    if meta.as_ref().is_some_and(|m| m.nlink() > 1) {
+        return write_in_place(target, bytes);
+    }
+
+    let dir = target.parent().unwrap_or_else(|| Path::new("."));
     let tmp = dir.join(format!(
         ".{}.lite-ide-tmp",
-        path.file_name().unwrap_or_default().to_string_lossy()
+        target.file_name().unwrap_or_default().to_string_lossy()
     ));
-    fs::write(&tmp, bytes)?;
+
+    // `create_new` 而不是 `fs::write`：临时文件名是可预测的，而
+    // `fs::write` 对一条**已经在那儿的软链**会顺着它写到别处去。
+    // 撞上了就先删掉再建（多半是上次崩在中间留下的残留）。
+    let mut f = match fs::OpenOptions::new().write(true).create_new(true).open(&tmp) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            fs::remove_file(&tmp)?;
+            fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?
+        }
+        Err(e) => return Err(e),
+    };
+    f.write_all(bytes)?;
+    // **少了这一句，掉电之后拿到的可能是一个 0 字节文件盖掉了原文。**
+    // rename 只保证「要么旧的要么新的」，不保证新的那份内容已经落盘 ——
+    // 元数据操作可以先于数据落到日志里。进程崩溃本来就没这个问题
+    // （内核已经收下了数据），掉电才有，所以这条测不出来，只能写在这儿。
+    // 注：macOS 上 `fsync` 不保证刷穿硬盘自己的写缓存，那要 `F_FULLFSYNC`，
+    // 而那需要引 libc。这里要的是**数据先于 rename**这个次序，fsync 够。
+    f.sync_all()?;
+    drop(f);
+
+    // 权限跟着原文件走。少了这句，一个 0755 的脚本保存完变成 0644，
+    // 当场就不能执行了 —— 临时文件是新建的，带的是 umask 的默认权限。
+    // （xattr / ACL 这一套仍然带不过来，那是 rename 这条路的固有代价。）
+    if let Some(m) = &meta {
+        fs::set_permissions(&tmp, m.permissions())?;
+    }
+
     // rename 在同一文件系统内是原子的
-    match fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
+    match fs::rename(&tmp, target) {
+        Ok(()) => {
+            // 目录项也要落盘，否则掉电后可能连改名都没发生
+            if let Ok(d) = fs::File::open(dir) {
+                let _ = d.sync_all();
+            }
+            Ok(())
+        }
         Err(e) => {
             let _ = fs::remove_file(&tmp);
             Err(e)
@@ -480,6 +562,70 @@ mod tests {
             .collect();
         // 目录在前、同类不区分大小写排序 —— 点目录也照这条规矩排
         assert_eq!(got, vec![".git", ".github", ".env", "visible.rs"]);
+        fs::remove_dir_all(d).ok();
+    }
+
+    /// **保存不许改掉文件的权限位。**
+    ///
+    /// 「临时文件 + rename」这条路上，临时文件是新建的，带的是 umask 的默认
+    /// 权限；不把原文件的权限抄过去，一个 `0755` 的脚本保存完就变成 `0644`，
+    /// **当场不能执行了**，而界面还报「已保存」。
+    #[test]
+    fn 保存不改变文件权限() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = sandbox("perm");
+        let f = d.join("run.sh");
+        write_text(&f, "#!/bin/sh\necho hi\n").unwrap();
+        fs::set_permissions(&f, fs::Permissions::from_mode(0o755)).unwrap();
+
+        write_text(&f, "#!/bin/sh\necho hi2\n").unwrap();
+
+        let mode = fs::metadata(&f).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "保存之后权限变成了 {mode:o}，这个脚本已经不能执行了");
+        fs::remove_dir_all(d).ok();
+    }
+
+    /// **保存一条软链，要写进它指向的那个文件。**
+    ///
+    /// 不解引用的话，rename 会把软链本身换成一个普通文件：改动写在了
+    /// 一个新文件里，真身一字未动，而链接没了。`~/.zshrc` 指向 dotfiles
+    /// 仓库这种最常见的用法正好踩中。
+    #[test]
+    fn 保存写进软链指向的文件_而不是把软链换掉() {
+        let d = sandbox("symlink");
+        let real = d.join("real.txt");
+        let link = d.join("link.txt");
+        write_text(&real, "原文\n").unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        write_text(&link, "改过了\n").unwrap();
+
+        assert!(
+            fs::symlink_metadata(&link).unwrap().file_type().is_symlink(),
+            "软链被换成普通文件了"
+        );
+        assert_eq!(read_text(&real).unwrap(), "改过了\n", "改动没写进真身");
+        fs::remove_dir_all(d).ok();
+    }
+
+    /// **保存不许把文件从硬链接组里摘出去。**
+    ///
+    /// rename 换的是目录项，原来那个 inode 还被另一个名字拿着 ——
+    /// 于是「同一个文件」悄悄变成了两个，另一头再也收不到改动。
+    /// 这条走的是原地覆写那条分支（判据同 vim 的 `backupcopy=auto`）。
+    #[test]
+    fn 保存不拆掉硬链接() {
+        use std::os::unix::fs::MetadataExt;
+        let d = sandbox("hardlink");
+        let a = d.join("a.txt");
+        let b = d.join("b.txt");
+        write_text(&a, "原文\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+
+        write_text(&a, "改过了\n").unwrap();
+
+        assert_eq!(read_text(&b).unwrap(), "改过了\n", "另一个名字还看着旧内容，链接被拆了");
+        assert_eq!(fs::metadata(&a).unwrap().nlink(), 2, "链接数掉了");
         fs::remove_dir_all(d).ok();
     }
 

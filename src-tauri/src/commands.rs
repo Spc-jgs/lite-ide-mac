@@ -266,7 +266,13 @@ pub async fn trash_entry(path: String) -> Result<(), String> {
     blocking(move || fsservice::move_to_trash(&path).map_err(|e| format!("{e}"))).await
 }
 
-/// 保存。先写临时文件再原子替换，中途崩溃不会留下半个文件。
+/// 保存。写临时文件 → fsync → rename，进程崩在中间不会留下半个文件。
+///
+/// **「崩溃」指的是进程崩溃，不含掉电** —— rename 只保证「要么旧的要么新的」，
+/// 数据先于目录项落盘是 `fsync` 给的，判据写在 `fsservice::write_bytes` 上。
+///
+/// 软链会写进它指向的那个文件，硬链接走原地覆写，权限位跟着原文件走 ——
+/// 这三条都在 fsservice 里，各有一条会红的测试卡着。
 ///
 /// 按 `label` 指定的编码写回 —— 用什么编码读进来的就用什么存回去，
 /// 不做「顺手转成 UTF-8」这种擅自决定。
