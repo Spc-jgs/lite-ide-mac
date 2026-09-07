@@ -30,6 +30,7 @@
     gitOutgoing,
     type RemoteProgress,
     type RemoteErr,
+    type SwitchErr,
     diag,
     writeText,
     fileStamp,
@@ -276,13 +277,72 @@
     notify.ok(`下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`, 3600);
   }
 
+  /**
+   * 被本地改动挡住的那次切换。**不是错误，是「你得先决定怎么办」。**
+   *
+   * git 的原话是 "Please commit your changes or stash them before you switch
+   * branches" —— 而提交和丢弃这两条路界面上都有，把英文原话贴给用户等于
+   * 让他自己去开终端。`gitsvc::Error::LocalChanges` 把挡路的文件切出来了，
+   * 这里据此给按钮。
+   */
+  let pendingCheckout = $state<{
+    name: string;
+    create: boolean;
+    files: string[];
+  } | null>(null);
+
   function switchBranch(name: string, create = false) {
     notify.closeBanner();
+    pendingCheckout = null;
+    // base 要在切之前抓 —— 切完 gitSt.branch 就是新的那个了
+    const base = gitSt?.branch ?? "";
     void gitDo(create ? "新建分支失败" : "切分支失败", async () => {
-      await gitSwitch(repo!, name, create);
-      notify.ok(create ? `已新建并切到 ${name}` : `已切到 ${name}`, 2600);
+      try {
+        await gitSwitch(repo!, name, create);
+      } catch (e) {
+        const err = e as SwitchErr;
+        if (err?.kind === "local-changes" && err.files?.length) {
+          pendingCheckout = { name, create, files: err.files };
+          return;
+        }
+        throw e;
+      }
+      /*
+       * 先刷新再说话。**说的是「实际切到了哪儿」，不是「我请求切到哪儿」** ——
+       * 请求 `origin/foo` 时 gitsvc 可能建了本地 `foo`，也可能切到了一个早就
+       * 存在的同名本地分支（那时它跟踪的可能是别的远程）。前端去复现那套 DWIM
+       * 规则就是把同一份判断写两处；读一遍刷新后的状态，说的话永远是真的。
+       */
+      await refreshGit();
+      const now = gitSt?.branch || name;
+      const up = gitSt?.upstream ? `（跟踪 ${gitSt.upstream}）` : "";
+      notify.ok(create ? `已从 ${base} 新建并切到 ${now}` : `已切到 ${now}${up}`, 2800);
       await workingTreeChanged();
     });
+  }
+
+  /** 丢掉挡路的那几个改动，然后把刚才那次切换重放一遍 */
+  async function discardThenCheckout() {
+    const p = pendingCheckout;
+    if (!p || !repo) return;
+    pendingCheckout = null;
+    const es = (gitSt?.entries ?? []).filter((e) => p.files.includes(e.path));
+    await doDiscard(es);
+    switchBranch(p.name, p.create);
+  }
+
+  /**
+   * 打开一个工作树 = **把项目根换过去**。
+   *
+   * `openPath` 对目录只做 `root = path`，**打开的标签一个都不动** ——
+   * 于是文件树和 Git 栏切到了新工作树，而标签还指着旧的那份。
+   * 这不是 bug（开着别处的文件是合法的），但一声不吭就变了半个界面，
+   * 人会以为「怎么点了没反应」。做完说一句。
+   */
+  async function openWorktree(path: string) {
+    await openPath(path);
+    const name = path.slice(path.lastIndexOf("/") + 1) || path;
+    notify.ok(`项目根已切到 ${name}（打开的标签没有动）`, 3200);
   }
 
   function newWorktree(dir: string, branch: string) {
@@ -2240,7 +2300,7 @@
     behind={gitSt?.behind ?? 0}
     onSwitch={(n) => switchBranch(n)}
     onNewBranch={(n) => switchBranch(n, true)}
-    onOpenWorktree={(p) => void openPath(p)}
+    onOpenWorktree={(p) => void openWorktree(p)}
     onNewWorktree={newWorktree}
     onRemoveWorktree={(w) => (pendingWtRemove = w)}
   />
@@ -2530,6 +2590,31 @@
           <button class="danger" onclick={() => doRemoveWorktree(pendingWtRemove!, false)}>移除</button>
           <button class="danger" onclick={() => doRemoveWorktree(pendingWtRemove!, true)}>强制移除</button>
           <button onclick={() => (pendingWtRemove = null)}>取消</button>
+        </div>
+      {/if}
+
+      {#if pendingCheckout}
+        <!--
+          这不是错误横幅，是一个选择题 —— 所以它长得和「丢弃改动」「关闭脏标签」
+          一样，不是 err-banner。git 拒绝切分支这件事本身没什么可报的，
+          真正要说的是「这几个文件挡着，你打算怎么办」。
+        -->
+        <div class="confirm">
+          <span>
+            切到 <b>{pendingCheckout.name}</b> 会覆盖
+            <b>{pendingCheckout.files.length} 个文件</b>的改动：
+            <span class="rest">{pendingCheckout.files.slice(0, 3).join("、")}{pendingCheckout.files.length > 3 ? " …" : ""}</span>
+          </span>
+          <button
+            class="primary"
+            onclick={() => {
+              pendingCheckout = null;
+              sideView = "git";
+              sidebar = true;
+            }}
+          >去提交</button>
+          <button class="danger" onclick={() => void discardThenCheckout()}>丢弃这些改动并切换</button>
+          <button onclick={() => (pendingCheckout = null)}>取消</button>
         </div>
       {/if}
 

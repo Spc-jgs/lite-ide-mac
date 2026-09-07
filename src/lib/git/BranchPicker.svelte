@@ -2,6 +2,8 @@
   import type { GitBranch, GitWorktree } from "../ipc/commands";
   import { gitBranches, gitWorktrees } from "../ipc/commands";
   import Icon from "../shell/Icon.svelte";
+  import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
+  import { showInFinder, copyText } from "../shell/pathactions";
 
   let {
     open = $bindable(false),
@@ -110,10 +112,15 @@
     action: "",
   };
 
-  /** ↵ 对不同条目做的事不一样，脚栏要说清是哪一件 */
+  /**
+   * ↵ 对不同条目做的事不一样，脚栏要说清是哪一件。
+   *
+   * 远程分支那条原来只写「检出」—— 而它真正做的是 `switch --track origin/foo`，
+   * **会多出一个本地分支**。少说这一句，人按下去之后才发现分支列表长了一条。
+   */
   const ENTER_LABEL: Record<Item["kind"], string> = {
     branch: "切换",
-    remote: "检出",
+    remote: "检出为本地分支",
     worktree: "打开",
     newBranch: "新建",
     newWorktree: "新建",
@@ -138,6 +145,9 @@
     const m = /^\/Users\/[^/]+\//.exec(p);
     return m ? `~/${p.slice(m[0].length)}` : p;
   }
+
+  /** 当前分支名。给「从谁分出」和菜单里的措辞用 */
+  let cur = $derived(branches.find((b) => b.isHead && !b.isRemote)?.name ?? "");
 
   let items = $derived.by(() => {
     const k = q.trim().toLowerCase();
@@ -188,7 +198,8 @@
         kind: "newBranch",
         group: "action",
         label: `新建分支「${q.trim()}」`,
-        hint: "从当前 HEAD 分出",
+        // 「从当前 HEAD 分出」是对的但没说是谁 —— base 就在手边，直接写出来
+        hint: cur ? `从 ${cur} 分出` : "从当前 HEAD 分出",
       });
     }
     out.push({
@@ -204,6 +215,91 @@
   $effect(() => {
     q;
     sel = 0;
+  });
+
+  /**
+   * 每行的动作菜单。
+   *
+   * **主动作（单击 / ↵）没有变，仍然是直接切。** 这个应用所有浮层都是
+   * 「打字 → ↵ → 完事」，改成 IDEA 那种「选中 → 弹子菜单 → 再确认」
+   * 会把最常见的那次切换变成两次回车。
+   *
+   * 但一行只有一个入口，等于逼着人用主动作去试探 —— 想在 Finder 里看一眼
+   * 某个工作树、想复制个分支名，都得先切过去。菜单补的就是这个。
+   * 里面**只放今天已经有的能力**，一条新的 gitsvc 命令都没加。
+   */
+  let rowMenu = $state<{ x: number; y: number; item: Item } | null>(null);
+
+  function openRowMenu(e: MouseEvent, it: Item) {
+    e.preventDefault();
+    e.stopPropagation();
+    rowMenu = { x: e.clientX, y: e.clientY, item: it };
+  }
+
+  /** 键盘上的入口。⇧F10 / ≣ 是 macOS 与文件树一致的那两个 */
+  function openRowMenuAtSel() {
+    const it = items[sel];
+    const el = rowEls[sel];
+    if (!it || !el) return;
+    const r = el.getBoundingClientRect();
+    rowMenu = { x: r.left + 24, y: r.bottom - 4, item: it };
+  }
+
+  let rowEls = $state<HTMLElement[]>([]);
+
+  let rowMenuItems = $derived.by((): MenuItem[] => {
+    const it = rowMenu?.item;
+    if (!it) return [];
+    const close = () => (open = false);
+    switch (it.kind) {
+      case "branch":
+        return [
+          ...(it.current
+            ? []
+            : [{ label: `切换到 ${it.label}`, run: () => { onSwitch(it.label); close(); } }]),
+          {
+            label: "在新工作树中打开…",
+            run: () => {
+              wtBranch = it.label;
+              wtDir = "";
+              mode = "newWorktree";
+            },
+          },
+          { label: "复制分支名", sep: true, run: () => void copyText(it.label, "分支名") },
+        ];
+      case "remote": {
+        const short = it.label.split("/").slice(1).join("/") || it.label;
+        return [
+          // 说清它要做什么：不是「切过去」，是**建一个本地分支**再切
+          { label: `检出为本地分支 ${short}`, run: () => { onSwitch(it.label); close(); } },
+          { label: "复制分支名", sep: true, run: () => void copyText(it.label, "分支名") },
+        ];
+      }
+      case "worktree": {
+        const w = it.tree!;
+        const out: MenuItem[] = [];
+        if (!it.current) out.push({ label: "打开", run: () => { onOpenWorktree(w.path); close(); } });
+        out.push({ label: "在 Finder 中显示", run: () => void showInFinder(w.path) });
+        out.push({ label: "复制路径", run: () => void copyText(w.path, "路径") });
+        /*
+         * 移除**会删掉那个目录**，所以它只出现在菜单里、带 danger、带省略号。
+         * 原来它是常驻在行尾的一个 ✕，和「打开」只隔着几个像素 ——
+         * 和 Git 栏「全部丢弃」当初撤进 ⋯ 是同一条判据：
+         * 误点的代价不该只隔着一次手滑。
+         */
+        if (!it.current && !w.bare) {
+          out.push({
+            label: "移除工作树…",
+            danger: true,
+            sep: true,
+            run: () => { onRemoveWorktree(w); close(); },
+          });
+        }
+        return out;
+      }
+      default:
+        return [];
+    }
   });
 
   function pick(it: Item) {
@@ -234,6 +330,24 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    /*
+     * 行菜单开着的时候，键盘归它。
+     *
+     * 这个 handler 挂在 `<svelte:window>` 上，而 `ContextMenu` 的 Escape 只
+     * `preventDefault` 不 `stopPropagation` —— 于是一次 Esc 会**同时**关掉菜单
+     * 和整个浮层，人以为自己只是取消了菜单。↑↓ 同理：不挡的话列表和菜单
+     * 会一起动。
+     */
+    if (rowMenu) {
+      // 正常情况下这里根本轮不到（菜单拿着焦点，自己 stopPropagation 了）。
+      // 但**焦点万一不在菜单上**，直接 return 会让 Esc 变成一个死键 ——
+      // 菜单开着、按什么都没反应。兜底关掉它。
+      if (e.key === "Escape") {
+        e.preventDefault();
+        rowMenu = null;
+      }
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       if (mode === "newWorktree") mode = "list";
@@ -251,7 +365,19 @@
       e.preventDefault();
       const it = items[sel];
       if (it) pick(it);
+    } else if (e.key === "F10" && e.shiftKey) {
+      // 和文件树、标签栏同一对键位：菜单不能只有鼠标够得着
+      e.preventDefault();
+      openRowMenuAtSel();
+    } else if (e.key === "ContextMenu") {
+      e.preventDefault();
+      openRowMenuAtSel();
     }
+  }
+
+  /** 哪些行有菜单。新建分支 / 新建工作树是动作不是对象，没有「对它做点别的」 */
+  function hasMenu(it: Item) {
+    return it.kind === "branch" || it.kind === "remote" || it.kind === "worktree";
   }
 
   function submitWorktree() {
@@ -308,7 +434,19 @@
                 <div class="sec">{GROUP_LABEL[it.group]}</div>
               {/if}
             {/if}
-            <div class="rowwrap" class:on={i === sel}>
+            <!--
+              右键挂在整行上（不只是那个按钮）——「对着这一行右键」是人的直觉，
+              而按钮只占行尾 22px。role="group" 是给这个 handler 交代身份用的，
+              真正可聚焦的仍然是里面那个 button。
+            -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="rowwrap"
+              class:on={i === sel}
+              role="group"
+              bind:this={rowEls[i]}
+              oncontextmenu={(e) => hasMenu(it) && openRowMenu(e, it)}
+            >
               <button class="row" onclick={() => pick(it)} onmouseenter={() => (sel = i)}>
                 <!--
                   四种条目四个图标。列表最长会有几十行，而**分组头一滚就看不见了** ——
@@ -343,19 +481,30 @@
                 {#if it.kind === "worktree" && it.current}<span class="now">当前</span>{/if}
                 <span class="ht">{it.hint}</span>
               </button>
-              {#if it.kind === "worktree" && it.tree && !it.current && !it.tree.bare}
+              {#if hasMenu(it)}
                 <button
                   class="rm"
-                  onclick={() => { onRemoveWorktree(it.tree!); open = false; }}
-                  title="移除这个工作树"
-                  aria-label="移除工作树"
-                >✕</button>
+                  onclick={(e) => openRowMenu(e, it)}
+                  title="更多操作（右键 / ⇧F10）"
+                  aria-label="{it.label} 的操作"
+                >⋯</button>
               {/if}
             </div>
           {/each}
         {/if}
       </div>
       <!-- 脚栏和随处搜索长一样：两个都是「⌘ 系浮层 + 过滤 + 列表 + 键盘驱动」 -->
+      {#if rowMenu}
+        <ContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          title={rowMenu.item.label}
+          label="{rowMenu.item.label} 的操作"
+          items={rowMenuItems}
+          onclose={() => (rowMenu = null)}
+        />
+      {/if}
+
       <div class="foot">
         <span><kbd>↑↓</kbd> 选择</span>
         <span><kbd>↵</kbd> {items[sel] ? ENTER_LABEL[items[sel].kind] : "确认"}</span>
@@ -510,6 +659,13 @@
    * （gitsvc 不起网络子进程），点了没有下文比不显示更糟。
    */
   .ab { flex: none; font-family: var(--code-font); font-size: 10.5px; color: var(--accent); }
+  /*
+   * 行尾的「更多操作」。原来这儿是个常驻的 ✕（移除工作树）——
+   * 一个**会删目录**的动作和「打开」只隔着几个像素。现在它进了菜单并带 danger，
+   * 这个格子换成中性的 ⋯，hover 才显形。
+   *
+   * 红色 hover 也跟着去掉了：那是给 ✕ 的，而 ⋯ 点开只是一个菜单。
+   */
   .rm {
     flex: none;
     width: 22px;
@@ -519,12 +675,14 @@
     border: none;
     border-radius: var(--r-sm);
     color: var(--text-faint);
-    font-size: 10px;
+    font-size: 12px;
+    line-height: 1;
     cursor: default;
     opacity: 0;
   }
-  .rowwrap:hover .rm { opacity: 1; }
-  .rm:hover { background: var(--lvl-error); color: #fff; }
+  .rowwrap:hover .rm, .rowwrap.on .rm { opacity: 1; }
+  .rm:hover { background: var(--pressed); color: var(--text); }
+  .rm:focus-visible { opacity: 1; outline: 1px solid var(--accent); outline-offset: -1px; }
 
   /*
    * 四种条目四个形状。原来是四个 9px 的圆/方框，只靠边框颜色区分 ——

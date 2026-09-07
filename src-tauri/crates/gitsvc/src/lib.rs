@@ -120,6 +120,27 @@ pub enum Error {
     NoGit(io::Error),
     /// git 跑了但报错，带上 stderr —— 直接给用户看，比我们转译得准
     Git(String),
+    /// 切分支被本地改动挡住了，`files` 是挡路的那些文件。
+    ///
+    /// **这一档单独拆出来，是因为它不是「出错了」，是「你得先决定怎么办」。**
+    /// 把 git 的原话（"Please commit your changes or stash them before you
+    /// switch branches"）原样丢给用户，等于让他自己去开终端 —— 而提交和丢弃
+    /// 这两条路界面上都有。分类出来，前端才给得出按钮。
+    ///
+    /// 照 `remote::RemoteError` 那套办：**在最贴近 git 的地方分类，
+    /// 别让上层去 `contains("would be overwritten")`。**
+    LocalChanges { files: Vec<String>, raw: String },
+}
+
+impl Error {
+    /// 原始的 stderr。界面上「看 git 的原话」那种展开要用。
+    pub fn raw(&self) -> &str {
+        match self {
+            Error::NoGit(_) => "",
+            Error::Git(msg) => msg,
+            Error::LocalChanges { raw, .. } => raw,
+        }
+    }
 }
 
 impl std::fmt::Display for Error {
@@ -127,6 +148,9 @@ impl std::fmt::Display for Error {
         match self {
             Error::NoGit(e) => write!(f, "找不到 git 命令：{e}"),
             Error::Git(msg) => write!(f, "{msg}"),
+            Error::LocalChanges { files, .. } => {
+                write!(f, "有 {} 个文件的本地改动挡着", files.len())
+            }
         }
     }
 }
@@ -907,16 +931,28 @@ pub fn branches(root: impl AsRef<Path>) -> R<Vec<Branch>> {
 /// 界面上列出来的是全名（要区分 origin/foo 和 upstream/foo），
 /// 所以这里得把这层翻译做掉。
 ///
-/// 工作区脏的时候 git 会自己拒绝并说清楚原因，我们把 stderr 原样上抛 ——
-/// 它的措辞比我们能写的更准。
+/// 工作区脏的时候 git 会自己拒绝。**「本地改动会被覆盖」这一类单独分出来**
+/// （[`Error::LocalChanges`]，带上挡路的文件名），前端才给得出「去提交 /
+/// 丢弃这些改动」两个按钮；其余的错误照旧原样上抛，git 的措辞比我们能写的准。
 pub fn switch_branch(root: impl AsRef<Path>, name: &str, create: bool) -> R<String> {
     let name = name.trim();
     if name.is_empty() {
         return Err(Error::Git("分支名不能为空".into()));
     }
     let root = root.as_ref();
+    /// 所有出口都要过这一遍分类 —— 这个函数有五个 `run(...)` 的返回点，
+    /// 少包一个的表现就是「大部分时候给按钮，某个分支上突然给英文报错」。
+    fn classify(r: R<String>) -> R<String> {
+        match r {
+            Err(Error::Git(msg)) => match parse_local_changes(&msg) {
+                Some(files) => Err(Error::LocalChanges { files, raw: msg }),
+                None => Err(Error::Git(msg)),
+            },
+            other => other,
+        }
+    }
     if create {
-        return run(root, &["switch", "-c", name]);
+        return classify(run(root, &["switch", "-c", name]));
     }
 
     let exists = |r: &str| {
@@ -927,7 +963,7 @@ pub fn switch_branch(root: impl AsRef<Path>, name: &str, create: bool) -> R<Stri
 
     // 本地就有同名分支：直接切，最常见的情形
     if exists(&format!("refs/heads/{name}")) {
-        return run(root, &["switch", name]);
+        return classify(run(root, &["switch", name]));
     }
     // 是个远程分支：建跟踪分支切过去
     if exists(&format!("refs/remotes/{name}")) {
@@ -935,12 +971,45 @@ pub fn switch_branch(root: impl AsRef<Path>, name: &str, create: bool) -> R<Stri
         // 本地已经有同名短分支了（跟踪的可能是别的远程），就切到那个，
         // 别再建一个重名的
         if exists(&format!("refs/heads/{short}")) {
-            return run(root, &["switch", short]);
+            return classify(run(root, &["switch", short]));
         }
-        return run(root, &["switch", "--track", name]);
+        return classify(run(root, &["switch", "--track", name]));
     }
     // 既不是本地也不是远程：交给 git 自己判断（可能是 tag 或 sha）
-    run(root, &["switch", name])
+    classify(run(root, &["switch", name]))
+}
+
+/// 从 git 的 stderr 里认出「本地改动挡着切分支」，并把挡路的文件名切出来。
+///
+/// git 的原话长这样（`LC_ALL=C` 保证是英文，见 `git_cmd`）：
+///
+/// ```text
+/// error: Your local changes to the following files would be overwritten by checkout:
+///         src/a.rs
+///         src/b.rs
+/// Please commit your changes or stash them before you switch branches.
+/// Aborting
+/// ```
+///
+/// 未跟踪文件挡路时是另一句（"The following untracked working tree files
+/// would be overwritten by checkout"），**格式一样**，所以按「would be
+/// overwritten by」这一句认，两种都收。
+///
+/// 认不出来就返回 `None` —— 那时照旧把原话上抛，它的措辞比我们能写的准。
+fn parse_local_changes(stderr: &str) -> Option<Vec<String>> {
+    let mut lines = stderr.lines();
+    lines.find(|l| l.contains("would be overwritten by"))?;
+    // 文件名是缩进的，一行一个；碰到第一行不缩进的（"Please commit …"）就到头了
+    let files: Vec<String> = lines
+        .take_while(|l| l.starts_with('\t') || l.starts_with("  "))
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    // 认出了句子却一个文件都没切出来，说明格式和预期不一样 —— 那就别装懂
+    if files.is_empty() {
+        return None;
+    }
+    Some(files)
 }
 
 /// 工作树列表。`--porcelain` 的记录以空行分隔，每行是 `键 值`。
@@ -1189,7 +1258,7 @@ mod tests {
     /// 而一个说谎的界面比一句「显示不下」危险得多（和差异截断切回换行同一条）。
     #[test]
     fn 截断的路径列表要丢掉末尾那条半截的() {
-        let raw = b"a/one.txt b/two.txt c/thre".to_vec();
+        let raw = b"a/one.txt\0b/two.txt\0c/thre".to_vec();
 
         // 没截断：末尾那条是完整的，三条都要
         assert_eq!(
@@ -1200,6 +1269,31 @@ mod tests {
         assert_eq!(split_nul_records(&raw, true), vec!["a/one.txt", "b/two.txt"]);
         // 连一个 NUL 都没有 —— 一条完整记录都没读到，一条都不能要
         assert!(split_nul_records(b"c/thre", true).is_empty());
+    }
+
+    /// 「本地改动挡着切分支」要能认出来并切出文件名。
+    ///
+    /// 这一条卡的是**界面上有没有按钮**：认出来才给「去提交 / 丢弃这些改动」，
+    /// 认不出来就退回原样上抛一段英文。
+    #[test]
+    fn 认得出本地改动挡着切分支() {
+        let tracked = "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.rs\n\tsrc/b 有空格.rs\nPlease commit your changes or stash them before you switch branches.\nAborting\n";
+        assert_eq!(
+            parse_local_changes(tracked),
+            Some(vec!["src/a.rs".to_string(), "src/b 有空格.rs".to_string()]),
+        );
+
+        // 未跟踪文件挡路是另一句，格式一样，也要收
+        let untracked = "error: The following untracked working tree files would be overwritten by checkout:\n\tnew.txt\nPlease move or remove them before you switch branches.\n";
+        assert_eq!(parse_local_changes(untracked), Some(vec!["new.txt".to_string()]));
+
+        // 不是这一类的错误一律不认 —— 装懂比不懂糟
+        assert_eq!(parse_local_changes("fatal: invalid reference: nope\n"), None);
+        // 认出了句子却一个文件都没切出来，说明格式变了，也不装懂
+        assert_eq!(
+            parse_local_changes("error: files would be overwritten by checkout:\nAborting\n"),
+            None,
+        );
     }
 
     /// 冲突条目不能既算「已暂存」又算「改动」—— 那会让它在界面上出现三次
@@ -1478,6 +1572,61 @@ mod tests {
         assert_eq!(diff(&dir, "brand-new/", false, true).unwrap(), Diff::default());
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 真仓库上跑一次「被本地改动挡住的切分支」。
+    ///
+    /// 上面那条纯函数测试卡的是**解析**，这条卡的是**接线** ——
+    /// `switch_branch` 有五个 `run(...)` 的返回点，少包一个 classify 的表现是
+    /// 「大部分时候给按钮，某个分支上突然给英文报错」，而纯函数测试看不见这个。
+    #[test]
+    fn 切分支被本地改动挡住时要分类而不是原样上抛() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "gitsvc-blocked-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+
+        std::fs::write(dir.join("a.txt"), "main 这边的内容\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "base", false).unwrap();
+
+        // other 分支上把同一个文件改掉并提交
+        switch_branch(&dir, "other", true).unwrap();
+        std::fs::write(dir.join("a.txt"), "other 这边的内容\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "other 改了 a.txt", false).unwrap();
+        switch_branch(&dir, "main", false).unwrap();
+
+        // 回到 main，在工作区里改同一个文件但不提交 —— 这时切 other 必被拒
+        std::fs::write(dir.join("a.txt"), "没提交的改动\n").unwrap();
+        match switch_branch(&dir, "other", false) {
+            Err(Error::LocalChanges { files, raw }) => {
+                assert_eq!(files, vec!["a.txt".to_string()], "挡路的文件没切对");
+                assert!(!raw.is_empty(), "原话要留着，界面上「看 git 的原话」要用");
+            }
+            other => panic!("应该分类成 LocalChanges，实际是：{other:?}"),
+        }
+
+        // 改动提交掉之后同一次切换要成功 —— 证明上面那条不是「永远失败」
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "提交掉挡路的改动", false).unwrap();
+        // 现在两边都改过同一个文件，切过去会是快进不了的普通切换（git 允许）
+        switch_branch(&dir, "other", false).expect("提交之后应该切得过去");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 大文件的差异必须被掐在上限内，而且要如实说自己被截断了。

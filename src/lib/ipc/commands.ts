@@ -313,6 +313,27 @@ export const gitCommitDiff = (root: string, sha: string, path = "") =>
 export const gitBranches = (root: string) => invoke<GitBranch[]>("git_branches", { root });
 
 /** 切分支；create 为真时新建。工作区脏时 git 会拒绝，错误原样上抛 */
+/**
+ * 切分支失败时拿到的东西。**不是一个字符串。**
+ *
+ * `kind === "local-changes"` 时 `files` 是挡路的那些文件 —— 界面据此给出
+ * 「去提交 / 丢弃这些改动」两个按钮，而不是把 git 那句
+ * "Please commit your changes or stash them" 原样贴出来。
+ */
+export interface SwitchErr {
+  /** `local-changes` / `other` */
+  kind: string;
+  message: string;
+  /** 挡路的文件，只有 `kind === "local-changes"` 时非空 */
+  files: string[];
+  /** git 的原话 */
+  raw: string;
+}
+
+/**
+ * 切分支。**失败时 reject 的是 `SwitchErr` 对象，不是字符串** ——
+ * 调用方要 `catch` 之后判 `kind`，不能直接 `String(e)` 往界面上贴。
+ */
 export const gitSwitch = (root: string, name: string, create = false) =>
   invoke<string>("git_switch", { root, name, create });
 

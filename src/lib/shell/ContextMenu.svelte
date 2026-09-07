@@ -89,6 +89,18 @@
   function onKey(e: KeyboardEvent) {
     const n = items.length;
     if (n === 0) return;
+    /*
+     * 菜单开着的时候，它消费掉的键**不再往上冒**。
+     *
+     * 只 `preventDefault` 不够：分支浮层的键盘处理挂在 `<svelte:window>` 上，
+     * 于是一次 Esc 先关掉菜单、接着又关掉整个浮层 —— 人以为自己只是取消了菜单。
+     * （在它自己那边加「菜单开着就不管」也挡不住：`onclose` 是同步的，
+     * 事件冒到 window 时那个标记已经被清掉了。）
+     *
+     * ↑↓ 同理，不挡的话菜单游标和底下的列表会一起动。
+     */
+    const consumed = ["Escape", "ArrowDown", "ArrowUp", "Home", "End", "Enter", " "];
+    if (consumed.includes(e.key)) e.stopPropagation();
     switch (e.key) {
       case "Escape":
         e.preventDefault();

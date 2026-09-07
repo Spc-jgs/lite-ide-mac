@@ -294,6 +294,32 @@ export default defineConfig({
  * `node_modules` / `target` / `dist` / `build` 那四个**故意不放**：
  * 真实现永远不列它们，桩里放了反而是假的。
  */
+/**
+ * 被「丢弃改动」丢掉的路径。桩里唯一一处**有状态**的地方。
+ *
+ * 加它是因为「切分支被本地改动挡住 → 丢弃 → 再切一次」这条路要在浏览器里
+ * 走得通：全无状态的桩会让第二次切换撞上同一个拒绝，看着像修复没生效。
+ * 而这条路恰恰是这一轮的主角。
+ */
+const discarded = new Set<string>();
+
+/** 挡住切到 `m11/symbols` 的那两个文件。和 `git_status` 里的条目对得上 */
+const BLOCKERS = ["src/App.svelte", "docs/old.md"];
+
+/**
+ * 当前分支。`git_switch` 成功之后要变 —— 否则切完了 `git_status` 还报老名字，
+ * 而应用的成功提示说的正是**刷新后的实际分支**（它有意不复述「我请求切到哪儿」）。
+ * 桩不跟着变，那句提示在浏览器里就永远是错的。
+ */
+let curBranch = "m13/git";
+
+/** 本地分支的上游。切分支之后提示语里的「（跟踪 …）」要跟着走 */
+const UPSTREAM: Record<string, string> = {
+  main: "origin/main",
+  "m13/git": "origin/m13/git",
+  "m11/symbols": "",
+};
+
 const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj": [["src", true], ["logs", true], ["docs", true], [".github", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   "/proj/.github": [["workflows", true]],
@@ -669,8 +695,8 @@ export function installMockIpc(): void {
         case "git_status":
           return {
             root: "/proj",
-            branch: "m13/git",
-            upstream: "origin/m13/git",
+            branch: curBranch,
+            upstream: UPSTREAM[curBranch] ?? "",
             ahead: 2,
             behind: 0,
             detached: false,
@@ -692,7 +718,7 @@ export function installMockIpc(): void {
               g("scratch/tmp/notes.md", ".", "?", { untracked: true }),
               g("notes.txt", ".", "?", { untracked: true }),
               g("src/conflict.rs", "U", "U", { conflicted: true }),
-            ],
+            ].filter((e) => !discarded.has(e.path)),
           };
         case "git_diff":
           /*
@@ -733,7 +759,11 @@ index 1a2b3c4..5d6e7f8 100644
           };
         case "git_stage":
         case "git_unstage":
+          return null;
         case "git_discard":
+          // 记下来 —— `git_status` 和 `git_switch` 都要看它，
+          // 否则「丢弃挡路的改动之后再切一次」在浏览器里永远走不通
+          for (const x of [...(a.paths as string[]), ...(a.untracked as string[])]) discarded.add(x);
           return null;
         case "git_commit":
           return "[m13/git abc1234] 桩提交";
@@ -766,14 +796,43 @@ index 1a2b3c4..5d6e7f8 100644
              * 而这里原来 status 说 m13/git、branches 却把 main 标成 HEAD ——
              * 于是分支面板的「当前」和 Git 栏的分支名各说各的。
              */
-            b("main", false, false, "origin/main", "M12 界面打磨"),
-            b("m13/git", true, false, "origin/m13/git", "M13 Git 版本管理"),
-            b("m11/symbols", false, false, "", "M11 符号大纲"),
+            b("main", curBranch === "main", false, "origin/main", "M12 界面打磨"),
+            b("m13/git", curBranch === "m13/git", false, "origin/m13/git", "M13 Git 版本管理"),
+            b("m11/symbols", curBranch === "m11/symbols", false, "", "M11 符号大纲"),
             b("origin/main", false, true, "", "M12 界面打磨"),
             b("origin/dev", false, true, "", "开发主线"),
           ];
-        case "git_switch":
-          return `Switched to branch '${a.name}'`;
+        case "git_switch": {
+          /*
+           * **切到 `m11/symbols` 一定失败，而且失败成「本地改动挡着」那一档。**
+           *
+           * 这条路在桩上必须走得到：真实现里它要工作区脏 + 两边改了同一个文件
+           * 才触发，而浏览器里没有真仓库。挡不住的话，那条「去提交 / 丢弃这些
+           * 改动 / 取消」的确认条一次都验不了 —— 而它恰恰是这一轮的主角。
+           *
+           * reject 的是**对象不是字符串**，和 Rust 侧的 `SwitchErrDto` 一致；
+           * 桩要是抛个 Error，前端 `err.kind` 读出来是 undefined，
+           * 就会走到「原样上抛」那条分支去，在浏览器里看着像功能没做。
+           */
+          const blocking = BLOCKERS.filter((f) => !discarded.has(f));
+          if (a.name === "m11/symbols" && !a.create && blocking.length > 0) {
+            throw {
+              kind: "local-changes",
+              message: `有 ${blocking.length} 个文件的本地改动挡着`,
+              files: blocking,
+              raw:
+                "error: Your local changes to the following files would be overwritten by checkout:\n" +
+                blocking.map((f) => `\t${f}`).join("\n") +
+                "\nPlease commit your changes or stash them before you switch branches.\nAborting",
+            };
+          }
+          const asked = String(a.name);
+          curBranch = asked.replace(/^origin\//, "");
+          // 检出远程分支时真实现走 `switch --track`，**会给新分支设上上游**。
+          // 桩不设的话，界面上那句「（跟踪 …）」在浏览器里永远不出现
+          if (asked.startsWith("origin/")) UPSTREAM[curBranch] = asked;
+          return `Switched to branch '${curBranch}'`;
+        }
         case "git_worktrees":
           return [
             { path: "/proj", sha: "abc1234", branch: "m13/git", detached: false, bare: false, locked: false, current: true },

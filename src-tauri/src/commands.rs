@@ -822,11 +822,56 @@ pub fn git_branches(root: String) -> Result<Vec<BranchDto>, String> {
         .collect())
 }
 
-/// 切分支。工作区脏时 git 会自己拒绝，错误原样上抛 —— 它的措辞比我们准。
+/// 切分支失败时给前端的东西。
+///
+/// **不是一个字符串。** 「本地改动会被覆盖」这一档要带上挡路的文件名，
+/// 界面才给得出「去提交 / 丢弃这些改动」两个按钮 —— 而不是把 git 那句
+/// "Please commit your changes or stash them" 原样贴给用户看。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchErrDto {
+    /// `local-changes` / `other`
+    pub kind: String,
+    pub message: String,
+    /// 挡路的文件，只有 `kind == "local-changes"` 时非空
+    pub files: Vec<String>,
+    /// git 的原话。界面上「看 git 怎么说」那种展开要用
+    pub raw: String,
+}
+
+/// 切分支。**「本地改动挡着」单独分一档**（见 [`SwitchErrDto`]），其余原样上抛。
 #[tauri::command]
-pub async fn git_switch(root: String, name: String, create: bool) -> Result<String, String> {
+pub async fn git_switch(
+    root: String,
+    name: String,
+    create: bool,
+) -> Result<String, SwitchErrDto> {
     crate::diag!("git_switch {name} create={create}");
-    blocking(move || gitsvc::switch_branch(&root, &name, create).map_err(|e| format!("{e}"))).await
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        gitsvc::switch_branch(&root, &name, create)
+    })
+    .await;
+    match r {
+        Err(e) => Err(SwitchErrDto {
+            kind: "other".into(),
+            message: format!("后台任务没跑完：{e}"),
+            files: Vec::new(),
+            raw: String::new(),
+        }),
+        Ok(Ok(out)) => Ok(out),
+        Ok(Err(e)) => {
+            let files = match &e {
+                gitsvc::Error::LocalChanges { files, .. } => files.clone(),
+                _ => Vec::new(),
+            };
+            Err(SwitchErrDto {
+                kind: if files.is_empty() { "other" } else { "local-changes" }.into(),
+                message: e.to_string(),
+                raw: e.raw().to_string(),
+                files,
+            })
+        }
+    }
 }
 
 #[tauri::command]
