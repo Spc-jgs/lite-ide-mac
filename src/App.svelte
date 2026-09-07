@@ -3,7 +3,7 @@
   import { Channel } from "@tauri-apps/api/core";
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
-  import QuickSearch, { type Action } from "./lib/search/QuickSearch.svelte";
+  import type { Action } from "./lib/search/QuickSearch.svelte";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import * as session from "./lib/state/session";
@@ -11,10 +11,8 @@
   import Crash from "./lib/shell/Crash.svelte";
   import Icon from "./lib/shell/Icon.svelte";
   import ContextMenu, { type MenuItem } from "./lib/shell/ContextMenu.svelte";
-  import Outline from "./lib/search/Outline.svelte";
   import { KEYS, byId as keyById } from "./lib/state/keymap";
   import type { Sym } from "./lib/editor/outline";
-  import { langOf, langLabel } from "./lib/editor/langs";
   import type { ChangeKind } from "./lib/git/diff";
   import {
     probePath,
@@ -911,6 +909,47 @@
   /** 每次保存成功自增，Editor 据此重置 dirty 基线 */
   let savedTick = $state(0);
 
+  /**
+   * 两个搜索浮层（⌘P 随处搜索、⌘⇧O 文件结构）。
+   *
+   * 一起拉是因为**它们共用 `fuzzy.ts`** —— 分两次的话那份排序算法要么进公共块、
+   * 要么各带一份，而两个浮层本来就是同一类东西（键盘唤出、盖在界面上）。
+   *
+   * 挪出入口包**实测省 10,183 字节**（挪走前后各量一次，不是按 sourcemap 归因
+   * 的估值 —— 归因会高估数据密集的模块，见 .claude/rules/frontend.md）。
+   * 判据同 `keysPanel`：问一句「这东西在窗口出现之前有用吗」——
+   * 没有，它们都得等一次按键。
+   *
+   * 但和速查表不同的是，**这两个是天天按的**，不能让第一次 ⌘P 等一次 chunk 往返。
+   * 所以首屏画完之后就预拉（见下面那个 setTimeout）：既不占首屏之前那段，
+   * 又保证人真按下去的时候它已经在了。
+   */
+  const overlays = lazyGroup(
+    {
+      quick: () => import("./lib/search/QuickSearch.svelte"),
+      outline: () => import("./lib/search/Outline.svelte"),
+    },
+    "搜索浮层",
+  );
+
+  $effect(() => {
+    // 兜底：预拉万一没跑到（或者失败过），真按下去时补一次。
+    // `load()` 是幂等的，重复调用会被它自己的状态挡掉
+    if (quickOpen || outlineOpen) overlays.load();
+  });
+
+  $effect(() => {
+    /*
+     * 首屏之后再拉。
+     *
+     * 300ms 不是随便取的：它要**明确落在首屏绘制之后**（否则等于没挪出去），
+     * 又要远早于人按下第一个 ⌘P。用 `setTimeout` 而不是
+     * `requestIdleCallback` —— 后者 Safari 16.4 才有，而构建目标是 safari15。
+     */
+    const id = setTimeout(() => overlays.load(), 300);
+    return () => clearTimeout(id);
+  });
+
   let quickOpen = $state(false);
   let quickScope = $state<"all" | "file" | "content" | "action">("all");
   /** 待跳转的行号；带 nonce，连点同一条结果也能重新定位 */
@@ -1081,11 +1120,23 @@
     return out;
   });
 
-  // 按需加载失败要说出来。以前每个 import 各自 catch 到 error 里，
-  // 抽成 lazy() 之后错误存在各自的 store 上，这里统一汇到状态栏。
+  /*
+   * 按需加载失败要说出来。以前每个 import 各自 catch 到 error 里，
+   * 抽成 lazy() 之后错误存在各自的 store 上，这里统一汇到状态栏。
+   *
+   * **这张名单漏一个就是一处静默失败** —— `keysPanel` 就漏在这儿过：
+   * ⌘/ 按下去什么都不出来，而状态栏一声不吭。2026-09-07 补上它和
+   * 新加的 `overlays`。加新的 lazy() 时记得回来加一行。
+   */
   $effect(() => {
     const e =
-      editor.error || logPane.error || terminal.error || git.error || encPicker.error;
+      editor.error ||
+      logPane.error ||
+      terminal.error ||
+      git.error ||
+      encPicker.error ||
+      keysPanel.error ||
+      overlays.error;
     if (e) notify.fail(e);
   });
 
@@ -1094,8 +1145,30 @@
     "java", "javascript", "typescript", "python", "markdown", "json", "rust",
     "yaml", "html", "css", "sass", "less", "xml", "sql", "cpp", "php", "vue", "liquid",
   ]);
+  /**
+   * 语言识别表（文件名 → 语言 id → 显示名）。**只在有标签打开时才拉。**
+   *
+   * 入口包是**首屏之前必须解析执行完**的那一段，而这张表回答的两个问题
+   * （状态栏显示什么语言、⌘⇧O 支不支持这个文件）都要先有一个打开的文件
+   * 才成立 —— 一个都没打开时它纯属压秤。**实测省 3,419 字节。**
+   *
+   * （sourcemap 归因说它有 11.0 KB，差了三倍：这张表几乎全是数据，
+   * 语句少、mapping 稀，归因会把后面邻居的字节一起算到它头上。
+   * 收益一律以「挪走前后各量一次」为准。）
+   *
+   * 表还没到手时：语言那格空着，`outlineSupported` 是假。两者都只持续到
+   * 那个几 KB 的 chunk 回来为止，而它和编辑器（370 KB）是同时开始拉的。
+   *
+   * 编辑器那边照旧直接 `import` 它 —— 那个 chunk 本来就是懒的，
+   * 两处引到的是同一份模块。
+   */
+  let langs = $state<typeof import("./lib/editor/langs") | null>(null);
+  $effect(() => {
+    if (active && !langs) void import("./lib/editor/langs").then((m) => (langs = m));
+  });
+
   let outlineSupported = $derived(
-    active?.mode === "edit" && LEZER_LANGS.has(langOf(active.path) ?? ""),
+    active?.mode === "edit" && !!langs && LEZER_LANGS.has(langs.langOf(active.path) ?? ""),
   );
 
 
@@ -2269,15 +2342,25 @@
   <keysPanel.comp bind:open={keysOpen} />
 {/if}
 
-<Outline
-  bind:open={outlineOpen}
-  {symbols}
-  fileName={active?.name ?? ""}
-  supported={outlineSupported}
-  onPick={(line) => (gotoLine = { line, nonce: ++gotoNonce })}
-/>
+{#if overlays.comps.outline}
+  <overlays.comps.outline
+    bind:open={outlineOpen}
+    {symbols}
+    fileName={active?.name ?? ""}
+    supported={outlineSupported}
+    onPick={(line) => (gotoLine = { line, nonce: ++gotoNonce })}
+  />
+{/if}
 
-<QuickSearch bind:open={quickOpen} bind:scope={quickScope} {root} {actions} onOpenFile={openAt} />
+{#if overlays.comps.quick}
+  <overlays.comps.quick
+    bind:open={quickOpen}
+    bind:scope={quickScope}
+    {root}
+    {actions}
+    onOpenFile={openAt}
+  />
+{/if}
 
 {#if encPicker.comp && active}
   <encPicker.comp
@@ -2971,7 +3054,7 @@
           title={active.forced ? "你手动切到了日志模式" : "自动判定的原因"}
         >只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}</span>
       {:else}
-        <span class="cell dim drop-2">{langLabel(langOf(active.path))}</span>
+        <span class="cell dim drop-2">{langs ? langs.langLabel(langs.langOf(active.path)) : ""}</span>
       {/if}
       <span class="vsep" aria-hidden="true"></span>
       <button

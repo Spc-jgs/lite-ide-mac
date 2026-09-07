@@ -87,5 +87,40 @@ jobs:
             echo "::warning::入口包 ${kb} KB，离 150 KB 红线只剩 $((150 - kb)) KB。"
           fi
 
+      - name: 开发桩不许进产物
+        # 2026-09-07：`mock-ipc.ts`（浏览器里那份 IPC 桩，958 行）**真的漏进过
+        # 生产入口包** —— 1,195 字节，产物里能直接 grep 到 `m13/git`。
+        #
+        # 当时 main.ts 是静态 import + `if (import.meta.env.DEV)` 条件调用，
+        # 注释还写着「整个模块被 tree-shake 掉，产物里一个字节都不剩」。
+        # 漏的原因是桩里那张提交图是模块级的 `[...].map(...)` ——
+        # **`.map()` 是方法调用，打包器证明不了它没有副作用**，
+        # 于是连同整个数据字面量一起留下了。
+        #
+        # 真正的保证是 main.ts 现在改成了 `await import()`：`import.meta.env.DEV`
+        # 在生产构建里是常量假，整个 if 块在语法层面就被消除，不依赖 tree-shaking。
+        # 这一步只是烟雾报警 —— 抓的是「有人又把它改回静态 import」。
+        #
+        # 哨兵取的是桩里 `MOCK_LOG` 那张假提交图里的字符串 —— **漏出来的正是它**
+        # （模块级 `.map()` 那一句）。第一版哨兵里混了两条函数体内的串，
+        # 实测**它们不会漏**（函数被 shake 掉了，留下的只有模块级数据），
+        # 那种哨兵等于一条永远不响的报警。
+        #
+        # 三条都在同一个字面量里，改动它之前先看这里。
+        run: |
+          bad=0
+          for s in "m13/git" "合并 M12：界面打磨与使用手册" "M11 符号大纲：⌘⇧O 文件结构"; do
+            if grep -rlF "$s" dist/assets/*.js >/dev/null 2>&1; then
+              echo "::error::开发桩漏进产物了：在 dist 里找到「$s」"
+              grep -rlF "$s" dist/assets/*.js
+              bad=1
+            fi
+          done
+          if [ "$bad" = 1 ]; then
+            echo "::error::main.ts 里那句 import 必须是 \`await import()\`，不能是静态 import。"
+            exit 1
+          fi
+          echo "产物里没有开发桩的痕迹 ✓"
+
       - name: 构建 app（确认 Tauri 壳能编出来）
         run: pnpm app:build

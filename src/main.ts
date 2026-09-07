@@ -2,7 +2,6 @@ import { mount } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App.svelte";
 import "./app.css";
-import { installMockIpc } from "./lib/dev/mock-ipc";
 
 /*
  * 窗口后面有没有材质层，这一行说了算。
@@ -19,12 +18,26 @@ import { installMockIpc } from "./lib/dev/mock-ipc";
 document.documentElement.dataset.shell =
   "__TAURI_INTERNALS__" in window ? "tauri" : "web";
 
-// 浏览器里跑 `pnpm dev` 时装 IPC 桩：改 UI 不必等壳重新编译（约 40 秒 → 毫秒）。
-//
-// 用静态 import + 条件调用而非 `await import()`，纯粹是因为不需要顶层 await 就能
-// 做到同样的事 —— 生产构建里 import.meta.env.DEV 为假，if 块被消除，
-// installMockIpc 随之无人引用，整个模块被 tree-shake 掉，产物里一个字节都不剩。
+/*
+ * 浏览器里跑 `pnpm dev` 时装 IPC 桩：改 UI 不必等壳重新编译（约 40 秒 → 毫秒）。
+ *
+ * **必须是 `await import()`，不能是静态 import + 条件调用。**
+ *
+ * 原来就是后者，注释还写着「整个模块被 tree-shake 掉，产物里一个字节都不剩」——
+ * 那是错的。2026-09-07 按 sourcemap 归因，`mock-ipc.ts` 在生产入口包里
+ * 占着 1,195 字节：桩里那张提交图是模块级的 `[...].map(...)`，
+ * **`.map()` 是方法调用，打包器证明不了它没有副作用**，于是连同整个数据字面量
+ * 一起留下了。产物里能直接 grep 到 `m13/git` 这种只有桩里才有的字符串。
+ *
+ * 换成动态 import 之后，这条保证就不再依赖打包器的 tree-shaking 能做到哪一步 ——
+ * `import.meta.env.DEV` 在生产构建里是常量假，整个 if 块（连同那句 import）
+ * 在语法层面就被消除了。桩里之后再写什么都泄不出来。
+ *
+ * 代价是一个顶层 await。它只在 dev 分支上存在，而且必须 await ——
+ * 桩得在 `mount(App)` 之前装好，否则首屏那几个 invoke 会打空。
+ */
 if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
+  const { installMockIpc } = await import("./lib/dev/mock-ipc");
   installMockIpc();
 }
 
