@@ -35,6 +35,20 @@ class Notify {
   /** 多行说明，需要用户自己关 */
   banner = $state<{ title: string; body: string } | null>(null);
 
+  /**
+   * 正在做、还没做完的事（"提交"、"切分支"…）。
+   *
+   * **没有定时器，是有意的** —— 上面三个通道都由时间收走，而这一条的结束
+   * 由操作本身决定：git 提交跑 pre-commit 钩子可能要三十秒，检出几千个文件
+   * 是秒级（那几条正是被有意挪到阻塞池上的，见 rules/rust.md）。
+   * 按时间收走它，等于在操作还没完的时候告诉用户"完了"。
+   *
+   * 直接赋值：开始时 `notify.doing = "提交"`，结束时 `notify.doing = ""`。
+   * 结束一定要走 `finally` —— 失败路径上不清的话，状态栏会永远卡着一句
+   * "正在提交…"，而那比不显示更糟。
+   */
+  doing = $state("");
+
   #errTimer: ReturnType<typeof setTimeout> | undefined;
   #infoTimer: ReturnType<typeof setTimeout> | undefined;
 

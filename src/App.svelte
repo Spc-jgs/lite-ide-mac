@@ -316,7 +316,7 @@
       const up = gitSt?.upstream ? `（跟踪 ${gitSt.upstream}）` : "";
       notify.ok(create ? `已从 ${base} 新建并切到 ${now}` : `已切到 ${now}${up}`, 2800);
       await workingTreeChanged();
-    });
+    }, create ? "新建分支" : "切分支");
   }
 
   /** 丢掉挡路的那几个改动，然后把刚才那次切换重放一遍 */
@@ -349,7 +349,7 @@
       const path = await gitWorktreeAdd(repo!, dir, branch);
       notify.ok(`工作树已建在 ${path}`, 3600);
       await openPath(path);
-    });
+    }, "新建工作树");
   }
 
   /** 待确认移除的工作树 —— 会删目录，必须过用户这一关 */
@@ -361,7 +361,7 @@
       await gitWorktreeRemove(repo!, w.path, force);
       notify.ok(`已移除工作树 ${w.path}`);
       await workingTreeChanged();
-    });
+    }, "移除工作树");
   }
 
   /**
@@ -728,13 +728,35 @@
   }
 
   /** 包一层：任何 git 写操作之后都要刷新状态，也统一收口错误 */
-  async function gitDo(what: string, fn: () => Promise<unknown>) {
+  /**
+   * git 写操作的统一出口（issue #15）。
+   *
+   * `doing` 是**正在做的那件事的名字**，不是可选的装饰 —— 这几条命令全都
+   * 被有意挪到了阻塞池上（`git_commit` 因为 pre-commit 钩子跑什么是仓库
+   * 说了算，跑一遍 eslint 三十秒；`git_switch` 检出几千个文件是秒级，
+   * 见 rules/rust.md 那张表）。原来这段时间界面**什么都不显示**，
+   * 和「点了没反应」长得一模一样 —— 而那正是让人反复点的形状。
+   *
+   * 顺带把「反复点」真的挡住了：一次只允许一个写操作。挪到阻塞池之后
+   * 命令之间不再由主线程串行，两条 git 撞上 `index.lock` 是真会发生的
+   * （issue #11 里专门记着这个回归点）。这里挡住，就不用等 git 报错再翻译。
+   */
+  async function gitDo(what: string, fn: () => Promise<unknown>, doing: string) {
     if (!repo) return;
+    if (notify.doing) {
+      notify.fail(`正在${notify.doing}，等它做完`);
+      return;
+    }
+    notify.doing = doing;
     try {
       await fn();
       await refreshGit();
     } catch (e) {
       notify.block(what, e);
+    } finally {
+      // **必须在 finally 里清。** 失败路径上漏掉的话，状态栏会永远卡着
+      // 一句「正在提交…」，而且后面所有写操作都会被上面那道守卫挡下来
+      notify.doing = "";
     }
   }
 
@@ -744,7 +766,18 @@
     // 跟踪的走 git restore，未跟踪的只能直接删 —— gitsvc 里分了两条路
     const tracked = entries.filter((e) => !e.untracked).map((e) => e.path);
     const untracked = entries.filter((e) => e.untracked).map((e) => e.path);
-    await gitDo("丢弃失败", () => gitDiscard(repo!, tracked, untracked));
+    await gitDo(
+      "丢弃失败",
+      async () => {
+        await gitDiscard(repo!, tracked, untracked);
+        // **只有这一条补了成功回执，暂存/取消暂存没补。**
+        // 判据是「结果看不看得见」：暂存之后文件当场移到已暂存区，
+        // 界面自己说清楚了，再弹一句是噪声；而丢弃是不可逆的那一档，
+        // 文件直接从改动列表里消失，不说一句就分不清「丢掉了」和「没点中」。
+        notify.ok(`已丢弃 ${entries.length} 个文件的改动`, 3000);
+      },
+      "丢弃改动",
+    );
     await workingTreeChanged();
   }
 
@@ -752,7 +785,7 @@
     void gitDo("提交失败", async () => {
       const out = await gitCommit(repo!, message, amend);
       notify.ok(out.split("\n")[0] || "已提交", 3000);
-    });
+    }, "提交");
   }
   let panel = $state(savedLayout.panel);
   let panelHeight = $state(savedLayout.panelHeight);
@@ -2571,8 +2604,9 @@
             status={gitSt}
             busy={gitBusy}
             onOpenDiff={(e, staged) => void (e.conflicted ? openMerge(e) : openDiff(e, staged))}
-            onStage={(paths) => void gitDo("暂存失败", () => gitStage(repo!, paths))}
-            onUnstage={(paths) => void gitDo("取消暂存失败", () => gitUnstage(repo!, paths))}
+            onStage={(paths) => void gitDo("暂存失败", () => gitStage(repo!, paths), "暂存")}
+            onUnstage={(paths) =>
+              void gitDo("取消暂存失败", () => gitUnstage(repo!, paths), "取消暂存")}
             onDiscard={(es) => (pendingDiscard = es)}
             onCommit={doGitCommit}
             onRefresh={() => void refreshGit()}
@@ -3004,7 +3038,21 @@
   -->
   <footer class="statusbar">
     <!-- 左槽 -->
-    {#if notify.info}
+    <!--
+      **「正在做」排在最前面。** 它是唯一一条「事情还没完」的消息，
+      而另外两条说的都是已经完了。操作跑着的时候被一条旧的「已保存」
+      顶掉，等于把界面上唯一能证明「它在动」的东西藏起来 ——
+      那正是 issue #15 要修的形状。
+    -->
+    {#if notify.doing}
+      <!--
+        **整句放进一个表达式，不要写成 `正在{notify.doing}…`。**
+        那样 Svelte 会生成三个文本节点，在 macOS 的辅助功能树里就是三段
+        独立的 static text，读屏和自动化都拼不回一句话 ——
+        scripts/smoke.sh 里按「正在提交」找了半天找不到，就是这么回事。
+      -->
+      <span class="cell doing navslot">{`正在${notify.doing}…`}</span>
+    {:else if notify.info}
       <span class="cell ok navslot">{notify.info}</span>
     {:else if notify.error}
       <span class="cell err navslot">{notify.error}</span>
@@ -3658,6 +3706,12 @@
   .statusbar .dim { color: var(--text-faint); }
   .statusbar .ok { color: var(--accent); }
   .statusbar .err { color: var(--lvl-error); }
+  /*
+   * 「正在做」是中性的：不是成功也不是失败，用正文色，不抢 accent。
+   * 加一点点透明当作「还没定下来」的暗示 —— 不用转圈动画，
+   * 状态栏上一个一直转的东西比它想传达的信息更吵。
+   */
+  .statusbar .doing { color: var(--text); opacity: 0.75; }
   .statusbar .warn { color: var(--lvl-warn); }
   .statusbar .btn.enc { font-size: 11px; }
   /* 解码有损是必须让人看见的事，不能只做成一个安静的标签 */

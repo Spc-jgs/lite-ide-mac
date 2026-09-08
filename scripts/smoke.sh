@@ -369,8 +369,16 @@ printf '这个文件是给「移到废纸篓」那一步用的\n' > "${TRASH_NAM
 awk 'BEGIN{for(i=0;i<400000;i++) printf "2026-09-07 12:00:00 INFO  服务处理完成，第 %d 条记录\n", i}' > big.log
 git add -A && git commit -qm "初始提交"
 git branch feature/x
-# 话多的钩子：3000 行稳稳超过管道那几十 KB 缓冲，用来复现那个死锁
-printf '#!/bin/sh\nfor i in $(seq 1 3000); do echo "smoke: 噪声 $i"; done\nexit 0\n' > .git/hooks/pre-commit
+# 话多的钩子：3000 行稳稳超过管道那几十 KB 缓冲，用来复现那个死锁。
+#
+# **末尾那句 sleep 8 是给「进行中提示」用的**（issue #15 的 ①b）。
+#
+# 修好之后提交不到 1 秒就完了，那句「正在提交…」一闪而过，直接断言就是
+# 一条间歇红。而窗口要开得比直觉**大得多**：`ax has` 自己就要递归遍历一遍
+# AX 树，实测耗时以**秒**计 —— 第一版给了 2 秒，结果「点按钮」和「查断言」
+# 这两次遍历加起来就把窗口用光了，功能明明是好的却报红
+# （诊断时单独跑，`has「正在提交」` 是 OK 的）。
+printf '#!/bin/sh\nfor i in $(seq 1 3000); do echo "smoke: 噪声 $i"; done\nsleep 8\nexit 0\n' > .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 printf 'v2 改过了\n' > note.txt
 echo "  大日志 $(du -h big.log | cut -f1)，钩子 3000 行"
@@ -444,6 +452,13 @@ else
       bad "界面没刷出「提交 (N)」"
     else
       [ "$(ax "click~" AXButton "提交 (")" = "OK" ] || bad "点不到提交按钮"
+      # ①b issue #15：慢操作不能一声不吭。钩子里那句 sleep 8 撑开了窗口，
+      # 这里**不额外 sleep** —— 光是上一句点按钮的树遍历就已经花掉一两秒了
+      if [ "$(ax has AXStaticText "正在提交")" = "OK" ]; then
+        ok "提交进行中有提示（issue #15）"
+      else
+        bad "点了提交但界面一声不吭 —— 和「点了没反应」分不出来"
+      fi
       # **断言认「多了一条提交、标题对得上」，不认「工作区变干净」** ——
       # 后者会被任何无关的工作区噪声搅黄（应用自己的日志、临时文件、
       # 上一步留下的改动），而那时的失败信息会指向一个不存在的死锁
