@@ -147,6 +147,21 @@ pub enum Error {
     /// 照 `remote::RemoteError` 那套办：**在最贴近 git 的地方分类，
     /// 别让上层去 `contains("would be overwritten")`。**
     LocalChanges { files: Vec<String>, raw: String },
+    /// 提交时 pre-commit 钩子把它拒了，`output` 是钩子说的话。
+    ///
+    /// **git 不给这个信号**，实测（2026-09-08）它的形状是：退出码 1、
+    /// stdout **一个字都没有**、stderr 全是钩子自己的输出。而 git 自己的
+    /// 失败（`nothing to commit`）反过来 —— 话在 stdout 里。
+    /// 所以判据是「git 自己没说话 + 仓库里真有一个可执行的 pre-commit」。
+    ///
+    /// 分出来是因为它和别的失败不是一回事：**代码没问题，是检查没过**，
+    /// 而钩子往往打印几十上百行，原样贴出来等于什么都没说。
+    HookRejected { output: String },
+    /// 点了提交，但暂存区是空的。
+    ///
+    /// git 的原话是 `nothing to commit, working tree clean` —— 那是给命令行
+    /// 用户看的。界面上「怎么办」是明确的：去勾几个文件，或者点「全部暂存」。
+    NothingStaged { raw: String },
 }
 
 impl Error {
@@ -156,6 +171,8 @@ impl Error {
             Error::NoGit(_) => "",
             Error::Git(msg) => msg,
             Error::LocalChanges { raw, .. } => raw,
+            Error::HookRejected { output } => output,
+            Error::NothingStaged { raw } => raw,
         }
     }
 }
@@ -168,6 +185,34 @@ impl std::fmt::Display for Error {
             Error::LocalChanges { files, .. } => {
                 write!(f, "有 {} 个文件的本地改动挡着", files.len())
             }
+            Error::HookRejected { output } => {
+                /*
+                 * **只留最后几行。**
+                 *
+                 * 钩子动辄打印上百行（跑 eslint 的那种），而要紧的话几乎总在
+                 * 最后 —— 前面是进度和通过项。整段贴到横幅上，人要滚很久才
+                 * 看到那一句，等于没说。
+                 *
+                 * 完整的那份没丢，在 `raw()` 里。
+                 */
+                const TAIL: usize = 12;
+                let lines: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
+                let skipped = lines.len().saturating_sub(TAIL);
+                writeln!(f, "pre-commit 钩子拒绝了这次提交。代码没提交上去，改动都还在。")?;
+                if skipped > 0 {
+                    writeln!(f, "\n钩子说（前面还有 {skipped} 行）：")?;
+                } else {
+                    writeln!(f, "\n钩子说：")?;
+                }
+                for l in lines.iter().skip(skipped) {
+                    writeln!(f, "{l}")?;
+                }
+                Ok(())
+            }
+            Error::NothingStaged { .. } => write!(
+                f,
+                "暂存区是空的，没有东西可提交。\n先在改动列表里勾上要提交的文件，或者点「全部暂存」。"
+            ),
         }
     }
 }
@@ -175,6 +220,33 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 type R<T> = Result<T, Error>;
+
+/// 给一次失败的 `git commit` 分档。
+///
+/// **只有两种能可靠认出来**，别的照旧原样透出去 —— 猜错的分类比不分类更害人：
+///
+/// - `nothing to commit` 是 git 自己说的（在 stdout 里），而且 `LC_ALL=C`
+///   保证了它不会被翻译成用户的语言，字符串是稳的。
+/// - 钩子拒绝**没有信号**，只能看形状：git 自己一句话都没说，而仓库里确实
+///   挂着一个可执行的 `pre-commit`。实测（2026-09-08）钩子拒绝时退出码 1、
+///   stdout 一个字都没有、stderr 全是钩子的输出；而 `nothing to commit`
+///   反过来 —— 话在 stdout 里，stderr 是空的。
+fn classify_commit_failure(root: &Path, msg: String) -> Error {
+    if msg.contains("nothing to commit") || msg.contains("no changes added to commit") {
+        return Error::NothingStaged { raw: msg };
+    }
+    let hook = root.join(".git/hooks/pre-commit");
+    let executable = std::fs::metadata(&hook)
+        .map(|m| {
+            use std::os::unix::fs::PermissionsExt;
+            m.is_file() && m.permissions().mode() & 0o111 != 0
+        })
+        .unwrap_or(false);
+    if executable && !msg.is_empty() {
+        return Error::HookRejected { output: msg };
+    }
+    Error::Git(msg)
+}
 
 /// 仓库自带的配置里，**能让 git 去执行一条命令**的那几项，一律就地掐掉。
 ///
@@ -491,6 +563,15 @@ fn run_drained(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool)> {
     let status = child.wait().map_err(Error::NoGit)?;
     if !status.success() {
         let msg = String::from_utf8_lossy(&err).trim().to_string();
+        // **stderr 空的时候要退回去看 stdout。**
+        // git 有一部分话是从 stdout 说的 —— `nothing to commit, working tree
+        // clean` 就是（实测：那时 stderr 一个字都没有）。原来这里直接吐
+        // 「git commit 失败」，把唯一说清原因的那句丢掉了。
+        let msg = if msg.is_empty() {
+            String::from_utf8_lossy(&out).trim().to_string()
+        } else {
+            msg
+        };
         return Err(Error::Git(if msg.is_empty() {
             format!("git {} 失败", args.first().copied().unwrap_or(""))
         } else {
@@ -988,7 +1069,13 @@ pub fn commit(root: impl AsRef<Path>, message: &str, amend: bool) -> R<String> {
     // 而**掐掉子进程会让退出码失去意义** —— 那时「提交成功但钩子话多」和
     // 「提交失败」就分不出来了，而把一次成功的提交报成失败，
     // 会让用户照着那句话再提交一次。
-    let (out, truncated) = run_drained(root.as_ref(), &args, MAX_STDOUT_BYTES)?;
+    let (out, truncated) = match run_drained(root.as_ref(), &args, MAX_STDOUT_BYTES) {
+        Ok(v) => v,
+        // 把「提交没成功」这件事分档。判据见 `Error::HookRejected` 的注释：
+        // git 自己的话从 stdout 出来，钩子的话从 stderr 出来
+        Err(Error::Git(msg)) => return Err(classify_commit_failure(root.as_ref(), msg)),
+        Err(e) => return Err(e),
+    };
     let mut s = String::from_utf8_lossy(&out).into_owned();
     if truncated {
         // 前端只取第一行显示，但这句得留在里头 —— 万一以后有人整段展示
@@ -2182,6 +2269,65 @@ mod tests {
         );
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_file(&marker).ok();
+    }
+
+    /// issue #15 缺口 2：提交失败要说人话。
+    ///
+    /// 两档各验一次。**第三档（认不出来的）故意原样透出去** ——
+    /// 猜错的分类比不分类更害人。
+    #[test]
+    fn 提交失败要分档说人话() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = tmpdir("commit-classify");
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+
+        // ① 暂存区空的
+        match commit(&dir, "空提交", false) {
+            Err(Error::NothingStaged { .. }) => {}
+            other => panic!("该分成 NothingStaged，实际是：{other:?}"),
+        }
+        let msg = format!("{}", commit(&dir, "空提交", false).unwrap_err());
+        assert!(msg.contains("暂存区是空的"), "说的还是 git 的原话：{msg}");
+        assert!(msg.contains("全部暂存"), "没给出下一步该点哪儿：{msg}");
+
+        // ② pre-commit 钩子拒绝
+        std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        let hook = dir.join(".git/hooks/pre-commit");
+        // 20 行噪声 + 最后一句真话 —— 验「只留最后几行」确实把真话留下了
+        let mut sh = String::from("#!/bin/sh\n");
+        for i in 1..=20 {
+            sh.push_str(&format!("echo '通过检查 {i}' >&2\n"));
+        }
+        sh.push_str("echo 'lint: a.txt 第 3 行有问题' >&2\nexit 1\n");
+        std::fs::write(&hook, sh).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let e = commit(&dir, "会被拒", false).unwrap_err();
+        match &e {
+            Error::HookRejected { .. } => {}
+            other => panic!("该分成 HookRejected，实际是：{other:?}"),
+        }
+        let msg = format!("{e}");
+        assert!(msg.contains("pre-commit 钩子拒绝"), "没说清是谁拒的：{msg}");
+        assert!(msg.contains("改动都还在"), "没告诉人代码还在：{msg}");
+        assert!(
+            msg.contains("lint: a.txt 第 3 行有问题"),
+            "最后那句真话被截没了：{msg}"
+        );
+        assert!(msg.contains("前面还有"), "截断了却没说截了多少：{msg}");
+        assert!(!msg.contains("通过检查 1\n"), "前面的噪声没被截掉：{msg}");
+        // 完整的那份不能丢
+        assert!(e.raw().contains("通过检查 1"), "raw() 里也没有完整输出");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// issue #17 的第一个口子：`filter.<名字>.smudge` —— **检出时**跑。

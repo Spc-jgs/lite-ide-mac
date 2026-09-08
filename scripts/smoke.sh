@@ -120,7 +120,11 @@ cleanup() {
     rm -rf "$FIX" "$WORK"   # $REMOTE / $OTHER 都在 $WORK 底下
   fi
 }
-trap cleanup EXIT
+# **PIPE 也要收。** `./scripts/smoke.sh | head -20` 这种用法很自然，而 head
+# 提前退出会给脚本一个 SIGPIPE —— 只 trap EXIT 的话 cleanup 跑不完整，
+# 留下一个还活着的 lite-ide。下一次再跑，AX 的 `process "lite-ide"` 可能
+# 认到那个旧实例上去，于是满屏红，而应用本身好好的。踩过一次。
+trap cleanup EXIT INT TERM PIPE
 
 # ─────────────────── AppleScript 那一层 ───────────────────
 
@@ -403,7 +407,16 @@ sleep 2
 #
 # 特别注意：`name of every process` **不需要**授权也能用，所以
 # 「osascript 能列出进程」不能拿来当权限已给的证据 —— 我就是这么判错的。
-WINS=$(osascript -e 'tell application "System Events" to tell process "lite-ide" to get count of windows' 2>/dev/null)
+# **要轮询，不能查一次就判死。**
+# 窗口注册进辅助功能树比「前端挂载完」晚，机器忙的时候（比如刚跑完一轮
+# app:bundle）能晚好几秒 —— 只查一次的那一版在这里误报过：应用好好的、
+# `count of windows` 手动查是 1，脚本却报「拿不到窗口」然后整个跳过。
+WINS=0
+for _ in $(seq 1 20); do
+  WINS=$(osascript -e 'tell application "System Events" to tell process "lite-ide" to get count of windows' 2>/dev/null)
+  [ "${WINS:-0}" != "0" ] && break
+  sleep 0.5
+done
 if [ "${WINS:-0}" = "0" ]; then
   printf '\n\033[31m拿不到 lite-ide 的窗口（count of windows = 0），后面全部跳过。\033[0m\n'
   echo "两种可能，按概率排："
