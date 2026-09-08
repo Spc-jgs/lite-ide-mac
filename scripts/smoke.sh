@@ -640,6 +640,14 @@ sleep 0.8
 # 在搜索里够不着。
 [ "$(ax click AXButton "文件树")" = "OK" ] || true
 sleep 1
+# **等上一个浮层真的退场再开第二次。** 第一次那个是按 ↵ 关掉的，
+# 关闭有动画/异步，紧接着按 ⇧⌘F 会被还没走的浮层吃掉 ——
+# 报出来是「第二次的浮层没出来」，而其实是第一次的还在。
+# 这条是间歇的（跑三次红一次），比稳定红更难查。
+for _ in $(seq 1 12); do
+  [ "$(ax has AXStaticText "换范围")" = "OK" ] || break
+  sleep 0.5
+done
 keys 'keystroke "f" using {command down, shift down}'
 sleep 1.5
 if ! wait_has AXStaticText "换范围" 8; then
@@ -757,6 +765,53 @@ if git -C "$OTHER" push -q origin "HEAD:$BR" 2>/dev/null; then
 else
   bad "造不出远程的新提交 —— 这一步是脚本自己的问题，不是应用的"
 fi
+
+say "⑬ 切标签不能丢掉未保存的改动（issue #9 的护栏）"
+#
+# 这条护的是 v0.4.1 修过的那个 bug，也是这个仓库栽得最狠的一次：
+# 编辑器被 `{#key active.id}` 包着，切标签就是**销毁重建**，而它的实时文本
+# 从来没被存回去 —— 切走再切回来，改动和标签上那个「有未保存改动」的圆点
+# **一起**消失，界面干干净净，人根本不会察觉自己丢了东西。
+#
+# 补在这里是因为 issue #9（拆 App.svelte）要动的正是这一块：
+# `tabs` / `activeId` / `active` 那个 `$derived` 一旦跨了模块边界，
+# 这条路就是第一个会断的。**没有这条断言，重构完「看起来没事」不作数。**
+[ "$(ax click AXButton "文件树")" = "OK" ] || true
+sleep 1
+MARK="切标签不该丢的内容"
+if ! open_from_tree "note.txt"; then
+  bad "打不开 note.txt"
+elif ! paste_into AXTextArea "${MARK}"; then
+  bad "粘不进编辑器"
+else
+  sleep 1
+  # 切走：打开另一个文件（**不保存** note.txt）
+  if ! open_from_tree "run.sh"; then
+    bad "切不到 run.sh"
+  else
+    sleep 1.5
+    # 切回来
+    if ! open_from_tree "note.txt"; then
+      bad "切不回 note.txt"
+    elif wait_has AXStaticText "${MARK}" 8; then
+      ok "切走再切回来，未保存的改动还在"
+      # 盘上那份必须还是旧的 —— 这条顺带证明「还在」的是草稿而不是
+      # 「其实已经被存进去了」，那是另一回事
+      if grep -q "${MARK}" "${FIX}/note.txt" 2>/dev/null; then
+        bad "内容被写进盘了 —— 这一步不该保存"
+      else
+        ok "盘上那份没动（还在的是草稿，不是被偷偷存了）"
+      fi
+    else
+      bad "切回来之后改动没了 —— v0.4.1 那个 bug 回来了"
+    fi
+  fi
+fi
+# **把这个脏标签存掉再走。** 留着未保存的改动，⑫ 那句「关闭所有标签」
+# 会弹确认框（有改动的标签要逐个问），标签关不掉、editors 也就不归零 ——
+# 报出来是「编辑器实例没释放」，而那跟释放一点关系都没有。
+keys 'keystroke "s" using {command down}'
+sleep 2
 
 # ─────────────────── 收尾 ───────────────────
 
