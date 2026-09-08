@@ -19,6 +19,17 @@ edition = "2021"
 name = "lite_ide_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Web Inspector（Safari 的「开发」菜单里能连上这个 webview）。
+#
+# **默认不开，发布的包里没有这个东西。** 打开它等于让任何本机进程都能
+# 附加到这个 webview 上读写页面 —— 那是调试能力，不是产品能力。
+#
+# 要用的时候显式打一个调试版：`pnpm app:bundle:devtools`。
+# 它和正式版装在同一个路径上，**量完记得用 `pnpm app:bundle` 打回去**，
+# 否则你双击的那份就一直带着 inspector。
+devtools = ["tauri/devtools"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
