@@ -727,9 +727,16 @@
     await reloadDiff(id);
   }
 
-  /** 包一层：任何 git 写操作之后都要刷新状态，也统一收口错误 */
   /**
-   * git 写操作的统一出口（issue #15）。
+   * 正在跑的那个**写**操作叫什么（`gitBusy` 是另一件事：它指「正在刷新状态」）。
+   *
+   * **守卫看它，不看 `notify.doing`** —— 后者要等 300ms 才亮（见下面），
+   * 那段空窗期里守卫会形同虚设。
+   */
+  let gitWriting = $state<string | null>(null);
+
+  /**
+   * git 写操作的统一出口：做完刷新状态，失败统一收口（issue #15）。
    *
    * `doing` 是**正在做的那件事的名字**，不是可选的装饰 —— 这几条命令全都
    * 被有意挪到了阻塞池上（`git_commit` 因为 pre-commit 钩子跑什么是仓库
@@ -741,14 +748,6 @@
    * 命令之间不再由主线程串行，两条 git 撞上 `index.lock` 是真会发生的
    * （issue #11 里专门记着这个回归点）。这里挡住，就不用等 git 报错再翻译。
    */
-  /**
-   * 正在跑的那个**写**操作叫什么（`gitBusy` 是另一件事：它指「正在刷新状态」）。
-   *
-   * **守卫看它，不看 `notify.doing`** —— 后者要等 300ms 才亮（见下面），
-   * 那段空窗期里守卫会形同虚设。
-   */
-  let gitWriting = $state<string | null>(null);
-
   async function gitDo(what: string, fn: () => Promise<unknown>, doing: string) {
     if (!repo) return;
     if (gitWriting) {
