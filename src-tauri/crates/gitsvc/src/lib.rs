@@ -358,6 +358,12 @@ fn repo_filter_drivers(cwd: &Path) -> std::sync::Arc<Vec<String>> {
      *
      * 拿不到 mtime 时返回 `None` 并**每次都查**（工作树的 `.git` 是文件，
      * config 在主仓库那边，这里不去追）—— 宁可慢，不能漏。
+     *
+     * **这张表只增不减，是认过的账。** 每开一个新仓库加一条，config 每变
+     * 一次再加一条，旧的不清。一条大约几十字节（一个路径 + 一个时间戳 +
+     * 一个通常是空的 Vec），开一百个仓库也就几 KB —— 比起「为了清理去猜
+     * 哪条还有用」，留着更简单也更安全。真要长起来，得是有人拿脚本反复
+     * 改同一个仓库的 `.git/config`，那不是这个应用的用法。
      */
     fn config_mtime(cwd: &Path) -> Option<SystemTime> {
         let dot = cwd.join(".git");
