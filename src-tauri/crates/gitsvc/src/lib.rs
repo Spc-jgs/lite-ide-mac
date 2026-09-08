@@ -235,6 +235,20 @@ fn classify_commit_failure(root: &Path, msg: String) -> Error {
     if msg.contains("nothing to commit") || msg.contains("no changes added to commit") {
         return Error::NothingStaged { raw: msg };
     }
+    // **git 自己的话以 `fatal:` / `error:` 开头，钩子的输出不会。**
+    //
+    // 少了这一条会误判：`git commit --amend` 在还没有提交的仓库上报
+    // `fatal: You have nothing to amend.`（stderr，stdout 空）—— 形状和
+    // 「钩子拒绝」一模一样，于是只要那个仓库里有钩子，界面就会说
+    // 「pre-commit 钩子拒绝了这次提交」，把人往钩子上引，而真正的原因
+    // 跟钩子毫无关系。
+    //
+    // 钩子的输出万一也以这两个词开头，就退回 `Error::Git` 原样显示 ——
+    // 那是退回现状，不会更糟。
+    let first = msg.lines().next().unwrap_or("").trim_start();
+    if first.starts_with("fatal:") || first.starts_with("error:") {
+        return Error::Git(msg);
+    }
     let hook = root.join(".git/hooks/pre-commit");
     let executable = std::fs::metadata(&hook)
         .map(|m| {
@@ -2326,6 +2340,25 @@ mod tests {
         assert!(!msg.contains("通过检查 1\n"), "前面的噪声没被截掉：{msg}");
         // 完整的那份不能丢
         assert!(e.raw().contains("通过检查 1"), "raw() 里也没有完整输出");
+
+        // ③ **钩子在，但失败原因跟钩子无关** —— 不许赖到钩子头上。
+        // `--amend` 在还没有提交的仓库上报 `fatal: You have nothing to amend.`，
+        // 形状（stdout 空、stderr 有话）和钩子拒绝一模一样
+        let dir2 = tmpdir("commit-classify-2");
+        run(&dir2, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir2, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir2, &["config", "user.name", "t"]).unwrap();
+        let hook2 = dir2.join(".git/hooks/pre-commit");
+        std::fs::write(&hook2, "#!/bin/sh\nexit 0\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook2, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        match commit(&dir2, "改上一条", true) {
+            Err(Error::Git(m)) => assert!(m.contains("nothing to amend"), "原话没留住：{m}"),
+            other => panic!("git 自己的 fatal 被赖到钩子头上了：{other:?}"),
+        }
+        std::fs::remove_dir_all(&dir2).ok();
 
         std::fs::remove_dir_all(&dir).ok();
     }
