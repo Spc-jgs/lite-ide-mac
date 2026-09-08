@@ -18,7 +18,7 @@
 # 找到按钮并 AXPress、能给编辑器设焦点、能读回文本。（issue #11 原来写着
 # 「AppleScript 够不着 webview」，那条是错的。）
 #
-# 六个踩过的坑，都写进实现里了，别改回去：
+# 七个踩过的坑，都写进实现里了，别改回去：
 #
 #   1. `click at {x, y}` 不行（报 -25208），必须按元素 AXPress。
 #   2. `set value of text area` 不生效 —— 它不触发 input 事件，Svelte 收不到。
@@ -37,6 +37,14 @@
 #      确认它出来了** —— 轮询正好把落空的那一次消化掉，顺便验了前提。
 #      直接上手的话报出来的是「输入框找不到（浮层没出来？）」，
 #      而浮层其实好端端开着，排查方向完全错。
+#   7. **只有 `keystroke` 需要应用在前台，别的一概不需要。** click、读属性、
+#      set focused、连点原生菜单栏，在应用处于后台时全部照常生效
+#      （实测：前台停在 Finder，点「Git 改动」面板照常出来、点文件树的行
+#      文件照常打开、点「文件 → 关闭所有标签」标签确实关掉）。
+#      原来每一次 AX 调用都无条件 `set frontmost`，跑一遍几百次，
+#      人根本没法同时用电脑。现在只有 paste 和 keys 抢。
+#      （试过用 Swift 的 `CGEventPostToPid` 把键直接投给进程、完全不抢焦点，
+#      对这个 WKWebView **无效** —— ⌘P 发过去没有任何反应。）
 #
 # # 断言尽量落在盘上
 #
@@ -80,7 +88,18 @@ CLIP="$WORK/clipboard.bak"
 AXLIB="$WORK/ax.applescript"
 PASS=0; FAIL=0
 
-say()  { printf '\n\033[1m== %s\033[0m\n' "$1"; }
+# **每个段落开头把焦点还回去。**
+#
+# `keys` 抢了焦点是不会自己还的，而第一次敲键盘发生在 ② —— 不还的话
+# 从那之后 lite-ide 就一直占着前台，实测占用率 94%，等于没改。
+#
+# 还焦点只能放在**段落边界**上：段落内部常常是「粘贴 → ⌘S」这种连续动作，
+# 中间还掉的话，后面那下 ⌘S 就打进用户正在用的应用里去了。
+# `say` 恰好只在每段开头调用一次，是现成的边界。
+say()  {
+  [ -n "${PREV_APP:-}" ] && osascript -e "tell application \"${PREV_APP}\" to activate" >/dev/null 2>&1
+  printf '\n\033[1m== %s\033[0m\n' "$1"
+}
 ok()   { PASS=$((PASS+1)); printf '  \033[32m✓\033[0m %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  \033[31m✗\033[0m %s\n' "$1"; }
 check(){ if [ "$1" = "$2" ]; then ok "$3"; else bad "$3（期望 [$2]，实得 [$1]）"; fi; }
@@ -92,6 +111,9 @@ cleanup() {
   pkill -f "MacOS/lite-ide" 2>/dev/null
   # 剪贴板是用户的东西，借来用完要还
   [ -f "$CLIP" ] && pbcopy < "$CLIP"
+  # 前台应用同理。敲键盘那十来次会把焦点抢过来，跑完要放回原处 ——
+  # 不放的话，人回到电脑前发现自己打的字进了一个已经被 kill 的窗口
+  [ -n "${PREV_APP:-}" ] && osascript -e "tell application \"${PREV_APP}\" to activate" >/dev/null 2>&1
   if [ "$KEEP" = 1 ]; then
     echo; echo "临时仓库留着了：${FIX}（日志在 ${LOG}）"
   else
@@ -184,7 +206,22 @@ on run argv
   set wantName to item 3 of argv
   tell application "System Events"
     tell process "lite-ide"
-      set frontmost to true
+      -- **只有要敲键盘的动作才抢焦点。**
+      --
+      -- `keystroke` 发给的是**当前前台应用**，不抢的话 paste 那两下
+      -- ⌘A/⌘V 会打进用户正在用的那个应用里去 —— 那不只是没做成，
+      -- 是在别人的文档上乱按。
+      --
+      -- 而 click / 读属性 / set focused **在后台完全生效**（实测：
+      -- 前台停在 Finder，点「Git 改动」Git 面板照常出来、点文件树的行
+      -- 文件照常打开）。原来这里无条件抢，于是跑一遍 smoke.sh
+      -- 几百次 AX 调用全在抢焦点，人根本没法同时用电脑。
+      -- `rowfocus` 也要抢：它设的键盘焦点是给紧接着那下 ⇧F10 用的，
+      -- 而 `keys` 里那句 `set frontmost` 在激活应用时会让 webview
+      -- **把焦点复位**（同 paste 分支的注释）——
+      -- 于是行上的焦点没了，⇧F10 打空，菜单不出来。
+      -- 先在这儿激活，`keys` 那次就成了 no-op，焦点保得住。
+      if act is "paste" or act is "rowfocus" then set frontmost to true
       set w to window 1
     end tell
   end tell
@@ -239,6 +276,10 @@ ax_text() {
   osascript -e 'tell application "System Events" to tell process "lite-ide" to get entire contents of window 1' 2>/dev/null | tr ',' '\n'
 }
 
+# **这个必须抢焦点** —— `keystroke` 只发给前台应用，没有别的办法：
+# 试过用 Swift 的 `CGEventPostToPid` 直接投递给进程（不经前台），
+# 对这个 WKWebView **无效**（⌘P 发过去一点反应都没有）。
+# 所以脚本运行期间会有十来次短暂占用键盘，其余步骤都不抢（见 AXLIB 里的注释）。
 keys() { osascript -e "tell application \"System Events\" to tell process \"lite-ide\"
   set frontmost to true
   delay 0.2
@@ -249,9 +290,10 @@ end tell" >/dev/null 2>&1; }
 # 点得到就说明那条命令确实被触发了；而快捷键是发给 webview 的，
 # 焦点在别处（比如浮层里的输入框）时会被吃掉，表现成「命令没反应」，
 # 排查方向却指向命令本身。
+#
+# **不抢焦点**：AppKit 的菜单项在应用处于后台时照样点得动，而且真的执行
+# （实测：前台停在 Finder，点「文件 → 关闭所有标签」，标签确实关掉了）。
 menu() { osascript -e "tell application \"System Events\" to tell process \"lite-ide\"
-  set frontmost to true
-  delay 0.2
   click menu item \"$2\" of menu 1 of menu bar item \"$1\" of menu bar 1
 end tell" >/dev/null 2>&1; }
 
@@ -300,6 +342,9 @@ open_from_tree() {
 
 [ -x "$APP" ] || { echo "找不到 .app —— 先跑 pnpm app:bundle"; exit 2; }
 pbpaste > "$CLIP" 2>/dev/null
+PREV_APP=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null)
+echo "跑之前的前台应用是「${PREV_APP:-未知}」，跑完会还回去"
+echo "（只有敲快捷键的那十来步会占用键盘，其余步骤不抢焦点，可以继续用电脑）"
 
 say "造 fixture：$FIX"
 cd "$FIX"
