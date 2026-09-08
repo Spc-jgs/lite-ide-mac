@@ -524,3 +524,14 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
   cache.set(id, ext);
   return ext;
 }
+
+/**
+ * 缓存里已经装了几个语言包。**只给诊断用**（`LITE_IDE_DEBUG=1` 那条通道）。
+ *
+ * 这个 Map 只 set 不 evict 是有意的：67 个语言封顶，加载过就留着，
+ * 换回同一种语言不该再付一次解析器的钱。写在这里是为了让
+ * 「它到底有没有上限」这件事可以被**量**，而不是只能靠读代码相信。
+ */
+export function langCacheSize(): number {
+  return cache.size;
+}

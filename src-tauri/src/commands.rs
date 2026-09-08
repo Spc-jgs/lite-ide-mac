@@ -479,6 +479,17 @@ pub fn diag(msg: String) {
     }
 }
 
+/// 诊断开着没有。前端拿它决定**要不要建那条统计定时器** ——
+/// 关着的时候一次都不算，不能让调试设施在所有人机器上白跑。
+///
+/// 不用 `import.meta.env.DEV` 判是因为要量的正是 **release 包**：
+/// `pnpm app:bundle` 出来的那份才是人真正在跑的东西，dev 模式下
+/// 加载的是 localhost 的前端，量它没有意义。
+#[tauri::command]
+pub fn diag_enabled() -> bool {
+    crate::diag::enabled()
+}
+
 // ─────────────────────────── 终端 ───────────────────────────
 
 /// 起一个终端。输出走 Channel 流式回传，不经 JSON 数组。

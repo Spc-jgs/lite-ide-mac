@@ -712,9 +712,27 @@ say "⑪ 界面自己有没有报错"
 ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "$LOG")
 check "$ERRS" "0" "诊断通道里没有前端报错 / CSP 违规"
 
-# 把开出来的标签关掉，别把 fixture 的路径留在会话快照里 ——
-# 下次启动会话恢复会去开一个已经删掉的目录
-for f in run.sh link.txt; do ax "click~" AXButton "关闭 $f" >/dev/null; sleep 0.5; done
+say "⑫ 关掉全部标签之后，编辑器实例要归零（issue #10）"
+#
+# 这条读的是 `[diag/web] mem editors=N`，那是前端在 `LITE_IDE_DEBUG=1` 时
+# 每 3 秒报一次的**对象数**。为什么不看进程内存：`scripts/mem.sh` 量的
+# Physical footprint 噪声有 ±15MB，比要测的信号还大；而这个数是确定的。
+#
+# **验过红**：把 `Editor.svelte` 的 cleanup 改成不 `view.destroy()`、
+# 把 DOM 搬到 body 上（模拟「没清干净」这个故障形态），重新打包跑一遍 ——
+# 开 3 个标签时 editors 从 1 变成 3、关完之后停在 3 不归零，这条稳稳变红。
+#
+# 它同时兼了收尾：把标签关干净，别把 fixture 的路径留在会话快照里，
+# 否则下次启动时会话恢复会去开一个已经删掉的目录。
+menu "文件" "关闭所有标签"
+sleep 5   # 诊断定时器 3 秒一报，等它在关完之后至少再报一次
+LAST=$(grep "mem editors" "${LOG}" | tail -1)
+echo "  ${LAST:-（一条 mem 行都没有）}"
+case "${LAST}" in
+  *"editors=0"*) ok "editors 归零，EditorView 释放了" ;;
+  "")            bad "诊断通道里一条 mem 行都没有 —— LITE_IDE_DEBUG 没生效？" ;;
+  *)             bad "标签全关了，但 editors 没归零 —— 编辑器实例没释放" ;;
+esac
 
 [ "${TRASHED:-0}" = 1 ] && echo "  （⑨ 往废纸篓里放了 ${TRASH_NAME}，脚本不动它 —— 自己清或者放回原处）"
 

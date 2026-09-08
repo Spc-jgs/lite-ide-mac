@@ -477,6 +477,11 @@ export function installMockIpc(): void {
       switch (cmd) {
         case "initial_path":
           return "/proj";
+        // 浏览器里没有 Rust 侧的 LITE_IDE_DEBUG，那条内存统计链路整个不存在。
+        // 落到 default 的 null 也能让前端不建定时器，但那是碰巧对 ——
+        // 显式写出来，读桩的人才看得出这条命令被想过。
+        case "diag_enabled":
+          return false;
         case "probe_path": {
           const path = String(a.path);
           if (DIRS[path]) {

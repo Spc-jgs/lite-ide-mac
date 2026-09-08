@@ -133,6 +133,7 @@ pub fn run() {
             commands::pty_resize,
             commands::pty_kill,
             commands::diag,
+            commands::diag_enabled,
             commands::pick_folder,
             commands::set_recent,
             commands::sync_menu_state,

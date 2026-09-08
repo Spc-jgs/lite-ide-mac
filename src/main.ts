@@ -65,6 +65,43 @@ document.addEventListener("securitypolicyviolation", (e) =>
   diag(`CSP 挡下: ${e.violatedDirective} ← ${e.blockedURI} @ ${e.sourceFile}:${e.lineNumber}`),
 );
 
+/*
+ * 内存诊断：把**对象数**报出来，而不是让人去猜进程内存。
+ *
+ * 起因是 issue #10。`scripts/mem.sh` 量的是四个进程的 Physical footprint，
+ * 那个数字的噪声（同样状态多次启动差 40MB）比要测的信号还大，
+ * 只能回答「有没有线性泄漏」，回答不了「关掉的标签到底释放了没有」。
+ *
+ * 而这三个数是**确定的**，没有 GC 时机的干扰：
+ *
+ *   - editors —— CM6 的根元素个数。关掉全部标签之后必须是 0，
+ *     不是 0 就说明 EditorView 没销毁干净，那是真泄漏。
+ *   - nodes   —— 整棵 DOM 的元素数，跟着标签开关涨落。
+ *   - langs   —— 语言包缓存里装了几个。它只 set 不 evict 是**设计**
+ *     （67 封顶），把它报出来是为了让「有没有上限」可以被量。
+ *
+ * **关着的时候一次都不算。** 判据是 Rust 侧的 `diag_enabled`（即
+ * `LITE_IDE_DEBUG=1`），不是 `import.meta.env.DEV` —— 要量的正是
+ * `pnpm app:bundle` 出来的 release 包，dev 模式加载的是 localhost 的前端。
+ *
+ * langs-load 走动态 import：静态引会把那 500 行连同 67 个 import 桩
+ * 拉回入口包（见 rules/frontend.md 那条 150KB 红线）。
+ */
+invoke<boolean>("diag_enabled")
+  .then(async (on) => {
+    if (!on) return;
+    const { langCacheSize } = await import("./lib/editor/langs-load");
+    const report = () =>
+      diag(
+        `mem editors=${document.querySelectorAll(".cm-editor").length}` +
+          ` nodes=${document.getElementsByTagName("*").length}` +
+          ` langs=${langCacheSize()}`,
+      );
+    setTimeout(report, 1500); // 等首屏挂完，否则第一条永远是 0
+    setInterval(report, 3000);
+  })
+  .catch(() => {});
+
 /**
  * 挂载失败时的最后一道兜底。
  *
