@@ -218,6 +218,16 @@ const HARDENING: &[&str] = &[
     "core.fsmonitor=",
     "-c",
     "diff.external=",
+    // `remote.<名字>.url = ext::<任意命令>` —— fetch / push 时把那条命令
+    // 当传输层跑起来（issue #17 的第二个口子）。
+    //
+    // **不能指望 git 的默认值。** 这台机器上 git 2.50 默认确实拒绝 ext:,
+    // 但 `protocol.ext.allow` 是可以写在**仓库自己的 `.git/config`** 里的 ——
+    // 实测：仓库里加一句 `protocol.ext.allow = always`，一条 `git fetch`
+    // 就执行了仓库指定的脚本。`-c` 在子命令之前，优先级高于 `.git/config`，
+    // 这一句把那条路封死。
+    "-c",
+    "protocol.ext.allow=never",
 ];
 
 /// 产生差异的命令统一带上这两个。
@@ -2017,6 +2027,43 @@ mod tests {
         assert!(
             !marker.exists(),
             "git status 执行了仓库 .git/config 里挂的脚本 —— 打开一个别人的目录就等于让他在这台机器上跑代码"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_file(&marker).ok();
+    }
+
+    /// issue #17 的第二个口子：`remote.<名字>.url = ext::<命令>` ——
+    /// fetch / push 时 git 会把那条命令当传输层**跑起来**。
+    ///
+    /// **测试里必须自己先把协议放开**（`protocol.ext.allow = always`）。
+    /// git 2.50 默认就拒绝 ext:，不放开的话这条断言永远绿 —— 它验的会是
+    /// git 的默认值，而不是我们的加固。而放开这件事**恶意仓库自己就能做**，
+    /// 因为 `protocol.ext.allow` 可以写在仓库的 `.git/config` 里：
+    /// 实测不带加固时，一条 `git fetch` 就执行了仓库指定的脚本。
+    #[test]
+    fn 仓库自带的_ext_传输不许被执行() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let (dir, marker) = trapped_repo("ext");
+        let hook = dir.join("hook.sh");
+        // 仓库自己放开这个协议 —— 这一句正是加固要压过去的东西
+        run(&dir, &["config", "protocol.ext.allow", "always"]).unwrap();
+        run(&dir, &[
+            "config",
+            "remote.evil.url",
+            &format!("ext::{}", hook.display()),
+        ])
+        .unwrap();
+
+        // 走真实的拉取路径（`remote.rs` 也经过 `git_cmd`），不是通用的 run
+        let cancel: crate::remote::Cancel = Default::default();
+        let _ = crate::remote::fetch(&dir, "evil", &cancel, &mut |_| {});
+
+        assert!(
+            !marker.exists(),
+            "fetch 执行了仓库 .git/config 里挂的脚本 —— 点一下「拉取」就等于让仓库的作者在这台机器上跑代码"
         );
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_file(&marker).ok();
