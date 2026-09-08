@@ -741,22 +741,41 @@
    * 命令之间不再由主线程串行，两条 git 撞上 `index.lock` 是真会发生的
    * （issue #11 里专门记着这个回归点）。这里挡住，就不用等 git 报错再翻译。
    */
+  /**
+   * 正在跑的那个**写**操作叫什么（`gitBusy` 是另一件事：它指「正在刷新状态」）。
+   *
+   * **守卫看它，不看 `notify.doing`** —— 后者要等 300ms 才亮（见下面），
+   * 那段空窗期里守卫会形同虚设。
+   */
+  let gitWriting = $state<string | null>(null);
+
   async function gitDo(what: string, fn: () => Promise<unknown>, doing: string) {
     if (!repo) return;
-    if (notify.doing) {
-      notify.fail(`正在${notify.doing}，等它做完`);
+    if (gitWriting) {
+      notify.fail(`正在${gitWriting}，等它做完`);
       return;
     }
-    notify.doing = doing;
+    gitWriting = doing;
+    /*
+     * **慢的才说话。**
+     *
+     * 暂存一个文件通常不到 100ms，那种一闪而过的字比不显示更让人分心 ——
+     * 眼角瞥见状态栏动了一下，回头看又没了。300ms 是「人开始觉得卡」的
+     * 那条线：比它快的操作当作瞬时，比它慢的才需要一句「我在做」。
+     */
+    const tip = setTimeout(() => (notify.doing = doing), 300);
     try {
       await fn();
       await refreshGit();
     } catch (e) {
       notify.block(what, e);
     } finally {
-      // **必须在 finally 里清。** 失败路径上漏掉的话，状态栏会永远卡着
-      // 一句「正在提交…」，而且后面所有写操作都会被上面那道守卫挡下来
+      // **三件事都必须在 finally 里。** 失败路径上漏掉定时器，300ms 后
+      // 会亮起一句永远不灭的「正在提交…」；漏掉 gitWriting，后面所有写操作
+      // 都会被上面那道守卫挡下来
+      clearTimeout(tip);
       notify.doing = "";
+      gitWriting = null;
     }
   }
 
