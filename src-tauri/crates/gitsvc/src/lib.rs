@@ -237,14 +237,129 @@ const HARDENING: &[&str] = &[
 /// 实测只加 `--no-ext-diff` 挡不住 textconv。
 pub(crate) const DIFF_SAFE: &[&str] = &["--no-ext-diff", "--no-textconv"];
 
+/// 仓库**自己带的** filter 驱动名（`filter.<名字>.smudge` / `.clean` / `.process`）。
+///
+/// # 为什么不能像别的加固那样一句 `-c` 了事
+///
+/// `core.fsmonitor` / `diff.external` / `protocol.ext.allow` 的键名是固定的，
+/// 一句 `-c 键=` 就压过去了。而 filter 的驱动名**是任意的** ——
+/// `.gitattributes` 里写 `a.txt filter=随便什么`，config 里配上同名的
+/// `filter.随便什么.smudge`，一次检出就执行。点不着的键没法关。
+///
+/// # 为什么只看 `--local`
+///
+/// 这是信任边界：`.git/config` 是**仓库带来的**文件，`~/.gitconfig` 是用户自己写的。
+/// 用户全局那份里躺着 `filter.lfs.*`（git-lfs），无差别关掉等于把一个合法功能
+/// 弄坏。`core.fsmonitor` 那条的注释里写着「会关掉用户自己配的 fsmonitor，
+/// 这个交换是有意的」—— filter 这边**不能**这么换，所以多花这一次查询。
+///
+/// # 为什么不自己解析 `.git/config`
+///
+/// 仓库 config 可以 `[include] path = 别处`，文本解析会漏掉引进来的那一份。
+/// 让 git 自己展开。
+fn repo_filter_drivers(cwd: &Path) -> std::sync::Arc<Vec<String>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::SystemTime;
+
+    /*
+     * 缓存的 key 带上 `.git/config` 的 mtime。
+     *
+     * 只按路径缓存的话，「打开仓库之后 config 才变」这件事就永远看不见 ——
+     * 而测试正是这个形状（`trapped_repo` 先跑几条 git 建仓库，之后才写入
+     * filter 配置）。用 mtime 当 key，config 一变自动重查，测试不需要
+     * 另开一个清缓存的后门，真实场景里用户中途配了 lfs 也能被认出来。
+     *
+     * 拿不到 mtime 时返回 `None` 并**每次都查**（工作树的 `.git` 是文件，
+     * config 在主仓库那边，这里不去追）—— 宁可慢，不能漏。
+     */
+    fn config_mtime(cwd: &Path) -> Option<SystemTime> {
+        let dot = cwd.join(".git");
+        let meta = std::fs::metadata(&dot).ok()?;
+        if !meta.is_dir() {
+            return None; // 工作树：config 不在这儿，退化成每次查
+        }
+        std::fs::metadata(dot.join("config")).ok()?.modified().ok()
+    }
+
+    static CACHE: OnceLock<Mutex<HashMap<(std::path::PathBuf, SystemTime), Arc<Vec<String>>>>> =
+        OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+
+    let key = config_mtime(cwd).map(|m| (cwd.to_path_buf(), m));
+    if let Some(k) = &key {
+        if let Some(v) = cache.lock().ok().and_then(|c| c.get(k).cloned()) {
+            return v;
+        }
+    }
+
+    // **用不带 filter 关闭的那条**，否则这里会无限递归回 git_cmd
+    let out = git_cmd_hardened(cwd, &[
+        "config",
+        "--local",
+        "--name-only",
+        "--get-regexp",
+        r"^filter\..*\.(smudge|clean|process)$",
+    ])
+    .output();
+
+    let mut names: Vec<String> = Vec::new();
+    if let Ok(o) = out {
+        for line in String::from_utf8_lossy(&o.stdout).lines() {
+            // `filter.<名字>.smudge` → `<名字>`。名字里可以有点（`filter.a.b.smudge`），
+            // 所以从两头切，不是按点分割
+            if let Some(rest) = line.strip_prefix("filter.") {
+                if let Some(i) = rest.rfind('.') {
+                    let n = &rest[..i];
+                    if !n.is_empty() && !names.iter().any(|x| x == n) {
+                        names.push(n.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let arc = Arc::new(names);
+    if let Some(k) = key {
+        if let Ok(mut c) = cache.lock() {
+            c.insert(k, arc.clone());
+        }
+    }
+    arc
+}
+
+/// 只带 [`HARDENING`] 的版本。**给 [`repo_filter_drivers`] 用** ——
+/// 它自己要起一条 git 来查配置，走 [`git_cmd`] 就会转回来查它自己。
+fn git_cmd_hardened(cwd: &Path, args: &[&str]) -> Command {
+    let mut c = Command::new("git");
+    c.args(HARDENING)
+        .args(args)
+        .current_dir(cwd)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null());
+    c
+}
+
 /// 建一条环境干净的 git 命令。所有对外的调用都必须经过这里 ——
 /// 少一条 `env_remove` 或少一个 `GIT_TERMINAL_PROMPT=0`，
 /// 表现就是「某个仓库上偶发地查到别处去」或者「后台调用挂着等密码」。
 pub(crate) fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
     let mut c = Command::new("git");
     // `-c` 必须在子命令之前，而且优先级高于仓库自己的 .git/config
-    c.args(HARDENING)
-        .args(args)
+    c.args(HARDENING);
+    // 仓库自己带的 filter 驱动一律关掉（issue #17 的第一个口子）。
+    // 三个键都要关：smudge 检出时跑、clean 暂存时跑、process 是长驻协议版
+    for name in repo_filter_drivers(cwd).iter() {
+        c.arg("-c").arg(format!("filter.{name}.smudge="));
+        c.arg("-c").arg(format!("filter.{name}.clean="));
+        c.arg("-c").arg(format!("filter.{name}.process="));
+    }
+    c.args(args)
         .current_dir(cwd)
         // 不继承父进程的 GIT_DIR / GIT_WORK_TREE —— 从终端里启动 lite-ide 时，
         // 这俩环境变量可能指向另一个仓库，会让所有查询串到别处去
@@ -2064,6 +2179,47 @@ mod tests {
         assert!(
             !marker.exists(),
             "fetch 执行了仓库 .git/config 里挂的脚本 —— 点一下「拉取」就等于让仓库的作者在这台机器上跑代码"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_file(&marker).ok();
+    }
+
+    /// issue #17 的第一个口子：`filter.<名字>.smudge` —— **检出时**跑。
+    ///
+    /// 这一条不能像别的加固那样一句 `-c` 压过去：驱动名是任意的，
+    /// 点不着的键关不掉。所以 `git_cmd` 会先查一次仓库**自己带的**驱动名
+    /// （`--local`，用户全局那份里的 git-lfs 不碰），再逐个关。
+    #[test]
+    fn 仓库自带的_filter_不许被执行() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let (dir, marker) = trapped_repo("filter");
+        let hook = dir.join("hook.sh");
+
+        std::fs::write(dir.join("a.txt"), "内容\n").unwrap();
+        // 一句 .gitattributes 就把驱动挂到这个文件上
+        std::fs::write(dir.join(".gitattributes"), "a.txt filter=随便什么名字\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次提交", false).unwrap();
+
+        // **配置要在建仓库之后写** —— 这正好也验到了缓存的 key 带 mtime：
+        // 只按路径缓存的话，这次写入之后那份空名单还会被用上，测试就假绿了
+        run(&dir, &[
+            "config",
+            "filter.随便什么名字.smudge",
+            hook.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        // 触发检出：把文件删掉再让 git 写回来
+        std::fs::remove_file(dir.join("a.txt")).unwrap();
+        let _ = run(&dir, &["checkout", "--", "a.txt"]);
+
+        assert!(
+            !marker.exists(),
+            "检出执行了仓库 .git/config 里挂的 smudge 脚本 —— 切一下分支就等于让仓库的作者在这台机器上跑代码"
         );
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_file(&marker).ok();
