@@ -18,7 +18,7 @@
 # 找到按钮并 AXPress、能给编辑器设焦点、能读回文本。（issue #11 原来写着
 # 「AppleScript 够不着 webview」，那条是错的。）
 #
-# 四个踩过的坑，都写进实现里了，别改回去：
+# 六个踩过的坑，都写进实现里了，别改回去：
 #
 #   1. `click at {x, y}` 不行（报 -25208），必须按元素 AXPress。
 #   2. `set value of text area` 不生效 —— 它不触发 input 事件，Svelte 收不到。
@@ -31,6 +31,12 @@
 #      里的 `$BR，` 被 bash 当成了变量 `BR<那几个字节>`，`set -u` 下直接
 #      `unbound variable` 把脚本打断。这个脚本正文全是中文，撞上的概率很高 ——
 #      **变量一律写 `${VAR}`**。写这段自检的提示文案时又踩了第二次。
+#   6. **刚出现的浮层/菜单，第一次查找必落空。** WKWebView 的 AX 子树是
+#      惰性构建的：⇧⌘F 的浮层弹出来之后，紧接着的第一次 `findIt` 返回
+#      NOTFOUND，而下一次同样的查找就成功。所以**动手之前先 `wait_has`
+#      确认它出来了** —— 轮询正好把落空的那一次消化掉，顺便验了前提。
+#      直接上手的话报出来的是「输入框找不到（浮层没出来？）」，
+#      而浮层其实好端端开着，排查方向完全错。
 #
 # # 断言尽量落在盘上
 #
@@ -183,7 +189,7 @@ on run argv
     end tell
   end tell
   delay 0.2
-  if act is "row" then
+  if act is "row" or act is "rowfocus" then
     set el to findRow(w, wantName)
   else if act is "click~" or act is "has" then
     set el to findSub(w, wantRole, wantName)
@@ -211,6 +217,14 @@ on run argv
       try
         click el
       end try
+    else if act is "rowfocus" then
+      -- **只聚焦，不点击。** ⇧F10 的 handler 绑在每一行上（onRowKey），
+      -- 要那一行拿到**键盘焦点**才收得到；而 `row` 的 click 会把文件打开，
+      -- 焦点跟着跑去编辑器，⇧F10 就再也到不了树上了。
+      try
+        set selected of el to true
+      end try
+      set focused of el to true
     end if
   end tell
   return "OK"
@@ -300,6 +314,11 @@ printf 'v1\n' > note.txt
 # 所以断言认第二行：那句只有真把文件打开才看得见。
 mkdir -p deep/nested
 printf 'ZQXJ_SMOKE_NEEDLE\n这一行要把文件打开才看得见\n' > deep/nested/needle.txt
+# ⑨ 要扔进废纸篓的那个。**名字必须是独一无二的**，两个理由：
+# 废纸篓里撞名的话 Finder 会按自己的规则改名（`note 2.txt`），
+# 按固定路径就 stat 不到；而且跑第二遍时上一遍的残留会让断言假绿。
+TRASH_NAME="lite-ide-smoke-trash-$$-$(date +%s).txt"
+printf '这个文件是给「移到废纸篓」那一步用的\n' > "${TRASH_NAME}"
 # 大日志：**必须带中文，而且要大过 detect_encoding 的 256KB 样本** ——
 # 那个乱码 bug 正是「样本按字节截，边界切在多字节字符中间」造出来的
 awk 'BEGIN{for(i=0;i<400000;i++) printf "2026-09-07 12:00:00 INFO  服务处理完成，第 %d 条记录\n", i}' > big.log
@@ -495,8 +514,6 @@ RSS_AFTER=$(ps -o rss= -p "$(pgrep -f 'MacOS/lite-ide' | head -1)" | tr -d ' ')
 echo "  RSS $RSS_BEFORE → $RSS_AFTER KB"
 [ "$RSS_AFTER" -lt "$RSS_BEFORE" ] && ok "内存降下来了" || bad "关掉之后内存没降"
 
-# ─────────────────── 收尾 ───────────────────
-
 # ─────────────────── 6. 全局搜索 / 废纸篓 / 远程 ───────────────────
 #
 # 下面这三段补的是 issue #11 清单里剩下的那几条命令。它们和上面几条一起在
@@ -511,11 +528,20 @@ say "⑧ ⇧⌘F 全局搜索（grep_project）"
 sleep 1
 keys 'keystroke "f" using {command down, shift down}'
 sleep 1.5
-if ! paste_into AXTextField "ZQXJ_SMOKE_NEEDLE"; then
-  bad "⇧⌘F 的输入框找不到（浮层没出来？）"
+# **先确认浮层真的出来了，再动手。** 这一步同时干了两件事：确认前提，
+# 以及把「新子树第一次查找必落空」那一次消化掉（见文件头第 6 条）。
+# 认「换范围」是因为那几个字只有这个浮层的脚注有。
+if ! wait_has AXStaticText "换范围" 8; then
+  bad "⇧⌘F 的浮层没出来"
+elif ! paste_into AXTextField "ZQXJ_SMOKE_NEEDLE"; then
+  bad "浮层出来了，但输入框粘不进去"
 else
-  # 搜索要扫整个 fixture，里面躺着那个 26MB 的大日志 —— 给足时间
-  if wait_has AXStaticText "needle.txt" 25; then
+  # 搜索要扫整个 fixture，里面躺着那个 26MB 的大日志 —— 给足时间。
+  # **结果行是 AXButton，不是 AXStaticText** —— 整条（命中行 + 路径 + 行号）
+  # 合成一个按钮名：`ZQXJ_SMOKE_NEEDLE deep/nested/needle.txt:1`。
+  # 一开始按 AXStaticText 找，25 秒等不到，报出来像是「搜索没返回」，
+  # 其实结果早就在屏幕上了。
+  if wait_has AXButton "needle.txt" 25; then
     ok "搜到了 deep/nested/needle.txt"
     keys 'key code 36'   # ↵ 打开第一条命中
     # 断言认第二行 —— 第一行是命中行，浮层上本来就印着它
@@ -536,27 +562,46 @@ say "⑨ 移到废纸篓（trash_entry）：不能是真删除"
 # 所以右键点不出来 —— ⇧F10 是文件树自己认的第二个入口（FileTree.svelte:430）
 [ "$(ax click AXButton "文件树")" = "OK" ] || true
 sleep 1
-if [ "$(ax row "" "note.txt")" != "OK" ]; then
-  bad "文件树里找不到 note.txt"
+if [ "$(ax rowfocus "" "${TRASH_NAME}")" != "OK" ]; then
+  bad "文件树里找不到 ${TRASH_NAME}"
 else
   sleep 0.6
   keys 'key code 109 using {shift down}'   # ⇧F10
   sleep 1.2
-  if [ "$(ax click AXButton "移到废纸篓")" != "OK" ]; then
+  # 先等菜单出来再点 —— 刚出现的子树第一次查找必落空（文件头第 6 条）。
+  # **菜单项是 AXMenuItem，不是 AXButton** —— ContextMenu 的 ARIA role
+  # 被 WKWebView 映射成了 `menu item ... of menu "note.txt 的操作"`。
+  # 按 AXButton 找是找不到的，而报出来的是「⇧F10 没开出菜单」，
+  # 于是会往「快捷键没生效」的方向查 —— 菜单其实好端端开着。
+  if ! wait_has AXMenuItem "移到废纸篓" 6; then
     bad "⇧F10 没开出上下文菜单（或者菜单里没有这一项）"
+  # **用 `click~` 不用 `click`。** `click` 走 findIt，认的是 AXTitle/AXDescription
+  # **精确相等**；菜单项的名字落在别的属性上，于是 `has`（contains）找得到、
+  # `click` 找不到 —— 报出来是「菜单出来了但点不到」，看着像菜单项被禁用了。
+  elif [ "$(ax "click~" AXMenuItem "移到废纸篓")" != "OK" ]; then
+    bad "菜单出来了，但点不到「移到废纸篓」"
   else
-    sleep 1
-    # 确认框上的按钮和菜单项同名，点第二次是在确认框上点
-    [ "$(ax click AXButton "移到废纸篓")" = "OK" ] || bad "确认框上点不到「移到废纸篓」"
-    if wait_for 15 '[ ! -e "'"$FIX"'/note.txt" ]'; then
-      ok "note.txt 从工作区没了"
-      # **进废纸篓才算对，不是真删除。** 找到了也不去动它 ——
-      # 那是用户的废纸篓，脚本只读不写（结尾会提示一句）
-      if find ~/.Trash -maxdepth 1 -name 'note*.txt' -newermt '-5 minutes' 2>/dev/null | grep -q .; then
+    # 确认框是另一个新出现的子树，同样先等 —— 它上面的按钮是真 <button>，
+    # 所以这里回到 AXButton
+    if ! wait_has AXButton "移到废纸篓" 6; then
+      bad "确认框没出来"
+    fi
+    [ "$(ax "click~" AXButton "移到废纸篓")" = "OK" ] || bad "确认框上点不到「移到废纸篓」"
+    if wait_for 15 '[ ! -e "'"$FIX"'/'"${TRASH_NAME}"'" ]'; then
+      ok "${TRASH_NAME} 从工作区没了"
+      # **进废纸篓才算对，不是真删除。**
+      #
+      # **按具体路径查，不要列目录。** 终端没有「完全磁盘访问」权限时
+      # `ls ~/.Trash` / `find ~/.Trash` 会 Operation not permitted 返回空，
+      # 而 `stat ~/.Trash/具体文件名` 读得到 —— 这条 rules/rust.md 里早写着，
+      # 第一版这里写的是 `find`，于是把一次正常的废纸篓操作报成了「真删除」。
+      #
+      # 找到了也不动它：那是用户的废纸篓，脚本只读不写（结尾提示一句）。
+      if [ -e "${HOME}/.Trash/${TRASH_NAME}" ]; then
         ok "在废纸篓里找得到（Finder 里可以「放回原处」）"
         TRASHED=1
       else
-        bad "工作区没了，但废纸篓里找不到 —— 这就成真删除了"
+        bad "工作区没了，但 ~/.Trash/${TRASH_NAME} 不在 —— 这就成真删除了"
       fi
     else
       bad "15 秒内文件还在"
@@ -588,8 +633,14 @@ else
   fi
 fi
 
-# 造一个「别人推了新东西」的远程，再从界面上拉
-git clone -q "$REMOTE" "$OTHER" 2>/dev/null
+# 造一个「别人推了新东西」的远程，再从界面上拉。
+#
+# **`-b ${BR}` 不能省。** bare 仓库的 HEAD 建出来就指向默认的 `main`，
+# 而我们只往它推了 `feature/x` —— 不带 `-b` 的话 clone 会 warning
+# 「remote HEAD refers to nonexistent ref」、检出一个空工作区，
+# 后面的 commit 和 push 全部失败，而报出来的是「造不出远程的新提交」，
+# 看着像脚本坏了却指不到这一行。
+git clone -q -b "${BR}" "$REMOTE" "$OTHER" 2>/dev/null
 git -C "$OTHER" config user.email smoke@local
 git -C "$OTHER" config user.name smoke
 printf '从另一个克隆推上来的\n' > "$OTHER/from-remote.txt"
@@ -610,6 +661,8 @@ else
   bad "造不出远程的新提交 —— 这一步是脚本自己的问题，不是应用的"
 fi
 
+# ─────────────────── 收尾 ───────────────────
+
 say "⑪ 界面自己有没有报错"
 ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "$LOG")
 check "$ERRS" "0" "诊断通道里没有前端报错 / CSP 违规"
@@ -618,7 +671,7 @@ check "$ERRS" "0" "诊断通道里没有前端报错 / CSP 违规"
 # 下次启动会话恢复会去开一个已经删掉的目录
 for f in run.sh link.txt; do ax "click~" AXButton "关闭 $f" >/dev/null; sleep 0.5; done
 
-[ "${TRASHED:-0}" = 1 ] && echo "  （⑨ 往废纸篓里放了一个 note.txt，脚本不动它 —— 自己清或者放回原处）"
+[ "${TRASHED:-0}" = 1 ] && echo "  （⑨ 往废纸篓里放了 ${TRASH_NAME}，脚本不动它 —— 自己清或者放回原处）"
 
 printf '\n\033[1m通过 %d 条，失败 %d 条\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
