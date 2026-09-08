@@ -27,14 +27,32 @@ const MAX_DEPTH: usize = 24;
 
 /// 递归列出项目里的文件（相对路径）。
 pub fn list_files(root: impl AsRef<Path>) -> io::Result<Vec<String>> {
-    let root = root.as_ref();
-    let mut out = Vec::new();
-    walk(root, root, 0, &mut out);
-    out.sort();
-    Ok(out)
+    Ok(list_files_and_symlinks(root)?.0)
 }
 
-fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<String>) {
+/// 同 [`list_files`]，另外把其中的**软链文件**单独挑一份出来。
+///
+/// 为什么要这一份：rg 没有「只跟软链文件」这一档 —— 默认整个跳过 symlink，
+/// 而 `--follow` 会连软链**目录**一起跟进（实测 ripgrep 15.2）。内置实现
+/// 只收软链文件，两条路的结果又必须一致，所以只能把软链文件挑出来
+/// 显式喂给 rg。
+///
+/// 对 [`list_files`]（⌘P 那条路）来说这一份是顺路捎带的，不多花钱；
+/// 但 `grep_rg` 自己不遍历（遍历是 rg 干的），它调这个函数就是**实打实
+/// 多走一趟目录树** —— 那笔账记在调用点上。
+///
+/// 没有软链时第二份是空表，rg 的参数和以前一模一样。
+pub fn list_files_and_symlinks(root: impl AsRef<Path>) -> io::Result<(Vec<String>, Vec<String>)> {
+    let root = root.as_ref();
+    let mut out = Vec::new();
+    let mut syms = Vec::new();
+    walk(root, root, 0, &mut out, &mut syms);
+    out.sort();
+    syms.sort();
+    Ok((out, syms))
+}
+
+fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<String>, syms: &mut Vec<String>) {
     if depth > MAX_DEPTH || out.len() >= MAX_FILES {
         return;
     }
@@ -50,21 +68,44 @@ fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<String>) {
         if name.starts_with('.') && name != ".env" {
             continue;
         }
-        // symlink 一律不跟进：跟进就可能绕进环里
+        /*
+         * symlink：**只跳目录，不跳文件**（issue #19）。
+         *
+         * 原来这里是「一律不跟进」，理由写的是「跟进就可能绕进环里」——
+         * 那条理由只对软链**目录**成立。一个软链文件绕不进环里，
+         * 而跳掉它的后果是：文件树里看得见、点得开、存得进去的文件，
+         * 在 ⌘P 和 ⇧⌘F 里搜不到。
+         * `~/.zshrc -> dotfiles/zshrc` 这种用法正是这个应用的典型场景。
+         */
         let Ok(ft) = ent.file_type() else { continue };
-        if ft.is_symlink() {
-            continue;
-        }
-        if ft.is_dir() {
+        let is_dir = if ft.is_symlink() {
+            // 跟随链接看真身是不是目录。软链本来就少，这次 stat 可以忽略
+            match std::fs::metadata(ent.path()) {
+                Ok(m) => m.is_dir(),
+                // 断链：真身已经不在，收进来点开也是错
+                Err(_) => continue,
+            }
+        } else {
+            ft.is_dir()
+        };
+        if is_dir {
+            // 软链目录仍然不跟进 —— 环的风险只在这一侧，判据没变
+            if ft.is_symlink() {
+                continue;
+            }
             if !skip_dir(&name) {
                 subdirs.push(ent.path());
             }
         } else if let Ok(rel) = ent.path().strip_prefix(root) {
-            out.push(rel.to_string_lossy().into_owned());
+            let rel = rel.to_string_lossy().into_owned();
+            if ft.is_symlink() {
+                syms.push(rel.clone());
+            }
+            out.push(rel);
         }
     }
     for d in subdirs {
-        walk(root, &d, depth + 1, out);
+        walk(root, &d, depth + 1, out, syms);
     }
 }
 
@@ -150,10 +191,28 @@ fn grep_rg(root: &Path, pattern: &str, limit: usize) -> io::Result<Vec<Hit>> {
      * （试着为它写过一条测试，发现测不出来 —— 绝对路径根本触发不了，
      * 而不会失败的测试比没有测试更糟，所以只留这段注释。）
      */
+    /*
+     * 软链文件要显式列给 rg。
+     *
+     * rg 没有「只跟软链文件」这一档：默认整个跳过 symlink，`--follow` 又会
+     * 连软链**目录**一起跟进（实测 ripgrep 15.2：加了 `--follow` 之后
+     * `linkdir/target.txt` 也进了结果）。而内置实现只收软链文件。
+     *
+     * **代价是多走一趟目录树** —— 遍历本来是 rg 在干的，这一趟是额外的。
+     * 认这笔账，是因为另一头更糟：装了 rg 的人在 ⇧⌘F 里搜不到软链文件，
+     * 没装 rg 的人反而搜得到，而「装没装 rg 结果要一样」是这个模块的前提
+     * （见 `两条实现路径结果必须一致`）。
+     */
+    let syms = list_files_and_symlinks(root)
+        .map(|(_, s)| s)
+        .unwrap_or_default();
+
+    cmd.args(["-e", pattern]).arg("--").arg(root);
+    for s in &syms {
+        cmd.arg(root.join(s));
+    }
+
     let mut child = cmd
-        .args(["-e", pattern])
-        .arg("--")
-        .arg(root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -307,6 +366,22 @@ mod tests {
             fs::create_dir_all(d.join(name)).unwrap();
             fs::write(d.join(name).join("noise.txt"), "needle in noise\n").unwrap();
         }
+        /*
+         * issue #19 的形状。
+         *
+         * 真身**故意放在项目外**（`~/.zshrc -> dotfiles/zshrc` 那种用法）：
+         * 放项目内的话，命中会经由真身自己的路径被搜到，断言就分不清
+         * 「软链被收了」还是「真身被收了」—— 那样的测试改回坏代码也不会红。
+         *
+         * 名字带 name 后缀，每次 sandbox 覆盖同一份，不会在 temp 里越攒越多。
+         */
+        let outside = std::env::temp_dir().join(format!("searchsvc-outside-{name}.txt"));
+        fs::write(&outside, "needle 在项目外的真身里\n").unwrap();
+        let link = d.join("link.txt");
+        let _ = fs::remove_file(&link);
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        // 软链目录：**不该**被跟进，环的风险只在这一侧
+        std::os::unix::fs::symlink(d.join("src"), d.join("linkdir")).unwrap();
         d
     }
 
@@ -414,6 +489,60 @@ mod tests {
     /// 装没装 rg 都该搜出同一批结果 —— 这个不变量真的破过：
     /// 内置实现靠自己那份名单跳过 node_modules，而 rg 靠 .gitignore，
     /// 项目没有 .gitignore 时两边就分岔了。
+    /// issue #19：软链文件在文件树里看得见、点得开、存得进去，
+    /// 却在 ⌘P 和 ⇧⌘F 里搜不到。
+    ///
+    /// 验过红：把 `walk` 里那段改回「`if ft.is_symlink() { continue }`」，
+    /// 第一条断言立刻失败。
+    #[test]
+    fn 软链文件要进索引_软链目录不跟进() {
+        let d = sandbox("symlink");
+        let (files, syms) = list_files_and_symlinks(&d).unwrap();
+
+        assert!(
+            files.iter().any(|f| f == "link.txt"),
+            "软链文件没进索引，⌘P 就搜不到它：{files:?}"
+        );
+        assert!(
+            syms.iter().any(|s| s == "link.txt"),
+            "软链文件没被挑进给 rg 的那份名单：{syms:?}"
+        );
+        // linkdir -> src，src 里有 main.rs。跟进的话会冒出 linkdir/main.rs
+        assert!(
+            !files.iter().any(|f| f.starts_with("linkdir")),
+            "软链目录被跟进了，环的风险就回来了：{files:?}"
+        );
+
+        fs::remove_dir_all(d).ok();
+    }
+
+    /// 软链文件的**内容**也要搜得到，而且两条路都要。
+    ///
+    /// rg 那半边单独会坏：它默认整个跳过 symlink，光改内置实现的话，
+    /// 装了 rg 的人搜不到、没装的人反而搜得到。
+    #[test]
+    fn 软链文件的内容两条路都要搜得到() {
+        let d = sandbox("symgrep");
+
+        let hits = grep_builtin(&d, "项目外的真身", 50).unwrap();
+        assert!(
+            hits.iter().any(|h| h.path == "link.txt"),
+            "内置实现没搜到软链文件：{hits:?}"
+        );
+
+        if ripgrep_available() {
+            let hits = grep_rg(&d, "项目外的真身", 50).unwrap();
+            assert!(
+                hits.iter().any(|h| h.path == "link.txt"),
+                "rg 没搜到软链文件：{hits:?}"
+            );
+        } else {
+            eprintln!("跳过 rg 那半边：机器上没有 rg");
+        }
+
+        fs::remove_dir_all(d).ok();
+    }
+
     #[test]
     fn 两条实现路径结果必须一致() {
         if !ripgrep_available() {

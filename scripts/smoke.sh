@@ -508,7 +508,9 @@ else
 fi
 
 say "④ 保存一条软链：不能把链接换成普通文件"
-# 走文件树而不是 ⌘P —— 软链文件现在在 ⌘P 里搜不到，见 issue #19
+# 走文件树而不是 ⌘P —— 这一步要验的是保存，不是打开方式。
+# （原来这里写的是「软链在 ⌘P 里搜不到，见 issue #19」，那条已经修了，
+#  软链搜得到的断言在 ⑧ 的第二段。）
 open_from_tree "link.txt"
 if ! wait_has AXStaticText "原始内容" 6; then
   bad "link.txt 没打开"
@@ -600,6 +602,28 @@ else
     keys 'key code 53'
   fi
 fi
+sleep 0.8
+
+# ── 同一条命令，再验 issue #19：软链文件的内容也要搜得到 ──
+#
+# ④ 把「通过 app 改过的」写进了 `real/config.txt`，而 `link.txt` 指向它。
+# 修好之前，rg 和内置实现**都**整个跳过 symlink，于是结果里只有
+# `real/config.txt` 那一条 —— 一个在文件树里点得开、存得进去的文件，
+# 在搜索里够不着。
+[ "$(ax click AXButton "文件树")" = "OK" ] || true
+sleep 1
+keys 'keystroke "f" using {command down, shift down}'
+sleep 1.5
+if ! wait_has AXStaticText "换范围" 8; then
+  bad "第二次 ⇧⌘F 的浮层没出来"
+elif ! paste_into AXTextField "通过 app 改过的"; then
+  bad "第二次 ⇧⌘F 粘不进去"
+elif wait_has AXButton "link.txt" 25; then
+  ok "软链文件的内容也搜得到（issue #19）"
+else
+  bad "搜不到 link.txt —— issue #19 回归了（symlink 又被整个跳过？）"
+fi
+keys 'key code 53'
 sleep 0.8
 
 say "⑨ 移到废纸篓（trash_entry）：不能是真删除"
