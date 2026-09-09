@@ -95,6 +95,30 @@ export const revealInFinder = (path: string) => invoke<void>("reveal_in_finder",
 export const createEntry = (dir: string, name: string, isDir: boolean) =>
   invoke<string>("create_entry", { dir, name, isDir });
 
+/**
+ * 草稿目录的绝对路径。**不保证它已经在盘上** —— 只是想看看目录在哪，
+ * 不该因为看一眼就留下一个空目录。
+ */
+export const scratchDir = () => invoke<string>("scratch_dir");
+
+/**
+ * 新建一份草稿，返回新路径。
+ *
+ * `stem` 是不带扩展名的名字，**由这边按本地时间生成** —— Rust 的 std 里
+ * 没有本地时区，为一个文件名拽一个日期库进去不值。撞名由 Rust 侧加序号。
+ */
+export const createScratch = (stem: string) => invoke<string>("create_scratch", { stem });
+
+/**
+ * 丢掉一份**一个字都没写过**的草稿 —— 应用里唯一一条真删除。
+ *
+ * 判据(必须是普通文件、必须 0 字节、必须在草稿目录里)全在 Rust 侧,
+ * 这边传什么都绕不过去。有内容的草稿走的是「保存并关闭 / 丢弃改动」那条路,
+ * 到不了这里。
+ */
+export const discardEmptyScratch = (path: string) =>
+  invoke<void>("discard_empty_scratch", { path });
+
 /** 原地改名，返回新路径。目标已存在时 reject（fs::rename 本身会静默覆盖） */
 export const renameEntry = (path: string, name: string) =>
   invoke<string>("rename_entry", { path, name });

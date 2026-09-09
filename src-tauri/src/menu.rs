@@ -105,8 +105,12 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .build()?;
 
     let file = SubmenuBuilder::new(app, "文件")
+        // 草稿不需要有标签、也不需要先打开文件夹 —— 「想记就记」是它的全部意义，
+        // 所以它**不进** needs_tab 那张变灰名单
+        .item(&item(app, "new-scratch", "新建草稿", Some("CmdOrCtrl+N"))?)
         .item(&item(app, "open-folder", "打开文件夹…", Some("CmdOrCtrl+O"))?)
         .item(&recent)
+        .item(&item(app, "open-scratch-dir", "打开草稿目录", None)?)
         .separator()
         .item(&save)
         .item(&encoding)

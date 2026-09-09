@@ -383,6 +383,41 @@ fn same_entry(a: &fs::Metadata, b: &fs::Metadata) -> bool {
     a.dev() == b.dev() && a.ino() == b.ino()
 }
 
+/// 在草稿目录里新建一份草稿，返回新路径。
+///
+/// `stem` 是不带扩展名的名字，由前端按**本地时间**生成（`2026-09-09 1030`）——
+/// 时区这件事只有前端知道，std 里没有本地时区，为它拽一个日期库进来不值。
+///
+/// 撞名往后加序号（`… 1030-2.md`）：一分钟内建第二份草稿是很平常的事，
+/// 而 [`create_entry`] 撞名是直接失败的 —— 那个行为对「新建文件」是对的
+/// （名字是人取的，撞了要让人知道），对这里是错的（名字是机器取的，
+/// 撞了该机器自己让开）。
+///
+/// 目录用 `create_dir_all` 而不是 `create_dir`：这里的语义就是「确保它在」，
+/// 和 [`create_entry`] 里那条「新建一个已存在的文件夹要报错」不是一回事。
+pub fn create_scratch(dir: impl AsRef<Path>, stem: &str) -> io::Result<PathBuf> {
+    let dir = dir.as_ref();
+    fs::create_dir_all(dir)?;
+    for n in 1..=99u32 {
+        let name = if n == 1 {
+            format!("{stem}.md")
+        } else {
+            format!("{stem}-{n}.md")
+        };
+        match create_entry(dir, &name, false) {
+            Ok(p) => return Ok(p),
+            // 只有撞名才换个名字再来，别的错误（没权限、盘满）原样上抛 ——
+            // 吞掉它们的话，这里会变成一个转 99 圈再报「撞名太多」的死循环
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "同一分钟里已经有 99 份草稿了",
+    ))
+}
+
 /// 在 `dir` 里新建一个文件或目录，返回新路径。
 ///
 /// 撞名一律失败，**不覆盖也不复用**。
@@ -462,7 +497,58 @@ pub fn rename_entry(path: impl AsRef<Path>, new_name: &str) -> io::Result<PathBu
     Ok(to)
 }
 
-/// 移到废纸篓。**不做真删除** —— 整个应用里没有任何一条路会 `remove_file`。
+/// 丢掉一份**一个字都没写过**的草稿。
+///
+/// # 这是整个应用里唯一一条真删除，所以它自己校验
+///
+/// 点了加号又没用它，留下一个 0 字节的文件是纯噪音；而让它走废纸篓，
+/// 是把噪音换个地方堆。所以这里真删 —— 但**只删不可能有内容的东西**，
+/// 三条判据缺一不可，全在这个函数里，调用方说什么都不算数：
+///
+/// 1. `symlink_metadata` + `is_file()` —— **不跟随符号链接**
+/// 2. 大小必须是 0
+/// 3. 规范化之后必须仍在草稿目录里（挡掉 `..` 拼出来的路径）
+///
+/// 第 1 条真正在防的是 `symlink_metadata`：换成跟随链接的 `metadata`，
+/// 一条指向草稿目录里另一个空文件的链接就能让三条判据全过，
+/// 而 `remove_file` 删掉的是**链接指向的那个文件**（测试里有这一条，验过会红）。
+///
+/// `is_file()` 本身是纵深防御,**单独去掉它测试不会红** —— 目录和符号链接的
+/// `symlink_metadata().len()` 恰好都不是 0，会被第 2 条拦下。留着它是因为
+/// 「只删普通文件」是这里的真实意图，不该靠另一条判据的巧合来兑现。
+///
+/// 判据写在这儿而不是前端，是同一条老规矩：**前端少一个把东西删到别处去的机会**。
+///
+/// 用户改了又删光再关闭的那种文件走不到这里 —— 那时 `dirty` 是真的，
+/// 界面会先弹「保存并关闭 / 丢弃改动」，根本不会静默走到这一步。
+pub fn discard_empty_scratch(dir: impl AsRef<Path>, path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "只丢得掉普通文件",
+        ));
+    }
+    if meta.len() != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "这份草稿里有东西，不能这么丢",
+        ));
+    }
+    let real = path.canonicalize()?;
+    let root = dir.as_ref().canonicalize()?;
+    if !real.starts_with(&root) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "不在草稿目录里",
+        ));
+    }
+    fs::remove_file(real)
+}
+
+/// 移到废纸篓。**不做真删除** —— 除了 [`discard_empty_scratch`]
+/// 那条只碰 0 字节草稿的窄路，应用里没有第二条 `remove_file`。
 ///
 /// 走系统 API（macOS 上是 `NSFileManager` 的 `trashItemAtURL:`，由 trash crate
 /// 包装）而不是自己往 `~/.Trash` 里 rename：Finder 的「放回原处」依赖一份
@@ -834,6 +920,80 @@ mod tests {
         assert_eq!(read_text(&p).unwrap(), "");
 
         fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 同一分钟建第二份草稿要自己让开() {
+        let d = sandbox("scratch").join("scratches");
+
+        // 目录还不存在 —— create_scratch 得自己把它建出来，
+        // 「第一次记东西」正是这条路唯一走过的一次
+        assert!(!d.exists());
+        let a = create_scratch(&d, "2026-09-09 1030").unwrap();
+        assert_eq!(a.file_name().unwrap(), "2026-09-09 1030.md");
+        assert_eq!(read_text(&a).unwrap(), "");
+
+        // 同一分钟再来一份：不能失败，也不能覆盖掉上一份
+        write_text(&a, "第一份的内容").unwrap();
+        let b = create_scratch(&d, "2026-09-09 1030").unwrap();
+        assert_eq!(b.file_name().unwrap(), "2026-09-09 1030-2.md");
+        assert_eq!(read_text(&a).unwrap(), "第一份的内容", "第一份被盖了");
+
+        let c = create_scratch(&d, "2026-09-09 1030").unwrap();
+        assert_eq!(c.file_name().unwrap(), "2026-09-09 1030-3.md");
+
+        fs::remove_dir_all(d.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn 只丢得掉空的且在草稿目录里的东西() {
+        let base = sandbox("discard");
+        let d = base.join("scratches");
+        let 空的 = create_scratch(&d, "2026-09-09 1030").unwrap();
+
+        // 有内容的：一个字节都不许碰
+        let 有内容 = create_scratch(&d, "2026-09-09 1031").unwrap();
+        write_text(&有内容, "记了一半").unwrap();
+        let e = discard_empty_scratch(&d, &有内容).unwrap_err();
+        assert!(e.to_string().contains("有东西"), "实得：{e}");
+        assert!(有内容.exists());
+
+        // 草稿目录外面的：哪怕是空的也不行 ——
+        // 判据是「在不在草稿目录里」，不是「是不是空的」，两条都要
+        let 外面 = base.join("别人的空文件.md");
+        fs::write(&外面, "").unwrap();
+        let e = discard_empty_scratch(&d, &外面).unwrap_err();
+        assert!(e.to_string().contains("不在草稿目录"), "实得：{e}");
+        assert!(外面.exists());
+
+        // 用 .. 拼出来的也一样：canonicalize 之后就露馅了
+        let 绕路 = d.join("../别人的空文件.md");
+        assert!(discard_empty_scratch(&d, &绕路).is_err());
+        assert!(外面.exists());
+
+        // 目录不行
+        assert!(discard_empty_scratch(&d, &d).is_err());
+
+        /*
+         * **符号链接：绝不能顺着它去删别人。**
+         *
+         * 这条是 `symlink_metadata`（而不是 `metadata`）唯一的存在理由。
+         * 改成跟随链接的 `metadata` 之后：链接的 `is_file()` 变成 true、
+         * 跟随后的大小是 0、`canonicalize` 又把它解析回草稿目录里 ——
+         * 三条判据全过，`remove_file` 删掉的是**链接指向的那个文件**，
+         * 而链接本身还在。测这一条才拦得住那次改动。
+         */
+        let 目标 = create_scratch(&d, "2026-09-09 1032").unwrap();
+        let 链接 = d.join("链接.md");
+        std::os::unix::fs::symlink(&目标, &链接).unwrap();
+        assert!(discard_empty_scratch(&d, &链接).is_err());
+        assert!(目标.exists(), "顺着符号链接把目标文件删了");
+
+        // 正常路径：真的没了
+        discard_empty_scratch(&d, &空的).unwrap();
+        assert!(!空的.exists());
+
+        fs::remove_dir_all(base).ok();
     }
 
     #[test]

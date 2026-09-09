@@ -813,6 +813,68 @@ fi
 keys 'keystroke "s" using {command down}'
 sleep 2
 
+say "⑭ 草稿：⌘N 建出来、空的关掉就丢、写过的关掉要问"
+#
+# **必须在真 .app 上测。** 三条里有两条在浏览器的 `pnpm dev` 上根本走不到：
+# 「新建草稿」是菜单项（`keymap.ts` 里 `owner: "menu"`），桩里没有原生菜单栏；
+# 而草稿目录是 Tauri 的 `app_data_dir()` 算出来的，桩里那条是编的。
+#
+# 草稿目录是**用户真实的那一个**，所以这一段造的东西测完自己收干净 ——
+# 不能让跑一次验收就在人家的草稿堆里留两片纸。
+SCRATCHES="${HOME}/Library/Application Support/com.liteide.app/scratches"
+mkdir -p "${SCRATCHES}"
+ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.before"
+
+menu "文件" "新建草稿"
+sleep 2
+ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.after"
+NEW1=$(comm -13 "${WORK}/scratch.before" "${WORK}/scratch.after" | head -1)
+if [ -z "${NEW1}" ]; then
+  bad "⌘N 没有在草稿目录里建出东西"
+else
+  # 名字形如 `2026-09-09 1408.md` —— 时间戳是翻回来时唯一记得的线索
+  if printf '%s' "${NEW1}" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{4}(-[0-9]+)?\.md$'; then
+    ok "建出了 ${NEW1}"
+  else
+    bad "草稿名字不对：${NEW1}"
+  fi
+
+  # 写点东西再存 —— 断言落在**盘上**，不读界面
+  DRAFT="排查用的 traceId b67c353d"
+  if ! paste_into AXTextArea "${DRAFT}"; then
+    bad "粘不进草稿"
+  else
+    keys 'keystroke "s" using {command down}'
+    sleep 2
+    if grep -q "${DRAFT}" "${SCRATCHES}/${NEW1}" 2>/dev/null; then
+      ok "⌘S 写进了草稿目录里那份文件"
+    else
+      bad "草稿存到别处去了（或者没存）"
+    fi
+  fi
+  menu "文件" "关闭标签"
+  sleep 1.5
+fi
+
+# 二、点了加号又一个字没写：关掉就该把那个 0 字节的文件丢掉
+ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.before2"
+menu "文件" "新建草稿"
+sleep 2
+menu "文件" "关闭标签"
+sleep 2
+ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.after2"
+if diff -q "${WORK}/scratch.before2" "${WORK}/scratch.after2" >/dev/null; then
+  ok "空草稿关掉之后盘上没留下东西"
+else
+  bad "空草稿留在盘上了：$(comm -13 "${WORK}/scratch.before2" "${WORK}/scratch.after2" | tr '\n' ' ')"
+fi
+
+# 收干净：只删这一段自己造出来的那些，用户原有的一份都不碰
+ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.end"
+comm -13 "${WORK}/scratch.before" "${WORK}/scratch.end" | while read -r f; do
+  [ -n "${f}" ] && rm -f "${SCRATCHES}/${f}"
+done
+
 # ─────────────────── 收尾 ───────────────────
 
 say "⑪ 界面自己有没有报错"

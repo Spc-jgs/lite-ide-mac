@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
+  import Icon from "./Icon.svelte";
   import FileGlyph from "./FileGlyph.svelte";
   import { copyText, relTo, showInFinder } from "./pathactions";
 
@@ -20,6 +21,7 @@
     onClose,
     onCloseMany,
     onRevealInTree,
+    onNewScratch,
   }: {
     tabs: Tab[];
     activeId: number | null;
@@ -34,6 +36,8 @@
     onCloseMany?: (ids: number[]) => void;
     /** 在文件树里定位到这个标签对应的文件 */
     onRevealInTree?: (path: string) => void;
+    /** 标签条末尾那个加号：新建一份草稿 */
+    onNewScratch?: () => void;
   } = $props();
 
   /**
@@ -42,6 +46,9 @@
    * 所以那几项只对真实文件出现。判据就是「以 / 开头」。
    */
   const isReal = (p: string) => p.startsWith("/");
+
+  /** 在当前项目根底下。草稿住在根外面，跟它有关的菜单项要跟着让开 */
+  const inRoot = (p: string) => !!root && p.startsWith(root.endsWith("/") ? root : `${root}/`);
 
   const MODE_LABEL: Record<Tab["mode"], string> = {
     edit: "",
@@ -78,17 +85,34 @@
     out.push({ label: "关闭全部", run: () => onCloseMany?.(tabs.map((t) => t.id)) });
 
     if (isReal(tab.path)) {
+      /*
+       * 「定位」和「相对路径」只对**项目根底下**的文件成立。
+       *
+       * 草稿就住在根外面（`~/Library/Application Support/…/scratches`）：
+       * 文件树里根本没有它那一行，定位必然落空；而 `relTo` 对根外的路径
+       * 是原样返回绝对路径的 —— 一个叫「复制相对路径」的菜单项给你一串
+       * `/Users/…/Application Support/…`，那是菜单在说谎。
+       * 判据同上面那句：**不适用的项直接不出现**。
+       */
+      if (inRoot(tab.path)) {
+        out.push({
+          label: "在文件树中定位",
+          sep: true,
+          run: () => onRevealInTree?.(tab.path),
+        });
+      }
       out.push({
-        label: "在文件树中定位",
-        sep: true,
-        run: () => onRevealInTree?.(tab.path),
+        label: "在 Finder 中显示",
+        sep: !inRoot(tab.path),
+        run: () => void showInFinder(tab.path),
       });
-      out.push({ label: "在 Finder 中显示", run: () => void showInFinder(tab.path) });
       out.push({ label: "复制路径", sep: true, run: () => void copyText(tab.path, "路径") });
-      out.push({
-        label: "复制相对路径",
-        run: () => void copyText(relTo(root, tab.path), "相对路径"),
-      });
+      if (inRoot(tab.path)) {
+        out.push({
+          label: "复制相对路径",
+          run: () => void copyText(relTo(root, tab.path), "相对路径"),
+        });
+      }
     }
     return out;
   });
@@ -208,6 +232,24 @@
       </button>
     </div>
   {/each}
+
+  <!--
+    **加号跟着标签一起滚，不钉在右边。**
+
+    钉在右边要么脱出这个 `overflow-x: auto` 的容器（那就得再套一层壳），
+    要么 `position: sticky`（在横向滚动的 flex 里它会盖住最后一个标签的 ✕）。
+    而它跟着滚的代价很小：标签多到要滚的时候，⌘N 就在手上。
+
+    这也**破了 ui.md 第三条**（「常驻的只留不看会出错的那些」）——
+    那条管的是**每一项上重复出现**的东西（每个标签一个 ✕、每一行一个 ＋），
+    常驻它们等于满屏噪音；整条栏上只有一个的入口不在此列。
+    规矩那边补了这句，不是这里悄悄破的例。
+  -->
+  {#if onNewScratch}
+    <button class="add" onclick={onNewScratch} title="新建草稿（⌘N）" aria-label="新建草稿">
+      <Icon name="plus" size={13} />
+    </button>
+  {/if}
 </div>
 
 {#if menu}
@@ -257,6 +299,21 @@
     background: transparent;
   }
   .tab:hover { background: var(--hover); }
+  /* 和标签同一套：28px 的圆角块 + hover 底色（ui.md 第一条） */
+  .add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .add:hover { background: var(--hover); color: var(--text); }
   .tab.active { background: var(--selected); }
   /* 标签溢出时给个细滚动条，否则完全看不出还有更多标签 */
   .tabs::-webkit-scrollbar { height: 3px; }

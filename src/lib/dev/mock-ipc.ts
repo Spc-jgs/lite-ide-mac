@@ -326,6 +326,12 @@ const UPSTREAM: Record<string, string> = {
   "m11/symbols": "",
 };
 
+/**
+ * 草稿目录。真实现是 `~/Library/Application Support/com.liteide.app/scratches`，
+ * 桩里给一条形状一样的绝对路径就够了 —— 前端只把它当不透明的路径传来传去。
+ */
+const SCRATCH_DIR = "/Users/you/Library/Application Support/com.liteide.app/scratches";
+
 const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj": [["src", true], ["logs", true], ["docs", true], [".github", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   "/proj/.github": [["workflows", true]],
@@ -586,6 +592,40 @@ export function installMockIpc(): void {
             bump(path);
           }
           return path;
+        }
+        /*
+         * 草稿目录在浏览器里也得是个**真的目录**（`DIRS` 里有它），
+         * 否则「打开草稿目录」把它当项目根打开时，文件树列出来是空的，
+         * 而真实现里那儿至少有你刚建的那份草稿 —— 桩一分叉就开始骗人。
+         */
+        case "scratch_dir":
+          return SCRATCH_DIR;
+        case "create_scratch": {
+          const stem = String(a.stem);
+          if (!DIRS[SCRATCH_DIR]) DIRS[SCRATCH_DIR] = [];
+          // 撞名加序号，跟 Rust 侧 fsservice::create_scratch 一样
+          for (let n = 1; n <= 99; n++) {
+            const name = n === 1 ? `${stem}.md` : `${stem}-${n}.md`;
+            const path = `${SCRATCH_DIR}/${name}`;
+            if (existsInMock(path)) continue;
+            DIRS[SCRATCH_DIR] = [...DIRS[SCRATCH_DIR], [name, false]];
+            FILES[path] = "";
+            bump(path);
+            return path;
+          }
+          throw new Error("同一分钟里已经有 99 份草稿了");
+        }
+        case "discard_empty_scratch": {
+          const path = String(a.path);
+          // 判据照着 Rust 侧抄一遍。桩里少一条，浏览器上就走得通而真机上走不通
+          if (!path.startsWith(`${SCRATCH_DIR}/`)) throw new Error("不在草稿目录里");
+          if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
+          if ((FILES[path] ?? "") !== "") throw new Error("这份草稿里有东西，不能这么丢");
+          delete FILES[path];
+          DIRS[SCRATCH_DIR] = (DIRS[SCRATCH_DIR] ?? []).filter(
+            ([n]) => `${SCRATCH_DIR}/${n}` !== path,
+          );
+          return null;
         }
         case "rename_entry": {
           const path = String(a.path);

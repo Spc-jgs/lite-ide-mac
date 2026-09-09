@@ -64,7 +64,24 @@ export interface KeyDef {
  */
 export const KEYS: KeyDef[] = [
   // ── 文件 ──
+  /*
+   * 草稿是「看日志时顺手记两笔」的临时纸，落在
+   * `~/Library/Application Support/com.liteide.app/scratches/`，
+   * 一出生就有真实路径 —— 不是 VSCode 那种无路径的 Untitled，
+   * 所以关闭时不需要问「存到哪儿」，保存、会话恢复、外部改动检测
+   * 全都走普通文件那条路（见 App.svelte 的 `newScratch`）。
+   *
+   * **⌘N 给草稿，不给「在项目里新建文件」** —— 后者是低频动作，
+   * 文件树右键已经有了；而草稿要的就是「想记就记」，中间不能隔一次找菜单。
+   */
+  { id: "new-scratch", label: "新建草稿", accel: "⌘N", group: "文件", owner: "menu" },
   { id: "open-folder", label: "打开文件夹…", accel: "⌘O", group: "文件", owner: "menu" },
+  /*
+   * 草稿目录在 Finder 里默认看不见（「资源库」是隐藏的），所以翻旧草稿
+   * 只能从这儿进。它把草稿目录**当项目根打开** —— 文件树、⌘P、⇧⌘F
+   * 立刻全都有，零新代码。代价是 Git 面板会空（那目录不是仓库）。
+   */
+  { id: "open-scratch-dir", label: "打开草稿目录", group: "文件", owner: "menu" },
   { id: "save", label: "保存", accel: "⌘S", group: "文件", owner: "menu" },
   { id: "close-tab", label: "关闭标签", accel: "⌘W", group: "文件", owner: "menu" },
   { id: "close-all-tabs", label: "关闭所有标签", group: "文件", owner: "menu" },

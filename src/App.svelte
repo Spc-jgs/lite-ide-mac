@@ -48,6 +48,9 @@
     gitWorktreeAdd,
     gitWorktreeRemove,
     detectEncoding,
+    scratchDir,
+    createScratch,
+    discardEmptyScratch,
     type GitEntry,
     type GitStatus,
     type GitWorktree,
@@ -1257,6 +1260,73 @@
   let restoringTabs = false;
 
   /**
+   * 草稿目录的绝对路径（`~/Library/Application Support/com.liteide.app/scratches`）。
+   *
+   * 启动时拿一次就不再变。**不 await 在启动路径上** —— 它只服务两件事
+   * （判断一个标签是不是草稿、菜单里打开草稿目录），两件都发生在人动手之后，
+   * 而这一次 IPC 是毫秒级的，早就回来了。为它把首屏往后推一拍不值。
+   */
+  let scratchRoot = $state<string | null>(null);
+
+  /**
+   * 这个路径是不是一份草稿。
+   *
+   * `scratchRoot` 还没到位时一律算「不是」：它唯一的用处是决定
+   * 「关掉时要不要把这个空文件丢掉」，而**猜错的方向必须是留下**——
+   * 少丢一个空文件只是噪音，多丢一个就是删了不该删的东西。
+   */
+  function isScratch(path: string): boolean {
+    return scratchRoot !== null && path.startsWith(`${scratchRoot}/`);
+  }
+
+  /**
+   * 新建一份草稿并打开。
+   *
+   * 名字按**本地时间**取（`2026-09-09 1030.md`）：草稿是「看日志时顺手记两笔」
+   * 的临时纸，翻回来时唯一记得的线索就是「大概什么时候记的」。
+   * 不弹输入框问名字 —— 中间隔一次打字，「想记就记」就没了。
+   *
+   * 时间戳在这边算而不是 Rust 侧：std 里没有本地时区，为一个文件名
+   * 拽一个日期库进去不值，而 `new Date()` 天然就是本地的。
+   */
+  async function newScratch() {
+    notify.clear();
+    try {
+      const d = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const stem =
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+        `${pad(d.getHours())}${pad(d.getMinutes())}`;
+      await openPath(await createScratch(stem));
+    } catch (e) {
+      notify.fail(String(e));
+    }
+  }
+
+  /**
+   * 把草稿目录当项目根打开 —— 文件树、⌘P、⇧⌘F 立刻全都有，零新代码。
+   *
+   * 草稿目录在 Finder 里默认看不见（「资源库」是隐藏的），这是翻旧草稿唯一的入口。
+   * 代价说在前面：Git 面板会空，那个目录不是仓库。
+   *
+   * 目录不存在**不是错误**，是「你还一条都没记过」——
+   * 报一句红字会让人以为坏了。
+   */
+  async function openScratchDir() {
+    notify.clear();
+    try {
+      const dir = await scratchDir();
+      if (!(await probePath(dir).catch(() => null))) {
+        notify.ok("还没有草稿 —— ⌘N 记第一条", 2600);
+        return;
+      }
+      await openPath(dir);
+    } catch (e) {
+      notify.fail(String(e));
+    }
+  }
+
+  /**
    * `quiet` 给会话恢复用：上次开着的文件这次可能已经不在了
    * （删了、改名了、切到了没有它的分支）。那是完全正常的事，
    * 逐个弹「读不到 xxx」只会在启动时糊一屏红字。
@@ -1301,7 +1371,14 @@
       tabs = [...tabs, tab];
       // 恢复期不抢：见 `restoringTabs` 上面那段
       if (!restoringTabs) activeId = tab.id;
-      // 没有项目根时，拿这个文件的父目录顶上，文件树才有东西显示
+      /*
+       * 没有项目根时，拿这个文件的父目录顶上，文件树才有东西显示。
+       *
+       * **草稿不需要在这儿特判**，虽然一眼看上去像要：正开着项目时 `root`
+       * 已经有值，这句根本不执行，文件树不会被草稿顶走；而没开项目就记东西时，
+       * 树里显示的正好是你的草稿目录 —— 那时你手上也没有别的东西可看。
+       * （加一道 `!isScratch(...)` 的守卫是我第一版写的，它永远不会为假。）
+       */
       if (!root) root = info.path.slice(0, info.path.lastIndexOf("/")) || "/";
     } catch (e) {
       if (!quiet) notify.fail(String(e));
@@ -2093,6 +2170,19 @@
 
   function doClose(tab: TabState) {
     if (tab.mode === "log" && tab.handle !== undefined) void closeLog(tab.handle);
+    /*
+     * 点了加号又一个字没写，关掉就把那个 0 字节的文件丢掉 ——
+     * 留着是纯噪音，而它从生到死没有过内容，没有任何东西可以丢失。
+     *
+     * **写过又删光再关**的那种走不到这儿：那时 `dirty` 是真的，
+     * 界面会先弹「保存并关闭 / 丢弃改动」。
+     *
+     * 失败一律吞掉：删不动（没权限、已经被别处删了）不该在关标签时糊一句红字，
+     * 而且什么都没损失。真正的判据在 Rust 侧，这边只负责「像不像」。
+     */
+    if (isScratch(tab.path) && tab.mode === "edit" && !tab.dirty && (tab.content ?? "") === "") {
+      void discardEmptyScratch(tab.path).catch(() => {});
+    }
     const idx = tabs.findIndex((t) => t.id === tab.id);
     tabs = tabs.filter((t) => t.id !== tab.id);
     if (activeId === tab.id) {
@@ -2185,6 +2275,8 @@
     }
     switch (id) {
       case "open-folder": return void openFolder();
+      case "new-scratch": return void newScratch();
+      case "open-scratch-dir": return void openScratchDir();
       case "recent-clear": recent = []; return;
       case "save": return saveActive();
       case "encoding":
@@ -2277,6 +2369,10 @@
   }
 
   $effect(() => {
+    // 见 `scratchRoot` 的注释：故意不挂在启动那条 await 链上
+    void scratchDir()
+      .then((d) => (scratchRoot = d))
+      .catch(() => {});
     initialPath()
       .then(async (p) => {
         if (tabs.length > 0 || root !== null) return;
@@ -2695,6 +2791,7 @@
           onClose={requestClose}
           onCloseMany={closeMany}
           onRevealInTree={revealInTree}
+          onNewScratch={newScratch}
         />
       {/if}
 
