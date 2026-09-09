@@ -10,7 +10,7 @@ members = [
 
 [package]
 name = "lite-ide"
-version = "0.7.0"
+version = "0.8.0"
 description = "Mac 上 1 秒打开的个人工作台"
 edition = "2021"
 
