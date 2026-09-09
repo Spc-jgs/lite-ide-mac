@@ -53,9 +53,22 @@ export function settled(content: string): Doc {
  *
  * 改回原样时要把草稿**清掉**而不是存一份和磁盘一样的：留着它，
  * 下次切回来就顶着一份「和磁盘相同的草稿」，基线判断从此多一层拐弯。
+ *
+ * **只返回这三个字段，不能写成 `{ ...doc, draft, dirty }`。**
+ * 调用方是 `Object.assign(tab, stashed(tab, text))`，而 `doc` 传进来的
+ * 是整个标签 —— 展开它就等于把标签在**这一刻**的全部字段（mode、handle、
+ * content…）打成快照再原样写回去。平时看不出来，赶上并发就是一次回滚：
+ *
+ *   点「切换到日志模式」→ `doSwitch` 把 mode 改成 log、handle 换成引擎句柄
+ *   → 内容区因此换掉，CodeMirror 销毁前调 `onStash` → 这里把两毫秒前那份
+ *   快照盖回去 → mode 变回 edit、handle 变回 undefined。
+ *
+ * 现象是「按了切换按钮什么都没发生」，而 Rust 侧的 `open_log` 确实调过了 ——
+ * 从日志看一切正常，只有界面在说谎。（`settled` 一开始就只返回这三个字段，
+ * 所以从来没踩到过。）
  */
 export function stashed(doc: Doc, text: string): Doc {
   return text === (doc.content ?? "")
-    ? { ...doc, draft: undefined, dirty: false }
-    : { ...doc, draft: text, dirty: true };
+    ? { content: doc.content, draft: undefined, dirty: false }
+    : { content: doc.content, draft: text, dirty: true };
 }

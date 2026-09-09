@@ -4088,3 +4088,112 @@ issue #11 那五条原来只能人工点，理由是「AppleScript 够不着 web
 提交（3000 行 pre-commit 钩子）、保存 0755 脚本（权限 + 可执行）、
 保存软链（链接还在 + 真身变了 + 没留临时文件）、切分支、
 大日志中文不乱码、行数统计、关掉后 RSS 下降、前端无报错与 CSP 违规。
+
+---
+
+## 2026-09-09 · 切到日志模式，按钮按了像没按 —— 一次两毫秒的快照回滚
+
+用户报的：在编辑模式下打开的 `.log` 文件，点状态栏那个「编辑模式 ⇄」
+切不到日志模式。
+
+`error.2026-07-22.log` 才 1.2MB、8400 行短行，`probe` 判它 Edit 是对的
+（判据是大小/行数/最长行，不看后缀）。所以这不是判定的问题，
+是**切换本身不生效**。
+
+### 第一个反直觉的事实：Rust 侧其实干活了
+
+拿真 `.app` 加 `LITE_IDE_DEBUG=1` 跑一遍，AppleScript 点那个按钮：
+
+```text
+[diag] probe .../error.2026-07-22.log -> Edit ()
+[diag] open_log path=.../error.2026-07-22.log     ← 调了，而且成功返回
+```
+
+`open_log` **确实调过**，句柄也拿到了，而界面上那颗按钮一动不动，
+内容区还是 CodeMirror。从日志看整条链路一切正常，只有界面在说谎 ——
+这类 bug 最难查的地方就在这里：你会先去怀疑 IPC、怀疑 mmap、
+怀疑句柄，而它们全是对的。
+
+### 插桩抓到的时间线
+
+在 `doSwitch` 里插了打印，浏览器桩上一模一样地复现：
+
+```text
+6733ms  doSwitch in 1 edit -> log
+6734ms  after assign: tab.mode=log, active.mode=log, tabs.find(...).mode=log
+6736ms  stashDraft: hit=true, tabs.map(mode)=["edit"], handle=undefined
+```
+
+赋值成功了，**两毫秒后再读同一个数组，mode 又是 edit 了**，
+`handle` 也没了，`content` 还回来了。
+
+### 根因：`stashed` 返回的是整个标签的快照
+
+```ts
+// 出事的写法
+export function stashed(doc: Doc, text: string): Doc {
+  return { ...doc, draft: text, dirty: true };
+}
+```
+
+调用方是 `Object.assign(tab, stashed(tab, text))` —— `doc` 传进去的
+**就是整个标签**，`{ ...doc }` 于是给标签在那一刻的全部字段
+（`mode`、`handle`、`content`…）拍了张快照，再原样写回去。
+
+平时看不出来，因为写回去的和现在的是同一份。赶上并发就是一次回滚：
+
+1. 点切换 → `doSwitch` 把 `mode` 改成 `log`、`handle` 换成引擎句柄、
+   `content` 清空
+2. 内容区因此从 CodeMirror 换成日志视图，Editor 销毁前调 `onStash`
+3. 这张两毫秒前的快照盖回去 → `mode` 变回 `edit`、`handle` 变回 `undefined`
+
+`stashDraft` 里本来有一道守卫（`x.mode === "edit"` 才认领），但它读到的
+也是那份旧值，拦不住自己。
+
+`settled()` 从第一天起就只返回 `{ content, draft, dirty }` 三个字段，
+所以走它的三条路（保存 / 外部重读 / 用磁盘上的）从来没踩到过。
+同一个文件里，两个函数一个对一个错。
+
+### 修法
+
+`stashed` 只返回它负责的那三个字段。返回值里没有的键，
+`Object.assign` 本来就不会动到标签上那一份 —— 带上它们**没有任何好处，
+只有拍快照这一个副作用**。
+
+### 那条断言原来是反着写的
+
+`tests/doc-state.test.ts` 里有一条：
+
+```ts
+ok((带别的 as Record<string, unknown>).无关 === 1, "stashed 不该丢掉无关字段");
+```
+
+它锁死的正是出事的那个写法。当初加它是怕 `stashed` 把标签别的字段抹掉，
+而那个担心是空的（`Object.assign` 不动缺席的键）。
+**一条保护不存在的风险的测试，把真正的 bug 焊在了原地。** 现在反过来写。
+
+### 验证：第一版测试没红
+
+按纪律把 `stashed` 改回 `{ ...doc }` 跑，**16 条全绿**。
+
+原因是测试形状不对：我传的假 `doc` 只有 `{ content, dirty }` 两个字段，
+`{ ...doc }` 里根本没有 `mode` / `handle`，改坏了也照样过。
+真实调用传的是**整个标签**。照那个形状重写之后才红 2 条。
+
+和上一次 `settled` 那条一模一样的教训：
+**照真实用法测，不能只看返回值。**
+
+| | 结果 |
+|---|---|
+| 真 `.app` 点切换 | 「编辑模式 ⇄」→「日志模式 ⇄ / 只读 · 手动切换」，内容区是带行号的日志视图 |
+| 来回切 edit ⇄ log | 各两次都对 |
+| 改回 `{ ...doc }` | 新测试红 2 条 |
+| `pnpm check` | 246 文件 0 错 |
+| `pnpm test` | 11 个文件全过 |
+| `scripts/smoke.sh` | **26 条全过**，含第 ⑬ 条「切走再切回来草稿还在」—— 正是 `stashed` 的本职 |
+
+### 顺带记一笔
+
+`src/lib/dev/mock-ipc.ts` 里 `case "pty_kill":` 直接穿透到了
+`case "open_log":`，于是 `pty_kill` 会返回一个日志句柄。
+不影响功能（前端不看它的返回值），但桩一分叉就开始骗人，下次动那块时改掉。

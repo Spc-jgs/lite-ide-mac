@@ -52,9 +52,33 @@ ok(改回去.dirty === false, "改回原样 → 不脏");
 ok(stashed({ dirty: false }, "").draft === undefined, "空文件里没打字 → 没有草稿");
 ok(stashed({ dirty: false }, "x").dirty === true, "空文件里打了字 → 脏");
 
-// 别的字段不能被顺手抹掉
-const 带别的 = stashed({ content: "原文", dirty: false, ...{ 无关: 1 } } as Doc, "改了");
-ok((带别的 as Record<string, unknown>).无关 === 1, "stashed 不该丢掉无关字段");
+/*
+ * **只带这三个字段回去，别的一律不带。**
+ *
+ * 这条原来反着写（「stashed 不该丢掉无关字段」，靠 `{ ...doc }` 过关）。
+ * 那个担心是空的：调用方是 `Object.assign(tab, stashed(tab, text))`，
+ * 返回值里没有的键本来就不会动到标签上那一份。而带上它们是有害的 ——
+ * `doc` 传进来的就是整个标签，展开等于给标签拍一张快照，
+ * 谁在这两毫秒里改了别的字段，谁就被这张快照盖回去。
+ *
+ * 真出过事：点「切换到日志模式」，`doSwitch` 刚把 mode 改成 log、
+ * handle 换成引擎句柄，内容区跟着换掉，CodeMirror 销毁前调 onStash ——
+ * 快照把 mode / handle 一起打回原形。按钮按了像没按，而 Rust 侧的
+ * `open_log` 确实调过了。
+ *
+ * 照真实用法测（贴到标签上），不能只看返回值：缺键和 undefined 读出来一样。
+ */
+const 切到日志后的标签 = { mode: "log", handle: 7, content: undefined, draft: undefined, dirty: false };
+/*
+ * 迟到的 onStash 手里那份是**切换之前**的标签 —— 整个标签，不是三个字段。
+ * 这一点是测试能不能红的关键：只传 `{ content, dirty }` 的话，
+ * `{ ...doc }` 里根本没有 mode / handle，改坏了也照样绿。
+ * （第一版就是这么写的，把 stashed 改回 `{ ...doc }` 跑，16 条全过。）
+ */
+const 切换前的标签 = { mode: "edit", handle: undefined, content: "原文", draft: undefined, dirty: false };
+Object.assign(切到日志后的标签, stashed(切换前的标签 as Doc, "原文"));
+ok(切到日志后的标签.mode === "log", "迟到的 stash 不能把 mode 打回 edit");
+ok(切到日志后的标签.handle === 7, "迟到的 stash 不能把日志引擎的句柄抹掉");
 
 console.log(`${fail === 0 ? "✅" : "❌"} 文本状态机：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);
