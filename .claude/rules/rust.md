@@ -100,14 +100,23 @@ Tauri 的 `#[tauri::command] fn`（不带 `async`）**跑在主线程上** —�
    （App.svelte 那条 effect），**用户一次都不用点**，会话恢复还让它每次启动都再跑一遍。
    也就是说：**别人给你一个目录 = 别人在你机器上跑代码**。
 
-   `gitsvc::HARDENING` 给每条 git 都带上 `-c core.fsmonitor= -c diff.external=`，
+   `gitsvc::HARDENING` 给每条 git 都带上 `-c core.fsmonitor= -c diff.external= -c protocol.ext.allow=never`，
    产生差异的命令另外带 `DIFF_SAFE`（`--no-ext-diff --no-textconv`）。
    **加固放在 `git_cmd` 上而不是各个调用点** —— `--no-ext-diff` 当初只写在四个
    产生 diff 的地方里的两个上，同一条纪律写四遍就是迟早漏一遍。
 
-   挡不住的如实记着：`filter.*.smudge`（检出时跑）、`remote.*.url = ext::…`
-   （fetch/push 时跑）—— 这两条都要用户主动动手才碰得到。真正的解法是
-   「这个目录信不信得过」那一套，那是另一件事。
+   **名字任意的那几类点不着，要先查出来再关**：`filter.<任意名>.smudge`
+   （检出时跑）由 `repo_filter_drivers` 查 `--local` 拿到名单再逐个 `-c` 关掉。
+   只查 `--local` 是信任边界 —— 用户全局那份里躺着 `filter.lfs.*`，
+   无差别关掉等于把 git-lfs 弄坏。
+
+   `ext::` 那条要注意 **git 的默认防线是仓库自己能掀掉的**：默认 `ext` 不允许，
+   但仓库在自己的 `.git/config` 里写一句 `protocol.ext.allow = always` 就放开了，
+   于是一条 `git fetch` 就执行任意命令。所以那句 `-c` 必须显式写上。
+
+   四条都各有一条**验过红**的测试。但这个方式本身不收敛 ——
+   它们是一个一个查出来的，下一个能让 git 执行命令的 config 项被发现之前，
+   我们不知道它存在。真正的解法是「这个目录信不信得过」那一套，那是另一件事。
 
 另外 `LC_ALL=C`：用户 locale 是中文时，别让 git 把机器格式翻译了。
 

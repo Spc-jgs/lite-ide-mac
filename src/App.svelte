@@ -751,7 +751,18 @@
   async function gitDo(what: string, fn: () => Promise<unknown>, doing: string) {
     if (!repo) return;
     if (gitWriting) {
-      notify.fail(`正在${gitWriting}，等它做完`);
+      /*
+       * **不能走 `notify.fail`。** 状态栏左槽是 `{#if doing}{:else if info}
+       * {:else if error}`，而 doing 排在最前面 —— 慢操作正是 doing 亮着的
+       * 时候，那句 fail 写进去也显示不出来，4 秒后还被自己的定时器清掉。
+       * 于是用户看到的仍然是「点了没反应」，正是这道守卫要避免的东西。
+       *
+       * 直接改 doing 的文案：渲染是「正在${doing}…」，这里拼出来就是
+       * 「正在提交，请等它做完…」。`gitWriting` 存的是原始动作名，不会被
+       * 这句话污染，所以点第三次、第四次文案也不会越接越长。
+       * 操作结束时 `finally` 会清掉它，不用另设一个定时器。
+       */
+      notify.doing = `${gitWriting}，请等它做完`;
       return;
     }
     gitWriting = doing;

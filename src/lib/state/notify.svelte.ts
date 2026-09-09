@@ -1,3 +1,5 @@
+import { errText } from "./err-text";
+
 /**
  * 状态消息通道。
  *
@@ -73,7 +75,9 @@ class Notify {
    * 涉及这些文件：…」。塞进状态栏那一格会被截断成一句没头没尾的话。
    */
   block(title: string, body: unknown) {
-    this.banner = { title, body: String(body).replace(/^Error:\s*/, "") };
+    // **不能 String(body)** —— IPC 那层有几条命令 reject 的是结构化对象
+    // （`SwitchErr` 那种），String() 出来是 `[object Object]`。见 err-text.ts
+    this.banner = { title, body: errText(body) };
   }
 
   closeBanner() {

@@ -198,7 +198,7 @@ impl std::fmt::Display for Error {
                 const TAIL: usize = 12;
                 let lines: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
                 let skipped = lines.len().saturating_sub(TAIL);
-                writeln!(f, "pre-commit 钩子拒绝了这次提交。代码没提交上去，改动都还在。")?;
+                writeln!(f, "提交被钩子拒绝了。代码没提交上去，改动都还在。")?;
                 if skipped > 0 {
                     writeln!(f, "\n钩子说（前面还有 {skipped} 行）：")?;
                 } else {
@@ -231,34 +231,93 @@ type R<T> = Result<T, Error>;
 ///   挂着一个可执行的 `pre-commit`。实测（2026-09-08）钩子拒绝时退出码 1、
 ///   stdout 一个字都没有、stderr 全是钩子的输出；而 `nothing to commit`
 ///   反过来 —— 话在 stdout 里，stderr 是空的。
-fn classify_commit_failure(root: &Path, msg: String) -> Error {
-    if msg.contains("nothing to commit") || msg.contains("no changes added to commit") {
-        return Error::NothingStaged { raw: msg };
-    }
-    // **git 自己的话以 `fatal:` / `error:` 开头，钩子的输出不会。**
-    //
-    // 少了这一条会误判：`git commit --amend` 在还没有提交的仓库上报
-    // `fatal: You have nothing to amend.`（stderr，stdout 空）—— 形状和
-    // 「钩子拒绝」一模一样，于是只要那个仓库里有钩子，界面就会说
-    // 「pre-commit 钩子拒绝了这次提交」，把人往钩子上引，而真正的原因
-    // 跟钩子毫无关系。
-    //
-    // 钩子的输出万一也以这两个词开头，就退回 `Error::Git` 原样显示 ——
-    // 那是退回现状，不会更糟。
-    let first = msg.lines().next().unwrap_or("").trim_start();
-    if first.starts_with("fatal:") || first.starts_with("error:") {
-        return Error::Git(msg);
-    }
-    let hook = root.join(".git/hooks/pre-commit");
-    let executable = std::fs::metadata(&hook)
-        .map(|m| {
-            use std::os::unix::fs::PermissionsExt;
-            m.is_file() && m.permissions().mode() & 0o111 != 0
+/// 提交路径上**有没有装钩子**。
+///
+/// # 钩子在哪，由 git 说了算
+///
+/// 朴素拼 `root/.git/hooks/pre-commit` 有两处会错，都实测过（2026-09-08）：
+///
+/// - **工作树**：`.git` 是**文件**不是目录，那条路径根本不存在。于是在工作树里
+///   这一档永远进不去 —— 而这个应用把工作树当一等功能。
+/// - **`core.hooksPath`**：husky 正是靠它把钩子挪到 `.husky/`，
+///   盯着 `.git/hooks/` 等于看错了地方。
+///
+/// `git rev-parse --git-path hooks/<名字>` 两种都认（工作树里返回主仓库的
+/// 绝对路径，设了 hooksPath 就返回那个目录）。
+///
+/// # 为什么查三个
+///
+/// 一次 `git commit` 会跑 `pre-commit` → `prepare-commit-msg` → `commit-msg`，
+/// 任何一个非零都会让提交失败。只查 pre-commit 的话，`commit-msg` 拒了也会
+/// 被说成「pre-commit 拒绝」—— 文案也因此不写死是哪一个。
+fn commit_hook_installed(root: &Path) -> bool {
+    ["pre-commit", "prepare-commit-msg", "commit-msg"]
+        .iter()
+        .any(|name| {
+            let arg = format!("hooks/{name}");
+            let out = match git_cmd_hardened(root, &["rev-parse", "--git-path", &arg]).output() {
+                Ok(o) if o.status.success() => o,
+                _ => return false,
+            };
+            let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if raw.is_empty() {
+                return false;
+            }
+            let p = PathBuf::from(&raw);
+            // 普通仓库返回的是相对 cwd 的路径，工作树返回绝对路径
+            let p = if p.is_absolute() { p } else { root.join(p) };
+            std::fs::metadata(&p)
+                .map(|m| {
+                    use std::os::unix::fs::PermissionsExt;
+                    m.is_file() && m.permissions().mode() & 0o111 != 0
+                })
+                .unwrap_or(false)
         })
-        .unwrap_or(false);
-    if executable && !msg.is_empty() {
-        return Error::HookRejected { output: msg };
+}
+
+fn classify_commit_failure(root: &Path, stdout: &str, stderr: &str) -> Error {
+    /*
+     * **顺序就是判据的强弱，不能换。**
+     *
+     * ① stdout 里的 `nothing to commit` 是 git 自己说的，最确定。
+     *    它必须排在钩子那一档**前面** —— husky / lint-staged 那类钩子
+     *    成功时也往 stderr 打一行招呼（`husky > pre-commit`），
+     *    只看 stderr 的话，「点了提交但一个文件都没勾」会被报成
+     *    「pre-commit 钩子拒绝了这次提交」，而钩子明明是通过的。
+     *
+     * ② git 自己的报错以 `fatal:` / `error:` 开头。**要看每一行不是只看
+     *    第一行**：钩子先打了招呼、git 随后失败时，那句 `error:` 在第二行
+     *    （`commit.gpgsign` 失败就是这个形状）。
+     *
+     * ③ 剩下的才轮到钩子。
+     */
+    if stdout.contains("nothing to commit") || stdout.contains("no changes added to commit") {
+        return Error::NothingStaged {
+            raw: format!("{stdout}\n{stderr}").trim().to_string(),
+        };
     }
+    if stderr
+        .lines()
+        .any(|l| {
+            let t = l.trim_start();
+            t.starts_with("fatal:") || t.starts_with("error:")
+        })
+    {
+        return Error::Git(stderr.to_string());
+    }
+    if commit_hook_installed(root) && !stderr.is_empty() {
+        return Error::HookRejected {
+            output: stderr.to_string(),
+        };
+    }
+    // 两份都空的时候至少说清是哪条命令失败了
+    let msg = if !stderr.is_empty() {
+        stderr.to_string()
+    } else if !stdout.is_empty() {
+        stdout.to_string()
+    } else {
+        "git commit 失败".to_string()
+    };
     Error::Git(msg)
 }
 
@@ -280,14 +339,17 @@ fn classify_commit_failure(root: &Path, msg: String) -> Error {
 /// 只写在四个产生 diff 的地方里的两个上（`--no-index` 那条和 `commit_diff`
 /// 的 `show` 回退没有）。同一条纪律写四遍，就是迟早漏一遍。
 ///
-/// **这里挡不住的**，如实记着：
-/// - `filter.<名字>.smudge` / `.clean` —— 检出时跑，名字是任意的，`-c` 点不着。
-///   要用户主动切分支才碰得到。
-/// - `remote.<名字>.url = ext::sh -c …` —— fetch/push 时跑，同样要用户主动动手。
-/// - textconv 也是任意名字，靠 [`DIFF_SAFE`] 的 `--no-textconv` 挡。
+/// **这张常量表只管键名固定的那几项。** 名字是任意的那几类挡在别处，
+/// 一个都不能少，所以在这里点名：
+/// - `filter.<名字>.smudge` / `.clean` / `.process` —— 检出、暂存时跑。
+///   名字任意，`-c` 点不着，由 [`repo_filter_drivers`] 先查出来再逐个关。
+/// - `diff.<名字>.textconv` —— 看差异时跑。同样任意，靠 [`DIFF_SAFE`] 的
+///   `--no-textconv` 挡。
 ///
-/// 真正的解法是「这个目录信不信得过」那一套（VS Code 的受限模式），
-/// 那是另一件事；这里先把**不用点就会跑**的那条路堵死。
+/// 真正的解法是「这个目录信不信得过」那一套（VS Code 的受限模式）——
+/// 上面这几条是**一个一个查出来的**，这个方式本身不收敛：
+/// 下一个能让 git 执行命令的 config 项被发现之前，我们不知道它存在。
+/// 那是另一件事，还没做。
 ///
 /// # `diff.external=` 是 fail-closed 的，这是有意的
 ///
@@ -544,7 +606,13 @@ fn run_raw_capped(cwd: &Path, args: &[&str], cap: usize) -> R<Vec<u8>> {
 /// 危险得多**（用户会照着那句话再提交一次）。
 ///
 /// 代价只是把超出的字节读完扔掉：内存仍然是有界的，省不掉的只有 I/O。
-fn run_drained(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool)> {
+/// 跑完把**两份输出**和成败都交出来。
+///
+/// [`run_drained`] 和提交的分类都建在它上面。分开是因为
+/// **分类必须两份都看**：git 自己的话在 stdout，钩子的话在 stderr，
+/// 而两边可以同时有话 —— husky / lint-staged 那类钩子成功时也往 stderr
+/// 打一行招呼。只看 stderr 的话，「暂存区是空的」会被当成「钩子拒绝了」。
+fn drain_both(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool, String, bool)> {
     use std::io::Read;
 
     let mut child = git_cmd(cwd, args)
@@ -581,16 +649,26 @@ fn run_drained(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool)> {
     let truncated = total > cap;
     let err = errs.join().unwrap_or_default();
     let status = child.wait().map_err(Error::NoGit)?;
-    if !status.success() {
-        let msg = String::from_utf8_lossy(&err).trim().to_string();
+    Ok((
+        out,
+        truncated,
+        String::from_utf8_lossy(&err).trim().to_string(),
+        status.success(),
+    ))
+}
+
+/// 跑一条 git，只要 stdout。失败就地转成 [`Error::Git`]。
+fn run_drained(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool)> {
+    let (out, truncated, err, ok) = drain_both(cwd, args, cap)?;
+    if !ok {
         // **stderr 空的时候要退回去看 stdout。**
         // git 有一部分话是从 stdout 说的 —— `nothing to commit, working tree
-        // clean` 就是（实测：那时 stderr 一个字都没有）。原来这里直接吐
-        // 「git commit 失败」，把唯一说清原因的那句丢掉了。
-        let msg = if msg.is_empty() {
+        // clean` 就是。原来这里直接吐「git commit 失败」，把唯一说清原因的
+        // 那句丢掉了。
+        let msg = if err.is_empty() {
             String::from_utf8_lossy(&out).trim().to_string()
         } else {
-            msg
+            err
         };
         return Err(Error::Git(if msg.is_empty() {
             format!("git {} 失败", args.first().copied().unwrap_or(""))
@@ -1089,13 +1167,13 @@ pub fn commit(root: impl AsRef<Path>, message: &str, amend: bool) -> R<String> {
     // 而**掐掉子进程会让退出码失去意义** —— 那时「提交成功但钩子话多」和
     // 「提交失败」就分不出来了，而把一次成功的提交报成失败，
     // 会让用户照着那句话再提交一次。
-    let (out, truncated) = match run_drained(root.as_ref(), &args, MAX_STDOUT_BYTES) {
-        Ok(v) => v,
-        // 把「提交没成功」这件事分档。判据见 `Error::HookRejected` 的注释：
-        // git 自己的话从 stdout 出来，钩子的话从 stderr 出来
-        Err(Error::Git(msg)) => return Err(classify_commit_failure(root.as_ref(), msg)),
-        Err(e) => return Err(e),
-    };
+    // 走 `drain_both` 而不是 `run_drained`：分档要**两份输出都看**，
+    // 只看 stderr 会把「暂存区是空的」误报成「钩子拒绝了」
+    let (out, truncated, err, ok) = drain_both(root.as_ref(), &args, MAX_STDOUT_BYTES)?;
+    if !ok {
+        let so = String::from_utf8_lossy(&out);
+        return Err(classify_commit_failure(root.as_ref(), so.trim(), &err));
+    }
     let mut s = String::from_utf8_lossy(&out).into_owned();
     if truncated {
         // 前端只取第一行显示，但这句得留在里头 —— 万一以后有人整段展示
@@ -2336,7 +2414,7 @@ mod tests {
             other => panic!("该分成 HookRejected，实际是：{other:?}"),
         }
         let msg = format!("{e}");
-        assert!(msg.contains("pre-commit 钩子拒绝"), "没说清是谁拒的：{msg}");
+        assert!(msg.contains("提交被钩子拒绝"), "没说清是谁拒的：{msg}");
         assert!(msg.contains("改动都还在"), "没告诉人代码还在：{msg}");
         assert!(
             msg.contains("lint: a.txt 第 3 行有问题"),
@@ -2347,7 +2425,90 @@ mod tests {
         // 完整的那份不能丢
         assert!(e.raw().contains("通过检查 1"), "raw() 里也没有完整输出");
 
-        // ③ **钩子在，但失败原因跟钩子无关** —— 不许赖到钩子头上。
+        // ③ **暂存区空 + 会说话的钩子** —— grok review 逮到的那条。
+        // husky / lint-staged 成功时也往 stderr 打招呼，只看 stderr 就会
+        // 把「一个文件都没勾」报成「钩子拒绝了」，而钩子明明通过了
+        let dir3 = tmpdir("commit-classify-3");
+        run(&dir3, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir3, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir3, &["config", "user.name", "t"]).unwrap();
+        let hook3 = dir3.join(".git/hooks/pre-commit");
+        std::fs::write(&hook3, "#!/bin/sh\necho 'husky > pre-commit' >&2\nexit 0\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook3, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        match commit(&dir3, "没勾文件", false) {
+            Err(Error::NothingStaged { .. }) => {}
+            other => panic!("会说话的钩子把「暂存区是空的」盖住了：{other:?}"),
+        }
+
+        // ④ **钩子先打招呼，git 随后失败** —— 那句 error: 在第二行，
+        // 只看第一行会漏，于是又赖到钩子头上
+        std::fs::write(dir3.join("b.txt"), "y\n").unwrap();
+        run(&dir3, &["add", "-A"]).unwrap();
+        run(&dir3, &["config", "commit.gpgsign", "true"]).unwrap();
+        run(&dir3, &["config", "gpg.program", "/nonexistent-gpg"]).unwrap();
+        match commit(&dir3, "签不了名", false) {
+            Err(Error::Git(_)) => {}
+            other => panic!("git 自己的 error: 在第二行时被赖到钩子头上：{other:?}"),
+        }
+        std::fs::remove_dir_all(&dir3).ok();
+
+        // ⑥ **core.hooksPath（husky 的做法）** —— 真钩子在 .husky/，
+        // 盯着 .git/hooks/ 就等于看错了地方，这一档会漏
+        let dir6 = tmpdir("commit-classify-6");
+        run(&dir6, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir6, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir6, &["config", "user.name", "t"]).unwrap();
+        std::fs::create_dir_all(dir6.join(".husky")).unwrap();
+        run(&dir6, &["config", "core.hooksPath", ".husky"]).unwrap();
+        let h6 = dir6.join(".husky/pre-commit");
+        std::fs::write(&h6, "#!/bin/sh\necho 'lint 没过' >&2\nexit 1\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&h6, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        std::fs::write(dir6.join("c.txt"), "z\n").unwrap();
+        run(&dir6, &["add", "-A"]).unwrap();
+        match commit(&dir6, "会被 husky 拒", false) {
+            Err(Error::HookRejected { output }) => {
+                assert!(output.contains("lint 没过"), "钩子的话没带出来：{output}")
+            }
+            other => panic!("core.hooksPath 下的钩子没认出来：{other:?}"),
+        }
+        std::fs::remove_dir_all(&dir6).ok();
+
+        // ⑦ **工作树** —— .git 是文件不是目录，朴素拼 .git/hooks/ 那条路径
+        // 根本不存在，于是工作树里这一档永远进不去
+        let dir7 = tmpdir("commit-classify-7");
+        run(&dir7, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir7, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir7, &["config", "user.name", "t"]).unwrap();
+        std::fs::write(dir7.join("a.txt"), "x\n").unwrap();
+        run(&dir7, &["add", "-A"]).unwrap();
+        commit(&dir7, "首次提交", false).unwrap();
+        let h7 = dir7.join(".git/hooks/pre-commit");
+        std::fs::write(&h7, "#!/bin/sh\necho '工作树里也该认出来' >&2\nexit 1\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&h7, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let wt = dir7.join("../wt-classify-7");
+        run(&dir7, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "wtb"]).unwrap();
+        assert!(wt.join(".git").is_file(), "工作树的 .git 该是文件");
+        std::fs::write(wt.join("b.txt"), "y\n").unwrap();
+        run(&wt, &["add", "-A"]).unwrap();
+        match commit(&wt, "工作树里提交", false) {
+            Err(Error::HookRejected { output }) => {
+                assert!(output.contains("工作树里也该认出来"), "钩子的话没带出来：{output}")
+            }
+            other => panic!("工作树里的钩子没认出来：{other:?}"),
+        }
+        std::fs::remove_dir_all(&wt).ok();
+        std::fs::remove_dir_all(&dir7).ok();
+
+        // ⑤ **钩子在，但失败原因跟钩子无关** —— 不许赖到钩子头上。
         // `--amend` 在还没有提交的仓库上报 `fatal: You have nothing to amend.`，
         // 形状（stdout 空、stderr 有话）和钩子拒绝一模一样
         let dir2 = tmpdir("commit-classify-2");
