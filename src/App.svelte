@@ -4,6 +4,7 @@
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import type { Action } from "./lib/search/QuickSearch.svelte";
+  import type { JumpHit } from "./lib/editor/jump";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import * as session from "./lib/state/session";
@@ -48,6 +49,7 @@
     gitWorktreeAdd,
     gitWorktreeRemove,
     detectEncoding,
+    listProjectFiles,
     scratchDir,
     createScratch,
     discardEmptyScratch,
@@ -1017,6 +1019,12 @@
 
   let quickOpen = $state(false);
   let quickScope = $state<"all" | "file" | "content" | "action">("all");
+  /**
+   * 打开随处搜索时预填的词。只有「在项目里找这个名字」会设它，
+   * **每条打开浮层的路都要把它清掉** —— 不清的话，上次找过的名字
+   * 会莫名其妙地出现在下一次 ⌘P 里。
+   */
+  let quickSeed = $state("");
   /** 待跳转的行号；带 nonce，连点同一条结果也能重新定位 */
   let gotoLine = $state<{ line: number; nonce: number } | null>(null);
   let gotoNonce = 0;
@@ -1107,6 +1115,14 @@
     else if (live?.path === path) live = null;
   }
 
+  /** 「读出光标底下那个词」的口子。认领规则同 `live`，见它上面那段 */
+  let wordProbe: { path: string; get: () => string | null } | null = null;
+
+  function onEditorWordProbe(path: string, get: (() => string | null) | null) {
+    if (get) wordProbe = { path, get };
+    else if (wordProbe?.path === path) wordProbe = null;
+  }
+
   /**
    * 这个标签当前该保存的文本。
    *
@@ -1120,6 +1136,117 @@
   /** ⌘S 之外的保存入口（命令面板）。编辑器里的 ⌘S 走 CM6 自己的 keymap */
   function saveActive() {
     if (active?.mode === "edit") void save(liveText(active));
+  }
+
+  /**
+   * ⌘Click 跳转要的文件索引（⌘P 那一份，相对项目根的路径）。
+   *
+   * **提前拉，不等人按键。** 它是「这个类在不在项目里」的唯一依据，
+   * 而那个问题在 ⌘hover 的每一次鼠标移动上都要答一遍 —— 现拉就是
+   * 每次 hover 隔一个 IPC 往返，下划线跟不上鼠标。`rg --files` 实测 0.02s，
+   * 换项目时拉一次完全付得起。
+   */
+  let projectFiles = $state<string[]>([]);
+
+  $effect(() => {
+    const r = root;
+    // treeTick 一变就重拉：切分支之后新增的文件也得跳得过去
+    treeTick;
+    if (!r) {
+      projectFiles = [];
+      return;
+    }
+    let dead = false;
+    void listProjectFiles(r)
+      .then((f) => {
+        if (!dead) projectFiles = f;
+      })
+      // 索引拉不到不该打扰人：跳转的第二层歇菜，第一层照常работа
+      .catch(() => {});
+    return () => {
+      dead = true;
+    };
+  });
+
+  /**
+   * 跳转历史。⌥⌘← 回去、⌥⌘→ 再回来（IDEA 的键位）。
+   *
+   * **跳出去回不来比不能跳更难受**，所以这两条和跳转本身是同一批东西，
+   * 不是后续增强。
+   *
+   * 存的是「路径 + 行号」而不是标签 id：跳到的文件可能在中途被关掉，
+   * 而按下 ⌥⌘← 的意思是「回到我刚才看的那个地方」，标签在不在无所谓。
+   */
+  interface NavSpot {
+    path: string;
+    line: number;
+  }
+  let navBack = $state<NavSpot[]>([]);
+  let navFwd = $state<NavSpot[]>([]);
+  /** 上限。留着几百条既没人用，也让 localStorage 那份快照白胖一圈 */
+  const NAV_MAX = 50;
+
+  /** 此刻在哪儿。`posByPath` 里存的是编辑器最后报上来的光标行 */
+  function hereNow(): NavSpot | null {
+    if (!active) return null;
+    return { path: active.path, line: posByPath.get(active.path) ?? 1 };
+  }
+
+  /**
+   * 跳转落点。**先把当前位置压栈再走** —— 顺序反了的话，
+   * 压进去的就是目的地，⌥⌘← 会把你留在原地。
+   */
+  async function jumpTo(hit: JumpHit) {
+    const from = hereNow();
+    if (from) {
+      navBack = [...navBack.slice(-(NAV_MAX - 1)), from];
+      // 新的跳转让「前进」失效 —— 和浏览器一样，历史分叉时旧的那一支作废
+      navFwd = [];
+    }
+    const target = hit.target;
+    if (target.rel === "") {
+      // 本文件：不重新打开，直接跳行
+      if (target.line !== undefined) gotoLine = { line: target.line, nonce: ++gotoNonce };
+      return;
+    }
+    await openAt(target.rel, target.line);
+  }
+
+  /** ⌥⌘← / ⌥⌘→。两条对称，合成一个函数免得两边漏改 */
+  async function navGo(dir: "back" | "fwd") {
+    const from = dir === "back" ? navBack : navFwd;
+    if (from.length === 0) {
+      notify.ok(dir === "back" ? "没有可回退的位置" : "没有可前进的位置", 1600);
+      return;
+    }
+    const spot = from[from.length - 1];
+    const here = hereNow();
+    if (dir === "back") {
+      navBack = navBack.slice(0, -1);
+      if (here) navFwd = [...navFwd.slice(-(NAV_MAX - 1)), here];
+    } else {
+      navFwd = navFwd.slice(0, -1);
+      if (here) navBack = [...navBack.slice(-(NAV_MAX - 1)), here];
+    }
+    await openAt(spot.path, spot.line);
+  }
+
+  /**
+   * 「在项目里找这个名字」—— 跳转够不着时的退路。
+   *
+   * 它**不伪装成跳转**：拿光标处的词跑一次现成的全局搜索，结果照常列在
+   * 搜索面板里让人自己挑。省掉的只是「选中、复制、⇧⌘F、粘贴」这四下，
+   * 而不是给一个精度可疑的下划线。
+   */
+  function findWordAtCursor() {
+    const w = active && wordProbe?.path === active.path ? wordProbe.get() : null;
+    if (!w) {
+      notify.ok("把光标放到一个名字上再按", 2000);
+      return;
+    }
+    quickScope = "content";
+    quickSeed = w;
+    quickOpen = true;
   }
 
   /** 搜索结果点击：打开文件，带行号则跳过去 */
@@ -2205,6 +2332,7 @@
     if (now - lastShiftUp < 500) {
       lastShiftUp = 0;
       quickScope = "all";
+      quickSeed = "";
       quickOpen = true;
     } else {
       lastShiftUp = now;
@@ -2247,6 +2375,7 @@
     if (k === "p") {
       e.preventDefault();
       quickScope = "file";
+      quickSeed = "";
       quickOpen = true;
       return;
     }
@@ -2289,9 +2418,12 @@
       case "toggle-mode":
         if (active) requestSwitchMode(active);
         return;
-      case "quick-all": quickScope = "all"; quickOpen = true; return;
-      case "quick-file": quickScope = "file"; quickOpen = true; return;
-      case "quick-content": quickScope = "content"; quickOpen = true; return;
+      case "quick-all": quickScope = "all"; quickSeed = ""; quickOpen = true; return;
+      case "quick-file": quickScope = "file"; quickSeed = ""; quickOpen = true; return;
+      case "quick-content": quickScope = "content"; quickSeed = ""; quickOpen = true; return;
+      case "find-word": return findWordAtCursor();
+      case "nav-back": return void navGo("back");
+      case "nav-fwd": return void navGo("fwd");
       case "outline": return openOutline();
       case "toggle-sidebar": sidebar = !sidebar; return;
       case "toggle-panel": panel = !panel; return;
@@ -2514,6 +2646,7 @@
   <overlays.comps.quick
     bind:open={quickOpen}
     bind:scope={quickScope}
+    seed={quickSeed}
     {root}
     {actions}
     onOpenFile={openAt}
@@ -2678,6 +2811,7 @@
           class="rbtn"
           onclick={() => {
             quickScope = "content";
+            quickSeed = "";
             quickOpen = true;
           }}
           title="在项目中搜内容 ⌘⇧F"
@@ -3006,8 +3140,15 @@
               onSave={save}
               onStash={stashDraft}
               onLive={onEditorLive}
+              onWordProbe={onEditorWordProbe}
               onOutline={(s) => (symbols = s)}
               onCursor={(l) => markPos(active!.path, l)}
+              jumpFiles={projectFiles}
+              jumpRel={root && active.path.startsWith(`${root}/`)
+                ? active.path.slice(root.length + 1)
+                : null}
+              jumpLang={langs?.langOf(active.path) ?? ""}
+              onJump={(hit) => void jumpTo(hit)}
             />
           {/key}
         {:else}

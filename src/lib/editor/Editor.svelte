@@ -13,6 +13,8 @@
   import { loadLang } from "./langs-load";
   import { outlineOf, type Sym } from "./outline";
   import { minimap, setMinimapMarks, type MarkKind } from "./minimap";
+  import { resolveJump, rawWordAt, type JumpHit } from "./jump";
+  import { jumpExtension } from "./jump-ext";
 
   let {
     path,
@@ -29,6 +31,11 @@
     onLive,
     onOutline,
     onCursor,
+    jumpFiles = [],
+    jumpRel = null,
+    jumpLang = "",
+    onJump,
+    onWordProbe,
   }: {
     path: string;
     /** 要显示的文本。有未保存的草稿时**是草稿**，不是磁盘上那份 */
@@ -50,6 +57,24 @@
     /** 相对 HEAD 的改动行，画在缩略图左缘。null 表示不在仓库里或没有改动 */
     marks?: Map<number, MarkKind> | null;
     showMinimap?: boolean;
+    /**
+     * ⌘Click / ⌘B 跳转要的三样，全从 App 来（见 `lib/editor/jump.ts`）：
+     * ⌘P 那份文件索引、当前文件相对项目根的路径、语言 id。
+     * 缺任何一样时第二层（import）自动歇菜，只剩本文件那一层 —— 不报错。
+     */
+    jumpFiles?: string[];
+    jumpRel?: string | null;
+    jumpLang?: string;
+    /** 跳。压导航栈、开标签都是 App 的事，这里只报「往哪儿跳」 */
+    onJump?: (hit: JumpHit) => void;
+    /**
+     * 交出「读出光标底下那个词」的能力，给菜单里那条「在项目里找这个名字」。
+     *
+     * 契约和 `onLive` 一模一样（挂载时给函数、销毁时给 null，带上自己那份
+     * `curPath` 用于认领）—— **另开一条而不是往 `onLive` 上挂**：那条通道
+     * 是保存路径上的，出过一次会丢数据的 bug，不值得为一个搜索入口去动它。
+     */
+    onWordProbe?: (path: string, get: (() => string | null) | null) => void;
     onChange: (dirty: boolean) => void;
     onSave: (content: string) => void;
     /**
@@ -107,6 +132,40 @@
   /** 已经认过的 savedTick。挂载时对齐一次，见「保存成功」那条 effect */
   let seenTick = 0;
 
+  /**
+   * 本文件的符号表，**按 `state.doc` 的身份缓存**。
+   *
+   * `outlineOf` 要遍历整棵语法树，而 ⌘hover 鼠标每动一格就要问一次跳转 ——
+   * 不缓存的话，在一个几千行的 Java 文件上划一下鼠标就是几十次全树遍历。
+   * `Text` 是不可变的，改一个字就是新对象，拿身份比就够了，不用另造版本号。
+   */
+  let symCache: { doc: unknown; syms: Sym[] } | null = null;
+  function symbolsOf(state: EditorState): Sym[] {
+    if (symCache && symCache.doc === state.doc) return symCache.syms;
+    const syms = outlineOf(state);
+    symCache = { doc: state.doc, syms };
+    return syms;
+  }
+
+  const jumpHooks = {
+    /*
+     * **读的是 prop 的当前值。** 这个闭包在 `build()` 里被创建（那时套着
+     * `untrack`），但它真正执行是在 mousemove / mousedown 里 —— 那时读到的
+     * 是最新的 `jumpFiles` / `jumpRel`。所以文件索引晚一点才到位也不影响：
+     * 到位之前第二层查不到东西，到位之后自动就能跳了。
+     */
+    resolve: (pos: number) =>
+      view
+        ? resolveJump(view.state, pos, {
+            symbols: symbolsOf(view.state),
+            files: jumpFiles,
+            rel: jumpRel,
+            lang: jumpLang,
+          })
+        : null,
+    jump: (hit: JumpHit) => onJump?.(hit),
+  };
+
   function build(doc: string) {
     return EditorState.create({
       doc,
@@ -138,6 +197,7 @@
         mapSlot.of(showMinimap ? minimap() : []),
         indentUnit.of("    "),
         langSlot.of([]),
+        jumpExtension(jumpHooks),
         ideaDarkTheme,
         ideaDarkHighlight,
         keymap.of([
@@ -210,10 +270,16 @@
       // 对齐计数器：挂载不是一次「刚保存」，见下面那条 effect 的注释
       seenTick = savedTick;
       onLive?.(curPath, () => view?.state.doc.toString() ?? "");
+      onWordProbe?.(curPath, () =>
+        view ? rawWordAt(view.state, view.state.selection.main.head) : null,
+      );
     });
     return () => {
       stash();
-      untrack(() => onLive?.(curPath, null));
+      untrack(() => {
+        onLive?.(curPath, null);
+        onWordProbe?.(curPath, null);
+      });
       view?.destroy();
       view = null;
     };
@@ -229,7 +295,10 @@
     // 真换了文件才收草稿；同一个文件只是内容被外部改了（重读），不能当草稿收走
     if (换了文件) {
       stash();
-      untrack(() => onLive?.(curPath, null));
+      untrack(() => {
+        onLive?.(curPath, null);
+        onWordProbe?.(curPath, null);
+      });
     }
     curPath = p;
     baseText = base ?? text;

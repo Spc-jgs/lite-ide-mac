@@ -88,7 +88,25 @@ ok(byId("并不存在的") === undefined, "找不到给 undefined，不抛");
 ok(byId("cm-find")?.owner === "cm6", "⌘F 必须归 CM6 —— 进菜单等于把编辑器的查找抢没了");
 ok(byId("quick-file")?.owner === "key", "⌘P 故意留在 keydown：进菜单会在终端里被抢走");
 ok(byId("quick-all")?.gesture === "连按两下 ⇧", "随处搜索是手势，菜单里只能写进标签");
-ok(byId("toggle-sidebar")?.alias === "⌘B", "⌘B 是 ⌘1 的别名，只在速查表里出现");
+/*
+ * **⌘B 归跳转，不再是侧边栏的别名**（2026-09-09 换的）。
+ *
+ * 这条原来反着写（`toggle-sidebar` 的 alias 是 ⌘B）。换的判据是
+ * 「谁没有主键位」：侧边栏有 ⌘1，而 IDEA 里 ⌘B 就是跳到声明的主键位。
+ * 两条一起锁，任何一边悄悄改回去都会红。
+ */
+ok(byId("toggle-sidebar")?.alias === undefined, "侧边栏交出了 ⌘B，只留 ⌘1");
+ok(byId("jump-decl")?.accel === "⌘B", "⌘B 归跳到声明");
+ok(
+  byId("jump-decl")?.owner === "cm6",
+  "跳转必须归 CM6：它要读编辑器此刻的语法树和光标，而菜单 accelerator 不看焦点",
+);
+/*
+ * 多光标**没有被跳转挤掉**：⌘Click 只在有下划线的词上跳，别处照旧加光标。
+ * 一度想挪到 ⌥Click，实测那条路被 `rectangularSelection()` 接走了
+ * （它默认就吃 altKey），锁住这条免得有人再挪一次。
+ */
+ok(byId("cm-multi-cursor")?.accel === "⌘Click", "多光标还在 ⌘Click 上");
 
 console.log(fail === 0 ? `✅ 键位表：${pass} 通过，0 失败` : `❌ 键位表：${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

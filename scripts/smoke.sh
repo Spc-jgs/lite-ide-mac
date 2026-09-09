@@ -371,6 +371,44 @@ printf '这个文件是给「移到废纸篓」那一步用的\n' > "${TRASH_NAM
 # 大日志：**必须带中文，而且要大过 detect_encoding 的 256KB 样本** ——
 # 那个乱码 bug 正是「样本按字节截，边界切在多字节字符中间」造出来的
 awk 'BEGIN{for(i=0;i<400000;i++) printf "2026-09-07 12:00:00 INFO  服务处理完成，第 %d 条记录\n", i}' > big.log
+# 跳转要的那份**真 Maven 目录**（⑮ 用）。
+#
+# 桩里那个 Java 文件的 `package` 和它所在的目录对不上，所以 import / 同包
+# 这两层在浏览器里根本走不到 —— 它们的全部依据就是「包路径 = 目录路径」，
+# 而那是只有真实项目才有的形状。两个模块是故意的：跨模块跳转正是
+# 这个功能的立身之本（api 里引用 core 的类）。
+mkdir -p moduleA/src/main/java/com/demo/api moduleB/src/main/java/com/demo/core
+cat > moduleA/src/main/java/com/demo/api/AdminController.java <<'JAVA'
+package com.demo.api;
+
+import com.demo.core.OrderClient;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class AdminController {
+    private final OrderClient orderClient;
+    private final SamePkgHelper helper;
+
+    public AdminController(OrderClient orderClient, SamePkgHelper helper) {
+        this.orderClient = orderClient;
+        this.helper = helper;
+    }
+}
+JAVA
+cat > moduleA/src/main/java/com/demo/api/SamePkgHelper.java <<'JAVA'
+package com.demo.api;
+
+public class SamePkgHelper {
+    public String tag() { return "ZQXJ_SAMEPKG"; }
+}
+JAVA
+cat > moduleB/src/main/java/com/demo/core/OrderClient.java <<'JAVA'
+package com.demo.core;
+
+public class OrderClient {
+    public String ping() { return "ZQXJ_CROSSMODULE"; }
+}
+JAVA
 git add -A && git commit -qm "初始提交"
 git branch feature/x
 # 话多的钩子：3000 行稳稳超过管道那几十 KB 缓冲，用来复现那个死锁。
@@ -874,6 +912,90 @@ ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.end"
 comm -13 "${WORK}/scratch.before" "${WORK}/scratch.end" | while read -r f; do
   [ -n "${f}" ] && rm -f "${SCRATCHES}/${f}"
 done
+
+say "⑮ ⌘B 跳到声明：跨模块的 import，和不写 import 的同包"
+
+# **这一段只有真 .app 跑得了。** 两层的依据都是「包路径 = 目录路径」，
+# 而浏览器里那个桩的 Java 文件 package 和目录对不上（见 fixture 那段）。
+#
+# 用 ⌘F 把光标送到目标词上，而不是去点它：AX 点不动 webview 里的具体字
+# （`click at {x,y}` 报 -25208，见文件头第 1 条），而 ⌘F 输入 + ↵ 正好
+# 把光标落在匹配处 —— 这是纯键盘能到达那个词的唯一一条路。
+jump_from() {   # $1=要跳的词
+  local word="$1"
+  keys 'keystroke "f" using {command down}'
+  sleep 1
+  paste_into AXTextField "${word}" >/dev/null 2>&1 || return 1
+  keys 'key code 36'      # ↵：跳到第一个匹配，光标落在词上
+  sleep 0.8
+  keys 'key code 53'      # esc：关掉查找条，别让它吃掉后面的键
+  sleep 0.5
+  keys 'keystroke "b" using {command down}'
+  sleep 1.5
+}
+
+# **用 ⌘P 开，不用文件树。** 这几个 Java 文件躺在
+# `moduleA/src/main/java/com/demo/api/` 底下，文件树要展开六层才点得到，
+# 而 `open_from_tree` 只认已经露出来的那些行。
+open_by_quick() {   # $1=文件名
+  keys 'keystroke "p" using {command down}'
+  sleep 1.2
+  paste_into AXTextField "$1" >/dev/null 2>&1 || { bad "⌘P 的输入框粘不进去"; return 1; }
+  sleep 1.2
+  keys 'key code 36'
+  sleep 1.8
+}
+
+if ! open_by_quick "AdminController.java"; then
+  bad "打不开 AdminController.java"
+else
+  sleep 1.5
+
+  # ① 跨模块：import com.demo.core.OrderClient → moduleB 那份
+  jump_from "OrderClient"
+  if wait_has AXStaticText "ZQXJ_CROSSMODULE" 8; then
+    ok "⌘B 跨模块跳到了 moduleB 的 OrderClient.java"
+  else
+    bad "跨模块跳转没到（import 那一层）"
+  fi
+
+  # ② 同包：SamePkgHelper 不写 import，靠 package 声明推同目录
+  if ! open_by_quick "AdminController.java"; then
+    bad "切不回 AdminController.java"
+  else
+    sleep 1.2
+    jump_from "SamePkgHelper"
+    if wait_has AXStaticText "ZQXJ_SAMEPKG" 8; then
+      ok "⌘B 跳到了同包的 SamePkgHelper.java（它没有 import）"
+    else
+      bad "同包跳转没到"
+    fi
+  fi
+
+  # ③ 第三方不该跳：RestController 在 jar 里，项目索引里没有它的源码。
+  #    这一条守的是「有下划线 = 我确定」—— 它比前两条更要紧，
+  #    因为跳错了人是不会怀疑的。
+  if ! open_by_quick "AdminController.java"; then
+    bad "切不回 AdminController.java"
+  else
+    sleep 1.2
+    jump_from "RestController"
+    # 没跳的话还停在 AdminController 上，标签栏和面包屑都还是它。
+    #
+    # **要比 `ax` 的输出，不能拿它当条件。** `ax` 是 `osascript ... | tail -1`，
+    # 退出码是 tail 的，**恒为 0** —— 写成 `if ax has ...; then` 的话那个条件
+    # 永远成立，而 `! ax has ...` 永远不成立，这一条就成了一句永远报红的假断言。
+    STILL=$(ax has AXStaticText "AdminController.java")
+    JUMPED=$(ax has AXStaticText "ZQXJ_CROSSMODULE")
+    if [ "${STILL}" = "OK" ] && [ "${JUMPED}" != "OK" ]; then
+      ok "第三方（jar 里的）按 ⌘B 不动，停在原地"
+    else
+      bad "第三方不该跳，却跳走了"
+    fi
+  fi
+fi
+keys 'key code 53'
+sleep 0.5
 
 # ─────────────────── 收尾 ───────────────────
 

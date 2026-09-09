@@ -175,6 +175,44 @@ public class OrderService {
     }
 }
 `,
+  /*
+   * **一对真 Maven 目录的 Java 文件**，专门给 ⌘Click / ⌘B 跳转用。
+   *
+   * 上面那个 `src/OrderService.java` 的 `package com.liteide.order` 和它所在的
+   * 目录对不上 —— 而跳转的第二层（import / 同包）全部依据就是
+   * 「包路径 = 目录路径」，桩里没有这个形状，那两层在浏览器里一次都走不到。
+   *
+   * 两个模块是故意的：跨模块跳转（api 引用 core）正是这个功能的立身之本，
+   * 而单模块的桩看不出「后缀匹配」和「全等匹配」的区别。
+   */
+  "/proj/moduleA/src/main/java/com/demo/api/AdminController.java": `package com.demo.api;
+
+import com.demo.core.OrderClient;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class AdminController {
+    private final OrderClient orderClient;
+    private final SamePkgHelper helper;
+
+    public AdminController(OrderClient orderClient, SamePkgHelper helper) {
+        this.orderClient = orderClient;
+        this.helper = helper;
+    }
+}
+`,
+  "/proj/moduleA/src/main/java/com/demo/api/SamePkgHelper.java": `package com.demo.api;
+
+public class SamePkgHelper {
+    public String tag() { return "同包，不写 import"; }
+}
+`,
+  "/proj/moduleB/src/main/java/com/demo/core/OrderClient.java": `package com.demo.core;
+
+public class OrderClient {
+    public String ping() { return "跨模块跳过来的"; }
+}
+`,
   // 一份足够长的文件，用来验证缩略图「画不下时滑动」那条路径
   "/proj/src/long.ts": Array.from({ length: 900 }, (_, i) =>
     i % 11 === 0
@@ -333,10 +371,26 @@ const UPSTREAM: Record<string, string> = {
 const SCRATCH_DIR = "/Users/you/Library/Application Support/com.liteide.app/scratches";
 
 const DIRS: Record<string, Array<[string, boolean]>> = {
-  "/proj": [["src", true], ["logs", true], ["docs", true], [".github", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
+  "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   "/proj/.github": [["workflows", true]],
   "/proj/.github/workflows": [["ci.yml", false]],
   "/proj/src": [["OrderService.java", false], ["main.py", false], ["gbk-legacy.java", false], ["big5-notes.txt", false], ["long.ts", false]],
+  // 跳转用的那对 Java（见 FILES 里的说明）。目录一层层列出来，
+  // 否则文件树点不进去，而 ⌘P 又能搜到 —— 两边对不上就是桩在骗人
+  "/proj/moduleA": [["src", true]],
+  "/proj/moduleA/src": [["main", true]],
+  "/proj/moduleA/src/main": [["java", true]],
+  "/proj/moduleA/src/main/java": [["com", true]],
+  "/proj/moduleA/src/main/java/com": [["demo", true]],
+  "/proj/moduleA/src/main/java/com/demo": [["api", true]],
+  "/proj/moduleA/src/main/java/com/demo/api": [["AdminController.java", false], ["SamePkgHelper.java", false]],
+  "/proj/moduleB": [["src", true]],
+  "/proj/moduleB/src": [["main", true]],
+  "/proj/moduleB/src/main": [["java", true]],
+  "/proj/moduleB/src/main/java": [["com", true]],
+  "/proj/moduleB/src/main/java/com": [["demo", true]],
+  "/proj/moduleB/src/main/java/com/demo": [["core", true]],
+  "/proj/moduleB/src/main/java/com/demo/core": [["OrderClient.java", false]],
   "/proj/logs": [["access-2026-08-24.log", false]],
   "/proj/docs": [["ARCHITECTURE.md", false]],
 };

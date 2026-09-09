@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { listProjectFiles, grepProject, type Hit } from "../ipc/commands";
   import { rank, segments } from "./fuzzy";
   import Icon from "../shell/Icon.svelte";
@@ -17,12 +18,21 @@
     open = $bindable(),
     root,
     scope = $bindable(),
+    seed = "",
     actions,
     onOpenFile,
   }: {
     open: boolean;
     root: string | null;
     scope: Scope;
+    /**
+     * 打开时预填的关键词。「在项目里找这个名字」用它把光标下那个词带进来 ——
+     * 省掉「选中、复制、⇧⌘F、粘贴」这四下。
+     *
+     * **不 bindable**：这是一次性的初值，人一打字它就该失效。做成双向的话，
+     * 上一次的输入会顺着这条线回流到 App 上存起来，下次打开又被当成 seed 塞回来。
+     */
+    seed?: string;
     actions: Action[];
     onOpenFile: (path: string, line?: number) => void;
   } = $props();
@@ -42,10 +52,10 @@
   let input: HTMLInputElement | undefined = $state();
   let indexed = $state(false);
 
-  // 打开时建一次文件索引，并把上次的输入清掉
+  // 打开时建一次文件索引，并把上次的输入换成这次的（没有 seed 就是清空）
   $effect(() => {
     if (!open) return;
-    query = "";
+    query = untrack(() => seed);
     cursor = 0;
     queueMicrotask(() => input?.focus());
     if (indexed || !root) return;

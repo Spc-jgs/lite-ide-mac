@@ -110,7 +110,17 @@ fn to_tauri_accel(accel: &str) -> Option<String> {
     if rest.is_empty() {
         return None;
     }
-    let key = if rest == "`" { "Backquote".to_string() } else { rest.to_uppercase() };
+    // 方向键、Backquote 这类**不是一个字母**的键，各有各的写法。
+    // 表放在这儿而不是散在两边：`⌥⌘←` 是给人看的，`Alt+CmdOrCtrl+Left` 是给
+    // Tauri 看的，而「同一个键的两种写法」正是这个文件存在的理由。
+    let key = match rest {
+        "`" => "Backquote".to_string(),
+        "←" => "Left".to_string(),
+        "→" => "Right".to_string(),
+        "↑" => "Up".to_string(),
+        "↓" => "Down".to_string(),
+        other => other.to_uppercase(),
+    };
     mods.push(&key);
     Some(mods.join("+"))
 }
@@ -185,5 +195,9 @@ fn 两侧的_accel_换算规则一致() {
     assert_eq!(to_tauri_accel("⇧⌘F").as_deref(), Some("Shift+CmdOrCtrl+F"));
     assert_eq!(to_tauri_accel("⌃⇧`").as_deref(), Some("Ctrl+Shift+Backquote"));
     assert_eq!(to_tauri_accel("⌘/").as_deref(), Some("CmdOrCtrl+/"));
+    // 方向键：`←` 大写化之后还是 `←`，muda 不认 —— 少了这条映射，
+    // 菜单上写着 ⌥⌘← 而按下去没反应，且没有任何报错
+    assert_eq!(to_tauri_accel("⌥⌘←").as_deref(), Some("Alt+CmdOrCtrl+Left"));
+    assert_eq!(to_tauri_accel("⌥⌘→").as_deref(), Some("Alt+CmdOrCtrl+Right"));
     assert_eq!(to_tauri_accel("⌘"), None, "只有修饰键时不该产出 muda 解析不了的串");
 }

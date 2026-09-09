@@ -90,6 +90,11 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let encoding = item(app, "encoding", "文件编码…", None)?;
     let toggle_mode = item(app, "toggle-mode", "切换编辑 / 日志模式", None)?;
     let outline = item(app, "outline", "文件结构…", Some("Shift+CmdOrCtrl+O"))?;
+    // 三条都要跟着「有没有打开的标签」变灰：没有标签时既没有位置可回，
+    // 也没有光标可取词
+    let nav_back = item(app, "nav-back", "回到上一个位置", Some("Alt+CmdOrCtrl+Left"))?;
+    let nav_fwd = item(app, "nav-fwd", "再回来", Some("Alt+CmdOrCtrl+Right"))?;
+    let find_word = item(app, "find-word", "在项目里找这个名字", None)?;
 
     let git_changes = item(app, "git-changes", "改动列表", Some("Shift+CmdOrCtrl+G"))?;
     let git_file_diff = item(app, "git-file-diff", "查看当前文件的改动", None)?;
@@ -156,6 +161,18 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "quick-file", "找文件…", None)?)
         .item(&item(app, "quick-content", "在项目中搜索…", Some("Shift+CmdOrCtrl+F"))?)
         .item(&outline)
+        .separator()
+        /*
+         * 跳到声明**不在这里** —— 它是 `owner: "cm6"`（⌘B 在编辑器自己的
+         * keymap 里）。菜单的 accelerator 不看焦点，挂上去等于在日志视图、
+         * 终端里按 ⌘B 也会触发一个够不着编辑器的命令。同 ⌘F 那两条的判据。
+         *
+         * 但**回退 / 前进要在这儿**：它们跳的是标签和位置，编辑器活没活着
+         * 都该管用（从日志视图按 ⌥⌘← 也要能回到刚才那个源文件）。
+         */
+        .item(&nav_back)
+        .item(&nav_fwd)
+        .item(&find_word)
         .build()?;
 
     let git_pull = item(app, "git-pull", "拉取", Some("Shift+CmdOrCtrl+P"))?;
@@ -221,7 +238,18 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
 
     let handles = MenuHandles {
         recent,
-        needs_tab: vec![save, close_tab, close_all, encoding, toggle_mode, outline, git_file_diff],
+        needs_tab: vec![
+            save,
+            close_tab,
+            close_all,
+            encoding,
+            toggle_mode,
+            outline,
+            git_file_diff,
+            nav_back,
+            nav_fwd,
+            find_word,
+        ],
         needs_repo: vec![
             git_changes, git_log, git_branches, git_refresh, git_pull, git_push, git_fetch,
         ],

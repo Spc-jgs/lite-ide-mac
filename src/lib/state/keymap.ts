@@ -107,6 +107,22 @@ export const KEYS: KeyDef[] = [
     owner: "menu",
   },
   { id: "outline", label: "文件结构…", accel: "⇧⌘O", group: "导航", owner: "menu" },
+  /*
+   * 跳到声明。**只做「敢跳的」那两层**（本文件的符号表、import 推出来的文件），
+   * 拿不准的一律不给下划线 —— 详见 `lib/editor/jump.ts` 的说明。
+   *
+   * `owner: "cm6"` 而不是 "menu"：它要读编辑器此刻的语法树和光标，
+   * 而菜单栏的 accelerator 是不看焦点的，挂上去等于在日志视图里按 ⌘B
+   * 也会触发一个够不着编辑器的命令。同 ⌘F 那两条的判据。
+   */
+  { id: "jump-decl", label: "跳到声明（⌘Click 同）", accel: "⌘B", group: "导航", owner: "cm6" },
+  { id: "nav-back", label: "回到上一个位置", accel: "⌥⌘←", group: "导航", owner: "menu" },
+  { id: "nav-fwd", label: "再回来", accel: "⌥⌘→", group: "导航", owner: "menu" },
+  /*
+   * 跳转够不着时的退路。**名字上就不叫跳转** —— 它是拿光标下那个词
+   * 跑一次全局搜索，给的是候选不是答案。省掉的只是「选中、复制、⇧⌘F、粘贴」。
+   */
+  { id: "find-word", label: "在项目里找这个名字", group: "导航", owner: "menu" },
 
   // ── 编辑 ──
   /*
@@ -116,6 +132,19 @@ export const KEYS: KeyDef[] = [
    *
    * **⌘F 一个字都不许进菜单**：菜单会先把键吃掉，等于把编辑器的查找抢没了。
    */
+  /*
+   * ⌘Click 加光标是 CM6 在 macOS 上的默认行为，一直都有，只是从没写进速查表。
+   * 现在**必须写**：⌘Click 同时也是跳转，而两者的分界线是「这个词有没有
+   * 下划线」—— 不说清楚的话，人会以为跳转把加光标吃掉了。
+   * （键盘那条 ⌥⌘↑ / ⌥⌘↓ 加光标不受影响，CM6 自带。）
+   */
+  {
+    id: "cm-multi-cursor",
+    label: "多光标：加一个光标（有下划线的词上则是跳转）",
+    accel: "⌘Click",
+    group: "编辑",
+    owner: "cm6",
+  },
   { id: "cm-find", label: "在当前文件里查找", accel: "⌘F", group: "编辑", owner: "cm6" },
   { id: "cm-replace", label: "查找并替换", accel: "⌥⌘F", group: "编辑", owner: "cm6" },
   { id: "encoding", label: "文件编码…", group: "编辑", owner: "menu" },
@@ -123,15 +152,17 @@ export const KEYS: KeyDef[] = [
 
   // ── 视图 ──
   /*
-   * ⌘B 是 ⌘1 的别名（VSCode 手感，很多人手指记的是它）。
-   * macOS 菜单一项只能挂一个 accelerator —— 主键位进菜单，
-   * 别名留给 keydown，速查表是唯一能把两个都说清的地方。
+   * **⌘B 原来是这儿的别名（VSCode 手感），2026-09-09 交给了「跳到声明」。**
+   *
+   * 两个都想要 ⌘B 的时候，判据是「谁没有主键位」：侧边栏有 ⌘1，
+   * 而 IDEA 里 ⌘B 就是跳转的主键位，这个应用的手感一直是照着 IDEA 来的。
+   * 拿掉一个已经存在的别名要在这张表里留痕 —— 它是速查表的唯一出处，
+   * 而速查表是用户唯一能发现「⌘B 现在归谁」的地方。
    */
   {
     id: "toggle-sidebar",
     label: "侧边栏",
     accel: "⌘1",
-    alias: "⌘B",
     group: "视图",
     owner: "menu",
   },
@@ -217,8 +248,19 @@ export function toTauriAccel(accel: string | undefined): string | undefined {
   if (rest.startsWith("⇧")) (mods.push("Shift"), (rest = rest.slice(1)));
   if (rest.startsWith("⌘")) (mods.push("CmdOrCtrl"), (rest = rest.slice(1)));
   if (rest.length === 0) return undefined;
-  // muda 认 "Backquote"，不认裸的反引号加修饰键那种写法
-  const key = rest === "`" ? "Backquote" : rest.toUpperCase();
+  /*
+   * 不是单个字母的键各有各的写法。**这张表要和 `menu_sync.rs` 里那份
+   * 一字不差** —— 那条测试正是拿两边的换算结果对比的，少一行就是
+   * 「菜单上写着 ⌥⌘←，按下去没反应」，而它不报错。
+   */
+  const SPECIAL: Record<string, string> = {
+    "`": "Backquote", // muda 认这个名字，不认裸的反引号加修饰键
+    "←": "Left",
+    "→": "Right",
+    "↑": "Up",
+    "↓": "Down",
+  };
+  const key = SPECIAL[rest] ?? rest.toUpperCase();
   return [...mods, key].join("+");
 }
 
