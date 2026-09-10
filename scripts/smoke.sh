@@ -225,7 +225,7 @@ on run argv
       -- **把焦点复位**（同 paste 分支的注释）——
       -- 于是行上的焦点没了，⇧F10 打空，菜单不出来。
       -- 先在这儿激活，`keys` 那次就成了 no-op，焦点保得住。
-      if act is "paste" or act is "rowfocus" then set frontmost to true
+      if act is "paste" or act is "rowfocus" or act is "focuskey" or act is "caretjump" then set frontmost to true
       set w to window 1
     end tell
   end tell
@@ -234,6 +234,9 @@ on run argv
     set el to findRow(w, wantName)
   else if act is "click~" or act is "has" then
     set el to findSub(w, wantRole, wantName)
+  else if act is "focuskey" or act is "caretjump" then
+    -- 名字那一栏被借去装参数了，所以按角色找，不按名字
+    set el to findIt(w, wantRole, "")
   else
     set el to findIt(w, wantRole, wantName)
   end if
@@ -253,6 +256,42 @@ on run argv
       delay 0.2
       keystroke "v" using {command down}
       delay 0.5
+    else if act is "caretjump" then
+      -- **把光标送到某一行某一列，然后 ⌘B。全在一次调用里。**
+      --
+      -- 不用 ⌘F 定位是因为那条路要开查找面板、↵、再 Esc 关掉，三步里
+      -- 任何一步的焦点没接上，后面的 ⌘B 就打空 —— 而打空和「跳转坏了」
+      -- 在结果上一模一样。方向键是确定的：⌘↑ 回文档开头，再数格子。
+      --
+      -- `wantName` 装的是 "下几行:右几列"（借这一栏，见上面 focuskey）。
+      set AppleScript's text item delimiters to ":"
+      set nn to text items of wantName
+      set AppleScript's text item delimiters to ""
+      set downN to (item 1 of nn) as integer
+      set rightN to (item 2 of nn) as integer
+      set focused of el to true
+      delay 0.4
+      key code 126 using {command down}
+      delay 0.3
+      repeat downN times
+        key code 125
+      end repeat
+      delay 0.2
+      repeat rightN times
+        key code 124
+      end repeat
+      delay 0.3
+      keystroke "b" using {command down}
+      delay 0.3
+    else if act is "focuskey" then
+      -- **聚焦 + 敲键必须在同一次 osascript 里**，理由同上面 paste 那条：
+      -- 分成两次的话，第二次那句 `set frontmost to true` 会让 webview 把焦点
+      -- 复位，于是那个 ⌘ 组合打空 —— 表现成「⌘F 按了查找框不出来」，
+      -- 而焦点明明刚设过（`set focused` 返回 OK）。踩过一次。
+      set focused of el to true
+      delay 0.4
+      keystroke wantName using {command down}
+      delay 0.3
     else if act is "row" then
       set selected of el to true
       try
@@ -918,41 +957,32 @@ say "⑮ ⌘B 跳到声明：跨模块的 import，和不写 import 的同包"
 # **这一段只有真 .app 跑得了。** 两层的依据都是「包路径 = 目录路径」，
 # 而浏览器里那个桩的 Java 文件 package 和目录对不上（见 fixture 那段）。
 #
-# 用 ⌘F 把光标送到目标词上，而不是去点它：AX 点不动 webview 里的具体字
-# （`click at {x,y}` 报 -25208，见文件头第 1 条），而 ⌘F 输入 + ↵ 正好
-# 把光标落在匹配处 —— 这是纯键盘能到达那个词的唯一一条路。
-jump_from() {   # $1=要跳的词
-  local word="$1"
-  keys 'keystroke "f" using {command down}'
-  sleep 1
-  paste_into AXTextField "${word}" >/dev/null 2>&1 || return 1
-  keys 'key code 36'      # ↵：跳到第一个匹配，光标落在词上
-  sleep 0.8
-  keys 'key code 53'      # esc：关掉查找条，别让它吃掉后面的键
-  sleep 0.5
-  keys 'keystroke "b" using {command down}'
-  sleep 1.5
-}
+# 光标用**方向键**送过去，不用 ⌘F：那条路要开查找面板、↵、再 Esc 关掉，
+# 三步里任何一步焦点没接上后面的 ⌘B 就打空，而打空和「跳转坏了」在结果上
+# 一模一样。第一版就是栽在这儿，查了半天其实是驱动的问题。
+#
+# 行列数对着 fixture 里那份 AdminController.java 数（⌘↑ 之后从第 1 行起算）：
+#   第 8 行 `    private final OrderClient orderClient;`   → 下 7、右 24
+#   第 9 行 `    private final SamePkgHelper helper;`      → 下 8、右 24
+#   第 6 行 `@RestController`                              → 下 5、右 8
+jump_at() { ax caretjump AXTextArea "$1" >/dev/null; sleep 2; }
 
-# **用 ⌘P 开，不用文件树。** 这几个 Java 文件躺在
-# `moduleA/src/main/java/com/demo/api/` 底下，文件树要展开六层才点得到，
-# 而 `open_from_tree` 只认已经露出来的那些行。
-open_by_quick() {   # $1=文件名
+# **用 ⌘P 开，不用文件树**：这几个文件躺在 moduleA/src/main/java/com/demo/api/
+# 底下，文件树要展开六层才点得到。
+open_by_quick() {
   keys 'keystroke "p" using {command down}'
-  sleep 1.2
+  sleep 1.5
   paste_into AXTextField "$1" >/dev/null 2>&1 || { bad "⌘P 的输入框粘不进去"; return 1; }
-  sleep 1.2
+  sleep 1.5
   keys 'key code 36'
-  sleep 1.8
+  sleep 2
 }
 
 if ! open_by_quick "AdminController.java"; then
   bad "打不开 AdminController.java"
 else
-  sleep 1.5
-
   # ① 跨模块：import com.demo.core.OrderClient → moduleB 那份
-  jump_from "OrderClient"
+  jump_at "7:24"
   if wait_has AXStaticText "ZQXJ_CROSSMODULE" 8; then
     ok "⌘B 跨模块跳到了 moduleB 的 OrderClient.java"
   else
@@ -963,8 +993,7 @@ else
   if ! open_by_quick "AdminController.java"; then
     bad "切不回 AdminController.java"
   else
-    sleep 1.2
-    jump_from "SamePkgHelper"
+    jump_at "8:24"
     if wait_has AXStaticText "ZQXJ_SAMEPKG" 8; then
       ok "⌘B 跳到了同包的 SamePkgHelper.java（它没有 import）"
     else
@@ -973,18 +1002,15 @@ else
   fi
 
   # ③ 第三方不该跳：RestController 在 jar 里，项目索引里没有它的源码。
-  #    这一条守的是「有下划线 = 我确定」—— 它比前两条更要紧，
-  #    因为跳错了人是不会怀疑的。
+  #    这一条守的是「有下划线 = 我确定」——它比前两条更要紧，因为跳错了
+  #    人是不会怀疑的。
+  #
+  #    **它单独绿不算数**：⌘B 压根没触发它也会绿。所以只有前两条也绿的时候
+  #    这一条才有意义 —— 三条是一组，看结果要一起看。
   if ! open_by_quick "AdminController.java"; then
     bad "切不回 AdminController.java"
   else
-    sleep 1.2
-    jump_from "RestController"
-    # 没跳的话还停在 AdminController 上，标签栏和面包屑都还是它。
-    #
-    # **要比 `ax` 的输出，不能拿它当条件。** `ax` 是 `osascript ... | tail -1`，
-    # 退出码是 tail 的，**恒为 0** —— 写成 `if ax has ...; then` 的话那个条件
-    # 永远成立，而 `! ax has ...` 永远不成立，这一条就成了一句永远报红的假断言。
+    jump_at "5:8"
     STILL=$(ax has AXStaticText "AdminController.java")
     JUMPED=$(ax has AXStaticText "ZQXJ_CROSSMODULE")
     if [ "${STILL}" = "OK" ] && [ "${JUMPED}" != "OK" ]; then
@@ -994,8 +1020,6 @@ else
     fi
   fi
 fi
-keys 'key code 53'
-sleep 0.5
 
 # ─────────────────── 收尾 ───────────────────
 

@@ -99,12 +99,30 @@ export function wordAt(
   state: EditorState,
   pos: number,
 ): { from: number; to: number; text: string } | null {
-  const node = syntaxTree(state).resolveInner(pos, 1);
-  if (!REF_NODES.has(node.name)) return null;
-  const text = state.doc.sliceString(node.from, node.to).trim();
-  // 长度设个上限：解析没跟上时 resolveInner 可能给回一大块
-  if (!text || text.length > 200 || /\s/.test(text)) return null;
-  return { from: node.from, to: node.to, text };
+  const tree = syntaxTree(state);
+  /*
+   * **两侧都要试。**
+   *
+   * `resolveInner(pos, 1)` 是向后看的：光标停在词**尾**时它给回的是下一个
+   * token（`;` 之类），⌘B 于是什么都不做。而「光标停在词尾」根本不是边角
+   * 情况 —— ⌘F 找到一个匹配之后光标正好落在那儿，双击选中一个词也是。
+   * IDEA 里贴着词的任一侧都能跳。
+   *
+   * 先试 `1` 再试 `-1`：这个顺序保证「光标在词首」时拿到的是**后面**那个词
+   * （那是人指着的那个），只有它不是标识符时才回头看前一个。
+   *
+   * 这个 bug 是真机 smoke 抓到的 —— 浏览器里我点的是词中间，两侧都对，
+   * 一次都没露出来。
+   */
+  for (const side of [1, -1] as const) {
+    const node = tree.resolveInner(pos, side);
+    if (!REF_NODES.has(node.name)) continue;
+    const text = state.doc.sliceString(node.from, node.to).trim();
+    // 长度设个上限：解析没跟上时 resolveInner 可能给回一大块
+    if (!text || text.length > 200 || /\s/.test(text)) continue;
+    return { from: node.from, to: node.to, text };
+  }
+  return null;
 }
 
 /**

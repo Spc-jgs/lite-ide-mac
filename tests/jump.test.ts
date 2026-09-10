@@ -115,6 +115,25 @@ const ctxOf = (st: EditorState, base: Omit<JumpCtx, "symbols"> = JBASE): JumpCtx
     `行号要指到 helper 的声明（实得 ${本文件?.target.line}）`,
   );
 
+  /*
+   * **光标贴着词的哪一侧都要能跳。**
+   *
+   * `resolveInner(pos, 1)` 是向后看的：光标停在词**尾**时它给回的是下一个
+   * token（`;` 之类），于是 ⌘B 什么都不做。这不是边角情况 ——
+   * ⌘F 找到一个匹配之后光标正好落在词尾，双击选中一个词也是。
+   * IDEA 里贴着任一侧都能跳，这条锁住它。
+   * （真机 smoke 的 ⑮ 就是栽在这上面，而浏览器里我点的是词中间，没露出来。）
+   */
+  const 用法处 = JAVA_SRC.indexOf("IEtqAiBlackWordsClient", JAVA_SRC.indexOf("class"));
+  for (const [where, pos] of [
+    ["词首", 用法处],
+    ["词中", 用法处 + 5],
+    ["词尾", 用法处 + "IEtqAiBlackWordsClient".length],
+  ] as const) {
+    const hit = resolveJump(st, pos, ctx);
+    ok(hit !== null, `光标在${where}也要跳得了（实得 ${hit ? "OK" : "跳不了"}）`);
+  }
+
   const imps = importsOf(st, "java");
   ok(
     imps.get("IEtqAiBlackWordsClient") === "com.etianqu.framework.client.IEtqAiBlackWordsClient",
