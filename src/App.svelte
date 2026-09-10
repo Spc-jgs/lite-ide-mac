@@ -18,6 +18,7 @@
   import type { ChangeKind } from "./lib/git/diff";
   import {
     probePath,
+    ignoredDirs,
     appLogPath,
     clearAppLog,
     readText,
@@ -180,6 +181,46 @@
       return dflt;
     }
   }
+
+  /**
+   * git 说这个项目里哪些目录被忽略了。**按项目问一次，不是按目录问。**
+   *
+   * `null` 有两种含义，而它们要的行为一样，所以合成一个：还没问到（启动那一瞬）、
+   * 问不到（不是 git 仓库、git 不在）。两种都退回「按名字判」。
+   *
+   * 为什么不在 `list_dir` 里顺手问：同一个项目的答案是同一份，而一次树刷新
+   * 会重列每一个展开着的目录 —— 那就是十来次子进程换同一个答案
+   * （本仓库实测一次 11.5ms / 19 条）。issue #13。
+   */
+  let ignored = $state<Set<string> | null>(null);
+
+  /*
+   * 跟着项目根和 `treeTick` 走。
+   *
+   * 带上 `treeTick` 是因为 `.gitignore` 本身是可以改的 —— 改完走一次
+   * `workingTreeChanged()`（切分支、丢弃改动、从终端切回来都会），
+   * 这份答案就跟着更新。不带的话，改完 `.gitignore` 得重开项目才生效。
+   */
+  $effect(() => {
+    const r = root;
+    treeTick;
+    if (!r) {
+      ignored = null;
+      return;
+    }
+    let dead = false;
+    void ignoredDirs(r)
+      .then((list) => {
+        // await 回来时这条 effect 可能早被清理了 —— 见 rules/frontend.md
+        if (!dead) ignored = list === null ? null : new Set(list);
+      })
+      .catch(() => {
+        if (!dead) ignored = null;
+      });
+    return () => {
+      dead = true;
+    };
+  });
 
   /** 文件树刷新计数，由 workingTreeChanged() 推进 */
   let treeTick = $state(0);
@@ -3032,6 +3073,7 @@
             {root}
             activePath={active?.path ?? ""}
             gitStatus={gitSt}
+            {ignored}
             reloadTick={treeTick}
             {revealPath}
             {revealTick}

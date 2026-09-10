@@ -24,6 +24,16 @@ pub struct Entry {
     /// 界面据此把它压暗、不自动展开、也不预取子目录，但它**在树里**、
     /// 点得开、里面的文件打得开。判据见 `list_dir` 的说明。
     pub generated: bool,
+    /// 这个名字**有第二种可能**（`dist` / `build` / `vendor`），
+    /// 要拿 git 的答案对一遍才算数。见 [`excludes::CONTESTED_DIRS`]。
+    ///
+    /// 为什么这一位要传给前端：这个 crate 答不了「git 忽不忽略它」
+    /// （零 git 依赖，也不该有），而**每展开一层都去问一次 git 太浪费** ——
+    /// 同一个项目的答案是同一份。所以前端按项目问一次，拿这一位决定
+    /// 「这一条要不要用那份答案覆盖掉名字的判断」。
+    ///
+    /// `generated` 为假时这一位没有意义（恒为假）。
+    pub contested: bool,
 }
 
 /// 列出一层目录。不递归 —— 文件树按需展开，避免大仓库一次性遍历。
@@ -55,9 +65,10 @@ pub struct Entry {
 /// 「压暗还是隐藏」由界面回答。信息不丢，噪声也不进来 —— IDEA 对
 /// excluded 目录就是这么做的。
 ///
-/// **搜索那半没跟着改**：`⌘P` / `⇧⌘F` 仍然按名字跳过这些目录。
-/// 那半要做对得让 git 说话（rg 默认就认 `.gitignore`，而内置兜底实现不认，
-/// 「装了 rg 和没装 rg 结果要一样」是那个模块的前提）。#13 还开着记这件事。
+/// **搜索那半也让 git 说话了**（`searchsvc::Skip`，同一天做的）：
+/// 确定是生成物的按名字跳，有争议的按 `gitsvc::ignored_dirs` 的答案跳。
+/// 两边问的是同一个函数，所以答案一致 —— 树里压暗的东西搜得到、
+/// 树里正常的东西搜不到，比两边都错更难理解。
 ///
 /// 排序：目录在前，同类按名称不区分大小写排列，与 Finder / IDEA 一致。
 /// **生成物不单独排到末尾** —— 挪位置比压暗更让人意外，而且 `target/` 一旦
@@ -77,6 +88,7 @@ pub fn list_dir(dir: impl AsRef<Path>) -> io::Result<Vec<Entry>> {
             // 只有目录才谈得上「生成物目录」。一个叫 `build` 的**文件**
             // （shell 脚本很常见）压暗它没有任何道理
             generated: is_dir && excludes::is_generated_dir(&name),
+            contested: is_dir && excludes::is_contested_dir(&name),
             name,
             path: ent.path(),
             is_dir,
@@ -694,10 +706,10 @@ mod tests {
         // 而 `generated` 只该跟着「里面全是工具生成的东西」这件事走
         fs::write(d.join("target"), "#!/bin/sh\n").unwrap();
 
-        let got: Vec<(String, bool)> = list_dir(&d)
+        let got: Vec<(String, bool, bool)> = list_dir(&d)
             .unwrap()
             .into_iter()
-            .map(|e| (e.name, e.generated))
+            .map(|e| (e.name, e.generated, e.contested))
             .collect();
         /*
          * 目录在前、同类不区分大小写排序 —— 点目录也照这条规矩排。
@@ -708,13 +720,15 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                (".git".into(), false),
-                (".github".into(), false),
-                ("build".into(), true),
-                ("node_modules".into(), true),
-                (".env".into(), false),
-                ("target".into(), false), // 它是文件
-                ("visible.rs".into(), false),
+                (".git".into(), false, false),
+                (".github".into(), false, false),
+                // build 是有争议的：名字像，但要问过 git 才算数
+                ("build".into(), true, true),
+                // node_modules 没有第二种可能，不用问
+                ("node_modules".into(), true, false),
+                (".env".into(), false, false),
+                ("target".into(), false, false), // 它是文件
+                ("visible.rs".into(), false, false),
             ]
         );
         fs::remove_dir_all(d).ok();

@@ -40,6 +40,14 @@ pub const MAX_ENTRIES: usize = 5_000;
 /// 「跑子进程读它 stdout」一律先问一句：这东西的输出有上限吗。
 const MAX_UNTRACKED_BYTES: usize = 1 << 20;
 
+/// [`ignored_dirs`] 的输出上限。
+///
+/// 同一条纪律：跑子进程读它 stdout 之前先问「这东西有上限吗」。
+/// `.gitignore` 逐个文件列（而不是列目录）的仓库能吐出很多条，
+/// 而我们只留其中的目录。超了就用读到的那部分 —— 少跳几个目录只是多搜一点，
+/// 而把内存吃穿是另一回事。
+const MAX_IGNORED_BYTES: usize = 1 << 20;
+
 /// 一条 git 命令的 stdout 最多收多少字节。
 ///
 /// **AGENTS.md 那条「跑子进程读它 stdout，先问一句这东西的输出有上限吗」
@@ -866,6 +874,52 @@ fn expand_untracked_dirs(root: &Path, st: &mut Status) {
     }
     // parse_status 排过一次，但那是在这些文件进来之前
     st.entries.sort_by(|a, b| a.path.cmp(&b.path));
+}
+
+/// 问 git：这个仓库里哪些**目录**是被忽略的（相对根，不带末尾 `/`）。
+///
+/// # 谁要这个，为什么
+///
+/// 文件树和搜索一直靠一份**名字**名单判「这是不是生成物」
+/// （`excludes::GENERATED_DIRS`）。名字判得了 `node_modules`，判不了
+/// `dist` 和 `build` —— 那两个是常见的源码目录名（CMake 项目的 `build/`
+/// 里放的是构建脚本）。名字只是怀疑，**真正的证据是 git 忽不忽略它**。
+/// 见 issue #13。
+///
+/// # 为什么是 `ls-files` 而不是 `check-ignore`
+///
+/// `check-ignore` 要先知道问哪些路径，而候选目录散在树里任意深度 ——
+/// 那就成了「边走边问」，一个 Gradle 多模块仓库能问出二十来次子进程。
+/// `ls-files --directory` 反过来：**一次**把整棵树上被忽略的东西吐出来，
+/// 而且整个被忽略的目录会被折叠成一条 `dir/`，正好是我们要的粒度。
+///
+/// `--exclude-standard` 认的是 `.gitignore` + `.git/info/exclude` + 全局那份，
+/// **和 rg 默认认的是同一套** —— 这一条要紧：搜索那边装了 rg 走 rg 的
+/// gitignore、没装 rg 走这份名单，两条路必须给同一个答案。
+///
+/// # 边界
+///
+/// - 不是 git 仓库、git 不在、读不动 → `Err`。调用方一律退回按名字判，
+///   **不能因此把整次搜索判成失败**
+/// - 输出设闸（[`MAX_IGNORED_BYTES`]）。一个 `.gitignore` 写得很散的仓库
+///   （逐个文件列而不是列目录）能吐出很多条，而我们只要目录那几条 ——
+///   超了就当只拿到前面那部分，宁可少跳几个目录，也不能把内存吃穿
+/// - 只留**目录**（末尾是 `/` 的那些）。被忽略的单个文件不归这里管：
+///   跳过一个文件省不下什么，而漏跳一个目录才是那个「凭空少一块」的问题
+pub fn ignored_dirs(root: &Path) -> R<std::collections::BTreeSet<String>> {
+    let args = [
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--directory",
+        "--exclude-standard",
+        "-z",
+    ];
+    let (raw, capped) = run_capped_raw(root, &args, MAX_IGNORED_BYTES, &[])?;
+    Ok(split_nul_records(&raw, capped)
+        .into_iter()
+        .filter_map(|p| p.strip_suffix('/').map(str::to_owned))
+        .collect())
 }
 
 /// 砍到最后一条**完整**记录为止（`-z` 的记录以 NUL 结尾）。

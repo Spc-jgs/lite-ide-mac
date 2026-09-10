@@ -102,6 +102,21 @@ function g(
 /** 桩里的假文件系统：路径 → 内容 */
 const FILES: Record<string, string> = {
   /*
+   * issue #13 的现场，摆在桩里才看得见。
+   *
+   * `build/` 是**源码**（CMake 项目把构建脚本放这儿，而且提交进仓库），
+   * `dist/` 是产物。两个名字都在「有争议」那一档，判据是 git 忽不忽略 ——
+   * 桩里由 `GIT_IGNORED` 扮演那个答案。
+   *
+   * 生成物目录里也给真内容：树里点得开却读不出来，是桩自己在骗人。
+   */
+  "/proj/build/toolchain.cmake": "set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0)\n# NEEDLE 这行搜得到\n",
+  "/proj/dist/bundle.js": "// NEEDLE 这行搜不到，dist 被 git 忽略了\n",
+  "/proj/node_modules/svelte/package.json": '{ "name": "svelte", "version": "5.0.0" }\n',
+  "/proj/node_modules/.package-lock.json": '{ "lockfileVersion": 3 }\n',
+  "/proj/target/debug/build.log": "NEEDLE 生成物里的噪声\n",
+
+  /*
    * 应用自己的运行日志。四种来源各给一条 —— 「打开应用日志」要验的正是
    * 「这几类事情落下来长什么样、级别过滤认不认得出」。
    */
@@ -397,15 +412,50 @@ const APP_LOG = "/Users/you/Library/Logs/com.liteide.app/app.log";
  */
 const GENERATED = new Set(["node_modules", "target", "dist", "build", "venv", "__pycache__", "vendor"]);
 
+/**
+ * 搜索侧**不跳**的那一档：名字有争议，要问过 git 才算数。
+ * 判据抄 `excludes::CONTESTED_DIRS`。
+ */
+const CONTESTED = new Set(["dist", "build", "vendor"]);
+
+/**
+ * 桩里扮演 `gitsvc::ignored_dirs` 的答案：只有 `dist/` 被忽略，`build/` 不被忽略。
+ *
+ * **这一条是 issue #13 的全部意思。** 两个目录名都在「有争议」那一档，
+ * 而结果一个搜得到一个搜不到 —— 分界线不是名字，是 git。
+ */
+const GIT_IGNORED = new Set(["dist", "node_modules", "target"]);
+
+/**
+ * 搜索（⌘P / ⇧⌘F）跳不跳这条路径。
+ *
+ * 桩原来**一个目录都不跳**，于是「node_modules 里的东西搜不搜得到」
+ * 在浏览器里怎么试都是「搜得到」，和真实现正好相反。
+ */
+function searchSkips(full: string): boolean {
+  const parts = full.replace(/^\/proj\//, "").split("/");
+  let rel = "";
+  for (const seg of parts.slice(0, -1)) {
+    rel = rel ? `${rel}/${seg}` : seg;
+    if (seg.startsWith(".")) return true;
+    if (!GENERATED.has(seg)) continue;
+    // 有争议的按 git 的答案；确定的直接跳
+    if (!CONTESTED.has(seg) || GIT_IGNORED.has(rel)) return true;
+  }
+  return false;
+}
+
 const DIRS: Record<string, Array<[string, boolean]>> = {
   // 应用日志所在的目录。它**不在项目里**，只有「帮助 → 打开应用日志」够得着
   "/Users/you/Library/Logs/com.liteide.app": [["app.log", false]],
-  "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], ["node_modules", true], ["target", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
+  "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], ["node_modules", true], ["target", true], ["build", true], ["dist", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   // 生成物目录里也要有东西 —— 空目录点开只有一行「空」，看不出「点得开」这件事
   "/proj/node_modules": [["svelte", true], [".package-lock.json", false]],
   "/proj/node_modules/svelte": [["package.json", false]],
   "/proj/target": [["debug", true]],
   "/proj/target/debug": [["build.log", false]],
+  "/proj/build": [["toolchain.cmake", false]],
+  "/proj/dist": [["bundle.js", false]],
   "/proj/.github": [["workflows", true]],
   "/proj/.github/workflows": [["ci.yml", false]],
   "/proj/src": [["OrderService.java", false], ["main.py", false], ["gbk-legacy.java", false], ["big5-notes.txt", false], ["long.ts", false]],
@@ -639,6 +689,16 @@ export function installMockIpc(): void {
           // 完全看不出来
           console.info(`[app_log/${a.level}] ${a.source}: ${a.msg}`);
           return null;
+        case "ignored_dirs":
+          /*
+           * 桩里 git 的答案是写死的（`GIT_IGNORED`）：`dist/` 被忽略、
+           * `build/` 不被忽略 —— 两个名字都在「有争议」那一档，
+           * 而结果一个压暗一个不压暗。**这就是 issue #13 的全部意思。**
+           *
+           * 返回数组（不是 null）表示「问到了 git」。要试「不是 git 仓库」
+           * 那条退路，把这里改成 return null。
+           */
+          return [...GIT_IGNORED];
         case "app_log_path":
           return APP_LOG;
         case "clear_app_log":
@@ -703,6 +763,7 @@ export function installMockIpc(): void {
             // 判据抄 Rust 侧：只有**目录**才谈得上生成物目录。
             // 一个叫 build 的文件（shell 脚本）不算
             generated: isDir && GENERATED.has(name),
+            contested: isDir && CONTESTED.has(name),
           }));
         }
         case "detect_encoding":
@@ -829,11 +890,14 @@ export function installMockIpc(): void {
           return null;
         }
         case "list_project_files":
-          return Object.keys(FILES).map((f) => f.replace(/^\/proj\//, ""));
+          return Object.keys(FILES)
+            .filter((f) => !searchSkips(f))
+            .map((f) => f.replace(/^\/proj\//, ""));
         case "grep_project": {
           const pat = String(a.pattern).toLowerCase();
           const out: Array<{ path: string; line: number; text: string }> = [];
           for (const [full, content] of Object.entries(FILES)) {
+            if (searchSkips(full)) continue;
             const rel = full.replace(/^\/proj\//, "");
             content.split("\n").forEach((text, i) => {
               if (text.toLowerCase().includes(pat)) out.push({ path: rel, line: i + 1, text });

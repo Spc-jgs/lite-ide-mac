@@ -11,13 +11,98 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-/// 不进这些目录。大仓库里它们占了绝大多数文件，进去只会把索引撑爆。
+/// 不进哪些目录 —— **一次搜索开始之前算好一份，两条实现路径共用**。
 ///
-/// **名单在 `excludes` crate 里，和文件树共用同一份。** 原来这里自己有一份
-/// 十四个的、fsservice 自己有一份四个的，于是「树里看不见」和「搜不到」
-/// 是两套判据 —— 合起来能造出一个在应用里完全够不着的目录。见 issue #13。
-fn skip_dir(name: &str) -> bool {
-    excludes::search_skip_dirs().any(|d| d == name)
+/// # 为什么不再是一个 `fn skip_dir(name)`
+///
+/// 原来就是那样：名字在 `excludes` 的名单里就跳。名字判得了 `node_modules`，
+/// 判不了 `dist` 和 `build` —— 那两个是常见的源码目录名（CMake 项目的
+/// `build/` 里放的是构建脚本）。于是一个真叫 `build/` 的源码目录
+/// **⌘P 搜不到、⇧⌘F 也搜不到**，issue #13 记的正是这个。
+///
+/// **名字只是怀疑，git 忽不忽略它才是证据。** 所以有争议的那几个名字
+/// （[`excludes::CONTESTED_DIRS`]）要拿 git 的答案对一遍。
+///
+/// # 为什么是「一次算好」而不是「边走边问」
+///
+/// 候选目录散在树里任意深度，边走边问就是一个 Gradle 多模块仓库问出
+/// 二十来次子进程。调用方在开始之前起**一次** `gitsvc::ignored_dirs`，
+/// 结果传进来 —— 这个 crate 因此不认识 git，也不用依赖 gitsvc
+/// （「搜索依赖 git」和「搜索依赖文件树」是同一种错箭头）。
+///
+/// # 两条路必须拿同一份
+///
+/// 装了 rg 走 rg、没装走内置实现，**结果不能不一样** —— 这是这个模块的前提。
+/// 所以 `grep_rg` 传给 rg 的 `--glob !` 和内置 `walk` 用的判据都从这里出，
+/// 一个字都不各写各的。
+#[derive(Debug, Clone, Default)]
+pub struct Skip {
+    /// git 说被忽略的目录（相对 root，不带末尾 `/`）。
+    /// `None` = **问不到 git**（不是仓库、git 不在、读不动）
+    ignored: Option<std::collections::BTreeSet<String>>,
+}
+
+impl Skip {
+    /// 没有 git 信息时的退路：**有争议的名字也一律跳**。
+    ///
+    /// 这条退路是有意保守的。没有证据的时候，「多列出一个 node_modules」
+    /// 和「少列一个源码目录」两种错里，后者是没有提示的那个 —— 但那是
+    /// **文件树**的账（树现在照列、只压暗）。搜索这边反过来：一个非 git
+    /// 目录里有 20 万个 `node_modules` 文件，索引撑爆了连搜都搜不了。
+    /// 所以树宽松、搜索保守，两边的代价本来就不对称。
+    pub fn by_name() -> Self {
+        Self { ignored: None }
+    }
+
+    /// 拿到 git 的答案。有争议的名字按这份判，确定的仍然直接跳。
+    pub fn with_git(ignored: std::collections::BTreeSet<String>) -> Self {
+        Self {
+            ignored: Some(ignored),
+        }
+    }
+
+    /// 有争议的那几个名字里，**这一次真要跳的**那些 —— 传给 rg 的 `--glob`。
+    ///
+    /// 确定是生成物的那几个不在这里（调用方按名字全局排除，不需要路径）。
+    ///
+    /// 问不到 git 时退回按名字：和 [`Self::skips`] 的那条退路必须一致，
+    /// 否则装了 rg 和没装 rg 的结果又分岔了。
+    pub fn rg_globs(&self) -> Vec<String> {
+        match &self.ignored {
+            Some(set) => set
+                .iter()
+                .filter(|rel| {
+                    let name = rel.rsplit('/').next().unwrap_or(rel);
+                    excludes::is_contested_dir(name)
+                })
+                .map(|rel| format!("!{rel}/**"))
+                .collect(),
+            None => excludes::CONTESTED_DIRS
+                .iter()
+                .map(|d| format!("!**/{d}/**"))
+                .collect(),
+        }
+    }
+
+    /// 这个目录跳不跳。`rel` 是相对项目根的路径（不带前后 `/`）。
+    pub fn skips(&self, rel: &str, name: &str) -> bool {
+        // 点目录一律不进（搜索侧的老规矩，树那边不适用）
+        if excludes::GENERATED_DOT_DIRS.contains(&name) {
+            return true;
+        }
+        if excludes::is_certain_generated_dir(name) {
+            return true;
+        }
+        if !excludes::is_contested_dir(name) {
+            return false;
+        }
+        match &self.ignored {
+            // git 说它被忽略 = 证据确凿，跳
+            Some(set) => set.contains(rel),
+            // 问不到 git，退回按名字
+            None => true,
+        }
+    }
 }
 
 /// 索引上限。超过这个数就停 —— 再多前端也没法有意义地展示。
@@ -26,8 +111,8 @@ pub const MAX_FILES: usize = 50_000;
 const MAX_DEPTH: usize = 24;
 
 /// 递归列出项目里的文件（相对路径）。
-pub fn list_files(root: impl AsRef<Path>) -> io::Result<Vec<String>> {
-    Ok(list_files_and_symlinks(root)?.0)
+pub fn list_files(root: impl AsRef<Path>, skip: &Skip) -> io::Result<Vec<String>> {
+    Ok(list_files_and_symlinks(root, skip)?.0)
 }
 
 /// 同 [`list_files`]，另外把其中的**软链文件**单独挑一份出来。
@@ -42,17 +127,27 @@ pub fn list_files(root: impl AsRef<Path>) -> io::Result<Vec<String>> {
 /// 多走一趟目录树** —— 那笔账记在调用点上。
 ///
 /// 没有软链时第二份是空表，rg 的参数和以前一模一样。
-pub fn list_files_and_symlinks(root: impl AsRef<Path>) -> io::Result<(Vec<String>, Vec<String>)> {
+pub fn list_files_and_symlinks(
+    root: impl AsRef<Path>,
+    skip: &Skip,
+) -> io::Result<(Vec<String>, Vec<String>)> {
     let root = root.as_ref();
     let mut out = Vec::new();
     let mut syms = Vec::new();
-    walk(root, root, 0, &mut out, &mut syms);
+    walk(root, root, 0, skip, &mut out, &mut syms);
     out.sort();
     syms.sort();
     Ok((out, syms))
 }
 
-fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<String>, syms: &mut Vec<String>) {
+fn walk(
+    root: &Path,
+    dir: &Path,
+    depth: usize,
+    skip: &Skip,
+    out: &mut Vec<String>,
+    syms: &mut Vec<String>,
+) {
     if depth > MAX_DEPTH || out.len() >= MAX_FILES {
         return;
     }
@@ -93,7 +188,18 @@ fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<String>, syms: &mut
             if ft.is_symlink() {
                 continue;
             }
-            if !skip_dir(&name) {
+            /*
+             * 判据要的是**相对项目根的路径**，不只是名字 —— git 的答案
+             * 是按路径给的（`moduleA/build` 被忽略不代表 `moduleB/build` 也是）。
+             * 取不到相对路径（理论上不会，`ent` 就在 `root` 底下）时按空串走，
+             * 那样有争议的名字会落到「git 说没忽略」→ 不跳，宁可多搜一点。
+             */
+            let rel = ent
+                .path()
+                .strip_prefix(root)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if !skip.skips(&rel, &name) {
                 subdirs.push(ent.path());
             }
         } else if let Ok(rel) = ent.path().strip_prefix(root) {
@@ -105,7 +211,7 @@ fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<String>, syms: &mut
         }
     }
     for d in subdirs {
-        walk(root, &d, depth + 1, out, syms);
+        walk(root, &d, depth + 1, skip, out, syms);
     }
 }
 
@@ -124,14 +230,19 @@ pub struct Hit {
 const MAX_HIT_LEN: usize = 400;
 
 /// 全局内容搜索。有 rg 用 rg，没有就用进程内实现。
-pub fn grep(root: impl AsRef<Path>, pattern: &str, limit: usize) -> io::Result<Vec<Hit>> {
+pub fn grep(
+    root: impl AsRef<Path>,
+    pattern: &str,
+    limit: usize,
+    skip: &Skip,
+) -> io::Result<Vec<Hit>> {
     if pattern.is_empty() {
         return Ok(Vec::new());
     }
-    match grep_rg(root.as_ref(), pattern, limit) {
+    match grep_rg(root.as_ref(), pattern, limit, skip) {
         Ok(hits) => Ok(hits),
         // rg 不在、版本不对、输出格式变了 —— 一律回落，不让搜索功能整个瘫掉
-        Err(_) => grep_builtin(root.as_ref(), pattern, limit),
+        Err(_) => grep_builtin(root.as_ref(), pattern, limit, skip),
     }
 }
 
@@ -163,7 +274,7 @@ const MAX_RG_BYTES: u64 = 8 << 20;
  * 的功能，先问一句：这东西的输出有上限吗」。gitsvc 有 MAX_DIFF_BYTES，
  * searchsvc 一直没有。
  */
-fn grep_rg(root: &Path, pattern: &str, limit: usize) -> io::Result<Vec<Hit>> {
+fn grep_rg(root: &Path, pattern: &str, limit: usize, skip: &Skip) -> io::Result<Vec<Hit>> {
     use std::io::{BufRead, BufReader, Read};
 
     let mut cmd = Command::new("rg");
@@ -175,11 +286,29 @@ fn grep_rg(root: &Path, pattern: &str, limit: usize) -> io::Result<Vec<Hit>> {
         "--max-filesize",
         "8M",
     ]);
-    // 与内置实现跳的是同一批目录（同一份名单，见 `skip_dir`）。
-    // rg 靠 .gitignore 跳过 node_modules 之类，但项目不一定有 .gitignore ——
-    // 那样「装了 rg」和「没装 rg」搜出来的结果就不一样了，这是不能接受的。
-    for d in excludes::search_skip_dirs() {
+    // **跟内置实现跳同一批目录。**
+    //
+    // rg 靠 `.gitignore` 跳过 node_modules 之类，但项目不一定是 git 仓库、
+    // 也不一定有 `.gitignore` —— 那样「装了 rg」和「没装 rg」搜出来的结果
+    // 就不一样了，这是不能接受的。所以照旧显式传 `--glob !`。
+    //
+    // 但**不能再一律按名字传**（issue #13）：那正是一个源码 `build/`
+    // 搜不到的原因 —— rg 自己本来会搜它（`.gitignore` 里没有它），
+    // 是我们那句排除通配把它挡掉的。
+    //
+    // 现在分两种传：确定是生成物的按名字全局排除；有争议的**按 git 给的
+    // 具体路径逐条排除**，git 没说忽略的就不传，交给 rg 去搜。
+    //
+    // （这一段用行注释不用块注释：通配符里的 `**` 紧跟 `/` 会把块注释
+    // 提前闭合，Rust 报的是「found doc comment」，第一眼看不出是注释的事。）
+    for d in excludes::CERTAIN_GENERATED_DIRS
+        .iter()
+        .chain(excludes::GENERATED_DOT_DIRS.iter())
+    {
         cmd.arg("--glob").arg(format!("!**/{d}/**"));
+    }
+    for g in skip.rg_globs() {
+        cmd.arg("--glob").arg(g);
     }
     /*
      * `--` 之后才是路径。
@@ -203,7 +332,7 @@ fn grep_rg(root: &Path, pattern: &str, limit: usize) -> io::Result<Vec<Hit>> {
      * 没装 rg 的人反而搜得到，而「装没装 rg 结果要一样」是这个模块的前提
      * （见 `两条实现路径结果必须一致`）。
      */
-    let syms = list_files_and_symlinks(root)
+    let syms = list_files_and_symlinks(root, skip)
         .map(|(_, s)| s)
         .unwrap_or_default();
 
@@ -285,8 +414,8 @@ fn parse_rg_line(line: &[u8], root: &Path, canon: &Path) -> Option<Hit> {
 }
 
 /// 进程内回落实现：遍历索引到的文件逐个扫。
-fn grep_builtin(root: &Path, pattern: &str, limit: usize) -> io::Result<Vec<Hit>> {
-    let files = list_files(root)?;
+fn grep_builtin(root: &Path, pattern: &str, limit: usize, skip: &Skip) -> io::Result<Vec<Hit>> {
+    let files = list_files(root, skip)?;
     let needle = pattern.as_bytes();
     let finder = memchr::memmem::Finder::new(needle);
     let mut hits = Vec::new();
@@ -404,7 +533,7 @@ mod tests {
         let body = "needle\n".repeat(300);
         fs::write(d.join("many.txt"), &body).unwrap();
 
-        let hits = grep_rg(&d, "needle", 3).expect("掐掉子进程不能被当成失败");
+        let hits = grep_rg(&d, "needle", 3, &Skip::by_name()).expect("掐掉子进程不能被当成失败");
         assert_eq!(hits.len(), 3, "要几条给几条");
         fs::remove_dir_all(d).ok();
     }
@@ -432,7 +561,7 @@ mod tests {
     #[test]
     fn 索引跳过噪声目录() {
         let d = sandbox("list");
-        let files = list_files(&d).unwrap();
+        let files = list_files(&d, &Skip::by_name()).unwrap();
         assert!(files.contains(&"README.md".to_string()));
         assert!(files.contains(&"src/main.rs".to_string()));
         for name in excludes::GENERATED_DIRS {
@@ -451,7 +580,7 @@ mod tests {
     #[test]
     fn 内置实现能搜到内容且同样跳过噪声() {
         let d = sandbox("builtin");
-        let hits = grep_builtin(&d, "needle", 50).unwrap();
+        let hits = grep_builtin(&d, "needle", 50, &Skip::by_name()).unwrap();
         let paths: Vec<&str> = hits.iter().map(|h| h.path.as_str()).collect();
         assert!(paths.contains(&"README.md"));
         assert!(paths.contains(&"src/main.rs"));
@@ -467,9 +596,9 @@ mod tests {
     #[test]
     fn 无命中返回空() {
         let d = sandbox("empty");
-        assert!(grep_builtin(&d, "绝不存在的词", 50).unwrap().is_empty());
+        assert!(grep_builtin(&d, "绝不存在的词", 50, &Skip::by_name()).unwrap().is_empty());
         assert!(
-            grep(&d, "", 50).unwrap().is_empty(),
+            grep(&d, "", 50, &Skip::by_name()).unwrap().is_empty(),
             "空 pattern 不该扫全项目"
         );
         fs::remove_dir_all(d).ok();
@@ -478,7 +607,7 @@ mod tests {
     #[test]
     fn grep_入口在有无_rg_时都能工作() {
         let d = sandbox("entry");
-        let hits = grep(&d, "needle", 50).unwrap();
+        let hits = grep(&d, "needle", 50, &Skip::by_name()).unwrap();
         assert!(!hits.is_empty(), "无论走 rg 还是回落，都该有命中");
         for name in excludes::GENERATED_DIRS {
             assert!(hits.iter().all(|h| !h.path.contains(name)), "{name} 不该被搜到");
@@ -497,7 +626,7 @@ mod tests {
     #[test]
     fn 软链文件要进索引_软链目录不跟进() {
         let d = sandbox("symlink");
-        let (files, syms) = list_files_and_symlinks(&d).unwrap();
+        let (files, syms) = list_files_and_symlinks(&d, &Skip::by_name()).unwrap();
 
         assert!(
             files.iter().any(|f| f == "link.txt"),
@@ -524,14 +653,14 @@ mod tests {
     fn 软链文件的内容两条路都要搜得到() {
         let d = sandbox("symgrep");
 
-        let hits = grep_builtin(&d, "项目外的真身", 50).unwrap();
+        let hits = grep_builtin(&d, "项目外的真身", 50, &Skip::by_name()).unwrap();
         assert!(
             hits.iter().any(|h| h.path == "link.txt"),
             "内置实现没搜到软链文件：{hits:?}"
         );
 
         if ripgrep_available() {
-            let hits = grep_rg(&d, "项目外的真身", 50).unwrap();
+            let hits = grep_rg(&d, "项目外的真身", 50, &Skip::by_name()).unwrap();
             assert!(
                 hits.iter().any(|h| h.path == "link.txt"),
                 "rg 没搜到软链文件：{hits:?}"
@@ -550,12 +679,12 @@ mod tests {
             return;
         }
         let d = sandbox("parity");
-        let mut a: Vec<(String, u64)> = grep_rg(&d, "needle", 100)
+        let mut a: Vec<(String, u64)> = grep_rg(&d, "needle", 100, &Skip::by_name())
             .unwrap()
             .into_iter()
             .map(|h| (h.path, h.line))
             .collect();
-        let mut b: Vec<(String, u64)> = grep_builtin(&d, "needle", 100)
+        let mut b: Vec<(String, u64)> = grep_builtin(&d, "needle", 100, &Skip::by_name())
             .unwrap()
             .into_iter()
             .map(|h| (h.path, h.line))
@@ -566,12 +695,115 @@ mod tests {
         fs::remove_dir_all(d).ok();
     }
 
+    /// 造一个**真的 git 仓库**：`build/` 是源码（提交进去的），`dist/` 被忽略。
+    ///
+    /// 不用 mock —— `.gitignore` 的规则以 git 为准，自己实现一份就是在
+    /// 猜（这条判据和「起 git 子进程而不是自己解析 .gitignore」是同一条）。
+    /// 机器上没有 git 时整条测试跳过：宁可少测一条，也不要一条会随环境
+    /// 时红时绿的测试。
+    fn git_sandbox(name: &str) -> Option<PathBuf> {
+        let d = std::env::temp_dir().join(format!("searchsvc-git-{name}"));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(d.join("build")).unwrap();
+        fs::create_dir_all(d.join("dist")).unwrap();
+        fs::create_dir_all(d.join("node_modules")).unwrap();
+        // build/ 是源码：CMake 项目把构建脚本放这儿，而且**提交进仓库**
+        fs::write(d.join("build/toolchain.cmake"), "set(NEEDLE 1)\n").unwrap();
+        // dist/ 是产物，写进 .gitignore
+        fs::write(d.join("dist/bundle.js"), "var NEEDLE=1\n").unwrap();
+        fs::write(d.join("node_modules/noise.txt"), "NEEDLE\n").unwrap();
+        fs::write(d.join(".gitignore"), "dist/\nnode_modules/\n").unwrap();
+
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&d)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+        if !git(&["init", "-q"]) {
+            let _ = fs::remove_dir_all(&d);
+            return None;
+        }
+        git(&["add", "-A"]);
+        Some(d)
+    }
+
+    /*
+     * **issue #13 的正题：名字叫 build 不等于它是生成物。**
+     *
+     * 改回「一律按名字跳」的话这条会红 —— `build/toolchain.cmake` 搜不到。
+     * 三条一起断言，因为它们要的是同一件事的三个面：
+     * 该搜的搜得到、该跳的跳掉了、两条实现路径给同一个答案。
+     */
+    #[test]
+    fn 源码目录叫build也要搜得到_而被忽略的dist不搜() {
+        let Some(d) = git_sandbox("contested") else {
+            eprintln!("跳过：机器上没有可用的 git");
+            return;
+        };
+        let ignored = 假装问过git(&d);
+        let skip = Skip::with_git(ignored);
+
+        let paths = |hits: Vec<Hit>| {
+            let mut v: Vec<String> = hits.into_iter().map(|h| h.path).collect();
+            v.sort();
+            v
+        };
+
+        let 内置 = paths(grep_builtin(&d, "NEEDLE", 50, &skip).unwrap());
+        assert!(
+            内置.iter().any(|p| p.contains("toolchain.cmake")),
+            "被跟踪的 build/ 是源码，必须搜得到 —— 实得 {内置:?}"
+        );
+        assert!(
+            !内置.iter().any(|p| p.contains("bundle.js")),
+            "dist/ 在 .gitignore 里，不该搜 —— 实得 {内置:?}"
+        );
+        assert!(
+            !内置.iter().any(|p| p.contains("node_modules")),
+            "node_modules 任何时候都不该搜 —— 实得 {内置:?}"
+        );
+
+        // 索引（⌘P 那条路）同理
+        let files = list_files(&d, &skip).unwrap();
+        assert!(files.iter().any(|f| f.contains("toolchain.cmake")), "⌘P 也要找得到");
+        assert!(!files.iter().any(|f| f.contains("bundle.js")));
+
+        // 两条路必须一致 —— 这是这个模块的前提
+        if ripgrep_available() {
+            assert_eq!(
+                paths(grep_rg(&d, "NEEDLE", 50, &skip).unwrap()),
+                内置,
+                "装了 rg 和没装 rg 搜出来的结果不一样了"
+            );
+        }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// 真去问一次 git。放在这儿而不是引 gitsvc —— searchsvc 不认识 git，
+    /// 那条依赖箭头是错的；测试里现起一次就够了。
+    fn 假装问过git(d: &Path) -> std::collections::BTreeSet<String> {
+        let out = Command::new("git")
+            .args(["ls-files", "--others", "--ignored", "--directory", "--exclude-standard", "-z"])
+            .current_dir(d)
+            .output()
+            .expect("git 跑不起来");
+        String::from_utf8_lossy(&out.stdout)
+            .split('\0')
+            .filter_map(|p| p.strip_suffix('/').map(str::to_owned))
+            .collect()
+    }
+
     #[test]
     fn 命中行被截断() {
         let d = sandbox("clip");
         let long = format!("needle{}\n", "x".repeat(2000));
         fs::write(d.join("long.txt"), &long).unwrap();
-        let hits = grep_builtin(&d, "needle", 50).unwrap();
+        let hits = grep_builtin(&d, "needle", 50, &Skip::by_name()).unwrap();
         let h = hits.iter().find(|h| h.path == "long.txt").unwrap();
         assert!(h.text.chars().count() <= MAX_HIT_LEN);
         fs::remove_dir_all(d).ok();

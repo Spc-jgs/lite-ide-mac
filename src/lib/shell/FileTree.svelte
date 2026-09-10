@@ -19,6 +19,7 @@
     root,
     activePath,
     gitStatus = null,
+    ignored = null,
     reloadTick = 0,
     revealPath = "",
     revealTick = 0,
@@ -32,6 +33,13 @@
     activePath: string;
     /** 有仓库就给文件染色；没有就是 null，整块装饰不存在 */
     gitStatus?: GitStatus | null;
+    /**
+     * git 说被忽略的目录（相对项目根）。`null` = 问不到 git，退回按名字判。
+     *
+     * 只对**有争议**的那一档（`dist` / `build` / `vendor`）起作用 ——
+     * `node_modules` 之类没有第二种可能，不用问也知道。见 issue #13。
+     */
+    ignored?: Set<string> | null;
     /**
      * 自增即重新拉取目录内容。切分支、丢弃改动、在终端里 `mv` 之后都要刷 ——
      * 否则文件树一直显示的是打开那一刻的快照。
@@ -170,6 +178,26 @@
   }
 
   /**
+   * 这一条要不要压暗。
+   *
+   * `generated`（名字命中生成物名单）是 Rust 侧给的**怀疑**；
+   * `contested` 说这个名字还有第二种可能（`build/` 在 CMake 项目里是源码）。
+   * 有争议的那几个要拿 git 的答案对一遍 —— 那才是证据。
+   *
+   * 问不到 git（`ignored === null`）时退回按名字：那时我们没有别的依据，
+   * 而压暗的代价只是「它有点灰」，它仍然在树里、点得开。
+   *
+   * **判据必须和搜索那边一致**（`searchsvc::Skip::skips`）—— 不一致的话，
+   * 树里压暗的东西搜得到、树里正常的东西搜不到，那比两边都错更难理解。
+   */
+  function dims(it: DirEntry): boolean {
+    if (!it.generated) return false;
+    if (!it.contested) return true;
+    if (ignored === null) return true;
+    return ignored.has(relTo(root, it.path));
+  }
+
+  /**
    * 深度优先展开成扁平列表。
    *
    * `inGen` 往下传：**生成物是整棵子树的性质，不是那一行的性质**。
@@ -182,7 +210,7 @@
       const items = children.get(dir);
       if (!items) return;
       for (const it of items) {
-        const gen = inGen || it.generated;
+        const gen = inGen || dims(it);
         out.push({ name: it.name, path: it.path, isDir: it.isDir, depth, generated: gen });
         if (it.isDir && expanded.has(it.path)) walk(it.path, depth + 1, gen);
       }
@@ -834,7 +862,7 @@
         onkeydown={(e) => onRowKey(e, i)}
         oncontextmenu={(e) => openMenu(e, i)}
         title={row.generated
-          ? `${row.name} —— 生成物目录，里面的东西是工具写的。搜索（⌘P / ⇧⌘F）不进这里`
+          ? `${row.name} —— 生成物目录。搜索（⌘P / ⇧⌘F）不进这里，点开仍然可以看`
           : row.name}
       >
         {#if row.isDir}

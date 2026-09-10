@@ -56,6 +56,14 @@ export interface DirEntry {
    * 在界面上凭空消失，还没有任何提示（issue #13）。
    */
   generated: boolean;
+  /**
+   * 这个名字**有第二种可能**（`dist` / `build` / `vendor`）——
+   * `build/` 在 CMake 项目里放的是构建脚本，是源码。
+   *
+   * 名字只是怀疑，`ignoredDirs()` 的答案才是证据。`generated` 为假时
+   * 这一位没有意义。见 issue #13。
+   */
+  contested: boolean;
 }
 
 /** 探测路径：目录还是文件，文件该用哪种模式打开 */
@@ -63,6 +71,15 @@ export const probePath = (path: string) => invoke<PathInfo>("probe_path", { path
 
 /** 列一层目录。点文件一律列出来，生成物目录（`excludes` crate 那份名单）一律不列 */
 export const listDir = (path: string) => invoke<DirEntry[]>("list_dir", { path });
+
+/**
+ * 这个项目里哪些目录被 git 忽略了（相对项目根）。**按项目问一次，不是按目录。**
+ *
+ * `null` 和 `[]` 是两件事：`null` = 问不到 git（不是仓库、git 不在），
+ * 那时退回按名字判；`[]` = 问到了，一个都没忽略。合成一个的话，
+ * 一个干净的非 git 目录会被当成「git 说什么都没忽略」，`node_modules` 就不压暗了。
+ */
+export const ignoredDirs = (root: string) => invoke<string[] | null>("ignored_dirs", { root });
 
 export interface TextFile {
   content: string;

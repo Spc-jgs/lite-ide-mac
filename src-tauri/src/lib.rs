@@ -125,6 +125,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::probe_path,
             commands::list_dir,
+            commands::ignored_dirs,
             commands::read_text,
             commands::detect_encoding,
             commands::list_encodings,
