@@ -46,15 +46,34 @@ if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
 const diag = (msg: string) => {
   invoke("diag", { msg }).catch(() => {});
 };
+
+/*
+ * **异常同时落盘。**
+ *
+ * `diag` 默认闭嘴，而且 stderr 在双击启动的 `.app` 里没人接 —— 也就是说
+ * 在这之前，一次真实的前端崩溃**不留任何痕迹**，只能等用户再复现一遍。
+ * 「默认关掉的可观测性等于没有」：出事的那一次，人不会正好带着
+ * `LITE_IDE_DEBUG=1` 在跑。
+ *
+ * 两条一起发是有意的，不是重复：开发时盯着终端看 `diag`，
+ * 事后回头查看 `app.log`。
+ */
+const oops = (level: "warn" | "error", source: string, msg: string) => {
+  diag(`${source}: ${msg}`);
+  invoke("app_log", { level, source, msg }).catch(() => {});
+};
+
 window.addEventListener("error", (e) =>
-  diag(`window.error: ${e.message} @ ${e.filename}:${e.lineno}`),
+  oops("error", "window.error", `${e.message} @ ${e.filename}:${e.lineno}\n${e.error?.stack ?? ""}`),
 );
 // 模块加载阶段就失败（语法错、chunk 404）时 mount 根本不会被执行，
 // 只能靠这个事件把白屏换成一块能读的错误屏
 window.addEventListener("error", (e) => {
   if (!document.getElementById("app")?.hasChildNodes()) fatal(e.error ?? e.message, "加载脚本");
 });
-window.addEventListener("unhandledrejection", (e) => diag(`unhandledrejection: ${e.reason}`));
+window.addEventListener("unhandledrejection", (e) =>
+  oops("error", "unhandledrejection", `${e.reason}\n${e.reason?.stack ?? ""}`),
+);
 /*
  * CSP 违规不会触发 window.error —— 被挡掉的资源就那么静静地没加载，
  * 界面上只表现为「某个东西不好使了」，查起来毫无线索。
@@ -62,7 +81,7 @@ window.addEventListener("unhandledrejection", (e) => diag(`unhandledrejection: $
  * 得从零开始猜。
  */
 document.addEventListener("securitypolicyviolation", (e) =>
-  diag(`CSP 挡下: ${e.violatedDirective} ← ${e.blockedURI} @ ${e.sourceFile}:${e.lineNumber}`),
+  oops("warn", "csp", `挡下 ${e.violatedDirective} ← ${e.blockedURI} @ ${e.sourceFile}:${e.lineNumber}`),
 );
 
 /*

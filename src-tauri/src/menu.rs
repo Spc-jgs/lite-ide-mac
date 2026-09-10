@@ -207,6 +207,9 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let help = SubmenuBuilder::new(app, "帮助")
         .item(&item(app, "help-keys", "快捷键速查", Some("CmdOrCtrl+/"))?)
         .separator()
+        .item(&item(app, "help-log", "打开应用日志", None)?)
+        .item(&item(app, "help-log-clear", "清空应用日志", None)?)
+        .separator()
         .item(&item(app, "help-repo", "项目主页", None)?)
         .build()?;
 

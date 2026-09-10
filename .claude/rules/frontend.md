@@ -76,6 +76,28 @@ $effect(() => {
 （字还在，但 ⌘W 不再拦你）—— 和 M25 修的那个形状一模一样。
 判据要跟**上次见到的值**比，并且在挂载时先对齐一次。
 
+## CM6 的面板不在 `contentDOM` 里，所以键位到不了它
+
+自研查找面板时踩的（2026-09-10）：面板 DOM 挂在 `.cm-panels` 上，而 `keymap`
+是挂在 `view.contentDOM` 上的 —— 焦点一进查找框，⌘F、F3、⌘G、⌥⌘F **全都不响应**。
+默认面板不是靠什么魔法，它自己在 keydown 里调了一句：
+
+```js
+runScopeHandlers(view, e, "search-panel")
+```
+
+`searchKeymap` 里那几条正是按 `scope: "editor search-panel"` 注册的。
+自己加的绑定要想在面板里也管用，得标同一个作用域。
+
+**同一个文件里还有一条**：`createPanel` 返回的 `Panel` 要在 `mount()` 里
+自己 `focus()` + `select()`。CM6 不替你做 —— 默认面板也是自己做的。
+少了这两句，⌘F 之后面板确实开了、看着完全正常，而**敲进去的字全落进正文**
+（实测：按 ⌘F 打「Client」，第 8 行当场变成 `orderClieClientnt`，
+标签上还多了个未保存的圆点）。
+
+两条都是同一个形状：**「装了不生效」不报错**，只表现为「按了没反应」，
+而人第一反应是自己按错了。
+
 ## CM6：不能在 `update()` 里读布局
 
 会抛 `Reading the editor layout isn't allowed during an update`。

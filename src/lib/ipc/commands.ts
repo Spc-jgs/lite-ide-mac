@@ -181,6 +181,25 @@ export const initialPath = () => invoke<string | null>("initial_path");
 
 export const diag = (msg: string) => invoke<void>("diag", { msg });
 
+/**
+ * 往 `~/Library/Logs/com.liteide.app/app.log` 写一条。
+ *
+ * **和 `diag` 分工不同**：`diag` 去 stderr、默认关、给「我现在在看」用；
+ * 这条落盘、默认开、给「以后有人回头查」用。所以走这条的**只有异常** ——
+ * 把执行轨迹也塞进去会把真正的错误埋掉。
+ *
+ * 自己 `catch` 掉：它跑在错误处理路径上，一个会二次抛的日志函数
+ * 只会让原来那个错误更难看清。
+ */
+export const appLog = (level: "info" | "warn" | "error", source: string, msg: string) =>
+  invoke<void>("app_log", { level, source, msg }).catch(() => {});
+
+/** 日志文件的路径 —— 拿它开一个标签，用这个应用自己的日志引擎看 */
+export const appLogPath = () => invoke<string>("app_log_path");
+
+/** 清空应用日志（两份都清）。判据在 Rust 侧，前端只是按一下 */
+export const clearAppLog = () => invoke<void>("clear_app_log");
+
 // ─────────────────────────── 终端 ───────────────────────────
 
 /** 起一个终端；输出通过 Channel 流式回传 */

@@ -524,6 +524,37 @@ pub fn diag(msg: String) {
     }
 }
 
+/// 前端把一条日志写进 `~/Library/Logs/com.liteide.app/app.log`。
+///
+/// **和 `diag` 是两件事，别合并：**
+///
+/// | | `diag` | `app_log` |
+/// |---|---|---|
+/// | 去哪 | stderr | 盘上的文件 |
+/// | 默认 | 关（`LITE_IDE_DEBUG=1` 才开） | **开** |
+/// | 给谁看 | 开发时盯着终端的我 | 出事之后回头查的人 |
+///
+/// `diag` 是「我现在在看」，`app_log` 是「以后有人会看」。
+/// 把执行轨迹全塞进文件会把真正的错误埋掉，所以走这条的**只有异常**。
+#[tauri::command]
+pub fn app_log(level: String, source: String, msg: String) {
+    applog::write(applog::Level::parse(&level), &source, &msg);
+}
+
+/// 清空应用日志。保留策略与「为什么只碰两个写死的名字」见 `applog::clear`。
+#[tauri::command]
+pub fn clear_app_log() {
+    applog::clear();
+}
+
+/// 日志文件在哪。前端拿它开一个标签 —— 这个应用自己就是日志查看器。
+#[tauri::command]
+pub fn app_log_path(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    Ok(applog::log_path(dir).to_string_lossy().into_owned())
+}
+
 /// 诊断开着没有。前端拿它决定**要不要建那条统计定时器** ——
 /// 关着的时候一次都不算，不能让调试设施在所有人机器上白跑。
 ///

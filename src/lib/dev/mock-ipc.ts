@@ -101,6 +101,18 @@ function g(
 
 /** 桩里的假文件系统：路径 → 内容 */
 const FILES: Record<string, string> = {
+  /*
+   * 应用自己的运行日志。四种来源各给一条 —— 「打开应用日志」要验的正是
+   * 「这几类事情落下来长什么样、级别过滤认不认得出」。
+   */
+  "/Users/you/Library/Logs/com.liteide.app/app.log": [
+    "2026-09-10 09:12:04.118Z INFO [app] 启动 v0.9.0",
+    "2026-09-10 09:12:41.802Z WARN [csp] 挡下 connect-src ← https://example.com/x.json @ :0",
+    "2026-09-10 09:14:07.331Z ERROR [window.error] Cannot read properties of null (reading 'view') @ /assets/index.js:2841 ⏎ at Editor.svelte:214 ⏎ at flush",
+    "2026-09-10 09:14:07.335Z ERROR [unhandledrejection] Error: 读不到 /proj/src/main.py ⏎ at readText",
+    "2026-09-10 09:20:55.010Z ERROR [rust] panic: called `Option::unwrap()` on a `None` value",
+    "2026-09-10 09:21:03.774Z INFO [app] 启动 v0.9.0",
+  ].join("\n") + "\n",
   // 点文件也要能打开 —— 只在 DIRS 里列出来、点开却是空的，那是另一种骗人
   "/proj/.gitignore": `node_modules/
 dist/
@@ -369,8 +381,16 @@ const UPSTREAM: Record<string, string> = {
  * 桩里给一条形状一样的绝对路径就够了 —— 前端只把它当不透明的路径传来传去。
  */
 const SCRATCH_DIR = "/Users/you/Library/Application Support/com.liteide.app/scratches";
+/*
+ * 应用自己的运行日志。桩里给它几行真的内容 —— 不给的话「打开应用日志」
+ * 在浏览器里只能验到「有没有报错」，验不到「打开之后长什么样」，
+ * 而后者才是这个功能的全部（它就是用日志模式打开一个文件）。
+ */
+const APP_LOG = "/Users/you/Library/Logs/com.liteide.app/app.log";
 
 const DIRS: Record<string, Array<[string, boolean]>> = {
+  // 应用日志所在的目录。它**不在项目里**，只有「帮助 → 打开应用日志」够得着
+  "/Users/you/Library/Logs/com.liteide.app": [["app.log", false]],
   "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   "/proj/.github": [["workflows", true]],
   "/proj/.github/workflows": [["ci.yml", false]],
@@ -473,13 +493,70 @@ function encodeBlock(first: number, texts: string[]): ArrayBuffer {
   return buf;
 }
 
+/**
+ * 一个打开着的日志背后是什么。
+ *
+ * **原来这里只有一份全局数据**：不管打开哪个文件，`log_lines` 都返回同一份
+ * 循环出来的 900 万行假日志。演示用没问题 —— 直到「打开应用日志」出现：
+ * 桩明明手里有 `app.log` 的内容（`FILES` 里躺着），却仍然把演示日志端出来。
+ * **那就是桩在骗人**，而且骗的正好是这个功能唯一要验的东西。
+ *
+ * 现在按句柄分：`FILES` 里有的走真内容，别的（那个 1GB 的演示日志）
+ * 仍旧走循环生成。真实现本来就是按句柄拿文件的，这一步是往它靠。
+ */
+interface LogSrc {
+  /** 第 n 行。大文件走循环，小文件走真数组 */
+  at: (n: number) => string;
+  total: number;
+  /** 第 n 行的级别下标，顺序同 Rust 侧 Level */
+  levelAt: (n: number) => number;
+  /** `log_stat` 报的六个级别计数 */
+  levels: number[];
+  bytes: number;
+}
+
 const lineAt = (n: number) => LINES[n % LINES.length];
+
+/** 那个 1GB 的演示日志。没有对应真文件时一律用它 */
+const BIG_LOG: LogSrc = {
+  at: lineAt,
+  total: TOTAL,
+  levelAt: (n) => LINE_LEVEL[n % LINES.length],
+  levels: [456_822, 914_684, 5_026_804, 2_742_487, 0, 910],
+  bytes: 1_073_741_885,
+};
+
+/** 认级别：和 Rust 侧 `logengine` 一样，按行里出现的那个词判 */
+const LEVEL_WORDS = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
+function levelOf(line: string): number {
+  const i = LEVEL_WORDS.findIndex((w) => line.includes(w));
+  return i < 0 ? 5 : i;
+}
+
+function srcOf(path: string): LogSrc {
+  const text = FILES[path];
+  if (text === undefined) return BIG_LOG;
+  const lines = text.replace(/\n$/, "").split("\n");
+  const levels = [0, 0, 0, 0, 0, 0];
+  for (const l of lines) levels[levelOf(l)]++;
+  return {
+    at: (n) => lines[n] ?? "",
+    total: lines.length,
+    levelAt: (n) => levelOf(lines[n] ?? ""),
+    levels,
+    bytes: text.length,
+  };
+}
 
 let filterHits: number[] | null = null;
 
 /** 句柄 → 打开时那条路径。真实现的 LogFile 也是这么存的 */
 const LOG_PATHS: Record<number, string> = {};
+/** 句柄 → 它的数据源 */
+const LOG_SRC: Record<number, LogSrc> = {};
 let nextLogHandle = 1;
+/** 上一次被问到的那个句柄的源。过滤那几条命令都带 handle，直接查表 */
+const src = (h: unknown) => LOG_SRC[Number(h)] ?? BIG_LOG;
 
 /** 文件指纹。桩里用一个自增计数模拟 mtime */
 const STAMPS: Record<string, { mtimeMs: number; size: number }> = {};
@@ -493,14 +570,15 @@ function stampOf(path: string) {
   return STAMPS[path] ?? bump(path);
 }
 
-function runFilter(levelBits: number, pattern: string, caseSensitive: boolean): number[] {
+function runFilter(s: LogSrc, levelBits: number, pattern: string, caseSensitive: boolean): number[] {
   const hits: number[] = [];
   const pat = caseSensitive ? pattern : pattern.toLowerCase();
   // 桩只在前 5 万行上筛，够验证交互，不必真跑 900 万
-  for (let n = 0; n < 50_000; n++) {
-    if ((levelBits & (1 << LINE_LEVEL[n % LINES.length])) === 0) continue;
+  const n1 = Math.min(s.total, 50_000);
+  for (let n = 0; n < n1; n++) {
+    if ((levelBits & (1 << s.levelAt(n))) === 0) continue;
     if (pat) {
-      const text = caseSensitive ? lineAt(n) : lineAt(n).toLowerCase();
+      const text = caseSensitive ? s.at(n) : s.at(n).toLowerCase();
       if (!text.includes(pat)) continue;
     }
     hits.push(n);
@@ -542,12 +620,37 @@ export function installMockIpc(): void {
         // 显式写出来，读桩的人才看得出这条命令被想过。
         case "diag_enabled":
           return false;
+        case "app_log":
+          // 桩里不落盘 —— 但要留个响，否则浏览器里「异常有没有被记下来」
+          // 完全看不出来
+          console.info(`[app_log/${a.level}] ${a.source}: ${a.msg}`);
+          return null;
+        case "app_log_path":
+          return APP_LOG;
+        case "clear_app_log":
+          // 桩里也要真清 —— 只返回 null 的话，「清完界面刷不刷新」这条
+          // 在浏览器里永远看着像对的
+          FILES[APP_LOG] = "2026-09-10 09:30:00.000Z INFO [app] 日志已清空\n";
+          bump(APP_LOG);
+          return null;
         case "probe_path": {
           const path = String(a.path);
           if (DIRS[path]) {
             return { kind: "dir", mode: "edit", path, name: path.split("/").pop(), size: 0, reason: "" };
           }
-          const isLog = path.endsWith(".log");
+          /*
+           * **`.log` 不等于日志模式。** 真实现（`logengine::probe`）只看
+           * 体积 / 行数 / 最长行 / 二进制，**从不看文件名** —— 一个 3KB 的
+           * `app.log` 在真机上走的是编辑模式。
+           *
+           * 桩原来对任何 `.log` 都硬报「1GB、超过 32MB」，于是
+           * 「小 .log 在编辑模式下能不能切回日志模式」这条路在浏览器里
+           * 走不到，而那正是 c16f12d 修的那个 bug 的现场。
+           * 现在的判据是「桩手里有没有这个文件的真内容」：
+           * 有就按真大小走真判据，没有的才是那个演示用的 1GB 日志。
+           */
+          const known = FILES[path] !== undefined;
+          const isLog = path.endsWith(".log") && !known;
           /*
            * 不认识的路径要**报错**，不能凭空造一个文件出来。
            *
@@ -556,7 +659,7 @@ export function installMockIpc(): void {
            * 正好高度依赖这条路（上次开着的文件这次可能已经删了/换分支没了），
            * 桩不还原它，那部分逻辑就等于没测过。
            */
-          if (!isLog && FILES[path] === undefined) {
+          if (!isLog && !known) {
             throw new Error(`读不到 ${path}：No such file or directory (os error 2)`);
           }
           return {
@@ -737,23 +840,27 @@ export function installMockIpc(): void {
            */
           const h = nextLogHandle++;
           LOG_PATHS[h] = String(a.path);
-          return { handle: h, name: nameOf(String(a.path)), size: 1_073_741_885 };
+          LOG_SRC[h] = srcOf(String(a.path));
+          return { handle: h, name: nameOf(String(a.path)), size: LOG_SRC[h].bytes };
         }
-        case "log_stat":
+        case "log_stat": {
+          const s = src(a.handle);
           return {
-            lineCount: TOTAL,
-            indexedBytes: 1_073_741_885,
-            totalBytes: 1_073_741_885,
+            lineCount: s.total,
+            indexedBytes: s.bytes,
+            totalBytes: s.bytes,
             complete: true,
             indexBytes: 71_472,
-            levels: [456_822, 914_684, 5_026_804, 2_742_487, 0, 910],
+            levels: s.levels,
             levelsComplete: true,
-            levelsScanned: 1_073_741_885,
+            levelsScanned: s.bytes,
           };
+        }
         case "log_lines": {
+          const s = src(a.handle);
           const out: string[] = [];
-          const n = Math.min(Number(a.count), TOTAL - Number(a.start));
-          for (let i = 0; i < n; i++) out.push(lineAt(Number(a.start) + i));
+          const n = Math.min(Number(a.count), s.total - Number(a.start));
+          for (let i = 0; i < n; i++) out.push(s.at(Number(a.start) + i));
           return encodeBlock(Number(a.start), out);
         }
         case "log_filter": {
@@ -763,7 +870,7 @@ export function installMockIpc(): void {
             filterHits = null;
             return false;
           }
-          filterHits = runFilter(bits, pat, Boolean(a.caseSensitive));
+          filterHits = runFilter(src(a.handle), bits, pat, Boolean(a.caseSensitive));
           return true;
         }
         case "log_filter_stat":
@@ -773,7 +880,7 @@ export function installMockIpc(): void {
         case "log_lines_filtered": {
           if (!filterHits) return encodeBlock(Number(a.start), []);
           const slice = filterHits.slice(Number(a.start), Number(a.start) + Number(a.count));
-          return encodeBlock(slice[0] ?? 0, slice.map(lineAt));
+          return encodeBlock(slice[0] ?? 0, slice.map(src(a.handle).at));
         }
         case "log_filter_map":
           return filterHits
@@ -1056,6 +1163,34 @@ index 1a2b3c4..5d6e7f8 100644
    */
   (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
     unregisterListener: () => {},
+  };
+
+  /*
+   * 从控制台触发一条菜单动作：`__mockMenu("help-log")`。
+   *
+   * **浏览器里没有菜单栏**，而归菜单的动作有二十多条。它们在这里的另一条路
+   * 是「连按两下 ⇧」的随处搜索 —— 那条路在自动化里按不出来
+   * （裸修饰键的 keydown 传不下去），于是「打开应用日志」这类功能
+   * 在浏览器里**一次都验不到**，只能等打成 `.app` 再说，而那是 45 秒一轮。
+   *
+   * 实现上不去猜哪个回调是菜单的：`@tauri-apps/api` 的事件负载自带
+   * `event` 字段，每个监听器自己会对名字。所以广播给全部回调，
+   * 认不认是它们自己的事。
+   */
+  (window as unknown as Record<string, unknown>).__mockMenu = (id: string) => {
+    let n = 0;
+    for (const k of Object.keys(window)) {
+      if (!k.startsWith("_cb")) continue;
+      const cb = (window as unknown as Record<string, unknown>)[k];
+      if (typeof cb !== "function") continue;
+      try {
+        (cb as (e: unknown) => void)({ event: "menu", id: 0, payload: id });
+        n++;
+      } catch {
+        /* 不是菜单的那些回调收到这个形状会抛，正常 */
+      }
+    }
+    return `广播给 ${n} 个回调`;
   };
   // eslint-disable-next-line no-console
   console.info("[dev] Tauri IPC 桩已装载 —— 数据是假的，用于纯前端调试");

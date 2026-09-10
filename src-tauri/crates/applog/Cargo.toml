@@ -1,0 +1,9 @@
+[package]
+name = "applog"
+version = "0.1.0"
+edition = "2021"
+description = "应用自己的运行日志：出了事必须在盘上留下痕迹（零 Tauri 依赖）"
+
+# 没有依赖，也不打算有。这个 crate 在**出错的路径上**跑，
+# 引什么都是在给「记录错误」这件事本身增加出错的机会。
+[dependencies]

@@ -5,7 +5,8 @@
            highlightActiveLineGutter, drawSelection, rectangularSelection,
            crosshairCursor, highlightSpecialChars } from "@codemirror/view";
   import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-  import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
+  import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
+  import { searchPanel } from "./search-panel";
   import { bracketMatching, foldGutter, foldKeymap, indentOnInput,
            indentUnit } from "@codemirror/language";
   import { ideaDarkTheme, ideaDarkHighlight } from "./theme-idea-dark";
@@ -185,7 +186,10 @@
         indentOnInput(),
         bracketMatching(),
         highlightSelectionMatches(),
-        search({ top: true }),
+        // 自研的查找 / 替换面板（连同那条一直没接上的 ⌥⌘F）。
+        // 它自己包着 `search({ top: true, createPanel })`，别在这儿再装一次 —— 
+        // 装两遍的话后一个 `createPanel` 静默不生效，画出来的还是默认面板。
+        searchPanel(),
         mapSlot.of(showMinimap ? minimap() : []),
         indentUnit.of("    "),
         langSlot.of([]),

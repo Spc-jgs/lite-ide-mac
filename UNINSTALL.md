@@ -53,10 +53,31 @@ rm -rf ~/Library/WebKit/com.liteide.app                  # WKWebView 本地存�
 rm -f  ~/Library/Preferences/com.liteide.app.plist       # 偏好设置
 rm -rf ~/Library/"Saved Application State"/com.liteide.app.savedState
 rm -rf ~/Library/HTTPStorages/com.liteide.app*           # 网络存储
-rm -rf ~/Library/Logs/com.liteide.app                    # 日志（若有）
+rm -rf ~/Library/Logs/com.liteide.app                    # 运行日志，见下
 ```
 
 验证：`ls ~/Library | grep -i liteide` → 无结果。
+
+### 运行日志：写什么、留多久、怎么删
+
+`~/Library/Logs/com.liteide.app/` 下有两个文件：`app.log` 和轮转出去的
+`app.log.1`。实现在 `src-tauri/crates/applog`。
+
+| | |
+|---|---|
+| 写什么 | **只有异常**：前端未捕获错误与 Promise 拒绝、CSP 违规、Rust panic、启动那一行 |
+| 不写什么 | 执行轨迹、文件内容、你打的字。那些归 `diag`（stderr，`LITE_IDE_DEBUG=1` 才开，不落盘） |
+| 多大 | 每份 **2MB** 封顶，**合计 4MB，永远不会再长** |
+| 留多久 | 不按时间删。满了轮转，只留两代 —— 「上个月崩过一次」是这份文件最值钱的用途 |
+| 出得了这台机器吗 | **不**。没有网络代码、没有上报、没有遥测（[PLAN.md](PLAN.md) 立项时就排除了） |
+| 怎么清 | 应用里「帮助 → 清空应用日志」，或者直接 `rm` 掉这个目录 |
+
+**直接删是安全的**：下次启动会重新建；应用正开着的时候删掉，写入会静默失败，
+下次启动恢复正常 —— 不会崩，也不会连累别的东西。
+
+**里面会有你的路径。** 错误消息和调用栈里带着文件路径（也就带着项目名和用户名）。
+这也是「清空应用日志」这条菜单存在的理由 —— 保留策略保证的是「不会长大」，
+不是「会自己消失」，要它现在就没，得你自己按一下。
 
 ## 一键卸载
 

@@ -9,6 +9,7 @@
   import { notify } from "./lib/state/notify.svelte";
   import * as session from "./lib/state/session";
   import { textToSave, settled, stashed } from "./lib/state/doc";
+  import { isLogName } from "./lib/logview/is-log-name";
   import Crash from "./lib/shell/Crash.svelte";
   import Icon from "./lib/shell/Icon.svelte";
   import ContextMenu, { type MenuItem } from "./lib/shell/ContextMenu.svelte";
@@ -17,6 +18,8 @@
   import type { ChangeKind } from "./lib/git/diff";
   import {
     probePath,
+    appLogPath,
+    clearAppLog,
     readText,
     pickFolder,
     setRecent,
@@ -1610,6 +1613,47 @@
   });
 
   /** 项目主页。交给系统默认浏览器 —— 这个应用自己不开网页 */
+  /**
+   * 打开应用自己的运行日志。
+   *
+   * 走的是普通的 `openPath` —— 那个文件多半会被判成日志模式（体积/行数），
+   * 于是级别过滤、tail、跳到下一处错误全都现成。**这就是这个功能的全部实现**：
+   * 一个日志查看器不需要另外做一个「日志窗口」。
+   *
+   * 正常情况下这个文件**一定在** —— 启动时 `applog::install` 就把它建出来了，
+   * 并且写了一行「启动 vX.Y.Z」。所以探不到它意味着日志根本没装上
+   * （目录建不了、权限不对），那条消息要这么说，不能只说「打不开」。
+   */
+  /**
+   * 清空应用日志。
+   *
+   * 清完必须走一次 `workingTreeChanged()` —— 否则开着那份日志的标签上
+   * 还摊着刚被清掉的几百行，人会以为没生效，然后再点一次。
+   * 这正是那条老规矩的又一例（**盘上的东西被外部改了，两件事要一起做**），
+   * 只不过这次「外部」是我们自己。
+   */
+  async function clearLog() {
+    try {
+      await clearAppLog();
+      await workingTreeChanged();
+      notify.ok("应用日志已清空");
+    } catch (e) {
+      notify.fail(`清不掉应用日志：${e}`);
+    }
+  }
+
+  async function openAppLog() {
+    let path: string;
+    try {
+      path = await appLogPath();
+      await probePath(path);
+    } catch (e) {
+      notify.fail(`应用日志没装上：${e}`);
+      return;
+    }
+    await openPath(path);
+  }
+
   async function openRepoPage() {
     await openExternal("https://github.com/Spc-jgs/lite-ide-mac").catch(() => {
       notify.fail("打不开项目主页", 2600);
@@ -2457,6 +2501,8 @@
         keysOpen = true;
         return;
       case "help-repo": return void openRepoPage();
+      case "help-log": return void openAppLog();
+      case "help-log-clear": return void clearLog();
       default:
         diag(`菜单项 ${id} 没有对应的处理`);
     }
@@ -3350,21 +3396,38 @@
         {active.diffSha ? `提交 ${active.diffShort}` : `差异 · ${active.diffStaged ? "已暂存" : "未暂存"}`}
       </span>
     {:else if active}
-      <button
-        class="cell btn mode"
-        onclick={() => requestSwitchMode(active!)}
-        title={active.mode === "log" ? "切换到编辑模式" : "切换到日志模式（只读，带级别过滤与 tail）"}
-      >
-        {active.mode === "log" ? "日志模式" : "编辑模式"} ⇄
-      </button>
       <!--
-        **竖线跟着它后面那格一起退场。**
+        **这个按钮只在日志场景出现。**
 
-        窄窗口下 `drop-2` 会藏掉语言、只读原因、保存状态，而竖线原来是
-        独立的、不带 drop 类的 —— 于是 640px 宽时状态栏上出现两条挨着的竖线，
-        末尾还吊着一条后面什么都没有的。分隔线分的是「区」，区没了线也该没。
+        它原来对每一个打开的文件都在，而绝大多数文件根本不存在「切到日志模式」
+        这个需求 —— 一个 `.ts` 切过去只会得到一份没高亮、不能编辑的文本。
+        一个永远在、九成场合按下去只有坏处的按钮，等于白占了状态栏一格。
+
+        两个条件：**已经在日志模式**（那必须留着回去的路，否则单向门），
+        或者**文件名看着像日志**（判据在 `is-log-name.ts`，纯按名字，不看内容）。
+
+        藏起来不等于做不了 —— 菜单里的「切换编辑 / 日志模式」对任何文件都还在。
       -->
-      <span class="vsep drop-2" aria-hidden="true"></span>
+      {#if active.mode === "log" || isLogName(active.path)}
+        <button
+          class="cell btn mode"
+          onclick={() => requestSwitchMode(active!)}
+          title={active.mode === "log" ? "切换到编辑模式" : "切换到日志模式（只读，带级别过滤与 tail）"}
+        >
+          {active.mode === "log" ? "日志模式" : "编辑模式"} ⇄
+        </button>
+        <!--
+          **竖线跟着它后面那格一起退场。**
+
+          窄窗口下 `drop-2` 会藏掉语言、只读原因、保存状态，而竖线原来是
+          独立的、不带 drop 类的 —— 于是 640px 宽时状态栏上出现两条挨着的竖线，
+          末尾还吊着一条后面什么都没有的。分隔线分的是「区」，区没了线也该没。
+
+          它也在 `{#if}` 里面：按钮不在时这条线就成了开头那条，
+          左边什么都没有 —— 同一个毛病，换了个位置。
+        -->
+        <span class="vsep drop-2" aria-hidden="true"></span>
+      {/if}
       {#if active.mode === "log"}
         <!-- 「为什么是只读」原来在标题栏。它说的是当前文件的状态，该和别的状态挂件在一起 -->
         <span
@@ -3641,12 +3704,12 @@
   .side-resizer:active { background: var(--accent); }
   @media (prefers-reduced-motion: reduce) { .side-resizer::after { transition: none; } }
   aside { overflow: hidden; }
+  /* 不画右边线，理由同 FileTree 的 `.tree` —— 那条边界归 `.side-resizer` */
   .no-root {
     padding: 14px 12px;
     color: var(--text-faint);
     font-size: 12px;
     background: var(--panel-bg);
-    border-right: 1px solid var(--border);
     height: 100%;
   }
 
@@ -3683,13 +3746,17 @@
   /* 收起时整块不占位也不可见，但**仍然挂在 DOM 上** —— 见上面那段注释 */
   .resizer.hidden,
   .panel.hidden { display: none; }
+  /*
+   * **上边不画线。** 和侧边栏那条是同一个毛病：`.resizer` 已经用伪元素画了
+   * 一条，这里再来一条，两条隔 1.5px。`.resizer` 和 `.panel` 共用同一个
+   * `class:hidden={!panel}`，收起时一起走，线不会落单。
+   */
   .panel {
     flex: none;
     display: grid;
     /* 26 → 32：22px 的圆角标签要有呼吸位，贴着上下边看着像被切掉一半 */
     grid-template-rows: 32px 1fr;
     overflow: hidden;
-    border-top: 1px solid var(--border);
   }
   .panel-head {
     display: flex;

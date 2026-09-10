@@ -954,12 +954,17 @@
 {/if}
 
 <style>
+  /*
+   * **右边不画线。** 这条线归 `App.svelte` 的 `.side-resizer` 管 ——
+   * 那条 4px 的热区自己用一个居中的 1px 伪元素画线，而这里再画一条，
+   * 两条只隔 1.5px，看上去就是一条又粗又脏的双线（收起侧边栏时还只剩一条，
+   * 对不上）。同一条边界只能有一个人负责，负责的是能被拖动的那个。
+   */
   .tree {
     display: flex;
     flex-direction: column;
     height: 100%;
     background: var(--panel-bg);
-    border-right: 1px solid var(--border);
     overflow: hidden;
   }
   .head {
@@ -994,12 +999,22 @@
   .head .proj:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .head .gap { flex: 1; min-width: 6px; }
   /* 横向 6px 是给行的圆角块留的余地 —— 贴着面板边的圆角看着像被切了一半 */
-  .list { flex: 1; overflow-y: auto; padding: 4px 6px; }
+  .list { flex: 1; overflow: auto; padding: 4px 6px; }
+  /*
+   * `width: max-content` + `min-width: 100%`：短行铺满整宽（悬停高亮、
+   * 右端那个 git 字母的位置都跟原来一样），长行按自己的实际宽度撑出去，
+   * 由 `.list` 横向滚。
+   *
+   * 原来是死的 `width: 100%`，于是深层目录的缩进（每层 13px）把名字挤出边界，
+   * `.name` 的 ellipsis 一路吃到**只剩一个省略号**，第 8 层往下每一行都长得一样 ——
+   * 那不是「省略」，是把这一列的全部信息删干净了。
+   */
   .row {
     display: flex;
     align-items: center;
     gap: 3px;
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
     height: 24px;
     padding-right: 8px;
     border-radius: var(--r-md);

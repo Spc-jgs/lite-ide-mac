@@ -28,6 +28,19 @@ fn install_runtime() {
     Box::leak(Box::new(rt));
 }
 
+/// Rust 侧 panic 也要落进同一份日志。
+///
+/// 默认 hook 只写 stderr —— 而双击启动的 `.app` **没有 stderr**，
+/// 那几行字等于没写。**接在默认 hook 后面而不是替换它**：
+/// 从终端跑（`cargo test`、开发模式）时那份输出仍然有用。
+fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        applog::write(applog::Level::Error, "rust", &format!("panic: {info}"));
+        prev(info);
+    }));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 必须在 Builder 之前 —— Tauri 的 RUNTIME 是个 OnceLock，
@@ -59,6 +72,26 @@ pub fn run() {
         })
         .setup(|app| {
             use tauri::Manager;
+
+            /*
+             * **日志第一个装。** 它服务的正是「启动时出了事」那一类 ——
+             * 装在后面的话，`setup` 里任何一步失败都还是没人记得住。
+             *
+             * 落在 `~/Library/Logs/com.liteide.app/`（`app_log_dir`），
+             * 和别的 macOS 应用放一起：用户自己看得到、删得掉、拖得走。
+             * 取不到目录（不该发生）就整个跳过 —— 日志装不上不能变成启动失败。
+             */
+            if let Ok(dir) = app.path().app_log_dir() {
+                let path = applog::install(&dir);
+                crate::diag!("applog -> {}", path.display());
+                applog::write(
+                    applog::Level::Info,
+                    "app",
+                    &format!("启动 v{}", app.package_info().version),
+                );
+                install_panic_hook();
+            }
+
             /*
              * 菜单必须在这里建，不能等前端 ready 之后再让它下发 ——
              * 那中间的几百毫秒里菜单栏是 Tauri 的默认英文菜单，
@@ -136,6 +169,9 @@ pub fn run() {
             commands::pty_resize,
             commands::pty_kill,
             commands::diag,
+            commands::app_log,
+            commands::app_log_path,
+            commands::clear_app_log,
             commands::diag_enabled,
             commands::pick_folder,
             commands::set_recent,
