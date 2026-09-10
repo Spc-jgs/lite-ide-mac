@@ -507,7 +507,7 @@ pub fn rename_entry(path: impl AsRef<Path>, new_name: &str) -> io::Result<PathBu
 ///
 /// 1. `symlink_metadata` + `is_file()` —— **不跟随符号链接**
 /// 2. 大小必须是 0
-/// 3. 规范化之后必须仍在草稿目录里（挡掉 `..` 拼出来的路径）
+/// 3. **父目录**规范化之后必须仍在草稿目录里（挡掉 `..` 拼出来的路径）
 ///
 /// 第 1 条真正在防的是 `symlink_metadata`：换成跟随链接的 `metadata`，
 /// 一条指向草稿目录里另一个空文件的链接就能让三条判据全过，
@@ -516,6 +516,26 @@ pub fn rename_entry(path: impl AsRef<Path>, new_name: &str) -> io::Result<PathBu
 /// `is_file()` 本身是纵深防御,**单独去掉它测试不会红** —— 目录和符号链接的
 /// `symlink_metadata().len()` 恰好都不是 0，会被第 2 条拦下。留着它是因为
 /// 「只删普通文件」是这里的真实意图，不该靠另一条判据的巧合来兑现。
+///
+/// # 规范化只用来**判断**，绝不用来**指定删谁**（issue #26）
+///
+/// 上一版是 `let real = path.canonicalize()?;` 然后 `remove_file(real)`。
+/// 那个 `real` 是**跟随了符号链接之后**的路径，于是判据和动作作用在
+/// 两个不同的东西上，中间隔着一次路径解析：
+///
+/// > 三条判据过完、`canonicalize` 之前，把这个空文件换成一条指向草稿目录里
+/// > 另一份文件的符号链接 —— `canonicalize` 跟到目标，目标在草稿目录里所以
+/// > `starts_with` 也过，`remove_file` 删掉的是那个**非空**的目标。
+///
+/// 所以现在删的是**调用方给的那个名字**：`unlink` 摘掉的是目录项本身，
+/// 最后一级是符号链接时它删链接、不碰目标。要判「在不在草稿目录里」，
+/// 就只规范化**父目录** —— 父目录的解析不会跟随最后那一级。
+///
+/// 剩下的缝要说清楚，别当成没有：检查和 `unlink` 之间那个名字仍然可能被换掉，
+/// 换成非空文件的话我们会把它摘掉。但换进来的东西**只能在草稿目录里**
+/// （父目录已经钉死了），也就是应用自己数据目录下的一份草稿；
+/// 原来那条「顺着链接删到目录外面 / 删掉非空文件」的路已经不存在。
+/// 要连这条缝一起堵得上 `O_NOFOLLOW` + `fstat` 绑同一个 fd，那要引 `libc`。
 ///
 /// 判据写在这儿而不是前端，是同一条老规矩：**前端少一个把东西删到别处去的机会**。
 ///
@@ -536,15 +556,19 @@ pub fn discard_empty_scratch(dir: impl AsRef<Path>, path: impl AsRef<Path>) -> i
             "这份草稿里有东西，不能这么丢",
         ));
     }
-    let real = path.canonicalize()?;
+    // 只规范化父目录：最后一级留着不解析，否则又回到「判一个、删另一个」
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "没有父目录"))?
+        .canonicalize()?;
     let root = dir.as_ref().canonicalize()?;
-    if !real.starts_with(&root) {
+    if !parent.starts_with(&root) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "不在草稿目录里",
         ));
     }
-    fs::remove_file(real)
+    fs::remove_file(path)
 }
 
 /// 移到废纸篓。**不做真删除** —— 除了 [`discard_empty_scratch`]

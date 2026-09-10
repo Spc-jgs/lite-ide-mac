@@ -63,6 +63,22 @@ const targetField = StateField.define<DecorationSet>({
 });
 
 /**
+ * 当前下划线的范围，直接问 StateField 要。
+ *
+ * **这里以前是一个闭包变量，和 field 各存一份 —— 于是它们会各说各话。**
+ * `docChanged` 时 field 把装饰撤了，闭包里那份还留着旧区间；下一次
+ * `refresh` 看到「还在同一个词上」就直接返回，下划线再也不亮
+ * （issue #25：按住 ⌘ 让词亮着、打一个字，之后指针不动就永远不会再亮）。
+ *
+ * 现在只有一个真相来源。代价是每次 `mousemove` 多一次 `field()` +
+ * `iter()` —— 这个 set 里最多一条 range，比重新解析一次符号便宜得多。
+ */
+function targetRange(view: EditorView): { from: number; to: number } | null {
+  const it = view.state.field(targetField).iter();
+  return it.value ? { from: it.from, to: it.to } : null;
+}
+
+/**
  * 装上 ⌘Click 跳转和 ⌘B 跳转。**不碰多光标**，理由见文件头。
  *
  * `Prec.highest` 给 ⌘B：CM6 的 `defaultKeymap` 里现在没有 `Mod-b`，
@@ -70,17 +86,8 @@ const targetField = StateField.define<DecorationSet>({
  * （「装了不生效」这类 bug 不报错，只是按了没反应）。
  */
 export function jumpExtension(hooks: JumpHooks): Extension {
-  /**
-   * 上一次画下划线的范围。
-   *
-   * 存在闭包里而不是 StateField 里：它只用来**省掉重复计算**，
-   * 不参与渲染。放进 state 等于每次 mousemove 都要过一遍事务。
-   */
-  let at: { from: number; to: number } | null = null;
-
   const clear = (view: EditorView) => {
-    if (!at) return;
-    at = null;
+    if (!targetRange(view)) return;
     view.dispatch({ effects: setTarget.of(null) });
   };
 
@@ -89,11 +96,11 @@ export function jumpExtension(hooks: JumpHooks): Extension {
     const pos = view.posAtCoords({ x, y });
     if (pos === null) return clear(view);
     // 还在同一个词上就什么都不做 —— mousemove 是高频事件
+    const at = targetRange(view);
     if (at && pos >= at.from && pos <= at.to) return;
     const hit = hooks.resolve(pos);
     if (!hit) return clear(view);
-    at = { from: hit.from, to: hit.to };
-    view.dispatch({ effects: setTarget.of(at) });
+    view.dispatch({ effects: setTarget.of({ from: hit.from, to: hit.to }) });
   };
 
   /** ⌘ 松开之后鼠标停在哪儿 —— keyup 时没有坐标，得记着 */
