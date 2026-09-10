@@ -70,6 +70,9 @@ pub struct DirEntryDto {
     pub path: String,
     pub is_dir: bool,
     pub size: u64,
+    /// 名字命中生成物名单（`node_modules` `target` `dist` …）。
+    /// **它在树里、点得开** —— 界面只是把它压暗、不预取。见 `fsservice::list_dir`。
+    pub generated: bool,
 }
 
 /// 探测一个路径：是目录还是文件，文件该用哪种模式打开。
@@ -122,6 +125,7 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
             path: e.path.to_string_lossy().into_owned(),
             is_dir: e.is_dir,
             size: e.size,
+            generated: e.generated,
         })
         .collect())
 }

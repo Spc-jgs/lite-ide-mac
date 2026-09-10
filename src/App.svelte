@@ -676,9 +676,19 @@
     }
   }
 
-  /** 冲突解决完写回文件；全部决定完的才 git add 标记已解决 */
+  /**
+   * 冲突解决完写回文件；全部决定完的才 git add 标记已解决。
+   *
+   * 占锁（issue #23）：`gitStage` 动 index，而这条路原来在守卫外面 ——
+   * 解决冲突的场合**尤其**容易撞上，那时人往往同时开着终端在跑 `git status`
+   * 或另一次 `git add`。
+   *
+   * 写文件那一步也圈在里面：它和紧跟着的 `gitStage` 必须是一件事，
+   * 中间插进一次别的写操作，暂存的就是半份内容。
+   */
   async function resolveMerge(tab: TabState, content: string, resolved: boolean) {
     if (!repo || !tab.rel) return;
+    if (!claimGit(resolved ? "标记为解决" : "保存冲突进度")) return;
     try {
       await writeText(`${repo}/${tab.rel}`, content, tab.encoding);
       if (resolved) {
@@ -692,6 +702,8 @@
       await refreshGit();
     } catch (e) {
       notify.fail(String(e));
+    } finally {
+      releaseGit();
     }
   }
 
@@ -744,6 +756,66 @@
   let gitWriting = $state<string | null>(null);
 
   /**
+   * 占住「这个仓库正在被写」这件事。占得到返回 true。
+   *
+   * # 为什么要从 `gitDo` 里抽出来（issue #23）
+   *
+   * 这道守卫原来长在 `gitDo` 里面，于是它只盖住走 `gitDo` 的那些路径。
+   * 拉取、推送、解决冲突这三条**在外面** —— 前两条有自己的进度条和取消
+   * （`syncing`），第三条直接调 `gitStage`。结果是：
+   *
+   * > pre-commit 钩子跑三十秒的时候，拉取按钮仍然可以点。
+   *
+   * 而那正是守卫要挡的场景 —— 命令挪到阻塞池之后它们之间不再由主线程串行，
+   * 两条 git 撞上 `index.lock` 是真会发生的（issue #11 记着这个回归点）。
+   * 撞上之后用户看到的是 git 的英文报错，而 issue #15 刚把这类东西翻译掉。
+   *
+   * 抽出来之后这个信号的语义也更准了：它说的是**「这个仓库现在有人在写」**，
+   * 不是「`gitDo` 在跑」。
+   *
+   * **`git fetch` 不占**：它不碰 index（写的是 refs 和 FETCH_HEAD），
+   * 和 commit 用的不是同一把锁。为了对称而把它也挡住，只会让
+   * 「钩子跑着的时候连拉一下都不行」——挡住的是一件本来不会出事的事。
+   * 但 `doPull` **整体**要占，它末尾那次合并是真的动 index。
+   */
+  function claimGit(doing: string): boolean {
+    if (gitWriting) {
+      /*
+       * **不能走 `notify.fail`。** 状态栏左槽是 `{#if doing}{:else if info}
+       * {:else if error}`，而 doing 排在最前面 —— 慢操作正是 doing 亮着的
+       * 时候，那句 fail 写进去也显示不出来，4 秒后还被自己的定时器清掉。
+       * 于是用户看到的仍然是「点了没反应」，正是这道守卫要避免的东西。
+       *
+       * 直接改 doing 的文案：渲染是「正在${doing}…」，这里拼出来就是
+       * 「正在提交，请等它做完…」。`gitWriting` 存的是原始动作名，不会被
+       * 这句话污染，所以点第三次、第四次文案也不会越接越长。
+       * 操作结束时占用方的 `finally` 会清掉它，不用另设一个定时器。
+       */
+      notify.doing = `${gitWriting}，请等它做完`;
+      return false;
+    }
+    gitWriting = doing;
+    return true;
+  }
+
+  /**
+   * 放开。**每个 `claimGit` 都必须有一个配对的、在 `finally` 里的这句。**
+   *
+   * 顺带把 `notify.doing` 清掉 —— 这一句是被守卫挡下来的那次调用写进去的
+   * （「正在提交，请等它做完」），而**写它的那次调用已经 return 了，
+   * 没有人会来清**。只有占着锁的那一方知道什么时候该收场。
+   *
+   * 漏了这句的表现：拉取被挡一次之后，状态栏左槽永远挂着
+   * 「正在合并上游，请等它做完…」，连当前打开的是哪个文件都被它盖住 ——
+   * 浏览器里实测到的，三秒后仍在。`gitDo` 一直是对的（它自己 finally 里
+   * 清了），错的是新收进来的那三条。放进 `releaseGit` 就不会再漏一条。
+   */
+  function releaseGit() {
+    gitWriting = null;
+    notify.doing = "";
+  }
+
+  /**
    * git 写操作的统一出口：做完刷新状态，失败统一收口（issue #15）。
    *
    * `doing` 是**正在做的那件事的名字**，不是可选的装饰 —— 这几条命令全都
@@ -758,22 +830,7 @@
    */
   async function gitDo(what: string, fn: () => Promise<unknown>, doing: string) {
     if (!repo) return;
-    if (gitWriting) {
-      /*
-       * **不能走 `notify.fail`。** 状态栏左槽是 `{#if doing}{:else if info}
-       * {:else if error}`，而 doing 排在最前面 —— 慢操作正是 doing 亮着的
-       * 时候，那句 fail 写进去也显示不出来，4 秒后还被自己的定时器清掉。
-       * 于是用户看到的仍然是「点了没反应」，正是这道守卫要避免的东西。
-       *
-       * 直接改 doing 的文案：渲染是「正在${doing}…」，这里拼出来就是
-       * 「正在提交，请等它做完…」。`gitWriting` 存的是原始动作名，不会被
-       * 这句话污染，所以点第三次、第四次文案也不会越接越长。
-       * 操作结束时 `finally` 会清掉它，不用另设一个定时器。
-       */
-      notify.doing = `${gitWriting}，请等它做完`;
-      return;
-    }
-    gitWriting = doing;
+    if (!claimGit(doing)) return;
     /*
      * **慢的才说话。**
      *
@@ -793,7 +850,7 @@
       // 都会被上面那道守卫挡下来
       clearTimeout(tip);
       notify.doing = "";
-      gitWriting = null;
+      releaseGit();
     }
   }
 
@@ -1761,6 +1818,56 @@
    * 默认只允许快进 —— 永远不会「拉一下，凭空多出一个合并提交」。
    * 快进不了就停下来问（或者用上次记住的选择）。
    */
+  /**
+   * 拉一次。**返回值是「要用这个模式再拉一次」**，null = 不用再拉。
+   *
+   * # 为什么重试要走返回值，不能在 catch 里直接递归
+   *
+   * 原来那句是 `void doPull(lastMergeMode); return;` —— 加上 issue #23 的
+   * 守卫之后它会**把自己挡下来**：`doPull` 里 `claimGit` 之前没有 `await`，
+   * 递归那次同步就跑到守卫上，而这时外层的 `finally` 还没执行、锁还在自己手里。
+   * 表现会是「分岔之后自动重试静默失灵，只弹一句『正在合并上游，请等它做完』」。
+   *
+   * 也不能改成「先 `releaseGit()` 再递归」：那样外层的 `finally` 会**再放一次**，
+   * 而那时锁已经属于内层了 —— 等于凭空把锁开了。
+   *
+   * 把重试挪到 `finally` 之后就没有这两个问题。重试只可能发生一次
+   * （第二次带着 `mode`，走不进那个分支）。
+   */
+  async function pullOnce(
+    upstream: string,
+    mode?: "merge" | "rebase",
+  ): Promise<"merge" | "rebase" | null> {
+    // **整个 pull 都占着锁，包括前面那次 fetch。** fetch 自己不动 index，
+    // 但它后面紧跟着的合并动。只圈住合并的话，fetch 期间开始的一次提交
+    // 会让合并被挡下来 —— 那时 pull 已经拉下来一半，停在一个说不清的状态上
+    if (!claimGit("合并上游")) return null;
+    try {
+      if (!mode && !(await doFetch("pull"))) return null;
+      await gitMergeUpstream(repo!, upstream, mode ?? "ff-only");
+      await workingTreeChanged();
+      await refreshGit();
+      notify.ok(mode === "rebase" ? "已变基到上游" : "已合并上游");
+      return null;
+    } catch (e) {
+      const err = e as RemoteErr;
+      // 快进不了 = 分岔了，要先做决定。这不是错误，是个岔路口
+      if (err.kind === "conflict" && !mode) {
+        // 记过一次就直接用，不再问（IDEA 的「记住这次选择」）
+        if (lastMergeMode) return lastMergeMode;
+        pendingDiverge = { upstream };
+        return null;
+      }
+      await showRemoteErr(err);
+      // 合并冲突之后工作区变了，得把界面对上
+      await workingTreeChanged();
+      await refreshGit();
+      return null;
+    } finally {
+      releaseGit();
+    }
+  }
+
   async function doPull(mode?: "merge" | "rebase") {
     if (!repo) return;
     // 确认条在 Git 那一组里（懒的）。从菜单直接拉时它可能还没到位 ——
@@ -1771,29 +1878,8 @@
       notify.fail("这个分支没有上游，先推送一次", 3000);
       return;
     }
-    if (!mode && !(await doFetch("pull"))) return;
-    try {
-      await gitMergeUpstream(repo, upstream, mode ?? "ff-only");
-      await workingTreeChanged();
-      await refreshGit();
-      notify.ok(mode === "rebase" ? "已变基到上游" : "已合并上游");
-    } catch (e) {
-      const err = e as RemoteErr;
-      // 快进不了 = 分岔了，要先做决定。这不是错误，是个岔路口
-      if (err.kind === "conflict" && !mode) {
-        // 记过一次就直接用，不再问（IDEA 的「记住这次选择」）
-        if (lastMergeMode) {
-          void doPull(lastMergeMode);
-          return;
-        }
-        pendingDiverge = { upstream };
-        return;
-      }
-      await showRemoteErr(err);
-      // 合并冲突之后工作区变了，得把界面对上
-      await workingTreeChanged();
-      await refreshGit();
-    }
+    const retry = await pullOnce(upstream, mode);
+    if (retry) await pullOnce(upstream, retry);
   }
 
   /** 推送。先把要推的提交列出来让人看清 —— 照 IDEA 的推送对话框 */
@@ -1819,6 +1905,15 @@
     const req = pendingPush;
     pendingPush = null;
     if (!repo || !req || syncing) return;
+    /*
+     * **push 也占锁**（issue #23），虽然它自己不动 index。
+     *
+     * 理由不是锁冲突，是**因果**：正在跑的那次提交会改变要推的内容。
+     * 钩子跑到一半时点推送，推上去的是钩子跑完之前的 HEAD ——
+     * 命令都成功，结果却不是人想要的那个，而且事后完全看不出来。
+     * 这种「都没报错但答案是错的」比一句 `index.lock` 报错难查得多。
+     */
+    if (!claimGit("推送")) return;
     remoteErr = null;
     const opId = ++nextOpId;
     syncing = { what: "push", id: opId, phase: "正在连接…", percent: null };
@@ -1830,6 +1925,7 @@
       await showRemoteErr(e as RemoteErr);
     } finally {
       syncing = null;
+      releaseGit();
     }
   }
 

@@ -388,10 +388,24 @@ const SCRATCH_DIR = "/Users/you/Library/Application Support/com.liteide.app/scra
  */
 const APP_LOG = "/Users/you/Library/Logs/com.liteide.app/app.log";
 
+/**
+ * 生成物目录名。**必须和 `crates/excludes::GENERATED_DIRS` 一份**。
+ *
+ * 桩里手抄一份是没办法的事（那是 Rust 常量），所以下面的 DIRS 里
+ * 特意摆了一个真的 `node_modules` 和一个真的 `build` —— 不摆的话，
+ * 「生成物压暗」这条在浏览器里一次都看不到。
+ */
+const GENERATED = new Set(["node_modules", "target", "dist", "build", "venv", "__pycache__", "vendor"]);
+
 const DIRS: Record<string, Array<[string, boolean]>> = {
   // 应用日志所在的目录。它**不在项目里**，只有「帮助 → 打开应用日志」够得着
   "/Users/you/Library/Logs/com.liteide.app": [["app.log", false]],
-  "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
+  "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], ["node_modules", true], ["target", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
+  // 生成物目录里也要有东西 —— 空目录点开只有一行「空」，看不出「点得开」这件事
+  "/proj/node_modules": [["svelte", true], [".package-lock.json", false]],
+  "/proj/node_modules/svelte": [["package.json", false]],
+  "/proj/target": [["debug", true]],
+  "/proj/target/debug": [["build.log", false]],
   "/proj/.github": [["workflows", true]],
   "/proj/.github/workflows": [["ci.yml", false]],
   "/proj/src": [["OrderService.java", false], ["main.py", false], ["gbk-legacy.java", false], ["big5-notes.txt", false], ["long.ts", false]],
@@ -686,6 +700,9 @@ export function installMockIpc(): void {
             path: `${path}/${name}`,
             isDir,
             size: isDir ? 0 : (FILES[`${path}/${name}`]?.length ?? 0),
+            // 判据抄 Rust 侧：只有**目录**才谈得上生成物目录。
+            // 一个叫 build 的文件（shell 脚本）不算
+            generated: isDir && GENERATED.has(name),
           }));
         }
         case "detect_encoding":
@@ -978,6 +995,19 @@ index 1a2b3c4..5d6e7f8 100644
           for (const x of [...(a.paths as string[]), ...(a.untracked as string[])]) discarded.add(x);
           return null;
         case "git_commit":
+          /*
+           * **故意慢。** 真实现里 `git commit` 跑在阻塞池上，因为
+           * pre-commit 钩子跑什么是仓库说了算 —— 跑一遍 eslint 三十秒
+           * （rules/rust.md 那张表）。桩原来 0ms 返回，于是围着这件事
+           * 建的两样东西在浏览器里**一次都验不到**：
+           *
+           * - 「慢操作才说话」那条 300ms 的线（`gitDo` 里的 tip 定时器）
+           * - 「一次只允许一个写操作」那道守卫（issue #23）
+           *
+           * 1.2 秒够跨过 300ms 那条线、也够在它跑着的时候手动点一次拉取，
+           * 又不至于让浏览器里调 UI 变难受。
+           */
+          await sleep(1200);
           return "[m13/git abc1234] 桩提交";
 
         // 造一段带合并的历史，泳道图的分叉与汇合都能看到

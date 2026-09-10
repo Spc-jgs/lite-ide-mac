@@ -70,6 +70,8 @@
     path: string;
     isDir: boolean;
     depth: number;
+    /** 生成物目录：压暗、不自动展开。**它在树里、点得开**（issue #13） */
+    generated: boolean;
   }
 
   /** path → 子项。未加载过的目录不在表里，展开时才请求 */
@@ -167,18 +169,25 @@
     expanded = next;
   }
 
-  /** 深度优先展开成扁平列表 */
+  /**
+   * 深度优先展开成扁平列表。
+   *
+   * `inGen` 往下传：**生成物是整棵子树的性质，不是那一行的性质**。
+   * 只标记顶上那一行的话，展开 `node_modules/` 往下滚两屏，那行早就滚没了 ——
+   * 剩下的是一片看着和自己代码一模一样的东西。
+   */
   let rows = $derived.by(() => {
     const out: Row[] = [];
-    const walk = (dir: string, depth: number) => {
+    const walk = (dir: string, depth: number, inGen: boolean) => {
       const items = children.get(dir);
       if (!items) return;
       for (const it of items) {
-        out.push({ name: it.name, path: it.path, isDir: it.isDir, depth });
-        if (it.isDir && expanded.has(it.path)) walk(it.path, depth + 1);
+        const gen = inGen || it.generated;
+        out.push({ name: it.name, path: it.path, isDir: it.isDir, depth, generated: gen });
+        if (it.isDir && expanded.has(it.path)) walk(it.path, depth + 1, gen);
       }
     };
-    walk(root, 0);
+    walk(root, 0, false);
     return out;
   });
 
@@ -630,7 +639,8 @@
     menu = {
       x,
       y,
-      row: { name: rootName, path: root, isDir: true, depth: -1 },
+      // 项目根永远不是生成物 —— 你是特意把它当项目打开的
+      row: { name: rootName, path: root, isDir: true, depth: -1, generated: false },
       fromHead: true,
     };
   }
@@ -807,6 +817,7 @@
       <button
         class="row"
         class:dir={row.isDir}
+        class:gen={row.generated}
         class:active={row.path === activePath}
         class:flash={row.path === flash}
         role="treeitem"
@@ -822,7 +833,9 @@
         onfocus={() => (cursor = i)}
         onkeydown={(e) => onRowKey(e, i)}
         oncontextmenu={(e) => openMenu(e, i)}
-        title={row.name}
+        title={row.generated
+          ? `${row.name} —— 生成物目录，里面的东西是工具写的。搜索（⌘P / ⇧⌘F）不进这里`
+          : row.name}
       >
         {#if row.isDir}
           <span class="caret" class:open={expanded.has(row.path)}>
@@ -1071,6 +1084,20 @@
   .row.active :global(.glyph), .row:hover :global(.glyph) { color: var(--text-dim); }
   .row.active :global(.glyph.conf), .row:hover :global(.glyph.conf) { opacity: 1; }
   .name { overflow: hidden; text-overflow: ellipsis; }
+  /*
+   * 生成物目录（issue #13）。**压暗，不隐藏。**
+   *
+   * 原来它们根本不返回 —— 一个真叫 `build/` 的源码目录（CMake 项目很常见）
+   * 在树里凭空消失，而且没有任何提示。「名字叫 build」只是怀疑不是证据，
+   * 那条判据不该由文件树替人做完。
+   *
+   * 只降不透明度、不换颜色：git 的染色（改了 / 新增 / 冲突）还得读得出来，
+   * 换一层灰会把那个信息盖掉。`node_modules` 里也可能有你正在改的补丁。
+   *
+   * 悬停和选中时恢复全亮 —— 你已经在看它了，这时候再压暗只是碍事。
+   */
+  .row.gen { opacity: 0.42; }
+  .row.gen:hover, .row.gen.active { opacity: 1; }
   .row .gap { flex: 1; min-width: 4px; }
 
   /* git 装饰：文件名染色 + 右端一个状态字母。

@@ -48,6 +48,14 @@ export interface DirEntry {
   path: string;
   isDir: boolean;
   size: number;
+  /**
+   * 生成物目录（`node_modules` `target` `dist` `build` …）。
+   *
+   * **它在树里、点得开** —— 这个标记只影响长相：压暗、不自动展开。
+   * 原来这类目录是**根本不返回**的，于是一个真叫 `build/` 的源码目录
+   * 在界面上凭空消失，还没有任何提示（issue #13）。
+   */
+  generated: boolean;
 }
 
 /** 探测路径：目录还是文件，文件该用哪种模式打开 */

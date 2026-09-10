@@ -19,6 +19,11 @@ pub struct Entry {
     pub path: PathBuf,
     pub is_dir: bool,
     pub size: u64,
+    /// 名字命中了 [`excludes::GENERATED_DIRS`] —— **这是「怀疑」，不是「判决」**。
+    ///
+    /// 界面据此把它压暗、不自动展开、也不预取子目录，但它**在树里**、
+    /// 点得开、里面的文件打得开。判据见 `list_dir` 的说明。
+    pub generated: bool,
 }
 
 /// 列出一层目录。不递归 —— 文件树按需展开，避免大仓库一次性遍历。
@@ -32,28 +37,50 @@ pub struct Entry {
 /// 共用一个开关。`.git/` 也照列：树是懒展开的，不点开它就只是一行。
 ///
 /// 那份名单是**和搜索共用的同一份**。原来这里自己有四个、searchsvc 自己有十四个，
-/// 于是「树里看不见」和「⌘P 搜不到」是两套判据，合起来能造出一个完全够不着的
-/// 目录，而且各自演化。名单本身该不该这么长，是 issue #13 的正题。
+/// 于是「树里看不见」和「⌘P 搜不到」是两套判据，各自演化。
+///
+/// # 生成物目录**列出来，只是压暗**（issue #13，2026-09-10 改）
+///
+/// 原来是 `continue` 掉的 —— 名字命中就当它不存在。那条判据有个说不清的后果：
+///
+/// > `dist` 和 `build` 是**常见的源码目录名**。CMake 项目的 `build/` 里放的
+/// > 是构建脚本，有的项目 `dist/` 里放的是要提交的产物。这种项目在 lite-ide
+/// > 里看到的是一个**凭空少了一个目录**的文件树，而且没有任何提示。
+///
+/// 「名字叫 build」只是**怀疑**，不是证据。真正的证据是 git 忽不忽略它，
+/// 而这个 crate 零 git 依赖（也不该有 —— 起 git 必须走 `gitsvc::git_cmd` 那套
+/// 加固，否则 `.git/config` 就能让一次列目录去执行任意命令）。
+///
+/// 所以这里不再替界面做决定：**照列，打上 `generated` 标记**，
+/// 「压暗还是隐藏」由界面回答。信息不丢，噪声也不进来 —— IDEA 对
+/// excluded 目录就是这么做的。
+///
+/// **搜索那半没跟着改**：`⌘P` / `⇧⌘F` 仍然按名字跳过这些目录。
+/// 那半要做对得让 git 说话（rg 默认就认 `.gitignore`，而内置兜底实现不认，
+/// 「装了 rg 和没装 rg 结果要一样」是那个模块的前提）。#13 还开着记这件事。
 ///
 /// 排序：目录在前，同类按名称不区分大小写排列，与 Finder / IDEA 一致。
+/// **生成物不单独排到末尾** —— 挪位置比压暗更让人意外，而且 `target/` 一旦
+/// 换了位置，「它刚才还在这儿」这种困惑比看见它更贵。
 pub fn list_dir(dir: impl AsRef<Path>) -> io::Result<Vec<Entry>> {
     let mut out = Vec::new();
     for ent in fs::read_dir(dir.as_ref())? {
         let ent = ent?;
         let name = ent.file_name().to_string_lossy().into_owned();
-        if excludes::is_generated_dir(&name) {
-            continue;
-        }
         let meta = match ent.metadata() {
             Ok(m) => m,
             // 断掉的软链等：跳过而不是整个目录失败
             Err(_) => continue,
         };
+        let is_dir = meta.is_dir();
         out.push(Entry {
+            // 只有目录才谈得上「生成物目录」。一个叫 `build` 的**文件**
+            // （shell 脚本很常见）压暗它没有任何道理
+            generated: is_dir && excludes::is_generated_dir(&name),
             name,
             path: ent.path(),
-            is_dir: meta.is_dir(),
-            size: if meta.is_dir() { 0 } else { meta.len() },
+            is_dir,
+            size: if is_dir { 0 } else { meta.len() },
         });
     }
     out.sort_by(|a, b| {
@@ -655,23 +682,41 @@ mod tests {
     /// 往那份名单里加一个名字，这条测试自动就覆盖到了 —— 而写死名字的话，
     /// 名单长了测试却还只验老那几个，正是当初两份名单分岔的形状。
     #[test]
-    fn 点文件要列出来而生成物目录不列() {
+    fn 点文件和生成物目录都要列出来_生成物带标记() {
         let d = sandbox("hidden");
         fs::write(d.join("visible.rs"), "x").unwrap();
         fs::write(d.join(".env"), "x").unwrap();
         fs::create_dir(d.join(".github")).unwrap();
         fs::create_dir(d.join(".git")).unwrap();
-        for name in excludes::GENERATED_DIRS {
-            fs::create_dir(d.join(name)).unwrap();
-        }
+        fs::create_dir(d.join("build")).unwrap();
+        fs::create_dir(d.join("node_modules")).unwrap();
+        // **一个叫 build 的文件不是生成物目录。** shell 脚本里这个名字很常见，
+        // 而 `generated` 只该跟着「里面全是工具生成的东西」这件事走
+        fs::write(d.join("target"), "#!/bin/sh\n").unwrap();
 
-        let got: Vec<String> = list_dir(&d)
+        let got: Vec<(String, bool)> = list_dir(&d)
             .unwrap()
             .into_iter()
-            .map(|e| e.name)
+            .map(|e| (e.name, e.generated))
             .collect();
-        // 目录在前、同类不区分大小写排序 —— 点目录也照这条规矩排
-        assert_eq!(got, vec![".git", ".github", ".env", "visible.rs"]);
+        /*
+         * 目录在前、同类不区分大小写排序 —— 点目录也照这条规矩排。
+         *
+         * **生成物不单独排到末尾**（issue #13）：挪位置比压暗更让人意外，
+         * 而且 `target/` 一旦换了位置，「它刚才还在这儿」这种困惑比看见它更贵。
+         */
+        assert_eq!(
+            got,
+            vec![
+                (".git".into(), false),
+                (".github".into(), false),
+                ("build".into(), true),
+                ("node_modules".into(), true),
+                (".env".into(), false),
+                ("target".into(), false), // 它是文件
+                ("visible.rs".into(), false),
+            ]
+        );
         fs::remove_dir_all(d).ok();
     }
 
