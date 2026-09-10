@@ -495,11 +495,24 @@ for _ in $(seq 1 20); do
   sleep 0.5
 done
 if [ "${WINS:-0}" = "0" ]; then
+  # **先问一句屏幕是不是锁着的。**
+  #
+  # 锁屏时应用照常启动（webview 挂载、diag 有输出），但系统不合成 GUI 窗口，
+  # 于是**每个进程**的 `count of windows` 都是 0 —— Finder、Claude 一样是 0。
+  # 这个现象和「没有辅助功能权限」长得一模一样，而排查方向完全相反：
+  # 2026-09-10 照着那条提示查了两轮权限，最后截屏才发现屏幕是锁的。
+  if ioreg -n Root -d1 -a 2>/dev/null | grep -A 1 CGSSessionScreenIsLocked | grep -q "<true/>"; then
+    printf '\n\033[31m屏幕锁着，AX 拿不到任何窗口 —— 不是权限问题，也不是应用坏了。\033[0m\n'
+    echo "解锁之后重跑。（锁屏时应用照常启动，但系统不合成 GUI 窗口，"
+    echo "所以每个进程的 count of windows 都是 0，Finder 也一样。）"
+    exit 2
+  fi
   printf '\n\033[31m拿不到 lite-ide 的窗口（count of windows = 0），后面全部跳过。\033[0m\n'
   echo "两种可能，按概率排："
-  echo "  1. 跑这个脚本的终端没有「辅助功能」权限。"
-  echo "     系统设置 → 隐私与安全性 → 辅助功能 → 勾上你的终端，然后**重开终端**。"
-  echo "     （注意是跑脚本的那个终端，不是 lite-ide 自己。)"
+  echo "  1. 跑这个脚本的**宿主应用**没有「辅助功能」权限。"
+  echo "     注意 TCC 认的是「责任进程」——从 Claude Code 里跑的话，"
+  echo "     要勾的是 Claude.app，不是终端（父进程链：zsh ← claude ← Claude.app）。"
+  echo "     系统设置 → 隐私与安全性 → 辅助功能。"
   echo "  2. 应用真的没建出窗口 —— 看 ${LOG}。"
   exit 2
 fi

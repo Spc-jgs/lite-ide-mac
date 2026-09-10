@@ -198,10 +198,34 @@ export function importsOf(state: EditorState, lang: string): Map<string, string>
   return out;
 }
 
-/** Java 的 `package a.b.c;`。同包的类不写 import，靠它推同目录 */
+/**
+ * Java 的 `package a.b.c;`。同包的类不写 import，靠它推同目录。
+ *
+ * **走语法树，不扫文本。** 原来是拿 `/^\s*package\s+([\w.]+)\s*;/m` 扫前
+ * 2000 字 —— `/m` 让 `^` 匹配每一行行首，于是块注释里那行被注释掉的旧包名
+ * 会先命中：
+ *
+ * ```java
+ * /* package com.old.pkg; *\/     ← 改包名时很常见的留痕
+ * package com.demo.api;
+ * ```
+ *
+ * 结果是同包跳转整层跑到 `com/old/pkg/` 底下去，而下划线照亮。
+ * `wordAt` 特意走的语法树就是为了不把注释当真，这一层不能开倒车。
+ */
 export function packageOf(state: EditorState): string | null {
-  const head = state.doc.sliceString(0, Math.min(state.doc.length, 2000));
-  return /^\s*package\s+([\w.]+)\s*;/m.exec(head)?.[1] ?? null;
+  let pkg: string | null = null;
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (pkg !== null) return false; // 已经拿到了，别再往下走
+      if (node.name !== "PackageDeclaration") return;
+      // 包名是它底下那个 ScopedIdentifier（单段包名如 `package demo;` 是 Identifier）
+      const id = node.node.getChild("ScopedIdentifier") ?? node.node.getChild("Identifier");
+      if (id) pkg = state.doc.sliceString(id.from, id.to);
+      return false;
+    },
+  });
+  return pkg;
 }
 
 /** `a/b/../c` → `a/c`。TS 的相对 import 必须先规范化才能拿去比 */
@@ -249,12 +273,27 @@ function candidatesFor(spec: string, lang: string, fromRel: string): string[] {
  * Java 走**后缀**匹配（模块前缀未知），TS 走全等。
  * 索引是相对项目根的路径列表，也就是 ⌘P 那一份 —— 没有为跳转多建一套索引，
  * 「这个文件在不在项目里」这个问题它本来就答得了。
+ *
+ * # 后缀撞上两份就认怂，不给下划线
+ *
+ * 后缀匹配天然会多命中：多模块项目里两个模块共用一批包名是常态
+ * （`etianqu-api` 和 `etianqu-main` 都有 `com/etianqu/admin/`），
+ * `src/main` 和 `src/test` 也是同一个形状。
+ *
+ * 原来是「命中第一个就返回」，而索引是字典序的 —— 于是在 web 模块里
+ * ⌘Click 一个类，打开的是 api 模块那份，**下划线还亮着**。
+ * 跳不了用户会自己去搜，跳错了他不会怀疑，所以这一条比「跳不到」严重。
+ *
+ * 认不准就一个都不给，让那个词落到菜单里那条搜索退路上。
  */
 function findIn(files: string[], cands: string[], suffix: boolean): string | null {
   for (const c of cands) {
     if (suffix) {
-      const hit = files.find((f) => f === c || f.endsWith(`/${c}`));
-      if (hit) return hit;
+      const hits = files.filter((f) => f === c || f.endsWith(`/${c}`));
+      // 多于一份 = 认不准。**直接收工**，不要退到下一个候选去 ——
+      // 那些是更弱的猜测（换个扩展名），拿它们顶上等于把认怂又变回猜
+      if (hits.length > 1) return null;
+      if (hits.length === 1) return hits[0];
     } else if (files.includes(c)) {
       return c;
     }
@@ -308,10 +347,35 @@ export function resolveJump(state: EditorState, pos: number, ctx: JumpCtx): Jump
     if (hit) return { ...w, target: { rel: hit, why: "import" } };
   }
 
-  // ── 三、同包（Java 同包不写 import，包路径就是目录路径）──
+  /*
+   * ── 三、同包（Java 同包不写 import，包路径就是目录路径）──
+   *
+   * **先看自己这个目录，找不到再退回全项目后缀匹配。** 两级不能合并：
+   *
+   * - 同一个包**可以横跨多个源码根**（`etianqu-api` 和 `etianqu-admin` 都能
+   *   往 `com.etianqu.admin` 里放类，Java 不要求它们在一个模块里），
+   *   所以只认同目录会把一大类合法情况判死。
+   * - 但只做后缀匹配又会在重名时挑字典序第一个 —— 明明自己目录里就有
+   *   准确答案，却跳到别的模块去了。
+   *
+   * 所以顺序是「确定的优先」：同目录那份是**唯一不需要猜的答案**，
+   * 它在就用它；不在才去问 `findIn`，而那一步撞上两份会自己认怂。
+   */
   if (javaLike) {
     const pkg = packageOf(state);
     if (pkg) {
+      const dir = ctx.rel.slice(0, ctx.rel.lastIndexOf("/"));
+      const ext = ctx.rel.slice(ctx.rel.lastIndexOf("."));
+      // 先问自己这个目录 —— 但要先确认 package 声明和目录真的对得上，
+      // 对不上说明这文件不在标准布局里（生成的代码、脚本目录里的 .java）
+      const 同目录 = `${dir}/${w.text}${ext}`;
+      if (
+        dir.endsWith(`/${pkg.replace(/\./g, "/")}`) &&
+        同目录 !== ctx.rel &&
+        ctx.files.includes(同目录)
+      ) {
+        return { ...w, target: { rel: 同目录, why: "同包" } };
+      }
       const hit = findIn(ctx.files, candidatesFor(`${pkg}.${w.text}`, ctx.lang, ctx.rel), true);
       // 命中自己那一份不算 —— 那就是当前文件
       if (hit && hit !== ctx.rel) return { ...w, target: { rel: hit, why: "同包" } };

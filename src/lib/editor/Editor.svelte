@@ -11,7 +11,7 @@
   import { ideaDarkTheme, ideaDarkHighlight } from "./theme-idea-dark";
   import { langOf } from "./langs";
   import { loadLang } from "./langs-load";
-  import { outlineOf, type Sym } from "./outline";
+  import { outlineOf, symbolCache, type Sym } from "./outline";
   import { minimap, setMinimapMarks, type MarkKind } from "./minimap";
   import { resolveJump, rawWordAt, type JumpHit } from "./jump";
   import { jumpExtension } from "./jump-ext";
@@ -133,19 +133,11 @@
   let seenTick = 0;
 
   /**
-   * 本文件的符号表，**按 `state.doc` 的身份缓存**。
-   *
-   * `outlineOf` 要遍历整棵语法树，而 ⌘hover 鼠标每动一格就要问一次跳转 ——
-   * 不缓存的话，在一个几千行的 Java 文件上划一下鼠标就是几十次全树遍历。
-   * `Text` 是不可变的，改一个字就是新对象，拿身份比就够了，不用另造版本号。
+   * 本文件的符号表，按「文档 + 语法树」缓存 —— 实现和为什么见
+   * [`symbolCache`]（抽到 jump.ts 里是为了能测：**语言是懒加载的**，
+   * 而这个缓存踩过「树还空着就把空表存成结论」那个坑）。
    */
-  let symCache: { doc: unknown; syms: Sym[] } | null = null;
-  function symbolsOf(state: EditorState): Sym[] {
-    if (symCache && symCache.doc === state.doc) return symCache.syms;
-    const syms = outlineOf(state);
-    symCache = { doc: state.doc, syms };
-    return syms;
-  }
+  const symbolsOf = symbolCache();
 
   const jumpHooks = {
     /*

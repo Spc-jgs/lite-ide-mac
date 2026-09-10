@@ -156,3 +156,37 @@ export function outlineOf(state: EditorState): Sym[] {
   });
   return out;
 }
+
+/**
+ * 本文件符号表的缓存器。**键必须同时带上文档和语法树。**
+ *
+ * `outlineOf` 要遍历整棵语法树，而 ⌘hover 鼠标每动一格就问一次跳转 ——
+ * 不缓存的话，几千行的 Java 文件上划一下就是几十次全树遍历。
+ *
+ * # 为什么不能只按 `state.doc` 的身份缓存
+ *
+ * 语言是**懒加载**的（`Editor.svelte` 里 `build()` 先塞一个空的 `langSlot`，
+ * 之后 `await import(...)` 回来再 `reconfigure`）。这中间 `Text` 对象一个字
+ * 都没变，而语法树是从**空**变成完整的。
+ *
+ * 只按 doc 缓存的话：着色还没出来时鼠标划过一次，`outlineOf` 得到空表并
+ * 被存住；等语言装好，本文件那一层**永远查不到东西**了 —— 名字于是落到
+ * import / 同包，项目里再有一份同名文件就会亮着下划线跳到别的文件去。
+ * 而这个缓存要等用户改一个字（新的 `Text`）才会失效。
+ *
+ * 大文件同理：`outlineOf` 在语法树还没铺完时直接返回空表（见 outline.ts），
+ * 那个空表同样不该被存成结论。
+ *
+ * 语法树对象在解析推进 / `reconfigure` 之后就是新的，拿身份比即可。
+ * （树没变时不重算 —— 那正是这个缓存存在的理由。）
+ */
+export function symbolCache(): (state: EditorState) => Sym[] {
+  let cached: { doc: unknown; tree: unknown; syms: Sym[] } | null = null;
+  return (state: EditorState) => {
+    const tree = syntaxTree(state);
+    if (cached && cached.doc === state.doc && cached.tree === tree) return cached.syms;
+    const syms = outlineOf(state);
+    cached = { doc: state.doc, tree, syms };
+    return syms;
+  };
+}

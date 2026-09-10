@@ -4486,3 +4486,129 @@ IDEA 里贴着词的任一侧都能跳。
 
 顺带在复查 ⑮ 时抓到自己另一个 bug：`ax` 是 `osascript ... | tail -1`，
 退出码恒为 0，拿它当 `if` 条件永远成立 —— 已改成比输出字符串。
+
+---
+
+## 2026-09-10 · grok 第二轮 review：三个 P1 都打在同一句承诺上
+
+跳转和草稿做完之后照例让 grok 跑一遍第二轮。**三个 P1、两个 P2、没有 P0。**
+
+三个 P1 形状完全一样：**下划线亮着，但跳到了别的文件**。这比「跳不了」严重得多 ——
+跳不了你会自己去搜，跳错了你不会怀疑。而「有下划线就一定跳得准」是这个功能
+唯一的承诺，三条都在打它。
+
+### 一、后缀匹配撞上两份，取了字典序第一个
+
+`findIn` 原来是「命中第一个就返回」：
+
+```ts
+const hit = files.find((f) => f === c || f.endsWith(`/${c}`));
+if (hit) return hit;
+```
+
+多模块项目里两个模块共用一批包名是**常态** —— 他那个 etianqu 就是
+`api / framework / main / module` 四个模块共用 `com.etianqu.*`。
+`src/main` 和 `src/test` 也是同一个形状（`target/` 已经排除了，`src/test` 没有）。
+
+于是在 web 模块里 ⌘Click 一个类，打开的是 api 模块那份。
+
+改成 `filter` 之后按数量判：**多于一份就返回 null，一个都不给**。
+认不准就让那个词落到菜单里那条搜索退路上 —— 那条路从名字到行为都是「搜索」，
+不承诺精确。
+
+grok 还指出：测试夹具自己就有两个模块共用 `com.etianqu.admin`，
+只是类名没撞上所以一直绿。
+
+### 二、同包层明明手里有准确答案，却去做了后缀匹配
+
+「同包」按 Java 的规定就是「同目录」，而目录名当前文件自己就带着
+（`ctx.rel` 的父目录）—— 这是三层里唯一不用猜的一层。原来它也走 `findIn`，
+于是另一个模块里同包同名的那份会因为字典序在前被抢走。
+
+**但不能一刀切成「只认同目录」**：改完跑测试，两条老断言红了 ——
+夹具里 `OrderService` 在**另一个模块的同包**里，而 Java 的同一个包
+**可以横跨多个源码根**（`etianqu-api` 和 `etianqu-admin` 都能往
+`com.etianqu.admin` 里放类），那个用例是合法的。
+
+最后是两级：**先看自己这个目录（确定的），找不到再退回后缀匹配（会自己认怂）**。
+「确定的优先」这个顺序才是对的，不是二选一。
+
+### 三、`packageOf` 扫文本，把注释里的旧包名当了真
+
+```ts
+/^\s*package\s+([\w.]+)\s*;/m.exec(head)   // ← /m 让 ^ 匹配每一行行首
+```
+
+改包名时把旧行注释掉是很常见的写法：
+
+```java
+/*
+package com.old.pkg;
+*/
+package com.demo.api;
+```
+
+块注释里那行赢了，于是**同包这一整层跑到 `com/old/pkg/` 底下去**，下划线照亮。
+
+`wordAt` 特意走的语法树就是为了不把注释当真，这一层等于开了倒车。
+改成从 `PackageDeclaration` 节点取。
+
+### 四、符号表缓存把「语言还没装好」那一拍的空表存成了结论
+
+这条最阴。`Editor.svelte` 里按 `state.doc` 的身份缓存符号表：
+
+```ts
+if (symCache && symCache.doc === state.doc) return symCache.syms;
+```
+
+而**语言是懒加载的** —— `build()` 先塞一个空的 `langSlot` 把编辑器立起来，
+之后 `await import("@codemirror/lang-java")` 回来再 `reconfigure`。
+这中间 `Text` 对象一个字都没变，语法树却是从**空**变成完整的。
+
+从文件树 ⌘Click 进来、手还按着 ⌘ 划过编辑器，问到的正是那一拍：
+`outlineOf` 得到空表并被存住，本文件那一层**从此永远查不到东西**，
+名字于是落到 import / 同包 —— 项目里再有一份同名文件就跳过去了。
+而这个缓存要等用户改一个字（新的 `Text`）才失效。
+
+修法是缓存键带上语法树的身份。顺手把它从 `.svelte` 里抽成
+`outline.ts` 的 `symbolCache()` —— **抽出来才测得了**：测试用一个
+`Compartment` 模拟「先空着、再 reconfigure 装上语言」，正是那一拍。
+
+### 验证
+
+四处各自验红：
+
+| 改回错的样子 | 哪条红 |
+|---|---|
+| `findIn` 用 `find` 取第一个 | `import 的类在两个模块里都有 → 认不准，不给下划线` |
+| `packageOf` 扫文本 | `注释里的 package 不算数` + `被注释掉的旧包名不能把同包带到 old 那份去` |
+| 同包去掉「先看自己目录」 | `同包要跳到自己这个目录里那份` |
+| 缓存键去掉语法树 | `语言装上之后必须重算，不能拿那张空表当结论` |
+
+`tests/jump.test.ts` 20 → **29 条**；`pnpm check` 248 文件 0 错；前端 12 个文件全过。
+
+两个 P2 提了 issue：[#25](https://github.com/Spc-jgs/lite-ide-mac/issues/25)
+（下划线亮着打字，之后不会再亮回来）、
+[#26](https://github.com/Spc-jgs/lite-ide-mac/issues/26)
+（`discard_empty_scratch` 检查与删除之间的 TOCTOU 窗口，出不了草稿目录）。
+
+### ⚠ 又一次环境误诊：屏幕锁着，我查了两轮权限
+
+修完想跑 smoke 验收，退出码 2、`count of windows = 0`。照着脚本那句提示查权限，
+编了个 C 程序调 `AXIsProcessTrustedWithOptions` —— 返回 1，早就授权了。
+又去怪残留进程，`pkill` 确认归零，还是 0。
+
+最后 `screencapture` 截了一张屏：**屏幕是锁的**。
+
+锁屏时应用照常启动（webview 挂载、diag 有输出），但系统**不合成 GUI 窗口** ——
+于是每个进程的 `count of windows` 都是 0，Finder、Claude 一样是 0。
+这个现象和「没有辅助功能权限」长得一模一样，而排查方向完全相反。
+
+smoke.sh 里加了这道闸（`ioreg -n Root -d1 -a | grep CGSSessionScreenIsLocked`），
+现在会直接说「屏幕锁着」。顺手把那句误导人的提示也改了 ——
+它写的是「勾上你的终端」，而 TCC 认的是责任进程，从 Claude Code 里跑
+要勾的是 Claude.app（父进程链 `zsh ← claude ← Claude.app`）。
+
+**同一个教训，这两天第四次了：能问系统的就别猜系统。**
+前三次是「白名单不是在防注释」「`is_file()` 不是那条真删除的防线」
+「`.cm-cursor` 的个数不能用来数光标」。形状都一样：**没验就下结论**。
