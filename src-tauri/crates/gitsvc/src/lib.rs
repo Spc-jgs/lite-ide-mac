@@ -587,7 +587,7 @@ const MAX_STDERR_BYTES: usize = 8 << 10;
 /// 判据同差异那条 `truncated` —— 宁可说「我读不下」，不能给一份假的完整。
 ///
 /// 输出**本来就可能很大**的两条不走这里：`status` 用 [`status_capped`]
-/// （截断了标 `truncated`），`commit` 用 [`run_drained`]（钩子话多不算失败）。
+/// （截断了标 `truncated`），`commit` 用 [`drain_both`]（钩子话多不算失败）。
 fn run_raw(cwd: &Path, args: &[&str]) -> R<Vec<u8>> {
     run_raw_capped(cwd, args, MAX_STDOUT_BYTES)
 }
@@ -618,10 +618,12 @@ fn run_raw_capped(cwd: &Path, args: &[&str], cap: usize) -> R<Vec<u8>> {
 /// 代价只是把超出的字节读完扔掉：内存仍然是有界的，省不掉的只有 I/O。
 /// 跑完把**两份输出**和成败都交出来。
 ///
-/// [`run_drained`] 和提交的分类都建在它上面。分开是因为
-/// **分类必须两份都看**：git 自己的话在 stdout，钩子的话在 stderr，
-/// 而两边可以同时有话 —— husky / lint-staged 那类钩子成功时也往 stderr
-/// 打一行招呼。只看 stderr 的话，「暂存区是空的」会被当成「钩子拒绝了」。
+/// 只交原始输出、不替调用方判成败，是因为提交的**分类必须两份都看**：
+/// git 自己的话在 stdout，钩子的话在 stderr，而两边可以同时有话 ——
+/// husky / lint-staged 那类钩子成功时也往 stderr 打一行招呼。只看 stderr 的话，
+/// 「暂存区是空的」会被当成「钩子拒绝了」。原来中间还有一层 `run_drained`
+/// 替 `commit` 做「stderr 非空就报 stderr」，正是它造成了这个误判，
+/// 抽出 `drain_both` 之后那层壳没人用了，已删。
 fn drain_both(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool, String, bool)> {
     use std::io::Read;
 
@@ -665,28 +667,6 @@ fn drain_both(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool, String
         String::from_utf8_lossy(&err).trim().to_string(),
         status.success(),
     ))
-}
-
-/// 跑一条 git，只要 stdout。失败就地转成 [`Error::Git`]。
-fn run_drained(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool)> {
-    let (out, truncated, err, ok) = drain_both(cwd, args, cap)?;
-    if !ok {
-        // **stderr 空的时候要退回去看 stdout。**
-        // git 有一部分话是从 stdout 说的 —— `nothing to commit, working tree
-        // clean` 就是。原来这里直接吐「git commit 失败」，把唯一说清原因的
-        // 那句丢掉了。
-        let msg = if err.is_empty() {
-            String::from_utf8_lossy(&out).trim().to_string()
-        } else {
-            err
-        };
-        return Err(Error::Git(if msg.is_empty() {
-            format!("git {} 失败", args.first().copied().unwrap_or(""))
-        } else {
-            msg
-        }));
-    }
-    Ok((out, truncated))
 }
 
 pub(crate) fn run(cwd: &Path, args: &[&str]) -> R<String> {
@@ -1261,11 +1241,11 @@ pub fn commit(root: impl AsRef<Path>, message: &str, amend: bool) -> R<String> {
     if amend {
         args.push("--amend");
     }
-    // 走 run_drained 而不是 run：pre-commit 钩子想打印多少打印多少，
+    // 走 drain_both 而不是 run：pre-commit 钩子想打印多少打印多少，
     // 而**掐掉子进程会让退出码失去意义** —— 那时「提交成功但钩子话多」和
     // 「提交失败」就分不出来了，而把一次成功的提交报成失败，
     // 会让用户照着那句话再提交一次。
-    // 走 `drain_both` 而不是 `run_drained`：分档要**两份输出都看**，
+    // 成败也在这里自己判而不交给一层通用壳：分档要**两份输出都看**，
     // 只看 stderr 会把「暂存区是空的」误报成「钩子拒绝了」
     let (out, truncated, err, ok) = drain_both(root.as_ref(), &args, MAX_STDOUT_BYTES)?;
     if !ok {
@@ -2876,7 +2856,7 @@ mod tests {
     /// **钩子话多，不能把提交挂住。**
     ///
     /// 这条是并发排空 stderr（`drain_stderr`）存在的全部理由，而且是**真的挂过**：
-    /// 第一版把 `run_drained` 写成「先把 stdout 读完，再顺序读 stderr」，
+    /// 第一版把 `run_drained`（现在的 `drain_both`）写成「先把 stdout 读完，再顺序读 stderr」，
     /// 跑这条测试时 `git commit` 和测试进程互相等着，最后是手动 kill 掉的。
     ///
     /// 根因是一个反直觉的事实：**git 2.50 把 pre-commit 钩子的 stdout 转到了
@@ -2927,12 +2907,13 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// `run_drained` 的另一半：**stdout 超上限时留下的字节要被管住，但不算失败。**
+    /// `drain_both` 的另一半：**stdout 超上限时留下的字节要被管住，但不算失败。**
     ///
     /// 和 `run_raw` 那条相反 —— 那边超上限是报错（输出本该有界），
     /// 这边是截断（钩子话多是正常的，报错等于把成功的提交说成失败）。
+    /// 所以这里断言的是 `ok` 仍为真、`truncated` 标上了、留下的字节不超 cap。
     #[test]
-    fn run_drained_超上限只截断不报错() {
+    fn drain_both_超上限只截断不报错() {
         if !available() {
             eprintln!("跳过：机器上没有 git");
             return;
@@ -2946,11 +2927,13 @@ mod tests {
         commit(&dir, "首次提交", false).unwrap();
 
         let args = ["for-each-ref", "--format=%(refname)"];
-        let (out, truncated) = run_drained(&dir, &args, 4).expect("截断不是失败");
+        let (out, truncated, _, ok) = drain_both(&dir, &args, 4).unwrap();
+        assert!(ok, "截断不是失败：退出码是 0 就得报成功");
         assert!(truncated, "输出比 4 字节长，应该报截断");
         assert!(out.len() <= 4, "留下的字节要被上限管住，实得 {}", out.len());
 
-        let (out, truncated) = run_drained(&dir, &args, 16 << 10).unwrap();
+        let (out, truncated, _, ok) = drain_both(&dir, &args, 16 << 10).unwrap();
+        assert!(ok);
         assert!(!truncated, "正常大小不该报截断");
         assert!(String::from_utf8_lossy(&out).contains("refs/heads/main"));
         std::fs::remove_dir_all(&dir).ok();
