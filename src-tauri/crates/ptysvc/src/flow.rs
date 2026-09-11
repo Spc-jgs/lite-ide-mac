@@ -275,7 +275,10 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
 
         // 同 lib.rs 里那三条：先把登录 shell 的冷启动付掉，再开始量（issue #30）
-        let (sess, mut reader) = crate::Session::spawn("/tmp", 80, 24).expect("起不了 shell");
+        // 用 `/bin/sh` 不用用户的 `$SHELL`，理由见 `Session::spawn_with`（issue #30）——
+        // 这条测的是「闸按不按得住 `yes`」，和用户装了什么版本管理器无关
+        let (sess, mut reader) =
+            crate::Session::spawn_with("/bin/sh", "/tmp", 80, 24).expect("起不了 shell");
         // **GIVE_UP 放到 30 秒**：默认的 2 秒是给真实前端的（前端不回话就退回
         // 没有背压），而这条测试里「没人 ack」是**有意的**，闸必须全程关着。
         // 用默认值的话，测量窗口一拖到 2 秒外它就自己放行，读出来几十 MB —— 间歇红。

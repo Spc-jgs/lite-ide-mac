@@ -25,8 +25,33 @@ pub struct Session {
 }
 
 impl Session {
-    /// 在 `cwd` 起一个登录 shell。`shell` 为空时用 $SHELL，再兜底 /bin/zsh。
+    /// 在 `cwd` 起一个登录 shell，用 `$SHELL`，兜底 `/bin/zsh`。
+    ///
+    /// （这条注释原来写的是「`shell` 为空时用 $SHELL」，而签名里**没有**
+    /// `shell` 这个参数 —— 描述了一个不存在的东西。现在下面那个
+    /// [`Session::spawn_with`] 真的有了，这句话才重新成立。）
     pub fn spawn(cwd: &str, cols: u16, rows: u16) -> std::io::Result<Spawned> {
+        Self::spawn_with("", cwd, cols, rows)
+    }
+
+    /// 指定 shell 的版本。
+    ///
+    /// # 为什么要有
+    ///
+    /// **给测试用的，理由是 issue #30。** 这个仓库的 pty 测试原来一律起
+    /// `$SHELL -l` —— 也就是把**用户整份 `.zshrc` 拉进测试的判据里**。
+    /// 代价在这台机器上是实打实的：`.zshrc` 里的 `pyenv init` 会在后台
+    /// 起一个 `pyenv rehash`，而提示符在它之前就出来了 ——
+    /// 于是测试拿到提示符、动手 kill，正好把那个 rehash 杀在半途，
+    /// 留下一个谁也删不掉的锁文件；**下一轮**每个登录 shell 都要为它
+    /// 死等 60 秒。全量测试于是每隔一轮红一次，而且是它自己造成的。
+    ///
+    /// 被测的是「pty 起得来、cwd 生效、kill 不卡死」，
+    /// **这三件事和用户装了什么版本管理器没有一点关系**。
+    ///
+    /// 产品路径（`$SHELL -l`）由 `真的用用户自己的登录_shell_起一次`
+    /// 那条 `#[ignore]` 的测试盯着，手动跑。
+    pub fn spawn_with(shell: &str, cwd: &str, cols: u16, rows: u16) -> std::io::Result<Spawned> {
         let pty = native_pty_system();
         let pair = pty
             .openpty(PtySize {
@@ -37,7 +62,11 @@ impl Session {
             })
             .map_err(to_io)?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let shell = if shell.is_empty() {
+            std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into())
+        } else {
+            shell.to_string()
+        };
         // cwd 不存在就回落到 $HOME —— 总比把用户扔到 / 强
         let cwd = if std::path::Path::new(cwd).is_dir() {
             cwd.to_string()
@@ -377,6 +406,59 @@ mod tests {
      */
     const PROMPT_BUDGET: u64 = 90;
 
+    /*
+     * 测试用的 shell。**不是用户的 `$SHELL`**，理由见 `Session::spawn_with`。
+     *
+     * 一句话：被测的是「pty 起得来、cwd 生效、kill 不卡死」，
+     * 而原来的写法把**用户整份 `.zshrc`** 拉进了判据 —— 在这台机器上
+     * 那意味着每条测试都要跑一遍 `pyenv init`，并且在 kill 时有机会
+     * 把一个后台 rehash 杀在半途，给下一轮留下一个 60 秒的锁（issue #30）。
+     *
+     * `/bin/sh` 同样是真 shell、同样走 `-l`、同样在 pty 里交互 ——
+     * 少的只是「别人机器上装了什么」这个变量。
+     */
+    const TEST_SHELL: &str = "/bin/sh";
+
+    /*
+     * **产品路径：真的用用户自己的 `$SHELL -l` 起一次。**
+     *
+     * 上面那个常量一换，「`$SHELL` 取得对不对、`-l` 传没传」就没人盯了。
+     * 这条补上。
+     *
+     * `#[ignore]` 是因为它会把用户整份 shell 配置拉进来 —— 那正是
+     * issue #30 里让全量测试每隔一轮红一次的东西。它属于
+     * 「换了机器、或者改了 `spawn` 之后手动跑一遍」的那一档：
+     *
+     *     cargo test -p ptysvc --lib -- --ignored --nocapture
+     *
+     * 顺带它也是那个环境问题的探针：起得慢就说明这台机器上的登录 shell
+     * 有事（正常应该在一秒内）。
+     */
+    #[test]
+    #[ignore]
+    fn 真的用用户自己的登录_shell_起一次() {
+        let t = Instant::now();
+        let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("用 $SHELL 起不来");
+        let mut out = Output::new(reader);
+        assert!(out.wait_prompt(PROMPT_BUDGET), "{PROMPT_BUDGET}s 内一个字都没吐出来");
+        let 起来用了 = t.elapsed();
+        assert!(
+            send_until(&sess, b"echo LITE_IDE_REAL_SHELL\n", "LITE_IDE_REAL_SHELL", &mut out),
+            "没读到回显，实际输出：{:?}",
+            out.text()
+        );
+        println!(
+            "  $SHELL={} 起到提示符用了 {:?}",
+            std::env::var("SHELL").unwrap_or_default(),
+            起来用了
+        );
+        assert!(
+            起来用了 < Duration::from_secs(5),
+            "登录 shell 起了 {:?}（正常一秒内）—— 这台机器上的 shell 配置有事，见 issue #30",
+            起来用了
+        );
+    }
+
     /// pty 的输出累加器。**可以反复等**，这是它和原来那个一次性
     /// `read_until` 的唯一区别，而那个区别是必须的（见 [`Output::wait_for`]）。
     ///
@@ -497,7 +579,7 @@ mod tests {
     fn 能起_shell_并执行命令() {
         // 起 shell 和等提示符**在期限外面**（issue #30）：那段耗时属于
         // 用户的 .zshrc，不属于被测代码
-        let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
+        let (sess, reader) = Session::spawn_with(TEST_SHELL, "/tmp", 80, 24).expect("起不来");
         let mut out = Output::new(reader);
         assert!(out.wait_prompt(PROMPT_BUDGET), "{PROMPT_BUDGET}s 内 shell 一个字都没吐出来");
         with_deadline(25, move || {
@@ -512,7 +594,7 @@ mod tests {
     #[test]
     fn 工作目录生效() {
         probe("  spawn 前");
-        let (sess, reader) = Session::spawn("/usr", 80, 24).expect("起不来");
+        let (sess, reader) = Session::spawn_with(TEST_SHELL, "/usr", 80, 24).expect("起不来");
         probe("  spawn 回来了");
         let mut out = Output::new(reader);
         // 先等提示符再敲命令 —— issue #16，理由见 Output::wait_prompt。
@@ -543,7 +625,7 @@ mod tests {
     /// 一条挂住的测试会安静地吃光 CI 整个 job 的额度。这里 8s 到点就判失败。
     #[test]
     fn 关掉不排空的终端不能把kill卡死() {
-        let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
+        let (sess, reader) = Session::spawn_with(TEST_SHELL, "/tmp", 80, 24).expect("起不来");
 
         // 不靠提示符长什么样 —— 用户的 zsh 主题里 $ / % / ❯ 都可能
         let mut out = Output::new(reader);
@@ -595,7 +677,7 @@ mod tests {
     #[test]
     fn drop_之后子进程必须已退出() {
         with_deadline(25, || {
-        let (sess, _reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
+        let (sess, _reader) = Session::spawn_with(TEST_SHELL, "/tmp", 80, 24).expect("起不来");
         let pid = {
             let s = sess.lock().unwrap();
             s.child.process_id()

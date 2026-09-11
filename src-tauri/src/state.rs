@@ -252,7 +252,11 @@ mod tests {
     #[test]
     fn 终端开到上限就拒绝再开() {
         let st = AppState::default();
-        let (sess, _reader) = ptysvc::Session::spawn("/tmp", 80, 24).expect("起不了 shell");
+        // 用 `/bin/sh` 不用用户的 `$SHELL`（`Session::spawn_with`，issue #30）：
+        // 被测的是这张表的长度，跑一遍别人的 `.zshrc` 只会把
+        // 「他装了什么版本管理器」变成这条测试的判据之一
+        let (sess, _reader) =
+            ptysvc::Session::spawn_with("/bin/sh", "/tmp", 80, 24).expect("起不了 shell");
 
         let mut ids = Vec::new();
         for i in 0..MAX_PTYS {
@@ -285,7 +289,7 @@ mod tests {
     #[test]
     fn 关掉终端要把背压闸一起关掉() {
         let st = AppState::default();
-        let (sess, _reader) = ptysvc::Session::spawn("/tmp", 80, 24).expect("起不了 shell");
+        let (sess, _reader) = ptysvc::Session::spawn_with("/bin/sh", "/tmp", 80, 24).expect("起不了 shell");
         let (id, flow) = st.insert_pty(sess).unwrap();
 
         flow.sent(ptysvc::HIGH_WATER);
