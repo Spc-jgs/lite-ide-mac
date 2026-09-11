@@ -692,15 +692,39 @@ fi
 
 # ─────────────────── 4. 切分支 ───────────────────
 
+#
+# **切分支是两步的，不是一步**（2026-09-10 改成 IDEA 式）：
+# 点一行只是弹出那一行的动作菜单，真正切过去的是菜单里的「切换到 X」。
+# 理由见 `BranchPicker.svelte` 的 `rowMenu` ——「点一下就切」在一个
+# 误点代价很大的操作上太轻了。
+#
+# 这一步 2026-09-11 才发现是坏的：改分支选择器的那一轮说了「先不跑 smoke」，
+# 于是脚本一直在验一个已经不存在的行为，而它红的时候只说「没切过去」——
+# **听起来像切分支坏了，其实是脚本过期了**。改 UI 的那一轮就该连它一起改。
 say "⑤ 切分支"
 [ "$(ax click AXButton "main")" = "OK" ] || bad "点不开分支浮层"
 sleep 1.5
 # 分支按钮的名字后面跟着那条分支的最新提交标题，会变 —— 按前缀点
-if [ "$(ax "click~" AXButton "feature/x")" = "OK" ]; then
-  wait_for 20 '[ "$(git -C "'"$FIX"'" rev-parse --abbrev-ref HEAD)" = "feature/x" ]' \
-    && ok "切到了 feature/x" || bad "没切过去"
-else
+if [ "$(ax "click~" AXButton "feature/x")" != "OK" ]; then
   bad "分支浮层里找不到 feature/x"
+else
+  # 第二步：行菜单里的「切换到 …」。
+  #
+  # **角色是 AXMenuItem，不是 AXButton。** `ContextMenu.svelte` 里那些是
+  # `<button role="menuitem">`，而 WebKit 按 role 映射 —— DOM 是什么标签不算数。
+  # 第一版写成 AXButton，红在「行菜单里没有切换到」，看着像菜单没弹出来。
+  # （文件树的右键菜单那一步用的就是 AXMenuItem，照着抄就对了。）
+  #
+  # **等它出来，别 sleep 一个定数**：菜单是点完那一下才挂上去的，
+  # 而这台机器上什么时候慢是没准的（见 issue #30）。
+  # 只认「切换到」三个字、不带分支名：分支名后面跟不跟东西、怎么排版，
+  # 那是界面的事，不该让脚本跟着改。
+  if wait_has AXMenuItem "切换到" 8 && [ "$(ax "click~" AXMenuItem "切换到")" = "OK" ]; then
+    wait_for 20 '[ "$(git -C "'"$FIX"'" rev-parse --abbrev-ref HEAD)" = "feature/x" ]' \
+      && ok "切到了 feature/x" || bad "点了「切换到」但分支没变"
+  else
+    bad "行菜单里没有「切换到」—— 是不是又改回一步了？"
+  fi
 fi
 
 # ─────────────────── 5. 大日志：正文不能是乱码 ───────────────────
