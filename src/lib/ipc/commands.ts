@@ -222,6 +222,35 @@ export const appLog = (level: "info" | "warn" | "error", source: string, msg: st
 /** 日志文件的路径 —— 拿它开一个标签，用这个应用自己的日志引擎看 */
 export const appLogPath = () => invoke<string>("app_log_path");
 
+/**
+ * Git 控制台里的一条（issue #29）。
+ *
+ * `ms` 是 Unix 毫秒，**Rust 侧刻意不格式化** —— 格式化要知道时区，
+ * 而这边有 `Date`，按用户的本地时区显示才对。
+ */
+export interface GitCmd {
+  ms: number;
+  cwd: string;
+  /** 完整 argv，**含加固参数**。看得到跑的是什么，正是这个控制台的第一个用途 */
+  argv: string[];
+  /** `null` = 没跑起来（git 不在），或者被主动掐掉了。两种都算失败 */
+  code: number | null;
+  durMs: number;
+  err: string;
+  errTruncated: boolean;
+}
+
+/**
+ * 跑过的 git，最新的在前。
+ *
+ * 只在内存里，关掉应用就没 —— 它回答的是「刚才那条为什么失败」，不是考古。
+ * 上限、截断和凭据打码全在 Rust 侧（`gitsvc::console`），前端只负责显示。
+ */
+export const gitConsole = () => invoke<GitCmd[]>("git_console");
+
+/** 清空 Git 控制台。只碰内存里那个环，盘上本来就没有东西 */
+export const clearGitConsole = () => invoke<void>("clear_git_console");
+
 /** 清空应用日志（两份都清）。判据在 Rust 侧，前端只是按一下 */
 export const clearAppLog = () => invoke<void>("clear_app_log");
 

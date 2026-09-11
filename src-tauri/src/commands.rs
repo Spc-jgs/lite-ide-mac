@@ -616,6 +616,49 @@ pub fn pty_ack(id: u32, bytes: u32, state: State<'_, AppState>) {
     }
 }
 
+/// Git 控制台里的一条（issue #29）。
+///
+/// 时间只给 Unix 毫秒，**不在 Rust 侧格式化** —— 那要知道时区，
+/// 而前端本来就有 `Date`，让它按用户的本地时区显示。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCmdDto {
+    pub ms: u64,
+    pub cwd: String,
+    pub argv: Vec<String>,
+    /// `null` = 没跑起来（git 不在），或者被我们主动掐掉了
+    pub code: Option<i32>,
+    pub dur_ms: u32,
+    pub err: String,
+    pub err_truncated: bool,
+}
+
+/// 跑过的 git，最新的在前。
+///
+/// 只在内存里（`gitsvc::console`），关掉应用就没 —— 它的用途是
+/// 「刚才那条为什么失败」，不是考古。判据、上限和打码全在那边。
+#[tauri::command]
+pub fn git_console() -> Vec<GitCmdDto> {
+    gitsvc::console::entries()
+        .into_iter()
+        .map(|e| GitCmdDto {
+            ms: e.ms,
+            cwd: e.cwd,
+            argv: e.argv,
+            code: e.code,
+            dur_ms: e.dur_ms,
+            err: e.err,
+            err_truncated: e.err_truncated,
+        })
+        .collect()
+}
+
+/// 清空 Git 控制台。只碰内存里那个环，盘上本来就没有东西。
+#[tauri::command]
+pub fn clear_git_console() {
+    gitsvc::console::clear();
+}
+
 /// 诊断开着没有。前端拿它决定**要不要建那条统计定时器** ——
 /// 关着的时候一次都不算，不能让调试设施在所有人机器上白跑。
 ///

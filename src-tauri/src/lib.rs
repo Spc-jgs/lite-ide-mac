@@ -187,6 +187,8 @@ pub fn run() {
             commands::git_merge_upstream,
             commands::git_cancel,
             commands::git_outgoing,
+            commands::git_console,
+            commands::clear_git_console,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 启动失败");

@@ -99,6 +99,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let git_changes = item(app, "git-changes", "改动列表", Some("Shift+CmdOrCtrl+G"))?;
     let git_file_diff = item(app, "git-file-diff", "查看当前文件的改动", None)?;
     let git_log = item(app, "git-log", "提交历史", None)?;
+    let git_console = item(app, "git-console", "Git 控制台", None)?;
     let git_branches = item(app, "git-branches", "分支与工作树…", None)?;
     let git_refresh = item(app, "git-refresh", "刷新状态", None)?;
 
@@ -183,6 +184,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&git_changes)
         .item(&git_file_diff)
         .item(&git_log)
+        .item(&git_console)
         .separator()
         .item(&git_pull)
         .item(&git_push)
@@ -254,7 +256,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
             find_word,
         ],
         needs_repo: vec![
-            git_changes, git_log, git_branches, git_refresh, git_pull, git_push, git_fetch,
+            git_changes, git_log, git_console, git_branches, git_refresh, git_pull, git_push,
+            git_fetch,
         ],
         needs_term: vec![close_terminal],
     };

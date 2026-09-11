@@ -944,7 +944,7 @@
   let panel = $state(savedLayout.panel);
   let panelHeight = $state(savedLayout.panelHeight);
   /** 底部面板当前是哪个工具窗。终端实例永不卸载，只是藏起来 */
-  let panelView = $state<"term" | "log">(savedLayout.panelView);
+  let panelView = $state<"term" | "log" | "git">(savedLayout.panelView);
   /**
    * 实际在渲染的那个工具窗。
    *
@@ -956,7 +956,15 @@
    * 所以渲染一律看这个，写状态才写 `panelView` —— 偏好留着，
    * 下次真打开仓库时提交历史还在。
    */
-  let panelTool = $derived<"term" | "log">(panelView === "log" && repo ? "log" : "term");
+  let panelTool = $derived<"term" | "log" | "git">(
+    panelView === "log" && repo ? "log" : panelView === "git" && repo ? "git" : "term",
+  );
+
+  /**
+   * Git 控制台那一页（issue #29）。**按需加载**，和终端、CM6 同一条纪律 ——
+   * 一个诊断页面不该让每个人的启动多付钱。
+   */
+  const gitcon = lazy(() => import("./lib/git/GitConsole.svelte"), "Git 控制台");
   /** xterm.js 约 250KB，不开终端就不该付这个钱 —— 与 CM6 同样按需加载 */
   const terminal = lazy(() => import("./lib/terminal/Terminal.svelte"), "终端");
   /**
@@ -1006,7 +1014,7 @@
    * 和最上面 sidebar 那个开关同一个手势 —— 一个按钮既是「去那儿」
    * 也是「不看了」，不用再去找第二个地方收起。
    */
-  function togglePanelView(v: "term" | "log") {
+  function togglePanelView(v: "term" | "log" | "git") {
     // 判据是**正在显示的那个**，不是存下来的偏好 —— 偏好是 log 而没有仓库时
     // 亮着的是终端那个按钮，再点它就该收起，而不是「切到终端」（已经在了）
     if (panel && panelTool === v) {
@@ -1375,6 +1383,11 @@
     await openPath(full);
     if (line !== undefined) gotoLine = { line, nonce: ++gotoNonce };
   }
+
+  $effect(() => {
+    // Git 控制台只在真的切到那一页时才拉那个 chunk
+    if (panel && panelTool === "git") gitcon.load();
+  });
 
   $effect(() => {
     if (panel) terminal.load();
@@ -2690,6 +2703,7 @@
         return;
       }
       case "git-log": panel = true; panelView = "log"; return;
+      case "git-console": panel = true; panelView = "git"; return;
       case "git-branches": openBranchPicker(); return;
       case "git-refresh": return void refreshGit();
       case "git-pull": return void doPull();
@@ -3124,6 +3138,19 @@
         >
           <Icon name="history" />
         </button>
+        <!--
+          Git 控制台（issue #29）。和提交历史一样只在有仓库时出现 ——
+          没有仓库时它永远是空的，一个永远空着的按钮只是噪音。
+        -->
+        <button
+          class="rbtn"
+          class:on={panel && panelTool === "git"}
+          onclick={() => togglePanelView("git")}
+          title="Git 控制台：跑过的每一条 git"
+          aria-label="Git 控制台"
+        >
+          <Icon name="git" />
+        </button>
       {/if}
     </nav>
 
@@ -3468,7 +3495,9 @@
             面板收起再展开时，第一眼要能认出这是哪个工具窗。
           -->
           <div class="panel-head">
-            <span class="tw-name">{panelTool === "term" ? "终端" : "提交历史"}</span>
+            <span class="tw-name">
+              {panelTool === "term" ? "终端" : panelTool === "git" ? "Git 控制台" : "提交历史"}
+            </span>
             {#if panelTool === "term"}
               <div class="ptabs">
                 {#each terms as t (t.id)}
@@ -3549,6 +3578,16 @@
               {/if}
             </div>
             <!-- 收起时别去拉 git log：那是一串没人看的子进程 -->
+            <!-- 同上：切走就整个销毁，那条 1.5 秒的轮询跟着停 -->
+            {#if panel && panelTool === "git" && repo}
+              <div class="tool-slot">
+                {#if gitcon.comp}
+                  <gitcon.comp />
+                {:else}
+                  <div class="loading">正在载入 Git 控制台…</div>
+                {/if}
+              </div>
+            {/if}
             {#if panel && panelTool === "log" && repo}
               <div class="tool-slot">
                 {#if git.comps.log}

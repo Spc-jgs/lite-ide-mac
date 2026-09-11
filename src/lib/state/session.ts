@@ -99,7 +99,8 @@ export interface Layout {
   sideView: "files" | "git";
   panel: boolean;
   panelHeight: number;
-  panelView: "term" | "log";
+  /** `git` = Git 控制台（issue #29）。老快照里没有这个值，读回来会落到 `term` */
+  panelView: "term" | "log" | "git";
 }
 
 export interface Session {
@@ -166,7 +167,15 @@ export function toLayout(v: unknown): Layout {
       typeof o.panelHeight === "number" && Number.isFinite(o.panelHeight)
         ? clamp(o.panelHeight, PANEL_MIN, PANEL_MAX)
         : DEFAULT_LAYOUT.panelHeight,
-    panelView: o.panelView === "log" ? "log" : "term",
+    /*
+     * 三档，认不出来一律回 `term`。
+     *
+     * **不为多这一档升 VERSION**：旧快照里的 `term` / `log` 读出来还是
+     * 原来那个意思，没有「半新半旧」的界面 —— 而整份丢弃会把上次开了
+     * 哪些文件一起赔进去。这正是 VERSION 那段注释里说的「字段含义变了」
+     * 和「多了一个取值」的区别。
+     */
+    panelView: o.panelView === "log" ? "log" : o.panelView === "git" ? "git" : "term",
   };
 }
 

@@ -705,6 +705,40 @@ export function installMockIpc(): void {
         // 报 false（正式版）是保守的那一档：误报成调试版会让人白重打一次包
         case "devtools_build":
           return false;
+        /*
+         * Git 控制台（issue #29）。桩里给几条**形状真实**的：
+         * 一条成功的 status、一条失败的 push、一条被打过码的远程 URL。
+         * 三条一起才能验到这一页的三件事 —— 加固参数看不看得见、
+         * 失败那条红不红、凭据有没有漏。
+         */
+        case "git_console": {
+          const 加固 = [
+            "git", "-c", "core.fsmonitor=", "-c", "diff.external=",
+            "-c", "protocol.ext.allow=never",
+          ];
+          const now = Date.now();
+          return [
+            {
+              ms: now - 800, cwd: "/proj",
+              argv: [...加固, "push", "https://***@github.com/o/r.git", "main"],
+              code: 1, durMs: 2140,
+              err: "fatal: Authentication failed for 'https://github.com/o/r.git/'",
+              errTruncated: false,
+            },
+            {
+              ms: now - 4200, cwd: "/proj",
+              argv: [...加固, "status", "--porcelain=v2", "-uall"],
+              code: 0, durMs: 41, err: "", errTruncated: false,
+            },
+            {
+              ms: now - 9000, cwd: "/proj",
+              argv: [...加固, "rev-parse", "--show-toplevel"],
+              code: 0, durMs: 12, err: "", errTruncated: false,
+            },
+          ];
+        }
+        case "clear_git_console":
+          return null;
         case "ignored_dirs":
           /*
            * 桩里 git 的答案是写死的（`GIT_IGNORED`）：`dist/` 被忽略、

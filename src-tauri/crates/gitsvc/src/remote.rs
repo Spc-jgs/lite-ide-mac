@@ -165,6 +165,10 @@ fn run_streaming(
      */
     let mut cmd = crate::git_cmd(cwd, args);
     cmd.stdout(Stdio::null()).stderr(Stdio::piped());
+    // Git 控制台（issue #29）。远程操作走的是自己这条流式路径，
+    // 和 `run_capped_raw` 那条各记各的 —— 而**远程正是最常失败的那类**
+    let argv = crate::argv_of(&cmd);
+    let t0 = Instant::now();
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -266,6 +270,19 @@ fn run_streaming(
         }
         std::thread::sleep(Duration::from_millis(20));
     };
+
+    /*
+     * 记进控制台。取消掉的那次记 `None`：被 killpg 的进程退出码没有意义。
+     * stderr 用的是 `tail`（已经按 MAX_RAW_BYTES 留了最后那截）——
+     * 进度条那几千行没必要进控制台，错误在结尾。
+     */
+    crate::console::record(
+        cwd,
+        &argv,
+        if cancel.load(Ordering::Relaxed) { None } else { status.and_then(|s| s.code()) },
+        t0.elapsed(),
+        tail.join("\n").trim().as_bytes(),
+    );
 
     if cancel.load(Ordering::Relaxed) {
         return Err(RemoteError::Cancelled);

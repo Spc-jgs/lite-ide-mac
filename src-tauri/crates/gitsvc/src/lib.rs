@@ -25,6 +25,8 @@
 pub mod progress;
 pub mod remote;
 
+pub mod console;
+
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -724,14 +726,42 @@ fn run_capped(cwd: &Path, args: &[&str], ok_codes: &[i32]) -> R<Diff> {
 ///
 /// 返回 `(stdout, 是否被截断)`。**截断后留给调用方的是一份半截的字节流** ——
 /// 记录边界（换行、NUL）由调用方自己切齐，这里不猜。
+/// 把一条已经建好的 `Command` 的完整 argv 读回来（程序名 + 所有参数）。
+///
+/// **要的就是「完整」** —— 加固参数（`-c core.fsmonitor=` 那一串）和逐个关掉的
+/// filter 驱动都在里面，而 issue #29 的第二条缺口正是「界面上看不到跑的是什么」。
+/// 从调用方传进来的 `args` 拼是不行的：那份没有加固参数，
+/// 而加固参数恰恰是最可能把一个正常仓库弄坏的东西。
+fn argv_of(c: &Command) -> Vec<String> {
+    std::iter::once(c.get_program())
+        .chain(c.get_args())
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
+}
+
 fn run_capped_raw(cwd: &Path, args: &[&str], cap: usize, ok_codes: &[i32]) -> R<(Vec<u8>, bool)> {
     use std::io::Read;
 
-    let mut child = git_cmd(cwd, args)
+    // Git 控制台（issue #29）。**记在这一处，不在各个调用点** ——
+    // 同一条纪律写四遍就是迟早漏一遍，HARDENING 当初就是因为这个才挪到
+    // `git_cmd` 上的
+    let mut cmd = git_cmd(cwd, args);
+    let argv = argv_of(&cmd);
+    let t0 = std::time::Instant::now();
+
+    let mut child = match cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(Error::NoGit)?;
+    {
+        Ok(c) => c,
+        Err(e) => {
+            // 起不来也要记 —— 「git 不在」是最该被看见的一种失败，
+            // 而它连退出码都没有
+            console::record(cwd, &argv, None, t0.elapsed(), e.to_string().as_bytes());
+            return Err(Error::NoGit(e));
+        }
+    };
 
     /*
      * stderr 先挂到自己的线程上，再读 stdout。
@@ -766,6 +796,20 @@ fn run_capped_raw(cwd: &Path, args: &[&str], cap: usize, ok_codes: &[i32]) -> R<
 
     let err = errs.join().unwrap_or_default();
     let status = child.wait().map_err(Error::NoGit)?;
+
+    /*
+     * 记进控制台。**掐掉的那次记 `None` 而不是它的退出码** ——
+     * 被 kill 的进程退出码没有意义，照着记会让控制台报一个假的失败
+     * （这条和下面那个 `!truncated` 的守卫是同一个判断，只是那边决定
+     * 「要不要报错给调用方」，这边决定「照实说什么」）。
+     */
+    console::record(
+        cwd,
+        &argv,
+        if truncated { None } else { status.code() },
+        t0.elapsed(),
+        &err,
+    );
 
     // 被我们掐掉的进程，退出码没有意义，不能当成失败
     if !truncated && !status.success() && !ok_codes.contains(&status.code().unwrap_or(-1)) {
@@ -2324,6 +2368,53 @@ mod tests {
             assert!(discover(&dir).is_none());
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /*
+     * **跑过的 git 要真的落进控制台，而且 argv 里要带加固参数**（issue #29）。
+     *
+     * 这条是端到端的：走真正的 `run_capped_raw`，不是直接喂 `console::record`。
+     * 上面那些单元测试测的是环本身，测不出「有没有接上」—— 把
+     * `console::record(...)` 那一行从 `run_capped_raw` 里删掉，它们照样全绿。
+     *
+     * 判据里最要紧的是 **argv 含 `core.fsmonitor=`**：issue #29 的第二条缺口
+     * 就是「界面上看不到跑的是什么」，而看得到的那份必须是**完整的**argv。
+     * 只拼调用方传进来的 args 是不够的 —— 加固参数恰恰是最可能把一个
+     * 正常仓库弄坏的东西，而它不在那份里。
+     */
+    #[test]
+    fn 跑过的_git_要落进控制台并带上加固参数() {
+        let dir = tmpdir("console");
+        console::clear();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+
+        let got = console::entries();
+        let 那条 = got
+            .iter()
+            .find(|e| e.argv.iter().any(|a| a == "init"))
+            .expect("跑了 git init，控制台里却没有这条");
+        assert_eq!(那条.code, Some(0));
+        assert!(!那条.failed());
+        assert_eq!(那条.argv[0], "git");
+        assert!(
+            那条.argv.iter().any(|a| a.starts_with("core.fsmonitor=")),
+            "argv 里没有加固参数，记的是调用方那份而不是真正跑的那份：{:?}",
+            那条.argv
+        );
+        assert_eq!(那条.cwd, dir.to_string_lossy());
+
+        // 失败的那条也要在，而且带着 git 的原话
+        console::clear();
+        let _ = run(&dir, &["rev-parse", "没有这个引用"]);
+        let got = console::entries();
+        assert!(got[0].failed(), "失败的命令在控制台里显示成功了：{:?}", got[0]);
+        assert!(
+            !got[0].err.is_empty(),
+            "失败了却没留下 git 的原话 —— 那正是这个控制台存在的理由"
+        );
+
+        console::clear();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 一个干净的临时目录。名字带 pid —— 失败时不清理，
