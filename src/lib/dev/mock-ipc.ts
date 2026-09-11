@@ -689,6 +689,22 @@ export function installMockIpc(): void {
           // 完全看不出来
           console.info(`[app_log/${a.level}] ${a.source}: ${a.msg}`);
           return null;
+        case "report_budget":
+          /*
+           * 桩里量不到 `boot` 和 `self`（那两个是 Rust 侧的 FFI），
+           * 但**前端送过去的四个数照样要能看见** —— 这条通道在浏览器里
+           * 断没断，只有打出来才知道。真实的那一行长这样：
+           *   `INFO [budget] boot=412ms self=34MB tabs=3 terms=0 editors=1 nodes=4210 …`
+           */
+          console.info(
+            `[budget] boot=?ms self=?MB tabs=${a.tabs} terms=${a.terms}` +
+              ` editors=${a.editors} nodes=${a.nodes}`,
+          );
+          return null;
+        // 浏览器里跑的永远不是 Cargo 编出来的壳，谈不上带不带 Web Inspector。
+        // 报 false（正式版）是保守的那一档：误报成调试版会让人白重打一次包
+        case "devtools_build":
+          return false;
         case "ignored_dirs":
           /*
            * 桩里 git 的答案是写死的（`GIT_IGNORED`）：`dist/` 被忽略、

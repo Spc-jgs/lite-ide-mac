@@ -22,6 +22,17 @@ src-tauri/target/release/
 |---|---|---|
 | `pnpm app:build` | 只有 `target/release/lite-ide` 这个可执行文件 | 迭代时最快，改完 Rust 想跑一下 |
 | `pnpm app:bundle` | `.app` + `.dmg` | 要更新那个能双击的 `.app`，或者要发给别人 |
+| `pnpm app:bundle:devtools` | **同一个** `.app` + `.dmg`，但带 Web Inspector | 要用 Safari 的「开发」菜单连上这个 webview 查前端 |
+
+> ⚠️ **调试版和正式版装在同一个路径上。** `app:bundle:devtools` 直接盖掉
+> `app:bundle` 的产物 —— 这是有意的（「盘上只留一份 `.app`」），代价是
+> 光看文件分辨不出来。**分辨的办法是让它自报家门**：悬停标题栏的项目挂件，
+> tooltip 里带着 `⚠︎ 调试版：带 Web Inspector，别拿它当正式版用` 的就是它。
+> `app.log` 里每次启动那行 `[budget]` 末尾的 `devtools=1` 也说同一件事。
+>
+> 为什么要在意：带着 inspector 的那份，**任何本机进程都能附加到这个
+> webview 上读写页面**。那是调试能力，不是产品能力 —— 这正是它默认不开
+> 的理由。量完记得 `pnpm app:bundle` 打回去。（issue #20）
 
 > ⚠️ **`app:build` 不会更新 `.app`。** `bundle/macos/lite-ide.app` 里那份是上一次
 > `app:bundle` 留下的，可能差好几天 —— 而你双击启动的正是它。
@@ -111,6 +122,20 @@ git add src-tauri/Cargo.lock
 每一层的单测也全绿。那次是手点的，现在固化成脚本了。
 
 要它跑得动，终端需要「辅助功能」权限（第一次会弹窗）。
+
+### 1.6 看一眼预算有没有悄悄涨
+
+```bash
+./scripts/budget.sh
+```
+
+每次启动都会往 `app.log` 写一行 `[budget]`（见
+[ARCHITECTURE.md §7.5](ARCHITECTURE.md)）。这个脚本把它们按
+「版本 + 标签数」分组取中位数 —— 发版前扫一眼，**同样开 3 个标签，
+这个版本比上个版本的 `self` / `nodes` 涨了多少**。
+
+它不会拦住发版（没有红线，也不该有：单次读数噪声太大）。
+它回答的是「发出去之后要不要盯着」。
 
 ### 2. 打标签推上去
 

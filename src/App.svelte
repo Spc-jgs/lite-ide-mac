@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { untrack, tick } from "svelte";
   import { Channel } from "@tauri-apps/api/core";
   import FileTree from "./lib/shell/FileTree.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
@@ -9,6 +9,7 @@
   import { notify } from "./lib/state/notify.svelte";
   import * as session from "./lib/state/session";
   import { textToSave, settled, stashed } from "./lib/state/doc";
+  import { audit } from "./lib/state/invariant";
   import { isLogName } from "./lib/logview/is-log-name";
   import Crash from "./lib/shell/Crash.svelte";
   import Icon from "./lib/shell/Icon.svelte";
@@ -40,6 +41,8 @@
     type Stamp,
     openLog,
     closeLog,
+    reportBudget,
+    devtoolsBuild,
     initialPath,
     gitRoot,
     gitStatus,
@@ -159,6 +162,22 @@
   let tabs = $state<TabState[]>([]);
   let activeId = $state<number | null>(null);
   let nextId = 1;
+
+  /**
+   * 在一个状态转换点上核一遍标签的不变量（issue #27，判据全在
+   * `state/invariant.ts` 里，这里只负责「在哪些点上核」）。
+   *
+   * **显式调用，不做成 `$effect`。** effect 会跟着 `tabs` 里任何一个字段动 ——
+   * 包括每敲一个键就翻一次的 `dirty`，那就成了热路径上的自检，
+   * 正是 issue 里点名不能做的事。转换点一共就这五个，写清楚比自动触发好查。
+   *
+   * 第三个参数是「此刻哪个标签挂着活编辑器」：编辑器的 onChange 只改 `dirty`，
+   * `draft` 要等 onStash 才回写，所以正在被编辑的那个标签本来就会
+   * 短暂地 dirty 而无 draft —— 不告诉自检器这件事，它会在每次敲键盘时报假警。
+   */
+  function auditTabs(where: string) {
+    audit(tabs, activeId, activeId, where);
+  }
 
   /**
    * 缩略图开关。存 localStorage —— 这是个纯偏好，没必要为它建一套配置文件；
@@ -1608,6 +1627,9 @@
        * （加一道 `!isScratch(...)` 的守卫是我第一版写的，它永远不会为假。）
        */
       if (!root) root = info.path.slice(0, info.path.lastIndexOf("/")) || "/";
+      // 恢复期不核：那时 activeId 故意停在 null 而标签一个个往里填，
+      // 「有标签但没有活动标签」在这段窗口里是对的。恢复完了再一次核完
+      if (!restoringTabs) auditTabs("开标签");
     } catch (e) {
       if (!quiet) notify.fail(String(e));
     } finally {
@@ -2070,6 +2092,7 @@
     for (const t of saved.tabs) {
       if (!tabs.some((x) => x.path === t.path)) pendingPos.delete(t.path);
     }
+    auditTabs("会话恢复");
   }
 
   /**
@@ -2348,6 +2371,43 @@
     };
   });
 
+  /**
+   * 这份构建带不带 Web Inspector（issue #20）。
+   *
+   * 调试版和正式版**装在同一个路径上**（`pnpm app:bundle:devtools` 覆盖
+   * `pnpm app:bundle` 的产物），而「盘上只留一份 .app」是这个仓库的硬纪律 ——
+   * 两条加起来的结果是：忘了打回去的话，你双击的那份一直开着 inspector，
+   * 而界面上**没有任何迹象**。
+   *
+   * 挂在项目挂件的 tooltip 上，和构建时间并排：排查「你跑的是哪个构建」时
+   * 本来就要看那一眼，不多一个新习惯。
+   */
+  let devtools = $state(false);
+  /**
+   * 项目挂件的 tooltip。
+   *
+   * **换行必须写在表达式里，不能在模板里写 `&#10;`。** 原来就是后者，
+   * 而实测它出来的是一个**空格**（`charCodeAt` 是 32 不是 10）——
+   * 也就是说「tooltip 第二行是构建时间」这句话从来没成立过，三行全挤在一行里。
+   * 一条挂在界面上、用来确认「你跑的是哪个构建」的信息，自己却在说谎。
+   */
+  let projTip = $derived(
+    [
+      root ?? "还没打开文件夹",
+      `lite-ide · 构建于 ${__BUILD_TIME__}`,
+      ...(devtools ? ["⚠︎ 调试版：带 Web Inspector，别拿它当正式版用"] : []),
+    ].join("\n"),
+  );
+  $effect(() => {
+    let dead = false;
+    void devtoolsBuild().then((v) => {
+      if (!dead) devtools = v;
+    });
+    return () => {
+      dead = true;
+    };
+  });
+
   /** 待确认的模式切换（大文件切到编辑模式时用） */
   let pendingSwitch = $state<TabState | null>(null);
 
@@ -2385,6 +2445,7 @@
       }
       tab.mode = to;
       tab.forced = to;
+      auditTabs("切模式");
     } catch (e) {
       notify.fail(String(e));
       // 切换失败要退回原状态，否则标签会停在一个既没句柄也没内容的空壳上
@@ -2497,6 +2558,7 @@
       activeId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null;
     }
     pendingClose = null;
+    auditTabs("关标签");
   }
 
   /** 双击 Shift 的上一次时间戳；按下任何其他键即作废 */
@@ -2716,8 +2778,37 @@
       .finally(() => {
         restoring = false;
         scheduleSave();
+        void writeBudgetLine();
       });
   });
+
+  /**
+   * 启动完成，把预算数写进 `app.log`（issue #28）。
+   *
+   * **等界面真的画完再量**：`tick()` 让 Svelte 把这一轮改动刷进 DOM，
+   * 再等一帧。少了这两步，`nodes` 数出来的是恢复之前那个空界面 ——
+   * 一个永远不变的数，画进趋势里只会让人以为什么都没涨。
+   *
+   * `boot` 是 Rust 侧在收到这条命令时现算的（从进程真正的起点），
+   * 所以这两帧是**算进启动耗时里的** —— 那是对的：这一行要回答的
+   * 正是「双击到界面可用花了多久」，而界面没画完就不算可用。
+   *
+   * 量不出来就算了，一条预算数不值得在启动路径上抛任何东西。
+   */
+  async function writeBudgetLine() {
+    try {
+      await tick();
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      await reportBudget(
+        tabs.length,
+        terms.length,
+        document.querySelectorAll(".cm-editor").length,
+        document.getElementsByTagName("*").length,
+      );
+    } catch {
+      /* 预算行写不出去不是故障 */
+    }
+  }
 
   /*
    * 拖放监听。**`@tauri-apps/api/webview` 是动态 import 的，不是顶上那一排。**
@@ -2904,10 +2995,7 @@
       第一件事就是确认对方跑的是哪个构建（为此白查过一次代码）。
       它原来挂在这儿那个 `lite-ide` 字样上，而那个字样现在只有空项目时才出现。
     -->
-    <button
-      class="twidget proj"
-      onclick={(e) => openProjMenu(e)}
-      title="{root ?? '还没打开文件夹'}&#10;lite-ide · 构建于 {__BUILD_TIME__}"
+    <button class="twidget proj" onclick={(e) => openProjMenu(e)} title={projTip}>
     >
       <span class="sq" aria-hidden="true">{projInitial}</span>
       <span class="wlabel">{projName}</span>
@@ -3108,7 +3196,10 @@
           {tabs}
           {activeId}
           root={root ?? ""}
-          onSelect={(id) => (activeId = id)}
+          onSelect={(id) => {
+            activeId = id;
+            auditTabs("切标签");
+          }}
           onClose={requestClose}
           onCloseMany={closeMany}
           onRevealInTree={revealInTree}

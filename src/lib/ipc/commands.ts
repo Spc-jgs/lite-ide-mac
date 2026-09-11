@@ -225,6 +225,27 @@ export const appLogPath = () => invoke<string>("app_log_path");
 /** 清空应用日志（两份都清）。判据在 Rust 侧，前端只是按一下 */
 export const clearAppLog = () => invoke<void>("clear_app_log");
 
+/**
+ * 启动完成时往 `app.log` 写一行预算数（issue #28）。
+ *
+ * **前端来叫是因为「启动完成」只有前端知道** —— Rust 的 `setup()` 返回时
+ * 窗口还是白的，会话恢复和首屏渲染都在后头。`boot` 和 `self` 那两个数
+ * 在 Rust 侧现量（`budget.rs`），这里只送过去四个前端才数得出来的。
+ *
+ * 自己 catch：一条量不出来的预算数不该变成界面上一句红字。
+ */
+export const reportBudget = (tabs: number, terms: number, editors: number, nodes: number) =>
+  invoke<void>("report_budget", { tabs, terms, editors, nodes }).catch(() => {});
+
+/**
+ * 这份构建带不带 Web Inspector（issue #20）。
+ *
+ * `pnpm app:bundle:devtools` 和 `pnpm app:bundle` 装在同一个路径上，
+ * 而「盘上只留一份 .app」是硬纪律 —— 所以只能让它自报家门。
+ * 拿不到就当正式版：一个**误报成调试版**的正式版会让人白白重打一次包。
+ */
+export const devtoolsBuild = () => invoke<boolean>("devtools_build").catch(() => false);
+
 // ─────────────────────────── 终端 ───────────────────────────
 
 /** 起一个终端；输出通过 Channel 流式回传 */

@@ -563,6 +563,44 @@ pub fn app_log_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(applog::log_path(dir).to_string_lossy().into_owned())
 }
 
+/// 启动完成时把预算量一遍写进 `app.log`（issue #28）。
+///
+/// **前端来叫，不是 Rust 自己定时写。** 「启动完成」这件事只有前端知道 ——
+/// Rust 这边 `setup()` 返回时窗口还是白的，会话恢复、首屏渲染都在后头。
+/// 而且 `tabs` / `editors` / `nodes` 这几个数本来就长在前端。
+///
+/// 判据、量法和「哪个数有多可信」全在 `crate::budget` 的文件头，这里只是接线。
+#[tauri::command]
+pub fn report_budget(app: tauri::AppHandle, tabs: u32, terms: u32, editors: u32, nodes: u32) {
+    let c = crate::budget::Counts { tabs, terms, editors, nodes };
+    let msg = crate::budget::line(
+        crate::budget::uptime_ms(),
+        crate::budget::phys_footprint_mb(),
+        c,
+        &app.package_info().version.to_string(),
+        devtools_build(),
+    );
+    crate::diag!("budget {msg}");
+    applog::write(applog::Level::Info, "budget", &msg);
+}
+
+/// 这份构建带不带 Web Inspector（issue #20）。
+///
+/// `pnpm app:bundle:devtools` 和 `pnpm app:bundle` **装在同一个路径上**，
+/// 而「盘上只留一份 .app」是这个仓库的硬纪律 —— 所以分辨它们的办法
+/// 不能是「看是哪个文件」，只能是**让它自报家门**。
+///
+/// 悬停标题栏的项目挂件就能看到，和已有的「构建时间」并排：
+/// 排查时本来就要看那一眼，不多一个新习惯。
+///
+/// 这不是「INFO 级别的小事」：带着 inspector 的那份，任何本机进程都能
+/// 附加到这个 webview 上读写页面。忘了打回去的话，界面上原本**没有
+/// 任何迹象**说明这件事。
+#[tauri::command]
+pub fn devtools_build() -> bool {
+    cfg!(feature = "devtools")
+}
+
 /// 诊断开着没有。前端拿它决定**要不要建那条统计定时器** ——
 /// 关着的时候一次都不算，不能让调试设施在所有人机器上白跑。
 ///

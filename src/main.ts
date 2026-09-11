@@ -1,6 +1,7 @@
 import { mount } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App.svelte";
+import { setInvariantSink } from "./lib/state/invariant";
 import "./app.css";
 
 /*
@@ -62,6 +63,22 @@ const oops = (level: "warn" | "error", source: string, msg: string) => {
   diag(`${source}: ${msg}`);
   invoke("app_log", { level, source, msg }).catch(() => {});
 };
+
+/*
+ * 运行时不变量自检的出口（issue #27）。
+ *
+ * `state/invariant.ts` 自己不 import 任何东西 —— 上报通道从这里注进去。
+ * 这样它在 `tests/` 里能拿裸 node 跑，而**一个自己没被测过的自检器
+ * 只会往日志里写噪音**。
+ *
+ * 走 `app_log` 而不是 `diag`：这类 bug 的特征就是「状态悄悄地不对、
+ * 界面照常画」，发现它的时刻往往在事后，而 `diag` 默认闭嘴、
+ * `.app` 又没有 stderr。级别用 error —— 不变量不成立就是 bug，
+ * 哪怕用户当时没察觉。
+ */
+setInvariantSink((msg) => {
+  invoke("app_log", { level: "error", source: "invariant", msg }).catch(() => {});
+});
 
 window.addEventListener("error", (e) =>
   oops("error", "window.error", `${e.message} @ ${e.filename}:${e.lineno}\n${e.error?.stack ?? ""}`),

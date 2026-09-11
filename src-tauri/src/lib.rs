@@ -1,3 +1,4 @@
+mod budget;
 mod commands;
 pub mod diag;
 pub mod menu;
@@ -174,6 +175,8 @@ pub fn run() {
             commands::app_log_path,
             commands::clear_app_log,
             commands::diag_enabled,
+            commands::report_budget,
+            commands::devtools_build,
             commands::pick_folder,
             commands::set_recent,
             commands::sync_menu_state,
