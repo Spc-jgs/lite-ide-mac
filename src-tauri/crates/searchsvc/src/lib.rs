@@ -808,4 +808,71 @@ mod tests {
         assert!(h.text.chars().count() <= MAX_HIT_LEN);
         fs::remove_dir_all(d).ok();
     }
+    /*
+     * issue #21 的实测口子：**软链那趟额外遍历到底要多久。**
+     *
+     * `#[ignore]` 是因为它要一个几万文件的仓库，而那个仓库不该躺在这个
+     * 项目里。给路径才跑：
+     *
+     *     LITE_IDE_BENCH_REPO=/path/to/bigrepo \
+     *       cargo test -p searchsvc --lib -- --ignored --nocapture
+     *
+     * # 已经量到的（2026-09-11，M 系列 Mac，热缓存）
+     *
+     * | 仓库 | 遍历 | 整次搜索 | 遍历占比 |
+     * |---|---|---|---|
+     * | 本仓库 177 文件 | 0.54 ms | 7.6 ms | 7% |
+     * | 合成的 5 万文件 | **180 ms** | **854 ms** | **21%** |
+     * | 同上，带 200 个软链文件 | 176 ms | 860 ms | 20% |
+     *
+     * **issue 里那个外推错了 6.4 倍。** 它按本仓库的 4ms / 177 文件算出
+     * 0.023 ms/文件，外推到 7 万文件是 1.6 秒。实测的单位成本是
+     * **0.0035 ms/文件** —— 原来那 4ms 里绝大部分是固定开销，不是每文件的。
+     * 按实测外推，7 万文件约 250ms，不是 1.6 秒。
+     *
+     * 所以**没有改**（issue 里的 A 档：「可能根本不成问题」）。
+     * 有软链和没软链量出来一样，说明成本全在遍历本身，和软链多少无关。
+     *
+     * 真要省这 20% 的话，别走 issue 里的 B（「先探一层根目录，没软链就跳过」）——
+     * 那个判据不成立，深层才有软链的仓库会漏，正是 #19 修过的那个形状。
+     * 该走的是**把这趟遍历挪出关键路径**：rg 对着 root 那一次立刻起，
+     * 遍历并行做，真找到软链了再对那几个文件补跑一次 rg。
+     * 那是正确的，但要处理两条输出流的去重和 limit —— 20% 不值得现在换这个复杂度。
+     */
+    #[test]
+    #[ignore]
+    fn 量一下软链那趟遍历的代价() {
+        let Ok(root) = std::env::var("LITE_IDE_BENCH_REPO") else {
+            println!("没给 LITE_IDE_BENCH_REPO，跳过");
+            return;
+        };
+        let root = std::path::Path::new(&root);
+        let skip = Skip::by_name();
+
+        // 先热一遍，别把冷缓存算进去（要量的是「每次搜索都付的那笔」）
+        let _ = list_files_and_symlinks(root, &skip);
+
+        let mut walks = Vec::new();
+        for _ in 0..5 {
+            let t = std::time::Instant::now();
+            let (files, syms) = list_files_and_symlinks(root, &skip).unwrap();
+            walks.push((t.elapsed(), files.len(), syms.len()));
+        }
+        let n = walks[0].1;
+        walks.sort_by_key(|w| w.0);
+        let 中位 = walks[2].0;
+        println!("  遍历：{n} 个文件，{} 个软链，中位 {:?}（{:.4} ms/文件）",
+                 walks[0].2, 中位, 中位.as_secs_f64() * 1000.0 / n as f64);
+
+        let mut greps = Vec::new();
+        for _ in 0..5 {
+            let t = std::time::Instant::now();
+            let hits = grep(root, "NEEDLE-4242", 200, &skip).unwrap();
+            greps.push((t.elapsed(), hits.len()));
+        }
+        greps.sort_by_key(|g| g.0);
+        println!("  整次搜索（含那趟遍历）：中位 {:?}，{} 条命中", greps[2].0, greps[2].1);
+        println!("  → 遍历占整次搜索的 {:.0}%", 中位.as_secs_f64() / greps[2].0.as_secs_f64() * 100.0);
+    }
+
 }
