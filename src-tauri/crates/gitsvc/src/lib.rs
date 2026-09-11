@@ -2361,18 +2361,49 @@ mod tests {
      * 就是「界面上看不到跑的是什么」，而看得到的那份必须是**完整的**argv。
      * 只拼调用方传进来的 args 是不够的 —— 加固参数恰恰是最可能把一个
      * 正常仓库弄坏的东西，而它不在那份里。
+     *
+     * # **不许 `console::clear()`，也不许假设顺序**
+     *
+     * 那个环是全局的，而 `cargo test` 是并行的 —— 别的测试同时也在跑 git，
+     * 同时也在往里写。第一版写的是「clear 之后断言 `entries()[0]` 是我的」，
+     * 本地十次全绿，**到 CI 上红了**：另一条测试的 `git init` 抢在了前面。
+     * （`console.rs` 里那几条单元测试专门为此抽了一个本地 `Console` 实例，
+     * 而我在这条端到端测试上又踩了同一个坑。）
+     *
+     * 现在靠 `cwd` 认领自己那几条 —— `tmpdir` 的名字带 pid，是唯一的。
+     * 而且**一条 `clear()` 都不留**：它会把别的测试写进去的东西一起抹掉，
+     * 那是在给整个套件埋雷。
+     *
+     * 顺带记一条教训：**并行测试跑绿一次，不等于它不依赖顺序。**
      */
     #[test]
     fn 跑过的_git_要落进控制台并带上加固参数() {
         let dir = tmpdir("console");
-        console::clear();
+        let 我的目录 = dir.to_string_lossy().into_owned();
+        // 这个测试里所有的断言都靠这个闭包认领自己那几条，不靠顺序
+        let 我的 = |argv_有: &str| {
+            console::entries()
+                .into_iter()
+                .find(|e| e.cwd == 我的目录 && e.argv.iter().any(|a| a == argv_有))
+                .unwrap_or_else(|| panic!("控制台里找不到 `{argv_有}` 那条"))
+        };
+
         run(&dir, &["init", "-q", "-b", "main"]).unwrap();
 
-        let got = console::entries();
-        let 那条 = got
-            .iter()
-            .find(|e| e.argv.iter().any(|a| a == "init"))
-            .expect("跑了 git init，控制台里却没有这条");
+        /*
+         * **紧跟着放一个诱饵**：在另一个目录里也跑一次 `git init`。
+         *
+         * 这一下是在本进程内复现 CI 上那次失败 —— 别的测试并行跑着同样的
+         * 命令，环里于是有两条 `init`。`entries()` 是**最新在前**，
+         * 所以诱饵必须排在自己这条**后面**才顶得上第一位；
+         * 放前面的话按顺序取照样能蒙对，这个诱饵就白放了（第一版就是这么写的，
+         * 把认领改回「只看 argv」它照样绿）。
+         */
+        let 诱饵 = tmpdir("console-decoy");
+        run(&诱饵, &["init", "-q", "-b", "main"]).unwrap();
+
+        let 那条 = 我的("init");
+        assert_eq!(那条.cwd, 我的目录, "认领错了 —— 拿到的是诱饵那条");
         assert_eq!(那条.code, Some(0));
         assert!(!那条.failed());
         assert_eq!(那条.argv[0], "git");
@@ -2381,20 +2412,18 @@ mod tests {
             "argv 里没有加固参数，记的是调用方那份而不是真正跑的那份：{:?}",
             那条.argv
         );
-        assert_eq!(那条.cwd, dir.to_string_lossy());
 
         // 失败的那条也要在，而且带着 git 的原话
-        console::clear();
         let _ = run(&dir, &["rev-parse", "没有这个引用"]);
-        let got = console::entries();
-        assert!(got[0].failed(), "失败的命令在控制台里显示成功了：{:?}", got[0]);
+        let 坏的 = 我的("没有这个引用");
+        assert!(坏的.failed(), "失败的命令在控制台里显示成功了：{坏的:?}");
         assert!(
-            !got[0].err.is_empty(),
+            !坏的.err.is_empty(),
             "失败了却没留下 git 的原话 —— 那正是这个控制台存在的理由"
         );
 
-        console::clear();
         let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&诱饵);
     }
 
     /// 一个干净的临时目录。名字带 pid —— 失败时不清理，
