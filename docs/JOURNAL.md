@@ -5279,3 +5279,59 @@ issue 的第一步写的是「量，不是改」。量了：
 ```
 LITE_IDE_BENCH_REPO=/path/to/bigrepo cargo test -p searchsvc --lib -- --ignored --nocapture
 ```
+
+---
+
+## 2026-09-11 · #30 的根因：pyenv 的一个陈旧锁文件，死等 60 秒
+
+早些时候记的是「登录 shell 偶发要 60 秒，原因不明」。把 pty 测试的报错原文
+完整打出来之后，它自己说了：
+
+```
+pyenv: cannot rehash: couldn't acquire lock ~/.pyenv/shims/.pyenv-shim for 60 seconds.
+pyenv-rehash: line 22: .pyenv-shim: cannot overwrite existing file
+```
+
+`.pyenv-shim` 本该是个**临时锁**（`pyenv-rehash` 创建它、用完删掉）。
+它现在是一个 301 字节的常驻可执行文件躺在 `~/.pyenv/shims/` 里 ——
+于是每次 rehash 都拿不到锁，**死等整整 60 秒**才放弃。
+`~/.zshrc` 里有 `eval "$(pyenv init - zsh)"`，每个登录 shell 都走这条路。
+
+**60 这个整数一直在指向一个超时。** 一开始我把它当成「冷缓存」，
+按那个假设做的热身自然没用 —— 热身自己也要等 60 秒。
+*一个整得可疑的数字（60.0、30.0、5.0）几乎总是超时，不是性能。*
+
+### 为什么是双峰而不是一直慢
+
+`pyenv rehash` 只在特定条件下跑（shims 变了、或者并发的几个 shell 撞上）。
+**四条 pty 测试是并行的**，四个登录 shell 同时起 —— 正好是最容易撞锁的形状。
+单跑 `cargo test -p ptysvc` 时它们串得开，所以一直绿。
+
+而且很可能是**自己咬自己**：pty 测试会 kill 掉 shell，
+而一个被杀在 rehash 半途的 shell 正好会把 `.pyenv-shim` 留下来。
+那个文件的 mtime 就是今天跑测试的时间。
+
+### 代码这半改了什么
+
+- `with_deadline` 的参数从 `Fn + Clone` 改成 `FnOnce`。那个 `Clone` 是给
+  **早已删掉的重试循环**用的（`TRIES` 3 → 1 之后就没有循环了），
+  而它挡着「把 `Session` 移进闭包」这件事 —— 一条为了已经不存在的需求
+  而留着的约束，正好挡住了现在真正需要的重构。
+- 于是 `Session::spawn` + 等提示符**挪到了期限外面**。那段耗时属于用户的
+  `.zshrc`，不属于被测代码；算进「有没有挂住」的预算里，结果就是
+  全量测试每隔一轮集体误报。
+- 等提示符的预算 `PROMPT_BUDGET = 90s`，`flow.rs` 那条同步。
+- **断连不再当超时。** 工作线程自己 panic 时，原来和超时走同一条 panic，
+  喊的是「多半是回归」—— 把真正的断言信息盖住了。这次正是它挡了一会儿路：
+  真正的 pyenv 报错就在被盖住的那段里。
+
+**但代码这半治不了根**：pyenv 每次死等 60 秒，四个 shell 串起来就是 240 秒，
+再宽的窗口也不够。真正的修复是 `rm -f ~/.pyenv/shims/.pyenv-shim`，
+那在这个仓库之外。
+
+### 顺带作废一条旧结论
+
+`ptysvc/src/lib.rs` 里排查 issue #2 时留着一条「还活着的结论：登录 shell 不慢
+（`zsh -l -c pwd` 0.084s、`-i` 0.183s）」。那个数只量到了**快的那一峰**。
+改成如实记录双峰，并写下教训：**一个只量了一次就写下来的「不慢」，
+挡不住任何东西。**

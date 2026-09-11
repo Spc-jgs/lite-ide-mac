@@ -279,9 +279,14 @@ mod tests {
     /// **二、「纯 Python `pty.fork()` 复现也会挂 → 根因不在本仓库」——已作废。**
     /// 2026-08-28 复测 40/40 全过。现在也说得通了：那份复现多半一直在读 master。
     ///
-    /// 还活着的两条（都复量过）：登录 shell 不慢
-    /// （`zsh -l -c pwd` 0.084s、`-i` 0.183s）；挂住不留孤儿
+    /// 还活着的一条：挂住不留孤儿
     /// （11 次挂住的尝试新增孤儿 0 个 —— 进程退出时 master 关闭，shell 才走得掉）。
+    ///
+    /// **作废的第三条：「登录 shell 不慢（`zsh -l -c pwd` 0.084s）」。**
+    /// 2026-09-11 复量发现那个数只是**快的那一峰**：同一条命令冷的时候
+    /// 要 6.2–60.4 秒（CPU 6%，全在等）。这台机器上它是双峰的，
+    /// 而当初只量到了一边 —— 见 issue #30。
+    /// 教训：**一个只量了一次就写下来的「不慢」，挡不住任何东西。**
     ///
     /// # 已经修了（2026-08-31 同一天）
     ///
@@ -303,53 +308,74 @@ mod tests {
     /// 更早试过一版（`wait()` 改非阻塞 + 后台收尸），改完看着好了，
     /// 但把旧写法放回去也一样不挂 —— 配套的回归测试在新旧两版下都通过，
     /// 等于没测。这次是先让测试在旧代码上 10/10 红，才动的手。
-    fn with_deadline<T: Send + 'static>(
-        secs: u64,
-        body: impl Fn() -> T + Send + Sync + Clone + 'static,
-    ) -> T {
-        use std::sync::mpsc;
-        // 曾经是 3。根因（issue #2）修掉之后改回 1 —— **重试现在只会盖住回归**。
+    /*
+     * **参数是 `FnOnce`，不是 `Fn + Clone`。**
+     *
+     * 原来要 `Clone` 是为了那个重试循环，而重试早就改成 1 次了
+     * （见上面那段：重试只会盖住回归）—— 于是 `Clone` 成了一条纯粹的
+     * 限制：调用方没法把 `Session` 和 `Output` **移**进闭包里。
+     *
+     * 而那正是 issue #30 要的东西：把「等 shell 起来」挪到期限**外面**。
+     * 登录 shell 在这台机器上实测是双峰的（0.08s / 60s），把它算进
+     * 「有没有挂住」的预算里，结果是全量测试每隔一轮就集体误报一次。
+     */
+    fn with_deadline<T: Send + 'static>(secs: u64, body: impl FnOnce() -> T + Send + 'static) -> T {
+        use std::sync::mpsc::{self, RecvTimeoutError};
+        // 曾经有个 TRIES=3 的重试循环。根因（issue #2）修掉之后改回 1 ——
+        // **重试只会盖住回归**：它当初把「每次尝试 55% 会挂」磨成了
+        // 「每轮 25% 的可见失败率」，两个数还各自被记进了两处文档，
+        // 看着像互相矛盾。1 次就没有循环可言了，这里直接跑一遍。
         //
-        // 它当初的作用是把间歇性挂起磨平，代价是把真实情况也磨没了：
-        // 每次尝试 55% 会挂，被三次重试盖成了每轮 25% 的可见失败率，
-        // 差一倍多，两个数还各自被记进了两处文档，看着像互相矛盾。
-        //
-        // 硬期限留着：挂住时它让测试在 25s 内**失败**，而不是安静地
-        // 吃光 CI 整个 job 的额度、日志停在 `test tests::xxx ...` 那一行。
-        const TRIES: u32 = 1;
-        for attempt in 1..=TRIES {
-            let (tx, rx) = mpsc::channel();
-            let b = body.clone();
-            probe(&format!("── 第 {attempt}/{TRIES} 次尝试开始"));
-            // 故意不 join：卡住的线程 join 不回来，join 本身就成了第二个挂点。
-            // 它会随进程退出被回收。
-            std::thread::spawn(move || {
-                let _ = tx.send(b());
-            });
-            match rx.recv_timeout(Duration::from_secs(secs)) {
-                Ok(v) => {
-                    probe(&format!("── 第 {attempt}/{TRIES} 次尝试成功"));
-                    return v;
-                }
-                Err(_) => {
-                    // 这一行是主线程写的，所以一定落得下来。上面那个工作线程
-                    // 此刻还卡在某处，它最后写下的那个阶段就是挂点
-                    probe(&format!("── 第 {attempt}/{TRIES} 次尝试超时 {secs}s，弃掉线程重试"));
-                    eprintln!("  pty 第 {attempt}/{TRIES} 次尝试超过 {secs}s 没返回，重试");
-                }
+        // 硬期限留着，作用变了：不再是磨平已知的挂起，而是**万一回归，
+        // 让它在 25s 内失败**，而不是安静地吃光 CI 整个 job 的额度、
+        // 日志停在 `test tests::xxx ...` 那一行什么都没有。
+        let (tx, rx) = mpsc::channel();
+        probe("── 计时开始");
+        // 故意不 join：卡住的线程 join 不回来，join 本身就成了第二个挂点。
+        // 它会随进程退出被回收。
+        std::thread::spawn(move || {
+            let _ = tx.send(body());
+        });
+        match rx.recv_timeout(Duration::from_secs(secs)) {
+            Ok(v) => {
+                probe("── 走完了");
+                v
+            }
+            // **断连不是超时。** 断连 = 工作线程自己 panic 了（它的断言信息
+            // 已经打出来了），这时候再喊一句「多半是回归」只会盖住真正的原因。
+            // 原来两种都走同一条 panic，查错时被误导过
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("pty 测试体自己失败了 —— 往上看它的断言信息")
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                // 这一行是主线程写的，所以一定落得下来。上面那个工作线程
+                // 此刻还卡在某处，它最后写下的那个阶段就是挂点
+                probe(&format!("── 超时 {secs}s，弃掉线程"));
+                panic!(
+                    "pty 超过 {secs}s 没返回。\n\
+                     **等 shell 起来那段不在这个预算里**（issue #30 之后挪出去了），\n\
+                     所以这次是真的卡在了命令往返或者收尸上 —— 当回归看\n\
+                     （issue #2 那个挂起是 kill 时排空 master 修掉的）。\n\
+                     用探针看它卡在哪个阶段 ——\n\
+                     \x20  PTYSVC_PROBE=/tmp/pty.log cargo test -p ptysvc --lib\n\
+                     文件最后一行就是它走到的最后一步。"
+                )
             }
         }
-        panic!(
-            "pty 超过 {secs}s 没返回。\n\
-             先排除环境：`time /bin/zsh -l -c true` 如果要好几秒，那多半是\n\
-             登录 shell 的事，不是这里（issue #30，实测见过 30.70s）——\n\
-             那条路上实测见过 60.4 秒，而这里的窗口是写死的。\n\
-             排除之后再当回归看（issue #2 那个挂起是 kill 时排空 master 修掉的）。\n\
-             用探针看它卡在哪个阶段 ——\n\
-             \x20  PTYSVC_PROBE=/tmp/pty.log cargo test -p ptysvc --lib\n\
-             文件最后一行就是它走到的最后一步。"
-        )
     }
+
+    /*
+     * 等 shell 吐出第一个字的预算。
+     *
+     * **90 秒不是「慢」的余量，是环境双峰的余量。** 这台机器上
+     * `zsh -l -c true` 稳态 0.08 秒，而冷的那一下实测到过 **60.4 秒**
+     * （CPU 只占 6%，全在等，像个网络超时）。40 次连起都复现不了，
+     * 所以它不是「机器忙」，放宽也不是妥协 —— 是把一个**不属于被测代码**
+     * 的变量移出判据。
+     *
+     * 快的时候它一分钟都不花：`wait_prompt` 是轮询，第一个字一到就往下走。
+     */
+    const PROMPT_BUDGET: u64 = 90;
 
     /// pty 的输出累加器。**可以反复等**，这是它和原来那个一次性
     /// `read_until` 的唯一区别，而那个区别是必须的（见 [`Output::wait_for`]）。
@@ -469,10 +495,12 @@ mod tests {
 
     #[test]
     fn 能起_shell_并执行命令() {
-        with_deadline(25, || {
-            let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
-            let mut out = Output::new(reader);
-            assert!(out.wait_prompt(10), "10s 内 shell 一个字都没吐出来");
+        // 起 shell 和等提示符**在期限外面**（issue #30）：那段耗时属于
+        // 用户的 .zshrc，不属于被测代码
+        let (sess, reader) = Session::spawn("/tmp", 80, 24).expect("起不来");
+        let mut out = Output::new(reader);
+        assert!(out.wait_prompt(PROMPT_BUDGET), "{PROMPT_BUDGET}s 内 shell 一个字都没吐出来");
+        with_deadline(25, move || {
             assert!(
                 send_until(&sess, b"echo LITE_IDE_PTY_OK\n", "LITE_IDE_PTY_OK", &mut out),
                 "没读到回显，实际输出：{:?}",
@@ -483,14 +511,15 @@ mod tests {
 
     #[test]
     fn 工作目录生效() {
-        with_deadline(25, || {
-            probe("  spawn 前");
-            let (sess, reader) = Session::spawn("/usr", 80, 24).expect("起不来");
-            probe("  spawn 回来了");
-            let mut out = Output::new(reader);
-            // 先等提示符再敲命令 —— issue #16，理由见 Output::wait_prompt
-            assert!(out.wait_prompt(10), "10s 内 shell 一个字都没吐出来");
-            probe("  等到提示符了");
+        probe("  spawn 前");
+        let (sess, reader) = Session::spawn("/usr", 80, 24).expect("起不来");
+        probe("  spawn 回来了");
+        let mut out = Output::new(reader);
+        // 先等提示符再敲命令 —— issue #16，理由见 Output::wait_prompt。
+        // 这一段在期限外面，理由见 PROMPT_BUDGET（issue #30）
+        assert!(out.wait_prompt(PROMPT_BUDGET), "{PROMPT_BUDGET}s 内 shell 一个字都没吐出来");
+        probe("  等到提示符了");
+        with_deadline(25, move || {
             let ok = send_until(&sess, b"pwd\n", "/usr", &mut out);
             probe("  send_until 回来了");
             assert!(ok, "cwd 没生效，实际输出：{:?}", out.text());
@@ -518,7 +547,8 @@ mod tests {
 
         // 不靠提示符长什么样 —— 用户的 zsh 主题里 $ / % / ❯ 都可能
         let mut out = Output::new(reader);
-        assert!(out.wait_prompt(10), "10s 内 shell 一个字都没吐出来");
+        // 期限外（issue #30）—— 这条测试本来就自己带超时，不走 with_deadline
+        assert!(out.wait_prompt(PROMPT_BUDGET), "{PROMPT_BUDGET}s 内 shell 一个字都没吐出来");
         assert!(
             send_until(&sess, b"echo READY\n", "READY", &mut out),
             "shell 没起来，实际输出：{:?}",
