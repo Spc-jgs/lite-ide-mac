@@ -168,6 +168,7 @@ pub fn run() {
             commands::git_worktree_remove,
             commands::pty_spawn,
             commands::pty_write,
+            commands::pty_ack,
             commands::pty_resize,
             commands::pty_kill,
             commands::diag,

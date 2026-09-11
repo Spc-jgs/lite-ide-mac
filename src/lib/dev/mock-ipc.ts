@@ -925,6 +925,9 @@ export function installMockIpc(): void {
           return 1;
         case "pty_write":
         case "pty_resize":
+        // 桩里没有真 pty，也就没有要背压的对象。但这条 case 必须在 ——
+        // 落到 default 的话浏览器里每写一批终端输出就报一次「未知命令」
+        case "pty_ack":
           return null;
         case "pty_kill":
         case "open_log": {

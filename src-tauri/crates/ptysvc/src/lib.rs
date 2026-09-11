@@ -6,6 +6,9 @@
 //! 生命周期纪律（UNINSTALL.md 的承诺）：**主窗口退出时必须 kill 所有子进程**，
 //! 否则会留下孤儿 zsh 常驻。`Session::drop` 负责这件事。
 
+mod flow;
+pub use flow::{Flow, GIVE_UP, HIGH_WATER};
+
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -338,8 +341,11 @@ mod tests {
         }
         panic!(
             "pty 超过 {secs}s 没返回。\n\
-             issue #2 那个挂起已经修掉了（kill 时排空 master），所以这多半是**回归**。\n\
-             第一步：用探针看它卡在哪个阶段 ——\n\
+             先排除环境：`time /bin/zsh -l -c true` 如果要好几秒，那多半是\n\
+             登录 shell 的事，不是这里（issue #30，实测见过 30.70s）——\n\
+             那条路上实测见过 60.4 秒，而这里的窗口是写死的。\n\
+             排除之后再当回归看（issue #2 那个挂起是 kill 时排空 master 修掉的）。\n\
+             用探针看它卡在哪个阶段 ——\n\
              \x20  PTYSVC_PROBE=/tmp/pty.log cargo test -p ptysvc --lib\n\
              文件最后一行就是它走到的最后一步。"
         )

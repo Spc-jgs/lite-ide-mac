@@ -601,6 +601,21 @@ pub fn devtools_build() -> bool {
     cfg!(feature = "devtools")
 }
 
+/// 前端报「这批字节我已经吃下去了」，把背压的水位降下来（issue #18 第一条）。
+///
+/// **在 `term.write(bytes, cb)` 的回调里叫**，不是收到就叫 —— 那个回调
+/// 在 xterm 真的解析完之后才响，而要限的正是「还没被消费的写队列」。
+/// 收到就叫等于没有背压。
+///
+/// 找不到这个 id 就静默返回：终端刚被关掉时，最后几条 ack 一定是打空的，
+/// 那不是错误。
+#[tauri::command]
+pub fn pty_ack(id: u32, bytes: u32, state: State<'_, AppState>) {
+    if let Some(flow) = state.pty_flow(id) {
+        flow.acked(bytes as u64);
+    }
+}
+
 /// 诊断开着没有。前端拿它决定**要不要建那条统计定时器** ——
 /// 关着的时候一次都不算，不能让调试设施在所有人机器上白跑。
 ///
@@ -629,14 +644,47 @@ pub fn pty_spawn(
 
     let (sess, mut reader) =
         ptysvc::Session::spawn(&cwd, cols, rows).map_err(|e| format!("终端起不来：{e}"))?;
-    let id = state.insert_pty(sess);
+    // 满了就拒绝。`sess` 在这儿 drop 掉 —— Session::drop 会 kill 那个 zsh，
+    // 所以刚起的这个不会变成孤儿（UNINSTALL.md 的承诺）
+    let (id, flow) = state.insert_pty(sess)?;
     crate::diag!("pty_spawn id={id} cwd={cwd}");
 
     std::thread::Builder::new()
         .name(format!("pty-read-{id}"))
         .spawn(move || {
             let mut buf = [0u8; 8192];
+            let mut gave_up = false;
             loop {
+                /*
+                 * **读之前先问闸**（issue #18 第一条）。
+                 *
+                 * 未确认的字节数到水位就在这儿停住，让 pty master 的缓冲区
+                 * 自己把 shell 顶回去 —— 那正是真终端里 `cat` 大文件
+                 * 不会撑爆内存的原因。判据、水位和「前端不回话怎么办」
+                 * 全在 `ptysvc::Flow` 里，这儿只是叫一下。
+                 */
+                if !flow.wait_room() {
+                    break;
+                }
+                /*
+                 * 闸放弃了 —— 前端两秒没回一个 ack。
+                 *
+                 * **这一行是前端那半唯一的自证方式。** 背压能不能成立，
+                 * 取决于 `Terminal.svelte` 在 `term.write` 的回调里有没有
+                 * 报回来；那条通道断掉的表现是「什么都没变，只是队列又无界了」——
+                 * 不说一声的话，没有任何人会发现。
+                 *
+                 * 只说一次（`trusted` 一旦关掉就不会再打开），所以不会刷屏。
+                 */
+                if !flow.trusted() && !gave_up {
+                    gave_up = true;
+                    crate::diag!("pty {id} 两秒没等到 ack，背压关掉了");
+                    applog::write(
+                        applog::Level::Warn,
+                        "pty",
+                        &format!("终端 {id} 的 ack 通道没回话，背压已关闭 —— 输出队列回到无上限"),
+                    );
+                }
                 match reader.read(&mut buf) {
                     // EOF：shell 退出了
                     Ok(0) | Err(_) => break,
@@ -656,6 +704,7 @@ pub fn pty_spawn(
                         if on_data.send(buf[..n].to_vec()).is_err() {
                             break;
                         }
+                        flow.sent(n as u64);
                     }
                 }
             }
@@ -1200,6 +1249,15 @@ pub struct RemoteErrDto {
     pub raw: String,
 }
 
+/// 这个 op_id 已经在跑了（issue #18 第二条）。
+///
+/// 走 `other` 这一档：界面对 `cancelled` / `rejected` / `auth-*` 各有专门的
+/// 处理，而这条不是远程那边的事，是我们自己这边撞了号。
+fn busy_err_dto(id: u32) -> RemoteErrDto {
+    let m = format!("操作编号 {id} 已经有一个在跑了。这多半是界面上的并发防线漏了 —— 等它跑完再来");
+    RemoteErrDto { kind: "other".to_string(), message: m.clone(), raw: m }
+}
+
 fn to_err_dto(e: gitsvc::remote::RemoteError) -> RemoteErrDto {
     use gitsvc::remote::RemoteError as E;
     let kind = match &e {
@@ -1255,7 +1313,11 @@ pub async fn git_fetch(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<(), RemoteErrDto> {
     let id = op_id;
-    let cancel = state.begin_remote(id);
+    // 撞号就当场退，**不能 end_remote**：表里那条是别人的，划掉它
+    // 等于把那个还在跑的操作的取消能力一起划掉
+    let Some(cancel) = state.begin_remote(id) else {
+        return Err(busy_err_dto(id));
+    };
     crate::diag!("git_fetch id={id} remote={remote}");
     let r = tauri::async_runtime::spawn_blocking(move || {
         gitsvc::remote::fetch(&root, &remote, &cancel, &mut pump(&on_progress))
@@ -1282,7 +1344,10 @@ pub async fn git_push(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<(), RemoteErrDto> {
     let id = op_id;
-    let cancel = state.begin_remote(id);
+    // 同 git_fetch：撞号当场退，不碰表里那条
+    let Some(cancel) = state.begin_remote(id) else {
+        return Err(busy_err_dto(id));
+    };
     crate::diag!("git_push id={id} remote={remote} branch={branch} set_upstream={set_upstream}");
     let opts = gitsvc::remote::PushOpts { set_upstream };
     let r = tauri::async_runtime::spawn_blocking(move || {

@@ -233,7 +233,16 @@ fs_tree(path, depth)             -> TreeNode[]
 ```
 log_lines(handle, start, count)  -> ArrayBuffer        // 见 3.4 格式
 pty_output                       -> Channel<&[u8]>
+pty_ack(id, bytes)               -> ()                 // 背压的回程，见下
 ```
+
+**`pty_ack` 是这里唯一一条反方向的高频调用。** 终端是全应用唯一一个
+「设闸的答案不是截断」的子进程 —— 截断会把终端变成一个会骗人的终端，
+所以走的是背压：前端在 `term.write(bytes, cb)` 的**回调**里报回消费了多少，
+未确认量到 256KB 时 Rust 侧的读线程就先不读，让 pty master 的缓冲区
+自己把 shell 顶回去。实测 `yes` 跑 600ms：没有闸读出 47MB，有闸 256KB。
+判据和「前端不回话怎么办」写在 `ptysvc::Flow` 与
+[.claude/rules/rust.md](../.claude/rules/rust.md)。
 
 ### 事件（Rust → 前端推送）
 ```

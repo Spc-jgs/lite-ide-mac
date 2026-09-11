@@ -3,7 +3,7 @@
   import { FitAddon } from "@xterm/addon-fit";
   import { Channel } from "@tauri-apps/api/core";
   import "@xterm/xterm/css/xterm.css";
-  import { ptySpawn, ptyWrite, ptyResize, ptyKill } from "../ipc/commands";
+  import { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyAck } from "../ipc/commands";
 
   let { cwd, onExit }: { cwd: string; onExit: () => void } = $props();
 
@@ -63,6 +63,23 @@
     term.open(host);
     fit.fit();
 
+    /*
+     * 已经被 xterm 吃下、但还没报回 Rust 的字节数（issue #18 第一条）。
+     *
+     * **要攒着**，因为第一批数据可能比 `ptySpawn` 的返回值先到 —— 那时
+     * 还不知道 pty id，报不出去。不攒的话那几片就永远留在 Rust 侧的
+     * 未确认账上，而它是个只增不减的数：账上挂着几十 KB 的话，
+     * 水位会被永久抬高一截，极端情况下一开始就卡在闸上。
+     */
+    let unacked = 0;
+    const ack = (n: number) => {
+      unacked += n;
+      if (ptyId === null || unacked === 0) return;
+      const batch = unacked;
+      unacked = 0;
+      void ptyAck(ptyId, batch);
+    };
+
     // pty 输出流：Rust 侧读线程通过 Channel 推过来
     const chan = new Channel<number[] | ArrayBuffer>();
     chan.onmessage = (msg) => {
@@ -70,7 +87,11 @@
       // 一律交给 xterm 按字节写入 —— 它自己处理 UTF-8 解码，
       // 多字节字符被切在两个 chunk 之间也不会乱码
       const bytes = msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg);
-      term.write(bytes);
+      /*
+       * **回调在 xterm 真的解析完这批之后才响**，报的时机就该是那里。
+       * 收到就报等于没有背压 —— 要限的正是「收到了但还没被消费」的那一段。
+       */
+      term.write(bytes, () => ack(bytes.length));
     };
 
     ptySpawn(cwd, term.cols, term.rows, chan)
@@ -80,6 +101,8 @@
           return;
         }
         ptyId = id;
+        // 把拿到 id 之前攒下的那些一次报上去
+        ack(0);
         status = "";
         term.onData((d) => void ptyWrite(id, d));
         term.focus();
