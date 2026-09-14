@@ -1,11 +1,11 @@
 <script lang="ts">
   import { untrack, tick } from "svelte";
-  import { Channel } from "@tauri-apps/api/core";
   import FileTree from "./lib/shell/FileTree.svelte";
   import Rail from "./lib/shell/Rail.svelte";
   import Sidebar from "./lib/shell/Sidebar.svelte";
   import Panel from "./lib/shell/Panel.svelte";
   import StatusBar from "./lib/shell/StatusBar.svelte";
+  import Confirms from "./lib/shell/Confirms.svelte";
   import TitleBar from "./lib/shell/TitleBar.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import type { Action } from "./lib/search/QuickSearch.svelte";
@@ -18,6 +18,8 @@
   import { project } from "./lib/state/project.svelte";
   import { worktree } from "./lib/state/worktree.svelte";
   import { git } from "./lib/state/git.svelte";
+  import { branches } from "./lib/state/branches.svelte";
+  import { remote } from "./lib/state/remote.svelte";
   import { terms } from "./lib/state/terms.svelte";
   import * as session from "./lib/state/session";
   import { stashed } from "./lib/state/doc";
@@ -36,27 +38,15 @@
     setRecent,
     syncMenuState,
     openExternal,
-    gitFetch,
-    gitPush,
-    gitMergeUpstream,
-    gitCancel,
-    gitOutgoing,
-    type RemoteProgress,
-    type RemoteErr,
-    type SwitchErr,
     diag,
     reportBudget,
     initialPath,
     gitDiff,
     gitStage,
     gitUnstage,
-    gitSwitch,
-    gitWorktreeAdd,
-    gitWorktreeRemove,
     listProjectFiles,
     scratchDir,
     createScratch,
-    type GitWorktree,
   } from "./lib/ipc/commands";
 
 
@@ -81,6 +71,8 @@
   // 文档生命周期往外的两个钩子：保存完刷 git，光标动了安排存快照（见 docs.svelte.ts 文件头）
   docs.hooks.afterSave = () => void git.refresh();
   docs.hooks.afterPos = () => scheduleSave();
+  // 远程操作的确认条长在 Git 那组懒加载的组件里，操作前先把它们拉起来
+  remote.hooks.warmUi = () => gitUi.load();
 
 
 
@@ -236,94 +228,12 @@
     notify.ok(`下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`, 3600);
   }
 
-  /**
-   * 被本地改动挡住的那次切换。**不是错误，是「你得先决定怎么办」。**
-   *
-   * git 的原话是 "Please commit your changes or stash them before you switch
-   * branches" —— 而提交和丢弃这两条路界面上都有，把英文原话贴给用户等于
-   * 让他自己去开终端。`gitsvc::Error::LocalChanges` 把挡路的文件切出来了，
-   * 这里据此给按钮。
-   */
-  let pendingCheckout = $state<{
-    name: string;
-    create: boolean;
-    files: string[];
-  } | null>(null);
 
-  function switchBranch(name: string, create = false) {
-    notify.closeBanner();
-    pendingCheckout = null;
-    // base 要在切之前抓 —— 切完 git.status.branch 就是新的那个了
-    const base = git.status?.branch ?? "";
-    void git.run(create ? "新建分支失败" : "切分支失败", async () => {
-      try {
-        await gitSwitch(git.repo!, name, create);
-      } catch (e) {
-        const err = e as SwitchErr;
-        if (err?.kind === "local-changes" && err.files?.length) {
-          pendingCheckout = { name, create, files: err.files };
-          return;
-        }
-        throw e;
-      }
-      /*
-       * 先刷新再说话。**说的是「实际切到了哪儿」，不是「我请求切到哪儿」** ——
-       * 请求 `origin/foo` 时 gitsvc 可能建了本地 `foo`，也可能切到了一个早就
-       * 存在的同名本地分支（那时它跟踪的可能是别的远程）。前端去复现那套 DWIM
-       * 规则就是把同一份判断写两处；读一遍刷新后的状态，说的话永远是真的。
-       */
-      await git.refresh();
-      const now = git.status?.branch || name;
-      const up = git.status?.upstream ? `（跟踪 ${git.status.upstream}）` : "";
-      notify.ok(create ? `已从 ${base} 新建并切到 ${now}` : `已切到 ${now}${up}`, 2800);
-      await worktree.changed();
-    }, create ? "新建分支" : "切分支");
-  }
 
-  /** 丢掉挡路的那几个改动，然后把刚才那次切换重放一遍 */
-  async function discardThenCheckout() {
-    const p = pendingCheckout;
-    if (!p || !git.repo) return;
-    pendingCheckout = null;
-    const es = (git.status?.entries ?? []).filter((e) => p.files.includes(e.path));
-    await git.discard(es);
-    switchBranch(p.name, p.create);
-  }
 
-  /**
-   * 打开一个工作树 = **把项目根换过去**。
-   *
-   * `openPath` 对目录只做 `root = path`，**打开的标签一个都不动** ——
-   * 于是文件树和 Git 栏切到了新工作树，而标签还指着旧的那份。
-   * 这不是 bug（开着别处的文件是合法的），但一声不吭就变了半个界面，
-   * 人会以为「怎么点了没反应」。做完说一句。
-   */
-  async function openWorktree(path: string) {
-    await tabflow.openPath(path);
-    const name = path.slice(path.lastIndexOf("/") + 1) || path;
-    notify.ok(`项目根已切到 ${name}（打开的标签没有动）`, 3200);
-  }
 
-  function newWorktree(dir: string, branch: string) {
-    void git.run("新建工作树失败", async () => {
-      // 分支存不存在由 gitsvc 判，这里只管「要一个跑着这个分支的目录」
-      const path = await gitWorktreeAdd(git.repo!, dir, branch);
-      notify.ok(`工作树已建在 ${path}`, 3600);
-      await tabflow.openPath(path);
-    }, "新建工作树");
-  }
 
-  /** 待确认移除的工作树 —— 会删目录，必须过用户这一关 */
-  let pendingWtRemove = $state<GitWorktree | null>(null);
 
-  function doRemoveWorktree(w: GitWorktree, force: boolean) {
-    pendingWtRemove = null;
-    void git.run("移除工作树失败", async () => {
-      await gitWorktreeRemove(git.repo!, w.path, force);
-      notify.ok(`已移除工作树 ${w.path}`);
-      await worktree.changed();
-    }, "移除工作树");
-  }
 
   /**
    * 当前编辑文件相对 HEAD 的改动行，喂给编辑器缩略图。
@@ -899,227 +809,6 @@
     });
   }
 
-  // ── 拉取与推送 ────────────────────────────────────────────────
-
-  /**
-   * 远程操作的 id。**前端发号，不是等 Rust 返回。**
-   *
-   * 等返回值的话取消按钮永远点不动 —— 返回值要等操作跑完才到。
-   * 这是实测点了一次取消、发现 `git_cancel` 压根没被调到才发现的。
-   */
-  let nextOpId = 0;
-
-  /** 正在跑的远程操作。null = 没有 */
-  let syncing = $state<{
-    what: "pull" | "push" | "fetch";
-    id: number;
-    phase: string;
-    percent: number | null;
-  } | null>(null);
-
-  /** 分岔了要先决定合并还是变基。null = 没在问 */
-  let pendingDiverge = $state<{ upstream: string } | null>(null);
-
-  /**
-   * 上次选的合并方式。
-   *
-   * IDEA 的「记住这次选择」——分岔是常态，每次都问同一个问题很烦。
-   * **但只记在内存里**：跨重启还记着的话，下次分岔时会用一个人早就忘了的
-   * 策略默默合并，那比多问一次糟。
-   */
-  let lastMergeMode = $state<"merge" | "rebase" | null>(null);
-
-  /** 推送前的确认。列出要推的提交（照 IDEA），而不是只给一个计数 */
-  let pendingPush = $state<{ branch: string; setUpstream: boolean; commits: string[] } | null>(null);
-
-  /** 远程操作失败时展开的那块。`raw` 是 git 的原话 */
-  let remoteErr = $state<(RemoteErr & { hint: string }) | null>(null);
-
-  /**
-   * 把 RemoteErr 变成一句能照着做的话。
-   *
-   * git 的原话不能直接给用户看 ——「terminal prompts disabled」会让人以为是
-   * 我们的开关设错了，而真正该做的事是去认证一次。
-   * **但原话要留着能展开**：转译错了的时候人得有办法绕过我们。
-   */
-  async function toHint(e: RemoteErr): Promise<string> {
-    if (e.kind === "auth-https") {
-      return `在终端里跑一次，输一遍账号密码，之后就一直有效：\n  git -C ${project.root} fetch`;
-    }
-    if (e.kind === "auth-ssh") {
-      return "把私钥加进 ssh-agent：\n  ssh-add --apple-use-keychain ~/.ssh/id_ed25519";
-    }
-    if (e.kind === "rejected") return "远程上有你本地还没有的提交。先拉下来，再推。";
-    return "";
-  }
-
-  async function showRemoteErr(e: RemoteErr) {
-    if (e.kind === "cancelled") return; // 用户自己取消的，不是错误
-    remoteErr = { ...e, hint: await toHint(e) };
-  }
-
-  /** 进度通道。每次操作新建一个 —— Channel 是一次性的 */
-  function progressChannel(what: "pull" | "push" | "fetch") {
-    const ch = new Channel<RemoteProgress>();
-    ch.onmessage = (p) => {
-      if (!syncing) return;
-      syncing = { ...syncing, what, phase: p.phase, percent: p.percent };
-    };
-    return ch;
-  }
-
-  /**
-   * 抓远程。只读，不动工作区 —— 失败了没有任何后果。
-   * 拉取的第一步也是它。
-   */
-  async function doFetch(what: "pull" | "fetch"): Promise<boolean> {
-    if (!git.repo || syncing) return false;
-    gitUi.load();
-    remoteErr = null;
-    const opId = ++nextOpId;
-    syncing = { what, id: opId, phase: "正在连接…", percent: null };
-    try {
-      await gitFetch(git.repo, "origin", opId, progressChannel(what));
-      await git.refresh();
-      return true;
-    } catch (e) {
-      await showRemoteErr(e as RemoteErr);
-      return false;
-    } finally {
-      syncing = null;
-    }
-  }
-
-  /**
-   * 拉取 = fetch + 本地合并两步，**不是 `git pull`**。
-   *
-   * 复合命令失败时分不清是网络断了还是合并冲突了（退出码都非零）。
-   * 拆开之后：第一步失败就是纯网络/凭据，第二步失败就是冲突，
-   * 而冲突有 MergeView 接着。
-   *
-   * 默认只允许快进 —— 永远不会「拉一下，凭空多出一个合并提交」。
-   * 快进不了就停下来问（或者用上次记住的选择）。
-   */
-  /**
-   * 拉一次。**返回值是「要用这个模式再拉一次」**，null = 不用再拉。
-   *
-   * # 为什么重试要走返回值，不能在 catch 里直接递归
-   *
-   * 原来那句是 `void doPull(lastMergeMode); return;` —— 加上 issue #23 的
-   * 守卫之后它会**把自己挡下来**：`doPull` 里 `claimGit` 之前没有 `await`，
-   * 递归那次同步就跑到守卫上，而这时外层的 `finally` 还没执行、锁还在自己手里。
-   * 表现会是「分岔之后自动重试静默失灵，只弹一句『正在合并上游，请等它做完』」。
-   *
-   * 也不能改成「先 `git.release()` 再递归」：那样外层的 `finally` 会**再放一次**，
-   * 而那时锁已经属于内层了 —— 等于凭空把锁开了。
-   *
-   * 把重试挪到 `finally` 之后就没有这两个问题。重试只可能发生一次
-   * （第二次带着 `mode`，走不进那个分支）。
-   */
-  async function pullOnce(
-    upstream: string,
-    mode?: "merge" | "rebase",
-  ): Promise<"merge" | "rebase" | null> {
-    // **整个 pull 都占着锁，包括前面那次 fetch。** fetch 自己不动 index，
-    // 但它后面紧跟着的合并动。只圈住合并的话，fetch 期间开始的一次提交
-    // 会让合并被挡下来 —— 那时 pull 已经拉下来一半，停在一个说不清的状态上
-    if (!git.claim("合并上游")) return null;
-    try {
-      if (!mode && !(await doFetch("pull"))) return null;
-      await gitMergeUpstream(git.repo!, upstream, mode ?? "ff-only");
-      await worktree.changed();
-      await git.refresh();
-      notify.ok(mode === "rebase" ? "已变基到上游" : "已合并上游");
-      return null;
-    } catch (e) {
-      const err = e as RemoteErr;
-      // 快进不了 = 分岔了，要先做决定。这不是错误，是个岔路口
-      if (err.kind === "conflict" && !mode) {
-        // 记过一次就直接用，不再问（IDEA 的「记住这次选择」）
-        if (lastMergeMode) return lastMergeMode;
-        pendingDiverge = { upstream };
-        return null;
-      }
-      await showRemoteErr(err);
-      // 合并冲突之后工作区变了，得把界面对上
-      await worktree.changed();
-      await git.refresh();
-      return null;
-    } finally {
-      git.release();
-    }
-  }
-
-  async function doPull(mode?: "merge" | "rebase") {
-    if (!git.repo) return;
-    // 确认条在 Git 那一组里（懒的）。从菜单直接拉时它可能还没到位 ——
-    // 不先拉一下的话，分岔决策条不会出现，看着像「点了没反应」
-    gitUi.load();
-    const upstream = git.status?.upstream;
-    if (!upstream) {
-      notify.fail("这个分支没有上游，先推送一次", 3000);
-      return;
-    }
-    const retry = await pullOnce(upstream, mode);
-    if (retry) await pullOnce(upstream, retry);
-  }
-
-  /** 推送。先把要推的提交列出来让人看清 —— 照 IDEA 的推送对话框 */
-  async function askPush() {
-    if (!git.repo || !git.status) return;
-    gitUi.load();
-    const branch = git.status.branch;
-    if (!branch) {
-      notify.fail("游离状态下不能推送", 2600);
-      return;
-    }
-    const setUpstream = !git.status.upstream;
-    let commits: string[] = [];
-    try {
-      commits = await gitOutgoing(git.repo, git.status.upstream ?? "", branch);
-    } catch {
-      commits = []; // 列不出来不该挡住推送，只是少了一份确认信息
-    }
-    pendingPush = { branch, setUpstream, commits };
-  }
-
-  async function doPush() {
-    const req = pendingPush;
-    pendingPush = null;
-    if (!git.repo || !req || syncing) return;
-    /*
-     * **push 也占锁**（issue #23），虽然它自己不动 index。
-     *
-     * 理由不是锁冲突，是**因果**：正在跑的那次提交会改变要推的内容。
-     * 钩子跑到一半时点推送，推上去的是钩子跑完之前的 HEAD ——
-     * 命令都成功，结果却不是人想要的那个，而且事后完全看不出来。
-     * 这种「都没报错但答案是错的」比一句 `index.lock` 报错难查得多。
-     */
-    if (!git.claim("推送")) return;
-    remoteErr = null;
-    const opId = ++nextOpId;
-    syncing = { what: "push", id: opId, phase: "正在连接…", percent: null };
-    try {
-      await gitPush(git.repo, "origin", req.branch, req.setUpstream, opId, progressChannel("push"));
-      await git.refresh();
-      notify.ok("已推送");
-    } catch (e) {
-      await showRemoteErr(e as RemoteErr);
-    } finally {
-      syncing = null;
-      git.release();
-    }
-  }
-
-  /**
-   * 取消。**只对 fetch 开放。**
-   *
-   * push 中途 kill 掉的是本地这一端，而远程可能已经收完了 ——
-   * 一个点了之后状态不确定的取消按钮，比没有按钮更糟。
-   */
-  function cancelSync() {
-    if (syncing) void gitCancel(syncing.id);
-  }
 
   /**
    * 把上次的现场摆回来。
@@ -1536,9 +1225,9 @@
       case "git-console": layout.openGitTab("console"); return;
       case "git-branches": openBranchPicker(); return;
       case "git-refresh": return void git.refresh();
-      case "git-pull": return void doPull();
-      case "git-push": return void askPush();
-      case "git-fetch": return void doFetch("fetch");
+      case "git-pull": return void remote.pull();
+      case "git-push": return void remote.askPush();
+      case "git-fetch": return void remote.fetch("fetch");
       case "help-keys":
         keysPanel.load();
         keysOpen = true;
@@ -1752,11 +1441,11 @@
     repo={git.repo}
     ahead={git.status?.ahead ?? 0}
     behind={git.status?.behind ?? 0}
-    onSwitch={(n) => switchBranch(n)}
-    onNewBranch={(n) => switchBranch(n, true)}
-    onOpenWorktree={(p) => void openWorktree(p)}
-    onNewWorktree={newWorktree}
-    onRemoveWorktree={(w) => (pendingWtRemove = w)}
+    onSwitch={(n) => branches.switchTo(n)}
+    onNewBranch={(n) => branches.switchTo(n, true)}
+    onOpenWorktree={(p) => void branches.openWorktree(p)}
+    onNewWorktree={(...a) => branches.newWorktree(...a)}
+    onRemoveWorktree={(w) => (branches.pendingWtRemove = w)}
   />
 {/if}
 
@@ -1815,9 +1504,9 @@
             onOpenLog={() => layout.openGitTab("log")}
             ahead={git.status?.ahead ?? 0}
             behind={git.status?.behind ?? 0}
-            onSync={(what) => void (what === "push" ? askPush() : doPull())}
-            syncing={syncing ? { what: syncing.what, phase: syncing.phase, percent: syncing.percent } : null}
-            onCancelSync={syncing && syncing.what !== "push" ? cancelSync : null}
+            onSync={(what) => void (what === "push" ? remote.askPush() : remote.pull())}
+            syncing={remote.syncing ? { what: remote.syncing.what, phase: remote.syncing.phase, percent: remote.syncing.percent } : null}
+            onCancelSync={remote.syncing && remote.syncing.what !== "push" ? () => remote.cancel() : null}
           />
         {/snippet}
         {#snippet fileTree()}
@@ -1861,124 +1550,9 @@
         />
       {/if}
 
-      {#if tabs.active?.conflict}
-        <div class="confirm conflict">
-          <span><b>{tabs.active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
-          <button class="primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留我的</button>
-          <button onclick={() => docs.resolveConflict(tabs.active!, "disk")}>用磁盘上的</button>
-        </div>
-      {/if}
+      <!-- 内容区顶上的那几条确认横幅，全在 Confirms.svelte 里读各自的 store -->
+      <Confirms Bars={gitUi.comps.bars} />
 
-      {#if tabflow.pendingSwitch}
-        <div class="confirm">
-          <span>
-            <b>{tabflow.pendingSwitch.name}</b> 有 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)}MB，
-            编辑模式会把全文读进内存，可能明显卡顿
-          </span>
-          <button class="primary" onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
-          <button onclick={() => (tabflow.pendingSwitch = null)}>取消</button>
-        </div>
-      {/if}
-
-      {#if notify.banner}
-        <div class="confirm err-banner">
-          <span class="btext">
-            <b>{notify.banner.title}</b>
-            <span class="bbody">{notify.banner.body}</span>
-          </span>
-          <button onclick={() => notify.closeBanner()}>知道了</button>
-        </div>
-      {/if}
-
-      {#if pendingWtRemove}
-        <div class="confirm danger">
-          <span>
-            要移除工作树 <b>{pendingWtRemove.path}</b> 吗？
-            <b>那个目录会被删掉</b>，里面未提交的改动会一起没
-          </span>
-          <button class="danger" onclick={() => doRemoveWorktree(pendingWtRemove!, false)}>移除</button>
-          <button class="danger" onclick={() => doRemoveWorktree(pendingWtRemove!, true)}>强制移除</button>
-          <button onclick={() => (pendingWtRemove = null)}>取消</button>
-        </div>
-      {/if}
-
-      {#if pendingCheckout}
-        <!--
-          这不是错误横幅，是一个选择题 —— 所以它长得和「丢弃改动」「关闭脏标签」
-          一样，不是 err-banner。git 拒绝切分支这件事本身没什么可报的，
-          真正要说的是「这几个文件挡着，你打算怎么办」。
-        -->
-        <div class="confirm">
-          <span>
-            切到 <b>{pendingCheckout.name}</b> 会覆盖
-            <b>{pendingCheckout.files.length} 个文件</b>的改动：
-            <span class="rest">{pendingCheckout.files.slice(0, 3).join("、")}{pendingCheckout.files.length > 3 ? " …" : ""}</span>
-          </span>
-          <button
-            class="primary"
-            onclick={() => {
-              pendingCheckout = null;
-              layout.showSide("git");
-            }}
-          >去提交</button>
-          <button class="danger" onclick={() => void discardThenCheckout()}>丢弃这些改动并切换</button>
-          <button onclick={() => (pendingCheckout = null)}>取消</button>
-        </div>
-      {/if}
-
-      {#if git.pendingDiscard}
-        <div class="confirm danger">
-          <span>
-            要丢弃
-            {#if git.pendingDiscard.length === 1}
-              <b>{git.pendingDiscard[0].path}</b>
-            {:else}
-              <b>{git.pendingDiscard.length} 个文件</b>
-            {/if}
-            的改动吗？未跟踪的文件会被直接删除，<b>这一步不可撤销</b>
-          </span>
-          <button class="danger" onclick={() => void git.discard(git.pendingDiscard!)}>丢弃</button>
-          <button onclick={() => (git.pendingDiscard = null)}>取消</button>
-        </div>
-      {/if}
-
-      {#if gitUi.comps.bars && (pendingDiverge || pendingPush || remoteErr)}
-        <gitUi.comps.bars
-          diverge={pendingDiverge}
-          push={pendingPush}
-          err={remoteErr}
-          upstream={git.status?.upstream ?? ""}
-          ahead={git.status?.ahead ?? 0}
-          onMerge={(mode, rem) => {
-            if (rem) lastMergeMode = mode;
-            pendingDiverge = null;
-            void doPull(mode);
-          }}
-          onPush={() => void doPush()}
-          onPull={() => {
-            remoteErr = null;
-            void doPull();
-          }}
-          onDismiss={(which) => {
-            if (which === "diverge") pendingDiverge = null;
-            else if (which === "push") pendingPush = null;
-            else remoteErr = null;
-          }}
-        />
-      {/if}
-
-      {#if tabflow.pendingClose}
-        <div class="confirm">
-          <span><b>{tabflow.pendingClose.name}</b> 有未保存的改动</span>
-          {#if tabflow.closeQueue.length}
-            <!-- 批量关闭时要说清后面还有几个，否则人不知道这个框还要弹几次 -->
-            <span class="rest">（后面还有 {tabflow.closeQueue.length} 个）</span>
-          {/if}
-          <button class="primary" onclick={() => void tabflow.resolveClose("save")}>保存并关闭</button>
-          <button onclick={() => void tabflow.resolveClose("discard")}>丢弃改动</button>
-          <button onclick={() => void tabflow.resolveClose("cancel")}>取消</button>
-        </div>
-      {/if}
 
       <!--
         内容区单独设边界：编辑器 / 日志 / 差异里任何一处抛异常，
@@ -2171,8 +1745,6 @@
     text-align: center;
     color: var(--text-dim);
   }
-  /* 确认条不参与伸缩，始终贴在标签栏下方 */
-  .confirm { flex: none; }
   .empty .card {
     width: min(420px, 90%);
     padding: 18px 20px 16px;
@@ -2252,53 +1824,5 @@
     font-size: 11px;
   }
 
-  .confirm {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 7px 12px;
-    background: var(--elevated);
-    border-bottom: 1px solid var(--border);
-    font-size: 12px;
-  }
-  .confirm b { color: var(--text); font-weight: 600; }
-  .confirm .rest { color: var(--text-faint); font-size: 11.5px; }
-  .confirm button {
-    padding: 3px 10px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-size: 11.5px;
-    cursor: default;
-  }
-  .confirm button:hover { background: var(--hover); color: var(--text); }
-
-  .confirm button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .confirm.conflict { background: rgba(214, 174, 88, 0.12); border-bottom-color: var(--lvl-warn); }
-  /* 不可撤销的操作用红色描边，别让它长得跟普通确认一样 */
-  .confirm.danger { background: rgba(247, 84, 100, 0.10); border-bottom-color: var(--lvl-error); }
-  .confirm.err-banner {
-    align-items: flex-start;
-    background: rgba(247, 84, 100, 0.10);
-    border-bottom-color: var(--lvl-error);
-  }
-  .err-banner .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-  .err-banner b { color: var(--lvl-error); }
-  /* git 的说明本来就是分行排版的，保住换行；太长时可以滚 */
-  .err-banner .bbody {
-    white-space: pre-wrap;
-    font-family: var(--code-font);
-    font-size: 11.5px;
-    line-height: 1.55;
-    color: var(--text-dim);
-    max-height: 7.5em;
-    overflow-y: auto;
-  }
-  .confirm button.danger {
-    background: var(--lvl-error);
-    border-color: var(--lvl-error);
-    color: #fff;
-  }
 
 </style>

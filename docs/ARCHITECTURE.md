@@ -283,11 +283,11 @@ lite-ide/
 │     ├─ logview/    ★           # LogView / LogPane / FilterBar + line-cache
 │     ├─ editor/                 # Editor.svelte / theme / markdown-live
 │     │                          # langs.ts（识别，入口包要）+ langs-load.ts（67 种，跟着编辑器懒加载）
-│     ├─ shell/                  # Rail / Sidebar / Panel / TitleBar / StatusBar / FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
+│     ├─ shell/                  # Rail / Sidebar / Panel / TitleBar / StatusBar / Confirms / FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
 │     ├─ git/                    # GitPane / GitLog / DiffView / MergeView / BranchPicker / RemoteBars
 │     ├─ search/                 # 双击 Shift 随处搜索 + 大纲 + 键位速查
 │     ├─ terminal/               # xterm.js 封装
-│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / docs / tabflow / project / worktree / git / notify）+ 纯类型/函数（tab / crumbs）
+│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / docs / tabflow / project / worktree / git / branches / remote / notify）+ 纯类型/函数（tab / crumbs）
 │     ├─ lazy/                   # lazy() / lazyGroup()，按需加载的唯一出处
 │     └─ dev/                    # mock-ipc.ts，只在 DEV 构建里存在
 └─ src-tauri/
@@ -336,7 +336,10 @@ lite-ide/
 | 项目根、最近打开、草稿目录 | `state/project.svelte.ts` | `root` 是读得最多的值，搬它是为了让打开文件那条流程能搬 |
 | 打开 / 关闭（含「未保存怎么办」那一问）/ 切模式 | `state/tabflow.svelte.ts` | 三条确认横幅还在 App 的标记里，读这里的 `pendingClose` / `pendingSwitch` / `closeQueue`；第 5 步和 git 那几条一起合成一个组件 |
 | 盘上的东西被外部改了：`treeTick`、重读 + 重列、改名跟走、进废纸篓一并关 | `state/worktree.svelte.ts` | `afterFsChange` 还在 App（要刷 git，第 5 步） |
-| Git：仓库根 / 状态 / 忙、写操作的统一出口（占锁 · 进度 · 收口）、丢弃、提交、差异与合并标签 | `state/git.svelte.ts` | 三块互相调，放一个文件；分支 / 工作树、拉取推送、`editorMarks` 那条 effect 还在 App |
+| Git：仓库根 / 状态 / 忙、写操作的统一出口（占锁 · 进度 · 收口）、丢弃、提交、差异与合并标签 | `state/git.svelte.ts` | 三块互相调，放一个文件；`editorMarks` 那条 effect 还在 App |
+| 分支与工作树：切分支（含被本地改动挡住那一问）、开 / 建 / 移除工作树 | `state/branches.svelte.ts` | 分支浮层的开合与锚点还在 App（锚点是标题栏的元素） |
+| 拉取与推送：进度、取消、分岔决策、推送确认、失败提示 | `state/remote.svelte.ts` | 往外一个钩子 `warmUi`（先把 Git 那组懒组件拉起来，确认条在里面） |
+| 内容区顶上的全部确认横幅（七条 + 远程三条） | `shell/Confirms.svelte` | 读各自 store 的 `pending*`，按钮直接调 store；`RemoteBars` 以组件类型传进来 |
 
 **共享状态走 `.svelte.ts` 里一个 class 的 `$state` 字段**（`layout` / `notify` 都是这个写法），
 组件直接读写，App 不当中转站。模块导出的绑定不能被外面重新赋值，

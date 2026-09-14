@@ -1,0 +1,203 @@
+<script lang="ts">
+  /**
+   * 内容区顶上的那几条确认横幅：外部改动冲突、大文件切编辑、错误说明、
+   * 移除工作树、切分支被本地改动挡住、丢弃改动、关脏标签，以及远程操作的
+   * 三条（分岔决策 / 推送确认 / 失败提示，那三条在 Git 那组懒加载的
+   * `RemoteBars` 里，由 App 把加载到的组件传进来）。
+   *
+   * 每一条读的都是各自 store 上的 `pending*`，按钮直接调 store 的方法。
+   * 从 App.svelte 搬出来（issue #9 第 5b 步）—— 它们共用 `.confirm` 那套样式，
+   * 分开搬就是样式写两份，所以等 git 那几条能出来了一起搬。
+   *
+   * ui.md 第十三条：不可逆的带 `danger`，选择题长得和普通确认一样，不是 err-banner。
+   */
+  // 只要类型：type import 不会把那个组件拽进入口包，它照旧跟着 Git 那组懒加载
+  import type RemoteBars from "../git/RemoteBars.svelte";
+  import { notify } from "../state/notify.svelte";
+  import { layout } from "../state/layout.svelte";
+  import { tabs } from "../state/tabs.svelte";
+  import { docs } from "../state/docs.svelte";
+  import { tabflow } from "../state/tabflow.svelte";
+  import { git } from "../state/git.svelte";
+  import { branches } from "../state/branches.svelte";
+  import { remote } from "../state/remote.svelte";
+
+  let {
+    Bars,
+  }: {
+    /** `RemoteBars`，懒加载到了才有 */
+    Bars: typeof RemoteBars | undefined;
+  } = $props();
+</script>
+
+{#if tabs.active?.conflict}
+  <div class="confirm conflict">
+    <span><b>{tabs.active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
+    <button class="primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留我的</button>
+    <button onclick={() => docs.resolveConflict(tabs.active!, "disk")}>用磁盘上的</button>
+  </div>
+{/if}
+
+{#if tabflow.pendingSwitch}
+  <div class="confirm">
+    <span>
+      <b>{tabflow.pendingSwitch.name}</b> 有 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)}MB，
+      编辑模式会把全文读进内存，可能明显卡顿
+    </span>
+    <button class="primary" onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
+    <button onclick={() => (tabflow.pendingSwitch = null)}>取消</button>
+  </div>
+{/if}
+
+{#if notify.banner}
+  <div class="confirm err-banner">
+    <span class="btext">
+      <b>{notify.banner.title}</b>
+      <span class="bbody">{notify.banner.body}</span>
+    </span>
+    <button onclick={() => notify.closeBanner()}>知道了</button>
+  </div>
+{/if}
+
+{#if branches.pendingWtRemove}
+  <div class="confirm danger">
+    <span>
+      要移除工作树 <b>{branches.pendingWtRemove.path}</b> 吗？
+      <b>那个目录会被删掉</b>，里面未提交的改动会一起没
+    </span>
+    <button class="danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, false)}>移除</button>
+    <button class="danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, true)}>强制移除</button>
+    <button onclick={() => (branches.pendingWtRemove = null)}>取消</button>
+  </div>
+{/if}
+
+{#if branches.pendingCheckout}
+  <!--
+    这不是错误横幅，是一个选择题 —— 所以它长得和「丢弃改动」「关闭脏标签」
+    一样，不是 err-banner。git 拒绝切分支这件事本身没什么可报的，
+    真正要说的是「这几个文件挡着，你打算怎么办」。
+  -->
+  <div class="confirm">
+    <span>
+      切到 <b>{branches.pendingCheckout.name}</b> 会覆盖
+      <b>{branches.pendingCheckout.files.length} 个文件</b>的改动：
+      <span class="rest">{branches.pendingCheckout.files.slice(0, 3).join("、")}{branches.pendingCheckout.files.length > 3 ? " …" : ""}</span>
+    </span>
+    <button
+      class="primary"
+      onclick={() => {
+        branches.pendingCheckout = null;
+        layout.showSide("git");
+      }}
+    >去提交</button>
+    <button class="danger" onclick={() => void branches.discardThenCheckout()}>丢弃这些改动并切换</button>
+    <button onclick={() => (branches.pendingCheckout = null)}>取消</button>
+  </div>
+{/if}
+
+{#if git.pendingDiscard}
+  <div class="confirm danger">
+    <span>
+      要丢弃
+      {#if git.pendingDiscard.length === 1}
+        <b>{git.pendingDiscard[0].path}</b>
+      {:else}
+        <b>{git.pendingDiscard.length} 个文件</b>
+      {/if}
+      的改动吗？未跟踪的文件会被直接删除，<b>这一步不可撤销</b>
+    </span>
+    <button class="danger" onclick={() => void git.discard(git.pendingDiscard!)}>丢弃</button>
+    <button onclick={() => (git.pendingDiscard = null)}>取消</button>
+  </div>
+{/if}
+
+{#if Bars && (remote.pendingDiverge || remote.pendingPush || remote.err)}
+  <Bars
+    diverge={remote.pendingDiverge}
+    push={remote.pendingPush}
+    err={remote.err}
+    upstream={git.status?.upstream ?? ""}
+    ahead={git.status?.ahead ?? 0}
+    onMerge={(mode, rem) => {
+      if (rem) remote.lastMergeMode = mode;
+      remote.pendingDiverge = null;
+      void remote.pull(mode);
+    }}
+    onPush={() => void remote.push()}
+    onPull={() => {
+      remote.err = null;
+      void remote.pull();
+    }}
+    onDismiss={(which) => {
+      if (which === "diverge") remote.pendingDiverge = null;
+      else if (which === "push") remote.pendingPush = null;
+      else remote.err = null;
+    }}
+  />
+{/if}
+
+{#if tabflow.pendingClose}
+  <div class="confirm">
+    <span><b>{tabflow.pendingClose.name}</b> 有未保存的改动</span>
+    {#if tabflow.closeQueue.length}
+      <!-- 批量关闭时要说清后面还有几个，否则人不知道这个框还要弹几次 -->
+      <span class="rest">（后面还有 {tabflow.closeQueue.length} 个）</span>
+    {/if}
+    <button class="primary" onclick={() => void tabflow.resolveClose("save")}>保存并关闭</button>
+    <button onclick={() => void tabflow.resolveClose("discard")}>丢弃改动</button>
+    <button onclick={() => void tabflow.resolveClose("cancel")}>取消</button>
+  </div>
+{/if}
+
+<style>
+  /* 确认条不参与伸缩，始终贴在标签栏下方 */
+  .confirm { flex: none; }
+  .confirm {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    background: var(--elevated);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .confirm b { color: var(--text); font-weight: 600; }
+  .confirm .rest { color: var(--text-faint); font-size: 11.5px; }
+  .confirm button {
+    padding: 3px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text-dim);
+    font-size: 11.5px;
+    cursor: default;
+  }
+  .confirm button:hover { background: var(--hover); color: var(--text); }
+
+  .confirm button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .confirm.conflict { background: rgba(214, 174, 88, 0.12); border-bottom-color: var(--lvl-warn); }
+  /* 不可撤销的操作用红色描边，别让它长得跟普通确认一样 */
+  .confirm.danger { background: rgba(247, 84, 100, 0.10); border-bottom-color: var(--lvl-error); }
+  .confirm.err-banner {
+    align-items: flex-start;
+    background: rgba(247, 84, 100, 0.10);
+    border-bottom-color: var(--lvl-error);
+  }
+  .err-banner .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .err-banner b { color: var(--lvl-error); }
+  /* git 的说明本来就是分行排版的，保住换行；太长时可以滚 */
+  .err-banner .bbody {
+    white-space: pre-wrap;
+    font-family: var(--code-font);
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--text-dim);
+    max-height: 7.5em;
+    overflow-y: auto;
+  }
+  .confirm button.danger {
+    background: var(--lvl-error);
+    border-color: var(--lvl-error);
+    color: #fff;
+  }
+</style>

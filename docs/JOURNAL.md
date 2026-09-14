@@ -5787,3 +5787,41 @@ store 叫 `git` 更贴切（`git.refresh()` / `git.repo`），于是 lazyGroup �
 | | |
 |---|---|
 | App.svelte | 2654 → 2304（累计 4380 → 2304，−47%） |
+
+## 2026-09-14 · #9 第 5b 步：分支 / 工作树、拉取推送、确认横幅出去
+
+App.svelte 2304 → 1828。三个文件：
+
+- `state/branches.svelte.ts`：`pendingCheckout` / `pendingWtRemove`，`switchTo` /
+  `discardThenCheckout` / `openWorktree` / `newWorktree` / `removeWorktree`
+- `state/remote.svelte.ts`：`syncing` / `pendingDiverge` / `lastMergeMode` /
+  `pendingPush` / `err`，`fetch` / `pull` / `askPush` / `push` / `cancel`。
+  `toHint` / `showErr` / `progressChannel` / `pullOnce` / `nextOpId` 变成私有 ——
+  没有别的文件要碰它们
+- `shell/Confirms.svelte`：原计划的 5c 并进来了。七条 `.confirm` 横幅 + 远程三条，
+  每条读各自 store 的 `pending*`，按钮直接调 store。它们共用 `.confirm` 那套
+  样式，前面几步一直没拆就是等这一刻 —— 分开搬样式就得写两份
+
+### 动态组件的变量名必须大写
+
+`RemoteBars` 是懒加载的，Confirms 以 prop 收它。第一版写 `bars` 小写，
+`<bars …/>` 被 Svelte 当成 HTML 元素：三个回调参数「隐式 any」，还警告
+「非空元素别自闭合」—— 报的都不是「这不是组件」。改成 `Bars` 就全对了。
+Svelte 5 靠首字母大小写分辨元素和组件，和 JSX 一样，但报错不会告诉你这一点。
+
+类型用 `import type RemoteBars from "../git/RemoteBars.svelte"` 取 `typeof RemoteBars`：
+type import 不进产物，那个组件照旧跟着 Git 那组懒加载。比手抄一份 props 类型
+（第一版那样）稳 —— 抄的那份会漂。
+
+### 验证走的路
+
+桩里：分支浮层点 `m11/symbols` → 「切换到」→ 被两个本地改动挡住 → 「丢弃这些
+改动并切换」→ 角标 9→7、「已切到 m11/symbols」；切回 main 拉取 → 分岔决策条 →
+变基；推送 → 列出 2 个提交 → 「已推送」；关脏标签 / 外部冲突 / 丢弃 / 推送四条
+横幅从新组件里出来。真的切分支和推拉在 smoke ⑤ ⑩。
+
+### 数字
+
+| | |
+|---|---|
+| App.svelte | 2304 → 1828（累计 4380 → 1828，−58%） |
