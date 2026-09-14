@@ -2824,7 +2824,6 @@
       它原来挂在这儿那个 `lite-ide` 字样上，而那个字样现在只有空项目时才出现。
     -->
     <button class="twidget proj" onclick={(e) => openProjMenu(e)} title={projTip}>
-    >
       <span class="sq" aria-hidden="true">{projInitial}</span>
       <span class="wlabel">{projName}</span>
       <Icon name="chevron-down" size={10} />
