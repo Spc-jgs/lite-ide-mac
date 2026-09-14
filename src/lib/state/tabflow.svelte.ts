@@ -67,6 +67,16 @@ class TabFlow {
   restoringTabs = false;
 
   /**
+   * 换项目根前后的钩子（issue #33 ㉓）。App 装的是 `persist.beforeRootChange` /
+   * `afterRootChange`：旧项目的现场存到它自己那份、关干净标签、摆新项目的标签。
+   * `persist` 已经 import 这里，反过来 import 就是环，所以走钩子。
+   */
+  hooks: {
+    beforeRootChange?: (old: string | null, next: string) => void;
+    afterRootChange?: (next: string) => Promise<void> | void;
+  } = {};
+
+  /**
    * `quiet` 给会话恢复用：上次开着的文件这次可能已经不在了
    * （删了、改名了、切到了没有它的分支）。那是完全正常的事，
    * 逐个弹「读不到 xxx」只会在启动时糊一屏红字。
@@ -78,7 +88,11 @@ class TabFlow {
     try {
       const info = await probePath(path);
       if (info.kind === "dir") {
+        const old = project.root;
+        if (old === info.path) return;
+        this.hooks.beforeRootChange?.(old, info.path);
         project.root = info.path;
+        await this.hooks.afterRootChange?.(info.path);
         return;
       }
       const exist = tabs.byPath(info.path);

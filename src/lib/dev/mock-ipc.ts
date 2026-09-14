@@ -373,6 +373,12 @@ export default defineConfig({
  * 而这条路恰恰是这一轮的主角。
  */
 const discarded = new Set<string>();
+/**
+ * 标记为解决的冲突文件。真 git 里 `git add` 一个冲突文件就是「解决了」，
+ * 状态从 UU 变成 M（已暂存）—— 桩不跟着变的话，浏览器里解决完冲突
+ * 「提交」按钮永远是灰的，「提交并推送」那条路根本走不到。
+ */
+const resolved = new Set<string>();
 
 /** 挡住切到 `m11/symbols` 的那两个文件。和 `git_status` 里的条目对得上 */
 const BLOCKERS = ["src/App.svelte", "docs/old.md"];
@@ -1067,7 +1073,9 @@ export function installMockIpc(): void {
               g("scratch/draft.md", ".", "?", { untracked: true }),
               g("scratch/tmp/notes.md", ".", "?", { untracked: true }),
               g("notes.txt", ".", "?", { untracked: true }),
-              g("src/conflict.rs", "U", "U", { conflicted: true }),
+              resolved.has("src/conflict.rs")
+                ? g("src/conflict.rs", "M", ".", { staged: true })
+                : g("src/conflict.rs", "U", "U", { conflicted: true }),
             ].filter((e) => !discarded.has(e.path)),
           };
         case "git_diff":
@@ -1108,6 +1116,9 @@ index 1a2b3c4..5d6e7f8 100644
      }`,
           };
         case "git_stage":
+          // 暂存一个冲突文件 = 标记为解决（真 git 就是这么算的）
+          for (const x of a.paths as string[]) resolved.add(x);
+          return null;
         case "git_unstage":
           return null;
         case "git_discard":

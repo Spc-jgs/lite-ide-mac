@@ -186,9 +186,9 @@ class Git {
    * 命令之间不再由主线程串行，两条 git 撞上 `index.lock` 是真会发生的
    * （issue #11 里专门记着这个回归点）。这里挡住，就不用等 git 报错再翻译。
    */
-  async run(what: string, fn: () => Promise<unknown>, doing: string) {
-    if (!this.repo) return;
-    if (!this.claim(doing)) return;
+  async run(what: string, fn: () => Promise<unknown>, doing: string): Promise<boolean> {
+    if (!this.repo) return false;
+    if (!this.claim(doing)) return false;
     /*
      * **慢的才说话。**
      *
@@ -200,8 +200,10 @@ class Git {
     try {
       await fn();
       await this.refresh();
+      return true;
     } catch (e) {
       notify.block(what, e);
+      return false;
     } finally {
       // **三件事都必须在 finally 里。** 失败路径上漏掉定时器，300ms 后
       // 会亮起一句永远不灭的「正在提交…」；漏掉 writing，后面所有写操作
@@ -234,8 +236,9 @@ class Git {
     await worktree.changed();
   }
 
-  commit(message: string, amend: boolean) {
-    void this.run("提交失败", async () => {
+  /** 返回提交成没成 —— 「提交并推送」要据此决定推不推 */
+  commit(message: string, amend: boolean): Promise<boolean> {
+    return this.run("提交失败", async () => {
       const out = await gitCommit(this.repo!, message, amend);
       notify.ok(out.split("\n")[0] || "已提交", 3000);
     }, "提交");

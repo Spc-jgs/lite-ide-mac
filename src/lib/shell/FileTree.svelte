@@ -14,6 +14,7 @@
   import { notify } from "../state/notify.svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { copyText, relTo, showInFinder } from "./pathactions";
+  import { readPref, writePref } from "../state/prefs";
 
   let {
     root,
@@ -354,7 +355,7 @@
    * 一次性把所有祖先塞进 `expanded` 没用 —— `rows` 的 walk 只递归
    * `children` 里有的目录，没加载的那层直接断在那里。
    */
-  async function reveal(path: string) {
+  async function reveal(path: string, quiet = false) {
     const seq = ++revealSeq;
     const base = root.endsWith("/") ? root : `${root}/`;
     if (path !== root && !path.startsWith(base)) return;
@@ -394,6 +395,8 @@
     cursor = i;
     rowAt(i)?.scrollIntoView({ block: "nearest" });
 
+    // 跟随（标签换了树自己走过去）不闪：那不是人点的，闪一下反而分神
+    if (quiet) return;
     // 目标可能本来就在视野里，滚动等于没反应 —— 闪一下才知道点中了
     flash = acc;
     if (flashTimer) clearTimeout(flashTimer);
@@ -401,6 +404,37 @@
       flash = "";
       flashTimer = null;
     }, 900);
+  }
+
+  /**
+   * 跟随：活动标签换了，树自己展开到那个文件并选中（issue #33 ⑤）。
+   *
+   * IDEA 的「Always Select Opened File」、VS Code 的 `autoReveal`。默认开 ——
+   * 树不跟着走的话，⌘P 开的文件在树里永远是「不知道在哪」。纯偏好，
+   * 存 localStorage，不进会话快照（理由见 state/prefs.ts）。
+   *
+   * 走 `reveal(path, quiet)`：展开沿途、滚到 nearest、不闪。**只在文件在项目根
+   * 底下时**，草稿、应用日志这类项目外的标签树里本来就没有。
+   */
+  let follow = $state(readPref("tree-follow", true));
+  $effect(() => {
+    writePref("tree-follow", follow);
+  });
+  $effect(() => {
+    const p = activePath;
+    if (!follow || !p) return;
+    untrack(() => void reveal(p, true));
+  });
+
+  /** 树头的「定位」：和面包屑那条路一样，展开、滚过去、闪一下 */
+  function locate() {
+    if (activePath) void reveal(activePath);
+  }
+
+  /** 树头的「折叠全部」：只留根那一层。IDEA / VS Code 都有 */
+  function collapseAll() {
+    expanded = new Set([root]);
+    cursor = 0;
   }
 
   $effect(() => {
@@ -838,6 +872,29 @@
       }}
     >{rootName}</button>
     <span class="gap"></span>
+    <!--
+      树头的三个动作，照 IDEA 项目工具窗的头：定位当前文件 / 折叠全部 / 跟随开关。
+      整条栏各只有一个，不是每一项上重复的东西，所以常驻（ui.md 第三条的例外），
+      但只用 --text-faint，hover 才亮。
+    -->
+    {#if activePath}
+      <button class="hb" onclick={locate} title="在树里定位当前文件" aria-label="定位当前文件">
+        <Icon name="locate" size={13} />
+      </button>
+    {/if}
+    <button class="hb" onclick={collapseAll} title="折叠全部" aria-label="折叠全部">
+      <Icon name="collapse" size={13} />
+    </button>
+    <button
+      class="hb"
+      class:on={follow}
+      onclick={() => (follow = !follow)}
+      title={follow ? "跟随标签：开（切标签时树自动定位）" : "跟随标签：关"}
+      aria-label="跟随标签"
+      aria-pressed={follow}
+    >
+      <Icon name="follow" size={13} />
+    </button>
   </div>
   <div class="list" role="tree" aria-label="文件树" bind:this={listEl}>
     {#each rows as row, i (row.path)}
@@ -1039,6 +1096,24 @@
   .head .proj:hover { color: var(--text); }
   .head .proj:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .head .gap { flex: 1; min-width: 6px; }
+  /* 树头的动作按钮：22px 方格子，和底部面板头上那几个一个尺寸 */
+  .head .hb {
+    flex: none;
+    display: grid;
+    place-content: center;
+    width: 22px;
+    height: 22px;
+    background: transparent;
+    border: none;
+    border-radius: var(--r-sm);
+    color: var(--text-faint);
+    cursor: default;
+  }
+  .head .hb:hover { background: var(--hover); color: var(--text); }
+  .head .hb:active { background: var(--pressed); }
+  /* 跟随开着时用中性白点亮，同导轨的选中态：accent 留给「有改动」那类状态 */
+  .head .hb.on { color: var(--text); background: var(--selected); }
+  .head .hb:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   /* 横向 6px 是给行的圆角块留的余地 —— 贴着面板边的圆角看着像被切了一半 */
   .list { flex: 1; overflow: auto; padding: 4px 6px; }
   /*

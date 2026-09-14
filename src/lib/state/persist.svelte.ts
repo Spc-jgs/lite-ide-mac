@@ -71,6 +71,49 @@ class Persist {
         .catch(() => false);
       if (ok) project.root = saved.root;
     }
+    await this.#restoreTabs(saved);
+  }
+
+  /**
+   * 每个项目一份快照（issue #33 ㉓，照 IDEA 每个项目一份 `workspace.xml`）。
+   *
+   * 键是 `lite-ide.session:<root>`；不带后缀的那份仍是「上次退出时」的现场，
+   * 启动时读它。每次落盘两份都写（内容一样，多一次 setItem）；不在最近列表里的
+   * 项目那份顺手清掉，localStorage 里最多躺 8 份。
+   */
+  #keyFor(root: string) {
+    return `${session.KEY}:${root}`;
+  }
+
+  /**
+   * 切项目：旧项目的现场存到它自己那份，关掉它的**干净**标签，再把新项目上次的
+   * 标签摆回来。脏标签留着 —— 那是没保存的活，跟着人走到哪儿都不能丢；
+   * 它们自己会在关的时候问。
+   *
+   * VS Code 打开另一个文件夹就是换工作区（标签跟着换）；IDEA 是另开一个窗口。
+   * 这里没有多窗口，取 VS Code 那条。
+   *
+   * 由 `tabflow` 在改 `project.root` 前后各叫一次（钩子），这里不碰 root。
+   */
+  beforeRootChange(old: string | null) {
+    if (!old || this.restoring) return;
+    // 旧项目的现场立刻落盘 —— 防抖那 400ms 里 root 就换了，再写就是新项目的了
+    this.flush();
+  }
+
+  async afterRootChange(next: string) {
+    for (const t of [...tabs.list]) if (!t.dirty) tabflow.doClose(t);
+    let mine: session.Session | null = null;
+    try {
+      mine = session.parse(localStorage.getItem(this.#keyFor(next)));
+    } catch {
+      mine = null;
+    }
+    // 别的项目存的快照 root 是别的：只信 root 对得上的那份
+    if (mine && mine.root === next) await this.#restoreTabs(mine);
+  }
+
+  async #restoreTabs(saved: session.Session) {
     /*
      * **先记位置，再开文件。** 反过来写过一版，位置恢复整个不生效：
      * `openPath` 一把标签加进去，`activeId` 就变了，兑现位置的那个 effect
@@ -205,8 +248,10 @@ class Persist {
       return; // 序列化都失败就彻底放弃，不能让它冒到启动路径上
     }
     if (text === this.#lastWritten) return;
+    // 两份：不带后缀的是「上次退出时」，启动读它；带 root 的是这个项目自己的
+    const keys = [session.KEY, ...(snap.root ? [this.#keyFor(snap.root)] : [])];
     try {
-      localStorage.setItem(session.KEY, text);
+      for (const k of keys) localStorage.setItem(k, text);
       this.#lastWritten = text;
     } catch {
       /*
@@ -216,11 +261,29 @@ class Persist {
        */
       try {
         const plain = session.serialize(snap, false);
-        localStorage.setItem(session.KEY, plain);
+        for (const k of keys) localStorage.setItem(k, plain);
         this.#lastWritten = plain;
       } catch {
         /* 隐私模式之类，连基本的都写不下就算了 */
       }
+    }
+    this.#prune(snap);
+  }
+
+  /** 不在最近列表里的项目那份快照清掉 —— 最近列表封顶 8，快照也就最多 8 份 */
+  #prune(snap: session.Session) {
+    try {
+      const keep = new Set(snap.recent.map((r) => this.#keyFor(r)));
+      if (snap.root) keep.add(this.#keyFor(snap.root));
+      const prefix = `${session.KEY}:`;
+      const stale: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix) && !keep.has(k)) stale.push(k);
+      }
+      for (const k of stale) localStorage.removeItem(k);
+    } catch {
+      /* 清不掉就留着，下次再说 */
     }
   }
 

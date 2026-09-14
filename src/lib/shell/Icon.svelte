@@ -6,6 +6,9 @@
     | "search"
     | "terminal"
     | "history"
+    | "locate"
+    | "collapse"
+    | "follow"
     | "more-v"
     | "minus"
     | "refresh"
@@ -111,6 +114,17 @@
   {:else if name === "minus"}
     <!-- 收起工具窗。一条线，不是 ✕ —— 东西还在，只是不占地方了 -->
     <path d="M4 8 H12" />
+  {:else if name === "locate"}
+    <!-- 定位：准星。IDEA 项目窗头上那个「Select Opened File」就是这个形状 -->
+    <circle cx="8" cy="8" r="3.6" />
+    <path d="M8 2.4 V4.8 M8 11.2 V13.6 M2.4 8 H4.8 M11.2 8 H13.6" />
+  {:else if name === "collapse"}
+    <!-- 折叠全部：两组向内的折角，IDEA / VS Code 都是这个意思 -->
+    <path d="M4 5.6 L8 2.4 L12 5.6 M4 10.4 L8 13.6 L12 10.4" />
+  {:else if name === "follow"}
+    <!-- 跟随：箭头指向一个框 —— 「标签换了，树跟着走到那儿」 -->
+    <rect x="2.6" y="3" width="10.8" height="10" rx="1.6" />
+    <path d="M5.4 8 H10.4 M8.4 5.8 L10.6 8 L8.4 10.2" />
   {:else if name === "refresh"}
     <path d="M13 8 A5 5 0 1 1 11.4 4.3" />
     <path d="M13 2.6 V5.2 H10.4" />

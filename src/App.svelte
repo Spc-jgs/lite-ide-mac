@@ -23,6 +23,7 @@
   import { persist, saved } from "./lib/state/persist.svelte";
   import { overlay } from "./lib/state/overlay.svelte";
   import { lang } from "./lib/state/lang.svelte";
+  import { readPref, writePref } from "./lib/state/prefs";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
   import {
@@ -48,31 +49,18 @@
   docs.hooks.afterPos = () => persist.schedule();
   // 远程操作的确认条长在 Git 那组懒加载的组件里，操作前先把它们拉起来
   remote.hooks.warmUi = () => gitUi.load();
+  // 切项目：旧项目的现场存到它自己那份，关干净标签，摆新项目的标签（#33 ㉓）
+  tabflow.hooks.beforeRootChange = (old) => persist.beforeRootChange(old);
+  tabflow.hooks.afterRootChange = (next) => persist.afterRootChange(next);
 
 
 
 
-  /**
-   * 缩略图开关。存 localStorage —— 这是个纯偏好，没必要为它建一套配置文件；
-   * 读失败（隐私模式、站点数据被清）就用默认值，不能让它把启动流程炸掉。
-   */
+  /** 缩略图开关。纯偏好，存 localStorage（理由见 state/prefs.ts） */
   let showMinimap = $state(readPref("minimap", true));
   $effect(() => {
-    try {
-      localStorage.setItem("lite-ide.minimap", showMinimap ? "1" : "0");
-    } catch {
-      /* 存不下就算了，下次开还是默认值 */
-    }
+    writePref("minimap", showMinimap);
   });
-
-  function readPref(key: string, dflt: boolean): boolean {
-    try {
-      const v = localStorage.getItem(`lite-ide.${key}`);
-      return v === null ? dflt : v === "1";
-    } catch {
-      return dflt;
-    }
-  }
 
   /**
    * git 说这个项目里哪些目录被忽略了。**按项目问一次，不是按目录问。**
@@ -810,7 +798,11 @@
             onUnstage={(paths) =>
               void git.run("取消暂存失败", () => gitUnstage(git.repo!, paths), "取消暂存")}
             onDiscard={(es) => (git.pendingDiscard = es)}
-            onCommit={(...a) => git.commit(...a)}
+            onCommit={(m, amend, push) =>
+              void git.commit(m, amend).then((ok) => {
+                // 提交成功才推；推之前照常走推送确认条（列出要推的提交）
+                if (ok && push) void remote.askPush();
+              })}
             onRefresh={() => void git.refresh()}
             onOpenBranches={openBranchPicker}
             onOpenLog={() => layout.openGitTab("log")}

@@ -27,7 +27,8 @@
     onUnstage: (paths: string[]) => void;
     /** 不可撤销，由上层弹确认条 */
     onDiscard: (entries: GitEntry[]) => void;
-    onCommit: (message: string, amend: boolean) => void;
+    /** `push` = 提交完接着推（IDEA 的 Commit and Push…）：提交成功才推，推之前照常确认 */
+    onCommit: (message: string, amend: boolean, push: boolean) => void;
     onRefresh: () => void;
     /**
      * 打开分支面板。
@@ -152,13 +153,27 @@
     menu = { x: r.right - 8, y: r.bottom + 2 };
   }
 
-  function doCommit() {
+  function doCommit(push = false) {
     if (!canCommit) return;
-    onCommit(message, amend);
+    onCommit(message, amend, push);
     message = "";
     amend = false;
     // 提交完就收回去 —— 刚提交完通常没有下一条要写
     composing = false;
+  }
+
+  /**
+   * 「提交」右边那个 ▾（issue #33 ⑩）：提交并推送。
+   *
+   * 照 IDEA 的提交按钮 —— 主动作是提交，下拉里是「提交并推送…」。不做成两个
+   * 平级按钮：九成提交不需要马上推，而两个同色按钮并排会让人先想「哪个是哪个」。
+   * 推之前照常走推送确认条（列出要推的提交），所以这里不是「不看一眼就推」。
+   */
+  let cmenu = $state<{ x: number; y: number } | null>(null);
+  const cmenuItems: MenuItem[] = [{ label: "提交并推送…", run: () => doCommit(true) }];
+  function openCommitMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    cmenu = { x: r.right - 8, y: r.bottom + 2 };
   }
 </script>
 
@@ -274,9 +289,18 @@
           改写上一条
         </label>
         <span class="gap"></span>
-        <button class="primary" disabled={!canCommit} onclick={doCommit}>
-          提交 {staged.length > 0 ? `(${staged.length})` : ""}
-        </button>
+        <div class="split">
+          <button class="primary" disabled={!canCommit} onclick={() => doCommit()}>
+            提交 {staged.length > 0 ? `(${staged.length})` : ""}
+          </button>
+          <button
+            class="primary more"
+            disabled={!canCommit}
+            onclick={openCommitMenu}
+            title="提交并推送…"
+            aria-label="更多提交方式"
+          ><Icon name="chevron-down" size={10} /></button>
+        </div>
       </div>
     </div>
     {/if}
@@ -363,6 +387,9 @@
     items={menuItems}
     onclose={() => (menu = null)}
   />
+{/if}
+{#if cmenu}
+  <ContextMenu x={cmenu.x} y={cmenu.y} label="提交方式" items={cmenuItems} onclose={() => (cmenu = null)} />
 {/if}
 
 <style>
@@ -611,6 +638,18 @@
     white-space: nowrap;
   }
   .primary:disabled { background: transparent; border-color: var(--border); color: var(--text-faint); }
+  /* 分裂按钮：主体 + ▾ 共一个圆角，中间一条细线分开 —— 看着是一个按钮的两半 */
+  .split { display: inline-flex; }
+  .split .primary { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .split .more {
+    display: grid;
+    place-content: center;
+    padding: 0 5px;
+    border-left-color: rgba(255, 255, 255, 0.35);
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+  .split .more:disabled { border-left-color: var(--border); }
   /* 冲突三角走 currentColor，颜色由这层给 —— 图标自己不带颜色 */
   .conflict-mark { display: flex; color: var(--lvl-error); }
   .blocked {
