@@ -26,12 +26,33 @@
   import { nav } from "../state/nav.svelte";
   import { lang } from "../state/lang.svelte";
 
+  /**
+   * 空态卡片上列的那几条。
+   *
+   * 不是全表 —— 全表在 ⌘/ 的速查浮层里。这里只留「不知道就上不了手」的，
+   * 顺序即显示顺序（两列铺开）。**从 keymap.ts 取，不手抄**：
+   * 原来手抄的那份把 ⌘⇧F / ⌘⇧O / ⌘⇧G 三处修饰键次序全写反了。
+   *
+   * 键位表是懒的（issue #32，理由见 Overlays）：卡片先画，十条提示等那个
+   * 几 KB 的本地 chunk 一到就补上 —— 一帧的事。
+   */
+  const HINT_IDS = [
+    "quick-all", "save", "quick-file", "close-tab", "quick-content",
+    "toggle-sidebar", "outline", "toggle-panel", "git-changes", "log-next-hit",
+  ];
+  let keyHints = $state<KeyDef[]>([]);
+  $effect(() => {
+    if (tabs.active || keyHints.length) return;
+    void import("../state/keymap").then(({ byId }) => {
+      keyHints = HINT_IDS.map((id) => byId(id)).filter((k) => k !== undefined);
+    });
+  });
+
   let {
     Merge,
     Diff,
     showMinimap,
     outlineTick,
-    keyHints,
     onLogStatus,
     onOutline,
   }: {
@@ -40,8 +61,6 @@
     showMinimap: boolean;
     /** 大纲浮层里点了一条，让编辑器重算一次符号 */
     outlineTick: number;
-    /** 起点卡片上那几条键位 */
-    keyHints: KeyDef[];
     onLogStatus: (text: string) => void;
     onOutline: (syms: Sym[]) => void;
   } = $props();

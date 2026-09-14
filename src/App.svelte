@@ -10,7 +10,6 @@
   import Overlays from "./lib/shell/Overlays.svelte";
   import TitleBar from "./lib/shell/TitleBar.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
-  import type { Action } from "./lib/search/QuickSearch.svelte";
   import { lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import { layout } from "./lib/state/layout.svelte";
@@ -26,7 +25,6 @@
   import { lang } from "./lib/state/lang.svelte";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
-  import { KEYS, byId as keyById } from "./lib/state/keymap";
   import {
     probePath,
     ignoredDirs,
@@ -225,44 +223,7 @@
 
 
 
-  /**
-   * 空态卡片上列的那几条。
-   *
-   * 不是全表 —— 全表在 ⌘/ 的速查浮层里。这里只留「不知道就上不了手」的，
-   * 顺序即显示顺序（两列铺开）。**从 keymap.ts 取，不手抄**：
-   * 原来手抄的那份把 ⌘⇧F / ⌘⇧O / ⌘⇧G 三处修饰键次序全写反了。
-   */
-  const HINT_IDS = [
-    "quick-all", "save", "quick-file", "close-tab", "quick-content",
-    "toggle-sidebar", "outline", "toggle-panel", "git-changes", "log-next-hit",
-  ];
-  const keyHints = HINT_IDS.map((id) => keyById(id)).filter((k) => k !== undefined);
 
-  /** 快捷键速查浮层。⌘/ 归菜单（帮助 › 快捷键速查），这里只存开合 */
-
-  /**
-   * 随处搜索里的「操作」。**从键位表生成，不再手写第二份。**
-   *
-   * 加菜单栏之前这里是一张 69 行的手写表，标签和 `hint` 各写一遍 ——
-   * 而同样的信息在菜单栏、速查表、空态卡片里还各有一份。四处手抄的结果
-   * 是可预见的：改一个键位漏掉三处。
-   *
-   * # 它同时是浏览器里唯一的入口
-   *
-   * `pnpm dev` 跑在浏览器里，**那儿没有菜单栏** —— 归菜单的动作
-   * （⌘S ⌘O ⇧⌘G ⌘/ …）在那里一个都够不着，改 UI 的主循环就废了一半。
-   * 让这张表覆盖全部动作之后，两边都通：Tauri 里走菜单，浏览器里走这儿。
-   *
-   * `cm6` 那一档不进来 —— 它们是编辑器内部的键位（⌘F 查找面板），
-   * 不是这个应用能"执行"的动作。
-   */
-  const actions: Action[] = KEYS.filter((k) => k.owner !== "cm6").map((k) => ({
-    id: k.id,
-    // Git 那一摊加前缀：单看「刷新状态」「提交历史」不知道是谁的
-    label: k.group === "Git" ? `Git：${k.label}` : k.label,
-    hint: k.accel ?? k.gesture,
-    run: () => void runMenu(k.id),
-  }));
 
 
 
@@ -770,7 +731,7 @@
 
 <svelte:window onkeydown={onWindowKey} onkeyup={onWindowKeyUp} />
 
-<Overlays Branch={gitUi.comps.branch} {actions} />
+<Overlays Branch={gitUi.comps.branch} onAction={(id) => void runMenu(id)} />
 
 <main class:hovering>
   <TitleBar
@@ -878,7 +839,6 @@
         Diff={gitUi.comps.diff}
         {showMinimap}
         outlineTick={overlay.outlineTick}
-        {keyHints}
         onLogStatus={(t) => (logStatus = t)}
         onOutline={(syms) => (overlay.symbols = syms)}
       />

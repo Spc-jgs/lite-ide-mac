@@ -5,8 +5,8 @@
    * 状态栏、Git 栏、标题栏），这里只管加载和渲染。
    *
    * 从 App.svelte 搬出来（issue #9 第 6 步）。分支浮层属于 Git 那组 `lazyGroup`
-   * （App 还有别的组件用它），以组件类型传进来；`actions` 是随处搜索里的
-   * 「操作」表，它的 `run` 要调 App 的 `runMenu`，所以在 App 里生成。
+   * （App 还有别的组件用它），以组件类型传进来；随处搜索里的「操作」表在这里
+   * 从懒加载的键位表生成，选中一条交给 App 的 `runMenu`。
    */
   import type BranchPicker from "../git/BranchPicker.svelte";
   import type { Action } from "../search/QuickSearch.svelte";
@@ -23,11 +23,45 @@
 
   let {
     Branch,
-    actions,
+    onAction,
   }: {
     Branch: typeof BranchPicker | undefined;
-    actions: Action[];
+    /** 随处搜索里选了一条「操作」：交给 App 的 runMenu */
+    onAction: (id: string) => void;
   } = $props();
+
+  /**
+   * 随处搜索里的「操作」。**从键位表生成，不再手写第二份。**
+   *
+   * 加菜单栏之前这里是一张 69 行的手写表，标签和 `hint` 各写一遍 ——
+   * 而同样的信息在菜单栏、速查表、空态卡片里还各有一份。四处手抄的结果
+   * 是可预见的：改一个键位漏掉三处。
+   *
+   * # 它同时是浏览器里唯一的入口
+   *
+   * `pnpm dev` 跑在浏览器里，**那儿没有菜单栏** —— 归菜单的动作
+   * （⌘S ⌘O ⇧⌘G ⌘/ …）在那里一个都够不着，改 UI 的主循环就废了一半。
+   * 让这张表覆盖全部动作之后，两边都通：Tauri 里走菜单，浏览器里走这儿。
+   *
+   * `cm6` 那一档不进来 —— 它们是编辑器内部的键位（⌘F 查找面板），
+   * 不是这个应用能"执行"的动作。
+   *
+   * # 键位表是懒的（issue #32）
+   *
+   * `keymap.ts` 那张表 3.1 KB，入口包里只有两个读者：这里和起点卡片，
+   * 而 keydown 分派是写死的 case，菜单栏在 Rust 侧 —— 首屏之前没人要它。
+   * 跟着搜索浮层那次预拉一起到，人真按下 ⌘P 时早就在了。
+   */
+  let actions = $state<Action[]>([]);
+  void import("../state/keymap").then(({ KEYS }) => {
+    actions = KEYS.filter((k) => k.owner !== "cm6").map((k) => ({
+      id: k.id,
+      // Git 那一摊加前缀：单看「刷新状态」「提交历史」不知道是谁的
+      label: k.group === "Git" ? `Git：${k.label}` : k.label,
+      hint: k.accel ?? k.gesture,
+      run: () => onAction(k.id),
+    }));
+  });
 
   /**
    * 两个搜索浮层（⌘P 随处搜索、⌘⇧O 文件结构）。
