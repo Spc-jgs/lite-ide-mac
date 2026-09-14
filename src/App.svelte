@@ -14,6 +14,8 @@
   import { notify } from "./lib/state/notify.svelte";
   import { layout } from "./lib/state/layout.svelte";
   import { tabs } from "./lib/state/tabs.svelte";
+  import { tabflow } from "./lib/state/tabflow.svelte";
+  import { project } from "./lib/state/project.svelte";
   import { terms } from "./lib/state/terms.svelte";
   import * as session from "./lib/state/session";
   import { stashed } from "./lib/state/doc";
@@ -29,7 +31,6 @@
     clearAppLog,
     readText,
     writeText,
-    fileStamp,
     pickFolder,
     setRecent,
     syncMenuState,
@@ -58,23 +59,15 @@
     gitSwitch,
     gitWorktreeAdd,
     gitWorktreeRemove,
-    detectEncoding,
     listProjectFiles,
     scratchDir,
     createScratch,
-    discardEmptyScratch,
     type GitEntry,
     type GitStatus,
     type GitWorktree,
   } from "./lib/ipc/commands";
   import type { TabState } from "./lib/state/tab";
 
-
-  /**
-   * 手动切到编辑模式时，超过这个大小要先确认。
-   * 编辑模式会把全文读进内存并交给 CodeMirror，大文件是真的会卡。
-   */
-  const CONFIRM_EDIT_BYTES = 8 << 20;
 
   /**
    * 上次退出时的现场。**同步读一次**，不放进 effect ——
@@ -93,12 +86,12 @@
   })();
   // 布局状态住在 layout.svelte.ts（导轨 / 侧边栏 / 面板各自直接读写），这里只灌一次
   layout.restore(saved?.layout ?? session.DEFAULT_LAYOUT);
+  project.recent = saved?.recent ?? [];
   // 文档生命周期往外的两个钩子：保存完刷 git，光标动了安排存快照（见 docs.svelte.ts 文件头）
   docs.hooks.afterSave = () => void refreshGit();
   docs.hooks.afterPos = () => scheduleSave();
 
 
-  let root = $state<string | null>(null);
 
 
   /**
@@ -143,7 +136,7 @@
    * 这份答案就跟着更新。不带的话，改完 `.gitignore` 得重开项目才生效。
    */
   $effect(() => {
-    const r = root;
+    const r = project.root;
     treeTick;
     if (!r) {
       ignored = null;
@@ -323,7 +316,7 @@
    * 人会以为「怎么点了没反应」。做完说一句。
    */
   async function openWorktree(path: string) {
-    await openPath(path);
+    await tabflow.openPath(path);
     const name = path.slice(path.lastIndexOf("/") + 1) || path;
     notify.ok(`项目根已切到 ${name}（打开的标签没有动）`, 3200);
   }
@@ -333,7 +326,7 @@
       // 分支存不存在由 gitsvc 判，这里只管「要一个跑着这个分支的目录」
       const path = await gitWorktreeAdd(repo!, dir, branch);
       notify.ok(`工作树已建在 ${path}`, 3600);
-      await openPath(path);
+      await tabflow.openPath(path);
     }, "新建工作树");
   }
 
@@ -412,7 +405,7 @@
 
   /** 换项目根就重新找仓库。找不到时把 Git 的一切都清干净 */
   $effect(() => {
-    const r = root;
+    const r = project.root;
     if (!r) {
       repo = null;
       gitSt = null;
@@ -546,7 +539,7 @@
 
   /** 进废纸篓的东西，开着的标签一并关掉（确认框已经说过会关几个未保存的） */
   function closeTabsUnder(p: string, isDir: boolean) {
-    for (const t of tabs.under(p, isDir)) doClose(t);
+    for (const t of tabs.under(p, isDir)) tabflow.doClose(t);
   }
 
   /**
@@ -557,7 +550,7 @@
    * 少这一下文件树上的染色就停在改动之前。
    */
   async function afterFsChange(openThis: string | null) {
-    if (openThis) await openPath(openThis);
+    if (openThis) await tabflow.openPath(openThis);
     await workingTreeChanged();
     void refreshGit();
   }
@@ -650,7 +643,7 @@
       if (resolved) {
         await gitStage(repo, [tab.rel]);
         notify.ok(`${tab.name} 已标记为解决`);
-        doClose(tab);
+        tabflow.doClose(tab);
       } else {
         tab.mergeText = content;
         notify.ok(`${tab.name} 进度已保存`);
@@ -847,8 +840,6 @@
 
   let hovering = $state(false);
   let logStatus = $state("");
-  /** 待确认关闭的脏标签 —— 直接丢弃改动太粗暴，也不该静默保存 */
-  let pendingClose = $state<TabState | null>(null);
 
   /**
    * CodeMirror 6 核心约 340KB，日志模式一点也用不上 —— 静态引入会把入口包
@@ -997,7 +988,7 @@
   let projectFiles = $state<string[]>([]);
 
   $effect(() => {
-    const r = root;
+    const r = project.root;
     // treeTick 一变就重拉：切分支之后新增的文件也得跳得过去
     treeTick;
     if (!r) {
@@ -1099,8 +1090,8 @@
 
   /** 搜索结果点击：打开文件，带行号则跳过去 */
   async function openAt(path: string, line?: number) {
-    const full = path.startsWith("/") ? path : `${root ?? ""}/${path}`;
-    await openPath(full);
+    const full = path.startsWith("/") ? path : `${project.root ?? ""}/${path}`;
+    await tabflow.openPath(full);
     if (line !== undefined) gotoLine = { line, nonce: ++gotoNonce };
   }
 
@@ -1181,47 +1172,9 @@
   );
 
 
-  /** 正在打开的路径，防止双击或事件重放时重复探测 */
-  const opening = new Set<string>();
 
-  /**
-   * 正在把上次的标签摆回来。**唯一的作用是拦住 `openPath` 去动 `activeId`。**
-   *
-   * 内容区是 `{#key tabs.active.id}` 包着的 —— tabs.activeId 一变就销毁重建。
-   * 而恢复是一个一个 `await openPath()` 的，每开一个就把 tabs.activeId 顶成它，
-   * 于是恢复 8 个标签 = **把编辑器建了 8 次**，界面一个文件一个文件地闪过去。
-   * （CM6 还是懒加载的，第一次要等 chunk 到位，闪得更明显。）
-   *
-   * 改成由 `restoreSession` 在**恰好走到该激活的那个标签时**设一次 tabs.activeId，
-   * 编辑器只建一次。标签仍按存下来的顺序逐个进列表 —— 那只是标签条在长，
-   * 不重建任何东西。
-   *
-   * **和下面那个 `restoring` 是两回事，不能合并。** 那个管的是「恢复期不写快照」，
-   * 它要一直盖到启动路径的最后 —— 包括命令行传进来的那个文件
-   * （`lite-ide a.rs`）。而那个文件**恰恰应该**被激活，合并了就等于
-   * `lite-ide a.rs` 打开却不切过去。
-   */
-  let restoringTabs = false;
 
-  /**
-   * 草稿目录的绝对路径（`~/Library/Application Support/com.liteide.app/scratches`）。
-   *
-   * 启动时拿一次就不再变。**不 await 在启动路径上** —— 它只服务两件事
-   * （判断一个标签是不是草稿、菜单里打开草稿目录），两件都发生在人动手之后，
-   * 而这一次 IPC 是毫秒级的，早就回来了。为它把首屏往后推一拍不值。
-   */
-  let scratchRoot = $state<string | null>(null);
 
-  /**
-   * 这个路径是不是一份草稿。
-   *
-   * `scratchRoot` 还没到位时一律算「不是」：它唯一的用处是决定
-   * 「关掉时要不要把这个空文件丢掉」，而**猜错的方向必须是留下**——
-   * 少丢一个空文件只是噪音，多丢一个就是删了不该删的东西。
-   */
-  function isScratch(path: string): boolean {
-    return scratchRoot !== null && path.startsWith(`${scratchRoot}/`);
-  }
 
   /**
    * 新建一份草稿并打开。
@@ -1241,7 +1194,7 @@
       const stem =
         `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
         `${pad(d.getHours())}${pad(d.getMinutes())}`;
-      await openPath(await createScratch(stem));
+      await tabflow.openPath(await createScratch(stem));
     } catch (e) {
       notify.fail(String(e));
     }
@@ -1264,99 +1217,26 @@
         notify.ok("还没有草稿 —— ⌘N 记第一条", 2600);
         return;
       }
-      await openPath(dir);
+      await tabflow.openPath(dir);
     } catch (e) {
       notify.fail(String(e));
     }
   }
 
-  /**
-   * `quiet` 给会话恢复用：上次开着的文件这次可能已经不在了
-   * （删了、改名了、切到了没有它的分支）。那是完全正常的事，
-   * 逐个弹「读不到 xxx」只会在启动时糊一屏红字。
-   */
-  async function openPath(path: string, quiet = false) {
-    if (opening.has(path)) return;
-    opening.add(path);
-    if (!quiet) notify.clear();
-    try {
-      const info = await probePath(path);
-      if (info.kind === "dir") {
-        root = info.path;
-        return;
-      }
-      const exist = tabs.list.find((t) => t.path === info.path);
-      if (exist) {
-        if (!restoringTabs) tabs.activeId = exist.id;
-        return;
-      }
 
-      const tab: Omit<TabState, "id"> = {
-        path: info.path,
-        name: info.name,
-        mode: info.mode,
-        dirty: false,
-        reason: info.reason,
-        size: info.size,
-      };
-      if (info.mode === "log") {
-        tab.handle = (await openLog(info.path)).handle;
-        // 日志模式在前端用 TextDecoder 解码，只需要标签
-        tab.encoding = await detectEncoding(info.path).catch(() => "UTF-8");
-      } else {
-        const t = await readText(info.path);
-        tab.content = t.content;
-        tab.encoding = t.encoding;
-        tab.bom = t.bom;
-        tab.lossy = t.lossy;
-        tab.stamp = await fileStamp(info.path);
-      }
-      const id = tabs.add(tab);
-      // 恢复期不抢：见 `restoringTabs` 上面那段
-      if (!restoringTabs) tabs.activeId = id;
-      /*
-       * 没有项目根时，拿这个文件的父目录顶上，文件树才有东西显示。
-       *
-       * **草稿不需要在这儿特判**，虽然一眼看上去像要：正开着项目时 `root`
-       * 已经有值，这句根本不执行，文件树不会被草稿顶走；而没开项目就记东西时，
-       * 树里显示的正好是你的草稿目录 —— 那时你手上也没有别的东西可看。
-       * （加一道 `!isScratch(...)` 的守卫是我第一版写的，它永远不会为假。）
-       */
-      if (!root) root = info.path.slice(0, info.path.lastIndexOf("/")) || "/";
-      // 恢复期不核：那时 tabs.activeId 故意停在 null 而标签一个个往里填，
-      // 「有标签但没有活动标签」在这段窗口里是对的。恢复完了再一次核完
-      if (!restoringTabs) tabs.audit("开标签");
-    } catch (e) {
-      if (!quiet) notify.fail(String(e));
-    } finally {
-      opening.delete(path);
-    }
-  }
 
-  /**
-   * 最近打开过的项目根，最新的排最前。
-   *
-   * 记的是**项目根不是文件**：会话恢复本来就以 root 为单位，
-   * 开回一个项目上次的标签会跟着回来，比记住散落的文件有用得多。
-   */
-  let recent = $state<string[]>(saved?.recent ?? []);
-
-  /** 把一个目录顶到最近列表最前面。已经在里面就是往前挪，不是加一条 */
-  function remember(dir: string) {
-    recent = [dir, ...recent.filter((r) => r !== dir)].slice(0, session.RECENT_MAX);
-  }
 
   /**
    * 开原生的选择文件夹面板。取消了什么也不做。
    *
-   * 选中之后走的是 `openPath` —— 它对目录的处理就是把 root 设过去，
+   * 选中之后走的是 `openPath` —— 它对目录的处理就是把 project.root 设过去，
    * 和拖一个文件夹进来、命令行传目录**是同一条路**。
    * 另起一套的话，「切项目要不要清掉旧标签」这类判断就会有两份。
    */
   async function openFolder() {
     const dir = await pickFolder().catch(() => null);
     if (!dir) return;
-    await openPath(dir);
+    await tabflow.openPath(dir);
   }
 
   /**
@@ -1370,10 +1250,10 @@
     const info = await probePath(dir).catch(() => null);
     if (info?.kind !== "dir") {
       notify.fail(`打不开 ${dir} —— 已从最近记录里移除`, 3200);
-      recent = recent.filter((r) => r !== dir);
+      project.recent = project.recent.filter((r) => r !== dir);
       return;
     }
-    await openPath(dir);
+    await tabflow.openPath(dir);
   }
 
 
@@ -1439,7 +1319,7 @@
       notify.fail(`应用日志没装上：${e}`);
       return;
     }
-    await openPath(path);
+    await tabflow.openPath(path);
   }
 
   async function openRepoPage() {
@@ -1493,7 +1373,7 @@
    */
   async function toHint(e: RemoteErr): Promise<string> {
     if (e.kind === "auth-https") {
-      return `在终端里跑一次，输一遍账号密码，之后就一直有效：\n  git -C ${root} fetch`;
+      return `在终端里跑一次，输一遍账号密码，之后就一直有效：\n  git -C ${project.root} fetch`;
     }
     if (e.kind === "auth-ssh") {
       return "把私钥加进 ssh-agent：\n  ssh-add --apple-use-keychain ~/.ssh/id_ed25519";
@@ -1683,7 +1563,7 @@
       const ok = await probePath(saved.root)
         .then((i) => i.kind === "dir")
         .catch(() => false);
-      if (ok) root = saved.root;
+      if (ok) project.root = saved.root;
     }
     /*
      * **先记位置，再开文件。** 反过来写过一版，位置恢复整个不生效：
@@ -1699,9 +1579,9 @@
      *
      * 并行看着快，但每个文件都要 probe + 读全文（或 mmap + 探编码），
      * 二十个文件一起冲进 IPC 会把启动的头一秒占满，首屏反而更晚出来。
-     * 而且 `openPath` 里 `if (!root) root = 父目录` 这句依赖顺序。
+     * 而且 `openPath` 里 `if (!project.root) project.root = 父目录` 这句依赖顺序。
      *
-     * **但串行不等于要一个一个地闪。** `restoringTabs` 期间 `openPath`
+     * **但串行不等于要一个一个地闪。** `tabflow.restoringTabs` 期间 `openPath`
      * 不碰 `activeId`（见它上面那段），所以内容区一次都不重建；
      * 走到该激活的那个标签时点一次，编辑器**只建一次**，
      * 剩下的标签在它后面继续往标签条里填。
@@ -1710,10 +1590,10 @@
      * 但标签条的顺序就跟上次不一样了，那是个更难受的毛病。
      */
     const wantPath = saved.tabs[saved.active]?.path;
-    restoringTabs = true;
+    tabflow.restoringTabs = true;
     try {
       for (const t of saved.tabs) {
-        await openPath(t.path, true);
+        await tabflow.openPath(t.path, true);
         if (t.path === wantPath) {
           const hit = tabs.list.find((x) => x.path === t.path);
           // 这一下是整个恢复过程里唯一一次内容区渲染
@@ -1723,7 +1603,7 @@
     } finally {
       // 这里必须 finally：漏掉的话 tabs.activeId 就永久失灵，
       // 而 openPath 是会抛的（文件没了、读不动、编码探测失败）
-      restoringTabs = false;
+      tabflow.restoringTabs = false;
     }
     /*
      * 兑现草稿。**必须在文件都读进来之后**：判据是「草稿和盘上现在那份一不一样」，
@@ -1781,7 +1661,7 @@
   /** 按当前状态拍一张快照 */
   function snapshot(): session.Session {
     return {
-      root,
+      root: project.root,
       tabs: tabs.list.map((t) => {
         const line = docs.posByPath.get(t.path);
         const snap: session.TabSnap = { path: t.path };
@@ -1803,7 +1683,7 @@
       }),
       active: Math.max(0, tabs.list.findIndex((t) => t.id === tabs.activeId)),
       layout: layout.snapshot(),
-      recent: [...recent],
+      recent: [...project.recent],
     };
   }
 
@@ -1898,7 +1778,7 @@
   // 响应式那一半：布局、标签、项目根变了就存
   $effect(() => {
     // 显式读一遍，让 effect 订阅上它们
-    void [root, tabs.list.length, tabs.activeId, layout.snapshot()];
+    void [project.root, tabs.list.length, tabs.activeId, layout.snapshot()];
     scheduleSave();
   });
 
@@ -1945,154 +1825,14 @@
   });
 
 
-  /** 待确认的模式切换（大文件切到编辑模式时用） */
-  let pendingSwitch = $state<TabState | null>(null);
 
-  function requestSwitchMode(tab: TabState) {
-    if (tab.dirty) {
-      notify.fail("有未保存的改动，请先保存（⌘S）再切换模式", 2600);
-      return;
-    }
-    const to = tab.mode === "edit" ? "log" : "edit";
-    // 切到日志模式没有风险（mmap，内存与大小无关）；反方向要看体积
-    if (to === "edit" && tab.size > CONFIRM_EDIT_BYTES) {
-      pendingSwitch = tab;
-      return;
-    }
-    void doSwitch(tab, to);
-  }
 
-  async function doSwitch(tab: TabState, to: "edit" | "log") {
-    pendingSwitch = null;
-    notify.clear();
-    try {
-      if (tab.mode === "log" && tab.handle !== undefined) {
-        await closeLog(tab.handle);
-        tab.handle = undefined;
-      }
-      if (to === "log") {
-        tab.handle = (await openLog(tab.path)).handle;
-        tab.content = undefined;
-      } else {
-        const t = await readText(tab.path, tab.forced ? tab.encoding : undefined);
-        tab.content = t.content;
-        tab.encoding = t.encoding;
-        tab.bom = t.bom;
-        tab.lossy = t.lossy;
-      }
-      tab.mode = to;
-      tab.forced = to;
-      tabs.audit("切模式");
-    } catch (e) {
-      notify.fail(String(e));
-      // 切换失败要退回原状态，否则标签会停在一个既没句柄也没内容的空壳上
-      if (tab.mode === "log" && tab.handle === undefined) {
-        try {
-          tab.handle = (await openLog(tab.path)).handle;
-        } catch {
-          /* 连回退都失败，只能让用户重开 */
-        }
-      }
-    }
-  }
 
-  function requestClose(id: number) {
-    const tab = tabs.list.find((t) => t.id === id);
-    if (!tab) return;
-    if (tab.dirty) {
-      tabs.activeId = tab.id;
-      pendingClose = tab;
-      return;
-    }
-    doClose(tab);
-  }
 
-  /**
-   * 批量关闭时还没问过的标签 —— **只装有未保存改动的那些**。
-   *
-   * 干净的标签在 `closeMany` 里当场就关了，不进队列：为一堆没改动的文件
-   * 逐个弹确认框，没有任何信息量。
-   */
-  let closeQueue = $state<number[]>([]);
 
-  /**
-   * 关掉一批标签。干净的直接关，有改动的排队逐个问。
-   *
-   * **不能直接全关**：标签栏的「关闭其他 / 关闭右侧 / 关闭全部」一按下去，
-   * 可能带走好几个正在改的文件，而它们的改动没有任何地方找得回来
-   * （不像删文件还进废纸篓）。
-   */
-  function closeMany(ids: number[]) {
-    const dirty: number[] = [];
-    for (const id of ids) {
-      const t = tabs.byId(id);
-      if (!t) continue;
-      if (t.dirty) dirty.push(id);
-      else doClose(t);
-    }
-    closeQueue = dirty;
-    askNextClose();
-  }
 
-  /** 从队列里取下一个来问；队列空了就把横幅收掉 */
-  function askNextClose() {
-    while (closeQueue.length) {
-      const id = closeQueue[0];
-      closeQueue = closeQueue.slice(1);
-      const t = tabs.byId(id);
-      if (!t) continue; // 中途被别处关掉了
-      tabs.activeId = t.id; // 让人看见要丢的到底是什么
-      pendingClose = t;
-      return;
-    }
-    pendingClose = null;
-  }
 
-  /**
-   * 「保存并关闭 / 丢弃改动 / 取消」三个按钮的落点。
-   *
-   * 取消**把整批都停掉**，不是只跳过这一个：连着弹五次确认框、每次都得
-   * 再点一次取消，比没有批量关闭还烦人。
-   */
-  async function resolveClose(kind: "save" | "discard" | "cancel") {
-    const t = pendingClose;
-    if (!t) return;
-    if (kind === "cancel") {
-      closeQueue = [];
-      pendingClose = null;
-      return;
-    }
-    if (kind === "save") {
-      tabs.activeId = t.id;
-      // 写失败就停在这儿，别往下关 —— 关了改动就真没了
-      if (!(await docs.save(docs.liveText(t)))) {
-        closeQueue = [];
-        return;
-      }
-    }
-    doClose(t);
-    askNextClose();
-  }
 
-  function doClose(tab: TabState) {
-    if (tab.mode === "log" && tab.handle !== undefined) void closeLog(tab.handle);
-    /*
-     * 点了加号又一个字没写，关掉就把那个 0 字节的文件丢掉 ——
-     * 留着是纯噪音，而它从生到死没有过内容，没有任何东西可以丢失。
-     *
-     * **写过又删光再关**的那种走不到这儿：那时 `dirty` 是真的，
-     * 界面会先弹「保存并关闭 / 丢弃改动」。
-     *
-     * 失败一律吞掉：删不动（没权限、已经被别处删了）不该在关标签时糊一句红字，
-     * 而且什么都没损失。真正的判据在 Rust 侧，这边只负责「像不像」。
-     */
-    if (isScratch(tab.path) && tab.mode === "edit" && !tab.dirty && (tab.content ?? "") === "") {
-      void discardEmptyScratch(tab.path).catch(() => {});
-    }
-    tabs.remove(tab.id);
-    pendingClose = null;
-    tabs.audit("关标签");
-  }
 
   /** 双击 Shift 的上一次时间戳；按下任何其他键即作废 */
   let lastShiftUp = 0;
@@ -2185,17 +1925,17 @@
       case "open-folder": return void openFolder();
       case "new-scratch": return void newScratch();
       case "open-scratch-dir": return void openScratchDir();
-      case "recent-clear": recent = []; return;
+      case "recent-clear": project.recent = []; return;
       case "save": return docs.saveActive();
       case "encoding":
         if (tabs.active) encOpen = true;
         return;
       case "close-tab":
-        if (tabs.active) requestClose(tabs.active.id);
+        if (tabs.active) tabflow.requestClose(tabs.active.id);
         return;
-      case "close-all-tabs": return closeMany(tabs.list.map((t) => t.id));
+      case "close-all-tabs": return tabflow.closeMany(tabs.list.map((t) => t.id));
       case "toggle-mode":
-        if (tabs.active) requestSwitchMode(tabs.active);
+        if (tabs.active) tabflow.requestSwitchMode(tabs.active);
         return;
       case "quick-all": quickScope = "all"; quickSeed = ""; quickOpen = true; return;
       case "quick-file": quickScope = "file"; quickSeed = ""; quickOpen = true; return;
@@ -2207,7 +1947,7 @@
       case "toggle-sidebar": layout.sidebar = !layout.sidebar; return;
       case "toggle-panel": layout.panel = !layout.panel; return;
       case "toggle-minimap": showMinimap = !showMinimap; return;
-      case "new-terminal": terms.open(root ?? "~"); return;
+      case "new-terminal": terms.open(project.root ?? "~"); return;
       case "close-terminal":
         if (terms.activeId !== null) terms.close(terms.activeId);
         return;
@@ -2241,13 +1981,13 @@
   }
 
   $effect(() => {
-    // 见 `scratchRoot` 的注释：故意不挂在启动那条 await 链上
+    // 见 `project.scratchRoot` 的注释：故意不挂在启动那条 await 链上
     void scratchDir()
-      .then((d) => (scratchRoot = d))
+      .then((d) => (project.scratchRoot = d))
       .catch(() => {});
     initialPath()
       .then(async (p) => {
-        if (tabs.list.length > 0 || root !== null) return;
+        if (tabs.list.length > 0 || project.root !== null) return;
         if (!p) {
           await restoreSession();
           return;
@@ -2264,7 +2004,7 @@
         const info = await probePath(p).catch(() => null);
         const switchingProject = info?.kind === "dir" && info.path !== saved?.root;
         if (!switchingProject) await restoreSession();
-        await openPath(p);
+        await tabflow.openPath(p);
       })
       .catch(() => {})
       .finally(() => {
@@ -2325,7 +2065,7 @@
           if (e.payload.type === "over") hovering = true;
           else if (e.payload.type === "drop") {
             hovering = false;
-            for (const p of e.payload.paths) void openPath(p);
+            for (const p of e.payload.paths) void tabflow.openPath(p);
           } else hovering = false;
         }),
       )
@@ -2356,7 +2096,7 @@
    * 菜单没刷新是件不影响干活的事，不值得弹一条错误。
    */
   $effect(() => {
-    void setRecent([...recent]).catch(() => {});
+    void setRecent([...project.recent]).catch(() => {});
   });
 
   /**
@@ -2373,12 +2113,12 @@
   /**
    * 项目根换了就记一笔。
    *
-   * 放 effect 里而不是在 `openPath` 里调，是因为 root 有四条来路
+   * 放 effect 里而不是在 `openPath` 里调，是因为 project.root 有四条来路
    * （拖放、命令行、面包屑、菜单）—— 挂在赋值点上要写四遍，
    * 而**写四遍就等于早晚漏一遍**。
    */
   $effect(() => {
-    const r = root;
+    const r = project.root;
     if (!r) return;
     /*
      * **必须 untrack。**
@@ -2390,7 +2130,7 @@
      *
      * 这条 effect 该依赖的只有 `root` —— 项目根换了才记一笔。
      */
-    untrack(() => remember(r));
+    untrack(() => project.remember(r));
   });
 
 </script>
@@ -2416,7 +2156,7 @@
     bind:open={quickOpen}
     bind:scope={quickScope}
     seed={quickSeed}
-    {root}
+    root={project.root}
     {actions}
     onOpenFile={openAt}
   />
@@ -2453,14 +2193,14 @@
 
 <main class:hovering>
   <TitleBar
-    {root}
+    root={project.root}
     {gitSt}
-    {recent}
+    recent={project.recent}
     {branchOpen}
     bind:branchBtn
     onOpenRecent={(r) => void openRecent(r)}
     onOpenFolder={() => void openFolder()}
-    onClearRecent={() => (recent = [])}
+    onClearRecent={() => (project.recent = [])}
     onOpenBranches={openBranchPicker}
   />
 
@@ -2471,7 +2211,7 @@
     style:--side-w="{layout.sidebarWidth}px"
   >
     <Rail
-      {root}
+      root={project.root}
       {repo}
       changes={gitSt?.entries.length ?? 0}
       {panelTool}
@@ -2488,7 +2228,7 @@
         侧边栏外壳在 Sidebar.svelte 里；两块内容的数据和回调还接在 App 上
         （标签表、git 动作没搬出去），所以以 snippet 传进去。
       -->
-      <Sidebar {root} {repo} gitReady={!!git.comps.pane}>
+      <Sidebar root={project.root} {repo} gitReady={!!git.comps.pane}>
         {#snippet gitPane()}
           <git.comps.pane
             status={gitSt}
@@ -2512,14 +2252,14 @@
         {#snippet fileTree()}
           <!-- `root!`：这块只在 Sidebar 判过 root 非空之后才渲染，收窄在那个文件里 -->
           <FileTree
-            root={root!}
+            root={project.root!}
             activePath={tabs.active?.path ?? ""}
             gitStatus={gitSt}
             {ignored}
             reloadTick={treeTick}
             {revealPath}
             {revealTick}
-            onOpen={(p) => void openPath(p)}
+            onOpen={(p) => void tabflow.openPath(p)}
             dirtyUnder={(p) => tabs.dirtyUnder(p)}
             onCreated={(p, isDir) => void afterFsChange(isDir ? null : p)}
             onRenamed={(from, to, isDir) =>
@@ -2538,13 +2278,13 @@
         <Tabs
           tabs={tabs.list}
           activeId={tabs.activeId}
-          root={root ?? ""}
+          root={project.root ?? ""}
           onSelect={(id) => {
             tabs.activeId = id;
             tabs.audit("切标签");
           }}
-          onClose={requestClose}
-          onCloseMany={closeMany}
+          onClose={(...a) => tabflow.requestClose(...a)}
+          onCloseMany={(...a) => tabflow.closeMany(...a)}
           onRevealInTree={revealInTree}
           onNewScratch={newScratch}
         />
@@ -2558,14 +2298,14 @@
         </div>
       {/if}
 
-      {#if pendingSwitch}
+      {#if tabflow.pendingSwitch}
         <div class="confirm">
           <span>
-            <b>{pendingSwitch.name}</b> 有 {(pendingSwitch.size / 1048576).toFixed(1)}MB，
+            <b>{tabflow.pendingSwitch.name}</b> 有 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)}MB，
             编辑模式会把全文读进内存，可能明显卡顿
           </span>
-          <button class="primary" onclick={() => doSwitch(pendingSwitch!, "edit")}>仍然编辑</button>
-          <button onclick={() => (pendingSwitch = null)}>取消</button>
+          <button class="primary" onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
+          <button onclick={() => (tabflow.pendingSwitch = null)}>取消</button>
         </div>
       {/if}
 
@@ -2656,16 +2396,16 @@
         />
       {/if}
 
-      {#if pendingClose}
+      {#if tabflow.pendingClose}
         <div class="confirm">
-          <span><b>{pendingClose.name}</b> 有未保存的改动</span>
-          {#if closeQueue.length}
+          <span><b>{tabflow.pendingClose.name}</b> 有未保存的改动</span>
+          {#if tabflow.closeQueue.length}
             <!-- 批量关闭时要说清后面还有几个，否则人不知道这个框还要弹几次 -->
-            <span class="rest">（后面还有 {closeQueue.length} 个）</span>
+            <span class="rest">（后面还有 {tabflow.closeQueue.length} 个）</span>
           {/if}
-          <button class="primary" onclick={() => void resolveClose("save")}>保存并关闭</button>
-          <button onclick={() => void resolveClose("discard")}>丢弃改动</button>
-          <button onclick={() => void resolveClose("cancel")}>取消</button>
+          <button class="primary" onclick={() => void tabflow.resolveClose("save")}>保存并关闭</button>
+          <button onclick={() => void tabflow.resolveClose("discard")}>丢弃改动</button>
+          <button onclick={() => void tabflow.resolveClose("cancel")}>取消</button>
         </div>
       {/if}
 
@@ -2689,10 +2429,10 @@
                 <button class="primary" onclick={() => void openFolder()}>打开文件夹…</button>
                 <kbd>⌘O</kbd>
                 <span class="gap"></span>
-                {#if recent.length > 0}
+                {#if project.recent.length > 0}
                   <span class="lastly">最近：</span>
-                  <button class="link" onclick={() => void openRecent(recent[0])}>
-                    {recent[0].slice(recent[0].lastIndexOf("/") + 1) || recent[0]}
+                  <button class="link" onclick={() => void openRecent(project.recent[0])}>
+                    {project.recent[0].slice(project.recent[0].lastIndexOf("/") + 1) || project.recent[0]}
                   </button>
                 {/if}
               </div>
@@ -2764,8 +2504,8 @@
               onOutline={(s) => (symbols = s)}
               onCursor={(l) => docs.markPos(tabs.active!.path, l)}
               jumpFiles={projectFiles}
-              jumpRel={root && tabs.active.path.startsWith(`${root}/`)
-                ? tabs.active.path.slice(root.length + 1)
+              jumpRel={project.root && tabs.active.path.startsWith(`${project.root}/`)
+                ? tabs.active.path.slice(project.root.length + 1)
                 : null}
               jumpLang={langs?.langOf(tabs.active.path) ?? ""}
               onJump={(hit) => void jumpTo(hit)}
@@ -2787,7 +2527,7 @@
         底部工具窗在 Panel.svelte 里。提交历史那块要这边的 git lazyGroup 和活动标签，
         以 snippet 传进去（同侧边栏的两块内容）。
       -->
-      <Panel {root} {repo} {panelTool} gitLogReady={!!git.comps.log}>
+      <Panel root={project.root} {repo} {panelTool} gitLogReady={!!git.comps.log}>
         {#snippet gitLog()}
           <git.comps.log
             repo={repo!}
@@ -2802,11 +2542,11 @@
   <StatusBar
     active={tabs.active}
     {activeEntry}
-    {root}
+    root={project.root}
     {langs}
     {logStatus}
     onReveal={revealInTree}
-    onSwitchMode={() => requestSwitchMode(tabs.active!)}
+    onSwitchMode={() => tabflow.requestSwitchMode(tabs.active!)}
     onOpenEncoding={() => (encOpen = true)}
     onOpenDiff={() => void openDiff(activeEntry!, false)}
   />

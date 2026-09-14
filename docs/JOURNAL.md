@@ -5670,3 +5670,52 @@ windows` 却是 0。没锁屏、没残留进程。`CGWindowListCopyWindowInfo` �
 个环境窗口里做完两边**，否则它只能证明「现在好了」，证明不了「是谁的问题」。
 
 和锁屏、残留进程并列写进了记忆：能问 CoreGraphics 的就别猜。
+
+## 2026-09-14 · #9 第 4b 步：打开 / 关闭 / 切模式出去
+
+App.svelte 2991 → 2733。两个 store：
+
+- `state/project.svelte.ts`：`root` / `recent` / `remember` / `scratchRoot` / `isScratch`。
+  它是 4b 的**前置**而不是原计划里的一步：`openPath` 对目录的处理就是 `root = path`，
+  `root` 不搬 `openPath` 就搬不动。原计划把项目根排在第 6 步，是按「簇」排的；
+  真按依赖走，它得先出来。
+- `state/tabflow.svelte.ts`：`openPath` / `requestClose` / `closeMany` / `resolveClose` /
+  `doClose` / `requestSwitchMode` / `doSwitch`，加 `pendingClose` / `pendingSwitch` /
+  `closeQueue` / `restoringTabs` / `opening`。`CONFIRM_EDIT_BYTES` 跟着它走。
+
+三条确认横幅（关脏标签 / 大文件切编辑 / 外部改动冲突）**没动**，还在 App 的标记里
+读 store 渲染。它们和 git 那三条（移除工作树 / 切分支被挡 / 丢弃改动）共用 `.confirm`
+那套样式，拆一半等于样式写两份；第 5 步 git 出去时一起合成一个组件。
+
+### `opening` 和 `restoringTabs` 变成了私有字段和公开字段
+
+`opening` 只有 `openPath` 自己用，`#opening`；`restoringTabs` 是 `restoreSession`
+（还在 App，第 6 步）在恢复期间置位的，得公开。一个 store 里哪些字段公开，
+判据是「有没有别的文件要写它」，不是「它是不是状态」。
+
+### 验证走的路
+
+关脏标签三个按钮各一次；「关闭全部」对三个标签（一个脏）—— 干净的两个当场关掉，
+脏的那个弹条子；1GB 日志切编辑弹确认、取消；README 切日志再切回（`openLog` /
+`closeLog` / `readText` 三条 IPC）；项目菜单里最近列表带 ● 标记；刷新后三个标签
+按顺序恢复、活动标签对、编辑器只有一个。
+
+### 数字
+
+| | |
+|---|---|
+| App.svelte | 2991 → 2733（六步累计 4380 → 2733，−38%） |
+
+### 正则把模板串里的 `${root}` 改成了 `$root={project.root}`
+
+逐词替换之后再把 shorthand prop `{project.root}` 展开成 `root={project.root}` ——
+那条正则没看前面是不是 `$`，于是 `` `${root}/` `` 先变成 `` `${project.root}/` ``，
+再变成 `` `$root={project.root}/` ``。**`pnpm check` 0 错**：模板串里什么都合法。
+两处：⌘B 跳转算相对路径的 `jumpRel`（永远 null，跳转整个失效），和 git 凭据提示
+里那句 `git -C ${root} fetch`（给用户看的命令变成了乱码）。
+
+smoke 抓到的：⑮ 两条跳转连红三轮，位置一样 —— **同一条断言连着红就是代码，
+位置每次不同才是抖动**（#22 的判据反过来用）。查了 `jumpTo` → `openAt` →
+`tabflow.openPath` 三层都对，最后是 `grep '\$[A-Za-z]+=\{'` 一句找到的。
+
+展开 shorthand 的正则要求前面是空白：`(?<=\s)\{project\.root\}`。

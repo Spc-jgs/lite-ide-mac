@@ -287,7 +287,7 @@ lite-ide/
 │     ├─ git/                    # GitPane / GitLog / DiffView / MergeView / BranchPicker / RemoteBars
 │     ├─ search/                 # 双击 Shift 随处搜索 + 大纲 + 键位速查
 │     ├─ terminal/               # xterm.js 封装
-│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / docs / notify）+ 纯类型/函数（tab / crumbs）
+│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / docs / tabflow / project / notify）+ 纯类型/函数（tab / crumbs）
 │     ├─ lazy/                   # lazy() / lazyGroup()，按需加载的唯一出处
 │     └─ dev/                    # mock-ipc.ts，只在 DEV 构建里存在
 └─ src-tauri/
@@ -333,6 +333,8 @@ lite-ide/
 | `TabState` 类型、`underPath` | `state/tab.ts` | 类型 + 一个纯函数，`tests/tabs-under.test.ts` |
 | 标签表：开了哪些、哪个在前，加 / 删 / 找 / 「某路径底下」 / 不变量自检 | `state/tabs.svelte.ts` | 打开 / 关闭 / 保存的流程还在 App，各自调这里的原语 |
 | 文档生命周期：保存、外部改动、冲突裁决、草稿回写、光标位置、编辑器的两个口子 | `state/docs.svelte.ts` | 判据在 `doc.ts`（纯函数）；往外两个钩子 `afterSave` / `afterPos` 由 App 装 |
+| 项目根、最近打开、草稿目录 | `state/project.svelte.ts` | `root` 是读得最多的值，搬它是为了让打开文件那条流程能搬 |
+| 打开 / 关闭（含「未保存怎么办」那一问）/ 切模式 | `state/tabflow.svelte.ts` | 三条确认横幅还在 App 的标记里，读这里的 `pendingClose` / `pendingSwitch` / `closeQueue`；第 5 步和 git 那几条一起合成一个组件 |
 
 **共享状态走 `.svelte.ts` 里一个 class 的 `$state` 字段**（`layout` / `notify` 都是这个写法），
 组件直接读写，App 不当中转站。模块导出的绑定不能被外面重新赋值，
