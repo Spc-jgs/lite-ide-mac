@@ -17,6 +17,7 @@
   import { tabflow } from "./lib/state/tabflow.svelte";
   import { project } from "./lib/state/project.svelte";
   import { worktree } from "./lib/state/worktree.svelte";
+  import { git } from "./lib/state/git.svelte";
   import { terms } from "./lib/state/terms.svelte";
   import * as session from "./lib/state/session";
   import { stashed } from "./lib/state/doc";
@@ -31,7 +32,6 @@
     appLogPath,
     clearAppLog,
     readText,
-    writeText,
     pickFolder,
     setRecent,
     syncMenuState,
@@ -47,25 +47,17 @@
     diag,
     reportBudget,
     initialPath,
-    gitRoot,
-    gitStatus,
     gitDiff,
     gitStage,
     gitUnstage,
-    gitDiscard,
-    gitCommit,
-    gitCommitDiff,
     gitSwitch,
     gitWorktreeAdd,
     gitWorktreeRemove,
     listProjectFiles,
     scratchDir,
     createScratch,
-    type GitEntry,
-    type GitStatus,
     type GitWorktree,
   } from "./lib/ipc/commands";
-  import type { TabState } from "./lib/state/tab";
 
 
   /**
@@ -87,7 +79,7 @@
   layout.restore(saved?.layout ?? session.DEFAULT_LAYOUT);
   project.recent = saved?.recent ?? [];
   // 文档生命周期往外的两个钩子：保存完刷 git，光标动了安排存快照（见 docs.svelte.ts 文件头）
-  docs.hooks.afterSave = () => void refreshGit();
+  docs.hooks.afterSave = () => void git.refresh();
   docs.hooks.afterPos = () => scheduleSave();
 
 
@@ -158,12 +150,6 @@
 
   // ─────────────────────────── Git ───────────────────────────
 
-  /** 项目所属仓库的根；不是仓库就是 null，整块 Git 功能随之隐身 */
-  let repo = $state<string | null>(null);
-  let gitSt = $state<GitStatus | null>(null);
-  let gitBusy = $state(false);
-  /** 待确认丢弃的条目 —— 丢弃不可撤销，必须过用户这一关 */
-  let pendingDiscard = $state<GitEntry[] | null>(null);
 
   /*
    * Git 那一套按需加载，和 CM6、xterm 同一条纪律（ARCHITECTURE.md 红线：
@@ -175,7 +161,7 @@
    * 文件树上的 git 染色不在这里面：那只是 FileTree 里的一个 $derived，
    * 没有额外模块，打开就该看见。
    */
-  const git = lazyGroup(
+  const gitUi = lazyGroup(
     {
       pane: () => import("./lib/git/GitPane.svelte"),
       diff: () => import("./lib/git/DiffView.svelte"),
@@ -189,11 +175,11 @@
 
   $effect(() => {
     const need =
-      (layout.sideView === "git" && !!repo) ||
+      (layout.sideView === "git" && !!git.repo) ||
       tabs.list.some((t) => t.mode === "diff" || t.mode === "merge") ||
       (layout.panel && panelTool === "git" && layout.gitTab === "log") ||
       branchOpen;
-    if (need) git.load();
+    if (need) gitUi.load();
   });
 
   /** 分支 / 工作树选择器 */
@@ -267,11 +253,11 @@
   function switchBranch(name: string, create = false) {
     notify.closeBanner();
     pendingCheckout = null;
-    // base 要在切之前抓 —— 切完 gitSt.branch 就是新的那个了
-    const base = gitSt?.branch ?? "";
-    void gitDo(create ? "新建分支失败" : "切分支失败", async () => {
+    // base 要在切之前抓 —— 切完 git.status.branch 就是新的那个了
+    const base = git.status?.branch ?? "";
+    void git.run(create ? "新建分支失败" : "切分支失败", async () => {
       try {
-        await gitSwitch(repo!, name, create);
+        await gitSwitch(git.repo!, name, create);
       } catch (e) {
         const err = e as SwitchErr;
         if (err?.kind === "local-changes" && err.files?.length) {
@@ -286,9 +272,9 @@
        * 存在的同名本地分支（那时它跟踪的可能是别的远程）。前端去复现那套 DWIM
        * 规则就是把同一份判断写两处；读一遍刷新后的状态，说的话永远是真的。
        */
-      await refreshGit();
-      const now = gitSt?.branch || name;
-      const up = gitSt?.upstream ? `（跟踪 ${gitSt.upstream}）` : "";
+      await git.refresh();
+      const now = git.status?.branch || name;
+      const up = git.status?.upstream ? `（跟踪 ${git.status.upstream}）` : "";
       notify.ok(create ? `已从 ${base} 新建并切到 ${now}` : `已切到 ${now}${up}`, 2800);
       await worktree.changed();
     }, create ? "新建分支" : "切分支");
@@ -297,10 +283,10 @@
   /** 丢掉挡路的那几个改动，然后把刚才那次切换重放一遍 */
   async function discardThenCheckout() {
     const p = pendingCheckout;
-    if (!p || !repo) return;
+    if (!p || !git.repo) return;
     pendingCheckout = null;
-    const es = (gitSt?.entries ?? []).filter((e) => p.files.includes(e.path));
-    await doDiscard(es);
+    const es = (git.status?.entries ?? []).filter((e) => p.files.includes(e.path));
+    await git.discard(es);
     switchBranch(p.name, p.create);
   }
 
@@ -319,9 +305,9 @@
   }
 
   function newWorktree(dir: string, branch: string) {
-    void gitDo("新建工作树失败", async () => {
+    void git.run("新建工作树失败", async () => {
       // 分支存不存在由 gitsvc 判，这里只管「要一个跑着这个分支的目录」
-      const path = await gitWorktreeAdd(repo!, dir, branch);
+      const path = await gitWorktreeAdd(git.repo!, dir, branch);
       notify.ok(`工作树已建在 ${path}`, 3600);
       await tabflow.openPath(path);
     }, "新建工作树");
@@ -332,8 +318,8 @@
 
   function doRemoveWorktree(w: GitWorktree, force: boolean) {
     pendingWtRemove = null;
-    void gitDo("移除工作树失败", async () => {
-      await gitWorktreeRemove(repo!, w.path, force);
+    void git.run("移除工作树失败", async () => {
+      await gitWorktreeRemove(git.repo!, w.path, force);
       notify.ok(`已移除工作树 ${w.path}`);
       await worktree.changed();
     }, "移除工作树");
@@ -353,8 +339,8 @@
 
   $effect(() => {
     const tab = tabs.active;
-    const st = gitSt;
-    const r = repo;
+    const st = git.status;
+    const r = git.repo;
     if (!tab || tab.mode !== "edit" || !r || !st) {
       editorMarks = null;
       return;
@@ -379,85 +365,16 @@
       .catch(() => (editorMarks = null));
   });
 
-  /** 从日志里打开某次提交中某个文件的差异 */
-  async function openCommitDiff(sha: string, short: string, rel: string) {
-    if (!repo) return;
-    const key = `git-commit:${sha}:${rel}`;
-    let id = tabs.list.find((t) => t.path === key)?.id;
-    if (id === undefined) {
-      id = tabs.add({
-        path: key,
-        name: rel.slice(rel.lastIndexOf("/") + 1),
-        mode: "diff",
-        dirty: false,
-        size: 0,
-        rel,
-        diffSha: sha,
-        diffShort: short,
-      });
-    }
-    tabs.activeId = id;
-    await reloadDiff(id);
-  }
-
-  /** 换项目根就重新找仓库。找不到时把 Git 的一切都清干净 */
+  /** 换项目根就重新找仓库；确定不是仓库时侧边栏切回文件树（Git 视图会是空的） */
   $effect(() => {
-    const r = project.root;
-    if (!r) {
-      repo = null;
-      gitSt = null;
-      return;
-    }
-    gitRoot(r)
-      .then((found) => {
-        repo = found;
-        if (!found) {
-          gitSt = null;
-          layout.sideView = "files";
-        } else {
-          void refreshGit();
-        }
-      })
-      .catch(() => {
-        repo = null;
-        gitSt = null;
-      });
+    void git.locate(project.root).then((found) => {
+      if (found === null) layout.sideView = "files";
+    });
   });
 
-  /**
-   * 刷新一次 git 状态。
-   *
-   * 触发点是「窗口获得焦点」「保存之后」「做完任一 git 动作」，不是定时轮询 ——
-   * 每次都要起一个 git 子进程（约 5–15ms），常年轮询是白烧电。
-   * 用户在终端里 commit 完切回来，焦点事件正好把状态带新。
-   */
-  async function refreshGit() {
-    const r = repo;
-    if (!r) return;
-    gitBusy = true;
-    try {
-      gitSt = await gitStatus(r);
-      // 打开着的工作区差异跟着更新，否则暂存完还停在旧内容上。
-      // 历史提交的差异是不变的，重拉纯属浪费一次子进程
-      await Promise.all(
-        tabs.list.filter((t) => t.mode === "diff" && !t.diffSha).map((t) => reloadDiff(t.id)),
-      );
-    } catch (e) {
-      notify.fail(String(e), 4000);
-    } finally {
-      gitBusy = false;
-    }
-  }
 
-  /**
-   * 按 id 取标签，**必须从 `tabs` 里拿**。
-   *
-   * `tabs` 是 `$state`，数组里的元素在读取时被包成代理。往创建时那个
-   * 原始对象上写（`const tab = {...}; tabs.list = [...tabs.list, tab]; tab.x = 1`）
-   * 确实改得动底层数据，但**不会产生任何信号**，界面不会重渲染 ——
-   * 差异面板因此一直停在「没有差异」，直到别的操作碰巧引起一次重绘。
-   * 异步流程尤其容易踩：await 回来时手上那个引用早已不是响应式的那一份。
-   */
+
+
 
 
 
@@ -473,291 +390,32 @@
   async function afterFsChange(openThis: string | null) {
     if (openThis) await tabflow.openPath(openThis);
     await worktree.changed();
-    void refreshGit();
+    void git.refresh();
   }
 
 
-  async function reloadDiff(id: number) {
-    const tab = tabs.byId(id);
-    if (!tab || !repo || tab.mode !== "diff" || !tab.rel) return;
-    try {
-      if (tab.diffSha) {
-        const d = await gitCommitDiff(repo, tab.diffSha, tab.rel);
-        tab.diffRaw = d.text;
-        tab.diffCapped = d.truncated;
-        return;
-      }
-      let d = await gitDiff(repo, tab.rel, !!tab.diffStaged, !!tab.diffUntracked);
-      /*
-       * 这一侧空了，就看看另一侧有没有东西。
-       *
-       * 典型情形：差异标签开着，用户在改动列表里把这个文件暂存了 ——
-       * 改动跑去了暂存区，工作区侧变空，标签上就只剩一句「没有差异」，
-       * 看着像坏了。其实内容还在，只是换了一边。自动跟过去。
-       */
-      if (!d.text.trim()) {
-        const other = await gitDiff(repo, tab.rel, !tab.diffStaged, false);
-        if (other.text.trim()) {
-          tab.diffStaged = !tab.diffStaged;
-          tab.diffUntracked = false;
-          d = other;
-        }
-      }
-      tab.diffRaw = d.text;
-      tab.diffCapped = d.truncated;
-    } catch (e) {
-      tab.diffRaw = "";
-      tab.diffCapped = false;
-      notify.fail(String(e));
-    }
-  }
 
-  /**
-   * 打开冲突合并标签。
-   *
-   * 读的是**工作区文件**而不是 `git show :2:` / `:3:` 那三个暂存位 ——
-   * 工作区那份才是用户此刻真正会提交的东西，他可能已经手改过一部分，
-   * 从暂存位重建会把那些手改悄悄抹掉。
-   */
-  async function openMerge(e: GitEntry) {
-    if (!repo) return;
-    const full = `${repo}/${e.path}`;
-    const key = `git-merge:${e.path}`;
-    try {
-      const content = (await readText(full)).content;
-      let id = tabs.list.find((t) => t.path === key)?.id;
-      if (id === undefined) {
-        id = tabs.add({
-          path: key,
-          name: e.path.slice(e.path.lastIndexOf("/") + 1),
-          mode: "merge",
-          dirty: false,
-          size: 0,
-          rel: e.path,
-          mergeText: content,
-        });
-      } else {
-        const t = tabs.byId(id);
-        if (t) t.mergeText = content;
-      }
-      tabs.activeId = id;
-    } catch (err) {
-      notify.fail(String(err));
-    }
-  }
 
-  /**
-   * 冲突解决完写回文件；全部决定完的才 git add 标记已解决。
-   *
-   * 占锁（issue #23）：`gitStage` 动 index，而这条路原来在守卫外面 ——
-   * 解决冲突的场合**尤其**容易撞上，那时人往往同时开着终端在跑 `git status`
-   * 或另一次 `git add`。
-   *
-   * 写文件那一步也圈在里面：它和紧跟着的 `gitStage` 必须是一件事，
-   * 中间插进一次别的写操作，暂存的就是半份内容。
-   */
-  async function resolveMerge(tab: TabState, content: string, resolved: boolean) {
-    if (!repo || !tab.rel) return;
-    if (!claimGit(resolved ? "标记为解决" : "保存冲突进度")) return;
-    try {
-      await writeText(`${repo}/${tab.rel}`, content, tab.encoding);
-      if (resolved) {
-        await gitStage(repo, [tab.rel]);
-        notify.ok(`${tab.name} 已标记为解决`);
-        tabflow.doClose(tab);
-      } else {
-        tab.mergeText = content;
-        notify.ok(`${tab.name} 进度已保存`);
-      }
-      await refreshGit();
-    } catch (e) {
-      notify.fail(String(e));
-    } finally {
-      releaseGit();
-    }
-  }
 
-  /** 打开（或复用）一个差异标签 */
-  async function openDiff(e: GitEntry, staged: boolean) {
-    if (!repo) return;
-    const key = `git-diff:${e.path}`;
-    let id = tabs.list.find((t) => t.mode === "diff" && t.path === key)?.id;
-    if (id === undefined) {
-      id = tabs.add({
-        path: key,
-        name: e.path.slice(e.path.lastIndexOf("/") + 1),
-        mode: "diff",
-        dirty: false,
-        size: 0,
-        rel: e.path,
-      });
-    }
-    // 从数组里重新取一次，拿到的才是响应式的那份
-    const tab = tabs.byId(id);
-    if (!tab) return;
-    tab.diffStaged = staged;
-    tab.diffUntracked = e.untracked && !staged;
-    tabs.activeId = id;
-    await reloadDiff(id);
-  }
 
-  /** 差异标签上切换「已暂存 ↔ 未暂存」 */
-  async function toggleDiffSide(id: number) {
-    const tab = tabs.byId(id);
-    if (!tab) return;
-    tab.diffStaged = !tab.diffStaged;
-    // 未跟踪文件一旦进了暂存区，就该按普通 diff 读，不能再走 --no-index
-    const e = gitSt?.entries.find((x) => x.path === tab.rel);
-    tab.diffUntracked = !!e?.untracked && !tab.diffStaged;
-    await reloadDiff(id);
-  }
 
-  /**
-   * 正在跑的那个**写**操作叫什么（`gitBusy` 是另一件事：它指「正在刷新状态」）。
-   *
-   * **守卫看它，不看 `notify.doing`** —— 后者要等 300ms 才亮（见下面），
-   * 那段空窗期里守卫会形同虚设。
-   */
-  let gitWriting = $state<string | null>(null);
 
-  /**
-   * 占住「这个仓库正在被写」这件事。占得到返回 true。
-   *
-   * # 为什么要从 `gitDo` 里抽出来（issue #23）
-   *
-   * 这道守卫原来长在 `gitDo` 里面，于是它只盖住走 `gitDo` 的那些路径。
-   * 拉取、推送、解决冲突这三条**在外面** —— 前两条有自己的进度条和取消
-   * （`syncing`），第三条直接调 `gitStage`。结果是：
-   *
-   * > pre-commit 钩子跑三十秒的时候，拉取按钮仍然可以点。
-   *
-   * 而那正是守卫要挡的场景 —— 命令挪到阻塞池之后它们之间不再由主线程串行，
-   * 两条 git 撞上 `index.lock` 是真会发生的（issue #11 记着这个回归点）。
-   * 撞上之后用户看到的是 git 的英文报错，而 issue #15 刚把这类东西翻译掉。
-   *
-   * 抽出来之后这个信号的语义也更准了：它说的是**「这个仓库现在有人在写」**，
-   * 不是「`gitDo` 在跑」。
-   *
-   * **`git fetch` 不占**：它不碰 index（写的是 refs 和 FETCH_HEAD），
-   * 和 commit 用的不是同一把锁。为了对称而把它也挡住，只会让
-   * 「钩子跑着的时候连拉一下都不行」——挡住的是一件本来不会出事的事。
-   * 但 `doPull` **整体**要占，它末尾那次合并是真的动 index。
-   */
-  function claimGit(doing: string): boolean {
-    if (gitWriting) {
-      /*
-       * **不能走 `notify.fail`。** 状态栏左槽是 `{#if doing}{:else if info}
-       * {:else if error}`，而 doing 排在最前面 —— 慢操作正是 doing 亮着的
-       * 时候，那句 fail 写进去也显示不出来，4 秒后还被自己的定时器清掉。
-       * 于是用户看到的仍然是「点了没反应」，正是这道守卫要避免的东西。
-       *
-       * 直接改 doing 的文案：渲染是「正在${doing}…」，这里拼出来就是
-       * 「正在提交，请等它做完…」。`gitWriting` 存的是原始动作名，不会被
-       * 这句话污染，所以点第三次、第四次文案也不会越接越长。
-       * 操作结束时占用方的 `finally` 会清掉它，不用另设一个定时器。
-       */
-      notify.doing = `${gitWriting}，请等它做完`;
-      return false;
-    }
-    gitWriting = doing;
-    return true;
-  }
 
-  /**
-   * 放开。**每个 `claimGit` 都必须有一个配对的、在 `finally` 里的这句。**
-   *
-   * 顺带把 `notify.doing` 清掉 —— 这一句是被守卫挡下来的那次调用写进去的
-   * （「正在提交，请等它做完」），而**写它的那次调用已经 return 了，
-   * 没有人会来清**。只有占着锁的那一方知道什么时候该收场。
-   *
-   * 漏了这句的表现：拉取被挡一次之后，状态栏左槽永远挂着
-   * 「正在合并上游，请等它做完…」，连当前打开的是哪个文件都被它盖住 ——
-   * 浏览器里实测到的，三秒后仍在。`gitDo` 一直是对的（它自己 finally 里
-   * 清了），错的是新收进来的那三条。放进 `releaseGit` 就不会再漏一条。
-   */
-  function releaseGit() {
-    gitWriting = null;
-    notify.doing = "";
-  }
 
-  /**
-   * git 写操作的统一出口：做完刷新状态，失败统一收口（issue #15）。
-   *
-   * `doing` 是**正在做的那件事的名字**，不是可选的装饰 —— 这几条命令全都
-   * 被有意挪到了阻塞池上（`git_commit` 因为 pre-commit 钩子跑什么是仓库
-   * 说了算，跑一遍 eslint 三十秒；`git_switch` 检出几千个文件是秒级，
-   * 见 rules/rust.md 那张表）。原来这段时间界面**什么都不显示**，
-   * 和「点了没反应」长得一模一样 —— 而那正是让人反复点的形状。
-   *
-   * 顺带把「反复点」真的挡住了：一次只允许一个写操作。挪到阻塞池之后
-   * 命令之间不再由主线程串行，两条 git 撞上 `index.lock` 是真会发生的
-   * （issue #11 里专门记着这个回归点）。这里挡住，就不用等 git 报错再翻译。
-   */
-  async function gitDo(what: string, fn: () => Promise<unknown>, doing: string) {
-    if (!repo) return;
-    if (!claimGit(doing)) return;
-    /*
-     * **慢的才说话。**
-     *
-     * 暂存一个文件通常不到 100ms，那种一闪而过的字比不显示更让人分心 ——
-     * 眼角瞥见状态栏动了一下，回头看又没了。300ms 是「人开始觉得卡」的
-     * 那条线：比它快的操作当作瞬时，比它慢的才需要一句「我在做」。
-     */
-    const tip = setTimeout(() => (notify.doing = doing), 300);
-    try {
-      await fn();
-      await refreshGit();
-    } catch (e) {
-      notify.block(what, e);
-    } finally {
-      // **三件事都必须在 finally 里。** 失败路径上漏掉定时器，300ms 后
-      // 会亮起一句永远不灭的「正在提交…」；漏掉 gitWriting，后面所有写操作
-      // 都会被上面那道守卫挡下来
-      clearTimeout(tip);
-      notify.doing = "";
-      releaseGit();
-    }
-  }
 
-  async function doDiscard(entries: GitEntry[]) {
-    pendingDiscard = null;
-    if (!repo) return;
-    // 跟踪的走 git restore，未跟踪的只能直接删 —— gitsvc 里分了两条路
-    const tracked = entries.filter((e) => !e.untracked).map((e) => e.path);
-    const untracked = entries.filter((e) => e.untracked).map((e) => e.path);
-    await gitDo(
-      "丢弃失败",
-      async () => {
-        await gitDiscard(repo!, tracked, untracked);
-        // **只有这一条补了成功回执，暂存/取消暂存没补。**
-        // 判据是「结果看不看得见」：暂存之后文件当场移到已暂存区，
-        // 界面自己说清楚了，再弹一句是噪声；而丢弃是不可逆的那一档，
-        // 文件直接从改动列表里消失，不说一句就分不清「丢掉了」和「没点中」。
-        notify.ok(`已丢弃 ${entries.length} 个文件的改动`, 3000);
-      },
-      "丢弃改动",
-    );
-    await worktree.changed();
-  }
 
-  function doGitCommit(message: string, amend: boolean) {
-    void gitDo("提交失败", async () => {
-      const out = await gitCommit(repo!, message, amend);
-      notify.ok(out.split("\n")[0] || "已提交", 3000);
-    }, "提交");
-  }
   /**
    * 实际在渲染的那个工具窗（开合 / 偏好本身在 `layout` 里）。
    *
    * `layout.panelView` 是**存下来的偏好**，它可以是 `git` 而当下并没有仓库 ——
    * 上次在一个 git 仓库里看着提交历史退出，这次打开的是个普通文件夹。
    * 那时面板头写着「Git」，底下却是一片空白（历史那块的渲染条件
-   * 带着 `&& repo`），而头上已经没有「切回终端」的按钮了（切换搬去了导轨）。
+   * 带着 `&& git.repo`），而头上已经没有「切回终端」的按钮了（切换搬去了导轨）。
    *
    * 所以渲染一律看这个，写状态才写 `layout.panelView` —— 偏好留着，
    * 下次真打开仓库时提交历史还在。
    */
-  let panelTool = $derived<"term" | "git">(layout.panelView === "git" && repo ? "git" : "term");
+  let panelTool = $derived<"term" | "git">(layout.panelView === "git" && git.repo ? "git" : "term");
 
   let hovering = $state(false);
   let logStatus = $state("");
@@ -884,14 +542,6 @@
     run: () => void runMenu(k.id),
   }));
 
-  /** 当前编辑的文件在 git 状态里对应的那条，没有就是干净的 */
-  let activeEntry = $derived.by(() => {
-    if (!gitSt || !tabs.active || tabs.active.mode === "diff") return null;
-    const prefix = `${gitSt.root}/`;
-    if (!tabs.active.path.startsWith(prefix)) return null;
-    const rel = tabs.active.path.slice(prefix.length);
-    return gitSt.entries.find((e) => e.path === rel) ?? null;
-  });
 
 
 
@@ -1054,7 +704,7 @@
     const e =
       editor.error ||
       logPane.error ||
-      git.error ||
+      gitUi.error ||
       encPicker.error ||
       keysPanel.error ||
       overlays.error;
@@ -1323,14 +973,14 @@
    * 拉取的第一步也是它。
    */
   async function doFetch(what: "pull" | "fetch"): Promise<boolean> {
-    if (!repo || syncing) return false;
-    git.load();
+    if (!git.repo || syncing) return false;
+    gitUi.load();
     remoteErr = null;
     const opId = ++nextOpId;
     syncing = { what, id: opId, phase: "正在连接…", percent: null };
     try {
-      await gitFetch(repo, "origin", opId, progressChannel(what));
-      await refreshGit();
+      await gitFetch(git.repo, "origin", opId, progressChannel(what));
+      await git.refresh();
       return true;
     } catch (e) {
       await showRemoteErr(e as RemoteErr);
@@ -1360,7 +1010,7 @@
    * 递归那次同步就跑到守卫上，而这时外层的 `finally` 还没执行、锁还在自己手里。
    * 表现会是「分岔之后自动重试静默失灵，只弹一句『正在合并上游，请等它做完』」。
    *
-   * 也不能改成「先 `releaseGit()` 再递归」：那样外层的 `finally` 会**再放一次**，
+   * 也不能改成「先 `git.release()` 再递归」：那样外层的 `finally` 会**再放一次**，
    * 而那时锁已经属于内层了 —— 等于凭空把锁开了。
    *
    * 把重试挪到 `finally` 之后就没有这两个问题。重试只可能发生一次
@@ -1373,12 +1023,12 @@
     // **整个 pull 都占着锁，包括前面那次 fetch。** fetch 自己不动 index，
     // 但它后面紧跟着的合并动。只圈住合并的话，fetch 期间开始的一次提交
     // 会让合并被挡下来 —— 那时 pull 已经拉下来一半，停在一个说不清的状态上
-    if (!claimGit("合并上游")) return null;
+    if (!git.claim("合并上游")) return null;
     try {
       if (!mode && !(await doFetch("pull"))) return null;
-      await gitMergeUpstream(repo!, upstream, mode ?? "ff-only");
+      await gitMergeUpstream(git.repo!, upstream, mode ?? "ff-only");
       await worktree.changed();
-      await refreshGit();
+      await git.refresh();
       notify.ok(mode === "rebase" ? "已变基到上游" : "已合并上游");
       return null;
     } catch (e) {
@@ -1393,19 +1043,19 @@
       await showRemoteErr(err);
       // 合并冲突之后工作区变了，得把界面对上
       await worktree.changed();
-      await refreshGit();
+      await git.refresh();
       return null;
     } finally {
-      releaseGit();
+      git.release();
     }
   }
 
   async function doPull(mode?: "merge" | "rebase") {
-    if (!repo) return;
+    if (!git.repo) return;
     // 确认条在 Git 那一组里（懒的）。从菜单直接拉时它可能还没到位 ——
     // 不先拉一下的话，分岔决策条不会出现，看着像「点了没反应」
-    git.load();
-    const upstream = gitSt?.upstream;
+    gitUi.load();
+    const upstream = git.status?.upstream;
     if (!upstream) {
       notify.fail("这个分支没有上游，先推送一次", 3000);
       return;
@@ -1416,17 +1066,17 @@
 
   /** 推送。先把要推的提交列出来让人看清 —— 照 IDEA 的推送对话框 */
   async function askPush() {
-    if (!repo || !gitSt) return;
-    git.load();
-    const branch = gitSt.branch;
+    if (!git.repo || !git.status) return;
+    gitUi.load();
+    const branch = git.status.branch;
     if (!branch) {
       notify.fail("游离状态下不能推送", 2600);
       return;
     }
-    const setUpstream = !gitSt.upstream;
+    const setUpstream = !git.status.upstream;
     let commits: string[] = [];
     try {
-      commits = await gitOutgoing(repo, gitSt.upstream ?? "", branch);
+      commits = await gitOutgoing(git.repo, git.status.upstream ?? "", branch);
     } catch {
       commits = []; // 列不出来不该挡住推送，只是少了一份确认信息
     }
@@ -1436,7 +1086,7 @@
   async function doPush() {
     const req = pendingPush;
     pendingPush = null;
-    if (!repo || !req || syncing) return;
+    if (!git.repo || !req || syncing) return;
     /*
      * **push 也占锁**（issue #23），虽然它自己不动 index。
      *
@@ -1445,19 +1095,19 @@
      * 命令都成功，结果却不是人想要的那个，而且事后完全看不出来。
      * 这种「都没报错但答案是错的」比一句 `index.lock` 报错难查得多。
      */
-    if (!claimGit("推送")) return;
+    if (!git.claim("推送")) return;
     remoteErr = null;
     const opId = ++nextOpId;
     syncing = { what: "push", id: opId, phase: "正在连接…", percent: null };
     try {
-      await gitPush(repo, "origin", req.branch, req.setUpstream, opId, progressChannel("push"));
-      await refreshGit();
+      await gitPush(git.repo, "origin", req.branch, req.setUpstream, opId, progressChannel("push"));
+      await git.refresh();
       notify.ok("已推送");
     } catch (e) {
       await showRemoteErr(e as RemoteErr);
     } finally {
       syncing = null;
-      releaseGit();
+      git.release();
     }
   }
 
@@ -1730,7 +1380,7 @@
     const onFocus = () => {
       // 用户可能刚切出去，在终端里 commit / checkout / mv 完再切回来
       void worktree.changed();
-      void refreshGit();
+      void git.refresh();
     };
     window.addEventListener("focus", onFocus);
     /*
@@ -1877,15 +1527,15 @@
         layout.toggleGitChanges();
         return;
       case "git-file-diff": {
-        const en = activeEntry;
-        if (en) void openDiff(en, false);
+        const en = git.activeEntry;
+        if (en) void git.openDiff(en, false);
         else notify.fail("当前文件没有未提交的改动", 2600);
         return;
       }
       case "git-log": layout.openGitTab("log"); return;
       case "git-console": layout.openGitTab("console"); return;
       case "git-branches": openBranchPicker(); return;
-      case "git-refresh": return void refreshGit();
+      case "git-refresh": return void git.refresh();
       case "git-pull": return void doPull();
       case "git-push": return void askPush();
       case "git-fetch": return void doFetch("fetch");
@@ -2028,7 +1678,7 @@
    * 都是走一遍然后什么也没发生。灰掉的菜单项本身就是一句解释。
    */
   $effect(() => {
-    void syncMenuState(tabs.active !== null, repo !== null, terms.activeId !== null).catch(() => {});
+    void syncMenuState(tabs.active !== null, git.repo !== null, terms.activeId !== null).catch(() => {});
   });
 
   /**
@@ -2095,13 +1745,13 @@
   />
 {/if}
 
-{#if git.comps.branch && repo}
-  <git.comps.branch
+{#if gitUi.comps.branch && git.repo}
+  <gitUi.comps.branch
     bind:open={branchOpen}
     anchor={branchAnchor}
-    {repo}
-    ahead={gitSt?.ahead ?? 0}
-    behind={gitSt?.behind ?? 0}
+    repo={git.repo}
+    ahead={git.status?.ahead ?? 0}
+    behind={git.status?.behind ?? 0}
     onSwitch={(n) => switchBranch(n)}
     onNewBranch={(n) => switchBranch(n, true)}
     onOpenWorktree={(p) => void openWorktree(p)}
@@ -2115,7 +1765,7 @@
 <main class:hovering>
   <TitleBar
     root={project.root}
-    {gitSt}
+    gitSt={git.status}
     recent={project.recent}
     {branchOpen}
     bind:branchBtn
@@ -2133,8 +1783,8 @@
   >
     <Rail
       root={project.root}
-      {repo}
-      changes={gitSt?.entries.length ?? 0}
+      repo={git.repo}
+      changes={git.status?.entries.length ?? 0}
       {panelTool}
       onSearch={() => {
         quickScope = "content";
@@ -2149,22 +1799,22 @@
         侧边栏外壳在 Sidebar.svelte 里；两块内容的数据和回调还接在 App 上
         （标签表、git 动作没搬出去），所以以 snippet 传进去。
       -->
-      <Sidebar root={project.root} {repo} gitReady={!!git.comps.pane}>
+      <Sidebar root={project.root} repo={git.repo} gitReady={!!gitUi.comps.pane}>
         {#snippet gitPane()}
-          <git.comps.pane
-            status={gitSt}
-            busy={gitBusy}
-            onOpenDiff={(e, staged) => void (e.conflicted ? openMerge(e) : openDiff(e, staged))}
-            onStage={(paths) => void gitDo("暂存失败", () => gitStage(repo!, paths), "暂存")}
+          <gitUi.comps.pane
+            status={git.status}
+            busy={git.busy}
+            onOpenDiff={(e, staged) => void (e.conflicted ? git.openMerge(e) : git.openDiff(e, staged))}
+            onStage={(paths) => void git.run("暂存失败", () => gitStage(git.repo!, paths), "暂存")}
             onUnstage={(paths) =>
-              void gitDo("取消暂存失败", () => gitUnstage(repo!, paths), "取消暂存")}
-            onDiscard={(es) => (pendingDiscard = es)}
-            onCommit={doGitCommit}
-            onRefresh={() => void refreshGit()}
+              void git.run("取消暂存失败", () => gitUnstage(git.repo!, paths), "取消暂存")}
+            onDiscard={(es) => (git.pendingDiscard = es)}
+            onCommit={(...a) => git.commit(...a)}
+            onRefresh={() => void git.refresh()}
             onOpenBranches={openBranchPicker}
             onOpenLog={() => layout.openGitTab("log")}
-            ahead={gitSt?.ahead ?? 0}
-            behind={gitSt?.behind ?? 0}
+            ahead={git.status?.ahead ?? 0}
+            behind={git.status?.behind ?? 0}
             onSync={(what) => void (what === "push" ? askPush() : doPull())}
             syncing={syncing ? { what: syncing.what, phase: syncing.phase, percent: syncing.percent } : null}
             onCancelSync={syncing && syncing.what !== "push" ? cancelSync : null}
@@ -2175,7 +1825,7 @@
           <FileTree
             root={project.root!}
             activePath={tabs.active?.path ?? ""}
-            gitStatus={gitSt}
+            gitStatus={git.status}
             {ignored}
             reloadTick={worktree.treeTick}
             {revealPath}
@@ -2184,7 +1834,7 @@
             dirtyUnder={(p) => tabs.dirtyUnder(p)}
             onCreated={(p, isDir) => void afterFsChange(isDir ? null : p)}
             onRenamed={(from, to, isDir) =>
-              void worktree.renameOpenTabs(from, to, isDir, repo).then(() => afterFsChange(null))}
+              void worktree.renameOpenTabs(from, to, isDir, git.repo).then(() => afterFsChange(null))}
             onTrashed={(p, isDir) => {
               worktree.closeTabsUnder(p, isDir);
               void afterFsChange(null);
@@ -2276,29 +1926,29 @@
         </div>
       {/if}
 
-      {#if pendingDiscard}
+      {#if git.pendingDiscard}
         <div class="confirm danger">
           <span>
             要丢弃
-            {#if pendingDiscard.length === 1}
-              <b>{pendingDiscard[0].path}</b>
+            {#if git.pendingDiscard.length === 1}
+              <b>{git.pendingDiscard[0].path}</b>
             {:else}
-              <b>{pendingDiscard.length} 个文件</b>
+              <b>{git.pendingDiscard.length} 个文件</b>
             {/if}
             的改动吗？未跟踪的文件会被直接删除，<b>这一步不可撤销</b>
           </span>
-          <button class="danger" onclick={() => void doDiscard(pendingDiscard!)}>丢弃</button>
-          <button onclick={() => (pendingDiscard = null)}>取消</button>
+          <button class="danger" onclick={() => void git.discard(git.pendingDiscard!)}>丢弃</button>
+          <button onclick={() => (git.pendingDiscard = null)}>取消</button>
         </div>
       {/if}
 
-      {#if git.comps.bars && (pendingDiverge || pendingPush || remoteErr)}
-        <git.comps.bars
+      {#if gitUi.comps.bars && (pendingDiverge || pendingPush || remoteErr)}
+        <gitUi.comps.bars
           diverge={pendingDiverge}
           push={pendingPush}
           err={remoteErr}
-          upstream={gitSt?.upstream ?? ""}
-          ahead={gitSt?.ahead ?? 0}
+          upstream={git.status?.upstream ?? ""}
+          ahead={git.status?.ahead ?? 0}
           onMerge={(mode, rem) => {
             if (rem) lastMergeMode = mode;
             pendingDiverge = null;
@@ -2370,26 +2020,26 @@
               {#if notify.error}<p class="err">{notify.error}</p>{/if}
             </div>
           </div>
-        {:else if tabs.active.mode === "merge" && git.comps.merge}
+        {:else if tabs.active.mode === "merge" && gitUi.comps.merge}
           {#key tabs.active.id}
-            <git.comps.merge
+            <gitUi.comps.merge
               text={tabs.active.mergeText ?? ""}
               path={tabs.active.rel ?? tabs.active.name}
-              onResolve={(c, r) => void resolveMerge(tabs.active!, c, r)}
+              onResolve={(c, r) => void git.resolveMerge(tabs.active!, c, r)}
             />
           {/key}
         {:else if tabs.active.mode === "merge"}
           <div class="empty"><p>正在载入合并视图…</p></div>
-        {:else if tabs.active.mode === "diff" && git.comps.diff}
+        {:else if tabs.active.mode === "diff" && gitUi.comps.diff}
           {#key tabs.active.id}
-            <git.comps.diff
+            <gitUi.comps.diff
               raw={tabs.active.diffRaw ?? ""}
               capped={!!tabs.active.diffCapped}
               path={tabs.active.rel ?? tabs.active.name}
               staged={!!tabs.active.diffStaged}
               commit={tabs.active.diffShort ?? ""}
               untracked={!!tabs.active.diffUntracked}
-              onToggleStaged={() => void toggleDiffSide(tabs.active!.id)}
+              onToggleStaged={() => void git.toggleDiffSide(tabs.active!.id)}
             />
           {/key}
         {:else if tabs.active.mode === "diff"}
@@ -2448,12 +2098,12 @@
         底部工具窗在 Panel.svelte 里。提交历史那块要这边的 git lazyGroup 和活动标签，
         以 snippet 传进去（同侧边栏的两块内容）。
       -->
-      <Panel root={project.root} {repo} {panelTool} gitLogReady={!!git.comps.log}>
+      <Panel root={project.root} repo={git.repo} {panelTool} gitLogReady={!!gitUi.comps.log}>
         {#snippet gitLog()}
-          <git.comps.log
-            repo={repo!}
+          <gitUi.comps.log
+            repo={git.repo!}
             filePath={tabs.active?.mode === "edit" ? tabs.active.path : ""}
-            onOpenCommitDiff={(sha, short, p) => void openCommitDiff(sha, short, p)}
+            onOpenCommitDiff={(sha, short, p) => void git.openCommitDiff(sha, short, p)}
           />
         {/snippet}
       </Panel>
@@ -2462,14 +2112,14 @@
 
   <StatusBar
     active={tabs.active}
-    {activeEntry}
+    activeEntry={git.activeEntry}
     root={project.root}
     {langs}
     {logStatus}
     onReveal={revealInTree}
     onSwitchMode={() => tabflow.requestSwitchMode(tabs.active!)}
     onOpenEncoding={() => (encOpen = true)}
-    onOpenDiff={() => void openDiff(activeEntry!, false)}
+    onOpenDiff={() => void git.openDiff(git.activeEntry!, false)}
   />
 </main>
 

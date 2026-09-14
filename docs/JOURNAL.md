@@ -5738,3 +5738,52 @@ git 有了自己的 store 就撤。
 （`changed()` 的另一半）。
 
 第 4 步四小步累计：4380 → 2654（−39%）。剩第 5 步 git、第 6 步壳。
+
+## 2026-09-14 · #9 第 5a 步：git 的状态、写出口、差异与合并标签出去
+
+App.svelte 2654 → 2304。`state/git.svelte.ts`（~390 行）：`repo` / `status` /
+`busy` / `writing` / `pendingDiscard` / `activeEntry`，`locate` / `refresh` /
+`claim` / `release` / `run`（原 `gitDo`）/ `discard` / `commit`，加 `reloadDiff` /
+`openDiff` / `toggleDiffSide` / `openCommitDiff` / `openMerge` / `resolveMerge`。
+
+### 三块放一个文件
+
+`refresh` 要重拉打开着的差异标签（调 `reloadDiff`），`resolveMerge` 要占锁
+（调 `claim`）。拆成「状态」和「差异标签」两个文件就得互相 import —— ES 模块
+的循环引用能跑（两边都只在方法里用对方），但读的人得知道这一点。一个文件
+390 行，比两个文件加一段「为什么可以循环」的注释便宜。
+
+同一个理由，`worktree.renameOpenTabs` 那个 `repo` 参数**没撤**：`git` 已经 import
+`worktree`（`discard` 完要 `changed()`），反过来再 import 就是循环。参数留着。
+
+### `$effect` 进不了 store
+
+「换项目根就重新找仓库」原来是 App 里一条 effect，里面 `gitRoot(r).then(...)`。
+`$effect` 只能在组件或 `$effect.root` 里，store 的 class 字段不行。改成 store
+出一个 `locate(root)`，App 那条 effect 只剩三行调它。
+
+`locate` 的返回值分三档（仓库根 / `null` / `undefined`）而不是布尔：原来的 effect
+只在「确定不是仓库」时把侧边栏切回文件树，探测出错不动它 —— 布尔分不出后两种，
+零功能改动就得三档。
+
+### `git` 这个名字
+
+App 里已经有一个 `const git = lazyGroup(...)`（六个 Git 组件的按需加载）。
+store 叫 `git` 更贴切（`git.refresh()` / `git.repo`），于是 lazyGroup 改叫 `gitUi`
+—— 17 处，先改它再引 store，中间 `pnpm check` 一次。改名要**先腾位置再搬家**，
+反过来会有一段两个 `git` 同时存在的窗口，编译器报的是「重复声明」而不是
+「哪个是哪个」。
+
+### 验证走的路
+
+桩里的仓库有冲突、有暂存、有未暂存：点冲突文件开合并标签；点已暂存文件开差异
+标签（「已暂存」侧）；「⋯ → 全部丢弃」弹确认取消；行上的 ↺ 丢弃一个 → 确认 →
+角标 9 → 8、「已丢弃 1 个文件的改动」、条目消失；提交历史里点一次提交里的文件 →
+「提交 h800000」差异标签；状态栏「未提交」（`activeEntry` 从 store 来）。
+提交本身被桩的冲突挡着（设计如此），smoke ① 会走真的。
+
+### 数字
+
+| | |
+|---|---|
+| App.svelte | 2654 → 2304（累计 4380 → 2304，−47%） |
