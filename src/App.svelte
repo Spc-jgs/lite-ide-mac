@@ -13,10 +13,10 @@
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import { layout } from "./lib/state/layout.svelte";
+  import { tabs } from "./lib/state/tabs.svelte";
   import { terms } from "./lib/state/terms.svelte";
   import * as session from "./lib/state/session";
   import { textToSave, settled, stashed } from "./lib/state/doc";
-  import { audit } from "./lib/state/invariant";
   import Crash from "./lib/shell/Crash.svelte";
   import { KEYS, byId as keyById } from "./lib/state/keymap";
   import type { Sym } from "./lib/editor/outline";
@@ -110,25 +110,7 @@
   const pendingPos = new Map<string, number>();
 
   let root = $state<string | null>(null);
-  let tabs = $state<TabState[]>([]);
-  let activeId = $state<number | null>(null);
-  let nextId = 1;
 
-  /**
-   * 在一个状态转换点上核一遍标签的不变量（issue #27，判据全在
-   * `state/invariant.ts` 里，这里只负责「在哪些点上核」）。
-   *
-   * **显式调用，不做成 `$effect`。** effect 会跟着 `tabs` 里任何一个字段动 ——
-   * 包括每敲一个键就翻一次的 `dirty`，那就成了热路径上的自检，
-   * 正是 issue 里点名不能做的事。转换点一共就这五个，写清楚比自动触发好查。
-   *
-   * 第三个参数是「此刻哪个标签挂着活编辑器」：编辑器的 onChange 只改 `dirty`，
-   * `draft` 要等 onStash 才回写，所以正在被编辑的那个标签本来就会
-   * 短暂地 dirty 而无 draft —— 不告诉自检器这件事，它会在每次敲键盘时报假警。
-   */
-  function auditTabs(where: string) {
-    audit(tabs, activeId, activeId, where);
-  }
 
   /**
    * 缩略图开关。存 localStorage —— 这是个纯偏好，没必要为它建一套配置文件；
@@ -229,7 +211,7 @@
   $effect(() => {
     const need =
       (layout.sideView === "git" && !!repo) ||
-      tabs.some((t) => t.mode === "diff" || t.mode === "merge") ||
+      tabs.list.some((t) => t.mode === "diff" || t.mode === "merge") ||
       (layout.panel && panelTool === "git" && layout.gitTab === "log") ||
       branchOpen;
     if (need) git.load();
@@ -254,7 +236,7 @@
 
   /** 按新编码重新解码当前文件 */
   async function reopenWith(label: string) {
-    const tab = active;
+    const tab = tabs.active;
     if (!tab) return;
     try {
       if (tab.mode === "log") {
@@ -280,7 +262,7 @@
 
   /** 只改「将来存成什么编码」，不动当前内容 */
   function saveAsEncoding(label: string, bom: boolean) {
-    const tab = active;
+    const tab = tabs.active;
     if (!tab || tab.mode !== "edit") return;
     tab.encoding = label;
     tab.bom = bom;
@@ -391,7 +373,7 @@
   let editorMarks = $state<Map<number, ChangeKind> | null>(null);
 
   $effect(() => {
-    const tab = active;
+    const tab = tabs.active;
     const st = gitSt;
     const r = repo;
     if (!tab || tab.mode !== "edit" || !r || !st) {
@@ -422,25 +404,20 @@
   async function openCommitDiff(sha: string, short: string, rel: string) {
     if (!repo) return;
     const key = `git-commit:${sha}:${rel}`;
-    let id = tabs.find((t) => t.path === key)?.id;
+    let id = tabs.list.find((t) => t.path === key)?.id;
     if (id === undefined) {
-      id = nextId++;
-      tabs = [
-        ...tabs,
-        {
-          id,
-          path: key,
-          name: rel.slice(rel.lastIndexOf("/") + 1),
-          mode: "diff",
-          dirty: false,
-          size: 0,
-          rel,
-          diffSha: sha,
-          diffShort: short,
-        },
-      ];
+      id = tabs.add({
+        path: key,
+        name: rel.slice(rel.lastIndexOf("/") + 1),
+        mode: "diff",
+        dirty: false,
+        size: 0,
+        rel,
+        diffSha: sha,
+        diffShort: short,
+      });
     }
-    activeId = id;
+    tabs.activeId = id;
     await reloadDiff(id);
   }
 
@@ -484,7 +461,7 @@
       // 打开着的工作区差异跟着更新，否则暂存完还停在旧内容上。
       // 历史提交的差异是不变的，重拉纯属浪费一次子进程
       await Promise.all(
-        tabs.filter((t) => t.mode === "diff" && !t.diffSha).map((t) => reloadDiff(t.id)),
+        tabs.list.filter((t) => t.mode === "diff" && !t.diffSha).map((t) => reloadDiff(t.id)),
       );
     } catch (e) {
       notify.fail(String(e), 4000);
@@ -497,7 +474,7 @@
    * 按 id 取标签，**必须从 `tabs` 里拿**。
    *
    * `tabs` 是 `$state`，数组里的元素在读取时被包成代理。往创建时那个
-   * 原始对象上写（`const tab = {...}; tabs = [...tabs, tab]; tab.x = 1`）
+   * 原始对象上写（`const tab = {...}; tabs.list = [...tabs.list, tab]; tab.x = 1`）
    * 确实改得动底层数据，但**不会产生任何信号**，界面不会重渲染 ——
    * 差异面板因此一直停在「没有差异」，直到别的操作碰巧引起一次重绘。
    * 异步流程尤其容易踩：await 回来时手上那个引用早已不是响应式的那一份。
@@ -524,14 +501,7 @@
    * 一个标签是不是「在 p 底下」。目录要连子树一起算 ——
    * 改名或删掉一个目录，里面开着的每个文件都受影响。
    */
-  function underPath(tabPath: string, p: string, isDir: boolean) {
-    return tabPath === p || (isDir && tabPath.startsWith(`${p}/`));
-  }
 
-  /** 传给文件树：这条路径底下有几个未保存的标签（删除确认框要说清楚） */
-  function dirtyUnder(p: string): number {
-    return tabs.filter((t) => t.dirty && underPath(t.path, p, true)).length;
-  }
 
   /**
    * 在文件树里改完名，打开着的标签要跟着走。
@@ -541,8 +511,7 @@
    */
   async function renameOpenTabs(from: string, to: string, isDir: boolean) {
     const moved: number[] = [];
-    for (const t of tabs) {
-      if (!underPath(t.path, from, isDir)) continue;
+    for (const t of tabs.under(from, isDir)) {
       const np = to + t.path.slice(from.length);
       // 位置记忆的 key 也是路径，一起搬 —— 不搬的话切回这个文件会跳回第一行
       const pos = posByPath.get(t.path);
@@ -570,14 +539,14 @@
      * 标签会短暂地没有句柄，而渲染随时可能发生。
      */
     for (const id of moved) {
-      const before = tabById(id);
+      const before = tabs.byId(id);
       if (!before || before.mode !== "log" || before.handle === undefined) continue;
       const stale = before.handle;
       try {
         const h = (await openLog(before.path)).handle;
         // await 回来必须按 id 重新取一次 —— 手上那个引用可能已经不是
         // 响应式的那一份了（AGENTS.md 里那条 $state 数组的坑）
-        const now = tabById(id);
+        const now = tabs.byId(id);
         if (now) now.handle = h;
         void closeLog(stale);
       } catch (e) {
@@ -588,7 +557,7 @@
 
   /** 进废纸篓的东西，开着的标签一并关掉（确认框已经说过会关几个未保存的） */
   function closeTabsUnder(p: string, isDir: boolean) {
-    for (const t of tabs.filter((t) => underPath(t.path, p, isDir))) doClose(t);
+    for (const t of tabs.under(p, isDir)) doClose(t);
   }
 
   /**
@@ -604,12 +573,9 @@
     void refreshGit();
   }
 
-  function tabById(id: number): TabState | null {
-    return tabs.find((t) => t.id === id) ?? null;
-  }
 
   async function reloadDiff(id: number) {
-    const tab = tabById(id);
+    const tab = tabs.byId(id);
     if (!tab || !repo || tab.mode !== "diff" || !tab.rel) return;
     try {
       if (tab.diffSha) {
@@ -656,27 +622,22 @@
     const key = `git-merge:${e.path}`;
     try {
       const content = (await readText(full)).content;
-      let id = tabs.find((t) => t.path === key)?.id;
+      let id = tabs.list.find((t) => t.path === key)?.id;
       if (id === undefined) {
-        id = nextId++;
-        tabs = [
-          ...tabs,
-          {
-            id,
-            path: key,
-            name: e.path.slice(e.path.lastIndexOf("/") + 1),
-            mode: "merge",
-            dirty: false,
-            size: 0,
-            rel: e.path,
-            mergeText: content,
-          },
-        ];
+        id = tabs.add({
+          path: key,
+          name: e.path.slice(e.path.lastIndexOf("/") + 1),
+          mode: "merge",
+          dirty: false,
+          size: 0,
+          rel: e.path,
+          mergeText: content,
+        });
       } else {
-        const t = tabById(id);
+        const t = tabs.byId(id);
         if (t) t.mergeText = content;
       }
-      activeId = id;
+      tabs.activeId = id;
     } catch (err) {
       notify.fail(String(err));
     }
@@ -717,34 +678,29 @@
   async function openDiff(e: GitEntry, staged: boolean) {
     if (!repo) return;
     const key = `git-diff:${e.path}`;
-    let id = tabs.find((t) => t.mode === "diff" && t.path === key)?.id;
+    let id = tabs.list.find((t) => t.mode === "diff" && t.path === key)?.id;
     if (id === undefined) {
-      id = nextId++;
-      tabs = [
-        ...tabs,
-        {
-          id,
-          path: key,
-          name: e.path.slice(e.path.lastIndexOf("/") + 1),
-          mode: "diff",
-          dirty: false,
-          size: 0,
-          rel: e.path,
-        },
-      ];
+      id = tabs.add({
+        path: key,
+        name: e.path.slice(e.path.lastIndexOf("/") + 1),
+        mode: "diff",
+        dirty: false,
+        size: 0,
+        rel: e.path,
+      });
     }
     // 从数组里重新取一次，拿到的才是响应式的那份
-    const tab = tabById(id);
+    const tab = tabs.byId(id);
     if (!tab) return;
     tab.diffStaged = staged;
     tab.diffUntracked = e.untracked && !staged;
-    activeId = id;
+    tabs.activeId = id;
     await reloadDiff(id);
   }
 
   /** 差异标签上切换「已暂存 ↔ 未暂存」 */
   async function toggleDiffSide(id: number) {
-    const tab = tabById(id);
+    const tab = tabs.byId(id);
     if (!tab) return;
     tab.diffStaged = !tab.diffStaged;
     // 未跟踪文件一旦进了暂存区，就该按普通 diff 读，不能再走 --no-index
@@ -920,7 +876,7 @@
   const logPane = lazy(() => import("./lib/logview/LogPane.svelte"), "日志视图");
 
   $effect(() => {
-    if (active?.mode === "log") logPane.load();
+    if (tabs.active?.mode === "log") logPane.load();
   });
   /** 每次保存成功自增，Editor 据此重置 dirty 基线 */
   let savedTick = $state(0);
@@ -999,7 +955,7 @@
 
   let symbols = $state<Sym[]>([]);
   function openOutline() {
-    if (active?.mode !== "edit") return;
+    if (tabs.active?.mode !== "edit") return;
     symbols = [];
     outlineTick++;
     outlineOpen = true;
@@ -1031,10 +987,10 @@
 
   /** 当前编辑的文件在 git 状态里对应的那条，没有就是干净的 */
   let activeEntry = $derived.by(() => {
-    if (!gitSt || !active || active.mode === "diff") return null;
+    if (!gitSt || !tabs.active || tabs.active.mode === "diff") return null;
     const prefix = `${gitSt.root}/`;
-    if (!active.path.startsWith(prefix)) return null;
-    const rel = active.path.slice(prefix.length);
+    if (!tabs.active.path.startsWith(prefix)) return null;
+    const rel = tabs.active.path.slice(prefix.length);
     return gitSt.entries.find((e) => e.path === rel) ?? null;
   });
 
@@ -1045,7 +1001,7 @@
    * 那时 `active` 已经是新的那个了，写回去就是把 A 的内容盖到 B 头上。
    */
   function stashDraft(path: string, text: string) {
-    const t = tabs.find((x) => x.path === path && x.mode === "edit");
+    const t = tabs.list.find((x) => x.path === path && x.mode === "edit");
     if (!t) return; // 标签已经被关掉了，草稿跟着作废
     Object.assign(t, stashed(t, text));
   }
@@ -1053,7 +1009,7 @@
   /**
    * 当前挂载着的那个编辑器，以及从它里面读实时文本的口子。
    *
-   * 只可能有一个 —— 编辑器是 `{#key active.id}` 包着的，同一时刻只挂一个。
+   * 只可能有一个 —— 编辑器是 `{#key tabs.active.id}` 包着的，同一时刻只挂一个。
    * 记路径是为了**认领**：切标签时新实例可能先挂、旧实例后卸，
    * 旧实例交回的那个 null 不能把新实例的口子抹掉。
    */
@@ -1084,7 +1040,7 @@
 
   /** ⌘S 之外的保存入口（命令面板）。编辑器里的 ⌘S 走 CM6 自己的 keymap */
   function saveActive() {
-    if (active?.mode === "edit") void save(liveText(active));
+    if (tabs.active?.mode === "edit") void save(liveText(tabs.active));
   }
 
   /**
@@ -1137,8 +1093,8 @@
 
   /** 此刻在哪儿。`posByPath` 里存的是编辑器最后报上来的光标行 */
   function hereNow(): NavSpot | null {
-    if (!active) return null;
-    return { path: active.path, line: posByPath.get(active.path) ?? 1 };
+    if (!tabs.active) return null;
+    return { path: tabs.active.path, line: posByPath.get(tabs.active.path) ?? 1 };
   }
 
   /**
@@ -1188,7 +1144,7 @@
    * 而不是给一个精度可疑的下划线。
    */
   function findWordAtCursor() {
-    const w = active && wordProbe?.path === active.path ? wordProbe.get() : null;
+    const w = tabs.active && wordProbe?.path === tabs.active.path ? wordProbe.get() : null;
     if (!w) {
       notify.ok("把光标放到一个名字上再按", 2000);
       return;
@@ -1206,10 +1162,9 @@
   }
 
   $effect(() => {
-    if (active?.mode === "edit") editor.load();
+    if (tabs.active?.mode === "edit") editor.load();
   });
 
-  let active = $derived(tabs.find((t) => t.id === activeId) ?? null);
 
   /** 传给文件树的「定位到这里」请求。自增 tick 触发，理由见 FileTree 的 props 注释 */
   let revealPath = $state("");
@@ -1275,11 +1230,11 @@
    */
   let langs = $state<typeof import("./lib/editor/langs") | null>(null);
   $effect(() => {
-    if (active && !langs) void import("./lib/editor/langs").then((m) => (langs = m));
+    if (tabs.active && !langs) void import("./lib/editor/langs").then((m) => (langs = m));
   });
 
   let outlineSupported = $derived(
-    active?.mode === "edit" && !!langs && LEZER_LANGS.has(langs.langOf(active.path) ?? ""),
+    tabs.active?.mode === "edit" && !!langs && LEZER_LANGS.has(langs.langOf(tabs.active.path) ?? ""),
   );
 
 
@@ -1289,12 +1244,12 @@
   /**
    * 正在把上次的标签摆回来。**唯一的作用是拦住 `openPath` 去动 `activeId`。**
    *
-   * 内容区是 `{#key active.id}` 包着的 —— activeId 一变就销毁重建。
-   * 而恢复是一个一个 `await openPath()` 的，每开一个就把 activeId 顶成它，
+   * 内容区是 `{#key tabs.active.id}` 包着的 —— tabs.activeId 一变就销毁重建。
+   * 而恢复是一个一个 `await openPath()` 的，每开一个就把 tabs.activeId 顶成它，
    * 于是恢复 8 个标签 = **把编辑器建了 8 次**，界面一个文件一个文件地闪过去。
    * （CM6 还是懒加载的，第一次要等 chunk 到位，闪得更明显。）
    *
-   * 改成由 `restoreSession` 在**恰好走到该激活的那个标签时**设一次 activeId，
+   * 改成由 `restoreSession` 在**恰好走到该激活的那个标签时**设一次 tabs.activeId，
    * 编辑器只建一次。标签仍按存下来的顺序逐个进列表 —— 那只是标签条在长，
    * 不重建任何东西。
    *
@@ -1387,14 +1342,13 @@
         root = info.path;
         return;
       }
-      const exist = tabs.find((t) => t.path === info.path);
+      const exist = tabs.list.find((t) => t.path === info.path);
       if (exist) {
-        if (!restoringTabs) activeId = exist.id;
+        if (!restoringTabs) tabs.activeId = exist.id;
         return;
       }
 
-      const tab: TabState = {
-        id: nextId++,
+      const tab: Omit<TabState, "id"> = {
         path: info.path,
         name: info.name,
         mode: info.mode,
@@ -1414,9 +1368,9 @@
         tab.lossy = t.lossy;
         tab.stamp = await fileStamp(info.path);
       }
-      tabs = [...tabs, tab];
+      const id = tabs.add(tab);
       // 恢复期不抢：见 `restoringTabs` 上面那段
-      if (!restoringTabs) activeId = tab.id;
+      if (!restoringTabs) tabs.activeId = id;
       /*
        * 没有项目根时，拿这个文件的父目录顶上，文件树才有东西显示。
        *
@@ -1426,9 +1380,9 @@
        * （加一道 `!isScratch(...)` 的守卫是我第一版写的，它永远不会为假。）
        */
       if (!root) root = info.path.slice(0, info.path.lastIndexOf("/")) || "/";
-      // 恢复期不核：那时 activeId 故意停在 null 而标签一个个往里填，
+      // 恢复期不核：那时 tabs.activeId 故意停在 null 而标签一个个往里填，
       // 「有标签但没有活动标签」在这段窗口里是对的。恢复完了再一次核完
-      if (!restoringTabs) auditTabs("开标签");
+      if (!restoringTabs) tabs.audit("开标签");
     } catch (e) {
       if (!quiet) notify.fail(String(e));
     } finally {
@@ -1790,9 +1744,9 @@
     }
     /*
      * **先记位置，再开文件。** 反过来写过一版，位置恢复整个不生效：
-     * `openPath` 一把标签加进去，activeId 就变了，兑现位置的那个 effect
+     * `openPath` 一把标签加进去，tabs.activeId 就变了，兑现位置的那个 effect
      * 当场就跑 —— 而那时 `pendingPos` 里还什么都没有。等 effect 跑完再写进去，
-     * activeId 已经不会再变，effect 也就不会再跑第二次了。
+     * tabs.activeId 已经不会再变，effect 也就不会再跑第二次了。
      */
     for (const t of saved.tabs) {
       if (t.line !== undefined) pendingPos.set(t.path, t.line);
@@ -1818,13 +1772,13 @@
       for (const t of saved.tabs) {
         await openPath(t.path, true);
         if (t.path === wantPath) {
-          const hit = tabs.find((x) => x.path === t.path);
+          const hit = tabs.list.find((x) => x.path === t.path);
           // 这一下是整个恢复过程里唯一一次内容区渲染
-          if (hit) activeId = hit.id;
+          if (hit) tabs.activeId = hit.id;
         }
       }
     } finally {
-      // 这里必须 finally：漏掉的话 activeId 就永久失灵，
+      // 这里必须 finally：漏掉的话 tabs.activeId 就永久失灵，
       // 而 openPath 是会抛的（文件没了、读不动、编码探测失败）
       restoringTabs = false;
     }
@@ -1840,7 +1794,7 @@
      */
     for (const snapTab of saved.tabs) {
       if (snapTab.draft === undefined) continue;
-      const tab = tabs.find((t) => t.path === snapTab.path && t.mode === "edit");
+      const tab = tabs.list.find((t) => t.path === snapTab.path && t.mode === "edit");
       if (!tab) continue;
       Object.assign(tab, stashed(tab, snapTab.draft));
       if (!tab.dirty) continue;
@@ -1852,18 +1806,18 @@
       if (盘上变了) tab.conflict = true;
     }
     /*
-     * 兜底。正常路径上 activeId 在上面那个循环里就点过了 ——
+     * 兜底。正常路径上 tabs.activeId 在上面那个循环里就点过了 ——
      * 这里只服务两种情况：上次激活的那个文件这次不在了（循环里没命中），
      * 或者 `saved.active` 越界。那时退到第一个恢复成功的标签，
      * 总比停在一个空内容区上好。
      */
-    if (activeId === null && tabs.length > 0) activeId = tabs[0].id;
+    if (tabs.activeId === null && tabs.list.length > 0) tabs.activeId = tabs.list[0].id;
     // 上次开着、这次已经不在的文件：从记忆里也删掉，不然它们
     // 会一直躺在快照里，每次启动都白试一遍
     for (const t of saved.tabs) {
-      if (!tabs.some((x) => x.path === t.path)) pendingPos.delete(t.path);
+      if (!tabs.list.some((x) => x.path === t.path)) pendingPos.delete(t.path);
     }
-    auditTabs("会话恢复");
+    tabs.audit("会话恢复");
   }
 
   /**
@@ -1873,7 +1827,7 @@
    * 用户在别处读到一半切走再切回来就莫名其妙跳走了。
    */
   $effect(() => {
-    const t = active;
+    const t = tabs.active;
     if (!t) return;
     const line = pendingPos.get(t.path);
     if (line === undefined) return;
@@ -1885,7 +1839,7 @@
   function snapshot(): session.Session {
     return {
       root,
-      tabs: tabs.map((t) => {
+      tabs: tabs.list.map((t) => {
         const line = posByPath.get(t.path);
         const snap: session.TabSnap = { path: t.path };
         if (line !== undefined) snap.line = line;
@@ -1904,7 +1858,7 @@
         }
         return snap;
       }),
-      active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
+      active: Math.max(0, tabs.list.findIndex((t) => t.id === tabs.activeId)),
       layout: layout.snapshot(),
       recent: [...recent],
     };
@@ -1997,7 +1951,7 @@
    */
   $effect(() => {
     const id = setInterval(() => {
-      const dirty = tabs.filter((t) => t.mode === "edit" && t.dirty);
+      const dirty = tabs.list.filter((t) => t.mode === "edit" && t.dirty);
       if (dirty.length === 0) return;
       // 存不下的那种要当面说 —— 不说的话用户以为自己被记住了
       for (const t of dirty) {
@@ -2014,7 +1968,7 @@
   // 响应式那一半：布局、标签、项目根变了就存
   $effect(() => {
     // 显式读一遍，让 effect 订阅上它们
-    void [root, tabs.length, activeId, layout.snapshot()];
+    void [root, tabs.list.length, tabs.activeId, layout.snapshot()];
     scheduleSave();
   });
 
@@ -2047,7 +2001,7 @@
    * 批量关闭把这条路走得多得多，所以先把成败传出去。
    */
   async function save(content: string): Promise<boolean> {
-    const tab = active;
+    const tab = tabs.active;
     if (!tab || tab.mode !== "edit") return false;
     try {
       // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改
@@ -2075,7 +2029,7 @@
    * 应付「一直没离开窗口但文件被后台进程改了」的情况。
    */
   async function checkExternalChanges() {
-    for (const tab of tabs) {
+    for (const tab of tabs.list) {
       if (tab.mode !== "edit") continue;
       let now: Stamp;
       try {
@@ -2180,7 +2134,7 @@
       }
       tab.mode = to;
       tab.forced = to;
-      auditTabs("切模式");
+      tabs.audit("切模式");
     } catch (e) {
       notify.fail(String(e));
       // 切换失败要退回原状态，否则标签会停在一个既没句柄也没内容的空壳上
@@ -2195,10 +2149,10 @@
   }
 
   function requestClose(id: number) {
-    const tab = tabs.find((t) => t.id === id);
+    const tab = tabs.list.find((t) => t.id === id);
     if (!tab) return;
     if (tab.dirty) {
-      activeId = tab.id;
+      tabs.activeId = tab.id;
       pendingClose = tab;
       return;
     }
@@ -2223,7 +2177,7 @@
   function closeMany(ids: number[]) {
     const dirty: number[] = [];
     for (const id of ids) {
-      const t = tabById(id);
+      const t = tabs.byId(id);
       if (!t) continue;
       if (t.dirty) dirty.push(id);
       else doClose(t);
@@ -2237,9 +2191,9 @@
     while (closeQueue.length) {
       const id = closeQueue[0];
       closeQueue = closeQueue.slice(1);
-      const t = tabById(id);
+      const t = tabs.byId(id);
       if (!t) continue; // 中途被别处关掉了
-      activeId = t.id; // 让人看见要丢的到底是什么
+      tabs.activeId = t.id; // 让人看见要丢的到底是什么
       pendingClose = t;
       return;
     }
@@ -2261,7 +2215,7 @@
       return;
     }
     if (kind === "save") {
-      activeId = t.id;
+      tabs.activeId = t.id;
       // 写失败就停在这儿，别往下关 —— 关了改动就真没了
       if (!(await save(liveText(t)))) {
         closeQueue = [];
@@ -2287,13 +2241,9 @@
     if (isScratch(tab.path) && tab.mode === "edit" && !tab.dirty && (tab.content ?? "") === "") {
       void discardEmptyScratch(tab.path).catch(() => {});
     }
-    const idx = tabs.findIndex((t) => t.id === tab.id);
-    tabs = tabs.filter((t) => t.id !== tab.id);
-    if (activeId === tab.id) {
-      activeId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null;
-    }
+    tabs.remove(tab.id);
     pendingClose = null;
-    auditTabs("关标签");
+    tabs.audit("关标签");
   }
 
   /** 双击 Shift 的上一次时间戳；按下任何其他键即作废 */
@@ -2390,14 +2340,14 @@
       case "recent-clear": recent = []; return;
       case "save": return saveActive();
       case "encoding":
-        if (active) encOpen = true;
+        if (tabs.active) encOpen = true;
         return;
       case "close-tab":
-        if (active) requestClose(active.id);
+        if (tabs.active) requestClose(tabs.active.id);
         return;
-      case "close-all-tabs": return closeMany(tabs.map((t) => t.id));
+      case "close-all-tabs": return closeMany(tabs.list.map((t) => t.id));
       case "toggle-mode":
-        if (active) requestSwitchMode(active);
+        if (tabs.active) requestSwitchMode(tabs.active);
         return;
       case "quick-all": quickScope = "all"; quickSeed = ""; quickOpen = true; return;
       case "quick-file": quickScope = "file"; quickSeed = ""; quickOpen = true; return;
@@ -2449,7 +2399,7 @@
       .catch(() => {});
     initialPath()
       .then(async (p) => {
-        if (tabs.length > 0 || root !== null) return;
+        if (tabs.list.length > 0 || root !== null) return;
         if (!p) {
           await restoreSession();
           return;
@@ -2494,7 +2444,7 @@
       await tick();
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
       await reportBudget(
-        tabs.length,
+        tabs.list.length,
         terms.list.length,
         document.querySelectorAll(".cm-editor").length,
         document.getElementsByTagName("*").length,
@@ -2569,7 +2519,7 @@
    * 都是走一遍然后什么也没发生。灰掉的菜单项本身就是一句解释。
    */
   $effect(() => {
-    void syncMenuState(active !== null, repo !== null, terms.activeId !== null).catch(() => {});
+    void syncMenuState(tabs.active !== null, repo !== null, terms.activeId !== null).catch(() => {});
   });
 
   /**
@@ -2607,7 +2557,7 @@
   <overlays.comps.outline
     bind:open={outlineOpen}
     {symbols}
-    fileName={active?.name ?? ""}
+    fileName={tabs.active?.name ?? ""}
     supported={outlineSupported}
     onPick={(line) => (gotoLine = { line, nonce: ++gotoNonce })}
   />
@@ -2624,13 +2574,13 @@
   />
 {/if}
 
-{#if encPicker.comp && active}
+{#if encPicker.comp && tabs.active}
   <encPicker.comp
     bind:open={encOpen}
-    current={active.encoding ?? "UTF-8"}
-    bom={!!active.bom}
-    lossy={!!active.lossy}
-    readonly={active.mode !== "edit"}
+    current={tabs.active.encoding ?? "UTF-8"}
+    bom={!!tabs.active.bom}
+    lossy={!!tabs.active.lossy}
+    readonly={tabs.active.mode !== "edit"}
     onReopen={(l) => void reopenWith(l)}
     onSaveAs={saveAsEncoding}
   />
@@ -2715,14 +2665,14 @@
           <!-- `root!`：这块只在 Sidebar 判过 root 非空之后才渲染，收窄在那个文件里 -->
           <FileTree
             root={root!}
-            activePath={active?.path ?? ""}
+            activePath={tabs.active?.path ?? ""}
             gitStatus={gitSt}
             {ignored}
             reloadTick={treeTick}
             {revealPath}
             {revealTick}
             onOpen={(p) => void openPath(p)}
-            {dirtyUnder}
+            dirtyUnder={(p) => tabs.dirtyUnder(p)}
             onCreated={(p, isDir) => void afterFsChange(isDir ? null : p)}
             onRenamed={(from, to, isDir) =>
               void renameOpenTabs(from, to, isDir).then(() => afterFsChange(null))}
@@ -2736,14 +2686,14 @@
     {/if}
 
     <section class="main">
-      {#if tabs.length > 0}
+      {#if tabs.list.length > 0}
         <Tabs
-          {tabs}
-          {activeId}
+          tabs={tabs.list}
+          activeId={tabs.activeId}
           root={root ?? ""}
           onSelect={(id) => {
-            activeId = id;
-            auditTabs("切标签");
+            tabs.activeId = id;
+            tabs.audit("切标签");
           }}
           onClose={requestClose}
           onCloseMany={closeMany}
@@ -2752,11 +2702,11 @@
         />
       {/if}
 
-      {#if active?.conflict}
+      {#if tabs.active?.conflict}
         <div class="confirm conflict">
-          <span><b>{active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
-          <button class="primary" onclick={() => resolveConflict(active!, "mine")}>保留我的</button>
-          <button onclick={() => resolveConflict(active!, "disk")}>用磁盘上的</button>
+          <span><b>{tabs.active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
+          <button class="primary" onclick={() => resolveConflict(tabs.active!, "mine")}>保留我的</button>
+          <button onclick={() => resolveConflict(tabs.active!, "disk")}>用磁盘上的</button>
         </div>
       {/if}
 
@@ -2878,7 +2828,7 @@
       -->
       <svelte:boundary onerror={(e) => notify.fail(`内容区出错：${e}`)}>
       <div class="content">
-        {#if !active}
+        {#if !tabs.active}
           <!--
             收进一张卡片。原本是四行居中文字铺在整个内容区里 —— 1440 宽的窗口上
             读起来是散的，眼睛没有落点。快捷键排成两列之后它才像个「起点」。
@@ -2911,65 +2861,65 @@
               {#if notify.error}<p class="err">{notify.error}</p>{/if}
             </div>
           </div>
-        {:else if active.mode === "merge" && git.comps.merge}
-          {#key active.id}
+        {:else if tabs.active.mode === "merge" && git.comps.merge}
+          {#key tabs.active.id}
             <git.comps.merge
-              text={active.mergeText ?? ""}
-              path={active.rel ?? active.name}
-              onResolve={(c, r) => void resolveMerge(active!, c, r)}
+              text={tabs.active.mergeText ?? ""}
+              path={tabs.active.rel ?? tabs.active.name}
+              onResolve={(c, r) => void resolveMerge(tabs.active!, c, r)}
             />
           {/key}
-        {:else if active.mode === "merge"}
+        {:else if tabs.active.mode === "merge"}
           <div class="empty"><p>正在载入合并视图…</p></div>
-        {:else if active.mode === "diff" && git.comps.diff}
-          {#key active.id}
+        {:else if tabs.active.mode === "diff" && git.comps.diff}
+          {#key tabs.active.id}
             <git.comps.diff
-              raw={active.diffRaw ?? ""}
-              capped={!!active.diffCapped}
-              path={active.rel ?? active.name}
-              staged={!!active.diffStaged}
-              commit={active.diffShort ?? ""}
-              untracked={!!active.diffUntracked}
-              onToggleStaged={() => void toggleDiffSide(active!.id)}
+              raw={tabs.active.diffRaw ?? ""}
+              capped={!!tabs.active.diffCapped}
+              path={tabs.active.rel ?? tabs.active.name}
+              staged={!!tabs.active.diffStaged}
+              commit={tabs.active.diffShort ?? ""}
+              untracked={!!tabs.active.diffUntracked}
+              onToggleStaged={() => void toggleDiffSide(tabs.active!.id)}
             />
           {/key}
-        {:else if active.mode === "diff"}
+        {:else if tabs.active.mode === "diff"}
           <div class="empty"><p>正在载入差异视图…</p></div>
-        {:else if active.mode === "log" && active.handle !== undefined && logPane.comp}
-          {#key active.id}
+        {:else if tabs.active.mode === "log" && tabs.active.handle !== undefined && logPane.comp}
+          {#key tabs.active.id}
             <logPane.comp
-              handle={active.handle}
+              handle={tabs.active.handle}
               {gotoLine}
-              encoding={active.encoding ?? "utf-8"}
+              encoding={tabs.active.encoding ?? "utf-8"}
               onStatus={(s) => (logStatus = s)}
-              onTop={(l) => markPos(active!.path, l)}
+              onTop={(l) => markPos(tabs.active!.path, l)}
             />
           {/key}
-        {:else if active.mode === "log"}
+        {:else if tabs.active.mode === "log"}
           <div class="empty"><p>正在载入日志视图…</p></div>
         {:else if editor.comp}
-          {#key active.id}
+          {#key tabs.active.id}
             <editor.comp
-              path={active.path}
-              initial={active.draft ?? active.content ?? ""}
-              baseline={active.content ?? ""}
+              path={tabs.active.path}
+              initial={tabs.active.draft ?? tabs.active.content ?? ""}
+              baseline={tabs.active.content ?? ""}
               {savedTick}
               {gotoLine}
               {outlineTick}
               marks={editorMarks}
               {showMinimap}
-              onChange={(d) => (active!.dirty = d)}
+              onChange={(d) => (tabs.active!.dirty = d)}
               onSave={save}
               onStash={stashDraft}
               onLive={onEditorLive}
               onWordProbe={onEditorWordProbe}
               onOutline={(s) => (symbols = s)}
-              onCursor={(l) => markPos(active!.path, l)}
+              onCursor={(l) => markPos(tabs.active!.path, l)}
               jumpFiles={projectFiles}
-              jumpRel={root && active.path.startsWith(`${root}/`)
-                ? active.path.slice(root.length + 1)
+              jumpRel={root && tabs.active.path.startsWith(`${root}/`)
+                ? tabs.active.path.slice(root.length + 1)
                 : null}
-              jumpLang={langs?.langOf(active.path) ?? ""}
+              jumpLang={langs?.langOf(tabs.active.path) ?? ""}
               onJump={(hit) => void jumpTo(hit)}
             />
           {/key}
@@ -2980,7 +2930,7 @@
 
       {#snippet failed(err, reset)}
         <div class="content">
-          <Crash error={err} scope={active ? `${active.name} 的视图` : "内容区"} onReset={reset} />
+          <Crash error={err} scope={tabs.active ? `${tabs.active.name} 的视图` : "内容区"} onReset={reset} />
         </div>
       {/snippet}
       </svelte:boundary>
@@ -2993,7 +2943,7 @@
         {#snippet gitLog()}
           <git.comps.log
             repo={repo!}
-            filePath={active?.mode === "edit" ? active.path : ""}
+            filePath={tabs.active?.mode === "edit" ? tabs.active.path : ""}
             onOpenCommitDiff={(sha, short, p) => void openCommitDiff(sha, short, p)}
           />
         {/snippet}
@@ -3002,13 +2952,13 @@
   </div>
 
   <StatusBar
-    {active}
+    active={tabs.active}
     {activeEntry}
     {root}
     {langs}
     {logStatus}
     onReveal={revealInTree}
-    onSwitchMode={() => requestSwitchMode(active!)}
+    onSwitchMode={() => requestSwitchMode(tabs.active!)}
     onOpenEncoding={() => (encOpen = true)}
     onOpenDiff={() => void openDiff(activeEntry!, false)}
   />

@@ -5579,3 +5579,46 @@ App.svelte 3673 → 3195 行（三步累计 4380 → 3195，−27%）。
 标题栏项目挂件前面从 v1.0.0 起一直多一个「>」：964682b 改 tooltip 时把跨三行的
 `<button …>` 收成一行，旧的那个收尾 `>` 忘了删，成了按钮里的一段文本。截图上
 一直是「> P proj」，没人看出来。单独一个提交（e757a5d），不混进拆分。
+
+## 2026-09-14 · #9 第 4a 步：标签表进 store
+
+App.svelte 3195 → 3145。`state/tabs.svelte.ts`：`list` / `activeId` / `active`
+（class 字段上的 `$derived`）/ `byId` / `byPath` / `add` / `remove` / `under` /
+`dirtyUnder` / `audit`。App 里 40 处 `tabs`、29 处 `activeId`、74 处 `active`
+全部改成读写 store。
+
+### 摸底先于动手
+
+这一步之前先把 App 脚本按功能簇量了一遍，才发现「标签表」其实是四簇
+（表、文档生命周期、打开/关闭/切模式、文件系统联动）加差异/合并，共 700 多行，
+依赖链是 表 ← 生命周期 ← 打开/关闭 ← 文件系统联动。原计划说「第 4 步约 400 行
+一个 PR」是估的，量完就知道要分四次。**先量再切**，切的顺序由依赖定，不由名字定。
+
+### 逐词替换 `active` 的坑
+
+`active` 在 App 里 74 处，而它也是会话快照的**对象键**（`active: Math.max(...)`）
+和 Tabs 组件的 **shorthand prop**（`{active}`）。正则排除了 `.active` 和 `active:`，
+但漏了 `{tabs.list}` 这种 —— 替换完 `{tabs}` 变成 `{tabs.list}`，Svelte 的 shorthand
+不接受带点的表达式。`pnpm check` 两处报错，都是这一类。逐词替换之后**看 check 的
+错误清单**比看 diff 快。
+
+### `.svelte.ts` 在裸 node 里跑不了
+
+`underPath` 本来放在 `tabs.svelte.ts` 里，测试一跑：`Cannot find module './invariant'`
+—— 裸 node 不认无扩展名的 import，而 `.svelte.ts` 里的 `$state` 也得靠编译器。
+挪到 `tab.ts`（类型 + 纯函数，`import type` 会被剥掉）。**能被裸 node 测的东西
+和带 runes 的东西分两个文件**，`session.ts` 文件头那条「零 import」就是这个意思。
+
+### `git checkout` 一个自己刚改的文件
+
+验红时想恢复 `tab.ts`，顺手 `git checkout` —— 它恢复到的是 HEAD，而 `underPath`
+是这一轮才加进去、还没提交的。7 条测试从「验红完毕」变成「模块里没这个导出」。
+验红的恢复要用 `cp` 备份，不用 `git checkout`，除非那个文件这一轮没动过。
+
+### 数字
+
+| | |
+|---|---|
+| App.svelte | 3195 → 3145 |
+| 入口包 | 137 KiB（告警线 138，四步涨了 5 KiB —— 第 5 步之前要查是谁在涨） |
+| smoke | 33/33 × 2 |

@@ -287,7 +287,7 @@ lite-ide/
 │     ├─ git/                    # GitPane / GitLog / DiffView / MergeView / BranchPicker / RemoteBars
 │     ├─ search/                 # 双击 Shift 随处搜索 + 大纲 + 键位速查
 │     ├─ terminal/               # xterm.js 封装
-│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / doc / notify）+ 纯类型/函数（tab / crumbs）
+│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / doc / notify）+ 纯类型/函数（tab / crumbs）
 │     ├─ lazy/                   # lazy() / lazyGroup()，按需加载的唯一出处
 │     └─ dev/                    # mock-ipc.ts，只在 DEV 构建里存在
 └─ src-tauri/
@@ -330,7 +330,8 @@ lite-ide/
 | 标题栏（项目挂件 + 下拉、分支挂件、构建信息 tooltip） | `shell/TitleBar.svelte` | 标记 + 样式 + `devtools` 探测 |
 | 状态栏（面包屑 / 提示消息，模式 / 语言 / 编码 / 脏 / git） | `shell/StatusBar.svelte` | 标记 + 样式 |
 | 面包屑、项目名 | `state/crumbs.ts` | 纯函数，`tests/crumbs.test.ts` |
-| `TabState` 类型 | `state/tab.ts` | 只有类型，标签表本身第 4 步 |
+| `TabState` 类型、`underPath` | `state/tab.ts` | 类型 + 一个纯函数，`tests/tabs-under.test.ts` |
+| 标签表：开了哪些、哪个在前，加 / 删 / 找 / 「某路径底下」 / 不变量自检 | `state/tabs.svelte.ts` | 打开 / 关闭 / 保存的流程还在 App，各自调这里的原语 |
 
 **共享状态走 `.svelte.ts` 里一个 class 的 `$state` 字段**（`layout` / `notify` 都是这个写法），
 组件直接读写，App 不当中转站。模块导出的绑定不能被外面重新赋值，

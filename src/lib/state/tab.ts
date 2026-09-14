@@ -61,3 +61,8 @@ export interface TabState {
   /** 解码时有解不出的字节；带着它保存会把那些字节永久换成 U+FFFD */
   lossy?: boolean;
 }
+
+/** `tabPath` 是不是 `p` 本身，或（`p` 是目录时）在它底下 */
+export function underPath(tabPath: string, p: string, isDir: boolean): boolean {
+  return tabPath === p || (isDir && tabPath.startsWith(`${p}/`));
+}
