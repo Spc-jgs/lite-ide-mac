@@ -5622,3 +5622,51 @@ App.svelte 3195 → 3145。`state/tabs.svelte.ts`：`list` / `activeId` / `activ
 | App.svelte | 3195 → 3145 |
 | 入口包 | 137 KiB（告警线 138，四步涨了 5 KiB —— 第 5 步之前要查是谁在涨） |
 | smoke | 33/33 × 2 |
+
+## 2026-09-14 · #9 第 4c 步：文档生命周期出去
+
+App.svelte 3145 → 2991。`state/docs.svelte.ts`：`savedTick`、`posByPath` /
+`pendingPos`（普通 Map，故意不响应）、编辑器的两个口子（实时文本、光标下的词）、
+`stashDraft` / `liveText` / `save` / `saveActive` / `checkExternalChanges` /
+`resolveConflict` / `markPos`。判据（`textToSave` / `settled` / `stashed`）还在
+`doc.ts`，这里是流程。逻辑一个字不改。
+
+### 往外的依赖用钩子，不用 effect
+
+`save` 成功要刷 git 状态，`markPos` 要安排存快照 —— 这两件事的主人（git 动作、
+会话）还在 App。两种接法：
+
+- `$effect` 盯 `docs.savedTick` 去刷 git。**不行**：`savedTick` 在外部重读、
+  冲突裁决、换编码重开时也加一，那几种情况原来不刷 git，改成 effect 就多刷了
+  —— 不是零功能改动，而且多出来的刷新看不出来，没人会去查。
+- `docs.hooks.afterSave = () => refreshGit()`，App 初始化时装一次。就这个。
+
+判据：**store 往外的副作用，语义上是「某个动作之后」还是「某个状态变了」？**
+是前者就用钩子，effect 只对后者诚实。
+
+### 验证走了三条真路
+
+桩里有 `__mockEditFileOutside`（M7 那轮留的）。本地没动 + 外部改 → 自动重载、
+状态栏一句「已被外部修改，已重新加载」；本地脏 + 外部改 → 冲突条；点「用磁盘上的」
+→ 条子没了、正文是外部那份、不脏。加上保存后快照里的行号、恢复时跳回第 6 行、
+「找光标下的词」把 `hello` 喂进搜索面板 —— 四条钩子 / 口子每条都走到了。
+
+### 数字
+
+| | |
+|---|---|
+| App.svelte | 3145 → 2991（五步累计 4380 → 2991，−32%） |
+
+### 顺带：AX 数到 0 个窗口的第三种原因
+
+这一步的 smoke 前四次退出码 2：应用起来了、前端挂载了、预算行正常，`count of
+windows` 却是 0。没锁屏、没残留进程。`CGWindowListCopyWindowInfo` 里 lite-ide 的
+窗口**存在**（1440×900，layer 5），但没有 `kCGWindowIsOnscreen`；`.optionOnScreenOnly`
+里只有 Chrome 和 Claude —— 用户正在用电脑，三块显示器。用户离开几分钟后，
+同一份 `.app` 一字未改，1 个窗口，smoke 33/33 × 2。
+
+中间为了隔离「是代码还是环境」，把 4c 的改动 stash 掉、按 4a 打了一次包：1 个窗口。
+再 pop 回来重新打包：也是 1 个窗口 —— 环境在那几分钟里自己变了。**隔离实验要在同一
+个环境窗口里做完两边**，否则它只能证明「现在好了」，证明不了「是谁的问题」。
+
+和锁屏、残留进程并列写进了记忆：能问 CoreGraphics 的就别猜。
