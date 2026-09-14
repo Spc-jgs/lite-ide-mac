@@ -5,6 +5,8 @@
   import Rail from "./lib/shell/Rail.svelte";
   import Sidebar from "./lib/shell/Sidebar.svelte";
   import Panel from "./lib/shell/Panel.svelte";
+  import StatusBar from "./lib/shell/StatusBar.svelte";
+  import TitleBar from "./lib/shell/TitleBar.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import type { Action } from "./lib/search/QuickSearch.svelte";
   import type { JumpHit } from "./lib/editor/jump";
@@ -15,10 +17,7 @@
   import * as session from "./lib/state/session";
   import { textToSave, settled, stashed } from "./lib/state/doc";
   import { audit } from "./lib/state/invariant";
-  import { isLogName } from "./lib/logview/is-log-name";
   import Crash from "./lib/shell/Crash.svelte";
-  import Icon from "./lib/shell/Icon.svelte";
-  import ContextMenu, { type MenuItem } from "./lib/shell/ContextMenu.svelte";
   import { KEYS, byId as keyById } from "./lib/state/keymap";
   import type { Sym } from "./lib/editor/outline";
   import type { ChangeKind } from "./lib/git/diff";
@@ -47,7 +46,6 @@
     openLog,
     closeLog,
     reportBudget,
-    devtoolsBuild,
     initialPath,
     gitRoot,
     gitStatus,
@@ -69,61 +67,8 @@
     type GitStatus,
     type GitWorktree,
   } from "./lib/ipc/commands";
+  import type { TabState } from "./lib/state/tab";
 
-  interface TabState {
-    id: number;
-    path: string;
-    name: string;
-    mode: "edit" | "log" | "diff" | "merge";
-    dirty: boolean;
-    /** log 模式的引擎句柄 */
-    handle?: number;
-    /** edit 模式打开时的磁盘内容 —— **dirty 的基线**，不是编辑器里的实时文本 */
-    content?: string;
-    /**
-     * 未保存的实时文本。只有改过才有。
-     *
-     * 为什么要单独存一份：编辑器是 `{#key active.id}` 包着的，切标签就销毁重建，
-     * 而重建时拿的是这里的字段。以前只有 `content` 一个字段，编辑器里的改动
-     * 从来没回写过 —— 切走再切回来，改动和「有未保存改动」的标记**一起**消失，
-     * 人完全察觉不到自己丢了东西。
-     *
-     * 存两份而不是一份，是因为 dirty 要靠「实时文本 ≠ 磁盘那份」算出来；
-     * 只留一个字段的话基线会被草稿顶掉，标记就再也亮不起来了。
-     */
-    draft?: string;
-    /** 被判为 log 模式的原因 */
-    reason?: string;
-    /** 文件字节数，用于判断切到编辑模式是否有风险 */
-    size: number;
-    /** 用户手动指定过模式；自动判定只是默认值，不该是死判决 */
-    forced?: "edit" | "log";
-    /** 打开或保存时的文件指纹，用来发现外部改动 */
-    stamp?: Stamp;
-    /** 外部改动了，但本地也有未保存改动 —— 需要用户裁决 */
-    conflict?: boolean;
-    /** 差异标签：相对仓库根的路径 */
-    rel?: string;
-    /** 看的是暂存区还是工作区 */
-    diffStaged?: boolean;
-    diffUntracked?: boolean;
-    diffRaw?: string;
-    /** 差异被 Rust 侧的 1MB 上限掐断了，界面要说出来 */
-    diffCapped?: boolean;
-    /** 非空表示这是「某次提交里的差异」，只读历史，不是工作区 */
-    diffSha?: string;
-    diffShort?: string;
-    /** 冲突标签：带冲突标记的工作区原文 */
-    mergeText?: string;
-    /**
-     * 文件编码标签（WHATWG，如 `UTF-8` / `GBK`）。
-     * 读进来是什么就用什么存回去 —— 保存不该顺手改变文件的编码。
-     */
-    encoding?: string;
-    bom?: boolean;
-    /** 解码时有解不出的字节；带着它保存会把那些字节永久换成 U+FFFD */
-    lossy?: boolean;
-  }
 
   /**
    * 手动切到编辑模式时，超过这个大小要先确认。
@@ -1287,30 +1232,6 @@
     revealTick++;
   }
 
-  /**
-   * 标题栏面包屑：项目名 › 中间目录 › 文件名。
-   *
-   * 只对真实文件算 —— 差异/合并标签的 path 是 `git-diff:xxx` 这类合成 key，
-   * 拿它切路径会得到一堆垃圾段。那种情况退回显示标签名。
-   */
-  let crumbs = $derived.by(() => {
-    const t = active;
-    if (!t) return [] as { name: string; path: string; dir: boolean }[];
-    const root0 = root;
-    if (!root0 || !t.path.startsWith(`${root0}/`)) {
-      return [{ name: t.name, path: t.path, dir: false }];
-    }
-    const rootName = root0.slice(root0.lastIndexOf("/") + 1) || root0;
-    const rel = t.path.slice(root0.length + 1).split("/");
-    const out = [{ name: rootName, path: root0, dir: true }];
-    let acc = root0;
-    rel.forEach((seg, i) => {
-      acc += `/${seg}`;
-      out.push({ name: seg, path: acc, dir: i < rel.length - 1 });
-    });
-    return out;
-  });
-
   /*
    * 按需加载失败要说出来。以前每个 import 各自 catch 到 error 里，
    * 抽成 lazy() 之后错误存在各自的 store 上，这里统一汇到状态栏。
@@ -1558,20 +1479,6 @@
     await openPath(dir);
   }
 
-  /**
-   * 标题栏项目挂件的下拉。
-   *
-   * 照 IDEA 的 project widget：显示当前项目名，点开是最近项目 + 打开 + 清除。
-   * 这三件事的逻辑**一条都不是新写的** —— `recent` / `openRecent` / `openFolder`
-   * 早就在了，以前只有 macOS 菜单栏的「最近打开」子菜单用得着它们，
-   * 而 `pnpm dev` 跑在浏览器里，那儿一个菜单项都没有。
-   */
-  let projMenu = $state<{ x: number; y: number } | null>(null);
-
-  function openProjMenu(e: MouseEvent) {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    projMenu = { x: r.left, y: r.bottom + 2 };
-  }
 
   /**
    * 分支浮层挂在挂件底下，所以要把挂件的位置一起交出去。
@@ -1594,21 +1501,7 @@
     branchOpen = true;
   }
 
-  let projName = $derived(root ? root.slice(root.lastIndexOf("/") + 1) || root : "lite-ide");
-  /** 方块里那个字。IDEA 用项目名首字母，中文项目名就直接用第一个字 */
-  let projInitial = $derived((projName[0] ?? "?").toUpperCase());
 
-  let projMenuItems = $derived.by<MenuItem[]>(() => {
-    if (!projMenu) return [];
-    // 前面那个格子标出当前项目。全角空格占位，切换时名字不会左右跳
-    const items: MenuItem[] = recent.map((r) => ({
-      label: `${r === root ? "●" : "\u3000"} ${r.slice(r.lastIndexOf("/") + 1) || r}`,
-      run: () => void openRecent(r),
-    }));
-    items.push({ label: "打开文件夹…", sep: items.length > 0, run: () => void openFolder() });
-    if (recent.length > 0) items.push({ label: "清除最近记录", run: () => (recent = []) });
-    return items;
-  });
 
   /** 项目主页。交给系统默认浏览器 —— 这个应用自己不开网页 */
   /**
@@ -2249,42 +2142,6 @@
     };
   });
 
-  /**
-   * 这份构建带不带 Web Inspector（issue #20）。
-   *
-   * 调试版和正式版**装在同一个路径上**（`pnpm app:bundle:devtools` 覆盖
-   * `pnpm app:bundle` 的产物），而「盘上只留一份 .app」是这个仓库的硬纪律 ——
-   * 两条加起来的结果是：忘了打回去的话，你双击的那份一直开着 inspector，
-   * 而界面上**没有任何迹象**。
-   *
-   * 挂在项目挂件的 tooltip 上，和构建时间并排：排查「你跑的是哪个构建」时
-   * 本来就要看那一眼，不多一个新习惯。
-   */
-  let devtools = $state(false);
-  /**
-   * 项目挂件的 tooltip。
-   *
-   * **换行必须写在表达式里，不能在模板里写 `&#10;`。** 原来就是后者，
-   * 而实测它出来的是一个**空格**（`charCodeAt` 是 32 不是 10）——
-   * 也就是说「tooltip 第二行是构建时间」这句话从来没成立过，三行全挤在一行里。
-   * 一条挂在界面上、用来确认「你跑的是哪个构建」的信息，自己却在说谎。
-   */
-  let projTip = $derived(
-    [
-      root ?? "还没打开文件夹",
-      `lite-ide · 构建于 ${__BUILD_TIME__}`,
-      ...(devtools ? ["⚠︎ 调试版：带 Web Inspector，别拿它当正式版用"] : []),
-    ].join("\n"),
-  );
-  $effect(() => {
-    let dead = false;
-    void devtoolsBuild().then((v) => {
-      if (!dead) devtools = v;
-    });
-    return () => {
-      dead = true;
-    };
-  });
 
   /** 待确认的模式切换（大文件切到编辑模式时用） */
   let pendingSwitch = $state<TabState | null>(null);
@@ -2794,57 +2651,20 @@
   />
 {/if}
 
-{#if projMenu}
-  <ContextMenu
-    x={projMenu.x}
-    y={projMenu.y}
-    label="项目"
-    items={projMenuItems}
-    onclose={() => (projMenu = null)}
-  />
-{/if}
 
 
 <main class:hovering>
-  <!--
-    标题栏 = IDEA 的 main toolbar：**「哪个项目 / 哪个分支」，只有这两件事。**
-
-    面包屑原来在这儿（那时的理由是「顺带占掉右边那块常年空着的地方」），
-    2026-09-06 搬到状态栏左边去了 —— IDEA 的导航栏就在那儿，而且路径属于
-    「我在哪个文件」，和底下那排文件状态是同一组信息。
-    腾出来的右边不是浪费，是**窗口拖动区**。
-  -->
-  <header class="titlebar" data-tauri-drag-region>
-    <!--
-      项目挂件。没打开项目时显示应用名 —— **按钮位置在两个状态下完全一致**，
-      和导轨上那条「控件的位置必须是肌肉记忆能记住的」是同一条。
-
-      tooltip 第二行是构建时间，别删：报上来的 bug 复现不了时，
-      第一件事就是确认对方跑的是哪个构建（为此白查过一次代码）。
-      它原来挂在这儿那个 `lite-ide` 字样上，而那个字样现在只有空项目时才出现。
-    -->
-    <button class="twidget proj" onclick={(e) => openProjMenu(e)} title={projTip}>
-      <span class="sq" aria-hidden="true">{projInitial}</span>
-      <span class="wlabel">{projName}</span>
-      <Icon name="chevron-down" size={10} />
-    </button>
-    {#if gitSt}
-      <button
-        class="twidget"
-        class:on={branchOpen}
-        bind:this={branchBtn}
-        onclick={openBranchPicker}
-        title="切换分支 / 工作树"
-      >
-        <Icon name="git" size={12} />
-        <span class="wlabel">{gitSt.branch || "游离"}</span>
-        {#if gitSt.ahead}<span class="ab">↑{gitSt.ahead}</span>{/if}
-        {#if gitSt.behind}<span class="ab">↓{gitSt.behind}</span>{/if}
-        <Icon name="chevron-down" size={10} />
-      </button>
-    {/if}
-    <span class="tgap" data-tauri-drag-region></span>
-  </header>
+  <TitleBar
+    {root}
+    {gitSt}
+    {recent}
+    {branchOpen}
+    bind:branchBtn
+    onOpenRecent={(r) => void openRecent(r)}
+    onOpenFolder={() => void openFolder()}
+    onClearRecent={() => (recent = [])}
+    onOpenBranches={openBranchPicker}
+  />
 
   <div
     class="workspace"
@@ -3181,142 +3001,17 @@
     </section>
   </div>
 
-  <!--
-    状态栏 = IDEA 的 status bar，**左右两半各管一件事**：
-
-    - 左：我在哪个文件（导航栏 / 面包屑）。IDEA 里不用导航栏时这块显示最近的
-      事件消息 —— 这里照抄：`notify` 一来就顶掉路径。以前提示消息挤在挂件中间，
-      窗口一窄它先被挤掉，而它恰恰是最该让人看见的。
-    - 右：这个文件什么状态，而且**点了都能改**（模式 / 编码 / 差异）。
-
-    这里以前还挂着「搜索 ⇧⇧」「终端 ⌘J」「改动 N」「历史」四个 —— 全是**打开某个
-    工具窗**，而那四件事导轨上一个不落地都有（搜索还有双击 ⇧）。同一件事在一屏里
-    说两遍，正是上一轮「工具窗切换只能有一处」那条判据本身。
-    「改动 N」的计数没丢，挪到导轨 Git 图标的角标上了。
-  -->
-  <footer class="statusbar">
-    <!-- 左槽 -->
-    <!--
-      **「正在做」排在最前面。** 它是唯一一条「事情还没完」的消息，
-      而另外两条说的都是已经完了。操作跑着的时候被一条旧的「已保存」
-      顶掉，等于把界面上唯一能证明「它在动」的东西藏起来 ——
-      那正是 issue #15 要修的形状。
-    -->
-    {#if notify.doing}
-      <!--
-        **整句放进一个表达式，不要写成 `正在{notify.doing}…`。**
-        那样 Svelte 会生成三个文本节点，在 macOS 的辅助功能树里就是三段
-        独立的 static text，读屏和自动化都拼不回一句话 ——
-        scripts/smoke.sh 里按「正在提交」找了半天找不到，就是这么回事。
-      -->
-      <span class="cell doing navslot">{`正在${notify.doing}…`}</span>
-    {:else if notify.info}
-      <span class="cell ok navslot">{notify.info}</span>
-    {:else if notify.error}
-      <span class="cell err navslot">{notify.error}</span>
-    {:else if crumbs.length > 0}
-      <nav class="crumbs navslot" aria-label="当前文件路径">
-        {#each crumbs as c, i (c.path)}
-          {#if i > 0}<span class="sep" aria-hidden="true">›</span>{/if}
-          {#if c.dir}
-            <button class="crumb" onclick={() => revealInTree(c.path)} title="在文件树中显示 {c.path}">{c.name}</button>
-          {:else}
-            <span class="crumb here" title={c.path}>{c.name}</span>
-          {/if}
-        {/each}
-      </nav>
-    {:else}
-      <span class="cell dim navslot">{root ? projName : "等待文件夹"}</span>
-    {/if}
-    <span class="spacer"></span>
-
-    <!-- 右槽 -->
-    {#if active?.mode === "merge"}
-      <span class="cell warn">冲突合并</span>
-    {:else if active?.mode === "diff"}
-      <span class="cell dim">
-        {active.diffSha ? `提交 ${active.diffShort}` : `差异 · ${active.diffStaged ? "已暂存" : "未暂存"}`}
-      </span>
-    {:else if active}
-      <!--
-        **这个按钮只在日志场景出现。**
-
-        它原来对每一个打开的文件都在，而绝大多数文件根本不存在「切到日志模式」
-        这个需求 —— 一个 `.ts` 切过去只会得到一份没高亮、不能编辑的文本。
-        一个永远在、九成场合按下去只有坏处的按钮，等于白占了状态栏一格。
-
-        两个条件：**已经在日志模式**（那必须留着回去的路，否则单向门），
-        或者**文件名看着像日志**（判据在 `is-log-name.ts`，纯按名字，不看内容）。
-
-        藏起来不等于做不了 —— 菜单里的「切换编辑 / 日志模式」对任何文件都还在。
-      -->
-      {#if active.mode === "log" || isLogName(active.path)}
-        <button
-          class="cell btn mode"
-          onclick={() => requestSwitchMode(active!)}
-          title={active.mode === "log" ? "切换到编辑模式" : "切换到日志模式（只读，带级别过滤与 tail）"}
-        >
-          {active.mode === "log" ? "日志模式" : "编辑模式"} ⇄
-        </button>
-        <!--
-          **竖线跟着它后面那格一起退场。**
-
-          窄窗口下 `drop-2` 会藏掉语言、只读原因、保存状态，而竖线原来是
-          独立的、不带 drop 类的 —— 于是 640px 宽时状态栏上出现两条挨着的竖线，
-          末尾还吊着一条后面什么都没有的。分隔线分的是「区」，区没了线也该没。
-
-          它也在 `{#if}` 里面：按钮不在时这条线就成了开头那条，
-          左边什么都没有 —— 同一个毛病，换了个位置。
-        -->
-        <span class="vsep drop-2" aria-hidden="true"></span>
-      {/if}
-      {#if active.mode === "log"}
-        <!-- 「为什么是只读」原来在标题栏。它说的是当前文件的状态，该和别的状态挂件在一起 -->
-        <span
-          class="cell dim drop-2"
-          title={active.forced ? "你手动切到了日志模式" : "自动判定的原因"}
-        >只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}</span>
-      {:else}
-        <span class="cell dim drop-2">{langs ? langs.langLabel(langs.langOf(active.path)) : ""}</span>
-      {/if}
-      <span class="vsep" aria-hidden="true"></span>
-      <button
-        class="cell btn enc"
-        class:bad={active.lossy}
-        onclick={() => (encOpen = true)}
-        title={active.lossy
-          ? "有解不出的字节，点这里换个编码重新打开"
-          : "文件编码 —— 点击可换编码重新打开或另存"}
-      >
-        {active.encoding ?? "UTF-8"}{active.bom ? " ·BOM" : ""}{active.lossy ? " ⚠" : ""}
-      </button>
-      {#if active.mode === "log"}
-        <span class="vsep" aria-hidden="true"></span>
-        <span class="cell">{logStatus}</span>
-      {:else}
-        <span class="vsep drop-2" aria-hidden="true"></span>
-        <span class="cell drop-2" class:accent={active.dirty}>
-          {active.dirty ? "已修改" : "无改动"}
-        </span>
-      {/if}
-      {#if activeEntry}
-        <span class="vsep" aria-hidden="true"></span>
-        <button
-          class="cell btn git"
-          onclick={() => void openDiff(activeEntry!, false)}
-          title="查看这个文件的改动"
-        >
-          <!--
-            这里说的是「相对 git 有没有未提交的改动」，跟左边那格的
-            「无改动 / 已修改」（缓冲区有没有未保存的编辑）是两件事。
-            原本写「有改动」，于是状态栏上会并排出现「无改动」和「有改动」，
-            读起来自相矛盾。改成「未提交」，两格就能同时成立且不打架。
-          -->
-          {activeEntry.untracked ? "未跟踪" : "未提交"}
-        </button>
-      {/if}
-    {/if}
-  </footer>
+  <StatusBar
+    {active}
+    {activeEntry}
+    {root}
+    {langs}
+    {logStatus}
+    onReveal={revealInTree}
+    onSwitchMode={() => requestSwitchMode(active!)}
+    onOpenEncoding={() => (encOpen = true)}
+    onOpenDiff={() => void openDiff(activeEntry!, false)}
+  />
 </main>
 
 <style>
@@ -3334,114 +3029,7 @@
   }
   main.hovering { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-  .titlebar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    /* 给 macOS 红绿灯让位 */
-    padding: 0 12px 0 78px;
-    /* 贴着窗口上边，窗口阴影在这条边上最弱 —— 浅色壁纸下不压一层，小字糊进桌面 */
-    background: var(--chrome-scrim);
-    border-bottom: 1px solid var(--border);
-    font-size: 12.5px;
-    user-select: none;
-  }
-  /* tgap 是**拖动区**，不是留白 —— 面包屑搬走之后这一大片正是拿窗口的地方 */
-  .titlebar .tgap { flex: 1; min-width: 12px; }
 
-  /*
-   * 标题栏挂件（项目 / 分支）。两个长得一模一样，**中间不画竖线** ——
-   * 线只分区不分项，而它们本来就是同一组「我现在在哪个项目的哪个分支上」。
-   */
-  .twidget {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    flex: none;
-    max-width: 240px;
-    height: 24px;
-    padding: 0 6px;
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-faint);
-    font-family: var(--ui-font);
-    font-size: 12px;
-    cursor: default;
-  }
-  .twidget:hover { background: var(--hover); color: var(--text-dim); }
-  /* 浮层开着时挂件保持点亮 —— 否则那块浮层看着像凭空冒出来的 */
-  .twidget.on { background: var(--selected); color: var(--text-dim); }
-  .twidget:active { background: var(--pressed); }
-  .twidget:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-  .twidget .wlabel {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .twidget.proj .wlabel { color: var(--text); }
-  /*
-   * 项目名首字的方块。IDEA 的项目挂件就是这个形状，它的用处不是装饰：
-   * 同时开着两个窗口时，一眼认出「这个窗口是哪个项目」靠的是这个色块，
-   * 不是去读那几个字。
-   */
-  .twidget .sq {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 16px;
-    height: 16px;
-    border-radius: 5px;
-    background: var(--selected);
-    color: var(--text);
-    font-size: 9.5px;
-    font-weight: 600;
-  }
-  .twidget:hover .sq { background: var(--pressed); }
-
-  /*
-   * 面包屑。2026-09-06 从标题栏搬到状态栏左边 —— IDEA 的导航栏就在那儿，
-   * 而且「我在哪个文件」和右边那排「这个文件什么状态」是同一组信息。
-   */
-  .statusbar .crumbs {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    /*
-     * `.statusbar > * { flex: none }` 会让这一条**不收缩**，窄窗口下
-     * 一条长路径能把右边的状态挂件整个顶出屏幕。必须在这里覆回来。
-     */
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    /* 状态栏整体是 code-font，而路径是可读文本不是标识符 */
-    font-family: var(--ui-font);
-  }
-  .statusbar .crumbs .sep { flex: none; color: var(--text-faint); font-size: 10px; }
-  .crumb {
-    flex: none;
-    max-width: 160px;
-    height: 17px;
-    padding: 0 4px;
-    background: transparent;
-    border: none;
-    border-radius: 5px;
-    color: var(--text-faint);
-    font-family: var(--ui-font);
-    font-size: 11.5px;
-    line-height: 17px;
-    cursor: default;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* 只有目录段可点（点了在文件树里定位），文件段是 span，不该有 hover 反馈 */
-  button.crumb:hover { background: var(--hover); color: var(--text); }
-  .crumb.here { color: var(--text-dim); flex: 0 1 auto; min-width: 40px; }
-  /* 左槽整块：路径、项目名、以及顶掉它们的那条提示消息 */
-  .statusbar .navslot { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  /* 分支名是标识符，用等宽；ahead/behind 用 accent，它是「该做点什么」的信号 */
-  .twidget .ab { color: var(--accent); font-family: var(--code-font); flex: none; font-size: 11px; }
 
   .workspace {
     display: grid;
@@ -3604,69 +3192,4 @@
     color: #fff;
   }
 
-  .statusbar {
-    display: flex;
-    align-items: center;
-    flex-wrap: nowrap;
-    /* 窗口窄的时候宁可把右边挤掉，也不能换行 —— 换行会把状态栏撑成两行，
-       把编辑区顶掉一截 */
-    overflow: hidden;
-    gap: 16px;
-    padding: 0 12px;
-    /* 同标题栏：贴着窗口下边，需要一层 scrim 兜住 11.5px 的小字 */
-    background: var(--chrome-scrim);
-    border-top: 1px solid var(--border);
-    font-size: 11.5px;
-    color: var(--text-dim);
-    font-family: var(--code-font);
-    user-select: none;
-  }
-  .statusbar .spacer { flex: 1; min-width: 0; }
-  .statusbar > * { flex: none; white-space: nowrap; }
-  /* 窄窗口下先让「知道了也不改变下一步」的那几格退场：语言、只读原因、保存状态 */
-  @media (max-width: 740px) {
-    .statusbar .drop-2 { display: none; }
-  }
-  .statusbar .dim { color: var(--text-faint); }
-  .statusbar .ok { color: var(--accent); }
-  .statusbar .err { color: var(--lvl-error); }
-  /*
-   * 「正在做」是中性的：不是成功也不是失败，用正文色，不抢 accent。
-   * 加一点点透明当作「还没定下来」的暗示 —— 不用转圈动画，
-   * 状态栏上一个一直转的东西比它想传达的信息更吵。
-   */
-  .statusbar .doing { color: var(--text); opacity: 0.75; }
-  .statusbar .warn { color: var(--lvl-warn); }
-  .statusbar .btn.enc { font-size: 11px; }
-  /* 解码有损是必须让人看见的事，不能只做成一个安静的标签 */
-  .statusbar .btn.enc.bad { color: var(--lvl-error); }
-  .statusbar .btn {
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    font-family: var(--code-font);
-    font-size: 11.5px;
-    padding: 1px 6px;
-    border-radius: var(--r-sm);
-    cursor: default;
-  }
-  .statusbar .btn:hover { background: var(--hover); color: var(--text); }
-  .statusbar .btn.mode { color: var(--text-dim); }
-  .statusbar .btn.mode:hover { color: var(--accent); }
-  .statusbar .btn.git { color: var(--git-modified); }
-  /*
-   * 挂件之间的竖线。**这是分区不是分项** —— 模式、语言/只读原因、编码、
-   * 保存状态、git 状态，五组各说一件事，同字号同颜色排在一起时得有个断点。
-   *
-   * （它原来的理由是「左边一组是文档事实、右边一组是动作」，而右边那组
-   * 打开工具窗的按钮 2026-09-06 整组撤了 —— 那些事导轨上都有。）
-   */
-  .statusbar .vsep {
-    flex: none;
-    width: 1px;
-    height: 11px;
-    background: var(--border);
-  }
-  /* 「已修改」是唯一会改变你下一步动作的那一项，值得提到 accent */
-  .statusbar .accent { color: var(--accent); }
 </style>
