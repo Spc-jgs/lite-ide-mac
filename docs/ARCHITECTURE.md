@@ -283,11 +283,11 @@ lite-ide/
 │     ├─ logview/    ★           # LogView / LogPane / FilterBar + line-cache
 │     ├─ editor/                 # Editor.svelte / theme / markdown-live
 │     │                          # langs.ts（识别，入口包要）+ langs-load.ts（67 种，跟着编辑器懒加载）
-│     ├─ shell/                  # FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
+│     ├─ shell/                  # Rail / Sidebar / FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
 │     ├─ git/                    # GitPane / GitLog / DiffView / MergeView / BranchPicker / RemoteBars
 │     ├─ search/                 # 双击 Shift 随处搜索 + 大纲 + 键位速查
 │     ├─ terminal/               # xterm.js 封装
-│     ├─ state/                  # Svelte 5 runes（keymap / session / doc / notify）
+│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / doc / notify）
 │     ├─ lazy/                   # lazy() / lazyGroup()，按需加载的唯一出处
 │     └─ dev/                    # mock-ipc.ts，只在 DEV 构建里存在
 └─ src-tauri/
@@ -307,22 +307,28 @@ lite-ide/
       └─ ptysvc/
 ```
 
-### 已知的架构偏移（2026-09-06 审查）
+### 已知的架构偏移（2026-09-06 审查，2026-09-14 开拆）
 
-**`App.svelte` 3526 行、68 个函数、20 个 `$state`、21 个 `$effect`。**
-上面这张图说前端按 `lib/` 分模块，而实际上「顶层壳 + 所有跨组件状态」全挤在一个文件里：
-标签管理、会话恢复、Git 动作、面板与终端、菜单事件、快捷键分派、拖放。
+**`App.svelte` 立项审查时 3526 行，开拆前 4380 行**（脚本 2930、标记 842、样式 607；
+86 个函数、28 个 `$effect`）。上面这张图说前端按 `lib/` 分模块，而实际上
+「顶层壳 + 所有跨组件状态」全挤在一个文件里：标签管理、会话恢复、Git 动作、
+面板与终端、菜单事件、快捷键分派、拖放。
 
-它还没到「改不动」的程度（每一块内部都有注释说清了判据），但**下一次加功能之前该拆**。
-拆的顺序按「依赖最少的先走」：
+拆法和进度在 [issue #9](https://github.com/Spc-jgs/lite-ide-mac/issues/9)。
+原则是**按工具窗切，不按代码类型切** —— IDEA 的每个工具窗就是一个独立单元，
+拆成同样的形状，以后「改侧边栏」只开一个文件。
 
-1. `lib/state/tabs.svelte.ts` —— 标签表 + `openPath` / `doClose` / `settled` 那一族（约 400 行）
-2. `lib/state/panel.svelte.ts` —— 底部工具窗 + 终端列表（约 150 行）
-3. `lib/git/actions.ts` —— `gitDo` 包着的那十几个动作（约 300 行）
-4. 剩下的才是真正的「壳」：布局、菜单事件、键盘分派
+已经出去的：
 
-**不要为了拆而拆**：`$state` 跨文件用要走 `.svelte.ts`，而组件里 `$derived`
-的依赖收集不跨模块边界失效 —— 这条得先在一个小块上验过再往下推。
+| | 去了哪 | 带走 |
+|---|---|---|
+| 布局状态（侧边栏开合 / 宽 / 视图，面板开合 / 高 / 工具窗 / 标签） | `state/layout.svelte.ts` | 七个 `$state` + 快照读写 |
+| 导轨 | `shell/Rail.svelte` | 标记 + 样式 |
+| 侧边栏外壳（开合、拖宽、视图切换、崩溃边界） | `shell/Sidebar.svelte` | 标记 + 样式 + 拖拽 |
+
+**共享状态走 `.svelte.ts` 里一个 class 的 `$state` 字段**（`layout` / `notify` 都是这个写法），
+组件直接读写，App 不当中转站。模块导出的绑定不能被外面重新赋值，
+所以裸的 `export let x = $state()` 在别的文件里写不了，必须挂在对象上。
 
 **纪律：`commands/` 里只做参数解包和错误转换，一行业务逻辑都不写。**
 业务全在 crates 里，这样才能脱离 Tauri 单测和 bench。

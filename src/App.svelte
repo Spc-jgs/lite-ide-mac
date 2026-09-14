@@ -2,11 +2,14 @@
   import { untrack, tick } from "svelte";
   import { Channel } from "@tauri-apps/api/core";
   import FileTree from "./lib/shell/FileTree.svelte";
+  import Rail from "./lib/shell/Rail.svelte";
+  import Sidebar from "./lib/shell/Sidebar.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import type { Action } from "./lib/search/QuickSearch.svelte";
   import type { JumpHit } from "./lib/editor/jump";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
+  import { layout } from "./lib/state/layout.svelte";
   import * as session from "./lib/state/session";
   import { textToSave, settled, stashed } from "./lib/state/doc";
   import { audit } from "./lib/state/invariant";
@@ -141,7 +144,8 @@
       return null;
     }
   })();
-  const savedLayout = saved?.layout ?? session.DEFAULT_LAYOUT;
+  // 布局状态住在 layout.svelte.ts（导轨 / 侧边栏 / 面板各自直接读写），这里只灌一次
+  layout.restore(saved?.layout ?? session.DEFAULT_LAYOUT);
 
   /**
    * 每个文件上次停在第几行。
@@ -244,11 +248,6 @@
   /** 文件树刷新计数，由 workingTreeChanged() 推进 */
   let treeTick = $state(0);
 
-  let sidebar = $state(savedLayout.sidebar);
-  let sidebarWidth = $state(savedLayout.sidebarWidth);
-  /** 侧边栏当前显示哪个视图。不在仓库里时强制回文件树 */
-  let sideView = $state<"files" | "git">(savedLayout.sideView);
-
   // ─────────────────────────── Git ───────────────────────────
 
   /** 项目所属仓库的根；不是仓库就是 null，整块 Git 功能随之隐身 */
@@ -282,9 +281,9 @@
 
   $effect(() => {
     const need =
-      (sideView === "git" && !!repo) ||
+      (layout.sideView === "git" && !!repo) ||
       tabs.some((t) => t.mode === "diff" || t.mode === "merge") ||
-      (panel && panelTool === "git" && gitTab === "log") ||
+      (layout.panel && panelTool === "git" && layout.gitTab === "log") ||
       branchOpen;
     if (need) git.load();
   });
@@ -511,7 +510,7 @@
         repo = found;
         if (!found) {
           gitSt = null;
-          sideView = "files";
+          layout.sideView = "files";
         } else {
           void refreshGit();
         }
@@ -941,30 +940,18 @@
       notify.ok(out.split("\n")[0] || "已提交", 3000);
     }, "提交");
   }
-  let panel = $state(savedLayout.panel);
-  let panelHeight = $state(savedLayout.panelHeight);
   /**
-   * 底部面板当前是哪个工具窗。终端实例永不卸载，只是藏起来。
+   * 实际在渲染的那个工具窗（开合 / 偏好本身在 `layout` 里）。
    *
-   * 两层，照 IDEA（issue #31）：工具窗是「终端」和「Git」，Git 窗里再分
-   * 「提交历史」「控制台」两个标签页（`gitTab`）。v1.0.0 时控制台曾是导轨上
-   * 和终端平级的第三个工具窗 —— 抄 IDEA 少抄了一层，Log 和 Console 明明是
-   * 「看 git 在干什么」这同一件事的两面。
-   */
-  let panelView = $state<"term" | "git">(savedLayout.panelView);
-  let gitTab = $state<"log" | "console">(savedLayout.gitTab);
-  /**
-   * 实际在渲染的那个工具窗。
-   *
-   * `panelView` 是**存下来的偏好**，它可以是 `git` 而当下并没有仓库 ——
+   * `layout.panelView` 是**存下来的偏好**，它可以是 `git` 而当下并没有仓库 ——
    * 上次在一个 git 仓库里看着提交历史退出，这次打开的是个普通文件夹。
    * 那时面板头写着「Git」，底下却是一片空白（历史那块的渲染条件
    * 带着 `&& repo`），而头上已经没有「切回终端」的按钮了（切换搬去了导轨）。
    *
-   * 所以渲染一律看这个，写状态才写 `panelView` —— 偏好留着，
+   * 所以渲染一律看这个，写状态才写 `layout.panelView` —— 偏好留着，
    * 下次真打开仓库时提交历史还在。
    */
-  let panelTool = $derived<"term" | "git">(panelView === "git" && repo ? "git" : "term");
+  let panelTool = $derived<"term" | "git">(layout.panelView === "git" && repo ? "git" : "term");
 
   /**
    * Git 控制台那一页（issue #29）。**按需加载**，和终端、CM6 同一条纪律 ——
@@ -1001,7 +988,7 @@
     const t: TermTab = { id: nextTermId++, cwd: dir, title };
     terms = [...terms, t];
     activeTermId = t.id;
-    panel = true;
+    layout.panel = true;
   }
 
   function closeTerm(id: number) {
@@ -1011,31 +998,31 @@
       activeTermId = terms[Math.min(idx, terms.length - 1)]?.id ?? null;
     }
     // 最后一个终端关掉就把面板一起收起，省得留个空壳
-    if (terms.length === 0) panel = false;
+    if (terms.length === 0) layout.panel = false;
   }
 
   /**
    * 导轨上的工具窗开关：点别的就切过去，点当前这个就收起。
    *
-   * 和最上面 sidebar 那个开关同一个手势 —— 一个按钮既是「去那儿」
+   * 和导轨最上面 sidebar 那个开关同一个手势 —— 一个按钮既是「去那儿」
    * 也是「不看了」，不用再去找第二个地方收起。
    */
   function togglePanelView(v: "term" | "git") {
     // 判据是**正在显示的那个**，不是存下来的偏好 —— 偏好是 log 而没有仓库时
     // 亮着的是终端那个按钮，再点它就该收起，而不是「切到终端」（已经在了）
-    if (panel && panelTool === v) {
-      panel = false;
+    if (layout.panel && panelTool === v) {
+      layout.panel = false;
       return;
     }
-    panelView = v;
-    panel = true;
+    layout.panelView = v;
+    layout.panel = true;
   }
 
   /** 菜单 / 侧边栏进来的「看历史」「看控制台」：开 Git 窗并落到那个标签 */
   function openGitTab(t: "log" | "console") {
-    gitTab = t;
-    panelView = "git";
-    panel = true;
+    layout.gitTab = t;
+    layout.panelView = "git";
+    layout.panel = true;
   }
 
   /** 面板头右边那两个下拉：`list` 是全部终端，`more` 是更多操作 */
@@ -1090,7 +1077,7 @@
   // 打开面板时若一个终端都没有，自动起一个。
   // 只在终端页上做 —— 冲着 Git 日志来的人不该莫名多出一个 shell
   $effect(() => {
-    if (panel && panelTool === "term" && terms.length === 0 && root !== null) newTerm(root);
+    if (layout.panel && panelTool === "term" && terms.length === 0 && root !== null) newTerm(root);
   });
   let hovering = $state(false);
   let logStatus = $state("");
@@ -1399,11 +1386,11 @@
 
   $effect(() => {
     // Git 控制台只在真的切到那一页时才拉那个 chunk
-    if (panel && panelTool === "git" && gitTab === "console") gitcon.load();
+    if (layout.panel && panelTool === "git" && layout.gitTab === "console") gitcon.load();
   });
 
   $effect(() => {
-    if (panel) terminal.load();
+    if (layout.panel) terminal.load();
   });
 
   $effect(() => {
@@ -1428,8 +1415,7 @@
    * 这里只改面包屑这一条调用点，`openPath` 本身不动。
    */
   function revealInTree(path: string) {
-    sideView = "files";
-    sidebar = true;
+    layout.showSide("files");
     revealPath = path;
     revealTick++;
   }
@@ -2160,7 +2146,7 @@
         return snap;
       }),
       active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
-      layout: { sidebar, sidebarWidth, sideView, panel, panelHeight, panelView, gitTab },
+      layout: layout.snapshot(),
       recent: [...recent],
     };
   }
@@ -2269,7 +2255,7 @@
   // 响应式那一半：布局、标签、项目根变了就存
   $effect(() => {
     // 显式读一遍，让 effect 订阅上它们
-    void [root, tabs.length, activeId, sidebar, sidebarWidth, sideView, panel, panelHeight, panelView, gitTab];
+    void [root, tabs.length, activeId, layout.snapshot()];
     scheduleSave();
   });
 
@@ -2697,8 +2683,8 @@
       case "nav-back": return void navGo("back");
       case "nav-fwd": return void navGo("fwd");
       case "outline": return openOutline();
-      case "toggle-sidebar": sidebar = !sidebar; return;
-      case "toggle-panel": panel = !panel; return;
+      case "toggle-sidebar": layout.sidebar = !layout.sidebar; return;
+      case "toggle-panel": layout.panel = !layout.panel; return;
       case "toggle-minimap": showMinimap = !showMinimap; return;
       case "new-terminal": return newTerm();
       case "close-terminal":
@@ -2706,8 +2692,7 @@
         return;
       case "git-changes":
         // 已经在 Git 视图上再点一次就切回去，和 ⇧⌘G 是同一个手势
-        sideView = sidebar && sideView === "git" ? "files" : "git";
-        sidebar = true;
+        layout.toggleGitChanges();
         return;
       case "git-file-diff": {
         const en = activeEntry;
@@ -2734,38 +2719,14 @@
     }
   }
 
-  /**
-   * 拖拽期间关掉列宽过渡。
-   * 收起/展开侧边栏时有个 130ms 的过渡看着舒服，但拖拽时每一帧都在改宽度，
-   * 带着过渡就是一路追不上手的橡皮筋感。
-   */
-  let resizing = $state(false);
-
-  /** 侧边栏横向拖拽。上限留出编辑区的活路，不让它被挤没 */
-  function startSideResize(e: PointerEvent) {
-    e.preventDefault();
-    resizing = true;
-    const startX = e.clientX;
-    const startW = sidebarWidth;
-    const move = (ev: PointerEvent) => {
-      sidebarWidth = Math.max(140, Math.min(window.innerWidth - 360, startW + (ev.clientX - startX)));
-    };
-    const up = () => {
-      resizing = false;
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-
+  /** 底部面板纵向拖拽。侧边栏那根在 Sidebar.svelte 里 */
   function startResize(e: PointerEvent) {
     e.preventDefault();
     const startY = e.clientY;
-    const startH = panelHeight;
+    const startH = layout.panelHeight;
     const move = (ev: PointerEvent) => {
       // 往上拖变高：面板贴在底部，位移要反号
-      panelHeight = Math.max(90, Math.min(window.innerHeight - 200, startH - (ev.clientY - startY)));
+      layout.panelHeight = Math.max(90, Math.min(window.innerHeight - 200, startH - (ev.clientY - startY)));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -3048,124 +3009,30 @@
 
   <div
     class="workspace"
-    class:no-side={!sidebar}
-    class:resizing
-    style:--side-w="{sidebarWidth}px"
+    class:no-side={!layout.sidebar}
+    class:resizing={layout.resizing}
+    style:--side-w="{layout.sidebarWidth}px"
   >
-    <!--
-      常驻的工具竖条。所有侧边栏控件都住在这里，收起侧边栏时竖条留着 ——
-      于是按钮在两个状态下位置完全一致。
+    <Rail
+      {root}
+      {repo}
+      changes={gitSt?.entries.length ?? 0}
+      {panelTool}
+      onSearch={() => {
+        quickScope = "content";
+        quickSeed = "";
+        quickOpen = true;
+      }}
+      onTogglePanel={togglePanelView}
+    />
 
-      早先的做法是「展开时按钮在侧边栏头部右侧、收起时在标题栏左边」，
-      结果同一个按钮在两个状态间横跳约 290 像素，每次都要重新找它在哪。
-      控件的位置必须是肌肉记忆能记住的。
-    -->
-    <nav class="rail" aria-label="侧边栏工具">
-      <button
-        class="rbtn"
-        class:on={sidebar}
-        onclick={() => (sidebar = !sidebar)}
-        title={sidebar ? "收起侧边栏 ⌘1" : "展开侧边栏 ⌘1"}
-        aria-label={sidebar ? "收起侧边栏" : "展开侧边栏"}
-        aria-expanded={sidebar}
-      >
-        <Icon name="sidebar" />
-      </button>
-      {#if root}
-        <button
-          class="rbtn"
-          class:on={sidebar && sideView === "files"}
-          onclick={() => {
-            sideView = "files";
-            sidebar = true;
-          }}
-          title="文件树"
-          aria-label="文件树"
-        >
-          <Icon name="files" />
-        </button>
-        {#if repo}
-          <button
-            class="rbtn"
-            class:on={sidebar && sideView === "git"}
-            onclick={() => {
-              sideView = "git";
-              sidebar = true;
-            }}
-            title="Git 改动 ⌘⇧G"
-            aria-label="Git 改动"
-          >
-            <Icon name="git" />
-            <!--
-              角标带数字。原来是个不带数字的 5px 圆点，而改动条数印在状态栏的
-              「改动 9」按钮上 —— 那个按钮和这个图标是同一件事的两份入口，
-              删掉按钮时计数不能跟着一起没。IDEA 的提交工具窗图标就是这么标的。
-              99 是上限：三位数会把 26px 的按钮撑变形，而「到底是 128 还是 132」
-              在这个位置上没人要看。
-            -->
-            {#if gitSt && gitSt.entries.length > 0}
-              <span class="badge">{gitSt.entries.length > 99 ? "99+" : gitSt.entries.length}</span>
-            {/if}
-          </button>
-        {/if}
-        <button
-          class="rbtn"
-          onclick={() => {
-            quickScope = "content";
-            quickSeed = "";
-            quickOpen = true;
-          }}
-          title="在项目中搜内容 ⌘⇧F"
-          aria-label="搜索"
-        >
-          <Icon name="search" />
-        </button>
-      {/if}
-      <span class="rgap"></span>
+    {#if layout.sidebar}
       <!--
-        底部工具窗的开关住在导轨上，和上面的文件树 / Git 改动同一套。
-
-        原来这里是一个笼统的「面板」开关，而**切哪个工具窗**摆在面板头上 ——
-        于是「换一个工具窗」这件事在同一个应用里有两种长相：侧边栏在导轨上换，
-        底部在面板头上换。IDEA 只有一处，就是导轨；面板头腾出来留给
-        工具窗自己的名字和它的标签页。
-
-        点当前这个就收起 —— 和最上面 sidebar 那个开关是同一个手势。
+        侧边栏外壳在 Sidebar.svelte 里；两块内容的数据和回调还接在 App 上
+        （标签表、git 动作没搬出去），所以以 snippet 传进去。
       -->
-      <button
-        class="rbtn"
-        class:on={panel && panelTool === "term"}
-        onclick={() => togglePanelView("term")}
-        title="终端 ⌘J"
-        aria-label="终端"
-      >
-        <Icon name="terminal" />
-      </button>
-      <!--
-        Git 工具窗（提交历史 + 控制台两个标签）。只在有仓库时出现 ——
-        没有仓库时两个标签都是空的，一个永远空着的按钮只是噪音。
-        图标用 `history` 不用 `git`：上面「Git 改动」已经占着分支图标了，
-        同一列里出现两个一样的形状，人只能靠位置记忆去分。
-      -->
-      {#if repo}
-        <button
-          class="rbtn"
-          class:on={panel && panelTool === "git"}
-          onclick={() => togglePanelView("git")}
-          title="Git：提交历史 · 控制台"
-          aria-label="Git"
-        >
-          <Icon name="history" />
-        </button>
-      {/if}
-    </nav>
-
-    {#if sidebar}
-      <aside>
-        <svelte:boundary>
-        {#if !root}
-          <div class="no-root">把文件夹拖进来</div>
-        {:else if sideView === "git" && repo && git.comps.pane}
+      <Sidebar {root} {repo} gitReady={!!git.comps.pane}>
+        {#snippet gitPane()}
           <git.comps.pane
             status={gitSt}
             busy={gitBusy}
@@ -3184,11 +3051,11 @@
             syncing={syncing ? { what: syncing.what, phase: syncing.phase, percent: syncing.percent } : null}
             onCancelSync={syncing && syncing.what !== "push" ? cancelSync : null}
           />
-        {:else if sideView === "git" && repo}
-          <div class="no-root">正在载入 Git 面板…</div>
-        {:else}
+        {/snippet}
+        {#snippet fileTree()}
+          <!-- `root!`：这块只在 Sidebar 判过 root 非空之后才渲染，收窄在那个文件里 -->
           <FileTree
-            {root}
+            root={root!}
             activePath={active?.path ?? ""}
             gitStatus={gitSt}
             {ignored}
@@ -3205,19 +3072,8 @@
               void afterFsChange(null);
             }}
           />
-        {/if}
-        {#snippet failed(err, reset)}
-          <Crash error={err} scope="侧边栏" onReset={reset} />
         {/snippet}
-        </svelte:boundary>
-      </aside>
-      <div
-        class="side-resizer"
-        role="separator"
-        aria-label="调整侧边栏宽度"
-        aria-orientation="vertical"
-        onpointerdown={startSideResize}
-      ></div>
+      </Sidebar>
     {/if}
 
     <section class="main">
@@ -3294,8 +3150,7 @@
             class="primary"
             onclick={() => {
               pendingCheckout = null;
-              sideView = "git";
-              sidebar = true;
+              layout.showSide("git");
             }}
           >去提交</button>
           <button class="danger" onclick={() => void discardThenCheckout()}>丢弃这些改动并切换</button>
@@ -3472,7 +3327,7 @@
       </svelte:boundary>
 
       <!--
-        条件是 `panel || terms.length > 0`，不是 `panel`。
+        条件是 `layout.panel || terms.length > 0`，不是 `layout.panel`。
 
         收起面板**不能卸载**这一块：组件一销毁 Session 就 drop，shell 被 kill。
         跑着 gradle build 的时候按 ⌘J 腾点地方，构建就没了 —— 而且没有任何提示。
@@ -3481,15 +3336,15 @@
         `terms.length > 0` 那半边保证「从没开过终端」时不会白挂一块 DOM，
         也保证关掉最后一个终端后这块能真正消失（closeTerm 会清空 terms）。
       -->
-      {#if panel || terms.length > 0}
+      {#if layout.panel || terms.length > 0}
         <div
           class="resizer"
-          class:hidden={!panel}
+          class:hidden={!layout.panel}
           role="separator"
           aria-label="调整终端高度"
           onpointerdown={startResize}
         ></div>
-        <div class="panel" class:hidden={!panel} style:height="{panelHeight}px">
+        <div class="panel" class:hidden={!layout.panel} style:height="{layout.panelHeight}px">
           <!--
             工具窗的头：**名字在最左，标签页跟在后面，动作靠右**。
 
@@ -3505,20 +3360,20 @@
                 它们不是开出来的东西，关不掉。
               -->
               <div class="ptabs" role="tablist">
-                <div class="ptab" class:on={gitTab === "log"}>
+                <div class="ptab" class:on={layout.gitTab === "log"}>
                   <button
                     class="pt-label fixed"
                     role="tab"
-                    aria-selected={gitTab === "log"}
-                    onclick={() => (gitTab = "log")}
+                    aria-selected={layout.gitTab === "log"}
+                    onclick={() => (layout.gitTab = "log")}
                   >提交历史</button>
                 </div>
-                <div class="ptab" class:on={gitTab === "console"}>
+                <div class="ptab" class:on={layout.gitTab === "console"}>
                   <button
                     class="pt-label fixed"
                     role="tab"
-                    aria-selected={gitTab === "console"}
-                    onclick={() => (gitTab = "console")}
+                    aria-selected={layout.gitTab === "console"}
+                    onclick={() => (layout.gitTab = "console")}
                     title="跑过的每一条 git，完整 argv"
                   >控制台</button>
                 </div>
@@ -3579,7 +3434,7 @@
             {/if}
             <button
               class="phbtn"
-              onclick={() => (panel = false)}
+              onclick={() => (layout.panel = false)}
               title="收起 ⌘J"
               aria-label="收起面板"
             >
@@ -3604,7 +3459,7 @@
             </div>
             <!-- 收起时别去拉 git log：那是一串没人看的子进程 -->
             <!-- 同上：切走就整个销毁，那条 1.5 秒的轮询跟着停 -->
-            {#if panel && panelTool === "git" && gitTab === "console" && repo}
+            {#if layout.panel && panelTool === "git" && layout.gitTab === "console" && repo}
               <div class="tool-slot">
                 {#if gitcon.comp}
                   <gitcon.comp />
@@ -3613,7 +3468,7 @@
                 {/if}
               </div>
             {/if}
-            {#if panel && panelTool === "git" && gitTab === "log" && repo}
+            {#if layout.panel && panelTool === "git" && layout.gitTab === "log" && repo}
               <div class="tool-slot">
                 {#if git.comps.log}
                   <git.comps.log
@@ -3907,104 +3762,6 @@
   /* 收起侧边栏只去掉中间两列，竖条留着 —— 按钮的位置不能动 */
   .workspace.no-side { grid-template-columns: 34px 1fr; }
 
-  .rail {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 5px 0 6px;
-    background: var(--panel-bg);
-    border-right: 1px solid var(--border);
-    overflow: hidden;
-  }
-  .rail .rgap { flex: 1; }
-  .rbtn {
-    position: relative;
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 26px;
-    height: 26px;
-    background: transparent;
-    border: none;
-    border-radius: var(--r-md);
-    color: var(--text-faint);
-    cursor: default;
-    transition: background 0.09s, color 0.09s;
-  }
-  .rbtn:hover { background: var(--hover); color: var(--text); }
-  /*
-   * 选中态用中性白，不用 accent —— accent 在这一列里已经有活儿干了：
-   * 旁边那个「有未提交改动」的红点。两个都上色就分不出哪个是状态、
-   * 哪个是"你现在在这儿"。
-   */
-  .rbtn.on { color: var(--text); background: var(--selected); }
-  .rbtn:active { background: var(--pressed); }
-  .rbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-  /* 有未提交改动时给 Git 图标一个角标，收起侧边栏也知道有几处 */
-  .rbtn .badge {
-    position: absolute;
-    right: 0;
-    top: 0;
-    display: grid;
-    place-content: center;
-    min-width: 13px;
-    height: 13px;
-    padding: 0 3px;
-    border-radius: 7px;
-    background: var(--git-modified);
-    /*
-      深色字压在 --git-modified（#6ba1e8，浅蓝）上，深浅两套主题里这个底色是同一个，
-      所以这里直接写死一个近黑而不是用 --text：--text 在浅色主题下是深的、
-      深色主题下是白的，而白字压在浅蓝上读不清。
-
-      **不描边。** 角标会盖住图标右上那个结点，直觉是用外壳色描一圈把它抠出来 ——
-      但外壳层是 transparent（后面是 NSVisualEffectView），描一圈实色就是在玻璃上
-      凿一个洞。角标本身不透明，压住一段描边足够说清「它在上面」。
-    */
-    color: #101014;
-    font-family: var(--code-font);
-    font-size: 9px;
-    font-weight: 600;
-  }
-  @media (prefers-reduced-motion: reduce) { .rbtn { transition: none; } }
-  /*
-   * 拖拽条：**热区和画出来的线要分开。**
-   *
-   * 原来是 `background: var(--border)` —— 热区多宽，亮条就多宽，
-   * 于是界面正中间横着一条 4px 的白条（876px 高，玻璃上更扎眼）。
-   * 但 4px 是好按的下限，不能为了好看把热区缩掉。
-   *
-   * 所以底留空，只用一个居中的 1px 伪元素画线。悬停时线变 accent，
-   * 按住时才把整条 4px 点亮 —— 那时人已经在拖了，反馈越实越好。
-   */
-  .side-resizer {
-    position: relative;
-    background: transparent;
-    cursor: col-resize;
-  }
-  .side-resizer::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 1.5px;
-    width: 1px;
-    background: var(--border);
-    transition: background 0.1s;
-  }
-  .side-resizer:hover::after { background: var(--accent); }
-  .side-resizer:active { background: var(--accent); }
-  @media (prefers-reduced-motion: reduce) { .side-resizer::after { transition: none; } }
-  aside { overflow: hidden; }
-  /* 不画右边线，理由同 FileTree 的 `.tree` —— 那条边界归 `.side-resizer` */
-  .no-root {
-    padding: 14px 12px;
-    color: var(--text-faint);
-    font-size: 12px;
-    background: var(--panel-bg);
-    height: 100%;
-  }
 
   /*
    * 用 flex 列而不是 grid：这一列里的元素是**条件渲染**的（标签栏、三种确认条、

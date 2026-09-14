@@ -5450,3 +5450,53 @@ v1.0.0 那个「Git 控制台」按钮用的是 `git` 那个分支图标 —— 
 
 **新东西和邻居是不是同一件事的两面。** Log 和 Console 都是「看 git 在干什么」，
 所以是标签；终端和 Git 不是，所以是窗。以后每加一个面板先过这一问。
+
+## 2026-09-14 · #9 开拆：布局状态、导轨、侧边栏外壳先出去
+
+App.svelte 4380 行（脚本 2930、标记 842、样式 607）。改成按工具窗切（理由见
+issue #9 的修订段），第 1 步抽三块：`state/layout.svelte.ts`、`shell/Rail.svelte`、
+`shell/Sidebar.svelte`。零功能改动，App.svelte 4380 → 4136 行。
+
+### 共享状态的写法
+
+七个布局 `$state` 原来是 App 的裸变量，导轨、侧边栏、面板、菜单命令、会话快照
+都直接读写 —— 谁也搬不出去。现在是一个 class 的 `$state` 字段，和 `notify` 同一
+写法。**模块导出的绑定不能被外面重新赋值**，所以 `export let sidebar = $state()`
+在别的文件里写 `sidebar = false` 是编译错误；必须挂在对象上，写字段。
+
+会话快照那两处（存、订阅）原来各列一遍七个字段，现在都是 `layout.snapshot()` ——
+在 effect 里调一次就把七个字段全订阅上了，以后布局多一个字段这两处不用改。
+
+### 侧边栏外壳只抽壳
+
+`Sidebar.svelte` 拿到的是开合、拖宽、视图切换、崩溃边界；文件树和 Git 面板那
+两块内容的二十几个 prop / 回调还接在 App 上（标签表和 git 动作没搬），所以以
+snippet 传进去。这是**有意的半成品**：现在把二十个回调层层传下去，等 #9 第 4、5 步
+把它们的源头搬出 App 之后又得改一遍。
+
+snippet 的名字不能和外面的变量撞：`{#snippet git()}` 会在 App 的作用域里声明一个
+`git`，而 App 已经有 `const git = lazyGroup(...)`。改叫 `gitPane` / `fileTree`。
+
+### 一个 4 行的类型收窄没了
+
+原来 `<FileTree {root} />` 在 `{#if !root} … {:else}` 的 else 分支里，TS 把 `root`
+收窄成 `string`。搬进 snippet 之后分支在 Sidebar 那边，App 这边看不见，`root` 又是
+`string | null`，`pnpm check` 报错。写 `root={root!}` —— snippet 只在 Sidebar 判过
+`root` 非空之后才渲染，断言是对的，但这层保证跨了一个文件，注释里得说。
+
+### smoke 被我自己污染了两轮
+
+拆完 bundle 跑 smoke：一轮退出码 2、一轮 30 条全红、一轮红 4 条。先怀疑拆坏了
+什么，手动起 `.app` 探 AX 树 —— 「Git 改动」明明在。问题是**探完没杀那个进程**，
+接着跑的 smoke 里有两个 `lite-ide`，`tell process "lite-ide"` 挑到了我那个，
+它的 fixture 里没有 run.sh / big.log，于是全部「找不到」。杀掉之后连跑两轮 33/33。
+
+教训写进了记忆：全部「找不到」而 AX 子树那道闸又过了，先 `pgrep`。
+
+### 数字
+
+| | |
+|---|---|
+| App.svelte | 4380 → 4136 行 |
+| 入口包 | 136,353 → 138,179 B（+1.8 KB，组件边界和那个 class 的开销；CI 按 KiB 算是 134，告警线 138） |
+| smoke | 33/33 × 2（清掉残留进程之后） |
