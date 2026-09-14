@@ -117,6 +117,20 @@ ok(nan.panelHeight === DEFAULT_LAYOUT.panelHeight, "Infinity 高度要回默认�
 // ── 5. 枚举字段只认已知值 ──
 ok(toLayout({ sideView: "外星视图" }).sideView === "files", "不认识的 sideView 回 files");
 ok(toLayout({ panelView: "外星视图" }).panelView === "term", "不认识的 panelView 回 term");
+ok(toLayout({ panelView: "git", gitTab: "外星" }).gitTab === "log", "不认识的 gitTab 回 log");
+
+// ── 5b. v1.0.0 以前的三档 panelView 要无损映射进两层（#31）──
+// 老的 `log` = 提交历史工具窗，`git` = Git 控制台工具窗；现在都是 Git 窗里的标签
+{
+  const oldLog = toLayout({ panelView: "log" });
+  ok(oldLog.panelView === "git" && oldLog.gitTab === "log", "老 log → Git 窗 + Log 标签");
+  const oldCon = toLayout({ panelView: "git" });
+  ok(oldCon.panelView === "git" && oldCon.gitTab === "console", "老 git → Git 窗 + Console 标签");
+  // 新格式一定带 gitTab，这时 panelView 的 git 只是「Git 窗」，标签听 gitTab 的
+  const fresh = toLayout({ panelView: "git", gitTab: "log" });
+  ok(fresh.panelView === "git" && fresh.gitTab === "log", "新格式 git + log 不能被当成老的 console");
+  ok(toLayout({ panelView: "term" }).gitTab === "log", "终端上的老快照，Git 标签默认 Log");
+}
 ok(toLayout({}).sidebar === true, "缺字段用默认值");
 ok(toLayout(null).panelHeight === 260, "整个 layout 缺失也要给一份默认");
 

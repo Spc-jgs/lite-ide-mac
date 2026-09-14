@@ -284,7 +284,7 @@
     const need =
       (sideView === "git" && !!repo) ||
       tabs.some((t) => t.mode === "diff" || t.mode === "merge") ||
-      (panel && panelTool === "log") ||
+      (panel && panelTool === "git" && gitTab === "log") ||
       branchOpen;
     if (need) git.load();
   });
@@ -943,22 +943,28 @@
   }
   let panel = $state(savedLayout.panel);
   let panelHeight = $state(savedLayout.panelHeight);
-  /** 底部面板当前是哪个工具窗。终端实例永不卸载，只是藏起来 */
-  let panelView = $state<"term" | "log" | "git">(savedLayout.panelView);
+  /**
+   * 底部面板当前是哪个工具窗。终端实例永不卸载，只是藏起来。
+   *
+   * 两层，照 IDEA（issue #31）：工具窗是「终端」和「Git」，Git 窗里再分
+   * 「提交历史」「控制台」两个标签页（`gitTab`）。v1.0.0 时控制台曾是导轨上
+   * 和终端平级的第三个工具窗 —— 抄 IDEA 少抄了一层，Log 和 Console 明明是
+   * 「看 git 在干什么」这同一件事的两面。
+   */
+  let panelView = $state<"term" | "git">(savedLayout.panelView);
+  let gitTab = $state<"log" | "console">(savedLayout.gitTab);
   /**
    * 实际在渲染的那个工具窗。
    *
-   * `panelView` 是**存下来的偏好**，它可以是 `log` 而当下并没有仓库 ——
+   * `panelView` 是**存下来的偏好**，它可以是 `git` 而当下并没有仓库 ——
    * 上次在一个 git 仓库里看着提交历史退出，这次打开的是个普通文件夹。
-   * 那时面板头写着「提交历史」，底下却是一片空白（历史那块的渲染条件
+   * 那时面板头写着「Git」，底下却是一片空白（历史那块的渲染条件
    * 带着 `&& repo`），而头上已经没有「切回终端」的按钮了（切换搬去了导轨）。
    *
    * 所以渲染一律看这个，写状态才写 `panelView` —— 偏好留着，
    * 下次真打开仓库时提交历史还在。
    */
-  let panelTool = $derived<"term" | "log" | "git">(
-    panelView === "log" && repo ? "log" : panelView === "git" && repo ? "git" : "term",
-  );
+  let panelTool = $derived<"term" | "git">(panelView === "git" && repo ? "git" : "term");
 
   /**
    * Git 控制台那一页（issue #29）。**按需加载**，和终端、CM6 同一条纪律 ——
@@ -1014,7 +1020,7 @@
    * 和最上面 sidebar 那个开关同一个手势 —— 一个按钮既是「去那儿」
    * 也是「不看了」，不用再去找第二个地方收起。
    */
-  function togglePanelView(v: "term" | "log" | "git") {
+  function togglePanelView(v: "term" | "git") {
     // 判据是**正在显示的那个**，不是存下来的偏好 —— 偏好是 log 而没有仓库时
     // 亮着的是终端那个按钮，再点它就该收起，而不是「切到终端」（已经在了）
     if (panel && panelTool === v) {
@@ -1022,6 +1028,13 @@
       return;
     }
     panelView = v;
+    panel = true;
+  }
+
+  /** 菜单 / 侧边栏进来的「看历史」「看控制台」：开 Git 窗并落到那个标签 */
+  function openGitTab(t: "log" | "console") {
+    gitTab = t;
+    panelView = "git";
     panel = true;
   }
 
@@ -1386,7 +1399,7 @@
 
   $effect(() => {
     // Git 控制台只在真的切到那一页时才拉那个 chunk
-    if (panel && panelTool === "git") gitcon.load();
+    if (panel && panelTool === "git" && gitTab === "console") gitcon.load();
   });
 
   $effect(() => {
@@ -2147,7 +2160,7 @@
         return snap;
       }),
       active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
-      layout: { sidebar, sidebarWidth, sideView, panel, panelHeight, panelView },
+      layout: { sidebar, sidebarWidth, sideView, panel, panelHeight, panelView, gitTab },
       recent: [...recent],
     };
   }
@@ -2256,7 +2269,7 @@
   // 响应式那一半：布局、标签、项目根变了就存
   $effect(() => {
     // 显式读一遍，让 effect 订阅上它们
-    void [root, tabs.length, activeId, sidebar, sidebarWidth, sideView, panel, panelHeight, panelView];
+    void [root, tabs.length, activeId, sidebar, sidebarWidth, sideView, panel, panelHeight, panelView, gitTab];
     scheduleSave();
   });
 
@@ -2702,8 +2715,8 @@
         else notify.fail("当前文件没有未提交的改动", 2600);
         return;
       }
-      case "git-log": panel = true; panelView = "log"; return;
-      case "git-console": panel = true; panelView = "git"; return;
+      case "git-log": openGitTab("log"); return;
+      case "git-console": openGitTab("console"); return;
       case "git-branches": openBranchPicker(); return;
       case "git-refresh": return void refreshGit();
       case "git-pull": return void doPull();
@@ -3128,28 +3141,21 @@
       >
         <Icon name="terminal" />
       </button>
+      <!--
+        Git 工具窗（提交历史 + 控制台两个标签）。只在有仓库时出现 ——
+        没有仓库时两个标签都是空的，一个永远空着的按钮只是噪音。
+        图标用 `history` 不用 `git`：上面「Git 改动」已经占着分支图标了，
+        同一列里出现两个一样的形状，人只能靠位置记忆去分。
+      -->
       {#if repo}
-        <button
-          class="rbtn"
-          class:on={panel && panelTool === "log"}
-          onclick={() => togglePanelView("log")}
-          title="提交历史"
-          aria-label="提交历史"
-        >
-          <Icon name="history" />
-        </button>
-        <!--
-          Git 控制台（issue #29）。和提交历史一样只在有仓库时出现 ——
-          没有仓库时它永远是空的，一个永远空着的按钮只是噪音。
-        -->
         <button
           class="rbtn"
           class:on={panel && panelTool === "git"}
           onclick={() => togglePanelView("git")}
-          title="Git 控制台：跑过的每一条 git"
-          aria-label="Git 控制台"
+          title="Git：提交历史 · 控制台"
+          aria-label="Git"
         >
-          <Icon name="git" />
+          <Icon name="history" />
         </button>
       {/if}
     </nav>
@@ -3171,10 +3177,7 @@
             onCommit={doGitCommit}
             onRefresh={() => void refreshGit()}
             onOpenBranches={openBranchPicker}
-            onOpenLog={() => {
-              panelView = "log";
-              panel = true;
-            }}
+            onOpenLog={() => openGitTab("log")}
             ahead={gitSt?.ahead ?? 0}
             behind={gitSt?.behind ?? 0}
             onSync={(what) => void (what === "push" ? askPush() : doPull())}
@@ -3495,10 +3498,32 @@
             面板收起再展开时，第一眼要能认出这是哪个工具窗。
           -->
           <div class="panel-head">
-            <span class="tw-name">
-              {panelTool === "term" ? "终端" : panelTool === "git" ? "Git 控制台" : "提交历史"}
-            </span>
-            {#if panelTool === "term"}
+            <span class="tw-name">{panelTool === "term" ? "终端" : "Git"}</span>
+            {#if panelTool === "git"}
+              <!--
+                Git 窗的两个标签。和终端标签同一套样式，只是没有 ✕ ——
+                它们不是开出来的东西，关不掉。
+              -->
+              <div class="ptabs" role="tablist">
+                <div class="ptab" class:on={gitTab === "log"}>
+                  <button
+                    class="pt-label fixed"
+                    role="tab"
+                    aria-selected={gitTab === "log"}
+                    onclick={() => (gitTab = "log")}
+                  >提交历史</button>
+                </div>
+                <div class="ptab" class:on={gitTab === "console"}>
+                  <button
+                    class="pt-label fixed"
+                    role="tab"
+                    aria-selected={gitTab === "console"}
+                    onclick={() => (gitTab = "console")}
+                    title="跑过的每一条 git，完整 argv"
+                  >控制台</button>
+                </div>
+              </div>
+            {:else}
               <div class="ptabs">
                 {#each terms as t (t.id)}
                   <div class="ptab" class:on={t.id === activeTermId}>
@@ -3579,7 +3604,7 @@
             </div>
             <!-- 收起时别去拉 git log：那是一串没人看的子进程 -->
             <!-- 同上：切走就整个销毁，那条 1.5 秒的轮询跟着停 -->
-            {#if panel && panelTool === "git" && repo}
+            {#if panel && panelTool === "git" && gitTab === "console" && repo}
               <div class="tool-slot">
                 {#if gitcon.comp}
                   <gitcon.comp />
@@ -3588,7 +3613,7 @@
                 {/if}
               </div>
             {/if}
-            {#if panel && panelTool === "log" && repo}
+            {#if panel && panelTool === "git" && gitTab === "log" && repo}
               <div class="tool-slot">
                 {#if git.comps.log}
                   <git.comps.log
@@ -4105,6 +4130,8 @@
     white-space: nowrap;
   }
   .ptab.on .pt-label { color: var(--text); }
+  /* 关不掉的标签（Git 窗那两个）没有 ✕ 占位，右边补回和左边一样的内缩 */
+  .pt-label.fixed { padding-right: 9px; }
   /*
    * ✕ 的格子固定 16px，平时透明，hover / 当前项才显形 ——
    * 常驻的话每个标签一个 ✕，而任何一刻最多只关得掉一个；

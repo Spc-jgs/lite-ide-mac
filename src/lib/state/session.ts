@@ -99,8 +99,16 @@ export interface Layout {
   sideView: "files" | "git";
   panel: boolean;
   panelHeight: number;
-  /** `git` = Git 控制台（issue #29）。老快照里没有这个值，读回来会落到 `term` */
-  panelView: "term" | "log" | "git";
+  /**
+   * 底部是哪个工具窗。两层：工具窗 → 标签页，照 IDEA（issue #31）。
+   *
+   * v1.0.0 之前这里是三档 `term` / `log` / `git`，「提交历史」和「Git 控制台」
+   * 各自是一个工具窗，和终端平级 —— 少抄了一层。现在它们是 Git 工具窗里的
+   * 两个标签，选中哪个记在 `gitTab`。老值在 `toLayout` 里映射。
+   */
+  panelView: "term" | "git";
+  /** Git 工具窗当前的标签页。没有仓库时它只是个偏好，不参与渲染 */
+  gitTab: "log" | "console";
 }
 
 export interface Session {
@@ -125,6 +133,7 @@ export const DEFAULT_LAYOUT: Layout = {
   panel: false,
   panelHeight: 260,
   panelView: "term",
+  gitTab: "log",
 };
 
 /**
@@ -168,14 +177,23 @@ export function toLayout(v: unknown): Layout {
         ? clamp(o.panelHeight, PANEL_MIN, PANEL_MAX)
         : DEFAULT_LAYOUT.panelHeight,
     /*
-     * 三档，认不出来一律回 `term`。
+     * 老快照无损映射，**不升 VERSION**。
      *
-     * **不为多这一档升 VERSION**：旧快照里的 `term` / `log` 读出来还是
-     * 原来那个意思，没有「半新半旧」的界面 —— 而整份丢弃会把上次开了
-     * 哪些文件一起赔进去。这正是 VERSION 那段注释里说的「字段含义变了」
-     * 和「多了一个取值」的区别。
+     * v1.0.0 以前 `panelView` 有三档：`log` 是提交历史、`git` 是 Git 控制台，
+     * 各自一个工具窗。现在两者是 Git 工具窗里的标签，所以老的 `log` →
+     * Git 窗 + Log 标签，老的 `git` → Git 窗 + Console 标签。认老格式靠
+     * 「没有 `gitTab` 这个字段」—— 新格式一定会写它。
+     *
+     * VERSION 是给「不知道怎么读」兜底的：老值到新值有唯一且正确的对应，
+     * 就不该整份丢掉 —— 那会把上次开了哪些文件一起赔进去。
      */
-    panelView: o.panelView === "log" ? "log" : o.panelView === "git" ? "git" : "term",
+    panelView: o.panelView === "log" || o.panelView === "git" ? "git" : "term",
+    gitTab:
+      o.gitTab === "log" || o.gitTab === "console"
+        ? o.gitTab
+        : o.gitTab === undefined && o.panelView === "git"
+          ? "console"
+          : "log",
   };
 }
 
