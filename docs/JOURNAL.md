@@ -5825,3 +5825,50 @@ type import 不进产物，那个组件照旧跟着 Git 那组懒加载。比手
 | | |
 |---|---|
 | App.svelte | 2304 → 1828（累计 4380 → 1828，−58%） |
+
+## 2026-09-14 · #9 第 6 步：剩下的簇出去，App.svelte 4380 → 974
+
+用户说 smoke 太频繁（它抢十来次键盘焦点，人在用电脑时必红），改成一批做完
+统一跑。这一批四个提交：
+
+| 提交 | 出去的 | App.svelte |
+|---|---|---|
+| 6 上 | `nav`（跳转历史 + gotoLine）、`persist`（会话时机）、`tabflow` 收四个打开入口、`docs` 收换编码 | 1828 → 1428 |
+| 6 中 | `shell/Content.svelte`（四种视图 + 起点卡片 + editorMarks / projectFiles 两条 effect） | → 1150 |
+| 6 下 | `overlay` store + `shell/Overlays.svelte`、`lang` store | → 974 |
+
+### `saved` 在模块初始化时读
+
+会话快照要用来做布局的初值（晚一拍就闪一下），原来是 App `<script>` 顶上一个
+IIFE。搬进 `persist.svelte.ts` 之后它变成**模块顶层**的 `export const saved`，
+后面紧跟 `layout.restore(...)` / `project.recent = ...` —— 模块求值比组件实例化早，
+顺序反而更稳。代价：`persist` 的 import 有副作用，文件头注释写明了。
+
+### effect 进不了 store，那就让 effect 只剩一行
+
+`persist` 有四条时机：4 秒定期、响应式、pagehide、活动标签换了兑现位置。
+四条都留在 App，每条只剩「调 store 的哪个方法」——
+`tickDrafts()` / `schedule()` / `flush()` / `redeemPos()`。store 里是**做什么**，
+App 里是**什么时候做**。这个分法比「把 effect 硬塞进 `$effect.root`」清楚。
+
+### 开合状态归 store，渲染归组件
+
+五个浮层的开合原来是 App 里九个 `$state`。它们不能跟着 `Overlays.svelte` 走：
+开它们的人散在键盘分派、菜单、导轨、状态栏、Git 栏、标题栏六处。
+判据和 `layout` 一样：**有几个文件要写它**，多于一个就是 store。
+
+### 语言表从三层 prop 变成一个 store
+
+`langs` 原来 App 拉一次，传给状态栏、内容区，大纲浮层又自己拉一份。
+改成 `lang.svelte.ts` 一个 `mod` 字段 + `load()`，三处直接读；App 的 effect
+在有标签时调一次 `load()`。同一份懒 chunk，谁先到都一样。
+
+### 入口包 143 KiB
+
+六步涨了 7.5 KiB，离红线 150 还有 7。#32 那次瘦身现在该做了。
+
+### App.svelte 剩下的
+
+约 970 行：Git 那组 `lazyGroup`、缩略图偏好、`.gitignore` 缓存、拖放、`runMenu` /
+`onWindowKey`、启动 effect、预算行、焦点 / 轮询 effect，加把组件接起来的 200 行标记。
+这是壳该有的样子 —— 再往下拆就是为了拆而拆。

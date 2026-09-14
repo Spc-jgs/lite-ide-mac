@@ -283,11 +283,11 @@ lite-ide/
 │     ├─ logview/    ★           # LogView / LogPane / FilterBar + line-cache
 │     ├─ editor/                 # Editor.svelte / theme / markdown-live
 │     │                          # langs.ts（识别，入口包要）+ langs-load.ts（67 种，跟着编辑器懒加载）
-│     ├─ shell/                  # Rail / Sidebar / Panel / TitleBar / StatusBar / Confirms / FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
+│     ├─ shell/                  # Rail / Sidebar / Panel / TitleBar / StatusBar / Confirms / Content / Overlays / FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
 │     ├─ git/                    # GitPane / GitLog / DiffView / MergeView / BranchPicker / RemoteBars
 │     ├─ search/                 # 双击 Shift 随处搜索 + 大纲 + 键位速查
 │     ├─ terminal/               # xterm.js 封装
-│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / docs / tabflow / project / worktree / git / branches / remote / notify）+ 纯类型/函数（tab / crumbs）
+│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / docs / tabflow / project / worktree / git / branches / remote / nav / persist / overlay / lang / notify）+ 纯类型/函数（tab / crumbs）
 │     ├─ lazy/                   # lazy() / lazyGroup()，按需加载的唯一出处
 │     └─ dev/                    # mock-ipc.ts，只在 DEV 构建里存在
 └─ src-tauri/
@@ -340,6 +340,16 @@ lite-ide/
 | 分支与工作树：切分支（含被本地改动挡住那一问）、开 / 建 / 移除工作树 | `state/branches.svelte.ts` | 分支浮层的开合与锚点还在 App（锚点是标题栏的元素） |
 | 拉取与推送：进度、取消、分岔决策、推送确认、失败提示 | `state/remote.svelte.ts` | 往外一个钩子 `warmUi`（先把 Git 那组懒组件拉起来，确认条在里面） |
 | 内容区顶上的全部确认横幅（七条 + 远程三条） | `shell/Confirms.svelte` | 读各自 store 的 `pending*`，按钮直接调 store；`RemoteBars` 以组件类型传进来 |
+| 跳转与跳转历史、给编辑器的「跳到某行」信号 | `state/nav.svelte.ts` | |
+| 会话快照的时机：启动恢复、防抖落盘、退出补写、脏标签定期落盘 | `state/persist.svelte.ts` | `saved` 在模块初始化时同步读一次；格式在 `session.ts` |
+| 五个浮层的开合 | `state/overlay.svelte.ts` | 开它们的人散在六处，所以是 store 不是组件状态 |
+| 语言识别表（懒拉） | `state/lang.svelte.ts` | 状态栏 / 内容区 / 大纲三处直接读 |
+| 内容区：四种视图 + 起点卡片 | `shell/Content.svelte` | `Merge` / `Diff` 以组件类型传进来 |
+| 五个浮层的懒加载与渲染 | `shell/Overlays.svelte` | |
+
+**App.svelte 剩下的**（约 970 行）是真正的壳：Git 那组 `lazyGroup`、偏好（缩略图）、
+`.gitignore` 缓存、拖放、菜单事件与键盘分派（`runMenu` / `onWindowKey`）、
+启动那条 effect、预算行、焦点 / 轮询那几条 effect，以及把各组件接起来的标记。
 
 **共享状态走 `.svelte.ts` 里一个 class 的 `$state` 字段**（`layout` / `notify` 都是这个写法），
 组件直接读写，App 不当中转站。模块导出的绑定不能被外面重新赋值，
