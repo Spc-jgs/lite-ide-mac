@@ -6,7 +6,7 @@ import type { TabState } from "./tab";
 
 /**
  * 文档生命周期：编辑器里那份文本和盘上那份之间的关系 ——
- * 保存、外部改动、冲突裁决、草稿回写、光标位置。
+ * 保存、外部改动、冲突裁决、草稿回写、光标位置、换编码。
  *
  * 字段之间的**判据**在 `doc.ts`（纯函数，有测试）；这里是**流程**：谁在什么
  * 时候调那些判据、结果写回哪个标签、和 IPC 怎么接。从 App.svelte 搬出来
@@ -188,6 +188,43 @@ class Docs {
     }
     // take === "mine"：什么都不做，保留编辑器里的内容，
     // 下次 ⌘S 会覆盖磁盘 —— 指纹已经更新过，不会再重复告警
+  }
+
+  /** 按新编码重新解码当前文件 */
+  async reopenWith(label: string) {
+    const tab = tabs.active;
+    if (!tab) return;
+    try {
+      if (tab.mode === "log") {
+        // 日志模式只是换个 TextDecoder 标签，不用重开句柄
+        tab.encoding = label;
+        return;
+      }
+      if (tab.dirty) {
+        notify.fail("有未保存的改动，请先保存（⌘S）再换编码重新打开", 3000);
+        return;
+      }
+      const t = await readText(tab.path, label);
+      tab.content = t.content;
+      tab.encoding = t.encoding;
+      tab.bom = t.bom;
+      tab.lossy = t.lossy;
+      this.savedTick++;
+      notify.ok(`已按 ${t.encoding} 重新打开${t.lossy ? "（仍有解不出的字节）" : ""}`, 3000);
+    } catch (e) {
+      notify.fail(String(e));
+    }
+  }
+
+  /** 只改「将来存成什么编码」，不动当前内容 */
+  saveAsEncoding(label: string, bom: boolean) {
+    const tab = tabs.active;
+    if (!tab || tab.mode !== "edit") return;
+    tab.encoding = label;
+    tab.bom = bom;
+    // 内容没变但目标编码变了，得让用户知道要按 ⌘S 才会真的落盘
+    tab.dirty = true;
+    notify.ok(`下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`, 3600);
   }
 
   /**

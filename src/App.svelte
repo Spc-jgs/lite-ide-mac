@@ -9,7 +9,6 @@
   import TitleBar from "./lib/shell/TitleBar.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import type { Action } from "./lib/search/QuickSearch.svelte";
-  import type { JumpHit } from "./lib/editor/jump";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import { layout } from "./lib/state/layout.svelte";
@@ -20,9 +19,9 @@
   import { git } from "./lib/state/git.svelte";
   import { branches } from "./lib/state/branches.svelte";
   import { remote } from "./lib/state/remote.svelte";
+  import { nav } from "./lib/state/nav.svelte";
+  import { persist, saved } from "./lib/state/persist.svelte";
   import { terms } from "./lib/state/terms.svelte";
-  import * as session from "./lib/state/session";
-  import { stashed } from "./lib/state/doc";
   import { docs } from "./lib/state/docs.svelte";
   import Crash from "./lib/shell/Crash.svelte";
   import { KEYS, byId as keyById } from "./lib/state/keymap";
@@ -33,8 +32,6 @@
     ignoredDirs,
     appLogPath,
     clearAppLog,
-    readText,
-    pickFolder,
     setRecent,
     syncMenuState,
     openExternal,
@@ -46,31 +43,12 @@
     gitUnstage,
     listProjectFiles,
     scratchDir,
-    createScratch,
   } from "./lib/ipc/commands";
 
 
-  /**
-   * 上次退出时的现场。**同步读一次**，不放进 effect ——
-   * 布局要用它做 `$state` 的初值，晚一拍读就会看见侧边栏从 240 跳到
-   * 上次的宽度，那一下闪比不恢复还难受。
-   *
-   * 读不出来（第一次跑、隐私模式、数据被清、存的是坏数据）就是 null，
-   * 一切照默认走。`session.parse` 保证不抛。
-   */
-  const saved = (() => {
-    try {
-      return session.parse(localStorage.getItem(session.KEY));
-    } catch {
-      return null;
-    }
-  })();
-  // 布局状态住在 layout.svelte.ts（导轨 / 侧边栏 / 面板各自直接读写），这里只灌一次
-  layout.restore(saved?.layout ?? session.DEFAULT_LAYOUT);
-  project.recent = saved?.recent ?? [];
   // 文档生命周期往外的两个钩子：保存完刷 git，光标动了安排存快照（见 docs.svelte.ts 文件头）
   docs.hooks.afterSave = () => void git.refresh();
-  docs.hooks.afterPos = () => scheduleSave();
+  docs.hooks.afterPos = () => persist.schedule();
   // 远程操作的确认条长在 Git 那组懒加载的组件里，操作前先把它们拉起来
   remote.hooks.warmUi = () => gitUi.load();
 
@@ -191,42 +169,7 @@
     if (encOpen) encPicker.load();
   });
 
-  /** 按新编码重新解码当前文件 */
-  async function reopenWith(label: string) {
-    const tab = tabs.active;
-    if (!tab) return;
-    try {
-      if (tab.mode === "log") {
-        // 日志模式只是换个 TextDecoder 标签，不用重开句柄
-        tab.encoding = label;
-        return;
-      }
-      if (tab.dirty) {
-        notify.fail("有未保存的改动，请先保存（⌘S）再换编码重新打开", 3000);
-        return;
-      }
-      const t = await readText(tab.path, label);
-      tab.content = t.content;
-      tab.encoding = t.encoding;
-      tab.bom = t.bom;
-      tab.lossy = t.lossy;
-      docs.savedTick++;
-      notify.ok(`已按 ${t.encoding} 重新打开${t.lossy ? "（仍有解不出的字节）" : ""}`, 3000);
-    } catch (e) {
-      notify.fail(String(e));
-    }
-  }
 
-  /** 只改「将来存成什么编码」，不动当前内容 */
-  function saveAsEncoding(label: string, bom: boolean) {
-    const tab = tabs.active;
-    if (!tab || tab.mode !== "edit") return;
-    tab.encoding = label;
-    tab.bom = bom;
-    // 内容没变但目标编码变了，得让用户知道要按 ⌘S 才会真的落盘
-    tab.dirty = true;
-    notify.ok(`下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`, 3600);
-  }
 
 
 
@@ -397,9 +340,6 @@
    * 会莫名其妙地出现在下一次 ⌘P 里。
    */
   let quickSeed = $state("");
-  /** 待跳转的行号；带 nonce，连点同一条结果也能重新定位 */
-  let gotoLine = $state<{ line: number; nonce: number } | null>(null);
-  let gotoNonce = 0;
 
   // 文件结构大纲
   let outlineOpen = $state(false);
@@ -488,68 +428,9 @@
     };
   });
 
-  /**
-   * 跳转历史。⌥⌘← 回去、⌥⌘→ 再回来（IDEA 的键位）。
-   *
-   * **跳出去回不来比不能跳更难受**，所以这两条和跳转本身是同一批东西，
-   * 不是后续增强。
-   *
-   * 存的是「路径 + 行号」而不是标签 id：跳到的文件可能在中途被关掉，
-   * 而按下 ⌥⌘← 的意思是「回到我刚才看的那个地方」，标签在不在无所谓。
-   */
-  interface NavSpot {
-    path: string;
-    line: number;
-  }
-  let navBack = $state<NavSpot[]>([]);
-  let navFwd = $state<NavSpot[]>([]);
-  /** 上限。留着几百条既没人用，也让 localStorage 那份快照白胖一圈 */
-  const NAV_MAX = 50;
 
-  /** 此刻在哪儿。`docs.posByPath` 里存的是编辑器最后报上来的光标行 */
-  function hereNow(): NavSpot | null {
-    if (!tabs.active) return null;
-    return { path: tabs.active.path, line: docs.posByPath.get(tabs.active.path) ?? 1 };
-  }
 
-  /**
-   * 跳转落点。**先把当前位置压栈再走** —— 顺序反了的话，
-   * 压进去的就是目的地，⌥⌘← 会把你留在原地。
-   */
-  async function jumpTo(hit: JumpHit) {
-    const from = hereNow();
-    if (from) {
-      navBack = [...navBack.slice(-(NAV_MAX - 1)), from];
-      // 新的跳转让「前进」失效 —— 和浏览器一样，历史分叉时旧的那一支作废
-      navFwd = [];
-    }
-    const target = hit.target;
-    if (target.rel === "") {
-      // 本文件：不重新打开，直接跳行
-      if (target.line !== undefined) gotoLine = { line: target.line, nonce: ++gotoNonce };
-      return;
-    }
-    await openAt(target.rel, target.line);
-  }
 
-  /** ⌥⌘← / ⌥⌘→。两条对称，合成一个函数免得两边漏改 */
-  async function navGo(dir: "back" | "fwd") {
-    const from = dir === "back" ? navBack : navFwd;
-    if (from.length === 0) {
-      notify.ok(dir === "back" ? "没有可回退的位置" : "没有可前进的位置", 1600);
-      return;
-    }
-    const spot = from[from.length - 1];
-    const here = hereNow();
-    if (dir === "back") {
-      navBack = navBack.slice(0, -1);
-      if (here) navFwd = [...navFwd.slice(-(NAV_MAX - 1)), here];
-    } else {
-      navFwd = navFwd.slice(0, -1);
-      if (here) navBack = [...navBack.slice(-(NAV_MAX - 1)), here];
-    }
-    await openAt(spot.path, spot.line);
-  }
 
   /**
    * 「在项目里找这个名字」—— 跳转够不着时的退路。
@@ -569,12 +450,6 @@
     quickOpen = true;
   }
 
-  /** 搜索结果点击：打开文件，带行号则跳过去 */
-  async function openAt(path: string, line?: number) {
-    const full = path.startsWith("/") ? path : `${project.root ?? ""}/${path}`;
-    await tabflow.openPath(full);
-    if (line !== undefined) gotoLine = { line, nonce: ++gotoNonce };
-  }
 
   $effect(() => {
     if (tabs.active?.mode === "edit") editor.load();
@@ -657,85 +532,12 @@
 
 
 
-  /**
-   * 新建一份草稿并打开。
-   *
-   * 名字按**本地时间**取（`2026-09-09 1030.md`）：草稿是「看日志时顺手记两笔」
-   * 的临时纸，翻回来时唯一记得的线索就是「大概什么时候记的」。
-   * 不弹输入框问名字 —— 中间隔一次打字，「想记就记」就没了。
-   *
-   * 时间戳在这边算而不是 Rust 侧：std 里没有本地时区，为一个文件名
-   * 拽一个日期库进去不值，而 `new Date()` 天然就是本地的。
-   */
-  async function newScratch() {
-    notify.clear();
-    try {
-      const d = new Date();
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const stem =
-        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-        `${pad(d.getHours())}${pad(d.getMinutes())}`;
-      await tabflow.openPath(await createScratch(stem));
-    } catch (e) {
-      notify.fail(String(e));
-    }
-  }
-
-  /**
-   * 把草稿目录当项目根打开 —— 文件树、⌘P、⇧⌘F 立刻全都有，零新代码。
-   *
-   * 草稿目录在 Finder 里默认看不见（「资源库」是隐藏的），这是翻旧草稿唯一的入口。
-   * 代价说在前面：Git 面板会空，那个目录不是仓库。
-   *
-   * 目录不存在**不是错误**，是「你还一条都没记过」——
-   * 报一句红字会让人以为坏了。
-   */
-  async function openScratchDir() {
-    notify.clear();
-    try {
-      const dir = await scratchDir();
-      if (!(await probePath(dir).catch(() => null))) {
-        notify.ok("还没有草稿 —— ⌘N 记第一条", 2600);
-        return;
-      }
-      await tabflow.openPath(dir);
-    } catch (e) {
-      notify.fail(String(e));
-    }
-  }
 
 
 
 
-  /**
-   * 开原生的选择文件夹面板。取消了什么也不做。
-   *
-   * 选中之后走的是 `openPath` —— 它对目录的处理就是把 project.root 设过去，
-   * 和拖一个文件夹进来、命令行传目录**是同一条路**。
-   * 另起一套的话，「切项目要不要清掉旧标签」这类判断就会有两份。
-   */
-  async function openFolder() {
-    const dir = await pickFolder().catch(() => null);
-    if (!dir) return;
-    await tabflow.openPath(dir);
-  }
 
-  /**
-   * 从菜单里选一个最近项目。
-   *
-   * **不预先探测存在性。** 每次开菜单去 stat 一遍 8 个路径，
-   * 碰上没挂载的网络卷会把菜单卡住 —— 改成点了才发现：
-   * 打不开就报一句并把它从列表里摘掉，那时用户已经知道自己在等什么了。
-   */
-  async function openRecent(dir: string) {
-    const info = await probePath(dir).catch(() => null);
-    if (info?.kind !== "dir") {
-      notify.fail(`打不开 ${dir} —— 已从最近记录里移除`, 3200);
-      project.recent = project.recent.filter((r) => r !== dir);
-      return;
-    }
-    await tabflow.openPath(dir);
-  }
+
 
 
   /**
@@ -810,98 +612,6 @@
   }
 
 
-  /**
-   * 把上次的现场摆回来。
-   *
-   * 全程「能恢复多少算多少」：项目根没了就不设，文件没了就跳过，
-   * 一个都没恢复出来就是一个干净的空界面 —— 都不该报错。
-   * 启动流程里任何一句 throw 都等于应用打不开。
-   */
-  async function restoreSession() {
-    if (!saved) return;
-    if (saved.root) {
-      const ok = await probePath(saved.root)
-        .then((i) => i.kind === "dir")
-        .catch(() => false);
-      if (ok) project.root = saved.root;
-    }
-    /*
-     * **先记位置，再开文件。** 反过来写过一版，位置恢复整个不生效：
-     * `openPath` 一把标签加进去，tabs.activeId 就变了，兑现位置的那个 effect
-     * 当场就跑 —— 而那时 `docs.pendingPos` 里还什么都没有。等 effect 跑完再写进去，
-     * tabs.activeId 已经不会再变，effect 也就不会再跑第二次了。
-     */
-    for (const t of saved.tabs) {
-      if (t.line !== undefined) docs.pendingPos.set(t.path, t.line);
-    }
-    /*
-     * 串行开，不并行。
-     *
-     * 并行看着快，但每个文件都要 probe + 读全文（或 mmap + 探编码），
-     * 二十个文件一起冲进 IPC 会把启动的头一秒占满，首屏反而更晚出来。
-     * 而且 `openPath` 里 `if (!project.root) project.root = 父目录` 这句依赖顺序。
-     *
-     * **但串行不等于要一个一个地闪。** `tabflow.restoringTabs` 期间 `openPath`
-     * 不碰 `activeId`（见它上面那段），所以内容区一次都不重建；
-     * 走到该激活的那个标签时点一次，编辑器**只建一次**，
-     * 剩下的标签在它后面继续往标签条里填。
-     *
-     * 顺序仍是存下来的顺序 —— 把该激活的那个提到最前面能让它更早出来，
-     * 但标签条的顺序就跟上次不一样了，那是个更难受的毛病。
-     */
-    const wantPath = saved.tabs[saved.active]?.path;
-    tabflow.restoringTabs = true;
-    try {
-      for (const t of saved.tabs) {
-        await tabflow.openPath(t.path, true);
-        if (t.path === wantPath) {
-          const hit = tabs.list.find((x) => x.path === t.path);
-          // 这一下是整个恢复过程里唯一一次内容区渲染
-          if (hit) tabs.activeId = hit.id;
-        }
-      }
-    } finally {
-      // 这里必须 finally：漏掉的话 tabs.activeId 就永久失灵，
-      // 而 openPath 是会抛的（文件没了、读不动、编码探测失败）
-      tabflow.restoringTabs = false;
-    }
-    /*
-     * 兑现草稿。**必须在文件都读进来之后**：判据是「草稿和盘上现在那份一不一样」，
-     * 盘上那份要先有。
-     *
-     * 三种情况，都不需要我们替谁做主（见 state/session.ts 的长注释）：
-     * - 盘上没变 → 原样恢复，dirty 由 `stashed` 按内容算出来
-     * - 盘上变了而草稿还不一样 → 就是应用运行中早就有的那个冲突，
-     *   摆出「用磁盘上的 / 保留我的」让用户选
-     * - 草稿恰好和盘上现在一样 → `stashed` 自己会把它丢掉，也就不脏
-     */
-    for (const snapTab of saved.tabs) {
-      if (snapTab.draft === undefined) continue;
-      const tab = tabs.list.find((t) => t.path === snapTab.path && t.mode === "edit");
-      if (!tab) continue;
-      Object.assign(tab, stashed(tab, snapTab.draft));
-      if (!tab.dirty) continue;
-      const 盘上变了 =
-        !snapTab.stamp ||
-        !tab.stamp ||
-        snapTab.stamp.mtimeMs !== tab.stamp.mtimeMs ||
-        snapTab.stamp.size !== tab.stamp.size;
-      if (盘上变了) tab.conflict = true;
-    }
-    /*
-     * 兜底。正常路径上 tabs.activeId 在上面那个循环里就点过了 ——
-     * 这里只服务两种情况：上次激活的那个文件这次不在了（循环里没命中），
-     * 或者 `saved.active` 越界。那时退到第一个恢复成功的标签，
-     * 总比停在一个空内容区上好。
-     */
-    if (tabs.activeId === null && tabs.list.length > 0) tabs.activeId = tabs.list[0].id;
-    // 上次开着、这次已经不在的文件：从记忆里也删掉，不然它们
-    // 会一直躺在快照里，每次启动都白试一遍
-    for (const t of saved.tabs) {
-      if (!tabs.list.some((x) => x.path === t.path)) docs.pendingPos.delete(t.path);
-    }
-    tabs.audit("会话恢复");
-  }
 
   /**
    * 活动标签换了：如果它带着一个待兑现的恢复位置，跳过去并**销号**。
@@ -910,128 +620,21 @@
    * 用户在别处读到一半切走再切回来就莫名其妙跳走了。
    */
   $effect(() => {
-    const t = tabs.active;
-    if (!t) return;
-    const line = docs.pendingPos.get(t.path);
-    if (line === undefined) return;
-    docs.pendingPos.delete(t.path);
-    gotoLine = { line, nonce: ++gotoNonce };
+    tabs.active;
+    persist.redeemPos();
   });
 
-  /** 按当前状态拍一张快照 */
-  function snapshot(): session.Session {
-    return {
-      root: project.root,
-      tabs: tabs.list.map((t) => {
-        const line = docs.posByPath.get(t.path);
-        const snap: session.TabSnap = { path: t.path };
-        if (line !== undefined) snap.line = line;
-        /*
-         * 有未保存改动就把草稿一起存下来 —— 「没手动保存就退出，改动直接没」
-         * 是这个应用最容易咬人的一条，而会话恢复对外说的是「回到上次的现场」。
-         *
-         * `liveText` 而不是 `t.draft`：当前标签的编辑器还活着，草稿字段
-         * 可能停在几步之前（见 state/doc.ts）。
-         * `stamp` 必须一起存，恢复时要靠它判断盘上那份有没有被人动过。
-         * 超限的草稿由 `session.serialize` 丢掉，这里不预先筛。
-         */
-        if (t.mode === "edit" && t.dirty) {
-          snap.draft = docs.liveText(t);
-          if (t.stamp) snap.stamp = { mtimeMs: t.stamp.mtimeMs, size: t.stamp.size };
-        }
-        return snap;
-      }),
-      active: Math.max(0, tabs.list.findIndex((t) => t.id === tabs.activeId)),
-      layout: layout.snapshot(),
-      recent: [...project.recent],
-    };
-  }
-
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
-
-  /**
-   * 恢复期间不写。
-   *
-   * 保存的 effect 在挂载时就会跑一次，而那时 `restoreSession()` 还没开始
-   * （它要等 `initialPath()` 这个 IPC 回来）—— 400ms 的防抖一到，
-   * 就会拿一个「什么都没打开」的空状态**盖掉上次的快照**。
-   * 本次运行看不出问题（`saved` 早在初始化时就读进内存了），
-   * 但恢复途中退出的话，上次的现场就真没了。
-   */
-  let restoring = $state(true);
-
-  /** 上一次真正写进去的那串。草稿让写变频了，一模一样就别再写一遍 */
-  let lastWritten = "";
-
-  function writeSession() {
-    saveTimer = null;
-    if (restoring) return;
-    const snap = snapshot();
-    let text: string;
-    try {
-      text = session.serialize(snap);
-    } catch {
-      return; // 序列化都失败就彻底放弃，不能让它冒到启动路径上
-    }
-    if (text === lastWritten) return;
-    try {
-      localStorage.setItem(session.KEY, text);
-      lastWritten = text;
-    } catch {
-      /*
-       * 写不下多半是草稿把配额撑爆了。**退一步再存一次**：宁可丢草稿，
-       * 也不能连「上次开了哪些文件、光标在哪」一起赔进去 ——
-       * 后者是草稿进来之前就有的保证，不该被新功能连累。
-       */
-      try {
-        const plain = session.serialize(snap, false);
-        localStorage.setItem(session.KEY, plain);
-        lastWritten = plain;
-      } catch {
-        /* 隐私模式之类，连基本的都写不下就算了 */
-      }
-    }
-  }
-
-  /**
-   * 防抖 400ms 后存。
-   *
-   * 拖侧边栏、移光标、滚日志都会走这里，每次都写 localStorage 是**同步 IO**，
-   * 不防抖的话拖动时能明显感觉到滞手。
-   */
-  function scheduleSave() {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(writeSession, 400);
-  }
 
 
-  /** 已经为「草稿太大存不下」提醒过的文件，一个文件只说一次 */
-  const warnedBig = new Set<string>();
 
-  /*
-   * 有未保存改动时定期落一次盘。
-   *
-   * 下面那条响应式 effect 订阅的是布局、标签、项目根 —— **打字不动其中任何一个**，
-   * 所以光靠它，「改了半天一直没切标签也没退出」这个最该被记住的状态一次都不会存。
-   * 退出前的 pagehide 补写能兜住正常退出，但兜不住崩溃（Rust 侧是 panic = abort，
-   * 一个 panic 就是进程当场死，没有 pagehide）。
-   *
-   * 4 秒一次，而且只在真有脏标签时才动；`writeSession` 里还有一道
-   * 「和上次一模一样就不写」。
-   */
+
+
+
+
+
+  // 有未保存改动时定期落一次盘 —— 为什么要有这条，见 persist.svelte.ts 的 tickDrafts
   $effect(() => {
-    const id = setInterval(() => {
-      const dirty = tabs.list.filter((t) => t.mode === "edit" && t.dirty);
-      if (dirty.length === 0) return;
-      // 存不下的那种要当面说 —— 不说的话用户以为自己被记住了
-      for (const t of dirty) {
-        if (warnedBig.has(t.path)) continue;
-        if (docs.liveText(t).length <= session.MAX_DRAFT_CHARS) continue;
-        warnedBig.add(t.path);
-        notify.fail(`${t.name} 太大，未保存的改动不会被记住 —— 请 ⌘S 保存`, 6000);
-      }
-      scheduleSave();
-    }, 4000);
+    const id = setInterval(() => persist.tickDrafts(), 4000);
     return () => clearInterval(id);
   });
 
@@ -1039,7 +642,7 @@
   $effect(() => {
     // 显式读一遍，让 effect 订阅上它们
     void [project.root, tabs.list.length, tabs.activeId, layout.snapshot()];
-    scheduleSave();
+    persist.schedule();
   });
 
   /*
@@ -1050,10 +653,7 @@
    * beforeunload 不一定触发），两个都挂上，写两次也无所谓。
    */
   $effect(() => {
-    const flush = () => {
-      if (saveTimer) clearTimeout(saveTimer);
-      writeSession();
-    };
+    const flush = () => persist.flush();
     window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
     return () => {
@@ -1178,13 +778,13 @@
    */
   async function runMenu(id: string) {
     if (id.startsWith("recent:")) {
-      await openRecent(id.slice("recent:".length));
+      await tabflow.openRecent(id.slice("recent:".length));
       return;
     }
     switch (id) {
-      case "open-folder": return void openFolder();
-      case "new-scratch": return void newScratch();
-      case "open-scratch-dir": return void openScratchDir();
+      case "open-folder": return void tabflow.openFolder();
+      case "new-scratch": return void tabflow.newScratch();
+      case "open-scratch-dir": return void tabflow.openScratchDir();
       case "recent-clear": project.recent = []; return;
       case "save": return docs.saveActive();
       case "encoding":
@@ -1201,8 +801,8 @@
       case "quick-file": quickScope = "file"; quickSeed = ""; quickOpen = true; return;
       case "quick-content": quickScope = "content"; quickSeed = ""; quickOpen = true; return;
       case "find-word": return findWordAtCursor();
-      case "nav-back": return void navGo("back");
-      case "nav-fwd": return void navGo("fwd");
+      case "nav-back": return void nav.go("back");
+      case "nav-fwd": return void nav.go("fwd");
       case "outline": return openOutline();
       case "toggle-sidebar": layout.sidebar = !layout.sidebar; return;
       case "toggle-panel": layout.panel = !layout.panel; return;
@@ -1249,7 +849,7 @@
       .then(async (p) => {
         if (tabs.list.length > 0 || project.root !== null) return;
         if (!p) {
-          await restoreSession();
+          await persist.restore();
           return;
         }
         /*
@@ -1263,13 +863,13 @@
          */
         const info = await probePath(p).catch(() => null);
         const switchingProject = info?.kind === "dir" && info.path !== saved?.root;
-        if (!switchingProject) await restoreSession();
+        if (!switchingProject) await persist.restore();
         await tabflow.openPath(p);
       })
       .catch(() => {})
       .finally(() => {
-        restoring = false;
-        scheduleSave();
+        persist.restoring = false;
+        persist.schedule();
         void writeBudgetLine();
       });
   });
@@ -1407,7 +1007,7 @@
     {symbols}
     fileName={tabs.active?.name ?? ""}
     supported={outlineSupported}
-    onPick={(line) => (gotoLine = { line, nonce: ++gotoNonce })}
+    onPick={(line) => (nav.goto(line))}
   />
 {/if}
 
@@ -1418,7 +1018,7 @@
     seed={quickSeed}
     root={project.root}
     {actions}
-    onOpenFile={openAt}
+    onOpenFile={(p, l) => nav.openAt(p, l)}
   />
 {/if}
 
@@ -1429,8 +1029,8 @@
     bom={!!tabs.active.bom}
     lossy={!!tabs.active.lossy}
     readonly={tabs.active.mode !== "edit"}
-    onReopen={(l) => void reopenWith(l)}
-    onSaveAs={saveAsEncoding}
+    onReopen={(l) => void docs.reopenWith(l)}
+    onSaveAs={(...a) => docs.saveAsEncoding(...a)}
   />
 {/if}
 
@@ -1458,8 +1058,8 @@
     recent={project.recent}
     {branchOpen}
     bind:branchBtn
-    onOpenRecent={(r) => void openRecent(r)}
-    onOpenFolder={() => void openFolder()}
+    onOpenRecent={(r) => void tabflow.openRecent(r)}
+    onOpenFolder={() => void tabflow.openFolder()}
     onClearRecent={() => (project.recent = [])}
     onOpenBranches={openBranchPicker}
   />
@@ -1546,7 +1146,7 @@
           onClose={(...a) => tabflow.requestClose(...a)}
           onCloseMany={(...a) => tabflow.closeMany(...a)}
           onRevealInTree={revealInTree}
-          onNewScratch={newScratch}
+          onNewScratch={(...a) => tabflow.newScratch(...a)}
         />
       {/if}
 
@@ -1571,12 +1171,12 @@
               <div class="big">打开一个文件夹开始</div>
               <p>也可以直接把文件或文件夹拖进来 —— 代码走编辑模式，大文件与日志自动走只读的日志模式</p>
               <div class="go">
-                <button class="primary" onclick={() => void openFolder()}>打开文件夹…</button>
+                <button class="primary" onclick={() => void tabflow.openFolder()}>打开文件夹…</button>
                 <kbd>⌘O</kbd>
                 <span class="gap"></span>
                 {#if project.recent.length > 0}
                   <span class="lastly">最近：</span>
-                  <button class="link" onclick={() => void openRecent(project.recent[0])}>
+                  <button class="link" onclick={() => void tabflow.openRecent(project.recent[0])}>
                     {project.recent[0].slice(project.recent[0].lastIndexOf("/") + 1) || project.recent[0]}
                   </button>
                 {/if}
@@ -1622,7 +1222,7 @@
           {#key tabs.active.id}
             <logPane.comp
               handle={tabs.active.handle}
-              {gotoLine}
+              gotoLine={nav.gotoLine}
               encoding={tabs.active.encoding ?? "utf-8"}
               onStatus={(s) => (logStatus = s)}
               onTop={(l) => docs.markPos(tabs.active!.path, l)}
@@ -1637,7 +1237,7 @@
               initial={tabs.active.draft ?? tabs.active.content ?? ""}
               baseline={tabs.active.content ?? ""}
               savedTick={docs.savedTick}
-              {gotoLine}
+              gotoLine={nav.gotoLine}
               {outlineTick}
               marks={editorMarks}
               {showMinimap}
@@ -1653,7 +1253,7 @@
                 ? tabs.active.path.slice(project.root.length + 1)
                 : null}
               jumpLang={langs?.langOf(tabs.active.path) ?? ""}
-              onJump={(hit) => void jumpTo(hit)}
+              onJump={(hit) => void nav.jumpTo(hit)}
             />
           {/key}
         {:else}

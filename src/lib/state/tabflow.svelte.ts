@@ -6,6 +6,9 @@ import {
   openLog,
   closeLog,
   discardEmptyScratch,
+  createScratch,
+  scratchDir,
+  pickFolder,
 } from "../ipc/commands";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
@@ -14,7 +17,8 @@ import { project } from "./project.svelte";
 import type { TabState } from "./tab";
 
 /**
- * 一个文件在标签表里的进出：打开、关闭（含「未保存怎么办」那一问）、切模式。
+ * 一个文件在标签表里的进出：打开（文件 / 文件夹 / 最近 / 草稿）、关闭（含「未保存怎么办」
+ * 那一问）、切模式。
  *
  * `tabs` 是表，这里是**流程**：读盘、开日志引擎、问用户、写回表。
  * 从 App.svelte 搬出来（issue #9 第 4b 步），逻辑一个字不改。
@@ -122,6 +126,83 @@ class TabFlow {
       if (!quiet) notify.fail(String(e));
     } finally {
       this.#opening.delete(path);
+    }
+  }
+
+  /**
+   * 开原生的选择文件夹面板。取消了什么也不做。
+   *
+   * 选中之后走的是 `openPath` —— 它对目录的处理就是把 `project.root` 设过去，
+   * 和拖一个文件夹进来、命令行传目录**是同一条路**。
+   * 另起一套的话，「切项目要不要清掉旧标签」这类判断就会有两份。
+   */
+  async openFolder() {
+    const dir = await pickFolder().catch(() => null);
+    if (!dir) return;
+    await this.openPath(dir);
+  }
+
+  /**
+   * 从菜单里选一个最近项目。
+   *
+   * **不预先探测存在性。** 每次开菜单去 stat 一遍 8 个路径，
+   * 碰上没挂载的网络卷会把菜单卡住 —— 改成点了才发现：
+   * 打不开就报一句并把它从列表里摘掉，那时用户已经知道自己在等什么了。
+   */
+  async openRecent(dir: string) {
+    const info = await probePath(dir).catch(() => null);
+    if (info?.kind !== "dir") {
+      notify.fail(`打不开 ${dir} —— 已从最近记录里移除`, 3200);
+      project.recent = project.recent.filter((r) => r !== dir);
+      return;
+    }
+    await this.openPath(dir);
+  }
+
+  /**
+   * 新建一份草稿并打开。
+   *
+   * 名字按**本地时间**取（`2026-09-09 1030.md`）：草稿是「看日志时顺手记两笔」
+   * 的临时纸，翻回来时唯一记得的线索就是「大概什么时候记的」。
+   * 不弹输入框问名字 —— 中间隔一次打字，「想记就记」就没了。
+   *
+   * 时间戳在这边算而不是 Rust 侧：std 里没有本地时区，为一个文件名
+   * 拽一个日期库进去不值，而 `new Date()` 天然就是本地的。
+   */
+  async newScratch() {
+    notify.clear();
+    try {
+      const d = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const stem =
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+        `${pad(d.getHours())}${pad(d.getMinutes())}`;
+      await this.openPath(await createScratch(stem));
+    } catch (e) {
+      notify.fail(String(e));
+    }
+  }
+
+  /**
+   * 把草稿目录当项目根打开 —— 文件树、⌘P、⇧⌘F 立刻全都有，零新代码。
+   *
+   * 草稿目录在 Finder 里默认看不见（「资源库」是隐藏的），这是翻旧草稿唯一的入口。
+   * 代价说在前面：Git 面板会空，那个目录不是仓库。
+   *
+   * 目录不存在**不是错误**，是「你还一条都没记过」——
+   * 报一句红字会让人以为坏了。
+   */
+  async openScratchDir() {
+    notify.clear();
+    try {
+      const dir = await scratchDir();
+      if (!(await probePath(dir).catch(() => null))) {
+        notify.ok("还没有草稿 —— ⌘N 记第一条", 2600);
+        return;
+      }
+      await this.openPath(dir);
+    } catch (e) {
+      notify.fail(String(e));
     }
   }
 
