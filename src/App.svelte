@@ -7,10 +7,11 @@
   import StatusBar from "./lib/shell/StatusBar.svelte";
   import Confirms from "./lib/shell/Confirms.svelte";
   import Content from "./lib/shell/Content.svelte";
+  import Overlays from "./lib/shell/Overlays.svelte";
   import TitleBar from "./lib/shell/TitleBar.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import type { Action } from "./lib/search/QuickSearch.svelte";
-  import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
+  import { lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import { layout } from "./lib/state/layout.svelte";
   import { tabs } from "./lib/state/tabs.svelte";
@@ -18,14 +19,14 @@
   import { project } from "./lib/state/project.svelte";
   import { worktree } from "./lib/state/worktree.svelte";
   import { git } from "./lib/state/git.svelte";
-  import { branches } from "./lib/state/branches.svelte";
   import { remote } from "./lib/state/remote.svelte";
   import { nav } from "./lib/state/nav.svelte";
   import { persist, saved } from "./lib/state/persist.svelte";
+  import { overlay } from "./lib/state/overlay.svelte";
+  import { lang } from "./lib/state/lang.svelte";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
   import { KEYS, byId as keyById } from "./lib/state/keymap";
-  import type { Sym } from "./lib/editor/outline";
   import {
     probePath,
     ignoredDirs,
@@ -145,26 +146,11 @@
       (layout.sideView === "git" && !!git.repo) ||
       tabs.list.some((t) => t.mode === "diff" || t.mode === "merge") ||
       (layout.panel && panelTool === "git" && layout.gitTab === "log") ||
-      branchOpen;
+      overlay.branchOpen;
     if (need) gitUi.load();
   });
 
-  /** 分支 / 工作树选择器 */
-  let branchOpen = $state(false);
 
-  // ─────────────────────────── 编码 ───────────────────────────
-
-  let encOpen = $state(false);
-  const encPicker = lazy(() => import("./lib/encoding/EncodingPicker.svelte"), "编码选择器");
-  /*
-   * 速查表是「忘了才看」的东西，一次都不点开也很正常 ——
-   * 让它在首屏之前被解析执行不划算。判据同 ARCHITECTURE 那条：
-   * 问一句「这东西在窗口出现之前有用吗」。
-   */
-  const keysPanel = lazy(() => import("./lib/search/Keys.svelte"), "快捷键速查");
-  $effect(() => {
-    if (encOpen) encPicker.load();
-  });
 
 
 
@@ -235,59 +221,10 @@
 
 
 
-  /**
-   * 两个搜索浮层（⌘P 随处搜索、⌘⇧O 文件结构）。
-   *
-   * 一起拉是因为**它们共用 `fuzzy.ts`** —— 分两次的话那份排序算法要么进公共块、
-   * 要么各带一份，而两个浮层本来就是同一类东西（键盘唤出、盖在界面上）。
-   *
-   * 挪出入口包**实测省 10,183 字节**（挪走前后各量一次，不是按 sourcemap 归因
-   * 的估值 —— 归因会高估数据密集的模块，见 .claude/rules/frontend.md）。
-   * 判据同 `keysPanel`：问一句「这东西在窗口出现之前有用吗」——
-   * 没有，它们都得等一次按键。
-   *
-   * 但和速查表不同的是，**这两个是天天按的**，不能让第一次 ⌘P 等一次 chunk 往返。
-   * 所以首屏画完之后就预拉（见下面那个 setTimeout）：既不占首屏之前那段，
-   * 又保证人真按下去的时候它已经在了。
-   */
-  const overlays = lazyGroup(
-    {
-      quick: () => import("./lib/search/QuickSearch.svelte"),
-      outline: () => import("./lib/search/Outline.svelte"),
-    },
-    "搜索浮层",
-  );
 
-  $effect(() => {
-    // 兜底：预拉万一没跑到（或者失败过），真按下去时补一次。
-    // `load()` 是幂等的，重复调用会被它自己的状态挡掉
-    if (quickOpen || outlineOpen) overlays.load();
-  });
 
-  $effect(() => {
-    /*
-     * 首屏之后再拉。
-     *
-     * 300ms 不是随便取的：它要**明确落在首屏绘制之后**（否则等于没挪出去），
-     * 又要远早于人按下第一个 ⌘P。用 `setTimeout` 而不是
-     * `requestIdleCallback` —— 后者 Safari 16.4 才有，而构建目标是 safari15。
-     */
-    const id = setTimeout(() => overlays.load(), 300);
-    return () => clearTimeout(id);
-  });
 
-  let quickOpen = $state(false);
-  let quickScope = $state<"all" | "file" | "content" | "action">("all");
-  /**
-   * 打开随处搜索时预填的词。只有「在项目里找这个名字」会设它，
-   * **每条打开浮层的路都要把它清掉** —— 不清的话，上次找过的名字
-   * 会莫名其妙地出现在下一次 ⌘P 里。
-   */
-  let quickSeed = $state("");
 
-  // 文件结构大纲
-  let outlineOpen = $state(false);
-  let outlineTick = $state(0);
   /**
    * 空态卡片上列的那几条。
    *
@@ -302,15 +239,6 @@
   const keyHints = HINT_IDS.map((id) => keyById(id)).filter((k) => k !== undefined);
 
   /** 快捷键速查浮层。⌘/ 归菜单（帮助 › 快捷键速查），这里只存开合 */
-  let keysOpen = $state(false);
-
-  let symbols = $state<Sym[]>([]);
-  function openOutline() {
-    if (tabs.active?.mode !== "edit") return;
-    symbols = [];
-    outlineTick++;
-    outlineOpen = true;
-  }
 
   /**
    * 随处搜索里的「操作」。**从键位表生成，不再手写第二份。**
@@ -348,23 +276,6 @@
 
 
 
-  /**
-   * 「在项目里找这个名字」—— 跳转够不着时的退路。
-   *
-   * 它**不伪装成跳转**：拿光标处的词跑一次现成的全局搜索，结果照常列在
-   * 搜索面板里让人自己挑。省掉的只是「选中、复制、⇧⌘F、粘贴」这四下，
-   * 而不是给一个精度可疑的下划线。
-   */
-  function findWordAtCursor() {
-    const w = docs.wordUnderCursor();
-    if (!w) {
-      notify.ok("把光标放到一个名字上再按", 2000);
-      return;
-    }
-    quickScope = "content";
-    quickSeed = w;
-    quickOpen = true;
-  }
 
 
 
@@ -400,43 +311,15 @@
    */
   $effect(() => {
     const e =
-      gitUi.error ||
-      encPicker.error ||
-      keysPanel.error ||
-      overlays.error;
+      gitUi.error;
     if (e) notify.fail(e);
   });
 
-  /** 走 legacy stream parser 的语言没有语法树，界面要明说 */
-  const LEZER_LANGS = new Set([
-    "java", "javascript", "typescript", "python", "markdown", "json", "rust",
-    "yaml", "html", "css", "sass", "less", "xml", "sql", "cpp", "php", "vue", "liquid",
-  ]);
-  /**
-   * 语言识别表（文件名 → 语言 id → 显示名）。**只在有标签打开时才拉。**
-   *
-   * 入口包是**首屏之前必须解析执行完**的那一段，而这张表回答的两个问题
-   * （状态栏显示什么语言、⌘⇧O 支不支持这个文件）都要先有一个打开的文件
-   * 才成立 —— 一个都没打开时它纯属压秤。**实测省 3,419 字节。**
-   *
-   * （sourcemap 归因说它有 11.0 KB，差了三倍：这张表几乎全是数据，
-   * 语句少、mapping 稀，归因会把后面邻居的字节一起算到它头上。
-   * 收益一律以「挪走前后各量一次」为准。）
-   *
-   * 表还没到手时：语言那格空着，`outlineSupported` 是假。两者都只持续到
-   * 那个几 KB 的 chunk 回来为止，而它和编辑器（370 KB）是同时开始拉的。
-   *
-   * 编辑器那边照旧直接 `import` 它 —— 那个 chunk 本来就是懒的，
-   * 两处引到的是同一份模块。
-   */
-  let langs = $state<typeof import("./lib/editor/langs") | null>(null);
+  // 语言识别表只在有标签打开时才拉（理由在 lang.svelte.ts）
   $effect(() => {
-    if (tabs.active && !langs) void import("./lib/editor/langs").then((m) => (langs = m));
+    if (tabs.active) lang.load();
   });
 
-  let outlineSupported = $derived(
-    tabs.active?.mode === "edit" && !!langs && LEZER_LANGS.has(langs.langOf(tabs.active.path) ?? ""),
-  );
 
 
 
@@ -451,26 +334,12 @@
 
 
 
-  /**
-   * 分支浮层挂在挂件底下，所以要把挂件的位置一起交出去。
-   *
-   * **位置在打开之前就得定下来**，和 `git_fetch` 的 op_id 是同一条判据：
-   * 凡是「先开始、后返回句柄」的东西，句柄必须早于用它的人。这里更直接 ——
-   * 浮层渲染的那一帧就要知道往哪儿掉。
-   */
-  let branchAnchor = $state<{ x: number; y: number } | null>(null);
   let branchBtn = $state<HTMLElement | null>(null);
-
-  /**
-   * 一律从挂件底下掉下来，**不管是谁开的**：点挂件、Git 栏里的分支行、
-   * 菜单里的「分支与工作树」，三条路都读同一个元素的位置。
-   * 三处各写各的话，从菜单开出来的那次就会掉在别的地方。
-   */
+  /** 三条路（挂件、Git 栏、菜单）都从这儿走，锚点由同一个元素定 */
   function openBranchPicker() {
-    const r = branchBtn?.getBoundingClientRect();
-    branchAnchor = r ? { x: r.left, y: r.bottom + 4 } : null;
-    branchOpen = true;
+    overlay.openBranches(branchBtn?.getBoundingClientRect());
   }
+
 
 
 
@@ -618,9 +487,7 @@
     // 阈值取 500ms，与系统默认双击间隔相当；太短会让手慢的人按不出来
     if (now - lastShiftUp < 500) {
       lastShiftUp = 0;
-      quickScope = "all";
-      quickSeed = "";
-      quickOpen = true;
+      overlay.openQuick("all");
     } else {
       lastShiftUp = now;
     }
@@ -633,8 +500,8 @@
      * 全都因为这个悄悄失效过。统一小写化之后两种情况都对。
      */
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-    if (e.key === "Escape" && quickOpen) {
-      quickOpen = false;
+    if (e.key === "Escape" && overlay.quickOpen) {
+      overlay.quickOpen = false;
       return;
     }
     if (!e.metaKey) return;
@@ -661,9 +528,7 @@
      */
     if (k === "p") {
       e.preventDefault();
-      quickScope = "file";
-      quickSeed = "";
-      quickOpen = true;
+      overlay.openQuick("file");
       return;
     }
     /*
@@ -699,7 +564,7 @@
       case "recent-clear": project.recent = []; return;
       case "save": return docs.saveActive();
       case "encoding":
-        if (tabs.active) encOpen = true;
+        if (tabs.active) overlay.encOpen = true;
         return;
       case "close-tab":
         if (tabs.active) tabflow.requestClose(tabs.active.id);
@@ -708,13 +573,13 @@
       case "toggle-mode":
         if (tabs.active) tabflow.requestSwitchMode(tabs.active);
         return;
-      case "quick-all": quickScope = "all"; quickSeed = ""; quickOpen = true; return;
-      case "quick-file": quickScope = "file"; quickSeed = ""; quickOpen = true; return;
-      case "quick-content": quickScope = "content"; quickSeed = ""; quickOpen = true; return;
-      case "find-word": return findWordAtCursor();
+      case "quick-all": overlay.openQuick("all"); return;
+      case "quick-file": overlay.openQuick("file"); return;
+      case "quick-content": overlay.openQuick("content"); return;
+      case "find-word": return overlay.findWordAtCursor();
       case "nav-back": return void nav.go("back");
       case "nav-fwd": return void nav.go("fwd");
-      case "outline": return openOutline();
+      case "outline": return overlay.openOutline();
       case "toggle-sidebar": layout.sidebar = !layout.sidebar; return;
       case "toggle-panel": layout.panel = !layout.panel; return;
       case "toggle-minimap": showMinimap = !showMinimap; return;
@@ -739,10 +604,7 @@
       case "git-pull": return void remote.pull();
       case "git-push": return void remote.askPush();
       case "git-fetch": return void remote.fetch("fetch");
-      case "help-keys":
-        keysPanel.load();
-        keysOpen = true;
-        return;
+      case "help-keys": overlay.keysOpen = true; return;
       case "help-repo": return void openRepoPage();
       case "help-log": return void openAppLog();
       case "help-log-clear": return void clearLog();
@@ -908,66 +770,14 @@
 
 <svelte:window onkeydown={onWindowKey} onkeyup={onWindowKeyUp} />
 
-{#if keysPanel.comp}
-  <keysPanel.comp bind:open={keysOpen} />
-{/if}
-
-{#if overlays.comps.outline}
-  <overlays.comps.outline
-    bind:open={outlineOpen}
-    {symbols}
-    fileName={tabs.active?.name ?? ""}
-    supported={outlineSupported}
-    onPick={(line) => (nav.goto(line))}
-  />
-{/if}
-
-{#if overlays.comps.quick}
-  <overlays.comps.quick
-    bind:open={quickOpen}
-    bind:scope={quickScope}
-    seed={quickSeed}
-    root={project.root}
-    {actions}
-    onOpenFile={(p, l) => nav.openAt(p, l)}
-  />
-{/if}
-
-{#if encPicker.comp && tabs.active}
-  <encPicker.comp
-    bind:open={encOpen}
-    current={tabs.active.encoding ?? "UTF-8"}
-    bom={!!tabs.active.bom}
-    lossy={!!tabs.active.lossy}
-    readonly={tabs.active.mode !== "edit"}
-    onReopen={(l) => void docs.reopenWith(l)}
-    onSaveAs={(...a) => docs.saveAsEncoding(...a)}
-  />
-{/if}
-
-{#if gitUi.comps.branch && git.repo}
-  <gitUi.comps.branch
-    bind:open={branchOpen}
-    anchor={branchAnchor}
-    repo={git.repo}
-    ahead={git.status?.ahead ?? 0}
-    behind={git.status?.behind ?? 0}
-    onSwitch={(n) => branches.switchTo(n)}
-    onNewBranch={(n) => branches.switchTo(n, true)}
-    onOpenWorktree={(p) => void branches.openWorktree(p)}
-    onNewWorktree={(...a) => branches.newWorktree(...a)}
-    onRemoveWorktree={(w) => (branches.pendingWtRemove = w)}
-  />
-{/if}
-
-
+<Overlays Branch={gitUi.comps.branch} {actions} />
 
 <main class:hovering>
   <TitleBar
     root={project.root}
     gitSt={git.status}
     recent={project.recent}
-    {branchOpen}
+    branchOpen={overlay.branchOpen}
     bind:branchBtn
     onOpenRecent={(r) => void tabflow.openRecent(r)}
     onOpenFolder={() => void tabflow.openFolder()}
@@ -987,9 +797,7 @@
       changes={git.status?.entries.length ?? 0}
       {panelTool}
       onSearch={() => {
-        quickScope = "content";
-        quickSeed = "";
-        quickOpen = true;
+        overlay.openQuick("content");
       }}
       onTogglePanel={(v) => layout.togglePanel(v, panelTool)}
     />
@@ -1068,12 +876,11 @@
       <Content
         Merge={gitUi.comps.merge}
         Diff={gitUi.comps.diff}
-        {langs}
         {showMinimap}
-        {outlineTick}
+        outlineTick={overlay.outlineTick}
         {keyHints}
         onLogStatus={(t) => (logStatus = t)}
-        onOutline={(syms) => (symbols = syms)}
+        onOutline={(syms) => (overlay.symbols = syms)}
       />
 
       <!--
@@ -1096,11 +903,10 @@
     active={tabs.active}
     activeEntry={git.activeEntry}
     root={project.root}
-    {langs}
     {logStatus}
     onReveal={revealInTree}
     onSwitchMode={() => tabflow.requestSwitchMode(tabs.active!)}
-    onOpenEncoding={() => (encOpen = true)}
+    onOpenEncoding={() => (overlay.encOpen = true)}
     onOpenDiff={() => void git.openDiff(git.activeEntry!, false)}
   />
 </main>

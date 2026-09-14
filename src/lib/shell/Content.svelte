@@ -5,7 +5,7 @@
    *
    * 从 App.svelte 搬出来（issue #9 第 6 步）。`Merge` / `Diff` 属于 Git 那组
    * `lazyGroup`，那组还在 App（侧边栏、面板、确认条也用它），以组件类型传进来。
-   * `langs` / `showMinimap` / `outlineTick` 是 App 上还有别人读的状态，传 prop；
+   * `showMinimap` 是 App 上的偏好，传 prop；
    * 日志视图的状态行和编辑器的大纲往上报，状态栏和大纲浮层要。
    */
   import Crash from "./Crash.svelte";
@@ -24,11 +24,11 @@
   import { worktree } from "../state/worktree.svelte";
   import { git } from "../state/git.svelte";
   import { nav } from "../state/nav.svelte";
+  import { lang } from "../state/lang.svelte";
 
   let {
     Merge,
     Diff,
-    langs,
     showMinimap,
     outlineTick,
     keyHints,
@@ -37,8 +37,6 @@
   }: {
     Merge: typeof MergeView | undefined;
     Diff: typeof DiffView | undefined;
-    /** 语言识别表。只在有标签打开时才拉，所以可能还没到 */
-    langs: typeof import("../editor/langs") | null;
     showMinimap: boolean;
     /** 大纲浮层里点了一条，让编辑器重算一次符号 */
     outlineTick: number;
@@ -243,7 +241,7 @@
         jumpRel={project.root && tabs.active.path.startsWith(`${project.root}/`)
           ? tabs.active.path.slice(project.root.length + 1)
           : null}
-        jumpLang={langs?.langOf(tabs.active.path) ?? ""}
+        jumpLang={lang.mod?.langOf(tabs.active.path) ?? ""}
         onJump={(hit) => void nav.jumpTo(hit)}
       />
     {/key}

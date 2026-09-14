@@ -10,6 +10,7 @@
   import { notify } from "../state/notify.svelte";
   import { crumbsOf, projectName } from "../state/crumbs";
   import { isLogName } from "../logview/is-log-name";
+  import { lang } from "../state/lang.svelte";
   import type { TabState } from "../state/tab";
   import type { GitEntry } from "../ipc/commands";
 
@@ -17,7 +18,6 @@
     active,
     activeEntry,
     root,
-    langs,
     logStatus,
     onReveal,
     onSwitchMode,
@@ -28,8 +28,6 @@
     /** 当前文件在 git 里的改动条目，没有就是 null */
     activeEntry: GitEntry | null;
     root: string | null;
-    /** 语言识别表。只在有标签打开时才拉，所以可能还没到 */
-    langs: typeof import("../editor/langs") | null;
     /** 日志模式那一页报上来的一句状态 */
     logStatus: string;
     /** 点面包屑里的目录：在文件树里定位 */
@@ -138,7 +136,7 @@
         title={active.forced ? "你手动切到了日志模式" : "自动判定的原因"}
       >只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}</span>
     {:else}
-      <span class="cell dim drop-2">{langs ? langs.langLabel(langs.langOf(active.path)) : ""}</span>
+      <span class="cell dim drop-2">{lang.mod ? lang.mod.langLabel(lang.mod.langOf(active.path)) : ""}</span>
     {/if}
     <span class="vsep" aria-hidden="true"></span>
     <button
