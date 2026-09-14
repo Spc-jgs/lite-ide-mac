@@ -36,6 +36,7 @@
     diag,
     reportBudget,
     initialPath,
+    watchRoot,
     gitStage,
     gitUnstage,
     scratchDir,
@@ -683,6 +684,33 @@
   $effect(() => {
     const reg = import("@tauri-apps/api/event")
       .then((m) => m.listen<string>("menu", (e) => void runMenu(e.payload)))
+      .catch(() => null);
+    return () => void reg.then((f) => f?.()).catch(() => {});
+  });
+
+  /**
+   * 文件系统监听（issue #33 ⑳）。换项目根就重新挂；事件来了按种类刷：
+   * 只有 `.git/` 变了（提交、切分支、暂存）刷 git 状态就够；工作区文件变了
+   * 要重读打开的文件 + 重列目录，git 状态也跟着（新建的文件是未跟踪的）。
+   *
+   * 原来只有「窗口获得焦点」和 10 秒轮询两条路 —— 终端就在应用里，在终端里
+   * `git checkout` 完要切出去再切回来文件树才刷。焦点那条路留着：监听起不来
+   * （网络卷、权限）时它是退路。
+   */
+  $effect(() => {
+    void watchRoot(project.root ?? "");
+  });
+  $effect(() => {
+    const reg = import("@tauri-apps/api/event")
+      .then((m) =>
+        m.listen<string>("fs-changed", (e) => {
+          if (e.payload === "git") void git.refresh();
+          else {
+            void worktree.changed();
+            void git.refresh();
+          }
+        }),
+      )
       .catch(() => null);
     return () => void reg.then((f) => f?.()).catch(() => {});
   });

@@ -22,6 +22,10 @@ pub struct AppState {
     /// 这儿只负责「让谁看得见这个开关」。**这样这张表上永远不会发生
     /// 「持着锁去 kill 一个子进程」**——那正是 `kill_pty` 踩过的坑。
     remotes: Mutex<HashMap<u32, gitsvc::remote::Cancel>>,
+    /// 项目根上的文件系统监听（issue #33 ⑳）。同一时刻最多一个：换项目根就换掉，
+    /// 旧的 drop 即停。**先摘出来再在锁外 drop**，同 pty 那条 —— drop 要等防抖线程
+    /// 退出，持着锁等就是在锁里做慢事。
+    watch: Mutex<Option<fsservice::watch::Watch>>,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
 }
@@ -199,6 +203,12 @@ impl AppState {
     ///
     /// 同样先摘出来再在锁外析构 —— 这条还在退出路径上，
     /// 卡住的表现是「点了关闭，窗口没反应」。
+    /// 换上一个新的监听（或 None = 停掉）。旧的在锁外析构
+    pub fn set_watch(&self, w: Option<fsservice::watch::Watch>) {
+        let old = std::mem::replace(&mut *self.watch.lock().unwrap_or_else(|e| e.into_inner()), w);
+        drop(old);
+    }
+
     pub fn kill_all_ptys(&self) {
         let all: Vec<_> = self
             .ptys

@@ -24,3 +24,9 @@ trash = { version = "5", default-features = false }
 
 # 目录名单：文件树和搜索必须用同一份，理由见该 crate 的模块注释
 excludes = { path = "../excludes" }
+
+# 文件系统监听（issue #33 ⑳）。macOS 上走 FSEvents，和 IDEA / VS Code 同一条路。
+# std 里没有这个能力；自己写 FSEvents 的 FFI 不值（回调线程、CFRunLoop、
+# 路径编码，每一条都是坑），notify 是 cargo / rust-analyzer 都在用的那份。
+# 用 8.x 稳定版，不追 9.0 的 rc。
+notify = "8.2"

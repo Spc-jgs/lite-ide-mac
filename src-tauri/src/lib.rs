@@ -178,6 +178,7 @@ pub fn run() {
             commands::diag_enabled,
             commands::report_budget,
             commands::devtools_build,
+            commands::watch_root,
             commands::pick_folder,
             commands::set_recent,
             commands::sync_menu_state,

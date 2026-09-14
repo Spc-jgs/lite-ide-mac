@@ -275,6 +275,13 @@ export const reportBudget = (tabs: number, terms: number, editors: number, nodes
  */
 export const devtoolsBuild = () => invoke<boolean>("devtools_build").catch(() => false);
 
+/**
+ * 文件系统监听（issue #33 ⑳）：从这一刻起 `root` 底下有变化就来一个 `fs-changed`
+ * 事件（负载 `"git"` | `"files"`）。换根再调一次即可，旧的自动停；空串 = 停。
+ * 起不来（路径没了、FSEvents 出错）只是少了实时刷新，焦点刷新那条路还在 —— 吞掉。
+ */
+export const watchRoot = (root: string) => invoke<void>("watch_root", { root }).catch(() => {});
+
 // ─────────────────────────── 终端 ───────────────────────────
 
 /** 起一个终端；输出通过 Channel 流式回传 */

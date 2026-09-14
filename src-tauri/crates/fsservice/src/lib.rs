@@ -6,6 +6,7 @@
 //! 用什么编码读进来的就用什么编码存回去，保存不做「顺手转成 UTF-8」这种擅自决定。
 
 pub mod encoding;
+pub mod watch;
 
 use std::ffi::OsString;
 use std::fs;

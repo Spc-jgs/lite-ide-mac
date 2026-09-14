@@ -705,6 +705,10 @@ export function installMockIpc(): void {
         // 报 false（正式版）是保守的那一档：误报成调试版会让人白重打一次包
         case "devtools_build":
           return false;
+        // 文件监听：浏览器里没有盘可监听。桩里改文件走 __mockEditFileOutside，
+        // 那条路自己不发事件 —— 焦点刷新那条路在桩上照常验
+        case "watch_root":
+          return null;
         /*
          * Git 控制台（issue #29）。桩里给几条**形状真实**的：
          * 一条成功的 status、一条失败的 push、一条被打过码的远程 URL。

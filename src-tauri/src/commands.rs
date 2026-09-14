@@ -601,6 +601,30 @@ pub fn devtools_build() -> bool {
     cfg!(feature = "devtools")
 }
 
+/// 文件系统监听（issue #33 ⑳）：从这一刻起，`root` 底下有东西变了就发一个
+/// `fs-changed` 事件，负载是 `"git"`（只有 `.git/` 变了）或 `"files"`。
+/// 换项目根前端会再调一次，旧的监听随之停掉；传空串 = 只停不起。
+///
+/// 事件在监听线程上 emit，Tauri 的 emit 是线程安全的、不阻塞。
+/// 防抖和合并在 `fsservice::watch` 里，这儿只负责接线。
+#[tauri::command]
+pub fn watch_root(app: tauri::AppHandle, state: tauri::State<AppState>, root: String) -> Result<(), String> {
+    if root.is_empty() {
+        state.set_watch(None);
+        return Ok(());
+    }
+    let w = fsservice::watch::watch(&root, move |c| {
+        use tauri::Emitter;
+        let kind = match c {
+            fsservice::watch::Change::Git => "git",
+            fsservice::watch::Change::Files => "files",
+        };
+        let _ = app.emit("fs-changed", kind);
+    })?;
+    state.set_watch(Some(w));
+    Ok(())
+}
+
 /// 前端报「这批字节我已经吃下去了」，把背压的水位降下来（issue #18 第一条）。
 ///
 /// **在 `term.write(bytes, cb)` 的回调里叫**，不是收到就叫 —— 那个回调

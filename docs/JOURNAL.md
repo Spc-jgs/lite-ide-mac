@@ -5956,3 +5956,43 @@ App 壳 10 KB、八个外壳组件的模板和样式、70 个 IPC wrapper。全�
 一个小坑：往 Content 里加 `onCaret` 那行时 assert 的缩进写成了 14 格（实际 8 格），
 脚本在那之前的改动都写进去了、这一行没写，`pnpm check` 不报（prop 可选）——
 浏览器里点不到那格才发现。**可选 prop 漏接是编译器看不见的**，这类要靠跑。
+
+## 2026-09-14 · #33 ⑳：文件系统监听
+
+之前外部改动靠两条路：窗口获得焦点刷一次，10 秒轮询已打开文件的指纹。
+终端就在应用里 —— 在终端里 `git checkout` 完，文件树和分支挂件要等人切出去
+再切回来。IDEA / VS Code 都是 FSEvents，改了当场就变。
+
+### 做法
+
+`fsservice::watch`（`notify` 8.2，FSEvents 后端）递归监听项目根。事件只分两档：
+`.git/` 底下变了 → `"git"`，别的变了 → `"files"`；**不传路径** —— 前端做的是
+`worktree.changed()` + `git.refresh()`，整体对一遍，不需要知道是哪个文件，
+而 FSEvents 一次 `npm install` 能给几万条。
+
+防抖：第一条到了之后等 300ms 再发，这段合并成一条。**不等「安静下来」**：
+`npm install` 能持续一分钟，等安静就是一分钟什么都不刷。最坏每 300ms 一次
+`git status`（十几毫秒）+ 重列几个目录，顶得住。
+
+自己写的也会触发（保存、新建），不过滤：两边记账比多刷一次贵，而
+`checkExternalChanges` 靠指纹，自己刚存的不会误报。
+
+Tauri 侧一个命令 `watch_root(root)`，`AppState` 上一个 `Option<Watch>`，换根就换掉，
+**先摘出来再在锁外 drop** —— drop 要等防抖线程退出，同 pty 那条。事件在监听线程上
+`app.emit`。焦点刷新那条路留着：监听起不来（网络卷、权限）时它是退路。
+
+### 验证
+
+- 五条单元测试：改一个文件收到 `Files`；只动 `.git/` 收到 `Git`；50 次写只发一条；
+  drop 之后不再发；不存在的目录报错。两种错法验红（防抖时长改 1ms → 合并那条红；
+  `touches_git` 恒 false → git 那条红）。
+- 真 `.app`，**不切焦点**：shell 里 `echo > watched-new.txt` → 1.5 秒内文件树里出现；
+  `git checkout -b feat/watch` → 分支挂件变 `feat/watch`；删文件切回 main → 树里没了、
+  挂件回 `main`。
+
+### 一个测试自己的坑
+
+`tmp()` 第一版用 `Instant::now().elapsed()` 拼目录名 —— 那永远是 0，五个测试挤进
+同一个目录，「只动 .git」那条会收到邻居写的普通文件，间歇红。换成计数器。
+**`Instant::now().elapsed()` 不是「现在的时间戳」**，它是「从刚才那一瞬到现在」，
+恒为零。

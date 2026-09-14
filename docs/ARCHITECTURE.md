@@ -227,6 +227,7 @@ log_filter(handle, pattern, opts)-> filter_id          // 异步，进度走事�
 log_tail(handle, enable)         -> ()
 pty_spawn(cwd)                   -> pty_id
 fs_tree(path, depth)             -> TreeNode[]
+watch_root(root)                 -> ()                 // 换根再调，空串 = 停；变化走 fs-changed 事件
 ```
 
 ### 数据面（`Response` 二进制 / `Channel`，高频）
@@ -248,6 +249,7 @@ pty_ack(id, bytes)               -> ()                 // 背压的回程，见�
 ```
 log:index-progress { handle, indexed_lines, done }
 log:appended       { handle, new_lines }               // tail 模式
+fs-changed         "git" | "files"                     // 项目根底下变了（FSEvents，300ms 防抖合并）
 filter:progress    { filter_id, hits, done }
 fs:changed         { path, kind }
 ```
