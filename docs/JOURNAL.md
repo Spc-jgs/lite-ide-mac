@@ -5719,3 +5719,22 @@ smoke 抓到的：⑮ 两条跳转连红三轮，位置一样 —— **同一条
 `tabflow.openPath` 三层都对，最后是 `grep '\$[A-Za-z]+=\{'` 一句找到的。
 
 展开 shorthand 的正则要求前面是空白：`(?<=\s)\{project\.root\}`。
+
+## 2026-09-14 · #9 第 4d 步：文件系统联动出去
+
+App.svelte 2733 → 2654。`state/worktree.svelte.ts`：`treeTick` / `changed()`
+（原 `workingTreeChanged`）/ `renameOpenTabs` / `closeTabsUnder`。
+`afterFsChange` 留在 App —— 三行，其中一行是 `refreshGit()`，那是第 5 步。
+`renameOpenTabs` 多了一个 `repo` 参数（差异标签的 `rel` 相对仓库根算），
+git 有了自己的 store 就撤。
+
+这一步小，只记一条：正则展开 shorthand 时又把已经写成 `reloadTick={treeTick}`
+的 prop 改成了 `reloadTick=treeTick={worktree.treeTick}` —— 上一步那条
+「前面必须是空白」的判据还没落进脚本里，第二次踩。**判据写进了 JOURNAL 不等于
+写进了工具**；下一步之前把 `rx()` 那几行改成先匹配空白。
+
+验证走的路：文件树里改名一个开着的文件 → 标签和状态栏跟着改；移到废纸篓 →
+标签关掉、树里没了；新建文件 → 打开。加上 4c 验过的「切回窗口重读外部改动」
+（`changed()` 的另一半）。
+
+第 4 步四小步累计：4380 → 2654（−39%）。剩第 5 步 git、第 6 步壳。

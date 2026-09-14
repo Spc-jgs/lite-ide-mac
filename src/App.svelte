@@ -16,6 +16,7 @@
   import { tabs } from "./lib/state/tabs.svelte";
   import { tabflow } from "./lib/state/tabflow.svelte";
   import { project } from "./lib/state/project.svelte";
+  import { worktree } from "./lib/state/worktree.svelte";
   import { terms } from "./lib/state/terms.svelte";
   import * as session from "./lib/state/session";
   import { stashed } from "./lib/state/doc";
@@ -44,8 +45,6 @@
     type RemoteErr,
     type SwitchErr,
     diag,
-    openLog,
-    closeLog,
     reportBudget,
     initialPath,
     gitRoot,
@@ -129,15 +128,15 @@
   let ignored = $state<Set<string> | null>(null);
 
   /*
-   * 跟着项目根和 `treeTick` 走。
+   * 跟着项目根和 `worktree.treeTick` 走。
    *
-   * 带上 `treeTick` 是因为 `.gitignore` 本身是可以改的 —— 改完走一次
-   * `workingTreeChanged()`（切分支、丢弃改动、从终端切回来都会），
+   * 带上 `worktree.treeTick` 是因为 `.gitignore` 本身是可以改的 —— 改完走一次
+   * `worktree.changed()`（切分支、丢弃改动、从终端切回来都会），
    * 这份答案就跟着更新。不带的话，改完 `.gitignore` 得重开项目才生效。
    */
   $effect(() => {
     const r = project.root;
-    treeTick;
+    worktree.treeTick;
     if (!r) {
       ignored = null;
       return;
@@ -156,8 +155,6 @@
     };
   });
 
-  /** 文件树刷新计数，由 workingTreeChanged() 推进 */
-  let treeTick = $state(0);
 
   // ─────────────────────────── Git ───────────────────────────
 
@@ -293,7 +290,7 @@
       const now = gitSt?.branch || name;
       const up = gitSt?.upstream ? `（跟踪 ${gitSt.upstream}）` : "";
       notify.ok(create ? `已从 ${base} 新建并切到 ${now}` : `已切到 ${now}${up}`, 2800);
-      await workingTreeChanged();
+      await worktree.changed();
     }, create ? "新建分支" : "切分支");
   }
 
@@ -338,7 +335,7 @@
     void gitDo("移除工作树失败", async () => {
       await gitWorktreeRemove(repo!, w.path, force);
       notify.ok(`已移除工作树 ${w.path}`);
-      await workingTreeChanged();
+      await worktree.changed();
     }, "移除工作树");
   }
 
@@ -461,86 +458,10 @@
    * 差异面板因此一直停在「没有差异」，直到别的操作碰巧引起一次重绘。
    * 异步流程尤其容易踩：await 回来时手上那个引用早已不是响应式的那一份。
    */
-  /**
-   * 盘上的文件被改了 —— 不是被我们改的。
-   *
-   * 切分支、丢弃改动、移除工作树、以及用户切出去在终端里敲完命令切回来，
-   * 都属于这一类：**内容和目录结构都可能变了**。两件事必须一起做，
-   * 少做哪一件都会留下一个说谎的界面：
-   *
-   * - 只重读文件内容 → 树上还挂着已经不存在的文件
-   * - 只重列目录 → 打开的标签还显示着旧分支的内容
-   *
-   * 早先这两行是在四个地方各写一遍的，其中一处只写了后半句。
-   * 给它一个名字，就不会再漏。
-   */
-  async function workingTreeChanged() {
-    await docs.checkExternalChanges();
-    treeTick++;
-  }
-
-  /**
-   * 一个标签是不是「在 p 底下」。目录要连子树一起算 ——
-   * 改名或删掉一个目录，里面开着的每个文件都受影响。
-   */
 
 
-  /**
-   * 在文件树里改完名，打开着的标签要跟着走。
-   *
-   * 少了这一步的表现是：标签还挂着旧名字，按 ⌘S 报「文件不在盘上了」——
-   * 而名字是人刚刚亲手改的，最不会去怀疑的就是这件事。
-   */
-  async function renameOpenTabs(from: string, to: string, isDir: boolean) {
-    const moved: number[] = [];
-    for (const t of tabs.under(from, isDir)) {
-      const np = to + t.path.slice(from.length);
-      // 位置记忆的 key 也是路径，一起搬 —— 不搬的话切回这个文件会跳回第一行
-      const pos = docs.posByPath.get(t.path);
-      if (pos !== undefined) {
-        docs.posByPath.delete(t.path);
-        docs.posByPath.set(np, pos);
-      }
-      t.path = np;
-      t.name = np.slice(np.lastIndexOf("/") + 1);
-      // 差异/冲突标签的 rel 是相对仓库根的，跟着重算 ——
-      // 不算的话下一次刷新会拿一条已经不存在的路径去问 git
-      if (t.rel && repo && np.startsWith(`${repo}/`)) t.rel = np.slice(repo.length + 1);
-      moved.push(t.id);
-    }
 
-    /*
-     * 日志模式还要把引擎句柄换掉。
-     *
-     * 引擎记着的是**打开时那条路径**（`LogFile { path, .. }`），而
-     * `refresh()` 走 `std::fs::metadata(&self.path)` —— 改完名那条路径没了。
-     * 症状很隐蔽：已经映射好的内容照样翻得动（mmap 还在），只有 tail
-     * 和「文件长了」的检测一直报刷新失败，而标签看上去一切正常。
-     *
-     * 重开一个句柄再把旧的关掉，顺序不能反：先关的话中间那一下
-     * 标签会短暂地没有句柄，而渲染随时可能发生。
-     */
-    for (const id of moved) {
-      const before = tabs.byId(id);
-      if (!before || before.mode !== "log" || before.handle === undefined) continue;
-      const stale = before.handle;
-      try {
-        const h = (await openLog(before.path)).handle;
-        // await 回来必须按 id 重新取一次 —— 手上那个引用可能已经不是
-        // 响应式的那一份了（AGENTS.md 里那条 $state 数组的坑）
-        const now = tabs.byId(id);
-        if (now) now.handle = h;
-        void closeLog(stale);
-      } catch (e) {
-        notify.fail(`${before.name} 改名后重开日志失败，tail 会停：${String(e)}`);
-      }
-    }
-  }
 
-  /** 进废纸篓的东西，开着的标签一并关掉（确认框已经说过会关几个未保存的） */
-  function closeTabsUnder(p: string, isDir: boolean) {
-    for (const t of tabs.under(p, isDir)) tabflow.doClose(t);
-  }
 
   /**
    * 文件树里改完盘之后的收尾。
@@ -551,7 +472,7 @@
    */
   async function afterFsChange(openThis: string | null) {
     if (openThis) await tabflow.openPath(openThis);
-    await workingTreeChanged();
+    await worktree.changed();
     void refreshGit();
   }
 
@@ -816,7 +737,7 @@
       },
       "丢弃改动",
     );
-    await workingTreeChanged();
+    await worktree.changed();
   }
 
   function doGitCommit(message: string, amend: boolean) {
@@ -989,8 +910,8 @@
 
   $effect(() => {
     const r = project.root;
-    // treeTick 一变就重拉：切分支之后新增的文件也得跳得过去
-    treeTick;
+    // worktree.treeTick 一变就重拉：切分支之后新增的文件也得跳得过去
+    worktree.treeTick;
     if (!r) {
       projectFiles = [];
       return;
@@ -1295,7 +1216,7 @@
   /**
    * 清空应用日志。
    *
-   * 清完必须走一次 `workingTreeChanged()` —— 否则开着那份日志的标签上
+   * 清完必须走一次 `worktree.changed()` —— 否则开着那份日志的标签上
    * 还摊着刚被清掉的几百行，人会以为没生效，然后再点一次。
    * 这正是那条老规矩的又一例（**盘上的东西被外部改了，两件事要一起做**），
    * 只不过这次「外部」是我们自己。
@@ -1303,7 +1224,7 @@
   async function clearLog() {
     try {
       await clearAppLog();
-      await workingTreeChanged();
+      await worktree.changed();
       notify.ok("应用日志已清空");
     } catch (e) {
       notify.fail(`清不掉应用日志：${e}`);
@@ -1456,7 +1377,7 @@
     try {
       if (!mode && !(await doFetch("pull"))) return null;
       await gitMergeUpstream(repo!, upstream, mode ?? "ff-only");
-      await workingTreeChanged();
+      await worktree.changed();
       await refreshGit();
       notify.ok(mode === "rebase" ? "已变基到上游" : "已合并上游");
       return null;
@@ -1471,7 +1392,7 @@
       }
       await showRemoteErr(err);
       // 合并冲突之后工作区变了，得把界面对上
-      await workingTreeChanged();
+      await worktree.changed();
       await refreshGit();
       return null;
     } finally {
@@ -1808,7 +1729,7 @@
   $effect(() => {
     const onFocus = () => {
       // 用户可能刚切出去，在终端里 commit / checkout / mv 完再切回来
-      void workingTreeChanged();
+      void worktree.changed();
       void refreshGit();
     };
     window.addEventListener("focus", onFocus);
@@ -2256,16 +2177,16 @@
             activePath={tabs.active?.path ?? ""}
             gitStatus={gitSt}
             {ignored}
-            reloadTick={treeTick}
+            reloadTick={worktree.treeTick}
             {revealPath}
             {revealTick}
             onOpen={(p) => void tabflow.openPath(p)}
             dirtyUnder={(p) => tabs.dirtyUnder(p)}
             onCreated={(p, isDir) => void afterFsChange(isDir ? null : p)}
             onRenamed={(from, to, isDir) =>
-              void renameOpenTabs(from, to, isDir).then(() => afterFsChange(null))}
+              void worktree.renameOpenTabs(from, to, isDir, repo).then(() => afterFsChange(null))}
             onTrashed={(p, isDir) => {
-              closeTabsUnder(p, isDir);
+              worktree.closeTabsUnder(p, isDir);
               void afterFsChange(null);
             }}
           />
