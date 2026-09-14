@@ -60,15 +60,20 @@ class Git {
   /**
    * 换项目根就重新找仓库。找不到时把 Git 的一切都清干净。
    *
-   * App 的 effect 调（`$effect` 只能在组件里）。返回找到的仓库根；不是仓库返回
-   * `null`；探测本身出错返回 `undefined` —— 调用方只在「确定不是仓库」时把侧边栏
-   * 切回文件树，出错不动它。
+   * App 的 effect 调（`$effect` 只能在组件里）。返回找到的仓库根；**确定**不是仓库
+   * 返回 `null`；没法下判断（还没有项目根、探测本身出错）返回 `undefined` ——
+   * 调用方只在「确定不是仓库」时把侧边栏切回文件树。
+   *
+   * 「还没有项目根」必须是 `undefined` 不是 `null`：启动时这条 effect 先于会话恢复
+   * 跑一次（`root` 还是 null），要是当成「确定不是仓库」，会把快照里刚恢复的
+   * `sideView: "git"` 改回文件树，而后面真找到仓库也不会改回去 —— 拆分时踩过
+   * （grok 第二轮 review 抓的，JOURNAL 2026-09-14）。
    */
   async locate(root: string | null): Promise<string | null | undefined> {
     if (!root) {
       this.repo = null;
       this.status = null;
-      return null;
+      return undefined;
     }
     try {
       const found = await gitRoot(root);

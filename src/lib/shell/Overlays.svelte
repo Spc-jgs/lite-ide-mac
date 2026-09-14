@@ -53,15 +53,19 @@
    * 跟着搜索浮层那次预拉一起到，人真按下 ⌘P 时早就在了。
    */
   let actions = $state<Action[]>([]);
-  void import("../state/keymap").then(({ KEYS }) => {
-    actions = KEYS.filter((k) => k.owner !== "cm6").map((k) => ({
-      id: k.id,
-      // Git 那一摊加前缀：单看「刷新状态」「提交历史」不知道是谁的
-      label: k.group === "Git" ? `Git：${k.label}` : k.label,
-      hint: k.accel ?? k.gesture,
-      run: () => onAction(k.id),
-    }));
-  });
+  /** 幂等：和 `overlays.load()` 一样，预拉和真按下去都会调 */
+  function loadActions() {
+    if (actions.length) return;
+    void import("../state/keymap").then(({ KEYS }) => {
+      actions = KEYS.filter((k) => k.owner !== "cm6").map((k) => ({
+        id: k.id,
+        // Git 那一摊加前缀：单看「刷新状态」「提交历史」不知道是谁的
+        label: k.group === "Git" ? `Git：${k.label}` : k.label,
+        hint: k.accel ?? k.gesture,
+        run: () => onAction(k.id),
+      }));
+    });
+  }
 
   /**
    * 两个搜索浮层（⌘P 随处搜索、⌘⇧O 文件结构）。
@@ -89,7 +93,10 @@
   $effect(() => {
     // 兜底：预拉万一没跑到（或者失败过），真按下去时补一次。
     // `load()` 是幂等的，重复调用会被它自己的状态挡掉
-    if (overlay.quickOpen || overlay.outlineOpen) overlays.load();
+    if (overlay.quickOpen || overlay.outlineOpen) {
+      overlays.load();
+      loadActions();
+    }
   });
 
   $effect(() => {
@@ -100,7 +107,10 @@
      * 又要远早于人按下第一个 ⌘P。用 `setTimeout` 而不是
      * `requestIdleCallback` —— 后者 Safari 16.4 才有，而构建目标是 safari15。
      */
-    const id = setTimeout(() => overlays.load(), 300);
+    const id = setTimeout(() => {
+      overlays.load();
+      loadActions();
+    }, 300);
     return () => clearTimeout(id);
   });
 
