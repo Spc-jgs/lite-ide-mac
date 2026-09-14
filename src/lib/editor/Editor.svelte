@@ -32,6 +32,7 @@
     onLive,
     onOutline,
     onCursor,
+    onCaret,
     jumpFiles = [],
     jumpRel = null,
     jumpLang = "",
@@ -52,7 +53,7 @@
     /** 每次保存成功后自增。用它重置 dirty 基线，比暴露组件 ref 耦合更松 */
     savedTick?: number;
     /** 搜索结果跳转用的目标行（1-based）。同一行连点也要能重新定位，故带 nonce */
-    gotoLine?: { line: number; nonce: number } | null;
+    gotoLine?: { line: number; col?: number; nonce: number } | null;
     /** 自增即重新提取大纲。放在 Editor 里算是因为语法树在它手上 */
     outlineTick?: number;
     /** 相对 HEAD 的改动行，画在缩略图左缘。null 表示不在仓库里或没有改动 */
@@ -111,6 +112,12 @@
      * 敲一行字就是几十次无谓调用。
      */
     onCursor?: (line: number) => void;
+    /**
+     * 光标的行:列，**每次选区变都报**（1-based，列按字符数）。给状态栏那一格用。
+     * 和 `onCursor` 分开：那个只在换行时报，是给会话快照记位置的，频率要压；
+     * 这个是显示，本来就该跟着光标走，而状态栏改一个字符串不值一提。
+     */
+    onCaret?: (line: number, col: number) => void;
   } = $props();
 
   let host: HTMLDivElement | undefined = $state();
@@ -214,11 +221,13 @@
         ]),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChange(u.state.doc.toString() !== baseText);
-          if (onCursor && (u.selectionSet || u.docChanged)) {
-            const line = u.state.doc.lineAt(u.state.selection.main.head).number;
-            if (line !== lastLine) {
-              lastLine = line;
-              onCursor(line);
+          if (u.selectionSet || u.docChanged) {
+            const head = u.state.selection.main.head;
+            const ln = u.state.doc.lineAt(head);
+            onCaret?.(ln.number, head - ln.from + 1);
+            if (onCursor && ln.number !== lastLine) {
+              lastLine = ln.number;
+              onCursor(ln.number);
             }
           }
         }),
@@ -260,6 +269,9 @@
       curPath = path;
       baseText = baseline ?? initial;
       view = new EditorView({ state: build(initial), parent: host });
+      // 挂载先报一次：updateListener 只在有更新时才跑，不报的话状态栏那格
+      // 会停在上一个标签的位置上，直到人动一下光标
+      onCaret?.(1, 1);
       void applyLang(path);
       // 草稿恢复回来时它本来就是脏的，得说出来 —— 不说的话标签上的圆点不会亮
       onChange(initial !== baseText);
@@ -331,7 +343,9 @@
     if (!view || !g) return;
     const total = view.state.doc.lines;
     const line = Math.min(Math.max(1, g.line), total);
-    const pos = view.state.doc.line(line).from;
+    const ln = view.state.doc.line(line);
+    // 列越界就停在行尾 —— 「跳到 12:999」的意思是「第 12 行尽头」，不是报错
+    const pos = ln.from + Math.min(Math.max(1, g.col ?? 1), ln.length + 1) - 1;
     view.dispatch({
       selection: { anchor: pos },
       effects: EditorView.scrollIntoView(pos, { y: "center" }),

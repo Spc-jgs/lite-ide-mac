@@ -11,6 +11,8 @@
   import { crumbsOf, projectName } from "../state/crumbs";
   import { isLogName } from "../logview/is-log-name";
   import { lang } from "../state/lang.svelte";
+  import { nav } from "../state/nav.svelte";
+  import { overlay } from "../state/overlay.svelte";
   import type { TabState } from "../state/tab";
   import type { GitEntry } from "../ipc/commands";
 
@@ -97,6 +99,19 @@
       {active.diffSha ? `提交 ${active.diffShort}` : `差异 · ${active.diffStaged ? "已暂存" : "未暂存"}`}
     </span>
   {:else if active}
+    <!--
+      行:列。IDEA 和 VS Code 状态栏都有，两家都是点了就跳行。
+      只在有编辑器时出现（`nav.caret` 在别的视图下是 null），格式照 IDEA `12:34`。
+      排在最左：它是这一排里唯一会随光标跳动的，放最左不会让右边那几格跟着抖。
+    -->
+    {#if nav.caret}
+      <button
+        class="cell btn pos"
+        onclick={() => (overlay.gotoOpen = true)}
+        title="跳到行 ⌘L"
+      >{nav.caret.line}:{nav.caret.col}</button>
+      <span class="vsep" aria-hidden="true"></span>
+    {/if}
     <!--
       **这个按钮只在日志场景出现。**
 
@@ -270,6 +285,8 @@
   .statusbar .btn.mode { color: var(--text-dim); }
   .statusbar .btn.mode:hover { color: var(--accent); }
   .statusbar .btn.git { color: var(--git-modified); }
+  /* 行:列是等宽数字，给个最小宽度，光标从 9 行跳到 10 行时右边那几格不动 */
+  .statusbar .btn.pos { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
   /*
    * 挂件之间的竖线。**这是分区不是分项** —— 模式、语言/只读原因、编码、
    * 保存状态、git 状态，五组各说一件事，同字号同颜色排在一起时得有个断点。

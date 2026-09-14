@@ -85,6 +85,10 @@
   $effect(() => {
     if (tabs.active?.mode === "log") logPane.load();
   });
+  // 活动标签不是编辑器时，状态栏那格行:列要消失 —— 上一个编辑器报的位置不能留着
+  $effect(() => {
+    if (tabs.active?.mode !== "edit") nav.caret = null;
+  });
   // 按需加载失败要说出来（App 那张汇总名单的本地版，同 Panel）
   $effect(() => {
     const e = editor.error || logPane.error;
@@ -256,6 +260,7 @@
         onWordProbe={(p, g) => docs.onEditorWordProbe(p, g)}
         onOutline={onOutline}
         onCursor={(l) => docs.markPos(tabs.active!.path, l)}
+        onCaret={(line, col) => (nav.caret = { line, col })}
         jumpFiles={projectFiles}
         jumpRel={project.root && tabs.active.path.startsWith(`${project.root}/`)
           ? tabs.active.path.slice(project.root.length + 1)

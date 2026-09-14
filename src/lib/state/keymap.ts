@@ -116,6 +116,11 @@ export const KEYS: KeyDef[] = [
    * 也会触发一个够不着编辑器的命令。同 ⌘F 那两条的判据。
    */
   { id: "jump-decl", label: "跳到声明（⌘Click 同）", accel: "⌘B", group: "导航", owner: "cm6" },
+  /*
+   * IDEA 的 ⌘L。归菜单：它跳的是活动编辑器，但判「有没有编辑器」在 App 里
+   * （没有就什么都不做），不需要读编辑器内部状态，和 ⌘B 那种 cm6 的不一样。
+   */
+  { id: "goto-line", label: "跳到行…", accel: "⌘L", group: "导航", owner: "menu" },
   { id: "nav-back", label: "回到上一个位置", accel: "⌥⌘←", group: "导航", owner: "menu" },
   { id: "nav-fwd", label: "再回来", accel: "⌥⌘→", group: "导航", owner: "menu" },
   /*

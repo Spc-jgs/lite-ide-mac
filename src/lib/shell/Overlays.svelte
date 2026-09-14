@@ -9,6 +9,7 @@
    * 从懒加载的键位表生成，选中一条交给 App 的 `runMenu`。
    */
   import type BranchPicker from "../git/BranchPicker.svelte";
+  import GotoLine from "../search/GotoLine.svelte";
   import type { Action } from "../search/QuickSearch.svelte";
   import { lazy, lazyGroup } from "../lazy/lazy.svelte";
   import { notify } from "../state/notify.svelte";
@@ -145,6 +146,8 @@
     tabs.active?.mode === "edit" && !!lang.mod && LEZER_LANGS.has(lang.mod.langOf(tabs.active.path) ?? ""),
   );
 </script>
+
+<GotoLine bind:open={overlay.gotoOpen} current={nav.caret} />
 
 {#if keysPanel.comp}
   <keysPanel.comp bind:open={overlay.keysOpen} />

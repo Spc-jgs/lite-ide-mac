@@ -92,6 +92,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let outline = item(app, "outline", "文件结构…", Some("Shift+CmdOrCtrl+O"))?;
     // 三条都要跟着「有没有打开的标签」变灰：没有标签时既没有位置可回，
     // 也没有光标可取词
+    let goto_line = item(app, "goto-line", "跳到行…", Some("CmdOrCtrl+L"))?;
     let nav_back = item(app, "nav-back", "回到上一个位置", Some("Alt+CmdOrCtrl+Left"))?;
     let nav_fwd = item(app, "nav-fwd", "再回来", Some("Alt+CmdOrCtrl+Right"))?;
     let find_word = item(app, "find-word", "在项目里找这个名字", None)?;
@@ -171,6 +172,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
          * 但**回退 / 前进要在这儿**：它们跳的是标签和位置，编辑器活没活着
          * 都该管用（从日志视图按 ⌥⌘← 也要能回到刚才那个源文件）。
          */
+        .item(&goto_line)
         .item(&nav_back)
         .item(&nav_fwd)
         .item(&find_word)
@@ -251,6 +253,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
             toggle_mode,
             outline,
             git_file_diff,
+            goto_line,
             nav_back,
             nav_fwd,
             find_word,

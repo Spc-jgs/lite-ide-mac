@@ -19,9 +19,12 @@ interface NavSpot {
 const NAV_MAX = 50;
 
 class Nav {
-  /** 待跳转的行号；带 nonce，连点同一条结果也能重新定位 */
-  gotoLine = $state<{ line: number; nonce: number } | null>(null);
+  /** 待跳转的行号（可带列）；带 nonce，连点同一条结果也能重新定位 */
+  gotoLine = $state<{ line: number; col?: number; nonce: number } | null>(null);
   #gotoNonce = 0;
+
+  /** 活动编辑器里光标的行:列。没有编辑器（日志 / 差异 / 空）时 null。状态栏那格读 */
+  caret = $state<{ line: number; col: number } | null>(null);
 
   /**
    * 跳转历史。⌥⌘← 回去、⌥⌘→ 再回来（IDEA 的键位）。
@@ -35,9 +38,9 @@ class Nav {
   back = $state<NavSpot[]>([]);
   fwd = $state<NavSpot[]>([]);
 
-  /** 让编辑器跳到某一行 */
-  goto(line: number) {
-    this.gotoLine = { line, nonce: ++this.#gotoNonce };
+  /** 让编辑器跳到某一行（可带列，1-based） */
+  goto(line: number, col?: number) {
+    this.gotoLine = col === undefined ? { line, nonce: ++this.#gotoNonce } : { line, col, nonce: ++this.#gotoNonce };
   }
 
   /** 此刻在哪儿。`docs.posByPath` 里存的是编辑器最后报上来的光标行 */

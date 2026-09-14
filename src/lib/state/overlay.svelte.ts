@@ -28,6 +28,8 @@ class Overlay {
 
   keysOpen = $state(false);
   encOpen = $state(false);
+  /** 跳到行（⌘L）。只在有编辑器时有意义，开它的人自己判 */
+  gotoOpen = $state(false);
 
   branchOpen = $state(false);
   /**

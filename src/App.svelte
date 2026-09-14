@@ -538,6 +538,10 @@
       case "quick-file": overlay.openQuick("file"); return;
       case "quick-content": overlay.openQuick("content"); return;
       case "find-word": return overlay.findWordAtCursor();
+      case "goto-line":
+        // 只对编辑器有意义：日志视图有自己的行号语义，差异 / 合并没有「行」
+        if (tabs.active?.mode === "edit") overlay.gotoOpen = true;
+        return;
       case "nav-back": return void nav.go("back");
       case "nav-fwd": return void nav.go("fwd");
       case "outline": return overlay.openOutline();
