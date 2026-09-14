@@ -70,6 +70,31 @@ class LayoutState {
     this.sideView = this.sidebar && this.sideView === "git" ? "files" : "git";
     this.sidebar = true;
   }
+
+  /**
+   * 导轨上的工具窗开关：点别的就切过去，点当前这个就收起。
+   * 和导轨最上面 sidebar 那个开关同一个手势 —— 一个按钮既是「去那儿」
+   * 也是「不看了」，不用再去找第二个地方收起。
+   *
+   * `showing` 是**正在显示的那个**（App 的 `panelTool`），不是 `panelView`
+   * 这个偏好 —— 偏好是 git 而没有仓库时亮着的是终端那个按钮，再点它就该收起，
+   * 而不是「切到终端」（已经在了）。
+   */
+  togglePanel(v: Layout["panelView"], showing: Layout["panelView"]) {
+    if (this.panel && showing === v) {
+      this.panel = false;
+      return;
+    }
+    this.panelView = v;
+    this.panel = true;
+  }
+
+  /** 菜单 / 侧边栏进来的「看历史」「看控制台」：开 Git 窗并落到那个标签 */
+  openGitTab(t: Layout["gitTab"]) {
+    this.gitTab = t;
+    this.panelView = "git";
+    this.panel = true;
+  }
 }
 
 export const layout = new LayoutState();

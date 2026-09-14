@@ -4,12 +4,14 @@
   import FileTree from "./lib/shell/FileTree.svelte";
   import Rail from "./lib/shell/Rail.svelte";
   import Sidebar from "./lib/shell/Sidebar.svelte";
+  import Panel from "./lib/shell/Panel.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import type { Action } from "./lib/search/QuickSearch.svelte";
   import type { JumpHit } from "./lib/editor/jump";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import { layout } from "./lib/state/layout.svelte";
+  import { terms } from "./lib/state/terms.svelte";
   import * as session from "./lib/state/session";
   import { textToSave, settled, stashed } from "./lib/state/doc";
   import { audit } from "./lib/state/invariant";
@@ -953,132 +955,6 @@
    */
   let panelTool = $derived<"term" | "git">(layout.panelView === "git" && repo ? "git" : "term");
 
-  /**
-   * Git 控制台那一页（issue #29）。**按需加载**，和终端、CM6 同一条纪律 ——
-   * 一个诊断页面不该让每个人的启动多付钱。
-   */
-  const gitcon = lazy(() => import("./lib/git/GitConsole.svelte"), "Git 控制台");
-  /** xterm.js 约 250KB，不开终端就不该付这个钱 —— 与 CM6 同样按需加载 */
-  const terminal = lazy(() => import("./lib/terminal/Terminal.svelte"), "终端");
-  /**
-   * 多个终端并存。切换标签时**不能卸载**未激活的那些 ——
-   * 组件一销毁 Session 就 drop，shell 直接被 kill，正在跑的命令全没了。
-   * 所以用 CSS 隐藏，实例一直活着。
-   */
-  interface TermTab {
-    id: number;
-    /** 工作目录在创建时快照一次，之后不跟着 root 走 */
-    cwd: string;
-    title: string;
-  }
-  let terms = $state<TermTab[]>([]);
-  let activeTermId = $state<number | null>(null);
-  let nextTermId = 1;
-
-  function newTerm(cwd?: string) {
-    const dir = cwd ?? root ?? "~";
-    const base = dir === "~" ? "~" : dir.slice(dir.lastIndexOf("/") + 1) || dir;
-    /*
-     * 重名要带序号。终端的标题取自工作目录名，而绝大多数时候几个终端开的
-     * 是**同一个**目录（项目根）—— 于是三个标签页全写着 `proj`，
-     * 标签栏和「全部终端」下拉都变成「随便点一个」。
-     */
-    let title = base;
-    for (let n = 2; terms.some((t) => t.title === title); n++) title = `${base} (${n})`;
-    const t: TermTab = { id: nextTermId++, cwd: dir, title };
-    terms = [...terms, t];
-    activeTermId = t.id;
-    layout.panel = true;
-  }
-
-  function closeTerm(id: number) {
-    const idx = terms.findIndex((t) => t.id === id);
-    terms = terms.filter((t) => t.id !== id);
-    if (activeTermId === id) {
-      activeTermId = terms[Math.min(idx, terms.length - 1)]?.id ?? null;
-    }
-    // 最后一个终端关掉就把面板一起收起，省得留个空壳
-    if (terms.length === 0) layout.panel = false;
-  }
-
-  /**
-   * 导轨上的工具窗开关：点别的就切过去，点当前这个就收起。
-   *
-   * 和导轨最上面 sidebar 那个开关同一个手势 —— 一个按钮既是「去那儿」
-   * 也是「不看了」，不用再去找第二个地方收起。
-   */
-  function togglePanelView(v: "term" | "git") {
-    // 判据是**正在显示的那个**，不是存下来的偏好 —— 偏好是 log 而没有仓库时
-    // 亮着的是终端那个按钮，再点它就该收起，而不是「切到终端」（已经在了）
-    if (layout.panel && panelTool === v) {
-      layout.panel = false;
-      return;
-    }
-    layout.panelView = v;
-    layout.panel = true;
-  }
-
-  /** 菜单 / 侧边栏进来的「看历史」「看控制台」：开 Git 窗并落到那个标签 */
-  function openGitTab(t: "log" | "console") {
-    layout.gitTab = t;
-    layout.panelView = "git";
-    layout.panel = true;
-  }
-
-  /** 面板头右边那两个下拉：`list` 是全部终端，`more` 是更多操作 */
-  let panelMenu = $state<{ x: number; y: number; kind: "list" | "more" } | null>(null);
-
-  function openPanelMenu(e: MouseEvent, kind: "list" | "more") {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    panelMenu = { x: r.left, y: r.bottom + 2, kind };
-  }
-
-  let panelMenuItems = $derived.by<MenuItem[]>(() => {
-    if (!panelMenu) return [];
-    if (panelMenu.kind === "list") {
-      // 前面那个格子标出当前项。全角空格占位，切换时标题不会左右跳
-      return terms.map((t) => ({
-        label: `${t.id === activeTermId ? "●" : "\u3000"} ${t.title}`,
-        run: () => (activeTermId = t.id),
-      }));
-    }
-    const items: MenuItem[] = [{ label: "新建终端", run: () => newTerm() }];
-    if (activeTermId !== null) {
-      const id = activeTermId;
-      items.push({ label: "关闭当前终端", run: () => closeTerm(id) });
-    }
-    if (terms.length > 1) {
-      const keep = activeTermId;
-      items.push({
-        label: "关闭其他终端",
-        run: () => {
-          for (const t of [...terms]) if (t.id !== keep) closeTerm(t.id);
-        },
-      });
-    }
-    /*
-     * 「全部关闭」带 danger，和 Git 栏的「全部丢弃」同一条判据：
-     * 关掉一个终端等于 kill 掉里面正在跑的东西，撤不回来。一个一个关，
-     * 每一下都还在看着标题；一下关掉全部，跑着的 gradle build 就没了。
-     */
-    if (terms.length > 1) {
-      items.push({
-        label: "全部关闭",
-        sep: true,
-        danger: true,
-        run: () => {
-          for (const t of [...terms]) closeTerm(t.id);
-        },
-      });
-    }
-    return items;
-  });
-
-  // 打开面板时若一个终端都没有，自动起一个。
-  // 只在终端页上做 —— 冲着 Git 日志来的人不该莫名多出一个 shell
-  $effect(() => {
-    if (layout.panel && panelTool === "term" && terms.length === 0 && root !== null) newTerm(root);
-  });
   let hovering = $state(false);
   let logStatus = $state("");
   /** 待确认关闭的脏标签 —— 直接丢弃改动太粗暴，也不该静默保存 */
@@ -1385,15 +1261,6 @@
   }
 
   $effect(() => {
-    // Git 控制台只在真的切到那一页时才拉那个 chunk
-    if (layout.panel && panelTool === "git" && layout.gitTab === "console") gitcon.load();
-  });
-
-  $effect(() => {
-    if (layout.panel) terminal.load();
-  });
-
-  $effect(() => {
     if (active?.mode === "edit") editor.load();
   });
 
@@ -1456,7 +1323,6 @@
     const e =
       editor.error ||
       logPane.error ||
-      terminal.error ||
       git.error ||
       encPicker.error ||
       keysPanel.error ||
@@ -2686,9 +2552,9 @@
       case "toggle-sidebar": layout.sidebar = !layout.sidebar; return;
       case "toggle-panel": layout.panel = !layout.panel; return;
       case "toggle-minimap": showMinimap = !showMinimap; return;
-      case "new-terminal": return newTerm();
+      case "new-terminal": terms.open(root ?? "~"); return;
       case "close-terminal":
-        if (activeTermId !== null) closeTerm(activeTermId);
+        if (terms.activeId !== null) terms.close(terms.activeId);
         return;
       case "git-changes":
         // 已经在 Git 视图上再点一次就切回去，和 ⇧⌘G 是同一个手势
@@ -2700,8 +2566,8 @@
         else notify.fail("当前文件没有未提交的改动", 2600);
         return;
       }
-      case "git-log": openGitTab("log"); return;
-      case "git-console": openGitTab("console"); return;
+      case "git-log": layout.openGitTab("log"); return;
+      case "git-console": layout.openGitTab("console"); return;
       case "git-branches": openBranchPicker(); return;
       case "git-refresh": return void refreshGit();
       case "git-pull": return void doPull();
@@ -2717,23 +2583,6 @@
       default:
         diag(`菜单项 ${id} 没有对应的处理`);
     }
-  }
-
-  /** 底部面板纵向拖拽。侧边栏那根在 Sidebar.svelte 里 */
-  function startResize(e: PointerEvent) {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startH = layout.panelHeight;
-    const move = (ev: PointerEvent) => {
-      // 往上拖变高：面板贴在底部，位移要反号
-      layout.panelHeight = Math.max(90, Math.min(window.innerHeight - 200, startH - (ev.clientY - startY)));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
   }
 
   $effect(() => {
@@ -2789,7 +2638,7 @@
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
       await reportBudget(
         tabs.length,
-        terms.length,
+        terms.list.length,
         document.querySelectorAll(".cm-editor").length,
         document.getElementsByTagName("*").length,
       );
@@ -2863,7 +2712,7 @@
    * 都是走一遍然后什么也没发生。灰掉的菜单项本身就是一句解释。
    */
   $effect(() => {
-    void syncMenuState(active !== null, repo !== null, activeTermId !== null).catch(() => {});
+    void syncMenuState(active !== null, repo !== null, terms.activeId !== null).catch(() => {});
   });
 
   /**
@@ -2955,15 +2804,6 @@
   />
 {/if}
 
-{#if panelMenu}
-  <ContextMenu
-    x={panelMenu.x}
-    y={panelMenu.y}
-    label={panelMenu.kind === "list" ? "全部终端" : "终端的操作"}
-    items={panelMenuItems}
-    onclose={() => (panelMenu = null)}
-  />
-{/if}
 
 <main class:hovering>
   <!--
@@ -3023,7 +2863,7 @@
         quickSeed = "";
         quickOpen = true;
       }}
-      onTogglePanel={togglePanelView}
+      onTogglePanel={(v) => layout.togglePanel(v, panelTool)}
     />
 
     {#if layout.sidebar}
@@ -3044,7 +2884,7 @@
             onCommit={doGitCommit}
             onRefresh={() => void refreshGit()}
             onOpenBranches={openBranchPicker}
-            onOpenLog={() => openGitTab("log")}
+            onOpenLog={() => layout.openGitTab("log")}
             ahead={gitSt?.ahead ?? 0}
             behind={gitSt?.behind ?? 0}
             onSync={(what) => void (what === "push" ? askPush() : doPull())}
@@ -3327,163 +3167,18 @@
       </svelte:boundary>
 
       <!--
-        条件是 `layout.panel || terms.length > 0`，不是 `layout.panel`。
-
-        收起面板**不能卸载**这一块：组件一销毁 Session 就 drop，shell 被 kill。
-        跑着 gradle build 的时候按 ⌘J 腾点地方，构建就没了 —— 而且没有任何提示。
-        （下面切 Git 日志页那处早就想到了这一层，这里漏了一级。）
-
-        `terms.length > 0` 那半边保证「从没开过终端」时不会白挂一块 DOM，
-        也保证关掉最后一个终端后这块能真正消失（closeTerm 会清空 terms）。
+        底部工具窗在 Panel.svelte 里。提交历史那块要这边的 git lazyGroup 和活动标签，
+        以 snippet 传进去（同侧边栏的两块内容）。
       -->
-      {#if layout.panel || terms.length > 0}
-        <div
-          class="resizer"
-          class:hidden={!layout.panel}
-          role="separator"
-          aria-label="调整终端高度"
-          onpointerdown={startResize}
-        ></div>
-        <div class="panel" class:hidden={!layout.panel} style:height="{layout.panelHeight}px">
-          <!--
-            工具窗的头：**名字在最左，标签页跟在后面，动作靠右**。
-
-            工具窗之间的切换不在这里（在导轨上），所以这一行只讲一件事：
-            「你现在看的是哪个工具窗、它有哪几个标签页」。名字比标签亮一档 ——
-            面板收起再展开时，第一眼要能认出这是哪个工具窗。
-          -->
-          <div class="panel-head">
-            <span class="tw-name">{panelTool === "term" ? "终端" : "Git"}</span>
-            {#if panelTool === "git"}
-              <!--
-                Git 窗的两个标签。和终端标签同一套样式，只是没有 ✕ ——
-                它们不是开出来的东西，关不掉。
-              -->
-              <div class="ptabs" role="tablist">
-                <div class="ptab" class:on={layout.gitTab === "log"}>
-                  <button
-                    class="pt-label fixed"
-                    role="tab"
-                    aria-selected={layout.gitTab === "log"}
-                    onclick={() => (layout.gitTab = "log")}
-                  >提交历史</button>
-                </div>
-                <div class="ptab" class:on={layout.gitTab === "console"}>
-                  <button
-                    class="pt-label fixed"
-                    role="tab"
-                    aria-selected={layout.gitTab === "console"}
-                    onclick={() => (layout.gitTab = "console")}
-                    title="跑过的每一条 git，完整 argv"
-                  >控制台</button>
-                </div>
-              </div>
-            {:else}
-              <div class="ptabs">
-                {#each terms as t (t.id)}
-                  <div class="ptab" class:on={t.id === activeTermId}>
-                    <button class="pt-label" onclick={() => (activeTermId = t.id)} title={t.cwd}>
-                      {t.title}
-                    </button>
-                    <button
-                      class="pt-x"
-                      onclick={() => closeTerm(t.id)}
-                      aria-label="关闭 {t.title}"
-                      title="关闭 {t.title}"
-                    >✕</button>
-                  </div>
-                {/each}
-              </div>
-              <button
-                class="phbtn"
-                onclick={() => newTerm()}
-                title="新建终端 ⌃⇧`"
-                aria-label="新建终端"
-              >
-                <Icon name="plus" />
-              </button>
-              <!--
-                标签页多到溢出时，横向滚动条是看不见的（高度 0）——
-                这个下拉是唯一能一眼看全、并且直接跳过去的路
-              -->
-              {#if terms.length > 1}
-                <button
-                  class="phbtn"
-                  onclick={(e) => openPanelMenu(e, "list")}
-                  title="全部终端"
-                  aria-label="全部终端"
-                >
-                  <Icon name="chevron-down" />
-                </button>
-              {/if}
-            {/if}
-            <span class="gap"></span>
-            <!--
-              「更多」只在终端页出 —— 提交历史那边一条真动作都没有，
-              摆一个点开是空的按钮，比没有这个按钮糟。
-            -->
-            {#if panelTool === "term" && terms.length > 0}
-              <button
-                class="phbtn"
-                onclick={(e) => openPanelMenu(e, "more")}
-                title="更多操作"
-                aria-label="更多操作"
-              >
-                <Icon name="more-v" />
-              </button>
-            {/if}
-            <button
-              class="phbtn"
-              onclick={() => (layout.panel = false)}
-              title="收起 ⌘J"
-              aria-label="收起面板"
-            >
-              <Icon name="minus" />
-            </button>
-          </div>
-          <div class="panel-body">
-            <!--
-              终端整块只藏不卸载：组件一销毁 Session 就 drop，shell 直接被 kill。
-              切到 Git 日志页时正在跑的命令必须还在跑。
-            -->
-            <div class="tool-slot" class:hidden={panelTool !== "term"}>
-              {#if terminal.comp}
-                {#each terms as t (t.id)}
-                  <div class="term-slot" class:hidden={t.id !== activeTermId}>
-                    <terminal.comp cwd={t.cwd} onExit={() => closeTerm(t.id)} />
-                  </div>
-                {/each}
-              {:else}
-                <div class="loading">正在载入终端…</div>
-              {/if}
-            </div>
-            <!-- 收起时别去拉 git log：那是一串没人看的子进程 -->
-            <!-- 同上：切走就整个销毁，那条 1.5 秒的轮询跟着停 -->
-            {#if layout.panel && panelTool === "git" && layout.gitTab === "console" && repo}
-              <div class="tool-slot">
-                {#if gitcon.comp}
-                  <gitcon.comp />
-                {:else}
-                  <div class="loading">正在载入 Git 控制台…</div>
-                {/if}
-              </div>
-            {/if}
-            {#if layout.panel && panelTool === "git" && layout.gitTab === "log" && repo}
-              <div class="tool-slot">
-                {#if git.comps.log}
-                  <git.comps.log
-                    {repo}
-                    filePath={active?.mode === "edit" ? active.path : ""}
-                    onOpenCommitDiff={(sha, short, p) => void openCommitDiff(sha, short, p)}
-                  />
-                {:else}
-                  <div class="loading">正在载入 Git 日志…</div>
-                {/if}
-              </div>
-            {/if}
-          </div>
-        </div>
-      {/if}
+      <Panel {root} {repo} {panelTool} gitLogReady={!!git.comps.log}>
+        {#snippet gitLog()}
+          <git.comps.log
+            repo={repo!}
+            filePath={active?.mode === "edit" ? active.path : ""}
+            onOpenCommitDiff={(sha, short, p) => void openCommitDiff(sha, short, p)}
+          />
+        {/snippet}
+      </Panel>
     </section>
   </div>
 
@@ -3772,165 +3467,6 @@
   .main { display: flex; flex-direction: column; overflow: hidden; }
   .content { flex: 1; min-height: 0; overflow: hidden; }
 
-  /* 与 .side-resizer 同一条判据：热区 4px，画出来的只有居中 1px */
-  .resizer {
-    position: relative;
-    flex: none;
-    height: 4px;
-    background: transparent;
-    cursor: row-resize;
-  }
-  .resizer::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 1.5px;
-    height: 1px;
-    background: var(--border);
-    transition: background 0.1s;
-  }
-  .resizer:hover::after { background: var(--accent); }
-  .resizer:active { background: var(--accent); }
-  @media (prefers-reduced-motion: reduce) { .resizer::after { transition: none; } }
-  /* 收起时整块不占位也不可见，但**仍然挂在 DOM 上** —— 见上面那段注释 */
-  .resizer.hidden,
-  .panel.hidden { display: none; }
-  /*
-   * **上边不画线。** 和侧边栏那条是同一个毛病：`.resizer` 已经用伪元素画了
-   * 一条，这里再来一条，两条隔 1.5px。`.resizer` 和 `.panel` 共用同一个
-   * `class:hidden={!panel}`，收起时一起走，线不会落单。
-   */
-  .panel {
-    flex: none;
-    display: grid;
-    /* 26 → 32：22px 的圆角标签要有呼吸位，贴着上下边看着像被切掉一半 */
-    grid-template-rows: 32px 1fr;
-    overflow: hidden;
-  }
-  .panel-head {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 0 4px 0 9px;
-    background: var(--panel-bg);
-    color: var(--text-dim);
-    user-select: none;
-  }
-  /*
-   * 工具窗的名字。**它不是按钮** —— 切工具窗在导轨上，这里只回答
-   * 「你现在看的是哪个」。比标签亮一档，右边那点留白就是分隔，
-   * 不画竖线：线只用来分区，不用来分项。
-   */
-  .tw-name {
-    flex: none;
-    font-size: 12px;
-    color: var(--text);
-    padding-right: 7px;
-  }
-  .panel-head .gap { flex: 1; }
-  /*
-   * 头上的动作按钮：＋ / ⌄ / ⋮ / —。都是 22px 的方格子，
-   * 和标签一样高 —— 一行里两种高度会让人以为它们不是一类东西。
-   */
-  .phbtn {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 22px;
-    height: 22px;
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-faint);
-    cursor: default;
-  }
-  .phbtn:hover { background: var(--hover); color: var(--text); }
-  .phbtn:active { background: var(--pressed); }
-  .phbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-
-  /*
-   * 终端标签页。和上面的编辑器标签栏是**同一套**：内缩的圆角块 + `--selected`，
-   * 没有竖线也没有下划线。两条标签栏在同一个窗口里，长相必须一致 ——
-   * 否则人会以为它们是两种不同的东西。
-   */
-  .ptabs {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    height: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-  .ptabs::-webkit-scrollbar { height: 0; }
-  .ptab {
-    display: flex;
-    align-items: center;
-    flex: none;
-    height: 22px;
-    border-radius: var(--r-sm);
-    background: transparent;
-  }
-  .ptab:hover { background: var(--hover); }
-  .ptab.on { background: var(--selected); }
-  .pt-label {
-    height: 100%;
-    max-width: 140px;
-    background: transparent;
-    border: none;
-    color: var(--text-dim);
-    font-size: 11.5px;
-    padding: 0 2px 0 9px;
-    cursor: default;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .ptab.on .pt-label { color: var(--text); }
-  /* 关不掉的标签（Git 窗那两个）没有 ✕ 占位，右边补回和左边一样的内缩 */
-  .pt-label.fixed { padding-right: 9px; }
-  /*
-   * ✕ 的格子固定 16px，平时透明，hover / 当前项才显形 ——
-   * 常驻的话每个标签一个 ✕，而任何一刻最多只关得掉一个；
-   * 而格子固定，点击目标就不会跟着 hover 左右挪。
-   */
-  .pt-x {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 16px;
-    height: 16px;
-    margin-right: 3px;
-    background: transparent;
-    border: none;
-    border-radius: 5px;
-    color: var(--text-faint);
-    font-size: 9px;
-    line-height: 1;
-    cursor: default;
-    opacity: 0;
-  }
-  .ptab:hover .pt-x, .ptab.on .pt-x { opacity: 1; }
-  /* 当前标签的底已经是 --selected 了，hover 再用它等于没反馈 */
-  .pt-x:hover { background: var(--pressed); color: var(--text); }
-  .pt-x:focus-visible { opacity: 1; outline: 1px solid var(--accent); outline-offset: -1px; }
-
-  /* 工具页整块叠在一起，只切可见性 —— 终端不能卸载 */
-  .tool-slot { position: absolute; inset: 0; }
-  .tool-slot.hidden { visibility: hidden; pointer-events: none; z-index: -1; }
-  .panel-body { overflow: hidden; position: relative; }
-  .term-slot { position: absolute; inset: 0; }
-  /* 用 visibility 而不是 display:none —— 后者会让 xterm 的尺寸计算拿到 0，
-     切回来时排版是乱的 */
-  .term-slot.hidden { visibility: hidden; pointer-events: none; z-index: -1; }
-
-  .loading {
-    display: grid;
-    place-content: center;
-    height: 100%;
-    color: var(--text-faint);
-    font-size: 12px;
-  }
 
   .empty {
     height: 100%;

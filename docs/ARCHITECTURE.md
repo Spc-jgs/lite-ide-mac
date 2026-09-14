@@ -283,11 +283,11 @@ lite-ide/
 │     ├─ logview/    ★           # LogView / LogPane / FilterBar + line-cache
 │     ├─ editor/                 # Editor.svelte / theme / markdown-live
 │     │                          # langs.ts（识别，入口包要）+ langs-load.ts（67 种，跟着编辑器懒加载）
-│     ├─ shell/                  # Rail / Sidebar / FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
+│     ├─ shell/                  # Rail / Sidebar / Panel / FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
 │     ├─ git/                    # GitPane / GitLog / DiffView / MergeView / BranchPicker / RemoteBars
 │     ├─ search/                 # 双击 Shift 随处搜索 + 大纲 + 键位速查
 │     ├─ terminal/               # xterm.js 封装
-│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / doc / notify）
+│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / doc / notify）
 │     ├─ lazy/                   # lazy() / lazyGroup()，按需加载的唯一出处
 │     └─ dev/                    # mock-ipc.ts，只在 DEV 构建里存在
 └─ src-tauri/
@@ -325,6 +325,8 @@ lite-ide/
 | 布局状态（侧边栏开合 / 宽 / 视图，面板开合 / 高 / 工具窗 / 标签） | `state/layout.svelte.ts` | 七个 `$state` + 快照读写 |
 | 导轨 | `shell/Rail.svelte` | 标记 + 样式 |
 | 侧边栏外壳（开合、拖宽、视图切换、崩溃边界） | `shell/Sidebar.svelte` | 标记 + 样式 + 拖拽 |
+| 终端列表（开了哪几个 shell、哪个在前） | `state/terms.svelte.ts` | 三个变量 + 开/关/关其他/全关 |
+| 底部工具窗（拖高、面板头、终端挂载、Git 控制台按需加载、两个下拉菜单） | `shell/Panel.svelte` | 标记 + 样式 + 两个 lazy + 四条 effect |
 
 **共享状态走 `.svelte.ts` 里一个 class 的 `$state` 字段**（`layout` / `notify` 都是这个写法），
 组件直接读写，App 不当中转站。模块导出的绑定不能被外面重新赋值，

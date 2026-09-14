@@ -5500,3 +5500,41 @@ snippet 的名字不能和外面的变量撞：`{#snippet git()}` 会在 App 的
 | App.svelte | 4380 → 4136 行 |
 | 入口包 | 136,353 → 138,179 B（+1.8 KB，组件边界和那个 class 的开销；CI 按 KiB 算是 134，告警线 138） |
 | smoke | 33/33 × 2（清掉残留进程之后） |
+
+## 2026-09-14 · #9 第 2 步：底部工具窗和终端列表出去
+
+App.svelte 4136 → 3673 行。抽两块：`state/terms.svelte.ts`（终端列表，
+写法同 `layout`）、`shell/Panel.svelte`（拖高、面板头、终端挂载、Git 控制台
+按需加载、两个下拉菜单）。`togglePanel` / `openGitTab` 归进 `layout`，
+App 里只剩一行 `panelTool`（要看 `repo`）传给导轨和面板。
+
+### 拆出来一个漏掉的错误汇报
+
+App 里那条「按需加载失败要说出来」的 effect，名单上有 `terminal.error` 却没有
+`gitcon.error` —— #29 加 Git 控制台那天忘了回去加一行，正是那段注释警告的
+「漏一个就是一处静默失败」。搬进 Panel 之后两个 lazy 和用它们的地方在同一个
+文件里，各自的错误在本地汇报，App 那张名单少了一项而不是多了一项。
+
+**大文件的另一种代价**：规则写在 1450 行，加东西的人在 960 行，隔了 500 行的
+注释等于没有。
+
+### 切两块的顺序
+
+用下标切文件时先切后面那块、再切前面那块 —— 反过来前面一切，后面的下标全漂，
+这次就是这么把 `.statusbar` 那段 CSS 一起切没的（`pnpm check` 报的是
+「Expected a valid CSS identifier」，看现场才知道是切错了位置）。
+从 HEAD 重来，先 CSS 后标记。
+
+### 子串匹配闭合标签
+
+找 `{/if}` 的结束位置用 `"            {/if}\n"`（12 个空格）去 `index`，
+结果命中的是里层 16 个空格那个 —— 因为它**包含**12 个空格的那个串。
+留下一对多余的 `</div>{/if}`，Svelte 报 `block_unexpected_close`。
+按缩进找块边界要从行首匹配，不能 `index` 子串。
+
+### 数字
+
+| | |
+|---|---|
+| App.svelte | 4136 → 3673 行 |
+| Panel.svelte / terms.svelte.ts | 447 / 68 行 |
