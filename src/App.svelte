@@ -6,6 +6,7 @@
   import Panel from "./lib/shell/Panel.svelte";
   import StatusBar from "./lib/shell/StatusBar.svelte";
   import Confirms from "./lib/shell/Confirms.svelte";
+  import Content from "./lib/shell/Content.svelte";
   import TitleBar from "./lib/shell/TitleBar.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import type { Action } from "./lib/search/QuickSearch.svelte";
@@ -23,10 +24,8 @@
   import { persist, saved } from "./lib/state/persist.svelte";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
-  import Crash from "./lib/shell/Crash.svelte";
   import { KEYS, byId as keyById } from "./lib/state/keymap";
   import type { Sym } from "./lib/editor/outline";
-  import type { ChangeKind } from "./lib/git/diff";
   import {
     probePath,
     ignoredDirs,
@@ -38,10 +37,8 @@
     diag,
     reportBudget,
     initialPath,
-    gitDiff,
     gitStage,
     gitUnstage,
-    listProjectFiles,
     scratchDir,
   } from "./lib/ipc/commands";
 
@@ -178,45 +175,7 @@
 
 
 
-  /**
-   * 当前编辑文件相对 HEAD 的改动行，喂给编辑器缩略图。
-   *
-   * 数据源是 `git diff` 而不是自己在前端算：算法现成的，而且和差异视图
-   * 用的是同一份输出，两处显示不会打架。
-   *
-   * 已知的不足：标记反映的是**磁盘上那份**。编辑器里改了还没存时，标记不会跟着动 ——
-   * 要做到 IDEA 那种实时跟随，得拿 HEAD 版本在前端跑一遍 diff，那是另一件事。
-   * 保存之后 refreshGit 会把它带新。
-   */
-  let editorMarks = $state<Map<number, ChangeKind> | null>(null);
 
-  $effect(() => {
-    const tab = tabs.active;
-    const st = git.status;
-    const r = git.repo;
-    if (!tab || tab.mode !== "edit" || !r || !st) {
-      editorMarks = null;
-      return;
-    }
-    const prefix = `${st.root}/`;
-    if (!tab.path.startsWith(prefix)) {
-      editorMarks = null;
-      return;
-    }
-    const rel = tab.path.slice(prefix.length);
-    const e = st.entries.find((x) => x.path === rel);
-    // 干净的文件不用跑 diff；未跟踪的文件整份都是新的，标满一屏没有信息量
-    if (!e || e.untracked) {
-      editorMarks = null;
-      return;
-    }
-    // 动态引入：静态引会把整个 diff 解析模块（约 7KB）拽进入口包，
-    // 而它只在「打开了一个仓库里被改过的文件」时才用得上。
-    // 动态引之后它和 Git 那几个组件共用同一个按需块，一次都不会白加载。
-    void Promise.all([gitDiff(r, rel, false, false), import("./lib/git/diff")])
-      .then(([d, m]) => (editorMarks = m.changedLines(d.text)))
-      .catch(() => (editorMarks = null));
-  });
 
   /** 换项目根就重新找仓库；确定不是仓库时侧边栏切回文件树（Git 视图会是空的） */
   $effect(() => {
@@ -273,23 +232,8 @@
   let hovering = $state(false);
   let logStatus = $state("");
 
-  /**
-   * CodeMirror 6 核心约 340KB，日志模式一点也用不上 —— 静态引入会把入口包
-   * 从 71KB 顶到 412KB，与"秒开"的立身之本冲突。改成打开第一个可编辑文件时
-   * 才 import，本地加载只有几毫秒。
-   */
-  const editor = lazy(() => import("./lib/editor/Editor.svelte"), "编辑器");
 
-  /*
-   * 日志视图同样按需加载 —— 和 Editor 对称。
-   * 早先它是静态引入的，等于只写代码的人一直在为整套日志视图
-   * （虚拟滚动 + 过滤条 + 8 种格式的解析着色）付钱。
-   */
-  const logPane = lazy(() => import("./lib/logview/LogPane.svelte"), "日志视图");
 
-  $effect(() => {
-    if (tabs.active?.mode === "log") logPane.load();
-  });
 
   /**
    * 两个搜索浮层（⌘P 随处搜索、⌘⇧O 文件结构）。
@@ -398,35 +342,7 @@
 
 
 
-  /**
-   * ⌘Click 跳转要的文件索引（⌘P 那一份，相对项目根的路径）。
-   *
-   * **提前拉，不等人按键。** 它是「这个类在不在项目里」的唯一依据，
-   * 而那个问题在 ⌘hover 的每一次鼠标移动上都要答一遍 —— 现拉就是
-   * 每次 hover 隔一个 IPC 往返，下划线跟不上鼠标。`rg --files` 实测 0.02s，
-   * 换项目时拉一次完全付得起。
-   */
-  let projectFiles = $state<string[]>([]);
 
-  $effect(() => {
-    const r = project.root;
-    // worktree.treeTick 一变就重拉：切分支之后新增的文件也得跳得过去
-    worktree.treeTick;
-    if (!r) {
-      projectFiles = [];
-      return;
-    }
-    let dead = false;
-    void listProjectFiles(r)
-      .then((f) => {
-        if (!dead) projectFiles = f;
-      })
-      // 索引拉不到不该打扰人：跳转的第二层歇菜，第一层照常работа
-      .catch(() => {});
-    return () => {
-      dead = true;
-    };
-  });
 
 
 
@@ -451,9 +367,6 @@
   }
 
 
-  $effect(() => {
-    if (tabs.active?.mode === "edit") editor.load();
-  });
 
 
   /** 传给文件树的「定位到这里」请求。自增 tick 触发，理由见 FileTree 的 props 注释 */
@@ -487,8 +400,6 @@
    */
   $effect(() => {
     const e =
-      editor.error ||
-      logPane.error ||
       gitUi.error ||
       encPicker.error ||
       keysPanel.error ||
@@ -1154,119 +1065,16 @@
       <Confirms Bars={gitUi.comps.bars} />
 
 
-      <!--
-        内容区单独设边界：编辑器 / 日志 / 差异里任何一处抛异常，
-        都不该把整个外壳一起带走 —— 文件树、终端、状态栏还得能用。
-        boundary 的 reset 会重建这棵子树，多数一次性的渲染错误重试一下就好了。
-      -->
-      <svelte:boundary onerror={(e) => notify.fail(`内容区出错：${e}`)}>
-      <div class="content">
-        {#if !tabs.active}
-          <!--
-            收进一张卡片。原本是四行居中文字铺在整个内容区里 —— 1440 宽的窗口上
-            读起来是散的，眼睛没有落点。快捷键排成两列之后它才像个「起点」。
-          -->
-          <div class="empty">
-            <div class="card">
-              <div class="big">打开一个文件夹开始</div>
-              <p>也可以直接把文件或文件夹拖进来 —— 代码走编辑模式，大文件与日志自动走只读的日志模式</p>
-              <div class="go">
-                <button class="primary" onclick={() => void tabflow.openFolder()}>打开文件夹…</button>
-                <kbd>⌘O</kbd>
-                <span class="gap"></span>
-                {#if project.recent.length > 0}
-                  <span class="lastly">最近：</span>
-                  <button class="link" onclick={() => void tabflow.openRecent(project.recent[0])}>
-                    {project.recent[0].slice(project.recent[0].lastIndexOf("/") + 1) || project.recent[0]}
-                  </button>
-                {/if}
-              </div>
-              <!--
-                这份表原来是**手抄的第三份**，而且抄错了：⌘⇧F / ⌘⇧O / ⌘⇧G
-                三处修饰键次序都反了（Apple 的次序是 ⌃⌥⇧⌘）。
-                现在从 keymap.ts 渲染 —— 那张表由 tests/keymap.test.ts 卡着次序。
-              -->
-              <div class="keymap">
-                {#each keyHints as k (k.id)}
-                  <span><b>{k.gesture ?? k.accel}</b> {k.label}</span>
-                {/each}
-              </div>
-              {#if notify.error}<p class="err">{notify.error}</p>{/if}
-            </div>
-          </div>
-        {:else if tabs.active.mode === "merge" && gitUi.comps.merge}
-          {#key tabs.active.id}
-            <gitUi.comps.merge
-              text={tabs.active.mergeText ?? ""}
-              path={tabs.active.rel ?? tabs.active.name}
-              onResolve={(c, r) => void git.resolveMerge(tabs.active!, c, r)}
-            />
-          {/key}
-        {:else if tabs.active.mode === "merge"}
-          <div class="empty"><p>正在载入合并视图…</p></div>
-        {:else if tabs.active.mode === "diff" && gitUi.comps.diff}
-          {#key tabs.active.id}
-            <gitUi.comps.diff
-              raw={tabs.active.diffRaw ?? ""}
-              capped={!!tabs.active.diffCapped}
-              path={tabs.active.rel ?? tabs.active.name}
-              staged={!!tabs.active.diffStaged}
-              commit={tabs.active.diffShort ?? ""}
-              untracked={!!tabs.active.diffUntracked}
-              onToggleStaged={() => void git.toggleDiffSide(tabs.active!.id)}
-            />
-          {/key}
-        {:else if tabs.active.mode === "diff"}
-          <div class="empty"><p>正在载入差异视图…</p></div>
-        {:else if tabs.active.mode === "log" && tabs.active.handle !== undefined && logPane.comp}
-          {#key tabs.active.id}
-            <logPane.comp
-              handle={tabs.active.handle}
-              gotoLine={nav.gotoLine}
-              encoding={tabs.active.encoding ?? "utf-8"}
-              onStatus={(s) => (logStatus = s)}
-              onTop={(l) => docs.markPos(tabs.active!.path, l)}
-            />
-          {/key}
-        {:else if tabs.active.mode === "log"}
-          <div class="empty"><p>正在载入日志视图…</p></div>
-        {:else if editor.comp}
-          {#key tabs.active.id}
-            <editor.comp
-              path={tabs.active.path}
-              initial={tabs.active.draft ?? tabs.active.content ?? ""}
-              baseline={tabs.active.content ?? ""}
-              savedTick={docs.savedTick}
-              gotoLine={nav.gotoLine}
-              {outlineTick}
-              marks={editorMarks}
-              {showMinimap}
-              onChange={(d) => (tabs.active!.dirty = d)}
-              onSave={(c) => docs.save(c)}
-              onStash={(p, t) => docs.stashDraft(p, t)}
-              onLive={(p, g) => docs.onEditorLive(p, g)}
-              onWordProbe={(p, g) => docs.onEditorWordProbe(p, g)}
-              onOutline={(s) => (symbols = s)}
-              onCursor={(l) => docs.markPos(tabs.active!.path, l)}
-              jumpFiles={projectFiles}
-              jumpRel={project.root && tabs.active.path.startsWith(`${project.root}/`)
-                ? tabs.active.path.slice(project.root.length + 1)
-                : null}
-              jumpLang={langs?.langOf(tabs.active.path) ?? ""}
-              onJump={(hit) => void nav.jumpTo(hit)}
-            />
-          {/key}
-        {:else}
-          <div class="empty"><p>正在载入编辑器…</p></div>
-        {/if}
-      </div>
-
-      {#snippet failed(err, reset)}
-        <div class="content">
-          <Crash error={err} scope={tabs.active ? `${tabs.active.name} 的视图` : "内容区"} onReset={reset} />
-        </div>
-      {/snippet}
-      </svelte:boundary>
+      <Content
+        Merge={gitUi.comps.merge}
+        Diff={gitUi.comps.diff}
+        {langs}
+        {showMinimap}
+        {outlineTick}
+        {keyHints}
+        onLogStatus={(t) => (logStatus = t)}
+        onOutline={(syms) => (symbols = syms)}
+      />
 
       <!--
         底部工具窗在 Panel.svelte 里。提交历史那块要这边的 git lazyGroup 和活动标签，
@@ -1335,94 +1143,8 @@
    * flex 天然按实际存在的元素排布，content 吃掉剩余空间就行。
    */
   .main { display: flex; flex-direction: column; overflow: hidden; }
-  .content { flex: 1; min-height: 0; overflow: hidden; }
 
 
-  .empty {
-    height: 100%;
-    display: grid;
-    place-content: center;
-    text-align: center;
-    color: var(--text-dim);
-  }
-  .empty .card {
-    width: min(420px, 90%);
-    padding: 18px 20px 16px;
-    /* 空态卡片是浮层：外壳层是透的，卡片跟着透就成了一圈没有底的框 */
-    background: var(--elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    text-align: left;
-  }
-  .empty .big { font-size: 14.5px; color: var(--text); margin-bottom: 4px; }
-  .empty p { margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--text-faint); }
-  /*
-   * 主动作是按钮，拖拽退成第二说法 —— 拖拽是这几种开法里最不像 macOS 的一种，
-   * 而它原来是卡片上唯一的说法。
-   */
-  .empty .go {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 14px;
-  }
-  .empty .go .gap { flex: 1; }
-  .empty .primary {
-    padding: 4px 12px;
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: var(--r-sm);
-    color: #fff;
-    font-family: var(--ui-font);
-    font-size: 12px;
-    cursor: default;
-  }
-  .empty .primary:hover { filter: brightness(1.08); }
-  .empty .go kbd {
-    font-family: var(--code-font);
-    font-size: 10.5px;
-    color: var(--text-faint);
-    background: var(--hover);
-    border-radius: var(--r-sm);
-    padding: 1px 5px;
-  }
-  .empty .lastly { font-size: 11.5px; color: var(--text-faint); }
-  /* 空态是最需要「最近」的时刻 —— 那时侧边栏还没有任何内容 */
-  .empty .link {
-    background: transparent;
-    border: none;
-    padding: 0;
-    color: var(--accent);
-    font-family: var(--ui-font);
-    font-size: 11.5px;
-    cursor: default;
-    max-width: 160px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .empty .link:hover { text-decoration: underline; }
-  .empty .primary:focus-visible,
-  .empty .link:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-
-  .empty .keymap {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 5px 20px;
-    margin-top: 14px;
-    font-family: var(--code-font);
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-  .empty .keymap b { color: var(--text-faint); font-weight: 400; margin-right: 4px; }
-  .empty .err {
-    margin-top: 14px;
-    padding-top: 11px;
-    border-top: 1px solid var(--border-soft);
-    color: var(--lvl-error);
-    font-family: var(--code-font);
-    font-size: 11px;
-  }
 
 
 </style>
