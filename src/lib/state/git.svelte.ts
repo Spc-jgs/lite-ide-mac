@@ -6,10 +6,14 @@ import {
   gitStage,
   gitDiscard,
   gitCommit,
+  gitStashList,
+  gitStashPush,
+  gitStashPop,
   readText,
   writeText,
   type GitEntry,
   type GitStatus,
+  type GitStash,
 } from "../ipc/commands";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
@@ -33,6 +37,8 @@ class Git {
   /** 项目所属仓库的根；不是仓库就是 null，整块 Git 功能随之隐身 */
   repo = $state<string | null>(null);
   status = $state<GitStatus | null>(null);
+  /** stash 列表（issue #33 ⑪）。和 status 一起刷 —— 收进去、放出来都会动它 */
+  stashes = $state<GitStash[]>([]);
   /** 正在刷新状态（`writing` 是另一件事：正在写） */
   busy = $state(false);
   /** 待确认丢弃的条目 —— 丢弃不可撤销，必须过用户这一关 */
@@ -100,7 +106,10 @@ class Git {
     if (!r) return;
     this.busy = true;
     try {
-      this.status = await gitStatus(r);
+      // 两条子进程并行；stash 列表拿不到不算错（空仓库、老 git），当空表
+      const [st, stashes] = await Promise.all([gitStatus(r), gitStashList(r).catch(() => [])]);
+      this.status = st;
+      this.stashes = stashes;
       // 打开着的工作区差异跟着更新，否则暂存完还停在旧内容上。
       // 历史提交的差异是不变的，重拉纯属浪费一次子进程
       await Promise.all(
@@ -234,6 +243,32 @@ class Git {
       "丢弃改动",
     );
     await worktree.changed();
+  }
+
+  /**
+   * 收进 stash / 放回来（issue #33 ⑪）。两条都走 `run`：写守卫、慢了才说话、
+   * 完了刷新。放回来撞上冲突时 git 报错、stash 留着，刷新后改动列表里
+   * 出现「冲突中」—— 那正是该看到的，不另外翻译。
+   * 盘上的文件变了，两条都要 `worktree.changed()`。
+   */
+  async stashPush(): Promise<boolean> {
+    const ok = await this.run("收进 stash 失败", async () => {
+      await gitStashPush(this.repo!);
+      notify.ok("已收进 stash，工作区回到 HEAD", 3000);
+    }, "收进 stash");
+    await worktree.changed();
+    return ok;
+  }
+
+  async stashPop(): Promise<boolean> {
+    const ok = await this.run("取回 stash 失败", async () => {
+      await gitStashPop(this.repo!);
+      notify.ok("已取回 stash", 3000);
+    }, "取回 stash");
+    // `run` 失败不刷新，而 pop 撞上冲突时盘上**已经**变了 —— 冲突得让人看见
+    if (!ok) await this.refresh();
+    await worktree.changed();
+    return ok;
   }
 
   /** 返回提交成没成 —— 「提交并推送」要据此决定推不推 */

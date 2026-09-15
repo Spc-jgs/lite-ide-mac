@@ -90,6 +90,11 @@
         layout.showSide("git");
       }}
     >去提交</button>
+    <!-- IDEA 的 Smart Checkout：收进 stash、切过去、再放回来。不丢东西的那条路排在丢东西的前面 -->
+    <button
+      onclick={() => void branches.stashThenCheckout()}
+      title="改动收进 stash → 切过去 → 再取回来。取回时撞上冲突会留在改动列表里"
+    >stash 再切换</button>
     <button class="danger" onclick={() => void branches.discardThenCheckout()}>丢弃这些改动并切换</button>
     <button onclick={() => (branches.pendingCheckout = null)}>取消</button>
   </div>

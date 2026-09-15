@@ -12,6 +12,9 @@
     onDiscard,
     onCommit,
     onRefresh,
+    stashCount = 0,
+    onStash,
+    onUnstash,
     onOpenBranches,
     onOpenLog,
     ahead = 0,
@@ -30,6 +33,14 @@
     /** `push` = 提交完接着推（IDEA 的 Commit and Push…）：提交成功才推，推之前照常确认 */
     onCommit: (message: string, amend: boolean, push: boolean) => void;
     onRefresh: () => void;
+    /**
+     * stash（issue #33 ⑪）。入口在「改动」段的 ⋯ 里（和「全部丢弃」一样是
+     * 「把改动从工作区拿走」那一档），取回的入口除了 ⋯ 还有干净时的空态 ——
+     * 那时改动列表是空的，⋯ 根本没地方长。
+     */
+    stashCount?: number;
+    onStash?: () => void;
+    onUnstash?: () => void;
     /**
      * 打开分支面板。
      *
@@ -144,8 +155,23 @@
 
   let menuItems = $derived.by((): MenuItem[] => [
     { label: "全部暂存", run: () => onStage(unstaged.map((e) => e.path)) },
+    // 收进 stash 和丢弃是同一档 ——「把改动从工作区拿走」，只是一个还能拿回来
+    { label: "收进 stash", sep: true, run: () => onStash?.() },
+    ...(stashCount > 0 ? [{ label: `取回 stash (${stashCount})`, run: () => onUnstash?.() }] : []),
     { label: "全部丢弃…", danger: true, sep: true, run: () => onDiscard(unstaged) },
   ]);
+  /** 只有已暂存的时候「改动」段不在，⋯ 得挂到「已暂存」段上，不然 stash 没入口 */
+  let stagedMenuItems = $derived.by((): MenuItem[] => [
+    { label: "全部取消暂存", run: () => onUnstage(staged.map((e) => e.path)) },
+    { label: "收进 stash", sep: true, run: () => onStash?.() },
+    ...(stashCount > 0 ? [{ label: `取回 stash (${stashCount})`, run: () => onUnstash?.() }] : []),
+  ]);
+  let stagedMenu = $state<{ x: number; y: number } | null>(null);
+  function openStagedMenu(e: MouseEvent) {
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    stagedMenu = { x: r.right - 8, y: r.bottom + 2 };
+  }
 
   function openMenu(e: MouseEvent) {
     e.preventDefault();
@@ -265,6 +291,9 @@
           <span class="esub">和 <span class="mono">{status.upstream}</span> 一致</span>
         {/if}
         <button class="ebtn" onclick={onOpenLog}>看提交历史</button>
+        {#if stashCount > 0}
+          <button class="ebtn" onclick={() => onUnstash?.()}>取回 stash ({stashCount})</button>
+        {/if}
       </div>
     {:else}
     <div class="commit">
@@ -328,6 +357,9 @@
           <span class="cnt">{staged.length}</span>
           <span class="gap"></span>
           <button class="mini" onclick={() => onUnstage(staged.map((e) => e.path))}>全部取消</button>
+          {#if unstaged.length === 0}
+            <button class="mini more" onclick={openStagedMenu} title="更多操作" aria-label="更多操作">⋯</button>
+          {/if}
         </div>
         {#each staged as e (e.path)}
           <div class="frow-wrap">
@@ -387,6 +419,9 @@
     items={menuItems}
     onclose={() => (menu = null)}
   />
+{/if}
+{#if stagedMenu}
+  <ContextMenu x={stagedMenu.x} y={stagedMenu.y} label="已暂存的操作" items={stagedMenuItems} onclose={() => (stagedMenu = null)} />
 {/if}
 {#if cmenu}
   <ContextMenu x={cmenu.x} y={cmenu.y} label="提交方式" items={cmenuItems} onclose={() => (cmenu = null)} />

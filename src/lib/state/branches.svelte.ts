@@ -1,5 +1,7 @@
 import {
   gitSwitch,
+  gitStashPush,
+  gitStashPop,
   gitWorktreeAdd,
   gitWorktreeRemove,
   type SwitchErr,
@@ -58,6 +60,43 @@ class Branches {
       notify.ok(create ? `已从 ${base} 新建并切到 ${now}` : `已切到 ${now}${up}`, 2800);
       await worktree.changed();
     }, create ? "新建分支" : "切分支");
+  }
+
+  /**
+   * IDEA 的 Smart Checkout：改动收进 stash → 切分支 → 再放回来（issue #33 ⑪）。
+   * 三步在一次 `git.run` 里，中间不刷新 —— 刷了也只是让改动列表闪一下空。
+   *
+   * 放回来撞上冲突时 `stash pop` 报错、stash 留着：分支已经切过去了，
+   * 改动列表里出现「冲突中」，错误条上是 git 的原话。不回滚 —— 回滚要
+   * 再切一次分支，而用户要的本来就是切过去。
+   * 切分支这一步失败（极少：stash 之后还有别的东西挡着）就把 stash 放回来再报。
+   */
+  async stashThenCheckout() {
+    const p = this.pendingCheckout;
+    if (!p || !git.repo) return;
+    this.pendingCheckout = null;
+    const repo = git.repo;
+    const base = git.status?.branch ?? "";
+    const ok = await git.run("切分支失败", async () => {
+      await gitStashPush(repo);
+      try {
+        await gitSwitch(repo, p.name, p.create);
+      } catch (e) {
+        await gitStashPop(repo).catch(() => {});
+        throw e;
+      }
+      await gitStashPop(repo);
+    }, "切分支");
+    if (ok) notify.ok(`已切到 ${git.status?.branch || p.name}，改动已从 stash 取回`, 2800);
+    else {
+      // `run` 失败不刷新，而这时分支多半已经切过去、盘上带着冲突标记
+      await git.refresh();
+    }
+    if (!ok && git.status?.branch && git.status.branch !== base) {
+      // 切过去了但取回时撞上冲突：错误条已经在了，这里补一句分支的事实
+      notify.ok(`已切到 ${git.status.branch}`, 2800);
+    }
+    await worktree.changed();
   }
 
   /** 丢掉挡路的那几个改动，然后把刚才那次切换重放一遍 */

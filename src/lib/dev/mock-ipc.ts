@@ -382,6 +382,13 @@ const resolved = new Set<string>();
 
 /** 挡住切到 `m11/symbols` 的那两个文件。和 `git_status` 里的条目对得上 */
 const BLOCKERS = ["src/App.svelte", "docs/old.md"];
+/**
+ * stash 桩（issue #33 ⑪）：push 把「挡路的那两个」当成收进去了（它们从改动列表
+ * 消失，切分支也不再被挡），pop 放回来。只有已跟踪的算 —— 和真实现一样，
+ * 未跟踪的留在原地。
+ */
+const stashes: { index: number; message: string }[] = [];
+let stashed = new Set<string>();
 
 /**
  * 当前分支。`git_switch` 成功之后要变 —— 否则切完了 `git_status` 还报老名字，
@@ -1076,8 +1083,28 @@ export function installMockIpc(): void {
               resolved.has("src/conflict.rs")
                 ? g("src/conflict.rs", "M", ".", { staged: true })
                 : g("src/conflict.rs", "U", "U", { conflicted: true }),
-            ].filter((e) => !discarded.has(e.path)),
+            ].filter((e) => !discarded.has(e.path) && !(stashed.has(e.path) && !e.untracked)),
           };
+        case "git_stash_list":
+          return stashes.map((x) => ({ ...x }));
+        case "git_stash_push": {
+          await sleep(120);
+          const tracked = ["src/OrderService.java", "src/App.svelte", "README.md", "docs/old.md", "src/renamed.ts"]
+            .filter((f) => !discarded.has(f) && !stashed.has(f));
+          if (tracked.length === 0) throw "没有可以收进 stash 的改动（未跟踪的文件不算）";
+          for (const f of tracked) stashed.add(f);
+          stashes.unshift({ index: 0, message: `WIP on ${curBranch}: a1b2c3d 上一条提交` });
+          stashes.forEach((x, i) => (x.index = i));
+          return null;
+        }
+        case "git_stash_pop": {
+          await sleep(120);
+          if (stashes.length === 0) throw "No stash entries found.";
+          stashes.shift();
+          stashes.forEach((x, i) => (x.index = i));
+          if (stashes.length === 0) stashed = new Set();
+          return null;
+        }
         case "git_head_text": {
           /*
            * HEAD 里那份 = 桩文件去掉第 3 行、再把第 5 行改一个字。这样一打开
@@ -1203,7 +1230,7 @@ index 1a2b3c4..5d6e7f8 100644
            * 桩要是抛个 Error，前端 `err.kind` 读出来是 undefined，
            * 就会走到「原样上抛」那条分支去，在浏览器里看着像功能没做。
            */
-          const blocking = BLOCKERS.filter((f) => !discarded.has(f));
+          const blocking = BLOCKERS.filter((f) => !discarded.has(f) && !stashed.has(f));
           if (a.name === "m11/symbols" && !a.create && blocking.length > 0) {
             throw {
               kind: "local-changes",

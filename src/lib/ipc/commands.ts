@@ -395,6 +395,19 @@ export const gitDiff = (root: string, path: string, staged: boolean, untracked: 
 export const gitHeadText = (root: string, path: string) =>
   invoke<DiffText | null>("git_head_text", { root, path });
 
+/** 一条 stash（issue #33 ⑪） */
+export interface GitStash {
+  /** `stash@{N}` 里的 N */
+  index: number;
+  /** git 给的那句：`WIP on main: a1b2c3d 上一条提交的标题` */
+  message: string;
+}
+export const gitStashList = (root: string) => invoke<GitStash[]>("git_stash_list", { root });
+/** 已跟踪文件的改动收进 stash，工作区回到 HEAD；未跟踪的留在原地。没改动时报错 */
+export const gitStashPush = (root: string) => invoke<void>("git_stash_push", { root });
+/** 最新的 stash 放回工作区并删掉。撞上冲突时报错，stash 留着，改动列表里出现冲突 */
+export const gitStashPop = (root: string) => invoke<void>("git_stash_pop", { root });
+
 export const gitStage = (root: string, paths: string[]) =>
   invoke<void>("git_stage", { root, paths });
 

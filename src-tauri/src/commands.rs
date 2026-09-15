@@ -1112,6 +1112,30 @@ pub fn git_commit_files(root: String, sha: String) -> Result<Vec<GitEntryDto>, S
         .collect())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashDto {
+    pub index: u32,
+    pub message: String,
+}
+
+#[tauri::command]
+pub fn git_stash_list(root: String) -> Result<Vec<StashDto>, String> {
+    gitsvc::stash_list(&root)
+        .map(|v| v.into_iter().map(|s| StashDto { index: s.index, message: s.message }).collect())
+        .map_err(|e| format!("{e}"))
+}
+
+#[tauri::command]
+pub fn git_stash_push(root: String) -> Result<(), String> {
+    gitsvc::stash_push(&root).map_err(|e| format!("{e}"))
+}
+
+#[tauri::command]
+pub fn git_stash_pop(root: String) -> Result<(), String> {
+    gitsvc::stash_pop(&root).map_err(|e| format!("{e}"))
+}
+
 /// 文件在 HEAD 里的内容，编辑器拿它当基线在前端实时算改动行（issue #33 ④）。
 /// `None` = 不在 HEAD 里（新文件 / 还没有提交），界面上不标。
 /// 复用 `DiffDto`：要传的就是「一段文本 + 有没有被上限截断」，形状一样。

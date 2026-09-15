@@ -1232,6 +1232,53 @@ pub fn discard(root: impl AsRef<Path>, paths: &[String], untracked: &[String]) -
     Ok(())
 }
 
+/// 一条 stash。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stash {
+    /// `stash@{N}` 里的 N
+    pub index: u32,
+    /// git 给的那句：`WIP on main: a1b2c3d 上一条提交的标题`
+    pub message: String,
+}
+
+/// stash 列表（issue #33 ⑪）。空仓库、没有 stash 都是空表，不是错误。
+pub fn stash_list(root: impl AsRef<Path>) -> R<Vec<Stash>> {
+    // `%gd` 是 reflog 选择子（`stash@{0}`），`%s` 是标题；中间用 TAB 隔开 ——
+    // 标题里不会有 TAB（git 把控制字符当空白折掉了），也不会有换行
+    let out = run(root.as_ref(), &["stash", "list", "--format=%gd%x09%s"])?;
+    Ok(out
+        .lines()
+        .filter_map(|l| {
+            let (sel, msg) = l.split_once('\t')?;
+            let n = sel.strip_prefix("stash@{")?.strip_suffix('}')?.parse().ok()?;
+            Some(Stash { index: n, message: msg.to_string() })
+        })
+        .collect())
+}
+
+/// `git stash push`：把已跟踪文件的改动（暂存区 + 工作区）收进 stash，工作区回到 HEAD。
+///
+/// **不带 `-u`**：和 VS Code 的「Stash」、IDEA 的默认一样，未跟踪的文件留在原地 ——
+/// 它们不挡切分支，而收进去再放出来反而可能撞上同名文件。
+///
+/// git 在没什么可收时打一句 "No local changes to save" **退出码是 0**，
+/// 界面上会变成一句假的「已收进 stash」。这里把它翻成错误。
+pub fn stash_push(root: impl AsRef<Path>) -> R<()> {
+    let out = run(root.as_ref(), &["stash", "push"])?;
+    if out.contains("No local changes to save") {
+        return Err(Error::Git("没有可以收进 stash 的改动（未跟踪的文件不算）".into()));
+    }
+    Ok(())
+}
+
+/// `git stash pop`：把最新的 stash 放回工作区并删掉它。
+///
+/// 撞上冲突时 git 退出码非 0、stash **留着不删**，工作区带着冲突标记 ——
+/// 那正是用户该看到的（改动列表里出现「冲突中」），错误文本照 git 的原话给。
+pub fn stash_pop(root: impl AsRef<Path>) -> R<()> {
+    run(root.as_ref(), &["stash", "pop"]).map(|_| ())
+}
+
 /// 提交暂存区。`amend` 为真时改写上一条提交。
 pub fn commit(root: impl AsRef<Path>, message: &str, amend: bool) -> R<String> {
     if message.trim().is_empty() {
@@ -3011,6 +3058,40 @@ mod tests {
         assert_eq!(got.text, "第一版\n", "要的是 HEAD 那份，不是工作区那份");
         assert!(!got.truncated);
         assert!(matches!(head_text(&dir, "没有的.txt"), Ok(None)), "HEAD 里没有的文件该是 None");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// push 收得进、list 看得见、pop 放得回；没改动时 push 要报错而不是假成功
+    #[test]
+    fn stash_一来一回() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-stash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "第一版\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次提交", false).unwrap();
+
+        assert!(stash_list(&dir).unwrap().is_empty(), "一开始没有 stash");
+        assert!(stash_push(&dir).is_err(), "没改动时 push 要报错，git 自己这时退出码是 0");
+
+        std::fs::write(dir.join("a.txt"), "改了\n").unwrap();
+        stash_push(&dir).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "第一版\n", "push 之后工作区回到 HEAD");
+        let list = stash_list(&dir).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].index, 0);
+        assert!(list[0].message.contains("首次提交"), "标题该带上一条提交：{}", list[0].message);
+
+        stash_pop(&dir).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "改了\n", "pop 之后改动回来了");
+        assert!(stash_list(&dir).unwrap().is_empty(), "pop 之后 stash 该没了");
         std::fs::remove_dir_all(&dir).ok();
     }
 

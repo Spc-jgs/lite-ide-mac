@@ -804,6 +804,9 @@
                 if (ok && push) void remote.askPush();
               })}
             onRefresh={() => void git.refresh()}
+            stashCount={git.stashes.length}
+            onStash={() => void git.stashPush()}
+            onUnstash={() => void git.stashPop()}
             onOpenBranches={openBranchPicker}
             onOpenLog={() => layout.openGitTab("log")}
             ahead={git.status?.ahead ?? 0}
