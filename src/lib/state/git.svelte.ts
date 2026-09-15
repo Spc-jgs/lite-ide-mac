@@ -27,6 +27,11 @@ class Git {
   busy = $state(false);
   /** 待确认丢弃的条目 —— 丢弃不可撤销，必须过用户这一关 */
   pendingDiscard = $state<GitEntry[] | null>(null);
+  /**
+   * 编辑器里显示注解（blame，issue #33 ⑭）。一个开关管所有标签 —— IDEA 是按文件开的，
+   * 但「看谁改的」这个模式一旦进入，换文件多半还想看。只在内存里，重启就关。
+   */
+  blameOn = $state(false);
 
   /** 当前编辑的文件在 git 状态里对应的那条，没有就是干净的 */
   activeEntry = $derived.by(() => {

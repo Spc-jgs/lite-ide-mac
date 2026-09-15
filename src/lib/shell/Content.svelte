@@ -14,7 +14,7 @@
   import type { Sym } from "../editor/outline";
   import type { KeyDef } from "../state/keymap";
   import { lazy } from "../lazy/lazy.svelte";
-  import { gitHeadText, listProjectFiles } from "../ipc/commands";
+  import { gitHeadText, gitBlame, listProjectFiles } from "../ipc/commands";
   import { detectIndent } from "../editor/indent";
   import { notify } from "../state/notify.svelte";
   import { tabs } from "../state/tabs.svelte";
@@ -143,6 +143,43 @@
   });
 
   /**
+   * 注解（blame，issue #33 ⑭）：开着且当前是仓库里已跟踪的文件就拉一次。
+   * 触发和 `headText` 一样：换标签、仓库变、status 刷新（提交之后「未提交」那几行
+   * 才会变成有名有姓的）。关着时 null，编辑器把那列 gutter 整个拿走。
+   */
+  let blame = $state<import("../ipc/commands").BlameHunk[] | null>(null);
+  $effect(() => {
+    const on = git.blameOn;
+    const tab = tabs.active;
+    const st = git.status;
+    const r = git.repo;
+    if (!on || !tab || tab.mode !== "edit" || !r || !st || st.unborn || !tab.path.startsWith(`${st.root}/`)) {
+      blame = null;
+      return;
+    }
+    const rel = tab.path.slice(st.root.length + 1);
+    if (st.entries.find((x) => x.path === rel)?.untracked) {
+      blame = null;
+      return;
+    }
+    let dead = false;
+    void gitBlame(r, rel)
+      .then((b) => {
+        if (dead) return;
+        blame = b.hunks;
+        if (b.truncated) notify.ok("文件太大，后半段没有注解", 3000);
+      })
+      .catch((e) => {
+        if (dead) return;
+        blame = null;
+        notify.fail(`注解拉不到：${e}`, 3000);
+      });
+    return () => {
+      dead = true;
+    };
+  });
+
+  /**
    * ⌘Click 跳转要的文件索引（⌘P 那一份，相对项目根的路径）。
    *
    * **提前拉，不等人按键。** 它是「这个类在不在项目里」的唯一依据，
@@ -261,6 +298,8 @@
         {headText}
         {showMinimap}
         indent={detectIndent(tabs.active.content ?? "")}
+        {blame}
+        onBlamePick={(h) => void git.openCommitDiff(h.sha, h.short, tabs.active!.path.slice((git.status?.root.length ?? 0) + 1))}
         onChange={(d) => {
           tabs.active!.dirty = d;
           // 动过手的预览标签就不再是「看一眼」了，保留下来（issue #33 ⑯）

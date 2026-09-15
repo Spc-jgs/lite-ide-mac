@@ -560,6 +560,10 @@
         else notify.fail("当前文件没有未提交的改动", 2600);
         return;
       }
+      case "git-blame":
+        git.blameOn = !git.blameOn;
+        if (git.blameOn && tabs.active?.mode !== "edit") notify.ok("注解已打开，打开一个仓库里的文件就能看到", 2600);
+        return;
       case "git-log": layout.openGitTab("log"); return;
       case "git-console": layout.openGitTab("console"); return;
       case "git-branches": openBranchPicker(); return;

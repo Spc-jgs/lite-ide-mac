@@ -1118,6 +1118,53 @@ pub fn git_commit_files(root: String, sha: String) -> Result<Vec<GitEntryDto>, S
         .collect())
 }
 
+/// blame 的一段（issue #33 ⑭）。`sha` 全零 = 未提交的行
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlameHunkDto {
+    pub sha: String,
+    pub short: String,
+    pub author: String,
+    /// 作者时间，unix 秒
+    pub time: i64,
+    pub summary: String,
+    /// 现文件里的起始行（1-based）
+    pub start: u32,
+    pub count: u32,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlameDto {
+    pub hunks: Vec<BlameHunkDto>,
+    /// 输出被 1MB 上限截断了：后面的行没有注解，界面要说出来
+    pub truncated: bool,
+}
+
+#[tauri::command]
+pub async fn git_blame(root: String, path: String) -> Result<BlameDto, String> {
+    // 大文件的 blame 要几百毫秒，别占主线程
+    blocking(move || {
+        let (hunks, truncated) = gitsvc::blame(&root, &path).map_err(|e| format!("{e}"))?;
+        Ok(BlameDto {
+            hunks: hunks
+                .into_iter()
+                .map(|h| BlameHunkDto {
+                    sha: h.sha,
+                    short: h.short,
+                    author: h.author,
+                    time: h.time,
+                    summary: h.summary,
+                    start: h.start,
+                    count: h.count,
+                })
+                .collect(),
+            truncated,
+        })
+    })
+    .await
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StashDto {

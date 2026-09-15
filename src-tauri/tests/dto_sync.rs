@@ -35,6 +35,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("GitStatusDto", "GitStatus"),
     ("DiffDto", "DiffText"),
     ("StashDto", "GitStash"),
+    ("BlameHunkDto", "BlameHunk"),
+    ("BlameDto", "Blame"),
     ("LogEntryDto", "GitLogEntry"),
     ("BranchDto", "GitBranch"),
     ("WorktreeDto", "GitWorktree"),

@@ -99,6 +99,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
 
     let git_changes = item(app, "git-changes", "改动列表", Some("Shift+CmdOrCtrl+G"))?;
     let git_file_diff = item(app, "git-file-diff", "查看当前文件的改动", None)?;
+    let git_blame = item(app, "git-blame", "显示 / 隐藏注解（blame）", None)?;
     let git_log = item(app, "git-log", "提交历史", None)?;
     let git_console = item(app, "git-console", "Git 控制台", None)?;
     let git_branches = item(app, "git-branches", "分支与工作树…", None)?;
@@ -185,6 +186,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let git = SubmenuBuilder::new(app, "Git")
         .item(&git_changes)
         .item(&git_file_diff)
+        .item(&git_blame)
         .item(&git_log)
         .item(&git_console)
         .separator()
@@ -253,6 +255,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
             toggle_mode,
             outline,
             git_file_diff,
+            git_blame,
             goto_line,
             nav_back,
             nav_fwd,

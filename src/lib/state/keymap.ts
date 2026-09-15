@@ -210,6 +210,7 @@ export const KEYS: KeyDef[] = [
   { id: "git-push", label: "推送…", accel: "⌥⌘P", group: "Git", owner: "menu" },
   { id: "git-fetch", label: "抓取远程", group: "Git", owner: "menu" },
   { id: "git-file-diff", label: "查看当前文件的改动", group: "Git", owner: "menu" },
+  { id: "git-blame", label: "显示 / 隐藏注解（blame）", group: "Git", owner: "menu" },
   { id: "git-log", label: "提交历史", group: "Git", owner: "menu" },
   { id: "git-console", label: "Git 控制台", group: "Git", owner: "menu" },
   { id: "git-branches", label: "分支与工作树…", group: "Git", owner: "menu" },

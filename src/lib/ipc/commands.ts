@@ -401,6 +401,25 @@ export const gitDiff = (root: string, path: string, staged: boolean, untracked: 
 export const gitHeadText = (root: string, path: string) =>
   invoke<DiffText | null>("git_head_text", { root, path });
 
+/** blame 的一段（issue #33 ⑭）。`sha` 全零 = 未提交的行 */
+export interface BlameHunk {
+  sha: string;
+  short: string;
+  author: string;
+  /** 作者时间，unix 秒 */
+  time: number;
+  summary: string;
+  /** 现文件里的起始行（1-based） */
+  start: number;
+  count: number;
+}
+export interface Blame {
+  hunks: BlameHunk[];
+  /** 输出被 1MB 上限截断了：后面的行没有注解 */
+  truncated: boolean;
+}
+export const gitBlame = (root: string, path: string) => invoke<Blame>("git_blame", { root, path });
+
 /** 一条 stash（issue #33 ⑪） */
 export interface GitStash {
   /** `stash@{N}` 里的 N */

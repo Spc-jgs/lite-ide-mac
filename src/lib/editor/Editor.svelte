@@ -15,6 +15,8 @@
   import { outlineOf, symbolCache, type Sym } from "./outline";
   import { minimap } from "./minimap";
   import { changeMarks, setChangeMarks } from "./changemarks";
+  import { blameGutter, blameSlot, setBlame } from "./blame";
+  import type { BlameHunk } from "../ipc/commands";
   import { diffLines } from "../git/linediff";
   import { resolveJump, rawWordAt, type JumpHit } from "./jump";
   import { jumpExtension } from "./jump-ext";
@@ -28,6 +30,8 @@
     outlineTick = 0,
     headText = null,
     indent = null,
+    blame = null,
+    onBlamePick,
     showMinimap = true,
     onChange,
     onSave,
@@ -72,6 +76,10 @@
      * 只在建 state 时读一次：文件打开之后风格不会变，变了也该是用户自己改的。
      */
     indent?: import("./indent").Indent;
+    /** 注解（blame）段落；null = 关着，那列 gutter 整个不装 */
+    blame?: BlameHunk[] | null;
+    /** 点了某段注解：开那次提交的差异 */
+    onBlamePick?: (h: BlameHunk) => void;
     showMinimap?: boolean;
     /**
      * ⌘Click / ⌘B 跳转要的三样，全从 App 来（见 `lib/editor/jump.ts`）：
@@ -188,6 +196,7 @@
         // 紧挨着行号、在折叠标记左边 —— IDEA / VS Code 都是这个位置。gutter 的
         // 左右顺序就是扩展列表里的顺序
         changeMarks(),
+        blameSlot.of([]),
         highlightActiveLineGutter(),
         highlightActiveLine(),
         highlightSpecialChars(),
@@ -294,6 +303,7 @@
       onCaret?.(1, 1);
       // 基线多半在挂载前就到了（切标签时上一份还在），那条 effect 那时 view 还是 null
       recomputeMarks();
+      applyBlame();
       void applyLang(path);
       // 草稿恢复回来时它本来就是脏的，得说出来 —— 不说的话标签上的圆点不会亮
       onChange(initial !== baseText);
@@ -348,6 +358,12 @@
     if (换了文件 || 文本变了) {
       view.setState(build(text));
       void applyLang(p);
+      // 新 state 里注解那个槽是空的，改动标记的字段也是新的：两个都要重下
+      blameInstalled = false;
+      untrack(() => {
+        applyBlame();
+        recomputeMarks();
+      });
     }
     onChange(text !== baseText);
     untrack(() => onLive?.(p, () => view?.state.doc.toString() ?? ""));
@@ -380,6 +396,32 @@
     const tick = outlineTick;
     if (!view || tick === 0) return;
     onOutline?.(outlineOf(view.state));
+  });
+
+  /*
+   * 注解：开关 = 装 / 拆那列 gutter；数据变了就整份重下。
+   * **装和喂数据要分两次 dispatch**：reconfigure 那一笔里新字段只跑 `create`，
+   * 同一笔里的 effect 它看不见 —— 合成一笔的表现是 gutter 出来了但一片空白。
+   */
+  let blameInstalled = false;
+  function applyBlame() {
+    if (!view) return;
+    const b = blame;
+    if (b === null) {
+      if (blameInstalled) view.dispatch({ effects: blameSlot.reconfigure([]) });
+      blameInstalled = false;
+      return;
+    }
+    if (!blameInstalled) {
+      view.dispatch({ effects: blameSlot.reconfigure(blameGutter((h) => onBlamePick?.(h))) });
+      blameInstalled = true;
+    }
+    view.dispatch({ effects: setBlame.of(b) });
+  }
+  $effect(() => {
+    blame;
+    if (!view) return;
+    untrack(applyBlame);
   });
 
   // 缩略图开关：热替换而不重建 state

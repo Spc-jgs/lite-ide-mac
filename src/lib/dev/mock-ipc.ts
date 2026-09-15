@@ -1087,6 +1087,27 @@ export function installMockIpc(): void {
                 : g("src/conflict.rs", "U", "U", { conflicted: true }),
             ].filter((e) => !discarded.has(e.path) && !(stashed.has(e.path) && !e.untracked)),
           };
+        case "git_blame": {
+          // 桩：每 5 行一段，三个作者轮着来，最后 2 行「未提交」
+          const n = (FILES[`${a.root}/${a.path}`] ?? "").split("\n").length;
+          const who = [["a1b2c3d", "李兆义", "M12 界面打磨"], ["e4f5a6b", "张三", "M11 符号大纲"], ["c7d8e9f", "王五", "M10 日志引擎"]];
+          const hunks = [];
+          for (let start = 1; start <= n; start += 5) {
+            const k = Math.floor((start - 1) / 5) % who.length;
+            const uncommitted = start + 5 > n && n > 6;
+            hunks.push({
+              sha: uncommitted ? "0".repeat(40) : who[k][0].padEnd(40, "0"),
+              short: uncommitted ? "0000000" : who[k][0],
+              author: uncommitted ? "Not Committed Yet" : who[k][1],
+              time: uncommitted ? 0 : Math.floor(Date.now() / 1000) - 86400 * (k + 1) * 3,
+              summary: uncommitted ? "" : who[k][2],
+              start,
+              count: Math.min(5, n - start + 1),
+            });
+          }
+          await sleep(80);
+          return { hunks, truncated: false };
+        }
         case "git_stash_list":
           return stashes.map((x) => ({ ...x }));
         case "git_stash_push": {

@@ -1232,6 +1232,83 @@ pub fn discard(root: impl AsRef<Path>, paths: &[String], untracked: &[String]) -
     Ok(())
 }
 
+/// blame 的一段：连续几行出自同一次提交（issue #33 ⑭）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlameHunk {
+    /// 全零 = 工作区里还没提交的行
+    pub sha: String,
+    pub short: String,
+    pub author: String,
+    /// 作者时间，unix 秒
+    pub time: i64,
+    pub summary: String,
+    /// 在当前文件里从第几行开始（1-based）
+    pub start: u32,
+    pub count: u32,
+}
+
+/// `git blame --line-porcelain` 一次，压成段。
+///
+/// 用 `--line-porcelain` 而不是 `--porcelain`：后者只在一段的第一行给作者等元数据，
+/// 后面的行只有一行 sha —— 省的是子进程输出，换来的是解析器要自己维护「上一次见到
+/// 这个 sha 时的元数据」。这里的输出走 `run_capped`（1MB 上限），几千行的文件
+/// 也就几百 KB；超了就截断，界面按「注解不全」处理，不猜。
+///
+/// 每行的头是 `<sha> <原行号> <现行号> [<段行数>]`，后面跟 `author` / `author-time` /
+/// `summary` 等键值行，最后一行以 TAB 开头是内容。**按现行号连续 + sha 相同**合并成段，
+/// 不信头里那个 `<段行数>` —— 它是 git 按原文件算的，和现文件里的连续性不是一回事。
+pub fn blame(root: impl AsRef<Path>, path: &str) -> R<(Vec<BlameHunk>, bool)> {
+    let out = run_capped(root.as_ref(), &["blame", "--line-porcelain", "--", path], &[])?;
+    Ok((parse_blame(&out.text), out.truncated))
+}
+
+fn parse_blame(text: &str) -> Vec<BlameHunk> {
+    let mut hunks: Vec<BlameHunk> = Vec::new();
+    let mut cur: Option<BlameHunk> = None;
+    for line in text.lines() {
+        if let Some(body) = line.strip_prefix('\t') {
+            let _ = body;
+            // 内容行 = 这一条记录结束
+            if let Some(h) = cur.take() {
+                match hunks.last_mut() {
+                    Some(last) if last.sha == h.sha && last.start + last.count == h.start => last.count += 1,
+                    _ => hunks.push(h),
+                }
+            }
+            continue;
+        }
+        if let Some(h) = cur.as_mut() {
+            if let Some(v) = line.strip_prefix("author ") {
+                h.author = v.to_string();
+            } else if let Some(v) = line.strip_prefix("author-time ") {
+                h.time = v.trim().parse().unwrap_or(0);
+            } else if let Some(v) = line.strip_prefix("summary ") {
+                h.summary = v.to_string();
+            }
+            continue;
+        }
+        // 头行：sha 原行 现行 [段行数]
+        let mut it = line.split(' ');
+        let (Some(sha), Some(_orig), Some(now)) = (it.next(), it.next(), it.next()) else {
+            continue;
+        };
+        if sha.len() != 40 {
+            continue;
+        }
+        let Ok(start) = now.parse::<u32>() else { continue };
+        cur = Some(BlameHunk {
+            sha: sha.to_string(),
+            short: sha[..7].to_string(),
+            author: String::new(),
+            time: 0,
+            summary: String::new(),
+            start,
+            count: 1,
+        });
+    }
+    hunks
+}
+
 /// 一条 stash。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stash {
@@ -3121,6 +3198,59 @@ mod tests {
         switch_branch(&dir, &first, false).expect("切到 sha 该成功");
         assert_eq!(run(&dir, &["rev-parse", "HEAD"]).unwrap().trim(), first, "HEAD 该在第一次提交上");
         assert!(status_full(&dir).unwrap().detached, "该是游离状态");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 解析器：同一提交的连续行合成一段，不连续的不合；未提交的行是全零 sha
+    #[test]
+    fn blame_按连续行合段() {
+        let a = "a".repeat(40);
+        let b = "b".repeat(40);
+        let z = "0".repeat(40);
+        let text = format!(
+            "{a} 1 1 2\nauthor 张三\nauthor-time 100\nsummary 一\n\t行1\n\
+             {a} 2 2\nauthor 张三\nauthor-time 100\nsummary 一\n\t行2\n\
+             {b} 1 3 1\nauthor 李四\nauthor-time 200\nsummary 二\n\t行3\n\
+             {a} 3 4 1\nauthor 张三\nauthor-time 100\nsummary 一\n\t行4\n\
+             {z} 5 5 1\nauthor Not Committed Yet\nauthor-time 0\nsummary Version of x\n\t行5\n"
+        );
+        let h = parse_blame(&text);
+        assert_eq!(h.len(), 4, "1-2 一段、3 一段、4 一段（和 1-2 同提交但不连续）、5 一段：{h:?}");
+        assert_eq!((h[0].start, h[0].count, h[0].author.as_str()), (1, 2, "张三"));
+        assert_eq!((h[1].start, h[1].count, h[1].short.as_str()), (3, 1, "bbbbbbb"));
+        assert_eq!((h[2].start, h[2].count), (4, 1));
+        assert!(h[3].sha.chars().all(|c| c == '0'), "未提交的行 sha 全零");
+        assert_eq!(h[0].time, 100);
+        assert_eq!(h[0].summary, "一");
+    }
+
+    /// 真仓库跑一遍：两次提交各改一行，段数和作者都对
+    #[test]
+    fn blame_真仓库() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-blame-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "甲"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "1\n2\n3\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次", false).unwrap();
+        run(&dir, &["config", "user.name", "乙"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "1\n二\n3\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "改第二行", false).unwrap();
+        std::fs::write(dir.join("a.txt"), "1\n二\n3\n4\n").unwrap();
+
+        let (h, truncated) = blame(&dir, "a.txt").unwrap();
+        assert!(!truncated);
+        let who: Vec<(u32, u32, &str)> = h.iter().map(|x| (x.start, x.count, x.author.as_str())).collect();
+        assert_eq!(who, vec![(1, 1, "甲"), (2, 1, "乙"), (3, 1, "甲"), (4, 1, "Not Committed Yet")], "{h:?}");
+        assert!(h[3].sha.chars().all(|c| c == '0'));
         std::fs::remove_dir_all(&dir).ok();
     }
 
