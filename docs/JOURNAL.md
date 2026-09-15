@@ -6153,3 +6153,20 @@ a.txt 回到 HEAD、界面「工作区干净」+「取回 stash (1)」→ 点它
 
 入口包 149,175 → 150,619 B（147.1 KiB）：git store、branches、Confirms 都在入口里，
 三处各长了一点。过了 145 的告警线，离红线 2.9 KiB。
+
+## 2026-09-15 · #32 git / remote / branches 三个 store 拆成「状态 + 动作」
+
+入口包被 ⑪ 推到 147.1 KiB，过了告警线。按 sourcemap 归因：`remote.svelte.ts` 5.0 KB、
+`git.svelte.ts` 4.5 KB、`branches.svelte.ts` 2.0 KB —— 而首屏要的只有状态（文件树的
+git 字母、分支挂件、状态栏那格）。动作（提交、丢弃、stash、拉取推送、切分支、差异 /
+合并标签）一个都不在首屏之前跑。
+
+拆法：状态留在 `*.svelte.ts`，动作搬到 `*-ops.ts`，状态 store 里每个动作一行转发
+`(await ops()).x(...)`，**调用方一个字不用改**。三个 ops 模块静态 import 状态 store，
+状态 store 动态 import ops —— 动态那条边不参与模块初始化顺序，不是环。
+`remote-ops` 顺带把 `@tauri-apps/api/core` 的 `Channel` 也带出了入口。
+
+入口包 150,619 → **145,248 B（141.8 KiB）**，−5.4 KB；三个懒 chunk 合计 7.6 KB
+（git-ops 3.3、remote-ops 2.4、branches-ops 2.0），首次点提交 / 推送 / 切分支时各多一次
+往返。验证（桩）：全部暂存、打开差异、丢弃并切换、推送确认条 + 进度 + 「已推送」、
+拉取的「没有上游」提示，全走懒 chunk。
