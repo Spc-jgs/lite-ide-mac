@@ -255,5 +255,36 @@ ok(坏的回来?.tabs[2].draft === "指纹是坏的" && 坏的回来?.tabs[2].st
 ok(坏的回来?.tabs[3].draft === undefined, "空串草稿当没有");
 ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
 
+// ── 预览标签（issue #33 ⑯）：只存 true、只认 true ──
+
+/*
+ * 旧快照没有这个字段。「没有」和 false 是同一个意思，所以 VERSION 不动 ——
+ * 但这也意味着解析必须对一切非 true 的值装作没看见，包括看着像真的 "true"。
+ */
+{
+  const withPreview = JSON.stringify({
+    v: VERSION,
+    root: "/proj",
+    tabs: [{ path: "/proj/a" }, { path: "/proj/b", preview: true }],
+    active: 0,
+    layout: DEFAULT_LAYOUT,
+  });
+  const got = parse(withPreview);
+  ok(got?.tabs[0].preview === undefined, "没有 preview 字段的标签就是没有");
+  ok(got?.tabs[1].preview === true, "preview: true 要读回来");
+  const back = parse(serialize(got!));
+  ok(back?.tabs[1].preview === true && back?.tabs[0].preview === undefined, "预览标记要经得起一来一回");
+
+  const 假的 = JSON.stringify({
+    v: VERSION,
+    root: "/proj",
+    tabs: [{ path: "/a", preview: "true" }, { path: "/b", preview: 1 }, { path: "/c", preview: false }],
+    active: 0,
+    layout: DEFAULT_LAYOUT,
+  });
+  const g2 = parse(假的);
+  ok(g2?.tabs.every((t) => t.preview === undefined), "非 true 的 preview 一律当没有");
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 会话快照：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

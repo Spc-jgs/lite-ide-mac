@@ -210,5 +210,25 @@ ok(tabsFaults([干净的编辑标签, { ...干净的编辑标签, id: 9, path: "
   ok(got.length === 2, `三次只写 2 行（第 1、2 次），实得 ${got.length}`);
 }
 
+// ── 预览标签（issue #33 ⑯）──
+
+// 动了手还是预览：下一次预览会把它无声顶掉，改动直接没
+{
+  const f = tabFaults({ ...干净的编辑标签, preview: true, dirty: true, draft: "y" }, false);
+  ok(f.some(([k]) => k.includes("预览标签带着未保存改动")), "脏的预览标签要报");
+  ok(tabFaults({ ...干净的编辑标签, preview: true }, false).length === 0, "干净的预览标签没问题");
+}
+
+// 同时最多一个
+{
+  const two: TabLike[] = [
+    { ...干净的编辑标签, id: 1, path: "/p/a.ts", preview: true },
+    { ...干净的编辑标签, id: 2, path: "/p/b.ts", preview: true },
+  ];
+  const f = tabsFaults(two, 1);
+  ok(f.some(([k]) => k.includes("预览标签超过一个")), "两个预览标签要报");
+  ok(tabsFaults([two[0], { ...two[1], preview: false }], 1).length === 0, "一个预览标签没问题");
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 运行时不变量：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

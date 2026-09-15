@@ -50,10 +50,14 @@ class Nav {
     return { path: t.path, line: docs.posByPath.get(t.path) ?? 1 };
   }
 
-  /** 搜索结果点击：打开文件，带行号则跳过去 */
-  async openAt(path: string, line?: number) {
+  /**
+   * 搜索结果点击 / 跳转落点 / 历史回退：打开文件，带行号则跳过去。
+   * 默认开成预览标签（issue #33 ⑯）—— 这几条路都是「看一眼」，沿着 ⌘B
+   * 追十个文件不该留下十个标签。只有 ⌘P 按文件名开的传 false。
+   */
+  async openAt(path: string, line?: number, preview = true) {
     const full = path.startsWith("/") ? path : `${project.root ?? ""}/${path}`;
-    await tabflow.openPath(full);
+    await tabflow.openPath(full, { preview });
     if (line !== undefined) this.goto(line);
   }
 

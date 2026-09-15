@@ -823,7 +823,7 @@
             reloadTick={worktree.treeTick}
             {revealPath}
             {revealTick}
-            onOpen={(p) => void tabflow.openPath(p)}
+            onOpen={(p, _dir, pinned) => void tabflow.openPath(p, { preview: !pinned })}
             dirtyUnder={(p) => tabs.dirtyUnder(p)}
             onCreated={(p, isDir) => void afterFsChange(isDir ? null : p)}
             onRenamed={(from, to, isDir) =>
@@ -851,6 +851,7 @@
           onCloseMany={(...a) => tabflow.closeMany(...a)}
           onRevealInTree={revealInTree}
           onNewScratch={(...a) => tabflow.newScratch(...a)}
+          onPin={(id) => tabs.pin(id)}
         />
       {/if}
 

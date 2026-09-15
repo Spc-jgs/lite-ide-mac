@@ -170,7 +170,7 @@
     seed={overlay.quickSeed}
     root={project.root}
     {actions}
-    onOpenFile={(p, l) => nav.openAt(p, l)}
+    onOpenFile={(p, l, preview) => nav.openAt(p, l, preview)}
   />
 {/if}
 

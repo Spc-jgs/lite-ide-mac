@@ -142,7 +142,7 @@ class Persist {
     tabflow.restoringTabs = true;
     try {
       for (const t of saved.tabs) {
-        await tabflow.openPath(t.path, true);
+        await tabflow.openPath(t.path, { quiet: true, preview: t.preview });
         if (t.path === wantPath) {
           const hit = tabs.byPath(t.path);
           // 这一下是整个恢复过程里唯一一次内容区渲染
@@ -170,6 +170,7 @@ class Persist {
       if (!tab) continue;
       Object.assign(tab, stashed(tab, snapTab.draft));
       if (!tab.dirty) continue;
+      tabs.pin(tab.id);
       const 盘上变了 =
         !snapTab.stamp ||
         !tab.stamp ||
@@ -216,6 +217,7 @@ class Persist {
         const line = docs.posByPath.get(t.path);
         const snap: session.TabSnap = { path: t.path };
         if (line !== undefined) snap.line = line;
+        if (t.preview) snap.preview = true;
         /*
          * 有未保存改动就把草稿一起存下来 —— 「没手动保存就退出，改动直接没」
          * 是这个应用最容易咬人的一条，而会话恢复对外说的是「回到上次的现场」。

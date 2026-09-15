@@ -34,7 +34,12 @@
      */
     seed?: string;
     actions: Action[];
-    onOpenFile: (path: string, line?: number) => void;
+    /**
+     * `preview`：按文件名找到的（⌘P 那种）是「我要这个文件」，钉住；
+     * 按内容命中的是「看看这一处」，开成预览（issue #33 ⑯）。VS Code 的默认
+     * 也是这么分的（`enablePreviewFromQuickOpen` 关、搜索结果开）。
+     */
+    onOpenFile: (path: string, line: number | undefined, preview: boolean) => void;
   } = $props();
 
   const SCOPES: { id: Scope; label: string }[] = [
@@ -148,8 +153,8 @@
   function choose(row: Row) {
     open = false;
     if (row.kind === "action") row.action.run();
-    else if (row.kind === "file") onOpenFile(row.path);
-    else onOpenFile(row.path, row.line);
+    else if (row.kind === "file") onOpenFile(row.path, undefined, false);
+    else onOpenFile(row.path, row.line, true);
   }
 
   function onKey(e: KeyboardEvent) {

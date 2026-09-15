@@ -80,8 +80,15 @@ class TabFlow {
    * `quiet` 给会话恢复用：上次开着的文件这次可能已经不在了
    * （删了、改名了、切到了没有它的分支）。那是完全正常的事，
    * 逐个弹「读不到 xxx」只会在启动时糊一屏红字。
+   *
+   * `preview` = 开成预览标签（issue #33 ⑯，语义见 `TabState.preview`）。
+   * 谁传 true：单击文件树、搜索结果、⌘B 跳转、⌥⌘←/→。谁不传：⌘P、拖进来、
+   * 命令行、最近项目、双击 —— 那些是「我要这个文件」，不是「看一眼」。
+   * **已经开着的文件被显式打开一次就钉住**（双击树里那一行正是走这条），
+   * 而被预览地打开一次不改变它的状态。
    */
-  async openPath(path: string, quiet = false) {
+  async openPath(path: string, opts: { quiet?: boolean; preview?: boolean } = {}) {
+    const quiet = opts.quiet ?? false;
     if (this.#opening.has(path)) return;
     this.#opening.add(path);
     if (!quiet) notify.clear();
@@ -97,6 +104,7 @@ class TabFlow {
       }
       const exist = tabs.byPath(info.path);
       if (exist) {
+        if (!opts.preview) tabs.pin(exist.id);
         if (!this.restoringTabs) tabs.activeId = exist.id;
         return;
       }
@@ -121,7 +129,16 @@ class TabFlow {
         tab.lossy = t.lossy;
         tab.stamp = await fileStamp(info.path);
       }
-      const id = tabs.add(tab);
+      /*
+       * 预览标签顶掉预览标签：新的落在旧的那一格，旧的关掉。
+       * 先加后关 —— 反过来的话 `remove` 会先把 activeId 挪到邻居上，
+       * 内容区白白重建一次；而且旧的一关，「它在第几格」就没了。
+       * 走 `doClose` 而不是 `tabs.remove`：日志模式的引擎句柄要还。
+       */
+      const prev = opts.preview ? tabs.preview : null;
+      if (opts.preview) tab.preview = true;
+      const id = tabs.add(tab, prev ? tabs.list.indexOf(prev) : undefined);
+      if (prev) this.doClose(prev);
       // 恢复期不抢：见 `restoringTabs` 上面那段
       if (!this.restoringTabs) tabs.activeId = id;
       /*

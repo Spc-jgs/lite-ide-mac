@@ -21,6 +21,8 @@ class Tabs {
   list = $state<TabState[]>([]);
   activeId = $state<number | null>(null);
   active = $derived(this.list.find((t) => t.id === this.activeId) ?? null);
+  /** 此刻那个预览标签（最多一个，见 `TabState.preview`）；没有就 null */
+  preview = $derived(this.list.find((t) => t.preview) ?? null);
   #nextId = 1;
 
   byId(id: number): TabState | null {
@@ -36,10 +38,21 @@ class Tabs {
    * 每开一个就切一次是那个「一个文件一个文件地闪」的 bug（JOURNAL 2026-09-03）。
    * 要切的调用方自己 `activeId = id`。
    */
-  add(t: Omit<TabState, "id">): number {
+  add(t: Omit<TabState, "id">, at?: number): number {
     const id = this.#nextId++;
-    this.list = [...this.list, { ...t, id } as TabState];
+    const tab = { ...t, id } as TabState;
+    // `at` 只有「顶掉预览标签」用：新的要落在旧的那一格，不然标签条会跳一下
+    this.list =
+      at === undefined || at < 0 || at >= this.list.length
+        ? [...this.list, tab]
+        : [...this.list.slice(0, at), tab, ...this.list.slice(at)];
     return id;
+  }
+
+  /** 把预览标签钉住。不是预览的什么也不发生，所以调用方不用先判 */
+  pin(id: number) {
+    const t = this.byId(id);
+    if (t?.preview) t.preview = false;
   }
 
   /** 从表里拿掉，活动标签落到它原来的位置（最后一个则往前退一格） */

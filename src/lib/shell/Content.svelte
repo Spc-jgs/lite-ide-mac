@@ -253,7 +253,11 @@
         {outlineTick}
         marks={editorMarks}
         {showMinimap}
-        onChange={(d) => (tabs.active!.dirty = d)}
+        onChange={(d) => {
+          tabs.active!.dirty = d;
+          // 动过手的预览标签就不再是「看一眼」了，钉住（issue #33 ⑯）
+          if (d) tabs.pin(tabs.active!.id);
+        }}
         onSave={(c) => docs.save(c)}
         onStash={(p, t) => docs.stashDraft(p, t)}
         onLive={(p, g) => docs.onEditorLive(p, g)}

@@ -11,6 +11,8 @@
     name: string;
     mode: "edit" | "log" | "diff" | "merge";
     dirty: boolean;
+    /** 预览标签：名字斜体，双击钉住（issue #33 ⑯） */
+    preview?: boolean;
   }
 
   let {
@@ -22,6 +24,7 @@
     onCloseMany,
     onRevealInTree,
     onNewScratch,
+    onPin,
   }: {
     tabs: Tab[];
     activeId: number | null;
@@ -38,6 +41,8 @@
     onRevealInTree?: (path: string) => void;
     /** 标签条末尾那个加号：新建一份草稿 */
     onNewScratch?: () => void;
+    /** 双击预览标签：钉住它 */
+    onPin?: (id: number) => void;
   } = $props();
 
   /**
@@ -187,6 +192,7 @@
         role="tab"
         aria-selected={tab.id === activeId}
         onclick={() => onSelect(tab.id)}
+        ondblclick={() => onPin?.(tab.id)}
         onkeydown={(e) => {
           // 只有鼠标能开的菜单等于把功能藏起来了（同文件树那边）
           if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
@@ -208,7 +214,7 @@
         <span class="glyphwrap {tab.mode}">
           <FileGlyph name={tab.name} size={13} />
         </span>
-        <span class="name">{tab.name}</span>
+        <span class="name" class:preview={tab.preview}>{tab.name}</span>
         {#if tab.id === activeId && tab.mode !== "edit"}
           <!-- 徽章只给当前标签：其余标签的模式由字形颜色说清，
                而当前标签有的是横向余地 -->
@@ -346,6 +352,8 @@
   }
   .tab.active .label { color: var(--text); }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 预览标签斜体 —— VS Code 的约定，看一眼就懂「这一格是临时的」 */
+  .name.preview { font-style: italic; }
   .badge {
     flex: none;
     font-size: 9px;

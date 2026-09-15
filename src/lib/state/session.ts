@@ -91,6 +91,11 @@ export interface TabSnap {
   draft?: string;
   /** 草稿是基于哪一份盘上内容改出来的。恢复时拿它和现在的比 */
   stamp?: Stamp;
+  /**
+   * 是预览标签（issue #33 ⑯）。只存 true，不存 false —— 旧快照没有这个字段，
+   * 「没有」和「false」是同一个意思，所以 VERSION 不用动。
+   */
+  preview?: true;
 }
 
 export interface Layout {
@@ -230,6 +235,8 @@ export function parse(raw: string | null | undefined): Session | null {
         : undefined;
     const snap: TabSnap = { path: e.path };
     if (line !== undefined) snap.line = line;
+    // 只认字面的 true。字符串 "true" / 1 之类一律当没有 —— 宁可多占一格也别猜
+    if (e.preview === true) snap.preview = true;
     /*
      * 草稿：类型不对、超长、或者是空串就当没有。
      *
