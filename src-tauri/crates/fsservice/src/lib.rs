@@ -543,6 +543,45 @@ pub fn rename_entry(path: impl AsRef<Path>, new_name: &str) -> io::Result<PathBu
     Ok(to)
 }
 
+/// 把 `path` 挪进 `dest_dir`（文件树里拖拽，issue #33 ⑨）。名字不变，返回新路径。
+///
+/// 和 [`rename_entry`] 同一套判据：目标已存在就拒绝（`fs::rename` 会静默覆盖），
+/// 用 `symlink_metadata` 不跟随链接。另外两条这里独有：
+///
+/// - **不能把目录挪进它自己（或它的子目录）**：`rename(2)` 对这个报 EINVAL，
+///   但那句英文没人看得懂，先自己判。
+/// - 目标目录必须真的是目录。
+///
+/// 跨卷的 `rename` 会失败（EXDEV）—— 项目里拖来拖去都在同一个卷上，
+/// 真撞上了报 git 那句原话就够，不做复制 + 删除的兜底：那条路中途失败会留下两份。
+pub fn move_entry(path: impl AsRef<Path>, dest_dir: impl AsRef<Path>) -> io::Result<PathBuf> {
+    let path = path.as_ref();
+    let dest = dest_dir.as_ref();
+    let from_meta = fs::symlink_metadata(path)
+        .map_err(|_| io::Error::new(io::ErrorKind::NotFound, format!("{} 不在盘上了", path.display())))?;
+    if !dest.is_dir() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{} 不是目录", dest.display())));
+    }
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "这个路径没有名字，挪不了"))?;
+    let to = dest.join(name);
+    if to == path {
+        return Ok(to); // 拖到了它原来的目录里
+    }
+    if from_meta.is_dir() && dest.starts_with(path) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "不能把目录移到它自己里面"));
+    }
+    if fs::symlink_metadata(&to).is_ok() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{} 里已经有一个叫「{}」的了", dest.display(), name.to_string_lossy()),
+        ));
+    }
+    fs::rename(path, &to)?;
+    Ok(to)
+}
+
 /// 丢掉一份**一个字都没写过**的草稿。
 ///
 /// # 这是整个应用里唯一一条真删除，所以它自己校验
@@ -671,6 +710,31 @@ pub fn canonical(path: impl AsRef<Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 挪进目录、同名拒绝、目录不能挪进自己、挪回原处是空操作
+    #[test]
+    fn move_entry_四条判据() {
+        let d = sandbox("move");
+        fs::create_dir_all(d.join("a/deep")).unwrap();
+        fs::create_dir_all(d.join("b")).unwrap();
+        fs::write(d.join("a/f.txt"), "x").unwrap();
+        fs::write(d.join("b/f.txt"), "y").unwrap();
+
+        let to = move_entry(d.join("a/f.txt"), d.join("a/deep")).unwrap();
+        assert_eq!(to, d.join("a/deep/f.txt"));
+        assert!(d.join("a/deep/f.txt").exists() && !d.join("a/f.txt").exists());
+
+        let err = move_entry(d.join("a/deep/f.txt"), d.join("b")).expect_err("同名要拒绝");
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(d.join("b/f.txt")).unwrap(), "y", "被拒绝就不能动人家的文件");
+
+        let err = move_entry(d.join("a"), d.join("a/deep")).expect_err("目录不能挪进自己");
+        assert!(err.to_string().contains("自己"), "{err}");
+
+        assert_eq!(move_entry(d.join("b/f.txt"), d.join("b")).unwrap(), d.join("b/f.txt"), "挪回原处是空操作");
+        let err = move_entry(d.join("b/f.txt"), d.join("b/f.txt")).expect_err("目标不是目录");
+        assert!(err.to_string().contains("不是目录"), "{err}");
+    }
 
     /// 目录整条解析、文件只解析父目录、文件本身是软链时最后一段留着
     #[test]

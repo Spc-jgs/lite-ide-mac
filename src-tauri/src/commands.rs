@@ -272,6 +272,13 @@ pub fn create_entry(dir: String, name: String, is_dir: bool) -> Result<String, S
     Ok(p.to_string_lossy().into_owned())
 }
 
+/// 挪进另一个目录（文件树拖拽），返回新路径。
+#[tauri::command]
+pub fn move_entry(path: String, dest: String) -> Result<String, String> {
+    let p = fsservice::move_entry(&path, &dest).map_err(|e| format!("{e}"))?;
+    Ok(p.to_string_lossy().into_owned())
+}
+
 /// 原地改名，返回新路径。
 #[tauri::command]
 pub fn rename_entry(path: String, name: String) -> Result<String, String> {

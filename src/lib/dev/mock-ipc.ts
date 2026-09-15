@@ -951,6 +951,25 @@ export function installMockIpc(): void {
           if (!wasDir) bump(to);
           return to;
         }
+        case "move_entry": {
+          // 判据跟着 Rust 侧：源在不在、目标是不是目录、同名、目录进自己、挪回原处
+          const path = String(a.path);
+          const dest = String(a.dest);
+          if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
+          if (DIRS[dest] === undefined) throw new Error(`${dest} 不是目录`);
+          const name = nameOf(path);
+          const to = `${dest}/${name}`;
+          if (to === path) return to;
+          const wasDir = DIRS[path] !== undefined;
+          if (wasDir && (dest === path || dest.startsWith(`${path}/`))) throw new Error("不能把目录移到它自己里面");
+          if (existsInMock(to)) throw new Error(`${dest} 里已经有一个叫「${name}」的了`);
+          const parent = parentOf(path);
+          movePrefix(path, to);
+          DIRS[parent] = (DIRS[parent] ?? []).filter(([n]) => n !== name);
+          DIRS[dest] = [...(DIRS[dest] ?? []), [name, wasDir] as [string, boolean]];
+          if (!wasDir) bump(to);
+          return to;
+        }
         case "trash_entry": {
           const path = String(a.path);
           if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);

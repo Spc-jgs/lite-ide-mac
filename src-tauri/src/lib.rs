@@ -137,6 +137,7 @@ pub fn run() {
             commands::scratch_dir,
             commands::create_scratch,
             commands::discard_empty_scratch,
+            commands::move_entry,
             commands::rename_entry,
             commands::trash_entry,
             commands::open_log,

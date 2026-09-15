@@ -472,3 +472,13 @@ effect 也就不会再跑第二次。
 然后老实说「真键按下去这儿验不了」。
 
 ---
+
+## 页面内部的拖拽不能用 HTML5 dnd（2026-09-15）
+
+文件树拖拽移动那轮踩的：`draggable` + `dragstart` / `dragover` / `drop` 在 `pnpm dev`
+的浏览器里全对，真 `.app` 里目标行有 hover 高亮、`drop` 一次都不来。wry 为了接住
+从 Finder 拖进来的文件接管了 NSView 的拖拽入口，页面内部的拖拽事件链在 WKWebView 里
+就断了。**用 pointer 事件自己做**（按下记住、挪过阈值算开始、`elementFromPoint` 找落点），
+FileTree 里那套可以照抄。这类东西「桩上全对」不作数，必须上真 `.app` 验 ——
+用 CGEvent 模拟鼠标（scratchpad 里那个 `drag.swift`）能验。
+

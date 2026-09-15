@@ -150,6 +150,8 @@ export const discardEmptyScratch = (path: string) =>
   invoke<void>("discard_empty_scratch", { path });
 
 /** 原地改名，返回新路径。目标已存在时 reject（fs::rename 本身会静默覆盖） */
+/** 挪进另一个目录（文件树拖拽，issue #33 ⑨），名字不变，返回新路径 */
+export const moveEntry = (path: string, dest: string) => invoke<string>("move_entry", { path, dest });
 export const renameEntry = (path: string, name: string) =>
   invoke<string>("rename_entry", { path, name });
 

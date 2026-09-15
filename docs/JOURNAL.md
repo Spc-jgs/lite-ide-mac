@@ -6310,3 +6310,29 @@ patch 走临时文件不走 stdin：`git_cmd` 把所有子进程的 stdin 都接
 测试：拆块 10 条（验红：留下 index 行）；Rust 真仓库两块只暂存一块、再 -R 撤掉
 （验红：去掉 -R）。写测试时撞了一下 HARDENING：裸 `git diff` 在这套 `-c diff.external=`
 下会报 external diff died，要走 `diff()`（带 `--no-ext-diff`）—— 这正是那套加固在起作用。
+
+## 2026-09-15 · #33 ⑨ 文件树拖拽移动
+
+拖一行（或选中的一批）到某个目录（或项目头 = 根）上，目标描一圈 accent 边，松手弹
+确认框「移动到 docs」，确认了才挪。改盘的动作一律过确认，拖拽比右键更容易手滑 ——
+松手位置差一行就是另一个目录。不能接的地方不亮：自己、自己的子目录、它原来就在的目录。
+
+Rust `move_entry(path, dest)`：判据同 `rename_entry`（目标已存在拒绝、`symlink_metadata`
+不跟随链接），另加「目录不能挪进自己」（`rename(2)` 报 EINVAL 但那句没人看得懂，先自己判）。
+跨卷不做复制 + 删除的兜底：中途失败会留下两份。
+
+前端一个坑：`onDrop` 先把 `dragging` 清空再调 `canDropOn()`，而后者读的正是 `dragging`
+—— 高亮对、确认框永远不出。函数改成接参数，不读全局。
+
+标签跟着走：复用 `onRenamed(from, to, isDir)` 那条路（App 里 `worktree.renameOpenTabs`），
+挪完 reveal 到新位置。
+
+**第一版用 HTML5 的 dragstart / drop，桩上全对，真 .app 里一次都没弹过确认框。** 用 CGEvent
+模拟鼠标按下 → 挪 → 松开验的：目标行有 hover 高亮（说明鼠标确实过去了），`drop` 就是不来。
+wry 为了接住从 Finder 拖进来的文件，接管了 NSView 的拖拽入口，页面内部的 draggable 元素
+拖起来之后事件链就断了。改成 pointer 事件自己做：按下记住是谁，挪过 5px 算开始拖，一个
+小标签跟着鼠标，松手时 `elementFromPoint` 看落在哪个目录行上；拖完的那一下 click 不算打开。
+再验：确认框出来、点「移动」、盘上 a.txt 进了 sub、树和提示都对。
+
+**这条要记住**：以后凡是页面内部的拖拽（标签排序、面板分栏）都不能指望 HTML5 dnd，
+只能 pointer 事件；而「桩上全对」对这类事一文不值，必须上真 .app。

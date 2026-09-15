@@ -6,6 +6,7 @@
     createEntry,
     listDir,
     renameEntry,
+    moveEntry,
     trashEntry,
     type DirEntry,
     type GitEntry,
@@ -331,6 +332,10 @@
   }
 
   function onRowClick(e: MouseEvent, i: number) {
+    if (justDragged) {
+      justDragged = false;
+      return;
+    }
     const row = rows[i];
     speed = "";
     if (e.metaKey) {
@@ -357,6 +362,125 @@
 
   /** 选中的行（按树里的顺序）；没有多选时是空表 */
   let selectedRows = $derived(rows.filter((r) => selected.has(r.path)));
+
+  // ─────────────────── 拖拽移动（issue #33 ⑨） ───────────────────
+
+  /**
+   * 拖一行（或选中的一批）到某个目录上 → 先问一句再挪。改盘的动作一律过确认，
+   * 而拖拽比右键菜单更容易手滑 —— 松手位置差一行就是另一个目录。
+   *
+   * **不走 HTML5 的 dragstart / drop。** 在 Tauri 的 WKWebView 里那套事件不完整：
+   * wry 为了接住从 Finder 拖进来的文件，接管了 NSView 的拖拽入口，页面内部的
+   * `draggable` 元素按下去拖过去，`drop` 从来不来（浏览器里桩上一切正常，
+   * 真 .app 里一次都没弹过确认框 —— 2026-09-15 用 CGEvent 模拟鼠标验的）。
+   * 所以自己用 pointer 事件做：按下记住是谁，挪过 5px 算开始拖，随手一个小标签
+   * 跟着鼠标，松手时 `elementFromPoint` 看落在哪个目录行上。
+   */
+  let dragging = $state<Row[] | null>(null);
+  /** 此刻悬在哪个目录上（路径）。根目录用 `root` */
+  let dropTarget = $state<string | null>(null);
+  let move = $state<{ x: number; y: number; rows: Row[]; dest: string; busy: boolean } | null>(null);
+  let moveEl = $state<HTMLElement | null>(null);
+  /** 跟着鼠标的小标签 */
+  let ghost = $state<{ x: number; y: number; text: string } | null>(null);
+  /** 按下但还没拖过阈值：可能只是一次点击 */
+  let press: { x: number; y: number; row: Row } | null = null;
+  /** 刚拖完的那一下 click 不算打开 */
+  let justDragged = false;
+  const DRAG_START = 5;
+
+  function onRowPointerDown(e: PointerEvent, row: Row) {
+    if (e.button !== 0 || e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
+    press = { x: e.clientX, y: e.clientY, row };
+    window.addEventListener("pointermove", onDragMove);
+    window.addEventListener("pointerup", onDragUp, { once: true });
+  }
+
+  /** 鼠标底下是哪个目录（行或项目头）；不是目录给 null */
+  function dirUnder(x: number, y: number): string | null {
+    const el = document.elementFromPoint(x, y);
+    const rowEl = el?.closest<HTMLElement>(".row[data-path]");
+    if (rowEl) return rowEl.dataset.isdir === "1" ? rowEl.dataset.path! : null;
+    if (el?.closest(".proj")) return root;
+    return null;
+  }
+
+  function onDragMove(e: PointerEvent) {
+    if (!press) return;
+    if (!dragging) {
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < DRAG_START) return;
+      const row = press.row;
+      dragging = selected.size > 1 && selected.has(row.path) ? selectedRows : [row];
+      speed = "";
+    }
+    e.preventDefault();
+    const batch = dragging;
+    ghost = { x: e.clientX + 12, y: e.clientY + 12, text: batch.length === 1 ? batch[0].name : `${batch.length} 个条目` };
+    const dir = dirUnder(e.clientX, e.clientY);
+    dropTarget = dir !== null && canDropOn(batch, dir) ? dir : null;
+  }
+
+  function onDragUp(e: PointerEvent) {
+    window.removeEventListener("pointermove", onDragMove);
+    const batch = dragging;
+    const dir = dropTarget;
+    press = null;
+    dragging = null;
+    dropTarget = null;
+    ghost = null;
+    if (!batch) return;
+    justDragged = true;
+    if (dir === null) return;
+    // 目录和它里面的文件一起拖：只挪顶层的，子树跟着走
+    const tops = batch.filter((r) => !batch.some((o) => o !== r && o.isDir && r.path.startsWith(`${o.path}/`)));
+    move = { x: e.clientX, y: e.clientY, rows: tops, dest: dir, busy: false };
+  }
+
+  /** 这个目录能不能接：不是自己、不是自己的子目录、不是它原来就在的地方 */
+  function canDropOn(batch: Row[] | null, dir: string): boolean {
+    if (!batch) return false;
+    return batch.every((r) => r.path !== dir && !dir.startsWith(`${r.path}/`) && parentOf(r.path) !== dir);
+  }
+
+  async function doMove() {
+    const m = move;
+    if (!m || m.busy) return;
+    move = { ...m, busy: true };
+    const failed: string[] = [];
+    let last = "";
+    for (const row of m.rows) {
+      try {
+        const to = await moveEntry(row.path, m.dest);
+        forgetSubtree(row.path);
+        invalidate(parentOf(row.path));
+        onRenamed?.(row.path, to, row.isDir);
+        last = to;
+      } catch (err) {
+        failed.push(`${row.name}：${msgOf(err)}`);
+      }
+    }
+    invalidate(m.dest);
+    move = null;
+    selected = new Set();
+    expanded = new Set(expanded).add(m.dest);
+    await reload();
+    if (last) await reveal(last, m.rows.length > 1);
+    const done = m.rows.length - failed.length;
+    if (failed.length === 0) {
+      notify.ok(m.rows.length === 1 ? `已移到 ${relOf(m.dest) || "项目根"}：${m.rows[0].name}` : `已移动 ${done} 个到 ${relOf(m.dest) || "项目根"}`);
+    } else {
+      notify.fail(`${done} 个已移动，${failed.length} 个没动：${failed.join("；")}`, 5000);
+    }
+  }
+
+  function onMoveKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      move = null;
+      rowAt(cursor)?.focus();
+    }
+  }
 
   // ─────────────────── 键盘导航 ───────────────────
 
@@ -889,6 +1013,7 @@
     closeMenu(refocus);
     ask = null;
     trash = null;
+    move = null;
   }
 
   /*
@@ -910,6 +1035,14 @@
     const a = ask;
     if (!el || !a) return;
     clamp(el, a);
+  });
+  // 移动确认框同废纸篓那个：钳进视口、焦点落在「取消」上
+  $effect(() => {
+    const el = moveEl;
+    const m = move;
+    if (!el || !m) return;
+    clamp(el, m);
+    el.querySelector("button")?.focus();
   });
   $effect(() => {
     const el = trashEl;
@@ -956,8 +1089,8 @@
    */
   // 菜单的这套监听在 ContextMenu 里，这里只管输入框和确认框
   $effect(() => {
-    if (!ask && !trash) return;
-    const cur = () => askEl ?? trashEl;
+    if (!ask && !trash && !move) return;
+    const cur = () => askEl ?? trashEl ?? moveEl;
     const onDown = (e: PointerEvent) => {
       const el = cur();
       if (el && !el.contains(e.target as Node)) closeAll(false);
@@ -1021,6 +1154,7 @@
     -->
     <button
       class="proj"
+      class:droptarget={dropTarget === root}
       bind:this={headEl}
       title="{root}（右键或点击：项目根的操作）"
       onclick={(e) => {
@@ -1088,7 +1222,11 @@
         class:gen={row.generated}
         class:active={row.path === activePath}
         class:selected={selected.has(row.path)}
+        class:droptarget={dropTarget === row.path}
         class:flash={row.path === flash}
+        data-path={row.path}
+        data-isdir={row.isDir ? "1" : "0"}
+        onpointerdown={(e) => onRowPointerDown(e, row)}
         role="treeitem"
         tabindex={i === cursor ? 0 : -1}
         aria-level={row.depth + 1}
@@ -1192,6 +1330,44 @@
       <button class="pbtn primary" disabled={ask.busy} onclick={() => void submitAsk()}>
         {ask.kind === "rename" ? "改名" : "新建"}
       </button>
+    </div>
+  </div>
+{/if}
+
+{#if ghost}
+  <div class="ghost" style:left="{ghost.x}px" style:top="{ghost.y}px" aria-hidden="true">{ghost.text}</div>
+{/if}
+
+{#if move}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="pop"
+    role="dialog"
+    aria-label="移动"
+    tabindex="-1"
+    bind:this={moveEl}
+    style:left="{move.x}px"
+    style:top="{move.y}px"
+    onkeydown={onMoveKey}
+  >
+    <div class="mhead" title={move.dest}>移动到 {relOf(move.dest) || "项目根"}</div>
+    <div class="ptext">
+      {#if move.rows.length === 1}
+        「<b>{move.rows[0].name}</b>」{move.rows[0].isDir ? "连同里面的全部内容" : ""}会被移到
+      {:else}
+        <b>{move.rows.length} 个条目</b>会被移到
+      {/if}
+      <span class="mono">{relOf(move.dest) || "项目根"}</span>。打开着的标签会跟过去。
+    </div>
+    <div class="prow">
+      <button
+        class="pbtn"
+        onclick={() => {
+          move = null;
+          rowAt(cursor)?.focus();
+        }}>取消</button
+      >
+      <button class="pbtn primary" disabled={move.busy} onclick={() => void doMove()}>移动</button>
     </div>
   </div>
 {/if}
@@ -1345,6 +1521,21 @@
   .row.active { background: var(--selected); color: var(--text); }
   /* 多选的行：和当前文件同一块底色 —— 它们此刻就是「被选中」这一个意思 */
   .row.selected { background: var(--selected); color: var(--text); }
+  /* 拖到目录上：一圈 accent 描边，和「定位闪一下」同一种语言 —— 这里要落的是它 */
+  .row.droptarget, .proj.droptarget { outline: 1px solid var(--accent); outline-offset: -1px; background: var(--hover); }
+  .ghost {
+    position: fixed;
+    z-index: 60;
+    padding: 2px 8px;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-pop);
+    pointer-events: none;
+    white-space: nowrap;
+  }
   .row.dir { color: var(--text); }
   .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   /*
