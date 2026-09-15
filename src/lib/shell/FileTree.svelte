@@ -459,8 +459,77 @@
     };
   });
 
+  // ─────────────────── 打字定位（issue #33 ⑧） ───────────────────
+
+  /**
+   * 照 IDEA 的 speed search：焦点在树上直接打字，游标跳到第一个名字里**包含**
+   * 这串字的行，所有命中的行把那几个字标亮；↑↓ 在命中之间走，⌫ 退一个字，
+   * Esc 清掉，开了文件也清掉。**不过滤、不藏行** —— VS Code 那种打字出过滤框
+   * 会把树的形状换掉，人刚记住的位置全没了；IDEA 的做法是树不动、只挪游标。
+   *
+   * 只在**已经展开**的行里找：打字定位是「我看得见它、懒得用鼠标」，
+   * 要找没展开的东西是 ⌘P 的活。
+   *
+   * 焦点离开树就清：这串字是键盘上的临时状态，不是搜索条件。
+   */
+  let speed = $state("");
+  let speedLower = $derived(speed.toLowerCase());
+
+  /** 名字里命中的那一段 [起, 止)，没命中 null。大小写不敏感 */
+  function speedHit(name: string): [number, number] | null {
+    if (speedLower === "") return null;
+    const k = name.toLowerCase().indexOf(speedLower);
+    return k < 0 ? null : [k, k + speedLower.length];
+  }
+  let speedAny = $derived(speedLower === "" || rows.some((r) => speedHit(r.name) !== null));
+
+  /** 从 `from` 起（含）往 `dir` 方向找下一个命中的行，绕圈；没有给 -1 */
+  function speedNext(from: number, dir: 1 | -1): number {
+    const n = rows.length;
+    for (let k = 0; k < n; k++) {
+      const j = (((from + dir * k) % n) + n) % n;
+      if (speedHit(rows[j].name)) return j;
+    }
+    return -1;
+  }
+
+  /** 返回 true = 这次按键归打字定位，别的分支不用再看 */
+  function speedKey(e: KeyboardEvent, i: number): boolean {
+    if (e.metaKey || e.ctrlKey || e.altKey) return false;
+    if (speed === "") {
+      // 只有可打印字符才开始；空格留给「打开」
+      if (e.key.length !== 1 || e.key === " ") return false;
+    }
+    switch (e.key) {
+      case "Escape":
+        speed = "";
+        return true;
+      case "Backspace":
+        speed = speed.slice(0, -1);
+        return true;
+      case "ArrowDown":
+      case "ArrowUp": {
+        const j = speedNext(i + (e.key === "ArrowDown" ? 1 : -1), e.key === "ArrowDown" ? 1 : -1);
+        if (j >= 0) focusRow(j);
+        return true;
+      }
+    }
+    if (e.key.length !== 1) return false;
+    speed += e.key;
+    // 当前行还命中就不动（多打一个字不该把人甩到别处），不命中才往下找
+    if (!speedHit(rows[i].name)) {
+      const j = speedNext(i + 1, 1);
+      if (j >= 0) focusRow(j);
+    }
+    return true;
+  }
+
   function onRowKey(e: KeyboardEvent, i: number) {
     const row = rows[i];
+    if (speedKey(e, i)) {
+      e.preventDefault();
+      return;
+    }
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
@@ -498,6 +567,7 @@
       case "Enter":
       case " ":
         e.preventDefault();
+        speed = "";
         click(row);
         break;
       // 键盘也能开菜单：⇧F10 是 Windows/Linux 的老约定，ContextMenu 是那个专用键。
@@ -900,9 +970,24 @@
       <Icon name="follow" size={13} />
     </button>
   </div>
-  <div class="list" role="tree" aria-label="文件树" bind:this={listEl}>
+  {#if speed !== ""}
+    <!-- 打的字浮在列表右上角（IDEA 的那个小框），没命中时说一声，别让人以为键盘坏了 -->
+    <div class="speed" class:none={!speedAny} role="status" aria-live="polite">
+      {speed}{#if !speedAny}<span class="hint">没有匹配</span>{/if}
+    </div>
+  {/if}
+  <div
+    class="list"
+    role="tree"
+    aria-label="文件树"
+    bind:this={listEl}
+    onfocusout={(e) => {
+      if (!listEl?.contains(e.relatedTarget as Node | null)) speed = "";
+    }}
+  >
     {#each rows as row, i (row.path)}
       {@const d = deco(row.path)}
+      {@const hit = speedHit(row.name)}
       <button
         class="row"
         class:dir={row.isDir}
@@ -917,6 +1002,7 @@
         style:padding-left="{6 + row.depth * 13}px"
         onclick={() => {
           cursor = i;
+          speed = "";
           click(row);
         }}
         ondblclick={() => {
@@ -942,7 +1028,9 @@
           但**文件夹这一个形状必须只有一处定义** —— 导轨上和树里画的是同一样东西。
         -->
         <FileGlyph name={row.name} isDir={row.isDir} size={14} />
-        <span class="name g-{d?.cls ?? 'none'}">{row.name}</span>
+        <span class="name g-{d?.cls ?? 'none'}">
+          {#if hit}{row.name.slice(0, hit[0])}<mark>{row.name.slice(hit[0], hit[1])}</mark>{row.name.slice(hit[1])}{:else}{row.name}{/if}
+        </span>
         {#if d}
           <span class="gap"></span>
           {#if d.ch}
@@ -1066,6 +1154,7 @@
    * 对不上）。同一条边界只能有一个人负责，负责的是能被拖动的那个。
    */
   .tree {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -1193,7 +1282,26 @@
   /* 字形本身在 FileGlyph 里，这里只管「行被选中/悬停时它跟着提亮」 */
   .row.active :global(.glyph), .row:hover :global(.glyph) { color: var(--text-dim); }
   .row.active :global(.glyph.conf), .row:hover :global(.glyph.conf) { opacity: 1; }
-  .name { overflow: hidden; text-overflow: ellipsis; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 打字定位命中的那几个字：底色不换字色，斜体 / 压暗 / git 色都保得住 */
+  .name mark { background: var(--selection-match); color: inherit; border-radius: 2px; }
+  .speed {
+    position: absolute;
+    top: 34px;
+    right: 8px;
+    z-index: 2;
+    padding: 2px 8px;
+    font-family: var(--code-font);
+    font-size: 12px;
+    color: var(--text);
+    background: var(--elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-pop);
+    pointer-events: none;
+  }
+  .speed.none { color: var(--lvl-warn); }
+  .speed .hint { margin-left: 8px; font-family: inherit; font-size: 11px; color: var(--text-faint); }
   /*
    * 生成物目录（issue #13）。**压暗，不隐藏。**
    *
