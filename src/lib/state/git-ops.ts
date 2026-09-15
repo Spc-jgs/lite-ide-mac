@@ -239,7 +239,8 @@ export async function openMerge(e: GitEntry) {
   const full = `${repo}/${e.path}`;
   const key = `git-merge:${e.path}`;
   try {
-    const content = (await readText(full)).content;
+    const file = await readText(full);
+    const content = file.content;
     let id = tabs.list.find((t) => t.path === key)?.id;
     if (id === undefined) {
       id = tabs.add({
@@ -250,10 +251,18 @@ export async function openMerge(e: GitEntry) {
         size: 0,
         rel: e.path,
         mergeText: content,
+        encoding: file.encoding,
+        bom: file.bom,
+        eol: file.eol,
       });
     } else {
       const t = tabs.byId(id);
-      if (t) t.mergeText = content;
+      if (t) {
+        t.mergeText = content;
+        t.encoding = file.encoding;
+        t.bom = file.bom;
+        t.eol = file.eol;
+      }
     }
     tabs.activeId = id;
   } catch (err) {
@@ -276,7 +285,7 @@ export async function resolveMerge(tab: TabState, content: string, resolved: boo
   if (!repo || !tab.rel) return;
   if (!git.claim(resolved ? "标记为解决" : "保存冲突进度")) return;
   try {
-    await writeText(`${repo}/${tab.rel}`, content, tab.encoding);
+    await writeText(`${repo}/${tab.rel}`, content, tab.encoding, tab.bom, tab.eol);
     if (resolved) {
       await gitStage(repo, [tab.rel]);
       notify.ok(`${tab.name} 已标记为解决`);

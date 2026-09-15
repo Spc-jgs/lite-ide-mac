@@ -15,6 +15,7 @@
   import { overlay } from "../state/overlay.svelte";
   import type { TabState } from "../state/tab";
   import type { GitEntry } from "../ipc/commands";
+  import { detectIndent, indentLabel } from "../editor/indent";
 
   let {
     active,
@@ -40,6 +41,14 @@
   } = $props();
 
   let crumbs = $derived(active ? crumbsOf(root, active.path, active.name) : []);
+
+  /**
+   * 缩进 · 换行符（issue #33 ③）。缩进按盘上那份内容猜（`editor/indent.ts`），
+   * 换行符是 Rust 读文件时探的（`fsservice::eol`）。只显示，点了不改 —— 改留后面。
+   */
+  let indent = $derived(active?.mode === "edit" ? indentLabel(detectIndent(active.content ?? "")) : "");
+  const EOL_LABEL: Record<string, string> = { LF: "LF", CRLF: "CRLF", CR: "CR", mixed: "换行混用" };
+  let eol = $derived(active?.mode === "edit" ? (EOL_LABEL[active.eol ?? "LF"] ?? active.eol ?? "LF") : "");
 </script>
 
 <!--
@@ -152,6 +161,17 @@
       >只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}</span>
     {:else}
       <span class="cell dim drop-2">{lang.mod ? lang.mod.langLabel(lang.mod.langOf(active.path)) : ""}</span>
+    {/if}
+    {#if active.mode === "edit"}
+      <!-- 缩进 · 换行符。混用的换行符标黄：那是文件坏了，保存时会统一成 LF -->
+      <span class="vsep drop-2" aria-hidden="true"></span>
+      <span
+        class="cell dim drop-2"
+        class:warn={active.eol === "mixed"}
+        title={active.eol === "mixed"
+          ? "文件里 LF 和 CRLF 混用 —— 保存时会统一成 LF"
+          : "缩进（按文件内容判断）· 换行符（保存时原样写回）"}
+      >{indent} · {eol}</span>
     {/if}
     <span class="vsep" aria-hidden="true"></span>
     <button

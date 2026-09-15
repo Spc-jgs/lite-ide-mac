@@ -15,6 +15,7 @@
   import type { KeyDef } from "../state/keymap";
   import { lazy } from "../lazy/lazy.svelte";
   import { gitHeadText, listProjectFiles } from "../ipc/commands";
+  import { detectIndent } from "../editor/indent";
   import { notify } from "../state/notify.svelte";
   import { tabs } from "../state/tabs.svelte";
   import { docs } from "../state/docs.svelte";
@@ -259,6 +260,7 @@
         {outlineTick}
         {headText}
         {showMinimap}
+        indent={detectIndent(tabs.active.content ?? "")}
         onChange={(d) => {
           tabs.active!.dirty = d;
           // 动过手的预览标签就不再是「看一眼」了，钉住（issue #33 ⑯）

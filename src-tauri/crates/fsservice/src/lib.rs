@@ -6,6 +6,7 @@
 //! 用什么编码读进来的就用什么编码存回去，保存不做「顺手转成 UTF-8」这种擅自决定。
 
 pub mod encoding;
+pub mod eol;
 pub mod watch;
 
 use std::ffi::OsString;
@@ -170,11 +171,15 @@ fn read_capped(path: &Path, label: &str, cap: u64) -> io::Result<encoding::Decod
             cap >> 20
         )));
     }
-    Ok(if label.is_empty() {
+    let mut d = if label.is_empty() {
         encoding::decode(&bytes)
     } else {
         encoding::decode_as(&bytes, label)
-    })
+    };
+    // 换行符和编码同一条规矩：读进来记住是什么，前端只见 \n，写回去换回来（eol.rs）
+    d.eol = eol::detect(&d.content);
+    d.content = eol::normalize(d.content);
+    Ok(d)
 }
 
 /// 只要内容的便捷版本，给不关心编码的调用方用（测试、内部工具）。
@@ -188,8 +193,9 @@ pub fn write_text_as(
     content: &str,
     label: &str,
     bom: bool,
+    line_ending: eol::Eol,
 ) -> io::Result<()> {
-    let bytes = encoding::encode(content, label, bom);
+    let bytes = encoding::encode(&eol::denormalize(content, line_ending), label, bom);
     write_bytes(path, &bytes)
 }
 
@@ -690,6 +696,19 @@ mod tests {
         let _ = fs::remove_file(&alias);
     }
 
+    /// CRLF 文件：读进来是 \n，写回去还是 CRLF；这是 issue #33 ③ 修的那个静默转换
+    #[test]
+    fn crlf_文件读写不换行符() {
+        let d = sandbox("crlf");
+        let f = d.join("w.txt");
+        fs::write(&f, b"a\r\nb\r\n").unwrap();
+        let got = read_text_detect(&f, "").unwrap();
+        assert_eq!(got.eol, eol::Eol::CrLf);
+        assert_eq!(got.content, "a\nb\n", "前端只该见到 \\n");
+        write_text_as(&f, "a\nb\nc\n", got.encoding, got.bom, got.eol).unwrap();
+        assert_eq!(fs::read(&f).unwrap(), b"a\r\nb\r\nc\r\n", "写回去要保持 CRLF，新加的行也是");
+    }
+
     fn sandbox(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("fsservice-test-{name}"));
         let _ = fs::remove_dir_all(&d);
@@ -879,7 +898,7 @@ mod tests {
 
         // 原样写回去，磁盘字节应当和原来一致
         let before = fs::read(&f).unwrap();
-        write_text_as(&f, &got.content, got.encoding, got.bom).unwrap();
+        write_text_as(&f, &got.content, got.encoding, got.bom, got.eol).unwrap();
         assert_eq!(fs::read(&f).unwrap(), before, "保存改变了文件编码");
 
         fs::remove_dir_all(d).ok();

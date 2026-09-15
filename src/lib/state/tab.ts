@@ -58,6 +58,8 @@ export interface TabState {
    */
   encoding?: string;
   bom?: boolean;
+  /** 盘上的换行符（`LF` / `CRLF` / `CR` / `mixed`），保存时原样写回；理由同 `encoding` */
+  eol?: string;
   /** 解码时有解不出的字节；带着它保存会把那些字节永久换成 U+FFFD */
   lossy?: boolean;
   /**

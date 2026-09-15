@@ -147,6 +147,9 @@ pub struct TextDto {
     /// 有解不出的字节 —— 界面必须把这件事说出来，
     /// 带着它保存等于把那些字节永久换成 U+FFFD
     pub lossy: bool,
+    /// 盘上的换行符：`LF` / `CRLF` / `CR` / `mixed`。内容已统一成 \n，
+    /// 保存时把它传回 `write_text` 才能原样写回（fsservice::eol）
+    pub eol: String,
 }
 
 /// 编辑模式读取全文，自动探测编码。
@@ -161,6 +164,7 @@ pub fn read_text(path: String, label: Option<String>) -> Result<TextDto, String>
         encoding: d.encoding.to_string(),
         bom: d.bom,
         lossy: d.lossy,
+        eol: d.eol.as_str().to_string(),
     })
 }
 
@@ -344,10 +348,12 @@ pub async fn write_text(
     content: String,
     label: Option<String>,
     bom: Option<bool>,
+    eol: Option<String>,
 ) -> Result<StampDto, String> {
     blocking(move || {
         let label = label.unwrap_or_else(|| "UTF-8".into());
-        fsservice::write_text_as(&path, &content, &label, bom.unwrap_or(false))
+        let line_ending = fsservice::eol::Eol::from_label(eol.as_deref().unwrap_or("LF"));
+        fsservice::write_text_as(&path, &content, &label, bom.unwrap_or(false), line_ending)
             .map_err(|e| format!("保存失败：{e}"))?;
         let s = fsservice::stamp(&path).map_err(|e| format!("{e}"))?;
         Ok(StampDto {

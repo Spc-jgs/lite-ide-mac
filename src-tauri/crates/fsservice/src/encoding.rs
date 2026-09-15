@@ -34,6 +34,8 @@ pub struct Decoded {
     /// **这个标记必须一路传到界面上**：带着它保存等于把那些字节永久换成 `U+FFFD`。
     /// 用户有权在覆盖之前知道这件事。
     pub lossy: bool,
+    /// 换行符。`decode` 这一层不看它（一律填 LF），`read_text_detect` 探完再填 —— 见 `eol.rs`
+    pub eol: crate::eol::Eol,
 }
 
 /// 只判编码标签，**给「按字节数截出来的样本」用**。
@@ -79,6 +81,7 @@ pub fn decode(bytes: &[u8]) -> Decoded {
             encoding: enc.name(),
             bom: true,
             lossy,
+            eol: crate::eol::Eol::Lf,
         };
     }
 
@@ -89,6 +92,7 @@ pub fn decode(bytes: &[u8]) -> Decoded {
             encoding: UTF_8.name(),
             bom: false,
             lossy: false,
+            eol: crate::eol::Eol::Lf,
         };
     }
 
@@ -104,6 +108,7 @@ pub fn decode(bytes: &[u8]) -> Decoded {
         encoding: enc.name(),
         bom: false,
         lossy,
+        eol: crate::eol::Eol::Lf,
     }
 }
 
@@ -123,6 +128,7 @@ pub fn decode_as(bytes: &[u8], label: &str) -> Decoded {
         encoding: enc.name(),
         bom: sniff_bom(bytes).is_some(),
         lossy,
+        eol: crate::eol::Eol::Lf,
     }
 }
 

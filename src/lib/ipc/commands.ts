@@ -88,6 +88,11 @@ export interface TextFile {
   bom: boolean;
   /** 有解不出的字节；带着它保存会把那些字节永久换成 U+FFFD */
   lossy: boolean;
+  /**
+   * 盘上的换行符：`LF` / `CRLF` / `CR` / `mixed`。`content` 已经统一成 \n，
+   * 保存时把它传回 `writeText` 才能原样写回 —— 和编码同一条规矩（issue #33 ③）
+   */
+  eol: string;
 }
 
 /** 读全文并探测编码；label 非空时按指定编码读 */
@@ -155,8 +160,9 @@ export const trashEntry = (path: string) => invoke<void>("trash_entry", { path }
  * 保存并返回新指纹 —— 必须拿它更新记录，否则自己的保存会被当成外部修改。
  * 按 label 指定的编码写回；不传就是 UTF-8。
  */
-export const writeText = (path: string, content: string, label?: string, bom?: boolean) =>
-  invoke<Stamp>("write_text", { path, content, label: label ?? null, bom: bom ?? false });
+/** `eol` 不传按 LF 写。凡是从 `readText` 来的内容都该把它的 `eol` 传回来 */
+export const writeText = (path: string, content: string, label?: string, bom?: boolean, eol?: string) =>
+  invoke<Stamp>("write_text", { path, content, label: label ?? null, bom: bom ?? false, eol: eol ?? null });
 
 export const openLog = (path: string) => invoke<OpenResult>("open_log", { path });
 export const logStat = (handle: number) => invoke<LogStat>("log_stat", { handle });

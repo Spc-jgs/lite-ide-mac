@@ -855,6 +855,8 @@ export function installMockIpc(): void {
             // 桩里模拟「按 UTF-8 读一个 GBK 文件」的乱码情形：
             // 换成 GBK 重新打开就不再有损，正好把状态栏的告警路径走一遍
             lossy: p.includes("gbk") && enc.toLowerCase() === "utf-8",
+            // 桩里没有真的 CRLF 文件：名字里带 crlf 的装成 CRLF，状态栏那格才有得看
+            eol: p.includes("crlf") ? "CRLF" : "LF",
           };
         }
         case "write_text":

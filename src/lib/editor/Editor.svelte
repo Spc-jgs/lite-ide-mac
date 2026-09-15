@@ -27,6 +27,7 @@
     gotoLine = null,
     outlineTick = 0,
     headText = null,
+    indent = null,
     showMinimap = true,
     onChange,
     onSave,
@@ -64,6 +65,13 @@
      * 标记在**这里**算而不是外面传进来：打字要实时跟着动，只有编辑器手上有实时文本。
      */
     headText?: string | null;
+    /**
+     * 缩进单位（issue #33 ③）：按文件内容猜出来的（`editor/indent.ts`），
+     * 回车、Tab、自动缩进都照它来 —— 4 空格的文件里回车缩进出一个 Tab，
+     * 就是那种「每次保存都多一片改动」的来源。null = 猜不出，按 4 空格。
+     * 只在建 state 时读一次：文件打开之后风格不会变，变了也该是用户自己改的。
+     */
+    indent?: import("./indent").Indent;
     showMinimap?: boolean;
     /**
      * ⌘Click / ⌘B 跳转要的三样，全从 App 来（见 `lib/editor/jump.ts`）：
@@ -207,7 +215,7 @@
         // 装两遍的话后一个 `createPanel` 静默不生效，画出来的还是默认面板。
         searchPanel(),
         mapSlot.of(showMinimap ? minimap() : []),
-        indentUnit.of("    "),
+        indentUnit.of(indent === "tab" ? "\t" : " ".repeat(typeof indent === "number" ? indent : 4)),
         langSlot.of([]),
         jumpExtension(jumpHooks),
         ideaDarkTheme,

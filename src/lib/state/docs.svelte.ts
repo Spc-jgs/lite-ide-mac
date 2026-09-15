@@ -118,7 +118,7 @@ class Docs {
     if (!tab || tab.mode !== "edit") return false;
     try {
       // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改
-      tab.stamp = await writeText(tab.path, content, tab.encoding, tab.bom);
+      tab.stamp = await writeText(tab.path, content, tab.encoding, tab.bom, tab.eol);
       // 磁盘那份成了准。草稿一起清掉 —— 三处「读回磁盘」共用 settled 这一个出口，
       // 原来各写一遍，其中一处漏了清草稿（见 doc.ts 的注释）
       Object.assign(tab, settled(content));
@@ -165,6 +165,7 @@ class Docs {
           const t = await readText(tab.path, tab.encoding);
           Object.assign(tab, settled(t.content));
           tab.lossy = t.lossy;
+          tab.eol = t.eol;
           tab.stamp = now;
           this.savedTick++;
           notify.ok(`${tab.name} 已被外部修改，已重新加载`, 2600);
@@ -179,7 +180,9 @@ class Docs {
     tab.conflict = false;
     if (take === "disk") {
       try {
-        Object.assign(tab, settled((await readText(tab.path, tab.encoding)).content));
+        const t = await readText(tab.path, tab.encoding);
+        Object.assign(tab, settled(t.content));
+        tab.eol = t.eol;
         tab.stamp = await fileStamp(tab.path);
         this.savedTick++;
       } catch (e) {
@@ -209,6 +212,7 @@ class Docs {
       tab.encoding = t.encoding;
       tab.bom = t.bom;
       tab.lossy = t.lossy;
+      tab.eol = t.eol;
       this.savedTick++;
       notify.ok(`已按 ${t.encoding} 重新打开${t.lossy ? "（仍有解不出的字节）" : ""}`, 3000);
     } catch (e) {

@@ -126,6 +126,7 @@ class TabFlow {
         tab.content = t.content;
         tab.encoding = t.encoding;
         tab.bom = t.bom;
+        tab.eol = t.eol;
         tab.lossy = t.lossy;
         tab.stamp = await fileStamp(info.path);
       }
@@ -267,6 +268,7 @@ class TabFlow {
         tab.content = t.content;
         tab.encoding = t.encoding;
         tab.bom = t.bom;
+        tab.eol = t.eol;
         tab.lossy = t.lossy;
       }
       tab.mode = to;
