@@ -311,6 +311,53 @@
     else onOpen(row.path, false);
   }
 
+  // ─────────────────── 多选（issue #33 ⑦） ───────────────────
+
+  /**
+   * ⌘点 逐个加减、⇧点 / ⇧↑↓ 连选一段，和 Finder / IDEA 一样。只为一件事：
+   * **一次把一批文件移到废纸篓**（右键菜单只剩批量能做的那几项）。
+   * 存路径不存下标 —— 中间折叠了一个目录，下标全变，路径不变。
+   * `anchor` 是 ⇧连选的起点：上一次普通点击或 ⌘点 的那一行。
+   * 普通点击、Esc、做完一次批量操作都清掉。
+   */
+  let selected = $state(new Set<string>());
+  let anchor = -1;
+
+  function selectRange(from: number, to: number) {
+    const [a, b] = from <= to ? [from, to] : [to, from];
+    const next = new Set<string>();
+    for (let k = Math.max(0, a); k <= Math.min(rows.length - 1, b); k++) next.add(rows[k].path);
+    selected = next;
+  }
+
+  function onRowClick(e: MouseEvent, i: number) {
+    const row = rows[i];
+    speed = "";
+    if (e.metaKey) {
+      // 第一次 ⌘点：把此刻的游标行也算进去，不然选出来的是「B」而不是「A + B」
+      const next = new Set(selected);
+      if (next.size === 0 && cursor >= 0 && cursor < rows.length && cursor !== i) next.add(rows[cursor].path);
+      if (next.has(row.path)) next.delete(row.path);
+      else next.add(row.path);
+      selected = next;
+      anchor = i;
+      cursor = i;
+      return;
+    }
+    if (e.shiftKey) {
+      selectRange(anchor < 0 ? cursor : anchor, i);
+      cursor = i;
+      return;
+    }
+    selected = new Set();
+    anchor = i;
+    cursor = i;
+    click(row);
+  }
+
+  /** 选中的行（按树里的顺序）；没有多选时是空表 */
+  let selectedRows = $derived(rows.filter((r) => selected.has(r.path)));
+
   // ─────────────────── 键盘导航 ───────────────────
 
   /**
@@ -532,12 +579,26 @@
     }
     switch (e.key) {
       case "ArrowDown":
+      case "ArrowUp": {
         e.preventDefault();
-        focusRow(i + 1);
+        const to = e.key === "ArrowDown" ? i + 1 : i - 1;
+        if (e.shiftKey) {
+          // ⇧↑↓ 连选：起点是 anchor（没有就是当前行），终点跟着游标走
+          if (anchor < 0 || selected.size === 0) anchor = i;
+          focusRow(to);
+          selectRange(anchor, cursor);
+        } else {
+          selected = new Set();
+          focusRow(to);
+          anchor = cursor;
+        }
         break;
-      case "ArrowUp":
-        e.preventDefault();
-        focusRow(i - 1);
+      }
+      case "Escape":
+        if (selected.size > 0) {
+          e.preventDefault();
+          selected = new Set();
+        }
         break;
       case "ArrowRight":
         e.preventDefault();
@@ -596,7 +657,7 @@
    * 项目根那一行（头部那个项目名）也能开菜单，但只有「新建」和只读那三项：
    * 改名或删掉工作区根，整棵树当场就散了。
    */
-  let menu = $state<{ x: number; y: number; row: Row; fromHead?: boolean } | null>(null);
+  let menu = $state<{ x: number; y: number; row: Row; fromHead?: boolean; multi?: boolean } | null>(null);
   let headEl = $state<HTMLElement | null>(null);
 
   const relOf = (p: string) => relTo(root, p);
@@ -605,6 +666,22 @@
   let items = $derived.by(() => {
     const row = menu?.row;
     if (!row) return [] as MenuItem[];
+    // 多选：只有批量能做的几项。新建 / 重命名说不清「对哪一个」，不给
+    if (menu?.multi) {
+      const many = selectedRows;
+      return [
+        { label: `移到废纸篓（${many.length} 个）`, danger: true, run: () => openTrashAsk(many) },
+        {
+          label: `复制路径（${many.length} 个）`,
+          sep: true,
+          run: () => void copyText(many.map((r) => r.path).join("\n"), "路径"),
+        },
+        {
+          label: `复制相对路径（${many.length} 个）`,
+          run: () => void copyText(many.map((r) => relOf(r.path)).join("\n"), "相对路径"),
+        },
+      ] as MenuItem[];
+    }
     // 在目录上右键 → 建在它里面；在文件上右键 → 建在它旁边（同 Finder / IDEA）
     const dir = row.isDir ? row.path : parentOf(row.path);
     const out: MenuItem[] = [
@@ -613,7 +690,7 @@
     ];
     if (row.path !== root) {
       out.push({ label: "重命名…", sep: true, run: () => openAsk("rename", parentOf(row.path), row) });
-      out.push({ label: "移到废纸篓", danger: true, run: () => openTrashAsk(row) });
+      out.push({ label: "移到废纸篓", danger: true, run: () => openTrashAsk([row]) });
     }
     out.push({ label: "在 Finder 中显示", sep: true, run: () => void showInFinder(row.path) });
     out.push({ label: "复制路径", run: () => void copyText(row.path, "路径") });
@@ -646,7 +723,7 @@
   let askInput = $state<HTMLInputElement | null>(null);
 
   /** 废纸篓确认 */
-  let trash = $state<{ x: number; y: number; row: Row; dirty: number; busy: boolean } | null>(null);
+  let trash = $state<{ x: number; y: number; rows: Row[]; dirty: number; busy: boolean } | null>(null);
   let trashEl = $state<HTMLElement | null>(null);
 
   const ASK_TITLE = {
@@ -669,9 +746,12 @@
     };
   }
 
-  function openTrashAsk(row: Row) {
+  function openTrashAsk(list: Row[]) {
     const at = menu ?? { x: 0, y: 0 };
-    trash = { x: at.x, y: at.y, row, dirty: dirtyUnder?.(row.path) ?? 0, busy: false };
+    // 选了目录又选了它里面的文件：算未保存标签时别数两遍 —— 子树在父目录里已经算过
+    const tops = list.filter((r) => !list.some((o) => o !== r && o.isDir && r.path.startsWith(`${o.path}/`)));
+    const dirty = tops.reduce((n, r) => n + (dirtyUnder?.(r.path) ?? 0), 0);
+    trash = { x: at.x, y: at.y, rows: tops, dirty, busy: false };
   }
 
   /** 把 p 和它子树下的缓存与展开状态全忘掉 —— 改名之后这些 key 已经不存在了 */
@@ -734,17 +814,26 @@
     const t = trash;
     if (!t || t.busy) return;
     trash = { ...t, busy: true };
-    try {
-      await trashEntry(t.row.path);
-      forgetSubtree(t.row.path);
-      invalidate(parentOf(t.row.path));
-      onTrashed?.(t.row.path, t.row.isDir);
-      trash = null;
-      await reload();
-      notify.ok(`已移到废纸篓：${t.row.name}`);
-    } catch (e) {
-      trash = null;
-      notify.fail(msgOf(e));
+    // 一个一个扔，扔不动的记下来继续 —— 一批里有一个没权限，不该让其余的也留着
+    const failed: string[] = [];
+    for (const row of t.rows) {
+      try {
+        await trashEntry(row.path);
+        forgetSubtree(row.path);
+        invalidate(parentOf(row.path));
+        onTrashed?.(row.path, row.isDir);
+      } catch (e) {
+        failed.push(`${row.name}：${msgOf(e)}`);
+      }
+    }
+    trash = null;
+    selected = new Set();
+    await reload();
+    const done = t.rows.length - failed.length;
+    if (failed.length === 0) {
+      notify.ok(t.rows.length === 1 ? `已移到废纸篓：${t.rows[0].name}` : `已移到废纸篓 ${done} 个`);
+    } else {
+      notify.fail(`${done} 个已移到废纸篓，${failed.length} 个没动：${failed.join("；")}`, 5000);
     }
   }
 
@@ -753,15 +842,20 @@
     // 右键也要选中这一行 —— 与 Finder / IDEA 一致。
     // 少了这句，菜单作用在哪一行全靠人自己记，而高亮还停在别处
     cursor = i;
-    menu = { x: e.clientX, y: e.clientY, row: rows[i] };
+    // 在选中的一批里右键 → 菜单作用在整批上；在批外右键 → 批取消，回到单个
+    const multi = selected.size > 1 && selected.has(rows[i].path);
+    if (!multi) selected = new Set();
+    menu = { x: e.clientX, y: e.clientY, row: rows[i], multi };
   }
 
   function openMenuAtRow(i: number) {
     const el = rowAt(i);
     if (!el) return;
     const r = el.getBoundingClientRect();
+    const multi = selected.size > 1 && selected.has(rows[i].path);
+    if (!multi) selected = new Set();
     // 贴着行的左下角弹，和鼠标右键的落点语义一致
-    menu = { x: r.left + 12, y: r.bottom - 2, row: rows[i] };
+    menu = { x: r.left + 12, y: r.bottom - 2, row: rows[i], multi };
   }
 
   /**
@@ -993,6 +1087,7 @@
         class:dir={row.isDir}
         class:gen={row.generated}
         class:active={row.path === activePath}
+        class:selected={selected.has(row.path)}
         class:flash={row.path === flash}
         role="treeitem"
         tabindex={i === cursor ? 0 : -1}
@@ -1000,11 +1095,7 @@
         aria-expanded={row.isDir ? expanded.has(row.path) : undefined}
         aria-selected={row.path === activePath}
         style:padding-left="{6 + row.depth * 13}px"
-        onclick={() => {
-          cursor = i;
-          speed = "";
-          click(row);
-        }}
+        onclick={(e) => onRowClick(e, i)}
         ondblclick={() => {
           if (!row.isDir) onOpen(row.path, false, true);
         }}
@@ -1117,9 +1208,13 @@
     style:top="{trash.y}px"
     onkeydown={onTrashKey}
   >
-    <div class="mhead" title={trash.row.path}>移到废纸篓</div>
+    <div class="mhead" title={trash.rows.map((r) => r.path).join("\n")}>移到废纸篓</div>
     <div class="ptext">
-      「<b>{trash.row.name}</b>」{trash.row.isDir ? "连同里面的全部内容" : ""}会被移到废纸篓，
+      {#if trash.rows.length === 1}
+        「<b>{trash.rows[0].name}</b>」{trash.rows[0].isDir ? "连同里面的全部内容" : ""}会被移到废纸篓，
+      {:else}
+        <b>{trash.rows.length} 个条目</b>{trash.rows.some((r) => r.isDir) ? "（目录连同里面的全部内容）" : ""}会被移到废纸篓，
+      {/if}
       可以在 Finder 里放回原处。
     </div>
     {#if trash.dirty > 0}
@@ -1248,6 +1343,8 @@
    */
   .row:hover { background: var(--hover); }
   .row.active { background: var(--selected); color: var(--text); }
+  /* 多选的行：和当前文件同一块底色 —— 它们此刻就是「被选中」这一个意思 */
+  .row.selected { background: var(--selected); color: var(--text); }
   .row.dir { color: var(--text); }
   .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   /*
