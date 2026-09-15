@@ -9,6 +9,7 @@
     | "locate"
     | "collapse"
     | "follow"
+    | "pin"
     | "more-v"
     | "minus"
     | "refresh"
@@ -125,6 +126,10 @@
     <!-- 跟随：箭头指向一个框 —— 「标签换了，树跟着走到那儿」 -->
     <rect x="2.6" y="3" width="10.8" height="10" rx="1.6" />
     <path d="M5.4 8 H10.4 M8.4 5.8 L10.6 8 L8.4 10.2" />
+  {:else if name === "pin"}
+    <!-- 钉住：图钉，斜着 —— VS Code 钉住的标签就是这个形状占了 ✕ 的位置 -->
+    <path d="M9.6 2.4 L13.6 6.4 L11.6 7.2 L9.4 9.4 L9.2 12.4 L3.6 6.8 L6.6 6.6 L8.8 4.4 Z" />
+    <path d="M6.4 9.6 L2.8 13.2" />
   {:else if name === "refresh"}
     <path d="M13 8 A5 5 0 1 1 11.4 4.3" />
     <path d="M13 2.6 V5.2 H10.4" />

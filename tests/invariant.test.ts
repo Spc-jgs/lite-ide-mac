@@ -230,5 +230,13 @@ ok(tabsFaults([干净的编辑标签, { ...干净的编辑标签, id: 9, path: "
   ok(tabsFaults([two[0], { ...two[1], preview: false }], 1).length === 0, "一个预览标签没问题");
 }
 
+// 钉住的都在左边（issue #33 ⑰）
+{
+  const a: TabLike = { ...干净的编辑标签, id: 1, path: "/p/a.ts", pinned: true };
+  const b: TabLike = { ...干净的编辑标签, id: 2, path: "/p/b.ts" };
+  ok(tabsFaults([a, b], 1).length === 0, "钉住的在前没问题");
+  ok(tabsFaults([b, a], 1).some(([k]) => k.includes("钉住的标签排在了没钉住的后面")), "钉住的在后要报");
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 运行时不变量：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

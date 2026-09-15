@@ -84,7 +84,7 @@ class TabFlow {
    * `preview` = 开成预览标签（issue #33 ⑯，语义见 `TabState.preview`）。
    * 谁传 true：单击文件树、搜索结果、⌘B 跳转、⌥⌘←/→。谁不传：⌘P、拖进来、
    * 命令行、最近项目、双击 —— 那些是「我要这个文件」，不是「看一眼」。
-   * **已经开着的文件被显式打开一次就钉住**（双击树里那一行正是走这条），
+   * **已经开着的文件被显式打开一次就保留下来**（双击树里那一行正是走这条），
    * 而被预览地打开一次不改变它的状态。
    */
   async openPath(path: string, opts: { quiet?: boolean; preview?: boolean } = {}) {
@@ -104,7 +104,7 @@ class TabFlow {
       }
       const exist = tabs.byPath(info.path);
       if (exist) {
-        if (!opts.preview) tabs.pin(exist.id);
+        if (!opts.preview) tabs.keep(exist.id);
         if (!this.restoringTabs) tabs.activeId = exist.id;
         return;
       }
@@ -287,9 +287,14 @@ class TabFlow {
     }
   }
 
-  requestClose(id: number) {
+  requestClose(id: number, force = false) {
     const tab = tabs.byId(id);
     if (!tab) return;
+    // 钉住的不跟着 ⌘W / ✕ 走（issue #33 ⑰）。右键「关闭」带 force
+    if (tab.pinned && !force) {
+      notify.ok(`${tab.name} 已钉住 —— 点标签上的图钉取消钉住，或右键「关闭」`, 2800);
+      return;
+    }
     if (tab.dirty) {
       tabs.activeId = tab.id;
       this.pendingClose = tab;
@@ -309,7 +314,8 @@ class TabFlow {
     const dirty: number[] = [];
     for (const id of ids) {
       const t = tabs.byId(id);
-      if (!t) continue;
+      // 批量关闭一律跳过钉住的：「关闭其他 / 右侧 / 全部」正是钉住要防的那几下
+      if (!t || t.pinned) continue;
       if (t.dirty) dirty.push(id);
       else this.doClose(t);
     }

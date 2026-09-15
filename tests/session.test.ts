@@ -284,6 +284,14 @@ ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
   });
   const g2 = parse(假的);
   ok(g2?.tabs.every((t) => t.preview === undefined), "非 true 的 preview 一律当没有");
+
+  // 钉住（issue #33 ⑰）同一套规矩
+  const pinned = parse(JSON.stringify({
+    v: VERSION, root: "/proj", active: 0, layout: DEFAULT_LAYOUT,
+    tabs: [{ path: "/a", pinned: true }, { path: "/b", pinned: "true" }, { path: "/c" }],
+  }));
+  ok(pinned?.tabs[0].pinned === true && pinned?.tabs[1].pinned === undefined && pinned?.tabs[2].pinned === undefined, "pinned 只认 true");
+  ok(parse(serialize(pinned!))?.tabs[0].pinned === true, "钉住要经得起一来一回");
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} 会话快照：${pass} 通过，${fail} 失败`);

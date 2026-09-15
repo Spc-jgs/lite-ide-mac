@@ -228,7 +228,7 @@ class Docs {
     tab.bom = bom;
     // 内容没变但目标编码变了，得让用户知道要按 ⌘S 才会真的落盘
     tab.dirty = true;
-    tabs.pin(tab.id);
+    tabs.keep(tab.id);
     notify.ok(`下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`, 3600);
   }
 

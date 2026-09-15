@@ -263,8 +263,8 @@
         indent={detectIndent(tabs.active.content ?? "")}
         onChange={(d) => {
           tabs.active!.dirty = d;
-          // 动过手的预览标签就不再是「看一眼」了，钉住（issue #33 ⑯）
-          if (d) tabs.pin(tabs.active!.id);
+          // 动过手的预览标签就不再是「看一眼」了，保留下来（issue #33 ⑯）
+          if (d) tabs.keep(tabs.active!.id);
         }}
         onSave={(c) => docs.save(c)}
         onStash={(p, t) => docs.stashDraft(p, t)}

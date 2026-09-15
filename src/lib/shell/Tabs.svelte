@@ -11,8 +11,10 @@
     name: string;
     mode: "edit" | "log" | "diff" | "merge";
     dirty: boolean;
-    /** 预览标签：名字斜体，双击钉住（issue #33 ⑯） */
+    /** 预览标签：名字斜体，双击保留（issue #33 ⑯） */
     preview?: boolean;
+    /** 钉住：图钉占 ✕ 的位置，排最左（issue #33 ⑰） */
+    pinned?: boolean;
   }
 
   let {
@@ -24,6 +26,7 @@
     onCloseMany,
     onRevealInTree,
     onNewScratch,
+    onKeep,
     onPin,
   }: {
     tabs: Tab[];
@@ -31,7 +34,8 @@
     /** 项目根，只用来算「复制相对路径」 */
     root?: string;
     onSelect: (id: number) => void;
-    onClose: (id: number) => void;
+    /** `force`：钉住的标签也关（右键菜单里的「关闭」才传） */
+    onClose: (id: number, force?: boolean) => void;
     /**
      * 批量关闭。**由 App 处理**，因为有未保存改动的标签要逐个问，
      * 而那个确认横幅长在 App 上。这里只负责算出「关哪些」。
@@ -41,8 +45,10 @@
     onRevealInTree?: (path: string) => void;
     /** 标签条末尾那个加号：新建一份草稿 */
     onNewScratch?: () => void;
-    /** 双击预览标签：钉住它 */
-    onPin?: (id: number) => void;
+    /** 双击预览标签：保留它（不再是预览） */
+    onKeep?: (id: number) => void;
+    /** 钉住 / 取消钉住 */
+    onPin?: (id: number, on: boolean) => void;
   } = $props();
 
   /**
@@ -68,7 +74,9 @@
     const m = menu;
     if (!m) return [] as MenuItem[];
     const { tab, i } = m;
-    const out: MenuItem[] = [{ label: "关闭", run: () => onClose(tab.id) }];
+    // 钉住的也能从这儿关（`force`）：钉住防的是误关，不是不许关
+    const out: MenuItem[] = [{ label: "关闭", run: () => onClose(tab.id, true) }];
+    out.push({ label: tab.pinned ? "取消钉住" : "钉住", run: () => onPin?.(tab.id, !tab.pinned) });
     /*
      * 不适用的项**直接不出现**，而不是灰着放在那儿。
      *
@@ -192,7 +200,7 @@
         role="tab"
         aria-selected={tab.id === activeId}
         onclick={() => onSelect(tab.id)}
-        ondblclick={() => onPin?.(tab.id)}
+        ondblclick={() => onKeep?.(tab.id)}
         onkeydown={(e) => {
           // 只有鼠标能开的菜单等于把功能藏起来了（同文件树那边）
           if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
@@ -226,16 +234,30 @@
         它不是装饰，是「这个标签关掉要问你」。
         圆点和 ✕ 占同一个格子：hover 时原地互换，位置不跳。
       -->
-      <button
-        class="close"
-        class:dirty={tab.dirty}
-        onclick={() => onClose(tab.id)}
-        title={tab.dirty ? "有未保存的改动（关闭前会问）" : "关闭"}
-        aria-label="关闭 {tab.name}"
-      >
-        <span class="x">✕</span>
-        {#if tab.dirty}<span class="dot" aria-hidden="true"></span>{/if}
-      </button>
+      {#if tab.pinned}
+        <!-- 钉住的：图钉常驻在 ✕ 的位置，点了取消钉住（VS Code 同款）。脏的圆点仍要看得见 -->
+        <button
+          class="close pin"
+          class:dirty={tab.dirty}
+          onclick={() => onPin?.(tab.id, false)}
+          title={tab.dirty ? "已钉住，有未保存的改动 —— 点击取消钉住" : "已钉住 —— 点击取消钉住"}
+          aria-label="取消钉住 {tab.name}"
+        >
+          <span class="x"><Icon name="pin" size={11} /></span>
+          {#if tab.dirty}<span class="dot" aria-hidden="true"></span>{/if}
+        </button>
+      {:else}
+        <button
+          class="close"
+          class:dirty={tab.dirty}
+          onclick={() => onClose(tab.id)}
+          title={tab.dirty ? "有未保存的改动（关闭前会问）" : "关闭"}
+          aria-label="关闭 {tab.name}"
+        >
+          <span class="x">✕</span>
+          {#if tab.dirty}<span class="dot" aria-hidden="true"></span>{/if}
+        </button>
+      {/if}
     </div>
   {/each}
 
@@ -391,6 +413,9 @@
     opacity: 0;
   }
   .tab:hover .close, .tab.active .close, .close.dirty { opacity: 1; }
+  /* 图钉常驻：它不是「每一项上都有」的装饰，是这个标签和别的不一样的唯一标记 */
+  .close.pin { opacity: 0.7; }
+  .close.pin .x { display: inline-flex; }
   .close:hover { background: var(--selected); color: var(--text); }
   .close .x { line-height: 1; }
   .close .dot {

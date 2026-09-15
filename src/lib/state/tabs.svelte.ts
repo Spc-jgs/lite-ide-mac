@@ -49,10 +49,27 @@ class Tabs {
     return id;
   }
 
-  /** 把预览标签钉住。不是预览的什么也不发生，所以调用方不用先判 */
-  pin(id: number) {
+  /** 把预览标签保留下来（不再是预览）。不是预览的什么也不发生，所以调用方不用先判 */
+  keep(id: number) {
     const t = this.byId(id);
     if (t?.preview) t.preview = false;
+  }
+
+  /**
+   * 钉住 / 取消钉住（issue #33 ⑰）。钉住的排在最左，照 VS Code：钉的那个挪到
+   * 钉住那组的末尾，取消的挪到那组后面第一格 —— 「钉住的都在左边」这条不变量
+   * 由这里维护，渲染那边不排序。
+   */
+  setPinned(id: number, on: boolean) {
+    const idx = this.list.findIndex((t) => t.id === id);
+    if (idx < 0 || !!this.list[idx].pinned === on) return;
+    const t = this.list[idx];
+    t.pinned = on;
+    if (on) t.preview = false;
+    const rest = this.list.filter((x) => x.id !== id);
+    const firstUnpinned = rest.findIndex((x) => !x.pinned);
+    const at = firstUnpinned < 0 ? rest.length : firstUnpinned;
+    this.list = [...rest.slice(0, at), t, ...rest.slice(at)];
   }
 
   /** 从表里拿掉，活动标签落到它原来的位置（最后一个则往前退一格） */

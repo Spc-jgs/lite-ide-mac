@@ -110,6 +110,7 @@ export interface TabLike {
   content?: string;
   draft?: string;
   preview?: boolean;
+  pinned?: boolean;
 }
 
 /** 只取最后一段。`key` 要常量，路径全文进 detail 也太长 */
@@ -150,7 +151,7 @@ export function tabFaults(t: TabLike, live: boolean): Array<[string, string]> {
   if (t.draft !== undefined && t.draft === (t.content ?? "")) {
     out.push(["草稿和磁盘内容相同却没被丢掉", who]);
   }
-  // 预览标签是「看一眼」，一动手就该被钉住（issue #33 ⑯）。带着改动还是预览，
+  // 预览标签是「看一眼」，一动手就该被保留下来（issue #33 ⑯）。带着改动还是预览，
   // 下一次预览会把它顶掉 —— 顶掉走的是 doClose，不问「未保存怎么办」，改动直接没
   if (t.preview && t.dirty) {
     out.push(["预览标签带着未保存改动", who]);
@@ -186,6 +187,17 @@ export function tabsFaults(
       out.push(["两个标签共用一个引擎句柄", `#${prev} 和 #${t.id} 都是 ${t.handle}`]);
     }
     handles.set(t.handle, t.id);
+  }
+
+  // 钉住的都在左边（issue #33 ⑰）：`setPinned` 负责挪位，别处只该改标记不该改顺序。
+  // 乱了的话「关闭右侧的」会把一个钉住的左邻居当成右边的东西
+  let seenUnpinned = false;
+  for (const t of tabs) {
+    if (!t.pinned) seenUnpinned = true;
+    else if (seenUnpinned) {
+      out.push(["钉住的标签排在了没钉住的后面", base(t.path)]);
+      break;
+    }
   }
 
   // 预览标签同时最多一个：多了说明「顶掉旧的」那一步漏了，标签条会越积越多

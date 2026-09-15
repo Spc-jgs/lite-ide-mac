@@ -96,6 +96,8 @@ export interface TabSnap {
    * 「没有」和「false」是同一个意思，所以 VERSION 不用动。
    */
   preview?: true;
+  /** 钉住（issue #33 ⑰）。同上：只存 true */
+  pinned?: true;
 }
 
 export interface Layout {
@@ -237,6 +239,7 @@ export function parse(raw: string | null | undefined): Session | null {
     if (line !== undefined) snap.line = line;
     // 只认字面的 true。字符串 "true" / 1 之类一律当没有 —— 宁可多占一格也别猜
     if (e.preview === true) snap.preview = true;
+    if (e.pinned === true) snap.pinned = true;
     /*
      * 草稿：类型不对、超长、或者是空串就当没有。
      *

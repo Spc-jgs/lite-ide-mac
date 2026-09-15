@@ -55,10 +55,10 @@
     revealPath?: string;
     revealTick?: number;
     /**
-     * `pinned`：双击给 true。单击开的是预览标签（issue #33 ⑯），双击才永久占格 ——
-     * 双击前面那下单击已经把它开成预览了，这一下只是把它钉住。
+     * `keep`：双击给 true。单击开的是预览标签（issue #33 ⑯），双击才永久占格 ——
+     * 双击前面那下单击已经把它开成预览了，这一下只是把它保留下来。
      */
-    onOpen: (path: string, isDir: boolean, pinned?: boolean) => void;
+    onOpen: (path: string, isDir: boolean, keep?: boolean) => void;
     /**
      * 这条路径（含子树）下有几个**未保存**的标签。
      *
