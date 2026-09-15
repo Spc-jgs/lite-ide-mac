@@ -2,6 +2,8 @@
   import Icon from "../shell/Icon.svelte";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
   import type { GitEntry, GitStatus } from "../ipc/commands";
+  import { groupByDir } from "./group";
+  import { readPref, writePref } from "../state/prefs";
 
   let {
     status,
@@ -151,6 +153,23 @@
    * 而一个**不可撤销**，一个随手可逆。误点的代价不该只隔着 2px。
    * （菜单里它带 `danger`，颜色也就跟着分开了。）
    */
+  /**
+   * 按目录分组 / 平铺（issue #33 ⑮）。偏好存 localStorage，默认平铺 ——
+   * 二十个以内平铺一眼扫得完，多了再切。折叠状态不存：那是这一刻的事。
+   */
+  let grouped = $state(readPref("git-grouped", false));
+  let collapsed = $state(new Set<string>());
+  function toggleGrouped() {
+    grouped = !grouped;
+    writePref("git-grouped", grouped);
+  }
+  function toggleDir(key: string) {
+    const next = new Set(collapsed);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    collapsed = next;
+  }
+
   let menu = $state<{ x: number; y: number } | null>(null);
 
   let menuItems = $derived.by((): MenuItem[] => [
@@ -158,6 +177,7 @@
     // 收进 stash 和丢弃是同一档 ——「把改动从工作区拿走」，只是一个还能拿回来
     { label: "收进 stash", sep: true, run: () => onStash?.() },
     ...(stashCount > 0 ? [{ label: `取回 stash (${stashCount})`, run: () => onUnstash?.() }] : []),
+    { label: grouped ? "平铺显示" : "按目录分组", sep: true, run: toggleGrouped },
     { label: "全部丢弃…", danger: true, sep: true, run: () => onDiscard(unstaged) },
   ]);
   /** 只有已暂存的时候「改动」段不在，⋯ 得挂到「已暂存」段上，不然 stash 没入口 */
@@ -165,6 +185,7 @@
     { label: "全部取消暂存", run: () => onUnstage(staged.map((e) => e.path)) },
     { label: "收进 stash", sep: true, run: () => onStash?.() },
     ...(stashCount > 0 ? [{ label: `取回 stash (${stashCount})`, run: () => onUnstash?.() }] : []),
+    { label: grouped ? "平铺显示" : "按目录分组", sep: true, run: toggleGrouped },
   ]);
   let stagedMenu = $state<{ x: number; y: number } | null>(null);
   function openStagedMenu(e: MouseEvent) {
@@ -202,6 +223,57 @@
     cmenu = { x: r.right - 8, y: r.bottom + 2 };
   }
 </script>
+
+<!--
+  已暂存 / 改动 两段的行是同一个形状，只差按钮：`side` = 看哪一栏的状态（index / work）。
+  分组模式下目录头一行、文件只写名字（目录已经在头上了）；平铺时名字后跟灰色目录。
+-->
+{#snippet fileRow(e: GitEntry, side: "index" | "work")}
+  <div class="frow-wrap" class:in-group={grouped}>
+    <button class="frow" onclick={() => onOpenDiff(e, side === "index")} title={e.path}>
+      <span class="m {mark(e, side).cls}">{mark(e, side).ch}</span>
+      <span class="fname" class:gone={(side === "index" ? e.index : e.work) === "D"}>{baseName(e.path)}</span>
+      {#if !grouped}<span class="fdir">{dirName(e.path)}</span>{/if}
+    </button>
+    {#if side === "index"}
+      <button class="rowact" onclick={() => onUnstage([e.path])} title="取消暂存" aria-label="取消暂存">−</button>
+    {:else}
+      <button class="rowact" onclick={() => onDiscard([e])} title="丢弃改动" aria-label="丢弃改动">↺</button>
+      <button class="rowact" onclick={() => onStage([e.path])} title="暂存" aria-label="暂存">＋</button>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet fileList(list: GitEntry[], side: "index" | "work")}
+  {#if grouped}
+    {#each groupByDir(list) as g (g.dir)}
+      {@const key = `${side}:${g.dir}`}
+      {#if g.dir !== ""}
+        <button
+          class="gdir"
+          class:closed={collapsed.has(key)}
+          onclick={() => toggleDir(key)}
+          title={g.dir}
+          aria-expanded={!collapsed.has(key)}
+        >
+          <span class="gcaret"><Icon name="chevron-right" size={10} /></span>
+          <span class="gname">{g.dir}</span>
+          <span class="gcnt">{g.items.length}</span>
+        </button>
+      {/if}
+      {#if g.dir === "" || !collapsed.has(key)}
+        {#each g.items as e (e.path)}
+          {@render fileRow(e, side)}
+        {/each}
+      {/if}
+    {/each}
+  {:else}
+    {#each list as e (e.path)}
+      {@render fileRow(e, side)}
+    {/each}
+  {/if}
+{/snippet}
+
 
 <div class="git">
   {#if !status}
@@ -361,16 +433,7 @@
             <button class="mini more" onclick={openStagedMenu} title="更多操作" aria-label="更多操作">⋯</button>
           {/if}
         </div>
-        {#each staged as e (e.path)}
-          <div class="frow-wrap">
-            <button class="frow" onclick={() => onOpenDiff(e, true)} title={e.path}>
-              <span class="m {mark(e, 'index').cls}">{mark(e, "index").ch}</span>
-              <span class="fname" class:gone={e.index === "D"}>{baseName(e.path)}</span>
-              <span class="fdir">{dirName(e.path)}</span>
-            </button>
-            <button class="rowact" onclick={() => onUnstage([e.path])} title="取消暂存" aria-label="取消暂存">−</button>
-          </div>
-        {/each}
+        {@render fileList(staged, "index")}
       {/if}
 
       {#if unstaged.length > 0}
@@ -381,17 +444,7 @@
           <button class="mini" onclick={() => onStage(unstaged.map((e) => e.path))}>全部暂存</button>
           <button class="mini more" onclick={openMenu} title="更多操作" aria-label="更多操作">⋯</button>
         </div>
-        {#each unstaged as e (e.path)}
-          <div class="frow-wrap">
-            <button class="frow" onclick={() => onOpenDiff(e, false)} title={e.path}>
-              <span class="m {mark(e, 'work').cls}">{mark(e, "work").ch}</span>
-              <span class="fname" class:gone={e.work === "D"}>{baseName(e.path)}</span>
-              <span class="fdir">{dirName(e.path)}</span>
-            </button>
-            <button class="rowact" onclick={() => onDiscard([e])} title="丢弃改动" aria-label="丢弃改动">↺</button>
-            <button class="rowact" onclick={() => onStage([e.path])} title="暂存" aria-label="暂存">＋</button>
-          </div>
-        {/each}
+        {@render fileList(unstaged, "work")}
       {/if}
 
       <!--
@@ -752,6 +805,30 @@
   /* 行操作按钮平时不占视觉，hover 才浮出来 —— 列表安静，动作随手可及 */
   /* 悬停是内缩圆角块，和文件树同一套 —— 两边挨着，做法不一样一眼看得出来 */
   .frow-wrap { display: flex; align-items: center; border-radius: var(--r-md); }
+  /* 分组时文件行往里缩一格，让目录头看起来是它们的父 */
+  .frow-wrap.in-group { margin-left: 12px; }
+  .gdir {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+    height: 22px;
+    padding: 0 4px;
+    border: none;
+    background: none;
+    color: var(--text-dim);
+    font-size: 12px;
+    text-align: left;
+    border-radius: var(--r-md);
+    cursor: pointer;
+  }
+  .gdir:hover { background: var(--hover); }
+  .gdir:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  .gcaret { display: inline-flex; color: var(--text-faint); transition: transform 0.12s; transform: rotate(90deg); }
+  .gdir.closed .gcaret { transform: none; }
+  .gname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--code-font); }
+  .gcnt { margin-left: auto; color: var(--text-faint); font-size: 11px; }
   .frow-wrap:hover { background: var(--hover); }
   .frow-wrap .rowact { opacity: 0; }
   .frow-wrap:hover .rowact { opacity: 1; }
