@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { splitHunks, hunkPatch } from "./hunks";
   import {
     parseDiff,
     segs,
@@ -17,6 +18,7 @@
     untracked = false,
     capped = false,
     onToggleStaged,
+    onApplyHunk,
   }: {
     raw: string;
     path: string;
@@ -39,7 +41,27 @@
      */
     capped?: boolean;
     onToggleStaged: () => void;
+    /**
+     * 按块暂存（issue #33 ⑫）：这一块的 patch 交给上层 `git apply --cached`。
+     * `unstage` 跟着 `staged` 走 —— 看的是暂存区那侧，按下去就是从暂存区撤掉。
+     * 历史提交、未跟踪文件没有这回事，不传就不画按钮。
+     */
+    onApplyHunk?: (patch: string, unstage: boolean) => void;
   } = $props();
+
+  /** 每个 hunk 的原文，给按块暂存拼 patch 用。从 `raw` 拆，不从解析后的行反拼 */
+  let patches = $derived(splitHunks(raw));
+  let canApply = $derived(!!onApplyHunk && !commit && !untracked && !capped && patches.hunks.length > 0);
+  /** 第 i 行之前有几个 hunk 行 = 这一行是第几块（0-based） */
+  function hunkOrdinals(rows: { kind: string }[]): number[] {
+    const out = new Array<number>(rows.length);
+    let k = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].kind === "hunk") k++;
+      out[i] = k;
+    }
+    return out;
+  }
 
   /**
    * 渲染行数上限。一次 refactor 改上万行是有的，全渲染会让切标签明显卡顿；
@@ -107,6 +129,8 @@
   /** 实际渲染出来的那些行 —— 两种视图各切一份，类型才不会退化成 { kind } */
   let sideShown = $derived(sideRows.slice(0, MAX_ROWS));
   let uniShown = $derived(uniRows.slice(0, MAX_ROWS));
+  let sideHunk = $derived(hunkOrdinals(sideShown));
+  let uniHunk = $derived(hunkOrdinals(uniShown));
   /**
    * 跳转目标只能取**渲染出来的**那些块。
    * 早先是在全部行上算的，于是超过 MAX_ROWS 的差异里，「下一处改动」会把
@@ -231,7 +255,14 @@
       <div class="grid" class:wrap>
         {#each sideShown as r, i (i)}
           {#if r.kind === "hunk" || r.kind === "meta"}
-            <div class="span4 {r.kind}" data-row={i}>{r.text || "⋯"}</div>
+            <div class="span4 {r.kind}" data-row={i}>
+              <span class="htxt">{r.text || "⋯"}</span>
+              {#if r.kind === "hunk" && canApply}
+                <button class="hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, sideHunk[i]), staged)}>
+                  {staged ? "取消暂存这一块" : "暂存这一块"}
+                </button>
+              {/if}
+            </div>
           {:else}
             {@const L = r.left}
             {@const R = r.right}
@@ -253,6 +284,11 @@
             <div class="row {l.kind}" data-row={i}>
               <span class="no"></span><span class="no"></span><span class="sign"></span>
               <span class="txt">{l.text || "⋯"}</span>
+              {#if l.kind === "hunk" && canApply}
+                <button class="hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, uniHunk[i]), staged)}>
+                  {staged ? "取消暂存这一块" : "暂存这一块"}
+                </button>
+              {/if}
             </div>
           {:else}
             {@const s = segs(l)}
@@ -505,6 +541,27 @@
     border-bottom: 1px solid var(--border-soft);
   }
   .uni .row.hunk .txt { font-style: italic; }
+  /* 按块暂存的按钮：hover 那一行才出（ui.md 第三条：每一块上都有的东西不常驻） */
+  .hbtn {
+    margin-left: auto;
+    margin-right: 8px;
+    padding: 0 8px;
+    height: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--elevated);
+    color: var(--text-dim);
+    font-size: 11px;
+    font-style: normal;
+    line-height: 14px;
+    cursor: pointer;
+    opacity: 0;
+    align-self: center;
+  }
+  .row.hunk:hover .hbtn, .span4.hunk:hover .hbtn, .hbtn:focus-visible { opacity: 1; }
+  .hbtn:hover { color: var(--text); border-color: var(--accent); }
+  .span4.hunk { display: flex; align-items: center; }
+  .span4.hunk .htxt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .uni .row.meta { color: var(--text-faint); font-size: 11px; }
 
   /* 行内高亮：颜色更实，把真正改动的那几个字挑出来 */

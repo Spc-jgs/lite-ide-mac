@@ -231,6 +231,7 @@ watch_root(root)                 -> ()                 // 换根再调，空串 
 git_head_text(root, path)        -> { text, truncated } | null   // HEAD 里那份，编辑器实时算改动行的基线
 git_stash_list / push / pop(root) -> [{index,message}] / () / ()  // 已跟踪的改动收进去 / 放回来；pop 撞冲突报错、stash 留着
 git_blame(root, path)            -> { hunks:[{sha,short,author,time,summary,start,count}], truncated }  // 阻塞池；1MB 上限
+git_apply_cached(root, patch, reverse) -> ()      // 按块暂存 / 撤掉：patch 经临时文件交给 git apply --cached --recount
 ```
 
 ### 数据面（`Response` 二进制 / `Channel`，高频）

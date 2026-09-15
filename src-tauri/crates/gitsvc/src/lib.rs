@@ -1232,6 +1232,36 @@ pub fn discard(root: impl AsRef<Path>, paths: &[String], untracked: &[String]) -
     Ok(())
 }
 
+/// 把一段 patch 应用到暂存区（issue #33 ⑫ 按块暂存）。`reverse` = 从暂存区撤掉。
+///
+/// patch 写进临时文件再交给 git，而不是走 stdin：`git_cmd` 把所有子进程的 stdin
+/// 都接到了 /dev/null（后台调用挂着等输入是一整类事故），为这一条开口子不值。
+/// 临时文件用完就删；删不掉不算错。
+///
+/// `--recount`：前端拆出来的单块 patch 行数是原样的，本该对；但 `@@` 头里的计数
+/// 一旦对不上（比如末尾没有换行的文件）git 就整份拒收，让它自己重数一遍更稳。
+pub fn apply_cached(root: impl AsRef<Path>, patch: &str, reverse: bool) -> R<()> {
+    let tmp = std::env::temp_dir().join(format!(
+        "lite-ide-hunk-{}-{}.patch",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::write(&tmp, patch).map_err(|e| Error::Git(format!("写不了临时 patch：{e}")))?;
+    let tmp_s = tmp.to_string_lossy().into_owned();
+    let mut args = vec!["apply", "--cached", "--recount"];
+    if reverse {
+        args.push("-R");
+    }
+    args.push("--");
+    args.push(&tmp_s);
+    let r = run(root.as_ref(), &args).map(|_| ());
+    let _ = std::fs::remove_file(&tmp);
+    r
+}
+
 /// blame 的一段：连续几行出自同一次提交（issue #33 ⑭）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlameHunk {
@@ -3251,6 +3281,46 @@ mod tests {
         let who: Vec<(u32, u32, &str)> = h.iter().map(|x| (x.start, x.count, x.author.as_str())).collect();
         assert_eq!(who, vec![(1, 1, "甲"), (2, 1, "乙"), (3, 1, "甲"), (4, 1, "Not Committed Yet")], "{h:?}");
         assert!(h[3].sha.chars().all(|c| c == '0'));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 按块暂存：两处改动只暂存一处，暂存区里有它、工作区两处都在；再 -R 撤掉
+    #[test]
+    fn apply_cached_只暂存一块() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-hunk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        let base: String = (1..=20).map(|i| format!("l{i}\n")).collect();
+        std::fs::write(dir.join("a.txt"), &base).unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次", false).unwrap();
+        // 第 2 行和第 18 行各改一处：隔得够远，git 会拆成两个 hunk
+        let changed = base.replace("l2\n", "L2\n").replace("l18\n", "L18\n");
+        std::fs::write(dir.join("a.txt"), &changed).unwrap();
+        let d = diff(&dir, "a.txt", false, false).unwrap().text;
+        assert_eq!(d.matches("\n@@").count(), 2, "该有两块：{d}");
+        // 只取第一块（前端 splitHunks 做的事，这里手工拼）
+        let head_end = d.find("\n@@").unwrap() + 1;
+        let second = d[head_end..].find("\n@@").map(|i| head_end + i + 1).unwrap();
+        let header: String = d[..head_end].lines().filter(|l| !l.starts_with("index ")).map(|l| format!("{l}\n")).collect();
+        let patch = format!("{header}{}", &d[head_end..second]);
+
+        apply_cached(&dir, &patch, false).expect("暂存第一块");
+        let staged = diff(&dir, "a.txt", true, false).unwrap().text;
+        assert!(staged.contains("+L2") && !staged.contains("+L18"), "暂存区只该有第 2 行那块：{staged}");
+        let work = diff(&dir, "a.txt", false, false).unwrap().text;
+        assert!(work.contains("+L18") && !work.contains("+L2"), "工作区相对暂存区只剩第 18 行那块：{work}");
+
+        apply_cached(&dir, &patch, true).expect("撤掉那一块");
+        let staged2 = diff(&dir, "a.txt", true, false).unwrap().text;
+        assert!(staged2.trim().is_empty(), "-R 之后暂存区该干净：{staged2}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

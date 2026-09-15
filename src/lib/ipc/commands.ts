@@ -420,6 +420,10 @@ export interface Blame {
 }
 export const gitBlame = (root: string, path: string) => invoke<Blame>("git_blame", { root, path });
 
+/** 按块暂存（issue #33 ⑫）：一段 patch 应用到暂存区；`reverse` = 撤掉 */
+export const gitApplyCached = (root: string, patch: string, reverse: boolean) =>
+  invoke<void>("git_apply_cached", { root, patch, reverse });
+
 /** 一条 stash（issue #33 ⑪） */
 export interface GitStash {
   /** `stash@{N}` 里的 N */

@@ -6,6 +6,7 @@ import {
   gitCommit,
   gitStashPush,
   gitStashPop,
+  gitApplyCached,
   readText,
   writeText,
   type GitEntry,
@@ -122,6 +123,17 @@ export async function stashPop(): Promise<boolean> {
   if (!ok) await git.refresh();
   await worktree.changed();
   return ok;
+}
+
+/**
+ * 按块暂存 / 取消暂存（issue #33 ⑫）：patch 由差异视图从它手上那份 diff 拆出来。
+ * 做完 `run` 会刷新 status，`refresh` 再把开着的工作区差异标签重拉 —— 那一块
+ * 就从这一侧消失、出现在另一侧。
+ */
+export function applyHunk(patch: string, unstage: boolean): Promise<boolean> {
+  return run(unstage ? "取消暂存这一块失败" : "暂存这一块失败", async () => {
+    await gitApplyCached(git.repo!, patch, unstage);
+  }, unstage ? "取消暂存" : "暂存");
 }
 
 /** 返回提交成没成 —— 「提交并推送」要据此决定推不推 */

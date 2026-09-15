@@ -1172,6 +1172,12 @@ pub struct StashDto {
     pub message: String,
 }
 
+/// 按块暂存（issue #33 ⑫）：一段 patch 应用到暂存区；`reverse` = 撤掉
+#[tauri::command]
+pub fn git_apply_cached(root: String, patch: String, reverse: bool) -> Result<(), String> {
+    gitsvc::apply_cached(&root, &patch, reverse).map_err(|e| format!("{e}"))
+}
+
 #[tauri::command]
 pub fn git_stash_list(root: String) -> Result<Vec<StashDto>, String> {
     gitsvc::stash_list(&root)

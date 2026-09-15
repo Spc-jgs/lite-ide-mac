@@ -184,6 +184,9 @@ class Git {
   async stashPop(): Promise<boolean> {
     return (await ops()).stashPop();
   }
+  async applyHunk(patch: string, unstage: boolean): Promise<boolean> {
+    return (await ops()).applyHunk(patch, unstage);
+  }
   async commit(message: string, amend: boolean): Promise<boolean> {
     return (await ops()).commit(message, amend);
   }

@@ -1087,6 +1087,11 @@ export function installMockIpc(): void {
                 : g("src/conflict.rs", "U", "U", { conflicted: true }),
             ].filter((e) => !discarded.has(e.path) && !(stashed.has(e.path) && !e.untracked)),
           };
+        case "git_apply_cached":
+          // 桩里没有真的暂存区：认下来、记一句，让按钮那条路走得通
+          await sleep(80);
+          console.info(`[mock] git apply --cached${a.reverse ? " -R" : ""}：\n${String(a.patch).slice(0, 200)}`);
+          return null;
         case "git_blame": {
           // 桩：每 5 行一段，三个作者轮着来，最后 2 行「未提交」
           const n = (FILES[`${a.root}/${a.path}`] ?? "").split("\n").length;

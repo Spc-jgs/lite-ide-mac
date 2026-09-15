@@ -270,6 +270,7 @@
         commit={tabs.active.diffShort ?? ""}
         untracked={!!tabs.active.diffUntracked}
         onToggleStaged={() => void git.toggleDiffSide(tabs.active!.id)}
+        onApplyHunk={(patch, unstage) => void git.applyHunk(patch, unstage)}
       />
     {/key}
   {:else if tabs.active.mode === "diff"}

@@ -6292,3 +6292,21 @@ Git 菜单「显示 / 隐藏注解」，一个开关管所有标签（IDEA 按�
 验证（桩）：开 OrderService → 每 5 行一段三个作者轮着；换到 vite.config → 一段 + 末尾
 「未提交」；点一段开出差异标签；再按一次动作 → 那列没了。`cargo test`：解析器一条
 （不同提交不合段，验过红）+ 真仓库一条（两次提交两个作者 + 未提交行）。
+
+## 2026-09-15 · #33 ⑫ 按块暂存
+
+差异视图每个 `@@` 行 hover 出一个「暂存这一块 / 取消暂存这一块」（看的是哪一侧就是
+哪个方向）。patch 由前端从它手上那份 `raw` 拆（`git/hunks.ts`：文件头 + 那一块，
+**`index` 行扔掉** —— `apply --cached` 不带 `--3way` 用不着它，带着反而会在暂存区已被
+别的块改过之后报 does not match index），Rust `git apply --cached [-R] --recount` 收。
+
+patch 走临时文件不走 stdin：`git_cmd` 把所有子进程的 stdin 都接到 /dev/null（后台调用
+挂着等输入是一整类事故），为这一条开口子不值。`--recount` 让 git 自己重数 `@@` 里的
+行数 —— 末尾没换行之类的边角情况前端拆出来的计数可能差一。
+
+做完 `run` 刷 status、`refresh` 重拉开着的差异标签，那一块就从这一侧消失、出现在另一侧。
+历史提交、未跟踪、被 1MB 截断的差异不给按钮。
+
+测试：拆块 10 条（验红：留下 index 行）；Rust 真仓库两块只暂存一块、再 -R 撤掉
+（验红：去掉 -R）。写测试时撞了一下 HARDENING：裸 `git diff` 在这套 `-c diff.external=`
+下会报 external diff died，要走 `diff()`（带 `--no-ext-diff`）—— 这正是那套加固在起作用。
