@@ -119,7 +119,7 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 123 KB，红线 150 KB**；超过 138 KB CI 会先告警。
+（**当前 130 KB（2026-09-15），红线 150 KB**；超过 138 KB CI 会先告警。
 这个数字每轮都要重量一次 —— 它在 M20/M22/M24/M25 里从 126 一路涨到 157，
 而 README 和这里各记了一个旧值，看着像互相矛盾。
 崩溃屏 `Crash.svelte` 是刻意静态引入的 —— 需要它的时候，

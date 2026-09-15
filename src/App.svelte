@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack, tick } from "svelte";
-  import FileTree from "./lib/shell/FileTree.svelte";
   import Rail from "./lib/shell/Rail.svelte";
   import Sidebar from "./lib/shell/Sidebar.svelte";
   import Panel from "./lib/shell/Panel.svelte";
@@ -10,7 +9,7 @@
   import Overlays from "./lib/shell/Overlays.svelte";
   import TitleBar from "./lib/shell/TitleBar.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
-  import { lazyGroup } from "./lib/lazy/lazy.svelte";
+  import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import { layout } from "./lib/state/layout.svelte";
   import { tabs } from "./lib/state/tabs.svelte";
@@ -117,6 +116,16 @@
    * 文件树上的 git 染色不在这里面：那只是 FileTree 里的一个 $derived，
    * 没有额外模块，打开就该看见。
    */
+  /**
+   * 文件树也按需加载（issue #32）。它 12 KB，是入口里最大的一块，而它的行
+   * **本来就要等 `list_dir` 回来才有东西画** —— 首屏先出的是侧边栏的壳，
+   * 不是树。所以一挂载就拉（不像搜索浮层那样等 300ms），和第一次 IPC 并行，
+   * 树到的时候它多半已经在了。没到时侧边栏那块空着，不放「载入中」：
+   * 那几十毫秒里放一句字反而闪一下。
+   */
+  const tree = lazy(() => import("./lib/shell/FileTree.svelte"), "文件树");
+  tree.load();
+
   const gitUi = lazyGroup(
     {
       pane: () => import("./lib/git/GitPane.svelte"),
@@ -261,8 +270,7 @@
    * 新加的 `overlays`。加新的 lazy() 时记得回来加一行。
    */
   $effect(() => {
-    const e =
-      gitUi.error;
+    const e = gitUi.error || tree.error;
     if (e) notify.fail(e);
   });
 
@@ -819,7 +827,8 @@
         {/snippet}
         {#snippet fileTree()}
           <!-- `root!`：这块只在 Sidebar 判过 root 非空之后才渲染，收窄在那个文件里 -->
-          <FileTree
+          {#if tree.comp}
+          <tree.comp
             root={project.root!}
             activePath={tabs.active?.path ?? ""}
             gitStatus={git.status}
@@ -837,6 +846,7 @@
               void afterFsChange(null);
             }}
           />
+          {/if}
         {/snippet}
       </Sidebar>
     {/if}
