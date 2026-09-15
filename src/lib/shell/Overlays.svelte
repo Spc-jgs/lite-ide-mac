@@ -9,7 +9,6 @@
    * 从懒加载的键位表生成，选中一条交给 App 的 `runMenu`。
    */
   import type BranchPicker from "../git/BranchPicker.svelte";
-  import GotoLine from "../search/GotoLine.svelte";
   import type { Action } from "../search/QuickSearch.svelte";
   import { lazy, lazyGroup } from "../lazy/lazy.svelte";
   import { notify } from "../state/notify.svelte";
@@ -87,6 +86,8 @@
     {
       quick: () => import("../search/QuickSearch.svelte"),
       outline: () => import("../search/Outline.svelte"),
+      // 四十行的小东西，单独一个 chunk 不值，搭这组的车（它们 300ms 后就到了）
+      goto: () => import("../search/GotoLine.svelte"),
     },
     "搜索浮层",
   );
@@ -94,7 +95,7 @@
   $effect(() => {
     // 兜底：预拉万一没跑到（或者失败过），真按下去时补一次。
     // `load()` 是幂等的，重复调用会被它自己的状态挡掉
-    if (overlay.quickOpen || overlay.outlineOpen) {
+    if (overlay.quickOpen || overlay.outlineOpen || overlay.gotoOpen) {
       overlays.load();
       loadActions();
     }
@@ -147,7 +148,9 @@
   );
 </script>
 
-<GotoLine bind:open={overlay.gotoOpen} current={nav.caret} />
+{#if overlays.comps.goto}
+  <overlays.comps.goto bind:open={overlay.gotoOpen} current={nav.caret} />
+{/if}
 
 {#if keysPanel.comp}
   <keysPanel.comp bind:open={overlay.keysOpen} />
