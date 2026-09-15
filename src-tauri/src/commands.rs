@@ -84,6 +84,9 @@ pub struct DirEntryDto {
 /// 日志模式。只读文件头部采样，不加载全文。
 #[tauri::command]
 pub fn probe_path(path: String) -> Result<PathInfo, String> {
+    // 前端拿返回的 path 当 key（标签、项目根、和仓库根的前缀匹配），
+    // 所以在这一个入口把符号链接整理掉，见 `fsservice::canonical`
+    let path = fsservice::canonical(&path).to_string_lossy().into_owned();
     let p = Path::new(&path);
     let name = p
         .file_name()

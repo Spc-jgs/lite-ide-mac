@@ -632,9 +632,63 @@ pub fn move_to_trash(path: impl AsRef<Path>) -> io::Result<()> {
     trash::delete(path).map_err(|e| io::Error::other(format!("移到废纸篓失败：{e}")))
 }
 
+/// 把用户给的路径统一成**盘上真正的那一条**，给前端当 key 用。
+///
+/// 目录整条 canonicalize；文件只 canonicalize **父目录**，最后一段照原样留着。
+///
+/// 为什么要做：git 会解析符号链接（`rev-parse --show-toplevel` 给的是
+/// `/private/tmp/x`），而 `stat` / `open` 照单全收（`/tmp/x/a.txt` 就是
+/// `/tmp/x/a.txt`）。前端拿标签的 path 和仓库根做前缀匹配 —— 改动标记、
+/// 文件树的 git 字母 —— 两边形态不一样就全部静默失效，而且同一个文件从两条
+/// 路径打开会开出两个标签。在入口统一一次，比在每个比较点各修一遍可靠。
+///
+/// 为什么最后一段不解析：`link.txt -> real/config.txt` 这种**文件本身是软链**
+/// 的情形，用户点的是 `link.txt`，标签就该叫 `link.txt`、树里高亮的也是它；
+/// 保存时 `write_text` 自己会跟到真身（见 `resolve_symlink`）。
+/// 整条解析的话，打开的就成了 `config.txt`，而树里根本找不到这一行。
+///
+/// 解析不了（断掉的软链、没权限）就原样返回 —— 这一步是整理不是校验，
+/// 校验由后面的 `metadata` 做。
+pub fn canonical(path: impl AsRef<Path>) -> PathBuf {
+    let p = path.as_ref();
+    if p.is_dir() {
+        return fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    }
+    match (p.parent(), p.file_name()) {
+        (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => fs::canonicalize(parent)
+            .map(|d| d.join(name))
+            .unwrap_or_else(|_| p.to_path_buf()),
+        _ => p.to_path_buf(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 目录整条解析、文件只解析父目录、文件本身是软链时最后一段留着
+    #[test]
+    fn canonical_解析目录但留着文件名() {
+        let real = sandbox("canon-real");
+        fs::write(real.join("a.txt"), "x").unwrap();
+        fs::write(real.join("target.txt"), "y").unwrap();
+        std::os::unix::fs::symlink(real.join("target.txt"), real.join("link.txt")).unwrap();
+        let alias = std::env::temp_dir().join("fsservice-test-canon-alias");
+        let _ = fs::remove_file(&alias);
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let real_c = fs::canonicalize(&real).unwrap();
+
+        assert_eq!(canonical(&alias), real_c, "目录要整条解析到真身");
+        assert_eq!(canonical(alias.join("a.txt")), real_c.join("a.txt"), "文件的父目录要解析");
+        assert_eq!(
+            canonical(alias.join("link.txt")),
+            real_c.join("link.txt"),
+            "文件本身是软链时最后一段要留着 —— 标签得叫 link.txt"
+        );
+        let gone = alias.join("没有的.txt");
+        assert_eq!(canonical(&gone), real_c.join("没有的.txt"), "不存在的文件也按父目录整理（新建那条路）");
+        let _ = fs::remove_file(&alias);
+    }
 
     fn sandbox(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("fsservice-test-{name}"));
