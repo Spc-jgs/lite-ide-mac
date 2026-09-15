@@ -1639,8 +1639,10 @@ pub fn switch_branch(root: impl AsRef<Path>, name: &str, create: bool) -> R<Stri
         }
         return classify(run(root, &["switch", "--track", name]));
     }
-    // 既不是本地也不是远程：交给 git 自己判断（可能是 tag 或 sha）
-    classify(run(root, &["switch", name]))
+    // 既不是本地也不是远程分支：tag 或 sha，只能游离检出（issue #33 ⑬）。
+    // 不带 `--detach` 的话 `git switch <sha>` 直接拒绝（"a branch is expected"），
+    // 而 `checkout <sha>` 又不会把本地改动挡路的报错分成那一类
+    classify(run(root, &["switch", "--detach", name]))
 }
 
 /// 从 git 的 stderr 里认出「本地改动挡着切分支」，并把挡路的文件名切出来。
@@ -3092,6 +3094,33 @@ mod tests {
         stash_pop(&dir).unwrap();
         assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "改了\n", "pop 之后改动回来了");
         assert!(stash_list(&dir).unwrap().is_empty(), "pop 之后 stash 该没了");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 提交历史里「检出到此提交」走的路：sha 不是分支，得游离检出
+    #[test]
+    fn switch_到_sha_是游离检出() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-detach-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "1\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "一", false).unwrap();
+        let first = run(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+        std::fs::write(dir.join("a.txt"), "2\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "二", false).unwrap();
+
+        switch_branch(&dir, &first, false).expect("切到 sha 该成功");
+        assert_eq!(run(&dir, &["rev-parse", "HEAD"]).unwrap().trim(), first, "HEAD 该在第一次提交上");
+        assert!(status_full(&dir).unwrap().detached, "该是游离状态");
         std::fs::remove_dir_all(&dir).ok();
     }
 

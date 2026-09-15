@@ -6224,3 +6224,14 @@ poz → 「没有匹配」游标不动；⌫ → po；Esc 清；car → Cargo.to
 
 验证（桩）：三个标签 → 钉 pom → 挪到最左带图钉；「关闭全部」只剩它；点图钉取消；
 重载后钉住还在；「关闭标签」动作被拒并提示。
+
+## 2026-09-15 · #33 ⑬ 提交历史右键：复制哈希 / 复制提交信息 / 检出到此提交
+
+三条都是「看着历史顺手要做」的；cherry-pick、和本地比较先不做。检出走的是现成的
+`branches.switchTo(sha)` —— 被本地改动挡住那一问（去提交 / stash 再切换 / 丢弃）
+自动就有了。Rust 侧 `switch_branch` 的兜底分支从 `switch <name>` 改成
+`switch --detach <name>`：sha 和 tag 都不是分支，不带 `--detach` git 直接拒绝
+（"a branch is expected"），而改用 `checkout` 又会丢掉「本地改动挡路」那一类报错的
+分类。验红：去掉 `--detach`，「切到 sha 该成功」当场红。
+
+键盘也能开菜单（⇧F10 / ContextMenu），同文件树、标签栏。

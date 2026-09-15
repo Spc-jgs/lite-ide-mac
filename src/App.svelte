@@ -19,6 +19,7 @@
   import { worktree } from "./lib/state/worktree.svelte";
   import { git } from "./lib/state/git.svelte";
   import { remote } from "./lib/state/remote.svelte";
+  import { branches } from "./lib/state/branches.svelte";
   import { nav } from "./lib/state/nav.svelte";
   import { persist, saved } from "./lib/state/persist.svelte";
   import { overlay } from "./lib/state/overlay.svelte";
@@ -882,6 +883,7 @@
             repo={git.repo!}
             filePath={tabs.active?.mode === "edit" ? tabs.active.path : ""}
             onOpenCommitDiff={(sha, short, p) => void git.openCommitDiff(sha, short, p)}
+            onCheckout={(sha) => branches.switchTo(sha)}
           />
         {/snippet}
       </Panel>

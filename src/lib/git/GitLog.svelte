@@ -2,17 +2,44 @@
   import { layout, laneColor } from "./graph";
   import type { GitEntry, GitLogEntry } from "../ipc/commands";
   import { gitLogEntries, gitCommitFiles } from "../ipc/commands";
+  import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
+  import { copyText } from "../shell/pathactions";
 
   let {
     repo,
     /** 当前编辑的文件（绝对路径），用于「只看这个文件的历史」 */
     filePath = "",
     onOpenCommitDiff,
+    onCheckout,
   }: {
     repo: string;
     filePath?: string;
     onOpenCommitDiff: (sha: string, short: string, path: string) => void;
+    /** 右键「检出到此提交」：游离检出。被本地改动挡住那一问由上层（branches）接 */
+    onCheckout?: (sha: string) => void;
   } = $props();
+
+  /**
+   * 提交行的右键菜单（issue #33 ⑬）：复制哈希 / 复制提交信息 / 检出到此提交。
+   * IDEA 那份还有 cherry-pick、和本地比较，先放这三条 —— 都是「看着历史顺手要做」的。
+   */
+  let cmenu = $state<{ x: number; y: number; c: GitLogEntry } | null>(null);
+  let cmenuItems = $derived.by((): MenuItem[] => {
+    const c = cmenu?.c;
+    if (!c) return [];
+    return [
+      { label: "复制哈希", run: () => void copyText(c.sha, "哈希") },
+      { label: "复制提交信息", run: () => void copyText(c.subject, "提交信息") },
+      ...(onCheckout
+        ? [{ label: `检出到此提交（游离）`, sep: true, run: () => onCheckout(c.sha) }]
+        : []),
+    ];
+  });
+  function openCmenu(e: MouseEvent, c: GitLogEntry) {
+    e.preventDefault();
+    picked = c; // 右键也要选中 —— 菜单作用在哪条上不能只靠人自己记
+    cmenu = { x: e.clientX, y: e.clientY, c };
+  }
 
   /** 一次拉多少条。再多就该做分页了，个人项目里 300 条足够翻很久 */
   const LIMIT = 300;
@@ -117,6 +144,14 @@
   let rowEls: HTMLButtonElement[] = [];
 
   function onRowKey(e: KeyboardEvent, i: number) {
+    // 键盘也能开菜单（⇧F10 / ContextMenu），同文件树、标签栏
+    if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
+      e.preventDefault();
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      picked = shown[i];
+      cmenu = { x: r.left + 24, y: r.bottom + 2, c: shown[i] };
+      return;
+    }
     let to = -1;
     if (e.key === "ArrowDown") to = i + 1;
     else if (e.key === "ArrowUp") to = i - 1;
@@ -171,6 +206,7 @@
             class="crow"
             class:on={picked?.sha === c.sha}
             onclick={() => (picked = c)}
+            oncontextmenu={(e) => openCmenu(e, c)}
             onkeydown={(e) => onRowKey(e, i)}
             title={c.subject}
           >
@@ -259,6 +295,10 @@
     {/if}
   </div>
 </div>
+
+{#if cmenu}
+  <ContextMenu x={cmenu.x} y={cmenu.y} label="{cmenu.c.short} 的操作" items={cmenuItems} onclose={() => (cmenu = null)} />
+{/if}
 
 <style>
   .log {
