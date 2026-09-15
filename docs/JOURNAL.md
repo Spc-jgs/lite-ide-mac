@@ -6074,3 +6074,37 @@ audit 报「dirty 与 draft 不同真同假 —— README」。`openPath` 里 `a
 双击 vite 钉住 → 单击 pom 新开预览追加在末尾；双击 pom 标签钉住；单击 README 打一个
 字钉住；⌘P 按名开 .env 钉住且不碰预览；内容命中 OrderService 开成预览顶掉 Cargo
 并跳到行；日志预览被顶掉；⌘B 到 OrderClient 斜体；重载后预览标记还在。
+
+## 2026-09-15 · #33 ④ 改动行标记实时跟着打字走
+
+以前标记来自 `git diff` 的输出，反映的是**磁盘上那份**：打字不动，⌘S 之后才变。
+IDEA / VS Code 都是实时的 —— 拿 HEAD 那份到前端，每次改动重比一遍。照做：
+
+- Rust 侧一条 `git_head_text(root, path)` = `git show HEAD:path`，走 `run_capped`
+  （1MB 上限，截断了前端就不标 —— 后半截的标记全是错的）。不在 HEAD 里给 null，
+  那不是错误，是「没有基线」。
+- 前端 `git/linediff.ts`：按行 Myers，先掐两头相同的行（编辑集中在一处，掐完中间
+  常常只剩几行）。标记语义和 `changedLines` 一致（mod / add / del 标缺口下一行），
+  测试里把同一份改动从两条路算了一遍，结果要相等。两条上限：行数 6 万、D 2000 ——
+  Myers 内存 O(D²)，整份重写的大文件撞上去就是上亿个整数，而那种文件「哪行改了」
+  本来也没信息量。
+- 标记字段从 `minimap.ts` 搬到 `editor/changemarks.ts`：缩略图可以关，关了 gutter
+  上那条色带不能跟着没。gutter 是行号右边、折叠标记左边一条 3px 色带（两家都这个
+  位置），删除画一个小楔子挂在行的上缘。
+- 打字防抖 150ms；防抖期间旧标记按 `tr.changes` 平移（`RangeSet.map`），不然在
+  第 1 行前回车，下面所有色带错一行直到防抖到期。
+
+顺手对齐的一处：CM6 行号 gutter 里有一个隐形的「99」元素用来量宽度，在自动化里按
+top 匹配行号时会先撞上它 —— 验的时候要跳过。
+
+验证（桩）：开 OrderService.java 立刻见 3:add、5:mod；第 1 行前回车，30ms 时
+（防抖还没到）色带已平移成 4/6，300ms 后第 1 行 add 出现；README（HEAD 里没有）
+没有色带；缩略图左缘同步。真 .app：临时仓库里改一行、删一行、加一行，打开就是
+2 蓝 / 4 红楔 / 8 绿；焦点进编辑器在第 6 行末尾打字，**没保存**色带当场变蓝。
+
+顺手发现一条老问题（没动）：fixture 放在 `/tmp` 下时**一条色带都没有**，因为
+`git rev-parse --show-toplevel` 给的是 `/private/tmp/...`（git 会解析符号链接），
+而标签的 path 是命令行传进来的 `/tmp/...`，`tab.path.startsWith(st.root + "/")`
+对不上。凡是按「仓库根前缀」匹配的地方（改动标记、文件树的 git 字母）在符号链接
+路径下都会静默失效，而且同一个文件从两个路径打开会开出两个标签。smoke 的 fixture
+也在 `/tmp` 里，所以它一直没验到这些。修法大概是 `probe_path` 那一步 canonicalize。

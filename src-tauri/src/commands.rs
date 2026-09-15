@@ -1109,6 +1109,16 @@ pub fn git_commit_files(root: String, sha: String) -> Result<Vec<GitEntryDto>, S
         .collect())
 }
 
+/// 文件在 HEAD 里的内容，编辑器拿它当基线在前端实时算改动行（issue #33 ④）。
+/// `None` = 不在 HEAD 里（新文件 / 还没有提交），界面上不标。
+/// 复用 `DiffDto`：要传的就是「一段文本 + 有没有被上限截断」，形状一样。
+#[tauri::command]
+pub fn git_head_text(root: String, path: String) -> Result<Option<DiffDto>, String> {
+    gitsvc::head_text(&root, &path)
+        .map(|d| d.map(DiffDto::from))
+        .map_err(|e| format!("{e}"))
+}
+
 #[tauri::command]
 pub fn git_commit_diff(root: String, sha: String, path: String) -> Result<DiffDto, String> {
     gitsvc::commit_diff(&root, &sha, &path)

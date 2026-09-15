@@ -160,6 +160,7 @@ pub fn run() {
             commands::git_commit,
             commands::git_log_entries,
             commands::git_commit_files,
+            commands::git_head_text,
             commands::git_commit_diff,
             commands::git_branches,
             commands::git_switch,

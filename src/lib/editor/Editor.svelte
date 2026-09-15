@@ -13,7 +13,9 @@
   import { langOf } from "./langs";
   import { loadLang } from "./langs-load";
   import { outlineOf, symbolCache, type Sym } from "./outline";
-  import { minimap, setMinimapMarks, type MarkKind } from "./minimap";
+  import { minimap } from "./minimap";
+  import { changeMarks, setChangeMarks } from "./changemarks";
+  import { diffLines } from "../git/linediff";
   import { resolveJump, rawWordAt, type JumpHit } from "./jump";
   import { jumpExtension } from "./jump-ext";
 
@@ -24,7 +26,7 @@
     savedTick = 0,
     gotoLine = null,
     outlineTick = 0,
-    marks = null,
+    headText = null,
     showMinimap = true,
     onChange,
     onSave,
@@ -56,8 +58,12 @@
     gotoLine?: { line: number; col?: number; nonce: number } | null;
     /** 自增即重新提取大纲。放在 Editor 里算是因为语法树在它手上 */
     outlineTick?: number;
-    /** 相对 HEAD 的改动行，画在缩略图左缘。null 表示不在仓库里或没有改动 */
-    marks?: Map<number, MarkKind> | null;
+    /**
+     * 这个文件在 HEAD 里的内容，改动行标记的基线（issue #33 ④）。
+     * null = 不在仓库里 / 不在 HEAD 里 / 太大 —— 不标。
+     * 标记在**这里**算而不是外面传进来：打字要实时跟着动，只有编辑器手上有实时文本。
+     */
+    headText?: string | null;
     showMinimap?: boolean;
     /**
      * ⌘Click / ⌘B 跳转要的三样，全从 App 来（见 `lib/editor/jump.ts`）：
@@ -171,6 +177,9 @@
       doc,
       extensions: [
         lineNumbers(),
+        // 紧挨着行号、在折叠标记左边 —— IDEA / VS Code 都是这个位置。gutter 的
+        // 左右顺序就是扩展列表里的顺序
+        changeMarks(),
         highlightActiveLineGutter(),
         highlightActiveLine(),
         highlightSpecialChars(),
@@ -220,7 +229,10 @@
           indentWithTab,
         ]),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) onChange(u.state.doc.toString() !== baseText);
+          if (u.docChanged) {
+            onChange(u.state.doc.toString() !== baseText);
+            scheduleMarks();
+          }
           if (u.selectionSet || u.docChanged) {
             const head = u.state.selection.main.head;
             const ln = u.state.doc.lineAt(head);
@@ -272,6 +284,8 @@
       // 挂载先报一次：updateListener 只在有更新时才跑，不报的话状态栏那格
       // 会停在上一个标签的位置上，直到人动一下光标
       onCaret?.(1, 1);
+      // 基线多半在挂载前就到了（切标签时上一份还在），那条 effect 那时 view 还是 null
+      recomputeMarks();
       void applyLang(path);
       // 草稿恢复回来时它本来就是脏的，得说出来 —— 不说的话标签上的圆点不会亮
       onChange(initial !== baseText);
@@ -367,11 +381,38 @@
     view.dispatch({ effects: mapSlot.reconfigure(on ? minimap() : []) });
   });
 
-  // 改动标记：换文件或 git 状态变了都要重下
-  $effect(() => {
-    const m = marks;
+  /*
+   * 改动标记：基线（HEAD 那份）变了立刻重算；打字则防抖 150ms 再算。
+   *
+   * 150ms 是「连着打字时不算、停下来立刻见」的分界：比它短，每个字都算一遍
+   * （几千行的文件一次 diff 要几毫秒，连打时那是纯浪费）；比它长，停笔之后
+   * 色带明显慢半拍。防抖期间旧标记由 `changemarks.ts` 按改动平移，不会错行。
+   *
+   * `diffLines` 给 null（文件太大 / 改得太多）时清掉 —— 一份标着几万条的
+   * 色带没有信息量，还不如没有。
+   */
+  let marksTimer: ReturnType<typeof setTimeout> | null = null;
+  function recomputeMarks() {
+    marksTimer = null;
     if (!view) return;
-    view.dispatch({ effects: setMinimapMarks.of(m ?? new Map()) });
+    const base = headText;
+    const m = base === null ? null : diffLines(base, view.state.doc.toString());
+    view.dispatch({ effects: setChangeMarks.of(m ?? new Map()) });
+  }
+  function scheduleMarks() {
+    if (untrack(() => headText) === null) return;
+    if (marksTimer !== null) clearTimeout(marksTimer);
+    marksTimer = setTimeout(recomputeMarks, 150);
+  }
+  $effect(() => {
+    headText;
+    if (!view) return;
+    if (marksTimer !== null) clearTimeout(marksTimer);
+    recomputeMarks();
+    return () => {
+      if (marksTimer !== null) clearTimeout(marksTimer);
+      marksTimer = null;
+    };
   });
 
   /*

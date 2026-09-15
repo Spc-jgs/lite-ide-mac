@@ -388,6 +388,12 @@ export interface DiffText {
 
 export const gitDiff = (root: string, path: string, staged: boolean, untracked: boolean) =>
   invoke<DiffText>("git_diff", { root, path, staged, untracked });
+/**
+ * 文件在 HEAD 里的内容（issue #33 ④）：编辑器拿它当基线，在前端实时算改动行。
+ * `null` = 不在 HEAD 里。形状复用 `DiffText`：一段文本 + 有没有被上限截断。
+ */
+export const gitHeadText = (root: string, path: string) =>
+  invoke<DiffText | null>("git_head_text", { root, path });
 
 export const gitStage = (root: string, paths: string[]) =>
   invoke<void>("git_stage", { root, paths });

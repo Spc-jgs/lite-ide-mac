@@ -228,6 +228,7 @@ log_tail(handle, enable)         -> ()
 pty_spawn(cwd)                   -> pty_id
 fs_tree(path, depth)             -> TreeNode[]
 watch_root(root)                 -> ()                 // 换根再调，空串 = 停；变化走 fs-changed 事件
+git_head_text(root, path)        -> { text, truncated } | null   // HEAD 里那份，编辑器实时算改动行的基线
 ```
 
 ### 数据面（`Response` 二进制 / `Channel`，高频）

@@ -1078,6 +1078,21 @@ export function installMockIpc(): void {
                 : g("src/conflict.rs", "U", "U", { conflicted: true }),
             ].filter((e) => !discarded.has(e.path)),
           };
+        case "git_head_text": {
+          /*
+           * HEAD 里那份 = 桩文件去掉第 3 行、再把第 5 行改一个字。这样一打开
+           * 就能看到 add / mod 两种标记，删掉一行还能看到 del。README 在桩里是
+           * 新增（A），HEAD 里没有 → null，正好走「没有基线就不标」那条路。
+           */
+          const p = `${a.root}/${a.path}`;
+          if (String(a.path) === "README.md" || !(p in FILES)) return null;
+          const lines = FILES[p].split("\n");
+          if (lines.length > 5) {
+            lines.splice(2, 1);
+            lines[3] = lines[3] + " // HEAD 里是这样";
+          }
+          return { text: lines.join("\n"), truncated: false };
+        }
         case "git_diff":
           /*
            * 两个 hunk 是有意的：

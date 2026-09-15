@@ -1442,6 +1442,27 @@ pub fn commit_files(root: impl AsRef<Path>, sha: &str) -> R<Vec<Entry>> {
     Ok(out)
 }
 
+/// 一个文件在 HEAD 里的内容（issue #33 ④：编辑器里实时算改动行要拿它当基线）。
+///
+/// 不在 HEAD 里（新文件、仓库还没有提交）给 `None` —— 那不是错误，是「没有基线」，
+/// 界面上就不标。走 `run_capped` 是因为这也是一条「读子进程输出」的路：
+/// 超过 [`MAX_DIFF_BYTES`] 的文件基线截断了就没法用，`truncated` 交给调用方判。
+///
+/// `HEAD:./path` 里那个 `./`：不带的话 git 把路径当成**相对仓库根**解释，
+/// 带了才是相对 cwd。这里 cwd 就是仓库根，两种写法同义，选不带的那种；
+/// 但 `path` 必须是仓库根下的相对路径（status 给的那种），和 [`diff`] 一致。
+pub fn head_text(root: impl AsRef<Path>, path: &str) -> R<Option<Diff>> {
+    let spec = format!("HEAD:{path}");
+    let mut args = vec!["--no-pager", "-c", "core.pager=cat", "show"];
+    args.extend_from_slice(DIFF_SAFE);
+    args.push(&spec);
+    match run_capped(root.as_ref(), &args, &[]) {
+        Ok(d) => Ok(Some(d)),
+        Err(Error::Git(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// 某次提交里某个文件的差异。`path` 为空则给整次提交的差异。
 pub fn commit_diff(root: impl AsRef<Path>, sha: &str, path: &str) -> R<Diff> {
     let spec = format!("{sha}^!");
@@ -2967,4 +2988,30 @@ mod tests {
         assert!(String::from_utf8_lossy(&out).contains("refs/heads/main"));
         std::fs::remove_dir_all(&dir).ok();
     }
+    /// HEAD 里有的给内容、没有的给 None、改了工作区不影响基线
+    #[test]
+    fn head_text_给的是提交里那份() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-head-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        // 还没有提交：HEAD 都没有，必须是 None 而不是 Err
+        std::fs::write(dir.join("a.txt"), "第一版\n").unwrap();
+        assert!(matches!(head_text(&dir, "a.txt"), Ok(None)), "没有 HEAD 时该是 None");
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次提交", false).unwrap();
+        std::fs::write(dir.join("a.txt"), "改了\n").unwrap();
+        let got = head_text(&dir, "a.txt").unwrap().expect("HEAD 里有 a.txt");
+        assert_eq!(got.text, "第一版\n", "要的是 HEAD 那份，不是工作区那份");
+        assert!(!got.truncated);
+        assert!(matches!(head_text(&dir, "没有的.txt"), Ok(None)), "HEAD 里没有的文件该是 None");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
 }

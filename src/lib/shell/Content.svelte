@@ -12,10 +12,9 @@
   import type MergeView from "../git/MergeView.svelte";
   import type DiffView from "../git/DiffView.svelte";
   import type { Sym } from "../editor/outline";
-  import type { ChangeKind } from "../git/diff";
   import type { KeyDef } from "../state/keymap";
   import { lazy } from "../lazy/lazy.svelte";
-  import { gitDiff, listProjectFiles } from "../ipc/commands";
+  import { gitHeadText, listProjectFiles } from "../ipc/commands";
   import { notify } from "../state/notify.svelte";
   import { tabs } from "../state/tabs.svelte";
   import { docs } from "../state/docs.svelte";
@@ -96,43 +95,50 @@
   });
 
   /**
-   * 当前编辑文件相对 HEAD 的改动行，喂给编辑器缩略图。
+   * 当前编辑文件在 HEAD 里的内容 —— 改动行标记的基线（issue #33 ④）。
    *
-   * 数据源是 `git diff` 而不是自己在前端算：算法现成的，而且和差异视图
-   * 用的是同一份输出，两处显示不会打架。
+   * 标记本身在编辑器里算（`git/linediff.ts`）：以前是拿 `git diff` 的输出，
+   * 反映的是**磁盘上那份**，打字不动、保存才变。现在基线取一次，
+   * 每次改动在前端重比，IDEA / VS Code 就是这么做的。
    *
-   * 已知的不足：标记反映的是**磁盘上那份**。编辑器里改了还没存时，标记不会跟着动 ——
-   * 要做到 IDEA 那种实时跟随，得拿 HEAD 版本在前端跑一遍 diff，那是另一件事。
-   * 保存之后 refreshGit 会把它带新。
+   * 什么时候重取：换标签、仓库变、`git.status` 刷新（提交 / 切分支之后 HEAD
+   * 那份就不一样了，而 status 正是那时候刷的）。未跟踪的不取 —— 整份都是新的，
+   * 标满一屏没有信息量；HEAD 里没有的（新增 A）Rust 侧给 null。
+   * 被 1MB 上限截断的基线不能用：后半截的标记全是错的。
    */
-  let editorMarks = $state<Map<number, ChangeKind> | null>(null);
+  let headText = $state<string | null>(null);
 
   $effect(() => {
     const tab = tabs.active;
     const st = git.status;
     const r = git.repo;
-    if (!tab || tab.mode !== "edit" || !r || !st) {
-      editorMarks = null;
+    if (!tab || tab.mode !== "edit" || !r || !st || st.unborn) {
+      headText = null;
       return;
     }
     const prefix = `${st.root}/`;
     if (!tab.path.startsWith(prefix)) {
-      editorMarks = null;
+      headText = null;
       return;
     }
     const rel = tab.path.slice(prefix.length);
     const e = st.entries.find((x) => x.path === rel);
-    // 干净的文件不用跑 diff；未跟踪的文件整份都是新的，标满一屏没有信息量
-    if (!e || e.untracked) {
-      editorMarks = null;
+    if (e?.untracked) {
+      headText = null;
       return;
     }
-    // 动态引入：静态引会把整个 diff 解析模块（约 7KB）拽进入口包，
-    // 而它只在「打开了一个仓库里被改过的文件」时才用得上。
-    // 动态引之后它和 Git 那几个组件共用同一个按需块，一次都不会白加载。
-    void Promise.all([gitDiff(r, rel, false, false), import("../git/diff")])
-      .then(([d, m]) => (editorMarks = m.changedLines(d.text)))
-      .catch(() => (editorMarks = null));
+    let dead = false;
+    void gitHeadText(r, rel)
+      .then((d) => {
+        if (dead) return;
+        headText = d && !d.truncated ? d.text : null;
+      })
+      .catch(() => {
+        if (!dead) headText = null;
+      });
+    return () => {
+      dead = true;
+    };
   });
 
   /**
@@ -251,7 +257,7 @@
         savedTick={docs.savedTick}
         gotoLine={nav.gotoLine}
         {outlineTick}
-        marks={editorMarks}
+        {headText}
         {showMinimap}
         onChange={(d) => {
           tabs.active!.dirty = d;

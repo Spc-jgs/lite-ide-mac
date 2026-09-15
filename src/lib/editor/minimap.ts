@@ -25,7 +25,7 @@
  */
 
 import { EditorView, ViewPlugin, type PluginValue, type ViewUpdate } from "@codemirror/view";
-import { StateEffect, StateField } from "@codemirror/state";
+import { marksField, setChangeMarks, type MarkKind } from "./changemarks";
 import { syntaxTree } from "@codemirror/language";
 import { highlightTree } from "@lezer/highlight";
 import { minimapHighlighter, MINIMAP_DEFAULT } from "./theme-idea-dark";
@@ -49,20 +49,10 @@ const TAB = 4;
 /** 瓦片覆盖几屏：当前屏 + 上下各一屏 */
 const TILE_SCREENS = 3;
 
-/** 一行的改动类型，画在缩略图左缘 */
-export type MarkKind = "add" | "mod" | "del";
-
-/** 设置改动标记：行号（1-based）→ 类型 */
-export const setMinimapMarks = StateEffect.define<Map<number, MarkKind>>();
-
-const marksField = StateField.define<Map<number, MarkKind>>({
-  create: () => new Map(),
-  update(value, tr) {
-    for (const e of tr.effects) if (e.is(setMinimapMarks)) return e.value;
-    return value;
-  },
-});
-
+/*
+ * 改动标记（画在左缘那条）的字段在 `changemarks.ts`：缩略图可以关，
+ * 关了 gutter 上那条色带不能跟着没，所以字段不能归这里管。
+ */
 const MARK_COLOR: Record<MarkKind, string> = {
   add: "#63b76c",
   mod: "#4f9ee3",
@@ -137,7 +127,7 @@ class MinimapPlugin implements PluginValue {
       u.docChanged ||
       u.viewportChanged ||
       u.geometryChanged ||
-      u.transactions.some((t) => t.effects.some((e) => e.is(setMinimapMarks)))
+      u.transactions.some((t) => t.effects.some((e) => e.is(setChangeMarks)))
     ) {
       this.schedule();
     }
@@ -425,5 +415,5 @@ const minimapTheme = EditorView.theme({
 });
 
 export function minimap() {
-  return [marksField, ViewPlugin.fromClass(MinimapPlugin), minimapTheme];
+  return [ViewPlugin.fromClass(MinimapPlugin), minimapTheme];
 }
