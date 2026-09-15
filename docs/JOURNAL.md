@@ -6422,3 +6422,22 @@ Finder 双击冷启动，事件在前端挂上监听之前就到。所以 Rust �
 
 顺带：smoke ⑪ 原来只 grep stderr，而不变量去的是 `app.log`，所以这条稳定复现的假警在
 smoke 眼皮底下漏了十几轮。现在 ⑪ 也看这次跑出来的那一截 `app.log` 里有没有 `[invariant]`。
+
+## 2026-09-15 · #32 入口包瘦身：139,115 → 133,492 B
+
+先按 sourcemap 归因排了一遍（脚本在 scratchpad，解 VLQ 把每段字节记到源文件上）。
+Svelte 运行时 38 KB 是固定成本；剩下能挪的按「首屏之前有没有用」问：
+
+- **`Confirms.svelte` −5,069 B**：十来条确认横幅，每条都要先发生点什么才出现。懒加载，
+  但**不能等到要用时才拉** —— 关脏标签的确认框晚一次 chunk 往返出来，人会以为 ⌘W 没反应。
+  所以首屏后 300ms 预拉（同搜索浮层），任一 `pending*` 一亮再兜底拉一次。
+- **`editor/indent.ts` −554 B**：归因说 2,186。编辑器自己按 `baseline ?? initial` 算缩进单位，
+  状态栏那格走 `lang.mod`（`langs.ts` 顺手 re-export，那个 chunk 本来就是有标签才拉）。
+- **`ContextMenu` 从 Tabs 懒：+275 B，撤回了。** TitleBar 和 Panel 还静态引着它，它根本没
+  离开入口，只多了一层 lazy 壳。教训：**先 grep 谁在引，再决定挪不挪** —— 一个模块只要有
+  一个入口内的引用者，对它做懒加载就是纯亏。
+
+没动的：`Panel.svelte`（4 KB，面板开着时就是首屏）、几个 git store（`remote` / `git` /
+`worktree` 共 6.7 KB，App 的菜单动作直接调它们的方法，懒起来要改结构，收益不值）。
+
+现在 130 KiB，离告警线 138 有 8 KiB 余量。

@@ -15,7 +15,6 @@
   import type { KeyDef } from "../state/keymap";
   import { lazy } from "../lazy/lazy.svelte";
   import { gitHeadText, gitBlame, listProjectFiles } from "../ipc/commands";
-  import { detectIndent } from "../editor/indent";
   import { notify } from "../state/notify.svelte";
   import { tabs } from "../state/tabs.svelte";
   import { docs } from "../state/docs.svelte";
@@ -298,7 +297,6 @@
         {outlineTick}
         {headText}
         {showMinimap}
-        indent={detectIndent(tabs.active.content ?? "")}
         {blame}
         onBlamePick={(h) => void git.openCommitDiff(h.sha, h.short, tabs.active!.path.slice((git.status?.root.length ?? 0) + 1))}
         onChange={(d) => {

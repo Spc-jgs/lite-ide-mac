@@ -11,6 +11,13 @@
  * 的那一段**，装着一堆只有打开文件才用得上的东西没有道理。
  */
 
+/**
+ * 缩进 / 换行符的判据也从这个模块出去（issue #32）：状态栏那格「2 空格 · LF」
+ * 和语言名一样，都要先有一个打开的文件才成立。`lang.svelte.ts` 把这个 chunk
+ * 拉回来时两样一起到，入口包不用再背 `indent.ts`（实测 2 KB 出头）。
+ */
+export { detectIndent, detectEol, indentLabel } from "./indent";
+
 export type LangId =
   | "clojure"
   | "cmake"

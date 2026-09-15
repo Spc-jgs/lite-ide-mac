@@ -16,6 +16,7 @@
   import { minimap } from "./minimap";
   import { changeMarks, setChangeMarks } from "./changemarks";
   import { blameGutter, blameSlot, setBlame } from "./blame";
+  import { detectIndent } from "./indent";
   import type { BlameHunk } from "../ipc/commands";
   import { diffLines } from "../git/linediff";
   import { resolveJump, rawWordAt, type JumpHit } from "./jump";
@@ -29,7 +30,6 @@
     gotoLine = null,
     outlineTick = 0,
     headText = null,
-    indent = null,
     blame = null,
     onBlamePick,
     showMinimap = true,
@@ -69,13 +69,6 @@
      * 标记在**这里**算而不是外面传进来：打字要实时跟着动，只有编辑器手上有实时文本。
      */
     headText?: string | null;
-    /**
-     * 缩进单位（issue #33 ③）：按文件内容猜出来的（`editor/indent.ts`），
-     * 回车、Tab、自动缩进都照它来 —— 4 空格的文件里回车缩进出一个 Tab，
-     * 就是那种「每次保存都多一片改动」的来源。null = 猜不出，按 4 空格。
-     * 只在建 state 时读一次：文件打开之后风格不会变，变了也该是用户自己改的。
-     */
-    indent?: import("./indent").Indent;
     /** 注解（blame）段落；null = 关着，那列 gutter 整个不装 */
     blame?: BlameHunk[] | null;
     /** 点了某段注解：开那次提交的差异 */
@@ -224,7 +217,19 @@
         // 装两遍的话后一个 `createPanel` 静默不生效，画出来的还是默认面板。
         searchPanel(),
         mapSlot.of(showMinimap ? minimap() : []),
-        indentUnit.of(indent === "tab" ? "\t" : " ".repeat(typeof indent === "number" ? indent : 4)),
+        /*
+         * 缩进单位（issue #33 ③）按盘上那份内容猜（`editor/indent.ts`）：回车、Tab、
+         * 自动缩进都照它来 —— 4 空格的文件里回车缩进出一个 Tab，就是那种「每次保存都
+         * 多一片改动」的来源。null = 猜不出，按 4 空格。**在这里算而不是外面传进来**
+         * （issue #32）：外面传要在入口包里带上 `indent.ts`，而只有编辑器和状态栏用它，
+         * 两个都是有标签之后的事。只在建 state 时算一次：文件打开之后风格不会变。
+         */
+        indentUnit.of(
+          (() => {
+            const ind = detectIndent(baseline ?? initial);
+            return ind === "tab" ? "\t" : " ".repeat(typeof ind === "number" ? ind : 4);
+          })(),
+        ),
         langSlot.of([]),
         jumpExtension(jumpHooks),
         ideaDarkTheme,

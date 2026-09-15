@@ -4,7 +4,6 @@
   import Sidebar from "./lib/shell/Sidebar.svelte";
   import Panel from "./lib/shell/Panel.svelte";
   import StatusBar from "./lib/shell/StatusBar.svelte";
-  import Confirms from "./lib/shell/Confirms.svelte";
   import Content from "./lib/shell/Content.svelte";
   import Overlays from "./lib/shell/Overlays.svelte";
   import TitleBar from "./lib/shell/TitleBar.svelte";
@@ -131,6 +130,25 @@
    */
   const tree = lazy(() => import("./lib/shell/FileTree.svelte"), "文件树");
   tree.load();
+  /**
+   * 确认横幅那一整块也按需（issue #32，实测入口包少 3 KB 出头）。判据照旧：
+   * 每一条横幅都要先发生点什么（关脏标签、外部改动、丢弃改动…）才出现，
+   * 窗口出现之前一条都不会有。**但它不能等到真要用时才拉**：关脏标签的确认框
+   * 晚一次 chunk 往返出来，人会以为 ⌘W 没反应 —— 所以首屏画完 300ms 后预拉
+   * （同搜索浮层那套），任何一个 `pending*` 一亮再兜底拉一次。
+   */
+  const confirms = lazy(() => import("./lib/shell/Confirms.svelte"), "确认横幅");
+  $effect(() => {
+    const id = setTimeout(() => confirms.load(), 300);
+    return () => clearTimeout(id);
+  });
+  $effect(() => {
+    const need =
+      !!tabflow.pendingClose || !!tabflow.pendingSwitch || !!tabs.active?.conflict ||
+      !!notify.banner || !!git.pendingDiscard || !!branches.pendingWtRemove ||
+      !!branches.pendingCheckout || !!remote.pendingDiverge || !!remote.pendingPush || !!remote.err;
+    if (need) confirms.load();
+  });
   /** 草稿列表（issue #40）。只在侧边栏切到它时才拉，多数会话一次都不切 */
   const scratchUi = lazy(() => import("./lib/shell/ScratchList.svelte"), "草稿列表");
   $effect(() => {
@@ -980,7 +998,7 @@
       {/if}
 
       <!-- 内容区顶上的那几条确认横幅，全在 Confirms.svelte 里读各自的 store -->
-      <Confirms Bars={gitUi.comps.bars} />
+      {#if confirms.comp}<confirms.comp Bars={gitUi.comps.bars} />{/if}
 
 
       <Content

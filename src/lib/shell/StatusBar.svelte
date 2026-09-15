@@ -15,7 +15,6 @@
   import { overlay } from "../state/overlay.svelte";
   import type { TabState } from "../state/tab";
   import type { GitEntry } from "../ipc/commands";
-  import { detectIndent, indentLabel } from "../editor/indent";
 
   let {
     active,
@@ -46,7 +45,10 @@
    * 缩进 · 换行符（issue #33 ③）。缩进按盘上那份内容猜（`editor/indent.ts`），
    * 换行符是 Rust 读文件时探的（`fsservice::eol`）。只显示，点了不改 —— 改留后面。
    */
-  let indent = $derived(active?.mode === "edit" ? indentLabel(detectIndent(active.content ?? "")) : "");
+  // `lang.mod` 没到手时空着 —— 和旁边语言名那格同一条规矩（issue #32）
+  let indent = $derived(
+    active?.mode === "edit" && lang.mod ? lang.mod.indentLabel(lang.mod.detectIndent(active.content ?? "")) : "",
+  );
   const EOL_LABEL: Record<string, string> = { LF: "LF", CRLF: "CRLF", CR: "CR", mixed: "换行混用" };
   let eol = $derived(active?.mode === "edit" ? (EOL_LABEL[active.eol ?? "LF"] ?? active.eol ?? "LF") : "");
 </script>
