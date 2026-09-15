@@ -6404,3 +6404,21 @@ Finder 双击冷启动，事件在前端挂上监听之前就到。所以 Rust �
 
 做完之后要把 Sublime 从 Dock 拿掉、把 `.md` `.txt` `.log` 的默认打开方式改成 lite-ide，
 逼自己走两周。老路不断，新路不会自动成为习惯。
+
+## 2026-09-15 · #36 不变量假警：「活的」不是 activeId
+
+`tabs.audit` 把 `activeId` 当「此刻挂着编辑器的标签」传给自检器。但 `activeId` 一改，
+`{#key active.id}` 要等下一次 flush 才销毁旧编辑器 —— 这一拍旧标签仍挂着编辑器、草稿还没
+`onStash` 回来（dirty 而无 draft），新标签还没有编辑器。用 `activeId` 判，正好把两个都判错，
+于是「开标签」「切标签」两个点上稳定报 `dirty 与 draft 不同真同假`。
+
+修法是 issue 里的第二条但换了数据源：不是「把上一个也算活的」，而是**问真正知道答案的人** ——
+`docs.onEditorLive` 在编辑器挂载 / 销毁时本来就在记 `#live.path`（`liveText` 靠它），
+镜像一份到 `tabs.livePath`，`audit` 按它算 liveId。推迟到 `tick()` 之后那条没选：
+那会让自检离状态转换点远一拍，别的不变量（句柄、去重）本来就该在转换点上核。
+
+`audit(tabs, activeId, liveId)` 的第三个参数一直就有、测试也一直在测 —— 错的是调用方
+传了同一个值。**签名上留了口子不等于口子被用对了。**
+
+顺带：smoke ⑪ 原来只 grep stderr，而不变量去的是 `app.log`，所以这条稳定复现的假警在
+smoke 眼皮底下漏了十几轮。现在 ⑪ 也看这次跑出来的那一截 `app.log` 里有没有 `[invariant]`。

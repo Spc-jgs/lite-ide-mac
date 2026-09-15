@@ -66,6 +66,8 @@ class Docs {
   onEditorLive(path: string, get: (() => string) | null) {
     if (get) this.#live = { path, get };
     else if (this.#live?.path === path) this.#live = null;
+    // 自检器要知道谁真的挂着编辑器（issue #36），和这里是同一份答案
+    tabs.livePath = this.#live?.path ?? null;
   }
 
   onEditorWordProbe(path: string, get: (() => string | null) | null) {

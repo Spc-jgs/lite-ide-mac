@@ -92,15 +92,29 @@ class Tabs {
   }
 
   /**
+   * 此刻真的挂着编辑器的那个标签的路径。由 `docs.onEditorLive` 在编辑器
+   * 挂载 / 销毁时写（认领规则在那边）。**不是响应式的**：只有 `audit` 读它。
+   *
+   * 它和 `activeId` 不是一回事（issue #36）：`activeId` 一改，`{#key}` 要等
+   * 下一次 flush 才销毁旧编辑器 —— 这中间旧标签仍然挂着编辑器、草稿还没交回，
+   * 而新标签还没有编辑器。用 `activeId` 当「谁是活的」，正好在这一拍把两个都判错。
+   */
+  livePath: string | null = null;
+
+  /**
    * 在一个状态转换点上核一遍标签的不变量（issue #27，判据全在
    * `invariant.ts` 里，这里只负责「在哪些点上核」）。
    *
    * 第三个参数是「此刻哪个标签挂着活编辑器」：编辑器的 onChange 只改 `dirty`，
    * `draft` 要等 onStash 才回写，所以正在被编辑的那个标签本来就会
    * 短暂地 dirty 而无 draft —— 不告诉自检器这件事，它会在每次敲键盘时报假警。
+   *
+   * 原来传的是 `activeId`，于是「开标签」「切标签」这两个点上稳定报假警
+   * （issue #36）：那一拍活的还是**上一个**标签。现在传的是真挂着编辑器的那个。
    */
   audit(where: string) {
-    audit(this.list, this.activeId, this.activeId, where);
+    const live = this.livePath === null ? null : (this.byPath(this.livePath)?.id ?? null);
+    audit(this.list, this.activeId, live, where);
   }
 }
 

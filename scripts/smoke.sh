@@ -486,8 +486,12 @@ echo "  大日志 $(du -h big.log | cut -f1)，钩子 3000 行"
 
 say "起 .app"
 # 起应用 + 等前端挂载 + 等窗口进 AX 树。**装成函数是为了能重来一次**，见下面。
+APPLOG="${HOME}/Library/Logs/com.liteide.app/app.log"
 launch_app() {
   : > "$LOG"
+  # 记下应用日志此刻的行数：⑪ 只看这次跑出来的那一截（不变量假警去的是这个文件，
+  # 不是 stderr —— issue #36 那条稳定复现的假警就是这么在 smoke 眼皮底下漏过去的）
+  APPLOG_START=$(wc -l < "$APPLOG" 2>/dev/null || echo 0)
   LITE_IDE_DEBUG=1 LITE_IDE_ONTOP=1 LITE_IDE_POS=0,40 "$APP" "$FIX" > "$LOG" 2>&1 &
   # 从作业表里摘掉：不摘的话 cleanup 里的 pkill 会让 bash 在最后印一行
   # `Terminated: 15`，那行看着像脚本自己出错了，实际是收尾正常杀进程
@@ -1148,6 +1152,15 @@ check "$(pgrep -f 'MacOS/lite-ide' | wc -l | tr -d ' ')" "1" "还是一个进程
 say "⑪ 界面自己有没有报错"
 ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "$LOG")
 check "$ERRS" "0" "诊断通道里没有前端报错 / CSP 违规"
+# 不变量自检（issue #27）写的是 app.log 不是 stderr。上面十几段开文件、打字、切标签、
+# 关标签把每个转换点都走了一遍 —— 这一截里有一条 [invariant] 就是真的有 bug（#36）
+INV=$(tail -n +$((APPLOG_START + 1)) "$APPLOG" 2>/dev/null | grep -c "\[invariant\]" || true)
+if [ "${INV:-0}" = "0" ]; then
+  ok "这一轮没有不变量报警"
+else
+  bad "不变量报了 ${INV} 条："
+  tail -n +$((APPLOG_START + 1)) "$APPLOG" | grep "\[invariant\]" | head -5 | sed 's/^/      /'
+fi
 
 say "⑫ 关掉全部标签之后，编辑器实例要归零（issue #10）"
 #
