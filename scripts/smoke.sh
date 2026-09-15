@@ -484,35 +484,48 @@ printf 'v2 改过了\n' > note.txt
 echo "  大日志 $(du -h big.log | cut -f1)，钩子 3000 行"
 
 say "起 .app"
-LITE_IDE_DEBUG=1 LITE_IDE_ONTOP=1 LITE_IDE_POS=0,40 "$APP" "$FIX" > "$LOG" 2>&1 &
-# 从作业表里摘掉：不摘的话 cleanup 里的 pkill 会让 bash 在最后印一行
-# `Terminated: 15`，那行看着像脚本自己出错了，实际是收尾正常杀进程
-disown
-if wait_for 20 'grep -q "App 已挂载" '"$LOG"; then
-  ok "挂载成功"
-else
-  bad "20 秒内没挂起来，后面全跳过"; exit 1
+# 起应用 + 等前端挂载 + 等窗口进 AX 树。**装成函数是为了能重来一次**，见下面。
+launch_app() {
+  : > "$LOG"
+  LITE_IDE_DEBUG=1 LITE_IDE_ONTOP=1 LITE_IDE_POS=0,40 "$APP" "$FIX" > "$LOG" 2>&1 &
+  # 从作业表里摘掉：不摘的话 cleanup 里的 pkill 会让 bash 在最后印一行
+  # `Terminated: 15`，那行看着像脚本自己出错了，实际是收尾正常杀进程
+  disown
+  if ! wait_for 20 'grep -q "App 已挂载" '"$LOG"; then
+    bad "20 秒内没挂起来，后面全跳过"; exit 1
+  fi
+  sleep 2
+  # **拿得到窗口才往下跑。**
+  #
+  # 没有「辅助功能」权限时 System Events 不报权限错，只是把窗口数报成 0，
+  # 于是后面每一条断言都红 —— 12 条全红看起来像应用整个坏掉了，
+  # 而真正的原因和被测的东西一点关系都没有。2026-09-07 被这个骗过一轮。
+  #
+  # 特别注意：`name of every process` **不需要**授权也能用，所以
+  # 「osascript 能列出进程」不能拿来当权限已给的证据 —— 我就是这么判错的。
+  # **要轮询，不能查一次就判死。**
+  # 窗口注册进辅助功能树比「前端挂载完」晚，机器忙的时候（比如刚跑完一轮
+  # app:bundle）能晚好几秒 —— 只查一次的那一版在这里误报过：应用好好的、
+  # `count of windows` 手动查是 1，脚本却报「拿不到窗口」然后整个跳过。
+  WINS=0
+  for _ in $(seq 1 20); do
+    WINS=$(osascript -e 'tell application "System Events" to tell process "lite-ide" to get count of windows' 2>/dev/null)
+    [ "${WINS:-0}" != "0" ] && break
+    sleep 0.5
+  done
+}
+launch_app
+# **数到 0 先杀掉重起一次，再判死。**
+#
+# 2026-09-15 抓到过：窗口先进了 AX 树（数到 1），一秒后被系统挪到主屏的
+# **非活动 Space** —— CGWindowList 里坐标还在 (0,40)，`kCGWindowIsOnscreen`
+# 却没了，而 AX 只列当前 Space 的窗口。同一个 .app、同一个目录，连着 4 次 0
+# 之后又连着 6 次 1，原因没查到，是间歇的。间歇的东西重来一次比等人便宜。
+if [ "${WINS:-0}" = "0" ]; then
+  note "AX 数到 0 个窗口，杀掉重起一次再判"
+  pkill -f "MacOS/lite-ide" 2>/dev/null; sleep 2
+  launch_app
 fi
-sleep 2
-
-# **拿得到窗口才往下跑。**
-#
-# 没有「辅助功能」权限时 System Events 不报权限错，只是把窗口数报成 0，
-# 于是后面每一条断言都红 —— 12 条全红看起来像应用整个坏掉了，
-# 而真正的原因和被测的东西一点关系都没有。2026-09-07 被这个骗过一轮。
-#
-# 特别注意：`name of every process` **不需要**授权也能用，所以
-# 「osascript 能列出进程」不能拿来当权限已给的证据 —— 我就是这么判错的。
-# **要轮询，不能查一次就判死。**
-# 窗口注册进辅助功能树比「前端挂载完」晚，机器忙的时候（比如刚跑完一轮
-# app:bundle）能晚好几秒 —— 只查一次的那一版在这里误报过：应用好好的、
-# `count of windows` 手动查是 1，脚本却报「拿不到窗口」然后整个跳过。
-WINS=0
-for _ in $(seq 1 20); do
-  WINS=$(osascript -e 'tell application "System Events" to tell process "lite-ide" to get count of windows' 2>/dev/null)
-  [ "${WINS:-0}" != "0" ] && break
-  sleep 0.5
-done
 if [ "${WINS:-0}" = "0" ]; then
   # **先问一句屏幕是不是锁着的。**
   #
@@ -526,7 +539,7 @@ if [ "${WINS:-0}" = "0" ]; then
     echo "所以每个进程的 count of windows 都是 0，Finder 也一样。）"
     exit 2
   fi
-  printf '\n\033[31m拿不到 lite-ide 的窗口（count of windows = 0），后面全部跳过。\033[0m\n'
+  printf '\n\033[31m拿不到 lite-ide 的窗口（count of windows = 0，重起一次仍然是 0），后面全部跳过。\033[0m\n'
   echo "两种可能，按概率排："
   echo "  1. 跑这个脚本的**宿主应用**没有「辅助功能」权限。"
   echo "     注意 TCC 认的是「责任进程」——从 Claude Code 里跑的话，"
@@ -535,6 +548,7 @@ if [ "${WINS:-0}" = "0" ]; then
   echo "  2. 应用真的没建出窗口 —— 看 ${LOG}。"
   exit 2
 fi
+ok "挂载成功"
 ok "AX 拿得到窗口（$WINS 个）"
 
 # **窗口有了不等于里面的东西找得到。**
