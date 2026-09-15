@@ -305,6 +305,8 @@
           tabs.active!.dirty = d;
           // 动过手的预览标签就不再是「看一眼」了，保留下来（issue #33 ⑯）
           if (d) tabs.keep(tabs.active!.id);
+          // 草稿的自动保存从这一下开始计时（issue #40）；是不是草稿由 docs 判
+          docs.noteEdit(tabs.active!.path);
         }}
         onSave={(c) => docs.save(c)}
         onStash={(p, t) => docs.stashDraft(p, t)}

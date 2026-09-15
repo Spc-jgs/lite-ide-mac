@@ -26,6 +26,8 @@ pub struct AppState {
     /// 旧的 drop 即停。**先摘出来再在锁外 drop**，同 pty 那条 —— drop 要等防抖线程
     /// 退出，持着锁等就是在锁里做慢事。
     watch: Mutex<Option<fsservice::watch::Watch>>,
+    /// 系统送来的「打开这个文件」，前端就绪前先攒在这（issue #40，见 `open.rs`）
+    pub open_inbox: crate::open::Inbox,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
 }

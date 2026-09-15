@@ -139,6 +139,33 @@ export const scratchDir = () => invoke<string>("scratch_dir");
  */
 export const createScratch = (stem: string) => invoke<string>("create_scratch", { stem });
 
+/** 草稿列表里的一条（issue #40） */
+export interface ScratchEntry {
+  name: string;
+  path: string;
+  /** 修改时间，Unix 毫秒。取不到时为 0 */
+  mtimeMs: number;
+  /** 第一行有字的内容，Rust 侧截到 80 字符；空文件是空串 */
+  firstLine: string;
+}
+
+/** 「安装命令行工具…」的结果（issue #40） */
+export interface CliInstall {
+  /** 脚本真身的路径 */
+  script: string;
+  /** `/usr/local/bin/lite` 装上了没 */
+  linked: boolean;
+  replaced: boolean;
+  /** 没装上时让人自己跑的那一句 `sudo ln -sf …` */
+  linkCmd: string;
+}
+
+/** 装 `lite` 命令。开发构建（不在 .app 里）会 reject */
+export const installCli = () => invoke<CliInstall>("install_cli");
+
+/** 草稿目录里有什么，最近的在前。目录还不存在就是空列表，不是错误 */
+export const listScratches = () => invoke<ScratchEntry[]>("list_scratches");
+
 /**
  * 丢掉一份**一个字都没写过**的草稿 —— 应用里唯一一条真删除。
  *
@@ -209,8 +236,17 @@ export const logFilterMap = (handle: number, start: number, count: number) =>
 
 export const logRefresh = (handle: number) => invoke<RefreshResult>("log_refresh", { handle });
 
-/** 启动参数带的路径（`lite-ide foo.log` 或 `lite-ide ~/proj`），没有则为 null */
-export const initialPath = () => invoke<string | null>("initial_path");
+/**
+ * 启动时该打开的路径：命令行参数里的，加上系统在前端就绪前送来的
+ * （Finder 双击 / 拖 Dock / `open -a`，issue #40）。空数组 = 什么都没指。
+ *
+ * **必须先挂好 `OPEN_PATHS_EVENT` 的监听再调它** —— 这一次调用把 Rust 侧
+ * 标成「前端就绪」，之后送来的路径改为直接发事件，中间那一拍到的就丢了。
+ */
+export const initialPaths = () => invoke<string[]>("initial_paths");
+
+/** 应用已在运行时系统又送来的路径。负载是 `string[]`，见 Rust 侧 `open.rs` */
+export const OPEN_PATHS_EVENT = "open-paths";
 
 export const diag = (msg: string) => invoke<void>("diag", { msg });
 

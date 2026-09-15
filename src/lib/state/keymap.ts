@@ -77,11 +77,23 @@ export const KEYS: KeyDef[] = [
   { id: "new-scratch", label: "新建草稿", accel: "⌘N", group: "文件", owner: "menu" },
   { id: "open-folder", label: "打开文件夹…", accel: "⌘O", group: "文件", owner: "menu" },
   /*
-   * 草稿目录在 Finder 里默认看不见（「资源库」是隐藏的），所以翻旧草稿
-   * 只能从这儿进。它把草稿目录**当项目根打开** —— 文件树、⌘P、⇧⌘F
-   * 立刻全都有，零新代码。代价是 Git 面板会空（那目录不是仓库）。
+   * 翻旧草稿走侧边栏的「草稿」视图（导轨上那个便签图标，issue #40）。
+   * 这条只管「去 Finder 里整理」—— 草稿目录在 Finder 里默认看不见
+   * （「资源库」是隐藏的）。它原来是「把草稿目录当项目根打开」，
+   * 代价是切走当前项目，所以改了。
    */
-  { id: "open-scratch-dir", label: "打开草稿目录", group: "文件", owner: "menu" },
+  { id: "open-scratch-dir", label: "在 Finder 中显示草稿目录", group: "文件", owner: "menu" },
+  /*
+   * 侧边栏切到草稿。归菜单是为了浏览器里（`pnpm dev` 没有导轨之外的入口时）
+   * 随处搜索的动作表里也有它；不挂键位 —— 导轨一下就到，没到要占一个组合键的程度。
+   */
+  { id: "toggle-scratch", label: "草稿列表", group: "视图", owner: "menu" },
+  /*
+   * 装 `lite` 命令（issue #40）。VS Code 的 Shell Command: Install 那种 ——
+   * 脚本走 `open -a`，冷启动和已运行都对；软链进 /usr/local/bin 装不上时
+   * 把那句 sudo 摆出来，不提权。
+   */
+  { id: "install-cli", label: "安装命令行工具…", group: "文件", owner: "menu" },
   { id: "save", label: "保存", accel: "⌘S", group: "文件", owner: "menu" },
   { id: "close-tab", label: "关闭标签", accel: "⌘W", group: "文件", owner: "menu" },
   { id: "close-all-tabs", label: "关闭所有标签", group: "文件", owner: "menu" },

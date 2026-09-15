@@ -1,6 +1,7 @@
 import { StateEffect, StateField, RangeSet, RangeSetBuilder, Compartment } from "@codemirror/state";
 import { EditorView, gutter, GutterMarker } from "@codemirror/view";
 import type { BlameHunk } from "../ipc/commands";
+import { ago } from "../state/ago";
 
 /**
  * 注解（blame）gutter（issue #33 ⑭）：每段的第一行写「作者 · 多久之前」，其余行空着，
@@ -42,20 +43,6 @@ class BlameMarker extends GutterMarker {
   }
 }
 
-/** 多久之前。粗一点没关系：注解看的是「谁、大概什么时候」，精确时间在 tooltip 里 */
-export function ago(unix: number, now = Date.now() / 1000): string {
-  const s = Math.max(0, now - unix);
-  if (s < 60) return "刚刚";
-  const m = s / 60;
-  if (m < 60) return `${Math.floor(m)} 分钟前`;
-  const h = m / 60;
-  if (h < 24) return `${Math.floor(h)} 小时前`;
-  const d = h / 24;
-  if (d < 30) return `${Math.floor(d)} 天前`;
-  const mo = d / 30;
-  if (mo < 12) return `${Math.floor(mo)} 个月前`;
-  return `${Math.floor(d / 365)} 年前`;
-}
 
 export function blameGutter(onPick: (h: BlameHunk) => void) {
   const field = StateField.define<RangeSet<GutterMarker>>({

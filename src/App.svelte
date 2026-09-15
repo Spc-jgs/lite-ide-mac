@@ -26,6 +26,7 @@
   import { readPref, writePref } from "./lib/state/prefs";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
+  import { scratches } from "./lib/state/scratches.svelte";
   import {
     probePath,
     ignoredDirs,
@@ -36,17 +37,22 @@
     openExternal,
     diag,
     reportBudget,
-    initialPath,
+    initialPaths,
+    OPEN_PATHS_EVENT,
     watchRoot,
     gitStage,
     gitUnstage,
     scratchDir,
+    revealInFinder,
+    installCli,
   } from "./lib/ipc/commands";
 
 
   // 文档生命周期往外的两个钩子：保存完刷 git，光标动了安排存快照（见 docs.svelte.ts 文件头）
   docs.hooks.afterSave = () => void git.refresh();
   docs.hooks.afterPos = () => persist.schedule();
+  // 草稿落盘之后侧边栏那行摘要要跟着变（issue #40）
+  docs.hooks.afterAutosave = () => void scratches.refresh();
   // 远程操作的确认条长在 Git 那组懒加载的组件里，操作前先把它们拉起来
   remote.hooks.warmUi = () => gitUi.load();
   // 切项目：旧项目的现场存到它自己那份，关干净标签，摆新项目的标签（#33 ㉓）
@@ -125,6 +131,11 @@
    */
   const tree = lazy(() => import("./lib/shell/FileTree.svelte"), "文件树");
   tree.load();
+  /** 草稿列表（issue #40）。只在侧边栏切到它时才拉，多数会话一次都不切 */
+  const scratchUi = lazy(() => import("./lib/shell/ScratchList.svelte"), "草稿列表");
+  $effect(() => {
+    if (layout.sidebar && layout.sideView === "scratch") scratchUi.load();
+  });
 
   const gitUi = lazyGroup(
     {
@@ -160,10 +171,10 @@
 
 
 
-  /** 换项目根就重新找仓库；确定不是仓库时侧边栏切回文件树（Git 视图会是空的） */
+  /** 换项目根就重新找仓库；确定不是仓库时 Git 视图切回文件树（它会是空的）。草稿视图不动 */
   $effect(() => {
     void git.locate(project.root).then((found) => {
-      if (found === null) layout.sideView = "files";
+      if (found === null && layout.sideView === "git") layout.sideView = "files";
     });
   });
 
@@ -371,10 +382,26 @@
 
 
 
-  // 有未保存改动时定期落一次盘 —— 为什么要有这条，见 persist.svelte.ts 的 tickDrafts
+  // 有未保存改动时定期落一次盘 —— 为什么要有这条，见 persist.svelte.ts 的 tickDrafts。
+  // 草稿的自动保存也搭这班车：它兜的是「恢复出来就是脏的、之后一个字没敲」那种，
+  // 停止输入那条 500ms 的路到不了它（见 docs.autosaveSweep）
   $effect(() => {
-    const id = setInterval(() => persist.tickDrafts(), 4000);
+    const id = setInterval(() => {
+      persist.tickDrafts();
+      void docs.autosaveSweep();
+    }, 4000);
     return () => clearInterval(id);
+  });
+
+  /*
+   * 窗口失焦 = 人切走了。草稿在这一刻落盘，不等空闲期（issue #40）——
+   * 「记两笔、⌘Tab 切到别处」是草稿最典型的用法，等 4 秒 tick 太晚：
+   * 那边可能正在用 Spotlight 找刚记的东西。
+   */
+  $effect(() => {
+    const onBlur = () => void docs.autosaveSweep(true);
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
   });
 
   // 响应式那一半：布局、标签、项目根变了就存
@@ -392,7 +419,12 @@
    * beforeunload 不一定触发），两个都挂上，写两次也无所谓。
    */
   $effect(() => {
-    const flush = () => persist.flush();
+    const flush = () => {
+      persist.flush();
+      // 退出时草稿多半写不完（IPC 回不来进程就没了），但发出去不亏：
+      // 写不完的那份已经在快照里 stash 住，下次启动 4 秒内补上
+      void docs.autosaveSweep(true);
+    };
     window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
     return () => {
@@ -505,6 +537,27 @@
   }
 
   /**
+   * 「安装命令行工具…」（issue #40）。装上了说一句；软链没装上（/usr/local/bin 要 sudo）
+   * 就把那一句命令摆在横幅里 —— 它不会自动消失，人要把它抄进终端。
+   */
+  async function installCliTool() {
+    notify.clear();
+    try {
+      const r = await installCli();
+      if (r.linked) {
+        notify.ok(`${r.replaced ? "已重新安装" : "已安装"} lite 命令 —— 终端里 lite <路径> 就能开`, 5000);
+      } else {
+        notify.block(
+          "脚本已写好，但 /usr/local/bin 写不进去 —— 在终端里跑这一句补上软链：",
+          r.linkCmd,
+        );
+      }
+    } catch (e) {
+      notify.fail(String(e));
+    }
+  }
+
+  /**
    * 菜单项按下去做什么。
    *
    * id 与 `keymap.ts`、`menu.rs` 三处同一套 —— 那两处由
@@ -520,6 +573,7 @@
       case "open-folder": return void tabflow.openFolder();
       case "new-scratch": return void tabflow.newScratch();
       case "open-scratch-dir": return void tabflow.openScratchDir();
+      case "install-cli": return void installCliTool();
       case "recent-clear": project.recent = []; return;
       case "save": return docs.saveActive();
       case "encoding":
@@ -545,6 +599,11 @@
       case "outline": return overlay.openOutline();
       case "toggle-sidebar": layout.sidebar = !layout.sidebar; return;
       case "toggle-panel": layout.panel = !layout.panel; return;
+      case "toggle-scratch":
+        // 已经在草稿视图上再点一次就收起侧边栏，和导轨上那个按钮同一个手势
+        if (layout.sidebar && layout.sideView === "scratch") layout.sidebar = false;
+        else layout.showSide("scratch");
+        return;
       case "toggle-minimap": showMinimap = !showMinimap; return;
       case "new-terminal": terms.open(project.root ?? "~"); return;
       case "close-terminal":
@@ -580,31 +639,62 @@
     }
   }
 
+  /**
+   * 应用已在运行时系统又送来的路径（Finder 双击、拖 Dock、`open -a`，issue #40）。
+   * 目录先开（它会切项目根、关掉干净标签），文件再一个个叠上去 —— 反过来的话
+   * 刚开的文件会被切项目那一步关掉。串行 `await`：`openPath` 对目录的处理有钩子，
+   * 并发进去顺序就乱了。
+   */
+  async function openIncoming(paths: string[]) {
+    const infos = await Promise.all(
+      paths.map((p) => probePath(p).then((i) => [p, i.kind] as const).catch(() => [p, null] as const)),
+    );
+    for (const [p, kind] of infos) if (kind === "dir") await tabflow.openPath(p);
+    for (const [p, kind] of infos) if (kind !== "dir") await tabflow.openPath(p);
+  }
+
   $effect(() => {
     // 见 `project.scratchRoot` 的注释：故意不挂在启动那条 await 链上
     void scratchDir()
       .then((d) => (project.scratchRoot = d))
       .catch(() => {});
-    initialPath()
-      .then(async (p) => {
+    /*
+     * **先挂监听，再取启动路径。** `initial_paths` 那一次调用把 Rust 侧标成
+     * 「前端就绪」，之后系统送来的路径改为直接发 `open-paths` 事件 ——
+     * 监听挂在它后面的话，中间那一拍到的事件就发给了空气。
+     * 动态 import 的理由同拖放那条：静态引会把 event 那串拽进入口包。
+     */
+    let unlisten: (() => void) | null = null;
+    let dead = false;
+    const ready = import("@tauri-apps/api/event")
+      .then((m) => m.listen<string[]>(OPEN_PATHS_EVENT, (e) => void openIncoming(e.payload)))
+      .then((f) => {
+        if (dead) f();
+        else unlisten = f;
+      })
+      .catch(() => null);
+    ready
+      .then(() => initialPaths())
+      .then(async (paths) => {
         if (tabs.list.length > 0 || project.root !== null) return;
-        if (!p) {
+        if (paths.length === 0) {
           await persist.restore();
           return;
         }
         /*
-         * 命令行（或拖到图标上）指名了路径。分两种情况：
+         * 有人指名了路径 —— 命令行、Finder 双击、拖到 Dock 图标、`open -a` 都走这
+         * （后三种是 `RunEvent::Opened`，Rust 侧攒下来一并给的）。分两种情况：
          *
-         * - 指的是**文件**：先把上次的现场恢复出来，再把这个文件开在上面。
+         * - 全是**文件**：先把上次的现场恢复出来，再把它们开在上面。
          *   `lite-ide a.rs` 的意思是「顺手看一眼这个文件」，不是
          *   「把我的工作区清空」—— VS Code 的 `code a.js` 就是这个行为。
-         * - 指的是**另一个目录**：那是在切项目，旧项目的标签铺过来只会碍事。
+         * - 有**另一个目录**：那是在切项目，旧项目的标签铺过来只会碍事。
          *   同一个目录则照常恢复。
          */
-        const info = await probePath(p).catch(() => null);
-        const switchingProject = info?.kind === "dir" && info.path !== saved?.root;
+        const infos = await Promise.all(paths.map((p) => probePath(p).catch(() => null)));
+        const switchingProject = infos.some((i) => i?.kind === "dir" && i.path !== saved?.root);
         if (!switchingProject) await persist.restore();
-        await tabflow.openPath(p);
+        await openIncoming(paths);
       })
       .catch(() => {})
       .finally(() => {
@@ -612,6 +702,10 @@
         persist.schedule();
         void writeBudgetLine();
       });
+    return () => {
+      dead = true;
+      unlisten?.();
+    };
   });
 
   /**
@@ -828,6 +922,17 @@
             syncing={remote.syncing ? { what: remote.syncing.what, phase: remote.syncing.phase, percent: remote.syncing.percent } : null}
             onCancelSync={remote.syncing && remote.syncing.what !== "push" ? () => remote.cancel() : null}
           />
+        {/snippet}
+        {#snippet scratchList()}
+          {#if scratchUi.comp}
+            <scratchUi.comp
+              activePath={tabs.active?.path ?? ""}
+              onOpen={(p, keep) => void tabflow.openPath(p, { preview: !keep })}
+              onNew={() => void tabflow.newScratch()}
+              onTrash={(p) => void tabflow.trashScratch(p)}
+              onReveal={(p) => void revealInFinder(p).catch((e) => notify.fail(String(e)))}
+            />
+          {/if}
         {/snippet}
         {#snippet fileTree()}
           <!-- `root!`：这块只在 Sidebar 判过 root 非空之后才渲染，收窄在那个文件里 -->

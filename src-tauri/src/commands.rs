@@ -252,6 +252,84 @@ pub fn create_scratch(app: tauri::AppHandle, stem: String) -> Result<String, Str
     Ok(p.to_string_lossy().into_owned())
 }
 
+/// 草稿列表里的一条（issue #40）。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScratchDto {
+    pub name: String,
+    pub path: String,
+    pub mtime_ms: u64,
+    pub first_line: String,
+}
+
+/// 草稿目录里有什么，最近的在前。目录还不存在就是空列表。
+///
+/// 走阻塞池：它要打开每一份草稿读头 4KB 拿摘要，草稿几百份时不该卡主线程。
+#[tauri::command]
+pub async fn list_scratches(app: tauri::AppHandle) -> Result<Vec<ScratchDto>, String> {
+    let dir = scratch_root(&app)?;
+    blocking(move || {
+        fsservice::list_scratches(&dir)
+            .map_err(|e| format!("列草稿目录失败：{e}"))
+            .map(|v| {
+                v.into_iter()
+                    .map(|s| ScratchDto {
+                        name: s.name,
+                        path: s.path.to_string_lossy().into_owned(),
+                        mtime_ms: s.mtime_ms,
+                        first_line: s.first_line,
+                    })
+                    .collect()
+            })
+    })
+    .await
+}
+
+/// 「安装命令行工具…」的结果（issue #40）。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliInstallDto {
+    /// 脚本真身的路径（应用数据目录下的 `bin/lite`）
+    pub script: String,
+    /// `/usr/local/bin/lite` 装上了没。没装上时前端把 `link_cmd` 摆出来让人自己跑
+    pub linked: bool,
+    pub replaced: bool,
+    /// 手动补上软链的那一句
+    pub link_cmd: String,
+}
+
+/// 装 `lite` 命令：脚本写到应用数据目录，软链到 `/usr/local/bin/lite`。
+/// 业务在 fsservice；这里只算两个路径、转错误。不提权 —— 软链装不上就把
+/// 那句 `sudo ln -sf` 交给用户。
+#[tauri::command]
+pub fn install_cli(app: tauri::AppHandle) -> Result<CliInstallDto, String> {
+    use tauri::Manager;
+    let exe = std::env::current_exe().map_err(|e| format!("取不到可执行文件路径：{e}"))?;
+    let bundle = fsservice::bundle_from_exe(&exe).ok_or_else(|| {
+        "只有打包后的 .app 才能安装命令行工具（现在跑的是开发构建）".to_string()
+    })?;
+    let script = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("取不到应用数据目录：{e}"))?
+        .join("bin")
+        .join("lite");
+    let link = Path::new("/usr/local/bin/lite");
+    let r = fsservice::install_cli(&script, &fsservice::cli_script(&bundle), link)
+        .map_err(|e| format!("写不了 {}：{e}", script.display()))?;
+    applog::write(
+        applog::Level::Info,
+        "cli",
+        &format!("install_cli script={} linked={} replaced={}", r.script.display(), r.linked, r.replaced),
+    );
+    Ok(CliInstallDto {
+        link_cmd: format!("sudo ln -sf \"{}\" {}", r.script.display(), link.display()),
+        script: r.script.to_string_lossy().into_owned(),
+        linked: r.linked,
+        replaced: r.replaced,
+    })
+}
+
 /// 丢掉一份一个字都没写过的草稿。判据全在 fsservice 里，前端说了不算。
 ///
 /// 目录由这边算，**不接受前端传目录** —— 前端能指定草稿目录的话，
@@ -523,19 +601,27 @@ pub fn close_log(handle: u32, state: State<'_, AppState>) -> bool {
     state.close(handle)
 }
 
-/// 启动参数里带的路径，供 `lite-ide foo.log` 或 `lite-ide ~/proj` 直接打开。
+/// 启动时该打开的路径：`argv` 里的（直接 exec 二进制：`lite-ide foo.log`）
+/// **加上**系统在前端就绪之前送来的（Finder 双击 / 拖 Dock / `open -a`，
+/// 走 `RunEvent::Opened`，见 `open.rs`）。两条路在这里汇成一个口，
+/// 前端不用知道文件是从哪条路来的。
 ///
 /// 文件和目录都接受：目录会成为项目根，文件则打开并把父目录当根。
 /// 早先只认 `is_file()`，`lite-ide <目录>` 静默什么都不做。
+///
+/// **调用这一次就把 inbox 标成「前端就绪」** —— 之后再来的路径直接发事件。
+/// 所以前端必须**先挂好 `open-paths` 的监听再调它**，反过来中间那一拍到的就丢了。
 #[tauri::command]
-pub fn initial_path() -> Option<String> {
+pub fn initial_paths(state: State<'_, AppState>) -> Vec<String> {
     let args: Vec<String> = std::env::args().collect();
-    let found = args
+    let mut found: Vec<String> = args
         .iter()
         .skip(1)
-        .find(|a| !a.starts_with('-') && Path::new(a).exists())
-        .cloned();
-    crate::diag!("initial_path -> {found:?}");
+        .filter(|a| !a.starts_with('-') && Path::new(a).exists())
+        .cloned()
+        .collect();
+    found.extend(state.open_inbox.take());
+    crate::diag!("initial_paths -> {found:?}");
     found
 }
 

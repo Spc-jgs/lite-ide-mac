@@ -9,11 +9,14 @@ import {
   createScratch,
   scratchDir,
   pickFolder,
+  trashEntry,
+  revealInFinder,
 } from "../ipc/commands";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { docs } from "./docs.svelte";
 import { project } from "./project.svelte";
+import { scratches } from "./scratches.svelte";
 import type { TabState } from "./tab";
 
 /**
@@ -210,19 +213,21 @@ class TabFlow {
         `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
         `${pad(d.getHours())}${pad(d.getMinutes())}`;
       await this.openPath(await createScratch(stem));
+      void scratches.refresh();
     } catch (e) {
       notify.fail(String(e));
     }
   }
 
   /**
-   * 把草稿目录当项目根打开 —— 文件树、⌘P、⇧⌘F 立刻全都有，零新代码。
+   * 在 Finder 里显示草稿目录。
    *
-   * 草稿目录在 Finder 里默认看不见（「资源库」是隐藏的），这是翻旧草稿唯一的入口。
-   * 代价说在前面：Git 面板会空，那个目录不是仓库。
+   * 这条原来是「把草稿目录当项目根打开」—— 零新代码就有文件树、⌘P、⇧⌘F，
+   * 但代价是**切走当前项目**：翻一条笔记要换工作区，多数人选不翻（issue #40）。
+   * 翻草稿现在是侧边栏的「草稿」视图；这条只剩「去 Finder 里整理」这一个用途，
+   * 而草稿目录在 Finder 里默认看不见（「资源库」是隐藏的），所以它还值得留着。
    *
-   * 目录不存在**不是错误**，是「你还一条都没记过」——
-   * 报一句红字会让人以为坏了。
+   * 目录不存在**不是错误**，是「你还一条都没记过」—— 报一句红字会让人以为坏了。
    */
   async openScratchDir() {
     notify.clear();
@@ -232,7 +237,23 @@ class TabFlow {
         notify.ok("还没有草稿 —— ⌘N 记第一条", 2600);
         return;
       }
-      await this.openPath(dir);
+      await revealInFinder(dir);
+    } catch (e) {
+      notify.fail(String(e));
+    }
+  }
+
+  /**
+   * 从草稿列表里把一份移到废纸篓（issue #40）。走的是文件树那条现成的废纸篓路径 ——
+   * 应用里没有第二条删除路径。开着的标签一起关掉：留一个指向废纸篓里文件的标签，
+   * 下次 ⌘S 会把它原地复活。
+   */
+  async trashScratch(path: string) {
+    notify.clear();
+    try {
+      await trashEntry(path);
+      for (const t of tabs.under(path, false)) this.doClose(t);
+      void scratches.refresh();
     } catch (e) {
       notify.fail(String(e));
     }
@@ -296,8 +317,21 @@ class TabFlow {
       return;
     }
     if (tab.dirty) {
-      tabs.activeId = tab.id;
-      this.pendingClose = tab;
+      /*
+       * 草稿先自己写一次（issue #40）：写成了就直接关，不问 ——
+       * 关一张便签和关 Sublime 的标签要一样便宜。写不成才问，
+       * 那时是真的有东西会丢。非草稿一律问，`autosaveBeforeClose` 对它们恒为 false。
+       */
+      void docs.autosaveBeforeClose(tab).then((saved) => {
+        const again = tabs.byId(id);
+        if (!again) return;
+        if (saved && !again.dirty) {
+          this.doClose(again);
+          return;
+        }
+        tabs.activeId = again.id;
+        this.pendingClose = again;
+      });
       return;
     }
     this.doClose(tab);
@@ -381,7 +415,9 @@ class TabFlow {
       !tab.dirty &&
       (tab.content ?? "") === ""
     ) {
-      void discardEmptyScratch(tab.path).catch(() => {});
+      void discardEmptyScratch(tab.path)
+        .catch(() => {})
+        .finally(() => void scratches.refresh());
     }
     tabs.remove(tab.id);
     this.pendingClose = null;

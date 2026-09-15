@@ -77,7 +77,8 @@ done
 export LANG=${LANG:-en_US.UTF-8}
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT/src-tauri/target/release/bundle/macos/lite-ide.app/Contents/MacOS/lite-ide"
+APP_BUNDLE="$ROOT/src-tauri/target/release/bundle/macos/lite-ide.app"
+APP="$APP_BUNDLE/Contents/MacOS/lite-ide"
 FIX="$(mktemp -d /tmp/lite-ide-smoke.XXXXXX)"
 # **这三个都不能放进 $FIX** —— 那是个 git 仓库，而应用会一直往日志里写。
 # 放进去的话 `git status` 永远不干净，「提交之后工作区该是空的」这条断言
@@ -988,7 +989,7 @@ fi
 keys 'keystroke "s" using {command down}'
 sleep 2
 
-say "⑭ 草稿：⌘N 建出来、空的关掉就丢、写过的关掉要问"
+say "⑭ 草稿：⌘N 建出来、不按 ⌘S 也落盘、空的关掉就丢"
 #
 # **必须在真 .app 上测。** 三条里有两条在浏览器的 `pnpm dev` 上根本走不到：
 # 「新建草稿」是菜单项（`keymap.ts` 里 `owner: "menu"`），桩里没有原生菜单栏；
@@ -1014,21 +1015,28 @@ else
     bad "草稿名字不对：${NEW1}"
   fi
 
-  # 写点东西再存 —— 断言落在**盘上**，不读界面
+  # 写点东西，**不按 ⌘S** —— 草稿自动落盘（issue #40）。断言落在**盘上**，不读界面。
+  # 停止输入 500ms 就该写，等 2 秒是给 IPC 和机器忙留余量
   DRAFT="排查用的 traceId b67c353d"
   if ! paste_into AXTextArea "${DRAFT}"; then
     bad "粘不进草稿"
   else
-    keys 'keystroke "s" using {command down}'
     sleep 2
     if grep -q "${DRAFT}" "${SCRATCHES}/${NEW1}" 2>/dev/null; then
-      ok "⌘S 写进了草稿目录里那份文件"
+      ok "没按 ⌘S，草稿自己写进了盘上那份文件"
     else
-      bad "草稿存到别处去了（或者没存）"
+      bad "草稿没有自动落盘（或存到别处去了）"
     fi
   fi
+  # 关草稿标签不该弹「保存 / 丢弃」—— 弹了的话这条菜单之后确认框还挂着
   menu "文件" "关闭标签"
   sleep 1.5
+  if [ "$(ax has AXButton "丢弃改动")" = "OK" ]; then
+    bad "关草稿标签还在问「保存 / 丢弃」"
+    ax click~ AXButton "丢弃改动" >/dev/null
+  else
+    ok "关草稿标签没有问"
+  fi
 fi
 
 # 二、点了加号又一个字没写：关掉就该把那个 0 字节的文件丢掉
@@ -1120,6 +1128,22 @@ else
 fi
 
 # ─────────────────── 收尾 ───────────────────
+
+say "⑯ 系统送来的文件（open -a）：进已开着的窗口，不起第二个进程"
+#
+# Finder 双击 / 拖 Dock / 「打开方式」/ `open -a` 走的都是同一个 Apple Event
+# （`RunEvent::Opened`，issue #40），命令行参数一条都接不到。这里用 `open -a`
+# 代表那四条路 —— 它是唯一能从脚本里发的。路径故意带中文和空格：
+# 事件里是 `file://` 百分号编码，解错了就是「文件不存在」。
+mkdir -p "${FIX}/odoc 目录"
+printf 'odoc probe\n' > "${FIX}/odoc 目录/系统送来 的.txt"
+open -a "${APP_BUNDLE}" "${FIX}/odoc 目录/系统送来 的.txt"
+if wait_has AXButton "关闭 系统送来 的.txt" 8; then
+  ok "open -a 送来的文件开成了标签"
+else
+  bad "open -a 送来的文件没开（RunEvent::Opened 没接上？）"
+fi
+check "$(pgrep -f 'MacOS/lite-ide' | wc -l | tr -d ' ')" "1" "还是一个进程（Launch Services 发给了已在运行的实例）"
 
 say "⑪ 界面自己有没有报错"
 ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "$LOG")

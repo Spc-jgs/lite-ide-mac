@@ -103,7 +103,8 @@ export interface TabSnap {
 export interface Layout {
   sidebar: boolean;
   sidebarWidth: number;
-  sideView: "files" | "git";
+  /** `scratch` 是草稿列表（issue #40）。老快照只有前两个值，`toLayout` 里认不出的一律回 `files` */
+  sideView: "files" | "git" | "scratch";
   panel: boolean;
   panelHeight: number;
   /**
@@ -177,7 +178,7 @@ export function toLayout(v: unknown): Layout {
       typeof o.sidebarWidth === "number" && Number.isFinite(o.sidebarWidth)
         ? clamp(o.sidebarWidth, SIDEBAR_MIN, SIDEBAR_MAX)
         : DEFAULT_LAYOUT.sidebarWidth,
-    sideView: o.sideView === "git" ? "git" : "files",
+    sideView: o.sideView === "git" || o.sideView === "scratch" ? o.sideView : "files",
     panel: typeof o.panel === "boolean" ? o.panel : DEFAULT_LAYOUT.panel,
     panelHeight:
       typeof o.panelHeight === "number" && Number.isFinite(o.panelHeight)
@@ -287,6 +288,25 @@ export function parse(raw: string | null | undefined): Session | null {
     layout: toLayout(o.layout),
     recent,
   };
+}
+
+/**
+ * 去掉一部分标签（issue #40：草稿不归任何项目）。
+ *
+ * 每个项目那份快照里**不能有草稿**：草稿标签是跨项目常驻的，记进项目 A 的快照，
+ * 就会在「A 里开草稿 → 切到 B → 在 B 里关掉它 → 切回 A」时被 A 复活。
+ * 所以写项目那份时把草稿滤掉，读回来时再滤一遍（老快照里可能还有）——
+ * 两头都滤，老格式就不用升 VERSION：老值到新值有唯一且正确的对应。
+ *
+ * `active` 跟着重算：它是下标，滤掉几行就会指错。原来指着的那个还在就指它，
+ * 被滤掉了（活动标签正是一份草稿）就退到 0 —— 那时项目自己的标签里
+ * 没有哪个更有资格，第一个总比一个越界的下标强。
+ */
+export function withoutTabs(s: Session, drop: (path: string) => boolean): Session {
+  const activePath = s.tabs[s.active]?.path;
+  const tabs = s.tabs.filter((t) => !drop(t.path));
+  const idx = activePath === undefined ? -1 : tabs.findIndex((t) => t.path === activePath);
+  return { ...s, tabs, active: idx >= 0 ? idx : 0 };
 }
 
 /**

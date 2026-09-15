@@ -15,6 +15,12 @@
   import { tabs } from "../state/tabs.svelte";
   import { docs } from "../state/docs.svelte";
   import { project } from "../state/project.svelte";
+  import { scratches } from "../state/scratches.svelte";
+
+  // 草稿列表平时没人拉（只在侧边栏切过去时才拉），⌘P 开的时候补一次，几毫秒的事
+  $effect(() => {
+    if (overlay.quickOpen) void scratches.refresh();
+  });
   import { git } from "../state/git.svelte";
   import { branches } from "../state/branches.svelte";
   import { nav } from "../state/nav.svelte";
@@ -173,6 +179,7 @@
     seed={overlay.quickSeed}
     root={project.root}
     {actions}
+    scratches={scratches.list.map((s) => s.path)}
     onOpenFile={(p, l, preview) => nav.openAt(p, l, preview)}
   />
 {/if}

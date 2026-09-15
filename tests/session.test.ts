@@ -8,6 +8,7 @@ import {
   MAX_DRAFT_CHARS,
   MAX_DRAFTS_CHARS,
   RECENT_MAX,
+  withoutTabs,
   type Session,
 } from "../src/lib/state/session.ts";
 
@@ -292,6 +293,32 @@ ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
   }));
   ok(pinned?.tabs[0].pinned === true && pinned?.tabs[1].pinned === undefined && pinned?.tabs[2].pinned === undefined, "pinned 只认 true");
   ok(parse(serialize(pinned!))?.tabs[0].pinned === true, "钉住要经得起一来一回");
+}
+
+// ── withoutTabs：项目那份快照里不能有草稿（issue #40） ──
+{
+  const S = "/scratches";
+  const isScratch = (p: string) => p.startsWith(`${S}/`);
+  const mixed: Session = {
+    ...base,
+    tabs: [{ path: "/proj/a.ts" }, { path: `${S}/1.md`, draft: "x" }, { path: "/proj/b.md" }, { path: `${S}/2.md` }],
+    active: 2,
+  };
+  const r = withoutTabs(mixed, isScratch);
+  ok(r.tabs.length === 2, "两份草稿要滤掉");
+  ok(r.tabs.every((t) => !isScratch(t.path)), "剩下的全是项目文件");
+  ok(r.active === 1, "活动标签下标要跟着重算（原来指 b.md，滤完它在第 1 位）");
+  ok(mixed.tabs.length === 4, "不改原对象");
+
+  const activeIsScratch = withoutTabs({ ...mixed, active: 1 }, isScratch);
+  ok(activeIsScratch.active === 0, "活动标签本身是草稿时退到 0");
+
+  const none = withoutTabs({ ...base, tabs: [], active: 0 }, isScratch);
+  ok(none.tabs.length === 0 && none.active === 0, "空的照样空");
+
+  // 老快照的 sideView 认不出就回 files；新值 scratch 要认
+  ok(toLayout({ sideView: "scratch" }).sideView === "scratch", "sideView 认 scratch");
+  ok(toLayout({ sideView: "bogus" }).sideView === "files", "sideView 认不出回 files");
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} 会话快照：${pass} 通过，${fail} 失败`);

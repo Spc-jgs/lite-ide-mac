@@ -707,6 +707,162 @@ pub fn canonical(path: impl AsRef<Path>) -> PathBuf {
     }
 }
 
+/// 草稿列表里的一条（issue #40）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scratch {
+    pub name: String,
+    pub path: PathBuf,
+    /// 修改时间（Unix 毫秒）。取不到时为 0
+    pub mtime_ms: u64,
+    /// 第一行有字的内容，截到 [`SCRATCH_PREVIEW_CHARS`] 个字符。空文件是空串
+    pub first_line: String,
+}
+
+/// 摘要最多几个字符。侧边栏一行 240px 也就放得下这么多，多读只是白读
+pub const SCRATCH_PREVIEW_CHARS: usize = 80;
+/// 为了那一行摘要最多读多少字节。草稿可能很大（贴一段日志进去），不能整份读
+const SCRATCH_PREVIEW_BYTES: usize = 4096;
+
+/// 草稿目录里的文件，**按名字倒序** —— 名字是 `2026-09-09 1030.md` 这种时间戳，
+/// 倒序就是最近的在上面，而且不依赖 mtime（拷来拷去的文件 mtime 不可信）。
+///
+/// 不递归、只列普通文件（`.md`）：目录里除了草稿不该有别的东西，
+/// 真有（手动放的），当它不存在比列一个打不开的条目强。
+/// 目录还不存在 = 一条都没记过，返回空列表**不是错误**。
+pub fn list_scratches(dir: impl AsRef<Path>) -> io::Result<Vec<Scratch>> {
+    let dir = dir.as_ref();
+    let rd = match fs::read_dir(dir) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut out = Vec::new();
+    for ent in rd {
+        let ent = ent?;
+        let meta = match ent.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let name = ent.file_name().to_string_lossy().into_owned();
+        if !name.ends_with(".md") || name.starts_with('.') {
+            continue;
+        }
+        let path = ent.path();
+        out.push(Scratch {
+            first_line: scratch_preview(&path),
+            mtime_ms: stamp(&path).map(|s| s.mtime_ms).unwrap_or(0),
+            name,
+            path,
+        });
+    }
+    out.sort_by(|a, b| b.name.cmp(&a.name));
+    Ok(out)
+}
+
+/// 第一行有字的内容。只读头 [`SCRATCH_PREVIEW_BYTES`]，按 UTF-8 尽量解
+/// （截在多字节字符中间的那半个丢掉），跳过空行和 markdown 的 `#` 前缀。
+fn scratch_preview(path: &Path) -> String {
+    use std::io::Read;
+    let mut buf = vec![0u8; SCRATCH_PREVIEW_BYTES];
+    let n = match fs::File::open(path).and_then(|mut f| f.read(&mut buf)) {
+        Ok(n) => n,
+        Err(_) => return String::new(),
+    };
+    buf.truncate(n);
+    let text = match std::str::from_utf8(&buf) {
+        Ok(t) => t,
+        Err(e) => std::str::from_utf8(&buf[..e.valid_up_to()]).unwrap_or(""),
+    };
+    text.lines()
+        .map(|l| l.trim().trim_start_matches('#').trim())
+        .find(|l| !l.is_empty())
+        .map(|l| l.chars().take(SCRATCH_PREVIEW_CHARS).collect())
+        .unwrap_or_default()
+}
+
+// ─────────────── 命令行工具 `lite`（issue #40 第二层） ───────────────
+
+/// 从可执行文件的路径推出 `.app` 包的路径：`…/x.app/Contents/MacOS/x` → `…/x.app`。
+/// 不在 `.app` 里（`cargo run`、直接跑 `target/release/lite-ide`）就是 `None` ——
+/// 那种构建是开发用的，往 PATH 里装一个指向它的命令只会在下次 `cargo clean` 后断掉。
+pub fn bundle_from_exe(exe: &Path) -> Option<PathBuf> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let app = contents.parent()?;
+    let ok = macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && app.extension()? == "app";
+    ok.then(|| app.to_path_buf())
+}
+
+/// `lite` 脚本的内容。
+///
+/// **走 `open -a`，不软链到二进制。** macOS 上「打开文件」是 Apple Event
+/// （`odoc`），直接 exec 二进制只在冷启动时把 `argv` 送到；应用已经开着时
+/// 会再起一个进程 —— 两个 lite-ide。`open -a` 让 Launch Services 决定
+/// 发给已在运行的那个还是新起一个，冷热都对。USAGE 原来教的是软链，那是错的。
+pub fn cli_script(app: &Path) -> String {
+    // 路径里的 `"` 和 `$` 转义掉 —— .app 放在什么目录是用户定的
+    let quoted = app
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$");
+    format!(
+        "#!/bin/sh\n\
+         # lite-ide 的命令行入口，由「文件 → 安装命令行工具…」生成。\n\
+         # 走 open -a 而不是直接跑二进制：macOS 上「打开文件」是 Apple Event，\n\
+         # 直接跑只在冷启动时有效，应用已经开着时会再起一个进程。\n\
+         exec /usr/bin/open -a \"{quoted}\" \"$@\"\n"
+    )
+}
+
+/// 安装结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliInstall {
+    /// 脚本真身落在哪（应用自己的数据目录，永远可写）
+    pub script: PathBuf,
+    /// `/usr/local/bin/lite` 那个软链装上了没。没装上时 `script` 仍然是好的，
+    /// 界面把「sudo ln -sf …」那一句摆出来让人自己跑
+    pub linked: bool,
+    /// 原来就有，这次是覆盖
+    pub replaced: bool,
+}
+
+/// 把脚本写到 `script`（覆盖），再在 `link` 处做一个指向它的软链。
+///
+/// 分两步而不是直接往 `/usr/local/bin` 里写文件：那个目录常常要 sudo，
+/// 而脚本真身放在应用自己的目录里**永远写得进去** —— 软链装不上时只差
+/// 一句 `sudo ln -sf`，比「装失败了，自己想办法」有用得多。
+///
+/// 软链已经存在就换掉（`.app` 挪过位置之后要重装）；`link` 处是个**普通文件**
+/// 而不是软链时不动它 —— 那可能是用户自己放的别的 `lite`。
+pub fn install_cli(script: &Path, content: &str, link: &Path) -> io::Result<CliInstall> {
+    use std::os::unix::fs::PermissionsExt;
+    if let Some(dir) = script.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let replaced = fs::symlink_metadata(script).is_ok();
+    fs::write(script, content)?;
+    fs::set_permissions(script, fs::Permissions::from_mode(0o755))?;
+
+    let linked = match fs::symlink_metadata(link) {
+        Ok(m) if m.file_type().is_symlink() => {
+            fs::remove_file(link).and_then(|_| std::os::unix::fs::symlink(script, link)).is_ok()
+        }
+        Ok(_) => false, // 那儿有个真文件，不是我们放的，不碰
+        Err(_) => std::os::unix::fs::symlink(script, link).is_ok(),
+    };
+    Ok(CliInstall {
+        script: script.to_path_buf(),
+        linked,
+        replaced,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1164,6 +1320,98 @@ mod tests {
         assert_eq!(c.file_name().unwrap(), "2026-09-09 1030-3.md");
 
         fs::remove_dir_all(d.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn 草稿列表按名字倒序且摘要取第一行有字的() {
+        let d = sandbox("scratch-list").join("scratches");
+        assert!(!d.exists());
+        // 目录还没有 = 一条都没记过，空列表不是错误
+        assert_eq!(list_scratches(&d).unwrap(), Vec::<Scratch>::new());
+
+        let a = create_scratch(&d, "2026-09-09 1030").unwrap();
+        let b = create_scratch(&d, "2026-09-10 0900").unwrap();
+        let c = create_scratch(&d, "2026-09-08 2359").unwrap();
+        write_text(&a, "\n\n# 标题在第三行\n正文").unwrap();
+        write_text(&b, "").unwrap();
+        write_text(&c, &"很长".repeat(200)).unwrap();
+        // 目录和点文件不该出现在列表里
+        fs::create_dir(d.join("子目录")).unwrap();
+        fs::write(d.join(".DS_Store"), b"x").unwrap();
+
+        let list = list_scratches(&d).unwrap();
+        let names: Vec<&str> = list.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["2026-09-10 0900.md", "2026-09-09 1030.md", "2026-09-08 2359.md"],
+            "按名字倒序，最近的在上"
+        );
+        assert_eq!(list[1].first_line, "标题在第三行", "跳过空行和 # 前缀");
+        assert_eq!(list[0].first_line, "", "空文件摘要是空串");
+        assert_eq!(
+            list[2].first_line.chars().count(),
+            SCRATCH_PREVIEW_CHARS,
+            "摘要截到上限"
+        );
+        assert!(list.iter().all(|s| s.mtime_ms > 0));
+
+        fs::remove_dir_all(d.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn 从可执行文件推_app_包路径() {
+        assert_eq!(
+            bundle_from_exe(Path::new("/Applications/lite-ide.app/Contents/MacOS/lite-ide")),
+            Some(PathBuf::from("/Applications/lite-ide.app"))
+        );
+        // cargo run 出来的二进制不在 .app 里
+        assert_eq!(bundle_from_exe(Path::new("/proj/target/debug/lite-ide")), None);
+        assert_eq!(bundle_from_exe(Path::new("/x/Contents/MacOS/lite-ide")), None);
+    }
+
+    #[test]
+    fn 脚本走_open_a_且路径要引起来() {
+        let s = cli_script(Path::new("/Users/me/my apps/lite-ide.app"));
+        assert!(s.starts_with("#!/bin/sh\n"));
+        assert!(
+            s.contains("exec /usr/bin/open -a \"/Users/me/my apps/lite-ide.app\" \"$@\""),
+            "{s}"
+        );
+        // 路径里的引号和 $ 要转义，否则 shell 会把它拆开
+        let odd = cli_script(Path::new("/tmp/a\"b$c.app"));
+        assert!(odd.contains("\"/tmp/a\\\"b\\$c.app\""), "{odd}");
+    }
+
+    #[test]
+    fn 安装命令行工具_脚本可执行_软链可换_真文件不碰() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = sandbox("cli");
+        let script = d.join("bin").join("lite");
+        let link = d.join("usr-local-bin").join("lite");
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+
+        let r = install_cli(&script, "#!/bin/sh\necho 1\n", &link).unwrap();
+        assert!(r.linked && !r.replaced);
+        assert_eq!(fs::metadata(&script).unwrap().permissions().mode() & 0o777, 0o755);
+        assert_eq!(fs::read_link(&link).unwrap(), script);
+
+        // 再装一次：覆盖脚本、换掉软链，不报错
+        let r = install_cli(&script, "#!/bin/sh\necho 2\n", &link).unwrap();
+        assert!(r.linked && r.replaced);
+        assert_eq!(read_text(&script).unwrap(), "#!/bin/sh\necho 2\n");
+
+        // link 处是个真文件（用户自己放的）：不动它，报 linked=false
+        fs::remove_file(&link).unwrap();
+        fs::write(&link, "别的 lite").unwrap();
+        let r = install_cli(&script, "#!/bin/sh\necho 3\n", &link).unwrap();
+        assert!(!r.linked);
+        assert_eq!(read_text(&link).unwrap(), "别的 lite", "用户的文件被盖了");
+
+        // 软链目录不可写（不存在）：脚本照写，只是没链上
+        let r = install_cli(&script, "#!/bin/sh\n", &d.join("nope").join("lite")).unwrap();
+        assert!(!r.linked);
+
+        fs::remove_dir_all(&d).ok();
     }
 
     #[test]

@@ -101,6 +101,11 @@ function g(
 
 /** 桩里的假文件系统：路径 → 内容 */
 const FILES: Record<string, string> = {
+  // 两份草稿，配合上面 DIRS 里的目录（issue #40）。一份有标题，一份是几行零碎的
+  "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-10 1644.md":
+    "# 周会要点\n\n- 日志引擎 1GB 冷启动 460ms\n- 下周切 CI\n",
+  "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-12 0915.md":
+    "\n\ncurl -s http://localhost:8080/health | jq .\n",
   /*
    * issue #13 的现场，摆在桩里才看得见。
    *
@@ -461,6 +466,8 @@ function searchSkips(full: string): boolean {
 const DIRS: Record<string, Array<[string, boolean]>> = {
   // 应用日志所在的目录。它**不在项目里**，只有「帮助 → 打开应用日志」够得着
   "/Users/you/Library/Logs/com.liteide.app": [["app.log", false]],
+  // 草稿目录里预放两份 —— 不放的话侧边栏的草稿列表在浏览器里永远是空态（issue #40）
+  [SCRATCH_DIR]: [["2026-09-10 1644.md", false], ["2026-09-12 0915.md", false]],
   "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], ["node_modules", true], ["target", true], ["build", true], ["dist", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   // 生成物目录里也要有东西 —— 空目录点开只有一行「空」，看不出「点得开」这件事
   "/proj/node_modules": [["svelte", true], [".package-lock.json", false]],
@@ -690,8 +697,8 @@ export function installMockIpc(): void {
     invoke: async (cmd: string, args: Record<string, never>) => {
       const a = args as unknown as Record<string, number & string & boolean>;
       switch (cmd) {
-        case "initial_path":
-          return "/proj";
+        case "initial_paths":
+          return ["/proj"];
         // 浏览器里没有 Rust 侧的 LITE_IDE_DEBUG，那条内存统计链路整个不存在。
         // 落到 default 的 null 也能让前端不建定时器，但那是碰巧对 ——
         // 显式写出来，读桩的人才看得出这条命令被想过。
@@ -918,6 +925,38 @@ export function installMockIpc(): void {
             return path;
           }
           throw new Error("同一分钟里已经有 99 份草稿了");
+        }
+        /*
+         * 草稿列表：照 Rust 侧的规矩 —— 只要 `.md`、按名字倒序、摘要取第一行有字的
+         * （跳空行和 `#`）、截 80 字符。桩里少一条，浏览器上的列表就和真机不一样。
+         */
+        // 浏览器里装不了命令；给一个「软链没装上」的结果，那条带 sudo 的提示才验得到
+        case "install_cli":
+          return {
+            script: "/Users/you/Library/Application Support/com.liteide.app/bin/lite",
+            linked: false,
+            replaced: false,
+            linkCmd: 'sudo ln -sf "/Users/you/Library/Application Support/com.liteide.app/bin/lite" /usr/local/bin/lite',
+          };
+        case "list_scratches": {
+          const entries = (DIRS[SCRATCH_DIR] ?? [])
+            .filter(([n, isDir]) => !isDir && n.endsWith(".md") && !n.startsWith("."))
+            .map(([n]) => {
+              const path = `${SCRATCH_DIR}/${n}`;
+              const firstLine =
+                (FILES[path] ?? "")
+                  .split("\n")
+                  .map((l) => l.trim().replace(/^#+/, "").trim())
+                  .find((l) => l.length > 0) ?? "";
+              return {
+                name: n,
+                path,
+                mtimeMs: stampOf(path).mtimeMs,
+                firstLine: [...firstLine].slice(0, 80).join(""),
+              };
+            })
+            .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+          return entries;
         }
         case "discard_empty_scratch": {
           const path = String(a.path);

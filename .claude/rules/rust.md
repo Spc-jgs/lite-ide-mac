@@ -442,3 +442,23 @@ syncing = { ...syncing, id };     // ← 太晚了
 DWIM 只对短名生效，传全名要走 `--track`。
 
 ---
+
+## macOS 上「打开文件」不是命令行参数（2026-09-15）
+
+Finder 双击、拖到 Dock 图标、右键「打开方式」、`open -a lite-ide x.log` ——
+全部经过 Launch Services，它给应用发一个 `odoc` Apple Event，**`argv` 里什么都没有**。
+只有直接 exec 二进制才走 `argv`。原来只读 `std::env::args()`，四条路一条都不通，
+而 USAGE 里还教人 `open -a lite-ide /var/log/system.log`（实测 `tabs=0`）。
+
+Tauri 把它包成 `RunEvent::Opened { urls }`，冷启动和已在运行都走它；单实例是白捡的
+（LS 发给已在运行的那个，不需要 single-instance 插件）。两条要记住：
+
+- **事件可能比前端先到。** Finder 双击冷启动，`Opened` 在监听挂上之前就来。
+  `open::Inbox` 先攒，前端 `initial_paths` 取走并标记就绪；**前端必须先 `listen`
+  再调 `initial_paths`**，反过来中间那一拍就丢了。
+- **`lite` 命令是 `exec open -a "<.app>" "$@"`，不能软链到二进制** —— 软链走
+  `argv` 只在冷启动时有效，应用开着时会再起一个进程。
+
+「打开方式」列表和 Dock 拖放接不接受，由 `Info.plist` 的 `CFBundleDocumentTypes`
+决定（`tauri.conf.json` 的 `bundle.fileAssociations`），不是运行时能不能处理。
+bundle 后 `plutil -p Info.plist` 看得到。

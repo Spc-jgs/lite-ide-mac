@@ -1,7 +1,9 @@
 import { writeText, readText, fileStamp, type Stamp } from "../ipc/commands";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
+import { project } from "./project.svelte";
 import { textToSave, settled, stashed } from "./doc";
+import { autosaveDue, AUTOSAVE_IDLE_MS } from "./autosave";
 import type { TabState } from "./tab";
 
 /**
@@ -46,6 +48,8 @@ class Docs {
     afterSave?: () => void;
     /** 光标位置变了。App 装的是 scheduleSave —— `posByPath` 不是响应式的，没人替它触发 */
     afterPos?: () => void;
+    /** 一份草稿自动落盘之后。侧边栏的草稿列表要刷「第一行」摘要 */
+    afterAutosave?: (path: string) => void;
   } = {};
 
   /**
@@ -85,6 +89,8 @@ class Docs {
     const t = tabs.list.find((x) => x.path === path && x.mode === "edit");
     if (!t) return; // 标签已经被关掉了，草稿跟着作废
     Object.assign(t, stashed(t, text));
+    // 编辑器刚交出草稿 = 人切走了。草稿在这一刻落盘，不等空闲期
+    if (t.dirty && project.isScratch(path)) void this.autosaveSweep(true);
   }
 
   /**
@@ -115,7 +121,20 @@ class Docs {
    */
   async save(content: string): Promise<boolean> {
     const tab = tabs.active;
-    if (!tab || tab.mode !== "edit") return false;
+    if (!tab) return false;
+    return this.saveTab(tab, content);
+  }
+
+  /**
+   * 把 `content` 写进 `tab` 的路径。`save` 和自动保存都走这里 ——
+   * 写盘、记指纹、清草稿、清冲突这一串只能有一份。
+   *
+   * `quiet`（自动保存）只少两样：不弹「已保存」、不刷 git。草稿不在仓库里，
+   * 刷了也是白跑一次子进程；而每半秒闪一次「已保存」就是把隐形的事变成噪音。
+   * 失败照样要说 —— 但由调用方决定说几次（见 `autosaveSweep`）。
+   */
+  async saveTab(tab: TabState, content: string, opts: { quiet?: boolean } = {}): Promise<boolean> {
+    if (tab.mode !== "edit") return false;
     try {
       // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改
       tab.stamp = await writeText(tab.path, content, tab.encoding, tab.bom, tab.eol);
@@ -124,12 +143,104 @@ class Docs {
       Object.assign(tab, settled(content));
       tab.conflict = false;
       this.savedTick++;
+      if (opts.quiet) return true;
       notify.ok(`已保存 ${tab.name}`, 1800);
       // 保存八成改变了 git 状态，顺手刷一下，文件树的标记才跟得上
       this.hooks.afterSave?.();
       return true;
     } catch (e) {
+      // 自动保存的失败由调用方决定说几次（见 `autosaveSweep`），这里原样抛出去
+      if (opts.quiet) throw e;
       notify.fail(String(e));
+      return false;
+    }
+  }
+
+  // ─────────────── 草稿自动保存（issue #40 第一层） ───────────────
+
+  /** 每个路径上次输入的时刻。普通 Map，理由同 `posByPath`：没人要显示它 */
+  readonly #lastEdit = new Map<string, number>();
+  /** 上次写失败的时刻，退避用；写成功就删 */
+  readonly #lastFail = new Map<string, number>();
+  /** 已经为写失败说过一次的路径 —— 同一份草稿连续失败只说一次 */
+  readonly #warnedFail = new Set<string>();
+  #autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 正在写的路径。写盘是 await 的，半秒内第二次扫到它不能再发一次 */
+  readonly #saving = new Set<string>();
+
+  /**
+   * 编辑器报「文档变了」时叫一次。只记时刻并安排一次扫描 ——
+   * 判据（草稿？脏？空闲够久？）在扫描里统一算，这里不判。
+   */
+  noteEdit(path: string) {
+    this.#lastEdit.set(path, Date.now());
+    if (this.#autosaveTimer) clearTimeout(this.#autosaveTimer);
+    this.#autosaveTimer = setTimeout(() => {
+      this.#autosaveTimer = null;
+      void this.autosaveSweep();
+    }, AUTOSAVE_IDLE_MS);
+  }
+
+  /**
+   * 把该存的草稿都写进盘。判据在 `autosave.ts`（纯函数，有测试）。
+   *
+   * 三个入口共用：停止输入半秒后的那次、App 里 4 秒一次的 tick（兜住
+   * 「恢复出来就是脏的、之后一个字没敲」的草稿）、以及 `force` 的那几处
+   * （失焦、切走、关闭、退出）。
+   *
+   * 退出那次多半写不完 —— pagehide 是同步的，IPC 回不来进程就没了。
+   * 那不是问题：会话快照已经把脏草稿 stash 住了，下次启动恢复成脏标签，
+   * 4 秒 tick 一到就补上。判据里 `idleMs: Infinity` 那条就是给它的。
+   */
+  async autosaveSweep(force = false) {
+    const now = Date.now();
+    for (const tab of tabs.list) {
+      if (this.#saving.has(tab.path)) continue;
+      const edited = this.#lastEdit.get(tab.path);
+      const failed = this.#lastFail.get(tab.path);
+      const due = autosaveDue({
+        scratch: project.isScratch(tab.path),
+        editing: tab.mode === "edit",
+        dirty: tab.dirty,
+        conflict: tab.conflict === true,
+        idleMs: edited === undefined ? Infinity : now - edited,
+        failedMs: failed === undefined ? null : now - failed,
+        force,
+      });
+      if (!due) continue;
+      this.#saving.add(tab.path);
+      try {
+        await this.saveTab(tab, this.liveText(tab), { quiet: true });
+        this.#lastFail.delete(tab.path);
+        this.#warnedFail.delete(tab.path);
+        this.hooks.afterAutosave?.(tab.path);
+      } catch (e) {
+        this.#lastFail.set(tab.path, Date.now());
+        // 说一次就够：盘满、没权限不会自己好，半秒一条红字只会把别的消息淹掉。
+        // 标签留在脏状态，圆点还亮着，⌘S 那条路照常兜底
+        if (!this.#warnedFail.has(tab.path)) {
+          this.#warnedFail.add(tab.path);
+          notify.fail(`草稿自动保存失败：${String(e)} —— 已保留在编辑器里，可 ⌘S 重试`, 6000);
+        }
+      } finally {
+        this.#saving.delete(tab.path);
+      }
+    }
+  }
+
+  /**
+   * 关草稿标签之前的那一次：写成了返回 true（可以直接关），写不成返回 false
+   * （那时是真的有东西会丢，走现有的「保存并关闭 / 丢弃」确认）。
+   * 非草稿一律 false —— 它们从来就该问。
+   */
+  async autosaveBeforeClose(tab: TabState): Promise<boolean> {
+    if (!project.isScratch(tab.path) || tab.mode !== "edit" || !tab.dirty) return false;
+    if (tab.conflict) return false;
+    try {
+      await this.saveTab(tab, this.liveText(tab), { quiet: true });
+      this.hooks.afterAutosave?.(tab.path);
+      return true;
+    } catch {
       return false;
     }
   }

@@ -102,15 +102,19 @@ class Persist {
   }
 
   async afterRootChange(next: string) {
-    for (const t of [...tabs.list]) if (!t.dirty) tabflow.doClose(t);
+    // 草稿不跟项目走（issue #40）：它是贴在桌角的便签，换个项目它还在
+    for (const t of [...tabs.list]) if (!t.dirty && !project.isScratch(t.path)) tabflow.doClose(t);
     let mine: session.Session | null = null;
     try {
       mine = session.parse(localStorage.getItem(this.#keyFor(next)));
     } catch {
       mine = null;
     }
-    // 别的项目存的快照 root 是别的：只信 root 对得上的那份
-    if (mine && mine.root === next) await this.#restoreTabs(mine);
+    // 别的项目存的快照 root 是别的：只信 root 对得上的那份。
+    // 读回来再滤一遍草稿：写的时候已经滤过，但老快照里可能还躺着 —— 理由见 withoutTabs
+    if (mine && mine.root === next) {
+      await this.#restoreTabs(session.withoutTabs(mine, (p) => project.isScratch(p)));
+    }
   }
 
   async #restoreTabs(saved: session.Session) {
@@ -256,10 +260,18 @@ class Persist {
       return; // 序列化都失败就彻底放弃，不能让它冒到启动路径上
     }
     if (text === this.#lastWritten) return;
-    // 两份：不带后缀的是「上次退出时」，启动读它；带 root 的是这个项目自己的
-    const keys = [session.KEY, ...(snap.root ? [this.#keyFor(snap.root)] : [])];
+    /*
+     * 两份：不带后缀的是「上次退出时」，启动读它，**带草稿**；带 root 的是
+     * 这个项目自己的，**不带草稿** —— 草稿跨项目常驻，记进某个项目的快照
+     * 会在切回来时把已经关掉的草稿复活（issue #40，见 session.withoutTabs）。
+     */
+    const projectSnap = session.withoutTabs(snap, (p) => project.isScratch(p));
+    const write = (withDrafts: boolean) => {
+      localStorage.setItem(session.KEY, withDrafts ? text : session.serialize(snap, false));
+      if (snap.root) localStorage.setItem(this.#keyFor(snap.root), session.serialize(projectSnap, withDrafts));
+    };
     try {
-      for (const k of keys) localStorage.setItem(k, text);
+      write(true);
       this.#lastWritten = text;
     } catch {
       /*
@@ -268,9 +280,8 @@ class Persist {
        * 后者是草稿进来之前就有的保证，不该被新功能连累。
        */
       try {
-        const plain = session.serialize(snap, false);
-        for (const k of keys) localStorage.setItem(k, plain);
-        this.#lastWritten = plain;
+        write(false);
+        this.#lastWritten = session.serialize(snap, false);
       } catch {
         /* 隐私模式之类，连基本的都写不下就算了 */
       }

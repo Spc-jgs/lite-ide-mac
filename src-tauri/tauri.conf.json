@@ -34,6 +34,29 @@
       "app",
       "dmg"
     ],
+    "fileAssociations": [
+      {
+        "name": "Text",
+        "role": "Editor",
+        "rank": "Default",
+        "ext": [
+          "txt", "log", "md", "markdown", "json", "yaml", "yml", "toml", "xml",
+          "ini", "conf", "cfg", "properties", "env", "csv", "tsv",
+          "sh", "zsh", "bash", "sql", "java", "kt", "py", "js", "ts", "rs", "go", "svelte"
+        ],
+        "contentTypes": [
+          "public.plain-text",
+          "public.source-code",
+          "public.log",
+          "com.apple.log",
+          "net.daringfireball.markdown",
+          "public.json",
+          "public.yaml",
+          "public.xml",
+          "public.shell-script"
+        ]
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

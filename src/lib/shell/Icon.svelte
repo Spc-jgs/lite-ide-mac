@@ -6,6 +6,7 @@
     | "search"
     | "terminal"
     | "history"
+    | "note"
     | "locate"
     | "collapse"
     | "follow"
@@ -107,6 +108,16 @@
     -->
     <circle cx="8" cy="8" r="5.4" />
     <path d="M8 4.8 V8.2 L10.4 9.7" />
+  {:else if name === "note"}
+    <!--
+      草稿：一张右上角折了一角的纸，里面两行字。导轨上它和文件夹并排，
+      所以和文件夹一样收在 2.6–13.4 里，别画满 16。
+    -->
+    <path d="M4.2 2.6 H9.6 L12.6 5.6 V12.2 a1.2 1.2 0 0 1-1.2 1.2 H4.2
+             a1.2 1.2 0 0 1-1.2-1.2 V3.8 a1.2 1.2 0 0 1 1.2-1.2 Z" />
+    <path d="M9.4 2.8 V5.8 H12.4" />
+    <path d="M5.6 8.2 H10.4" />
+    <path d="M5.6 10.6 H8.8" />
   {:else if name === "more-v"}
     <!-- 更多操作。竖排三点是工具窗头上的惯例位置（横排的 ⋯ 归区段头） -->
     <circle cx="8" cy="3.9" r="0.95" fill="currentColor" stroke="none" />

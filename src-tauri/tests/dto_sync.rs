@@ -44,6 +44,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("GitCmdDto", "GitCmd"),
     ("RemoteErrDto", "RemoteErr"),
     ("SwitchErrDto", "SwitchErr"),
+    ("ScratchDto", "ScratchEntry"),
+    ("CliInstallDto", "CliInstall"),
 ];
 
 struct RustStruct {

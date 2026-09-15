@@ -2,6 +2,7 @@ mod budget;
 mod commands;
 pub mod diag;
 pub mod menu;
+mod open;
 mod state;
 
 /// 把 Tauri 的 async runtime 换成一个小的。
@@ -136,6 +137,8 @@ pub fn run() {
             commands::create_entry,
             commands::scratch_dir,
             commands::create_scratch,
+            commands::list_scratches,
+            commands::install_cli,
             commands::discard_empty_scratch,
             commands::move_entry,
             commands::rename_entry,
@@ -149,7 +152,7 @@ pub fn run() {
             commands::log_filter_map,
             commands::log_refresh,
             commands::close_log,
-            commands::initial_path,
+            commands::initial_paths,
             commands::list_project_files,
             commands::grep_project,
             commands::git_root,
@@ -198,8 +201,24 @@ pub fn run() {
             commands::git_console,
             commands::clear_git_console,
         ])
-        .run(tauri::generate_context!())
-        .expect("Tauri 启动失败");
+        .build(tauri::generate_context!())
+        .expect("Tauri 启动失败")
+        /*
+         * `run` 而不是 `.run(ctx)`：要接 `RunEvent::Opened`（issue #40）。
+         * macOS 把 Finder 双击 / 拖 Dock / `open -a` 都送成这个事件，
+         * 冷启动和已在运行都走它 —— 读 `argv` 一条都接不到。前端没就绪时
+         * 先攒在 `open::Inbox`，由 `initial_paths` 一并取走；细节见 `open.rs`。
+         */
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                use tauri::Manager;
+                let paths = open::paths_from_urls(&urls);
+                app.state::<state::AppState>().open_inbox.deliver(app, paths);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }
 
 /// 给窗口挂上 macOS 的材质层。

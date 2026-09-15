@@ -20,11 +20,18 @@
     scope = $bindable(),
     seed = "",
     actions,
+    scratches = [],
     onOpenFile,
   }: {
     open: boolean;
     root: string | null;
     scope: Scope;
+    /**
+     * 草稿的绝对路径（issue #40）。它们不在项目里，`listProjectFiles` 列不到，
+     * 但「⌘P 打个时间戳就翻到那条笔记」是翻草稿最快的一条路。显示时标「草稿」，
+     * 不显示那串 `~/Library/…` 的目录。
+     */
+    scratches?: string[];
     /**
      * 打开时预填的关键词。「在项目里找这个名字」用它把光标下那个词带进来 ——
      * 省掉「选中、复制、⇧⌘F、粘贴」这四下。
@@ -121,7 +128,7 @@
   });
 
   type Row =
-    | { kind: "file"; path: string; seg: { t: string; hit: boolean }[] }
+    | { kind: "file"; path: string; seg: { t: string; hit: boolean }[]; scratch?: true }
     | { kind: "content"; path: string; line: number; text: string }
     | { kind: "action"; action: Action; seg: { t: string; hit: boolean }[] };
 
@@ -135,6 +142,16 @@
     if (scope === "all" || scope === "file") {
       for (const r of rank(files, query, (f) => f, scope === "file" ? 40 : 8)) {
         out.push({ kind: "file", path: r.item, seg: segments(r.item, r.positions) });
+      }
+      // 草稿按文件名匹配（目录那串对所有草稿都一样，拿它排名只会全体并列）
+      for (const r of rank(scratches, query, fileName, scope === "file" ? 10 : 3)) {
+        const off = r.item.lastIndexOf("/") + 1;
+        out.push({
+          kind: "file",
+          path: r.item,
+          scratch: true,
+          seg: [{ t: r.item.slice(0, off), hit: false }, ...segments(fileName(r.item), r.positions)],
+        });
       }
     }
     if (scope === "all" || scope === "content") {
@@ -270,7 +287,7 @@
             <span class="main">
               {#each tailSeg(row.seg, row.path.lastIndexOf("/") + 1) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}
             </span>
-            <span class="side">{dirName(row.path)}</span>
+            <span class="side">{row.scratch ? "草稿" : dirName(row.path)}</span>
           {:else}
             <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
             <span class="main mono">{row.text.trim()}</span>

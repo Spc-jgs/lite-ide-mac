@@ -20,6 +20,7 @@
     gitReady,
     fileTree,
     gitPane,
+    scratchList,
   }: {
     root: string | null;
     repo: string | null;
@@ -27,6 +28,7 @@
     gitReady: boolean;
     fileTree: Snippet;
     gitPane: Snippet;
+    scratchList: Snippet;
   } = $props();
 
   /** 侧边栏横向拖拽。上限留出编辑区的活路，不让它被挤没 */
@@ -53,7 +55,10 @@
 
 <aside>
   <svelte:boundary>
-    {#if !root}
+    {#if layout.sideView === "scratch"}
+      <!-- 草稿排在 `!root` 前面：没开项目也要能翻草稿（issue #40） -->
+      {@render scratchList()}
+    {:else if !root}
       <div class="no-root">把文件夹拖进来</div>
     {:else if layout.sideView === "git" && repo && gitReady}
       {@render gitPane()}

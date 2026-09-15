@@ -6336,3 +6336,71 @@ wry 为了接住从 Finder 拖进来的文件，接管了 NSView 的拖拽入口
 
 **这条要记住**：以后凡是页面内部的拖拽（标签排序、面板分栏）都不能指望 HTML5 dnd，
 只能 pointer 事件；而「桩上全对」对这类事一文不值，必须上真 .app。
+
+## 2026-09-15 · #40 让它成为「随手记东西 / 看一眼文件」的那个窗口
+
+起因是用户一句话：改项目文件用它，**看一眼文件、记两笔东西还是习惯性开 Sublime**。
+把「记东西」拆成时刻逐个对照，结论不是功能少，是**每个时刻都要做一次决定**，而 Sublime
+一次都不用（hot exit 把「存不存、存哪、叫什么」永久推迟）。当初选 scratch 而不是 Untitled
+已经拆掉了后两个问题，但「要不要 ⌘S」还留着 —— 那个设计最大的红利没兑现。方案见 issue #40。
+
+### 第一层：草稿零决策
+
+**自动保存只对草稿目录下的标签生效**，判据抽成纯函数 `state/autosave.ts`（草稿？编辑中？
+脏？没冲突？空闲够 500ms 或 force？失败退避 5s）。项目文件一律不自动存 —— 半成品写盘会
+触发 watcher、构建、git 差异，那些代价是真的。写盘复用 ⌘S 那条 `saveTab`（多一个 `quiet`），
+指纹、清草稿、清冲突一行不重复。四个补写点：编辑器交出草稿（切走）、窗口失焦、关标签、
+pagehide。退出那次多半写不完 —— 会话快照已经把脏草稿 stash 住，下次启动 4 秒 tick 补上，
+判据里 `idleMs: Infinity` 那条就是给它的。
+
+关草稿标签：先自己写一次，成了直接关；写不成才走「保存并关闭 / 丢弃」。
+
+**侧边栏「草稿」视图**代替「打开草稿目录当项目根」：后者零新代码，但翻一条笔记的代价是
+换工作区。新视图点一条只叠标签，不切项目；`⌘P` 也能按时间戳找到草稿。那条菜单改成
+「在 Finder 中显示草稿目录」。
+
+**草稿跨项目常驻**：每个项目那份快照写的时候把草稿滤掉（`session.withoutTabs`），读回来
+再滤一遍；`afterRootChange` 关干净标签时跳过草稿。**没升 VERSION** —— 方案里写的是升，
+但两头都滤之后老快照到新行为有唯一且正确的对应，按「VERSION 是给不知道怎么读兜底」那条
+老规矩，不该为此丢掉一次现场。
+
+### 第二层：Finder 入口
+
+实测 `open -a lite-ide odoc-test.txt`：应用起来了，`app.log` 记 `boot=464ms tabs=0`。
+**macOS 送文件走 Apple Event（`odoc`），不走 `argv`** —— 只读 `std::env::args()` 的话，
+Finder 双击、拖 Dock、「打开方式」、`open -a` 四条路全不通，而 USAGE §四和 App 里
+「命令行（或拖到图标上）」那句注释描述的是从没成立过的行为。
+
+接 `RunEvent::Opened { urls }`（`src-tauri/src/open.rs`）。**时序**是写方案时才冒出来的：
+Finder 双击冷启动，事件在前端挂上监听之前就到。所以 Rust 侧 `Inbox` 先攒，前端用
+`initial_paths`（原 `initial_path`，`argv` + 攒下的一并给）取走并标记就绪，之后的直接
+`emit`。「攒还是发」和「取走」在同一把锁下判。前端那边**必须先 `listen` 再调
+`initial_paths`**，反过来中间那一拍就丢了。
+
+`tauri.conf.json` 的 `bundle.fileAssociations` 声明了一组 UTI + 扩展名，`rank: Default`
+（不抢默认打开方式）、不声明 `public.data`（否则「打开方式」在所有文件上都列它）。
+验法：bundle 后 `plutil -p Info.plist` 看 `CFBundleDocumentTypes` / `LSItemContentTypes`。
+
+**`lite` 命令是一句 `exec open -a "<.app>" "$@"`，不是软链到二进制** —— 软链走 `argv`
+只在冷启动时有效，应用开着时会再起一个进程。脚本写到应用数据目录（永远可写），再软链到
+`/usr/local/bin/lite`；那个目录多半要 sudo，装不上时把 `sudo ln -sf …` 摆在横幅里。
+`link` 处是真文件（用户自己的）就不碰，这条验过红。
+
+### 验证
+
+- `tests/autosave.test.ts`（去掉「非草稿不存」那行要红：3 条）、`session.test.ts` 加
+  `withoutTabs` 8 条（把 `active` 重算去掉红 2 条）、fsservice 加 `list_scratches`
+  （排序改正序红）和 `install_cli`（真文件被盖红）、`open.rs` 3 条（把 `to_file_path`
+  换成裸 `path()` 红 2 条 —— 第一版还加了一道 `scheme() == "file"` 过滤，去掉照样绿，
+  它是多余的，删了）。
+- 真 `.app`：`open -a lite-ide "…/odoc 测试/冷启动 a.txt"` 冷启动 `tabs=1`，AX 树里有它；
+  开着时再 `open -a` 第二个，进程数 1、标签栏多一个；`bin/lite` 脚本开第三个同样；
+  ⌘N 粘一段，1.5 秒后盘上文件就是那段，没按过 ⌘S。
+- 入口包 134,209 → 139,115 字节（+4.9 KB，告警线 138 KiB 未到）。多的是自动保存、
+  草稿 store、启动那段和三条 IPC 封装；草稿列表组件本身是懒的。
+- 冷启动不带文件 `boot=494ms`，和之前一档。
+
+### 代码解决不了的那一步
+
+做完之后要把 Sublime 从 Dock 拿掉、把 `.md` `.txt` `.log` 的默认打开方式改成 lite-ide，
+逼自己走两周。老路不断，新路不会自动成为习惯。

@@ -83,6 +83,19 @@
       <Icon name="search" />
     </button>
   {/if}
+  <!--
+    草稿（issue #40）。**不在 `{#if root}` 里** —— 草稿不属于任何项目，
+    没开项目也要能记、能翻。放在项目那组的后面：它是「我的东西」，不是「这个项目的东西」。
+  -->
+  <button
+    class="rbtn"
+    class:on={layout.sidebar && layout.sideView === "scratch"}
+    onclick={() => layout.showSide("scratch")}
+    title="草稿"
+    aria-label="草稿"
+  >
+    <Icon name="note" />
+  </button>
   <span class="rgap"></span>
   <!--
     底部工具窗的开关住在导轨上，和上面的文件树 / Git 改动同一套。
