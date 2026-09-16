@@ -25,3 +25,4 @@ design/lite-ide-interface-polish.html
 # 图标生成的中间产物：make_icon.py 每次重建，产物在 src-tauri/icons/
 design/icon/lite-ide.iconset/
 design/icon/__pycache__/
+design/m8-chrome/lite-ide-chrome-dividers.html

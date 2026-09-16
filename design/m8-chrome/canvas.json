@@ -1,0 +1,13 @@
+{
+  "artboards": [
+    { "file": "Current.dc.html", "x": 0, "y": 0, "w": 1020, "h": 760, "title": "现状" },
+    { "file": "Main.dc.html", "x": 1120, "y": 0, "w": 1020, "h": 760, "title": "方向 A · 浮岛（推荐）" },
+    { "file": "DirectionB.dc.html", "x": 0, "y": 900, "w": 1020, "h": 760, "title": "方向 B · 一根线" },
+    { "file": "DirectionC.dc.html", "x": 1120, "y": 900, "w": 1020, "h": 760, "title": "方向 C · 只靠明暗" },
+    { "file": "Popups.dc.html", "x": 0, "y": 1800, "w": 1240, "h": 900, "title": "弹层：确认条、右键菜单" }
+  ],
+  "annotations": [
+    { "id": "how-to-read", "x": 2240, "y": 0, "w": 300, "text": "四张窗口是同一份布局、同一组 token（src/app.css），只有分割线的做法不同。\n\n先在 A / B / C 里挑一个方向；弹层那张和方向无关，单独定。\n\n窗口缩到 960×620，比例照真机；玻璃用一块渐变代替壁纸透上来的样子。" }
+  ],
+  "launch": { "view": "canvas" }
+}

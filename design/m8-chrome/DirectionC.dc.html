@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; background: #2b2d30; }
+    a { color: #6ba1e8; } a:hover { color: #8fbcf0; }
+    .lt { font-family: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, ui-monospace, monospace; }
+
+  </style>
+</helmet>
+<div class="lt" style="width:1020px;height:760px;box-sizing:border-box;padding:26px 30px;background:#2b2d30;"><div class="lt" style="margin:0 0 14px;"><div style="font-size:18px;color:#dfe1e5;letter-spacing:-.01em;">方向 C · 只靠明暗</div><div style="margin-top:4px;font-size:12.5px;line-height:1.65;color:#9da0a8;max-width:900px;">一条线都不画。边界全靠明暗：内容层本来就深一档，侧边栏再压 10% 的黑让它和导轨分开。拖拽手柄平时不可见，悬停时才亮 accent。最「材质」的一种，代价是分割位置全靠色差，浅色壁纸下侧边栏和导轨的 10% 差可能读不出来。</div></div>
+<div class="lt" style="position:relative;width:960px;height:620px;box-sizing:border-box;display:flex;flex-direction:column;border-radius:11px;overflow:hidden;background:linear-gradient(135deg, #3a3c44 0%, #2a2b31 55%, #26272c 100%);color:#cdcdcd;box-shadow:0 20px 60px rgba(0,0,0,.5);">
+
+<div style="display:flex;align-items:center;gap:8px;height:38px;padding:0 0 0 78px;box-sizing:border-box;font-size:12.5px;color:#cdcdcd;background:rgba(0, 0, 0, 0.20);">
+  <span style="position:absolute;left:12px;top:13px;display:flex;gap:8px;"><i style="width:12px;height:12px;border-radius:50%;background:#ff5f57;display:block"></i><i style="width:12px;height:12px;border-radius:50%;background:#febc2e;display:block"></i><i style="width:12px;height:12px;border-radius:50%;background:#28c840;display:block"></i></span>
+  <span style="display:inline-grid;place-content:center;width:16px;height:16px;border-radius:4px;background:#5b8def;color:#fff;font-size:10px;font-weight:600;">L</span><span style="color:#fff;">lite-ide</span><span style="color:#8a8a8a;">⌄</span>
+  <span style="margin-left:14px;color:#8a8a8a;">⑂</span><span>main</span><span style="color:#5b8def;">↑7</span><span style="color:#8a8a8a;">⌄</span>
+</div>
+<div style="display:flex;flex:1;min-height:0;"><div style="width:34px;box-sizing:border-box;">
+<div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 0 6px;height:100%;box-sizing:border-box;">
+  <div style="width:26px;height:26px;border-radius:10px;background:rgba(255,255,255,.11);display:grid;place-content:center;">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M6.4 3V13"/></svg>
+  </div>
+  <div style="width:26px;height:26px;border-radius:10px;background:rgba(255,255,255,.11);display:grid;place-content:center;">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 12.4V4.6a1.2 1.2 0 0 1 1.2-1.2h2.3l1.3 1.6h4.8a1.2 1.2 0 0 1 1.2 1.2v6.2a1.2 1.2 0 0 1-1.2 1.2H3.8a1.2 1.2 0 0 1-1.2-1.2Z"/></svg>
+  </div>
+  <div style="width:26px;height:26px;display:grid;place-content:center;color:#8a8a8a;">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.6" cy="3.4" r="1.7"/><circle cx="4.6" cy="12.6" r="1.7"/><circle cx="11.4" cy="3.4" r="1.7"/><path d="M4.6 5.1V10.9"/><path d="M11.4 5.1V6.6a2.4 2.4 0 0 1-2.4 2.4H4.6"/></svg>
+  </div>
+  <div style="width:26px;height:26px;display:grid;place-content:center;color:#8a8a8a;">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"><circle cx="7" cy="7" r="4"/><path d="M9.95 9.95L13.2 13.2"/></svg>
+  </div>
+  <div style="width:26px;height:26px;display:grid;place-content:center;color:#8a8a8a;">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 2.6H9.6L12.6 5.6V12.2a1.2 1.2 0 0 1-1.2 1.2H4.2a1.2 1.2 0 0 1-1.2-1.2V3.8a1.2 1.2 0 0 1 1.2-1.2Z"/><path d="M9.4 2.8V5.8H12.4"/><path d="M5.6 8.2H10.4"/><path d="M5.6 10.6H8.8"/></svg>
+  </div>
+  <div style="flex:1"></div>
+  <div style="width:26px;height:26px;display:grid;place-content:center;color:#8a8a8a;">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M5.1 6.5L7.2 8.5L5.1 10.5"/><path d="M8.6 10.6H11.1"/></svg>
+  </div>
+</div>
+</div><div style="width:240px;box-sizing:border-box;background:rgba(0,0,0,.10);">
+<div style="display:flex;align-items:center;height:38px;padding:0 10px;box-sizing:border-box;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#cdcdcd;">LITE-IDE<span style="flex:1"></span>
+<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#8a8a8a" stroke-width="1.25" stroke-linecap="round"><path d="M5 6l3-3 3 3M5 10l3 3 3-3"/></svg></div><div style="display:flex;align-items:center;gap:3px;height:24px;padding:0 8px 0 6px;margin:0 6px;border-radius:10px;background:transparent;color:#fff;font-size:12.5px;"><span style="width:12px;color:#8a8a8a;font-size:9px;">›</span><span>src</span></div>
+<div style="display:flex;align-items:center;gap:3px;height:24px;padding:0 8px 0 6px;margin:0 6px;border-radius:10px;background:transparent;color:#fff;font-size:12.5px;"><span style="width:12px;color:#8a8a8a;font-size:9px;">›</span><span>src-tauri</span></div>
+<div style="display:flex;align-items:center;gap:3px;height:24px;padding:0 8px 0 6px;margin:0 6px;border-radius:10px;background:transparent;color:#fff;font-size:12.5px;"><span style="width:12px;color:#8a8a8a;font-size:9px;">›</span><span>docs</span></div>
+<div style="display:flex;align-items:center;gap:3px;height:24px;padding:0 8px 0 6px;margin:0 6px;border-radius:10px;background:transparent;color:#cdcdcd;font-size:12.5px;"><span style="width:12px"></span><span>AGENTS.md</span></div>
+<div style="display:flex;align-items:center;gap:3px;height:24px;padding:0 8px 0 6px;margin:0 6px;border-radius:10px;background:rgba(255,255,255,.11);color:#fff;font-size:12.5px;"><span style="width:12px"></span><span>README.md</span></div>
+<div style="display:flex;align-items:center;gap:3px;height:24px;padding:0 8px 0 6px;margin:0 6px;border-radius:10px;background:transparent;color:#cdcdcd;font-size:12.5px;"><span style="width:12px"></span><span>package.json</span></div></div><div style="width:4px;"></div><div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+<div style="display:flex;align-items:center;gap:2px;height:38px;padding:0 6px;box-sizing:border-box;">
+  <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 10px;border-radius:6px;background:rgba(255,255,255,.11);color:#fff;font-size:12.5px;">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#8a8a8a" stroke-width="1.25"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M5 6.5h6M5 9.5h4"/></svg>README.md
+    <span style="width:16px;text-align:center;color:#8a8a8a;">×</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 10px;border-radius:6px;color:#cdcdcd;font-size:12.5px;">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#8a8a8a" stroke-width="1.25"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M5 6.5h6M5 9.5h4"/></svg>AGENTS.md
+    <span style="width:6px;height:6px;border-radius:50%;background:#cdcdcd;margin:0 5px;"></span>
+  </div>
+  <span style="width:22px;height:22px;display:grid;place-content:center;color:#8a8a8a;font-size:15px;">+</span>
+</div><div style="flex:1;background:rgba(30, 31, 34, 0.94);padding:6px 0;"><div style="display:flex;gap:14px;height:20px;align-items:center;"><span class="mono" style="width:28px;text-align:right;color:#4a4a4d;font-size:11.5px;">1</span><span class="mono" style="color:#cdcdcd;font-size:17px;white-space:nowrap;"><span style="color:#5b8def;font-weight:600;">#</span> <span style="color:#5b8def;font-weight:600;">lite-ide</span></span></div>
+<div style="display:flex;gap:14px;height:20px;align-items:center;"><span class="mono" style="width:28px;text-align:right;color:#4a4a4d;font-size:11.5px;">2</span><span class="mono" style="color:#cdcdcd;font-size:12.5px;white-space:nowrap;"></span></div>
+<div style="display:flex;gap:14px;height:20px;align-items:center;"><span class="mono" style="width:28px;text-align:right;color:#4a4a4d;font-size:11.5px;">3</span><span class="mono" style="color:#cdcdcd;font-size:12.5px;white-space:nowrap;">macOS 上 1 秒打开的个人工作台。GB 级日志秒开不卡，代码高亮够用就停。</span></div>
+<div style="display:flex;gap:14px;height:20px;align-items:center;"><span class="mono" style="width:28px;text-align:right;color:#4a4a4d;font-size:11.5px;">4</span><span class="mono" style="color:#cdcdcd;font-size:12.5px;white-space:nowrap;"></span></div>
+<div style="display:flex;gap:14px;height:20px;align-items:center;"><span class="mono" style="width:28px;text-align:right;color:#4a4a4d;font-size:11.5px;">5</span><span class="mono" style="color:#cdcdcd;font-size:12.5px;white-space:nowrap;">Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研（mmap + 稀疏索引）。</span></div>
+<div style="display:flex;gap:14px;height:20px;align-items:center;"><span class="mono" style="width:28px;text-align:right;color:#4a4a4d;font-size:11.5px;">6</span><span class="mono" style="color:#cdcdcd;font-size:12.5px;white-space:nowrap;"><b style="color:#e8e8ea">没有插件系统、没有遥测、没有更新器。</b></span></div>
+<div style="display:flex;gap:14px;height:20px;align-items:center;"><span class="mono" style="width:28px;text-align:right;color:#4a4a4d;font-size:11.5px;">7</span><span class="mono" style="color:#cdcdcd;font-size:12.5px;white-space:nowrap;"></span></div>
+<div style="display:flex;gap:14px;height:20px;align-items:center;"><span class="mono" style="width:28px;text-align:right;color:#4a4a4d;font-size:11.5px;">8</span><span class="mono" style="color:#cdcdcd;font-size:12.5px;white-space:nowrap;"><span style="color:#8a8a8a;font-style:italic;">这是给自己用的工具，公开出来是因为里面几个决定可能对别人有用。</span></span></div></div><div style="height:4px;"></div><div style="height:190px;display:flex;flex-direction:column;">
+<div style="display:flex;align-items:center;gap:2px;height:32px;padding:0 4px 0 9px;box-sizing:border-box;">
+  <span style="font-size:12px;color:#fff;padding-right:7px;">Git</span>
+  <span style="display:flex;align-items:center;height:22px;padding:0 9px;border-radius:6px;background:rgba(255,255,255,.11);color:#fff;font-size:12px;">提交历史</span>
+  <span style="display:flex;align-items:center;height:22px;padding:0 9px;border-radius:6px;color:#cdcdcd;font-size:12px;">控制台</span>
+  <span style="flex:1"></span>
+  <span style="width:22px;height:22px;display:grid;place-content:center;color:#8a8a8a;">—</span>
+</div><div style="flex:1;background:rgba(30, 31, 34, 0.94);display:flex;flex-direction:column;">
+<div style="display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;box-sizing:border-box;font-size:12px;color:#cdcdcd;">
+  <span style="display:flex;align-items:center;height:22px;width:220px;padding:0 8px;border-radius:6px;background:#2e2e31;color:#8a8a8a;">过滤标题 / 作者 / sha</span>
+  <span>✓ 全部分支</span><span style="color:#8a8a8a;">☐ 只看当前文件</span><span style="flex:1"></span><span style="color:#8a8a8a;">220 条</span>
+</div><div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 10px;font-size:12px;color:#cdcdcd;"><span style="width:8px;height:8px;border-radius:50%;border:1.5px solid #5b8def;margin-right:4px;"></span><span class="mono" style="font-size:10.5px;padding:1px 6px;border-radius:6px;background:rgba(255,255,255,.11);color:#cdcdcd;margin-right:6px;">main</span><span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">编辑器字号 ⌘= / ⌘- / ⌘0</span><span style="color:#8a8a8a;font-size:11.5px;">pc shao</span><span style="color:#8a8a8a;font-size:11.5px;width:96px;text-align:right;">7 minutes ago</span></div>
+<div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 10px;font-size:12px;color:#cdcdcd;"><span style="width:8px;height:8px;border-radius:50%;border:1.5px solid #5b8def;margin-right:4px;"></span><span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">编辑手感：⌘N 后光标在编辑器里</span><span style="color:#8a8a8a;font-size:11.5px;">pc shao</span><span style="color:#8a8a8a;font-size:11.5px;width:96px;text-align:right;">13 minutes ago</span></div>
+<div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 10px;font-size:12px;color:#cdcdcd;"><span style="width:8px;height:8px;border-radius:50%;border:1.5px solid #5b8def;margin-right:4px;"></span><span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">空态按「有没有项目」说两套话</span><span style="color:#8a8a8a;font-size:11.5px;">pc shao</span><span style="color:#8a8a8a;font-size:11.5px;width:96px;text-align:right;">25 minutes ago</span></div>
+<div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 10px;font-size:12px;color:#cdcdcd;"><span style="width:8px;height:8px;border-radius:50%;border:1.5px solid #5b8def;margin-right:4px;"></span><span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">入口包瘦身：139,115 → 133,492 B</span><span style="color:#8a8a8a;font-size:11.5px;">pc shao</span><span style="color:#8a8a8a;font-size:11.5px;width:96px;text-align:right;">20 hours ago</span></div></div></div></div></div>
+
+<div style="display:flex;align-items:center;gap:14px;height:24px;padding:0 12px;box-sizing:border-box;font-size:11px;color:#8a8a8a;background:rgba(0, 0, 0, 0.20);">
+  <span class="mono">lite-ide <span style="color:#4a4a4d;">›</span> README.md</span><span style="flex:1"></span>
+  <span class="mono">1:1</span><span>Markdown</span><span>2 空格 · LF</span><span>UTF-8</span><span>无改动</span>
+</div>
+</div></div>
+</x-dc>
+</body>
+</html>
