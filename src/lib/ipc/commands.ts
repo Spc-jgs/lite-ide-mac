@@ -389,6 +389,10 @@ export const listProjectFiles = (root: string) =>
 export const grepProject = (root: string, pattern: string, limit = 200) =>
   invoke<Hit[]>("grep_project", { root, pattern, limit });
 
+/** 搜草稿目录的内容（M10 ③）。路径是绝对的；文件头里的命中已经滤掉 */
+export const grepScratches = (pattern: string, limit = 60) =>
+  invoke<Hit[]>("grep_scratches", { pattern, limit });
+
 
 // ─────────────────────────── Git ───────────────────────────
 

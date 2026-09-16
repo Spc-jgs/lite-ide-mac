@@ -1060,10 +1060,25 @@ export function installMockIpc(): void {
           const pat = String(a.pattern).toLowerCase();
           const out: Array<{ path: string; line: number; text: string }> = [];
           for (const [full, content] of Object.entries(FILES)) {
-            if (searchSkips(full)) continue;
+            // 只搜项目根底下的：真 rg 跑在 /proj 里，草稿目录那些它根本看不见
+            if (!full.startsWith("/proj/") || searchSkips(full)) continue;
             const rel = full.replace(/^\/proj\//, "");
             content.split("\n").forEach((text, i) => {
               if (text.toLowerCase().includes(pat)) out.push({ path: rel, line: i + 1, text });
+            });
+          }
+          return out.slice(0, Number(a.limit) || 60);
+        }
+        case "grep_scratches": {
+          // 只搜草稿目录；文件头（锚点）里的命中滤掉，同 Rust 侧
+          const pat = String(a.pattern).toLowerCase();
+          const out: Array<{ path: string; line: number; text: string }> = [];
+          for (const [full, content] of Object.entries(FILES)) {
+            if (!full.startsWith(`${SCRATCH_DIR}/`)) continue;
+            const [anchor, off] = splitFrontmatter(content);
+            const headLines = anchor ? content.slice(0, off).replace(/\n$/, "").split("\n").length : 0;
+            content.split("\n").forEach((text, i) => {
+              if (i + 1 > headLines && text.toLowerCase().includes(pat)) out.push({ path: full, line: i + 1, text });
             });
           }
           return out.slice(0, Number(a.limit) || 60);

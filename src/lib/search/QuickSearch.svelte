@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { listProjectFiles, grepProject, type Hit } from "../ipc/commands";
+  import { listProjectFiles, grepProject, grepScratches, type Hit, type ScratchEntry } from "../ipc/commands";
   import { rank, segments } from "./fuzzy";
   import Icon from "../shell/Icon.svelte";
   import FileGlyph from "../shell/FileGlyph.svelte";
@@ -27,11 +27,12 @@
     root: string | null;
     scope: Scope;
     /**
-     * 草稿的绝对路径（issue #40）。它们不在项目里，`listProjectFiles` 列不到，
+     * 草稿（issue #40）。它们不在项目里，`listProjectFiles` 列不到，
      * 但「⌘P 打个时间戳就翻到那条笔记」是翻草稿最快的一条路。显示时标「草稿」，
-     * 不显示那串 `~/Library/…` 的目录。
+     * 不显示那串 `~/Library/…` 的目录。内容命中那一档（M10 ③）用它的 `firstLine`
+     * 当右边那列 —— 路径对草稿没意义，标题才认得出是哪条。
      */
-    scratches?: string[];
+    scratches?: ScratchEntry[];
     /**
      * 打开时预填的关键词。「在项目里找这个名字」用它把光标下那个词带进来 ——
      * 省掉「选中、复制、⇧⌘F、粘贴」这四下。
@@ -59,6 +60,8 @@
   let query = $state("");
   let files = $state<string[]>([]);
   let hits = $state<Hit[]>([]);
+  /** 草稿里的内容命中（M10 ③）。和项目那趟并行，各自 60 条上限 */
+  let shits = $state<Hit[]>([]);
   let searching = $state(false);
   let cursor = $state(0);
   let input: HTMLInputElement | undefined = $state();
@@ -91,8 +94,9 @@
     const q = query;
     const sc = scope;
     const r = root;
-    if (!open || !r || q.length < 2 || (sc !== "all" && sc !== "content")) {
+    if (!open || q.length < 2 || (sc !== "all" && sc !== "content")) {
       hits = [];
+      shits = [];
       return;
     }
     searching = true;
@@ -109,12 +113,14 @@
      */
     let dead = false;
     const timer = setTimeout(() => {
-      grepProject(r, q, 60)
-        .then((h) => {
-          if (!dead) hits = h;
-        })
-        .catch(() => {
-          if (!dead) hits = [];
+      // 项目和草稿两趟并行。没开项目时只搜草稿 —— 「上次那个坑我记在哪了」不需要先开项目
+      const proj = r ? grepProject(r, q, 60) : Promise.resolve([] as Hit[]);
+      const scr = scratches.length ? grepScratches(q, 60) : Promise.resolve([] as Hit[]);
+      Promise.all([proj.catch(() => [] as Hit[]), scr.catch(() => [] as Hit[])])
+        .then(([h, sh]) => {
+          if (dead) return;
+          hits = h;
+          shits = sh;
         })
         .finally(() => {
           if (!dead) searching = false;
@@ -130,6 +136,8 @@
   type Row =
     | { kind: "file"; path: string; seg: { t: string; hit: boolean }[]; scratch?: true }
     | { kind: "content"; path: string; line: number; text: string }
+    /** 草稿里的内容命中：单独一组「草稿」，右边那列是那条草稿的标题 */
+    | { kind: "scratch"; path: string; line: number; text: string; title: string }
     | { kind: "action"; action: Action; seg: { t: string; hit: boolean }[] };
 
   let rows = $derived.by(() => {
@@ -144,19 +152,23 @@
         out.push({ kind: "file", path: r.item, seg: segments(r.item, r.positions) });
       }
       // 草稿按文件名匹配（目录那串对所有草稿都一样，拿它排名只会全体并列）
-      for (const r of rank(scratches, query, fileName, scope === "file" ? 10 : 3)) {
-        const off = r.item.lastIndexOf("/") + 1;
+      for (const r of rank(scratches, query, (e) => e.name, scope === "file" ? 10 : 3)) {
+        const off = r.item.path.lastIndexOf("/") + 1;
         out.push({
           kind: "file",
-          path: r.item,
+          path: r.item.path,
           scratch: true,
-          seg: [{ t: r.item.slice(0, off), hit: false }, ...segments(fileName(r.item), r.positions)],
+          seg: [{ t: r.item.path.slice(0, off), hit: false }, ...segments(r.item.name, r.positions)],
         });
       }
     }
     if (scope === "all" || scope === "content") {
       for (const h of hits.slice(0, scope === "content" ? 60 : 8)) {
         out.push({ kind: "content", path: h.path, line: h.line, text: h.text });
+      }
+      for (const h of shits.slice(0, scope === "content" ? 30 : 4)) {
+        const e = scratches.find((s) => s.path === h.path);
+        out.push({ kind: "scratch", path: h.path, line: h.line, text: h.text, title: e?.firstLine || fileName(h.path) });
       }
     }
     return out;
@@ -171,7 +183,8 @@
     open = false;
     if (row.kind === "action") row.action.run();
     else if (row.kind === "file") onOpenFile(row.path, undefined, false);
-    else onOpenFile(row.path, row.line, true);
+    // 草稿命中也是「看看这一处」，但草稿标签不做预览（它是「我的东西」，被顶掉会莫名其妙）
+    else onOpenFile(row.path, row.line, row.kind === "content");
   }
 
   function onKey(e: KeyboardEvent) {
@@ -195,7 +208,7 @@
     }
   }
 
-  const KIND_LABEL = { action: "操作", file: "文件", content: "内容" } as const;
+  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿" } as const;
 
   const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
@@ -259,7 +272,7 @@
           {:else}没有匹配{/if}
         </div>
       {/if}
-      {#each rows as row, i (row.kind + (row.kind === "content" ? `${row.path}:${row.line}` : row.kind === "file" ? row.path : row.action.id))}
+      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" ? `${row.path}:${row.line}` : row.kind === "file" ? row.path : row.action.id))}
         <!--
           分组头代替每行的类型胶囊。结果本来就是按类型排好的，
           每行再印一遍「文件」「操作」等于把分组信息摊到了每一行上 ——
@@ -288,6 +301,11 @@
               {#each tailSeg(row.seg, row.path.lastIndexOf("/") + 1) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}
             </span>
             <span class="side">{row.scratch ? "草稿" : dirName(row.path)}</span>
+          {:else if row.kind === "scratch"}
+            <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
+            <span class="main mono">{row.text.trim()}</span>
+            <!-- 右边是标题不是路径：`~/Library/…/2026-09-15 0930.md:31` 认不出是哪条 -->
+            <span class="side plain">{row.title}</span>
           {:else}
             <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
             <span class="main mono">{row.text.trim()}</span>
@@ -437,8 +455,11 @@
     white-space: nowrap;
     margin-left: auto;
     direction: rtl;
+    max-width: 45%;
     text-align: right;
   }
+  /* 草稿标题是句子不是路径：正向排、UI 字体（rtl 只给路径，ui.md 第九条） */
+  .side.plain { direction: ltr; font-family: var(--ui-font); }
   .key {
     flex: none;
     margin-left: auto;

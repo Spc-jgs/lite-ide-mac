@@ -1013,6 +1013,36 @@ pub async fn grep_project(root: String, pattern: String, limit: usize) -> Result
     .await
 }
 
+/// 搜草稿目录的内容（M10 ③）：和 `grep_project` 同一个 searchsvc，只是根换成草稿目录。
+/// 返回的路径是**绝对**的 —— 草稿不在项目里，前端拿相对路径没法拼。
+/// 文件头（锚点 frontmatter）里的命中滤掉：搜 `main` 不该把所有 main 分支上写的草稿都翻出来。
+#[tauri::command]
+pub async fn grep_scratches(app: tauri::AppHandle, pattern: String, limit: usize) -> Result<Vec<HitDto>, String> {
+    let dir = scratch_root(&app)?;
+    blocking(move || {
+        if !dir.is_dir() {
+            return Ok(Vec::new());
+        }
+        let hits = searchsvc::grep(&dir, &pattern, limit, &searchsvc::Skip::by_name())
+            .map_err(|e| format!("搜索草稿失败：{e}"))?;
+        let mut heads: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        Ok(hits
+            .into_iter()
+            .filter_map(|h| {
+                let abs = dir.join(&h.path);
+                let head = *heads
+                    .entry(h.path.clone())
+                    .or_insert_with(|| fsservice::frontmatter_lines(&abs));
+                if h.line as usize <= head {
+                    return None;
+                }
+                Some(HitDto { path: abs.to_string_lossy().into_owned(), line: h.line, text: h.text })
+            })
+            .collect())
+    })
+    .await
+}
+
 // ─────────────────────────── Git ───────────────────────────
 
 #[derive(serde::Serialize)]

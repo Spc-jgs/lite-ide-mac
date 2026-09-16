@@ -818,6 +818,26 @@ pub fn frontmatter(text: &str) -> (Option<Anchor>, usize) {
     (None, 0)
 }
 
+/// 文件头占几行（含收尾的 `---`）。没有头是 0。
+/// 搜草稿内容时用它把头里的命中滤掉 —— 搜 `main` 不该把所有 main 分支上写的草稿都翻出来。
+pub fn frontmatter_lines(path: &Path) -> usize {
+    use std::io::Read;
+    let mut buf = vec![0u8; SCRATCH_PREVIEW_BYTES];
+    let n = match fs::File::open(path).and_then(|mut f| f.read(&mut buf)) {
+        Ok(n) => n,
+        Err(_) => return 0,
+    };
+    buf.truncate(n);
+    let text = match std::str::from_utf8(&buf) {
+        Ok(t) => t,
+        Err(e) => std::str::from_utf8(&buf[..e.valid_up_to()]).unwrap_or(""),
+    };
+    match frontmatter(text) {
+        (Some(_), off) => text[..off].trim_end_matches('\n').lines().count(),
+        _ => 0,
+    }
+}
+
 /// 草稿列表里的一条（issue #40）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scratch {
@@ -1597,6 +1617,11 @@ mod tests {
         fs::write(&p, format!("{}记了一笔", a.frontmatter())).unwrap();
         assert_eq!(list_scratches(&d).unwrap()[0].first_line, "记了一笔");
         assert!(discard_empty_scratch(&d, &p).is_err(), "有正文的不能丢");
+        // 头 6 行（--- 四个字段 ---），搜内容时第 7 行起才算
+        assert_eq!(frontmatter_lines(&p), 6, "头占 6 行");
+        let q = create_scratch_with(&d, "2026-09-16 1202", None).unwrap();
+        fs::write(&q, "没有头\n").unwrap();
+        assert_eq!(frontmatter_lines(&q), 0);
         let _ = fs::remove_dir_all(&base);
     }
 

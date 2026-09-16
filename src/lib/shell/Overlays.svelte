@@ -180,7 +180,7 @@
     seed={overlay.quickSeed}
     root={project.root}
     {actions}
-    scratches={scratches.list.map((s) => s.path)}
+    scratches={scratches.list}
     onOpenFile={(p, l, preview) => nav.openAt(p, l, preview)}
   />
 {/if}
