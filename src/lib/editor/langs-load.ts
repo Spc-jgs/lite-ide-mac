@@ -29,10 +29,11 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
   let ext: Extension;
   switch (id) {
     case "markdown": {
-      const [m, live, logs] = await Promise.all([
+      const [m, live, logs, paste] = await Promise.all([
         import("@codemirror/lang-markdown"),
         import("./markdown-live"),
         import("./log-segments"),
+        import("./paste-fence"),
       ]);
       // base 换成 markdownLanguage：它带 GFM（删除线、表格、任务列表），
       // 默认的 commonmarkLanguage 不认 ~~删除线~~
@@ -42,6 +43,8 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
         // 粘进来的日志按 LogView 那套着色（M10 ②）。挂在 markdown 上而不只是草稿：
         // README 里贴一段日志也该能看清，判据是文件类型不是文件在哪
         logs.logSegments,
+        // 粘 JSON 自动包围栏（M10 ②b）
+        paste.pasteFence,
       ];
       break;
     }

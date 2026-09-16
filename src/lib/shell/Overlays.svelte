@@ -10,6 +10,7 @@
    */
   import type BranchPicker from "../git/BranchPicker.svelte";
   import { remote } from "../state/remote.svelte";
+  import { layout } from "../state/layout.svelte";
   import type { Action } from "../search/QuickSearch.svelte";
   import { lazy, lazyGroup } from "../lazy/lazy.svelte";
   import { notify } from "../state/notify.svelte";
@@ -212,6 +213,7 @@
     onPull={() => void remote.pull()}
     onPush={() => void remote.askPush()}
     onFetch={() => void remote.fetch("fetch")}
+    onCommit={() => layout.showSide("git")}
     onMerge={(ref) => branches.mergeInto(ref)}
     onRename={(o, n) => branches.renameBranch(o, n)}
     onDelete={(n) => (branches.pendingBranchDelete = { name: n, notMerged: false })}

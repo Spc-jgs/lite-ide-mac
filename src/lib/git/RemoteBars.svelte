@@ -32,6 +32,7 @@
     onPush,
     onPull,
     onDismiss,
+    onCancel = null,
   }: {
     /**
      * 正在跑的远程操作的进度（M9，从 Git 页的分支行底下搬过来 —— 那一行删了）。
@@ -50,6 +51,8 @@
     onPull: () => void;
     /** which: 关掉哪一条 */
     onDismiss: (which: "diverge" | "push" | "err") => void;
+    /** 取消正在跑的远程操作。push 进行中不给（状态不确定），由上层决定传不传 */
+    onCancel?: (() => void) | null;
   } = $props();
 
   let remember = $state(false);
@@ -62,6 +65,7 @@
     <div class="pline">
       <span class="ptext">{progress.phase}</span>
       {#if progress.percent !== null}<span class="ppct">{progress.percent}%</span>{/if}
+      {#if onCancel}<button class="btn sm" onclick={onCancel}>取消</button>{/if}
     </div>
     <div class="pbar" class:indet={progress.percent === null}>
       {#if progress.percent !== null}
@@ -197,7 +201,7 @@
 
   /* 进度卡片：一行文字 + 3px 的条。indet 那条来回跑，只说「还在动」，**不能显示成 0%** */
   .confirm.prog { flex-direction: column; align-items: stretch; gap: 6px; width: min(420px, calc(100% - 32px)); }
-  .pline { display: flex; align-items: baseline; gap: 8px; }
+  .pline { display: flex; align-items: center; gap: 8px; }
   .ptext { flex: 1; min-width: 0; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ppct { flex: none; font-family: var(--code-font); font-size: 11px; color: var(--text-faint); }
   .pbar { height: 3px; border-radius: 2px; background: var(--hover); overflow: hidden; }

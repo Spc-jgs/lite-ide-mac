@@ -390,3 +390,77 @@ export function changedLines(raw: string): Map<number, ChangeKind> {
   }
   return out;
 }
+
+// ─────────────────────────── 草稿里的 diff 段（M10 ②b） ───────────────────────────
+
+/**
+ * 草稿里粘进来的一段 diff：连续的、像 unified diff 的行当作一段，编辑器按 DiffView
+ * 统一视图那套着色。判据和 `parseDiff` 认的是同一批行首，只是这里不解析内容、只找边界。
+ *
+ * 一段从 `diff --git` 或 `@@` 开头的行起（`--- a/` / `+++ b/` 单独出现不开段：
+ * 正文里 `--- ` 太常见）；之后 `+` / `-` / ` ` / `\ No newline` / `@@` / 文件头那几种
+ * 都续段；别的行断段。段里至少要有一个 `@@`（光有 `diff --git` 没有 hunk 的多半是
+ * 二进制文件的头，不着色也罢）。空行**断段**：unified diff 的上下文行以空格起，
+ * 真正的空行只会出现在两段 diff 之间。
+ *
+ * 纯函数，放在这个文件里的理由同 `findLogSegments`：node 直跑的测试认不出相对导入。
+ */
+export interface DiffSegment {
+  /** 首行，0-based */
+  from: number;
+  /** 末行，0-based，闭区间 */
+  to: number;
+  /** 每行的种类，和段等长；`meta` = 文件头那几种 */
+  kinds: LineKind[];
+}
+
+/** 一行在 diff 里是什么。不像 diff 的返回 null */
+export function diffLineKind(line: string): LineKind | null {
+  if (line.startsWith("@@")) return "hunk";
+  if (line.startsWith("+++ ") || line.startsWith("--- ")) return "meta";
+  if (line.startsWith("+")) return "add";
+  if (line.startsWith("-")) return "del";
+  if (line.startsWith(" ")) return "ctx";
+  if (line.startsWith("\\ No newline")) return "meta";
+  if (
+    line.startsWith("diff --git ") ||
+    line.startsWith("index ") ||
+    line.startsWith("new file mode") ||
+    line.startsWith("deleted file mode") ||
+    line.startsWith("old mode") ||
+    line.startsWith("new mode") ||
+    line.startsWith("similarity index") ||
+    line.startsWith("rename from ") ||
+    line.startsWith("rename to ") ||
+    line.startsWith("Binary files")
+  ) {
+    return "meta";
+  }
+  return null;
+}
+
+export function findDiffSegments(lines: string[]): DiffSegment[] {
+  const out: DiffSegment[] = [];
+  let start = -1;
+  let kinds: LineKind[] = [];
+  const flush = () => {
+    if (start >= 0 && kinds.includes("hunk")) out.push({ from: start, to: start + kinds.length - 1, kinds });
+    start = -1;
+    kinds = [];
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    const k = diffLineKind(l);
+    if (start < 0) {
+      if (l.startsWith("diff --git ") || l.startsWith("@@")) {
+        start = i;
+        kinds = [k!];
+      }
+      continue;
+    }
+    if (k) kinds.push(k);
+    else flush();
+  }
+  flush();
+  return out;
+}

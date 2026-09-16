@@ -6712,3 +6712,52 @@ ERROR 整行红 / 堆栈压暗、`[thread]` 不再是链接；点「只看 WARN+
 
 顺手修了桩的一处漂移：`grep_project` 原来遍历整张 FILES 表，草稿也被当项目文件搜出来 ——
 真 rg 跑在项目根里根本看不见草稿目录。
+
+## 2026-09-16 · M10 ②b：diff 段着色、粘 JSON 自动包围栏
+
+[SCRATCH.md](SCRATCH.md) 第 2 件的后半，半轮。
+
+**diff 段**：`findDiffSegments`（[git/diff.ts](../src/lib/git/diff.ts)，纯函数 10 条测试，
+验过红）。从 `diff --git` 或 `@@` 起头 —— `--- ` 单独出现不开段，正文里太常见；段里至少
+一个 `@@`，光有文件头的多半是二进制；空行断段（unified diff 的上下文行以空格起，真空行
+只在两段之间）；`- 列表项` 三行不是 diff。着色照 DiffView 统一视图那张表，行首 `+` / `-`
+单独一个 mark 只染那一格。和日志段共用一个 StateField，markdown-live 对两种都让路
+（`- 删掉的行` 在 markdown 眼里是列表项）。没有段头：一段 diff 没有「只看什么」可选。
+
+**粘 JSON 自动包围栏**（[paste-fence.ts](../src/lib/editor/paste-fence.ts)）：三个条件同时成立
+才动手 —— 整体 `JSON.parse` 得过且是对象 / 数组、光标在空行、不在围栏里。包进去顺便
+`JSON.stringify(…, null, 2)` 展开：粘进来的多半是一行压扁的。不猜「像 JSON 但解析不过」
+（尾逗号、单引号）：猜错是把正文包进代码块，比不包难受。写进文件的是标准 markdown 围栏。
+
+验证：桩草稿里加了一段 diff，9 行全着色、`+`/`-` 各自的色；用 `DataTransfer` 构造 paste
+事件粘一坨压扁的 JSON，落进 ```` ```json ```` 里、展开成两空格缩进、markdown-live 给了
+代码块底色和 JSON 高亮。`pnpm test` 27 个文件全过、`pnpm check` 0；入口包不变。
+
+## 2026-09-16 · 分支浮层照 IDEA 重排（M9 之二）
+
+用户拿 IDEA 的分支 popup 截图：「这里好丑，IDEA 啥样这也啥样就好了。」指的是标题栏
+上那个 `[⑂ main ⌄] [↑15 推送]` —— M9 上午刚把同步胶囊从 Git 页搬到挂件旁边，下午就撤了。
+
+IDEA 的做法：挂件只是一个名字；点开的 popup 顶上是 **Update Project / Commit / Push**
+三条动作（带键位），然后 **New Branch / Checkout Tag or Revision**，然后 Recent / Local /
+Remote 三组，分支按 `/` 折成文件夹；每行右边是上游、末尾 `›` 子菜单（New Branch from /
+Show Diff / New Worktree from / Update / Push / Tracked Branch / Rename）。判据一句话：
+**挂件是「我在哪」，不是工具栏** —— 动作跟着浮层走。
+
+照着做了：`BranchPicker.svelte` 整份重写。动作行的键位从 `keymap.ts` 取（`byId`），
+不手抄；「新建分支」在输入了没有同名分支的名字时带上名字常驻；有同名分支时它不出现 ——
+不然 ↵ 会被它抢走（第一版就抢了，打 `main` 回车开了新建表单）。分支行的 `each` key 要带上
+组：同一条分支在「最近」和「本地」各出现一次，key 重了 Svelte 整块不渲染（这个坑
+`ContextMenu` 那次踩过，这次又踩一遍，表现照旧是「点了没反应」）。
+
+「最近」= 最近切到过的分支，`branches-ops.noteRecent` 在切换成功后记，按仓库存
+localStorage 5 条；存名字不存 sha，改名 / 删掉的对不上就自动不显示。
+「检出标签或提交」是个新表单：走 `switch_branch` 的游离检出那条路，表单里说清
+「检出之后是游离状态，要改东西先从它新建分支」。
+
+拉取进度那张卡片补了「取消」按钮（push 进行中不给）—— 原来的取消在胶囊上，胶囊没了。
+
+验证：桩上打开 → 动作三条 + 分组 + 文件夹（`m13/` `m11/`）；点 main 开菜单（检出 /
+从 'main' 新建分支… / 新建工作树… / 合并到 'm13/git' / 重命名… / 复制 / 删除…）；
+打 `main` ↵ 切过去、「最近」多出一条；点「更新项目…」走到分岔决策卡片。
+`pnpm test` / `check` 全绿；入口包 139,513 → 139,610 B（挂件少了胶囊、多了两条 pref 函数）。

@@ -40,3 +40,21 @@ export function writeNumPref(key: string, v: number) {
     /* 同上 */
   }
 }
+
+/** 字符串列表偏好（最近切过的分支）。读回来不是数组就当空 */
+export function readListPref(key: string): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(`lite-ide.${key}`) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeListPref(key: string, v: string[]) {
+  try {
+    localStorage.setItem(`lite-ide.${key}`, JSON.stringify(v));
+  } catch {
+    /* 同上 */
+  }
+}

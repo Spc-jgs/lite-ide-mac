@@ -157,6 +157,7 @@
       remote.err = null;
       void remote.pull();
     }}
+    onCancel={remote.syncing && remote.syncing.what !== "push" ? () => remote.cancel() : null}
     onDismiss={(which) => {
       if (which === "diverge") remote.pendingDiverge = null;
       else if (which === "push") remote.pendingPush = null;

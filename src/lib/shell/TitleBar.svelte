@@ -12,7 +12,6 @@
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { devtoolsBuild, type GitStatus } from "../ipc/commands";
   import { projectName } from "../state/crumbs";
-  import { remote } from "../state/remote.svelte";
 
   let {
     root,
@@ -38,29 +37,10 @@
   } = $props();
 
   /*
-   * 分支挂件右边的同步胶囊（M9，从 Git 页的分支行搬过来）。
-   *
-   * IDEA 的主工具栏正是这么排的：分支挂件旁边是 Update / Push。它属于
-   * 「哪个分支、和远程差多少、该做什么」这一组，按 ui.md 第十一条归标题栏 ——
-   * 而不是 Git 页：那里的分支行和这个挂件是同一个数据印两遍，已经删了。
-   *
-   * 四态照 IDEA 的分支挂件：同步了不显示（「一切正常」不需要占位置）、
-   * 只落后给拉取、只领先给推送、**两边都有就不给一键动作** ——
-   * 那时要先决定合并还是变基，替人选一个是越权。胶囊上写的是**动词**
-   * （「合并…」，省略号 = 还要问你），不是状态（「已分岔」）—— 一排按钮里
-   * 混一个写状态的，人要先猜哪个能点。
-   *
-   * 直接读 `remote`，不经 App 转一手：进度 / 取消都在那个 store 上，
-   * 转成六个 prop 只是把同一份状态再抄一遍。
+   * 挂件上只有分支名和 ↑↓ 计数（M9 之二，照 IDEA）。M9 曾在旁边挂过一个「↑N 推送」
+   * 胶囊，用户看了一眼：「好丑」。IDEA 的挂件就是一个名字，拉取 / 推送是**分支浮层**
+   * 顶上的三条动作（更新项目 / 提交 / 推送）—— 动作跟着浮层走，挂件只报状态。
    */
-  let syncKind = $derived.by(() => {
-    if (!gitSt?.upstream) return null;
-    if (gitSt.behind && gitSt.ahead) return "diverged" as const;
-    if (gitSt.behind) return "pull" as const;
-    if (gitSt.ahead) return "push" as const;
-    return null;
-  });
-  const WHAT_LABEL = { pull: "拉取中", push: "推送中", fetch: "抓取中" } as const;
 
   /**
    * 标题栏项目挂件的下拉。
@@ -163,31 +143,10 @@
     >
       <Icon name="git" size={12} />
       <span class="wlabel">{gitSt.branch || "游离"}</span>
+      {#if gitSt.ahead}<span class="ab">↑{gitSt.ahead}</span>{/if}
+      {#if gitSt.behind}<span class="ab">↓{gitSt.behind}</span>{/if}
       <Icon name="chevron-down" size={10} />
     </button>
-    <!-- 数字只印在动作上，挂件里不再重复 ↑↓ -->
-    {#if remote.syncing}
-      {#if remote.syncing.what !== "push"}
-        <button class="sync busy" onclick={() => remote.cancel()} title="点击取消">
-          {WHAT_LABEL[remote.syncing.what]}… 取消
-        </button>
-      {:else}
-        <span class="sync busy">{WHAT_LABEL.push}…</span>
-      {/if}
-    {:else if syncKind === "pull"}
-      <button class="sync" onclick={() => void remote.pull()} title="抓取远程并合并到本地（⇧⌘P）">
-        ↓{gitSt.behind} 拉取
-      </button>
-    {:else if syncKind === "push"}
-      <!-- 推送用 accent —— 它是唯一会改到别人东西的那个 -->
-      <button class="sync push" onclick={() => void remote.askPush()} title="把本地提交推到远程（⌥⌘P）">
-        ↑{gitSt.ahead} 推送
-      </button>
-    {:else if syncKind === "diverged"}
-      <button class="sync diverged" onclick={() => void remote.pull()} title="本地和远程分岔了，要先决定合并还是变基">
-        ↑{gitSt.ahead} ↓{gitSt.behind} 合并…
-      </button>
-    {/if}
   {/if}
   <span class="tgap" data-tauri-drag-region></span>
 </header>
@@ -268,29 +227,6 @@
   }
   .twidget:hover .sq { background: var(--pressed); }
 
-  /* 同步胶囊：和挂件同高（24），等宽字 —— 数字要对得齐 */
-  .sync {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    height: 22px;
-    margin-left: -2px;
-    padding: 0 8px;
-    font-family: var(--code-font);
-    font-size: 11px;
-    border-radius: var(--r-sm);
-    background: var(--selected);
-    border: none;
-    color: var(--text);
-    cursor: default;
-    white-space: nowrap;
-  }
-  .sync:hover { background: var(--pressed); }
-  .sync.push { background: rgba(91, 141, 239, 0.22); color: #8fb4f5; }
-  .sync.push:hover { background: rgba(91, 141, 239, 0.32); }
-  /* 分岔要先做决定，用警告色但不是错误色 —— 它不是坏事 */
-  .sync.diverged { background: rgba(214, 174, 88, 0.18); color: var(--lvl-warn); }
-  .sync.diverged:hover { background: rgba(214, 174, 88, 0.28); }
-  .sync.busy { background: var(--hover); color: var(--text-dim); }
-  .sync:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  /* 分支名是标识符，用等宽；ahead/behind 用 accent，它是「该做点什么」的信号 */
+  .twidget .ab { color: var(--accent); font-family: var(--code-font); flex: none; font-size: 11px; }
 </style>

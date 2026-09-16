@@ -115,7 +115,9 @@ const FILES: Record<string, string> = {
   "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-15 0930.md":
     "---\nproject: /proj\nbranch: m13/git\nhead: h800000\n---\n\n# 8842013 为什么落库失败\n\n从 order.log 里抠出来的：\n\n" +
     LINES.join("\n") +
-    "\n\n看起来是连接池 10 个不够，先把 maximumPoolSize 调到 20 观察。\n",
+    "\n\n看起来是连接池 10 个不够，先把 maximumPoolSize 调到 20 观察。\n\n改了这一处（②b 的 diff 段）：\n\n" +
+    "diff --git a/src/OrderService.java b/src/OrderService.java\nindex 1111111..2222222 100644\n--- a/src/OrderService.java\n+++ b/src/OrderService.java\n" +
+    "@@ -17,3 +17,3 @@ public void persist(Order order) {\n     var conn = pool.getConnection();\n-    int timeout = 300;\n+    int timeout = 5000;\n     try {\n\n上线前记得改回来。\n",
   // 别的项目的一份：折在「其他」组里
   "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-13 1800.md":
     "---\nproject: /Users/you/other\nbranch: main\n---\n\n另一个项目的笔记\n",

@@ -1,6 +1,8 @@
 /**
  * 草稿里的日志段（M10 ②）：markdown 里连续几行像日志的，按 LogView 那套着色，
- * 段头一条小工具条能「只看 WARN+」。
+ * 段头一条小工具条能「只看 WARN+」。②b 加了 diff 段：`diff --git` / `@@` 起头的连续行
+ * 按 DiffView 统一视图那套着色（只着色，没有段头）。两种段共用一个 field，
+ * markdown-live 对两种都让路。
  *
  * # 为什么在前端算、不走 Rust
  *
@@ -39,6 +41,7 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import { findLogSegments, parse, FORMAT_LABEL, type LogSegment, type Level } from "../logview/parse";
+import { findDiffSegments, type DiffSegment, type LineKind } from "../git/diff";
 
 /** 段头。按钮通过 `toggle(view, seg)` 走 effect，widget 自己不存状态 */
 class HeadWidget extends WidgetType {
@@ -80,6 +83,15 @@ const lineDeco: Record<Exclude<Level, null> | "none", Decoration> = {
   none: Decoration.line({ class: "cm-log" }),
 };
 const stackDeco = Decoration.line({ class: "cm-log cm-log-stack" });
+const diffDeco: Record<LineKind, Decoration> = {
+  add: Decoration.line({ class: "cm-log cm-diff-add" }),
+  del: Decoration.line({ class: "cm-log cm-diff-del" }),
+  ctx: Decoration.line({ class: "cm-log cm-diff-ctx" }),
+  hunk: Decoration.line({ class: "cm-log cm-diff-hunk" }),
+  meta: Decoration.line({ class: "cm-log cm-diff-meta" }),
+};
+/** 行首那个 + / - 单独一个 mark，和 DiffView 里 `.sign` 一样只染那一格 */
+const signDeco = { add: Decoration.mark({ class: "cm-diff-sign-add" }), del: Decoration.mark({ class: "cm-diff-sign-del" }) };
 const partDeco: Record<string, Decoration> = {};
 const partMark = (cls: string) => (partDeco[cls] ??= Decoration.mark({ class: `cm-log-${cls}` }));
 
@@ -91,18 +103,20 @@ const toggleEffect = StateEffect.define<number>();
 
 interface SegState {
   segs: LogSegment[];
+  /** diff 段（②b）：只着色，没有段头 —— 一段 diff 没有「只看什么」可选 */
+  diffs: DiffSegment[];
   /** 开了「只看 WARN+」的段，按首行行号记 */
   filtered: Set<number>;
   /** 段头（块 widget）。**块装饰只能从 StateField 出**，ViewPlugin 里给会直接抛 */
   heads: DecorationSet;
 }
 
-function scan(doc: Text): LogSegment[] {
+function scan(doc: Text): { segs: LogSegment[]; diffs: DiffSegment[] } {
   // 上限：草稿不该是日志文件。真粘了十万行，段不认了（那时该把它存成文件用日志视图）
-  if (doc.lines > 50_000) return [];
+  if (doc.lines > 50_000) return { segs: [], diffs: [] };
   const lines: string[] = [];
   for (let n = 1; n <= doc.lines; n++) lines.push(doc.line(n).text);
-  return findLogSegments(lines);
+  return { segs: findLogSegments(lines), diffs: findDiffSegments(lines) };
 }
 
 function heads(doc: Text, segs: LogSegment[], filtered: Set<number>): DecorationSet {
@@ -120,15 +134,15 @@ function heads(doc: Text, segs: LogSegment[], filtered: Set<number>): Decoration
 /** 段和过滤开关。文档一变重扫；开关状态按「改动前后同一段」对过去，对不上的丢掉 */
 export const logSegmentsField = StateField.define<SegState>({
   create(state) {
-    const segs = scan(state.doc);
-    return { segs, filtered: new Set(), heads: heads(state.doc, segs, new Set()) };
+    const { segs, diffs } = scan(state.doc);
+    return { segs, diffs, filtered: new Set(), heads: heads(state.doc, segs, new Set()) };
   },
   update(v, tr) {
-    let { segs, filtered } = v;
+    let { segs, diffs, filtered } = v;
     let dirty = false;
     if (tr.docChanged) {
       const before = segs;
-      segs = scan(tr.state.doc);
+      ({ segs, diffs } = scan(tr.state.doc));
       const next = new Set<number>();
       for (const f of filtered) {
         const seg = before.find((s) => s.from === f);
@@ -148,7 +162,7 @@ export const logSegmentsField = StateField.define<SegState>({
         dirty = true;
       }
     }
-    return dirty ? { segs, filtered, heads: heads(tr.state.doc, segs, filtered) } : v;
+    return dirty ? { segs, diffs, filtered, heads: heads(tr.state.doc, segs, filtered) } : v;
   },
   provide: (f) => EditorView.decorations.from(f, (v) => v.heads),
 });
@@ -228,6 +242,18 @@ const plugin = ViewPlugin.fromClass(
           }
         }
       }
+      for (const d of state.field(logSegmentsField).diffs) {
+        for (const { from, to } of visibleRanges) {
+          const a = Math.max(doc.lineAt(from).number, d.from + 1);
+          const b = Math.min(doc.lineAt(to).number, d.to + 1);
+          for (let n = a; n <= b; n++) {
+            const ln = doc.line(n);
+            const k = d.kinds[n - 1 - d.from];
+            decos.push(diffDeco[k].range(ln.from));
+            if ((k === "add" || k === "del") && ln.length > 0) decos.push(signDeco[k].range(ln.from, ln.from + 1));
+          }
+        }
+      }
       return Decoration.set(decos, true);
     }
   },
@@ -241,10 +267,11 @@ const plugin = ViewPlugin.fromClass(
  */
 export function inLogSegment(state: EditorState, from: number, to: number): boolean {
   const f = state.field(logSegmentsField, false);
-  if (!f || f.segs.length === 0) return false;
+  if (!f || (f.segs.length === 0 && f.diffs.length === 0)) return false;
   const a = state.doc.lineAt(from).number - 1;
   const b = state.doc.lineAt(to).number - 1;
-  return f.segs.some((s) => a >= s.from && b <= s.to);
+  // diff 段也算：`- 删掉的行` 在 markdown 眼里是列表项，`+++ b/x` 里的 `+` 也是
+  return f.segs.some((s) => a >= s.from && b <= s.to) || f.diffs.some((s) => a >= s.from && b <= s.to);
 }
 
 /*
@@ -271,6 +298,14 @@ const theme = EditorView.baseTheme({
   ".cm-log-debug .cm-log-level, .cm-log-trace .cm-log-level": { color: "var(--lvl-debug)" },
   ".cm-log-debug, .cm-log-trace": { color: "var(--text-dim)" },
   ".cm-log-stack": { color: "var(--text-dim)", background: "rgba(255, 255, 255, 0.02)" },
+  // diff 段：照 DiffView 统一视图那张表（.uni .row.add / .del / .ctx / .hunk / .meta）
+  ".cm-diff-add": { background: "var(--diff-add-bg)" },
+  ".cm-diff-del": { background: "var(--diff-del-bg)" },
+  ".cm-diff-ctx": { color: "var(--text-dim)" },
+  ".cm-diff-hunk": { background: "var(--hover)", color: "var(--text-faint)", fontStyle: "italic" },
+  ".cm-diff-meta": { color: "var(--text-faint)" },
+  ".cm-log .cm-diff-sign-add": { color: "var(--diff-add-fg)", fontWeight: "600" },
+  ".cm-log .cm-diff-sign-del": { color: "var(--diff-del-fg)", fontWeight: "600" },
   // 段头：和 Git 日志过滤条一个尺度（岛内工具栏 34 太高，这是行内的东西，24 够了）
   ".cm-log-head": {
     display: "flex",

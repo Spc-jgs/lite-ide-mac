@@ -1,5 +1,10 @@
 <script module lang="ts">
   export type IconName =
+    | "pull"
+    | "push"
+    | "commit"
+    | "folder"
+    | "tag"
     | "sidebar"
     | "files"
     | "git"
@@ -162,6 +167,23 @@
     <path d="M4.2 6.4 L8 10.2 L11.8 6.4" />
   {:else if name === "chevron-right"}
     <path d="M6.4 4.2 L10.2 8 L6.4 11.8" />
+  {:else if name === "pull"}
+    <!-- 更新项目：箭头从右上指到左下，IDEA 的 Update Project 就是这个形状 -->
+    <path d="M12.4 3.6 L3.8 12.2" />
+    <path d="M3.8 6.2 V12.2 H9.8" />
+  {:else if name === "push"}
+    <!-- 推送：右上 -->
+    <path d="M3.6 12.4 L12.2 3.8" />
+    <path d="M6.2 3.8 H12.2 V9.8" />
+  {:else if name === "commit"}
+    <!-- 提交：线上一个点 -->
+    <circle cx="8" cy="8" r="2.4" />
+    <path d="M1.8 8 H5.6 M10.4 8 H14.2" />
+  {:else if name === "folder"}
+    <path d="M1.8 4.4 A1.2 1.2 0 0 1 3 3.2 H6.2 L7.6 4.8 H13 A1.2 1.2 0 0 1 14.2 6 V11.8 A1.2 1.2 0 0 1 13 13 H3 A1.2 1.2 0 0 1 1.8 11.8 Z" />
+  {:else if name === "tag"}
+    <path d="M2.4 2.4 H7.6 L13.6 8.4 L8.4 13.6 L2.4 7.6 Z" />
+    <circle cx="5.4" cy="5.4" r="0.9" fill="currentColor" stroke="none" />
   {/if}
 </svg>
 

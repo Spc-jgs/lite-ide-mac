@@ -16,6 +16,22 @@ import { git } from "./git.svelte";
 import { tabflow } from "./tabflow.svelte";
 import { worktree } from "./worktree.svelte";
 import { branches } from "./branches.svelte";
+import { readListPref, writeListPref } from "./prefs";
+
+/**
+ * 「最近」那组（照 IDEA 的 Recent）：最近切到过的分支，按仓库存在 localStorage，
+ * 最多 5 条。存名字不存 sha：分支改名了这条就失效，list 那边对不上名字会自动不显示。
+ */
+const RECENT_MAX = 5;
+export function recentKey(repo: string) {
+  return `git-recent:${repo}`;
+}
+export function noteRecent(repo: string, name: string) {
+  if (!name) return;
+  const list = readListPref(recentKey(repo)).filter((n) => n !== name);
+  list.unshift(name);
+  writeListPref(recentKey(repo), list.slice(0, RECENT_MAX));
+}
 
 /**
  * 分支与工作树的**动作**：切分支（含被本地改动挡住那一问的三条出路）、
@@ -54,6 +70,7 @@ export function switchTo(name: string, create = false, from = "") {
     await git.refresh();
     const now = git.status?.branch || name;
     const up = git.status?.upstream ? `（跟踪 ${git.status.upstream}）` : "";
+    if (!git.status?.detached) noteRecent(git.repo!, now);
     notify.ok(create ? `已从 ${base} 新建并切到 ${now}` : `已切到 ${now}${up}`, 2800);
     await worktree.changed();
   }, create ? "新建分支" : "切分支");
@@ -84,7 +101,10 @@ export async function stashThenCheckout() {
     }
     await gitStashPop(repo);
   }, "切分支");
-  if (ok) notify.ok(`已切到 ${git.status?.branch || p.name}，改动已从 stash 取回`, 2800);
+  if (ok) {
+    if (!git.status?.detached) noteRecent(repo, git.status?.branch || p.name);
+    notify.ok(`已切到 ${git.status?.branch || p.name}，改动已从 stash 取回`, 2800);
+  }
   else {
     // `run` 失败不刷新，而这时分支多半已经切过去、盘上带着冲突标记
     await git.refresh();
