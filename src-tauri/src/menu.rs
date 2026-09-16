@@ -71,6 +71,8 @@ pub struct MenuHandles {
     pub needs_tab: Vec<MenuItem<Wry>>,
     pub needs_repo: Vec<MenuItem<Wry>>,
     pub needs_term: Vec<MenuItem<Wry>>,
+    /// 要有项目根才有意义的（「关闭项目」）
+    pub needs_root: Vec<MenuItem<Wry>>,
 }
 
 /// 一个普通菜单项。`accel` 为 `None` 就只有标签 —— 那正是 ⌘P 那一类的处理。
@@ -106,6 +108,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let git_refresh = item(app, "git-refresh", "刷新状态", None)?;
 
     let close_terminal = item(app, "close-terminal", "关闭当前终端", None)?;
+    let close_project = item(app, "close-project", "关闭项目", None)?;
 
     // ── 最近打开：内容由前端启动后灌进来，先摆禁用占位 ──
     let recent = SubmenuBuilder::with_id(app, "recent", "最近打开")
@@ -118,6 +121,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "new-scratch", "新建草稿", Some("CmdOrCtrl+N"))?)
         .item(&item(app, "open-folder", "打开文件夹…", Some("CmdOrCtrl+O"))?)
         .item(&recent)
+        .item(&close_project)
         .item(&item(app, "open-scratch-dir", "在 Finder 中显示草稿目录", None)?)
         .separator()
         .item(&item(app, "install-cli", "安装命令行工具…", None)?)
@@ -269,6 +273,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
             git_fetch,
         ],
         needs_term: vec![close_terminal],
+        needs_root: vec![close_project],
     };
     Ok((menu, handles))
 }
@@ -298,7 +303,7 @@ pub fn refresh_recent(app: &AppHandle<Wry>, paths: &[String]) -> tauri::Result<(
 }
 
 /// 按当下的上下文让菜单项变灰。
-pub fn sync_enabled(app: &AppHandle<Wry>, has_tab: bool, has_repo: bool, has_term: bool) {
+pub fn sync_enabled(app: &AppHandle<Wry>, has_tab: bool, has_repo: bool, has_term: bool, has_root: bool) {
     let Some(h) = app.try_state::<MenuHandles>() else {
         return;
     };
@@ -310,6 +315,9 @@ pub fn sync_enabled(app: &AppHandle<Wry>, has_tab: bool, has_repo: bool, has_ter
     }
     for it in &h.needs_term {
         let _ = it.set_enabled(has_term);
+    }
+    for it in &h.needs_root {
+        let _ = it.set_enabled(has_root);
     }
 }
 

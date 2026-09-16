@@ -77,6 +77,11 @@ export const KEYS: KeyDef[] = [
   { id: "new-scratch", label: "新建草稿", accel: "⌘N", group: "文件", owner: "menu" },
   { id: "open-folder", label: "打开文件夹…", accel: "⌘O", group: "文件", owner: "menu" },
   /*
+   * 回到「只有标签、没有项目」的轻窗口（issue #40 第三层）。开一个文件不再自动
+   * 把父目录当项目之后，这是唯一能从「有项目」回到「没项目」的路。
+   */
+  { id: "close-project", label: "关闭项目", group: "文件", owner: "menu" },
+  /*
    * 翻旧草稿走侧边栏的「草稿」视图（导轨上那个便签图标，issue #40）。
    * 这条只管「去 Finder 里整理」—— 草稿目录在 Finder 里默认看不见
    * （「资源库」是隐藏的）。它原来是「把草稿目录当项目根打开」，

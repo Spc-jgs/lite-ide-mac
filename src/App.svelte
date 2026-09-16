@@ -589,6 +589,7 @@
     }
     switch (id) {
       case "open-folder": return void tabflow.openFolder();
+      case "close-project": return tabflow.closeProject();
       case "new-scratch": return void tabflow.newScratch();
       case "open-scratch-dir": return void tabflow.openScratchDir();
       case "install-cli": return void installCliTool();
@@ -685,7 +686,12 @@
     let unlisten: (() => void) | null = null;
     let dead = false;
     const ready = import("@tauri-apps/api/event")
-      .then((m) => m.listen<string[]>(OPEN_PATHS_EVENT, (e) => void openIncoming(e.payload)))
+      .then((m) =>
+        m.listen<string[]>(OPEN_PATHS_EVENT, (e) => {
+          // 负载不是数组就不动：桩的 `__mockMenu` 会把菜单事件广播给所有监听器
+          if (Array.isArray(e.payload)) void openIncoming(e.payload);
+        }),
+      )
       .then((f) => {
         if (dead) f();
         else unlisten = f;
@@ -846,7 +852,7 @@
    * 都是走一遍然后什么也没发生。灰掉的菜单项本身就是一句解释。
    */
   $effect(() => {
-    void syncMenuState(tabs.active !== null, git.repo !== null, terms.activeId !== null).catch(() => {});
+    void syncMenuState(tabs.active !== null, git.repo !== null, terms.activeId !== null, project.root !== null).catch(() => {});
   });
 
   /**
@@ -913,7 +919,7 @@
         侧边栏外壳在 Sidebar.svelte 里；两块内容的数据和回调还接在 App 上
         （标签表、git 动作没搬出去），所以以 snippet 传进去。
       -->
-      <Sidebar root={project.root} repo={git.repo} gitReady={!!gitUi.comps.pane}>
+      <Sidebar root={project.root} repo={git.repo} gitReady={!!gitUi.comps.pane} onOpenFolder={() => void tabflow.openFolder()}>
         {#snippet gitPane()}
           <gitUi.comps.pane
             status={git.status}

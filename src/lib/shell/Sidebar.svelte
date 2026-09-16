@@ -21,6 +21,7 @@
     fileTree,
     gitPane,
     scratchList,
+    onOpenFolder,
   }: {
     root: string | null;
     repo: string | null;
@@ -29,6 +30,7 @@
     fileTree: Snippet;
     gitPane: Snippet;
     scratchList: Snippet;
+    onOpenFolder: () => void;
   } = $props();
 
   /** 侧边栏横向拖拽。上限留出编辑区的活路，不让它被挤没 */
@@ -59,7 +61,14 @@
       <!-- 草稿排在 `!root` 前面：没开项目也要能翻草稿（issue #40） -->
       {@render scratchList()}
     {:else if !root}
-      <div class="no-root">把文件夹拖进来</div>
+      <!--
+        没有项目时这里不再是文件树（开一个文件不再自动把父目录当项目，issue #40）。
+        空态要给下一步：一个能点的「打开文件夹…」，拖进来那条路也留着说一句。
+      -->
+      <div class="no-root">
+        <button class="open" onclick={onOpenFolder}>打开文件夹… <kbd>⌘O</kbd></button>
+        <div class="hint">或者把文件夹拖进来。只看文件、记草稿不需要项目。</div>
+      </div>
     {:else if layout.sideView === "git" && repo && gitReady}
       {@render gitPane()}
     {:else if layout.sideView === "git" && repo}
@@ -90,6 +99,23 @@
     background: var(--panel-bg);
     height: 100%;
   }
+  .no-root .open {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    cursor: default;
+  }
+  .no-root .open:hover { background: var(--hover); }
+  .no-root .open:active { background: var(--pressed); }
+  .no-root .open:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  .no-root kbd { font-family: var(--code-font); font-size: 11px; color: var(--text-faint); }
+  .no-root .hint { margin-top: 10px; line-height: 1.5; }
   /*
    * 拖拽条：**热区和画出来的线要分开。**
    *

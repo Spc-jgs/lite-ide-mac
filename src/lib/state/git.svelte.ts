@@ -97,6 +97,9 @@ class Git {
     try {
       // 两条子进程并行；stash 列表拿不到不算错（空仓库、老 git），当空表
       const [st, stashes] = await Promise.all([gitStatus(r), gitStashList(r).catch(() => [])]);
+      // await 回来时仓库可能已经换了或关了（关闭项目 / 切项目正好撞上一次刷新）——
+      // 那份状态是别人的，写进去标题栏就会挂着一个已经不存在的分支
+      if (this.repo !== r) return;
       this.status = st;
       this.stashes = stashes;
       // 打开着的工作区差异跟着更新，否则暂存完还停在旧内容上。

@@ -146,14 +146,17 @@ class TabFlow {
       // 恢复期不抢：见 `restoringTabs` 上面那段
       if (!this.restoringTabs) tabs.activeId = id;
       /*
-       * 没有项目根时，拿这个文件的父目录顶上，文件树才有东西显示。
+       * **开一个文件不再把它的父目录顶成项目根**（issue #40 第三层，2026-09-16）。
        *
-       * **草稿不需要在这儿特判**，虽然一眼看上去像要：正开着项目时 `root`
-       * 已经有值，这句根本不执行，文件树不会被草稿顶走；而没开项目就记东西时，
-       * 树里显示的正好是你的草稿目录 —— 那时你手上也没有别的东西可看。
-       * （加一道 `!isScratch(...)` 的守卫是我第一版写的，它永远不会为假。）
+       * 原来是「没有项目根时拿父目录顶上，文件树才有东西显示」。代价在两处都踩到了：
+       * 双击 `~/Downloads/x.log` 看一眼，`~/Downloads` 就成了项目 —— 文件树列它、
+       * git 去找它、watcher 挂上它，还进了「最近打开」；没开项目就 ⌘N 记东西，
+       * 草稿目录成了项目，同样进最近列表。「看一眼 / 记两笔」本来就是**无项目**的动作，
+       * 套一个项目上去就是那种「杀鸡用牛刀」的重量感。
+       *
+       * 没有根时：侧边栏是「打开文件夹…」那块空态（草稿视图照常），面包屑显示全路径，
+       * ⇧⌘F 没有范围（菜单灰着）。要项目就 ⌘O 或者拖文件夹进来 —— 那是显式的。
        */
-      if (!project.root) project.root = info.path.slice(0, info.path.lastIndexOf("/")) || "/";
       // 恢复期不核：那时 activeId 故意停在 null 而标签一个个往里填，
       // 「有标签但没有活动标签」在这段窗口里是对的。恢复完了再一次核完
       if (!this.restoringTabs) tabs.audit("开标签");
@@ -162,6 +165,23 @@ class TabFlow {
     } finally {
       this.#opening.delete(path);
     }
+  }
+
+  /**
+   * 关闭项目（issue #40 第三层）：回到「只有标签、没有项目」的轻窗口。
+   *
+   * 和切项目是同一套：旧项目的现场存到它自己那份、关掉它的**干净**标签
+   * （脏的留着，自己会在关的时候问）、草稿不动。VS Code 的 Close Folder 也是
+   * 这个语义。没有项目时什么都不做。
+   */
+  closeProject() {
+    const old = project.root;
+    if (!old) return;
+    notify.clear();
+    this.hooks.beforeRootChange?.(old, "");
+    project.root = null;
+    for (const t of [...tabs.list]) if (!t.dirty && !project.isScratch(t.path)) this.doClose(t);
+    tabs.audit("关闭项目");
   }
 
   /**
