@@ -98,7 +98,8 @@
       {/each}
     </nav>
   {:else}
-    <span class="cell dim navslot">{root ? projectName(root) : "等待文件夹"}</span>
+    <!-- 没项目不是「在等」—— 无项目是一等状态（#40 第三层），这格空着就好 -->
+    <span class="cell dim navslot">{root ? projectName(root) : ""}</span>
   {/if}
   <span class="spacer"></span>
 

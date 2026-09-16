@@ -23,6 +23,7 @@
   import { worktree } from "../state/worktree.svelte";
   import { git } from "../state/git.svelte";
   import { nav } from "../state/nav.svelte";
+  import { overlay } from "../state/overlay.svelte";
   import { lang } from "../state/lang.svelte";
 
   /**
@@ -221,21 +222,40 @@
       收进一张卡片。原本是四行居中文字铺在整个内容区里 —— 1440 宽的窗口上
       读起来是散的，眼睛没有落点。快捷键排成两列之后它才像个「起点」。
     -->
+    <!--
+      空态按「有没有项目」说两套话（issue #40 第三层）。原来只有一套，开头是
+      「打开一个文件夹开始」—— 而无项目模式下最常见的第一动作是 ⌘N 记两笔或者
+      拖一个文件进来，把「开项目」当唯一入口正是那种「杀鸡用牛刀」的重量感。
+      开着项目、只是没有标签时，下一步是找文件，不是再开一个项目。
+    -->
     <div class="empty">
       <div class="card">
-        <div class="big">打开一个文件夹开始</div>
-        <p>也可以直接把文件或文件夹拖进来 —— 代码走编辑模式，大文件与日志自动走只读的日志模式</p>
-        <div class="go">
-          <button class="primary" onclick={() => void tabflow.openFolder()}>打开文件夹…</button>
-          <kbd>⌘O</kbd>
-          <span class="gap"></span>
-          {#if project.recent.length > 0}
-            <span class="lastly">最近：</span>
-            <button class="link" onclick={() => void tabflow.openRecent(project.recent[0])}>
-              {project.recent[0].slice(project.recent[0].lastIndexOf("/") + 1) || project.recent[0]}
-            </button>
-          {/if}
-        </div>
+        {#if project.root}
+          <div class="big">{project.root.slice(project.root.lastIndexOf("/") + 1)} —— 没有打开的文件</div>
+          <p>单击文件树里的文件是预览（再点别的会顶掉），双击才保留；也可以把文件拖进来</p>
+          <div class="go">
+            <button class="primary" onclick={() => overlay.openQuick("file")}>找文件…</button>
+            <kbd>⌘P</kbd>
+            <button class="secondary" onclick={() => void tabflow.newScratch()}>新建草稿</button>
+            <kbd>⌘N</kbd>
+          </div>
+        {:else}
+          <div class="big">记点东西，或者打开一个项目</div>
+          <p>草稿不用起名、不用保存；文件或文件夹拖进来就开 —— 代码走编辑模式，大文件与日志自动走只读的日志模式</p>
+          <div class="go">
+            <button class="primary" onclick={() => void tabflow.newScratch()}>新建草稿</button>
+            <kbd>⌘N</kbd>
+            <button class="secondary" onclick={() => void tabflow.openFolder()}>打开文件夹…</button>
+            <kbd>⌘O</kbd>
+            <span class="gap"></span>
+            {#if project.recent.length > 0}
+              <span class="lastly">最近：</span>
+              <button class="link" onclick={() => void tabflow.openRecent(project.recent[0])}>
+                {project.recent[0].slice(project.recent[0].lastIndexOf("/") + 1) || project.recent[0]}
+              </button>
+            {/if}
+          </div>
+        {/if}
         <!--
           这份表原来是**手抄的第三份**，而且抄错了：⌘⇧F / ⌘⇧O / ⌘⇧G
           三处修饰键次序都反了（Apple 的次序是 ⌃⌥⇧⌘）。
@@ -376,6 +396,19 @@
     cursor: default;
   }
   .empty .primary:hover { filter: brightness(1.08); }
+  /* 第二个动作：描边不填色 —— 同一行两个实心按钮就分不出哪个是主的 */
+  .empty .secondary {
+    padding: 4px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font-family: var(--ui-font);
+    font-size: 12px;
+    cursor: default;
+  }
+  .empty .secondary:hover { background: var(--hover); }
+  .empty .secondary:active { background: var(--pressed); }
   .empty .go kbd {
     font-family: var(--code-font);
     font-size: 10.5px;
@@ -401,6 +434,7 @@
   }
   .empty .link:hover { text-decoration: underline; }
   .empty .primary:focus-visible,
+  .empty .secondary:focus-visible,
   .empty .link:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
   .empty .keymap {
