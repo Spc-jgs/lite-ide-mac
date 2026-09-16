@@ -111,6 +111,11 @@ const FILES: Record<string, string> = {
   // 带锚点的一份（M10）：列表要按项目分组、chip 要能跳回那一行，桩上得有一条能点的
   "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-14 1120.md":
     "---\nproject: /proj\nbranch: m13/git\nhead: h800000\nat: src/OrderService.java:18\n---\n\n18 行那个 timeout 是临时的，上线前改回 300\n",
+  // 粘了一段日志的一份（M10 ②）：段头、级别着色、「只看 WARN+」都在它身上验
+  "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-15 0930.md":
+    "---\nproject: /proj\nbranch: m13/git\nhead: h800000\n---\n\n# 8842013 为什么落库失败\n\n从 order.log 里抠出来的：\n\n" +
+    LINES.join("\n") +
+    "\n\n看起来是连接池 10 个不够，先把 maximumPoolSize 调到 20 观察。\n",
   // 别的项目的一份：折在「其他」组里
   "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-13 1800.md":
     "---\nproject: /Users/you/other\nbranch: main\n---\n\n另一个项目的笔记\n",
@@ -482,7 +487,7 @@ const DIRS: Record<string, Array<[string, boolean]>> = {
   // 应用日志所在的目录。它**不在项目里**，只有「帮助 → 打开应用日志」够得着
   "/Users/you/Library/Logs/com.liteide.app": [["app.log", false]],
   // 草稿目录里预放两份 —— 不放的话侧边栏的草稿列表在浏览器里永远是空态（issue #40）
-  [SCRATCH_DIR]: [["2026-09-10 1644.md", false], ["2026-09-12 0915.md", false], ["2026-09-14 1120.md", false], ["2026-09-13 1800.md", false]],
+  [SCRATCH_DIR]: [["2026-09-10 1644.md", false], ["2026-09-12 0915.md", false], ["2026-09-14 1120.md", false], ["2026-09-15 0930.md", false], ["2026-09-13 1800.md", false]],
   "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], ["node_modules", true], ["target", true], ["build", true], ["dist", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   // 生成物目录里也要有东西 —— 空目录点开只有一行「空」，看不出「点得开」这件事
   "/proj/node_modules": [["svelte", true], [".package-lock.json", false]],

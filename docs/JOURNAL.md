@@ -6657,3 +6657,45 @@ frontmatter 那种写法，只认最窄的形状（第一行恰好 `---`、`key:
 - `ScratchDto` 多 `anchor`，新 `AnchorDto` ↔ `ScratchAnchor` 登记进 `dto_sync`。
 - `Rail.svelte` #40 那条「草稿不属于任何项目」的注释补了一句：锚点不改这条。
 - 入口包 138,525 → 139,513 B（+1 KB：`frontmatter.ts` + `anchorNow`），136 KiB。
+
+## 2026-09-16 · M10 日志段：草稿里粘一段日志，按 LogView 那套着色
+
+[SCRATCH.md](SCRATCH.md) 第 2a 件。
+
+### 改了方案：前端算，不走 Rust
+
+方案里写的是「判定放 Rust 侧（`level::detect` 在那儿）」。动手前看了一眼 LogView 才发现
+它本来就有一套**前端**解析器 `logview/parse.ts` —— 可见行都是它按格式切成时间戳 / 级别 /
+线程 / logger / 正文再上色的，Rust 那边的 `detect` 只服务索引和过滤。那么草稿用同一套，
+「同一段在 LogPane 和草稿里颜色一致」就不是对比出来的，是同一份代码；而走 Rust 只拿得到
+级别拿不到分段，还得每敲一个字把整份草稿送一趟 IPC（粘了 1MB 日志就是 1MB 一趟）。
+
+段的判据也从「认出级别」改成「认出格式」（`formatOfLine`：有时间戳 / 结构化键）：
+一行 prose 里带个 "ERROR" 不是日志。连续 ≥ 3 行像日志的成段；空行和堆栈续行不断段
+但也不开段；段尾的空行 / 堆栈剪掉。`findLogSegments` 是纯函数，10 条测试，验过红
+（去掉 `MIN_LINES` 那道闸，「两行不算」立刻红）。
+
+### CM6 的三个坑
+
+1. **块 widget 不能从 ViewPlugin 出。** 第一版段头 widget 放在 ViewPlugin 的 decorations 里，
+   一打开就 `RangeError: Block decorations may not be specified via plugins`。CM6 的规矩：
+   会改变行高布局的装饰（block widget、block replace）必须来自 StateField，ViewPlugin 只能
+   给行内的。于是拆成两层：`logSegmentsField`（段表 + 过滤开关 + 段头 widget）、ViewPlugin
+   （只给视口里的行上级别色和分段色，和 LogView 一样只算看得见的）。
+2. **语法高亮会盖住装饰色。** markdown 把 `[http-nio-exec-4]` 认成链接，`ideaDarkHighlight`
+   给它蓝色下划线；我的 mark 也是一个单类选择器，谁后加载谁赢。加 `.cm-log` 前缀抬一级，
+   再用 `.cm-log * { color: inherit; text-decoration: none }` 把整行里语法高亮的色都压回本行。
+   markdown-live 那边也要让：`inLogSegment` 判**整个节点**在段里就跳过子树 —— 只看起点
+   不行，Document / Paragraph 从日志行开始却包着后面的正文，一跳就整篇不渲染了。
+3. **折叠占位符挂在上一行末。** 「只看 WARN+」= 把不匹配的连续行 `foldEffect` 掉，范围是
+   上一行行尾到这串末行行尾。要藏的是段的第一行时没有上一行可挂（段头 widget 在它行首，
+   折到前一行会把 widget 一起吞掉），改从它自己的行首折：这一行只剩一个占位符。
+   开关状态存在 field 里，文档一变按「首行映射过去仍在某段里」对过去；它是显示状态，
+   不写进文件。
+
+### 验证
+
+桩上加了一份粘着 12 行日志的草稿：段头 `日志 · Java / Logback · 7 行`、INFO 蓝 / WARN 黄 /
+ERROR 整行红 / 堆栈压暗、`[thread]` 不再是链接；点「只看 WARN+」折掉 INFO / DEBUG / TRACE
+（堆栈跟着 ERROR 留下），再点展开；在日志行里打字不报错、段不散。
+`pnpm test` 25 个文件全过，`pnpm check` 0，入口包不变（全在懒加载的 markdown 包里）。

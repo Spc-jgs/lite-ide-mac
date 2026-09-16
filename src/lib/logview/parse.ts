@@ -99,7 +99,8 @@ const RE = {
   logfmt: /(^|\s)(level|lvl)=("?)[a-zA-Z]+\3/,
 };
 
-function formatOfLine(line: string): LogFormat | null {
+/** 一行像不像某种日志（有时间戳 / 结构化键）。认不出返回 null。草稿里的日志段判定也用它 */
+export function formatOfLine(line: string): LogFormat | null {
   if (!line) return null;
   if (line[0] === "{" && line.includes('"') && (line.includes('level') || line.includes('lvl') || line.includes('severity'))) {
     return "json";
@@ -144,7 +145,8 @@ export function detectFormat(lines: string[]): LogFormat {
 
 const STACK_PREFIXES = ["\tat ", "    at ", "  at ", "\t... ", "\tSuppressed:", "Caused by:"];
 
-function isStackLine(line: string): boolean {
+/** 异常堆栈的续行（`\tat …` / `Caused by:`）—— 不属于任何格式，跟着上一条走 */
+export function isStackLine(line: string): boolean {
   for (const p of STACK_PREFIXES) {
     if (line.startsWith(p)) return true;
   }
@@ -430,5 +432,72 @@ export function highlight(text: string, needle: string, caseSensitive: boolean):
     pos = i + pat.length;
   }
   out.push(text.slice(pos));
+  return out;
+}
+
+// ─────────────────────────── 草稿里的日志段（M10 ②） ───────────────────────────
+
+/**
+ * 草稿里的日志段：连续的、像日志的行当作一段。
+ *
+ * 判据用的是**格式**（有时间戳 / 结构化键，`formatOfLine`），不是级别关键字：
+ * 一行 prose 里带个 "ERROR" 不是日志，`2026-08-24 14:03:21.442 ERROR …` 才是。
+ * 方案里原本写的是「被 `level::detect` 认出级别的行」，改成格式是因为它更严 ——
+ * 误判（把正文着了色）比漏判难受。
+ *
+ * 段的边界：
+ * - 像日志的行开段、续段；
+ * - 堆栈续行（`\tat …`）和空行**不断段**，但也不开段（日志里有空行、有堆栈）；
+ * - 别的行（prose）断段；
+ * - 段尾的空行 / 堆栈行剪掉 —— 段以一行真日志结尾；
+ * - 少于 [`MIN_LINES`] 行像日志的不算段。
+ *
+ * 纯函数：输入行数组，输出行号区间（0-based，闭区间）。编辑器那边每次改动重算，
+ * 几万行也只是几万次正则，比 IPC 一趟便宜。
+ *
+ * 放在这个文件里而不是单独一个模块：它要 `formatOfLine` / `isStackLine`，而 node 直跑的
+ * 测试认不出不带扩展名的相对导入 —— 仓库里被这么测的模块一个相对值导入都没有。
+ */
+
+/** 至少几行像日志才算一段。三行：一行是引用，两行是巧合 */
+export const MIN_LINES = 3;
+
+export interface LogSegment {
+  /** 首行，0-based */
+  from: number;
+  /** 末行，0-based，闭区间 */
+  to: number;
+  fmt: LogFormat;
+  /** 像日志的行数（不含空行和堆栈行） */
+  count: number;
+}
+
+export function findLogSegments(lines: string[]): LogSegment[] {
+  const out: LogSegment[] = [];
+  let start = -1;
+  let last = -1; // 最后一行真日志
+  let count = 0;
+  const flush = () => {
+    if (start >= 0 && count >= MIN_LINES) {
+      const body = lines.slice(start, last + 1);
+      out.push({ from: start, to: last, fmt: detectFormat(body), count });
+    }
+    start = -1;
+    last = -1;
+    count = 0;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (formatOfLine(l.trim())) {
+      if (start < 0) start = i;
+      last = i;
+      count++;
+    } else if (start >= 0 && (l.trim() === "" || isStackLine(l))) {
+      // 续段但不算数
+    } else {
+      flush();
+    }
+  }
+  flush();
   return out;
 }

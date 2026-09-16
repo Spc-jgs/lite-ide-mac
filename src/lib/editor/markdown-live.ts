@@ -10,6 +10,7 @@
  */
 
 import { syntaxTree } from "@codemirror/language";
+import { inLogSegment } from "./log-segments";
 import { type Extension, type Range } from "@codemirror/state";
 import {
   Decoration,
@@ -100,6 +101,10 @@ function build(view: EditorView): DecorationSet {
       to,
       enter: (node) => {
         const name = node.name;
+
+        // 日志段里的节点归 log-segments 管（M10 ②）：`[http-nio-exec-4]` 不是链接，
+        // `_` 不是强调。整个子树都跳过
+        if (inLogSegment(state, node.from, node.to)) return false;
 
         // ── 整行级
         const lineDeco = HEADING_LINE[name];
