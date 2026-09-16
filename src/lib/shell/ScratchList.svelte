@@ -73,7 +73,7 @@
     <span class="title">草稿</span>
     <span class="gap"></span>
     <button class="hb" onclick={onNew} title="新建草稿 ⌘N" aria-label="新建草稿">
-      <Icon name="plus" size={13} />
+      <Icon name="plus" size={14} />
     </button>
   </div>
   <div class="list">
@@ -147,8 +147,8 @@
     flex: none;
     display: grid;
     place-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px; /* M8：工具按钮统一 24 */
     background: transparent;
     border: none;
     border-radius: var(--r-sm);
@@ -169,7 +169,7 @@
     width: 100%;
     padding: 4px 8px;
     border: none;
-    border-radius: var(--r-md);
+    border-radius: var(--r-sm); /* M8 */
     background: transparent;
     color: var(--text-dim);
     font: inherit;

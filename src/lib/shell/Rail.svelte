@@ -156,7 +156,7 @@
     height: 26px;
     background: transparent;
     border: none;
-    border-radius: var(--r-md);
+    border-radius: var(--r-sm); /* M8：所有 ≤28px 的控件一个圆角，见 ui.md「控件一个尺度」 */
     color: var(--text-faint);
     cursor: default;
     transition: background 0.09s, color 0.09s;

@@ -1181,11 +1181,11 @@
     -->
     {#if activePath}
       <button class="hb" onclick={locate} title="在树里定位当前文件" aria-label="定位当前文件">
-        <Icon name="locate" size={13} />
+        <Icon name="locate" size={14} />
       </button>
     {/if}
     <button class="hb" onclick={collapseAll} title="折叠全部" aria-label="折叠全部">
-      <Icon name="collapse" size={13} />
+      <Icon name="collapse" size={14} />
     </button>
     <button
       class="hb"
@@ -1195,7 +1195,7 @@
       aria-label="跟随标签"
       aria-pressed={follow}
     >
-      <Icon name="follow" size={13} />
+      <Icon name="follow" size={14} />
     </button>
   </div>
   {#if speed !== ""}
@@ -1468,8 +1468,8 @@
     flex: none;
     display: grid;
     place-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px; /* M8：工具按钮统一 24 */
     background: transparent;
     border: none;
     border-radius: var(--r-sm);
@@ -1500,7 +1500,7 @@
     min-width: 100%;
     height: 24px;
     padding-right: 8px;
-    border-radius: var(--r-md);
+    border-radius: var(--r-sm); /* M8：行和标签、按钮一个圆角 */
     background: transparent;
     border: none;
     color: var(--text-dim);

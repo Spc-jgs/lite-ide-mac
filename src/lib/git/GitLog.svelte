@@ -258,10 +258,14 @@
 
   <div class="right">
     {#if picked}
+      <div class="dtools">
+        <span class="sha">{picked.short}</span>
+        <span class="gap"></span>
+        {#if !filesLoading}<span>{files.length} 个文件</span>{/if}
+      </div>
       <div class="detail">
         <div class="dsubject">{picked.subject}</div>
         <div class="dmeta">
-          <span class="sha">{picked.short}</span>
           <span>{picked.author}</span>
           <span class="dim">{picked.email}</span>
           <span class="dim">{picked.date} · {picked.when}</span>
@@ -276,7 +280,6 @@
         {:else if files.length === 0}
           <div class="msg">这次提交没有文件变化</div>
         {:else}
-          <div class="dhead">{files.length} 个文件</div>
           {#each files as f (f.path)}
             <button
               class="drow"
@@ -310,20 +313,41 @@
     background: var(--editor-bg);
   }
   .left { display: flex; flex-direction: column; overflow: hidden; }
+  /*
+   * 详情栏（M8）：不再压一层 --hover 的白 —— 岛里再抬一块浅色板，看着像另一个面板。
+   * 和左边靠一条 5% 的线分开就够；第一行是和左边过滤条等高的头（sha · N 个文件），
+   * 两栏的第一行在同一条水平线上。
+   */
   .right {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-left: 1px solid var(--border-soft); /* M8：岛内的分区线一律 5% */
-    background: var(--hover);
+    border-left: 1px solid var(--border-soft);
   }
+  .dtools {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 11px;
+    color: var(--text-dim);
+    user-select: none;
+  }
+  .dtools .sha { font-family: var(--code-font); color: var(--accent); }
+  .dtools .gap { flex: 1; }
 
   .tools {
     flex: none;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 4px 8px;
+    height: 34px; /* M8：工具栏统一 34，和右边详情栏的头齐平 */
+    box-sizing: border-box;
+    padding: 0 8px;
     background: var(--panel-bg);
     border-bottom: 1px solid var(--border-soft); /* M8 */
     font-size: 11px;
@@ -348,13 +372,16 @@
   .cnt { font-family: var(--code-font); font-size: 10.5px; color: var(--text-faint); }
 
   .rows { flex: 1; overflow: auto; }
+  /* 内缩的圆角块，和文件树 / 标签栏同一套（ui.md 第一条）—— 原来是通栏色条 */
   .crow {
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
+    width: calc(100% - 8px);
+    margin: 0 4px;
     height: 22px;
     padding: 0 10px 0 4px;
+    border-radius: var(--r-sm);
     background: transparent;
     border: none;
     color: var(--text-dim);
@@ -377,7 +404,7 @@
     display: inline-block;
     margin-right: 5px;
     padding: 0 5px;
-    border-radius: var(--r-md);
+    border-radius: var(--r-sm); /* M8 */
     font-size: 10px;
     font-family: var(--code-font);
     background: var(--selected);
@@ -401,7 +428,6 @@
     color: var(--text-dim);
   }
   .dmeta .dim { color: var(--text-faint); }
-  .dmeta .sha { font-family: var(--code-font); color: var(--accent); }
   .tagx {
     font-size: 10px;
     color: var(--lvl-warn);
@@ -412,21 +438,15 @@
   }
 
   .dfiles { flex: 1; overflow: auto; }
-  .dhead {
-    padding: 7px 10px 4px;
-    font-size: 10.5px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--text-faint);
-    user-select: none;
-  }
   .drow {
     display: flex;
     align-items: center;
     gap: 6px;
-    width: 100%;
-    height: 21px;
-    padding: 0 8px 0 10px;
+    width: calc(100% - 8px);
+    margin: 0 4px;
+    height: 22px;
+    padding: 0 8px 0 6px;
+    border-radius: var(--r-sm);
     background: transparent;
     border: none;
     color: var(--text-dim);

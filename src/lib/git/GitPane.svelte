@@ -782,7 +782,7 @@
   .sec .cnt {
     font-family: var(--code-font);
     background: var(--selected);
-    border-radius: var(--r-md);
+    border-radius: var(--r-sm);
     padding: 0 5px;
     font-size: 10px;
   }
@@ -803,7 +803,7 @@
 
   /* 行操作按钮平时不占视觉，hover 才浮出来 —— 列表安静，动作随手可及 */
   /* 悬停是内缩圆角块，和文件树同一套 —— 两边挨着，做法不一样一眼看得出来 */
-  .frow-wrap { display: flex; align-items: center; border-radius: var(--r-md); }
+  .frow-wrap { display: flex; align-items: center; border-radius: var(--r-sm); }
   /* 分组时文件行往里缩一格，让目录头看起来是它们的父 */
   .frow-wrap.in-group { margin-left: 12px; }
   .gdir {
@@ -819,7 +819,7 @@
     color: var(--text-dim);
     font-size: 12px;
     text-align: left;
-    border-radius: var(--r-md);
+    border-radius: var(--r-sm);
     cursor: pointer;
   }
   .gdir:hover { background: var(--hover); }

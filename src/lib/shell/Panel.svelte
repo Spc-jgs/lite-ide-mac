@@ -318,8 +318,8 @@
   .panel {
     flex: none;
     display: grid;
-    /* 26 → 32：22px 的圆角标签要有呼吸位，贴着上下边看着像被切掉一半 */
-    grid-template-rows: 32px 1fr;
+    /* 26 → 32 → 38（M8）：和侧边栏头、标签栏同一个高度，三处的头在一条线上 */
+    grid-template-rows: 38px 1fr;
     overflow: hidden;
     border: var(--island-border);
     border-radius: var(--island-radius);
@@ -355,8 +355,8 @@
     flex: none;
     display: grid;
     place-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px; /* M8：工具按钮统一 24 */
     background: transparent;
     border: none;
     border-radius: var(--r-sm);
@@ -385,7 +385,7 @@
     display: flex;
     align-items: center;
     flex: none;
-    height: 22px;
+    height: 24px; /* M8：和头里的按钮一样高 */
     border-radius: var(--r-sm);
     background: transparent;
   }

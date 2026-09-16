@@ -335,8 +335,8 @@
     align-items: center;
     justify-content: center;
     flex: none;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px; /* M8：和各处头里的工具按钮同一个尺寸 */
     border: none;
     border-radius: var(--r-sm);
     background: transparent;

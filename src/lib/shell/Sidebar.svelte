@@ -105,7 +105,7 @@
     gap: 6px;
     padding: 4px 10px;
     border: 1px solid var(--border);
-    border-radius: var(--r-md);
+    border-radius: var(--r-sm);
     background: transparent;
     color: var(--text);
     font: inherit;
