@@ -402,6 +402,13 @@ let stashed = new Set<string>();
  */
 let curBranch = "m13/git";
 
+/** 本地分支。可变 —— 删除 / 改名之后再拉列表要看得出变化 */
+const LOCAL: { name: string; subject: string }[] = [
+  { name: "main", subject: "M12 界面打磨" },
+  { name: "m13/git", subject: "M13 Git 版本管理" },
+  { name: "m11/symbols", subject: "M11 符号大纲" },
+];
+
 /** 本地分支的上游。切分支之后提示语里的「（跟踪 …）」要跟着走 */
 const UPSTREAM: Record<string, string> = {
   main: "origin/main",
@@ -1307,12 +1314,39 @@ index 1a2b3c4..5d6e7f8 100644
              * 而这里原来 status 说 m13/git、branches 却把 main 标成 HEAD ——
              * 于是分支面板的「当前」和 Git 栏的分支名各说各的。
              */
-            b("main", curBranch === "main", false, "origin/main", "M12 界面打磨"),
-            b("m13/git", curBranch === "m13/git", false, "origin/m13/git", "M13 Git 版本管理"),
-            b("m11/symbols", curBranch === "m11/symbols", false, "", "M11 符号大纲"),
+            ...LOCAL.map((l) => b(l.name, curBranch === l.name, false, UPSTREAM[l.name] ?? "", l.subject)),
             b("origin/main", false, true, "", "M12 界面打磨"),
             b("origin/dev", false, true, "", "开发主线"),
           ];
+        case "git_branch_delete": {
+          /*
+           * `m11/symbols` 第一次删一定被「还有没合并的提交」拦下来 —— 那条
+           * 「仍然删除」的出路在浏览器里得走得到。reject 的是对象，和 `BranchErrDto` 一致。
+           */
+          if (a.name === "m11/symbols" && !a.force) {
+            throw {
+              kind: "not-merged",
+              message: "这条分支上还有没合并的提交",
+              raw: `error: the branch '${a.name}' is not fully merged\nhint: If you are sure you want to delete it, run 'git branch -D ${a.name}'`,
+            };
+          }
+          if (a.name === curBranch) {
+            throw { kind: "other", message: `error: cannot delete branch '${a.name}' used by worktree at '/proj'`, raw: "" };
+          }
+          const i = LOCAL.findIndex((l) => l.name === a.name);
+          if (i >= 0) LOCAL.splice(i, 1);
+          return null;
+        }
+        case "git_branch_rename": {
+          if (LOCAL.some((l) => l.name === a.new)) throw `fatal: a branch named '${a.new}' already exists`;
+          const l = LOCAL.find((l) => l.name === a.old);
+          if (l) {
+            l.name = String(a.new);
+            if (UPSTREAM[String(a.old)] !== undefined) UPSTREAM[l.name] = UPSTREAM[String(a.old)];
+          }
+          if (curBranch === a.old) curBranch = String(a.new);
+          return null;
+        }
         case "git_switch": {
           /*
            * **切到 `m11/symbols` 一定失败，而且失败成「本地改动挡着」那一档。**
@@ -1339,6 +1373,9 @@ index 1a2b3c4..5d6e7f8 100644
           }
           const asked = String(a.name);
           curBranch = asked.replace(/^origin\//, "");
+          if (a.create && !LOCAL.some((l) => l.name === curBranch)) {
+            LOCAL.push({ name: curBranch, subject: `从 ${a.from || "HEAD"} 分出` });
+          }
           // 检出远程分支时真实现走 `switch --track`，**会给新分支设上上游**。
           // 桩不设的话，界面上那句「（跟踪 …）」在浏览器里永远不出现
           if (asked.startsWith("origin/")) UPSTREAM[curBranch] = asked;

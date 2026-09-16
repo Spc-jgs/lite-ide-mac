@@ -335,7 +335,7 @@
 
 
   let branchBtn = $state<HTMLElement | null>(null);
-  /** 三条路（挂件、Git 栏、菜单）都从这儿走，锚点由同一个元素定 */
+  /** 两条路（挂件、菜单）都从这儿走，锚点由同一个元素定（Git 栏的分支行 M9 删了，它和挂件是同一个东西印两遍） */
   function openBranchPicker() {
     overlay.openBranches(branchBtn?.getBoundingClientRect());
   }
@@ -958,13 +958,9 @@
             stashCount={git.stashes.length}
             onStash={() => void git.stashPush()}
             onUnstash={() => void git.stashPop()}
-            onOpenBranches={openBranchPicker}
             onOpenLog={() => layout.openGitTab("log")}
             ahead={git.status?.ahead ?? 0}
             behind={git.status?.behind ?? 0}
-            onSync={(what) => void (what === "push" ? remote.askPush() : remote.pull())}
-            syncing={remote.syncing ? { what: remote.syncing.what, phase: remote.syncing.phase, percent: remote.syncing.percent } : null}
-            onCancelSync={remote.syncing && remote.syncing.what !== "push" ? () => remote.cancel() : null}
           />
         {/snippet}
         {#snippet scratchList()}

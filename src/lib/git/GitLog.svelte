@@ -183,9 +183,10 @@
         placeholder="过滤标题 / 作者 / sha"
         spellcheck="false"
       />
-      <label class="chk"><input type="checkbox" bind:checked={all} /> 全部分支</label>
-      <label class="chk" class:off={!filePath}>
-        <input type="checkbox" bind:checked={onlyFile} disabled={!filePath} /> 只看当前文件
+      <!-- title 是给窄窗准备的：栏只有 190px 时字会被省略到只剩复选框 -->
+      <label class="chk" title="全部分支"><input type="checkbox" bind:checked={all} /> <span>全部分支</span></label>
+      <label class="chk" class:off={!filePath} title="只看当前文件">
+        <input type="checkbox" bind:checked={onlyFile} disabled={!filePath} /> <span>只看当前文件</span>
       </label>
       <span class="gap"></span>
       <span class="cnt">
@@ -355,7 +356,18 @@
     user-select: none;
   }
   .tools .gap { flex: 1; }
+  /*
+   * 窄窗（800px）时两个复选框曾经竖着叠成三行，把 34px 的条撑到 60。
+   * 整行不许折；空间不够时按「输入框收缩 → 复选框的字省略 → 计数让位」的次序让。
+   * 最小窗宽 720 时日志栏只有 ~190px，那时能保住的只有输入框和「全部分支」。
+   */
+  .tools { overflow: hidden; }
+  .tools > * { flex: none; white-space: nowrap; }
+  .tools .chk { flex: 0 1 auto; min-width: 0; }
+  .tools .chk > span { overflow: hidden; text-overflow: ellipsis; }
   .q {
+    flex: 0 1 200px;
+    min-width: 80px;
     width: 200px;
     background: var(--elevated-hi);
     border: 1px solid var(--border);

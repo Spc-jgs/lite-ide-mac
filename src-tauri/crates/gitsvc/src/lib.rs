@@ -172,6 +172,12 @@ pub enum Error {
     /// git 的原话是 `nothing to commit, working tree clean` —— 那是给命令行
     /// 用户看的。界面上「怎么办」是明确的：去勾几个文件，或者点「全部暂存」。
     NothingStaged { raw: String },
+    /// 删分支时 git 拒了：这条分支上还有没合进任何地方的提交（`branch -d` 的保护）。
+    ///
+    /// 和 `LocalChanges` 是同一档 ——「不是出错，是你得先决定」：界面上给
+    /// 「仍然删除」（走 `-D`）一条出路，而不是把 "not fully merged" 贴出来。
+    /// 判据是 git 自己那句 `is not fully merged`，`LC_ALL=C` 保证它不会被翻译。
+    NotMerged { raw: String },
 }
 
 impl Error {
@@ -183,6 +189,7 @@ impl Error {
             Error::LocalChanges { raw, .. } => raw,
             Error::HookRejected { output } => output,
             Error::NothingStaged { raw } => raw,
+            Error::NotMerged { raw } => raw,
         }
     }
 }
@@ -223,6 +230,7 @@ impl std::fmt::Display for Error {
                 f,
                 "暂存区是空的，没有东西可提交。\n先在改动列表里勾上要提交的文件，或者点「全部暂存」。"
             ),
+            Error::NotMerged { .. } => write!(f, "这条分支上还有没合并的提交"),
         }
     }
 }
@@ -1706,7 +1714,15 @@ pub fn branches(root: impl AsRef<Path>) -> R<Vec<Branch>> {
 /// （[`Error::LocalChanges`]，带上挡路的文件名），前端才给得出「去提交 /
 /// 丢弃这些改动」两个按钮；其余的错误照旧原样上抛，git 的措辞比我们能写的准。
 pub fn switch_branch(root: impl AsRef<Path>, name: &str, create: bool) -> R<String> {
+    switch_branch_from(root, name, create, "")
+}
+
+/// 同 [`switch_branch`]，`create` 时可以指定起点 `from`（`switch -c name from`）。
+/// 起点留空 = 当前 HEAD。分支菜单里「从 X 新建分支」走这条 —— 不先切到 X 再 `-c`，
+/// 那是两次检出，中间那次会把工作区翻一遍。
+pub fn switch_branch_from(root: impl AsRef<Path>, name: &str, create: bool, from: &str) -> R<String> {
     let name = name.trim();
+    let from = from.trim();
     if name.is_empty() {
         return Err(Error::Git("分支名不能为空".into()));
     }
@@ -1723,7 +1739,11 @@ pub fn switch_branch(root: impl AsRef<Path>, name: &str, create: bool) -> R<Stri
         }
     }
     if create {
-        return classify(run(root, &["switch", "-c", name]));
+        let mut args = vec!["switch", "-c", name];
+        if !from.is_empty() {
+            args.push(from);
+        }
+        return classify(run(root, &args));
     }
 
     let exists = |r: &str| {
@@ -1906,6 +1926,46 @@ pub fn worktree_remove(root: impl AsRef<Path>, path: &str, force: bool) -> R<()>
     }
     args.push(path);
     run(root.as_ref(), &args).map(|_| ())
+}
+
+/// 删本地分支。
+///
+/// 默认走 `-d`：分支上有没合进别处的提交时 git 会拒绝，分成 [`Error::NotMerged`]
+/// 上抛，界面上再给「仍然删除」那条路（`force` = `-D`）。不一上来就 `-D`：
+/// 删分支本身不可逆（reflog 能捞但那是命令行的事），能让 git 先拦一道就让它拦。
+///
+/// 当前分支删不掉是 git 自己的规矩，那句报错照原样透出去。
+pub fn branch_delete(root: impl AsRef<Path>, name: &str, force: bool) -> R<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::Git("分支名不能为空".into()));
+    }
+    // `--` 之后才是分支名：一个叫 `-D` 的分支名不该变成开关
+    let args = [
+        "branch",
+        if force { "-D" } else { "-d" },
+        "--",
+        name,
+    ];
+    match run(root.as_ref(), &args) {
+        Ok(_) => Ok(()),
+        Err(Error::Git(msg)) if msg.contains("not fully merged") => {
+            Err(Error::NotMerged { raw: msg })
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// 重命名本地分支（`branch -m`）。上游跟踪配置 git 会一起搬，不用管。
+///
+/// 不用 `-M`：目标名已存在时该报错，而不是把那条分支悄悄盖掉 ——
+/// 和 fsservice 里「rename 默认覆盖目标」是同一条戒心。
+pub fn branch_rename(root: impl AsRef<Path>, old: &str, new: &str) -> R<()> {
+    let (old, new) = (old.trim(), new.trim());
+    if old.is_empty() || new.is_empty() {
+        return Err(Error::Git("分支名不能为空".into()));
+    }
+    run(root.as_ref(), &["branch", "-m", "--", old, new]).map(|_| ())
 }
 
 /// 一个远程的 URL。用来判协议 —— HTTPS 和 SSH 拿不到凭据时，
@@ -3228,6 +3288,46 @@ mod tests {
         switch_branch(&dir, &first, false).expect("切到 sha 该成功");
         assert_eq!(run(&dir, &["rev-parse", "HEAD"]).unwrap().trim(), first, "HEAD 该在第一次提交上");
         assert!(status_full(&dir).unwrap().detached, "该是游离状态");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 删分支：没合并的先被 `-d` 拦下来并分成 NotMerged，force 才真删；改名要能改
+    #[test]
+    fn 分支删除和改名() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-brdel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "1\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "一", false).unwrap();
+        // feat 上多一个 main 没有的提交
+        switch_branch(&dir, "feat", true).unwrap();
+        std::fs::write(dir.join("a.txt"), "2\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "二", false).unwrap();
+        switch_branch(&dir, "main", false).unwrap();
+
+        match branch_delete(&dir, "feat", false) {
+            Err(Error::NotMerged { raw }) => assert!(raw.contains("not fully merged"), "raw 该是 git 的原话：{raw}"),
+            other => panic!("没合并的分支该分成 NotMerged，实际是：{other:?}"),
+        }
+        assert!(branches(&dir).unwrap().iter().any(|b| b.name == "feat"), "被拦下来时分支还得在");
+
+        branch_rename(&dir, "feat", "feat2").unwrap();
+        let names: Vec<String> = branches(&dir).unwrap().into_iter().map(|b| b.name).collect();
+        assert!(names.contains(&"feat2".to_string()) && !names.contains(&"feat".to_string()), "改名后：{names:?}");
+        assert!(branch_rename(&dir, "feat2", "main").is_err(), "目标已存在要报错，不能盖掉");
+
+        branch_delete(&dir, "feat2", true).unwrap();
+        assert!(!branches(&dir).unwrap().iter().any(|b| b.name == "feat2"), "force 之后该没了");
+        assert!(branch_delete(&dir, "main", false).is_err(), "当前分支删不掉");
         std::fs::remove_dir_all(&dir).ok();
     }
 

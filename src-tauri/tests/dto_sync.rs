@@ -44,6 +44,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("GitCmdDto", "GitCmd"),
     ("RemoteErrDto", "RemoteErr"),
     ("SwitchErrDto", "SwitchErr"),
+    ("BranchErrDto", "BranchErr"),
     ("ScratchDto", "ScratchEntry"),
     ("CliInstallDto", "CliInstall"),
 ];

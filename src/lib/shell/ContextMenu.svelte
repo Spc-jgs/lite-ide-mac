@@ -14,6 +14,12 @@
     sep?: boolean;
     /** 危险操作，常驻红色 */
     danger?: boolean;
+    /**
+     * 灰掉但留在菜单里。判据同菜单栏那条：**灰掉的项本身就是一句解释** ——
+     * 「收进 stash」在工作区干净时灰掉，人知道功能在、只是现在没东西可收；
+     * 直接不渲染的话，下次有改动时它「忽然出现」，看着像换了个菜单。
+     */
+    disabled?: boolean;
   }
 
   let {
@@ -125,6 +131,7 @@
       case "Enter":
       case " ":
         e.preventDefault();
+        if (items[cursor]?.disabled) break;
         items[cursor]?.run();
         onclose(true);
         break;
@@ -165,8 +172,11 @@
       class:danger={it.danger}
       role="menuitem"
       tabindex="-1"
+      disabled={it.disabled}
+      aria-disabled={it.disabled}
       onmouseenter={() => (cursor = i)}
       onclick={() => {
+        if (it.disabled) return;
         it.run();
         onclose(false);
       }}
@@ -238,5 +248,7 @@
    * 而人是靠「扫一眼菜单」决定往哪儿点的
    */
   .mitem.danger { color: var(--lvl-error); }
+  .mitem:disabled { color: var(--text-faint); opacity: 0.55; }
+  .mitem:disabled.on { background: transparent; }
   .mitem.danger.on { background: rgba(247, 84, 100, 0.16); }
 </style>

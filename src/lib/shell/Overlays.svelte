@@ -9,6 +9,7 @@
    * 从懒加载的键位表生成，选中一条交给 App 的 `runMenu`。
    */
   import type BranchPicker from "../git/BranchPicker.svelte";
+  import { remote } from "../state/remote.svelte";
   import type { Action } from "../search/QuickSearch.svelte";
   import { lazy, lazyGroup } from "../lazy/lazy.svelte";
   import { notify } from "../state/notify.svelte";
@@ -204,10 +205,16 @@
     ahead={git.status?.ahead ?? 0}
     behind={git.status?.behind ?? 0}
     onSwitch={(n) => branches.switchTo(n)}
-    onNewBranch={(n) => branches.switchTo(n, true)}
+    onNewBranch={(n, from) => branches.switchTo(n, true, from ?? "")}
     onOpenWorktree={(p) => void branches.openWorktree(p)}
     onNewWorktree={(...a) => branches.newWorktree(...a)}
     onRemoveWorktree={(w) => (branches.pendingWtRemove = w)}
+    onPull={() => void remote.pull()}
+    onPush={() => void remote.askPush()}
+    onFetch={() => void remote.fetch("fetch")}
+    onMerge={(ref) => branches.mergeInto(ref)}
+    onRename={(o, n) => branches.renameBranch(o, n)}
+    onDelete={(n) => (branches.pendingBranchDelete = { name: n, notMerged: false })}
   />
 {/if}
 

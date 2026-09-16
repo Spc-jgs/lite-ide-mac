@@ -17,13 +17,9 @@
     stashCount = 0,
     onStash,
     onUnstash,
-    onOpenBranches,
     onOpenLog,
     ahead = 0,
     behind = 0,
-    onSync,
-    syncing = null,
-    onCancelSync = null,
   }: {
     status: GitStatus | null;
     busy: boolean;
@@ -36,54 +32,18 @@
     onCommit: (message: string, amend: boolean, push: boolean) => void;
     onRefresh: () => void;
     /**
-     * stash（issue #33 ⑪）。入口在「改动」段的 ⋯ 里（和「全部丢弃」一样是
-     * 「把改动从工作区拿走」那一档），取回的入口除了 ⋯ 还有干净时的空态 ——
-     * 那时改动列表是空的，⋯ 根本没地方长。
+     * stash（issue #33 ⑪）。入口在面板头的 ⋯ 里（和「全部丢弃」一样是
+     * 「把改动从工作区拿走」那一档），取回的入口除了 ⋯ 还有干净时的空态。
      */
     stashCount?: number;
     onStash?: () => void;
     onUnstash?: () => void;
-    /**
-     * 打开分支面板。
-     *
-     * IDEA 里分支挂件**就是**分支操作的入口，而这里原来那行分支名只是块
-     * 只读文字，真正的入口藏在标题栏右上角 —— 人在 Git 栏里想切分支，
-     * 眼睛落的就是这一行。
-     */
-    onOpenBranches: () => void;
     /** 打开提交历史。工作区干净时那是唯一还能做的事，所以进了空态 */
     onOpenLog: () => void;
+    /** 只给空态那句「和 origin/x 比落后 N 个」用；拉取 / 推送的入口在标题栏（M9） */
     ahead?: number;
     behind?: number;
-    /**
-     * 拉取 / 推送 / 抓取。**由上层做**，因为它们要开进度、要能取消、
-     * 失败时要弹的东西（认证提示、被拒提示）横跨整个内容区。
-     * 这里只负责把「现在该显示哪个动作」算出来。
-     */
-    onSync?: (what: "pull" | "push" | "fetch") => void;
-    /** 正在跑的远程操作。null 表示没有 */
-    syncing?: { what: "pull" | "push" | "fetch"; phase: string; percent: number | null } | null;
-    /** 取消当前操作。push 进行中不给（状态不确定），由上层决定传不传 */
-    onCancelSync?: (() => void) | null;
   } = $props();
-
-  /*
-   * 分支行右边那个胶囊现在显示什么。
-   *
-   * v0.5.0 里它是个**不可点的**胶囊，理由写在那时的设计里：
-   * 「点了没有下文比不显示更糟」。M7 就是来兑现那句话的。
-   *
-   * 四态照 IDEA 的分支挂件：同步了不显示（「一切正常」不需要占位置）、
-   * 只落后给拉取、只领先给推送、**两边都有就不给一键动作** ——
-   * 那时要先决定合并还是变基，替人选一个是越权。
-   */
-  let syncState = $derived.by(() => {
-    if (!status?.upstream) return null;
-    if (behind && ahead) return { kind: "diverged" as const };
-    if (behind) return { kind: "pull" as const };
-    if (ahead) return { kind: "push" as const };
-    return null;
-  });
 
   let message = $state("");
   let amend = $state(false);
@@ -146,13 +106,6 @@
     }
   }
 
-  /*
-   * 「全部丢弃」从常驻位置撤进菜单。
-   *
-   * 它原来和「全部暂存」并排、同样大小、同样颜色，中间隔 2px ——
-   * 而一个**不可撤销**，一个随手可逆。误点的代价不该只隔着 2px。
-   * （菜单里它带 `danger`，颜色也就跟着分开了。）
-   */
   /**
    * 按目录分组 / 平铺（issue #33 ⑮）。偏好存 localStorage，默认平铺 ——
    * 二十个以内平铺一眼扫得完，多了再切。折叠状态不存：那是这一刻的事。
@@ -170,34 +123,37 @@
     collapsed = next;
   }
 
+  /**
+   * 面板头的 ⋯（M9）：面板级的事 —— 分组方式、stash。原来它们挂在「改动」分组头上，
+   * 而分组头在侧边栏 160px 时会折成两行；且只有已暂存时「改动」段不在，⋯ 还得
+   * 挪到「已暂存」段上去 —— 同一个菜单在两个地方长，位置跟着数据跳。
+   * 分组头上只留和**这一段**有关的：全部暂存 / 全部取消 / 全部丢弃。
+   */
   let menu = $state<{ x: number; y: number } | null>(null);
-
   let menuItems = $derived.by((): MenuItem[] => [
-    { label: "全部暂存", run: () => onStage(unstaged.map((e) => e.path)) },
+    { label: grouped ? "平铺显示" : "按目录分组", run: toggleGrouped },
     // 收进 stash 和丢弃是同一档 ——「把改动从工作区拿走」，只是一个还能拿回来
-    { label: "收进 stash", sep: true, run: () => onStash?.() },
+    { label: "收进 stash", sep: true, run: () => onStash?.(), disabled: !status || status.entries.length === 0 },
     ...(stashCount > 0 ? [{ label: `取回 stash (${stashCount})`, run: () => onUnstash?.() }] : []),
-    { label: grouped ? "平铺显示" : "按目录分组", sep: true, run: toggleGrouped },
-    { label: "全部丢弃…", danger: true, sep: true, run: () => onDiscard(unstaged) },
   ]);
-  /** 只有已暂存的时候「改动」段不在，⋯ 得挂到「已暂存」段上，不然 stash 没入口 */
-  let stagedMenuItems = $derived.by((): MenuItem[] => [
-    { label: "全部取消暂存", run: () => onUnstage(staged.map((e) => e.path)) },
-    { label: "收进 stash", sep: true, run: () => onStash?.() },
-    ...(stashCount > 0 ? [{ label: `取回 stash (${stashCount})`, run: () => onUnstash?.() }] : []),
-    { label: grouped ? "平铺显示" : "按目录分组", sep: true, run: toggleGrouped },
-  ]);
-  let stagedMenu = $state<{ x: number; y: number } | null>(null);
-  function openStagedMenu(e: MouseEvent) {
-    e.preventDefault();
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    stagedMenu = { x: r.right - 8, y: r.bottom + 2 };
-  }
-
   function openMenu(e: MouseEvent) {
     e.preventDefault();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     menu = { x: r.right - 8, y: r.bottom + 2 };
+  }
+
+  /**
+   * 「改动」段的 ⋯ 只装「全部丢弃」。它原来和「全部暂存」并排、同样大小、同样颜色，
+   * 中间隔 2px —— 而一个**不可撤销**，一个随手可逆。误点的代价不该只隔着 2px。
+   */
+  let wmenu = $state<{ x: number; y: number } | null>(null);
+  let wmenuItems = $derived.by((): MenuItem[] => [
+    { label: "全部丢弃…", danger: true, run: () => onDiscard(unstaged) },
+  ]);
+  function openWorkMenu(e: MouseEvent) {
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    wmenu = { x: r.right - 8, y: r.bottom + 2 };
   }
 
   function doCommit(push = false) {
@@ -280,71 +236,24 @@
     <div class="hint">不是 Git 仓库</div>
   {:else}
     <!--
-      分支行同时是标题行和入口。原来上面还压着一条只写着「GIT」的标题栏 ——
-      30px，说的是侧边栏图标已经说过的事。刷新钮挪到这一行右端：
-      它本来就是「这行数据新不新」的位置。
+      面板头（M9）：和文件树的头同一形状 —— 标题 + 计数 + 两个 24px 工具按钮，38 高。
+      原来这一行是分支名 + 同步胶囊，和标题栏的分支挂件是**同一个数据、同一个点击**，
+      一屏印两遍（ui.md 第十一条：标题栏管「哪个分支」，只有它管）。
+      同步胶囊搬去了标题栏（`TitleBar` 的 `SyncPill`），进度卡片跟着走 `RemoteBars`。
     -->
-    <div class="branch">
-      <button
-        class="bbtn"
-        onclick={onOpenBranches}
-        title={status.upstream ? `跟踪 ${status.upstream} —— 点击切换分支 / 工作树` : "没有设置上游分支 —— 点击切换分支 / 工作树"}
-      >
-        <span class="bicon"><Icon name="git" size={13} /></span>
-        <span class="bname">{status.branch || "（无分支）"}</span>
-        <span class="caret" aria-hidden="true"><Icon name="chevron-down" size={10} /></span>
-      </button>
+    <div class="head">
+      <span class="title">改动</span>
+      {#if status.entries.length > 0}<span class="hcnt">{status.entries.length}</span>{/if}
       {#if status.detached}<span class="tagx">游离</span>{/if}
       {#if status.unborn}<span class="tagx">尚无提交</span>{/if}
       <span class="gap"></span>
-      <!--
-        改动条数和分支是同一类信息（「这个仓库现在什么状态」），
-        放在一起就省掉了分组头里那个重复的计数。
-      -->
-      {#if syncing}
-        <!-- 进行中：胶囊让位给「取消」，进度条长在下面一行 -->
-        {#if onCancelSync}
-          <button class="sync cancel" onclick={onCancelSync}>取消</button>
-        {/if}
-      {:else if syncState?.kind === "pull"}
-        <!-- 胶囊带上动词才知道点了会发生什么 -->
-        <button class="sync" onclick={() => onSync?.("pull")} title="抓取远程并合并到本地">
-          ↓{behind} 拉取
-        </button>
-      {:else if syncState?.kind === "push"}
-        <!-- 推送用 accent —— 它是唯一会改到别人东西的那个 -->
-        <button class="sync push" onclick={() => onSync?.("push")} title="把本地提交推到远程">
-          ↑{ahead} 推送
-        </button>
-      {:else if syncState?.kind === "diverged"}
-        <button class="sync diverged" onclick={() => onSync?.("pull")} title="本地和远程分岔了，要先决定怎么合">
-          ↑{ahead} ↓{behind} 已分岔
-        </button>
-      {:else if status.entries.length > 0}
-        <span class="chgs">{status.entries.length} 处改动</span>
-      {/if}
-      <button class="act" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:spin={busy}>
-        <Icon name="refresh" size={13} />
+      <button class="hb" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:spin={busy}>
+        <Icon name="refresh" size={14} />
+      </button>
+      <button class="hb" onclick={openMenu} title="更多操作" aria-label="更多操作">
+        <Icon name="more-v" size={14} />
       </button>
     </div>
-
-    {#if syncing}
-      <!--
-        进度长在分支行下面，**不弹模态** —— 拉取的时候人还想接着看代码。
-        百分比可能是 null（git 的措辞不是稳定接口），那时只显示一行文字。
-      -->
-      <div class="prog">
-        <div class="pline">
-          <span class="ptext">{syncing.phase}</span>
-          {#if syncing.percent !== null}<span class="ppct">{syncing.percent}%</span>{/if}
-        </div>
-        <div class="pbar" class:indet={syncing.percent === null}>
-          {#if syncing.percent !== null}
-            <div class="pfill" style:width="{syncing.percent}%"></div>
-          {/if}
-        </div>
-      </div>
-    {/if}
 
     {#if status.entries.length === 0 && !composing && message.trim() === ""}
       <!--
@@ -362,9 +271,9 @@
         {:else if status.upstream}
           <span class="esub">和 <span class="mono">{status.upstream}</span> 一致</span>
         {/if}
-        <button class="ebtn" onclick={onOpenLog}>看提交历史</button>
+        <button class="btn" onclick={onOpenLog}>看提交历史</button>
         {#if stashCount > 0}
-          <button class="ebtn" onclick={() => onUnstash?.()}>取回 stash ({stashCount})</button>
+          <button class="btn" onclick={() => onUnstash?.()}>取回 stash ({stashCount})</button>
         {/if}
       </div>
     {:else}
@@ -390,12 +299,12 @@
           改写上一条
         </label>
         <span class="gap"></span>
-        <div class="split">
-          <button class="primary" disabled={!canCommit} onclick={() => doCommit()}>
+        <div class="btn-split">
+          <button class="btn primary" disabled={!canCommit} onclick={() => doCommit()}>
             提交 {staged.length > 0 ? `(${staged.length})` : ""}
           </button>
           <button
-            class="primary more"
+            class="btn primary"
             disabled={!canCommit}
             onclick={openCommitMenu}
             title="提交并推送…"
@@ -428,21 +337,18 @@
           <span class="sname">已暂存</span>
           <span class="cnt">{staged.length}</span>
           <span class="gap"></span>
-          <button class="mini" onclick={() => onUnstage(staged.map((e) => e.path))}>全部取消</button>
-          {#if unstaged.length === 0}
-            <button class="mini more" onclick={openStagedMenu} title="更多操作" aria-label="更多操作">⋯</button>
-          {/if}
+          <button class="btn sm quiet" onclick={() => onUnstage(staged.map((e) => e.path))}>全部取消</button>
         </div>
         {@render fileList(staged, "index")}
       {/if}
 
       {#if unstaged.length > 0}
         <div class="sec">
-          <span class="sname">改动</span>
+          <span class="sname">未暂存</span>
           <span class="cnt">{unstaged.length}</span>
           <span class="gap"></span>
-          <button class="mini" onclick={() => onStage(unstaged.map((e) => e.path))}>全部暂存</button>
-          <button class="mini more" onclick={openMenu} title="更多操作" aria-label="更多操作">⋯</button>
+          <button class="btn sm quiet" onclick={() => onStage(unstaged.map((e) => e.path))}>全部暂存</button>
+          <button class="btn sm quiet more" onclick={openWorkMenu} title="更多操作" aria-label="更多操作">⋯</button>
         </div>
         {@render fileList(unstaged, "work")}
       {/if}
@@ -465,16 +371,10 @@
 </div>
 
 {#if menu}
-  <ContextMenu
-    x={menu.x}
-    y={menu.y}
-    label="改动的操作"
-    items={menuItems}
-    onclose={() => (menu = null)}
-  />
+  <ContextMenu x={menu.x} y={menu.y} label="改动面板的操作" items={menuItems} onclose={() => (menu = null)} />
 {/if}
-{#if stagedMenu}
-  <ContextMenu x={stagedMenu.x} y={stagedMenu.y} label="已暂存的操作" items={stagedMenuItems} onclose={() => (stagedMenu = null)} />
+{#if wmenu}
+  <ContextMenu x={wmenu.x} y={wmenu.y} label="改动的操作" items={wmenuItems} onclose={() => (wmenu = null)} />
 {/if}
 {#if cmenu}
   <ContextMenu x={cmenu.x} y={cmenu.y} label="提交方式" items={cmenuItems} onclose={() => (cmenu = null)} />
@@ -489,150 +389,51 @@
     /* 不画右边线（M8）：右边是岛的圆角边 */
     overflow: hidden;
   }
-  .branch .gap, .sec .gap, .crow .gap { flex: 1; }
-  .act {
+  .head .gap, .sec .gap, .crow .gap { flex: 1; }
+  /* 面板头：和文件树的 `.head` 同一套（38 高、11px 大写标题、24px 工具按钮） */
+  .head {
+    flex: none;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px 0 10px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    user-select: none;
+  }
+  .head .hcnt {
+    font-family: var(--code-font);
+    font-size: 10px;
+    letter-spacing: 0;
+    background: var(--selected);
+    border-radius: var(--r-sm);
+    padding: 0 5px;
+    color: var(--text-dim);
+  }
+  .head .hb {
     flex: none;
     display: grid;
     place-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     background: transparent;
     border: none;
     border-radius: var(--r-sm);
     color: var(--text-faint);
     cursor: default;
   }
-  .act:hover { background: var(--hover); color: var(--text); }
-
-  /*
-   * 分支行右端的同步胶囊。
-   *
-   * 尺寸和 `.chgs` 一致 —— 它们占的是同一个位置，切换时那一行不该跳。
-   */
-  .sync {
-    flex: none;
-    font-family: var(--code-font);
-    font-size: 10.5px;
-    padding: 1px 7px;
-    border-radius: var(--r-sm);
-    background: var(--selected);
-    border: none;
-    color: var(--text);
-    cursor: default;
-    white-space: nowrap;
-  }
-  .sync:hover { background: var(--pressed); }
-  /* 推送是唯一会改到别人东西的动作，给它 accent */
-  .sync.push { background: rgba(91, 141, 239, 0.22); color: #8fb4f5; }
-  .sync.push:hover { background: rgba(91, 141, 239, 0.32); }
-  /* 分岔要先做决定，用警告色但不是错误色 —— 它不是坏事 */
-  .sync.diverged { background: rgba(214, 174, 88, 0.18); color: var(--lvl-warn); }
-  .sync.diverged:hover { background: rgba(214, 174, 88, 0.28); }
-  .sync.cancel { background: var(--hover); color: var(--text-dim); }
-  .sync:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-
-  /* 进度：长在分支行下面，不弹模态 —— 拉取时人还想接着看代码 */
-  .prog {
-    flex: none;
-    padding: 7px 10px 8px;
-    border-bottom: 1px solid var(--border-soft);
-  }
-  .pline { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
-  .ptext {
-    flex: 1;
-    min-width: 0;
-    font-size: 11.5px;
-    color: var(--text-dim);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .ppct { flex: none; font-family: var(--code-font); font-size: 11px; color: var(--text-faint); }
-  .pbar { height: 3px; border-radius: 2px; background: var(--hover); overflow: hidden; }
-  .pfill { height: 100%; background: var(--accent); transition: width 0.12s linear; }
-  /*
-   * 认不出百分比时走这条：一条来回跑的条，只说「还在动」。
-   * **不能显示成 0%** —— 那是在报一个我们并不知道的数。
-   */
-  .pbar.indet::after {
-    content: "";
-    display: block;
-    width: 34%;
-    height: 100%;
-    background: var(--accent);
-    animation: slide 1.1s ease-in-out infinite;
-  }
-  @keyframes slide {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(300%); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .pbar.indet::after { animation: none; width: 100%; opacity: 0.4; }
-    .pfill { transition: none; }
-  }
-  .act.spin { color: var(--accent); }
-
-  /*
-   * 分支行既是标题行也是入口。上面原来还压着一条只写「GIT」的标题栏 ——
-   * 30px，说的是侧边栏图标已经说过的事。240px 宽的侧边栏里，
-   * 纵向每一格都值钱。
-   */
-  .branch {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    height: 38px; /* 34 → 38（M8）：和标签栏齐平，不画下边线 */
-    padding: 0 4px 0 6px;
-    font-size: 12px;
-    color: var(--text);
-    user-select: none;
-  }
-  .bbtn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    min-width: 0;
-    max-width: 100%;
-    padding: 3px 6px;
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: inherit;
-    font-family: var(--ui-font);
-    font-size: 12px;
-    cursor: default;
-  }
-  .bbtn:hover { background: var(--hover); }
-  .bbtn:active { background: var(--pressed); }
-  .bbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-  .bicon { flex: none; display: flex; color: var(--text-faint); }
-  .bbtn:hover .bicon { color: var(--text-dim); }
-  .caret { flex: none; display: flex; color: var(--text-faint); }
-  .bname {
-    font-family: var(--code-font);
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /*
-   * 改动条数和分支同属「这个仓库现在什么状态」，放一行。
-   * 做成不可点的胶囊 —— 这个项目没有 pull / push（gitsvc 不起网络子进程），
-   * 点了没有下文比不显示更糟。
-   */
-  .chgs {
-    flex: none;
-    font-family: var(--code-font);
-    font-size: 10.5px;
-    color: var(--text-dim);
-    background: var(--selected);
-    border-radius: var(--r-sm);
-    padding: 1px 7px;
-  }
+  .head .hb:hover { background: var(--hover); color: var(--text); }
+  .head .hb:active { background: var(--pressed); }
+  .head .hb:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  .head .hb.spin { color: var(--accent); }
   .tagx {
     flex: none;
     font-size: 10px;
+    letter-spacing: 0;
+    text-transform: none;
     color: var(--lvl-warn);
     border: 1px solid var(--lvl-warn);
     border-radius: var(--r-sm);
@@ -669,19 +470,6 @@
   .etitle { color: var(--text-dim); font-size: 12.5px; }
   .esub { color: var(--text-faint); font-size: 11px; line-height: 1.6; }
   .esub .mono { font-family: var(--code-font); }
-  .ebtn {
-    margin-top: 2px;
-    padding: 4px 12px;
-    background: var(--hover);
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-family: var(--ui-font);
-    font-size: 11.5px;
-    cursor: default;
-  }
-  .ebtn:hover { background: var(--selected); color: var(--text); }
-  .ebtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .commit textarea {
     width: 100%;
     resize: vertical;
@@ -714,29 +502,6 @@
   }
   .amend.off { opacity: 0.4; }
   .amend input { margin: 0; accent-color: var(--accent); }
-  .primary {
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: var(--r-sm);
-    color: #fff;
-    font-size: 11.5px;
-    padding: 3px 12px;
-    cursor: default;
-    white-space: nowrap;
-  }
-  .primary:disabled { background: transparent; border-color: var(--border); color: var(--text-faint); }
-  /* 分裂按钮：主体 + ▾ 共一个圆角，中间一条细线分开 —— 看着是一个按钮的两半 */
-  .split { display: inline-flex; }
-  .split .primary { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-  .split .more {
-    display: grid;
-    place-content: center;
-    padding: 0 5px;
-    border-left-color: rgba(255, 255, 255, 0.35);
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-  }
-  .split .more:disabled { border-left-color: var(--border); }
   /* 冲突三角走 currentColor，颜色由这层给 —— 图标自己不带颜色 */
   .conflict-mark { display: flex; color: var(--lvl-error); }
   .blocked {
@@ -786,20 +551,9 @@
     padding: 0 5px;
     font-size: 10px;
   }
-  .mini {
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    font-size: 10.5px;
-    padding: 1px 6px;
-    border-radius: var(--r-sm);
-    cursor: default;
-    text-transform: none;
-    letter-spacing: 0;
-  }
-  .mini:hover { background: var(--hover); color: var(--text); }
-  /* 「⋯」里装的是不可撤销的那些（全部丢弃）—— 见 menuItems 上面那段 */
-  .mini.more { padding: 1px 5px; font-size: 12px; line-height: 1; }
+  /* 分组头里的按钮再小一号，字色不抢眼；⋯ 那个只装「全部丢弃」 */
+  .sec .btn.sm { height: 18px; padding: 0 6px; font-size: 10.5px; letter-spacing: 0; text-transform: none; }
+  .sec .btn.more { padding: 0 5px; font-size: 12px; }
 
   /* 行操作按钮平时不占视觉，hover 才浮出来 —— 列表安静，动作随手可及 */
   /* 悬停是内缩圆角块，和文件树同一套 —— 两边挨着，做法不一样一眼看得出来 */

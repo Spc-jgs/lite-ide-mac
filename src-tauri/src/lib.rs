@@ -176,6 +176,8 @@ pub fn run() {
             commands::git_worktrees,
             commands::git_worktree_add,
             commands::git_worktree_remove,
+            commands::git_branch_delete,
+            commands::git_branch_rename,
             commands::pty_spawn,
             commands::pty_write,
             commands::pty_ack,

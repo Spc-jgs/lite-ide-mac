@@ -16,6 +16,12 @@
     onOpenWorktree,
     onNewWorktree,
     onRemoveWorktree,
+    onPull,
+    onPush,
+    onFetch,
+    onMerge,
+    onRename,
+    onDelete,
   }: {
     open?: boolean;
     /**
@@ -39,11 +45,26 @@
     ahead?: number;
     behind?: number;
     onSwitch: (name: string) => void;
-    onNewBranch: (name: string) => void;
+    /** `base` 为空 = 从当前 HEAD 分出 */
+    onNewBranch: (name: string, base?: string) => void;
     onOpenWorktree: (path: string) => void;
     /** 目录名 + 分支名；分支不存在就新建 */
     onNewWorktree: (dir: string, branch: string) => void;
     onRemoveWorktree: (w: GitWorktree) => void;
+    /**
+     * 当前分支的三个远程动作（M9）。原来分支行的菜单只有「在新工作树中打开 /
+     * 复制」—— 用户的原话：「点击分支没有 push 没有 pull」。这三条和标题栏的
+     * 同步胶囊 / 菜单栏走的是同一个 `remote`，这里只是多一个入口。
+     */
+    onPull: () => void;
+    onPush: () => void;
+    onFetch: () => void;
+    /** 把 `ref` 合进当前分支（`git merge --no-edit`），冲突落进改动列表的「冲突中」 */
+    onMerge: (ref: string) => void;
+    /** `newBranch(base)`：从某条分支分出新分支，名字在这里的表单里填 */
+    onRename: (old: string, next: string) => void;
+    /** 不可逆，由上层弹确认条（`-d` 被拒时再给「仍然删除」） */
+    onDelete: (name: string) => void;
   } = $props();
 
   let q = $state("");
@@ -56,7 +77,38 @@
   /** 新建工作树的两个输入 */
   let wtDir = $state("");
   let wtBranch = $state("");
-  let mode = $state<"list" | "newWorktree">("list");
+  /**
+   * `newBranch` / `rename` 两个表单（M9）：一个输入框 + 两个按钮，和「新建工作树」
+   * 同一副骨架。分支名不走 `prompt()`：WKWebView 里那是系统对话框，和整个应用的
+   * 浮层不是一套。
+   */
+  let mode = $state<"list" | "newWorktree" | "newBranch" | "rename">("list");
+  /** 表单里那个名字；`formBase` 是从谁分出 / 改谁的名 */
+  let formName = $state("");
+  let formBase = $state("");
+  let formInput = $state<HTMLInputElement | null>(null);
+  function openForm(m: "newBranch" | "rename", base: string) {
+    formBase = base;
+    formName = m === "rename" ? base : "";
+    mode = m;
+    queueMicrotask(() => {
+      formInput?.focus();
+      if (m === "rename") formInput?.select();
+    });
+  }
+  let formOk = $derived.by(() => {
+    const n = formName.trim();
+    if (!n || /\s/.test(n)) return false;
+    if (mode === "rename" && n === formBase) return false;
+    return !branches.some((b) => !b.isRemote && b.name === n);
+  });
+  function submitForm() {
+    if (!formOk) return;
+    const n = formName.trim();
+    if (mode === "newBranch") onNewBranch(n, formBase);
+    else onRename(formBase, n);
+    open = false;
+  }
   let popEl = $state<HTMLElement | null>(null);
 
   /*
@@ -115,17 +167,18 @@
   /**
    * ↵ 对不同条目做的事不一样，脚栏要说清是哪一件。
    *
-   * 分支 / 远程 / 工作树这三类现在**打开动作菜单**，不直接动手（见 `pick`）。
-   * 「新建」那两条是动作不是对象，没有「对它做点别的」，↵ 就是执行。
+   * **↵ 直接做主动作，单击开菜单**（M9）。2026-09-10 那版把两条路都改成开菜单，
+   * 理由是防手滑误切 —— 但那是**鼠标**的问题（列表 hover 就移动选中项，划过去顺手
+   * 一点就切了）；键盘不会「划过」，↵ 之前人已经打了几个字把目标筛出来了。
+   * 让键盘陪绑，代价是最常见的路径「打字 → ↵」多一次回车。
    *
-   * 远程分支那条曾经写的是「检出」，而它真正做的是 `switch --track origin/foo`，
-   * **会多出一个本地分支**。那句话现在长在菜单项自己身上
-   * （`检出为本地分支 foo`）—— 比放在脚栏好：它就在你要按的那一行上。
+   * 远程分支那条写「检出」不写「切换」：它做的是 `switch --track origin/foo`，
+   * **会多出一个本地分支**。
    */
   const ENTER_LABEL: Record<Item["kind"], string> = {
-    branch: "操作…",
-    remote: "操作…",
-    worktree: "操作…",
+    branch: "切换",
+    remote: "检出",
+    worktree: "打开",
     newBranch: "新建",
     newWorktree: "新建",
   };
@@ -222,24 +275,25 @@
   });
 
   /**
-   * 每行的动作菜单。**它现在就是主动作** —— 单击 / ↵ 打开的是它。
+   * 每行的动作菜单。**单击开的是它**，↵ 直接做主动作（`enter`）。
    *
-   * # 这条以前是反的，2026-09-10 按 IDEA 改过来
-   *
-   * 原来单击和 ↵ 直接切分支，注释里写的理由是「这个应用所有浮层都是
-   * 打字 → ↵ → 完事，改成两次回车太重」。那个理由只算对了一半：
+   * # 单击为什么不直接切（2026-09-10 按 IDEA 改的）
    *
    * **切分支不是打开一个文件。** 打开文件错了就再打开一个，切分支错了
    * 是几千个文件被检出、编辑器里所有标签重读、正在跑的构建对着一半新一半旧的
    * 工作区。这件事的撤销成本和「打开」根本不在一个量级上，而它原来只隔着
    * 一次手滑 —— 列表是 hover 就移动选中项的（`onmouseenter` 改 `sel`），
-   * 鼠标划过去顺手一点就切了。
+   * 鼠标划过去顺手一点就切了。IDEA 正是这么分的：点一个分支弹出它的动作，
+   * 第一项才是 Checkout。
    *
-   * IDEA 正是这么分的：点一个分支弹出它的动作,第一项才是 Checkout。
-   * 我们的 `ContextMenu` 游标初值是 0、第一项就是「切换到 X」，所以
-   * **↵↵ 仍然是一次切换**，键盘路径只多一个回车，换来的是鼠标路径不再有误切。
+   * # ↵ 为什么又改回直接切（M9，2026-09-16）
    *
-   * 菜单里**只放今天已经有的能力**，一条新的 gitsvc 命令都没加。
+   * 2026-09-10 那版把 ↵ 也改成开菜单，说「↵↵ 仍然是一次切换，只多一个回车」。
+   * 但手滑是鼠标的事，键盘没有「划过」—— ↵ 之前人已经打了几个字把目标筛出来了。
+   * 让键盘陪绑，是把最常见的路径（打字 → ↵）加了一道没有保护对象的门。
+   *
+   * 菜单项照 IDEA 排（拉取 / 推送 / 新建 / 合并 / 重命名 / 删除），后端为此
+   * 加了两条：`branch_delete` / `branch_rename`。
    */
   let rowMenu = $state<{ x: number; y: number; item: Item } | null>(null);
 
@@ -266,32 +320,55 @@
 
   let rowEls = $state<HTMLElement[]>([]);
 
+  /**
+   * 照 IDEA 的分支菜单排（M9）。分成三段：**去哪儿 / 拿它做什么 / 杂项**，
+   * 不可逆的（删除）在最末、带 danger。只放今天后端有的能力：rebase、compare、
+   * 删远程分支都没有 —— 前两个是新面板，后一个是改别人东西的不可逆操作。
+   */
   let rowMenuItems = $derived.by((): MenuItem[] => {
     const it = rowMenu?.item;
     if (!it) return [];
     const close = () => (open = false);
+    const wt = (branch: string): MenuItem => ({
+      label: "在新工作树中打开…",
+      run: () => {
+        wtBranch = branch;
+        wtDir = "";
+        mode = "newWorktree";
+      },
+    });
+    const copy = (sep = true): MenuItem => ({ label: "复制分支名", sep, run: () => void copyText(it.label, "分支名") });
     switch (it.kind) {
-      case "branch":
+      case "branch": {
+        if (it.current) {
+          return [
+            { label: "拉取", run: () => { onPull(); close(); }, disabled: !it.branch?.upstream },
+            { label: "推送…", run: () => { onPush(); close(); } },
+            { label: "抓取远程", run: () => { onFetch(); close(); } },
+            { label: `从 ${it.label} 新建分支…`, sep: true, run: () => openForm("newBranch", it.label) },
+            { label: "重命名…", run: () => openForm("rename", it.label) },
+            wt(it.label),
+            copy(),
+          ];
+        }
         return [
-          ...(it.current
-            ? []
-            : [{ label: `切换到 ${it.label}`, run: () => { onSwitch(it.label); close(); } }]),
-          {
-            label: "在新工作树中打开…",
-            run: () => {
-              wtBranch = it.label;
-              wtDir = "";
-              mode = "newWorktree";
-            },
-          },
-          { label: "复制分支名", sep: true, run: () => void copyText(it.label, "分支名") },
+          { label: `切换到 ${it.label}`, run: () => { onSwitch(it.label); close(); } },
+          { label: `从 ${it.label} 新建分支…`, sep: true, run: () => openForm("newBranch", it.label) },
+          { label: `合并到 ${cur || "当前分支"}`, run: () => { onMerge(it.label); close(); }, disabled: !cur },
+          { label: "重命名…", run: () => openForm("rename", it.label) },
+          wt(it.label),
+          copy(),
+          { label: "删除分支…", danger: true, sep: true, run: () => { onDelete(it.label); close(); } },
         ];
+      }
       case "remote": {
         const short = it.label.split("/").slice(1).join("/") || it.label;
         return [
           // 说清它要做什么：不是「切过去」，是**建一个本地分支**再切
           { label: `检出为本地分支 ${short}`, run: () => { onSwitch(it.label); close(); } },
-          { label: "复制分支名", sep: true, run: () => void copyText(it.label, "分支名") },
+          { label: `从 ${it.label} 新建分支…`, sep: true, run: () => openForm("newBranch", it.label) },
+          { label: `合并到 ${cur || "当前分支"}`, run: () => { onMerge(it.label); close(); }, disabled: !cur },
+          copy(),
         ];
       }
       case "worktree": {
@@ -322,11 +399,9 @@
   });
 
   /**
-   * 按下一行（单击或 ↵）。
-   *
-   * **对象类的三种（分支 / 远程 / 工作树）打开动作菜单，不直接动手**，
-   * 理由见 `rowMenu` 那段。「新建」那两条是动作，按下去就执行 ——
-   * 给一个只有一项的菜单去确认「新建」，那是纯粹的仪式。
+   * 单击一行：对象类的三种（分支 / 远程 / 工作树）**开菜单**，不直接动手 ——
+   * 理由见 `rowMenu` 那段（hover 移动选中项，鼠标划过去顺手一点就切了）。
+   * 「新建」那两条是动作，按下去就执行。
    */
   function pick(it: Item, i: number) {
     switch (it.kind) {
@@ -344,6 +419,26 @@
         wtDir = "";
         mode = "newWorktree";
         break;
+    }
+  }
+
+  /** ↵：直接做主动作（见 `ENTER_LABEL`）。当前分支没有主动作，↵ 退回开菜单 */
+  function enter(it: Item, i: number) {
+    switch (it.kind) {
+      case "branch":
+        if (it.current) openRowMenuAt(i);
+        else { onSwitch(it.label); open = false; }
+        break;
+      case "remote":
+        onSwitch(it.label);
+        open = false;
+        break;
+      case "worktree":
+        if (it.current) openRowMenuAt(i);
+        else { onOpenWorktree(it.tree!.path); open = false; }
+        break;
+      default:
+        pick(it, i);
     }
   }
 
@@ -368,7 +463,7 @@
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      if (mode === "newWorktree") mode = "list";
+      if (mode !== "list") mode = "list";
       else open = false;
       return;
     }
@@ -382,10 +477,9 @@
     } else if (e.key === "Enter") {
       e.preventDefault();
       const it = items[sel];
-      if (it) pick(it, sel);
+      if (it) enter(it, sel);
     } else if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
-      // 和文件树、标签栏同一对键位。现在和 ↵ 落到同一个地方，但键位留着 ——
-      // 手记着 ⇧F10 的人不该发现它忽然没用了
+      // 和文件树、标签栏同一对键位：键盘路径上开菜单靠它（↵ 是直接切）
       e.preventDefault();
       openRowMenuAt(sel);
     }
@@ -525,9 +619,35 @@
 
       <div class="foot">
         <span><kbd>↑↓</kbd> 选择</span>
-        <span><kbd>↵</kbd> {items[sel] ? ENTER_LABEL[items[sel].kind] : "确认"}</span>
+        <span><kbd>↵</kbd> {items[sel] ? (items[sel].current ? "操作…" : ENTER_LABEL[items[sel].kind]) : "确认"}</span>
+        <span><kbd>⇧F10</kbd> 操作</span>
         <span class="gap"></span>
         <span><kbd>esc</kbd> 关闭</span>
+      </div>
+    {:else if mode === "newBranch" || mode === "rename"}
+      <div class="form">
+        <div class="ftitle">{mode === "rename" ? `重命名 ${formBase}` : `从 ${formBase} 新建分支`}</div>
+        {#if mode === "rename"}
+          <p class="fdesc">只改本地的名字；上游跟踪配置会跟着走，远程那条不动。</p>
+        {:else}
+          <p class="fdesc">新分支从 {formBase} 的最新提交分出，建好之后直接切过去。</p>
+        {/if}
+        <label>
+          <span>名字</span>
+          <input
+            class="fi"
+            bind:this={formInput}
+            bind:value={formName}
+            placeholder="feature/xxx"
+            spellcheck="false"
+            onkeydown={(e) => e.key === "Enter" && submitForm()}
+          />
+        </label>
+        <div class="frow">
+          <button class="btn" onclick={() => (mode = "list")}>返回</button>
+          <span class="gap"></span>
+          <button class="btn primary" disabled={!formOk} onclick={submitForm}>{mode === "rename" ? "重命名" : "新建并切换"}</button>
+        </div>
       </div>
     {:else}
       <div class="form">
@@ -557,9 +677,9 @@
           />
         </label>
         <div class="frow">
-          <button onclick={() => (mode = "list")}>返回</button>
+          <button class="btn" onclick={() => (mode = "list")}>返回</button>
           <span class="gap"></span>
-          <button class="primary" disabled={!wtDir.trim()} onclick={submitWorktree}>创建并打开</button>
+          <button class="btn primary" disabled={!wtDir.trim()} onclick={submitWorktree}>创建并打开</button>
         </div>
       </div>
     {/if}
@@ -757,16 +877,4 @@
   .fi:focus { border-color: var(--accent); }
   .frow { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
   .frow .gap { flex: 1; }
-  .frow button {
-    padding: 4px 12px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-size: 12px;
-    cursor: default;
-  }
-  .frow button:hover { background: var(--hover); color: var(--text); }
-  .frow button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .frow button.primary:disabled { background: transparent; border-color: var(--border); color: var(--text-faint); }
 </style>

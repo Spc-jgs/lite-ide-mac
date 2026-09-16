@@ -22,6 +22,7 @@
   import type { RemoteErr } from "../ipc/commands";
 
   let {
+    progress = null,
     diverge = null,
     push = null,
     err = null,
@@ -32,6 +33,12 @@
     onPull,
     onDismiss,
   }: {
+    /**
+     * 正在跑的远程操作的进度（M9，从 Git 页的分支行底下搬过来 —— 那一行删了）。
+     * 是卡片不是模态：拉取的时候人还想接着看代码。百分比可能是 null
+     * （git 的措辞不是稳定接口），那时只有一条来回跑的条。
+     */
+    progress?: { what: "pull" | "push" | "fetch"; phase: string; percent: number | null } | null;
     diverge: { upstream: string } | null;
     push: { branch: string; setUpstream: boolean; commits: string[] } | null;
     err: (RemoteErr & { hint: string }) | null;
@@ -50,6 +57,20 @@
   let rawOpen = $state(false);
 </script>
 
+{#if progress}
+  <div class="confirm prog">
+    <div class="pline">
+      <span class="ptext">{progress.phase}</span>
+      {#if progress.percent !== null}<span class="ppct">{progress.percent}%</span>{/if}
+    </div>
+    <div class="pbar" class:indet={progress.percent === null}>
+      {#if progress.percent !== null}
+        <div class="pfill" style:width="{progress.percent}%"></div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
 {#if diverge}
   <div class="confirm">
     <span>本地和 <b>{diverge.upstream}</b> 分岔了 —— 快进不了，得选一种</span>
@@ -58,9 +79,9 @@
       <input type="checkbox" bind:checked={remember} />
       记一下
     </label>
-    <button class="primary" onclick={() => onMerge("merge", remember)}>合并</button>
-    <button onclick={() => onMerge("rebase", remember)}>变基</button>
-    <button onclick={() => onDismiss("diverge")}>取消</button>
+    <button class="btn primary" onclick={() => onMerge("merge", remember)}>合并</button>
+    <button class="btn" onclick={() => onMerge("rebase", remember)}>变基</button>
+    <button class="btn" onclick={() => onDismiss("diverge")}>取消</button>
   </div>
 {/if}
 
@@ -82,8 +103,8 @@
       {/if}
     </div>
     <span class="gap"></span>
-    <button class="primary" onclick={onPush}>{push.setUpstream ? "推送并跟踪" : "推送"}</button>
-    <button onclick={() => onDismiss("push")}>取消</button>
+    <button class="btn primary" onclick={onPush}>{push.setUpstream ? "推送并跟踪" : "推送"}</button>
+    <button class="btn" onclick={() => onDismiss("push")}>取消</button>
   </div>
 {/if}
 
@@ -98,12 +119,13 @@
     <span class="gap"></span>
     {#if err.kind === "rejected"}
       <!-- 给下一步，不是给句号 -->
-      <button class="primary" onclick={onPull}>先拉取</button>
+      <button class="btn primary" onclick={onPull}>先拉取</button>
     {/if}
     {#if err.raw}
-      <button onclick={() => (rawOpen = !rawOpen)}>{rawOpen ? "收起" : "看 git 的原话"}</button>
+      <button class="btn" onclick={() => (rawOpen = !rawOpen)}>{rawOpen ? "收起" : "看 git 的原话"}</button>
     {/if}
     <button
+      class="btn"
       onclick={() => {
         rawOpen = false;
         onDismiss("err");
@@ -171,19 +193,29 @@
   .remember { display: flex; align-items: center; gap: 4px; flex: none; font-size: 11.5px; }
   .remember input { margin: 0; }
 
-  button {
-    flex: none;
-    padding: 3px 10px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-family: var(--ui-font);
-    font-size: 11.5px;
-    cursor: default;
+  .btn { flex: none; }
+
+  /* 进度卡片：一行文字 + 3px 的条。indet 那条来回跑，只说「还在动」，**不能显示成 0%** */
+  .confirm.prog { flex-direction: column; align-items: stretch; gap: 6px; width: min(420px, calc(100% - 32px)); }
+  .pline { display: flex; align-items: baseline; gap: 8px; }
+  .ptext { flex: 1; min-width: 0; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ppct { flex: none; font-family: var(--code-font); font-size: 11px; color: var(--text-faint); }
+  .pbar { height: 3px; border-radius: 2px; background: var(--hover); overflow: hidden; }
+  .pfill { height: 100%; background: var(--accent); transition: width 0.12s linear; }
+  .pbar.indet::after {
+    content: "";
+    display: block;
+    width: 34%;
+    height: 100%;
+    background: var(--accent);
+    animation: slide 1.1s ease-in-out infinite;
   }
-  button:hover { background: var(--hover); color: var(--text); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.primary:hover { filter: brightness(1.08); }
-  button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  @keyframes slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pbar.indet::after { animation: none; width: 100%; opacity: 0.4; }
+    .pfill { transition: none; }
+  }
 </style>

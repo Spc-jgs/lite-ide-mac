@@ -214,16 +214,17 @@
 
     <span class="segs">
       <button
+        class="btn sm"
         class:on={sideOn}
         disabled={narrow}
         onclick={() => (side = true)}
         title={narrow ? "窗口太窄，双栏每列放不下一行代码；拉宽就会自动切回来" : "左右分栏对照"}
       >双栏</button>
-      <button class:on={!sideOn} onclick={() => (side = false)} title="统一视图（窄窗口更合适）">统一</button>
+      <button class="btn sm" class:on={!sideOn} onclick={() => (side = false)} title="统一视图（窄窗口更合适）">统一</button>
     </span>
 
     <button
-      class="seg"
+      class="btn sm"
       class:on={wrap}
       onclick={() => (wrap = !wrap)}
       title="软换行 ⌥Z —— 长行折进列宽，不用横向滚"
@@ -233,7 +234,7 @@
     {#if commit}
       <span class="sha" title="这是历史提交里的差异，只读">{commit}</span>
     {:else}
-      <button class="seg" onclick={onToggleStaged} title="在「已暂存 ↔ 未暂存」之间切换">
+      <button class="btn sm" onclick={onToggleStaged} title="在「已暂存 ↔ 未暂存」之间切换">
         {staged ? "已暂存的改动" : "未暂存的改动"} ⇄
       </button>
     {/if}
@@ -326,10 +327,10 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 28px;
+    height: 34px; /* M9：岛内工具栏统一 34（原来 28） */
     padding: 0 10px;
     background: var(--panel-bg);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-soft);
     font-size: 11.5px;
     color: var(--text-dim);
     user-select: none;
@@ -343,7 +344,7 @@
   }
   .bar .renamed { font-family: var(--code-font); color: var(--text-faint); font-size: 11px; }
   .bar .gap { flex: 1; }
-  .bar .stat { font-family: var(--code-font); font-size: 11px; }
+  .bar .stat { font-family: var(--code-font); font-size: 11px; white-space: nowrap; }
   .bar .stat .a { color: var(--diff-add-fg); font-weight: 500; }
   .bar .stat .d { color: var(--diff-del-fg); font-weight: 500; }
   .bar .sha {
@@ -369,32 +370,12 @@
   .nav button:hover { background: var(--hover); color: var(--text); }
   .nav .pos { font-family: var(--code-font); font-size: 10px; color: var(--text-faint); min-width: 30px; text-align: center; }
 
-  .segs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
-  .segs button {
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    font-size: 11px;
-    padding: 2px 8px;
-    cursor: default;
-    /* 窄窗口下「双栏」会断成两行，把 28px 的工具条撑到 34px 还错位 */
-    white-space: nowrap;
-  }
-  .segs button:disabled { opacity: .45; }
-  .segs button:hover { background: var(--hover); color: var(--text); }
-  .segs button.on { background: var(--accent-sel); color: var(--text); }
-  .seg {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-size: 11px;
-    padding: 2px 8px;
-    cursor: default;
-    white-space: nowrap;
-  }
-  .seg:hover { background: var(--hover); color: var(--text); }
-  .seg.on { background: var(--accent-sel); color: var(--text); border-color: transparent; }
+  /* 分段控件：两个 .btn.sm 共一个描边，中间不重复画线 */
+  .segs { display: inline-flex; }
+  .segs .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .segs .btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+  .bar .btn.on { background: var(--accent-sel); color: var(--text); }
+  /* 窄窗口下「双栏」会断成两行 —— .btn 自带 nowrap */
 
   .body {
     flex: 1;

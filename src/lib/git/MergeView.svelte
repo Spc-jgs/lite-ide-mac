@@ -64,9 +64,9 @@
     {:else}
       <span class="done">全部已决定</span>
     {/if}
-    <button onclick={() => all("ours")}>全取{oursLabel}</button>
-    <button onclick={() => all("theirs")}>全取{theirsLabel}</button>
-    <button class="primary" onclick={save}>
+    <button class="btn" onclick={() => all("ours")}>全取{oursLabel}</button>
+    <button class="btn" onclick={() => all("theirs")}>全取{theirsLabel}</button>
+    <button class="btn primary" onclick={save}>
       {left === 0 ? "保存并标记已解决" : "保存进度"}
     </button>
   </div>
@@ -93,9 +93,9 @@
             {/if}
             <span class="gap"></span>
             {#if b.base}
-              <button class:on={b.pick === "base"} onclick={() => choose(b, "base")}>共同祖先</button>
+              <button class="btn sm" class:on={b.pick === "base"} onclick={() => choose(b, "base")}>共同祖先</button>
             {/if}
-            <button class:on={b.pick === "both"} onclick={() => choose(b, "both")}>两边都要</button>
+            <button class="btn sm" class:on={b.pick === "both"} onclick={() => choose(b, "both")}>两边都要</button>
           </div>
           <div class="sides">
             <div class="side ours" class:dim={b.pick !== null && b.pick !== "ours" && b.pick !== "both"}>
@@ -131,10 +131,10 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 30px;
+    height: 34px; /* M9：岛内工具栏统一 34（原来 30，和 Diff 头 28 各一个数） */
     padding: 0 10px;
     background: var(--panel-bg);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-soft);
     font-size: 11.5px;
     color: var(--text-dim);
     user-select: none;
@@ -143,17 +143,6 @@
   .bar .gap { flex: 1; }
   .bar .left { color: var(--lvl-warn); }
   .bar .done { color: var(--diff-add-fg); }
-  .bar button {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-size: 11px;
-    padding: 2px 9px;
-    cursor: default;
-  }
-  .bar button:hover { background: var(--hover); color: var(--text); }
-  .bar button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   .body { flex: 1; overflow: auto; font-family: var(--code-font); font-size: 12.5px; line-height: 19px; }
   .cl { white-space: pre; padding: 0 12px; color: var(--text-dim); }
@@ -193,16 +182,7 @@
   .cfhead .tag { color: var(--lvl-warn); }
   .cf.picked .cfhead .tag { color: var(--text-faint); }
   .cfhead .chose { color: var(--diff-add-fg); }
-  .cfhead button {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-faint);
-    font-size: 10.5px;
-    padding: 1px 7px;
-    cursor: default;
-  }
-  .cfhead button:hover, .cfhead button.on { background: var(--accent-sel); color: var(--text); }
+  .cfhead .btn.on { background: var(--accent-sel); color: var(--text); }
 
   .sides { display: grid; grid-template-columns: 1fr 1fr; }
   .side { min-width: 0; overflow-x: auto; }

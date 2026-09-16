@@ -24,9 +24,24 @@ class Branches {
   /** 待确认移除的工作树 —— 会删目录，必须过用户这一关 */
   pendingWtRemove = $state<GitWorktree | null>(null);
 
+  /**
+   * 待确认删除的分支（M9）。两步：先问一次（不可逆），`-d` 被「还有没合并的提交」
+   * 拦下来再问第二次（`notMerged`，给「仍然删除」= `-D`）。
+   */
+  pendingBranchDelete = $state<{ name: string; notMerged: boolean } | null>(null);
+
   // ── 动作：全部转发到 branches-ops.ts（按需加载）。签名和文档见那边 ──
-  switchTo(name: string, create = false) {
-    void ops().then((m) => m.switchTo(name, create));
+  switchTo(name: string, create = false, from = "") {
+    void ops().then((m) => m.switchTo(name, create, from));
+  }
+  mergeInto(ref: string) {
+    void ops().then((m) => m.mergeInto(ref));
+  }
+  renameBranch(old: string, next: string) {
+    void ops().then((m) => m.renameBranch(old, next));
+  }
+  deleteBranch(name: string, force = false) {
+    void ops().then((m) => m.deleteBranch(name, force));
   }
   async stashThenCheckout() {
     return (await ops()).stashThenCheckout();

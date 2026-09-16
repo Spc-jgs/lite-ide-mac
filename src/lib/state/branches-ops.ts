@@ -4,7 +4,11 @@ import {
   gitStashPop,
   gitWorktreeAdd,
   gitWorktreeRemove,
+  gitMergeUpstream,
+  gitBranchDelete,
+  gitBranchRename,
   type SwitchErr,
+  type BranchErr,
   type GitWorktree,
 } from "../ipc/commands";
 import { notify } from "./notify.svelte";
@@ -21,14 +25,18 @@ import { branches } from "./branches.svelte";
  * 逻辑从 `branches.svelte.ts` 搬过来，一个字不改；`this.` 换成 `branches.`。
  */
 
-export function switchTo(name: string, create = false) {
+/**
+ * `create` 为真时 `from` 是起点：`git switch -c name from`。空的话从当前 HEAD 分。
+ * 起点在这里而不是先切过去再 `-c`：那是两次检出，中间那次会把工作区翻一遍。
+ */
+export function switchTo(name: string, create = false, from = "") {
   notify.closeBanner();
   branches.pendingCheckout = null;
   // base 要在切之前抓 —— 切完 git.status.branch 就是新的那个了
-  const base = git.status?.branch ?? "";
+  const base = from || (git.status?.branch ?? "");
   void git.run(create ? "新建分支失败" : "切分支失败", async () => {
     try {
-      await gitSwitch(git.repo!, name, create);
+      await gitSwitch(git.repo!, name, create, from);
     } catch (e) {
       const err = e as SwitchErr;
       if (err?.kind === "local-changes" && err.files?.length) {
@@ -128,4 +136,51 @@ export function removeWorktree(w: GitWorktree, force: boolean) {
     notify.ok(`已移除工作树 ${w.path}`);
     await worktree.changed();
   }, "移除工作树");
+}
+
+/**
+ * 把 `ref` 合进当前分支（M9，分支菜单里的「合并到当前分支」）。
+ *
+ * 复用 `git_merge_upstream`：它本来就是 `git merge --no-edit <ref>`，只是名字里
+ * 带着 upstream。用 `merge` 模式不用 `ff-only`：这条路是人主动选「合并」，
+ * 快进不了就该真的合，不该停下来再问一次。冲突时 gitsvc 分成 `conflict`，
+ * 工作区里的冲突标记会落进改动列表的「冲突中」，那里有 MergeView 接着。
+ */
+export async function mergeInto(ref: string) {
+  const cur = git.status?.branch ?? "";
+  const ok = await git.run("合并失败", async () => {
+    await gitMergeUpstream(git.repo!, ref, "merge");
+  }, "合并");
+  await worktree.changed();
+  if (ok) notify.ok(`已把 ${ref} 合进 ${cur || "当前分支"}`, 2800);
+  else await git.refresh(); // 冲突时 run 不刷新，而这时盘上已经带着冲突标记
+}
+
+export function renameBranch(old: string, next: string) {
+  void git.run("重命名分支失败", async () => {
+    await gitBranchRename(git.repo!, old, next);
+    notify.ok(`已把 ${old} 改名为 ${next}`, 2800);
+  }, "重命名分支");
+}
+
+/**
+ * 删本地分支。第一次走 `-d`：分支上有没合进别处的提交时 git 会拒，那一档
+ * （`kind === "not-merged"`）不是错误，是要人决定 —— 摆成确认卡片，给「仍然删除」
+ * （`-D`）一条路。**其余错误照旧上抛**：当前分支删不掉那句 git 说得比我们准。
+ */
+export function deleteBranch(name: string, force = false) {
+  branches.pendingBranchDelete = null;
+  void git.run("删除分支失败", async () => {
+    try {
+      await gitBranchDelete(git.repo!, name, force);
+    } catch (e) {
+      const err = e as BranchErr;
+      if (err?.kind === "not-merged" && !force) {
+        branches.pendingBranchDelete = { name, notMerged: true };
+        return;
+      }
+      throw e;
+    }
+    notify.ok(`已删除分支 ${name}`, 2800);
+  }, "删除分支");
 }

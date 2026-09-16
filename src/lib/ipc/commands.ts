@@ -558,8 +558,28 @@ export interface SwitchErr {
  * 切分支。**失败时 reject 的是 `SwitchErr` 对象，不是字符串** ——
  * 调用方要 `catch` 之后判 `kind`，不能直接 `String(e)` 往界面上贴。
  */
-export const gitSwitch = (root: string, name: string, create = false) =>
-  invoke<string>("git_switch", { root, name, create });
+export const gitSwitch = (root: string, name: string, create = false, from = "") =>
+  invoke<string>("git_switch", { root, name, create, from });
+
+/** 删分支失败时拿到的东西。`kind === "not-merged"` 时界面给「仍然删除」 */
+export interface BranchErr {
+  /** `not-merged` / `other` */
+  kind: string;
+  message: string;
+  /** git 的原话 */
+  raw: string;
+}
+
+/**
+ * 删本地分支。**失败时 reject 的是 `BranchErr` 对象**，调用方判 `kind`。
+ * `force` 走 `-D`，只在用户看过「还有没合并的提交」之后才传。
+ */
+export const gitBranchDelete = (root: string, name: string, force = false) =>
+  invoke<void>("git_branch_delete", { root, name, force });
+
+/** 重命名本地分支。目标名已存在时报错，不覆盖 */
+export const gitBranchRename = (root: string, old: string, new_: string) =>
+  invoke<void>("git_branch_rename", { root, old, new: new_ });
 
 export const gitWorktrees = (root: string) => invoke<GitWorktree[]>("git_worktrees", { root });
 

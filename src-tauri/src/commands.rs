@@ -1345,10 +1345,12 @@ pub async fn git_switch(
     root: String,
     name: String,
     create: bool,
+    from: Option<String>,
 ) -> Result<String, SwitchErrDto> {
-    crate::diag!("git_switch {name} create={create}");
+    let from = from.unwrap_or_default();
+    crate::diag!("git_switch {name} create={create} from={from}");
     let r = tauri::async_runtime::spawn_blocking(move || {
-        gitsvc::switch_branch(&root, &name, create)
+        gitsvc::switch_branch_from(&root, &name, create, &from)
     })
     .await;
     match r {
@@ -1403,6 +1405,40 @@ pub async fn git_worktree_add(root: String, path: String, branch: String) -> Res
 pub async fn git_worktree_remove(root: String, path: String, force: bool) -> Result<(), String> {
     crate::diag!("git_worktree_remove path={path} force={force}");
     blocking(move || gitsvc::worktree_remove(&root, &path, force).map_err(|e| format!("{e}"))).await
+}
+
+/// 删分支失败时给前端的东西。和 [`SwitchErrDto`] 同一个思路：
+/// 「还有没合并的提交」不是出错，是要你决定 —— 界面上给「仍然删除」那条路。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchErrDto {
+    /// `not-merged` / `other`
+    pub kind: String,
+    pub message: String,
+    /// git 的原话
+    pub raw: String,
+}
+
+/// 删本地分支。`force` = `-D`，只在用户看过「还有没合并的提交」之后才传 true。
+#[tauri::command]
+pub async fn git_branch_delete(root: String, name: String, force: bool) -> Result<(), BranchErrDto> {
+    crate::diag!("git_branch_delete {name} force={force}");
+    let r = tauri::async_runtime::spawn_blocking(move || gitsvc::branch_delete(&root, &name, force)).await;
+    match r {
+        Err(e) => Err(BranchErrDto { kind: "other".into(), message: format!("后台任务没跑完：{e}"), raw: String::new() }),
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(BranchErrDto {
+            kind: if matches!(e, gitsvc::Error::NotMerged { .. }) { "not-merged" } else { "other" }.into(),
+            message: e.to_string(),
+            raw: e.raw().to_string(),
+        }),
+    }
+}
+
+#[tauri::command]
+pub async fn git_branch_rename(root: String, old: String, new: String) -> Result<(), String> {
+    crate::diag!("git_branch_rename {old} -> {new}");
+    blocking(move || gitsvc::branch_rename(&root, &old, &new).map_err(|e| format!("{e}"))).await
 }
 
 // ── 菜单栏 ───────────────────────────────────────────────────────────

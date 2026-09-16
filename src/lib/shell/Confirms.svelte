@@ -40,8 +40,8 @@
 {#if tabs.active?.conflict}
   <div class="confirm conflict">
     <span><b>{tabs.active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
-    <button class="primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留我的</button>
-    <button onclick={() => docs.resolveConflict(tabs.active!, "disk")}>用磁盘上的</button>
+    <button class="btn primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留我的</button>
+    <button class="btn" onclick={() => docs.resolveConflict(tabs.active!, "disk")}>用磁盘上的</button>
   </div>
 {/if}
 
@@ -51,8 +51,8 @@
       <b>{tabflow.pendingSwitch.name}</b> 有 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)}MB，
       编辑模式会把全文读进内存，可能明显卡顿
     </span>
-    <button class="primary" onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
-    <button onclick={() => (tabflow.pendingSwitch = null)}>取消</button>
+    <button class="btn primary" onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
+    <button class="btn" onclick={() => (tabflow.pendingSwitch = null)}>取消</button>
   </div>
 {/if}
 
@@ -62,7 +62,7 @@
       <b>{notify.banner.title}</b>
       <span class="bbody">{notify.banner.body}</span>
     </span>
-    <button onclick={() => notify.closeBanner()}>知道了</button>
+    <button class="btn" onclick={() => notify.closeBanner()}>知道了</button>
   </div>
 {/if}
 
@@ -72,9 +72,24 @@
       要移除工作树 <b>{branches.pendingWtRemove.path}</b> 吗？
       <b>那个目录会被删掉</b>，里面未提交的改动会一起没
     </span>
-    <button class="danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, false)}>移除</button>
-    <button class="danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, true)}>强制移除</button>
-    <button onclick={() => (branches.pendingWtRemove = null)}>取消</button>
+    <button class="btn danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, false)}>移除</button>
+    <button class="btn danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, true)}>强制移除</button>
+    <button class="btn" onclick={() => (branches.pendingWtRemove = null)}>取消</button>
+  </div>
+{/if}
+
+{#if branches.pendingBranchDelete}
+  {@const d = branches.pendingBranchDelete}
+  <div class="confirm danger">
+    <span>
+      {#if d.notMerged}
+        <b>{d.name}</b> 上还有没合进别处的提交，git 拦下了。仍然删除的话<b>那些提交会丢</b>
+      {:else}
+        要删除分支 <b>{d.name}</b> 吗？<b>这一步不可撤销</b>
+      {/if}
+    </span>
+    <button class="btn danger" onclick={() => branches.deleteBranch(d.name, d.notMerged)}>{d.notMerged ? "仍然删除" : "删除"}</button>
+    <button class="btn" onclick={() => (branches.pendingBranchDelete = null)}>取消</button>
   </div>
 {/if}
 
@@ -91,7 +106,7 @@
       <span class="rest">{branches.pendingCheckout.files.slice(0, 3).join("、")}{branches.pendingCheckout.files.length > 3 ? " …" : ""}</span>
     </span>
     <button
-      class="primary"
+      class="btn primary"
       onclick={() => {
         branches.pendingCheckout = null;
         layout.showSide("git");
@@ -99,11 +114,12 @@
     >去提交</button>
     <!-- IDEA 的 Smart Checkout：收进 stash、切过去、再放回来。不丢东西的那条路排在丢东西的前面 -->
     <button
+      class="btn"
       onclick={() => void branches.stashThenCheckout()}
       title="改动收进 stash → 切过去 → 再取回来。取回时撞上冲突会留在改动列表里"
     >stash 再切换</button>
-    <button class="danger" onclick={() => void branches.discardThenCheckout()}>丢弃这些改动并切换</button>
-    <button onclick={() => (branches.pendingCheckout = null)}>取消</button>
+    <button class="btn danger" onclick={() => void branches.discardThenCheckout()}>丢弃这些改动并切换</button>
+    <button class="btn" onclick={() => (branches.pendingCheckout = null)}>取消</button>
   </div>
 {/if}
 
@@ -118,13 +134,14 @@
       {/if}
       的改动吗？未跟踪的文件会被直接删除，<b>这一步不可撤销</b>
     </span>
-    <button class="danger" onclick={() => void git.discard(git.pendingDiscard!)}>丢弃</button>
-    <button onclick={() => (git.pendingDiscard = null)}>取消</button>
+    <button class="btn danger" onclick={() => void git.discard(git.pendingDiscard!)}>丢弃</button>
+    <button class="btn" onclick={() => (git.pendingDiscard = null)}>取消</button>
   </div>
 {/if}
 
-{#if Bars && (remote.pendingDiverge || remote.pendingPush || remote.err)}
+{#if Bars && (remote.syncing || remote.pendingDiverge || remote.pendingPush || remote.err)}
   <Bars
+    progress={remote.syncing ? { what: remote.syncing.what, phase: remote.syncing.phase, percent: remote.syncing.percent } : null}
     diverge={remote.pendingDiverge}
     push={remote.pendingPush}
     err={remote.err}
@@ -155,9 +172,9 @@
       <!-- 批量关闭时要说清后面还有几个，否则人不知道这个框还要弹几次 -->
       <span class="rest">（后面还有 {tabflow.closeQueue.length} 个）</span>
     {/if}
-    <button class="primary" onclick={() => void tabflow.resolveClose("save")}>保存并关闭</button>
-    <button onclick={() => void tabflow.resolveClose("discard")}>丢弃改动</button>
-    <button onclick={() => void tabflow.resolveClose("cancel")}>取消</button>
+    <button class="btn primary" onclick={() => void tabflow.resolveClose("save")}>保存并关闭</button>
+    <button class="btn" onclick={() => void tabflow.resolveClose("discard")}>丢弃改动</button>
+    <button class="btn" onclick={() => void tabflow.resolveClose("cancel")}>取消</button>
   </div>
 {/if}
 </div>
@@ -192,18 +209,7 @@
   }
   .confirm b { color: var(--text); font-weight: 600; }
   .confirm .rest { color: var(--text-faint); font-size: 11.5px; }
-  .confirm button {
-    padding: 3px 10px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-size: 11.5px;
-    cursor: default;
-  }
-  .confirm button:hover { background: var(--hover); color: var(--text); }
-
-  .confirm button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .confirm .btn { flex: none; }
   /* 带色的三种：色罩叠在 --elevated 上，卡片仍然不透明（浮层不许透）；边线跟着色走 */
   .confirm.conflict {
     background: linear-gradient(rgba(214, 174, 88, 0.12), rgba(214, 174, 88, 0.12)), var(--elevated);
@@ -231,10 +237,5 @@
     color: var(--text-dim);
     max-height: 7.5em;
     overflow-y: auto;
-  }
-  .confirm button.danger {
-    background: var(--lvl-error);
-    border-color: var(--lvl-error);
-    color: #fff;
   }
 </style>
