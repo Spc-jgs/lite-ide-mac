@@ -190,7 +190,15 @@ mod tests {
         std::fs::create_dir_all(d.join(".git/refs/heads")).unwrap();
         let (tx, rx) = mpsc::channel();
         let _w = watch(&d, move |c| tx.send(c).unwrap()).unwrap();
+        /*
+         * **先把陈事件排干净。** `tmp()` 刚建的目录本身、`.git/refs/heads` 那几层，
+         * FSEvents 在慢机器上会在 watch 起来之后才吐出来（CI 的 macOS runner 上
+         * 2026-09-15 连红两次：收到的第一条是 `Files`，就是根目录的创建事件）。
+         * 它落在我们那次写的防抖窗口里就合成一条 `Files`，`Git` 永远等不到。
+         * 等两个防抖窗口、把这段时间里到的全丢掉，再写。
+         */
         thread::sleep(Duration::from_millis(200));
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {}
         std::fs::write(d.join(".git/refs/heads/main"), "abc").unwrap();
         let got = rx.recv_timeout(Duration::from_secs(5)).expect("5 秒内没收到事件");
         assert_eq!(got, Change::Git);
