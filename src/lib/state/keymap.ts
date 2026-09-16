@@ -202,6 +202,13 @@ export const KEYS: KeyDef[] = [
    * `state/tab.ts` 的 `wrapsByDefault`），这条是「这一次看着不顺手」的手动开关。
    */
   { id: "toggle-wrap", label: "自动换行", group: "视图", owner: "menu" },
+  /*
+   * 编辑器字号。macOS 的通行写法（⌘= / ⌘- / ⌘0），Sublime、VS Code、浏览器全是它。
+   * 只管编辑器：日志视图是虚拟滚动、行高写死，先不跟。
+   */
+  { id: "zoom-in", label: "放大字号", accel: "⌘=", group: "视图", owner: "menu" },
+  { id: "zoom-out", label: "缩小字号", accel: "⌘-", group: "视图", owner: "menu" },
+  { id: "zoom-reset", label: "实际大小", accel: "⌘0", group: "视图", owner: "menu" },
 
   // ── 终端 ──
   /*

@@ -44,7 +44,8 @@ export const ideaDarkTheme = EditorView.theme(
       color: TEXT,
       backgroundColor: BG,
       height: "100%",
-      fontSize: "13px",
+      // 字号跟 :root 上的变量走（视图 → 放大 / 缩小 / 实际大小），App 负责写它
+      fontSize: "var(--editor-font-size, 13px)",
     },
     ".cm-scroller": {
       fontFamily: "var(--code-font)",

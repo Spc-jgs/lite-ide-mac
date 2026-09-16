@@ -22,3 +22,21 @@ export function writePref(key: string, v: boolean) {
     /* 存不下就算了，下次开还是默认值 */
   }
 }
+
+/** 数字偏好（编辑器字号）。读回来不是有限数就用默认值 —— 手改过的 localStorage 什么都可能是 */
+export function readNumPref(key: string, dflt: number): number {
+  try {
+    const v = Number(localStorage.getItem(`lite-ide.${key}`));
+    return Number.isFinite(v) && v > 0 ? v : dflt;
+  } catch {
+    return dflt;
+  }
+}
+
+export function writeNumPref(key: string, v: number) {
+  try {
+    localStorage.setItem(`lite-ide.${key}`, String(v));
+  } catch {
+    /* 同上 */
+  }
+}

@@ -163,6 +163,10 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&toggle_wrap)
         .item(&toggle_mode)
         .separator()
+        .item(&item(app, "zoom-in", "放大字号", Some("CmdOrCtrl+="))?)
+        .item(&item(app, "zoom-out", "缩小字号", Some("CmdOrCtrl+-"))?)
+        .item(&item(app, "zoom-reset", "实际大小", Some("CmdOrCtrl+0"))?)
+        .separator()
         .fullscreen_with_text("进入全屏")
         .build()?;
 

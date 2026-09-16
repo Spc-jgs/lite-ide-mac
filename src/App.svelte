@@ -22,7 +22,7 @@
   import { persist, saved } from "./lib/state/persist.svelte";
   import { overlay } from "./lib/state/overlay.svelte";
   import { lang } from "./lib/state/lang.svelte";
-  import { readPref, writePref } from "./lib/state/prefs";
+  import { readPref, writePref, readNumPref, writeNumPref } from "./lib/state/prefs";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
   import { wrapsByDefault } from "./lib/state/tab";
@@ -66,6 +66,17 @@
   let showMinimap = $state(readPref("minimap", true));
   $effect(() => {
     writePref("minimap", showMinimap);
+  });
+
+  /**
+   * 编辑器字号（⌘= / ⌘- / ⌘0）。写在 :root 的 CSS 变量上，CM6 主题读它 ——
+   * 不重建编辑器，光标和撤销栈都不动。夹在 9–28：小于 9 看不清，大于 28 一行放不下几个字。
+   */
+  const FONT_DEFAULT = 13;
+  let editorFont = $state(readNumPref("editorFont", FONT_DEFAULT));
+  $effect(() => {
+    document.documentElement.style.setProperty("--editor-font-size", `${editorFont}px`);
+    writeNumPref("editorFont", editorFont);
   });
 
   /**
@@ -625,6 +636,9 @@
         else layout.showSide("scratch");
         return;
       case "toggle-minimap": showMinimap = !showMinimap; return;
+      case "zoom-in": editorFont = Math.min(28, editorFont + 1); return;
+      case "zoom-out": editorFont = Math.max(9, editorFont - 1); return;
+      case "zoom-reset": editorFont = FONT_DEFAULT; return;
       case "toggle-wrap": {
         const t = tabs.active;
         if (t?.mode === "edit") t.wrap = !(t.wrap ?? wrapsByDefault(t.path));
