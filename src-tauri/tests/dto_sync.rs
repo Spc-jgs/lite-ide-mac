@@ -46,6 +46,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("SwitchErrDto", "SwitchErr"),
     ("BranchErrDto", "BranchErr"),
     ("ScratchDto", "ScratchEntry"),
+    ("AnchorDto", "ScratchAnchor"),
     ("CliInstallDto", "CliInstall"),
 ];
 

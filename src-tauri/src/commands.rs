@@ -245,11 +245,24 @@ pub fn scratch_dir(app: tauri::AppHandle) -> Result<String, String> {
 /// `stem` 由前端按本地时间生成（`2026-09-09 1030`）：std 里没有本地时区，
 /// 为一个文件名拽一个日期库进来不值，而前端 `new Date()` 天然就是本地的。
 #[tauri::command]
-pub fn create_scratch(app: tauri::AppHandle, stem: String) -> Result<String, String> {
+pub fn create_scratch(app: tauri::AppHandle, stem: String, anchor: Option<AnchorDto>) -> Result<String, String> {
     let dir = scratch_root(&app)?;
-    let p = fsservice::create_scratch(&dir, &stem).map_err(|e| format!("新建草稿失败：{e}"))?;
+    let a = anchor.map(|a| fsservice::Anchor { project: a.project, branch: a.branch, head: a.head, at: a.at });
+    let p = fsservice::create_scratch_with(&dir, &stem, a.as_ref()).map_err(|e| format!("新建草稿失败：{e}"))?;
     crate::diag!("create_scratch -> {}", p.display());
     Ok(p.to_string_lossy().into_owned())
+}
+
+/// 草稿的锚点（M10）：在哪个项目 / 分支 / 提交 / 文件行写的。四样都可为空。
+/// 两个方向都走它：新建时前端传进来，列表时 Rust 从文件头解出来。
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AnchorDto {
+    pub project: String,
+    pub branch: String,
+    pub head: String,
+    /// `相对路径:行`
+    pub at: String,
 }
 
 /// 草稿列表里的一条（issue #40）。
@@ -260,6 +273,8 @@ pub struct ScratchDto {
     pub path: String,
     pub mtime_ms: u64,
     pub first_line: String,
+    /// 文件头里的锚点；没有头就是 None
+    pub anchor: Option<AnchorDto>,
 }
 
 /// 草稿目录里有什么，最近的在前。目录还不存在就是空列表。
@@ -278,6 +293,7 @@ pub async fn list_scratches(app: tauri::AppHandle) -> Result<Vec<ScratchDto>, St
                         path: s.path.to_string_lossy().into_owned(),
                         mtime_ms: s.mtime_ms,
                         first_line: s.first_line,
+                        anchor: s.anchor.map(|a| AnchorDto { project: a.project, branch: a.branch, head: a.head, at: a.at }),
                     })
                     .collect()
             })
@@ -1024,6 +1040,8 @@ pub struct GitStatusDto {
     pub ahead: u32,
     pub behind: u32,
     pub detached: bool,
+    /// HEAD 短 sha，空仓库是空串
+    pub head: String,
     pub unborn: bool,
     /// 只有文件；整个未跟踪的目录在 `untracked_dirs` 里
     pub entries: Vec<GitEntryDto>,
@@ -1050,6 +1068,7 @@ pub fn git_status(root: String) -> Result<GitStatusDto, String> {
         ahead: st.ahead,
         behind: st.behind,
         detached: st.detached,
+        head: st.head,
         unborn: st.unborn,
         untracked_dirs: st.untracked_dirs,
         truncated: st.truncated,

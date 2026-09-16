@@ -9,6 +9,8 @@
  * 否则桩就失去了验证价值。
  */
 
+import { splitFrontmatter } from "../state/frontmatter";
+
 const LINES = [
   "2026-08-24 14:03:21.442 INFO  [http-nio-exec-4] c.l.OrderService - 处理完成 orderId=8842011 cost=142ms status=SUCCESS",
   "2026-08-24 14:03:22.015 DEBUG [pool-3-thread-2] c.l.CacheManager - evict key=order:8842011 ttl=300s",
@@ -106,6 +108,12 @@ const FILES: Record<string, string> = {
     "# 周会要点\n\n- 日志引擎 1GB 冷启动 460ms\n- 下周切 CI\n",
   "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-12 0915.md":
     "\n\ncurl -s http://localhost:8080/health | jq .\n",
+  // 带锚点的一份（M10）：列表要按项目分组、chip 要能跳回那一行，桩上得有一条能点的
+  "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-14 1120.md":
+    "---\nproject: /proj\nbranch: m13/git\nhead: h800000\nat: src/OrderService.java:18\n---\n\n18 行那个 timeout 是临时的，上线前改回 300\n",
+  // 别的项目的一份：折在「其他」组里
+  "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-13 1800.md":
+    "---\nproject: /Users/you/other\nbranch: main\n---\n\n另一个项目的笔记\n",
   /*
    * issue #13 的现场，摆在桩里才看得见。
    *
@@ -474,7 +482,7 @@ const DIRS: Record<string, Array<[string, boolean]>> = {
   // 应用日志所在的目录。它**不在项目里**，只有「帮助 → 打开应用日志」够得着
   "/Users/you/Library/Logs/com.liteide.app": [["app.log", false]],
   // 草稿目录里预放两份 —— 不放的话侧边栏的草稿列表在浏览器里永远是空态（issue #40）
-  [SCRATCH_DIR]: [["2026-09-10 1644.md", false], ["2026-09-12 0915.md", false]],
+  [SCRATCH_DIR]: [["2026-09-10 1644.md", false], ["2026-09-12 0915.md", false], ["2026-09-14 1120.md", false], ["2026-09-13 1800.md", false]],
   "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], ["node_modules", true], ["target", true], ["build", true], ["dist", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   // 生成物目录里也要有东西 —— 空目录点开只有一行「空」，看不出「点得开」这件事
   "/proj/node_modules": [["svelte", true], [".package-lock.json", false]],
@@ -927,7 +935,10 @@ export function installMockIpc(): void {
             const path = `${SCRATCH_DIR}/${name}`;
             if (existsInMock(path)) continue;
             DIRS[SCRATCH_DIR] = [...DIRS[SCRATCH_DIR], [name, false]];
-            FILES[path] = "";
+            // 锚点写成文件头，形状同 fsservice::Anchor::frontmatter：空字段不写，全空不写头
+            const an = (a.anchor ?? null) as null | Record<string, string>;
+            const kv = an ? (["project", "branch", "head", "at"] as const).filter((k) => an[k]).map((k) => `${k}: ${an[k]}\n`) : [];
+            FILES[path] = kv.length ? `---\n${kv.join("")}---\n\n` : "";
             bump(path);
             return path;
           }
@@ -950,8 +961,10 @@ export function installMockIpc(): void {
             .filter(([n, isDir]) => !isDir && n.endsWith(".md") && !n.startsWith("."))
             .map(([n]) => {
               const path = `${SCRATCH_DIR}/${n}`;
+              const [anchor, body] = splitFrontmatter(FILES[path] ?? "");
               const firstLine =
                 (FILES[path] ?? "")
+                  .slice(body)
                   .split("\n")
                   .map((l) => l.trim().replace(/^#+/, "").trim())
                   .find((l) => l.length > 0) ?? "";
@@ -960,6 +973,7 @@ export function installMockIpc(): void {
                 path,
                 mtimeMs: stampOf(path).mtimeMs,
                 firstLine: [...firstLine].slice(0, 80).join(""),
+                anchor,
               };
             })
             .sort((a, b) => {
@@ -979,7 +993,8 @@ export function installMockIpc(): void {
           // 判据照着 Rust 侧抄一遍。桩里少一条，浏览器上就走得通而真机上走不通
           if (!path.startsWith(`${SCRATCH_DIR}/`)) throw new Error("不在草稿目录里");
           if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
-          if ((FILES[path] ?? "") !== "") throw new Error("这份草稿里有东西，不能这么丢");
+          // 「空」= 正文空；带头没正文的也算（同 Rust 侧）
+          if ((FILES[path] ?? "").slice(splitFrontmatter(FILES[path] ?? "")[1]).trim() !== "") throw new Error("这份草稿里有东西，不能这么丢");
           delete FILES[path];
           DIRS[SCRATCH_DIR] = (DIRS[SCRATCH_DIR] ?? []).filter(
             ([n]) => `${SCRATCH_DIR}/${n}` !== path,
@@ -1135,6 +1150,7 @@ export function installMockIpc(): void {
           return {
             root: "/proj",
             branch: curBranch,
+            head: "h800000",
             upstream: UPSTREAM[curBranch] ?? "",
             ahead: 2,
             behind: 0,

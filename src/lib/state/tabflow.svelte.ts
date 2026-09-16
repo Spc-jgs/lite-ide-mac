@@ -17,7 +17,9 @@ import { tabs } from "./tabs.svelte";
 import { docs } from "./docs.svelte";
 import { project } from "./project.svelte";
 import { scratches } from "./scratches.svelte";
-import { scratchTitle, type TabState } from "./tab";
+import { git } from "./git.svelte";
+import { type TabState } from "./tab";
+import { scratchTitle, splitFrontmatter } from "./frontmatter";
 
 /**
  * 一个文件在标签表里的进出：打开（文件 / 文件夹 / 最近 / 草稿）、关闭（含「未保存怎么办」
@@ -228,6 +230,11 @@ class TabFlow {
    * 时间戳在这边算而不是 Rust 侧：std 里没有本地时区，为一个文件名
    * 拽一个日期库进去不值，而 `new Date()` 天然就是本地的。
    */
+  /**
+   * ⌘N。**静默**记下锚点（M10）：项目 / 分支 / HEAD / 当前文件:行，写进文件头。
+   * 静默是硬要求 —— 记一笔的动作仍然是「⌘N 然后打字」，多一个问句人就回备忘录了。
+   * 四样都可以为空：没开项目就是一份普通草稿。
+   */
   async newScratch() {
     notify.clear();
     try {
@@ -236,11 +243,32 @@ class TabFlow {
       const stem =
         `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
         `${pad(d.getHours())}${pad(d.getMinutes())}`;
-      await this.openPath(await createScratch(stem));
+      await this.openPath(await createScratch(stem, this.anchorNow()));
       void scratches.refresh();
     } catch (e) {
       notify.fail(String(e));
     }
+  }
+
+  /**
+   * 此刻的锚点。`at` 只记项目里、编辑模式的标签（日志 / 差异 / 草稿本身不算）；
+   * 行号取编辑器最后报上来的光标行（`docs.posByPath`），没报过就不记行。
+   */
+  anchorNow() {
+    const root = project.root;
+    const t = tabs.active;
+    let at = "";
+    if (root && t && t.mode === "edit" && t.path.startsWith(`${root}/`) && !project.isScratch(t.path)) {
+      const line = docs.posByPath.get(t.path);
+      at = t.path.slice(root.length + 1) + (line ? `:${line}` : "");
+    }
+    const st = git.status;
+    return {
+      project: root ?? "",
+      branch: st?.branch ?? "",
+      head: st?.head ?? "",
+      at,
+    };
   }
 
   /**
@@ -472,7 +500,8 @@ class TabFlow {
       project.isScratch(tab.path) &&
       tab.mode === "edit" &&
       !tab.dirty &&
-      (tab.content ?? "") === ""
+      // 「空」= 正文空：带锚点头的草稿一建出来就有几十字节（M10），头不算字
+      (tab.content ?? "").slice(splitFrontmatter(tab.content ?? "")[1]).trim() === ""
     ) {
       void discardEmptyScratch(tab.path)
         .catch(() => {})

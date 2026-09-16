@@ -137,7 +137,22 @@ export const scratchDir = () => invoke<string>("scratch_dir");
  * `stem` 是不带扩展名的名字，**由这边按本地时间生成** —— Rust 的 std 里
  * 没有本地时区，为一个文件名拽一个日期库进去不值。撞名由 Rust 侧加序号。
  */
-export const createScratch = (stem: string) => invoke<string>("create_scratch", { stem });
+/**
+ * 草稿的锚点（M10）：在哪个项目 / 分支 / 提交 / 文件行写的，四样都可为空。
+ * 存在文件头的 frontmatter 里，Rust 侧列表时解出来；解析器两边各一份
+ * （`fsservice::frontmatter` / `state/frontmatter.ts`），判据一致。
+ */
+export interface ScratchAnchor {
+  project: string;
+  branch: string;
+  head: string;
+  /** `相对路径:行` */
+  at: string;
+}
+
+/** 新建草稿。`anchor` 有一样不空就写进文件头 */
+export const createScratch = (stem: string, anchor: ScratchAnchor | null = null) =>
+  invoke<string>("create_scratch", { stem, anchor });
 
 /** 草稿列表里的一条（issue #40） */
 export interface ScratchEntry {
@@ -145,8 +160,10 @@ export interface ScratchEntry {
   path: string;
   /** 修改时间，Unix 毫秒。取不到时为 0 */
   mtimeMs: number;
-  /** 第一行有字的内容，Rust 侧截到 80 字符；空文件是空串 */
+  /** 正文第一行有字的内容（跳过文件头），Rust 侧截到 80 字符；空文件是空串 */
   firstLine: string;
+  /** 文件头里的锚点；没有头就是 null */
+  anchor: ScratchAnchor | null;
 }
 
 /** 「安装命令行工具…」的结果（issue #40） */
@@ -396,6 +413,8 @@ export interface GitStatus {
   ahead: number;
   behind: number;
   detached: boolean;
+  /** HEAD 的短 sha，空仓库是空串 */
+  head: string;
   /** 一个提交都还没有 */
   unborn: boolean;
   /**

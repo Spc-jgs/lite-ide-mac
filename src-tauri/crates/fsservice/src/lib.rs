@@ -442,8 +442,54 @@ fn same_entry(a: &fs::Metadata, b: &fs::Metadata) -> bool {
 /// 目录用 `create_dir_all` 而不是 `create_dir`：这里的语义就是「确保它在」，
 /// 和 [`create_entry`] 里那条「新建一个已存在的文件夹要报错」不是一回事。
 pub fn create_scratch(dir: impl AsRef<Path>, stem: &str) -> io::Result<PathBuf> {
+    create_scratch_with(dir, stem, None)
+}
+
+/// 草稿的锚点（M10）：记这条是**在哪儿**写的。四样都可以为空。
+///
+/// 存在文件头的 frontmatter 里（见 [`frontmatter`]），不存旁车文件：
+/// 用 Sublime 打开这份草稿要一样能读，而 frontmatter 是 markdown 世界公认的写法。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Anchor {
+    /// 项目根的绝对路径
+    pub project: String,
+    pub branch: String,
+    /// HEAD 的短 sha
+    pub head: String,
+    /// `相对路径:行`，光标当时停在哪
+    pub at: String,
+}
+
+impl Anchor {
+    pub fn is_empty(&self) -> bool {
+        self.project.is_empty() && self.branch.is_empty() && self.head.is_empty() && self.at.is_empty()
+    }
+
+    /// 写成文件头。空字段不写；全空返回空串（不写头）。
+    /// 结尾多一个空行 —— 光标要落在头**下面**，不是贴着 `---`。
+    pub fn frontmatter(&self) -> String {
+        if self.is_empty() {
+            return String::new();
+        }
+        let mut s = String::from("---\n");
+        for (k, v) in [("project", &self.project), ("branch", &self.branch), ("head", &self.head), ("at", &self.at)] {
+            if !v.is_empty() {
+                s.push_str(k);
+                s.push_str(": ");
+                s.push_str(v);
+                s.push('\n');
+            }
+        }
+        s.push_str("---\n\n");
+        s
+    }
+}
+
+/// 同 [`create_scratch`]，带锚点时把 frontmatter 写进去。
+pub fn create_scratch_with(dir: impl AsRef<Path>, stem: &str, anchor: Option<&Anchor>) -> io::Result<PathBuf> {
     let dir = dir.as_ref();
     fs::create_dir_all(dir)?;
+    let head = anchor.map(Anchor::frontmatter).unwrap_or_default();
     for n in 1..=99u32 {
         let name = if n == 1 {
             format!("{stem}.md")
@@ -451,7 +497,16 @@ pub fn create_scratch(dir: impl AsRef<Path>, stem: &str) -> io::Result<PathBuf> 
             format!("{stem}-{n}.md")
         };
         match create_entry(dir, &name, false) {
-            Ok(p) => return Ok(p),
+            Ok(p) => {
+                if !head.is_empty() {
+                    // 刚 create_new 出来的空文件，直接写；失败就把空壳收掉，别留一份没头的
+                    if let Err(e) = fs::write(&p, head.as_bytes()) {
+                        let _ = fs::remove_file(&p);
+                        return Err(e);
+                    }
+                }
+                return Ok(p);
+            }
             // 只有撞名才换个名字再来，别的错误（没权限、盘满）原样上抛 ——
             // 吞掉它们的话，这里会变成一个转 99 圈再报「撞名太多」的死循环
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -635,11 +690,25 @@ pub fn discard_empty_scratch(dir: impl AsRef<Path>, path: impl AsRef<Path>) -> i
             "只丢得掉普通文件",
         ));
     }
+    /*
+     * 「空」= 正文一个字都没有。带锚点的草稿一建出来就有几十字节的头（M10），
+     * 按 `len() == 0` 判的话，⌘N 之后一个字没写就关掉的那份永远收不掉。
+     * 只读头 4KB：头本身几十字节，正文超过 4KB 的必然不是空的。
+     */
     if meta.len() != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "这份草稿里有东西，不能这么丢",
-        ));
+        use std::io::Read;
+        let mut buf = vec![0u8; SCRATCH_PREVIEW_BYTES];
+        let n = fs::File::open(path).and_then(|mut f| f.read(&mut buf))?;
+        buf.truncate(n);
+        let text = std::str::from_utf8(&buf).unwrap_or("");
+        let (anchor, body) = frontmatter(text);
+        let blank = anchor.is_some() && (meta.len() as usize) <= n && text[body..].trim().is_empty();
+        if !blank {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "这份草稿里有东西，不能这么丢",
+            ));
+        }
     }
     // 只规范化父目录：最后一级留着不解析，否则又回到「判一个、删另一个」
     let parent = path
@@ -707,6 +776,48 @@ pub fn canonical(path: impl AsRef<Path>) -> PathBuf {
     }
 }
 
+/// 把文件头的 frontmatter 切出来：`(锚点, 正文起点的字节偏移)`。
+///
+/// 只认最窄的一种形状：第一行恰好是 `---`，接着若干 `key: value` 行，
+/// 再一行 `---`。不是这个形状就当没有头（偏移 0）—— 正文里自己写的 `---`
+/// 分隔线不会被误认，因为它不在第一行。
+/// 认不出的 key 跳过不报错：以后加字段，老版本打开新草稿要照常。
+/// 头最多找 32 行：没找到收尾的 `---` 就当没有头，别把一整篇正文当成头吃掉。
+pub fn frontmatter(text: &str) -> (Option<Anchor>, usize) {
+    let mut lines = text.split_inclusive('\n');
+    match lines.next() {
+        Some("---\n") | Some("---\r\n") => {}
+        _ => return (None, 0),
+    }
+    let mut off = 4 + usize::from(text.starts_with("---\r"));
+    let mut a = Anchor::default();
+    for (i, l) in lines.enumerate() {
+        off += l.len();
+        let t = l.trim_end_matches(['\n', '\r']);
+        if t == "---" {
+            // 头后面紧跟的那个空行也算头的一部分 —— 正文从第一行有字的地方起
+            if text[off..].starts_with('\n') {
+                off += 1;
+            }
+            return (Some(a), off);
+        }
+        if i >= 32 {
+            break;
+        }
+        if let Some((k, v)) = t.split_once(':') {
+            let v = v.trim().to_string();
+            match k.trim() {
+                "project" => a.project = v,
+                "branch" => a.branch = v,
+                "head" => a.head = v,
+                "at" => a.at = v,
+                _ => {}
+            }
+        }
+    }
+    (None, 0)
+}
+
 /// 草稿列表里的一条（issue #40）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scratch {
@@ -716,6 +827,8 @@ pub struct Scratch {
     pub mtime_ms: u64,
     /// 第一行有字的内容，截到 [`SCRATCH_PREVIEW_CHARS`] 个字符。空文件是空串
     pub first_line: String,
+    /// 文件头里的锚点（M10）。没有头就是 None
+    pub anchor: Option<Anchor>,
 }
 
 /// 摘要最多几个字符。侧边栏一行 240px 也就放得下这么多，多读只是白读
@@ -751,8 +864,10 @@ pub fn list_scratches(dir: impl AsRef<Path>) -> io::Result<Vec<Scratch>> {
             continue;
         }
         let path = ent.path();
+        let (anchor, first_line) = scratch_preview(&path);
         out.push(Scratch {
-            first_line: scratch_preview(&path),
+            first_line,
+            anchor,
             mtime_ms: stamp(&path).map(|s| s.mtime_ms).unwrap_or(0),
             name,
             path,
@@ -780,23 +895,27 @@ fn scratch_sort_key(name: &str) -> (String, u32) {
 
 /// 第一行有字的内容。只读头 [`SCRATCH_PREVIEW_BYTES`]，按 UTF-8 尽量解
 /// （截在多字节字符中间的那半个丢掉），跳过空行和 markdown 的 `#` 前缀。
-fn scratch_preview(path: &Path) -> String {
+/// 顺便把头里的锚点也解出来 —— 反正这 4KB 已经读进来了。
+fn scratch_preview(path: &Path) -> (Option<Anchor>, String) {
     use std::io::Read;
     let mut buf = vec![0u8; SCRATCH_PREVIEW_BYTES];
     let n = match fs::File::open(path).and_then(|mut f| f.read(&mut buf)) {
         Ok(n) => n,
-        Err(_) => return String::new(),
+        Err(_) => return (None, String::new()),
     };
     buf.truncate(n);
     let text = match std::str::from_utf8(&buf) {
         Ok(t) => t,
         Err(e) => std::str::from_utf8(&buf[..e.valid_up_to()]).unwrap_or(""),
     };
-    text.lines()
+    let (anchor, body) = frontmatter(text);
+    let first = text[body..]
+        .lines()
         .map(|l| l.trim().trim_start_matches('#').trim())
         .find(|l| !l.is_empty())
         .map(|l| l.chars().take(SCRATCH_PREVIEW_CHARS).collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    (anchor, first)
 }
 
 // ─────────────── 命令行工具 `lite`（issue #40 第二层） ───────────────
@@ -1431,6 +1550,54 @@ mod tests {
         assert!(!r.linked);
 
         fs::remove_dir_all(&d).ok();
+    }
+
+    /// frontmatter：写进去能读回来；没有头 / 头没收尾 / 正文里的 `---` 三种不误认；
+    /// 摘要跳过头；带头但没正文的算「空」，能被 discard 收掉
+    #[test]
+    fn 草稿锚点写读一致() {
+        let a = Anchor {
+            project: "/Users/x/proj".into(),
+            branch: "main".into(),
+            head: "b6176f3".into(),
+            at: "src/lib/git/GitPane.svelte:347".into(),
+        };
+        let head = a.frontmatter();
+        assert!(head.starts_with("---\nproject: /Users/x/proj\n"), "{head}");
+        assert!(head.ends_with("---\n\n"), "头后面要留一个空行给光标：{head:?}");
+        let text = format!("{head}# 标题\n正文");
+        let (got, off) = frontmatter(&text);
+        assert_eq!(got.as_ref(), Some(&a));
+        assert_eq!(&text[off..], "# 标题\n正文", "正文起点要跳过头和那个空行");
+
+        // 空字段不写
+        let half = Anchor { branch: "dev".into(), ..Default::default() };
+        assert_eq!(half.frontmatter(), "---\nbranch: dev\n---\n\n");
+        assert_eq!(Anchor::default().frontmatter(), "", "全空不写头");
+
+        // 不误认的三种
+        assert_eq!(frontmatter("正文\n---\nbranch: x\n---\n"), (None, 0), "`---` 不在第一行");
+        assert_eq!(frontmatter("---\nbranch: x\n没有收尾"), (None, 0), "头没收尾");
+        assert_eq!(frontmatter(""), (None, 0));
+        // 认不出的 key 跳过，不报错
+        let (g, _) = frontmatter("---\nfoo: bar\nbranch: z\n---\n");
+        assert_eq!(g.unwrap().branch, "z");
+
+        // 真文件：摘要跳过头；带头没正文的算空
+        let base = sandbox("anchor");
+        let d = base.join("scratches");
+        let p = create_scratch_with(&d, "2026-09-16 1200", Some(&a)).unwrap();
+        let list = list_scratches(&d).unwrap();
+        assert_eq!(list[0].anchor.as_ref(), Some(&a));
+        assert_eq!(list[0].first_line, "", "只有头，摘要该是空");
+        discard_empty_scratch(&d, &p).expect("带头没正文的草稿算空，要能收掉");
+        assert!(!p.exists());
+
+        let p = create_scratch_with(&d, "2026-09-16 1201", Some(&a)).unwrap();
+        fs::write(&p, format!("{}记了一笔", a.frontmatter())).unwrap();
+        assert_eq!(list_scratches(&d).unwrap()[0].first_line, "记了一笔");
+        assert!(discard_empty_scratch(&d, &p).is_err(), "有正文的不能丢");
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

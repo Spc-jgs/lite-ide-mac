@@ -123,6 +123,8 @@ pub struct Status {
     pub behind: u32,
     /// 是否处在 detached HEAD
     pub detached: bool,
+    /// HEAD 的短 sha（7 位）。一个提交都没有时是空串。草稿锚点记它（M10）
+    pub head: String,
     /// 仓库里一个提交都还没有
     pub unborn: bool,
     /// **只有文件。** 未跟踪的目录见 [`Status::untracked_dirs`]
@@ -1104,8 +1106,11 @@ fn parse_branch_header(rest: &str, st: &mut Status) {
             // 一个提交都没有时 git 给的是字面量 "(initial)"
             if val == "(initial)" {
                 st.unborn = true;
-            } else if st.branch.is_empty() && st.detached {
-                st.branch = format!("({})", &val[..val.len().min(7)]);
+            } else {
+                st.head = val[..val.len().min(7)].to_string();
+                if st.branch.is_empty() && st.detached {
+                    st.branch = format!("({})", st.head);
+                }
             }
         }
         "branch.upstream" => st.upstream = val.to_string(),
@@ -1993,13 +1998,14 @@ mod tests {
     #[test]
     fn 表头带出分支与领先落后() {
         let raw = rec(&[
-            "# branch.oid abc123",
+            "# branch.oid abc123def456",
             "# branch.head main",
             "# branch.upstream origin/main",
             "# branch.ab +3 -1",
         ]);
         let st = parse_status(&raw);
         assert_eq!(st.branch, "main");
+        assert_eq!(st.head, "abc123d", "head 是 oid 截 7 位（草稿锚点记它）");
         assert_eq!(st.upstream, "origin/main");
         assert_eq!(st.ahead, 3);
         assert_eq!(st.behind, 1);

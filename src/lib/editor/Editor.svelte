@@ -21,6 +21,7 @@
   import { diffLines } from "../git/linediff";
   import { resolveJump, rawWordAt, type JumpHit } from "./jump";
   import { jumpExtension } from "./jump-ext";
+  import { foldFrontmatter } from "./frontmatter-fold";
 
   let {
     path,
@@ -324,6 +325,9 @@
       // 挂载先报一次：updateListener 只在有更新时才跑，不报的话状态栏那格
       // 会停在上一个标签的位置上，直到人动一下光标
       onCaret?.(1, 1);
+      // 草稿的锚点头折起来、光标落到正文（M10）。只看 markdown：别的文件的 `---` 开头不归这儿管。
+      // 放在 onCaret 之后：它会 dispatch 一次，updateListener 报的才是挪完的位置
+      if (/\.(md|markdown)$/i.test(path)) foldFrontmatter(view);
       // 基线多半在挂载前就到了（切标签时上一份还在），那条 effect 那时 view 还是 null
       recomputeMarks();
       applyBlame();

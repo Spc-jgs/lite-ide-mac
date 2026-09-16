@@ -15,8 +15,13 @@
   import Icon from "./Icon.svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { scratches } from "../state/scratches.svelte";
+  import { project } from "../state/project.svelte";
+  import { nav } from "../state/nav.svelte";
+  import { notify } from "../state/notify.svelte";
   import { ago } from "../state/ago";
-  import type { ScratchEntry } from "../ipc/commands";
+  import { projectName } from "../state/crumbs";
+  import { parseAt } from "../state/frontmatter";
+  import { probePath, type ScratchEntry, type ScratchAnchor } from "../ipc/commands";
 
   let {
     activePath,
@@ -60,6 +65,49 @@
     ];
   });
 
+  /**
+   * 按项目分组（M10）：开着项目时，这个项目的草稿在上、其余折进「其他」。
+   * **是排序不是过滤** —— 切了项目还想翻上一个项目的笔记是常事。
+   * 没开项目、或者一条都不属于当前项目时，就是一张平铺的表。
+   */
+  let groups = $derived.by(() => {
+    const root = project.root;
+    const all = scratches.list;
+    if (!root) return [{ label: "", rows: all, others: false }];
+    const mine = all.filter((r) => r.anchor?.project === root);
+    if (mine.length === 0) return [{ label: "", rows: all, others: false }];
+    const rest = all.filter((r) => r.anchor?.project !== root);
+    const out = [{ label: projectName(root), rows: mine, others: false }];
+    if (rest.length) out.push({ label: "其他", rows: rest, others: true });
+    return out;
+  });
+  /** 「其他」组默认折着：它是「别的项目的」，翻的时候才展开 */
+  let othersOpen = $state(false);
+
+  /** chip 上印什么：本项目的省掉项目名（分组头已经说了），其他组的带上 */
+  function chipText(a: ScratchAnchor, inOthers: boolean): string {
+    const parts: string[] = [];
+    if (inOthers && a.project) parts.push(projectName(a.project));
+    if (a.branch) parts.push(a.branch);
+    if (a.at) parts.push(a.at.slice(a.at.lastIndexOf("/") + 1));
+    return parts.join(" · ");
+  }
+
+  /**
+   * 点 chip 跳回写这条时看的那一行。分支不同照跳（行号可能漂，先认了）；
+   * 文件不在了要说一句，不能静默失败。
+   */
+  async function jump(a: ScratchAnchor) {
+    const at = parseAt(a.at);
+    if (!at || !a.project) return;
+    const full = `${a.project}/${at.path}`;
+    if (!(await probePath(full).catch(() => null))) {
+      notify.fail(`${at.path} 已不在${a.branch ? ` ${a.branch} 上` : ""}`, 3200);
+      return;
+    }
+    await nav.openAt(full, at.line);
+  }
+
   /** 标签里显示的名字：`2026-09-10 1644.md` → `09-10 16:44` */
   function shortName(name: string): string {
     const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2})(\d{2})(?:-(\d+))?\.md$/.exec(name);
@@ -81,28 +129,53 @@
       <!-- 空态要给下一步，不是给句号（ui.md 第六条） -->
       <div class="empty">还没有草稿 —— ⌘N 记第一条</div>
     {/if}
-    {#each scratches.list as row (row.path)}
-      <button
-        class="row"
-        class:active={row.path === activePath}
-        title={row.path}
-        onclick={() => onOpen(row.path, false)}
-        ondblclick={() => onOpen(row.path, true)}
-        oncontextmenu={(e) => {
-          e.preventDefault();
-          openMenu(e, row, e.currentTarget as HTMLElement);
-        }}
-        onkeydown={(e) => {
-          if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
-            e.preventDefault();
-            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            openMenu({ clientX: r.left + 12, clientY: r.bottom - 2 }, row, e.currentTarget as HTMLElement);
-          }
-        }}
-      >
-        <span class="line" class:faint={row.firstLine === ""}>{row.firstLine || "（空）"}</span>
-        <span class="meta">{shortName(row.name)} · {row.mtimeMs ? ago(row.mtimeMs / 1000) : ""}</span>
-      </button>
+    {#each groups as g (g.label)}
+      {#if g.label}
+        <button class="sec" class:closed={g.others && !othersOpen} onclick={() => g.others && (othersOpen = !othersOpen)} disabled={!g.others}>
+          {#if g.others}<span class="caret"><Icon name="chevron-right" size={10} /></span>{/if}
+          <span class="sname">{g.label}</span>
+          <span class="cnt">{g.rows.length}</span>
+        </button>
+      {/if}
+      {#if !g.others || othersOpen}
+        {#each g.rows as row (row.path)}
+          <!-- 行和 chip 是两个按钮并排：按钮里不能再套按钮 -->
+          <div class="rowwrap" class:active={row.path === activePath}>
+            <button
+              class="row"
+              title={row.path}
+              onclick={() => onOpen(row.path, false)}
+              ondblclick={() => onOpen(row.path, true)}
+              oncontextmenu={(e) => {
+                e.preventDefault();
+                openMenu(e, row, e.currentTarget as HTMLElement);
+              }}
+              onkeydown={(e) => {
+                if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
+                  e.preventDefault();
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  openMenu({ clientX: r.left + 12, clientY: r.bottom - 2 }, row, e.currentTarget as HTMLElement);
+                }
+              }}
+            >
+              <span class="line" class:faint={row.firstLine === ""}>{row.firstLine || "（空）"}</span>
+              <!-- 有 chip 时第二行只留「多久之前」：日期在文件名里（tooltip 有），chip 更值这块地方 -->
+              <span class="meta">{#if row.anchor && chipText(row.anchor, g.others)}{row.mtimeMs ? ago(row.mtimeMs / 1000) : shortName(row.name)}{:else}{shortName(row.name)} · {row.mtimeMs ? ago(row.mtimeMs / 1000) : ""}{/if}</span>
+            </button>
+            {#if row.anchor && chipText(row.anchor, g.others)}
+              {@const a = row.anchor}
+              <!-- 锚点 chip（M10）：写这条时在哪。有 `at` 才能点（跳回那一行），只有分支的就是个标签 -->
+              <button
+                class="chip"
+                class:link={!!a.at}
+                disabled={!a.at}
+                title={[a.project, a.branch, a.head, a.at].filter(Boolean).join("\n")}
+                onclick={() => void jump(a)}
+              >{chipText(a, g.others)}</button>
+            {/if}
+          </div>
+        {/each}
+      {/if}
     {/each}
   </div>
 </div>
@@ -160,7 +233,35 @@
   .head .hb:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .list { flex: 1; overflow: auto; padding: 4px 6px; }
   .empty { padding: 10px 6px; font-size: 12px; color: var(--text-faint); }
+  /* 分组头：吸顶、底色跟外壳走（ui.md 第四条）；「其他」能折 */
+  .sec {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: 8px 6px 4px;
+    background: var(--panel-bg);
+    border: none;
+    color: var(--text-faint);
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    text-align: left;
+    cursor: default;
+  }
+  .sec:disabled { color: var(--text-faint); }
+  .sec .caret { display: inline-flex; transform: rotate(90deg); transition: transform 0.12s; }
+  .sec.closed .caret { transform: none; }
+  .sec .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sec .cnt { font-family: var(--code-font); background: var(--selected); border-radius: var(--r-sm); padding: 0 5px; font-size: 10px; letter-spacing: 0; }
   /* 两行一条，内缩圆角块；当前项的长相和文件树、标签栏同一套（ui.md 第一条） */
+  .rowwrap { position: relative; border-radius: var(--r-sm); }
+  .rowwrap:hover { background: var(--hover); }
+  .rowwrap.active { background: var(--selected); }
+  .rowwrap.active .row { color: var(--text); }
   .row {
     display: flex;
     flex-direction: column;
@@ -176,9 +277,35 @@
     text-align: left;
     cursor: default;
   }
-  .row:hover { background: var(--hover); }
-  .row.active { background: var(--selected); color: var(--text); }
   .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  /*
+   * 锚点 chip：贴在第二行右端。字色比 meta 亮一档 —— 它是这条草稿区别于备忘录的
+   * 那一样东西；能跳的（有 at）hover 变 accent，只有分支的不变。
+   */
+  .chip {
+    position: absolute;
+    right: 6px;
+    bottom: 4px;
+    max-width: 68%;
+    height: 16px;
+    padding: 0 5px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: var(--selected);
+    color: var(--text-dim);
+    font-family: var(--code-font);
+    font-size: 10px;
+    line-height: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: default;
+  }
+  .chip:disabled { opacity: 0.8; }
+  .chip.link:hover { background: var(--pressed); color: var(--accent); }
+  .chip:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  /* chip 占了右下角，meta 那行给它让位 */
+  .rowwrap:has(.chip) .row .meta { padding-right: 68%; }
   .row .line {
     overflow: hidden;
     text-overflow: ellipsis;

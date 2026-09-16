@@ -145,6 +145,7 @@ brew install node pnpm                                            # Node 20+ / p
 | M2 控制台 | zsh 终端 + 输出面板 | 1–2 周 |
 | M3 阅读体验 | ⌘P 秒开任意文件 + 全局搜索 + MD live-preview 富文本 | 2 周 |
 | M4 可选 | LSP 只读智能（跳转定义/hover，看陌生代码用） | 按需 |
+| M10 草稿 | 定位「调试时的草稿纸」：锚点 / 粘什么变什么 / 和代码一起搜。方案在 [docs/SCRATCH.md](docs/SCRATCH.md) | 2–3 轮 |
 
 ---
 

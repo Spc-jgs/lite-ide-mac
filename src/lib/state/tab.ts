@@ -104,15 +104,6 @@ export function wrapsByDefault(path: string): boolean {
   return !/\.[^.]+$/.test(name);
 }
 
-/** 草稿的标签名：第一行有字的内容，截到 30 个字符；一个字没有就回落到文件名 */
-export function scratchTitle(text: string): string | undefined {
-  for (const raw of text.split("\n", 40)) {
-    const line = raw.trim().replace(/^#+\s*/, "").trim();
-    if (line) return [...line].slice(0, 30).join("");
-  }
-  return undefined;
-}
-
 /** `tabPath` 是不是 `p` 本身，或（`p` 是目录时）在它底下 */
 export function underPath(tabPath: string, p: string, isDir: boolean): boolean {
   return tabPath === p || (isDir && tabPath.startsWith(`${p}/`));

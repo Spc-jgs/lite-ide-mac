@@ -1,4 +1,5 @@
-import { wrapsByDefault, scratchTitle } from "../src/lib/state/tab.ts";
+import { wrapsByDefault } from "../src/lib/state/tab.ts";
+import { scratchTitle } from "../src/lib/state/frontmatter.ts";
 
 let pass = 0,
   fail = 0;

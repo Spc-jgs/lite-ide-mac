@@ -6615,3 +6615,45 @@ Diff 头 11 分段 / 文件树空态 12 描边。一屏四种高度四种字号�
 验证：`pnpm dev` 桩上走完删除（两道确认）/ 重命名 / 从当前新建 / ↵ 直切 / 推送进度卡片；
 `cargo test --workspace` 全绿（含新加的 `分支删除和改名`，验过红）；`pnpm check` 0；
 入口包 136,953 → 138,525 B（+1.5 KB，标题栏的胶囊），135 KiB，告警线 138 KiB。
+
+## 2026-09-16 · M10 草稿锚点：记下「在哪儿写的」
+
+方案在 [SCRATCH.md](SCRATCH.md)，这是第 1 件。定位一句话：调试时的草稿纸 ——
+备忘录和 Sublime 不知道你在看哪行代码，这是结构差距不是功能差距。
+
+### 做了什么
+
+⌘N 时**静默**记四样到文件头：`project` / `branch` / `head`（短 sha）/ `at`（`相对路径:行`）。
+frontmatter 那种写法，只认最窄的形状（第一行恰好 `---`、`key: value`、收尾 `---`，
+最多 32 行），正文里自己写的 `---` 不在第一行不会被误认。解析器两边各一份
+（`fsservice::frontmatter` / `state/frontmatter.ts`），判据一致、各有测试。
+
+列表：开着项目时这个项目的在上、其余折进「其他」—— **是排序不是过滤**，切了项目还想翻
+上一个项目的笔记是常事。每条一个 chip（`m13/git · OrderService.java:18`），有 `at` 的能点，
+跳回那一行；文件不在了说一句「已不在 xx 上」，不静默。分支不同照跳，行号漂了先认了。
+
+编辑器里头**折起来**（CM6 的 `foldEffect`，从 0 到收尾 `---`）：文件里那几行是真的，
+编辑器不该假装它不存在，但每次打开先看六行 YAML 也不对。第一版折的是第一行 `---` 之后，
+结果 markdown-live 把留下的 `---` 画成一条分隔线、占位符掉到第二个视觉行，头看着像两行 ——
+改成从 0 起折。光标停在 0 时挪到正文起点：⌘N 之后第一个字得落在正文里。
+
+### 三处「空」的判据要跟着变
+
+带头的草稿一建出来就有几十字节。`discard_empty_scratch` 按 `len() == 0` 判、关标签那边按
+`content === ""` 判、桩按 `FILES[path] !== ""` 判 —— 三处都得改成「正文 trim 后为空」，
+少改一处，⌘N 之后一个字没写就关掉的那份就永远收不掉。这是「同一件事写在三个地方」
+那条老病的又一例，这次没漏是因为改之前先 grep 了 `discard`。
+
+### `scratchTitle` 搬家
+
+它要读文件头，得 import `frontmatter.ts`；而 `tab.ts` 是 node 直接跑测试的模块，
+不带扩展名的值导入 node 认不出（`ERR_MODULE_NOT_FOUND`）。仓库里被 node 直接跑的模块
+至今**一个值导入都没有**，不是巧合。把 `scratchTitle` 搬进 `frontmatter.ts`，`tab.ts` 保持
+零导入。
+
+### 其他
+
+- `Status` 多一个 `head`（`branch.oid` 截 7 位），`GitStatusDto` / `GitStatus` / 桩同步。
+- `ScratchDto` 多 `anchor`，新 `AnchorDto` ↔ `ScratchAnchor` 登记进 `dto_sync`。
+- `Rail.svelte` #40 那条「草稿不属于任何项目」的注释补了一句：锚点不改这条。
+- 入口包 138,525 → 139,513 B（+1 KB：`frontmatter.ts` + `anchorNow`），136 KiB。

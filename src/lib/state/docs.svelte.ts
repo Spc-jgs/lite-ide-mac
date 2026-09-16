@@ -3,7 +3,7 @@ import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { project } from "./project.svelte";
 import { textToSave, settled, stashed } from "./doc";
-import { scratchTitle } from "./tab";
+import { scratchTitle } from "./frontmatter";
 import { autosaveDue, AUTOSAVE_IDLE_MS } from "./autosave";
 import type { TabState } from "./tab";
 
