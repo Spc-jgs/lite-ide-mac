@@ -512,7 +512,8 @@
               bind:this={rowEls[i]}
               oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); if (i2 >= 0) sel = i2; openRowMenuAt(i); }}
             >
-              <button class="row" style:padding-left="{8 + r.depth * 18}px" onclick={() => click(i)} onmouseenter={() => { if (i2 >= 0) sel = i2; }}>
+              <!-- aria-label 用全名：文件夹里的行只显示后半截，读屏 / smoke 要按全名找 -->
+              <button class="row" style:padding-left="{8 + r.depth * 18}px" aria-label={r.kind === "branch" ? r.label : undefined} onclick={() => click(i)} onmouseenter={() => { if (i2 >= 0) sel = i2; }}>
                 {#if r.kind === "action"}
                   <span class="ic act">{#if r.icon}<Icon name={r.icon} size={14} />{/if}</span>
                   <span class="lb ui">{r.label}</span>

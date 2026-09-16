@@ -713,7 +713,8 @@ fi
 
 #
 # **切分支是两步的，不是一步**（2026-09-10 改成 IDEA 式）：
-# 点一行只是弹出那一行的动作菜单，真正切过去的是菜单里的「切换到 X」。
+# 点一行只是弹出那一行的动作菜单，真正切过去的是菜单里的「检出」
+#（2026-09-16 照 IDEA 改的措辞，原来叫「切换到 X」）。
 # 理由见 `BranchPicker.svelte` 的 `rowMenu` ——「点一下就切」在一个
 # 误点代价很大的操作上太轻了。
 #
@@ -723,7 +724,7 @@ fi
 say "⑤ 切分支"
 [ "$(ax click AXButton "main")" = "OK" ] || bad "点不开分支浮层"
 sleep 1.5
-# 分支按钮的名字后面跟着那条分支的最新提交标题，会变 —— 按前缀点
+# 分支行的 AX 名字是 aria-label 的全名（文件夹里只显示后半截 `x`）—— 按前缀点
 if [ "$(ax "click~" AXButton "feature/x")" != "OK" ]; then
   bad "分支浮层里找不到 feature/x"
 else
@@ -736,13 +737,12 @@ else
   #
   # **等它出来，别 sleep 一个定数**：菜单是点完那一下才挂上去的，
   # 而这台机器上什么时候慢是没准的（见 issue #30）。
-  # 只认「切换到」三个字、不带分支名：分支名后面跟不跟东西、怎么排版，
-  # 那是界面的事，不该让脚本跟着改。
-  if wait_has AXMenuItem "切换到" 8 && [ "$(ax "click~" AXMenuItem "切换到")" = "OK" ]; then
+  # 只认「检出」两个字：菜单项的措辞跟 IDEA 走，分支名不在上面。
+  if wait_has AXMenuItem "检出" 8 && [ "$(ax "click~" AXMenuItem "检出")" = "OK" ]; then
     wait_for 20 '[ "$(git -C "'"$FIX"'" rev-parse --abbrev-ref HEAD)" = "feature/x" ]' \
-      && ok "切到了 feature/x" || bad "点了「切换到」但分支没变"
+      && ok "切到了 feature/x" || bad "点了「检出」但分支没变"
   else
-    bad "行菜单里没有「切换到」—— 是不是又改回一步了？"
+    bad "行菜单里没有「检出」—— 是不是又改回一步了？"
   fi
 fi
 
