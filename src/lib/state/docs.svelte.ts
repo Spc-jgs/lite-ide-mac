@@ -29,6 +29,12 @@ class Docs {
    */
   savedTick = $state(0);
   /**
+   * 只在**我们自己**写盘成功时加一（`saveTab`）；外部重读、冲突选「用磁盘上的」不加。
+   * 编辑器靠它分辨「initial 变了是因为我刚存的落盘了」和「盘上真的换了内容」——
+   * 前者不能换文档（写盘期间人还在打字，换了就把那几个字吞掉），后者必须换。
+   */
+  selfSaveTick = $state(0);
+  /**
    * 「把光标放进编辑器」的请求计数。挂载时靠 `autofocus`，**已经开着**的标签再被
    * 显式打开一次（⌘P、双击树、系统送进来同一个文件）时编辑器不会重建，
    * 靠这个计数让它把焦点收回去。Editor 挂载时先对齐一次，只对之后的变化响应
@@ -165,6 +171,7 @@ class Docs {
       // 原来各写一遍，其中一处漏了清草稿（见 doc.ts 的注释）
       Object.assign(tab, settled(content));
       tab.conflict = false;
+      this.selfSaveTick++;
       this.savedTick++;
       this.retitle(tab, content);
       if (opts.quiet) return true;

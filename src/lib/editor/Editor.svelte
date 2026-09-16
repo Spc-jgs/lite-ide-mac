@@ -27,6 +27,7 @@
     initial,
     baseline = null,
     savedTick = 0,
+    selfSaveTick = 0,
     gotoLine = null,
     outlineTick = 0,
     headText = null,
@@ -62,6 +63,8 @@
     baseline?: string | null;
     /** 每次保存成功后自增。用它重置 dirty 基线，比暴露组件 ref 耦合更松 */
     savedTick?: number;
+    /** 只在我们自己写盘成功时自增（`docs.selfSaveTick`）。判据见「换文件」那条 effect */
+    selfSaveTick?: number;
     /** 搜索结果跳转用的目标行（1-based）。同一行连点也要能重新定位，故带 nonce */
     gotoLine?: { line: number; col?: number; nonce: number } | null;
     /** 自增即重新提取大纲。放在 Editor 里算是因为语法树在它手上 */
@@ -329,6 +332,7 @@
       onChange(initial !== baseText);
       // 对齐计数器：挂载不是一次「刚保存」，见下面那条 effect 的注释
       seenTick = savedTick;
+      seenSelfSave = selfSaveTick; // 同上：挂载不是一次「刚存的落盘了」
       onLive?.(curPath, () => view?.state.doc.toString() ?? "");
       onWordProbe?.(curPath, () =>
         view ? rawWordAt(view.state, view.state.selection.main.head) : null,
@@ -347,13 +351,26 @@
     };
   });
 
+  let seenSelfSave = 0;
   // 换文件：整份换掉文档，并热替换语言
   $effect(() => {
     const p = path;
     const text = initial;
     const base = baseline;
+    const own = selfSaveTick;
     if (!view) return;
     const 换了文件 = p !== curPath;
+    /*
+     * `initial` 这次变，是不是因为**我们自己刚存的落盘了**？
+     *
+     * 写盘是 await 的，IPC 往返里人还在打字。落盘后 `settled()` 把 content 换成存下去
+     * 的那份，`initial` 跟着变 —— 若照下面「文本变了就换 state」处理，文档会被换回
+     * 存下去的那份，往返期间敲的字就没了（实测：打 G、存、写盘中打 H，落盘后 H 消失且
+     * 标签不脏）。手动 ⌘S 时人不打字所以没露过；草稿自动保存每次落盘都在打字间隙。
+     * 外部重读 / 冲突选「用磁盘上的」不加 selfSaveTick，那两种照旧换文档。
+     */
+    const 自己存的落盘了 = own !== seenSelfSave;
+    seenSelfSave = own;
     // 真换了文件才收草稿；同一个文件只是内容被外部改了（重读），不能当草稿收走
     if (换了文件) {
       stash();
@@ -377,7 +394,7 @@
      * 先比长度再比内容：外部重读时才真的要换，那时长度多半也不一样。
      */
     const 文本变了 = text.length !== view.state.doc.length || text !== view.state.doc.toString();
-    if (换了文件 || 文本变了) {
+    if (换了文件 || (文本变了 && !自己存的落盘了)) {
       view.setState(build(text));
       void applyLang(p);
       // 新 state 里注解那个槽是空的，改动标记的字段也是新的：两个都要重下
@@ -387,7 +404,8 @@
         recomputeMarks();
       });
     }
-    onChange(text !== baseText);
+    // 脏不脏看**文档**对基线，不看 prop：自己存的落盘那次文档可能已经领先 initial
+    onChange(view.state.doc.toString() !== baseText);
     untrack(() => onLive?.(p, () => view?.state.doc.toString() ?? ""));
   });
 
@@ -517,8 +535,17 @@
     const t = savedTick;
     if (!view || t === seenTick) return;
     seenTick = t;
-    baseText = view.state.doc.toString();
-    onChange(false);
+    /*
+     * 基线取 `baseline`（`settled()` 写回的、真正落在盘上的那份），**不是此刻的文档**。
+     * 原来写的是 `view.state.doc.toString()`：写盘是 await 的，IPC 往返里人还在打字，
+     * 回来时把含新字的文档定成基线、报 onChange(false) —— 那几个字盘上没有、标签却不脏，
+     * 自动保存不再触发、⌘W 不问、退出快照也不 stash，就这么丢了。手动 ⌘S 时人一般
+     * 不打字所以没露过，草稿自动保存（issue #40）每次落盘都在打字间隙，露了。
+     * `untrack`：这条 effect 只该被 savedTick 叫醒，不该被 baseline 本身叫醒
+     * （它俩在保存时同一拍变，外部重读时也一起变）。
+     */
+    baseText = untrack(() => baseline ?? initial);
+    onChange(view.state.doc.toString() !== baseText);
   });
 </script>
 

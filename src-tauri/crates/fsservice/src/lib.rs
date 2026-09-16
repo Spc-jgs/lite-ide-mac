@@ -758,8 +758,24 @@ pub fn list_scratches(dir: impl AsRef<Path>) -> io::Result<Vec<Scratch>> {
             path,
         });
     }
-    out.sort_by(|a, b| b.name.cmp(&a.name));
+    // 倒序，但同一分钟里的第 2、3 份（`… 1103-2.md`）要排在第 1 份**上面**：
+    // 按字符比 '.' > '-'，`1103.md` 会压在 `1103-2.md` 前面，后建的反而在下
+    out.sort_by(|a, b| scratch_sort_key(&b.name).cmp(&scratch_sort_key(&a.name)));
     Ok(out)
+}
+
+/// `2026-09-16 1103-2.md` → `("2026-09-16 1103", 2)`；没有序号的算第 1 份
+fn scratch_sort_key(name: &str) -> (String, u32) {
+    let stem = name.strip_suffix(".md").unwrap_or(name);
+    if let Some((base, n)) = stem.rsplit_once('-') {
+        if let Ok(n) = n.parse::<u32>() {
+            // 只认 `create_scratch` 加的那种「空格时间-序号」，别把日期里的 `-` 当序号
+            if base.contains(' ') {
+                return (base.to_string(), n);
+            }
+        }
+    }
+    (stem.to_string(), 1)
 }
 
 /// 第一行有字的内容。只读头 [`SCRATCH_PREVIEW_BYTES`]，按 UTF-8 尽量解
@@ -1332,6 +1348,9 @@ mod tests {
         let a = create_scratch(&d, "2026-09-09 1030").unwrap();
         let b = create_scratch(&d, "2026-09-10 0900").unwrap();
         let c = create_scratch(&d, "2026-09-08 2359").unwrap();
+        // 同一分钟的第二份：名字是 `… 0900-2.md`，得排在 `… 0900.md` 上面
+        let b2 = create_scratch(&d, "2026-09-10 0900").unwrap();
+        assert_eq!(b2.file_name().unwrap(), "2026-09-10 0900-2.md");
         write_text(&a, "\n\n# 标题在第三行\n正文").unwrap();
         write_text(&b, "").unwrap();
         write_text(&c, &"很长".repeat(200)).unwrap();
@@ -1343,13 +1362,13 @@ mod tests {
         let names: Vec<&str> = list.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(
             names,
-            ["2026-09-10 0900.md", "2026-09-09 1030.md", "2026-09-08 2359.md"],
-            "按名字倒序，最近的在上"
+            ["2026-09-10 0900-2.md", "2026-09-10 0900.md", "2026-09-09 1030.md", "2026-09-08 2359.md"],
+            "按名字倒序，最近的在上；同一分钟的序号大的在上"
         );
-        assert_eq!(list[1].first_line, "标题在第三行", "跳过空行和 # 前缀");
-        assert_eq!(list[0].first_line, "", "空文件摘要是空串");
+        assert_eq!(list[2].first_line, "标题在第三行", "跳过空行和 # 前缀");
+        assert_eq!(list[1].first_line, "", "空文件摘要是空串");
         assert_eq!(
-            list[2].first_line.chars().count(),
+            list[3].first_line.chars().count(),
             SCRATCH_PREVIEW_CHARS,
             "摘要截到上限"
         );

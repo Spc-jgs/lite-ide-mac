@@ -305,8 +305,14 @@ export function parse(raw: string | null | undefined): Session | null {
 export function withoutTabs(s: Session, drop: (path: string) => boolean): Session {
   const activePath = s.tabs[s.active]?.path;
   const tabs = s.tabs.filter((t) => !drop(t.path));
-  const idx = activePath === undefined ? -1 : tabs.findIndex((t) => t.path === activePath);
-  return { ...s, tabs, active: idx >= 0 ? idx : 0 };
+  let idx = activePath === undefined ? -1 : tabs.findIndex((t) => t.path === activePath);
+  // 活动的正是被滤掉的那份：退到它**左边最近**的项目标签（原来退到 0，切回来时
+  // 视线从标签条中间跳到最左）。左边一个都没有才是 0
+  if (idx < 0) {
+    const kept = s.tabs.slice(0, s.active).filter((t) => !drop(t.path)).length;
+    idx = Math.max(0, kept - 1);
+  }
+  return { ...s, tabs, active: idx };
 }
 
 /**

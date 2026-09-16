@@ -275,6 +275,19 @@ class TabFlow {
   async trashScratch(path: string) {
     notify.clear();
     try {
+      /*
+       * 开着且脏的先落盘再移：移走的是盘上那份，编辑器里 500ms 内还没写下去的字
+       * 要跟着一起进废纸篓 —— 「放回原处」放回来的才是完整的。写不成就停下问，
+       * 别一边报错一边把文件挪走。
+       */
+      for (const t of tabs.under(path, false)) {
+        if (t.dirty && !(await docs.autosaveBeforeClose(t))) {
+          tabs.activeId = t.id;
+          this.pendingClose = t;
+          notify.fail("这份草稿有没写进盘的改动，先处理它再移到废纸篓", 3200);
+          return;
+        }
+      }
       await trashEntry(path);
       for (const t of tabs.under(path, false)) this.doClose(t);
       void scratches.refresh();
@@ -388,6 +401,28 @@ class TabFlow {
       this.closeQueue = this.closeQueue.slice(1);
       const t = tabs.byId(id);
       if (!t) continue; // 中途被别处关掉了
+      /*
+       * 草稿先自己写一次（issue #40）：写成了就直接关、接着问下一个，
+       * 和单个 ⌘W 走的 `requestClose` 是同一条规矩 —— 「关闭全部」里夹着一份
+       * 草稿不该突然弹出来问。写不成才问。
+       */
+      if (project.isScratch(t.path)) {
+        void docs.autosaveBeforeClose(t).then((saved) => {
+          const again = tabs.byId(id);
+          if (again && saved && !again.dirty) {
+            this.doClose(again);
+            this.#askNextClose();
+            return;
+          }
+          if (again) {
+            tabs.activeId = again.id;
+            this.pendingClose = again;
+          } else {
+            this.#askNextClose();
+          }
+        });
+        return;
+      }
       tabs.activeId = t.id; // 让人看见要丢的到底是什么
       this.pendingClose = t;
       return;

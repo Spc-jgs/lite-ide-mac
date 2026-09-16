@@ -314,6 +314,7 @@
         initial={tabs.active.draft ?? tabs.active.content ?? ""}
         baseline={tabs.active.content ?? ""}
         savedTick={docs.savedTick}
+        selfSaveTick={docs.selfSaveTick}
         gotoLine={nav.gotoLine}
         {outlineTick}
         {headText}

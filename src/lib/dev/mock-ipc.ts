@@ -955,7 +955,16 @@ export function installMockIpc(): void {
                 firstLine: [...firstLine].slice(0, 80).join(""),
               };
             })
-            .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+            .sort((a, b) => {
+              // 同 Rust 侧 scratch_sort_key：同一分钟的 `-2` 排在 `-1`（无后缀）上面
+              const key = (n: string) => {
+                const stem = n.replace(/\.md$/, "");
+                const m = /^(.* .*)-(\d+)$/.exec(stem);
+                return m ? ([m[1], Number(m[2])] as const) : ([stem, 1] as const);
+              };
+              const [ab, an] = key(a.name), [bb, bn] = key(b.name);
+              return ab === bb ? bn - an : ab < bb ? 1 : -1;
+            });
           return entries;
         }
         case "discard_empty_scratch": {

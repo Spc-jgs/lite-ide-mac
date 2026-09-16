@@ -311,7 +311,9 @@ ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
   ok(mixed.tabs.length === 4, "不改原对象");
 
   const activeIsScratch = withoutTabs({ ...mixed, active: 1 }, isScratch);
-  ok(activeIsScratch.active === 0, "活动标签本身是草稿时退到 0");
+  ok(activeIsScratch.active === 0, "活动标签本身是草稿（左边只有 a.ts）时退到 a.ts");
+  const activeIsLastScratch = withoutTabs({ ...mixed, active: 3 }, isScratch);
+  ok(activeIsLastScratch.active === 1, "活动的是最后那份草稿时退到它左边最近的 b.md，不是 0");
 
   const none = withoutTabs({ ...base, tabs: [], active: 0 }, isScratch);
   ok(none.tabs.length === 0 && none.active === 0, "空的照样空");
