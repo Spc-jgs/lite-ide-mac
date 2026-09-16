@@ -3,6 +3,7 @@ import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { project } from "./project.svelte";
 import { textToSave, settled, stashed } from "./doc";
+import { scratchTitle } from "./tab";
 import { autosaveDue, AUTOSAVE_IDLE_MS } from "./autosave";
 import type { TabState } from "./tab";
 
@@ -27,6 +28,16 @@ class Docs {
    * 外部改动后重读、冲突时选「用磁盘上的」、换编码重开，都加一。
    */
   savedTick = $state(0);
+  /**
+   * 「把光标放进编辑器」的请求计数。挂载时靠 `autofocus`，**已经开着**的标签再被
+   * 显式打开一次（⌘P、双击树、系统送进来同一个文件）时编辑器不会重建，
+   * 靠这个计数让它把焦点收回去。Editor 挂载时先对齐一次，只对之后的变化响应
+   * （累计计数器当 prop 的那条坑，见 frontend.md）。
+   */
+  focusTick = $state(0);
+  focusEditor() {
+    this.focusTick++;
+  }
 
   /**
    * 每个文件上次停在第几行。
@@ -91,8 +102,18 @@ class Docs {
     const t = tabs.list.find((x) => x.path === path && x.mode === "edit");
     if (!t) return; // 标签已经被关掉了，草稿跟着作废
     Object.assign(t, stashed(t, text));
+    this.retitle(t, text);
     // 编辑器刚交出草稿 = 人切走了。草稿在这一刻落盘，不等空闲期
     if (t.dirty && project.isScratch(path)) void this.autosaveSweep(true);
+  }
+
+  /**
+   * 草稿的标签名跟着第一行走（`TabState.title`）。只对草稿做：项目文件的标签
+   * 就该显示文件名，那是它在树里的身份。
+   */
+  retitle(t: TabState, text: string) {
+    if (!project.isScratch(t.path)) return;
+    t.title = scratchTitle(text);
   }
 
   /**
@@ -145,6 +166,7 @@ class Docs {
       Object.assign(tab, settled(content));
       tab.conflict = false;
       this.savedTick++;
+      this.retitle(tab, content);
       if (opts.quiet) return true;
       notify.ok(`已保存 ${tab.name}`, 1800);
       // 保存八成改变了 git 状态，顺手刷一下，文件树的标记才跟得上

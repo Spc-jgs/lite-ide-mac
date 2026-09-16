@@ -13,6 +13,7 @@
   import type DiffView from "../git/DiffView.svelte";
   import type { Sym } from "../editor/outline";
   import type { KeyDef } from "../state/keymap";
+  import { wrapsByDefault } from "../state/tab";
   import { lazy } from "../lazy/lazy.svelte";
   import { gitHeadText, gitBlame, listProjectFiles } from "../ipc/commands";
   import { notify } from "../state/notify.svelte";
@@ -317,6 +318,9 @@
         {outlineTick}
         {headText}
         {showMinimap}
+        wrap={tabs.active.wrap ?? wrapsByDefault(tabs.active.path)}
+        autofocus={!tabs.active.preview}
+        focusTick={docs.focusTick}
         {blame}
         onBlamePick={(h) => void git.openCommitDiff(h.sha, h.short, tabs.active!.path.slice((git.status?.root.length ?? 0) + 1))}
         onChange={(d) => {

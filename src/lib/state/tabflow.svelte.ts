@@ -17,7 +17,7 @@ import { tabs } from "./tabs.svelte";
 import { docs } from "./docs.svelte";
 import { project } from "./project.svelte";
 import { scratches } from "./scratches.svelte";
-import type { TabState } from "./tab";
+import { scratchTitle, type TabState } from "./tab";
 
 /**
  * 一个文件在标签表里的进出：打开（文件 / 文件夹 / 最近 / 草稿）、关闭（含「未保存怎么办」
@@ -109,6 +109,8 @@ class TabFlow {
       if (exist) {
         if (!opts.preview) tabs.keep(exist.id);
         if (!this.restoringTabs) tabs.activeId = exist.id;
+        // 显式打开一个已经开着的文件 = 「我要用它」，光标要进去；预览不抢焦点
+        if (!opts.preview && !this.restoringTabs && exist.mode === "edit") docs.focusEditor();
         return;
       }
 
@@ -132,6 +134,8 @@ class TabFlow {
         tab.eol = t.eol;
         tab.lossy = t.lossy;
         tab.stamp = await fileStamp(info.path);
+        // 草稿的标签名是它的第一行（见 TabState.title）
+        if (project.isScratch(info.path)) tab.title = scratchTitle(t.content);
       }
       /*
        * 预览标签顶掉预览标签：新的落在旧的那一格，旧的关掉。

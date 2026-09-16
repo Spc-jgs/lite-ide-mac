@@ -77,6 +77,40 @@ export interface TabState {
    * 不是不许关。钉住和预览互斥：钉的时候顺手保留。
    */
   pinned?: boolean;
+  /**
+   * 自动换行的手动开关（视图 → 自动换行）。没设过就按 `wrapsByDefault(path)`。
+   * 不进会话快照：它是「这一次看着不顺手切一下」的东西，不是文件的属性。
+   */
+  wrap?: boolean;
+  /**
+   * 标签栏上显示的名字，没有就显示 `name`。草稿用它显示第一行（`2026-09-16 1103.md`
+   * 在标签栏上什么都说明不了，「周会要点」才是人记得住的）—— Sublime 的 untitled
+   * 也是这么做的。由 `docs` 在草稿落盘 / 交回草稿时更新。
+   */
+  title?: string;
+}
+
+/**
+ * 这个文件默认要不要软换行。
+ *
+ * 笔记和纯文本按段落写，一行几百字不换行就得横着滚 —— 那是记笔记最不能忍的一种
+ * 「鸡肋」。代码不换行：缩进结构靠对齐，折行会把它揉乱。判据只看扩展名：
+ * markdown、txt、log、没有扩展名的（README、NOTES）算文本，其余算代码。
+ * 不走 `langs.ts`（它是懒的），一个正则就够。
+ */
+export function wrapsByDefault(path: string): boolean {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (/\.(md|markdown|mdx|txt|text|log|rst|adoc)$/i.test(name)) return true;
+  return !/\.[^.]+$/.test(name);
+}
+
+/** 草稿的标签名：第一行有字的内容，截到 30 个字符；一个字没有就回落到文件名 */
+export function scratchTitle(text: string): string | undefined {
+  for (const raw of text.split("\n", 40)) {
+    const line = raw.trim().replace(/^#+\s*/, "").trim();
+    if (line) return [...line].slice(0, 30).join("");
+  }
+  return undefined;
 }
 
 /** `tabPath` 是不是 `p` 本身，或（`p` 是目录时）在它底下 */

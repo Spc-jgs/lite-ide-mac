@@ -33,6 +33,9 @@
     blame = null,
     onBlamePick,
     showMinimap = true,
+    wrap = false,
+    autofocus = false,
+    focusTick = 0,
     onChange,
     onSave,
     onStash,
@@ -74,6 +77,16 @@
     /** 点了某段注解：开那次提交的差异 */
     onBlamePick?: (h: BlameHunk) => void;
     showMinimap?: boolean;
+    /** 软换行。笔记要，代码不要；判据在 `state/tab.ts` 的 `wrapsByDefault` */
+    wrap?: boolean;
+    /**
+     * 挂上就把光标放进去。⌘N、⌘P、双击、系统送进来的文件都是「我要用它」，
+     * 光标不在里面就是「按了 ⌘N 打字没反应」—— 这条断过（2026-09-16 才发现）。
+     * 单击树 / 搜索命中那种预览**不**抢：焦点在树上，人正用方向键往下走。
+     */
+    autofocus?: boolean;
+    /** 已挂载的编辑器被要求收回焦点（见 `docs.focusEditor`）。挂载时对齐，只响应之后的变化 */
+    focusTick?: number;
     /**
      * ⌘Click / ⌘B 跳转要的三样，全从 App 来（见 `lib/editor/jump.ts`）：
      * ⌘P 那份文件索引、当前文件相对项目根的路径、语言 id。
@@ -141,6 +154,7 @@
   const langSlot = new Compartment();
   /** 缩略图同理：开关一下不该把光标和撤销栈也重置掉 */
   const mapSlot = new Compartment();
+  const wrapSlot = new Compartment();
   /** dirty 判定的基线：当前磁盘上的内容。挂载与换文件时更新，不在顶层读 prop */
   let baseText = "";
   /**
@@ -217,6 +231,7 @@
         // 装两遍的话后一个 `createPanel` 静默不生效，画出来的还是默认面板。
         searchPanel(),
         mapSlot.of(showMinimap ? minimap() : []),
+        wrapSlot.of(wrap ? EditorView.lineWrapping : []),
         /*
          * 缩进单位（issue #33 ③）按盘上那份内容猜（`editor/indent.ts`）：回车、Tab、
          * 自动缩进都照它来 —— 4 空格的文件里回车缩进出一个 Tab，就是那种「每次保存都
@@ -318,6 +333,8 @@
       onWordProbe?.(curPath, () =>
         view ? rawWordAt(view.state, view.state.selection.main.head) : null,
       );
+      seenFocus = focusTick;
+      if (autofocus) view.focus();
     });
     return () => {
       stash();
@@ -434,6 +451,19 @@
     const on = showMinimap;
     if (!view) return;
     view.dispatch({ effects: mapSlot.reconfigure(on ? minimap() : []) });
+  });
+  let seenFocus = 0;
+  $effect(() => {
+    const t = focusTick;
+    if (!view || t === seenFocus) return;
+    seenFocus = t;
+    view.focus();
+  });
+  // 软换行同理
+  $effect(() => {
+    const on = wrap;
+    if (!view) return;
+    view.dispatch({ effects: wrapSlot.reconfigure(on ? EditorView.lineWrapping : []) });
   });
 
   /*

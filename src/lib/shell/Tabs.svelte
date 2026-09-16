@@ -15,6 +15,8 @@
     preview?: boolean;
     /** 钉住：图钉占 ✕ 的位置，排最左（issue #33 ⑰） */
     pinned?: boolean;
+    /** 显示名。草稿用第一行代替 `2026-09-16 1103.md` 那种时间戳（见 TabState.title） */
+    title?: string;
   }
 
   let {
@@ -222,7 +224,7 @@
         <span class="glyphwrap {tab.mode}">
           <FileGlyph name={tab.name} size={13} />
         </span>
-        <span class="name" class:preview={tab.preview}>{tab.name}</span>
+        <span class="name" class:preview={tab.preview}>{tab.title ?? tab.name}</span>
         {#if tab.id === activeId && tab.mode !== "edit"}
           <!-- 徽章只给当前标签：其余标签的模式由字形颜色说清，
                而当前标签有的是横向余地 -->

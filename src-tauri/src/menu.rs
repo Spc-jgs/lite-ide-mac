@@ -109,6 +109,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
 
     let close_terminal = item(app, "close-terminal", "关闭当前终端", None)?;
     let close_project = item(app, "close-project", "关闭项目", None)?;
+    let toggle_wrap = item(app, "toggle-wrap", "自动换行", None)?;
 
     // ── 最近打开：内容由前端启动后灌进来，先摆禁用占位 ──
     let recent = SubmenuBuilder::with_id(app, "recent", "最近打开")
@@ -159,6 +160,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "toggle-scratch", "草稿列表", None)?)
         .separator()
         .item(&item(app, "toggle-minimap", "代码缩略图", None)?)
+        .item(&toggle_wrap)
         .item(&toggle_mode)
         .separator()
         .fullscreen_with_text("进入全屏")
@@ -260,6 +262,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
             close_all,
             encoding,
             toggle_mode,
+            toggle_wrap,
             outline,
             git_file_diff,
             git_blame,

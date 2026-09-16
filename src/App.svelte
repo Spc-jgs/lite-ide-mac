@@ -25,6 +25,7 @@
   import { readPref, writePref } from "./lib/state/prefs";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
+  import { wrapsByDefault } from "./lib/state/tab";
   import { scratches } from "./lib/state/scratches.svelte";
   import {
     probePath,
@@ -624,6 +625,11 @@
         else layout.showSide("scratch");
         return;
       case "toggle-minimap": showMinimap = !showMinimap; return;
+      case "toggle-wrap": {
+        const t = tabs.active;
+        if (t?.mode === "edit") t.wrap = !(t.wrap ?? wrapsByDefault(t.path));
+        return;
+      }
       case "new-terminal": terms.open(project.root ?? "~"); return;
       case "close-terminal":
         if (terms.activeId !== null) terms.close(terms.activeId);

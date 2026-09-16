@@ -197,6 +197,11 @@ export const KEYS: KeyDef[] = [
   },
   { id: "toggle-panel", label: "终端面板", accel: "⌘J", group: "视图", owner: "menu" },
   { id: "toggle-minimap", label: "代码缩略图", group: "视图", owner: "menu" },
+  /*
+   * 按标签切软换行。默认由扩展名定（md / txt / log 换，代码不换，
+   * `state/tab.ts` 的 `wrapsByDefault`），这条是「这一次看着不顺手」的手动开关。
+   */
+  { id: "toggle-wrap", label: "自动换行", group: "视图", owner: "menu" },
 
   // ── 终端 ──
   /*
