@@ -183,16 +183,17 @@
     min-width: 168px;
     padding: 5px;
     background: var(--elevated);
-    border: 1px solid var(--border);
+    /* M8：外框降到 5%，投影外再叠一圈 0.5px 内高光 —— 深壁纸上卡片边缘靠它读出来，不靠亮线 */
+    border: var(--island-border);
     border-radius: var(--r-md);
     /* 底是纯黑的时候，靠色阶已经拉不开距离了 —— 投影要更深、更散 */
-    box-shadow: var(--shadow-pop);
+    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
     outline: none;
   }
   .mhead {
     padding: 3px 9px 5px;
-    margin-bottom: 3px;
-    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 2px;
+    /* 标题下面不画线（M8）：字色和间距已经把它和条目分开了 */
     color: var(--text-faint);
     font-family: var(--ui-font);
     font-size: 11px;
@@ -218,11 +219,19 @@
   /* 鼠标和键盘共用一个高亮：菜单里同时有两个高亮是最容易看错的写法 */
   /* 菜单里「键盘走到哪一项」是弱状态，中性白就够；强调色会让它比内容还抢眼 */
   .mitem.on { background: var(--selected); }
+  /* 分隔线两侧各内缩 6px（M8），macOS 原生菜单就是这么画的 —— 用伪元素画，条目本身的圆角不受影响 */
   .mitem.sep {
-    margin-top: 4px;
-    padding-top: 6px;
-    border-top: 1px solid var(--border-soft);
-    border-radius: 0 0 var(--r-sm) var(--r-sm);
+    position: relative;
+    margin-top: 9px;
+  }
+  .mitem.sep::before {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    top: -5px;
+    height: 1px;
+    background: var(--border-soft);
   }
   /*
    * 危险项常驻红色，不是只在 hover 时才红：手滑点中的那一下发生在 hover 之后，

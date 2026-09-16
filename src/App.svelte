@@ -1082,10 +1082,21 @@
 
 
 
+  /*
+   * # 浮岛（M8，2026-09-16）
+   *
+   * 外壳之间**不画线**。原来三条竖线四条横线两种亮度混用，侧边栏头 30px 和
+   * 标签栏 38px 的横线在竖线两侧差 8px 接不上，而内容层本来就比外壳深一档，
+   * 边上再压一条亮线等于同一条边说两遍。玻璃材质上用线分区本身就在和材质打架。
+   *
+   * 现在边界由「面」的形状表达：内容层（编辑器 / 底部工具窗）收成内缩 6px 的
+   * 圆角岛（`--island-*`），岛与岛之间那条 6px 的缝就是分隔，也正好是拖拽热区。
+   * 设计稿见 design/m8-chrome。
+   */
   .workspace {
     display: grid;
-    /* 四列：常驻竖条 · 侧边栏 · 拖拽条 · 主区 */
-    grid-template-columns: 34px var(--side-w, 240px) 4px 1fr;
+    /* 四列：常驻竖条 · 侧边栏 · 拖拽条（也是岛的左缝）· 主区 */
+    grid-template-columns: 34px var(--side-w, 240px) var(--island-gap) 1fr;
     overflow: hidden;
     transition: grid-template-columns 0.13s ease;
   }
@@ -1094,6 +1105,8 @@
   @media (prefers-reduced-motion: reduce) { .workspace { transition: none; } }
   /* 收起侧边栏只去掉中间两列，竖条留着 —— 按钮的位置不能动 */
   .workspace.no-side { grid-template-columns: 34px 1fr; }
+  /* 侧边栏收起后那条拖拽列也没了，岛的左缝由 main 自己补 */
+  .workspace.no-side .main { padding-left: var(--island-gap); }
 
 
   /*
@@ -1102,7 +1115,14 @@
    * 曾经导致终端面板抢到 1fr 跑到内容区上面去。
    * flex 天然按实际存在的元素排布，content 吃掉剩余空间就行。
    */
-  .main { display: flex; flex-direction: column; overflow: hidden; }
+  .main {
+    position: relative; /* 确认卡片浮在它里面（Confirms.svelte） */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* 右缝和下缝：岛不贴窗口边，也不贴状态栏 */
+    padding: 0 var(--island-gap) var(--island-gap) 0;
+  }
 
 
 

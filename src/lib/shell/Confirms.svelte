@@ -30,6 +30,13 @@
   } = $props();
 </script>
 
+<!--
+  M8：确认条不再是撑开内容区的通栏横条，而是**浮在内容岛顶上的卡片**。
+  通栏横条有两个毛病：它把编辑器整体往下推一行（人正盯着的那行跳走了），
+  贴着标签栏时两条 1px 边线叠在一起。卡片照浮层的规矩：不透明、投影抬起、不靠边线。
+  `pointer-events: none` 的外层让卡片之外的编辑器照常可点。
+-->
+<div class="stack" class:below-tabs={tabs.list.length > 0}>
 {#if tabs.active?.conflict}
   <div class="confirm conflict">
     <span><b>{tabs.active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
@@ -153,17 +160,34 @@
     <button onclick={() => void tabflow.resolveClose("cancel")}>取消</button>
   </div>
 {/if}
+</div>
 
 <style>
-  /* 确认条不参与伸缩，始终贴在标签栏下方 */
-  .confirm { flex: none; }
+  .stack {
+    position: absolute;
+    left: 0;
+    right: var(--island-gap);
+    top: 8px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+  /* 有标签栏时从它底下 8px 开始（标签栏 38px） */
+  .stack.below-tabs { top: 46px; }
   .confirm {
+    pointer-events: auto;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 7px 12px;
+    max-width: min(760px, calc(100% - 32px));
+    padding: 8px 10px 8px 14px;
     background: var(--elevated);
-    border-bottom: 1px solid var(--border);
+    border: var(--island-border);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-pop);
     font-size: 12px;
   }
   .confirm b { color: var(--text); font-weight: 600; }
@@ -180,13 +204,21 @@
   .confirm button:hover { background: var(--hover); color: var(--text); }
 
   .confirm button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .confirm.conflict { background: rgba(214, 174, 88, 0.12); border-bottom-color: var(--lvl-warn); }
+  /* 带色的三种：色罩叠在 --elevated 上，卡片仍然不透明（浮层不许透）；边线跟着色走 */
+  .confirm.conflict {
+    background: linear-gradient(rgba(214, 174, 88, 0.12), rgba(214, 174, 88, 0.12)), var(--elevated);
+    border-color: rgba(214, 174, 88, 0.35);
+  }
   /* 不可撤销的操作用红色描边，别让它长得跟普通确认一样 */
-  .confirm.danger { background: rgba(247, 84, 100, 0.10); border-bottom-color: var(--lvl-error); }
+  .confirm.danger {
+    background: linear-gradient(rgba(247, 84, 100, 0.10), rgba(247, 84, 100, 0.10)), var(--elevated);
+    border-color: rgba(247, 84, 100, 0.35);
+  }
   .confirm.err-banner {
     align-items: flex-start;
-    background: rgba(247, 84, 100, 0.10);
-    border-bottom-color: var(--lvl-error);
+    width: min(760px, calc(100% - 32px));
+    background: linear-gradient(rgba(247, 84, 100, 0.10), rgba(247, 84, 100, 0.10)), var(--elevated);
+    border-color: rgba(247, 84, 100, 0.35);
   }
   .err-banner .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .err-banner b { color: var(--lvl-error); }

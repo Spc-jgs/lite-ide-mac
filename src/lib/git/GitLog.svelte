@@ -314,7 +314,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-left: 1px solid var(--border);
+    border-left: 1px solid var(--border-soft); /* M8：岛内的分区线一律 5% */
     background: var(--hover);
   }
 
@@ -325,7 +325,7 @@
     gap: 10px;
     padding: 4px 8px;
     background: var(--panel-bg);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-soft); /* M8 */
     font-size: 11px;
     color: var(--text-dim);
     user-select: none;

@@ -143,9 +143,9 @@
     flex-direction: column;
     /* 浮层必须不透明：桌面在 webview 之外，backdrop-filter 模糊不到它 */
     background: var(--elevated);
-    border: 1px solid var(--border);
+    border: var(--island-border); /* M8：浮层边线降一档，靠内高光勾边 */
     border-radius: var(--r-lg);
-    box-shadow: var(--shadow-pop);
+    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
     z-index: 41;
     overflow: hidden;
   }

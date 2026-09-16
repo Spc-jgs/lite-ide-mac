@@ -167,7 +167,7 @@
     padding: 5px 10px;
     min-height: 34px;
     background: var(--panel-bg);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-soft); /* M8：岛内分区线 5% */
     font-size: 11.5px;
     user-select: none;
   }

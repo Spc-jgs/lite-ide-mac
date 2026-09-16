@@ -112,15 +112,18 @@
 {/if}
 
 <style>
-  /* 形状跟 App.svelte 里那几条确认条一致 —— 它们出现在同一个位置 */
+  /* 形状跟 Confirms.svelte 里那几条确认卡片一致 —— 它们浮在同一叠里（M8：卡片，不是通栏横条） */
   .confirm {
-    flex: none;
+    pointer-events: auto;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 7px 12px;
+    max-width: min(760px, calc(100% - 32px));
+    padding: 8px 10px 8px 14px;
     background: var(--elevated);
-    border-bottom: 1px solid var(--border);
+    border: var(--island-border);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-pop);
     font-size: 12px;
     color: var(--text-dim);
   }
@@ -128,8 +131,11 @@
    * 带列表/原话的那两条要贴顶对齐 —— 一行文字和三行列表并排时，
    * 居中会让按钮飘到中间。
    */
-  .confirm.tall { align-items: flex-start; padding: 9px 12px; }
-  .confirm.bad { border-bottom-color: var(--lvl-warn); }
+  .confirm.tall { align-items: flex-start; padding: 10px 10px 10px 14px; }
+  .confirm.bad {
+    background: linear-gradient(rgba(214, 174, 88, 0.12), rgba(214, 174, 88, 0.12)), var(--elevated);
+    border-color: rgba(214, 174, 88, 0.35);
+  }
   .confirm .gap { flex: 1; }
   .confirm b { color: var(--text); font-weight: 500; }
   .mono { font-family: var(--code-font); }

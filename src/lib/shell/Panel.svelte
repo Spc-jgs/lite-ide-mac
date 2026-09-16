@@ -285,11 +285,11 @@
 {/if}
 
 <style>
-  /* 与 .side-resizer 同一条判据：热区 4px，画出来的只有居中 1px */
+  /* 与 .side-resizer 同一条判据（M8）：热区就是岛之间那条 6px 的缝，平时不画线 */
   .resizer {
     position: relative;
     flex: none;
-    height: 4px;
+    height: var(--island-gap);
     background: transparent;
     cursor: row-resize;
   }
@@ -298,13 +298,13 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: 1.5px;
+    top: 2.5px;
     height: 1px;
-    background: var(--border);
+    background: transparent;
     transition: background 0.1s;
   }
   .resizer:hover::after { background: var(--accent); }
-  .resizer:active { background: var(--accent); }
+  .resizer:active::after { background: var(--accent); }
   @media (prefers-reduced-motion: reduce) { .resizer::after { transition: none; } }
   /* 收起时整块不占位也不可见，但**仍然挂在 DOM 上** —— 见上面那段注释 */
   .resizer.hidden,
@@ -314,19 +314,24 @@
    * 一条，这里再来一条，两条隔 1.5px。`.resizer` 和 `.panel` 共用同一个
    * `class:hidden={!panel}`，收起时一起走，线不会落单。
    */
+  /* 底部工具窗整块是一座岛（M8），头在岛里 —— 头和内容是同一件东西的两层，不该隔着缝 */
   .panel {
     flex: none;
     display: grid;
     /* 26 → 32：22px 的圆角标签要有呼吸位，贴着上下边看着像被切掉一半 */
     grid-template-rows: 32px 1fr;
     overflow: hidden;
+    border: var(--island-border);
+    border-radius: var(--island-radius);
   }
   .panel-head {
     display: flex;
     align-items: center;
     gap: 2px;
     padding: 0 4px 0 9px;
-    background: var(--panel-bg);
+    /* 头在岛里，画内容层的底（下面的终端 / 日志各画各的，不叠） */
+    background: var(--content-bg);
+    border-bottom: var(--island-border);
     color: var(--text-dim);
     user-select: none;
   }

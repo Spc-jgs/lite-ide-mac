@@ -358,7 +358,18 @@
 </svelte:boundary>
 
 <style>
-  .content { flex: 1; min-height: 0; overflow: hidden; }
+  /*
+   * 内容岛（M8）：圆角 + 5% 描边 + 裁切。**这里不画底** —— 底由里面的
+   * 编辑器 / 日志 / 差异各自画（`--content-bg`，内容层只画一次），
+   * 这层只负责把它们裁成岛的形状。空态也照样是岛，卡片浮在玻璃上。
+   */
+  .content {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border: var(--island-border);
+    border-radius: var(--island-radius);
+  }
 
   .empty {
     height: 100%;

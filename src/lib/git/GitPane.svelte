@@ -486,7 +486,7 @@
     flex-direction: column;
     height: 100%;
     background: var(--panel-bg);
-    border-right: 1px solid var(--border);
+    /* 不画右边线（M8）：右边是岛的圆角边 */
     overflow: hidden;
   }
   .branch .gap, .sec .gap, .crow .gap { flex: 1; }
@@ -582,11 +582,10 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    height: 34px;
+    height: 38px; /* 34 → 38（M8）：和标签栏齐平，不画下边线 */
     padding: 0 4px 0 6px;
     font-size: 12px;
     color: var(--text);
-    border-bottom: 1px solid var(--border-soft);
     user-select: none;
   }
   .bbtn {

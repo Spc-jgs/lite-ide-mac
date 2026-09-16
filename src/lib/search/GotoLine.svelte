@@ -91,9 +91,9 @@
     padding: 10px 12px;
     /* 浮层不透明 —— 桌面在 webview 之外，半透明只会让壁纸清晰地穿过来 */
     background: var(--elevated);
-    border: 1px solid var(--border);
+    border: var(--island-border); /* M8：浮层边线降一档，靠内高光勾边 */
     border-radius: var(--r-lg);
-    box-shadow: var(--shadow-pop);
+    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
     z-index: 41;
   }
   label { display: flex; align-items: center; gap: 10px; }

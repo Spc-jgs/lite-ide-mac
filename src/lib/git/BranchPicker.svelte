@@ -578,9 +578,9 @@
     display: flex;
     flex-direction: column;
     background: var(--elevated);
-    border: 1px solid var(--border);
+    border: var(--island-border); /* M8：同右键菜单，边线降一档 */
     border-radius: var(--r-md);
-    box-shadow: var(--shadow-pop);
+    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
     z-index: 41;
     overflow: hidden;
   }

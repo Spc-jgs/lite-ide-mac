@@ -164,7 +164,7 @@
     padding: 0 12px 0 78px;
     /* 贴着窗口上边，窗口阴影在这条边上最弱 —— 浅色壁纸下不压一层，小字糊进桌面 */
     background: var(--chrome-scrim);
-    border-bottom: 1px solid var(--border);
+    /* 不画下边线（M8）：它自己压着 --chrome-scrim，和下面的玻璃已经分开了 */
     font-size: 12.5px;
     user-select: none;
   }

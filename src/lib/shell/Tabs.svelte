@@ -313,7 +313,7 @@
     height: 38px;
     padding: 0 6px;
     background: var(--panel-bg);
-    border-bottom: 1px solid var(--border);
+    /* 不画下边线（M8）：下面那块岛的圆角上沿就是边界 */
     overflow-x: auto;
     overflow-y: hidden;
     user-select: none;

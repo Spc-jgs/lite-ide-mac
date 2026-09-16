@@ -1434,12 +1434,12 @@
   }
   .head {
     flex: none;
-    height: 30px;
+    /* 30 → 38（M8）：和右边的标签栏齐平，两块的第一行才在同一条水平线上；不画下边线 */
+    height: 38px;
     display: flex;
     align-items: center;
     gap: 2px;
     padding: 0 4px 0 10px;
-    border-bottom: 1px solid var(--border-soft);
     font-size: 11px;
     letter-spacing: 0.06em;
     text-transform: uppercase;

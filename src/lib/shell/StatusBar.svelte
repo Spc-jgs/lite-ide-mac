@@ -269,7 +269,7 @@
     padding: 0 12px;
     /* 同标题栏：贴着窗口下边，需要一层 scrim 兜住 11.5px 的小字 */
     background: var(--chrome-scrim);
-    border-top: 1px solid var(--border);
+    /* 不画上边线（M8）：理由同标题栏，scrim 就是分区 */
     font-size: 11.5px;
     color: var(--text-dim);
     font-family: var(--code-font);

@@ -130,12 +130,11 @@
   /* 头和文件树的一模一样：同一个侧边栏里两个视图的头长得不一样，人会以为是两种东西 */
   .head {
     flex: none;
-    height: 30px;
+    height: 38px; /* 同 FileTree（M8） */
     display: flex;
     align-items: center;
     gap: 2px;
     padding: 0 4px 0 10px;
-    border-bottom: 1px solid var(--border-soft);
     font-size: 11px;
     letter-spacing: 0.06em;
     text-transform: uppercase;

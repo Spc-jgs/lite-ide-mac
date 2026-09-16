@@ -131,17 +131,21 @@
     background: transparent;
     cursor: col-resize;
   }
+  /*
+   * M8：平时**不画线** —— 这条缝右边就是岛的圆角边，边界已经在了。
+   * 悬停 / 拖动时才亮一条 accent，告诉人「这儿能拖」。
+   */
   .side-resizer::after {
     content: "";
     position: absolute;
     top: 0;
     bottom: 0;
-    left: 1.5px;
+    left: 2.5px;
     width: 1px;
-    background: var(--border);
+    background: transparent;
     transition: background 0.1s;
   }
   .side-resizer:hover::after { background: var(--accent); }
-  .side-resizer:active { background: var(--accent); }
+  .side-resizer:active::after { background: var(--accent); }
   @media (prefers-reduced-motion: reduce) { .side-resizer::after { transition: none; } }
 </style>

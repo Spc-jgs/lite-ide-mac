@@ -143,7 +143,7 @@
     gap: 2px;
     padding: 5px 0 6px;
     background: var(--panel-bg);
-    border-right: 1px solid var(--border);
+    /* 不画右边线（M8）：导轨和侧边栏都是玻璃，一条线分不出层，只是多一条线 */
     overflow: hidden;
   }
   .rail .rgap { flex: 1; }
