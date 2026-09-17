@@ -1,16 +1,5 @@
-import {
-  gitDiff,
-  gitCommitDiff,
-  gitStage,
-  gitDiscard,
-  gitCommit,
-  gitStashPush,
-  gitStashPop,
-  gitApplyCached,
-  readText,
-  writeText,
-  type GitEntry,
-} from "../ipc/commands";
+import { gitStage, readText, writeText, type GitEntry } from "../ipc/commands";
+import { gitDiff, gitCommitDiff, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached } from "../ipc/git";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { tabflow } from "./tabflow.svelte";

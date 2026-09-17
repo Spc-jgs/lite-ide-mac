@@ -285,7 +285,7 @@ lite-ide/
 │  ├─ App.svelte                 # ⚠ 3500 行，见下面「已知的架构偏移」
 │  ├─ app.css                    # 材质分层：外壳透光 / 内容挡光 / 浮层不透
 │  └─ lib/
-│     ├─ ipc/                    # commands.ts（invoke 封装 + 手写 DTO，靠 dto_sync 测试卡住漂移）
+│     ├─ ipc/                    # commands.ts（首屏要的 invoke 封装 + 全部手写 DTO，靠 dto_sync 测试卡住漂移）；git/log/pty/fs/search.ts 是只有懒模块用的封装
 │     ├─ logview/    ★           # LogView / LogPane / FilterBar + line-cache
 │     ├─ editor/                 # Editor.svelte / theme / markdown-live
 │     │                          # langs.ts（识别，入口包要）+ langs-load.ts（67 种，跟着编辑器懒加载）

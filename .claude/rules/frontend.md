@@ -119,7 +119,7 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 133,492 B = 130 KiB（2026-09-15，#32 瘦身后），红线 150 KB**；超过 138 KB CI 会先告警。
+（**当前 132,880 B = 129.8 KiB（2026-09-17，#32 第二次瘦身后），红线 150 KB**；超过 138 KB CI 会先告警。
 这个数字每轮都要重量一次 —— 它在 M20/M22/M24/M25 里从 126 一路涨到 157，
 而 README 和这里各记了一个旧值，看着像互相矛盾。
 崩溃屏 `Crash.svelte` 是刻意静态引入的 —— 需要它的时候，
@@ -149,6 +149,13 @@ pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | h
 | `Confirms.svelte` | **5,069 字节** | 每条横幅都要先发生点什么才出现。懒加载 + 首屏后 300ms 预拉 + 任一 `pending*` 一亮兜底拉 —— 关脏标签的确认框晚一次往返出来，人会以为 ⌘W 没反应 |
 | `editor/indent.ts` | **554 字节** | 归因说 2,186，实际 554 —— 又一次「归因高估数据密集的模块」。编辑器自己算，状态栏走 `lang.mod`（那个 chunk 本来就是有标签才拉的） |
 | `ContextMenu`（从 Tabs 懒） | **−275（反而涨）** | TitleBar / Panel 还静态引着它，它根本没离开入口，只多了一层 lazy 壳。**先 grep 谁在引，再决定挪不挪** |
+
+2026-09-17 #32 第二次（140,926 → 132,880 B）：
+
+| | 实测省下 | 怎么处理 |
+|---|---|---|
+| `Panel.svelte`（底部工具窗） | **5,568 字节** + 3.1 KB CSS | 它自己只在「面板开着或有终端」时才渲染，和文件树同一个判据 → `lazy()`；恢复的会话面板开着就立刻拉，否则首屏后 300ms 预拉 |
+| `ipc/commands.ts` 里只有懒模块用的 42 个封装 | **2,478 字节** | 搬去 `ipc/git.ts` / `log.ts` / `pty.ts` / `fs.ts` / `search.ts`。Rollup 把共享模块整个放进入口 chunk，懒 chunk 再从它导入 —— 封装不跟着调用方走就永远在入口里。DTO 全留在 `commands.ts`，`dto_sync.rs` 只看它 |
 
 判据是同一条：**入口包是首屏之前必须解析执行完的那一段**。
 问一句「这东西在窗口出现之前有用吗」，没用就该出去。

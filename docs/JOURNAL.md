@@ -6884,3 +6884,24 @@ null，走原来那套），标签栏和状态栏共用它，两处不会说出�
 `write_text` 打坏再打字 → 圆点转琥珀色、标题「⌘S 重试」、状态栏红字；修好桩，退避 5 秒后
 再敲一下 → 恢复「已自动保存」、圆点消失。`tests/autosave.test.ts` 加 5 条（失败盖过干净
 那条改坏验过红）。
+
+## 2026-09-17 · #32 第二次瘦身：入口 140,926 → 132,880 B
+
+「存了没存」那轮把 `autosave.ts` 带进了入口，离 138 KiB 告警线只剩 386 B。按 sourcemap
+归因排了一遍（脚本在当轮 scratchpad，十几行：解 VLQ，按段把字节记到源文件上）。#32 里
+列的三个候选，`keymap.ts` 和 `is-log-name.ts` 早已不在入口里；做了两块：
+
+- **`Panel.svelte` 懒加载，−5,568 B + 3.1 KB CSS。** 它自己就写着 `{#if layout.panel ||
+  terms.list.length > 0}`，首屏之前一个像素都不画，和文件树同一个判据。恢复的会话面板
+  开着就立刻拉，否则首屏后 300ms 预拉（同 Confirms），第一次 ⌘J 不用等往返。
+  顺手把 `confirms` / `scratchUi` 补进了「加载失败汇到状态栏」那张名单 —— 注释明写着
+  「漏一个就是一处静默失败」，而它俩一直漏着。
+- **`commands.ts` 分家，−2,478 B。** 42 个封装只有懒模块用（git 的差异 / 提交 / 分支 /
+  工作树 / 远程、日志引擎、pty、目录操作、搜索），但 Rollup 把共享模块整个放进入口
+  chunk，懒 chunk 再从它导入 —— 封装不跟着调用方走就永远在入口里。搬去同目录
+  `git.ts` / `log.ts` / `pty.ts` / `fs.ts` / `search.ts`，DTO 全留在 `commands.ts`
+  （`dto_sync.rs` 只读它）。12 个调用方改 import 路径，脚本改的，`check` 零错。
+
+现在 129.8 KiB，离告警线 8.4 KB。剩下的大头是 `App.svelte` 13.3 KB 和首屏必需的那几个壳
+（Content / Tabs / StatusBar / TitleBar），再往下要动加载策略，先不动。
+验证：桩上 ⌘J 面板出来、终端起来、日志 / Git 控制台页签照常；真 `.app` smoke 37/37。

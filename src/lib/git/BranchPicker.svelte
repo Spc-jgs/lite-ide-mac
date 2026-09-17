@@ -27,7 +27,7 @@
    * 打开工作树），⇧F10 或单击开一行的菜单。单击不直接切的理由见 `openRowMenuAt`。
    */
   import type { GitBranch, GitWorktree } from "../ipc/commands";
-  import { gitBranches, gitWorktrees } from "../ipc/commands";
+  import { gitBranches, gitWorktrees } from "../ipc/git";
   import Icon from "../shell/Icon.svelte";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
   import { showInFinder, copyText } from "../shell/pathactions";

@@ -3,16 +3,8 @@
   import FilterBar from "./FilterBar.svelte";
   import { decodeBlock } from "./block";
   import { detectFormat, FORMAT_LABEL, type LogFormat } from "./parse";
-  import {
-    logStat,
-    logLines,
-    logFilter,
-    logFilterStat,
-    logRefresh,
-    logFilterMap,
-    type LogStat,
-    type LevelCounts,
-  } from "../ipc/commands";
+  import { type LogStat, type LevelCounts } from "../ipc/commands";
+import { logStat, logLines, logFilter, logFilterStat, logRefresh, logFilterMap } from "../ipc/log";
 
   let {
     handle,

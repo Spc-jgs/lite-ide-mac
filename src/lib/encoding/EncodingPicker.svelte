@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { listEncodings } from "../ipc/commands";
+  import { listEncodings } from "../ipc/fs";
 
   let {
     open = $bindable(false),

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { layout, laneColor } from "./graph";
   import type { GitEntry, GitLogEntry } from "../ipc/commands";
-  import { gitLogEntries, gitCommitFiles } from "../ipc/commands";
+  import { gitLogEntries, gitCommitFiles } from "../ipc/git";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
   import { copyText } from "../shell/pathactions";
 

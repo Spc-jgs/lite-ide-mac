@@ -1,4 +1,13 @@
-import { invoke, type Channel } from "@tauri-apps/api/core";
+/**
+ * IPC 命令的封装 + 手写的 DTO。
+ *
+ * **DTO 全在这一个文件里**（`dto_sync.rs` 只读它）。命令封装则按「首屏之前要不要」分家
+ * （issue #32 瘦身，2026-09-17）：这里留的是窗口出现之前就会调的 —— 读文件、写盘、草稿、
+ * 会话、`gitStatus` 那几条；只有懒加载模块才用的搬去了同目录的 `git.ts` / `log.ts` /
+ * `pty.ts` / `fs.ts` / `search.ts`，包装函数跟着调用方走，入口包不用带它们（−2.5 KB）。
+ * 新加命令时先问一句「窗口出现之前有用吗」，没用就别放这儿。
+ */
+import { invoke } from "@tauri-apps/api/core";
 
 export interface OpenResult {
   handle: number;
@@ -69,9 +78,6 @@ export interface DirEntry {
 /** 探测路径：目录还是文件，文件该用哪种模式打开 */
 export const probePath = (path: string) => invoke<PathInfo>("probe_path", { path });
 
-/** 列一层目录。点文件一律列出来，生成物目录（`excludes` crate 那份名单）一律不列 */
-export const listDir = (path: string) => invoke<DirEntry[]>("list_dir", { path });
-
 /**
  * 这个项目里哪些目录被 git 忽略了（相对项目根）。**按项目问一次，不是按目录。**
  *
@@ -102,9 +108,6 @@ export const readText = (path: string, label?: string) =>
 /** 只探测编码，读头部采样 —— 日志模式用它决定 TextDecoder 的标签 */
 export const detectEncoding = (path: string) => invoke<string>("detect_encoding", { path });
 
-/** 界面上给用户挑的编码清单：[标签, 说明][] */
-export const listEncodings = () => invoke<[string, string][]>("list_encodings");
-
 export interface Stamp {
   mtimeMs: number;
   size: number;
@@ -115,15 +118,6 @@ export const fileStamp = (path: string) => invoke<Stamp>("file_stamp", { path })
 
 /** 在 Finder 里选中并显示。路径不在盘上时 reject */
 export const revealInFinder = (path: string) => invoke<void>("reveal_in_finder", { path });
-
-/**
- * 新建文件或目录，返回新路径。
- *
- * 递的是「哪个目录、叫什么」而不是拼好的路径：**join 和名字校验都在 Rust 侧**，
- * 前端少一个把文件写到别处去的机会。撞名一律 reject，绝不覆盖。
- */
-export const createEntry = (dir: string, name: string, isDir: boolean) =>
-  invoke<string>("create_entry", { dir, name, isDir });
 
 /**
  * 草稿目录的绝对路径。**不保证它已经在盘上** —— 只是想看看目录在哪，
@@ -194,11 +188,6 @@ export const discardEmptyScratch = (path: string) =>
   invoke<void>("discard_empty_scratch", { path });
 
 /** 原地改名，返回新路径。目标已存在时 reject（fs::rename 本身会静默覆盖） */
-/** 挪进另一个目录（文件树拖拽，issue #33 ⑨），名字不变，返回新路径 */
-export const moveEntry = (path: string, dest: string) => invoke<string>("move_entry", { path, dest });
-export const renameEntry = (path: string, name: string) =>
-  invoke<string>("rename_entry", { path, name });
-
 /** 移到废纸篓。应用里没有第二条删除路径 —— 不存在真删除 */
 export const trashEntry = (path: string) => invoke<void>("trash_entry", { path });
 
@@ -211,47 +200,7 @@ export const writeText = (path: string, content: string, label?: string, bom?: b
   invoke<Stamp>("write_text", { path, content, label: label ?? null, bom: bom ?? false, eol: eol ?? null });
 
 export const openLog = (path: string) => invoke<OpenResult>("open_log", { path });
-export const logStat = (handle: number) => invoke<LogStat>("log_stat", { handle });
 export const closeLog = (handle: number) => invoke<boolean>("close_log", { handle });
-
-/** 取一段行。走二进制 ArrayBuffer，不经 JSON —— 见 ARCHITECTURE.md §3.4 */
-export const logLines = (handle: number, start: number, count: number) =>
-  invoke<ArrayBuffer>("log_lines", { handle, start, count });
-
-/**
- * 启动过滤；返回 false 表示条件为空、已清除过滤。
- *
- * `label` 是文件编码 —— 关键字要先编成文件那套字节才搜得到，
- * 否则在 GBK 日志里搜中文永远是零命中。
- */
-export const logFilter = (
-  handle: number,
-  levelBits: number,
-  pattern: string,
-  caseSensitive: boolean,
-  collapseStacks: boolean,
-  label = "UTF-8",
-) =>
-  invoke<boolean>("log_filter", {
-    handle,
-    levelBits,
-    pattern,
-    caseSensitive,
-    collapseStacks,
-    label,
-  });
-
-export const logFilterStat = (handle: number) =>
-  invoke<FilterStat | null>("log_filter_stat", { handle });
-
-export const logLinesFiltered = (handle: number, start: number, count: number) =>
-  invoke<ArrayBuffer>("log_lines_filtered", { handle, start, count });
-
-/** 视图行号 → 物理行号，过滤态下显示真实行号用 */
-export const logFilterMap = (handle: number, start: number, count: number) =>
-  invoke<number[]>("log_filter_map", { handle, start, count });
-
-export const logRefresh = (handle: number) => invoke<RefreshResult>("log_refresh", { handle });
 
 /**
  * 启动时该打开的路径：命令行参数里的，加上系统在前端就绪前送来的
@@ -301,17 +250,6 @@ export interface GitCmd {
   errTruncated: boolean;
 }
 
-/**
- * 跑过的 git，最新的在前。
- *
- * 只在内存里，关掉应用就没 —— 它回答的是「刚才那条为什么失败」，不是考古。
- * 上限、截断和凭据打码全在 Rust 侧（`gitsvc::console`），前端只负责显示。
- */
-export const gitConsole = () => invoke<GitCmd[]>("git_console");
-
-/** 清空 Git 控制台。只碰内存里那个环，盘上本来就没有东西 */
-export const clearGitConsole = () => invoke<void>("clear_git_console");
-
 /** 清空应用日志（两份都清）。判据在 Rust 侧，前端只是按一下 */
 export const clearAppLog = () => invoke<void>("clear_app_log");
 
@@ -345,35 +283,6 @@ export const watchRoot = (root: string) => invoke<void>("watch_root", { root }).
 
 // ─────────────────────────── 终端 ───────────────────────────
 
-/** 起一个终端；输出通过 Channel 流式回传 */
-export const ptySpawn = (
-  cwd: string,
-  cols: number,
-  rows: number,
-  onData: Channel<number[] | ArrayBuffer>,
-) => invoke<number>("pty_spawn", { cwd, cols, rows, onData });
-
-export const ptyWrite = (id: number, data: string) => invoke<void>("pty_write", { id, data });
-
-export const ptyResize = (id: number, cols: number, rows: number) =>
-  invoke<void>("pty_resize", { id, cols, rows });
-
-export const ptyKill = (id: number) => invoke<boolean>("pty_kill", { id });
-
-/**
- * 报「这批字节 xterm 已经吃下去了」，把 Rust 侧的背压水位降下来（issue #18）。
- *
- * **必须在 `term.write(bytes, cb)` 的回调里叫。** 那个回调在 xterm 真的
- * 解析完之后才响 —— 而要限的正是「收到了但还没被消费」的那一段。
- * 收到就叫等于没有背压。
- *
- * 自己 catch：终端刚关掉时最后几条一定是打空的，那不是错误，
- * 更不该在界面上糊一句红字。
- */
-export const ptyAck = (id: number, bytes: number) =>
-  invoke<void>("pty_ack", { id, bytes }).catch(() => {});
-
-
 // ─────────────────────────── 搜索 ───────────────────────────
 
 export interface Hit {
@@ -385,14 +294,6 @@ export interface Hit {
 /** 列出项目文件（相对路径），模糊匹配在前端做 */
 export const listProjectFiles = (root: string) =>
   invoke<string[]>("list_project_files", { root });
-
-export const grepProject = (root: string, pattern: string, limit = 200) =>
-  invoke<Hit[]>("grep_project", { root, pattern, limit });
-
-/** 搜草稿目录的内容（M10 ③）。路径是绝对的；文件头里的命中已经滤掉 */
-export const grepScratches = (pattern: string, limit = 60) =>
-  invoke<Hit[]>("grep_scratches", { pattern, limit });
-
 
 // ─────────────────────────── Git ───────────────────────────
 
@@ -436,7 +337,6 @@ export interface GitStatus {
   truncated: boolean;
 }
 
-
 /** 找路径所属仓库根；不是仓库返回 null（正常情况，Git 功能整体隐身） */
 export const gitRoot = (path: string) => invoke<string | null>("git_root", { path });
 
@@ -453,8 +353,6 @@ export interface DiffText {
   truncated: boolean;
 }
 
-export const gitDiff = (root: string, path: string, staged: boolean, untracked: boolean) =>
-  invoke<DiffText>("git_diff", { root, path, staged, untracked });
 /**
  * 文件在 HEAD 里的内容（issue #33 ④）：编辑器拿它当基线，在前端实时算改动行。
  * `null` = 不在 HEAD 里。形状复用 `DiffText`：一段文本 + 有没有被上限截断。
@@ -481,10 +379,6 @@ export interface Blame {
 }
 export const gitBlame = (root: string, path: string) => invoke<Blame>("git_blame", { root, path });
 
-/** 按块暂存（issue #33 ⑫）：一段 patch 应用到暂存区；`reverse` = 撤掉 */
-export const gitApplyCached = (root: string, patch: string, reverse: boolean) =>
-  invoke<void>("git_apply_cached", { root, patch, reverse });
-
 /** 一条 stash（issue #33 ⑪） */
 export interface GitStash {
   /** `stash@{N}` 里的 N */
@@ -493,25 +387,11 @@ export interface GitStash {
   message: string;
 }
 export const gitStashList = (root: string) => invoke<GitStash[]>("git_stash_list", { root });
-/** 已跟踪文件的改动收进 stash，工作区回到 HEAD；未跟踪的留在原地。没改动时报错 */
-export const gitStashPush = (root: string) => invoke<void>("git_stash_push", { root });
-/** 最新的 stash 放回工作区并删掉。撞上冲突时报错，stash 留着，改动列表里出现冲突 */
-export const gitStashPop = (root: string) => invoke<void>("git_stash_pop", { root });
-
 export const gitStage = (root: string, paths: string[]) =>
   invoke<void>("git_stage", { root, paths });
 
 export const gitUnstage = (root: string, paths: string[]) =>
   invoke<void>("git_unstage", { root, paths });
-
-/** 不可撤销 —— 调用前必须让用户确认过 */
-export const gitDiscard = (root: string, paths: string[], untracked: string[]) =>
-  invoke<void>("git_discard", { root, paths, untracked });
-
-export const gitCommit = (root: string, message: string, amend = false) =>
-  invoke<string>("git_commit", { root, message, amend });
-
-
 
 // ────────────── Git：历史 · 分支 · 工作树 ──────────────
 
@@ -548,17 +428,6 @@ export interface GitWorktree {
   current: boolean;
 }
 
-export const gitLogEntries = (root: string, limit = 200, all = false, path = "") =>
-  invoke<GitLogEntry[]>("git_log_entries", { root, limit, all, path });
-
-export const gitCommitFiles = (root: string, sha: string) =>
-  invoke<GitEntry[]>("git_commit_files", { root, sha });
-
-export const gitCommitDiff = (root: string, sha: string, path = "") =>
-  invoke<DiffText>("git_commit_diff", { root, sha, path });
-
-export const gitBranches = (root: string) => invoke<GitBranch[]>("git_branches", { root });
-
 /** 切分支；create 为真时新建。工作区脏时 git 会拒绝，错误原样上抛 */
 /**
  * 切分支失败时拿到的东西。**不是一个字符串。**
@@ -577,13 +446,6 @@ export interface SwitchErr {
   raw: string;
 }
 
-/**
- * 切分支。**失败时 reject 的是 `SwitchErr` 对象，不是字符串** ——
- * 调用方要 `catch` 之后判 `kind`，不能直接 `String(e)` 往界面上贴。
- */
-export const gitSwitch = (root: string, name: string, create = false, from = "") =>
-  invoke<string>("git_switch", { root, name, create, from });
-
 /** 删分支失败时拿到的东西。`kind === "not-merged"` 时界面给「仍然删除」 */
 export interface BranchErr {
   /** `not-merged` / `other` */
@@ -592,30 +454,6 @@ export interface BranchErr {
   /** git 的原话 */
   raw: string;
 }
-
-/**
- * 删本地分支。**失败时 reject 的是 `BranchErr` 对象**，调用方判 `kind`。
- * `force` 走 `-D`，只在用户看过「还有没合并的提交」之后才传。
- */
-export const gitBranchDelete = (root: string, name: string, force = false) =>
-  invoke<void>("git_branch_delete", { root, name, force });
-
-/** 重命名本地分支。目标名已存在时报错，不覆盖 */
-export const gitBranchRename = (root: string, old: string, new_: string) =>
-  invoke<void>("git_branch_rename", { root, old, new: new_ });
-
-export const gitWorktrees = (root: string) => invoke<GitWorktree[]>("git_worktrees", { root });
-
-/**
- * 新建工作树，返回新目录绝对路径 —— 可以直接当项目根打开。
- * 分支存不存在由 Rust 侧判断并决定加不加 `-b`。
- */
-export const gitWorktreeAdd = (root: string, path: string, branch: string) =>
-  invoke<string>("git_worktree_add", { root, path, branch });
-
-/** 会删掉那个目录，调用前必须确认 */
-export const gitWorktreeRemove = (root: string, path: string, force = false) =>
-  invoke<void>("git_worktree_remove", { root, path, force });
 
 // ── 菜单栏 ───────────────────────────────────────────────────────────
 
@@ -671,45 +509,3 @@ export interface RemoteErr {
   raw: string;
 }
 
-/**
- * 抓远程。只读，不动工作区 —— 失败了没有任何后果。
- *
- * **`opId` 由调用方给，不是 Rust 返回的。**
- * 反过来写过一版（Rust 生成、跟着返回值给出去），而那样取消按钮
- * **永远点不动**：返回值要等操作跑完才到前端。
- *
- * 进度走 `Channel`，和终端那条是同一套机制。
- */
-export const gitFetch = (
-  root: string,
-  remote: string,
-  opId: number,
-  onProgress: Channel<RemoteProgress>,
-) => invoke<void>("git_fetch", { root, remote, opId, onProgress });
-
-/** 推送当前分支。`setUpstream` 只在这个分支还没有上游时传真 */
-export const gitPush = (
-  root: string,
-  remote: string,
-  branch: string,
-  setUpstream: boolean,
-  opId: number,
-  onProgress: Channel<RemoteProgress>,
-) => invoke<void>("git_push", { root, remote, branch, setUpstream, opId, onProgress });
-
-/**
- * 把已经抓下来的上游合进当前分支。不走网络。
- *
- * 拉取 = `gitFetch` + 这个，不是 `git pull` —— 复合命令失败时分不清
- * 是网络断了还是合并冲突了。
- */
-export const gitMergeUpstream = (root: string, upstream: string, mode: "ff-only" | "merge" | "rebase") =>
-  invoke<void>("git_merge_upstream", { root, upstream, mode });
-
-/** 取消一个正在跑的远程操作。只对 fetch 开放 —— push 中途取消状态不确定 */
-export const gitCancel = (id: number) => invoke<boolean>("git_cancel", { id });
-
-
-/** 推上去会送出哪些提交。照 IDEA：列出提交，不是只给计数 */
-export const gitOutgoing = (root: string, upstream: string, branch: string) =>
-  invoke<string[]>("git_outgoing", { root, upstream, branch });

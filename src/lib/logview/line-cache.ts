@@ -1,5 +1,5 @@
 import { decodeBlock } from "./block";
-import { logLines, logLinesFiltered, logFilterMap } from "../ipc/commands";
+import { logLines, logLinesFiltered, logFilterMap } from "../ipc/log";
 import { BLOCK_LINES, overBudget } from "./cache-budget";
 
 export { BLOCK_LINES };

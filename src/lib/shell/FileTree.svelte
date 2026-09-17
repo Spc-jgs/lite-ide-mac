@@ -2,16 +2,8 @@
   import Icon from "./Icon.svelte";
   import FileGlyph from "./FileGlyph.svelte";
   import { tick, untrack } from "svelte";
-  import {
-    createEntry,
-    listDir,
-    renameEntry,
-    moveEntry,
-    trashEntry,
-    type DirEntry,
-    type GitEntry,
-    type GitStatus,
-  } from "../ipc/commands";
+  import { trashEntry, type DirEntry, type GitEntry, type GitStatus } from "../ipc/commands";
+import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   import { notify } from "../state/notify.svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { copyText, relTo, showInFinder } from "./pathactions";

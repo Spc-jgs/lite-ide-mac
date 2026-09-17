@@ -22,7 +22,8 @@
    * 凭据打码全在那边 —— 前端只负责显示，一个字都不加工。
    */
   import { onMount } from "svelte";
-  import { gitConsole, clearGitConsole, type GitCmd } from "../ipc/commands";
+  import { type GitCmd } from "../ipc/commands";
+import { gitConsole, clearGitConsole } from "../ipc/git";
 
   let rows = $state<GitCmd[]>([]);
   let onlyFailed = $state(false);

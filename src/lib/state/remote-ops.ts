@@ -1,13 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
-import {
-  gitFetch,
-  gitPush,
-  gitMergeUpstream,
-  gitCancel,
-  gitOutgoing,
-  type RemoteProgress,
-  type RemoteErr,
-} from "../ipc/commands";
+import { type RemoteProgress, type RemoteErr } from "../ipc/commands";
+import { gitFetch, gitPush, gitMergeUpstream, gitCancel, gitOutgoing } from "../ipc/git";
 import { notify } from "./notify.svelte";
 import { git } from "./git.svelte";
 import { project } from "./project.svelte";

@@ -2,7 +2,6 @@
   import { untrack, tick } from "svelte";
   import Rail from "./lib/shell/Rail.svelte";
   import Sidebar from "./lib/shell/Sidebar.svelte";
-  import Panel from "./lib/shell/Panel.svelte";
   import StatusBar from "./lib/shell/StatusBar.svelte";
   import Content from "./lib/shell/Content.svelte";
   import Overlays from "./lib/shell/Overlays.svelte";
@@ -161,6 +160,19 @@
       !!branches.pendingCheckout || !!remote.pendingDiverge || !!remote.pendingPush || !!remote.err;
     if (need) confirms.load();
   });
+  /**
+   * 底部工具窗（issue #32 瘦身）。它自己只在「面板开着或有终端」时才渲染，
+   * 首屏之前一个像素都不画 —— 判据和文件树一样，所以模块也不该在入口包里。
+   * 恢复出来的会话面板开着的话立刻拉；否则首屏后 300ms 预拉，第一次 ⌘J 不用等往返。
+   */
+  const panelUi = lazy(() => import("./lib/shell/Panel.svelte"), "底部工具窗");
+  $effect(() => {
+    if (layout.panel || terms.list.length > 0) panelUi.load();
+  });
+  $effect(() => {
+    const id = setTimeout(() => panelUi.load(), 300);
+    return () => clearTimeout(id);
+  });
   /** 草稿列表（issue #40）。只在侧边栏切到它时才拉，多数会话一次都不切 */
   const scratchUi = lazy(() => import("./lib/shell/ScratchList.svelte"), "草稿列表");
   $effect(() => {
@@ -311,7 +323,7 @@
    * 新加的 `overlays`。加新的 lazy() 时记得回来加一行。
    */
   $effect(() => {
-    const e = gitUi.error || tree.error;
+    const e = gitUi.error || tree.error || panelUi.error || confirms.error || scratchUi.error;
     if (e) notify.fail(e);
   });
 
@@ -1037,16 +1049,18 @@
         底部工具窗在 Panel.svelte 里。提交历史那块要这边的 git lazyGroup 和活动标签，
         以 snippet 传进去（同侧边栏的两块内容）。
       -->
-      <Panel root={project.root} repo={git.repo} {panelTool} gitLogReady={!!gitUi.comps.log}>
-        {#snippet gitLog()}
-          <gitUi.comps.log
-            repo={git.repo!}
-            filePath={tabs.active?.mode === "edit" ? tabs.active.path : ""}
-            onOpenCommitDiff={(sha, short, p) => void git.openCommitDiff(sha, short, p)}
-            onCheckout={(sha) => branches.switchTo(sha)}
-          />
-        {/snippet}
-      </Panel>
+      {#if panelUi.comp}
+        <panelUi.comp root={project.root} repo={git.repo} {panelTool} gitLogReady={!!gitUi.comps.log}>
+          {#snippet gitLog()}
+            <gitUi.comps.log
+              repo={git.repo!}
+              filePath={tabs.active?.mode === "edit" ? tabs.active.path : ""}
+              onOpenCommitDiff={(sha, short, p) => void git.openCommitDiff(sha, short, p)}
+              onCheckout={(sha) => branches.switchTo(sha)}
+            />
+          {/snippet}
+        </panelUi.comp>
+      {/if}
     </section>
   </div>
 

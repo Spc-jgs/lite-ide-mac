@@ -1,16 +1,5 @@
-import {
-  gitSwitch,
-  gitStashPush,
-  gitStashPop,
-  gitWorktreeAdd,
-  gitWorktreeRemove,
-  gitMergeUpstream,
-  gitBranchDelete,
-  gitBranchRename,
-  type SwitchErr,
-  type BranchErr,
-  type GitWorktree,
-} from "../ipc/commands";
+import { type SwitchErr, type BranchErr, type GitWorktree } from "../ipc/commands";
+import { gitSwitch, gitStashPush, gitStashPop, gitWorktreeAdd, gitWorktreeRemove, gitMergeUpstream, gitBranchDelete, gitBranchRename } from "../ipc/git";
 import { notify } from "./notify.svelte";
 import { git } from "./git.svelte";
 import { tabflow } from "./tabflow.svelte";

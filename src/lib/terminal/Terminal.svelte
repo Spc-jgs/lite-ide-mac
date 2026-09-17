@@ -3,7 +3,7 @@
   import { FitAddon } from "@xterm/addon-fit";
   import { Channel } from "@tauri-apps/api/core";
   import "@xterm/xterm/css/xterm.css";
-  import { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyAck } from "../ipc/commands";
+  import { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyAck } from "../ipc/pty";
 
   let { cwd, onExit }: { cwd: string; onExit: () => void } = $props();
 

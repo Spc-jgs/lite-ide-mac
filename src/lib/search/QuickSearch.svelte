@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { listProjectFiles, grepProject, grepScratches, type Hit, type ScratchEntry } from "../ipc/commands";
+  import { listProjectFiles, type Hit, type ScratchEntry } from "../ipc/commands";
+import { grepProject, grepScratches } from "../ipc/search";
   import { rank, segments } from "./fuzzy";
   import Icon from "../shell/Icon.svelte";
   import FileGlyph from "../shell/FileGlyph.svelte";
