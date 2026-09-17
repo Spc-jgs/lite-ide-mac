@@ -209,7 +209,10 @@ mod tests {
         let d = tmp();
         let (tx, rx) = mpsc::channel();
         let _w = watch(&d, move |c| tx.send(c).unwrap()).unwrap();
+        // 同上一条：先把 `tmp()` 建目录那条陈事件排干净。它在 CI 上迟到，落成第一条，
+        // 50 次写就成了「第二条」（v1.2.0 打标签时红的，和 v1.1.0 那次是同一个形状）
         thread::sleep(Duration::from_millis(200));
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {}
         for i in 0..50 {
             std::fs::write(d.join(format!("f{i}.txt")), "x").unwrap();
         }
