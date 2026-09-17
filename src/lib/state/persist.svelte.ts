@@ -5,7 +5,7 @@ import { notify } from "./notify.svelte";
 import { layout } from "./layout.svelte";
 import { project } from "./project.svelte";
 import { tabs } from "./tabs.svelte";
-import { docs } from "./docs.svelte";
+import { docs, type ViewPos } from "./docs.svelte";
 import { tabflow } from "./tabflow.svelte";
 import { nav } from "./nav.svelte";
 
@@ -125,7 +125,14 @@ class Persist {
      * `activeId` 已经不会再变，effect 也就不会再跑第二次了。
      */
     for (const t of saved.tabs) {
-      if (t.line !== undefined) docs.pendingPos.set(t.path, t.line);
+      if (t.line === undefined) continue;
+      docs.pendingPos.set(t.path, t.line);
+      // 编辑器挂载时自己从这儿取完整视口（列、视口顶行）；日志视图仍走 pendingPos → nav.goto
+      const pos: ViewPos = { line: t.line };
+      if (t.col !== undefined) pos.col = t.col;
+      if (t.top !== undefined) pos.top = t.top;
+      if (t.toff !== undefined) pos.toff = t.toff;
+      docs.posByPath.set(t.path, pos);
     }
     /*
      * 串行开，不并行。
@@ -215,7 +222,9 @@ class Persist {
     const line = docs.pendingPos.get(t.path);
     if (line === undefined) return;
     docs.pendingPos.delete(t.path);
-    nav.goto(line);
+    // 编辑模式的标签在挂载时已经按 `posByPath` 里那份把光标和视口摆回去了，
+    // 再 goto 一次会把视口拽成「居中」，恢复出来的位置就不是上次那个了。只有日志视图还要它
+    if (t.mode !== "edit") nav.goto(line);
   }
 
   /** 按当前状态拍一张快照 */
@@ -223,9 +232,14 @@ class Persist {
     return {
       root: project.root,
       tabs: tabs.list.map((t) => {
-        const line = docs.posByPath.get(t.path);
+        const pos = docs.viewOf(t);
         const snap: session.TabSnap = { path: t.path };
-        if (line !== undefined) snap.line = line;
+        if (pos !== undefined) {
+          snap.line = pos.line;
+          if (pos.col !== undefined) snap.col = pos.col;
+          if (pos.top !== undefined) snap.top = pos.top;
+          if (pos.toff !== undefined) snap.toff = pos.toff;
+        }
         if (t.preview) snap.preview = true;
         if (t.pinned) snap.pinned = true;
         /*

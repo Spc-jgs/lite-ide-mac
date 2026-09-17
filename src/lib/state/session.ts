@@ -87,6 +87,14 @@ export interface TabSnap {
   path: string;
   /** 上次光标停在第几行（1-based）。日志模式记的是视图行。 */
   line?: number;
+  /**
+   * 光标列（1-based）和视口顶上那一行 + 行内像素偏移（2026-09-17，体感那轮的
+   * 「会话恢复只到行」）。四个都可选、互相独立：老快照只有 `line`，恢复时把那一行
+   * 居中；有 `top` 的按原样把视口摆回去。**不升 VERSION**：老快照无损映射。
+   */
+  col?: number;
+  top?: number;
+  toff?: number;
   /** 未保存的草稿。只有编辑模式、且确实和盘上那份不同才有 */
   draft?: string;
   /** 草稿是基于哪一份盘上内容改出来的。恢复时拿它和现在的比 */
@@ -238,6 +246,11 @@ export function parse(raw: string | null | undefined): Session | null {
         : undefined;
     const snap: TabSnap = { path: e.path };
     if (line !== undefined) snap.line = line;
+    // 列 / 视口顶行 / 行内偏移：坏的各自丢，不连坐 —— 一个负偏移不该把行号也拖没
+    if (typeof e.col === "number" && Number.isFinite(e.col) && e.col >= 1) snap.col = Math.floor(e.col);
+    if (typeof e.top === "number" && Number.isFinite(e.top) && e.top >= 1) snap.top = Math.floor(e.top);
+    // 偏移封顶：它只该是一行之内的零头，几千像素多半是坏数据，宁可回到行首
+    if (typeof e.toff === "number" && Number.isFinite(e.toff) && e.toff >= 0 && e.toff <= 400) snap.toff = Math.round(e.toff);
     // 只认字面的 true。字符串 "true" / 1 之类一律当没有 —— 宁可多占一格也别猜
     if (e.preview === true) snap.preview = true;
     if (e.pinned === true) snap.pinned = true;

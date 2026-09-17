@@ -22,6 +22,7 @@
   import { resolveJump, rawWordAt, type JumpHit } from "./jump";
   import { jumpExtension } from "./jump-ext";
   import { foldFrontmatter } from "./frontmatter-fold";
+  import type { ViewPos } from "../state/docs.svelte";
 
   let {
     path,
@@ -45,6 +46,9 @@
     onOutline,
     onCursor,
     onCaret,
+    initialView = null,
+    onView,
+    onViewStash,
     jumpFiles = [],
     jumpRel = null,
     jumpLang = "",
@@ -150,7 +154,71 @@
      * 这个是显示，本来就该跟着光标走，而状态栏改一个字符串不值一提。
      */
     onCaret?: (line: number, col: number) => void;
+    /**
+     * 挂载时把光标和视口摆回去的位置（2026-09-17）。编辑器是 `{#key active.id}` 包着的，
+     * 切标签就销毁重建 —— 没有这个，切回来光标在第一行、滚动条在顶上，每切一次就丢一次
+     * 「我看到哪儿了」。只有 `line` 的（老快照）把那一行居中；有 `top` 的按原样摆回视口。
+     */
+    initialView?: ViewPos | null;
+    /** 「读此刻的视口」的口子，同 `onLive`：快照要的是此刻，不是上次换行时 */
+    onView?: (path: string, get: (() => ViewPos) | null) => void;
+    /** 销毁前把视口交回去，同 `onStash`。交的是 `curPath` 那份 */
+    onViewStash?: (path: string, pos: ViewPos) => void;
   } = $props();
+
+  /**
+   * 此刻的视口。视口顶行用 `lineBlockAtHeight`：CM6 的行高在没量过的地方是估的，
+   * 记「顶上是哪一行 + 露出多少像素」比记 scrollTop 稳 —— 恢复时让 CM6 自己把那一行
+   * 滚到顶上（它会先量再滚），再补上零头。
+   */
+  function measureTop(v: EditorView): { top: number; toff: number } {
+    const h = v.scrollDOM.getBoundingClientRect().top - v.documentTop;
+    const blk = v.lineBlockAtHeight(h);
+    return { top: v.state.doc.lineAt(blk.from).number, toff: Math.max(0, Math.round(h - blk.top)) };
+  }
+  /**
+   * 最近一次滚动时量到的视口顶行。销毁那一刻 DOM 可能已经摘下来了（`{#key}` 换块时
+   * 先拆后建的次序不归我们管），摘下来之后量出来的全是 0 —— 所以边滚边记，
+   * 销毁时 DOM 还在就现量，不在就用这份。选区不在这儿记：它从 state 里读，不碰布局
+   */
+  let lastTop: { top: number; toff: number } | null = null;
+  const onScroll = () => {
+    if (view) lastTop = measureTop(view);
+  };
+  /** 视口变了（滚动、跳转、窗口大小）之后量一次。走 requestMeasure：update() 里不能读布局 */
+  function noteTop(v: EditorView) {
+    v.requestMeasure({ read: measureTop, write: (t) => (lastTop = t) });
+  }
+  function viewNow(): ViewPos {
+    const v = view!;
+    const head = v.state.selection.main.head;
+    const ln = v.state.doc.lineAt(head);
+    const t = v.dom.isConnected ? measureTop(v) : lastTop;
+    return { line: ln.number, col: head - ln.from + 1, ...(t ?? {}) };
+  }
+
+  /** 把 `initialView` 摆回去。行列越界就夹到文档范围内 —— 文件在我们不在时可能变短了 */
+  function applyView(v: EditorView, p: ViewPos) {
+    const doc = v.state.doc;
+    const ln = doc.line(Math.min(Math.max(1, p.line), doc.lines));
+    const pos = ln.from + Math.min(Math.max(1, p.col ?? 1), ln.length + 1) - 1;
+    if (p.top === undefined) {
+      v.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+      return;
+    }
+    const topLine = doc.line(Math.min(Math.max(1, p.top), doc.lines));
+    v.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(topLine.from, { y: "start", yMargin: 0 }),
+    });
+    // scrollIntoView 在下一帧的测量阶段才真滚；零头等它滚完再补，不然会被它盖掉
+    const toff = p.toff ?? 0;
+    if (toff > 0) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (view === v) v.scrollDOM.scrollTop += toff;
+      }));
+    }
+  }
 
   let host: HTMLDivElement | undefined = $state();
   let view: EditorView | null = null;
@@ -274,6 +342,7 @@
             onChange(u.state.doc.toString() !== baseText);
             scheduleMarks();
           }
+          if (u.viewportChanged || u.geometryChanged) noteTop(u.view);
           if (u.selectionSet || u.docChanged) {
             const head = u.state.selection.main.head;
             const ln = u.state.doc.lineAt(head);
@@ -328,6 +397,9 @@
       // 草稿的锚点头折起来、光标落到正文（M10）。只看 markdown：别的文件的 `---` 开头不归这儿管。
       // 放在 onCaret 之后：它会 dispatch 一次，updateListener 报的才是挪完的位置
       if (/\.(md|markdown)$/i.test(path)) foldFrontmatter(view);
+      // 上次离开时的光标和视口。放在折叠之后：折叠会把停在头部的光标挪到正文，别让它盖掉这份
+      if (initialView) applyView(view, initialView);
+      noteTop(view);
       // 基线多半在挂载前就到了（切标签时上一份还在），那条 effect 那时 view 还是 null
       recomputeMarks();
       applyBlame();
@@ -338,6 +410,8 @@
       seenTick = savedTick;
       seenSelfSave = selfSaveTick; // 同上：挂载不是一次「刚存的落盘了」
       onLive?.(curPath, () => view?.state.doc.toString() ?? "");
+      onView?.(curPath, () => viewNow());
+      view.scrollDOM.addEventListener("scroll", onScroll, { passive: true });
       onWordProbe?.(curPath, () =>
         view ? rawWordAt(view.state, view.state.selection.main.head) : null,
       );
@@ -347,6 +421,11 @@
     return () => {
       stash();
       untrack(() => {
+        if (view) {
+          view.scrollDOM.removeEventListener("scroll", onScroll);
+          onViewStash?.(curPath, viewNow());
+        }
+        onView?.(curPath, null);
         onLive?.(curPath, null);
         onWordProbe?.(curPath, null);
       });

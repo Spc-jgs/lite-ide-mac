@@ -52,7 +52,9 @@ class Docs {
    * 每换行都惊动一次渲染，而界面上没有任何地方要显示它 —— 它只在存快照
    * 和恢复时被读。普通 Map 就够。
    */
-  readonly posByPath = new Map<string, number>();
+  readonly posByPath = new Map<string, ViewPos>();
+  /** 「读活动编辑器此刻的视口」的口子，认领规则同 `#live`。快照要的是此刻，不是上次换行时 */
+  #viewProbe: { path: string; get: () => ViewPos } | null = null;
   /**
    * 还没兑现的恢复位置。标签被恢复出来时不能立刻跳 ——
    * 那时组件还没挂上。等它第一次成为活动标签再跳，跳完就从这里删掉，
@@ -85,6 +87,22 @@ class Docs {
     else if (this.#live?.path === path) this.#live = null;
     // 自检器要知道谁真的挂着编辑器（issue #36），和这里是同一份答案
     tabs.livePath = this.#live?.path ?? null;
+  }
+
+  onEditorView(path: string, get: (() => ViewPos) | null) {
+    if (get) this.#viewProbe = { path, get };
+    else if (this.#viewProbe?.path === path) this.#viewProbe = null;
+  }
+
+  /** 某个标签的视口：活着的编辑器给此刻的，别的给上次离开时记下的 */
+  viewOf(t: TabState): ViewPos | undefined {
+    const p = this.#viewProbe;
+    return p?.path === t.path && t.mode === "edit" ? p.get() : this.posByPath.get(t.path);
+  }
+
+  /** 只要行号的调用方（锚点、导航、工作树）用这个 */
+  lineOf(path: string): number | undefined {
+    return this.posByPath.get(path)?.line;
   }
 
   onEditorWordProbe(path: string, get: (() => string | null) | null) {
@@ -387,9 +405,34 @@ class Docs {
    */
   markPos(path: string, line: number) {
     if (line < 1) return;
-    this.posByPath.set(path, line);
+    // 只记行：列和视口这时已经不准了，留着会在恢复时把人摆到错的地方。
+    // 精确的那份由编辑器销毁时 `markView` 交回来，或者快照时从 `viewOf` 现读
+    this.posByPath.set(path, { line });
+    this.hooks.afterPos?.();
+  }
+
+  /**
+   * 编辑器销毁（切标签、关标签）时交回来的完整视口（2026-09-17）。
+   * 编辑器是 `{#key active.id}` 包着的，切走就销毁 —— 原来只有行号，切回来
+   * 光标回到第一行、滚动条回到顶上，每切一次标签就丢一次「我看到哪儿了」。
+   */
+  markView(path: string, pos: ViewPos) {
+    if (pos.line < 1) return;
+    this.posByPath.set(path, pos);
     this.hooks.afterPos?.();
   }
 }
 
 export const docs = new Docs();
+
+/**
+ * 一个编辑标签的视口：光标在哪、视口顶上是哪一行、那一行露出多少。
+ * `line` 必有；其余可选 —— 只记了行的（老快照、换行时的粗记录）恢复时把那一行居中。
+ */
+export interface ViewPos {
+  line: number;
+  col?: number;
+  /** 视口顶上那一行（1-based）；`toff` 是它被滚过去的像素数（折行的长行才会大于 0） */
+  top?: number;
+  toff?: number;
+}

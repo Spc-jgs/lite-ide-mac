@@ -338,6 +338,9 @@
         onOutline={onOutline}
         onCursor={(l) => docs.markPos(tabs.active!.path, l)}
         onCaret={(line, col) => (nav.caret = { line, col })}
+        initialView={docs.posByPath.get(tabs.active.path) ?? null}
+        onView={(p, g) => docs.onEditorView(p, g)}
+        onViewStash={(p, v) => docs.markView(p, v)}
         jumpFiles={projectFiles}
         jumpRel={project.root && tabs.active.path.startsWith(`${project.root}/`)
           ? tabs.active.path.slice(project.root.length + 1)

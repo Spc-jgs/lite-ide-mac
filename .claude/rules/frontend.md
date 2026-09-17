@@ -514,3 +514,14 @@ logicalHeightForGridItem → 一路 layout 到底`；粘了 2000 行日志的草
 用 `CGEventPost`：十几行 Swift，`CGEvent(keyboardEventSource:virtualKey:keyDown:)` +
 `keyboardSetUnicodeString` + `post(tap: .cghidEventTap)`，每键之间 `sleep` 12ms。
 smoke.sh 只关心对错不关心时长，它用 `keystroke` 没问题。
+
+## 驱动真 `.app` 的两个坑（2026-09-17）
+
+- **别用 `tell application "lite-ide" to activate`。** 它按名字找的是 bundle 里那份 `.app`，
+  你跑的是 `target/release/lite-ide` 裸二进制的话，它会**再起一个实例**（app.log 里多一行
+  「启动」，两个实例抢同一份 localStorage，快照被空实例盖掉）。要前台就
+  `tell application "System Events" to set frontmost of process "lite-ide" to true`。
+- **裸二进制和 `.app` 的 localStorage 不是同一份。** WKWebView 按进程身份分目录：
+  `~/Library/WebKit/lite-ide/…` 和 `~/Library/WebKit/com.liteide.app/…`。从盘上读会话快照
+  （`localstorage.sqlite3` 的 `ItemTable`，值是 UTF-16LE）要看对目录，不然读到的是
+  几小时前另一份的。

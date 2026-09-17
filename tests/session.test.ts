@@ -323,5 +323,26 @@ ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
   ok(toLayout({ sideView: "bogus" }).sideView === "files", "sideView 认不出回 files");
 }
 
+// ── 视口：列 / 顶行 / 行内偏移（2026-09-17）──
+{
+  const s = parse(serialize({ ...base, tabs: [{ path: "/p/a", line: 300, col: 8, top: 280, toff: 12 }, { path: "/p/b", line: 5 }] }));
+  const t = s?.tabs[0];
+  ok(t?.line === 300 && t?.col === 8 && t?.top === 280 && t?.toff === 12, "四个字段原样读回");
+  const u = s?.tabs[1];
+  ok(u?.line === 5 && u?.col === undefined && u?.top === undefined && u?.toff === undefined, "只记了行的不该凭空多出列和顶行");
+  const bad = parse(JSON.stringify({
+    v: VERSION, root: "/p", active: 0, layout: DEFAULT_LAYOUT,
+    tabs: [
+      { path: "/p/a", line: 3, col: 0, top: -1, toff: 5000 }, // 三个都坏
+      { path: "/p/b", line: 3, col: 2.9, top: 7, toff: 3.4 }, // 小数
+      { path: "/p/c", line: 3, col: "8", top: null, toff: NaN }, // 类型不对
+    ],
+  }));
+  const a = bad?.tabs[0], b = bad?.tabs[1], c = bad?.tabs[2];
+  ok(a?.line === 3 && a?.col === undefined && a?.top === undefined && a?.toff === undefined, "列 0 / 顶行 -1 / 偏移 5000 各自丢掉，行号不连坐");
+  ok(b?.col === 2 && b?.top === 7 && b?.toff === 3, "小数列取整、偏移四舍五入");
+  ok(c?.line === 3 && c?.col === undefined && c?.top === undefined && c?.toff === undefined, "字符串 / null / NaN 一律当没有");
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 会话快照：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

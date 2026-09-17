@@ -47,7 +47,7 @@ class Nav {
   hereNow(): NavSpot | null {
     const t = tabs.active;
     if (!t) return null;
-    return { path: t.path, line: docs.posByPath.get(t.path) ?? 1 };
+    return { path: t.path, line: docs.lineOf(t.path) ?? 1 };
   }
 
   /**

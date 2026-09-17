@@ -259,7 +259,7 @@ class TabFlow {
     const t = tabs.active;
     let at = "";
     if (root && t && t.mode === "edit" && t.path.startsWith(`${root}/`) && !project.isScratch(t.path)) {
-      const line = docs.posByPath.get(t.path);
+      const line = docs.lineOf(t.path);
       at = t.path.slice(root.length + 1) + (line ? `:${line}` : "");
     }
     const st = git.status;

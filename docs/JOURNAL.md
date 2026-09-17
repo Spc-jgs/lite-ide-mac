@@ -6905,3 +6905,40 @@ null，走原来那套），标签栏和状态栏共用它，两处不会说出�
 现在 129.8 KiB，离告警线 8.4 KB。剩下的大头是 `App.svelte` 13.3 KB 和首屏必需的那几个壳
 （Content / Tabs / StatusBar / TitleBar），再往下要动加载策略，先不动。
 验证：桩上 ⌘J 面板出来、终端起来、日志 / Git 控制台页签照常；真 `.app` smoke 37/37。
+
+## 2026-09-17 · 切标签和重启都回到「上次看到哪」：光标列 + 视口顶行
+
+体感调研里的一条：「重开文件却发现要重新滚回上次编辑的地方」。量了一下比调研说的更糟：
+不只是重启 —— **切一次标签就丢一次**。编辑器是 `{#key active.id}` 包着的，切走就销毁，
+切回来是新实例：光标回第一行、滚动条回顶上。会话快照记的也只有行号，恢复时把那一行居中。
+
+做法：`docs.posByPath` 从 `Map<path, 行号>` 变成 `Map<path, ViewPos>`，
+`ViewPos = { line, col?, top?, toff? }`（光标行列、视口顶上那一行、那一行被滚过去的像素数）。
+
+- 编辑器销毁时把完整视口交回来（`onViewStash` → `docs.markView`），挂载时按 `initialView`
+  摆回去：只有 `line` 的（老快照、换行时的粗记录）把那一行居中；有 `top` 的
+  `scrollIntoView(顶行, { y: "start", yMargin: 0 })` 再补零头。
+- 快照多存 `col / top / toff`，**不升 VERSION**：老快照无损映射。坏值各自丢、不连坐，
+  `toff` 封顶 400 —— 它只该是一行之内的零头。活动编辑器的视口从 `onView` 现读（同 `onLive`：
+  快照要的是此刻，不是上次换行时）。
+- 恢复时**先写 `posByPath` 再开标签**（同 pendingPos 那条纪律），编辑器挂载时自己取；
+  `redeemPos` 只给日志视图 `nav.goto` —— 编辑器已经按原样摆好了，再 goto 一次会拽成居中。
+
+两个坑：
+
+- **记视口顶行，不记 scrollTop。** CM6 没量过的行高是估的，同一个 scrollTop 在重建后对应
+  的不是同一行；`lineBlockAtHeight` 记「顶上是哪一行 + 露出多少像素」，恢复时让 CM6 自己
+  把那一行滚到顶上（它会先量再滚），再补零头。
+- **销毁那一刻 DOM 已经摘下来了。** `{#key}` 换块是先拆后建，cleanup 跑的时候
+  `view.dom.isConnected` 是 false，那时 `getBoundingClientRect` 全是 0。所以边滚边记
+  （scroll 事件 + `viewportChanged` 后 `requestMeasure`），销毁时 DOM 还在就现量，
+  不在就用记下的那份。
+
+验证（真 `.app`，CGEvent / AX 驱动）：草稿塞 400 行、光标到 403:6、视口停在文末 →
+切到另一份草稿再切回：403:6，视口顶行 368（存的 367 + 16px）；⌘Q 重启：同样的画面。
+桩上同一套：切回来 line 300 / top 253 / toff 16 ↔ 18。`tests/session.test.ts` +5
+（`toff` 不封顶那条改坏验过红）。
+
+驱动脚本的两个坑，记在 frontend.md：`tell application "lite-ide" to activate` 会把
+**bundle 里那份**再起一个实例；裸二进制和 .app 的 localStorage **不是同一份**
+（`~/Library/WebKit/lite-ide` vs `com.liteide.app`），从盘上读快照要看对目录。
