@@ -171,6 +171,7 @@ class Docs {
       // 原来各写一遍，其中一处漏了清草稿（见 doc.ts 的注释）
       Object.assign(tab, settled(content));
       tab.conflict = false;
+      tab.saveFailed = false;
       this.selfSaveTick++;
       this.savedTick++;
       this.retitle(tab, content);
@@ -247,6 +248,8 @@ class Docs {
         this.hooks.afterAutosave?.(tab.path);
       } catch (e) {
         this.#lastFail.set(tab.path, Date.now());
+        // 常驻的那个提醒：标签圆点转警示色、状态栏写「⌘S 重试」，直到写成功
+        tab.saveFailed = true;
         // 说一次就够：盘满、没权限不会自己好，半秒一条红字只会把别的消息淹掉。
         // 标签留在脏状态，圆点还亮着，⌘S 那条路照常兜底
         if (!this.#warnedFail.has(tab.path)) {

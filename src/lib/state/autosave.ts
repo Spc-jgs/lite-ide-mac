@@ -52,3 +52,34 @@ export function autosaveDue(i: AutosaveInput): boolean {
   if (i.force) return true;
   return i.idleMs >= AUTOSAVE_IDLE_MS;
 }
+
+/**
+ * 草稿「存了没存」给界面看的那一个状态（2026-09-17 体感那轮）。
+ *
+ * 调研里被抱怨的是「合上盖子前那一下：到底存没存」。草稿是自动存的，可界面原来
+ * 只有那颗给项目文件用的「未保存」圆点：每敲一串字亮半秒、灭掉，标题还写着
+ * 「关闭前会问」—— 而草稿关闭前根本不问（`autosaveBeforeClose` 静默存）。
+ * 一个每半秒闪一次、说的还不对的信号，等于没有信号。
+ *
+ * 三个状态，标签栏和状态栏共用这一个函数，两处不会说出两套话：
+ * - `pending`：改了、还没落盘（半秒内会落）。圆点不亮 —— 这不是要人管的状态；
+ *   状态栏写「自动保存…」，像 Google Docs 的 Saving…
+ * - `saved`：盘上就是编辑器里的。状态栏写「已自动保存」
+ * - `failed`：上一次写失败（盘满、没权限）。这是唯一要人管的：圆点亮、警示色，
+ *   状态栏说「⌘S 重试」。`docs.autosaveSweep` 已经弹过一次红字，这里是常驻的提醒
+ *
+ * 非草稿返回 null：它们走原来那套（圆点 = 未保存 = 关闭前会问）。
+ */
+export type ScratchSaveState = "pending" | "saved" | "failed";
+
+export function scratchSaveState(i: { scratch: boolean; dirty: boolean; failed: boolean }): ScratchSaveState | null {
+  if (!i.scratch) return null;
+  if (i.failed) return "failed";
+  return i.dirty ? "pending" : "saved";
+}
+
+export const SCRATCH_SAVE_LABEL: Record<ScratchSaveState, string> = {
+  pending: "自动保存…",
+  saved: "已自动保存",
+  failed: "自动保存失败 · ⌘S 重试",
+};

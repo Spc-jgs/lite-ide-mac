@@ -39,6 +39,11 @@ export interface TabState {
   stamp?: Stamp;
   /** 外部改动了，但本地也有未保存改动 —— 需要用户裁决 */
   conflict?: boolean;
+  /**
+   * 草稿上一次自动保存失败了（盘满、没权限），写成功就清。只有草稿会置它：
+   * 标签栏的圆点和状态栏那格按它说「⌘S 重试」（`autosave.ts` 的 `scratchSaveState`）
+   */
+  saveFailed?: boolean;
   /** 差异标签：相对仓库根的路径 */
   rel?: string;
   /** 看的是暂存区还是工作区 */

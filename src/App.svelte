@@ -1006,6 +1006,7 @@
           tabs={tabs.list}
           activeId={tabs.activeId}
           root={project.root ?? ""}
+          isScratch={(p) => project.isScratch(p)}
           onSelect={(id) => {
             tabs.activeId = id;
             tabs.audit("切标签");
@@ -1051,6 +1052,7 @@
 
   <StatusBar
     active={tabs.active}
+    activeScratch={tabs.active ? project.isScratch(tabs.active.path) : false}
     activeEntry={git.activeEntry}
     root={project.root}
     {logStatus}

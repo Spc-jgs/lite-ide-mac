@@ -14,10 +14,12 @@
   import { nav } from "../state/nav.svelte";
   import { overlay } from "../state/overlay.svelte";
   import type { TabState } from "../state/tab";
+  import { scratchSaveState, SCRATCH_SAVE_LABEL } from "../state/autosave";
   import type { GitEntry } from "../ipc/commands";
 
   let {
     active,
+    activeScratch = false,
     activeEntry,
     root,
     logStatus,
@@ -27,6 +29,8 @@
     onOpenDiff,
   }: {
     active: TabState | null;
+    /** 当前标签是草稿：脏那一格说「自动保存…／已自动保存／失败 ⌘S 重试」而不是「已修改」 */
+    activeScratch?: boolean;
     /** 当前文件在 git 里的改动条目，没有就是 null */
     activeEntry: GitEntry | null;
     root: string | null;
@@ -192,9 +196,26 @@
       <span class="cell">{logStatus}</span>
     {:else}
       <span class="vsep drop-2" aria-hidden="true"></span>
-      <span class="cell drop-2" class:accent={active.dirty}>
-        {active.dirty ? "已修改" : "无改动"}
-      </span>
+      {@const st = scratchSaveState({ scratch: activeScratch, dirty: active.dirty, failed: !!active.saveFailed })}
+      {#if st === null}
+        <span class="cell drop-2" class:accent={active.dirty}>
+          {active.dirty ? "已修改" : "无改动"}
+        </span>
+      {:else}
+        <!--
+          草稿：这格回答的是「存了没存」，不是「改没改」。改了半秒内就落盘，
+          「已修改」会让人去找 ⌘S。失败是唯一要人管的，红字常驻到写成功为止
+          （autosaveSweep 那条红色通知只弹一次，这里是留着的那份）
+        -->
+        <span
+          class="cell drop-2"
+          class:bad={st === "failed"}
+          class:dim={st === "pending"}
+          title={st === "failed" ? "改动还在编辑器里，⌘S 重试" : "草稿停止输入半秒后自动落盘，关闭前也会存"}
+        >
+          {SCRATCH_SAVE_LABEL[st]}
+        </span>
+      {/if}
     {/if}
     {#if activeEntry}
       <span class="vsep" aria-hidden="true"></span>
@@ -325,4 +346,5 @@
   }
   /* 「已修改」是唯一会改变你下一步动作的那一项，值得提到 accent */
   .statusbar .accent { color: var(--accent); }
+  .statusbar .cell.bad { color: var(--lvl-error); }
 </style>

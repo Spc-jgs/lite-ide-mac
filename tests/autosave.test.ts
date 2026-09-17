@@ -1,5 +1,6 @@
 import {
   autosaveDue,
+  scratchSaveState,
   AUTOSAVE_IDLE_MS,
   AUTOSAVE_RETRY_MS,
   type AutosaveInput,
@@ -54,6 +55,15 @@ ok(!autosaveDue({ ...base, failedMs: 0 }), "刚失败过不立刻重试");
 ok(!autosaveDue({ ...base, failedMs: AUTOSAVE_RETRY_MS - 1 }), "退避期内不重试");
 ok(autosaveDue({ ...base, failedMs: AUTOSAVE_RETRY_MS }), "退避期过了再试");
 ok(!autosaveDue({ ...base, failedMs: 0, force: true }), "退避期内强制也不硬撞 —— 盘满不会在半秒内自己好");
+
+// ── 「存了没存」的三个状态 ──
+{
+  ok(scratchSaveState({ scratch: false, dirty: true, failed: true }) === null, "非草稿一律 null，走原来的圆点");
+  ok(scratchSaveState({ scratch: true, dirty: true, failed: false }) === "pending", "改了没落盘：pending");
+  ok(scratchSaveState({ scratch: true, dirty: false, failed: false }) === "saved", "干净：saved");
+  ok(scratchSaveState({ scratch: true, dirty: true, failed: true }) === "failed", "失败盖过一切");
+  ok(scratchSaveState({ scratch: true, dirty: false, failed: true }) === "failed", "失败标记没清之前，干净也算失败（要人看见）");
+}
 
 console.log(`autosave: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

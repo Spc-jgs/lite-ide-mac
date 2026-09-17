@@ -4,6 +4,7 @@
   import Icon from "./Icon.svelte";
   import FileGlyph from "./FileGlyph.svelte";
   import { copyText, relTo, showInFinder } from "./pathactions";
+  import { scratchSaveState } from "../state/autosave";
 
   export interface Tab {
     id: number;
@@ -17,6 +18,8 @@
     pinned?: boolean;
     /** 显示名。草稿用第一行代替 `2026-09-16 1103.md` 那种时间戳（见 TabState.title） */
     title?: string;
+    /** 草稿自动保存失败了（见 TabState.saveFailed） */
+    saveFailed?: boolean;
   }
 
   let {
@@ -30,11 +33,14 @@
     onNewScratch,
     onKeep,
     onPin,
+    isScratch = () => false,
   }: {
     tabs: Tab[];
     activeId: number | null;
     /** 项目根，只用来算「复制相对路径」 */
     root?: string;
+    /** 这个路径是不是草稿：草稿的圆点只在自动保存失败时亮（见 autosave.ts 的 scratchSaveState） */
+    isScratch?: (path: string) => boolean;
     onSelect: (id: number) => void;
     /** `force`：钉住的标签也关（右键菜单里的「关闭」才传） */
     onClose: (id: number, force?: boolean) => void;
@@ -52,6 +58,18 @@
     /** 钉住 / 取消钉住 */
     onPin?: (id: number, on: boolean) => void;
   } = $props();
+
+  /**
+   * 圆点亮不亮、亮成什么色、标题说什么。项目文件：脏 = 未保存 = 关闭前会问。
+   * 草稿：自动存的，脏是半秒内的过渡态，不亮 —— 亮了还写着「关闭前会问」是撒谎
+   * （`autosaveBeforeClose` 静默存）；只有写失败才亮，警示色，因为那才是要人管的。
+   */
+  function dotOf(tab: Tab): { on: boolean; warn: boolean; title: string } {
+    const st = scratchSaveState({ scratch: isScratch(tab.path), dirty: tab.dirty, failed: !!tab.saveFailed });
+    if (st === null) return { on: tab.dirty, warn: false, title: "有未保存的改动（关闭前会问）" };
+    if (st === "failed") return { on: true, warn: true, title: "自动保存失败 —— 改动还在编辑器里，⌘S 重试" };
+    return { on: false, warn: false, title: "" };
+  }
 
   /**
    * 差异/合并标签的 path 是 `git-diff:xxx` 这类**合成 key**，不是盘上的路径。
@@ -183,6 +201,7 @@
 
 <div class="tabs" role="tablist" bind:this={bar} onwheel={onWheel}>
   {#each tabs as tab, i (tab.id)}
+    {@const dot = dotOf(tab)}
     <!-- 中键关标签，浏览器和各家编辑器通用的手势 -->
     <div
       class="tab"
@@ -240,24 +259,26 @@
         <!-- 钉住的：图钉常驻在 ✕ 的位置，点了取消钉住（VS Code 同款）。脏的圆点仍要看得见 -->
         <button
           class="close pin"
-          class:dirty={tab.dirty}
+          class:dirty={dot.on}
+          class:warn={dot.warn}
           onclick={() => onPin?.(tab.id, false)}
-          title={tab.dirty ? "已钉住，有未保存的改动 —— 点击取消钉住" : "已钉住 —— 点击取消钉住"}
+          title={dot.on ? `已钉住，${dot.title} —— 点击取消钉住` : "已钉住 —— 点击取消钉住"}
           aria-label="取消钉住 {tab.name}"
         >
           <span class="x"><Icon name="pin" size={11} /></span>
-          {#if tab.dirty}<span class="dot" aria-hidden="true"></span>{/if}
+          {#if dot.on}<span class="dot" aria-hidden="true"></span>{/if}
         </button>
       {:else}
         <button
           class="close"
-          class:dirty={tab.dirty}
+          class:dirty={dot.on}
+          class:warn={dot.warn}
           onclick={() => onClose(tab.id)}
-          title={tab.dirty ? "有未保存的改动（关闭前会问）" : "关闭"}
+          title={dot.on ? dot.title : "关闭"}
           aria-label="关闭 {tab.name}"
         >
           <span class="x">✕</span>
-          {#if tab.dirty}<span class="dot" aria-hidden="true"></span>{/if}
+          {#if dot.on}<span class="dot" aria-hidden="true"></span>{/if}
         </button>
       {/if}
     </div>
@@ -429,6 +450,8 @@
     border-radius: 50%;
     background: var(--text-dim);
   }
+  /* 草稿自动保存失败：这颗点是唯一的常驻提醒，得和「普通的未保存」分得开 */
+  .close.warn .dot { background: var(--lvl-warn); }
   /* 有改动时平时只看得见圆点；鼠标进来（或它是当前标签）才换成 ✕ */
   .close.dirty .x { opacity: 0; }
   .tab:hover .close.dirty .x, .close.dirty:focus-visible .x { opacity: 1; }
