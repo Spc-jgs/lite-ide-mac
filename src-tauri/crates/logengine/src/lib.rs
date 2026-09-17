@@ -601,7 +601,12 @@ mod tests {
     fn 文件被截断时报告轮转() {
         let p = temp_log("rotate", b"a\nb\nc\n");
         let f = LogFile::open(&p).unwrap();
+        // **两个后台线程都要等完**，不只是行索引。级别扫描还在踩着映射的那一页时
+        // 原地截断文件，macOS 会给扫描线程一个 SIGBUS，整个测试进程当场死
+        // （CI 上 2026-09-17 红过一次：`signal: 10, SIGBUS`，同一提交的 Release 跑却是绿的）。
+        // 这正是 mmap 注释里写的那个风险，只是在测试里自己撞上了
         f.wait_indexed();
+        f.wait_levels();
         std::fs::write(&p, b"x\n").unwrap();
         assert_eq!(f.refresh().unwrap(), Refreshed::Rotated);
         std::fs::remove_file(p).ok();
