@@ -388,23 +388,21 @@ pub fn rename_entry(path: String, name: String) -> Result<String, String> {
 /// async keyword are executed on the main thread」）。主线程就是 NSApplication
 /// 的事件循环 —— 它一堵，窗口就不响应了：菜单点不开、拖不动、转菊花。
 ///
-/// 绝大多数命令不需要这个。实测（M 系列，1.1GB / 3518 文件的仓库，热缓存）：
+/// 一开始只挪时长不可控的那几条（`commit` 的钩子、`switch` 检出、`rg`、落盘、
+/// `fetch` / `push`），理由是 M 系列实测 `git status` 在 1.1GB / 3518 文件的仓库上
+/// 只要 40ms —— 两帧半，不值得为它换来「命令之间不再串行」这个新变量。
 ///
-/// | 命令 | 耗时 |
-/// |---|---|
-/// | `git status --porcelain=v2 -uall` | 0.04s |
-/// | `rg --files` | 0.02s |
-/// | `rg` 全文搜一个高频词 | 0.07s |
-/// | `git log -300` | 0.02s |
+/// 2026-09-17 又量了一次（issue #12），把 **git 的读写全部**挪了过来：
 ///
-/// 40ms 卡在主线程上是两帧半，不值得为它换来「命令之间不再串行」这个新变量。
-/// **真正要挪走的是时长不可控的那几条**：
+/// | 仓库 | `status` | 主线程被堵多久（IPC 心跳 p99） |
+/// |---|---|---|
+/// | 本仓库，热 | 11ms | 1ms（量不出） |
+/// | 合成 60k 文件，热 | 75ms | **81ms** |
 ///
-/// - `git commit` —— pre-commit 钩子跑 eslint 能跑三十秒，这条最凶
-/// - `git switch` / `worktree add` / `merge` —— 检出几千个文件是秒级
-/// - `rg` —— 仓库多大是用户说了算，不是我们
-/// - 落盘/废纸篓 —— 网络卷上是另一个数量级
-/// - `fetch` / `push` —— 走网络，本来就是「几十秒」那一档
+/// 80ms 是五帧，而且**每次保存都会来一次**（watch → `status`），正打在敲字的路上。
+/// 冷缓存、iCloud / 网络卷、真正的大 Java 仓库只会更长 —— 那些这台机器上造不出来，
+/// 但方向已经清楚了。「不再串行」那个变量的答案在前端：读操作的结果按序号丢弃过期的
+/// （`git.refresh` 的 `seq`），写操作本来就有 issue #23 那道「仓库正在被写」的守卫。
 ///
 /// # 为什么不是 `#[tauri::command(async)]`
 ///
@@ -1089,34 +1087,37 @@ pub fn git_root(path: String) -> Option<String> {
 
 /// 读一次仓库状态。分支、领先落后、变更文件一次拿全。
 #[tauri::command]
-pub fn git_status(root: String) -> Result<GitStatusDto, String> {
-    let st = gitsvc::status_full(&root).map_err(|e| format!("{e}"))?;
-    Ok(GitStatusDto {
-        root,
-        branch: st.branch,
-        upstream: st.upstream,
-        ahead: st.ahead,
-        behind: st.behind,
-        detached: st.detached,
-        head: st.head,
-        unborn: st.unborn,
-        untracked_dirs: st.untracked_dirs,
-        truncated: st.truncated,
-        entries: st
-            .entries
-            .into_iter()
-            .map(|e| GitEntryDto {
-                staged: e.staged(),
-                unstaged: e.unstaged(),
-                index: e.index.to_string(),
-                work: e.work.to_string(),
-                path: e.path,
-                untracked: e.untracked,
-                conflicted: e.conflicted,
-                orig: e.orig,
-            })
-            .collect(),
+pub async fn git_status(root: String) -> Result<GitStatusDto, String> {
+    blocking(move || {
+        let st = gitsvc::status_full(&root).map_err(|e| format!("{e}"))?;
+        Ok(GitStatusDto {
+            root,
+            branch: st.branch,
+            upstream: st.upstream,
+            ahead: st.ahead,
+            behind: st.behind,
+            detached: st.detached,
+            head: st.head,
+            unborn: st.unborn,
+            untracked_dirs: st.untracked_dirs,
+            truncated: st.truncated,
+            entries: st
+                .entries
+                .into_iter()
+                .map(|e| GitEntryDto {
+                    staged: e.staged(),
+                    unstaged: e.unstaged(),
+                    index: e.index.to_string(),
+                    work: e.work.to_string(),
+                    path: e.path,
+                    untracked: e.untracked,
+                    conflicted: e.conflicted,
+                    orig: e.orig,
+                })
+                .collect(),
+        })
     })
+    .await
 }
 
 #[derive(serde::Serialize)]
@@ -1138,25 +1139,34 @@ impl From<gitsvc::Diff> for DiffDto {
 }
 
 #[tauri::command]
-pub fn git_diff(
+pub async fn git_diff(
     root: String,
     path: String,
     staged: bool,
     untracked: bool,
 ) -> Result<DiffDto, String> {
-    gitsvc::diff(&root, &path, staged, untracked)
-        .map(DiffDto::from)
-        .map_err(|e| format!("{e}"))
+    blocking(move || {
+        gitsvc::diff(&root, &path, staged, untracked)
+            .map(DiffDto::from)
+            .map_err(|e| format!("{e}"))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_stage(root: String, paths: Vec<String>) -> Result<(), String> {
-    gitsvc::stage(&root, &paths).map_err(|e| format!("暂存失败：{e}"))
+pub async fn git_stage(root: String, paths: Vec<String>) -> Result<(), String> {
+    blocking(move || {
+        gitsvc::stage(&root, &paths).map_err(|e| format!("暂存失败：{e}"))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String> {
-    gitsvc::unstage(&root, &paths).map_err(|e| format!("取消暂存失败：{e}"))
+pub async fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String> {
+    blocking(move || {
+        gitsvc::unstage(&root, &paths).map_err(|e| format!("取消暂存失败：{e}"))
+    })
+    .await
 }
 
 /// 丢弃工作区改动。**不可撤销** —— 前端必须先让用户确认过才准调。
@@ -1219,45 +1229,51 @@ pub struct WorktreeDto {
 }
 
 #[tauri::command]
-pub fn git_log_entries(
+pub async fn git_log_entries(
     root: String,
     limit: usize,
     all: bool,
     path: String,
 ) -> Result<Vec<LogEntryDto>, String> {
-    let es = gitsvc::log_entries(&root, limit, all, &path).map_err(|e| format!("读历史失败：{e}"))?;
-    Ok(es
-        .into_iter()
-        .map(|c| LogEntryDto {
-            sha: c.sha,
-            short: c.short,
-            author: c.author,
-            email: c.email,
-            when: c.when,
-            date: c.date,
-            subject: c.subject,
-            parents: c.parents,
-            refs: c.refs,
-        })
-        .collect())
+    blocking(move || {
+        let es = gitsvc::log_entries(&root, limit, all, &path).map_err(|e| format!("读历史失败：{e}"))?;
+        Ok(es
+            .into_iter()
+            .map(|c| LogEntryDto {
+                sha: c.sha,
+                short: c.short,
+                author: c.author,
+                email: c.email,
+                when: c.when,
+                date: c.date,
+                subject: c.subject,
+                parents: c.parents,
+                refs: c.refs,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_commit_files(root: String, sha: String) -> Result<Vec<GitEntryDto>, String> {
-    let es = gitsvc::commit_files(&root, &sha).map_err(|e| format!("读提交内容失败：{e}"))?;
-    Ok(es
-        .into_iter()
-        .map(|e| GitEntryDto {
-            staged: true,
-            unstaged: false,
-            index: e.index.to_string(),
-            work: e.work.to_string(),
-            path: e.path,
-            untracked: false,
-            conflicted: false,
-            orig: e.orig,
-        })
-        .collect())
+pub async fn git_commit_files(root: String, sha: String) -> Result<Vec<GitEntryDto>, String> {
+    blocking(move || {
+        let es = gitsvc::commit_files(&root, &sha).map_err(|e| format!("读提交内容失败：{e}"))?;
+        Ok(es
+            .into_iter()
+            .map(|e| GitEntryDto {
+                staged: true,
+                unstaged: false,
+                index: e.index.to_string(),
+                work: e.work.to_string(),
+                path: e.path,
+                untracked: false,
+                conflicted: false,
+                orig: e.orig,
+            })
+            .collect())
+    })
+    .await
 }
 
 /// blame 的一段（issue #33 ⑭）。`sha` 全零 = 未提交的行
@@ -1316,59 +1332,80 @@ pub struct StashDto {
 
 /// 按块暂存（issue #33 ⑫）：一段 patch 应用到暂存区；`reverse` = 撤掉
 #[tauri::command]
-pub fn git_apply_cached(root: String, patch: String, reverse: bool) -> Result<(), String> {
-    gitsvc::apply_cached(&root, &patch, reverse).map_err(|e| format!("{e}"))
+pub async fn git_apply_cached(root: String, patch: String, reverse: bool) -> Result<(), String> {
+    blocking(move || {
+        gitsvc::apply_cached(&root, &patch, reverse).map_err(|e| format!("{e}"))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_stash_list(root: String) -> Result<Vec<StashDto>, String> {
-    gitsvc::stash_list(&root)
-        .map(|v| v.into_iter().map(|s| StashDto { index: s.index, message: s.message }).collect())
-        .map_err(|e| format!("{e}"))
+pub async fn git_stash_list(root: String) -> Result<Vec<StashDto>, String> {
+    blocking(move || {
+        gitsvc::stash_list(&root)
+            .map(|v| v.into_iter().map(|s| StashDto { index: s.index, message: s.message }).collect())
+            .map_err(|e| format!("{e}"))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_stash_push(root: String) -> Result<(), String> {
-    gitsvc::stash_push(&root).map_err(|e| format!("{e}"))
+pub async fn git_stash_push(root: String) -> Result<(), String> {
+    blocking(move || {
+        gitsvc::stash_push(&root).map_err(|e| format!("{e}"))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_stash_pop(root: String) -> Result<(), String> {
-    gitsvc::stash_pop(&root).map_err(|e| format!("{e}"))
+pub async fn git_stash_pop(root: String) -> Result<(), String> {
+    blocking(move || {
+        gitsvc::stash_pop(&root).map_err(|e| format!("{e}"))
+    })
+    .await
 }
 
 /// 文件在 HEAD 里的内容，编辑器拿它当基线在前端实时算改动行（issue #33 ④）。
 /// `None` = 不在 HEAD 里（新文件 / 还没有提交），界面上不标。
 /// 复用 `DiffDto`：要传的就是「一段文本 + 有没有被上限截断」，形状一样。
 #[tauri::command]
-pub fn git_head_text(root: String, path: String) -> Result<Option<DiffDto>, String> {
-    gitsvc::head_text(&root, &path)
-        .map(|d| d.map(DiffDto::from))
-        .map_err(|e| format!("{e}"))
+pub async fn git_head_text(root: String, path: String) -> Result<Option<DiffDto>, String> {
+    blocking(move || {
+        gitsvc::head_text(&root, &path)
+            .map(|d| d.map(DiffDto::from))
+            .map_err(|e| format!("{e}"))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_commit_diff(root: String, sha: String, path: String) -> Result<DiffDto, String> {
-    gitsvc::commit_diff(&root, &sha, &path)
-        .map(DiffDto::from)
-        .map_err(|e| format!("{e}"))
+pub async fn git_commit_diff(root: String, sha: String, path: String) -> Result<DiffDto, String> {
+    blocking(move || {
+        gitsvc::commit_diff(&root, &sha, &path)
+            .map(DiffDto::from)
+            .map_err(|e| format!("{e}"))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_branches(root: String) -> Result<Vec<BranchDto>, String> {
-    let bs = gitsvc::branches(&root).map_err(|e| format!("读分支失败：{e}"))?;
-    Ok(bs
-        .into_iter()
-        .map(|b| BranchDto {
-            name: b.name,
-            sha: b.sha,
-            upstream: b.upstream,
-            is_head: b.is_head,
-            is_remote: b.is_remote,
-            when: b.when,
-            subject: b.subject,
-        })
-        .collect())
+pub async fn git_branches(root: String) -> Result<Vec<BranchDto>, String> {
+    blocking(move || {
+        let bs = gitsvc::branches(&root).map_err(|e| format!("读分支失败：{e}"))?;
+        Ok(bs
+            .into_iter()
+            .map(|b| BranchDto {
+                name: b.name,
+                sha: b.sha,
+                upstream: b.upstream,
+                is_head: b.is_head,
+                is_remote: b.is_remote,
+                when: b.when,
+                subject: b.subject,
+            })
+            .collect())
+    })
+    .await
 }
 
 /// 切分支失败时给前端的东西。
@@ -1426,20 +1463,23 @@ pub async fn git_switch(
 }
 
 #[tauri::command]
-pub fn git_worktrees(root: String) -> Result<Vec<WorktreeDto>, String> {
-    let ws = gitsvc::worktrees(&root).map_err(|e| format!("读工作树失败：{e}"))?;
-    Ok(ws
-        .into_iter()
-        .map(|w| WorktreeDto {
-            path: w.path,
-            sha: w.sha,
-            branch: w.branch,
-            detached: w.detached,
-            bare: w.bare,
-            locked: w.locked,
-            current: w.current,
-        })
-        .collect())
+pub async fn git_worktrees(root: String) -> Result<Vec<WorktreeDto>, String> {
+    blocking(move || {
+        let ws = gitsvc::worktrees(&root).map_err(|e| format!("读工作树失败：{e}"))?;
+        Ok(ws
+            .into_iter()
+            .map(|w| WorktreeDto {
+                path: w.path,
+                sha: w.sha,
+                branch: w.branch,
+                detached: w.detached,
+                bare: w.bare,
+                locked: w.locked,
+                current: w.current,
+            })
+            .collect())
+    })
+    .await
 }
 
 /// 新建工作树，返回新目录的绝对路径 —— 前端可以直接把它当项目根打开。
@@ -1741,13 +1781,16 @@ pub fn git_cancel(id: u32, state: tauri::State<'_, crate::state::AppState>) -> b
 
 /// 推上去会送出哪些提交。照 IDEA 的推送对话框：**列出提交，不是只给计数**。
 #[tauri::command]
-pub fn git_outgoing(
+pub async fn git_outgoing(
     root: String,
     upstream: String,
     branch: String,
 ) -> Result<Vec<String>, String> {
-    // 20 条是对话框的显示上限 —— 再多也没人读，而且要走一趟 IPC
-    gitsvc::remote::outgoing(&root, &upstream, &branch, 20).map_err(|e| format!("{e}"))
+    blocking(move || {
+        // 20 条是对话框的显示上限 —— 再多也没人读，而且要走一趟 IPC
+        gitsvc::remote::outgoing(&root, &upstream, &branch, 20).map_err(|e| format!("{e}"))
+    })
+    .await
 }
 
 #[cfg(test)]

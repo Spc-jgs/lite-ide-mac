@@ -25,6 +25,8 @@ class Git {
   stashes = $state<GitStash[]>([]);
   /** 正在刷新状态（`writing` 是另一件事：正在写） */
   busy = $state(false);
+  /** 最近一次 `refresh()` 的序号，普通字段：没人要显示它 */
+  private refreshSeq = 0;
   /** 待确认丢弃的条目 —— 丢弃不可撤销，必须过用户这一关 */
   pendingDiscard = $state<GitEntry[] | null>(null);
   /**
@@ -93,13 +95,18 @@ class Git {
   async refresh() {
     const r = this.repo;
     if (!r) return;
+    // git 的查询在阻塞池上跑（issue #12），两次刷新可以并发、**返回顺序不保证**：
+    // 保存 → watch 触发一次，随即用户点了刷新又一次，先发的那份可能后到。
+    // 后到的旧状态盖掉新状态，界面就会倒退一步（暂存过的文件又回到「改动」里）。
+    // 每次刷新领个序号，回来时不是最新的一次就整份丢掉。
+    const seq = ++this.refreshSeq;
     this.busy = true;
     try {
       // 两条子进程并行；stash 列表拿不到不算错（空仓库、老 git），当空表
       const [st, stashes] = await Promise.all([gitStatus(r), gitStashList(r).catch(() => [])]);
       // await 回来时仓库可能已经换了或关了（关闭项目 / 切项目正好撞上一次刷新）——
       // 那份状态是别人的，写进去标题栏就会挂着一个已经不存在的分支
-      if (this.repo !== r) return;
+      if (this.repo !== r || seq !== this.refreshSeq) return;
       this.status = st;
       this.stashes = stashes;
       // 打开着的工作区差异跟着更新，否则暂存完还停在旧内容上。
@@ -110,7 +117,8 @@ class Git {
     } catch (e) {
       notify.fail(String(e), 4000);
     } finally {
-      this.busy = false;
+      // 过期的那次收尾时最新那次可能还在跑，别把它的「正在刷新」熄了
+      if (seq === this.refreshSeq) this.busy = false;
     }
   }
 
