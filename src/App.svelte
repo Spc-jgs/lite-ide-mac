@@ -1065,7 +1065,16 @@
   main {
     height: 100%;
     display: grid;
-    grid-template-rows: 38px 1fr 24px;
+    /*
+     * `minmax(0, 1fr)` 而不是 `1fr`（2026-09-17 量出来的）。`1fr` 是 `minmax(auto, 1fr)`，
+     * 轨道的下限是内容的 min-content —— 于是网格每次布局都要先问一遍「主区内容有多高」，
+     * 那一问会把整棵子树（工作区 → 主区 → 内容岛 → 编辑器的每一行）**重新排版一遍**。
+     * 编辑器里每敲一个键都让 `.cm-line` 变脏，这一问就跟着来一次：`sample` 到的 WebContent
+     * 栈里 75% 的按键时间在 `GridTrackSizingAlgorithm → logicalHeightForGridItem → 布局`，
+     * 粘了 2000 行日志的草稿里每键 9–18ms 全是它。下限写成 0，轨道高度只由窗口决定，
+     * 内容变了只重排它自己那一小块。`.workspace` 的列同理。
+     */
+    grid-template-rows: 38px minmax(0, 1fr) 24px;
     /*
      * **不要在这儿画底。** 窗口的底是 Rust 侧挂的那块 NSVisualEffectView，
      * 这里填任何不透明色都会把它整块盖住 —— 表现是「vibrancy 没生效」，
@@ -1092,7 +1101,7 @@
   .workspace {
     display: grid;
     /* 四列：常驻竖条 · 侧边栏 · 拖拽条（也是岛的左缝）· 主区 */
-    grid-template-columns: 34px var(--side-w, 240px) var(--island-gap) 1fr;
+    grid-template-columns: 34px var(--side-w, 240px) var(--island-gap) minmax(0, 1fr);
     overflow: hidden;
     transition: grid-template-columns 0.13s ease;
   }
@@ -1100,7 +1109,7 @@
   .workspace.resizing { transition: none; }
   @media (prefers-reduced-motion: reduce) { .workspace { transition: none; } }
   /* 收起侧边栏只去掉中间两列，竖条留着 —— 按钮的位置不能动 */
-  .workspace.no-side { grid-template-columns: 34px 1fr; }
+  .workspace.no-side { grid-template-columns: 34px minmax(0, 1fr); }
   /* 侧边栏收起后那条拖拽列也没了，岛的左缝由 main 自己补 */
   .workspace.no-side .main { padding-left: var(--island-gap); }
 

@@ -40,8 +40,19 @@ import {
   type ViewUpdate,
   WidgetType,
 } from "@codemirror/view";
-import { findLogSegments, parse, FORMAT_LABEL, type LogSegment, type Level } from "../logview/parse";
-import { findDiffSegments, type DiffSegment, type LineKind } from "../git/diff";
+import { findLogSegments, formatOfLine, isStackLine, parse, FORMAT_LABEL, type LogSegment, type Level } from "../logview/parse";
+import { findDiffSegments, diffLineKind, type DiffSegment, type LineKind } from "../git/diff";
+import { makeLogDiffBlocks } from "./md-blocks";
+
+/**
+ * 给 markdown 解析器的块扩展：日志段 / diff 段在语法树里是不做 inline 解析的叶子。
+ * 判据和下面 `scan()` 用的是同一批函数 —— 为什么要有它、为什么判据在这儿绑，见 md-blocks.ts 头上。
+ */
+export const logDiffBlocks = makeLogDiffBlocks({
+  logLine: (t) => formatOfLine(t.trim()) !== null,
+  stackLine: isStackLine,
+  diffKind: diffLineKind,
+});
 
 /** 段头。按钮通过 `toggle(view, seg)` 走 effect，widget 自己不存状态 */
 class HeadWidget extends WidgetType {

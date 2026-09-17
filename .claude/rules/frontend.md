@@ -490,3 +490,20 @@ effect 也就不会再跑第二次。
 FileTree 里那套可以照抄。这类东西「桩上全对」不作数，必须上真 `.app` 验 ——
 用 CGEvent 模拟鼠标（scratchpad 里那个 `drag.swift`）能验。
 
+
+## 外壳网格的 `1fr` 一律写 `minmax(0, 1fr)`，内容岛加 `contain: strict`（2026-09-17）
+
+`1fr` 是 `minmax(auto, 1fr)`：轨道下限是内容的 min-content，网格每次布局都要先把那一格
+的子树排一遍来问「你多高」。编辑器里每敲一个键 `.cm-line` 就变脏，这一问跟着来一次 ——
+`sample` WebContent 进程，按键时间的 75% 在 `GridTrackSizingAlgorithm →
+logicalHeightForGridItem → 一路 layout 到底`；粘了 2000 行日志的草稿里每键 9–18ms 全是它，
+而 JS 侧（CM6 `dispatch`）只有 2ms。**JS 里量不到的时间去 `sample` 原生进程**，
+不用 sudo，栈是明文的。
+
+## 量按键延迟别用 System Events 的 `keystroke`
+
+它是 AX 客户端，每键多出几十毫秒排队，一串 45 个字尾部能拖到 800ms —— 看着像编辑器慢，
+其实是驱动工具慢（同一份空草稿：`keystroke` p50 55ms，CGEvent 21ms）。
+用 `CGEventPost`：十几行 Swift，`CGEvent(keyboardEventSource:virtualKey:keyDown:)` +
+`keyboardSetUnicodeString` + `post(tap: .cghidEventTap)`，每键之间 `sleep` 12ms。
+smoke.sh 只关心对错不关心时长，它用 `keystroke` 没问题。

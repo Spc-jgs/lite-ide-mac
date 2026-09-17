@@ -38,7 +38,9 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
       // base 换成 markdownLanguage：它带 GFM（删除线、表格、任务列表），
       // 默认的 commonmarkLanguage 不认 ~~删除线~~
       ext = [
-        m.markdown({ base: m.markdownLanguage, codeLanguages: [] }),
+        // 日志段 / diff 段在语法树里是不做 inline 解析的叶子：粘 2000 行日志之后
+        // 每键 20ms 就是它们被当成一个大 Paragraph 反复解析（md-blocks.ts 头上有数字）
+        m.markdown({ base: m.markdownLanguage, codeLanguages: [], extensions: [logs.logDiffBlocks] }),
         live.markdownLivePreview,
         // 粘进来的日志按 LogView 那套着色（M10 ②）。挂在 markdown 上而不只是草稿：
         // README 里贴一段日志也该能看清，判据是文件类型不是文件在哪

@@ -319,8 +319,10 @@
     flex: none;
     display: grid;
     /* 26 → 32 → 38（M8）：和侧边栏头、标签栏同一个高度，三处的头在一条线上 */
-    grid-template-rows: 38px 1fr;
+    /* `minmax(0, 1fr)` 不是 `1fr`：理由见 App.svelte 的 main 那条 —— 终端里回显一行也别去问整座岛多高 */
+    grid-template-rows: 38px minmax(0, 1fr);
     overflow: hidden;
+    contain: strict;
     border: var(--island-border);
     border-radius: var(--island-radius);
   }

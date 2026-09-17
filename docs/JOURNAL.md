@@ -6761,3 +6761,102 @@ localStorage 5 条；存名字不存 sha，改名 / 删掉的对不上就自动�
 从 'main' 新建分支… / 新建工作树… / 合并到 'm13/git' / 重命名… / 复制 / 删除…）；
 打 `main` ↵ 切过去、「最近」多出一条；点「更新项目…」走到分岔决策卡片。
 `pnpm test` / `check` 全绿；入口包 139,513 → 139,610 B（挂件少了胶囊、多了两条 pref 函数）。
+
+## 2026-09-17 · 体感量了一轮，然后修了三处：markdown 大段落、网格轨道、git 主线程
+
+起因：v1.1.0 发完，问「下一步优化什么」，用户定的方向是**体感优先**。先派了一轮外部调研
+（编辑器类产品被抱怨最多的体感痛点：打字延迟、Git 面板卡、终端回显、大文件、冷启动、
+「存没存」、会话恢复精度、抢焦点、中文输入法），再对着这个仓库**量**，不猜。
+
+### 怎么量的
+
+临时探针 `src/lib/dev/probe.ts`（量完删了，副本在当轮 scratchpad），全部往 `app.log`
+写 `[probe]` 行：
+
+- 编辑器：`keydown.timeStamp` → `beforeinput` → `input` → CM6 `dispatch`（改实例上的方法，
+  原型上改没用：构造时 `this.dispatch = this.dispatch.bind(this)`）→ 第一帧 rAF → 第二帧 rAF
+  （画完）。**WKWebView 的 `event.timeStamp` 带的是 NSEvent 的时间**，所以第一段包含
+  UI 进程 → Web 进程那段排队 —— 这正是人感到的延迟。
+- 输入法：`compositionupdate` → 画完。终端：keydown → `term.onWriteParsed` → 画完。
+- Git：点「＋」→ 那一行从「改动」段消失。
+- IPC 心跳：每 500ms 一次最便宜的 `invoke`，**同步命令堵住主线程时它会飙** ——
+  Tauri 2 的非 `async` 命令跑在主线程上（issue #12），JS 计时器看不见这个阻塞，心跳看得见。
+
+驱动：真 `.app`（不是浏览器桩 —— 引擎不一样，桩的数字不作数）。
+**敲字必须用 CGEvent（scratchpad 里的 `typer.swift`），不能用 System Events 的
+`keystroke`**：后者是 AX 客户端，每键多出几十毫秒排队，一串 45 个字尾部拖到 800ms，
+第一遍就是被它骗了半天（同一份空草稿，`keystroke` 量出 p50 55ms，CGEvent 量出 21ms）。
+输入法用一段 Swift 调 `TISSelectInputSource` 切。
+
+### 数字（改之前）
+
+| 项 | 结果 | 判断 |
+|---|---|---|
+| 冷启动到能打字 | `boot` 300–500ms（历史 123 次：p50 578 / p90 1235），首个编辑器出现在 budget 行之后 **+25ms** | 够；p90 那截是刚重编完磁盘缓存冷 |
+| 空草稿敲键（画完） | **21ms**，连敲不排队 | 好 |
+| **粘 2000 行日志的草稿里敲键** | 单键 **36–45ms**，12ms 一键连敲时每键再累积 1–2ms，一串下来 100ms+ | **差**，见下 |
+| 拼音组合（同一份重草稿） | `compositionupdate` → 画完 p50 28 / p90 36 | 本身够，吃上一条的亏 |
+| 终端回显（画完） | 单键 **25–45ms**（kitty 独立终端 ~29ms） | 够 |
+| Git 暂存 → 行挪走（本仓库） | **39ms**（add 10 + status 11 + stash list 8 + 渲染） | 好 |
+| Git 暂存（合成 60k 文件仓库，热） | **116ms**；`status` 75ms，**IPC 心跳 p99 81ms = 主线程被堵 ~80ms** | 热的时候勉强；冷 / 网络卷没量到 |
+| 存了没存 | 草稿半秒自动保存，**没有任何可见反馈** | 没量，看一眼就知道；没动 |
+| 会话恢复精度 | `posByPath` 只记行号，不记列、不记滚动 | 同上；没动 |
+
+### 那 40ms 是两样东西叠的
+
+**① markdown 把 2000 行日志当一个段落（JS 侧，每键 ~20ms）。** 浏览器桩里复现：
+同一份草稿 `view.dispatch` 空文档 0.3ms，重草稿 **22–31ms**；JS 自采样
+（`Document-Policy: js-profiling`）栈顶全是 `@codemirror/lang-markdown` 的
+`parseInline / LinkEnd / finishLeaf`。日志行之间没有空行，在 markdown 眼里是**一个 200KB
+的 Paragraph**，改动碰到它（在里面打，或离它 128 字符以内 —— Lezer 碎片复用的安全间隙）
+整段 inline 重解析；`@codemirror/language` 在事务里同步解析的预算是 `Work.Apply = 20ms`，
+所以每键正好 ~20ms。证据：光标放到日志**上方 600 字符外**再打，回到 1.1ms。
+`findLogSegments` 不背这个锅（整个关掉数字不变，它 2000 行只要 0.2ms）。
+
+修：`editor/md-blocks.ts` 给 `@lezer/markdown` 加两个**抢先的块解析器**，连续的日志行 /
+diff 行产 `LogBlock` / `DiffBlock` 叶子，不进 `parseInline`。diff 必须抢先而不能做成
+GFM Table 那种「段落式叶子」：`-    foo` 在 markdown 眼里是列表项，列表能打断段落，
+段落式叶子走到第一个这样的行就被截走了。段的边界仍以 `findLogSegments` 为准（能跨空行、
+要求三行），块只管解析成本；两边共用同一批判据函数。`dispatch` 22 → **4ms**。
+
+**② 网格轨道问内容要高度（WebKit 侧，每键 9–18ms）。** 修完 ① 真机上每键还是 36ms，
+而且 `beforeinput → input` 之间空着 9ms，纯原生、和装饰无关（把日志着色整个关掉不变）。
+换 4000 行普通正文粘进去：0ms。**日志行隔空行粘**：18ms，连敲排到 600ms。
+`sample` 了 WebContent 进程：按键时间的 75% 在
+`InsertTextCommand::doApply → VisibleSelection::validate → updateLayout →
+RenderGrid → GridTrackSizingAlgorithm → logicalHeightForGridItem → 一路 layout 到底`。
+外壳的 `grid-template-rows: 38px 1fr 24px` —— `1fr` 是 `minmax(auto, 1fr)`，轨道下限是
+内容的 min-content，于是每次布局网格都要先把主区整棵子树排一遍来问「你多高」。
+编辑器里每敲一个键 `.cm-line` 变脏，这一问就跟着来；视口里是 60 行长日志（长 token、
+要折行）就比 60 行正文贵得多，隔空行视口里行更多就更贵。
+
+修：`main` / `.workspace` / `.panel` 的 `1fr` 全部改 `minmax(0, 1fr)`，内容岛 `.content`
+和 `.panel` 加 `contain: strict`。`beforeinput → input` 9 → 1ms，隔空行那份 18 → 3ms。
+
+**改完（CGEvent 12ms 一键连敲，画完）：**
+
+| | 改前 | 改后 |
+|---|---|---|
+| 空草稿 | 21 / p90 26 | 21 / p90 26 |
+| 粘 2000 行日志后 | 36–45，连敲累到 100+ | **21 / p90 26**，不排队 |
+| 日志隔空行 | 排到 600 | 35 / p90 43 |
+
+**③ git 命令下主线程**（issue #12）。15 条同步的 git 命令（status / diff / stage /
+unstage / log / branches / stash / worktrees / outgoing / commit_files / commit_diff /
+head_text / apply_cached）全部走 `blocking()`。「不再串行」那个变量：读操作前端按序号
+丢弃过期结果（`git.refresh` 的 `seq`，两次刷新并发时先发的可能后到，旧状态盖新状态界面
+会倒退一步）；写操作本来就有 issue #23 那道守卫。60k 文件仓库：暂存 → 行挪走仍是 114ms
+（git 自己的时间），但 **IPC 心跳 p99 81 → 6ms** —— 窗口不再冻。
+
+### 学到的
+
+- **量时序要看序列形状，不能只看百分位。** 累计着算 p90 1.7s 看着像每键 1 秒；倒出原始序列
+  才看到「每串从 20 线性涨到 800、串间归零」—— 排队，不是每键成本。而排队的一大半又是
+  驱动工具（System Events）自己的。**驱动工具本身要先量一遍空载。**
+- **`1fr` 不是「剩下的都给我」，是 `minmax(auto, 1fr)`。** 下限 `auto` 让轨道大小依赖内容，
+  内容一变整个网格重新问一遍 —— 这条在编辑器这种「内容每键都变」的应用里是每键一次全量布局。
+  `minmax(0, 1fr)` + `contain` 才是「尺寸由外面定、里面怎么变都不外溢」。
+- **markdown 的段落按空行切。** 没空行的连续文本是一个节点，改一个字重解析整段 inline；
+  CM6 的 20ms 同步预算把代价钉在每键 20ms —— 数字这么整就是预算的形状。
+- **JS 里量不到的，`sample` 原生进程。** WKWebView 的活在另一个进程（WebContent），
+  `sample <pid>` 不用 sudo，栈里直接写着 `GridTrackSizingAlgorithm`。

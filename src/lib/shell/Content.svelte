@@ -368,6 +368,12 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    /*
+     * 布局隔离：岛里面（编辑器的行）怎么变，都不许把脏标记往外传。岛的尺寸本来就只由
+     * 外面决定（flex: 1 + min-height: 0），size 隔离不改变任何观感，只是把这件事对浏览器
+     * 说明白 —— 见 App.svelte 里 `minmax(0, 1fr)` 那条注释，两处是同一个问题的两道闸。
+     */
+    contain: strict;
     border: var(--island-border);
     border-radius: var(--island-radius);
   }
