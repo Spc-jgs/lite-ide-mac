@@ -477,7 +477,7 @@
      * 先比长度再比内容：外部重读时才真的要换，那时长度多半也不一样。
      */
     const 文本变了 = text.length !== view.state.doc.length || text !== view.state.doc.toString();
-    if (换了文件 || (文本变了 && !自己存的落盘了)) {
+    if (换了文件) {
       view.setState(build(text));
       void applyLang(p);
       // 新 state 里注解那个槽是空的，改动标记的字段也是新的：两个都要重下
@@ -486,6 +486,21 @@
         applyBlame();
         recomputeMarks();
       });
+    } else if (文本变了 && !自己存的落盘了) {
+      /*
+       * 同一个文件被外部改了（构建工具重写、git checkout、格式化器）：**换内容，不换 state**。
+       *
+       * 原来这里也是 `setState`——光标回到第一行、滚动条回到顶上、撤销栈清空。人正读到
+       * 第 3000 行，旁边的 gradle 一跑，视线被拽回文件开头（2026-09-17 体感那轮列的
+       * 「光标不在预期的地方」，这是仓库里唯一一处非用户发起的跳动）。
+       *
+       * 整份替换成一次事务：光标和视口先记下、换完按行列摆回去（越界就夹到文档范围内，
+       * `applyView` 本来就会夹）；撤销栈留着 —— ⌘Z 能退回外部改之前那份，
+       * 那时标签变脏，和 IDEA 的 local history 一个意思。
+       */
+      const keep = viewNow();
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+      applyView(view, keep);
     }
     // 脏不脏看**文档**对基线，不看 prop：自己存的落盘那次文档可能已经领先 initial
     onChange(view.state.doc.toString() !== baseText);
