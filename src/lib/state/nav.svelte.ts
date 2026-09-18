@@ -43,6 +43,19 @@ class Nav {
     this.gotoLine = col === undefined ? { line, nonce: ++this.#gotoNonce } : { line, col, nonce: ++this.#gotoNonce };
   }
 
+  /**
+   * 跳转落到位了，把指令销掉。视图跳完叫这个（`onGotoDone`）。
+   *
+   * `gotoLine` 是全局的一条「待办」，不销的话它就一直躺在那儿：⌘L 跳过一次第 300 行，
+   * 之后每开一个文件、每切一次标签，新挂上的编辑器 / 日志视图都会在挂载时读到它、
+   * 再跳一次 —— 刚按上次视口摆好的位置当场被盖掉。做成「用过即销」而不是让视图
+   * 记「挂载时看到的那条不算」：后者在懒加载的视图上会漏 —— 指令发出时组件的
+   * 代码还没下载完，等它挂上，那条指令就成了「挂载时已经在」的、被当旧的扔掉。
+   */
+  done() {
+    this.gotoLine = null;
+  }
+
   /** 此刻在哪儿。`docs.posByPath` 里存的是编辑器最后报上来的光标行 */
   hereNow(): NavSpot | null {
     const t = tabs.active;

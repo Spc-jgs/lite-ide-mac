@@ -178,7 +178,9 @@ pub struct LineIndex {
 - 旧映射用 `Arc` 持有，等正在读的块释放后自然析构 —— **绝不能直接 drop**，
   否则正在渲染的行会读到已 unmap 的内存段（段错误）
 - 只对新增字节补索引，`indexed_upto` 往后走，已有 checkpoint 不动
-- **logrotate 检测**：inode 变化 或 size 变小 → 判定文件被轮转/截断 → 整个 session reset
+- **logrotate 检测**：inode 变化 或 size 变小 → 判定文件被轮转/截断 → **同一个句柄按名重开**
+  （`AppState::reopen`，`tail -F` 的语义）：索引、级别、过滤任务全部重来，前端按原条件
+  重跑过滤、tail 不断。改名和新建之间的空档 `open` 失败就原样留着旧文件，下一轮再试
 
 ### 3.4 块读取与 IPC 负载格式
 

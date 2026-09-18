@@ -31,6 +31,7 @@
     savedTick = 0,
     selfSaveTick = 0,
     gotoLine = null,
+    onGotoDone,
     outlineTick = 0,
     headText = null,
     blame = null,
@@ -72,6 +73,8 @@
     selfSaveTick?: number;
     /** 搜索结果跳转用的目标行（1-based）。同一行连点也要能重新定位，故带 nonce */
     gotoLine?: { line: number; col?: number; nonce: number } | null;
+    /** `gotoLine` 已经落到位了，上层把它销掉 */
+    onGotoDone?: () => void;
     /** 自增即重新提取大纲。放在 Editor 里算是因为语法树在它手上 */
     outlineTick?: number;
     /**
@@ -513,7 +516,8 @@
     view.dispatch({ effects: langSlot.reconfigure(ext ?? []) });
   }
 
-  // 跳到指定行并居中。nonce 变化即触发，所以连点同一条搜索结果也能重新定位
+  // 跳到指定行并居中。nonce 变化即触发，所以连点同一条搜索结果也能重新定位。
+  // 跳完叫 `onGotoDone` 把指令销掉 —— 理由见 `nav.done`
   $effect(() => {
     const g = gotoLine;
     if (!view || !g) return;
@@ -527,6 +531,7 @@
       effects: EditorView.scrollIntoView(pos, { y: "center" }),
     });
     view.focus();
+    onGotoDone?.();
   });
 
   // 大纲：语法树在 CM6 手上，直接从它提取，不另挂一套 parser

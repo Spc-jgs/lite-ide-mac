@@ -50,6 +50,27 @@ impl AppState {
             .cloned()
     }
 
+    /// 文件被轮转 / 截断了，**同一个句柄**换成按名重开的那份（`tail -F` 的语义）。
+    ///
+    /// 句柄不变是关键：前端标签上只记句柄，换句柄就得重开标签、过滤和 tail 全丢。
+    /// logrotate 是「改名 + 新建同名」，人要看的一直是**这个名字**，不是那个 inode。
+    /// 过滤任务一并清掉 —— 它扫的是旧文件的行号，对新文件毫无意义；前端收到
+    /// `rotated` 会按原条件重跑一遍。
+    ///
+    /// 改名和新建之间有个空档（几毫秒到几秒，看 logrotate 的配置），那一瞬
+    /// `open` 会 `NotFound` —— 原样返回，**不动表里的旧文件**，前端下一轮再试。
+    /// 旧的 `LogFile` 在换掉之后由 Arc 自然析构，析构会叫停它的后台扫描。
+    pub fn reopen(&self, handle: u32) -> std::io::Result<bool> {
+        let Some(old) = self.get(handle) else { return Ok(false) };
+        let fresh = LogFile::open(old.path())?;
+        self.clear_filter(handle);
+        self.files
+            .lock()
+            .expect("会话表锁被毒化")
+            .insert(handle, Arc::new(fresh));
+        Ok(true)
+    }
+
     pub fn close(&self, handle: u32) -> bool {
         self.clear_filter(handle);
         self.files
@@ -312,5 +333,41 @@ mod tests {
 
         assert!(st.kill_pty(id));
         assert!(!t.join().unwrap(), "kill_pty 之后读线程还等在闸上");
+    }
+
+    /// logrotate 是「改名 + 新建同名」：句柄要还是那个句柄，背后换成新文件，
+    /// 过滤任务清掉。改名和新建之间那一瞬 `reopen` 要报错而不是把旧文件弄丢
+    #[test]
+    fn 轮转后按名重开_句柄不变() {
+        let d = std::env::temp_dir().join(format!("lite-ide-reopen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let p = d.join("app.log");
+        std::fs::write(&p, "a\nb\nc\n").unwrap();
+
+        let st = AppState::default();
+        let h = st.insert(LogFile::open(&p).unwrap());
+        assert_eq!(st.get(h).unwrap().stat().line_count, 3);
+        let spec = logengine::FilterSpec {
+            levels: logengine::LevelMask::ALL,
+            pattern: b"a".to_vec(),
+            case_sensitive: true,
+            collapse_stacks: false,
+        };
+        let task = st.get(h).unwrap().start_filter(spec).unwrap();
+        st.set_filter(h, task);
+
+        // 空档：文件改名走了、新的还没建 —— 报错，旧的原样留着
+        std::fs::rename(&p, d.join("app.log.1")).unwrap();
+        assert!(st.reopen(h).is_err(), "文件不在时要报错让前端下一轮再试");
+        assert_eq!(st.get(h).unwrap().stat().line_count, 3, "报错不能把旧文件弄丢");
+
+        // 新文件出现：同一个句柄换成它，过滤任务清掉
+        std::fs::write(&p, "x\n").unwrap();
+        assert!(st.reopen(h).unwrap());
+        assert_eq!(st.get(h).unwrap().stat().line_count, 1, "句柄背后应该是新文件");
+        assert!(st.filter(h).is_none(), "旧过滤扫的是旧文件的行号，必须清掉");
+        assert!(!st.reopen(999).unwrap(), "不存在的句柄：不是错误，只是没东西可换");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

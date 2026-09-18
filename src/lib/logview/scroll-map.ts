@@ -30,7 +30,12 @@ export class ScrollMap {
 
   /** 内容层实际要撑开的高度 */
   get scrollHeight(): number {
-    return Math.min(this._lineCount * this.lineHeight, MAX_SAFE_PX);
+    return ScrollMap.heightFor(this._lineCount, this.lineHeight);
+  }
+
+  /** 同上，纯函数版：模板要一个能跟着 `lineCount` 走的响应式值，而 `ScrollMap` 本身不是响应式的 */
+  static heightFor(lineCount: number, lineHeight: number): number {
+    return Math.min(Math.max(0, lineCount) * lineHeight, MAX_SAFE_PX);
   }
 
   /** 是否已进入压缩映射模式（行数太多，像素不够用了） */

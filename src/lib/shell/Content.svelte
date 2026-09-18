@@ -297,10 +297,19 @@
     <div class="empty"><p>正在载入差异视图…</p></div>
   {:else if tabs.active.mode === "log" && tabs.active.handle !== undefined && logPane.comp}
     {#key tabs.active.id}
+      {@const id = tabs.active.id}
       <logPane.comp
         handle={tabs.active.handle}
         gotoLine={nav.gotoLine}
+        onGotoDone={() => nav.done()}
         encoding={tabs.active.encoding ?? "utf-8"}
+        initialFilter={tabs.active.logView ?? null}
+        initialTop={docs.posByPath.get(tabs.active.path)?.line ?? null}
+        onFilter={(s) => {
+          // 按 id 取而不是 tabs.active：`{#key}` 换代那一拍 active 已经是下一个标签了（issue #36）
+          const t = tabs.byId(id);
+          if (t) t.logView = s;
+        }}
         onStatus={onLogStatus}
         onTop={(l) => docs.markPos(tabs.active!.path, l)}
       />
@@ -316,6 +325,7 @@
         savedTick={docs.savedTick}
         selfSaveTick={docs.selfSaveTick}
         gotoLine={nav.gotoLine}
+        onGotoDone={() => nav.done()}
         {outlineTick}
         {headText}
         {showMinimap}

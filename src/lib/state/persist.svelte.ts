@@ -7,7 +7,6 @@ import { project } from "./project.svelte";
 import { tabs } from "./tabs.svelte";
 import { docs, type ViewPos } from "./docs.svelte";
 import { tabflow } from "./tabflow.svelte";
-import { nav } from "./nav.svelte";
 
 /**
  * 会话快照的读写：启动时把上次的现场摆回来，之后有变化就防抖落盘。
@@ -119,15 +118,12 @@ class Persist {
 
   async #restoreTabs(saved: session.Session) {
     /*
-     * **先记位置，再开文件。** 反过来写过一版，位置恢复整个不生效：
-     * `openPath` 一把标签加进去，`activeId` 就变了，兑现位置的那个 effect
-     * 当场就跑 —— 而那时 `docs.pendingPos` 里还什么都没有。等 effect 跑完再写进去，
-     * `activeId` 已经不会再变，effect 也就不会再跑第二次了。
+     * **先记位置，再开文件。** 编辑器和日志视图都在挂载时从 `posByPath` 取
+     * 上次的位置（`initialView` / `initialTop`），后写就赶不上第一次挂载。
+     * 反过来写过一版，位置恢复整个不生效。
      */
     for (const t of saved.tabs) {
       if (t.line === undefined) continue;
-      docs.pendingPos.set(t.path, t.line);
-      // 编辑器挂载时自己从这儿取完整视口（列、视口顶行）；日志视图仍走 pendingPos → nav.goto
       const pos: ViewPos = { line: t.line };
       if (t.col !== undefined) pos.col = t.col;
       if (t.top !== undefined) pos.top = t.top;
@@ -201,30 +197,12 @@ class Persist {
      * 总比停在一个空内容区上好。
      */
     if (tabs.activeId === null && tabs.list.length > 0) tabs.activeId = tabs.list[0].id;
-    // 上次开着、这次已经不在的文件：从记忆里也删掉，不然它们
+    // 上次开着、这次已经不在的文件：位置记忆也删掉，不然它们
     // 会一直躺在快照里，每次启动都白试一遍
     for (const t of saved.tabs) {
-      if (!tabs.list.some((x) => x.path === t.path)) docs.pendingPos.delete(t.path);
+      if (!tabs.list.some((x) => x.path === t.path)) docs.posByPath.delete(t.path);
     }
     tabs.audit("会话恢复");
-  }
-
-  /**
-   * 活动标签换了：如果它带着一个待兑现的恢复位置，跳过去并**销号**。
-   *
-   * 销号是关键 —— 不删的话，以后每次切回这个标签都会被拽回那一行，
-   * 用户在别处读到一半切走再切回来就莫名其妙跳走了。
-   * App 的 effect 在 `tabs.active` 变时调。
-   */
-  redeemPos() {
-    const t = tabs.active;
-    if (!t) return;
-    const line = docs.pendingPos.get(t.path);
-    if (line === undefined) return;
-    docs.pendingPos.delete(t.path);
-    // 编辑模式的标签在挂载时已经按 `posByPath` 里那份把光标和视口摆回去了，
-    // 再 goto 一次会把视口拽成「居中」，恢复出来的位置就不是上次那个了。只有日志视图还要它
-    if (t.mode !== "edit") nav.goto(line);
   }
 
   /** 按当前状态拍一张快照 */

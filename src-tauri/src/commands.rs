@@ -601,8 +601,16 @@ pub fn log_refresh(handle: u32, state: State<'_, AppState>) -> Result<RefreshDto
     let (kind, new_lines) = match r {
         Refreshed::NoChange => ("none", 0),
         Refreshed::Grew { new_lines } => ("grew", new_lines),
-        Refreshed::Rotated => ("rotated", 0),
+        Refreshed::Rotated => {
+            // 按名重开、句柄不变（`AppState::reopen`）。改名和新建之间那个空档
+            // 会 NotFound：报错回去，前端的 tail 轮询把它当「临时不可读」下一轮再试，
+            // 表里的旧文件原样留着 —— 正是 `tail -F` 等新文件出现的那段
+            state.reopen(handle).map_err(|e| format!("轮转后重开失败：{e}"))?;
+            ("rotated", 0)
+        }
     };
+    // 轮转过就问新那份的行数，旧 `file` 那个 Arc 还指着换掉的文件
+    let file = state.get(handle).ok_or("句柄已失效")?;
     Ok(RefreshDto {
         kind,
         new_lines,

@@ -1,6 +1,23 @@
 import type { Stamp } from "../ipc/commands";
 
 /**
+ * 日志视图上「这次看着调的」那几样：级别、关键字、tail、折叠堆栈、只看命中。
+ *
+ * 它们原来是 `LogPane` 的局部 `$state`，而日志视图和编辑器一样被 `{#key active.id}`
+ * 包着 —— 切一次标签就销毁重建，筛着 ERROR 追着 tail 切去看一眼代码，切回来
+ * 过滤清空、tail 关掉、Rust 侧的过滤任务也一起没了。同 `wrap` 一样归标签、
+ * 不进会话快照：重启之后「上次筛的什么」多半已经不是这次要看的。
+ */
+export interface LogViewState {
+  levelBits: number;
+  pattern: string;
+  caseSensitive: boolean;
+  tailing: boolean;
+  collapseStacks: boolean;
+  onlyHits: boolean;
+}
+
+/**
  * 一个打开的标签。
  *
  * 从 App.svelte 搬出来（issue #9 第 3 步）：状态栏要按它渲染，而组件里
@@ -87,6 +104,8 @@ export interface TabState {
    * 不进会话快照：它是「这一次看着不顺手切一下」的东西，不是文件的属性。
    */
   wrap?: boolean;
+  /** 日志视图的过滤 / tail 状态，切标签不丢；由 `LogPane` 每次变化时回写 */
+  logView?: LogViewState;
   /**
    * 标签栏上显示的名字，没有就显示 `name`。草稿用它显示第一行（`2026-09-16 1103.md`
    * 在标签栏上什么都说明不了，「周会要点」才是人记得住的）—— Sublime 的 untitled

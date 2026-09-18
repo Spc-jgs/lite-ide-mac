@@ -55,13 +55,6 @@ class Docs {
   readonly posByPath = new Map<string, ViewPos>();
   /** 「读活动编辑器此刻的视口」的口子，认领规则同 `#live`。快照要的是此刻，不是上次换行时 */
   #viewProbe: { path: string; get: () => ViewPos } | null = null;
-  /**
-   * 还没兑现的恢复位置。标签被恢复出来时不能立刻跳 ——
-   * 那时组件还没挂上。等它第一次成为活动标签再跳，跳完就从这里删掉，
-   * 否则之后每次切回这个标签都会被拽回那一行。
-   */
-  readonly pendingPos = new Map<string, number>();
-
   hooks: {
     /** 保存成功之后。App 装的是 refreshGit */
     afterSave?: () => void;

@@ -1159,6 +1159,20 @@ export function installMockIpc(): void {
           // 真实现在这里会 metadata(&self.path) 失败 —— 文件改了名，
           // 而引擎记着的还是旧路径
           if (!existsInMock(p)) throw new Error(`刷新失败：${p} (os error 2)`);
+          // 模拟一次轮转：localStorage 里 `lite-ide.mock-rotate` = "1" 就报一次 rotated
+          // 然后清掉标志。真实现在这一步已经按名重开、过滤任务清空 —— 桩也把命中表清掉，
+          // 前端要能靠自己按原条件重跑
+          let rotated = false;
+          try {
+            rotated = localStorage.getItem("lite-ide.mock-rotate") === "1";
+            if (rotated) localStorage.removeItem("lite-ide.mock-rotate");
+          } catch {
+            /* 私密窗口等拿不到 localStorage，当没有 */
+          }
+          if (rotated) {
+            filterHits = null;
+            return { kind: "rotated", newLines: 0, lineCount: TOTAL };
+          }
           return { kind: "none", newLines: 0, lineCount: TOTAL };
         }
         case "close_log":

@@ -14,7 +14,9 @@
     currentLine = 0,
     format = "plain",
     encoding = "utf-8",
+    epoch = 0,
     onTop,
+    onGotoDone,
   }: {
     handle: number;
     lineCount: number;
@@ -22,8 +24,12 @@
     pattern?: string;
     caseSensitive?: boolean;
     stickBottom?: boolean;
-    /** 搜索结果跳转的目标行（1-based）。带 nonce，连点同一条也能重新定位 */
-    gotoLine?: { line: number; nonce: number } | null;
+    /**
+     * 跳转的目标行（1-based）。带 nonce，连点同一条也能重新定位。
+     * 默认往上留三行上下文（跳命中要看前因）；`top` 是「这一行贴顶」——
+     * 恢复上次的顶行用，留上下文会每恢复一次往上漂三行。
+     */
+    gotoLine?: { line: number; nonce: number; top?: boolean } | null;
     /**
      * 当前停在哪一行（视图行号，1-based；0 表示没有）。
      *
@@ -35,11 +41,15 @@
     format?: LogFormat;
     /** 文件编码标签，交给 TextDecoder */
     encoding?: string;
+    /** 句柄背后的文件被换掉了几次（轮转后按名重开）。变了就丢掉行缓存：行号还是那个行号，内容不是了 */
+    epoch?: number;
     /**
      * 顶部可见行变了就报一次（1-based）。会话快照用它记住「上次读到哪」——
      * 在 1GB 日志里这件事比在代码文件里值钱得多。
      */
     onTop?: (line: number) => void;
+    /** `gotoLine` 真的落到目标行了（不是被行数夹住那次）；上层据此销掉指令 */
+    onGotoDone?: () => void;
   } = $props();
 
   const LINE_HEIGHT = 20;
@@ -47,8 +57,20 @@
   const OVERSCAN = 8;
 
   const map = new ScrollMap(LINE_HEIGHT);
-  // 缓存是 (handle, 是否过滤, 编码) 的派生物：任一变化都要重建
-  let cache = $derived(new LineCache(handle, filtered, encoding));
+  // 缓存是 (handle, 是否过滤, 编码, 轮转代) 的派生物：任一变化都要重建
+  let cache = $derived.by(() => {
+    epoch;
+    return new LineCache(handle, filtered, encoding);
+  });
+
+  /**
+   * 撑开滚动区的高度，**必须**从 `lineCount` 派生，不能在模板里直接读 `map.scrollHeight`：
+   * `map` 是普通对象，模板不会跟着它变。原来那么写能工作纯属巧合 —— 同一块模板里
+   * `layerTop` 一变顺带重算了它，而第一次滚动之前它一直是 0px。挂载时恢复顶行的
+   * 跳转正好发生在第一次滚动之前：scrollTop 被夹在一个没撑开的容器里，1GB 日志
+   * 恢复到第 112867 行落在了第 188 行。
+   */
+  let spacerHeight = $derived(ScrollMap.heightFor(lineCount, LINE_HEIGHT));
 
   let viewport: HTMLDivElement | undefined = $state();
   let scrollTop = $state(0);
@@ -76,14 +98,27 @@
     viewport.scrollTop = map.scrollHeight;
   });
 
+  /**
+   * 同一条跳转指令已经落到过目标行就不再重放。这个 effect 读 `lineCount`
+   * 是为了「索引还没扫到目标行时先等着」，但索引每 100ms 长一截它就重跑一次 ——
+   * 原来在 1GB 文件上跳完一行，索引没扫完之前的十几秒里视口被钉在那儿滚不走。
+   */
+  let applied = -1;
+
   // 跳到指定行：压缩映射下也能算出正确的 scrollTop
   $effect(() => {
     const g = gotoLine;
     if (!g || !viewport || lineCount === 0) return;
+    if (applied === g.nonce && lineCount >= g.line) return;
     const target = Math.min(Math.max(0, g.line - 1), Math.max(0, lineCount - 1));
-    // 往上留几行上下文，别把目标贴在视口最顶上
-    const withContext = Math.max(0, target - 3);
+    // 往上留几行上下文，别把目标贴在视口最顶上；恢复顶行的那种要的就是贴顶
+    const withContext = g.top ? target : Math.max(0, target - 3);
     viewport.scrollTop = map.scrollTopFor(withContext, viewportHeight);
+    // 目标行还没索引到就先落在当前末尾，这次不算数 —— 等行数追上再落一次真的
+    if (lineCount >= g.line) {
+      applied = g.nonce;
+      onGotoDone?.();
+    }
   });
 
   let topLine = $derived(map.topLineAt(scrollTop, viewportHeight));
@@ -168,7 +203,7 @@
   role="log"
   aria-label="日志内容"
 >
-  <div class="spacer" style:height="{map.scrollHeight}px">
+  <div class="spacer" style:height="{spacerHeight}px">
     <div class="layer" style:transform="translateY({layerTop}px)">
       {#each rows as { n, row } (n)}
         {@const seg = row ? parse(row.text, format) : null}
