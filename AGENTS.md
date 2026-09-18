@@ -10,7 +10,7 @@ pnpm app            # Tauri 开发模式
 pnpm app:build      # 只编可执行文件
 pnpm app:bundle     # 打包 .app + .dmg，产物在 src-tauri/target/release/bundle/
 pnpm check          # svelte-check
-pnpm test           # 前端纯函数测试
+pnpm test           # 前端测试：纯函数 + 状态层（*.state.test.ts，runes 在裸 node 里跑，见 tests/runes/）
 cd src-tauri && cargo test --workspace
 ```
 

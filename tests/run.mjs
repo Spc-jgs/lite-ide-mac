@@ -1,12 +1,16 @@
 /**
  * 跑 tests/ 下所有 *.test.ts。
  *
- * 不引测试框架是有意的：这里测的全是**纯函数**（diff 解析、双栏对照、
+ * 不引测试框架是有意的：这里测的大多是**纯函数**（diff 解析、双栏对照、
  * 泳道布局、冲突解析、改动行标记），输入输出都是普通数据结构。
  * 为它们装一套 vitest 加一堆 transform 配置，维护成本比被测代码还高。
  *
  * Node 22+ 能直接跑 .ts（原生剥类型），一个子进程跑一个文件 ——
  * 谁失败就把谁的完整输出打出来，其余的只留一行汇总。
+ *
+ * `*.state.test.ts` 是状态层（runes）的测试：多带一个 `--import tests/runes/register.mjs`，
+ * 那个钩子把 `.svelte.ts` 用 svelte 自己的编译器编成普通 JS（见 `tests/runes/hooks.mjs`）。
+ * 还是没有框架 —— 多的只是一个 loader。
  */
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
@@ -25,7 +29,10 @@ if (files.length === 0) {
 
 let failed = 0;
 for (const f of files) {
-  const r = spawnSync(process.execPath, [join(here, f)], { encoding: "utf8" });
+  const args = f.endsWith(".state.test.ts")
+    ? ["--no-warnings", "--import", join(here, "runes", "register.mjs"), join(here, f)]
+    : [join(here, f)];
+  const r = spawnSync(process.execPath, args, { encoding: "utf8" });
   const out = (r.stdout || "").trim();
   if (r.status === 0) {
     console.log(out.split("\n").filter(Boolean).pop() ?? `✅ ${f}`);

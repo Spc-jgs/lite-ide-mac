@@ -7308,3 +7308,33 @@ ARCHITECTURE 里「复用 ⌘P 那一份」写的是愿望。现在一个 store�
 **「这条很快，不用挪」是一个关于测试机器的判断，不是关于代码的。** 主线程上的同步 IPC
 快不快取决于盘、缓存、仓库大小 —— 三样都不归代码管。判据应该写成「碰不碰外部资源」，
 那是代码自己能回答的。
+
+## 2026-09-18 · 状态层有测试了：runes 在裸 node 里跑
+
+`tabflow` / `docs` / `persist` / `worktree` 零测试到今天。三次丢数据全出在这层，而 JOURNAL
+5605 那句「`.svelte.ts` 裸 node 跑不了」堵住了所有人 —— 它是对的（`$state` 不是 JS），
+但推论错了：跑不了的是**源码**，svelte 自己的 `compileModule` 编出来的 JS 引用的是
+`svelte/internal/client`，那个运行时不碰 DOM 就能跑（信号、懒 derived、effect 根）。
+
+### 做法
+
+- `tests/runes/hooks.mjs`：resolve 钩子给没带扩展名的相对 import 试 `.ts`（vite 补的、node 不补）；
+  load 钩子对 `.svelte.ts` 先 `node:module` 的 `stripTypeScriptTypes` 剥类型再 `compileModule`。
+- `register.mjs`：`window = globalThis`、一个 Map 版 `localStorage`。桩把 `__TAURI_INTERNALS__`
+  挂在 `window` 上，`@tauri-apps/api/core` 的 `invoke` 就照常走。
+- `run.mjs`：`*.state.test.ts` 多带 `--import`。零依赖 —— `svelte/compiler` 和 `typescript`
+  本来就在 devDeps 里，node 24 自带剥类型。
+- `state-tabflow.state.test.ts` 六条：保存并关闭写的是编辑器此刻的文本（09-03 ①）、切走
+  切回字和脏标记都在（M25 / 09-03 ③）、另存为写成才换路径 + 草稿搬走 + 头脱掉、写失败
+  标签不动、最近文件三条维护、启动复用空草稿。编辑器是 20 行替身，讲 `Editor.svelte` 的契约。
+
+### 验证
+
+把 `liveText` 改回 09-03 的写法（`textToSave(t, null)`），第一条当场红，另存为那条跟着红
+（它也靠 liveText）。恢复全绿。21 条断言。
+
+### 学到的
+
+**「跑不了」要问跑不了的是哪一层。** 源码跑不了 ≠ 编译产物跑不了；框架的编译器就在
+node_modules 里，它输出的东西和浏览器里跑的是同一份。堵了两周的不是技术，是那句没被
+追问的结论。

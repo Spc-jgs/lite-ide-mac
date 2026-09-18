@@ -469,7 +469,7 @@ lite-ide/
 
 | 层 | 手段 | 盖得住什么 |
 |---|---|---|
-| 写代码时 | `pnpm check`、14 个前端测试、`cargo test --workspace` | 纯函数、类型 |
+| 写代码时 | `pnpm check`、29 个前端测试文件、`cargo test --workspace` | 纯函数、类型；**状态层**（`*.state.test.ts`，2026-09-18 起）—— runes 用 svelte 自己的编译器在裸 node 里编出来跑，IPC 走 `mock-ipc.ts`，「保存并关闭写的是编辑器此刻的文本」那类丢数据 bug 从此有人卡 |
 | 跨语言接缝 | `dto_sync.rs` / `menu_sync.rs` | 两侧漂移 —— **这个仓库最值钱的一类测试** |
 | 组装完 | `scripts/smoke.sh`，驱动真 `.app` | 端到端 |
 | 进 CI | 入口包 150KB 红线 | 体积回归 |

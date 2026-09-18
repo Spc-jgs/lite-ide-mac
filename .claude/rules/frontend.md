@@ -525,3 +525,20 @@ smoke.sh 只关心对错不关心时长，它用 `keystroke` 没问题。
   `~/Library/WebKit/lite-ide/…` 和 `~/Library/WebKit/com.liteide.app/…`。从盘上读会话快照
   （`localstorage.sqlite3` 的 `ItemTable`，值是 UTF-16LE）要看对目录，不然读到的是
   几小时前另一份的。
+
+## 状态层（`*.svelte.ts`）能在裸 node 里测，改流程要带一条（2026-09-18）
+
+`tabflow` / `docs` / `persist` / `worktree` 原来零自动化测试 —— 09-03 两个丢数据 bug、
+M25 切标签丢未保存、09-09 `stashed` 回滚全出在这层，靠间歇红的 smoke 兜。理由是「`$state`
+不是 JS，裸 node 跑不了」。其实 svelte 自己就带编译器：`tests/runes/hooks.mjs` 用
+`compileModule` 把 `.svelte.ts` 编成引用 `svelte/internal/client` 的普通 JS（那正是浏览器里
+跑的东西，只是不经 vite），`register.mjs` 垫上 `window` / `localStorage`，IPC 走 `mock-ipc.ts`
+（和 `pnpm dev` 同一份桩）。没有框架，多的只是一个 loader。
+
+`tests/state-tabflow.state.test.ts` 是样板：编辑器是一个 20 行的替身，和 `Editor.svelte` 讲
+同一套契约（`docs.onEditorLive` 交出「读此刻文本」、切走 `stashDraft` 交回草稿），测的是
+状态层拿到这些之后做对没有。把 `liveText` 改回 09-03 的写法（无视活着的编辑器），
+「保存并关闭写的是编辑器此刻的文本」那条当场红。
+
+规矩：**改了 tabflow / docs / worktree 里的流程，先想这条流程的「丢数据形状」是什么，
+在那个文件里加一条。** 桩里能表达的状态都能测（另存为的保存面板用 `globalThis.prompt` 顶）。
