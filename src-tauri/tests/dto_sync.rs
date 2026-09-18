@@ -45,6 +45,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("RemoteErrDto", "RemoteErr"),
     ("SwitchErrDto", "SwitchErr"),
     ("BranchErrDto", "BranchErr"),
+    ("TrustSuspectDto", "TrustSuspect"),
+    ("TrustScanDto", "TrustScan"),
     ("ScratchDto", "ScratchEntry"),
     ("AnchorDto", "ScratchAnchor"),
     ("CliInstallDto", "CliInstall"),

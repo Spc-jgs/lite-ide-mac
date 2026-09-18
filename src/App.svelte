@@ -156,7 +156,7 @@
   $effect(() => {
     const need =
       !!tabflow.pendingClose || !!tabflow.pendingSwitch || !!tabs.active?.conflict ||
-      !!notify.banner || !!git.pendingDiscard || !!branches.pendingWtRemove ||
+      !!notify.banner || !!git.pendingDiscard || git.trustOpen || !!branches.pendingWtRemove ||
       !!branches.pendingCheckout || !!remote.pendingDiverge || !!remote.pendingPush || !!remote.err;
     if (need) confirms.load();
   });
@@ -855,8 +855,10 @@
     const reg = import("@tauri-apps/api/event")
       .then((m) =>
         m.listen<string>("fs-changed", (e) => {
-          if (e.payload === "git") void git.refresh();
-          else {
+          if (e.payload === "git") {
+            // 先看 config 是不是变了（issue #24），再刷状态；受限时 refresh 本来就是空转
+            void git.recheckTrust().then(() => git.refresh());
+          } else {
             void worktree.changed();
             void git.refresh();
           }
@@ -927,6 +929,8 @@
     onOpenFolder={() => void tabflow.openFolder()}
     onClearRecent={() => (project.recent = [])}
     onOpenBranches={openBranchPicker}
+    restricted={!!git.restricted}
+    onOpenTrust={() => (git.trustOpen = true)}
   />
 
   <div

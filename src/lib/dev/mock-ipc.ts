@@ -667,6 +667,9 @@ const src = (h: unknown) => LOG_SRC[Number(h)] ?? BIG_LOG;
 /** 文件指纹。桩里用一个自增计数模拟 mtime */
 const STAMPS: Record<string, { mtimeMs: number; size: number }> = {};
 let clock = 1_700_000_000_000;
+/** 这一次会话里信任过的指纹（issue #24 的桩） */
+const TRUSTED = new Set<string>();
+
 function bump(path: string) {
   clock += 1000;
   STAMPS[path] = { mtimeMs: clock, size: FILES[path]?.length ?? 0 };
@@ -1375,6 +1378,34 @@ index 1a2b3c4..5d6e7f8 100644
           if (i >= 0) LOCAL.splice(i, 1);
           return null;
         }
+        /*
+         * 仓库信任（issue #24）。桩里没有 .git/config 可扫，用一个开关模拟「这个仓库有
+         * 可疑配置」：localStorage 里 `lite-ide.mock-trap` = "1" 就报两条可疑项，
+         * 点信任之后（`git_trust_grant`）这一次会话就当信过了。
+         */
+        case "git_trust_scan": {
+          let trap = false;
+          try {
+            trap = localStorage.getItem("lite-ide.mock-trap") === "1";
+          } catch {}
+          const fingerprint = "mock-fp-" + (trap ? "trap" : "clean");
+          const suspects = trap
+            ? [
+                { key: "core.fsmonitor", value: "touch /tmp/pwned; false", origin: "file:.git/config" },
+                { key: "filter.lfs.clean", value: "git-lfs clean -- %f", origin: "file:.git/config" },
+              ]
+            : [];
+          return {
+            root: String(a.root),
+            trusted: suspects.length === 0 || TRUSTED.has(fingerprint),
+            suspects,
+            hooks: trap ? ["pre-commit"] : [],
+            fingerprint,
+          };
+        }
+        case "git_trust_grant":
+          TRUSTED.add(String(a.fingerprint));
+          return null;
         case "git_branch_rename": {
           if (LOCAL.some((l) => l.name === a.new)) throw `fatal: a branch named '${a.new}' already exists`;
           const l = LOCAL.find((l) => l.name === a.old);

@@ -24,6 +24,7 @@
 
 pub mod progress;
 pub mod remote;
+pub mod trust;
 
 pub mod console;
 

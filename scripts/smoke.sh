@@ -1176,6 +1176,39 @@ else
 fi
 check "$(pgrep -f 'MacOS/lite-ide' | wc -l | tr -d ' ')" "1" "还是一个进程（Launch Services 发给了已在运行的实例）"
 
+say "⑰ 别人给的仓库：.git/config 里有会执行命令的键，Git 不启用、一个命令都不跑（issue #24）"
+#
+# 威胁模型见 gitsvc/src/trust.rs 头上：clone 不带 config，会带的是「整个目录拿到手」。
+# 这里就造一个这样的目录：config 里一条 filter.evil.clean，值是 touch 一个标记文件。
+# 断言三条：标记文件不存在（没执行）、挂件写着「Git 未启用」、点信任之后 Git 出来。
+# 用 `open -a` 送目录进去 —— 和 ⑯ 同一条路，也正是「别人 AirDrop 一个文件夹双击」那条。
+TRAP="${WORK}/trap-repo"; PWNED="${WORK}/pwned"
+mkdir -p "${TRAP}"
+git -C "${TRAP}" init -q -b main
+git -C "${TRAP}" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git -C "${TRAP}" config filter.evil.clean "touch '${PWNED}'; cat"
+printf '*.txt filter=evil\n' > "${TRAP}/.gitattributes"
+printf 'bait\n' > "${TRAP}/bait.txt"
+rm -f "${PWNED}"
+open -a "${APP_BUNDLE}" "${TRAP}"
+if wait_has AXButton "Git 未启用" 10; then
+  ok "受限：挂件写着「Git 未启用」"
+  [ ! -e "${PWNED}" ] && ok "config 里那条命令没被执行" || bad "config 里的命令被执行了 —— 白名单没拦住"
+  if click_then click AXButton "Git 未启用" wait_has AXButton "信任这个仓库" 5; then
+    ok "点开是确认卡片"
+    if click_then click AXButton "信任这个仓库" wait_has AXButton "Git 改动" 10; then
+      ok "信任之后 Git 出来了"
+    else
+      bad "点了信任，Git 没出来"
+    fi
+  else
+    bad "点挂件没开出确认卡片"
+  fi
+else
+  bad "有可疑 config 的仓库没进受限（挂件上没有「Git 未启用」）"
+fi
+# 信任记在 app data 的 trust.json 里，fixture 路径每次都新，不会污染下一次
+
 say "⑪ 界面自己有没有报错"
 ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "$LOG")
 check "$ERRS" "0" "诊断通道里没有前端报错 / CSP 违规"

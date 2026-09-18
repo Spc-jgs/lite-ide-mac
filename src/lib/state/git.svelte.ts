@@ -1,4 +1,14 @@
-import { gitRoot, gitStatus, gitStashList, type GitEntry, type GitStatus, type GitStash } from "../ipc/commands";
+import {
+  gitRoot,
+  gitStatus,
+  gitStashList,
+  gitTrustScan,
+  gitTrustGrant,
+  type GitEntry,
+  type GitStatus,
+  type GitStash,
+  type TrustScan,
+} from "../ipc/commands";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import type { TabState } from "./tab";
@@ -20,6 +30,14 @@ const ops = () => import("./git-ops");
 class Git {
   /** 项目所属仓库的根；不是仓库就是 null，整块 Git 功能随之隐身 */
   repo = $state<string | null>(null);
+  /**
+   * 受限（issue #24）：项目根底下**是**仓库，但它的 `.git/config` 里有白名单外的键，
+   * 用户还没说信任。这时 `repo` 保持 null —— Git 整块隐身，复用「不是 git 仓库」那套；
+   * 只多一条挂件位置的提示，点开是确认卡片。信任了就把 `repo` 设上、正常刷新。
+   */
+  restricted = $state<TrustScan | null>(null);
+  /** 确认卡片开着 */
+  trustOpen = $state(false);
   status = $state<GitStatus | null>(null);
   /** stash 列表（issue #33 ⑪）。和 status 一起刷 —— 收进去、放出来都会动它 */
   stashes = $state<GitStash[]>([]);
@@ -74,6 +92,18 @@ class Git {
     }
     try {
       const found = await gitRoot(root);
+      this.restricted = null;
+      this.trustOpen = false;
+      if (found) {
+        // 跑任何会读 config 的 git 之前先扫一遍（issue #24）。`git config --list` 本身不执行配置
+        const scan = await gitTrustScan(found);
+        if (!scan.trusted) {
+          this.repo = null;
+          this.status = null;
+          this.restricted = scan;
+          return null;
+        }
+      }
       this.repo = found;
       if (!found) this.status = null;
       else void this.refresh();
@@ -82,6 +112,50 @@ class Git {
       this.repo = null;
       this.status = null;
       return undefined;
+    }
+  }
+
+  /**
+   * 用户点了「信任这个仓库」：记账，然后按正常路径启用。
+   * 记的是扫描时那份指纹；`.git/config` 再变会在下次扫描时重新受限。
+   */
+  async trust() {
+    const r = this.restricted;
+    if (!r) return;
+    try {
+      await gitTrustGrant(r.root, r.fingerprint);
+    } catch (e) {
+      notify.fail(String(e), 4000);
+      return;
+    }
+    this.restricted = null;
+    this.trustOpen = false;
+    this.repo = r.root;
+    void this.refresh();
+  }
+
+  /**
+   * `.git` 底下有变化（watch 发的 `git` 事件）时再扫一次。两个方向都要管：
+   * 受限中 config 被改干净了 → 自动启用；已信任的仓库 config 又多了可疑项
+   * （`npm install` 装了 husky 写 `core.hooksPath`）→ 退回受限。信任只对那一份内容成立。
+   */
+  async recheckTrust() {
+    const root = this.repo ?? this.restricted?.root;
+    if (!root) return;
+    try {
+      const scan = await gitTrustScan(root);
+      if (scan.trusted && this.restricted) {
+        this.restricted = null;
+        this.trustOpen = false;
+        this.repo = root;
+        void this.refresh();
+      } else if (!scan.trusted && this.repo) {
+        this.repo = null;
+        this.status = null;
+        this.restricted = scan;
+      }
+    } catch {
+      /* 扫不了就维持现状：受限的继续受限，信任的继续信任 */
     }
   }
 

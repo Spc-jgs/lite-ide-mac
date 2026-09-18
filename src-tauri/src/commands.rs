@@ -1530,6 +1530,77 @@ pub async fn git_branch_rename(root: String, old: String, new: String) -> Result
     blocking(move || gitsvc::branch_rename(&root, &old, &new).map_err(|e| format!("{e}"))).await
 }
 
+// ── 仓库信任（issue #24） ────────────────────────────────────────────
+
+/// 一条白名单之外的 `.git/config` 键，给确认卡片列出来看的
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustSuspectDto {
+    pub key: String,
+    pub value: String,
+    /// `file:.git/config` 那种；被 `include` 进来的指向别的文件
+    pub origin: String,
+}
+
+/// 开仓库前的信任扫描结果。`trusted` = 没有可疑项，或者用户对**这一份** config 信任过。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustScanDto {
+    pub root: String,
+    pub trusted: bool,
+    pub suspects: Vec<TrustSuspectDto>,
+    /// `.git/hooks` 里会执行的钩子名。只列出来知情，不影响 `trusted`
+    pub hooks: Vec<String>,
+    /// 信任按它记；前端原样传回 `git_trust_grant`
+    pub fingerprint: String,
+}
+
+fn trust_file(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    app.path()
+        .app_data_dir()
+        .map(|d| d.join("trust.json"))
+        .map_err(|e| format!("取不到应用数据目录：{e}"))
+}
+
+/// 扫一遍仓库的 config。只跑 `git config --list` 和 `rev-parse`，两条都不执行配置
+/// （`gitsvc::trust` 头上有实测）。走阻塞池：网络卷上读 config 也可能慢。
+#[tauri::command]
+pub async fn git_trust_scan(app: tauri::AppHandle, root: String) -> Result<TrustScanDto, String> {
+    let file = trust_file(&app)?;
+    blocking(move || {
+        let s = gitsvc::trust::scan(&root).map_err(|e| format!("{e}"))?;
+        let trusted = s.suspects.is_empty() || crate::trust_store::is_trusted(&file, &root, &s.fingerprint);
+        if !trusted {
+            applog::write(
+                applog::Level::Warn,
+                "trust",
+                &format!("{root} 的 .git/config 有 {} 条会执行命令的配置，Git 未启用", s.suspects.len()),
+            );
+        }
+        Ok(TrustScanDto {
+            root,
+            trusted,
+            suspects: s
+                .suspects
+                .into_iter()
+                .map(|x| TrustSuspectDto { key: x.key, value: x.value, origin: x.origin })
+                .collect(),
+            hooks: s.hooks,
+            fingerprint: s.fingerprint,
+        })
+    })
+    .await
+}
+
+/// 用户点了「信任这个仓库」。记的是扫描时那份指纹：config 再变就要重问。
+#[tauri::command]
+pub async fn git_trust_grant(app: tauri::AppHandle, root: String, fingerprint: String) -> Result<(), String> {
+    let file = trust_file(&app)?;
+    crate::diag!("git_trust_grant {root}");
+    blocking(move || crate::trust_store::grant(&file, &root, &fingerprint).map_err(|e| format!("记不下信任：{e}"))).await
+}
+
 // ── 菜单栏 ───────────────────────────────────────────────────────────
 
 /// 开原生的「选择文件夹」面板，返回选中的路径；取消返回 `None`。

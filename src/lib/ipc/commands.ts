@@ -386,6 +386,10 @@ export interface GitStash {
   /** git 给的那句：`WIP on main: a1b2c3d 上一条提交的标题` */
   message: string;
 }
+export const gitTrustScan = (root: string) => invoke<TrustScan>("git_trust_scan", { root });
+export const gitTrustGrant = (root: string, fingerprint: string) =>
+  invoke<void>("git_trust_grant", { root, fingerprint });
+
 export const gitStashList = (root: string) => invoke<GitStash[]>("git_stash_list", { root });
 export const gitStage = (root: string, paths: string[]) =>
   invoke<void>("git_stage", { root, paths });
@@ -444,6 +448,27 @@ export interface SwitchErr {
   files: string[];
   /** git 的原话 */
   raw: string;
+}
+
+/** 一条白名单之外的 `.git/config` 键（issue #24），确认卡片里列给人看 */
+export interface TrustSuspect {
+  key: string;
+  value: string;
+  /** `file:.git/config` 那种；被 include 进来的指向别的文件 */
+  origin: string;
+}
+
+/**
+ * 开仓库前的信任扫描（issue #24）。`trusted` 为假时 Git 整块不启用（复用「不是 git 仓库」
+ * 那套隐身），挂件位置留一条能点的提示；点「信任」把 `fingerprint` 原样传回 `gitTrustGrant`。
+ */
+export interface TrustScan {
+  root: string;
+  trusted: boolean;
+  suspects: TrustSuspect[];
+  /** 会执行的钩子名。只列出来知情，不影响 trusted */
+  hooks: string[];
+  fingerprint: string;
 }
 
 /** 删分支失败时拿到的东西。`kind === "not-merged"` 时界面给「仍然删除」 */

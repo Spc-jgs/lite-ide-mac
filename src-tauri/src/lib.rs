@@ -4,6 +4,7 @@ pub mod diag;
 pub mod menu;
 mod open;
 mod state;
+mod trust_store;
 
 /// 把 Tauri 的 async runtime 换成一个小的。
 ///
@@ -179,6 +180,8 @@ pub fn run() {
             commands::grep_scratches,
             commands::git_branch_delete,
             commands::git_branch_rename,
+            commands::git_trust_scan,
+            commands::git_trust_grant,
             commands::pty_spawn,
             commands::pty_write,
             commands::pty_ack,

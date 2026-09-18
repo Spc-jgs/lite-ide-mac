@@ -45,6 +45,29 @@
   </div>
 {/if}
 
+{#if git.trustOpen && git.restricted}
+  {@const r = git.restricted}
+  <!--
+    仓库信任（issue #24）。琥珀色同「外部改过」那张：是要你决定，不是出错。
+    列的是白名单外的键 —— 人看的就是「它想跑什么」，所以值一定要露出来，
+    origin 只在被 include 进来时才显示（那时危险在另一个文件里）。
+  -->
+  <div class="confirm conflict trust">
+    <span class="btext">
+      <b>这个仓库的 .git/config 里有 {r.suspects.length} 条会让 git 执行命令的配置，Git 功能先没启用</b>
+      <span class="bbody">{r.suspects
+          .map((x) => `${x.key} = ${x.value}${x.origin && !x.origin.endsWith(".git/config") ? `   （${x.origin}）` : ""}`)
+          .join("\n")}</span>
+      <span class="rest">
+        {#if r.hooks.length}另外 .git/hooks 里有 {r.hooks.join("、")}，提交 / 检出时会执行。{/if}
+        信任 = 按这份内容记住这个仓库；config 再变会重新问。
+      </span>
+    </span>
+    <button class="btn primary" onclick={() => void git.trust()}>信任这个仓库</button>
+    <button class="btn" onclick={() => (git.trustOpen = false)}>先不动 git</button>
+  </div>
+{/if}
+
 {#if tabflow.pendingSwitch}
   <div class="confirm">
     <span>
@@ -227,7 +250,9 @@
     background: linear-gradient(rgba(247, 84, 100, 0.10), rgba(247, 84, 100, 0.10)), var(--elevated);
     border-color: rgba(247, 84, 100, 0.35);
   }
-  .err-banner .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .err-banner .btext, .trust .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .confirm.trust { align-items: flex-start; width: min(760px, calc(100% - 32px)); }
+  .trust .bbody { white-space: pre-wrap; font-family: var(--code-font); font-size: 11.5px; line-height: 1.55; color: var(--text); }
   .err-banner b { color: var(--lvl-error); }
   /* git 的说明本来就是分行排版的，保住换行；太长时可以滚 */
   .err-banner .bbody {

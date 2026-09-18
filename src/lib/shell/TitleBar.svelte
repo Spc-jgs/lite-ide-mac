@@ -23,6 +23,8 @@
     onOpenFolder,
     onClearRecent,
     onOpenBranches,
+    restricted = false,
+    onOpenTrust,
   }: {
     root: string | null;
     gitSt: GitStatus | null;
@@ -34,6 +36,9 @@
     onOpenFolder: () => void;
     onClearRecent: () => void;
     onOpenBranches: () => void;
+    /** 仓库受限（issue #24）：分支挂件的位置放一条能点的提示，点开是确认卡片 */
+    restricted?: boolean;
+    onOpenTrust?: () => void;
   } = $props();
 
   /*
@@ -133,7 +138,13 @@
     <span class="wlabel">{projName}</span>
     <Icon name="chevron-down" size={10} />
   </button>
-  {#if gitSt}
+  {#if restricted}
+    <!-- 和分支挂件同一个位置：它回答的还是「Git 在哪」—— 答案是「没启用，点我看为什么」 -->
+    <button class="twidget warn" onclick={onOpenTrust} title="这个仓库的 .git/config 里有会执行命令的配置，Git 功能没启用 —— 点开看是哪几条">
+      <Icon name="git" size={12} />
+      <span class="wlabel">Git 未启用</span>
+    </button>
+  {:else if gitSt}
     <button
       class="twidget"
       class:on={branchOpen}
@@ -208,6 +219,7 @@
     white-space: nowrap;
   }
   .twidget.proj .wlabel { color: var(--text); }
+  .twidget.warn, .twidget.warn .wlabel { color: var(--lvl-warn); }
   /*
    * 项目名首字的方块。IDEA 的项目挂件就是这个形状，它的用处不是装饰：
    * 同时开着两个窗口时，一眼认出「这个窗口是哪个项目」靠的是这个色块，

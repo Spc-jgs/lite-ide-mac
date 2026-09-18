@@ -6968,3 +6968,64 @@ null，走原来那套），标签栏和状态栏共用它，两处不会说出�
 
 验证（桩，拦 `file_stamp` / `read_text` 伪造外部改动 + 派 `focus` 事件）：
 407 → 408 行，光标 300:8 不动，视口顶行 253 不动，标签仍是干净的。
+
+## 2026-09-17 · #24 仓库信任：白名单代替「想到一个堵一个」
+
+方案先贴在 issue 上，用户说「按你的建议来，但你得让建议能立足脚跟」—— 于是先做实验再动手。
+
+### 实验一：clone 带不带 config
+
+源仓库塞满：`filter.evil.clean` / `core.fsmonitor` / `alias.st = !…` / 可执行的 `post-checkout`，
+`.gitattributes` 里 `*.txt filter=evil`。`git clone` 出来：config 只有 remote 和分支跟踪，
+hooks 里只有 `.sample`；在克隆库上 `status` / `checkout` 一个标记文件都没生成。
+**结论：「克隆陌生仓库」这条路 config 是干净的。** 会带来别人的 config 的只有「整个目录
+连 `.git` 一起拿到手」（zip、U 盘、AirDrop）和「本机上别的东西往里写」（脚本、agent、husky）。
+两条路的共同点是内容不是用户自己敲的、应用又分不出来 —— 所以判据不能是「目录信不信」
+（第二条路目录是自己的），只能是「config 里有没有会执行命令的键」。
+
+### 实验二：哪些键会执行，现有黑名单挡不挡
+
+| config 项 | 触发它的操作 | 带现有 `HARDENING` |
+|---|---|---|
+| `core.fsmonitor` | status | 挡住 |
+| `include.path` → `core.fsmonitor` | status | 挡住（`-c` 优先级高于 include） |
+| `diff.x.textconv` | diff | 挡住（`--no-textconv`） |
+| `remote.url = ext::` | fetch | 挡住 |
+| `filter.x.clean` / `smudge` | add / checkout | 挡住（`repo_filter_drivers` 逐个 `-c`） |
+| **`gpg.program` + `commit.gpgsign`** | **commit** | **没挡** |
+| **`merge.x.driver`** | **merge 冲突** | **没挡** |
+| `core.hooksPath=.husky` + pre-commit | commit | 没挡（有意：提交跑钩子是应用依赖的） |
+
+五分钟找出两条黑名单外的。这就是 issue 说的「不收敛」的实证。
+
+### 实验三：`git config --list` 本身安不安全
+
+config 里放 `core.pager` / `core.fsmonitor` / `alias` 三条会执行的，跑
+`git config --list --local --show-origin -z`：一个都没触发。它只读配置不执行配置。
+用它而不是自己解析 INI：`include` / `includeIf` / 工作树的 `.git` 文件 / `worktreeConfig`
+git 自己都会解析对，自己写每一条都是一个漏。
+
+### 做法
+
+- `gitsvc::trust`：扫一遍，每个键对白名单（`is_inert`），不在名单上的一律可疑。
+  测试是两张表：clone 出来那份 config 一字不差全放行；实测会执行的 30 多条全部可疑
+  （`diff.external` 第一版放行了 —— 整段 `diff.*` 放行是错的，改成逐个点名，验过红）。
+- 指纹 = 规范化后的 `key=value` 列表本身，几百字节，直接比对，零依赖零碰撞；
+  origin 不进指纹（同一份内容从 include 挪进主文件不该作废）。
+- `trust_store.rs`：`app_data_dir/trust.json`，路径 → 指纹。放 Rust 侧而不是 localStorage：
+  安全决定不该和会话快照挤一个配额篮子，而且裸二进制和 `.app` 的 localStorage 不是一份。
+  坏账本一律当没信任过，启动路径不抛。
+- 前端：`git.locate` 在跑任何会读 config 的 git 之前先 `gitTrustScan`；不信任就 `repo = null`
+  + `restricted = scan` —— Git 整块隐身复用「不是 git 仓库」那套，标题栏分支挂件的位置换成
+  琥珀色「Git 未启用」，点开是确认卡片（列键值、钩子只知情不拦）。`.git` 下有变化时
+  `recheckTrust`：两个方向都管 —— config 改干净了自动启用，已信任的又多了可疑项退回受限。
+- 决定：受限只关 Git（文件照读照写）；受限态零 git 进程（除了那条只读的 `config --list`）；
+  lfs 仓库第一次开会被问一次，不为常见工具开白名单口子。
+
+### 验证
+
+Rust：`trust` 5 条 + `trust_store` 2 条 + `dto_sync`。桩上（`lite-ide.mock-trap`）：挂件
+「Git 未启用」、导轨没有 Git 按钮、卡片列出两条键和 pre-commit、点信任 → 挂件变回分支名、
+导轨出现「Git 改动」。**真 `.app` 那段（smoke ⑰：`open -a` 送一个带 `filter.evil.clean` 的
+目录进去，断言标记文件不存在、挂件受限、信任后 Git 出来）写好了还没跑** —— 用户在用电脑，
+smoke 抢键盘。
