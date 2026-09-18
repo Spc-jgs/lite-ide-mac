@@ -192,10 +192,10 @@
       {#if !grouped}<span class="fdir">{dirName(e.path)}</span>{/if}
     </button>
     {#if side === "index"}
-      <button class="rowact" onclick={() => onUnstage([e.path])} title="取消暂存" aria-label="取消暂存">−</button>
+      <button class="ibtn sm rowact" onclick={() => onUnstage([e.path])} title="取消暂存" aria-label="取消暂存"><Icon name="minus" size={12} /></button>
     {:else}
-      <button class="rowact" onclick={() => onDiscard([e])} title="丢弃改动" aria-label="丢弃改动">↺</button>
-      <button class="rowact" onclick={() => onStage([e.path])} title="暂存" aria-label="暂存">＋</button>
+      <button class="ibtn sm rowact" onclick={() => onDiscard([e])} title="丢弃改动" aria-label="丢弃改动"><Icon name="undo" size={12} /></button>
+      <button class="ibtn sm rowact" onclick={() => onStage([e.path])} title="暂存" aria-label="暂存"><Icon name="plus" size={12} /></button>
     {/if}
   </div>
 {/snippet}
@@ -247,10 +247,10 @@
       {#if status.detached}<span class="tagx">游离</span>{/if}
       {#if status.unborn}<span class="tagx">尚无提交</span>{/if}
       <span class="gap"></span>
-      <button class="hb" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:spin={busy}>
+      <button class="ibtn" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:spin={busy}>
         <Icon name="refresh" size={14} />
       </button>
-      <button class="hb" onclick={openMenu} title="更多操作" aria-label="更多操作">
+      <button class="ibtn" onclick={openMenu} title="更多操作" aria-label="更多操作">
         <Icon name="more-v" size={14} />
       </button>
     </div>
@@ -348,7 +348,7 @@
           <span class="cnt">{unstaged.length}</span>
           <span class="gap"></span>
           <button class="btn sm quiet" onclick={() => onStage(unstaged.map((e) => e.path))}>全部暂存</button>
-          <button class="btn sm quiet more" onclick={openWorkMenu} title="更多操作" aria-label="更多操作">⋯</button>
+          <button class="ibtn sm more" onclick={openWorkMenu} title="更多操作" aria-label="更多操作"><Icon name="more-h" size={12} /></button>
         </div>
         {@render fileList(unstaged, "work")}
       {/if}
@@ -413,22 +413,8 @@
     padding: 0 5px;
     color: var(--text-dim);
   }
-  .head .hb {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 24px;
-    height: 24px;
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-faint);
-    cursor: default;
-  }
-  .head .hb:hover { background: var(--hover); color: var(--text); }
-  .head .hb:active { background: var(--pressed); }
-  .head .hb:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-  .head .hb.spin { color: var(--accent); }
+  /* 头上的工具按钮是 `.ibtn`（app.css）；转着的刷新用 accent 说「正在跑」 */
+  .head .ibtn.spin { color: var(--accent); }
   .tagx {
     flex: none;
     font-size: 10px;
@@ -553,7 +539,6 @@
   }
   /* 分组头里的按钮再小一号，字色不抢眼；⋯ 那个只装「全部丢弃」 */
   .sec .btn.sm { height: 18px; padding: 0 6px; font-size: 10.5px; letter-spacing: 0; text-transform: none; }
-  .sec .btn.more { padding: 0 5px; font-size: 12px; }
 
   /* 行操作按钮平时不占视觉，hover 才浮出来 —— 列表安静，动作随手可及 */
   /* 悬停是内缩圆角块，和文件树同一套 —— 两边挨着，做法不一样一眼看得出来 */
@@ -585,19 +570,8 @@
   .frow-wrap:hover { background: var(--hover); }
   .frow-wrap .rowact { opacity: 0; }
   .frow-wrap:hover .rowact { opacity: 1; }
-  .rowact {
-    flex: none;
-    width: 20px;
-    height: 22px;
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    font-size: 12px;
-    cursor: default;
-    border-radius: var(--r-sm);
-  }
-  .rowact:hover { background: var(--hover); color: var(--text); }
-  .rowact:focus-visible { opacity: 1; outline: 1px solid var(--accent); }
+  /* 行内动作是 `.ibtn.sm`；这里只管「hover 那一行才出」 */
+  .rowact:focus-visible { opacity: 1; }
 
   .frow {
     display: flex;

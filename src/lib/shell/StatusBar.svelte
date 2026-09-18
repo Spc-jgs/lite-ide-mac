@@ -7,6 +7,7 @@
    * 消息直接读 `notify`；面包屑在这里算（`state/crumbs.ts`，纯函数）。
    * 剩下的都是当前标签的事实，由 App 传进来 —— 标签表还在 App 里（#9 第 4 步）。
    */
+  import Icon from "./Icon.svelte";
   import { notify } from "../state/notify.svelte";
   import { crumbsOf, projectName } from "../state/crumbs";
   import { isLogName } from "../logview/is-log-name";
@@ -146,7 +147,7 @@
         onclick={onSwitchMode}
         title={active.mode === "log" ? "切换到编辑模式" : "切换到日志模式（只读，带级别过滤与 tail）"}
       >
-        {active.mode === "log" ? "日志模式" : "编辑模式"} ⇄
+        {active.mode === "log" ? "日志模式" : "编辑模式"} <Icon name="swap" size={11} />
       </button>
       <!--
         **竖线跟着它后面那格一起退场。**

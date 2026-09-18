@@ -1172,15 +1172,15 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
       但只用 --text-faint，hover 才亮。
     -->
     {#if activePath}
-      <button class="hb" onclick={locate} title="在树里定位当前文件" aria-label="定位当前文件">
+      <button class="ibtn" onclick={locate} title="在树里定位当前文件" aria-label="定位当前文件">
         <Icon name="locate" size={14} />
       </button>
     {/if}
-    <button class="hb" onclick={collapseAll} title="折叠全部" aria-label="折叠全部">
+    <button class="ibtn" onclick={collapseAll} title="折叠全部" aria-label="折叠全部">
       <Icon name="collapse" size={14} />
     </button>
     <button
-      class="hb"
+      class="ibtn"
       class:on={follow}
       onclick={() => (follow = !follow)}
       title={follow ? "跟随标签：开（切标签时树自动定位）" : "跟随标签：关"}
@@ -1313,13 +1313,13 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     {/if}
     <div class="prow">
       <button
-        class="pbtn"
+        class="btn"
         onclick={() => {
           ask = null;
           rowAt(cursor)?.focus();
         }}>取消</button
       >
-      <button class="pbtn primary" disabled={ask.busy} onclick={() => void submitAsk()}>
+      <button class="btn primary" disabled={ask.busy} onclick={() => void submitAsk()}>
         {ask.kind === "rename" ? "改名" : "新建"}
       </button>
     </div>
@@ -1353,13 +1353,13 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     </div>
     <div class="prow">
       <button
-        class="pbtn"
+        class="btn"
         onclick={() => {
           move = null;
           rowAt(cursor)?.focus();
         }}>取消</button
       >
-      <button class="pbtn primary" disabled={move.busy} onclick={() => void doMove()}>移动</button>
+      <button class="btn primary" disabled={move.busy} onclick={() => void doMove()}>移动</button>
     </div>
   </div>
 {/if}
@@ -1396,13 +1396,13 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     {/if}
     <div class="prow">
       <button
-        class="pbtn"
+        class="btn"
         onclick={() => {
           trash = null;
           rowAt(cursor)?.focus();
         }}>取消</button
       >
-      <button class="pbtn danger" disabled={trash.busy} onclick={() => void doTrash()}>
+      <button class="btn danger" disabled={trash.busy} onclick={() => void doTrash()}>
         移到废纸篓
       </button>
     </div>
@@ -1455,24 +1455,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   .head .proj:hover { color: var(--text); }
   .head .proj:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   .head .gap { flex: 1; min-width: 6px; }
-  /* 树头的动作按钮：22px 方格子，和底部面板头上那几个一个尺寸 */
-  .head .hb {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 24px;
-    height: 24px; /* M8：工具按钮统一 24 */
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-faint);
-    cursor: default;
-  }
-  .head .hb:hover { background: var(--hover); color: var(--text); }
-  .head .hb:active { background: var(--pressed); }
-  /* 跟随开着时用中性白点亮，同导轨的选中态：accent 留给「有改动」那类状态 */
-  .head .hb.on { color: var(--text); background: var(--selected); }
-  .head .hb:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  /* 头上的工具按钮是 `.ibtn`（app.css），这里不写尺寸；跟随的开关态是 `.ibtn.on` */
   /* 横向 6px 是给行的圆角块留的余地 —— 贴着面板边的圆角看着像被切了一半 */
   .list { flex: 1; overflow: auto; padding: 4px 6px; }
   /*
@@ -1690,22 +1673,6 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     margin-top: 8px;
     padding: 0 2px;
   }
-  .pbtn {
-    padding: 4px 11px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-family: var(--ui-font);
-    font-size: 12px;
-    cursor: default;
-  }
-  .pbtn:hover { background: var(--hover); color: var(--text); }
-  .pbtn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .pbtn.danger { border-color: var(--lvl-error); color: var(--lvl-error); }
-  .pbtn.danger:hover { background: rgba(247, 84, 100, 0.14); }
-  .pbtn:disabled { opacity: 0.55; }
-
   .err {
     padding: 8px 10px;
     color: var(--lvl-error);

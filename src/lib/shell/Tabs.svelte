@@ -258,7 +258,7 @@
       {#if tab.pinned}
         <!-- 钉住的：图钉常驻在 ✕ 的位置，点了取消钉住（VS Code 同款）。脏的圆点仍要看得见 -->
         <button
-          class="close pin"
+          class="ibtn xs close pin"
           class:dirty={dot.on}
           class:warn={dot.warn}
           onclick={() => onPin?.(tab.id, false)}
@@ -270,14 +270,14 @@
         </button>
       {:else}
         <button
-          class="close"
+          class="ibtn xs close"
           class:dirty={dot.on}
           class:warn={dot.warn}
           onclick={() => onClose(tab.id)}
           title={dot.on ? dot.title : "关闭"}
           aria-label="关闭 {tab.name}"
         >
-          <span class="x">✕</span>
+          <span class="x"><Icon name="x" size={10} /></span>
           {#if dot.on}<span class="dot" aria-hidden="true"></span>{/if}
         </button>
       {/if}
@@ -297,7 +297,7 @@
     规矩那边补了这句，不是这里悄悄破的例。
   -->
   {#if onNewScratch}
-    <button class="add" onclick={onNewScratch} title="新建草稿（⌘N）" aria-label="新建草稿">
+    <button class="ibtn" onclick={onNewScratch} title="新建草稿（⌘N）" aria-label="新建草稿">
       <Icon name="plus" size={13} />
     </button>
   {/if}
@@ -351,20 +351,7 @@
   }
   .tab:hover { background: var(--hover); }
   /* 和标签同一套：28px 的圆角块 + hover 底色（ui.md 第一条） */
-  .add {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 24px;
-    height: 24px; /* M8：和各处头里的工具按钮同一个尺寸 */
-    border: none;
-    border-radius: var(--r-sm);
-    background: transparent;
-    color: var(--text-faint);
-    cursor: pointer;
-  }
-  .add:hover { background: var(--hover); color: var(--text); }
+  /* 末尾的「新建草稿」和各处头里的工具按钮同一个 `.ibtn` */
   .tab.active { background: var(--selected); }
   /* 标签溢出时给个细滚动条，否则完全看不出还有更多标签 */
   .tabs::-webkit-scrollbar { height: 3px; }
@@ -420,26 +407,12 @@
    * 于是两者叠在同一个 16px 里 —— 平时露圆点，hover/当前标签露 ✕，
    * **点击目标始终在同一个位置**。
    */
-  .close {
-    position: relative;
-    flex: none;
-    width: 16px;
-    height: 16px;
-    display: grid;
-    place-content: center;
-    background: transparent;
-    border: none;
-    border-radius: 5px;
-    color: var(--text-faint);
-    font-size: 9px;
-    cursor: default;
-    opacity: 0;
-  }
+  /* 标签上的 ✕ / 图钉是 `.ibtn.xs`；这里只管「平时藏着、圆点和 ✕ 原地互换」 */
+  .close { position: relative; opacity: 0; }
   .tab:hover .close, .tab.active .close, .close.dirty { opacity: 1; }
   /* 图钉常驻：它不是「每一项上都有」的装饰，是这个标签和别的不一样的唯一标记 */
   .close.pin { opacity: 0.7; }
   .close.pin .x { display: inline-flex; }
-  .close:hover { background: var(--selected); color: var(--text); }
   .close .x { line-height: 1; }
   .close .dot {
     position: absolute;

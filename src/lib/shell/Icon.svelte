@@ -1,30 +1,42 @@
 <script module lang="ts">
-  export type IconName =
-    | "pull"
-    | "push"
-    | "commit"
-    | "folder"
-    | "tag"
-    | "sidebar"
-    | "files"
-    | "git"
-    | "search"
-    | "terminal"
-    | "history"
-    | "note"
-    | "locate"
-    | "collapse"
-    | "follow"
-    | "pin"
-    | "more-v"
-    | "minus"
-    | "refresh"
-    | "check"
-    | "plus"
-    | "warn"
-    | "chevron-up"
-    | "chevron-down"
-    | "chevron-right";
+  /**
+   * 全部图标名。**类型从这张表派生**（不是反过来）：画廊页（`?gallery`）要把每一个都摆出来，
+   * 而 TS 的联合类型在运行时不存在，只有值才能被遍历。加图标 = 在这儿加一行 + 下面加一个分支。
+   */
+  export const ICON_NAMES = [
+    "pull",
+    "push",
+    "commit",
+    "folder",
+    "tag",
+    "sidebar",
+    "files",
+    "git",
+    "search",
+    "terminal",
+    "history",
+    "note",
+    "locate",
+    "collapse",
+    "follow",
+    "pin",
+    "more-v",
+    "minus",
+    "refresh",
+    "check",
+    "plus",
+    "warn",
+    "chevron-up",
+    "chevron-down",
+    "chevron-right",
+    "swap",
+    "more-h",
+    "branch-current",
+    "remote",
+    "x",
+    "undo",
+  ] as const;
+  export type IconName = (typeof ICON_NAMES)[number];
 </script>
 
 <script lang="ts">
@@ -184,6 +196,31 @@
   {:else if name === "tag"}
     <path d="M2.4 2.4 H7.6 L13.6 8.4 L8.4 13.6 L2.4 7.6 Z" />
     <circle cx="5.4" cy="5.4" r="0.9" fill="currentColor" stroke="none" />
+  {:else if name === "swap"}
+    <!-- 切换（日志 ⇄ 编辑、暂存 ⇄ 工作区）：两条反向箭头。原来是字体里的 ⇄，粗细和基线跟 svg 对不上 -->
+    <path d="M3 5.6 H12.6 M10.2 3.2 L12.6 5.6 L10.2 8" />
+    <path d="M13 10.4 H3.4 M5.8 8 L3.4 10.4 L5.8 12.8" />
+  {:else if name === "more-h"}
+    <!-- 更多（横）。`more-v` 是竖的三点；头上横排的用这个 -->
+    <circle cx="3.6" cy="8" r="0.9" fill="currentColor" stroke="none" />
+    <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
+    <circle cx="12.4" cy="8" r="0.9" fill="currentColor" stroke="none" />
+  {:else if name === "branch-current"}
+    <!-- 当前分支：靶心。外圈淡一档，和 sidebar 的实心块同一个「次要部分」处理 -->
+    <circle cx="8" cy="8" r="2.6" />
+    <circle cx="8" cy="8" r="5.6" opacity="0.45" />
+  {:else if name === "remote"}
+    <!-- 远程分支：地球 -->
+    <circle cx="8" cy="8" r="5.6" />
+    <path d="M2.4 8 H13.6" />
+    <path d="M8 2.4 C9.5 4 10.3 6 10.3 8 S9.5 12 8 13.6 C6.5 12 5.7 10 5.7 8 S6.5 4 8 2.4 Z" />
+  {:else if name === "x"}
+    <!-- 关闭。原来标签上是字体里的 ✕（9px），和图钉那个 svg 并排时粗细对不上 -->
+    <path d="M4 4 L12 12 M12 4 L4 12" />
+  {:else if name === "undo"}
+    <!-- 丢弃改动 / 放回去：往左回的箭头。原来是字体里的 ↺ -->
+    <path d="M5.6 5.2 H10.2 a2.9 2.9 0 0 1 0 5.8 H4.4" />
+    <path d="M7.4 3 L5 5.2 L7.4 7.4" />
   {/if}
 </svg>
 

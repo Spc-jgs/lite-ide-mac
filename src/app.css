@@ -349,3 +349,44 @@ html, body {
   border-left-color: rgba(255, 255, 255, 0.35);
 }
 .btn-split > .btn.primary:disabled:last-child { border-left-color: var(--border); }
+
+/*
+ * 图标按钮只有 `.ibtn` 一套（2026-09-18）。和 `.btn` 是同一个分层：尺寸一层、语义一层。
+ *
+ * 之前九处各写各的：文件树 / Git 页 / 草稿列表的头各抄一份 `.hb`（24）、面板头 `.phbtn`（24）、
+ * 分支浮层 `.sbtn`（24）、Git 行内 `.rowact`（20×22）、标签上的 ✕ `.close` / `.pt-x`（16，圆角 5px
+ * 而不是 r-sm）、过滤条的跳转对（22×21 带描边）、Diff 的跳转对（20×18）。五份 24px 的复制品，
+ * 三种小尺寸各不相同 —— 和 M9 之前文字按钮「九处各写各的」是同一个病。
+ *
+ * 尺寸：默认 24（各处头里的工具按钮）· `sm` 20（行内动作，行高 24 里留 2px 呼吸）·
+ * `xs` 16（标签块里的 ✕ / 图钉）· `lg` 26（**只有导轨**，它是整条竖栏唯一的内容，
+ * 34px 宽里 26 才不显得缩着）。
+ * 语义：默认无边、`--text-faint`，hover 亮字 + `--hover`；`on` 是开关态（跟随、导轨当前项），
+ * 用中性白 `--selected`，**不用 accent** —— accent 留给「有改动」那类状态；
+ * `xs` 的 hover 用 `--pressed`：它坐在一个本身就 hover / 选中着的标签块上，`--hover` 叠上去等于没反馈。
+ * 组件里只写语义和尺寸，不再写宽高圆角。
+ */
+.ibtn {
+  flex: none;
+  display: grid;
+  place-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--text-faint);
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+}
+.ibtn:hover { background: var(--hover); color: var(--text); }
+.ibtn:active { background: var(--pressed); }
+.ibtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.ibtn:disabled { opacity: 0.35; pointer-events: none; }
+.ibtn.on { color: var(--text); background: var(--selected); }
+.ibtn.sm { width: 20px; height: 20px; }
+.ibtn.xs { width: 16px; height: 16px; }
+.ibtn.xs:hover { background: var(--pressed); }
+.ibtn.lg { width: 26px; height: 26px; }

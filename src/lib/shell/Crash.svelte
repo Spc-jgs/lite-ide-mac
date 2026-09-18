@@ -78,11 +78,11 @@
 
     <div class="row">
       {#if onReset}
-        <button class="primary" onclick={onReset}>重试这一块</button>
+        <button class="btn primary" onclick={onReset}>重试这一块</button>
       {/if}
-      <button onclick={copy}>{copied ? "已复制" : "复制详情"}</button>
+      <button class="btn" onclick={copy}>{copied ? "已复制" : "复制详情"}</button>
       <span class="gap"></span>
-      <button class="danger" onclick={() => location.reload()}>重载窗口</button>
+      <button class="btn danger" onclick={() => location.reload()}>重载窗口</button>
     </div>
   </div>
 </div>
@@ -148,17 +148,4 @@
   }
   .row { display: flex; align-items: center; gap: 8px; }
   .row .gap { flex: 1; }
-  button {
-    padding: 4px 12px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-family: var(--ui-font);
-    font-size: 12px;
-    cursor: default;
-  }
-  button:hover { background: var(--hover); color: var(--text); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.danger:hover { background: var(--lvl-error); border-color: var(--lvl-error); color: #fff; }
 </style>

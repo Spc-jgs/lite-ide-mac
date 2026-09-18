@@ -192,7 +192,16 @@ function fatal(e: unknown, phase: string) {
 diag("main.ts 开始执行");
 let app;
 try {
-  app = mount(App, { target: document.getElementById("app")! });
+  /*
+   * 组件画廊（`?gallery`）：把 .btn / .ibtn / Icon 的全部变体摆在一屏上，改了通用控件来这儿看全家福。
+   * 只在 dev 分支上，动态 import —— 和上面桩那条同一个理由，生产包里一个字节都不留。
+   */
+  if (import.meta.env.DEV && new URLSearchParams(location.search).has("gallery")) {
+    const { default: Gallery } = await import("./lib/dev/Gallery.svelte");
+    app = mount(Gallery, { target: document.getElementById("app")! });
+  } else {
+    app = mount(App, { target: document.getElementById("app")! });
+  }
   diag("App 已挂载");
 } catch (e) {
   fatal(e, "挂载 App");

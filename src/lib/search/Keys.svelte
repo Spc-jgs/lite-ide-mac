@@ -17,6 +17,7 @@
    * **第三个浮层了，不再另起一套。**
    */
   import { shortcuts, type KeyDef } from "../state/keymap";
+  import Icon from "../shell/Icon.svelte";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -86,10 +87,7 @@
   <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
   <div class="popup" role="dialog" aria-modal="true" aria-label="快捷键速查">
     <div class="head">
-      <svg class="ic" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <circle cx="7" cy="7" r="4.4" stroke="currentColor" stroke-width="1.4" />
-        <path d="M10.3 10.3 14 14" stroke="currentColor" stroke-width="1.4" />
-      </svg>
+      <span class="ic"><Icon name="search" size={16} /></span>
       <input
         bind:this={box}
         bind:value={q}
@@ -152,7 +150,7 @@
 
   /* 输入排第一 —— 面板打开后的下一个动作永远是打字 */
   .head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; }
-  .head .ic { flex: none; color: var(--text-faint); }
+  .head .ic { flex: none; display: inline-flex; color: var(--text-faint); }
   input {
     flex: 1;
     min-width: 0;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { splitHunks, hunkPatch } from "./hunks";
+  import Icon from "../shell/Icon.svelte";
   import {
     parseDiff,
     segs,
@@ -206,9 +207,9 @@
 
     {#if blocks.length > 0}
       <span class="nav">
-        <button onclick={() => jump(-1)} title="上一处改动 ⇧F7" aria-label="上一处改动">⌃</button>
+        <button class="ibtn sm" onclick={() => jump(-1)} title="上一处改动 ⇧F7" aria-label="上一处改动"><Icon name="chevron-up" size={11} /></button>
         <span class="pos">{cur < 0 ? "—" : cur + 1}/{blocks.length}</span>
-        <button onclick={() => jump(1)} title="下一处改动 F7" aria-label="下一处改动">⌄</button>
+        <button class="ibtn sm" onclick={() => jump(1)} title="下一处改动 F7" aria-label="下一处改动"><Icon name="chevron-down" size={11} /></button>
       </span>
     {/if}
 
@@ -235,7 +236,7 @@
       <span class="sha" title="这是历史提交里的差异，只读">{commit}</span>
     {:else}
       <button class="btn sm" onclick={onToggleStaged} title="在「已暂存 ↔ 未暂存」之间切换">
-        {staged ? "已暂存的改动" : "未暂存的改动"} ⇄
+        {staged ? "已暂存的改动" : "未暂存的改动"} <Icon name="swap" size={11} />
       </button>
     {/if}
   </div>
@@ -259,7 +260,7 @@
             <div class="span4 {r.kind}" data-row={i}>
               <span class="htxt">{r.text || "⋯"}</span>
               {#if r.kind === "hunk" && canApply}
-                <button class="hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, sideHunk[i]), staged)}>
+                <button class="btn sm hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, sideHunk[i]), staged)}>
                   {staged ? "取消暂存这一块" : "暂存这一块"}
                 </button>
               {/if}
@@ -286,7 +287,7 @@
               <span class="no"></span><span class="no"></span><span class="sign"></span>
               <span class="txt">{l.text || "⋯"}</span>
               {#if l.kind === "hunk" && canApply}
-                <button class="hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, uniHunk[i]), staged)}>
+                <button class="btn sm hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, uniHunk[i]), staged)}>
                   {staged ? "取消暂存这一块" : "暂存这一块"}
                 </button>
               {/if}
@@ -357,17 +358,6 @@
   }
 
   .nav { display: inline-flex; align-items: center; gap: 1px; }
-  .nav button {
-    width: 20px;
-    height: 18px;
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-faint);
-    font-size: 10px;
-    cursor: default;
-  }
-  .nav button:hover { background: var(--hover); color: var(--text); }
   .nav .pos { font-family: var(--code-font); font-size: 10px; color: var(--text-faint); min-width: 30px; text-align: center; }
 
   /* 分段控件：两个 .btn.sm 共一个描边，中间不重复画线 */
@@ -523,24 +513,11 @@
   }
   .uni .row.hunk .txt { font-style: italic; }
   /* 按块暂存的按钮：hover 那一行才出（ui.md 第三条：每一块上都有的东西不常驻） */
-  .hbtn {
-    margin-left: auto;
-    margin-right: 8px;
-    padding: 0 8px;
-    height: 16px;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    background: var(--elevated);
-    color: var(--text-dim);
-    font-size: 11px;
-    font-style: normal;
-    line-height: 14px;
-    cursor: pointer;
-    opacity: 0;
-    align-self: center;
-  }
+  /* 是 `.btn.sm`；这里只管位置和「hover 那一行才出」 */
+  .hbtn { margin-left: auto; margin-right: 8px; font-style: normal; opacity: 0; align-self: center; }
+  /* 块头比普通行高 3px：装得下 20 的 `.btn.sm`（普通行 19）。它本来就是分隔，高一点反而更像分隔 */
+  .uni .row.hunk, .span4.hunk { min-height: 22px; }
   .row.hunk:hover .hbtn, .span4.hunk:hover .hbtn, .hbtn:focus-visible { opacity: 1; }
-  .hbtn:hover { color: var(--text); border-color: var(--accent); }
   .span4.hunk { display: flex; align-items: center; }
   .span4.hunk .htxt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .uni .row.meta { color: var(--text-faint); font-size: 11px; }

@@ -253,18 +253,18 @@
           <div class="big">{project.root.slice(project.root.lastIndexOf("/") + 1)} —— 没有打开的文件</div>
           <p>单击文件树里的文件是预览（再点别的会顶掉），双击才保留；也可以把文件拖进来</p>
           <div class="go">
-            <button class="primary" onclick={() => overlay.openQuick("file")}>找文件…</button>
+            <button class="btn primary" onclick={() => overlay.openQuick("file")}>找文件…</button>
             <kbd>⌘P</kbd>
-            <button class="secondary" onclick={() => void tabflow.newScratch()}>新建草稿</button>
+            <button class="btn" onclick={() => void tabflow.newScratch()}>新建草稿</button>
             <kbd>⌘N</kbd>
           </div>
         {:else}
           <div class="big">记点东西，或者打开一个项目</div>
           <p>草稿不用起名、不用保存；文件或文件夹拖进来就开 —— 代码走编辑模式，大文件与日志自动走只读的日志模式</p>
           <div class="go">
-            <button class="primary" onclick={() => void tabflow.newScratch()}>新建草稿</button>
+            <button class="btn primary" onclick={() => void tabflow.newScratch()}>新建草稿</button>
             <kbd>⌘N</kbd>
-            <button class="secondary" onclick={() => void tabflow.openFolder()}>打开文件夹…</button>
+            <button class="btn" onclick={() => void tabflow.openFolder()}>打开文件夹…</button>
             <kbd>⌘O</kbd>
             <span class="gap"></span>
             {#if project.recent.length > 0}
@@ -437,30 +437,7 @@
     margin-top: 14px;
   }
   .empty .go .gap { flex: 1; }
-  .empty .primary {
-    padding: 4px 12px;
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: var(--r-sm);
-    color: #fff;
-    font-family: var(--ui-font);
-    font-size: 12px;
-    cursor: default;
-  }
-  .empty .primary:hover { filter: brightness(1.08); }
-  /* 第二个动作：描边不填色 —— 同一行两个实心按钮就分不出哪个是主的 */
-  .empty .secondary {
-    padding: 4px 12px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text);
-    font-family: var(--ui-font);
-    font-size: 12px;
-    cursor: default;
-  }
-  .empty .secondary:hover { background: var(--hover); }
-  .empty .secondary:active { background: var(--pressed); }
+  /* 卡片上的两个动作是 `.btn primary` / `.btn`：同一行两个实心按钮就分不出哪个是主的 */
   .empty .go kbd {
     font-family: var(--code-font);
     font-size: 10.5px;
@@ -485,8 +462,6 @@
     white-space: nowrap;
   }
   .empty .link:hover { text-decoration: underline; }
-  .empty .primary:focus-visible,
-  .empty .secondary:focus-visible,
   .empty .link:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
   .empty .keymap {

@@ -117,8 +117,8 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
       只看失败
     </label>
     <span class="gap"></span>
-    <button onclick={() => void refresh()} title="刷新">刷新</button>
-    <button onclick={() => void wipe()} title="清空（只是内存里那份）">清空</button>
+    <button class="btn sm" onclick={() => void refresh()} title="刷新">刷新</button>
+    <button class="btn sm" onclick={() => void wipe()} title="清空（只是内存里那份）">清空</button>
   </div>
 
   {#if shown.length === 0}
@@ -190,16 +190,6 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
   }
   .tools .gap { flex: 1; }
   .tools .bad { color: var(--danger, #e5534b); }
-  .tools button {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-size: 11px;
-    padding: 1px 7px;
-    cursor: pointer;
-  }
-  .tools button:hover { color: var(--text); border-color: var(--text-dim); }
   .chk { display: flex; align-items: center; gap: 4px; cursor: pointer; }
   .chk input { margin: 0; }
 

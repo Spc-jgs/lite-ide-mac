@@ -120,7 +120,7 @@
   <div class="head">
     <span class="title">草稿</span>
     <span class="gap"></span>
-    <button class="hb" onclick={onNew} title="新建草稿 ⌘N" aria-label="新建草稿">
+    <button class="ibtn" onclick={onNew} title="新建草稿 ⌘N" aria-label="新建草稿">
       <Icon name="plus" size={14} />
     </button>
   </div>
@@ -216,21 +216,7 @@
   }
   .head .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .head .gap { flex: 1; min-width: 6px; }
-  .head .hb {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 24px;
-    height: 24px; /* M8：工具按钮统一 24 */
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-faint);
-    cursor: default;
-  }
-  .head .hb:hover { background: var(--hover); color: var(--text); }
-  .head .hb:active { background: var(--pressed); }
-  .head .hb:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  /* 头上的工具按钮是 `.ibtn`（app.css） */
   .list { flex: 1; overflow: auto; padding: 4px 6px; }
   .empty { padding: 10px 6px; font-size: 12px; color: var(--text-faint); }
   /* 分组头：吸顶、底色跟外壳走（ui.md 第四条）；「其他」能折 */

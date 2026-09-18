@@ -124,10 +124,10 @@
       {#if hitIndex > 0}<b>{fmt(hitIndex)}</b>/{/if}{fmt(filterHits)} 条{filterRunning ? " …" : ""}
     </span>
     <div class="jump">
-      <button onclick={() => onJump?.(-1)} disabled={!filterHits} title="上一处 ⇧↵ / ⇧F3" aria-label="上一处">
+      <button class="ibtn sm" onclick={() => onJump?.(-1)} disabled={!filterHits} title="上一处 ⇧↵ / ⇧F3" aria-label="上一处">
         <Icon name="chevron-up" size={11} />
       </button>
-      <button onclick={() => onJump?.(1)} disabled={!filterHits} title="下一处 ↵ / F3" aria-label="下一处">
+      <button class="ibtn sm" onclick={() => onJump?.(1)} disabled={!filterHits} title="下一处 ↵ / F3" aria-label="下一处">
         <Icon name="chevron-down" size={11} />
       </button>
     </div>
@@ -257,20 +257,6 @@
   .seg.on + .seg { border-left-color: var(--accent); }
 
   .jump { display: flex; gap: 1px; flex: none; }
-  .jump button {
-    display: grid;
-    place-content: center;
-    width: 22px;
-    height: 21px;
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    cursor: default;
-  }
-  .jump button:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
-  .jump button:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; border-left: none; }
-  .jump button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-  .jump button:disabled { opacity: 0.35; }
 
   /* 极窄时先牺牲级别计数 —— 它是参考信息，而按钮是操作入口 */
   @container (max-width: 640px) {

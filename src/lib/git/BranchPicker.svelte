@@ -479,7 +479,7 @@
         <span class="sic"><Icon name="search" size={14} /></span>
         <input bind:this={input} bind:value={q} placeholder="搜索分支和操作" spellcheck="false" autocomplete="off" />
         <!-- IDEA 搜索框右边那个 ↙ 是 Fetch。抓取只读、不动工作区，放在这儿随手点 -->
-        <button class="sbtn" onclick={() => { onFetch(); open = false; }} title="抓取远程（fetch --prune）" aria-label="抓取远程">
+        <button class="ibtn" onclick={() => { onFetch(); open = false; }} title="抓取远程（fetch --prune）" aria-label="抓取远程">
           <Icon name="pull" size={14} />
         </button>
       </div>
@@ -523,14 +523,9 @@
                   <!-- 每行自己的图标：分组头一滚就看不见了，「origin/dev 是远程的」不该靠记得滚过哪个标题 -->
                   <span class="ic" class:cur={r.current} class:remote={r.branch.isRemote}>
                     {#if r.current}
-                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                        <circle cx="8" cy="8" r="3.1" /><circle cx="8" cy="8" r="6.1" opacity="0.45" />
-                      </svg>
+                      <Icon name="branch-current" />
                     {:else if r.branch.isRemote}
-                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
-                        <circle cx="8" cy="8" r="5.8" /><path d="M2.4 8h11.2" stroke-linecap="round" />
-                        <path d="M8 2.2c1.5 1.7 2.3 3.7 2.3 5.8S9.5 12.1 8 13.8C6.5 12.1 5.7 10.1 5.7 8S6.5 3.9 8 2.2z" />
-                      </svg>
+                      <Icon name="remote" />
                     {:else}
                       <Icon name="git" size={14} />
                     {/if}
@@ -664,20 +659,6 @@
     outline: none;
   }
   .search input::placeholder { color: var(--text-faint); }
-  .sbtn {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: var(--r-sm);
-    background: transparent;
-    color: var(--text-faint);
-    cursor: default;
-  }
-  .sbtn:hover { background: var(--hover); color: var(--text); }
-
   .results { overflow-y: auto; padding: 4px 0 6px; }
   .none { padding: 18px 14px; color: var(--text-faint); font-size: 12.5px; text-align: center; }
   .none.err { color: var(--lvl-error); font-family: var(--code-font); text-align: left; }

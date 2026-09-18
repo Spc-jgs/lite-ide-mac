@@ -180,16 +180,16 @@
                 {t.title}
               </button>
               <button
-                class="pt-x"
+                class="ibtn xs pt-x"
                 onclick={() => terms.close(t.id)}
                 aria-label="关闭 {t.title}"
                 title="关闭 {t.title}"
-              >✕</button>
+              ><Icon name="x" size={10} /></button>
             </div>
           {/each}
         </div>
         <button
-          class="phbtn"
+          class="ibtn"
           onclick={() => terms.open(root ?? "~")}
           title="新建终端 ⌃⇧`"
           aria-label="新建终端"
@@ -202,7 +202,7 @@
         -->
         {#if terms.list.length > 1}
           <button
-            class="phbtn"
+            class="ibtn"
             onclick={(e) => openPanelMenu(e, "list")}
             title="全部终端"
             aria-label="全部终端"
@@ -218,7 +218,7 @@
       -->
       {#if panelTool === "term" && terms.list.length > 0}
         <button
-          class="phbtn"
+          class="ibtn"
           onclick={(e) => openPanelMenu(e, "more")}
           title="更多操作"
           aria-label="更多操作"
@@ -227,7 +227,7 @@
         </button>
       {/if}
       <button
-        class="phbtn"
+        class="ibtn"
         onclick={() => (layout.panel = false)}
         title="收起 ⌘J"
         aria-label="收起面板"
@@ -354,21 +354,7 @@
    * 头上的动作按钮：＋ / ⌄ / ⋮ / —。都是 22px 的方格子，
    * 和标签一样高 —— 一行里两种高度会让人以为它们不是一类东西。
    */
-  .phbtn {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 24px;
-    height: 24px; /* M8：工具按钮统一 24 */
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-faint);
-    cursor: default;
-  }
-  .phbtn:hover { background: var(--hover); color: var(--text); }
-  .phbtn:active { background: var(--pressed); }
-  .phbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  /* 头上的工具按钮是 `.ibtn`（app.css） */
 
   /*
    * 终端标签页。和上面的编辑器标签栏是**同一套**：内缩的圆角块 + `--selected`，
@@ -415,26 +401,10 @@
    * 常驻的话每个标签一个 ✕，而任何一刻最多只关得掉一个；
    * 而格子固定，点击目标就不会跟着 hover 左右挪。
    */
-  .pt-x {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 16px;
-    height: 16px;
-    margin-right: 3px;
-    background: transparent;
-    border: none;
-    border-radius: 5px;
-    color: var(--text-faint);
-    font-size: 9px;
-    line-height: 1;
-    cursor: default;
-    opacity: 0;
-  }
+  /* 标签上的 ✕ 是 `.ibtn.xs`；这里只管「平时藏着」 */
+  .pt-x { margin-right: 3px; opacity: 0; }
   .ptab:hover .pt-x, .ptab.on .pt-x { opacity: 1; }
-  /* 当前标签的底已经是 --selected 了，hover 再用它等于没反馈 */
-  .pt-x:hover { background: var(--pressed); color: var(--text); }
-  .pt-x:focus-visible { opacity: 1; outline: 1px solid var(--accent); outline-offset: -1px; }
+  .pt-x:focus-visible { opacity: 1; }
 
   /* 工具页整块叠在一起，只切可见性 —— 终端不能卸载 */
   .tool-slot { position: absolute; inset: 0; }

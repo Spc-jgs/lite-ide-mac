@@ -42,7 +42,7 @@
 -->
 <nav class="rail" aria-label="侧边栏工具">
   <button
-    class="rbtn"
+    class="ibtn lg rbtn"
     class:on={shown}
     onclick={() => layout.toggleSidebar(root !== null)}
     title={shown ? "收起侧边栏 ⌘1" : "展开侧边栏 ⌘1"}
@@ -53,7 +53,7 @@
   </button>
   {#if root}
     <button
-      class="rbtn"
+      class="ibtn lg rbtn"
       class:on={layout.sidebar && layout.sideView === "files"}
       onclick={() => layout.showSide("files")}
       title="文件树"
@@ -63,7 +63,7 @@
     </button>
     {#if repo}
       <button
-        class="rbtn"
+        class="ibtn lg rbtn"
         class:on={layout.sidebar && layout.sideView === "git"}
         onclick={() => layout.showSide("git")}
         title="Git 改动 ⌘⇧G"
@@ -82,7 +82,7 @@
         {/if}
       </button>
     {/if}
-    <button class="rbtn" onclick={onSearch} title="在项目中搜内容 ⌘⇧F" aria-label="搜索">
+    <button class="ibtn lg rbtn" onclick={onSearch} title="在项目中搜内容 ⌘⇧F" aria-label="搜索">
       <Icon name="search" />
     </button>
   {/if}
@@ -93,7 +93,7 @@
     锚点是软的、存放位置不按项目分，只是列表会把当前项目的排在前面。见 docs/SCRATCH.md。
   -->
   <button
-    class="rbtn"
+    class="ibtn lg rbtn"
     class:on={layout.sidebar && layout.sideView === "scratch"}
     onclick={() => layout.showSide("scratch")}
     title="草稿"
@@ -113,7 +113,7 @@
     点当前这个就收起 —— 和最上面 sidebar 那个开关是同一个手势。
   -->
   <button
-    class="rbtn"
+    class="ibtn lg rbtn"
     class:on={layout.panel && panelTool === "term"}
     onclick={() => onTogglePanel("term")}
     title="终端 ⌘J"
@@ -129,7 +129,7 @@
   -->
   {#if repo}
     <button
-      class="rbtn"
+      class="ibtn lg rbtn"
       class:on={layout.panel && panelTool === "git"}
       onclick={() => onTogglePanel("git")}
       title="Git：提交历史 · 控制台"
@@ -152,29 +152,12 @@
     overflow: hidden;
   }
   .rail .rgap { flex: 1; }
-  .rbtn {
-    position: relative;
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 26px;
-    height: 26px;
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm); /* M8：所有 ≤28px 的控件一个圆角，见 ui.md「控件一个尺度」 */
-    color: var(--text-faint);
-    cursor: default;
-    transition: background 0.09s, color 0.09s;
-  }
-  .rbtn:hover { background: var(--hover); color: var(--text); }
   /*
-   * 选中态用中性白，不用 accent —— accent 在这一列里已经有活儿干了：
-   * 旁边那个「有未提交改动」的红点。两个都上色就分不出哪个是状态、
-   * 哪个是"你现在在这儿"。
+   * 导轨按钮是 `.ibtn.lg`（26，导轨是整条竖栏唯一的内容，34 宽里 24 显得缩着 —— 唯一的例外）。
+   * 选中态 `.ibtn.on` 用中性白不用 accent：accent 在这一列里已经有活儿干了，旁边那个
+   * 「有未提交改动」的角标。两个都上色就分不出哪个是状态、哪个是「你现在在这儿」。
    */
-  .rbtn.on { color: var(--text); background: var(--selected); }
-  .rbtn:active { background: var(--pressed); }
-  .rbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  .rbtn { position: relative; transition: background 0.09s, color 0.09s; }
   /* 有未提交改动时给 Git 图标一个角标，收起侧边栏也知道有几处 */
   .rbtn .badge {
     position: absolute;

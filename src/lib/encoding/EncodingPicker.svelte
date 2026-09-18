@@ -107,9 +107,9 @@
         <label class="bom"><input type="checkbox" bind:checked={withBom} /> 带 BOM</label>
       {/if}
       <span class="gap"></span>
-      <button onclick={reopen} title="按这个编码重新解码文件内容">重新打开 ↵</button>
+      <button class="btn" onclick={reopen} title="按这个编码重新解码文件内容">重新打开 ↵</button>
       {#if !readonly}
-        <button class="primary" onclick={saveAs} title="下次保存时按这个编码写回">以此编码保存</button>
+        <button class="btn primary" onclick={saveAs} title="下次保存时按这个编码写回">以此编码保存</button>
       {/if}
     </div>
   </div>
@@ -185,15 +185,4 @@
   .foot .gap { flex: 1; }
   .bom { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-faint); }
   .bom input { margin: 0; accent-color: var(--accent); }
-  .foot button {
-    padding: 3px 11px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-size: 11.5px;
-    cursor: default;
-  }
-  .foot button:hover { background: var(--hover); color: var(--text); }
-  .foot button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 </style>
