@@ -1632,6 +1632,20 @@ pub async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
     picked.map(|p| p.to_string())
 }
 
+/// 「另存为…」的原生保存面板。返回选中的完整路径；取消是 None。
+///
+/// 覆盖确认由面板自己做（macOS 会问「x 已存在，要替换吗」），这里不再问第二遍。
+/// `dir` 是默认目录：有项目就是项目根 —— 草稿「毕业」多半是进当前项目。
+#[tauri::command]
+pub async fn pick_save_path(app: tauri::AppHandle, dir: Option<String>, name: String) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut d = app.dialog().file().set_title("另存为").set_file_name(&name);
+    if let Some(dir) = dir {
+        d = d.set_directory(dir);
+    }
+    d.blocking_save_file().map(|p| p.to_string())
+}
+
 /// 刷新「最近打开」子菜单。
 ///
 /// 列表存在前端的会话快照里（那本来就是「上次开的是哪个项目」的归属地），

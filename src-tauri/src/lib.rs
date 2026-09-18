@@ -196,6 +196,7 @@ pub fn run() {
             commands::devtools_build,
             commands::watch_root,
             commands::pick_folder,
+            commands::pick_save_path,
             commands::set_recent,
             commands::sync_menu_state,
             commands::open_external,

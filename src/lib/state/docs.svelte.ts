@@ -173,11 +173,24 @@ class Docs {
    * 刷了也是白跑一次子进程；而每半秒闪一次「已保存」就是把隐形的事变成噪音。
    * 失败照样要说 —— 但由调用方决定说几次（见 `autosaveSweep`）。
    */
-  async saveTab(tab: TabState, content: string, opts: { quiet?: boolean } = {}): Promise<boolean> {
+  async saveTab(tab: TabState, content: string, opts: { quiet?: boolean; to?: string } = {}): Promise<boolean> {
     if (tab.mode !== "edit") return false;
     try {
-      // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改
-      tab.stamp = await writeText(tab.path, content, tab.encoding, tab.bom, tab.eol);
+      // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改。
+      // `to`（另存为）：写到别处去，**写成了才换路径** —— 写失败时标签还指着原来那份
+      const stamp = await writeText(opts.to ?? tab.path, content, tab.encoding, tab.bom, tab.eol);
+      if (opts.to !== undefined && opts.to !== tab.path) {
+        const pos = this.posByPath.get(tab.path);
+        if (pos !== undefined) {
+          this.posByPath.delete(tab.path);
+          this.posByPath.set(opts.to, pos);
+        }
+        tab.path = opts.to;
+        tab.name = opts.to.slice(opts.to.lastIndexOf("/") + 1);
+        // 草稿毕业成了普通文件：标签栏不再显示第一行，显示文件名
+        if (!project.isScratch(opts.to)) tab.title = undefined;
+      }
+      tab.stamp = stamp;
       // 磁盘那份成了准。草稿一起清掉 —— 三处「读回磁盘」共用 settled 这一个出口，
       // 原来各写一遍，其中一处漏了清草稿（见 doc.ts 的注释）
       Object.assign(tab, settled(content));

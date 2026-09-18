@@ -609,6 +609,7 @@
       case "install-cli": return void installCliTool();
       case "recent-clear": project.recent = []; return;
       case "save": return docs.saveActive();
+      case "save-as": return void worktree.saveAs();
       case "encoding":
         if (tabs.active) overlay.encOpen = true;
         return;
@@ -979,6 +980,8 @@
               onOpen={(p, keep) => void tabflow.openPath(p, { preview: !keep })}
               onNew={() => void tabflow.newScratch()}
               onTrash={(p) => void tabflow.trashScratch(p)}
+              onRename={(p, stem) => worktree.renameScratch(p, stem)}
+              onSaveAs={(p) => void tabflow.openPath(p).then(() => worktree.saveAs())}
               onReveal={(p) => void revealInFinder(p).catch((e) => notify.fail(String(e)))}
             />
           {/if}

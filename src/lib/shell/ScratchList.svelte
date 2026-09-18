@@ -29,6 +29,8 @@
     onNew,
     onTrash,
     onReveal,
+    onRename,
+    onSaveAs,
   }: {
     activePath: string;
     /** `keep` 为真是双击 —— 保留而不是预览，和文件树同一套约定 */
@@ -36,7 +38,36 @@
     onNew: () => void;
     onTrash: (path: string) => void;
     onReveal: (path: string) => void;
+    /** 改盘上的文件名（主干，后缀那边补）；返回成没成 —— 没成输入框留着 */
+    onRename: (path: string, stem: string) => Promise<boolean>;
+    /** 「另存为…」：把这份草稿搬去别处当真文件 */
+    onSaveAs: (path: string) => void;
   } = $props();
+
+  /**
+   * 行内改名：把那一行的第一行换成输入框，回车提交、Esc 取消。
+   * 不弹框：名字就在这一行上，改名就该在这一行上改。
+   */
+  let renaming = $state<{ path: string; stem: string; busy: boolean } | null>(null);
+  let renameInput = $state<HTMLInputElement | null>(null);
+
+  function startRename(row: ScratchEntry) {
+    renaming = { path: row.path, stem: row.name.replace(/\.md$/i, ""), busy: false };
+    queueMicrotask(() => {
+      renameInput?.focus();
+      renameInput?.select();
+    });
+  }
+  async function submitRename() {
+    const r = renaming;
+    if (!r || r.busy) return;
+    renaming = { ...r, busy: true };
+    if (await onRename(r.path, r.stem)) renaming = null;
+    else {
+      renaming = { ...r, busy: false };
+      renameInput?.focus();
+    }
+  }
 
   // 露出来就拉一次；之后由写盘的那几处自己叫 refresh
   $effect(() => {
@@ -60,7 +91,9 @@
     if (!row) return [];
     return [
       { label: "打开", run: () => onOpen(row.path, true) },
-      { label: "在 Finder 中显示", run: () => onReveal(row.path) },
+      { label: "重命名", sep: true, run: () => startRename(row) },
+      { label: "另存为…", run: () => onSaveAs(row.path) },
+      { label: "在 Finder 中显示", sep: true, run: () => onReveal(row.path) },
       { label: "移到废纸篓", danger: true, sep: true, run: () => onTrash(row.path) },
     ];
   });
@@ -108,12 +141,15 @@
     await nav.openAt(full, at.line);
   }
 
+  const STAMP_NAME = /^(\d{4})-(\d{2})-(\d{2}) (\d{2})(\d{2})(?:-(\d+))?\.md$/;
   /** 标签里显示的名字：`2026-09-10 1644.md` → `09-10 16:44` */
   function shortName(name: string): string {
-    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2})(\d{2})(?:-(\d+))?\.md$/.exec(name);
+    const m = STAMP_NAME.exec(name);
     if (!m) return name;
     return `${m[2]}-${m[3]} ${m[4]}:${m[5]}${m[6] ? ` (${m[6]})` : ""}`;
   }
+  /** 人起过名的（不是时间戳）：有 chip 时第二行也得把名字露出来，不然改了名看不见改成了什么 */
+  const named = (name: string) => !STAMP_NAME.test(name);
 </script>
 
 <div class="scratch">
@@ -141,6 +177,27 @@
         {#each g.rows as row (row.path)}
           <!-- 行和 chip 是两个按钮并排：按钮里不能再套按钮 -->
           <div class="rowwrap" class:active={row.path === activePath}>
+            {#if renaming?.path === row.path}
+              <!-- 改名中：这一行换成输入框。不能放进下面那个 button 里（button 里套 input 是非法的，焦点会被吃掉） -->
+              <div class="row renaming">
+                <span class="line rename">
+                  <input
+                    bind:this={renameInput}
+                    bind:value={renaming.stem}
+                    disabled={renaming.busy}
+                    spellcheck="false"
+                    aria-label="新名字"
+                    onkeydown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); void submitRename(); }
+                      else if (e.key === "Escape") { e.preventDefault(); renaming = null; }
+                      e.stopPropagation();
+                    }}
+                    onblur={() => { if (renaming && !renaming.busy) renaming = null; }}
+                  /><span class="ext">.md</span>
+                </span>
+                <span class="meta">回车确认 · Esc 取消</span>
+              </div>
+            {:else}
             <button
               class="row"
               title={row.path}
@@ -160,8 +217,9 @@
             >
               <span class="line" class:faint={row.firstLine === ""}>{row.firstLine || "（空）"}</span>
               <!-- 有 chip 时第二行只留「多久之前」：日期在文件名里（tooltip 有），chip 更值这块地方 -->
-              <span class="meta">{#if row.anchor && chipText(row.anchor, g.others)}{row.mtimeMs ? ago(row.mtimeMs / 1000) : shortName(row.name)}{:else}{shortName(row.name)} · {row.mtimeMs ? ago(row.mtimeMs / 1000) : ""}{/if}</span>
+              <span class="meta">{#if row.anchor && chipText(row.anchor, g.others) && !named(row.name)}{row.mtimeMs ? ago(row.mtimeMs / 1000) : shortName(row.name)}{:else}{shortName(row.name)} · {row.mtimeMs ? ago(row.mtimeMs / 1000) : ""}{/if}</span>
             </button>
+            {/if}
             {#if row.anchor && chipText(row.anchor, g.others)}
               {@const a = row.anchor}
               <!-- 锚点 chip（M10）：写这条时在哪。有 `at` 才能点（跳回那一行），只有分支的就是个标签 -->
@@ -300,6 +358,20 @@
     color: var(--text);
   }
   .row .line.faint { color: var(--text-faint); }
+  .row .line.rename { display: flex; align-items: center; gap: 2px; }
+  .row .line.rename input {
+    flex: 1;
+    min-width: 0;
+    height: 18px;
+    padding: 0 4px;
+    background: var(--elevated);
+    border: 1px solid var(--accent);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font: inherit;
+    outline: none;
+  }
+  .row .line.rename .ext { color: var(--text-faint); }
   .row .meta {
     overflow: hidden;
     text-overflow: ellipsis;

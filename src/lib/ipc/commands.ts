@@ -489,6 +489,9 @@ export interface BranchErr {
  * 一堆文件条目而不是目录路径，而且拿不到绝对路径。
  */
 export const pickFolder = () => invoke<string | null>("pick_folder");
+/** 「另存为…」的原生保存面板；取消返回 null。覆盖确认面板自己做 */
+export const pickSavePath = (dir: string | null, name: string) =>
+  invoke<string | null>("pick_save_path", { dir, name });
 
 /** 刷新「最近打开」子菜单。列表存在会话快照里，变了就把整张表推过来 */
 export const setRecent = (paths: string[]) => invoke<void>("set_recent", { paths });

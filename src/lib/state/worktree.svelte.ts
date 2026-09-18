@@ -1,4 +1,8 @@
-import { openLog, closeLog } from "../ipc/commands";
+import { openLog, closeLog, pickSavePath, trashEntry } from "../ipc/commands";
+import { renameEntry } from "../ipc/fs";
+import { project } from "./project.svelte";
+import { scratches } from "./scratches.svelte";
+import { splitFrontmatter } from "./frontmatter";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { docs } from "./docs.svelte";
@@ -12,6 +16,61 @@ import { tabflow } from "./tabflow.svelte";
  * 那是第 5 步的事。
  */
 class Worktree {
+  /**
+   * 另存为（⇧⌘S）。两种语义合在一个动作里：
+   *
+   * - 普通文件：标准的 Save As —— 内容写到新路径，标签切过去，原文件不动。
+   * - 草稿：**搬走不是复制**。草稿的定义就是「还没决定要不要、放哪儿」的东西，
+   *   决定了就该离开草稿目录 —— 留一份副本，草稿列表里就躺着一个永远不再改的复制品，
+   *   又是堆积。所以写成之后原来那份进废纸篓（不是删：放回原处还得能放回来）。
+   *
+   * 默认目录是项目根：草稿毕业十次有九次是进当前项目。覆盖确认由原生面板做。
+   */
+  async saveAs() {
+    const t = tabs.active;
+    if (!t || t.mode !== "edit") return;
+    const from = t.path;
+    const wasScratch = project.isScratch(from);
+    // 草稿建议用第一行当文件名（标签栏上显示的就是它），没有第一行才用时间戳那个名
+    const suggested = wasScratch && t.title ? `${t.title.replace(/[/\\:]/g, "-").slice(0, 60)}.md` : t.name;
+    const to = await pickSavePath(project.root, suggested).catch(() => null);
+    if (!to || to === from) return;
+    notify.clear();
+    let text = docs.liveText(t);
+    // 锚点头（在哪个项目 / 分支写的）是草稿的元数据，进了项目它就没意义了，还会以一段
+    // YAML 的样子留在文件开头 —— 毕业时脱掉。编辑器那边路径一变会整份换文档，跟得上
+    if (wasScratch) text = text.slice(splitFrontmatter(text)[1]);
+    if (!(await docs.saveTab(t, text, { to }))) return;
+    if (wasScratch) {
+      // 写成了才移旧的；移不动（权限）也只是多一份，不回滚新文件
+      await trashEntry(from).catch((e) => notify.fail(`新文件已存好，旧草稿没能移到废纸篓：${e}`));
+      void scratches.refresh();
+    }
+    await this.changed();
+  }
+
+  /**
+   * 给草稿改名（右键）。只改盘上的文件名，头里的锚点和正文都不动。
+   * 后缀固定 `.md`：草稿列表只认 `.md`，改成别的它就从列表里消失了 ——
+   * 输入框里只让人改主干，后缀这边补。
+   */
+  async renameScratch(path: string, stem: string): Promise<boolean> {
+    const name = `${stem.trim().replace(/\.md$/i, "")}.md`;
+    if (name === ".md") {
+      notify.fail("名字不能为空");
+      return false;
+    }
+    try {
+      const to = await renameEntry(path, name);
+      if (to !== path) await this.renameOpenTabs(path, to, false, null);
+      void scratches.refresh();
+      return true;
+    } catch (e) {
+      notify.fail(String(e).replace(/^Error:\s*/, ""));
+      return false;
+    }
+  }
+
   /** 文件树刷新计数，由 `changed()` 推进。文件树、`.gitignore` 缓存、跳转索引都盯着它 */
   treeTick = $state(0);
 

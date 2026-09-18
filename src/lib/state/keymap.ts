@@ -100,6 +100,8 @@ export const KEYS: KeyDef[] = [
    */
   { id: "install-cli", label: "安装命令行工具…", group: "文件", owner: "menu" },
   { id: "save", label: "保存", accel: "⌘S", group: "文件", owner: "menu" },
+  /** 草稿「毕业」成真文件、普通文件另存一份。原生面板，默认目录是项目根 */
+  { id: "save-as", label: "另存为…", accel: "⇧⌘S", group: "文件", owner: "menu" },
   { id: "close-tab", label: "关闭标签", accel: "⌘W", group: "文件", owner: "menu" },
   { id: "close-all-tabs", label: "关闭所有标签", group: "文件", owner: "menu" },
 

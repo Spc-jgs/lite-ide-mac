@@ -894,9 +894,17 @@ export function installMockIpc(): void {
             eol: p.includes("crlf") ? "CRLF" : "LF",
           };
         }
-        case "write_text":
-          FILES[String(a.path)] = String(a.content);
-          return bump(String(a.path));
+        case "write_text": {
+          const path = String(a.path);
+          // 写到一个还不存在的路径（另存为）：目录列表也要多出这一项，否则文件树看不见它
+          if (FILES[path] === undefined) {
+            const parent = parentOf(path);
+            if (!DIRS[parent]) throw new Error(`${parent} 不是目录`);
+            DIRS[parent] = [...DIRS[parent], [nameOf(path), false]];
+          }
+          FILES[path] = String(a.content);
+          return bump(path);
+        }
         case "file_stamp":
           return stampOf(String(a.path));
         /*
@@ -1490,6 +1498,12 @@ index 1a2b3c4..5d6e7f8 100644
          */
         case "pick_folder":
           return "/proj";
+        // 保存面板：浏览器里用 prompt 顶一下 —— 至少能把「另存为」那条路走通
+        case "pick_save_path": {
+          const dir = a.dir ? String(a.dir) : "/proj";
+          const v = window.prompt("另存为（桩）：完整路径", `${dir}/${String(a.name)}`);
+          return v && v.trim() ? v.trim() : null;
+        }
         // 菜单在浏览器里不存在，这两条是空操作 —— 但要显式写出来
         case "set_recent":
         case "sync_menu_state":

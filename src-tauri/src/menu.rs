@@ -87,6 +87,7 @@ fn item(app: &AppHandle<Wry>, id: &str, label: &str, accel: Option<&str>) -> tau
 pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     // ── 运行期要变灰的，先建出来留住句柄 ──
     let save = item(app, "save", "保存", Some("CmdOrCtrl+S"))?;
+    let save_as = item(app, "save-as", "另存为…", Some("Shift+CmdOrCtrl+S"))?;
     let close_tab = item(app, "close-tab", "关闭标签", Some("CmdOrCtrl+W"))?;
     let close_all = item(app, "close-all-tabs", "关闭所有标签", None)?;
     let encoding = item(app, "encoding", "文件编码…", None)?;
@@ -128,6 +129,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "install-cli", "安装命令行工具…", None)?)
         .separator()
         .item(&save)
+        .item(&save_as)
         .item(&encoding)
         .separator()
         .item(&close_tab)
@@ -262,6 +264,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         recent,
         needs_tab: vec![
             save,
+            save_as,
             close_tab,
             close_all,
             encoding,
