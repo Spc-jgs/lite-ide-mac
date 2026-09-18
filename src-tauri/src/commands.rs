@@ -729,6 +729,15 @@ pub fn report_budget(app: tauri::AppHandle, tabs: u32, terms: u32, editors: u32,
     applog::write(applog::Level::Info, "budget", &msg);
 }
 
+/// 启动分段的打点（`budget::mark`）：前端在 `main.ts` 开始执行、App 挂上两处各叫一次。
+/// 名字由前端给，但只认这两个 —— 别的名字丢掉，这条命令不该成为往日志里写任意字符串的口子。
+#[tauri::command]
+pub fn boot_mark(name: String) {
+    if name == "js" || name == "mount" {
+        crate::budget::mark(&name);
+    }
+}
+
 /// 这份构建带不带 Web Inspector（issue #20）。
 ///
 /// `pnpm app:bundle:devtools` 和 `pnpm app:bundle` **装在同一个路径上**，

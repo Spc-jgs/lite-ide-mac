@@ -47,7 +47,7 @@
 //! 二进制都已经链上的**。为三个函数拽进一个 crate，换来的只是别人替我们
 //! 抄了同一份声明。
 
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 /// `rusage_info_v0`（`<sys/resource.h>`）。
 ///
@@ -155,6 +155,30 @@ pub struct Counts {
     pub editors: u32,
 }
 
+/// 启动分段（2026-09-18）：`window`（窗口建好）、`page`（WebView 加载完页面）、
+/// `js`（入口脚本开始执行）、`mount`（App 挂上）。最后那一段到预算行本身（恢复完 + 画完）。
+///
+/// 为什么要分段：`boot=1099ms` 这一个数解释不了任何决定 —— 入口包 150KB 的红线该不该动、
+/// 会话恢复慢不慢、WebView 起得快不快，全在这一个数里搅着。分段之后每一段归一个人管。
+static MARKS: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
+
+pub fn mark(name: &str) {
+    if let Some(ms) = uptime_ms() {
+        MARKS.lock().unwrap_or_else(|e| e.into_inner()).push((name.to_string(), ms));
+    }
+}
+
+/// `window:120,page:380,js:400,mount:520` —— 顺序就是发生的顺序。没记到就是空串
+pub fn marks() -> String {
+    MARKS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(n, ms)| format!("{n}:{ms}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// 拼出那一行。
 ///
 /// **拎出来是为了能测。** 这一行的格式就是 `scripts/budget.sh` 的输入协议，
@@ -163,8 +187,13 @@ pub struct Counts {
 /// 量不到的字段写 `?` 而不是 0：`self=0MB` 会被脚本当成一个真实读数
 /// 画进趋势里，`self=?` 一眼就知道该跳过。
 pub fn line(boot_ms: Option<u64>, self_mb: Option<u64>, c: Counts, ver: &str, devtools: bool) -> String {
+    line_with(boot_ms, self_mb, c, ver, devtools, &marks())
+}
+
+/// `phases` 单独传进来是为了能测；`budget.sh` 按 `k=v` 切，尾巴上多一个字段它读得懂
+pub fn line_with(boot_ms: Option<u64>, self_mb: Option<u64>, c: Counts, ver: &str, devtools: bool, phases: &str) -> String {
     let n = |v: Option<u64>| v.map_or("?".to_string(), |x| x.to_string());
-    format!(
+    let mut s = format!(
         "boot={}ms self={}MB tabs={} terms={} editors={} nodes={} v={} devtools={}",
         n(boot_ms),
         n(self_mb),
@@ -174,7 +203,12 @@ pub fn line(boot_ms: Option<u64>, self_mb: Option<u64>, c: Counts, ver: &str, de
         c.nodes,
         ver,
         if devtools { 1 } else { 0 }
-    )
+    );
+    if !phases.is_empty() {
+        s.push_str(" phases=");
+        s.push_str(phases);
+    }
+    s
 }
 
 #[cfg(test)]
@@ -186,9 +220,12 @@ mod tests {
     #[test]
     fn 预算行的格式就是脚本的输入协议() {
         assert_eq!(
-            line(Some(412), Some(34), C, "0.9.0", false),
+            line_with(Some(412), Some(34), C, "0.9.0", false, ""),
             "boot=412ms self=34MB tabs=3 terms=1 editors=1 nodes=4210 v=0.9.0 devtools=0"
         );
+        // 分段挂在尾巴上：老的 budget.sh 按 k=v 切，多一个字段不影响前面的
+        assert!(line_with(Some(412), Some(34), C, "0.9.0", false, "window:120,js:400")
+            .ends_with("devtools=0 phases=window:120,js:400"));
         // 调试版要在这一行上自报家门（issue #20）：
         // 一份带 Web Inspector 的构建，它的内存数和正式版不可比
         assert!(line(Some(1), Some(1), C, "0.9.0", true).ends_with("devtools=1"));

@@ -462,6 +462,8 @@ printf '这个文件是给「移到废纸篓」那一步用的\n' > "${TRASH_NAM
 # 大日志：**必须带中文，而且要大过 detect_encoding 的 256KB 样本** ——
 # 那个乱码 bug 正是「样本按字节截，边界切在多字节字符中间」造出来的
 awk 'BEGIN{for(i=0;i<400000;i++) printf "2026-09-07 12:00:00 INFO  服务处理完成，第 %d 条记录\n", i}' > big.log
+# 轮转那段（⑱）用的小日志：小到行数一眼数得清
+awk 'BEGIN{for(i=0;i<100;i++) printf "2026-09-18 10:00:00 INFO  轮转前第 %d 条\n", i}' > rot.log
 # 跳转要的那份**真 Maven 目录**（⑮ 用）。
 #
 # 桩里那个 Java 文件的 `package` 和它所在的目录对不上，所以 import / 同包
@@ -795,6 +797,36 @@ sleep 3
 RSS_AFTER=$(ps -o rss= -p "$(pgrep -f 'MacOS/lite-ide' | head -1)" | tr -d ' ')
 echo "  RSS $RSS_BEFORE → $RSS_AFTER KB"
 [ "$RSS_AFTER" -lt "$RSS_BEFORE" ] && ok "内存降下来了" || bad "关掉之后内存没降"
+
+say "⑱ 日志轮转：tail 不断、按名重开（2026-09-18）"
+#
+# logback 每晚一次的事：改名 + 新建同名。原来这时候关 tail、报「请重新打开」。
+# 现在 Rust 侧同一个句柄按名重开，前端按原条件重跑，状态栏说一句「轮转过 N 次」。
+# 三步：开 rot.log 打开 tail → 追加三行（行数 100 → 103，证明 tail 活着）
+# → mv + 新建 5 行的同名文件（行数变成 5、状态栏有「轮转过 1 次」，证明跟上了新文件）。
+open_from_tree "rot.log"
+# 4KB 的 .log 按大小判定走的是编辑模式（日志模式是给大文件的），状态栏那格点一下切过去
+if click_then click AXButton "编辑模式" wait_has AXStaticText "100 行" 8; then
+  ok "rot.log 切到日志模式（100 行）"
+  if click_then click AXButton "跟随尾部" wait_has AXStaticText "100 行" 2; then
+    printf '追加 1\n追加 2\n追加 3\n' >> "${FIX}/rot.log"
+    wait_has AXStaticText "103 行" 6 && ok "tail 活着：追加三行后 103 行" || bad "tail 没跟上追加（还不是 103 行）"
+    mv "${FIX}/rot.log" "${FIX}/rot.log.1"
+    sleep 0.3
+    printf '新 1\n新 2\n新 3\n新 4\n新 5\n' > "${FIX}/rot.log"
+    if wait_has AXStaticText "轮转过 1 次" 8; then
+      ok "轮转被认出来了，tail 还开着"
+      wait_has AXStaticText "5 行" 4 && ok "句柄背后已经是新文件（5 行）" || bad "轮转后行数不是新文件的"
+    else
+      bad "轮转没被认出来（状态栏没有「轮转过 1 次」）"
+    fi
+  else
+    bad "点不到「跟随尾部」"
+  fi
+else
+  bad "rot.log 没开出来"
+fi
+[ "$(ax "click~" AXButton "关闭 rot.log")" = "OK" ] || true
 
 # ─────────────────── 6. 全局搜索 / 废纸篓 / 远程 ───────────────────
 #

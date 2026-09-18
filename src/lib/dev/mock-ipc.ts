@@ -737,6 +737,8 @@ export function installMockIpc(): void {
           // 完全看不出来
           console.info(`[app_log/${a.level}] ${a.source}: ${a.msg}`);
           return null;
+        case "boot_mark":
+          return null;
         case "report_budget":
           /*
            * 桩里量不到 `boot` 和 `self`（那两个是 Rust 侧的 FFI），

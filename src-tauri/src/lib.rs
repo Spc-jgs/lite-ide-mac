@@ -51,6 +51,12 @@ pub fn run() {
     install_runtime();
 
     tauri::Builder::default()
+        // 启动分段：WebView 把页面加载完的时刻（入口脚本还没开始跑）
+        .on_page_load(|_webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                budget::mark("page");
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         /*
@@ -106,6 +112,7 @@ pub fn run() {
             app.manage(handles);
 
             if let Some(w) = app.get_webview_window("main") {
+                budget::mark("window");
                 apply_window_material(&w);
                 let _ = w.set_focus();
                 // 开发期验证用：LITE_IDE_ONTOP=1 让窗口置顶，方便截图取证
@@ -193,6 +200,7 @@ pub fn run() {
             commands::clear_app_log,
             commands::diag_enabled,
             commands::report_budget,
+            commands::boot_mark,
             commands::devtools_build,
             commands::watch_root,
             commands::pick_folder,

@@ -190,6 +190,8 @@ function fatal(e: unknown, phase: string) {
 }
 
 diag("main.ts 开始执行");
+// 启动分段（预算行 `phases=`）：入口脚本开始跑 = 入口包下载 + 解析完了
+invoke("boot_mark", { name: "js" }).catch(() => {});
 let app;
 try {
   /*
@@ -202,6 +204,7 @@ try {
   } else {
     app = mount(App, { target: document.getElementById("app")! });
   }
+  invoke("boot_mark", { name: "mount" }).catch(() => {});
   diag("App 已挂载");
 } catch (e) {
   fatal(e, "挂载 App");
