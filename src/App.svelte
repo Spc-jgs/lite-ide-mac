@@ -14,6 +14,7 @@
   import { tabflow } from "./lib/state/tabflow.svelte";
   import { project } from "./lib/state/project.svelte";
   import { worktree } from "./lib/state/worktree.svelte";
+  import { files } from "./lib/state/files.svelte";
   import { git } from "./lib/state/git.svelte";
   import { remote } from "./lib/state/remote.svelte";
   import { branches } from "./lib/state/branches.svelte";
@@ -89,6 +90,17 @@
    * （本仓库实测一次 11.5ms / 19 条）。issue #13。
    */
   let ignored = $state<Set<string> | null>(null);
+
+  /*
+   * 文件索引（⌘P / ⌘Click / ⌘E 共用的那一份）跟着项目根和 `worktree.treeTick` 刷：
+   * 切分支、终端里新建的文件都在 `treeTick` 上，刷一次 `rg --files` 0.02s。
+   * 序号守卫在 store 里，切项目时上一趟晚到不会盖掉新的。
+   */
+  $effect(() => {
+    const r = project.root;
+    worktree.treeTick;
+    void files.refresh(r);
+  });
 
   /*
    * 跟着项目根和 `worktree.treeTick` 走。
@@ -439,7 +451,7 @@
   // 响应式那一半：布局、标签、项目根变了就存
   $effect(() => {
     // 显式读一遍，让 effect 订阅上它们
-    void [project.root, tabs.list.length, tabs.activeId, layout.snapshot()];
+    void [project.root, tabs.list.length, tabs.activeId, layout.snapshot(), files.recent];
     persist.schedule();
   });
 
@@ -554,6 +566,12 @@
       overlay.openQuick("file");
       return;
     }
+    // ⌘E 最近文件：和 ⌘P 是同一个面板，空着就列最近打开的
+    if (k === "e") {
+      e.preventDefault();
+      overlay.openQuick("file");
+      return;
+    }
     /*
      * **这儿原来有一条 `⌘B → 切侧边栏`**（⌘1 的 VSCode 手感别名），
      * 2026-09-09 把 ⌘B 让给了「跳到声明」之后删掉了。
@@ -622,6 +640,7 @@
         return;
       case "quick-all": overlay.openQuick("all"); return;
       case "quick-file": overlay.openQuick("file"); return;
+      case "recent-files": overlay.openQuick("file"); return;
       case "quick-content": overlay.openQuick("content"); return;
       case "find-word": return overlay.findWordAtCursor();
       case "goto-line":

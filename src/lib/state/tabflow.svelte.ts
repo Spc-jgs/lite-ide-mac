@@ -17,6 +17,7 @@ import { tabs } from "./tabs.svelte";
 import { docs } from "./docs.svelte";
 import { project } from "./project.svelte";
 import { scratches } from "./scratches.svelte";
+import { files } from "./files.svelte";
 import { git } from "./git.svelte";
 import { type TabState } from "./tab";
 import { scratchTitle, splitFrontmatter } from "./frontmatter";
@@ -107,6 +108,7 @@ class TabFlow {
         await this.hooks.afterRootChange?.(info.path);
         return;
       }
+      if (!this.restoringTabs) files.touch(info.path);
       const exist = tabs.byPath(info.path);
       if (exist) {
         if (!opts.preview) tabs.keep(exist.id);
@@ -160,13 +162,15 @@ class TabFlow {
        * 草稿目录成了项目，同样进最近列表。「看一眼 / 记两笔」本来就是**无项目**的动作，
        * 套一个项目上去就是那种「杀鸡用牛刀」的重量感。
        *
-       * 没有根时：侧边栏是「打开文件夹…」那块空态（草稿视图照常），面包屑显示全路径，
+       * 没有根时：侧边栏不出现（草稿视图照常，见 `layout.sideShown`），面包屑显示全路径，
        * ⇧⌘F 没有范围（菜单灰着）。要项目就 ⌘O 或者拖文件夹进来 —— 那是显式的。
        */
       // 恢复期不核：那时 activeId 故意停在 null 而标签一个个往里填，
       // 「有标签但没有活动标签」在这段窗口里是对的。恢复完了再一次核完
       if (!this.restoringTabs) tabs.audit("开标签");
     } catch (e) {
+      // 打不开的（删了、卷没挂）从「最近」里摘掉，下次 ⌘E 不再列它
+      files.forget(path);
       if (!quiet) notify.fail(String(e));
     } finally {
       this.#opening.delete(path);
@@ -339,6 +343,7 @@ class TabFlow {
       }
       await trashEntry(path);
       for (const t of tabs.under(path, false)) this.doClose(t);
+      files.forget(path);
       void scratches.refresh();
     } catch (e) {
       notify.fail(String(e));

@@ -49,6 +49,15 @@ pub struct RefreshDto {
     pub line_count: u64,
 }
 
+/// ⌘P / ⌘Click 用的文件索引。`truncated`：到了 5 万的上限、后面的没看 ——
+/// 界面上「没找到」要说成「索引只看了前五万个」，不能说成「不在项目里」
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFilesDto {
+    pub files: Vec<String>,
+    pub truncated: bool,
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PathInfo {
@@ -83,38 +92,41 @@ pub struct DirEntryDto {
 /// 判据是复合的（ARCHITECTURE.md §1 修正 01）：大小 / 行数 / 最长行任一超标都走
 /// 日志模式。只读文件头部采样，不加载全文。
 #[tauri::command]
-pub fn probe_path(path: String) -> Result<PathInfo, String> {
-    // 前端拿返回的 path 当 key（标签、项目根、和仓库根的前缀匹配），
-    // 所以在这一个入口把符号链接整理掉，见 `fsservice::canonical`
-    let path = fsservice::canonical(&path).to_string_lossy().into_owned();
-    let p = Path::new(&path);
-    let name = p
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.clone());
-    let meta = std::fs::metadata(p).map_err(|e| format!("读不到 {path}：{e}"))?;
+pub async fn probe_path(path: String) -> Result<PathInfo, String> {
+    blocking(move || {
+        // 前端拿返回的 path 当 key（标签、项目根、和仓库根的前缀匹配），
+        // 所以在这一个入口把符号链接整理掉，见 `fsservice::canonical`
+        let path = fsservice::canonical(&path).to_string_lossy().into_owned();
+        let p = Path::new(&path);
+        let name = p
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.clone());
+        let meta = std::fs::metadata(p).map_err(|e| format!("读不到 {path}：{e}"))?;
 
-    if meta.is_dir() {
-        return Ok(PathInfo {
-            kind: "dir",
-            mode: "edit",
+        if meta.is_dir() {
+            return Ok(PathInfo {
+                kind: "dir",
+                mode: "edit",
+                path,
+                name,
+                size: 0,
+                reason: String::new(),
+            });
+        }
+
+        let pr = logengine::probe(p).map_err(|e| format!("探测 {path} 失败：{e}"))?;
+        crate::diag!("probe {path} -> {:?} ({})", pr.mode, pr.reason);
+        Ok(PathInfo {
+            kind: "file",
+            mode: pr.mode.as_str(),
             path,
             name,
-            size: 0,
-            reason: String::new(),
-        });
-    }
-
-    let pr = logengine::probe(p).map_err(|e| format!("探测 {path} 失败：{e}"))?;
-    crate::diag!("probe {path} -> {:?} ({})", pr.mode, pr.reason);
-    Ok(PathInfo {
-        kind: "file",
-        mode: pr.mode.as_str(),
-        path,
-        name,
-        size: pr.size,
-        reason: pr.reason.to_string(),
+            size: pr.size,
+            reason: pr.reason.to_string(),
+        })
     })
+    .await
 }
 
 /// 列一层目录。不递归 —— 文件树按需展开，大仓库才不会卡。
@@ -122,19 +134,22 @@ pub fn probe_path(path: String) -> Result<PathInfo, String> {
 /// 没有 `show_hidden` 这个开关了：点文件一律列，构建产物一律不列。
 /// 留一个前端永远传同一个值的参数，就是下一个没人敢动的死开关。
 #[tauri::command]
-pub fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
-    let entries = fsservice::list_dir(&path).map_err(|e| format!("列目录失败：{e}"))?;
-    Ok(entries
-        .into_iter()
-        .map(|e| DirEntryDto {
-            name: e.name,
-            path: e.path.to_string_lossy().into_owned(),
-            is_dir: e.is_dir,
-            size: e.size,
-            generated: e.generated,
-            contested: e.contested,
-        })
-        .collect())
+pub async fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
+    blocking(move || {
+        let entries = fsservice::list_dir(&path).map_err(|e| format!("列目录失败：{e}"))?;
+        Ok(entries
+            .into_iter()
+            .map(|e| DirEntryDto {
+                name: e.name,
+                path: e.path.to_string_lossy().into_owned(),
+                is_dir: e.is_dir,
+                size: e.size,
+                generated: e.generated,
+                contested: e.contested,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[derive(serde::Serialize)]
@@ -156,16 +171,19 @@ pub struct TextDto {
 ///
 /// `label` 非空时按指定编码读（用户点了「以其他编码重新打开」）。
 #[tauri::command]
-pub fn read_text(path: String, label: Option<String>) -> Result<TextDto, String> {
-    let d = fsservice::read_text_detect(&path, label.as_deref().unwrap_or(""))
-        .map_err(|e| format!("{e}"))?;
-    Ok(TextDto {
-        content: d.content,
-        encoding: d.encoding.to_string(),
-        bom: d.bom,
-        lossy: d.lossy,
-        eol: d.eol.as_str().to_string(),
+pub async fn read_text(path: String, label: Option<String>) -> Result<TextDto, String> {
+    blocking(move || {
+        let d = fsservice::read_text_detect(&path, label.as_deref().unwrap_or(""))
+            .map_err(|e| format!("{e}"))?;
+        Ok(TextDto {
+            content: d.content,
+            encoding: d.encoding.to_string(),
+            bom: d.bom,
+            lossy: d.lossy,
+            eol: d.eol.as_str().to_string(),
+        })
     })
+    .await
 }
 
 /// 探测一个文件的编码，只读头部采样。日志模式用它决定 TextDecoder 的标签。
@@ -203,12 +221,15 @@ pub struct StampDto {
 
 /// 取文件指纹，用于判断是否被外部改动过。
 #[tauri::command]
-pub fn file_stamp(path: String) -> Result<StampDto, String> {
-    let s = fsservice::stamp(&path).map_err(|e| format!("{e}"))?;
-    Ok(StampDto {
-        mtime_ms: s.mtime_ms,
-        size: s.size,
+pub async fn file_stamp(path: String) -> Result<StampDto, String> {
+    blocking(move || {
+        let s = fsservice::stamp(&path).map_err(|e| format!("{e}"))?;
+        Ok(StampDto {
+            mtime_ms: s.mtime_ms,
+            size: s.size,
+        })
     })
+    .await
 }
 
 /// 在 Finder 里显示。业务在 fsservice —— 这里只转错误。
@@ -994,9 +1015,11 @@ fn skip_for(root: &str) -> searchsvc::Skip {
 /// 匹配放前端做是有意为之：每敲一个字符都往 Rust 跑一趟，IPC 往返会让输入发木。
 /// 几万条路径传过去也就几 MB。
 #[tauri::command]
-pub async fn list_project_files(root: String) -> Result<Vec<String>, String> {
+pub async fn list_project_files(root: String) -> Result<ProjectFilesDto, String> {
     blocking(move || {
-        searchsvc::list_files(&root, &skip_for(&root)).map_err(|e| format!("索引项目失败：{e}"))
+        let (files, truncated) =
+            searchsvc::list_files_capped(&root, &skip_for(&root)).map_err(|e| format!("索引项目失败：{e}"))?;
+        Ok(ProjectFilesDto { files, truncated })
     })
     .await
 }
@@ -1089,8 +1112,12 @@ pub struct GitStatusDto {
 /// 找 `path` 所属的仓库根。不是仓库返回 null —— 这是正常情况，
 /// 界面据此让整块 Git 功能隐身，而不是弹错误。
 #[tauri::command]
-pub fn git_root(path: String) -> Option<String> {
-    gitsvc::discover(&path).map(|p| p.to_string_lossy().into_owned())
+pub async fn git_root(path: String) -> Option<String> {
+    // 这条起 git 子进程（rev-parse），和别的 git 命令一样不许在主线程上等它。
+    // 后台任务本身挂了（几乎不可能）也当「不是仓库」—— 界面上的意思是一样的
+    blocking(move || Ok(gitsvc::discover(&path).map(|p| p.to_string_lossy().into_owned())))
+        .await
+        .unwrap_or(None)
 }
 
 /// 读一次仓库状态。分支、领先落后、变更文件一次拿全。

@@ -110,9 +110,32 @@ pub const MAX_FILES: usize = 50_000;
 /// 递归深度上限，防软链环或者病态目录结构
 const MAX_DEPTH: usize = 24;
 
-/// 递归列出项目里的文件（相对路径）。
+/// 递归列出项目里的文件（相对路径）。到了 [`MAX_FILES`] 就停，**调用方看不出停没停** ——
+/// 要区分「不在」和「没看完」用 [`list_files_capped`]。
 pub fn list_files(root: impl AsRef<Path>, skip: &Skip) -> io::Result<Vec<String>> {
     Ok(list_files_and_symlinks(root, skip)?.0)
+}
+
+/// 同 [`list_files`]，另外说清**是不是被上限掐断了**。
+///
+/// ⌘P 和 ⌘Click 跳转用的是这一份：没找到的时候「这不是项目里的文件」和
+/// 「索引只看了前五万个」是两个答案，而 rust.md 那条「truncated 必须一路传到界面」
+/// 在这条路上原来没执行 —— 超过五万文件的仓库里，跳转没下划线看着像文件不存在。
+/// 多走一个再截：正好五万个文件的仓库不该被说成截断了。
+pub fn list_files_capped(root: impl AsRef<Path>, skip: &Skip) -> io::Result<(Vec<String>, bool)> {
+    list_files_with_cap(root, skip, MAX_FILES)
+}
+
+/// 上限做成参数是为了测试：造五万零一个文件验「截断」太慢，造四个验 cap = 3 是一样的逻辑
+fn list_files_with_cap(root: impl AsRef<Path>, skip: &Skip, cap: usize) -> io::Result<(Vec<String>, bool)> {
+    let root = root.as_ref();
+    let mut out = Vec::new();
+    let mut syms = Vec::new();
+    walk(root, root, 0, skip, cap + 1, &mut out, &mut syms);
+    let truncated = out.len() > cap;
+    out.truncate(cap);
+    out.sort();
+    Ok((out, truncated))
 }
 
 /// 同 [`list_files`]，另外把其中的**软链文件**单独挑一份出来。
@@ -134,7 +157,7 @@ pub fn list_files_and_symlinks(
     let root = root.as_ref();
     let mut out = Vec::new();
     let mut syms = Vec::new();
-    walk(root, root, 0, skip, &mut out, &mut syms);
+    walk(root, root, 0, skip, MAX_FILES, &mut out, &mut syms);
     out.sort();
     syms.sort();
     Ok((out, syms))
@@ -145,10 +168,11 @@ fn walk(
     dir: &Path,
     depth: usize,
     skip: &Skip,
+    cap: usize,
     out: &mut Vec<String>,
     syms: &mut Vec<String>,
 ) {
-    if depth > MAX_DEPTH || out.len() >= MAX_FILES {
+    if depth > MAX_DEPTH || out.len() >= cap {
         return;
     }
     let Ok(rd) = std::fs::read_dir(dir) else {
@@ -156,7 +180,7 @@ fn walk(
     };
     let mut subdirs = Vec::new();
     for ent in rd.flatten() {
-        if out.len() >= MAX_FILES {
+        if out.len() >= cap {
             return;
         }
         let name = ent.file_name().to_string_lossy().into_owned();
@@ -211,7 +235,7 @@ fn walk(
         }
     }
     for d in subdirs {
-        walk(root, &d, depth + 1, skip, out, syms);
+        walk(root, &d, depth + 1, skip, cap, out, syms);
     }
 }
 
@@ -875,4 +899,22 @@ mod tests {
         println!("  → 遍历占整次搜索的 {:.0}%", 中位.as_secs_f64() / greps[2].0.as_secs_f64() * 100.0);
     }
 
+    /// 到上限要说「截断了」，正好等于上限不算。cap 做成参数就是为了这条不用造五万个文件
+    #[test]
+    fn 到了上限要报截断_正好等于上限不算() {
+        let d = std::env::temp_dir().join(format!("searchsvc-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        for i in 0..3 {
+            std::fs::write(d.join(format!("f{i}.txt")), "x").unwrap();
+        }
+        let (files, truncated) = list_files_with_cap(&d, &Skip::by_name(), 3).unwrap();
+        assert_eq!(files.len(), 3);
+        assert!(!truncated, "三个文件、上限三：一个没漏，不是截断");
+        std::fs::write(d.join("f3.txt"), "x").unwrap();
+        let (files, truncated) = list_files_with_cap(&d, &Skip::by_name(), 3).unwrap();
+        assert_eq!(files.len(), 3, "截断后只交上限那么多");
+        assert!(truncated, "四个文件、上限三：得说截断了");
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }

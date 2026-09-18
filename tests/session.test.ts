@@ -29,6 +29,7 @@ const base: Session = {
   active: 1,
   layout: { ...DEFAULT_LAYOUT, sidebarWidth: 300, panel: true },
   recent: ["/proj", "/other"],
+  recentFiles: ["/proj/a.ts", "/Users/me/x.log"],
 };
 
 // ── 1. 存进去能原样读回来 ──
@@ -41,6 +42,15 @@ ok(round?.tabs[1].line === undefined, "没记光标的标签不该凭空多出�
 ok(round?.active === 1, "活动标签下标要还原");
 ok(round?.layout.sidebarWidth === 300 && round?.layout.panel === true, "布局要还原");
 ok(round?.recent.length === 2 && round?.recent[0] === "/proj", "最近打开要还原");
+ok(round?.recentFiles?.length === 2 && round?.recentFiles?.[0] === "/proj/a.ts", "最近文件（⌘E）要还原，顺序不变");
+ok(
+  parse(JSON.stringify({ v: VERSION, root: null, tabs: [], active: 0, layout: DEFAULT_LAYOUT, recent: [] }))?.recentFiles?.length === 0,
+  "没有 recentFiles 字段（老快照）要退成空列表",
+);
+ok(
+  parse(JSON.stringify({ v: VERSION, root: null, tabs: [], active: 0, layout: DEFAULT_LAYOUT, recent: [], recentFiles: ["/a", 3, "", "/a", "/b"] }))?.recentFiles?.join() === "/a,/b",
+  "最近文件里的坏数据和重复要清掉",
+);
 
 // ── 最近打开：坏数据一律当它不存在 ──
 

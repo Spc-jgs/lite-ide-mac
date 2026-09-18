@@ -15,13 +15,13 @@
   import type { KeyDef } from "../state/keymap";
   import { wrapsByDefault } from "../state/tab";
   import { lazy } from "../lazy/lazy.svelte";
-  import { gitHeadText, gitBlame, listProjectFiles } from "../ipc/commands";
+  import { gitHeadText, gitBlame } from "../ipc/commands";
+  import { files } from "../state/files.svelte";
   import { notify } from "../state/notify.svelte";
   import { tabs } from "../state/tabs.svelte";
   import { docs } from "../state/docs.svelte";
   import { tabflow } from "../state/tabflow.svelte";
   import { project } from "../state/project.svelte";
-  import { worktree } from "../state/worktree.svelte";
   import { git } from "../state/git.svelte";
   import { nav } from "../state/nav.svelte";
   import { overlay } from "../state/overlay.svelte";
@@ -198,35 +198,7 @@
     };
   });
 
-  /**
-   * ⌘Click 跳转要的文件索引（⌘P 那一份，相对项目根的路径）。
-   *
-   * **提前拉，不等人按键。** 它是「这个类在不在项目里」的唯一依据，
-   * 而那个问题在 ⌘hover 的每一次鼠标移动上都要答一遍 —— 现拉就是
-   * 每次 hover 隔一个 IPC 往返，下划线跟不上鼠标。`rg --files` 实测 0.02s，
-   * 换项目时拉一次完全付得起。
-   */
-  let projectFiles = $state<string[]>([]);
-
-  $effect(() => {
-    const r = project.root;
-    // worktree.treeTick 一变就重拉：切分支之后新增的文件也得跳得过去
-    worktree.treeTick;
-    if (!r) {
-      projectFiles = [];
-      return;
-    }
-    let dead = false;
-    void listProjectFiles(r)
-      .then((f) => {
-        if (!dead) projectFiles = f;
-      })
-      // 索引拉不到不该打扰人：跳转的第二层歇菜，第一层照常работа
-      .catch(() => {});
-    return () => {
-      dead = true;
-    };
-  });
+  // ⌘Click 跳转要的文件索引：和 ⌘P 共用 `files` 那一份（App 里一条 effect 跟着 root / treeTick 刷）
 </script>
 
 <!--
@@ -370,7 +342,7 @@
         initialView={docs.posByPath.get(tabs.active.path) ?? null}
         onView={(p, g) => docs.onEditorView(p, g)}
         onViewStash={(p, v) => docs.markView(p, v)}
-        jumpFiles={projectFiles}
+        jumpFiles={files.list}
         jumpRel={project.root && tabs.active.path.startsWith(`${project.root}/`)
           ? tabs.active.path.slice(project.root.length + 1)
           : null}

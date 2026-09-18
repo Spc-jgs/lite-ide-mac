@@ -118,6 +118,8 @@ export const KEYS: KeyDef[] = [
    * 更可能是想给 shell 的（zsh 的历史上一条）。菜单项只写标签、不挂 accelerator。
    */
   { id: "quick-file", label: "找文件…", accel: "⌘P", group: "导航", owner: "key" },
+  /** IDEA 的 ⌘E：⌘P 空着的时候列的就是最近打开的，这条只是那个手势的名字。留 keydown 的理由同 ⌘P */
+  { id: "recent-files", label: "最近文件…", accel: "⌘E", group: "导航", owner: "key" },
   {
     id: "quick-content",
     label: "在项目中搜索…",

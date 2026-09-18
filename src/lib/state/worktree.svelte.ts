@@ -3,6 +3,7 @@ import { renameEntry } from "../ipc/fs";
 import { project } from "./project.svelte";
 import { scratches } from "./scratches.svelte";
 import { splitFrontmatter } from "./frontmatter";
+import { files } from "./files.svelte";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { docs } from "./docs.svelte";
@@ -111,6 +112,8 @@ class Worktree {
         docs.posByPath.delete(t.path);
         docs.posByPath.set(np, pos);
       }
+      // 最近列表跟着改名走，不然 ⌘E 里躺着一条旧路径
+      files.rename(t.path, np);
       t.path = np;
       t.name = np.slice(np.lastIndexOf("/") + 1);
       // 差异/冲突标签的 rel 是相对仓库根的，跟着重算 ——
@@ -150,6 +153,8 @@ class Worktree {
   /** 进废纸篓的东西，开着的标签一并关掉（确认框已经说过会关几个未保存的） */
   closeTabsUnder(p: string, isDir: boolean) {
     for (const t of tabs.under(p, isDir)) tabflow.doClose(t);
+    // 进了废纸篓的从「最近」里摘掉：⌘E 里点一下报「不在盘上了」不如不列
+    for (const r of files.recent) if (r === p || (isDir && r.startsWith(`${p}/`))) files.forget(r);
   }
 }
 

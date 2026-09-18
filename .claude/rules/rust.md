@@ -26,19 +26,20 @@ Tauri 的 `#[tauri::command] fn`（不带 `async`）**跑在主线程上** —�
 「Commands without the async keyword are executed on the main thread」。
 主线程就是 NSApplication 的事件循环，它一堵窗口就不响应：菜单点不开、拖不动、转菊花。
 
-**大部分命令不用管。** 实测（M 系列，1.1GB / 3518 文件的仓库，热缓存）：
-`git status -uall` 0.04s、`rg --files` 0.02s、`rg` 全文搜高频词 0.07s、`git log -300` 0.02s。
-40ms 是两帧半，不值得为它换来「命令之间不再串行」这个新变量。
-
-**要挪走的是时长不可控的那几条**，走 `commands::blocking`（tokio 的阻塞池）：
+**判据只有一条：碰盘、碰子进程、碰网络的，一律 `commands::blocking`**（tokio 的阻塞池）。
+第一版只挪「时长不可控」的那几条（钩子、检出、fetch / push、rg、落盘），理由是实测
+`git status` 40ms「两帧半不值得」—— 后来两次都被打脸：09-17 合成 60k 文件的仓库 `status`
+把主线程堵 81ms 且每次保存来一次（issue #12，git 读写全部挪走）；09-18 又发现 `read_text` /
+`probe_path` / `list_dir` / `file_stamp` / `git_root` 还留在主线程 —— 会话恢复串行开 20 个标签，
+每个三次同步 IPC，那一秒窗口不响应。「这条很快」在这台机器的热缓存上是对的，在网络卷、
+冷缓存、别人的仓库上都不是。
 
 | 谁 | 为什么 |
 |---|---|
-| `git_commit` | pre-commit 钩子跑什么是仓库说了算，跑一遍 eslint 三十秒 |
-| `git_switch` / `worktree_add` / `worktree_remove` / `merge_upstream` | 检出几千个文件是秒级 |
-| `git_fetch` / `git_push` | 走网络，本来就是「几十秒」那一档 |
+| 所有 `git_*` | 子进程；`status` 在大仓库上 80ms 且每次保存一次 |
+| `read_text` / `probe_path` / `list_dir` / `file_stamp` / `write_text` / `trash_entry` | 碰盘；网络卷是另一个数量级 |
 | `grep_project` / `list_project_files` | 仓库多大是用户说了算 |
-| `write_text` / `trash_entry` | 网络卷上是另一个数量级 |
+| `git_fetch` / `git_push` | 走网络，本来就是「几十秒」那一档 |
 
 两条容易搞错的：
 

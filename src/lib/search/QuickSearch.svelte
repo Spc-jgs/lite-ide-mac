@@ -1,7 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { listProjectFiles, type Hit, type ScratchEntry } from "../ipc/commands";
-import { grepProject, grepScratches } from "../ipc/search";
+  import { type Hit, type ScratchEntry } from "../ipc/commands";
+  import { grepProject, grepScratches } from "../ipc/search";
+  import { files } from "../state/files.svelte";
+  import { project } from "../state/project.svelte";
   import { rank, segments } from "./fuzzy";
   import Icon from "../shell/Icon.svelte";
   import FileGlyph from "../shell/FileGlyph.svelte";
@@ -59,35 +61,20 @@ import { grepProject, grepScratches } from "../ipc/search";
   ];
 
   let query = $state("");
-  let files = $state<string[]>([]);
   let hits = $state<Hit[]>([]);
   /** 草稿里的内容命中（M10 ③）。和项目那趟并行，各自 60 条上限 */
   let shits = $state<Hit[]>([]);
   let searching = $state(false);
   let cursor = $state(0);
   let input: HTMLInputElement | undefined = $state();
-  let indexed = $state(false);
 
-  // 打开时建一次文件索引，并把上次的输入换成这次的（没有 seed 就是清空）
+  // 打开时把上次的输入换成这次的（没有 seed 就是清空）。文件索引不在这儿拉 ——
+  // 那是 `files` store 的事，App 里一条 effect 跟着 root / treeTick 刷，⌘Click 跳转共用同一份
   $effect(() => {
     if (!open) return;
     query = untrack(() => seed);
     cursor = 0;
     queueMicrotask(() => input?.focus());
-    if (indexed || !root) return;
-    listProjectFiles(root)
-      .then((f) => {
-        files = f;
-        indexed = true;
-      })
-      .catch(() => {});
-  });
-
-  // 换项目就重新索引
-  $effect(() => {
-    root;
-    indexed = false;
-    files = [];
   });
 
   // 内容搜索要跑子进程，必须 debounce，否则每敲一个字母扫一遍项目
@@ -136,6 +123,8 @@ import { grepProject, grepScratches } from "../ipc/search";
 
   type Row =
     | { kind: "file"; path: string; seg: { t: string; hit: boolean }[]; scratch?: true }
+    /** ⌘E / ⌘P 空着的时候列的：最近打开的文件（绝对路径） */
+    | { kind: "recent"; path: string }
     | { kind: "content"; path: string; line: number; text: string }
     /** 草稿里的内容命中：单独一组「草稿」，右边那列是那条草稿的标题 */
     | { kind: "scratch"; path: string; line: number; text: string; title: string }
@@ -143,13 +132,21 @@ import { grepProject, grepScratches } from "../ipc/search";
 
   let rows = $derived.by(() => {
     const out: Row[] = [];
+    /*
+     * 什么都没输、范围是全部 / 文件：列最近打开的（IDEA 的 ⌘E）。这个工具的定位就是在三五个
+     * 文件和一份日志之间来回，「上一个」比「找一个」常用得多。输入一个字它就让位给匹配。
+     */
+    if (query.length === 0 && (scope === "all" || scope === "file")) {
+      for (const p of files.recent.slice(0, 10)) out.push({ kind: "recent", path: p });
+      return out;
+    }
     if (scope === "all" || scope === "action") {
       for (const r of rank(actions, query, (a) => a.label, scope === "action" ? 20 : 4)) {
         out.push({ kind: "action", action: r.item, seg: segments(r.item.label, r.positions) });
       }
     }
     if (scope === "all" || scope === "file") {
-      for (const r of rank(files, query, (f) => f, scope === "file" ? 40 : 8)) {
+      for (const r of rank(files.list, query, (f) => f, scope === "file" ? 40 : 8)) {
         out.push({ kind: "file", path: r.item, seg: segments(r.item, r.positions) });
       }
       // 草稿按文件名匹配（目录那串对所有草稿都一样，拿它排名只会全体并列）
@@ -183,7 +180,7 @@ import { grepProject, grepScratches } from "../ipc/search";
   function choose(row: Row) {
     open = false;
     if (row.kind === "action") row.action.run();
-    else if (row.kind === "file") onOpenFile(row.path, undefined, false);
+    else if (row.kind === "file" || row.kind === "recent") onOpenFile(row.path, undefined, false);
     // 草稿命中也是「看看这一处」，但草稿标签不做预览（它是「我的东西」，被顶掉会莫名其妙）
     else onOpenFile(row.path, row.line, row.kind === "content");
   }
@@ -209,7 +206,16 @@ import { grepProject, grepScratches } from "../ipc/search";
     }
   }
 
-  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿" } as const;
+  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开" } as const;
+
+  /** 最近文件右边那列：项目里的显示相对目录，草稿标「草稿」，别处的显示整条目录 */
+  const recentSide = (p: string) => {
+    if (project.isScratch(p)) return "草稿";
+    const dir = dirName(p);
+    // 根上的文件右边留空，和上面「文件」那组的 `dirName` 一致
+    if (root && p.startsWith(`${root}/`)) return dir.slice(root.length + 1);
+    return dir;
+  };
 
   const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
@@ -268,12 +274,12 @@ import { grepProject, grepScratches } from "../ipc/search";
       {#if rows.length === 0}
         <div class="none">
           {#if searching}搜索中…
-          {:else if query.length === 0}输入以开始
+          {:else if query.length === 0}输入以开始{#if scope === "all" || scope === "file"} —— 打开过的文件会列在这儿{/if}
           {:else if (scope === "content" || scope === "all") && query.length < 2}内容搜索至少输入 2 个字符
           {:else}没有匹配{/if}
         </div>
       {/if}
-      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" ? `${row.path}:${row.line}` : row.kind === "file" ? row.path : row.action.id))}
+      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" ? `${row.path}:${row.line}` : row.kind === "file" || row.kind === "recent" ? row.path : row.action.id))}
         <!--
           分组头代替每行的类型胶囊。结果本来就是按类型排好的，
           每行再印一遍「文件」「操作」等于把分组信息摊到了每一行上 ——
@@ -302,6 +308,10 @@ import { grepProject, grepScratches } from "../ipc/search";
               {#each tailSeg(row.seg, row.path.lastIndexOf("/") + 1) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}
             </span>
             <span class="side">{row.scratch ? "草稿" : dirName(row.path)}</span>
+          {:else if row.kind === "recent"}
+            <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
+            <span class="main">{fileName(row.path)}</span>
+            <span class="side">{recentSide(row.path)}</span>
           {:else if row.kind === "scratch"}
             <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
             <span class="main mono">{row.text.trim()}</span>
@@ -322,6 +332,10 @@ import { grepProject, grepScratches } from "../ipc/search";
       <span><kbd>↵</kbd> 打开</span>
       <span><kbd>Tab</kbd> 换范围</span>
       <span class="gap"></span>
+      {#if files.truncated && (scope === "all" || scope === "file")}
+        <!-- 「没找到」和「索引没看到那儿」是两个答案，rust.md：truncated 必须一路传到界面 -->
+        <span class="trunc">索引只看了前 {files.list.length.toLocaleString("en-US")} 个文件，后面的搜不到</span>
+      {/if}
       <span><kbd>esc</kbd> 关闭</span>
     </div>
   </div>
@@ -473,6 +487,7 @@ import { grepProject, grepScratches } from "../ipc/search";
   }
   .row.sel .key { color: var(--text-dim); }
 
+  .foot .trunc { color: var(--lvl-warn); }
   .foot {
     flex: none;
     display: flex;

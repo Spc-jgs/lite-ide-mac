@@ -140,6 +140,12 @@ export interface Session {
    * 开回一个项目上次的标签会跟着回来，比记住散落的文件有用得多。
    */
   recent: string[];
+  /**
+   * 最近打开的**文件**（⌘E），绝对路径、最新在前。和上面的项目根是两回事：
+   * 那份决定「恢复哪个工作区」，这份只是一张「上一个是谁」的名单。
+   * 不按项目分：跨项目来回看的时候正需要它。可选 —— 老快照没有这个字段。
+   */
+  recentFiles?: string[];
 }
 
 export const DEFAULT_LAYOUT: Layout = {
@@ -167,6 +173,8 @@ export const DEFAULT_LAYOUT: Layout = {
  * 是同一个数**，那边只是防御性地再截一次。
  */
 export const RECENT_MAX = 8;
+/** 最近文件（⌘E）记多少条。列出来的是前 10，多记一些是给以后过滤用的 */
+export const RECENT_FILES_MAX = 30;
 
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 640;
@@ -294,12 +302,23 @@ export function parse(raw: string | null | undefined): Session | null {
     }
   }
 
+  // 最近文件同一条判据：坏数据当没有，重复去掉，截到上限
+  const recentFiles: string[] = [];
+  if (Array.isArray(o.recentFiles)) {
+    for (const r of o.recentFiles) {
+      if (!isStr(r) || r === "" || recentFiles.includes(r)) continue;
+      recentFiles.push(r);
+      if (recentFiles.length >= RECENT_FILES_MAX) break;
+    }
+  }
+
   return {
     root: isStr(o.root) ? o.root : null,
     tabs,
     active,
     layout: toLayout(o.layout),
     recent,
+    recentFiles,
   };
 }
 
@@ -358,5 +377,6 @@ export function serialize(s: Session, withDrafts = true): string {
      * 调用方少给一个字段就该退成空列表，不能抛 —— 抛一次这一轮的现场就没了。
      */
     recent: (s.recent ?? []).slice(0, RECENT_MAX),
+    recentFiles: (s.recentFiles ?? []).slice(0, RECENT_FILES_MAX),
   });
 }

@@ -177,6 +177,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "quick-all", "随处搜索（连按两下 ⇧）", None)?)
         // ⌘P 只放标签：挂了 accelerator，终端里的 ⌘P 就被菜单抢走了
         .item(&item(app, "quick-file", "找文件…", None)?)
+        .item(&item(app, "recent-files", "最近文件…", None)?)
         .item(&item(app, "quick-content", "在项目中搜索…", Some("Shift+CmdOrCtrl+F"))?)
         .item(&outline)
         .separator()

@@ -47,6 +47,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("BranchErrDto", "BranchErr"),
     ("TrustSuspectDto", "TrustSuspect"),
     ("TrustScanDto", "TrustScan"),
+    ("ProjectFilesDto", "ProjectFiles"),
     ("ScratchDto", "ScratchEntry"),
     ("AnchorDto", "ScratchAnchor"),
     ("CliInstallDto", "CliInstall"),

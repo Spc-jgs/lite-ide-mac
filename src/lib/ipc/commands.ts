@@ -291,9 +291,15 @@ export interface Hit {
   text: string;
 }
 
+/** ⌘P / ⌘Click 用的文件索引。`truncated`：到了 Rust 侧 5 万的上限，后面的没看 */
+export interface ProjectFiles {
+  files: string[];
+  truncated: boolean;
+}
+
 /** 列出项目文件（相对路径），模糊匹配在前端做 */
 export const listProjectFiles = (root: string) =>
-  invoke<string[]>("list_project_files", { root });
+  invoke<ProjectFiles>("list_project_files", { root });
 
 // ─────────────────────────── Git ───────────────────────────
 

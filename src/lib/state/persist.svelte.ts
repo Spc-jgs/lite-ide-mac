@@ -4,6 +4,7 @@ import { stashed } from "./doc";
 import { notify } from "./notify.svelte";
 import { layout } from "./layout.svelte";
 import { project } from "./project.svelte";
+import { files } from "./files.svelte";
 import { tabs } from "./tabs.svelte";
 import { docs, type ViewPos } from "./docs.svelte";
 import { tabflow } from "./tabflow.svelte";
@@ -36,6 +37,7 @@ export const saved: session.Session | null = (() => {
 // 布局和最近列表在任何 effect 跑之前就灌好 —— 理由见上面
 layout.restore(saved?.layout ?? session.DEFAULT_LAYOUT);
 project.recent = saved?.recent ?? [];
+files.recent = saved?.recentFiles ?? [];
 
 class Persist {
   /**
@@ -238,6 +240,7 @@ class Persist {
       active: Math.max(0, tabs.list.findIndex((t) => t.id === tabs.activeId)),
       layout: layout.snapshot(),
       recent: [...project.recent],
+      recentFiles: [...files.recent],
     };
   }
 

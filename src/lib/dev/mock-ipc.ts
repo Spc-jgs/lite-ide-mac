@@ -1068,10 +1068,19 @@ export function installMockIpc(): void {
           console.info(`[mock] 移到废纸篓 ${path}`);
           return null;
         }
-        case "list_project_files":
-          return Object.keys(FILES)
+        case "list_project_files": {
+          const files = Object.keys(FILES)
             .filter((f) => !searchSkips(f))
             .map((f) => f.replace(/^\/proj\//, ""));
+          // localStorage 里 `lite-ide.mock-truncated` = "1" 就说索引截断了，看界面怎么说这件事
+          let truncated = false;
+          try {
+            truncated = localStorage.getItem("lite-ide.mock-truncated") === "1";
+          } catch {
+            /* 拿不到就当没截断 */
+          }
+          return { files, truncated };
+        }
         case "grep_project": {
           const pat = String(a.pattern).toLowerCase();
           const out: Array<{ path: string; line: number; text: string }> = [];
