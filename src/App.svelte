@@ -743,6 +743,9 @@
         await openIncoming(paths);
       })
       .catch(() => {})
+      // 恢复完还是一个标签都没有：落在草稿里（`launchScratch`），不停在空态卡片上
+      .then(() => (tabs.list.length === 0 ? tabflow.launchScratch() : undefined))
+      .catch(() => {})
       .finally(() => {
         persist.restoring = false;
         persist.schedule();

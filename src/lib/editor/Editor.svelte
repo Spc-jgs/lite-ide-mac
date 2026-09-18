@@ -22,6 +22,7 @@
   import { resolveJump, rawWordAt, type JumpHit } from "./jump";
   import { jumpExtension } from "./jump-ext";
   import { foldFrontmatter } from "./frontmatter-fold";
+  import { bodyPlaceholder } from "./body-placeholder";
   import type { ViewPos } from "../state/docs.svelte";
 
   let {
@@ -31,6 +32,7 @@
     savedTick = 0,
     selfSaveTick = 0,
     gotoLine = null,
+    placeholder = null,
     onGotoDone,
     outlineTick = 0,
     headText = null,
@@ -75,6 +77,8 @@
     gotoLine?: { line: number; col?: number; nonce: number } | null;
     /** `gotoLine` 已经落到位了，上层把它销掉 */
     onGotoDone?: () => void;
+    /** 正文（文件头之后）为空时显示的一行灰字，空草稿用它放快捷键提示；敲第一个字就没了 */
+    placeholder?: string | null;
     /** 自增即重新提取大纲。放在 Editor 里算是因为语法树在它手上 */
     outlineTick?: number;
     /**
@@ -305,6 +309,7 @@
         // 它自己包着 `search({ top: true, createPanel })`，别在这儿再装一次 —— 
         // 装两遍的话后一个 `createPanel` 静默不生效，画出来的还是默认面板。
         searchPanel(),
+        placeholder ? bodyPlaceholder(placeholder) : [],
         mapSlot.of(showMinimap ? minimap() : []),
         wrapSlot.of(wrap ? EditorView.lineWrapping : []),
         /*

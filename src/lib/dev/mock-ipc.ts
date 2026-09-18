@@ -108,6 +108,9 @@ const FILES: Record<string, string> = {
     "# 周会要点\n\n- 日志引擎 1GB 冷启动 460ms\n- 下周切 CI\n",
   "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-12 0915.md":
     "\n\ncurl -s http://localhost:8080/health | jq .\n",
+  // 只有头、没有正文的一份：启动直接进草稿时要**复用它**而不是再建一份（`tabflow.launchScratch`）
+  "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-16 2310.md":
+    "---\nproject: /proj\nbranch: m13/git\nhead: h800000\n---\n\n",
   // 带锚点的一份（M10）：列表要按项目分组、chip 要能跳回那一行，桩上得有一条能点的
   "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-14 1120.md":
     "---\nproject: /proj\nbranch: m13/git\nhead: h800000\nat: src/OrderService.java:18\n---\n\n18 行那个 timeout 是临时的，上线前改回 300\n",
@@ -489,7 +492,7 @@ const DIRS: Record<string, Array<[string, boolean]>> = {
   // 应用日志所在的目录。它**不在项目里**，只有「帮助 → 打开应用日志」够得着
   "/Users/you/Library/Logs/com.liteide.app": [["app.log", false]],
   // 草稿目录里预放两份 —— 不放的话侧边栏的草稿列表在浏览器里永远是空态（issue #40）
-  [SCRATCH_DIR]: [["2026-09-10 1644.md", false], ["2026-09-12 0915.md", false], ["2026-09-14 1120.md", false], ["2026-09-15 0930.md", false], ["2026-09-13 1800.md", false]],
+  [SCRATCH_DIR]: [["2026-09-10 1644.md", false], ["2026-09-12 0915.md", false], ["2026-09-14 1120.md", false], ["2026-09-15 0930.md", false], ["2026-09-13 1800.md", false], ["2026-09-16 2310.md", false]],
   "/proj": [["src", true], ["moduleA", true], ["moduleB", true], ["logs", true], ["docs", true], [".github", true], ["node_modules", true], ["target", true], ["build", true], ["dist", true], [".env", false], [".gitignore", false], ["README.md", false], ["package.json", false], ["pom.xml", false], ["Cargo.toml", false], ["vite.config.ts", false]],
   // 生成物目录里也要有东西 —— 空目录点开只有一行「空」，看不出「点得开」这件事
   "/proj/node_modules": [["svelte", true], [".package-lock.json", false]],

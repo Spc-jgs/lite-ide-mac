@@ -49,6 +49,24 @@
     });
   });
 
+  /**
+   * 空草稿里那行灰字：启动直接落在草稿里（Sublime 那样，打开 = 光标已经在闪），
+   * 原来空态卡片上的「打开文件夹 / 找文件」两条就搬到这儿来。同卡片一样从
+   * `keymap.ts` 生成，不手抄第四份。键位表是懒的，没到之前只有前半句。
+   */
+  const SCRATCH_HINT_IDS = ["open-folder", "quick-file"];
+  let scratchHint = $state("记点东西…");
+  $effect(() => {
+    const t = tabs.active;
+    if (!t || !project.isScratch(t.path) || scratchHint.includes("·")) return;
+    void import("../state/keymap").then(({ byId }) => {
+      const parts = SCRATCH_HINT_IDS.map((id) => byId(id))
+        .filter((k) => k !== undefined)
+        .map((k) => `${k.accel} ${k.label}`);
+      scratchHint = ["记点东西…", ...parts].join("  ·  ");
+    });
+  });
+
   let {
     Merge,
     Diff,
@@ -326,6 +344,7 @@
         selfSaveTick={docs.selfSaveTick}
         gotoLine={nav.gotoLine}
         onGotoDone={() => nav.done()}
+        placeholder={project.isScratch(tabs.active.path) ? scratchHint : null}
         {outlineTick}
         {headText}
         {showMinimap}

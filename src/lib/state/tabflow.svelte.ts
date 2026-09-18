@@ -251,6 +251,27 @@ class TabFlow {
   }
 
   /**
+   * 启动时一个标签都没有 → 直接落在一份草稿里，光标在闪（Sublime 那样）。
+   * 空态卡片自己写着「记点东西」，却要人先点一下 —— 定位和首屏不一致。
+   *
+   * **不每次都新建。** `newScratch` 是立刻落盘一个带头的文件，每天开一次就多一份
+   * 空草稿，一个月后列表全是垃圾。最新那份草稿如果正文还是空的（`firstLine` 空串），
+   * 就开它 —— 盘上最多只有一份空草稿，也不需要退出时反向清理。
+   * 只在启动时用：关掉最后一个标签回到卡片，那时人是主动清空的。
+   */
+  async launchScratch() {
+    await scratches.refresh().catch(() => {});
+    const empty = scratches.list
+      .filter((e) => e.firstLine === "")
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+    if (empty) {
+      await this.openPath(empty.path);
+      return;
+    }
+    await this.newScratch();
+  }
+
+  /**
    * 此刻的锚点。`at` 只记项目里、编辑模式的标签（日志 / 差异 / 草稿本身不算）；
    * 行号取编辑器最后报上来的光标行（`docs.posByPath`），没报过就不记行。
    */
