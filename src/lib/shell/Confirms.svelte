@@ -204,10 +204,11 @@
 </div>
 
 <style>
+  /* 浮在编辑器岛里（App 的 `.editor-island` 是定位父级），左右贴岛边 —— 原来父级是 `.main`，右边要扣掉岛的右缝 */
   .stack {
     position: absolute;
     left: 0;
-    right: var(--island-gap);
+    right: 0;
     top: 8px;
     z-index: 30;
     display: flex;

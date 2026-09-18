@@ -333,7 +333,7 @@
     /* 32 → 38：28px 的圆角块要有呼吸位，贴着上下边看着像被切掉一半 */
     height: 38px;
     padding: 0 6px;
-    background: var(--panel-bg);
+    background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     /* 不画下边线（M8）：下面那块岛的圆角上沿就是边界 */
     overflow-x: auto;
     overflow-y: hidden;

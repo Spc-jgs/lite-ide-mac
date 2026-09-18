@@ -1421,7 +1421,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: var(--panel-bg);
+    background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     overflow: hidden;
   }
   .head {

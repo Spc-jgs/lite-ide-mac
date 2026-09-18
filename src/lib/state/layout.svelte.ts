@@ -40,7 +40,12 @@ class LayoutState {
     this.sidebar = l.sidebar;
     this.sidebarWidth = l.sidebarWidth;
     this.sideView = l.sideView;
-    this.panel = l.panel;
+    /*
+     * 终端视图的「开着」不恢复（ui.md 第十条「工具窗有内容才出现」）：终端会话跟着
+     * 进程死，重启时没有一个终端可恢复，恢复出来的是一个空壳 —— 而起一个没人要的
+     * shell 是一个多余进程，没项目时它的 cwd 还是 `~`。Git 视图恢复：仓库还在就有内容。
+     */
+    this.panel = l.panel && l.panelView === "git";
     this.panelHeight = l.panelHeight;
     this.panelView = l.panelView;
     this.gitTab = l.gitTab;
@@ -57,6 +62,26 @@ class LayoutState {
       panelView: this.panelView,
       gitTab: this.gitTab,
     };
+  }
+
+  /**
+   * 侧边栏此刻该不该在屏幕上（ui.md 第十条「工具窗有内容才出现」）。
+   * `sidebar` 是偏好（人要不要看），这个是判决：没项目时文件树 / Git 视图没有内容，
+   * 只有草稿视图能出现。渲染和导轨上的「亮着」一律看它，写状态才写 `sidebar`。
+   */
+  sideShown(hasRoot: boolean): boolean {
+    return this.sidebar && (hasRoot || this.sideView === "scratch");
+  }
+
+  /** ⌘1 / 导轨最上面那个开关。没项目时唯一能展开的是草稿，所以它就开草稿 */
+  toggleSidebar(hasRoot: boolean) {
+    if (this.sideShown(hasRoot)) {
+      this.sidebar = false;
+    } else if (hasRoot) {
+      this.sidebar = true;
+    } else {
+      this.showSide("scratch");
+    }
   }
 
   /** 把侧边栏切到某个视图并确保它是展开的 */

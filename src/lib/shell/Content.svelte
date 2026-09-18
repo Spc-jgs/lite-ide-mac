@@ -393,8 +393,8 @@
 <style>
   /*
    * 内容岛（M8）：圆角 + 5% 描边 + 裁切。**这里不画底** —— 底由里面的
-   * 编辑器 / 日志 / 差异各自画（`--content-bg`，内容层只画一次），
-   * 这层只负责把它们裁成岛的形状。空态也照样是岛，卡片浮在玻璃上。
+   * 编辑器 / 日志 / 差异各自画（`--content-bg`，内容层只画一次）。
+   * 岛的形状（描边、圆角）在 App 的 `.editor-island` 上 —— 标签栏是岛的头，也在里面。
    */
   .content {
     flex: 1;
@@ -406,8 +406,6 @@
      * 说明白 —— 见 App.svelte 里 `minmax(0, 1fr)` 那条注释，两处是同一个问题的两道闸。
      */
     contain: strict;
-    border: var(--island-border);
-    border-radius: var(--island-radius);
   }
 
   .empty {

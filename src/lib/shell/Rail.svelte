@@ -27,6 +27,9 @@
     onSearch: () => void;
     onTogglePanel: (v: "term" | "git") => void;
   } = $props();
+
+  /** 侧边栏此刻在不在屏幕上（不是偏好，是判决）：按钮亮不亮、tooltip 说收起还是展开都看它 */
+  let shown = $derived(layout.sideShown(root !== null));
 </script>
 
 <!--
@@ -40,11 +43,11 @@
 <nav class="rail" aria-label="侧边栏工具">
   <button
     class="rbtn"
-    class:on={layout.sidebar}
-    onclick={() => (layout.sidebar = !layout.sidebar)}
-    title={layout.sidebar ? "收起侧边栏 ⌘1" : "展开侧边栏 ⌘1"}
-    aria-label={layout.sidebar ? "收起侧边栏" : "展开侧边栏"}
-    aria-expanded={layout.sidebar}
+    class:on={shown}
+    onclick={() => layout.toggleSidebar(root !== null)}
+    title={shown ? "收起侧边栏 ⌘1" : "展开侧边栏 ⌘1"}
+    aria-label={shown ? "收起侧边栏" : "展开侧边栏"}
+    aria-expanded={shown}
   >
     <Icon name="sidebar" />
   </button>

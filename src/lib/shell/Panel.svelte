@@ -58,11 +58,12 @@
     if (e) notify.fail(e);
   });
 
-  // 打开面板时若一个终端都没有，自动起一个。
+  // 打开面板时若一个终端都没有，自动起一个 —— 「开着」和「有内容」要同时成立
+  // （ui.md 第十条）。没项目就在 `~`，和头上那个 ＋ 同一条路。
   // 只在终端页上做 —— 冲着 Git 日志来的人不该莫名多出一个 shell
   $effect(() => {
-    if (layout.panel && panelTool === "term" && terms.list.length === 0 && root !== null) {
-      terms.open(root);
+    if (layout.panel && panelTool === "term" && terms.list.length === 0) {
+      terms.open(root ?? "~");
     }
   });
 

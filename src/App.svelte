@@ -630,7 +630,7 @@
       case "nav-back": return void nav.go("back");
       case "nav-fwd": return void nav.go("fwd");
       case "outline": return overlay.openOutline();
-      case "toggle-sidebar": layout.sidebar = !layout.sidebar; return;
+      case "toggle-sidebar": layout.toggleSidebar(project.root !== null); return;
       case "toggle-panel": layout.panel = !layout.panel; return;
       case "toggle-scratch":
         // 已经在草稿视图上再点一次就收起侧边栏，和导轨上那个按钮同一个手势
@@ -928,7 +928,7 @@
 
   <div
     class="workspace"
-    class:no-side={!layout.sidebar}
+    class:no-side={!layout.sideShown(project.root !== null)}
     class:resizing={layout.resizing}
     style:--side-w="{layout.sidebarWidth}px"
   >
@@ -943,12 +943,12 @@
       onTogglePanel={(v) => layout.togglePanel(v, panelTool)}
     />
 
-    {#if layout.sidebar}
+    {#if layout.sideShown(project.root !== null)}
       <!--
         侧边栏外壳在 Sidebar.svelte 里；两块内容的数据和回调还接在 App 上
         （标签表、git 动作没搬出去），所以以 snippet 传进去。
       -->
-      <Sidebar root={project.root} repo={git.repo} gitReady={!!gitUi.comps.pane} onOpenFolder={() => void tabflow.openFolder()}>
+      <Sidebar repo={git.repo} gitReady={!!gitUi.comps.pane}>
         {#snippet gitPane()}
           <gitUi.comps.pane
             status={git.status}
@@ -984,7 +984,7 @@
           {/if}
         {/snippet}
         {#snippet fileTree()}
-          <!-- `root!`：这块只在 Sidebar 判过 root 非空之后才渲染，收窄在那个文件里 -->
+          <!-- `root!`：没项目时侧边栏整个不渲染（`layout.sideShown`），走到这儿 root 一定非空 -->
           {#if tree.comp}
           <tree.comp
             root={project.root!}
@@ -1010,6 +1010,8 @@
     {/if}
 
     <section class="main">
+      <!-- 编辑器岛：标签栏是它的头，在岛里 —— 和两座工具窗岛同一个结构（头 + 身） -->
+      <div class="editor-island">
       {#if tabs.list.length > 0}
         <Tabs
           tabs={tabs.list}
@@ -1041,6 +1043,7 @@
         onLogStatus={(t) => (logStatus = t)}
         onOutline={(syms) => (overlay.symbols = syms)}
       />
+      </div>
 
       <!--
         底部工具窗在 Panel.svelte 里。提交历史那块要这边的 git lazyGroup 和活动标签，
@@ -1134,12 +1137,27 @@
    * flex 天然按实际存在的元素排布，content 吃掉剩余空间就行。
    */
   .main {
-    position: relative; /* 确认卡片浮在它里面（Confirms.svelte） */
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    /* 右缝和下缝：岛不贴窗口边，也不贴状态栏 */
-    padding: 0 var(--island-gap) var(--island-gap) 0;
+    /* 上缝、右缝、下缝：岛不贴标题栏、不贴窗口边、不贴状态栏。上缝让标签栏和侧边栏岛的头（也是 38px）落在同一条线上 */
+    padding: var(--island-gap) var(--island-gap) var(--island-gap) 0;
+  }
+  /*
+   * 编辑器岛 = 标签栏 + 内容（2026-09-18）。原来标签栏在岛外、属于外壳，而底部工具窗
+   * 的头在岛里 —— 同一个窗口里两种「头在哪」。现在三座岛一个结构：头（38px）+ 身。
+   * 岛的描边 / 圆角 / 底色在这一层，Content 只管裁自己。
+   */
+  .editor-island {
+    position: relative; /* 确认卡片浮在它里面（Confirms.svelte） */
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--content-bg);
+    border: var(--island-border);
+    border-radius: var(--island-radius);
   }
 
 

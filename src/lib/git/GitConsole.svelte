@@ -182,7 +182,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
     align-items: center;
     gap: 10px;
     padding: 4px 8px;
-    background: var(--panel-bg);
+    background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     border-bottom: 1px solid var(--border);
     font-size: 11px;
     color: var(--text-dim);

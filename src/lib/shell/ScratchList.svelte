@@ -197,7 +197,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: var(--panel-bg);
+    background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     overflow: hidden;
   }
   /* 头和文件树的一模一样：同一个侧边栏里两个视图的头长得不一样，人会以为是两种东西 */
@@ -243,7 +243,7 @@
     gap: 4px;
     width: 100%;
     padding: 8px 6px 4px;
-    background: var(--panel-bg);
+    background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     border: none;
     color: var(--text-faint);
     font-size: 10.5px;

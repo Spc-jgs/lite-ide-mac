@@ -15,22 +15,18 @@
   import { layout } from "../state/layout.svelte";
 
   let {
-    root,
     repo,
     gitReady,
     fileTree,
     gitPane,
     scratchList,
-    onOpenFolder,
   }: {
-    root: string | null;
     repo: string | null;
     /** Git 面板那个懒加载 chunk 到了没 */
     gitReady: boolean;
     fileTree: Snippet;
     gitPane: Snippet;
     scratchList: Snippet;
-    onOpenFolder: () => void;
   } = $props();
 
   /** 侧边栏横向拖拽。上限留出编辑区的活路，不让它被挤没 */
@@ -58,17 +54,8 @@
 <aside>
   <svelte:boundary>
     {#if layout.sideView === "scratch"}
-      <!-- 草稿排在 `!root` 前面：没开项目也要能翻草稿（issue #40） -->
+      <!-- 草稿不看 root：没开项目也要能翻草稿（issue #40）。没项目的其他视图根本不会走到这儿（`layout.sideShown`） -->
       {@render scratchList()}
-    {:else if !root}
-      <!--
-        没有项目时这里不再是文件树（开一个文件不再自动把父目录当项目，issue #40）。
-        空态要给下一步：一个能点的「打开文件夹…」，拖进来那条路也留着说一句。
-      -->
-      <div class="no-root">
-        <button class="btn open" onclick={onOpenFolder}>打开文件夹… <kbd>⌘O</kbd></button>
-        <div class="hint">或者把文件夹拖进来。只看文件、记草稿不需要项目。</div>
-      </div>
     {:else if layout.sideView === "git" && repo && gitReady}
       {@render gitPane()}
     {:else if layout.sideView === "git" && repo}
@@ -90,18 +77,26 @@
 ></div>
 
 <style>
-  aside { overflow: hidden; }
+  /*
+   * 侧边栏是一座岛（2026-09-18，ui.md 二「岛按是什么分」）：和底部工具窗同一套描边、
+   * 圆角、底色。上下各留一条 `--island-gap`：上面不贴标题栏，下面不贴状态栏 ——
+   * 和主区右缝、下缝同一个数。头（38px）在岛里，同底部工具窗。
+   */
+  aside {
+    overflow: hidden;
+    margin: var(--island-gap) 0;
+    background: var(--content-bg);
+    border: var(--island-border);
+    border-radius: var(--island-radius);
+  }
   /* 不画右边线，理由同 FileTree 的 `.tree` —— 那条边界归 `.side-resizer` */
   .no-root {
     padding: 14px 12px;
     color: var(--text-faint);
     font-size: 12px;
-    background: var(--panel-bg);
+    background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     height: 100%;
   }
-  .no-root .open { gap: 6px; color: var(--text); }
-  .no-root kbd { font-family: var(--code-font); font-size: 11px; color: var(--text-faint); }
-  .no-root .hint { margin-top: 10px; line-height: 1.5; }
   /*
    * 拖拽条：**热区和画出来的线要分开。**
    *
