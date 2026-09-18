@@ -7029,3 +7029,32 @@ Rust：`trust` 5 条 + `trust_store` 2 条 + `dto_sync`。桩上（`lite-ide.moc
 导轨出现「Git 改动」。**真 `.app` 那段（smoke ⑰：`open -a` 送一个带 `filter.evil.clean` 的
 目录进去，断言标记文件不存在、挂件受限、信任后 Git 出来）写好了还没跑** —— 用户在用电脑，
 smoke 抢键盘。
+
+## 2026-09-18 · 一次 `cargo build` = 每 300ms 两个 git 子进程，监听不看生成物目录
+
+调研下一步方向时翻出来的账：`watch.rs` 头注释说「最坏每 300ms 一次刷新，`git status`
+十几毫秒，顶得住」。这笔账是 09-09 写的，算的是**一条事件的代价**；之后 09-09 / 09-10 又给
+`fs-changed: files` 挂了两个消费者 —— `Content` 按 `treeTick` 重拉 `listProjectFiles`、
+`App` 重问 `ignoredDirs`（又一个 git 子进程）。而 watcher 对 `target/` `node_modules/`
+一视同仁：`cargo build` 写几分钟，前端就每 300ms 起两个 git 子进程 + 两次全量遍历，
+持续几分钟。文件树和搜索本来就不进这些目录，它们里面变了，界面上没有一样东西要跟着变。
+
+### 做法
+
+回调里多一个判断：路径穿过 `excludes::CERTAIN_GENERATED_DIRS`（`node_modules` `target`
+`venv` `__pycache__`）就不算 `Files`。**不跳 `dist` / `build` / `vendor`**：这里没法问 git
+（每条事件问一次就是又一个子进程风暴），而按名字跳掉一个真叫 `build/` 的源码目录，
+后果是外部改了它、树不刷、没有任何提示 —— issue #13 那种静默错。多刷几次是可见的代价，
+少刷是不可见的。FSEvents 只能整棵递归监听，没有「除了这几个子目录」，所以只能在回调里滤。
+
+### 数字
+
+测试模拟一次 build：两秒里往 `target/debug/deps/` 和 `crates/x/node_modules/` 各写 83 个文件。
+改前收到 **7 条** `Files`（把过滤改坏跑的，测试确实红），改后 **0 条**；紧接着往 `src/` 写
+一个，1 条 `Files` 照发 —— 监听没被整个吞掉。按前端扇出算，一次两秒的 build 从 14 个 git
+子进程 + 7 次全量遍历降到 0。
+
+### 学到的
+
+**预算要写在扇出的终点，不是源头。** watcher 那句「顶得住」在它自己的边界内是对的，错在
+后来加的消费者不会回头改这句话。给一条事件加订阅者的时候，要回到发事件的地方重算一遍。

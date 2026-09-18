@@ -28,6 +28,24 @@
 //! 代价是十几毫秒。`checkExternalChanges` 靠指纹比对，自己刚存的文件指纹已经更新，
 //! 不会误报成外部改动。
 //!
+//! # 生成物目录里的事件不算数
+//!
+//! `cargo build` 往 `target/` 里写几分钟，`pnpm install` 往 `node_modules/`
+//! 里写几万个文件。它们每一条都会被上面那套合成「每 300ms 一条 `Files`」——
+//! 而前端一条 `Files` 扇出去的是三件事：重读打开的文件 + 重列目录、一次
+//! `git status`、一次 `ignored_dirs`（又一个 git 子进程）。上面那段「顶得住」
+//! 算的是一条事件的代价，没算一次 build 会连着触发几百条。文件树和搜索本来
+//! 就不进这些目录（`excludes`），它们里面变了，界面上没有任何东西需要跟着变。
+//!
+//! 只跳 [`excludes::CERTAIN_GENERATED_DIRS`]，不跳 `dist` / `build` / `vendor`
+//! 那几个有争议的：这里没法问 git（每条事件问一次就是又一个子进程风暴），
+//! 而按名字跳掉一个真叫 `build/` 的源码目录，后果是**外部改了它、树不刷、
+//! 没有任何提示** —— 正是 issue #13 那种最难查的静默错。多刷几次是可见的
+//! 代价，少刷是不可见的，两害取可见的那个。
+//!
+//! FSEvents 只能整棵递归监听，没有「除了这几个子目录」——所以是在回调里
+//! 按路径过滤，不是少监听几个目录。
+//!
 //! # 事件太多时
 //!
 //! notify 内部的通道是无界的，事件来得比处理得快就在那儿排队。这里的回调只做
@@ -79,6 +97,13 @@ fn touches_git(p: &Path) -> bool {
     p.components().any(|c| c.as_os_str() == ".git")
 }
 
+/// 路径穿过了一个**肯定是生成物**的目录（`target/`、`node_modules/`…）。
+/// 只看名字，不看位置：`crates/x/target/` 和根上的 `target/` 一样都是 cargo 写的
+fn touches_generated(p: &Path) -> bool {
+    p.components()
+        .any(|c| c.as_os_str().to_str().is_some_and(excludes::is_certain_generated_dir))
+}
+
 /// 监听 `root`（递归）。每次变化（防抖之后）调一次 `on_change`。
 ///
 /// `on_change` 在监听自己的线程上跑，**不要在里面做慢事** —— 前端那边发一个事件
@@ -104,7 +129,7 @@ pub fn watch(
         for p in &ev.paths {
             if touches_git(p) {
                 git = true;
-            } else {
+            } else if !touches_generated(p) {
                 files = true;
             }
         }
@@ -221,6 +246,38 @@ mod tests {
         // （FSEvents 自己也会攒一小会儿，所以放宽到两个窗口）
         let extra = rx.recv_timeout(DEBOUNCE * 2);
         assert!(extra.is_err(), "50 次写发出了不止一条：{extra:?}");
+    }
+
+    /// 模拟一次 build：往 `target/` 里连写两秒。改前这两秒是 7 条 `Files`
+    /// （每条在前端扇出两个 git 子进程 + 一次重列），改后要是 0 条。
+    /// 最后往 `src/` 写一个，确认监听本身还活着、不是把所有事件都吞了。
+    #[test]
+    fn 生成物目录里写不发_源码目录照发() {
+        let d = tmp();
+        std::fs::create_dir_all(d.join("target/debug/deps")).unwrap();
+        std::fs::create_dir_all(d.join("crates/x/node_modules")).unwrap();
+        std::fs::create_dir_all(d.join("src")).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _w = watch(&d, move |c| tx.send(c).unwrap()).unwrap();
+        thread::sleep(Duration::from_millis(200));
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {}
+        let start = std::time::Instant::now();
+        let mut n = 0;
+        while start.elapsed() < Duration::from_secs(2) {
+            std::fs::write(d.join(format!("target/debug/deps/o{n}.rlib")), "x").unwrap();
+            std::fs::write(d.join(format!("crates/x/node_modules/m{n}.js")), "x").unwrap();
+            n += 1;
+            thread::sleep(Duration::from_millis(20));
+        }
+        let mut got = 0;
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {
+            got += 1;
+        }
+        eprintln!("两秒写了 {n}×2 个生成物文件，收到 {got} 条事件");
+        assert_eq!(got, 0, "生成物目录里的写触发了 {got} 次刷新");
+        std::fs::write(d.join("src/main.rs"), "x").unwrap();
+        let got = rx.recv_timeout(Duration::from_secs(5)).expect("源码目录的写 5 秒内没收到");
+        assert_eq!(got, Change::Files);
     }
 
     #[test]
