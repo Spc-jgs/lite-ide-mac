@@ -362,11 +362,43 @@ end tell" >/dev/null 2>&1; }
 
 # 选中全部再粘贴（绕开输入法，见文件头第 3 条）。
 # `$1` 是目标元素的角色，`$2` 是要粘的文本
+#
+# **粘完要验，没粘上就再粘一次**（issue #22）。间歇红里最常见的形状是「AX 说 OK，
+# 界面上什么都没变」：`set focused` 和 `keystroke` 之间那 0.4 秒里，webview 把焦点
+# 复位了一次，⌘A ⌘V 打进了别处。验的办法是等粘进去的第一行出现在界面上（编辑器里
+# 一行是一个 AXStaticText，输入框里是它的 AXValue）—— 每处调用方原来各自写一遍
+# 「没出现就再粘」，现在收进这里。
 paste_into() {
-  printf '%s' "$2" | pbcopy
-  local r; r=$(ax paste "$1" "")
-  sleep 0.5
-  [ "$r" = "OK" ]
+  local role=$1 text=$2 probe try r
+  probe=$(printf '%s' "$text" | head -1 | cut -c1-40)
+  printf '%s' "$text" | pbcopy
+  for try in 1 2 3; do
+    r=$(ax paste "$role" "")
+    [ "$r" = "OK" ] || return 1
+    if wait_has AXStaticText "$probe" 3 || [ "$(ax has "$role" "$probe")" = "OK" ]; then
+      return 0
+    fi
+    RETRIES=$((RETRIES+1))
+    note "粘贴没落进去，再粘一次（#22，第 $try 次）"
+  done
+  return 1
+}
+
+# 点一下，等它该有的反应；没反应就再点（issue #22）。
+# 用法：click_then <click|click~> <角色> <名字> <检查命令...>
+# 检查命令自己带等待（`wait_has …` / `wait_for …`），成功即算点生效。
+# 「AX 按压偶尔落空、位置每次不同」的间歇红，靠的就是这一层：不是猜它为什么落空，
+# 是看结果 —— 该出现的没出现，就当没点着。
+RETRIES=0
+click_then() {
+  local act=$1 role=$2 name=$3 try; shift 3
+  for try in 1 2 3; do
+    [ "$(ax "$act" "$role" "$name")" = "OK" ] || return 1
+    if "$@"; then return 0; fi
+    RETRIES=$((RETRIES+1))
+    note "「$name」点了没反应，再点一次（#22，第 $try 次）"
+  done
+  return 1
 }
 
 # 轮询等一个 shell 条件成立，超时返回 1
@@ -607,14 +639,9 @@ elif ! wait_has AXButton "全部暂存" 10; then
 else
   paste_into AXTextArea "$MSG"
   if ! wait_has AXStaticText "$MSG" 5; then
-    # 再试一次：应用刚起来时会先恢复上次的标签，那期间焦点可能被抢
-    paste_into AXTextArea "$MSG"
-  fi
-  if ! wait_has AXStaticText "$MSG" 5; then
     bad "提交信息没粘进输入框（不是钩子的问题，是这一步没做成）"
   else
-    [ "$(ax click AXButton "全部暂存")" = "OK" ] || bad "点不到「全部暂存」"
-    wait_for 10 'git -C "'"$FIX"'" diff --cached --quiet; [ $? -ne 0 ]' || bad "没暂存上"
+    click_then click AXButton "全部暂存" wait_for 4 'git -C "'"$FIX"'" diff --cached --quiet; [ $? -ne 0 ]' || bad "没暂存上"
     # 盘上暂存了不等于界面已经刷过来。**暂存之后按钮名字会变成「提交 (N)」**，
     # 不等就会点到上一帧的旧按钮
     if ! wait_has AXButton "提交 (" 10; then
@@ -863,7 +890,7 @@ else
   # **用 `click~` 不用 `click`。** `click` 走 findIt，认的是 AXTitle/AXDescription
   # **精确相等**；菜单项的名字落在别的属性上，于是 `has`（contains）找得到、
   # `click` 找不到 —— 报出来是「菜单出来了但点不到」，看着像菜单项被禁用了。
-  elif [ "$(ax "click~" AXMenuItem "移到废纸篓")" != "OK" ]; then
+  elif ! click_then "click~" AXMenuItem "移到废纸篓" wait_has AXButton "移到废纸篓" 3; then
     bad "菜单出来了，但点不到「移到废纸篓」"
   else
     # 确认框是另一个新出现的子树，同样先等 —— 它上面的按钮是真 <button>，
@@ -1186,5 +1213,8 @@ esac
 
 [ "${TRASHED:-0}" = 1 ] && echo "  （⑨ 往废纸篓里放了 ${TRASH_NAME}，脚本不动它 —— 自己清或者放回原处）"
 
-printf '\n\033[1m通过 %d 条，失败 %d 条\033[0m\n' "$PASS" "$FAIL"
+printf '\n\033[1m通过 %d 条，失败 %d 条\033[0m' "$PASS" "$FAIL"
+# 重试次数单独报：它是 #22 的体温计 —— 全绿但重试了三次，和一次没重试，不是一回事
+[ "$RETRIES" -gt 0 ] && printf '（AX 动作重试了 %d 次，见 issue #22）' "$RETRIES"
+printf '\n'
 [ "$FAIL" -eq 0 ] || exit 1
