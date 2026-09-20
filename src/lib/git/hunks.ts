@@ -52,3 +52,53 @@ export function hunkPatch(p: HunkPatches, i: number): string {
   const h = p.hunks[i];
   return h === undefined || !p.header ? "" : p.header + h;
 }
+
+/**
+ * 从一块里只挑几行，拼成一份 git 收的 patch 块（issue #38 按行暂存）。
+ *
+ * `keep` 是块**正文**（`@@` 那行之后）里要的行的下标（0-based，上下文行也占下标，
+ * 但选不选它都一样）。规则由「patch 的基线是谁」决定：
+ *
+ * - 正向（暂存，基线是暂存区 = 旧侧）：没选的 `+` 行**扔掉**（它在基线里本来就不存在），
+ *   没选的 `-` 行**变成上下文**（它在基线里还在，只是这次不删）。
+ * - 反向（`apply -R` 取消暂存，基线是暂存区 = **新**侧）：角色对调 —— 没选的 `+` 行变上下文
+ *   （暂存区里有它），没选的 `-` 行扔掉（暂存区里没有它）。
+ *
+ * `\ No newline at end of file` 跟着它前一行走：前一行扔了它也扔。`@@` 头原样留着，
+ * 行数交给 `git apply --recount` 重数 —— 自己算头等于把 git 已经做对的事再做一遍。
+ * 一行都没选到给空串，调用方别拿它去 apply。
+ */
+export function pickLines(hunk: string, keep: ReadonlySet<number>, reverse = false): string {
+  const lines = hunk.split("\n");
+  if (!lines[0]?.startsWith("@@")) return "";
+  // 末尾的空串是尾随换行 split 出来的，不是正文
+  if (lines[lines.length - 1] === "") lines.pop();
+  const out: string[] = [lines[0]];
+  let picked = 0;
+  let prevDropped = false;
+  for (let i = 1; i < lines.length; i++) {
+    const l = lines[i];
+    const idx = i - 1;
+    const c = l[0];
+    if (c === "\\") {
+      if (!prevDropped) out.push(l);
+      continue;
+    }
+    const isChange = c === "+" || c === "-";
+    if (!isChange || keep.has(idx)) {
+      out.push(l);
+      if (isChange) picked++;
+      prevDropped = false;
+      continue;
+    }
+    // 没选的改动行：在基线里存在的变上下文，不存在的扔掉
+    const inBase = reverse ? c === "+" : c === "-";
+    if (inBase) {
+      out.push(` ${l.slice(1)}`);
+      prevDropped = false;
+    } else {
+      prevDropped = true;
+    }
+  }
+  return picked === 0 ? "" : out.join("\n") + "\n";
+}

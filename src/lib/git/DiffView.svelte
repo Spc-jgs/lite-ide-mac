@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { splitHunks, hunkPatch } from "./hunks";
+  import { splitHunks, hunkPatch, pickLines } from "./hunks";
   import Icon from "../shell/Icon.svelte";
   import {
     parseDiff,
@@ -63,6 +63,75 @@
   let patches = $derived(splitHunks(raw));
   let canApply = $derived(!!onApplyHunk && !commit && !untracked && !capped && patches.hunks.length > 0);
   let canRevert = $derived(!!onRevertHunk && !staged && !commit && !untracked && !capped && patches.hunks.length > 0);
+  /**
+   * 按行暂存（issue #38 后半）：选中几行，只暂存 / 取消暂存那几行。
+   *
+   * 选中集按 `DiffLine` **对象**认 —— 双栏和统一视图渲染的是同一批对象（`toSideBySide`
+   * 只是把它们配对，不复制），所以切视图选中不丢。`bodyIdx` 把每个对象映射到「第几块、
+   * 块正文里第几行」，拼 patch 时交给 `pickLines`。**只能选同一块里的行**：patch 是按块拼的，
+   * 跨块选中就得拼多块，而人一次想暂存的几行几乎总在一处。
+   * 只有改动行能选；点上下文行没反应。⇧点选范围（同一块里 anchor 到这行之间的改动行），
+   * 再点已选的取消。正在拖选文字（选区非空）时不当成点选 —— 复制一行代码不该顺手选中它。
+   */
+  let bodyIdx = $derived.by(() => {
+    const m = new Map<DiffLine, { hunk: number; idx: number }>();
+    let hunk = -1;
+    let idx = 0;
+    for (const l of files[0]?.lines ?? []) {
+      if (l.kind === "hunk") {
+        hunk++;
+        idx = 0;
+        continue;
+      }
+      if (hunk >= 0) m.set(l, { hunk, idx: idx++ });
+    }
+    return m;
+  });
+  let sel = $state<Set<DiffLine>>(new Set());
+  let selHunk = $state(-1);
+  let anchor: DiffLine | null = null;
+  // 差异重拉（暂存完 refresh）就清掉：那些对象已经不是屏幕上的行了
+  $effect(() => {
+    raw;
+    sel = new Set();
+    selHunk = -1;
+    anchor = null;
+  });
+  const isChange = (l: DiffLine | null): l is DiffLine => !!l && (l.kind === "add" || l.kind === "del");
+  function pickRow(lines: (DiffLine | null)[], e: MouseEvent) {
+    if (!canApply) return;
+    if (!(window.getSelection()?.isCollapsed ?? true)) return;
+    const chg = lines.filter(isChange);
+    if (chg.length === 0) return;
+    const h = bodyIdx.get(chg[0])?.hunk ?? -1;
+    if (h < 0) return;
+    const next = h === selHunk ? new Set(sel) : new Set<DiffLine>();
+    const a = anchor ? bodyIdx.get(anchor) : undefined;
+    if (e.shiftKey && a && h === selHunk) {
+      const idxs = chg.map((l) => bodyIdx.get(l)!.idx);
+      const lo = Math.min(a.idx, ...idxs);
+      const hi = Math.max(a.idx, ...idxs);
+      for (const [l, p] of bodyIdx) if (p.hunk === h && p.idx >= lo && p.idx <= hi && isChange(l)) next.add(l);
+    } else {
+      const allIn = chg.every((l) => next.has(l));
+      for (const l of chg) if (allIn) next.delete(l); else next.add(l);
+      anchor = chg[0];
+    }
+    sel = next;
+    selHunk = next.size > 0 ? h : -1;
+  }
+  function applySel() {
+    if (selHunk < 0 || !patches.header) return;
+    const keep = new Set([...sel].map((l) => bodyIdx.get(l)!.idx));
+    // 取消暂存走 `apply -R`，基线是暂存区 = 新侧，pickLines 的规则要对调
+    const body = pickLines(patches.hunks[selHunk] ?? "", keep, staged);
+    if (!body) return;
+    onApplyHunk?.(patches.header + body, staged);
+    // 交出去就清掉：refresh 之后这些对象就不是屏幕上的行了；失败了人也该重新选
+    sel = new Set();
+    selHunk = -1;
+  }
+
   /** 第 i 行之前有几个 hunk 行 = 这一行是第几块（0-based） */
   function hunkOrdinals(rows: { kind: string }[]): number[] {
     const out = new Array<number>(rows.length);
@@ -190,6 +259,13 @@
      */
     const t = e.target as HTMLElement | null;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    // Esc 清掉按行暂存的选中
+    if (e.key === "Escape" && sel.size > 0) {
+      e.preventDefault();
+      sel = new Set();
+      selHunk = -1;
+      return;
+    }
     // F7 / ⇧F7 是 IDEA 的「下一处 / 上一处差异」
     if (e.key === "F7") {
       e.preventDefault();
@@ -271,6 +347,11 @@
           {#if r.kind === "hunk" || r.kind === "meta"}
             <div class="span4 {r.kind}" data-row={i}>
               <span class="htxt">{r.text || "⋯"}</span>
+              {#if r.kind === "hunk" && selHunk === sideHunk[i]}
+                <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
+                  {staged ? "取消暂存" : "暂存"}选中的 {sel.size} 行
+                </button>
+              {/if}
               {#if r.kind === "hunk" && canApply}
                 <button class="btn sm hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, sideHunk[i]), staged)}>
                   {staged ? "取消暂存这一块" : "暂存这一块"}
@@ -283,12 +364,17 @@
           {:else}
             {@const L = r.left}
             {@const R = r.right}
-            <div class="no {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" data-row={i}>{L?.oldNo ?? ""}</div>
-            <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:flat={flat.left[i]}>
+            {@const on = r.kind === "change" && ((!!L && sel.has(L)) || (!!R && sel.has(R)))}
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="no {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:sel={on} data-row={i} onclick={(e) => pickRow([L, R], e)}>{L?.oldNo ?? ""}</div>
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:flat={flat.left[i]} class:sel={on} onclick={(e) => pickRow([L, R], e)}>
               {#if L}{@const s = segs(L)}{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}{/if}
             </div>
-            <div class="no mid {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}">{R?.newNo ?? ""}</div>
-            <div class="tx {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:flat={flat.right[i]}>
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="no mid {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:sel={on} onclick={(e) => pickRow([L, R], e)}>{R?.newNo ?? ""}</div>
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="tx {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:flat={flat.right[i]} class:sel={on} onclick={(e) => pickRow([L, R], e)}>
               {#if R}{@const s = segs(R)}{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}{/if}
             </div>
           {/if}
@@ -301,6 +387,11 @@
             <div class="row {l.kind}" data-row={i}>
               <span class="no"></span><span class="no"></span><span class="sign"></span>
               <span class="txt">{l.text || "⋯"}</span>
+              {#if l.kind === "hunk" && selHunk === uniHunk[i]}
+                <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
+                  {staged ? "取消暂存" : "暂存"}选中的 {sel.size} 行
+                </button>
+              {/if}
               {#if l.kind === "hunk" && canApply}
                 <button class="btn sm hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, uniHunk[i]), staged)}>
                   {staged ? "取消暂存这一块" : "暂存这一块"}
@@ -312,7 +403,8 @@
             </div>
           {:else}
             {@const s = segs(l)}
-            <div class="row {l.kind}" data-row={i}>
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="row {l.kind}" class:sel={sel.has(l)} data-row={i} onclick={(e) => pickRow([l], e)}>
               <span class="no">{l.oldNo ?? ""}</span>
               <span class="no">{l.newNo ?? ""}</span>
               <span class="sign">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : ""}</span>
@@ -539,6 +631,22 @@
    * `margin-left: auto` 只给第一个：两个都 auto 的话剩余空间被平分，第一个会被顶到行中间
    */
   .hbtn + .hbtn { margin-left: 10px; }
+  /* 按行暂存的按钮：选中集非空时常驻（它是选中这个状态的唯一出口，藏起来人不知道下一步是什么） */
+  .hsel { margin-left: auto; margin-right: 8px; align-self: center; font-style: normal; }
+  /*
+   * 块头上的按钮吸在**可视区**右边。块头横跨整个网格，而长行会把网格撑得比可视区宽
+   * （实测 1152 > 736），`margin-left: auto` 把按钮推到网格最右 —— 在屏幕外。
+   * sticky 的参照是滚动容器，横向滚到哪儿按钮都贴着右边
+   */
+  .hbtn, .hsel { position: sticky; right: 8px; }
+  .hsel ~ .hbtn { margin-left: 10px; }
+  /*
+   * 选中的行：左边一道 accent 竖条 + 把底色提亮一档。不用 --selected 盖上去：
+   * 它是白色叠加，会把 add / del 的红绿底洗成灰的，选中之后反而看不出是加还是删
+   */
+  .uni .row.sel { box-shadow: inset 3px 0 0 var(--accent); filter: brightness(1.35); }
+  .grid .sel { filter: brightness(1.35); }
+  .grid .no.sel[data-row] { box-shadow: inset 3px 0 0 var(--accent); }
   /* 块头比普通行高 3px：装得下 20 的 `.btn.sm`（普通行 19）。它本来就是分隔，高一点反而更像分隔 */
   .uni .row.hunk, .span4.hunk { min-height: 22px; }
   .row.hunk:hover .hbtn, .span4.hunk:hover .hbtn, .hbtn:focus-visible { opacity: 1; }

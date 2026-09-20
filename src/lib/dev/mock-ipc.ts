@@ -1249,15 +1249,15 @@ export function installMockIpc(): void {
             ].filter((e) => !discarded.has(e.path) && !(stashed.has(e.path) && !e.untracked)),
           };
         case "git_apply_cached":
-          // 桩里没有真的暂存区：认下来、记一句，让按钮那条路走得通
+        case "git_apply_worktree": {
+          // 桩里没有真的暂存区，差异也是写死的改不动：认下来、记一句，让按钮那条路走得通。
+          // 记改动行数是给按行暂存看的（issue #38）：patch 里该只剩选中的那几行
           await sleep(80);
-          console.info(`[mock] git apply --cached${a.reverse ? " -R" : ""}：\n${String(a.patch).slice(0, 200)}`);
+          const patch = String(a.patch);
+          const n = patch.split("\n").filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l)).length;
+          console.info(`[mock] git apply${cmd === "git_apply_cached" ? " --cached" : ""}${a.reverse ? " -R" : ""}：${n} 行改动\n${patch.slice(0, 200)}`);
           return null;
-        case "git_apply_worktree":
-          // 同上。真实现会改盘上的文件；桩里差异是写死的，改不动，只认下来
-          await sleep(80);
-          console.info(`[mock] git apply${a.reverse ? " -R" : ""}：\n${String(a.patch).slice(0, 200)}`);
-          return null;
+        }
         case "git_blame": {
           // 桩：每 5 行一段，三个作者轮着来，最后 2 行「未提交」
           const n = (FILES[`${a.root}/${a.path}`] ?? "").split("\n").length;
