@@ -1652,7 +1652,27 @@ pub fn head_text(root: impl AsRef<Path>, path: &str) -> R<Option<Diff>> {
 }
 
 /// 某次提交里某个文件的差异。`path` 为空则给整次提交的差异。
+///
+/// 根提交要**先问有没有父**，不能靠 `sha^!` 报错来退回：`A^!` 是「A 减去它的父」这个
+/// 集合，根提交没父，集合退化成单端点，而 `git diff <单端点>` 的语义是**和工作区比** ——
+/// 退出码 0，退回分支永远走不到，界面上第一次提交的差异显示的是「到现在改了什么」
+/// （2026-09-20 做 #39 时在临时仓库验出来的）。
 pub fn commit_diff(root: impl AsRef<Path>, sha: &str, path: &str) -> R<Diff> {
+    let root = root.as_ref();
+    let has_parent = run(root, &["rev-parse", "--verify", "--quiet", &format!("{sha}^")])
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if !has_parent {
+        // 和空树比：`show --root` 把根提交按「全部新增」给出来
+        let mut a2 = vec!["--no-pager", "show", "--no-color", "--format=", "--root"];
+        a2.extend_from_slice(DIFF_SAFE);
+        a2.push(sha);
+        if !path.is_empty() {
+            a2.push("--");
+            a2.push(path);
+        }
+        return run_capped(root, &a2, &[]);
+    }
     let spec = format!("{sha}^!");
     let mut args = vec!["--no-pager", "-c", "core.pager=cat", "diff", "--no-color"];
     args.extend_from_slice(DIFF_SAFE);
@@ -3538,6 +3558,9 @@ mod tests {
         // 对照：commit_diff 答的是「那次提交改了什么」，第二次提交只有 two
         let own = commit_diff(&dir, &second, "a.txt").unwrap().text;
         assert!(own.contains("+two") && !own.contains("+three"), "commit_diff 只该有那次提交的：{own}");
+        // 根提交：工作区脏着也只能看到首次那份（`^!` 对根提交是「和工作区比」，得先判父）
+        let root_own = commit_diff(&dir, &first, "a.txt").unwrap().text;
+        assert!(root_own.contains("+one") && !root_own.contains("+two") && !root_own.contains("+three"), "根提交的差异只该有 one：{root_own}");
         std::fs::remove_dir_all(&dir).ok();
     }
 
