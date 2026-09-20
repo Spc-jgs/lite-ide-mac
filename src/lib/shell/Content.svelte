@@ -281,6 +281,7 @@
         untracked={!!tabs.active.diffUntracked}
         onToggleStaged={() => void git.toggleDiffSide(tabs.active!.id)}
         onApplyHunk={(patch, unstage) => void git.applyHunk(patch, unstage)}
+        onRevertHunk={(patch) => (git.pendingRevertHunk = patch)}
       />
     {/key}
   {:else if tabs.active.mode === "diff"}

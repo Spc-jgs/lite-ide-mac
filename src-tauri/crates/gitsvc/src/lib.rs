@@ -1255,6 +1255,23 @@ pub fn discard(root: impl AsRef<Path>, paths: &[String], untracked: &[String]) -
 /// `--recount`：前端拆出来的单块 patch 行数是原样的，本该对；但 `@@` 头里的计数
 /// 一旦对不上（比如末尾没有换行的文件）git 就整份拒收，让它自己重数一遍更稳。
 pub fn apply_cached(root: impl AsRef<Path>, patch: &str, reverse: bool) -> R<()> {
+    apply_patch(root.as_ref(), patch, true, reverse)
+}
+
+/// 把一段 patch 应用到**工作区**（issue #38 撤销一块：`reverse = true`）。
+///
+/// 差异视图工作区那一侧比的是「工作区 vs 暂存区」，所以 `-R` 之后那几行回到的是
+/// 暂存区里的样子（没暂存过就是 HEAD）—— 和界面上左边那列一致，不多不少。
+/// 动的是盘上的文件，调用方做完要 `worktree.changed()` 让开着的编辑器重读。
+/// 不带 `--index`：只改盘不碰暂存区，暂存过的那部分留着。
+pub fn apply_worktree(root: impl AsRef<Path>, patch: &str, reverse: bool) -> R<()> {
+    apply_patch(root.as_ref(), patch, false, reverse)
+}
+
+/// `apply_cached` / `apply_worktree` 共用的那一段：写临时文件、拼参数、用完删。
+/// 两个入口只差一个 `--cached` —— 抄第二份的话「临时文件删不掉不算错」「`--recount`」
+/// 这两条就要各记一遍。
+fn apply_patch(root: &Path, patch: &str, cached: bool, reverse: bool) -> R<()> {
     let tmp = std::env::temp_dir().join(format!(
         "lite-ide-hunk-{}-{}.patch",
         std::process::id(),
@@ -1265,13 +1282,16 @@ pub fn apply_cached(root: impl AsRef<Path>, patch: &str, reverse: bool) -> R<()>
     ));
     std::fs::write(&tmp, patch).map_err(|e| Error::Git(format!("写不了临时 patch：{e}")))?;
     let tmp_s = tmp.to_string_lossy().into_owned();
-    let mut args = vec!["apply", "--cached", "--recount"];
+    let mut args = vec!["apply", "--recount"];
+    if cached {
+        args.push("--cached");
+    }
     if reverse {
         args.push("-R");
     }
     args.push("--");
     args.push(&tmp_s);
-    let r = run(root.as_ref(), &args).map(|_| ());
+    let r = run(root, &args).map(|_| ());
     let _ = std::fs::remove_file(&tmp);
     r
 }
@@ -3428,6 +3448,46 @@ mod tests {
         apply_cached(&dir, &patch, true).expect("撤掉那一块");
         let staged2 = diff(&dir, "a.txt", true, false).unwrap().text;
         assert!(staged2.trim().is_empty(), "-R 之后暂存区该干净：{staged2}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 撤销一块（issue #38）：两处改动只撤第 2 行那块，盘上第 2 行回去、第 18 行还在；
+    /// 暂存区一个字不动 —— 它动的是工作区，不带 `--index`
+    #[test]
+    fn apply_worktree_只撤一块() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-revert-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        let base: String = (1..=20).map(|i| format!("l{i}\n")).collect();
+        std::fs::write(dir.join("a.txt"), &base).unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次", false).unwrap();
+        let changed = base.replace("l2\n", "L2\n").replace("l18\n", "L18\n");
+        std::fs::write(dir.join("a.txt"), &changed).unwrap();
+        // 先把第 18 行那块暂存起来：验「撤工作区那块不碰暂存区」
+        let d = diff(&dir, "a.txt", false, false).unwrap().text;
+        let head_end = d.find("\n@@").unwrap() + 1;
+        let second = d[head_end..].find("\n@@").map(|i| head_end + i + 1).unwrap();
+        let header: String = d[..head_end].lines().filter(|l| !l.starts_with("index ")).map(|l| format!("{l}\n")).collect();
+        let first = format!("{header}{}", &d[head_end..second]);
+        let second_patch = format!("{header}{}", &d[second..]);
+        apply_cached(&dir, &second_patch, false).expect("暂存第 18 行那块");
+
+        apply_worktree(&dir, &first, true).expect("撤掉第 2 行那块");
+        let disk = std::fs::read_to_string(dir.join("a.txt")).unwrap();
+        assert!(disk.contains("\nl2\n") && !disk.contains("L2"), "第 2 行该回去：{disk}");
+        assert!(disk.contains("L18"), "第 18 行那块不该被碰：{disk}");
+        let staged = diff(&dir, "a.txt", true, false).unwrap().text;
+        assert!(staged.contains("+L18"), "暂存区里第 18 行那块还得在：{staged}");
+        let work = diff(&dir, "a.txt", false, false).unwrap().text;
+        assert!(work.trim().is_empty(), "工作区相对暂存区该干净了：{work}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

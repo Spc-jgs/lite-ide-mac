@@ -1383,6 +1383,15 @@ pub async fn git_apply_cached(root: String, patch: String, reverse: bool) -> Res
     .await
 }
 
+/// 撤销一块（issue #38）：一段 patch 反向应用到工作区。盘上的文件会变
+#[tauri::command]
+pub async fn git_apply_worktree(root: String, patch: String, reverse: bool) -> Result<(), String> {
+    blocking(move || {
+        gitsvc::apply_worktree(&root, &patch, reverse).map_err(|e| format!("{e}"))
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn git_stash_list(root: String) -> Result<Vec<StashDto>, String> {
     blocking(move || {

@@ -168,7 +168,7 @@
   $effect(() => {
     const need =
       !!tabflow.pendingClose || !!tabflow.pendingSwitch || !!tabs.active?.conflict ||
-      !!notify.banner || !!git.pendingDiscard || git.trustOpen || !!branches.pendingWtRemove ||
+      !!notify.banner || !!git.pendingDiscard || !!git.pendingRevertHunk || git.trustOpen || !!branches.pendingWtRemove ||
       !!branches.pendingCheckout || !!remote.pendingDiverge || !!remote.pendingPush || !!remote.err;
     if (need) confirms.load();
   });

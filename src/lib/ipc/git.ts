@@ -27,6 +27,10 @@ export const gitDiff = (root: string, path: string, staged: boolean, untracked: 
 export const gitApplyCached = (root: string, patch: string, reverse: boolean) =>
   invoke<void>("git_apply_cached", { root, patch, reverse });
 
+/** 撤销一块（issue #38）：一段 patch 反向应用到工作区，盘上的文件会变 */
+export const gitApplyWorktree = (root: string, patch: string, reverse: boolean) =>
+  invoke<void>("git_apply_worktree", { root, patch, reverse });
+
 /** 已跟踪文件的改动收进 stash，工作区回到 HEAD；未跟踪的留在原地。没改动时报错 */
 export const gitStashPush = (root: string) => invoke<void>("git_stash_push", { root });
 

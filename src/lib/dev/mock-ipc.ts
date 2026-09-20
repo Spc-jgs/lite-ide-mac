@@ -1248,6 +1248,11 @@ export function installMockIpc(): void {
           await sleep(80);
           console.info(`[mock] git apply --cached${a.reverse ? " -R" : ""}：\n${String(a.patch).slice(0, 200)}`);
           return null;
+        case "git_apply_worktree":
+          // 同上。真实现会改盘上的文件；桩里差异是写死的，改不动，只认下来
+          await sleep(80);
+          console.info(`[mock] git apply${a.reverse ? " -R" : ""}：\n${String(a.patch).slice(0, 200)}`);
+          return null;
         case "git_blame": {
           // 桩：每 5 行一段，三个作者轮着来，最后 2 行「未提交」
           const n = (FILES[`${a.root}/${a.path}`] ?? "").split("\n").length;

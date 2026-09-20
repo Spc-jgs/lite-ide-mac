@@ -20,6 +20,7 @@
     capped = false,
     onToggleStaged,
     onApplyHunk,
+    onRevertHunk,
   }: {
     raw: string;
     path: string;
@@ -48,11 +49,17 @@
      * 历史提交、未跟踪文件没有这回事，不传就不画按钮。
      */
     onApplyHunk?: (patch: string, unstage: boolean) => void;
+    /**
+     * 撤销一块（issue #38）：只在工作区那一侧有 —— 暂存区那侧的「撤」就是取消暂存。
+     * 这里只报「要撤哪块」，确认条在上层（不可逆，和「全部丢弃」同一档）。
+     */
+    onRevertHunk?: (patch: string) => void;
   } = $props();
 
   /** 每个 hunk 的原文，给按块暂存拼 patch 用。从 `raw` 拆，不从解析后的行反拼 */
   let patches = $derived(splitHunks(raw));
   let canApply = $derived(!!onApplyHunk && !commit && !untracked && !capped && patches.hunks.length > 0);
+  let canRevert = $derived(!!onRevertHunk && !staged && !commit && !untracked && !capped && patches.hunks.length > 0);
   /** 第 i 行之前有几个 hunk 行 = 这一行是第几块（0-based） */
   function hunkOrdinals(rows: { kind: string }[]): number[] {
     const out = new Array<number>(rows.length);
@@ -264,6 +271,9 @@
                   {staged ? "取消暂存这一块" : "暂存这一块"}
                 </button>
               {/if}
+              {#if r.kind === "hunk" && canRevert}
+                <button class="btn sm danger hbtn" onclick={() => onRevertHunk?.(hunkPatch(patches, sideHunk[i]))}>撤销这一块</button>
+              {/if}
             </div>
           {:else}
             {@const L = r.left}
@@ -290,6 +300,9 @@
                 <button class="btn sm hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, uniHunk[i]), staged)}>
                   {staged ? "取消暂存这一块" : "暂存这一块"}
                 </button>
+              {/if}
+              {#if l.kind === "hunk" && canRevert}
+                <button class="btn sm danger hbtn" onclick={() => onRevertHunk?.(hunkPatch(patches, uniHunk[i]))}>撤销这一块</button>
               {/if}
             </div>
           {:else}
@@ -515,6 +528,12 @@
   /* 按块暂存的按钮：hover 那一行才出（ui.md 第三条：每一块上都有的东西不常驻） */
   /* 是 `.btn.sm`；这里只管位置和「hover 那一行才出」 */
   .hbtn { margin-left: auto; margin-right: 8px; font-style: normal; opacity: 0; align-self: center; }
+  /*
+   * 第二个按钮（撤销这一块，issue #38）：不可逆的不许和可逆的并排同色（ui.md 第七条）——
+   * 带 `danger`，而且和「暂存这一块」之间留 10px，误点的代价不该只隔着 2px。
+   * `margin-left: auto` 只给第一个：两个都 auto 的话剩余空间被平分，第一个会被顶到行中间
+   */
+  .hbtn + .hbtn { margin-left: 10px; }
   /* 块头比普通行高 3px：装得下 20 的 `.btn.sm`（普通行 19）。它本来就是分隔，高一点反而更像分隔 */
   .uni .row.hunk, .span4.hunk { min-height: 22px; }
   .row.hunk:hover .hbtn, .span4.hunk:hover .hbtn, .hbtn:focus-visible { opacity: 1; }

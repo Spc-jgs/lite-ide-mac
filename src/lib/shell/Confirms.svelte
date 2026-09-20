@@ -162,6 +162,15 @@
   </div>
 {/if}
 
+{#if git.pendingRevertHunk}
+  <!-- 撤销一块（issue #38）：和上面那条同一档 —— 动盘上的文件，不可撤销 -->
+  <div class="confirm danger">
+    <span>要撤销这一块吗？工作区里这几行的改动会被丢掉，<b>这一步不可撤销</b></span>
+    <button class="btn danger" onclick={() => void git.revertHunk(git.pendingRevertHunk!)}>撤销这一块</button>
+    <button class="btn" onclick={() => (git.pendingRevertHunk = null)}>取消</button>
+  </div>
+{/if}
+
 {#if Bars && (remote.syncing || remote.pendingDiverge || remote.pendingPush || remote.err)}
   <Bars
     progress={remote.syncing ? { what: remote.syncing.what, phase: remote.syncing.phase, percent: remote.syncing.percent } : null}

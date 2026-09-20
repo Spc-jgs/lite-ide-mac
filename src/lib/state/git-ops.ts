@@ -1,5 +1,5 @@
 import { gitStage, readText, writeText, type GitEntry } from "../ipc/commands";
-import { gitDiff, gitCommitDiff, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached } from "../ipc/git";
+import { gitDiff, gitCommitDiff, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached, gitApplyWorktree } from "../ipc/git";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { tabflow } from "./tabflow.svelte";
@@ -123,6 +123,22 @@ export function applyHunk(patch: string, unstage: boolean): Promise<boolean> {
   return run(unstage ? "取消暂存这一块失败" : "暂存这一块失败", async () => {
     await gitApplyCached(git.repo!, patch, unstage);
   }, unstage ? "取消暂存" : "暂存");
+}
+
+/**
+ * 撤销一块（issue #38）：`git apply -R` 到工作区。确认条已经过了（`pendingRevertHunk`），
+ * 这里只管做。盘上的文件变了 —— 同 `discard`，做完 `worktree.changed()` 让开着的
+ * 编辑器重读；差异标签由 `run` 里的 `refresh` 重拉，那一块就从视图里消失。
+ * 成功回执同 `discard` 那条的理由：不可逆的那档，不说一句分不清「撤了」和「没点中」。
+ */
+export async function revertHunk(patch: string): Promise<boolean> {
+  git.pendingRevertHunk = null;
+  const ok = await run("撤销这一块失败", async () => {
+    await gitApplyWorktree(git.repo!, patch, true);
+    notify.ok("已撤销这一块", 3000);
+  }, "撤销这一块");
+  await worktree.changed();
+  return ok;
 }
 
 /** 返回提交成没成 —— 「提交并推送」要据此决定推不推 */

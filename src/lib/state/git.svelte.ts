@@ -47,6 +47,8 @@ class Git {
   private refreshSeq = 0;
   /** 待确认丢弃的条目 —— 丢弃不可撤销，必须过用户这一关 */
   pendingDiscard = $state<GitEntry[] | null>(null);
+  /** 待确认撤销的那一块的 patch（issue #38）—— 和丢弃同一档：动的是盘上的文件，不可撤销 */
+  pendingRevertHunk = $state<string | null>(null);
   /**
    * 编辑器里显示注解（blame，issue #33 ⑭）。一个开关管所有标签 —— IDEA 是按文件开的，
    * 但「看谁改的」这个模式一旦进入，换文件多半还想看。只在内存里，重启就关。
@@ -271,6 +273,9 @@ class Git {
   }
   async applyHunk(patch: string, unstage: boolean): Promise<boolean> {
     return (await ops()).applyHunk(patch, unstage);
+  }
+  async revertHunk(patch: string): Promise<boolean> {
+    return (await ops()).revertHunk(patch);
   }
   async commit(message: string, amend: boolean): Promise<boolean> {
     return (await ops()).commit(message, amend);
