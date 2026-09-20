@@ -80,8 +80,17 @@ export interface TabState {
    */
   encoding?: string;
   bom?: boolean;
-  /** 盘上的换行符（`LF` / `CRLF` / `CR` / `mixed`），保存时原样写回；理由同 `encoding` */
+  /**
+   * 盘上的换行符（`LF` / `CRLF` / `CR` / `mixed`），保存时原样写回；理由同 `encoding`。
+   * 状态栏那格能改它（issue #37）：改的只是「下次存成什么」，和 `saveAsEncoding` 同一条路
+   */
   eol?: string;
+  /**
+   * 缩进单位的手动覆盖（状态栏那格，issue #37）：`"tab"` 或几个空格。没设过就按文件内容猜
+   * （`editor/indent.ts`）。是**这个文件**的属性不是偏好 —— 换文件就回到那个文件自己的；
+   * 不进快照，理由同 `wrap`。只影响之后敲进去的缩进，不重排已有的行。
+   */
+  indent?: "tab" | number;
   /** 解码时有解不出的字节；带着它保存会把那些字节永久换成 U+FFFD */
   lossy?: boolean;
   /**

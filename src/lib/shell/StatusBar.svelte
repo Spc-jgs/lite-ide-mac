@@ -8,6 +8,7 @@
    * 剩下的都是当前标签的事实，由 App 传进来 —— 标签表还在 App 里（#9 第 4 步）。
    */
   import Icon from "./Icon.svelte";
+  import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { notify } from "../state/notify.svelte";
   import { crumbsOf, projectName } from "../state/crumbs";
   import { isLogName } from "../logview/is-log-name";
@@ -28,6 +29,8 @@
     onSwitchMode,
     onOpenEncoding,
     onOpenDiff,
+    onSetIndent,
+    onSetEol,
   }: {
     active: TabState | null;
     /** 当前标签是草稿：脏那一格说「自动保存…／已自动保存／失败 ⌘S 重试」而不是「已修改」 */
@@ -42,20 +45,55 @@
     onSwitchMode: () => void;
     onOpenEncoding: () => void;
     onOpenDiff: () => void;
+    /** 「缩进 · 换行符」那格的菜单选了一项（issue #37）。都是这个文件的属性，写回标签 */
+    onSetIndent: (ind: "tab" | number) => void;
+    onSetEol: (eol: "LF" | "CRLF") => void;
   } = $props();
 
   let crumbs = $derived(active ? crumbsOf(root, active.path, active.name) : []);
 
   /**
-   * 缩进 · 换行符（issue #33 ③）。缩进按盘上那份内容猜（`editor/indent.ts`），
-   * 换行符是 Rust 读文件时探的（`fsservice::eol`）。只显示，点了不改 —— 改留后面。
+   * 缩进 · 换行符（issue #33 ③ 显示，#37 可改）。缩进按盘上那份内容猜（`editor/indent.ts`），
+   * 手动改过就用改过的（`tab.indent`）；换行符是 Rust 读文件时探的（`fsservice::eol`）。
+   * 点了从这格底下（往上）掉一个菜单，选了写回标签 —— 都是文件的属性，换文件就变回去。
    */
   // `lang.mod` 没到手时空着 —— 和旁边语言名那格同一条规矩（issue #32）
-  let indent = $derived(
-    active?.mode === "edit" && lang.mod ? lang.mod.indentLabel(lang.mod.detectIndent(active.content ?? "")) : "",
+  let indentNow = $derived<"tab" | number | null>(
+    active?.mode === "edit" && lang.mod ? (active.indent ?? lang.mod.detectIndent(active.content ?? "")) : null,
   );
+  let indent = $derived(lang.mod && active?.mode === "edit" ? lang.mod.indentLabel(indentNow) : "");
   const EOL_LABEL: Record<string, string> = { LF: "LF", CRLF: "CRLF", CR: "CR", mixed: "换行混用" };
   let eol = $derived(active?.mode === "edit" ? (EOL_LABEL[active.eol ?? "LF"] ?? active.eol ?? "LF") : "");
+
+  let fmtMenu = $state<{ x: number; y: number } | null>(null);
+  let fmtBtn = $state<HTMLButtonElement | null>(null);
+  /**
+   * 菜单项：三档常用缩进 + LF / CRLF。文件猜出来的是 3 空格这种不在档里的，把它也列进去
+   * 打上勾 —— 不然菜单里一个勾都没有，人会以为「现在」是什么都没设。
+   * CR（老 Mac）同理不给选项：没人往这个方向改，但当前是 CR 时勾就空着，格子里的字说明了。
+   */
+  let fmtItems = $derived.by<MenuItem[]>(() => {
+    if (!lang.mod) return [];
+    const m = lang.mod;
+    const spaces = [2, 4];
+    if (typeof indentNow === "number" && !spaces.includes(indentNow)) spaces.push(indentNow);
+    spaces.sort((a, b) => a - b);
+    const opts: ("tab" | number)[] = [...spaces, "tab"];
+    const items: MenuItem[] = opts.map((o) => ({
+      label: m.indentLabel(o),
+      checked: o === indentNow,
+      run: () => onSetIndent(o),
+    }));
+    for (const [i, e] of (["LF", "CRLF"] as const).entries()) {
+      items.push({ label: e, checked: active?.eol === e, sep: i === 0, run: () => onSetEol(e) });
+    }
+    return items;
+  });
+  function openFmt() {
+    if (!fmtBtn || !lang.mod) return;
+    const r = fmtBtn.getBoundingClientRect();
+    fmtMenu = { x: r.left, y: r.top - 4 };
+  }
 </script>
 
 <!--
@@ -171,15 +209,18 @@
       <span class="cell dim drop-2">{lang.mod ? lang.mod.langLabel(lang.mod.langOf(active.path)) : ""}</span>
     {/if}
     {#if active.mode === "edit"}
-      <!-- 缩进 · 换行符。混用的换行符标黄：那是文件坏了，保存时会统一成 LF -->
+      <!-- 缩进 · 换行符。混用的换行符标黄：那是文件坏了，保存时会统一成 LF；点了能改（issue #37） -->
       <span class="vsep drop-2" aria-hidden="true"></span>
-      <span
-        class="cell dim drop-2"
+      <button
+        class="cell btn fmt drop-2"
         class:warn={active.eol === "mixed"}
+        class:on={fmtMenu !== null}
+        bind:this={fmtBtn}
+        onclick={openFmt}
         title={active.eol === "mixed"
-          ? "文件里 LF 和 CRLF 混用 —— 保存时会统一成 LF"
-          : "缩进（按文件内容判断）· 换行符（保存时原样写回）"}
-      >{indent} · {eol}</span>
+          ? "文件里 LF 和 CRLF 混用 —— 点这里选一种，保存时统一"
+          : "缩进（按文件内容判断）· 换行符（保存时原样写回）—— 点击可改"}
+      >{indent} · {eol}</button>
     {/if}
     <span class="vsep" aria-hidden="true"></span>
     <button
@@ -236,6 +277,20 @@
     {/if}
   {/if}
 </footer>
+
+{#if fmtMenu}
+  <ContextMenu
+    x={fmtMenu.x}
+    y={fmtMenu.y}
+    up
+    label="缩进与换行符"
+    items={fmtItems}
+    onclose={(refocus) => {
+      fmtMenu = null;
+      if (refocus) fmtBtn?.focus();
+    }}
+  />
+{/if}
 
 <style>
   /*
@@ -328,6 +383,9 @@
   }
   .statusbar .btn:hover { background: var(--hover); color: var(--text); }
   .statusbar .btn.mode { color: var(--text-dim); }
+  /* 菜单开着时这格保持点亮（ui.md 第十二条），不然那块浮层像凭空冒出来的 */
+  .statusbar .btn.on { background: var(--selected); color: var(--text); }
+  .statusbar .btn.fmt.warn { color: var(--lvl-warn); }
   .statusbar .btn.mode:hover { color: var(--accent); }
   .statusbar .btn.git { color: var(--git-modified); }
   /* 行:列是等宽数字，给个最小宽度，光标从 9 行跳到 10 行时右边那几格不动 */

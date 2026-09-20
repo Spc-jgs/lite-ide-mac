@@ -321,6 +321,7 @@
         {headText}
         {showMinimap}
         wrap={tabs.active.wrap ?? wrapsByDefault(tabs.active.path)}
+        indent={tabs.active.indent ?? null}
         autofocus={!tabs.active.preview}
         focusTick={docs.focusTick}
         {blame}

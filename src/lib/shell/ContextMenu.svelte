@@ -20,7 +20,15 @@
      * 直接不渲染的话，下次有改动时它「忽然出现」，看着像换了个菜单。
      */
     disabled?: boolean;
+    /**
+     * 当前生效的那一项打 ✓（状态栏「缩进 · 换行符」那格的菜单，issue #37）。
+     * 菜单里有一项带 `checked` 键时，整份菜单左边留出 ✓ 的格子，没打勾的项也空着 ——
+     * 否则打勾那一项的文字会比别的项靠右一格，像是另一种缩进。
+     */
+    checked?: boolean;
   }
+
+  import Icon from "./Icon.svelte";
 
   let {
     x,
@@ -29,9 +37,11 @@
     titleTip = "",
     label,
     items,
+    up = false,
     onclose,
   }: {
     x: number;
+    /** `up` 为假时是菜单的上边；为真时是菜单的**下边** —— 状态栏那种贴着窗口底的触发点，菜单只能往上掉 */
     y: number;
     /** 菜单顶部那行灰字，通常是被操作对象的名字 */
     title?: string;
@@ -40,6 +50,8 @@
     /** 给读屏用的菜单名 */
     label: string;
     items: MenuItem[];
+    /** 往上掉（ui.md 第十二条：浮层从触发它的控件掉；控件在窗口底边时「掉」的方向是上） */
+    up?: boolean;
     /**
      * 关掉。`refocus` 为真表示是键盘或 Esc 关的 —— 调用方该把焦点收回到
      * 打开菜单的那个元素上，否则焦点掉到 body，接着按 Tab 会从头开始走。
@@ -49,6 +61,8 @@
 
   let el = $state<HTMLElement | null>(null);
   let cursor = $state(0);
+  /** 有一项能打勾，整份菜单就留 ✓ 的格子 */
+  let checkable = $derived(items.some((it) => it.checked !== undefined));
 
   // 换了一批条目（换了对象）就把游标收回顶上
   $effect(() => {
@@ -66,9 +80,16 @@
     const r = e.getBoundingClientRect();
     const pad = 6;
     e.style.left = `${Math.max(pad, Math.min(x, window.innerWidth - r.width - pad))}px`;
-    e.style.top = `${Math.max(pad, Math.min(y, window.innerHeight - r.height - pad))}px`;
-    // 开完就把焦点交给菜单，否则 Esc 和方向键都落不到它身上
-    e.focus();
+    const top = up ? y - r.height : y;
+    e.style.top = `${Math.max(pad, Math.min(top, window.innerHeight - r.height - pad))}px`;
+    /*
+     * 开完就把焦点交给菜单，否则 Esc 和方向键都落不到它身上。
+     * **必须 `preventScroll`**：菜单是 fixed 的，但 DOM 上它长在触发它的容器里（提交历史
+     * 长在底部面板里），`focus()` 默认会把「祖先滚到让它可见」，于是面板抖一下 —— 下面那个
+     * 捕获阶段的 scroll 监听把这一下当成「内容滚走了」，菜单刚开就关（2026-09-20 提交
+     * 历史右键菜单在浏览器里一次都开不出来，就是它）。
+     */
+    e.focus({ preventScroll: true });
   });
 
   /*
@@ -151,7 +172,7 @@
   aria-label={label}
   bind:this={el}
   style:left="{x}px"
-  style:top="{y}px"
+  style:top={up ? null : `${y}px`}
   onkeydown={onKey}
 >
   {#if title}
@@ -170,10 +191,12 @@
       class:on={i === cursor}
       class:sep={it.sep}
       class:danger={it.danger}
-      role="menuitem"
+      class:checkable
+      role={it.checked === undefined ? "menuitem" : "menuitemradio"}
       tabindex="-1"
       disabled={it.disabled}
       aria-disabled={it.disabled}
+      aria-checked={it.checked}
       onmouseenter={() => (cursor = i)}
       onclick={() => {
         if (it.disabled) return;
@@ -181,7 +204,7 @@
         onclose(false);
       }}
     >
-      {it.label}
+      {#if checkable}<span class="tick" aria-hidden="true">{#if it.checked}<Icon name="check" size={11} />{/if}</span>{/if}{it.label}
     </button>
   {/each}
 </div>
@@ -243,6 +266,9 @@
     height: 1px;
     background: var(--border-soft);
   }
+  /* ✓ 的格子：macOS 原生菜单把勾画在文字左边一格，没勾的项照样空出那一格 */
+  .mitem.checkable { display: flex; align-items: center; padding-left: 4px; }
+  .tick { display: inline-flex; justify-content: center; width: 16px; flex: none; color: var(--text-dim); }
   /*
    * 危险项常驻红色，不是只在 hover 时才红：手滑点中的那一下发生在 hover 之后，
    * 而人是靠「扫一眼菜单」决定往哪儿点的

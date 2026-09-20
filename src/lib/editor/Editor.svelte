@@ -40,6 +40,7 @@
     onBlamePick,
     showMinimap = true,
     wrap = false,
+    indent = null,
     autofocus = false,
     focusTick = 0,
     onChange,
@@ -94,6 +95,8 @@
     showMinimap?: boolean;
     /** 软换行。笔记要，代码不要；判据在 `state/tab.ts` 的 `wrapsByDefault` */
     wrap?: boolean;
+    /** 缩进单位的手动覆盖（状态栏那格，issue #37）。null = 按文件内容猜 */
+    indent?: "tab" | number | null;
     /**
      * 挂上就把光标放进去。⌘N、⌘P、双击、系统送进来的文件都是「我要用它」，
      * 光标不在里面就是「按了 ⌘N 打字没反应」—— 这条断过（2026-09-16 才发现）。
@@ -234,6 +237,8 @@
   /** 缩略图同理：开关一下不该把光标和撤销栈也重置掉 */
   const mapSlot = new Compartment();
   const wrapSlot = new Compartment();
+  /** 缩进单位同理（issue #37）：状态栏改一下不该把撤销栈也重置掉 */
+  const indentSlot = new Compartment();
   /** dirty 判定的基线：当前磁盘上的内容。挂载与换文件时更新，不在顶层读 prop */
   let baseText = "";
   /**
@@ -273,6 +278,12 @@
         : null,
     jump: (hit: JumpHit) => onJump?.(hit),
   };
+
+  /** `indentUnit` 要的那个字符串：覆盖优先，没有就猜；猜不出按 4 空格 */
+  function indentUnitOf(over: "tab" | number | null): string {
+    const ind = over ?? detectIndent(baseline ?? initial);
+    return ind === "tab" ? "\t" : " ".repeat(typeof ind === "number" ? ind : 4);
+  }
 
   function build(doc: string) {
     return EditorState.create({
@@ -317,14 +328,10 @@
          * 自动缩进都照它来 —— 4 空格的文件里回车缩进出一个 Tab，就是那种「每次保存都
          * 多一片改动」的来源。null = 猜不出，按 4 空格。**在这里算而不是外面传进来**
          * （issue #32）：外面传要在入口包里带上 `indent.ts`，而只有编辑器和状态栏用它，
-         * 两个都是有标签之后的事。只在建 state 时算一次：文件打开之后风格不会变。
+         * 两个都是有标签之后的事。猜只在建 state 时做一次：文件打开之后风格不会变；
+         * 状态栏那格手动改的（`indent` prop，issue #37）走 compartment 热替换。
          */
-        indentUnit.of(
-          (() => {
-            const ind = detectIndent(baseline ?? initial);
-            return ind === "tab" ? "\t" : " ".repeat(typeof ind === "number" ? ind : 4);
-          })(),
-        ),
+        indentSlot.of(indentUnit.of(indentUnitOf(indent))),
         langSlot.of([]),
         jumpExtension(jumpHooks),
         ideaDarkTheme,
@@ -590,6 +597,13 @@
     const on = wrap;
     if (!view) return;
     view.dispatch({ effects: wrapSlot.reconfigure(on ? EditorView.lineWrapping : []) });
+  });
+  // 缩进单位同理（issue #37）。`baseline` / `initial` 在 untrack 里读：它们变了不该重算
+  $effect(() => {
+    const over = indent;
+    if (!view) return;
+    const unit = untrack(() => indentUnitOf(over));
+    view.dispatch({ effects: indentSlot.reconfigure(indentUnit.of(unit)) });
   });
 
   /*

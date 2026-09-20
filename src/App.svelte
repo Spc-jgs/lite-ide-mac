@@ -1096,6 +1096,11 @@
     onSwitchMode={() => tabflow.requestSwitchMode(tabs.active!)}
     onOpenEncoding={() => (overlay.encOpen = true)}
     onOpenDiff={() => void git.openDiff(git.activeEntry!, false)}
+    onSetIndent={(ind) => {
+      // 同 toggle-wrap：这个文件的属性，直接写标签；编辑器那边 compartment 热替换
+      if (tabs.active?.mode === "edit") tabs.active.indent = ind;
+    }}
+    onSetEol={(e) => docs.setEol(e)}
   />
 </main>
 

@@ -102,6 +102,8 @@ function g(
 }
 
 /** 桩里的假文件系统：路径 → 内容 */
+/** 存过的文件用什么换行符（`write_text` 记、`read_text` 报），没存过按名字装（见 read_text） */
+const EOLS: Record<string, string> = {};
 const FILES: Record<string, string> = {
   // 两份草稿，配合上面 DIRS 里的目录（issue #40）。一份有标题，一份是几行零碎的
   "/Users/you/Library/Application Support/com.liteide.app/scratches/2026-09-10 1644.md":
@@ -892,8 +894,9 @@ export function installMockIpc(): void {
             // 桩里模拟「按 UTF-8 读一个 GBK 文件」的乱码情形：
             // 换成 GBK 重新打开就不再有损，正好把状态栏的告警路径走一遍
             lossy: p.includes("gbk") && enc.toLowerCase() === "utf-8",
-            // 桩里没有真的 CRLF 文件：名字里带 crlf 的装成 CRLF，状态栏那格才有得看
-            eol: p.includes("crlf") ? "CRLF" : "LF",
+            // 桩里没有真的 CRLF 文件：名字里带 crlf 的装成 CRLF，状态栏那格才有得看；
+            // 存过的按存的那次算（issue #37 改换行符 → 保存 → 重开，这条路要在桩上走得通）
+            eol: EOLS[p] ?? (p.includes("crlf") ? "CRLF" : "LF"),
           };
         }
         case "write_text": {
@@ -905,6 +908,8 @@ export function installMockIpc(): void {
             DIRS[parent] = [...DIRS[parent], [nameOf(path), false]];
           }
           FILES[path] = String(a.content);
+          // 真实现（`fsservice::eol`）：混用的统一成 LF 存，下次读出来就是 LF
+          if (a.eol != null) EOLS[path] = a.eol === "mixed" ? "LF" : String(a.eol);
           return bump(path);
         }
         case "file_stamp":

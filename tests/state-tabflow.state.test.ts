@@ -144,5 +144,24 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   ok(tabs.active!.path === first, "第二次启动复用同一份空草稿，不新建");
 }
 
+// ── 7. 改换行符（issue #37）：只标脏不动内容，保存那一下才带着 eol 写盘，重开读回来是新的 ──
+{
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  await tabflow.openPath("/proj/README.md");
+  const t = tabs.active!;
+  ok(t.eol === "LF", `桩里 README 是 LF，实际 ${t.eol}`);
+  const ed = mountEditor(t.path, t.content!);
+  docs.setEol("CRLF");
+  ok(t.dirty && t.eol === "CRLF", "改换行符 = 标脏 + 换目标，内容不动");
+  ok(ed.text() === t.content, "编辑器里的文本没被碰");
+  await docs.save(ed.text());
+  ok(!t.dirty, "保存后不脏");
+  ok((await readText(t.path)).eol === "CRLF", "写盘带着 CRLF：重读探出来的就是 CRLF");
+  docs.setEol("CRLF");
+  ok(!t.dirty, "选了和现在一样的不标脏 —— 否则圆点亮了却没东西可存");
+  ed.leave();
+  tabflow.requestClose(t.id);
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

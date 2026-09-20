@@ -389,6 +389,20 @@ class Docs {
     }
   }
 
+  /**
+   * 只改「将来用什么换行符存」（issue #37），和 `saveAsEncoding` 同一条路：编辑器里
+   * 一律是 `\n`（`fsservice::eol`），换行符只在写盘那一下换回去，所以这里不碰内容。
+   * 「混用」的文件选了任一种，保存后就统一了。
+   */
+  setEol(eol: "LF" | "CRLF") {
+    const tab = tabs.active;
+    if (!tab || tab.mode !== "edit" || tab.eol === eol) return;
+    tab.eol = eol;
+    tab.dirty = true;
+    tabs.keep(tab.id);
+    notify.ok(`下次保存将用 ${eol} 换行，按 ⌘S 生效`, 3600);
+  }
+
   /** 只改「将来存成什么编码」，不动当前内容 */
   saveAsEncoding(label: string, bom: boolean) {
     const tab = tabs.active;
