@@ -1441,6 +1441,24 @@ pub async fn git_commit_diff(root: String, sha: String, path: String) -> Result<
     .await
 }
 
+/// 「和本地比较」（issue #39）：那次提交到现在的工作区
+#[tauri::command]
+pub async fn git_commit_vs_worktree(root: String, sha: String, path: String) -> Result<DiffDto, String> {
+    blocking(move || {
+        gitsvc::commit_vs_worktree(&root, &sha, &path)
+            .map(DiffDto::from)
+            .map_err(|e| format!("{e}"))
+    })
+    .await
+}
+
+/// cherry-pick（issue #39）。撞冲突时报错但盘上已经变了 —— 前端失败也要刷新
+#[tauri::command]
+pub async fn git_cherry_pick(root: String, sha: String) -> Result<String, String> {
+    crate::diag!("git_cherry_pick {sha}");
+    blocking(move || gitsvc::cherry_pick(&root, &sha).map_err(|e| format!("{e}"))).await
+}
+
 #[tauri::command]
 pub async fn git_branches(root: String) -> Result<Vec<BranchDto>, String> {
     blocking(move || {

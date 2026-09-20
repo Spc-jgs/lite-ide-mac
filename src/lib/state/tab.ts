@@ -72,6 +72,11 @@ export interface TabState {
   /** 非空表示这是「某次提交里的差异」，只读历史，不是工作区 */
   diffSha?: string;
   diffShort?: string;
+  /**
+   * 和 `diffSha` 搭配（issue #39「和本地比较」）：真时比的是「那次提交 → 现在的工作区」，
+   * 不是「那次提交本身」。两种标签名和状态栏都得说清，不然看着一样
+   */
+  diffToLocal?: boolean;
   /** 冲突标签：带冲突标记的工作区原文 */
   mergeText?: string;
   /**

@@ -1077,8 +1077,9 @@
             <gitUi.comps.log
               repo={git.repo!}
               filePath={tabs.active?.mode === "edit" ? tabs.active.path : ""}
-              onOpenCommitDiff={(sha, short, p) => void git.openCommitDiff(sha, short, p)}
+              onOpenCommitDiff={(sha, short, p, toLocal) => void git.openCommitDiff(sha, short, p, toLocal)}
               onCheckout={(sha) => branches.switchTo(sha)}
+              onCherryPick={(sha, short) => void git.cherryPick(sha, short)}
             />
           {/snippet}
         </panelUi.comp>

@@ -278,6 +278,7 @@
         path={tabs.active.rel ?? tabs.active.name}
         staged={!!tabs.active.diffStaged}
         commit={tabs.active.diffShort ?? ""}
+        toLocal={!!tabs.active.diffToLocal}
         untracked={!!tabs.active.diffUntracked}
         onToggleStaged={() => void git.toggleDiffSide(tabs.active!.id)}
         onApplyHunk={(patch, unstage) => void git.applyHunk(patch, unstage)}

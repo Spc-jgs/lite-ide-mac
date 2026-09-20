@@ -421,6 +421,11 @@ let stashed = new Set<string>();
  * 桩不跟着变，那句提示在浏览器里就永远是错的。
  */
 let curBranch = "m13/git";
+/**
+ * 游离检出（`git_switch` 切到一个 sha）。真实现的 status 那时 `branch` 是 `(a1b2c3d)`、
+ * `detached: true`；桩原来直接把分支名设成 sha（issue #39 顺手对齐）。切回分支就清掉
+ */
+let detachedAt: string | null = null;
 
 /** 本地分支。可变 —— 删除 / 改名之后再拉列表要看得出变化 */
 const LOCAL: { name: string; subject: string }[] = [
@@ -1215,12 +1220,12 @@ export function installMockIpc(): void {
         case "git_status":
           return {
             root: "/proj",
-            branch: curBranch,
-            head: "h800000",
-            upstream: UPSTREAM[curBranch] ?? "",
-            ahead: 2,
+            branch: detachedAt ? `(${detachedAt})` : curBranch,
+            head: detachedAt ?? "h800000",
+            upstream: detachedAt ? "" : (UPSTREAM[curBranch] ?? ""),
+            ahead: detachedAt ? 0 : 2,
             behind: 0,
-            detached: false,
+            detached: detachedAt !== null,
             unborn: false,
             truncated: false,
             /*
@@ -1393,6 +1398,40 @@ index 1a2b3c4..5d6e7f8 100644
 +    private Duration backoff = Duration.ofMillis(800);
  }`,
           };
+        case "git_commit_vs_worktree":
+          // 「和本地比较」：那次提交到现在，比 commit_diff 多出后来的改动（多一块）
+          return {
+            truncated: false,
+            text: `diff --git a/${a.path || "src/OrderService.java"} b/${a.path || "src/OrderService.java"}
+@@ -8,4 +8,5 @@
+ public class OrderService {
+-    private int retries = 3;
++    private int retries = 5;
++    private Duration backoff = Duration.ofMillis(800);
+ }
+@@ -42,3 +43,4 @@
+     var conn = pool.getConnection();
+-    int timeout = 300;
++    int timeout = 5000;
++    // 本地还没提交的
+     try {`,
+          };
+        case "git_cherry_pick": {
+          /*
+           * `e1`（M11 那条）一定撞冲突 —— 冲突那条路（报错、不回滚、改动列表出现冲突中）
+           * 在桩上必须走得到，浏览器里没有真仓库。别的都成功，图不动（桩的提交图是写死的）
+           */
+          await sleep(200);
+          const hit = MOCK_LOG.find((c) => c.sha === a.sha);
+          if (a.sha === "e1") {
+            throw new Error(
+              "error: could not apply e100000... M11 符号大纲：⌘⇧O 文件结构\n" +
+                "hint: After resolving the conflicts, mark them with\n" +
+                'hint: "git add/rm <pathspec>", then run\nhint: "git cherry-pick --continue"',
+            );
+          }
+          return `[${curBranch} ${hit?.short ?? a.sha}] ${hit?.subject ?? ""}`;
+        }
         case "git_branches":
           return [
             /*
@@ -1487,6 +1526,13 @@ index 1a2b3c4..5d6e7f8 100644
             };
           }
           const asked = String(a.name);
+          // 切到一个提交（提交历史里「检出到此提交」）：真实现是游离检出，分支名变成 `(sha)`
+          const hit = !a.create && MOCK_LOG.find((c) => c.sha === asked || c.short === asked);
+          if (hit) {
+            detachedAt = hit.short;
+            return `HEAD is now at ${hit.short} ${hit.subject}`;
+          }
+          detachedAt = null;
           curBranch = asked.replace(/^origin\//, "");
           if (a.create && !LOCAL.some((l) => l.name === curBranch)) {
             LOCAL.push({ name: curBranch, subject: `从 ${a.from || "HEAD"} 分出` });

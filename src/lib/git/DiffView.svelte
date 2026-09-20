@@ -16,6 +16,7 @@
     path,
     staged,
     commit = "",
+    toLocal = false,
     untracked = false,
     capped = false,
     onToggleStaged,
@@ -28,6 +29,8 @@
     staged: boolean;
     /** 非空表示这是某次提交里的差异（只读历史），此时没有暂存/未暂存之分 */
     commit?: string;
+    /** 和 `commit` 搭配（issue #39）：比的是「那次提交 → 现在的工作区」。右侧是活的，但块动作照样不给：patch 的基线是那次提交的 blob，不是暂存区，`apply --cached` 对不上 */
+    toLocal?: boolean;
     /**
      * 这是个未跟踪（新增）的文件。
      *
@@ -240,7 +243,9 @@
     >换行</button>
 
     {#if commit}
-      <span class="sha" title="这是历史提交里的差异，只读">{commit}</span>
+      <span class="sha" title={toLocal ? "那次提交到现在工作区的差异（中间的提交和没提交的都算），只读" : "这是历史提交里的差异，只读"}>
+        {toLocal ? `${commit} → 本地` : commit}
+      </span>
     {:else}
       <button class="btn sm" onclick={onToggleStaged} title="在「已暂存 ↔ 未暂存」之间切换">
         {staged ? "已暂存的改动" : "未暂存的改动"} <Icon name="swap" size={11} />

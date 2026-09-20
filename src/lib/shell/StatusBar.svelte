@@ -151,7 +151,9 @@
     <span class="cell warn">冲突合并</span>
   {:else if active?.mode === "diff"}
     <span class="cell dim">
-      {active.diffSha ? `提交 ${active.diffShort}` : `差异 · ${active.diffStaged ? "已暂存" : "未暂存"}`}
+      {active.diffSha
+        ? active.diffToLocal ? `${active.diffShort} → 本地` : `提交 ${active.diffShort}`
+        : `差异 · ${active.diffStaged ? "已暂存" : "未暂存"}`}
     </span>
   {:else if active}
     <!--

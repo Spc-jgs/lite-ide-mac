@@ -176,6 +176,8 @@ pub fn run() {
             commands::git_blame,
             commands::git_apply_cached,
             commands::git_apply_worktree,
+            commands::git_commit_vs_worktree,
+            commands::git_cherry_pick,
             commands::git_stash_list,
             commands::git_stash_push,
             commands::git_stash_pop,

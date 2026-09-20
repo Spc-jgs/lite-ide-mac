@@ -1661,21 +1661,37 @@ pub fn commit_diff(root: impl AsRef<Path>, sha: &str, path: &str) -> R<Diff> {
         args.push("--");
         args.push(path);
     }
-    // 首次提交没有父，`sha^!` 会失败 —— 退回与空树比
-    match run_capped(root.as_ref(), &args, &[]) {
-        Ok(s) => Ok(s),
-        Err(Error::Git(_)) => {
-            let mut a2 = vec!["--no-pager", "show", "--no-color", "--format=", "--root"];
-            a2.extend_from_slice(DIFF_SAFE);
-            a2.push(sha);
-            if !path.is_empty() {
-                a2.push("--");
-                a2.push(path);
-            }
-            run_capped(root.as_ref(), &a2, &[])
-        }
-        Err(e) => Err(e),
+    run_capped(root, &args, &[])
+}
+
+/// 那次提交到**现在的工作区**的差异（issue #39「和本地比较」）：`git diff <sha> -- path`。
+///
+/// 和 [`commit_diff`] 是两个问题：那个答「那次提交改了什么」（`sha^!`，和它父比），
+/// 这个答「从那时到现在改了什么」—— 中间的每次提交加上还没提交的都算在内。
+/// 首次提交没有父在这里不是问题：比的是提交本身和工作区，不碰 `^`。
+pub fn commit_vs_worktree(root: impl AsRef<Path>, sha: &str, path: &str) -> R<Diff> {
+    let mut args = vec!["--no-pager", "-c", "core.pager=cat", "diff", "--no-color"];
+    args.extend_from_slice(DIFF_SAFE);
+    args.push(sha);
+    if !path.is_empty() {
+        args.push("--");
+        args.push(path);
     }
+    run_capped(root.as_ref(), &args, &[])
+}
+
+/// cherry-pick 一条提交到当前分支（issue #39）。
+///
+/// 撞冲突的路和 `stash pop` 一样：git 报错、工作区带冲突标记、`status` 里出现冲突条目，
+/// **不回滚**（`.git/CHERRY_PICK_HEAD` 留着，人解完在终端 `--continue`）。
+/// 调用方失败也要刷新一次状态 —— 冲突得让人看见。
+/// 合并提交（多个父）不带 `-m` 会被 git 拒绝，前端在菜单上灰掉它，这里不另判。
+pub fn cherry_pick(root: impl AsRef<Path>, sha: &str) -> R<String> {
+    let sha = sha.trim();
+    if sha.is_empty() {
+        return Err(Error::Git("提交不能为空".into()));
+    }
+    run(root.as_ref(), &["cherry-pick", "--", sha])
 }
 
 /// 分支列表（本地 + 远程），一次 `for-each-ref` 搞定。
@@ -3488,6 +3504,87 @@ mod tests {
         assert!(staged.contains("+L18"), "暂存区里第 18 行那块还得在：{staged}");
         let work = diff(&dir, "a.txt", false, false).unwrap().text;
         assert!(work.trim().is_empty(), "工作区相对暂存区该干净了：{work}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 「和本地比较」（issue #39）：从那次提交到现在，中间的提交和未提交的都算
+    #[test]
+    fn commit_vs_worktree_算的是到现在() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-vslocal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次", false).unwrap();
+        let first = run(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+        std::fs::write(dir.join("a.txt"), "one\ntwo\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "第二次", false).unwrap();
+        std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+
+        let second = run(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+
+        let d = commit_vs_worktree(&dir, &first, "a.txt").unwrap().text;
+        assert!(d.contains("+two") && d.contains("+three"), "第二次提交的和没提交的都该在：{d}");
+        let d2 = commit_vs_worktree(&dir, &second, "a.txt").unwrap().text;
+        assert!(!d2.contains("+two") && d2.contains("+three"), "从第二次算起只剩没提交的：{d2}");
+        // 对照：commit_diff 答的是「那次提交改了什么」，第二次提交只有 two
+        let own = commit_diff(&dir, &second, "a.txt").unwrap().text;
+        assert!(own.contains("+two") && !own.contains("+three"), "commit_diff 只该有那次提交的：{own}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// cherry-pick（issue #39）：干净的搬过来；撞冲突时报错、盘上带标记、status 有冲突条目、不回滚
+    #[test]
+    fn cherry_pick_干净与冲突() {
+        if !available() {
+            eprintln!("跳过：机器上没有 git");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("gitsvc-cherry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+        run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+        run(&dir, &["config", "user.name", "t"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "base\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "b\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "首次", false).unwrap();
+        // 分支 feat：一条只动 b.txt 的（干净）、一条动 a.txt 的（会冲突）
+        switch_branch(&dir, "feat", true).unwrap();
+        std::fs::write(dir.join("b.txt"), "b\nfeat\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "feat 改 b", false).unwrap();
+        let clean = run(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+        std::fs::write(dir.join("a.txt"), "feat 的 a\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "feat 改 a", false).unwrap();
+        let conflicting = run(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+        // 回 main，让 a.txt 和 feat 分叉
+        switch_branch(&dir, "main", false).unwrap();
+        std::fs::write(dir.join("a.txt"), "main 的 a\n").unwrap();
+        run(&dir, &["add", "-A"]).unwrap();
+        commit(&dir, "main 改 a", false).unwrap();
+
+        cherry_pick(&dir, &clean).expect("干净的 cherry-pick 该成功");
+        assert_eq!(std::fs::read_to_string(dir.join("b.txt")).unwrap(), "b\nfeat\n", "改动搬过来了");
+        let subj = run(&dir, &["log", "-1", "--format=%s"]).unwrap();
+        assert_eq!(subj.trim(), "feat 改 b", "提交信息原样带过来");
+
+        let err = cherry_pick(&dir, &conflicting).expect_err("撞冲突该报错");
+        assert!(format!("{err}").contains("conflict"), "报的该是冲突：{err}");
+        let a = std::fs::read_to_string(dir.join("a.txt")).unwrap();
+        assert!(a.contains("<<<<<<<"), "盘上该带冲突标记，不回滚：{a}");
+        let st = status_full(&dir).unwrap();
+        assert!(st.entries.iter().any(|e| e.path == "a.txt" && e.conflicted), "status 里该有冲突条目：{:?}", st.entries);
         std::fs::remove_dir_all(&dir).ok();
     }
 

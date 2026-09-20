@@ -53,6 +53,13 @@ export const gitCommitFiles = (root: string, sha: string) =>
 export const gitCommitDiff = (root: string, sha: string, path = "") =>
   invoke<DiffText>("git_commit_diff", { root, sha, path });
 
+/** 「和本地比较」（issue #39）：那次提交到现在的工作区，`git diff <sha> -- path` */
+export const gitCommitVsWorktree = (root: string, sha: string, path = "") =>
+  invoke<DiffText>("git_commit_vs_worktree", { root, sha, path });
+
+/** cherry-pick 一条提交到当前分支（issue #39）。撞冲突时 reject，盘上已带标记 */
+export const gitCherryPick = (root: string, sha: string) => invoke<string>("git_cherry_pick", { root, sha });
+
 export const gitBranches = (root: string) => invoke<GitBranch[]>("git_branches", { root });
 
 /**

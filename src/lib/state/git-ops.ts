@@ -1,5 +1,5 @@
 import { gitStage, readText, writeText, type GitEntry } from "../ipc/commands";
-import { gitDiff, gitCommitDiff, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached, gitApplyWorktree } from "../ipc/git";
+import { gitDiff, gitCommitDiff, gitCommitVsWorktree, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached, gitApplyWorktree, gitCherryPick } from "../ipc/git";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { tabflow } from "./tabflow.svelte";
@@ -157,7 +157,10 @@ export async function reloadDiff(id: number) {
   if (!tab || !repo || tab.mode !== "diff" || !tab.rel) return;
   try {
     if (tab.diffSha) {
-      const d = await gitCommitDiff(repo, tab.diffSha, tab.rel);
+      // 「那次提交本身」和「那次提交到现在」是两个问题（issue #39），走两条命令
+      const d = tab.diffToLocal
+        ? await gitCommitVsWorktree(repo, tab.diffSha, tab.rel)
+        : await gitCommitDiff(repo, tab.diffSha, tab.rel);
       tab.diffRaw = d.text;
       tab.diffCapped = d.truncated;
       return;
@@ -223,24 +226,46 @@ export async function toggleDiffSide(id: number) {
 }
 
 /** 从日志里打开某次提交中某个文件的差异 */
-export async function openCommitDiff(sha: string, short: string, rel: string) {
+/**
+ * 开一个历史差异标签。`toLocal`（issue #39「和本地比较」）= 那次提交 → 现在的工作区，
+ * 和「那次提交本身」是两个标签、两个 key —— 同一个文件两种比法可以同时开着，
+ * 所以标签名要能分开：本地那种的显示名带「↔ 本地」。
+ */
+export async function openCommitDiff(sha: string, short: string, rel: string, toLocal = false) {
   if (!git.repo) return;
-  const key = `git-commit:${sha}:${rel}`;
+  const key = `${toLocal ? "git-local" : "git-commit"}:${sha}:${rel}`;
   let id = tabs.list.find((t) => t.path === key)?.id;
   if (id === undefined) {
+    const name = rel.slice(rel.lastIndexOf("/") + 1);
     id = tabs.add({
       path: key,
-      name: rel.slice(rel.lastIndexOf("/") + 1),
+      name,
       mode: "diff",
       dirty: false,
       size: 0,
       rel,
       diffSha: sha,
       diffShort: short,
+      ...(toLocal ? { diffToLocal: true, title: `${name} ↔ 本地` } : {}),
     });
   }
   tabs.activeId = id;
   await reloadDiff(id);
+}
+
+/**
+ * cherry-pick（issue #39）。撞冲突的路和 `stashPop` 一样：git 报错、盘上带冲突标记、
+ * 改动列表出现「冲突中」，不回滚 —— `run` 失败不刷新，所以失败也要自己 `refresh` 一次，
+ * 不然冲突文件在界面上看不见。盘上变了，`worktree.changed()` 让开着的编辑器重读。
+ */
+export async function cherryPick(sha: string, short: string): Promise<boolean> {
+  const ok = await run("cherry-pick 失败", async () => {
+    await gitCherryPick(git.repo!, sha);
+    notify.ok(`已把 ${short} cherry-pick 到当前分支`, 3000);
+  }, "cherry-pick");
+  if (!ok) await git.refresh();
+  await worktree.changed();
+  return ok;
 }
 
 /**

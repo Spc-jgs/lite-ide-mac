@@ -11,27 +11,54 @@
     filePath = "",
     onOpenCommitDiff,
     onCheckout,
+    onCherryPick,
   }: {
     repo: string;
     filePath?: string;
-    onOpenCommitDiff: (sha: string, short: string, path: string) => void;
+    /** `toLocal`（issue #39）：比「那次提交 → 现在的工作区」，不是那次提交本身 */
+    onOpenCommitDiff: (sha: string, short: string, path: string, toLocal?: boolean) => void;
     /** 右键「检出到此提交」：游离检出。被本地改动挡住那一问由上层（branches）接 */
     onCheckout?: (sha: string) => void;
+    /** 右键「cherry-pick」（issue #39）：搬到当前分支。冲突那一路由上层接 */
+    onCherryPick?: (sha: string, short: string) => void;
   } = $props();
 
+  /** 当前编辑的文件相对仓库根的路径；不在仓库里就是空 */
+  let curRel = $derived(filePath.startsWith(`${repo}/`) ? filePath.slice(repo.length + 1) : "");
+
   /**
-   * 提交行的右键菜单（issue #33 ⑬）：复制哈希 / 复制提交信息 / 检出到此提交。
-   * IDEA 那份还有 cherry-pick、和本地比较，先放这三条 —— 都是「看着历史顺手要做」的。
+   * 提交行的右键菜单（issue #33 ⑬ + #39）：复制哈希 / 复制提交信息 / 检出到此提交 /
+   * cherry-pick / 和本地比较。照 IDEA 排：拿信息的、去哪儿的、拿它做什么的。
+   *
+   * 「和本地比较」比的是**当前打开的文件**（IDEA 文件历史里那条的语义）：差异视图是单文件的，
+   * 整次提交对本地的比较没地方画。没开文件时灰掉，理由同菜单栏的灰态 —— 灰掉的项本身
+   * 就是一句解释。合并提交的 cherry-pick 要 `-m` 指定父，这里不做，同样灰掉说明。
+   * 按文件比的入口在右边文件列表的右键菜单里（`fmenu`）。
    */
   let cmenu = $state<{ x: number; y: number; c: GitLogEntry } | null>(null);
   let cmenuItems = $derived.by((): MenuItem[] => {
     const c = cmenu?.c;
     if (!c) return [];
+    const merge = c.parents.length > 1;
+    const base = curRel.slice(curRel.lastIndexOf("/") + 1);
     return [
       { label: "复制哈希", run: () => void copyText(c.sha, "哈希") },
       { label: "复制提交信息", run: () => void copyText(c.subject, "提交信息") },
+      {
+        label: curRel ? `和本地比较：${base}` : "和本地比较（先打开一个文件）",
+        sep: true,
+        disabled: !curRel,
+        run: () => onOpenCommitDiff(c.sha, c.short, curRel, true),
+      },
       ...(onCheckout
         ? [{ label: `检出到此提交（游离）`, sep: true, run: () => onCheckout(c.sha) }]
+        : []),
+      ...(onCherryPick
+        ? [{
+            label: merge ? "cherry-pick（合并提交不支持）" : "cherry-pick 到当前分支",
+            disabled: merge,
+            run: () => onCherryPick(c.sha, c.short),
+          }]
         : []),
     ];
   });
@@ -40,6 +67,21 @@
     picked = c; // 右键也要选中 —— 菜单作用在哪条上不能只靠人自己记
     cmenu = { x: e.clientX, y: e.clientY, c };
   }
+
+  /**
+   * 文件行的右键菜单（issue #39）：主动作（点击）是看那次提交的改动，第二个入口给
+   * 「和本地比较」—— ui.md 第十三条：任何列表行除了主动作都要有第二个入口。
+   */
+  let fmenu = $state<{ x: number; y: number; f: GitEntry } | null>(null);
+  let fmenuItems = $derived.by((): MenuItem[] => {
+    const f = fmenu?.f;
+    const c = picked;
+    if (!f || !c) return [];
+    return [
+      { label: "查看这次提交的改动", run: () => onOpenCommitDiff(c.sha, c.short, f.path) },
+      { label: "和本地比较", run: () => onOpenCommitDiff(c.sha, c.short, f.path, true) },
+    ];
+  });
 
   /** 一次拉多少条。再多就该做分页了，个人项目里 300 条足够翻很久 */
   const LIMIT = 300;
@@ -285,6 +327,17 @@
             <button
               class="drow"
               onclick={() => onOpenCommitDiff(picked!.sha, picked!.short, f.path)}
+              oncontextmenu={(e) => {
+                e.preventDefault();
+                fmenu = { x: e.clientX, y: e.clientY, f };
+              }}
+              onkeydown={(e) => {
+                if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
+                  e.preventDefault();
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  fmenu = { x: r.left + 24, y: r.bottom + 2, f };
+                }
+              }}
               title={f.orig ? `${f.orig} → ${f.path}` : f.path}
             >
               <span class="m {MARK[f.index]?.cls ?? 'modified'}">{MARK[f.index]?.ch ?? "M"}</span>
@@ -302,6 +355,9 @@
 
 {#if cmenu}
   <ContextMenu x={cmenu.x} y={cmenu.y} label="{cmenu.c.short} 的操作" items={cmenuItems} onclose={() => (cmenu = null)} />
+{/if}
+{#if fmenu}
+  <ContextMenu x={fmenu.x} y={fmenu.y} title={fmenu.f.path} label="{fmenu.f.path} 的操作" items={fmenuItems} onclose={() => (fmenu = null)} />
 {/if}
 
 <style>

@@ -289,8 +289,11 @@ class Git {
   async toggleDiffSide(id: number) {
     return (await ops()).toggleDiffSide(id);
   }
-  async openCommitDiff(sha: string, short: string, rel: string) {
-    return (await ops()).openCommitDiff(sha, short, rel);
+  async openCommitDiff(sha: string, short: string, rel: string, toLocal = false) {
+    return (await ops()).openCommitDiff(sha, short, rel, toLocal);
+  }
+  async cherryPick(sha: string, short: string): Promise<boolean> {
+    return (await ops()).cherryPick(sha, short);
   }
   async openMerge(e: GitEntry) {
     return (await ops()).openMerge(e);
