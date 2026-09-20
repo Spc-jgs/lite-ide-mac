@@ -46,6 +46,13 @@ export function parseDiff(raw: string): DiffFile[] {
   let cur: DiffFile | null = null;
   let oldNo = 0;
   let newNo = 0;
+  /**
+   * 已经进了第一个 `@@`。`--- a/x` / `+++ b/x` 只在块**之前**是文件头；块里以 `--- ` /
+   * `+++ ` 开头的是**内容**（删掉一行 `-- SQL 注释` 在 diff 里就是 `--- SQL 注释`）——
+   * 原来不分，那种行直接从视图里消失，按行暂存（issue #38）拿它对齐原文还会错一位，
+   * 暂存进去的是选中行的邻居（review 2026-09-20）。
+   */
+  let inHunk = false;
 
   const push = (l: DiffLine) => cur?.lines.push(l);
 
@@ -53,6 +60,7 @@ export function parseDiff(raw: string): DiffFile[] {
     const line = all[li];
     if (line.startsWith("diff --git ")) {
       if (cur) files.push(finish(cur));
+      inHunk = false;
       cur = {
         path: pathFromHeader(line),
         binary: false,
@@ -86,19 +94,21 @@ export function parseDiff(raw: string): DiffFile[] {
       cur.binary = true;
       continue;
     }
-    // 这几行是噪声，用户不看：index 哈希、--- / +++ 的路径重复
+    // 这几行是噪声，用户不看：index 哈希、--- / +++ 的路径重复。**只在块之前**，见 inHunk
     if (
-      line.startsWith("index ") ||
-      line.startsWith("--- ") ||
-      line.startsWith("+++ ") ||
-      line.startsWith("old mode") ||
-      line.startsWith("new mode") ||
-      line.startsWith("similarity index")
+      !inHunk &&
+      (line.startsWith("index ") ||
+        line.startsWith("--- ") ||
+        line.startsWith("+++ ") ||
+        line.startsWith("old mode") ||
+        line.startsWith("new mode") ||
+        line.startsWith("similarity index"))
     ) {
       continue;
     }
 
     if (line.startsWith("@@")) {
+      inHunk = true;
       const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(line);
       if (m) {
         oldNo = Number(m[1]);

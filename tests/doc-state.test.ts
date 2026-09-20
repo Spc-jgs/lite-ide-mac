@@ -1,4 +1,4 @@
-import { textToSave, settled, stashed, type Doc } from "../src/lib/state/doc.ts";
+import { textToSave, settled, stashed, isDirty, type Doc } from "../src/lib/state/doc.ts";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -51,6 +51,14 @@ ok(改回去.dirty === false, "改回原样 → 不脏");
 // content 没有时按空串比，别把 undefined 和 "" 判成不同
 ok(stashed({ dirty: false }, "").draft === undefined, "空文件里没打字 → 没有草稿");
 ok(stashed({ dirty: false }, "x").dirty === true, "空文件里打了字 → 脏");
+
+// ── fmt：换编码 / 换行符之后内容没变也是脏，且要活过重挂和交回草稿（review 2026-09-20）──
+ok(isDirty({ fmt: true }, false) === true, "存法变了、文本没变 → 脏");
+ok(isDirty({}, false) === false, "都没变 → 不脏");
+ok(stashed({ content: "原文", dirty: true, fmt: true }, "原文").dirty === true, "交回一份和磁盘一样的文本，fmt 还在 → 仍然脏");
+// settled 要把 fmt 清掉 —— 同 draft，贴到带着 fmt 的对象上测
+const 存过 = Object.assign({ content: "旧", dirty: true, fmt: true } as Doc, settled("新"));
+ok(存过.fmt === undefined && 存过.dirty === false, "保存成功 → fmt 清掉");
 
 /*
  * **只带这三个字段回去，别的一律不带。**

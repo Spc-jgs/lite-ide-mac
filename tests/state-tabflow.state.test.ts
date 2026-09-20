@@ -159,7 +159,15 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   ok((await readText(t.path)).eol === "CRLF", "写盘带着 CRLF：重读探出来的就是 CRLF");
   docs.setEol("CRLF");
   ok(!t.dirty, "选了和现在一样的不标脏 —— 否则圆点亮了却没东西可存");
+  // 改成 LF 再「切走切回」：编辑器交回一份和磁盘一样的文本，圆点不能灭（review 2026-09-20）
+  docs.setEol("LF");
   ed.leave();
+  ok(t.dirty && t.eol === "LF", `切走（交回草稿）之后仍然脏，实际 dirty=${t.dirty}`);
+  const ed2 = mountEditor(t.path, t.content!);
+  ok(t.dirty, "切回来仍然脏");
+  await docs.save(ed2.text());
+  ok(!t.dirty && !t.fmt, "保存后清干净");
+  ed2.leave();
   tabflow.requestClose(t.id);
 }
 

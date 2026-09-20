@@ -52,6 +52,13 @@ ok(hunkPatch(splitHunks("@@ -1 +1 @@\n-a\n+b\n"), 0) === "", "没有文件头不
   const nn = "@@ -1,2 +1,2 @@\n c1\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n";
   const onlyMinus = pickLines(nn, new Set([1]));
   ok(onlyMinus === "@@ -1,2 +1,2 @@\n c1\n-old\n\\ No newline at end of file\n", `+new 扔了，它后面那条标记也得扔，实得 ${JSON.stringify(onlyMinus)}`);
+  // 转上下文撞上无换行标记：不能简单转（上下文隐含带换行，基线里没有）——
+  // 写成「删掉没换行的 old、加回带换行的 old」，真仓库上 git apply 收（review 2026-09-20）
+  const onlyPlus = pickLines(nn, new Set([3]));
+  ok(onlyPlus === "@@ -1,2 +1,2 @@\n c1\n-old\n\\ No newline at end of file\n+old\n+new\n\\ No newline at end of file\n", `-old 没换行时转成 -old/标记/+old，实得 ${JSON.stringify(onlyPlus)}`);
+  // 反向同理，符号对调、标记留在基线（新侧）那边
+  const revMinus = pickLines(nn, new Set([1]), true);
+  ok(revMinus === "@@ -1,2 +1,2 @@\n c1\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n-new\n", `反向只选 -old：+new 没换行时转成 +new/标记/-new，实得 ${JSON.stringify(revMinus)}`);
   ok(pickLines("not a hunk\n", new Set([0])) === "", "不是块给空串");
 }
 

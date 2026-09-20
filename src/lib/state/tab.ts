@@ -96,6 +96,8 @@ export interface TabState {
    * 不进快照，理由同 `wrap`。只影响之后敲进去的缩进，不重排已有的行。
    */
   indent?: "tab" | number;
+  /** 见 `doc.ts` 的 `Doc.fmt`：换编码 / 换换行符之后、还没保存 */
+  fmt?: boolean;
   /** 解码时有解不出的字节；带着它保存会把那些字节永久换成 U+FFFD */
   lossy?: boolean;
   /**

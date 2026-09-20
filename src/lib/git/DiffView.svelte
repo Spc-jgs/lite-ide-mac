@@ -98,6 +98,14 @@
     anchor = null;
   });
   const isChange = (l: DiffLine | null): l is DiffLine => !!l && (l.kind === "add" || l.kind === "del");
+  /**
+   * ⇧按下时拦掉浏览器的默认动作 —— 它是「把文字选区从上次点的地方扩到这里」，click 事件
+   * 到达时选区已经非空，下面那条「正在拖选文字就不算点选」的守卫会把 ⇧点选范围一起挡掉
+   * （review 2026-09-20：合成事件没有 mousedown，所以之前的验证没撞上）。
+   */
+  const noShiftSel = (e: MouseEvent) => {
+    if (e.shiftKey) e.preventDefault();
+  };
   function pickRow(lines: (DiffLine | null)[], e: MouseEvent) {
     if (!canApply) return;
     if (!(window.getSelection()?.isCollapsed ?? true)) return;
@@ -366,15 +374,15 @@
             {@const R = r.right}
             {@const on = r.kind === "change" && ((!!L && sel.has(L)) || (!!R && sel.has(R)))}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="no {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:sel={on} data-row={i} onclick={(e) => pickRow([L, R], e)}>{L?.oldNo ?? ""}</div>
+            <div class="no {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:sel={on} data-row={i} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>{L?.oldNo ?? ""}</div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:flat={flat.left[i]} class:sel={on} onclick={(e) => pickRow([L, R], e)}>
+            <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:flat={flat.left[i]} class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>
               {#if L}{@const s = segs(L)}{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}{/if}
             </div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="no mid {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:sel={on} onclick={(e) => pickRow([L, R], e)}>{R?.newNo ?? ""}</div>
+            <div class="no mid {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>{R?.newNo ?? ""}</div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="tx {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:flat={flat.right[i]} class:sel={on} onclick={(e) => pickRow([L, R], e)}>
+            <div class="tx {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:flat={flat.right[i]} class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>
               {#if R}{@const s = segs(R)}{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}{/if}
             </div>
           {/if}
@@ -404,7 +412,7 @@
           {:else}
             {@const s = segs(l)}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="row {l.kind}" class:sel={sel.has(l)} data-row={i} onclick={(e) => pickRow([l], e)}>
+            <div class="row {l.kind}" class:sel={sel.has(l)} data-row={i} onmousedown={noShiftSel} onclick={(e) => pickRow([l], e)}>
               <span class="no">{l.oldNo ?? ""}</span>
               <span class="no">{l.newNo ?? ""}</span>
               <span class="sign">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : ""}</span>

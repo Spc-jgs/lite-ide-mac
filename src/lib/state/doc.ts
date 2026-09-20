@@ -20,6 +20,19 @@ export interface Doc {
   /** 未保存的草稿。只有和 `content` 不同才存在 */
   draft?: string;
   dirty: boolean;
+  /**
+   * 「下次存的写法变了，内容没变」（换编码 / 换换行符，issue #37）。
+   * 它是 dirty 的第二个来源：内容和磁盘一样也得亮圆点、⌘W 也得拦。**必须是独立字段**，
+   * 不能只把 dirty 置 true —— 编辑器重挂（切标签）和交回草稿都会按「文本和磁盘一不一样」
+   * 重算 dirty，只置 dirty 的话切一下标签圆点就没了，而 eol 还留在标签上（review 2026-09-20）。
+   * 磁盘那份成了准（`settled`）就清掉。
+   */
+  fmt?: boolean;
+}
+
+/** dirty 的判据只有这一处：文本和磁盘不一样，或者存法变了 */
+export function isDirty(doc: Pick<Doc, "fmt">, textDiffers: boolean): boolean {
+  return textDiffers || !!doc.fmt;
 }
 
 /**
@@ -45,7 +58,7 @@ export function textToSave(doc: Doc, live: string | null): string {
  * 刚落定的内容当场被顶掉，而且会被算成「有未保存改动」。
  */
 export function settled(content: string): Doc {
-  return { content, draft: undefined, dirty: false };
+  return { content, draft: undefined, dirty: false, fmt: undefined };
 }
 
 /**
@@ -69,6 +82,6 @@ export function settled(content: string): Doc {
  */
 export function stashed(doc: Doc, text: string): Doc {
   return text === (doc.content ?? "")
-    ? { content: doc.content, draft: undefined, dirty: false }
+    ? { content: doc.content, draft: undefined, dirty: isDirty(doc, false) }
     : { content: doc.content, draft: text, dirty: true };
 }

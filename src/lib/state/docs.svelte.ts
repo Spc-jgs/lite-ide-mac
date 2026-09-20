@@ -398,6 +398,7 @@ class Docs {
     const tab = tabs.active;
     if (!tab || tab.mode !== "edit" || tab.eol === eol) return;
     tab.eol = eol;
+    tab.fmt = true;
     tab.dirty = true;
     tabs.keep(tab.id);
     notify.ok(`下次保存将用 ${eol} 换行，按 ⌘S 生效`, 3600);
@@ -409,7 +410,9 @@ class Docs {
     if (!tab || tab.mode !== "edit") return;
     tab.encoding = label;
     tab.bom = bom;
-    // 内容没变但目标编码变了，得让用户知道要按 ⌘S 才会真的落盘
+    // 内容没变但目标编码变了，得让用户知道要按 ⌘S 才会真的落盘。
+    // `fmt` 是让这个 dirty 活过编辑器重挂的那一位（见 doc.ts）
+    tab.fmt = true;
     tab.dirty = true;
     tabs.keep(tab.id);
     notify.ok(`下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`, 3600);

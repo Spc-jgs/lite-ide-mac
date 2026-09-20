@@ -103,6 +103,24 @@ const d7 = parseDiff(`diff --git a/q b/q
 `);
 ok(d7[0].adds === 1 && d7[0].dels === 1, `\\ 标记不该算进增删：${d7[0].adds}/${d7[0].dels}`);
 
+// 9. 块里以 `--- ` / `+++ ` 开头的是内容不是文件头（删一行 SQL 注释 `-- x` 在 diff 里是 `--- x`）
+{
+  const sql = `diff --git a/q.sql b/q.sql
+--- a/q.sql
++++ b/q.sql
+@@ -1,3 +1,3 @@
+ SELECT 1;
+--- old comment
++++ weird line
+ SELECT 2;
+`;
+  const f = parseDiff(sql)[0];
+  const kinds = f.lines.map((l) => l.kind).join(",");
+  ok(kinds === "hunk,ctx,del,add,ctx", `块里的 ---/+++ 行要留下：${kinds}`);
+  ok(f.lines[2].text === "-- old comment" && f.lines[3].text === "++ weird line", "内容是去掉一个符号之后的");
+  ok(f.dels === 1 && f.adds === 1, `增删要数上：${f.adds}/${f.dels}`);
+}
+
 // 8. 空输入
 ok(parseDiff("").length === 0 && parseDiff("   \n").length === 0, "空输入返回空数组");
 
