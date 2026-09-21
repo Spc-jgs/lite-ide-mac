@@ -7,6 +7,9 @@ import { scratchTitle } from "./frontmatter";
 import { autosaveDue, AUTOSAVE_IDLE_MS } from "./autosave";
 import type { TabState } from "./tab";
 
+/** 冲突裁决、换编码 / 换行符在 `docs-ops.ts`，按需加载 —— 理由见那边的文件头 */
+const ops = () => import("./docs-ops");
+
 /**
  * 文档生命周期：编辑器里那份文本和盘上那份之间的关系 ——
  * 保存、外部改动、冲突裁决、草稿回写、光标位置、换编码。
@@ -348,77 +351,18 @@ class Docs {
     }
   }
 
+  // ── 动作：转发到 docs-ops.ts（按需加载，入口包瘦身 2026-09-21）。签名和文档见那边 ──
   async resolveConflict(tab: TabState, take: "disk" | "mine") {
-    tab.conflict = false;
-    if (take === "disk") {
-      try {
-        const t = await readText(tab.path, tab.encoding);
-        Object.assign(tab, settled(t.content));
-        tab.eol = t.eol;
-        tab.stamp = await fileStamp(tab.path);
-        this.savedTick++;
-      } catch (e) {
-        notify.fail(String(e));
-      }
-    }
-    // take === "mine"：什么都不做，保留编辑器里的内容，
-    // 下次 ⌘S 会覆盖磁盘 —— 指纹已经更新过，不会再重复告警
+    return (await ops()).resolveConflict(tab, take);
   }
-
-  /** 按新编码重新解码当前文件 */
   async reopenWith(label: string) {
-    const tab = tabs.active;
-    if (!tab) return;
-    try {
-      if (tab.mode === "log") {
-        // 日志模式只是换个 TextDecoder 标签，不用重开句柄
-        tab.encoding = label;
-        return;
-      }
-      if (tab.dirty) {
-        notify.fail("有未保存的改动，请先保存（⌘S）再换编码重新打开", 3000);
-        return;
-      }
-      const t = await readText(tab.path, label);
-      tab.content = t.content;
-      tab.encoding = t.encoding;
-      tab.bom = t.bom;
-      tab.lossy = t.lossy;
-      tab.eol = t.eol;
-      this.savedTick++;
-      notify.ok(`已按 ${t.encoding} 重新打开${t.lossy ? "（仍有解不出的字节）" : ""}`, 3000);
-    } catch (e) {
-      notify.fail(String(e));
-    }
+    return (await ops()).reopenWith(label);
   }
-
-  /**
-   * 只改「将来用什么换行符存」（issue #37），和 `saveAsEncoding` 同一条路：编辑器里
-   * 一律是 `\n`（`fsservice::eol`），换行符只在写盘那一下换回去，所以这里不碰内容。
-   * 「混用」的文件选了任一种，保存后就统一了。
-   */
-  setEol(eol: "LF" | "CRLF") {
-    const tab = tabs.active;
-    if (!tab || tab.mode !== "edit" || tab.eol === eol) return;
-    tab.eol = eol;
-    tab.fmt = true;
-    tab.dirty = true;
-    tabs.keep(tab.id);
-    notify.ok(`下次保存将用 ${eol} 换行，按 ⌘S 生效`, 3600);
+  async setEol(eol: "LF" | "CRLF") {
+    return (await ops()).setEol(eol);
   }
-
-  /** 只改「将来存成什么编码」，不动当前内容 */
-  saveAsEncoding(label: string, bom: boolean) {
-    const tab = tabs.active;
-    if (!tab || tab.mode !== "edit") return;
-    tab.encoding = label;
-    tab.bom = bom;
-    // 内容没变但目标编码变了，得让用户知道要按 ⌘S 才会真的落盘。
-    // `fmt` 是让这个 dirty 活过编辑器重挂的那一位（见 doc.ts）
-    tab.fmt = true;
-    tab.dirty = true;
-    tabs.keep(tab.id);
-    notify.ok(`下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`, 3600);
+  async saveAsEncoding(label: string, bom: boolean) {
+    return (await ops()).saveAsEncoding(label, bom);
   }
 
   /**

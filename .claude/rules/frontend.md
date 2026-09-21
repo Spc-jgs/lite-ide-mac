@@ -119,7 +119,7 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 136,948 B = 133.7 KiB（2026-09-21 瘦身后；#37/#38/#39 那轮涨到过 141,865），红线 150 KB**；超过 138 KiB CI 会先告警（CI 算的是 `size / 1024` 取整）—— 现在还有 4 KiB 余量，大约一个中等功能的量；再压线时别硬挤，看下面 2026-09-21 那段说的结构性候选。
+（**当前 140,098 B = 136.8 KiB（2026-09-21 分屏 #35 之后；分屏本身 +5.5 KB，随后把 tabflow / docs 的动作拆去 `*-ops.ts` 省回 2.5），红线 150 KB**；超过 138 KiB CI 会先告警（CI 算的是 `size / 1024` 取整）—— 余量 1.2 KiB，下一个功能几乎必压线。剩下能砍的见 2026-09-21 那两段末尾。
 这个数字每轮都要重量一次 —— 它在 M20/M22/M24/M25 里从 126 一路涨到 157，
 而 README 和这里各记了一个旧值，看着像互相矛盾。
 崩溃屏 `Crash.svelte` 是刻意静态引入的 —— 需要它的时候，
@@ -165,7 +165,20 @@ pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | h
 | `ContextMenu.svelte`（标题栏 / 标签栏 / 状态栏三处静态引） | **2,098 字节** | 三处**一起**改懒，句柄只有 `shell/context-menu.svelte.ts` 一份；打开时 `load()`，`{#if menu && cmenu.comp}` 等到就画；App 首屏后预拉。2026-09-15 只改标签栏那次反而涨 275，就是没一起改 |
 | Content 里取 git 基线 / 注解那两段 → 塞进编辑器 chunk 的 `EditorHost` 壳，用 `{...rest}` 透传 | **−268（反而涨）** | 壳本身省了 1.1 KB，但 `{...rest}` 让 Svelte 运行时的 `spread_props` 那串进了入口（`props.js` 690 → 1,895）。**运行时是入口和所有懒 chunk 共享的模块，懒 chunk 新用到的运行时函数照样落在入口里** —— 判断一刀值不值，要连编译产物用到了哪些运行时函数一起算。撤了 |
 
-还剩什么能砍（都是结构性的，不是一刀的事）：`tabflow.svelte.ts`（5.0 KB）和 `docs.svelte.ts`（4.4 KB）里「有动作才跑」的方法（开文件夹、切项目、丢草稿、换存法…）照 `git-ops.ts` 的样子拆成 `*-ops.ts`，估计各能出去 2 KB 上下；Svelte 运行时 39.9 KB 里 `boundary.js` 2.9 KB 是崩溃隔离的代价，不动。
+2026-09-21 第五次，分屏（issue #35）做完（142,586 → 140,098 B）。分屏本身 +5.5 KB —— 设计稿估的
+1.5–2.5 少算了一倍多：`tabs.svelte.ts` 一个文件 +2 KB，App / Content / session / persist / invariant
+各 +0.5–1.3。**估入口包增量要按「改了几个入口文件」而不是「加了几个功能点」算。**
+
+| | 实测省下 | 怎么处理 |
+|---|---|---|
+| `tabflow.svelte.ts` 里开文件夹 / 最近 / 关项目 / 切模式 / 批量关 / 废纸篓 | **1,735 字节** | 拆去 `tabflow-ops.ts`，照 `git-ops.ts` 那套一行转发。留下的是首屏和 ⌘W 要的：`openPath` / `launchScratch` / `newScratch` / `requestClose` / `doClose` |
+| `docs.svelte.ts` 里冲突裁决 / 换编码重开 / 改编码与换行符 | **565 字节** | 同上，`docs-ops.ts`。`setEol` 因此从同步变成 async —— 调用方本来就是 `void` 的，只有状态测试要补 `await` |
+| 归因里 `StatusBar` 6.3 KB 看着像候选 | **0** | 按 10 行一桶看，1.4 KB 记在 `</script>` 那一行 —— 那是模板字符串，全是首屏要画的格子。**大 ≠ 可搬** |
+
+还剩什么能砍：Svelte 运行时 38.6 KB 里 `boundary.js` 2.9 KB 是崩溃隔离的代价，不动；
+`App.svelte` 12.8 KB 全是接线；`tabflow` 剩 3.3 KB、`docs` 剩 3.7 KB 都是启动路径。
+**再压线就该动红线本身了** —— JOURNAL 2026-09-18 那段量过：入口包只占启动的 14%，
+150 KB 的意义是防退化不是继续压。
 
 判据是同一条：**入口包是首屏之前必须解析执行完的那一段**。
 问一句「这东西在窗口出现之前有用吗」，没用就该出去。

@@ -7380,3 +7380,56 @@ boot=412–429ms  window:227–242  page:+58  js:+57  mount:+3  restore:+65
 **拟合要先问有几个点。** R² = 1.00 在四个点上说明不了任何事 —— 它说的是「这四个点在一条
 线上」，不是「这个过程是线性的」。判据要写成「点数 ≥ 8 且残差标准差在已知噪声量级内」，
 否则一次巧合就能推出一个不存在的泄漏。
+
+---
+
+## 2026-09-21 · 分屏编辑器（issue #35）：先写设计稿，四步落地，一步瘦身
+
+设计在 [SPLIT.md](SPLIT.md)。这里只记过程里踩的、设计稿没预料到的。
+
+### 支点选对了：`tabs.active` 语义不变
+
+动手前数了一下：110 处读 `tabs.active` / `activeId`，53 处在 `Content.svelte`。它们问的
+全是同一个问题「光标所在的那个标签是谁」，分屏之后这个问题仍然只有一个答案。所以只加
+`TabState.group` 和 `Tabs.shown`（每组正在显示谁），核心不变量 `activeId === shown[active.group]`，
+切标签的写入收口到 `tabs.show()`。结果：`Content` 的 53 处是机械替换成 prop，其余 57 处
+一个字没动，状态栏 / 面包屑 / 大纲 / Git 面板全部照旧。
+
+### 不升 VERSION
+
+issue 里写「这次真的不兼容」。`session.ts` 自己的规矩是「老值到新值有唯一且正确的对应，
+就不该整份丢掉」—— 老快照没 `group` 字段 = 全在左组，正是无损映射。`normalizeGroups`
+是纯函数，parse 和 `withoutTabs` 都过它，右组空 / 左组空一律收成单栏。
+
+### 踩的坑
+
+**`{...rest}` 透传把 Svelte 运行时拽进入口。** 想把 Content 里取 git 基线 / 注解那两段
+塞进编辑器 chunk 的一个薄壳，壳里 `<Editor {...rest} />`。壳省 1.1 KB，但 `spread_props`
+那串运行时进了入口（`props.js` 690 → 1,895），净 +268。运行时是入口和所有懒 chunk 共享的
+模块，懒 chunk 新用到的运行时函数照样落在入口里。撤了。
+
+**`focusTick` 不能传 `focused ? tick : 0`。** Editor 对它的处理是「变了就 `view.focus()`」，
+失焦那一下值从 N 变 0 也算变 —— 刚点进右组，左组的编辑器把焦点抢回来。改成非焦点时
+停在上一次的值，回到焦点时再对齐。**累计计数器当 prop 的老坑换了个形状再出现一次。**
+
+**props 声明必须在读它的 `$effect` 前面。** 把 `tabs.active` 换成 prop `tab` 之后，脚本顶上
+两条 effect 先读 `tab`、`$props()` 在后面 —— 运行时 `Cannot access 'tab' before initialization`。
+以前读的是 import 进来的单例，顺序无所谓；换成 `let { tab } = $props()` 就是 TDZ。
+
+**切组时状态栏的行:列不跟。** 光标行列由编辑器的 `updateListener` 在 `selectionSet` 时报，
+用键盘切到另一组光标没动就不报。加了 `u.focusChanged && u.view.hasFocus` 也报一次。
+
+**自检器默认的 sink 是空函数。** 状态测试里写了六处 `tabs.audit(...)`，跑过全绿 ——
+因为报了也没人看见。装上 `setInvariantSink((m) => ok(false, m))` 之后才算数。这条和
+「测试要验红」是同一件事：**不会失败的断言不是断言。**
+
+**入口包估少了一倍多。** 设计稿估 +1.5–2.5 KB，实测 +5.5：`tabs.svelte.ts` 一个文件 +2 KB，
+App / Content / session / persist / invariant 各 +0.5–1.3。补了一步：`tabflow` / `docs` 里
+「有动作才跑」的方法拆去 `*-ops.ts`（照 `git-ops.ts`），省回 2.5 KB，落在 140,098（136.8 KiB）。
+
+### 验证
+
+状态测试 +42（分屏 / 跨组打开 / 拒绝挪走最后一个 / 关到空收起 / 预览按组 / 合并排序 /
+快照往返 / 右组全丢回单栏），session +17，invariant +11，键位表 +6；每组都改坏被测代码
+跑过一次红。浏览器里：右键分屏、点两边切焦点、拖分隔线到 32.7% 并进快照、⌘W 关到空收起、
+刷新原样回来、`__mockMenu` 四条菜单动作。原生快捷键（⌘\ / ⌥Tab / ⌃⌘→）在 .app 里验。
