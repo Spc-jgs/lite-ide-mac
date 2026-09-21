@@ -73,6 +73,10 @@ pub struct MenuHandles {
     pub needs_term: Vec<MenuItem<Wry>>,
     /// 要有项目根才有意义的（「关闭项目」）
     pub needs_root: Vec<MenuItem<Wry>>,
+    /// 分屏（issue #35）：焦点组至少两个标签才能分出去 / 挪走（挪走最后一个 = 那组收起，白做）
+    pub needs_two: Vec<MenuItem<Wry>>,
+    /// 已经分屏才有意义的（切到另一组、合并）
+    pub needs_split: Vec<MenuItem<Wry>>,
 }
 
 /// 一个普通菜单项。`accel` 为 `None` 就只有标签 —— 那正是 ⌘P 那一类的处理。
@@ -109,6 +113,11 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let git_refresh = item(app, "git-refresh", "刷新状态", None)?;
 
     let close_terminal = item(app, "close-terminal", "关闭当前终端", None)?;
+    // 分屏（issue #35）。键位的取舍见 keymap.ts 那段
+    let split_right = item(app, "split-right", "向右分屏", Some("CmdOrCtrl+\\"))?;
+    let move_other = item(app, "move-to-other-group", "移到另一组", Some("Ctrl+CmdOrCtrl+Right"))?;
+    let focus_other = item(app, "focus-other-group", "切到另一组", Some("Alt+TAB"))?;
+    let unsplit = item(app, "unsplit", "合并分屏", None)?;
     let close_project = item(app, "close-project", "关闭项目", None)?;
     let toggle_wrap = item(app, "toggle-wrap", "自动换行", None)?;
 
@@ -168,6 +177,11 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "zoom-in", "放大字号", Some("CmdOrCtrl+="))?)
         .item(&item(app, "zoom-out", "缩小字号", Some("CmdOrCtrl+-"))?)
         .item(&item(app, "zoom-reset", "实际大小", Some("CmdOrCtrl+0"))?)
+        .separator()
+        .item(&split_right)
+        .item(&move_other)
+        .item(&focus_other)
+        .item(&unsplit)
         .separator()
         .fullscreen_with_text("进入全屏")
         .build()?;
@@ -285,6 +299,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         ],
         needs_term: vec![close_terminal],
         needs_root: vec![close_project],
+        needs_two: vec![split_right, move_other],
+        needs_split: vec![focus_other, unsplit],
     };
     Ok((menu, handles))
 }
@@ -314,7 +330,15 @@ pub fn refresh_recent(app: &AppHandle<Wry>, paths: &[String]) -> tauri::Result<(
 }
 
 /// 按当下的上下文让菜单项变灰。
-pub fn sync_enabled(app: &AppHandle<Wry>, has_tab: bool, has_repo: bool, has_term: bool, has_root: bool) {
+pub fn sync_enabled(
+    app: &AppHandle<Wry>,
+    has_tab: bool,
+    has_repo: bool,
+    has_term: bool,
+    has_root: bool,
+    can_move: bool,
+    split: bool,
+) {
     let Some(h) = app.try_state::<MenuHandles>() else {
         return;
     };
@@ -329,6 +353,12 @@ pub fn sync_enabled(app: &AppHandle<Wry>, has_tab: bool, has_repo: bool, has_ter
     }
     for it in &h.needs_root {
         let _ = it.set_enabled(has_root);
+    }
+    for it in &h.needs_two {
+        let _ = it.set_enabled(can_move);
+    }
+    for it in &h.needs_split {
+        let _ = it.set_enabled(split);
     }
 }
 

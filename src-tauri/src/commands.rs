@@ -1724,8 +1724,17 @@ pub fn set_recent(app: tauri::AppHandle, paths: Vec<String>) -> Result<(), Strin
 /// 没有标签时按 ⌘S、不是 Git 仓库时按 ⇧⌘G，都是走一遍然后什么也没发生。
 /// 灰掉的菜单项本身就是一句解释：不是坏了，是现在用不上。
 #[tauri::command]
-pub fn sync_menu_state(app: tauri::AppHandle, has_tab: bool, has_repo: bool, has_term: bool, has_root: bool) {
-    crate::menu::sync_enabled(&app, has_tab, has_repo, has_term, has_root);
+#[allow(clippy::too_many_arguments)]
+pub fn sync_menu_state(
+    app: tauri::AppHandle,
+    has_tab: bool,
+    has_repo: bool,
+    has_term: bool,
+    has_root: bool,
+    can_move: bool,
+    split: bool,
+) {
+    crate::menu::sync_enabled(&app, has_tab, has_repo, has_term, has_root, can_move, split);
 }
 
 /// 交给系统默认浏览器打开一个网址。目前只服务「帮助 › 项目主页」。

@@ -499,8 +499,15 @@ export const setRecent = (paths: string[]) => invoke<void>("set_recent", { paths
  * 没有标签时的「保存」、不是 Git 仓库时的「改动列表」—— 灰掉的菜单项
  * 本身就是一句解释：不是坏了，是现在用不上。
  */
-export const syncMenuState = (hasTab: boolean, hasRepo: boolean, hasTerm: boolean, hasRoot: boolean) =>
-  invoke<void>("sync_menu_state", { hasTab, hasRepo, hasTerm, hasRoot });
+export const syncMenuState = (
+  hasTab: boolean,
+  hasRepo: boolean,
+  hasTerm: boolean,
+  hasRoot: boolean,
+  /** 焦点组至少两个标签（分屏 / 挪走才有意义，issue #35） */
+  canMove: boolean,
+  split: boolean,
+) => invoke<void>("sync_menu_state", { hasTab, hasRepo, hasTerm, hasRoot, canMove, split });
 
 // ── 拉取与推送 ───────────────────────────────────────────────────────
 

@@ -213,6 +213,16 @@ export const KEYS: KeyDef[] = [
   { id: "zoom-in", label: "放大字号", accel: "⌘=", group: "视图", owner: "menu" },
   { id: "zoom-out", label: "缩小字号", accel: "⌘-", group: "视图", owner: "menu" },
   { id: "zoom-reset", label: "实际大小", accel: "⌘0", group: "视图", owner: "menu" },
+  /*
+   * 分屏（issue #35，docs/SPLIT.md 第 5 节）。⌘\ 是 VS Code 的分屏；⌥Tab 是 IDEA 的
+   * Goto Next Splitter；⌃⌘→ 是 VS Code 的 Move Editor into Next Group。CM6 占着 ⇧⌘\ 和 ⌥⌘\，
+   * 裸 ⌘\ 没有。「向右分屏」和「移到另一组」在单栏时是同一件事（组 1 从这一下诞生），
+   * 分屏时前者固定往右、后者往对面。
+   */
+  { id: "split-right", label: "向右分屏", accel: "⌘\\", group: "视图", owner: "menu" },
+  { id: "move-to-other-group", label: "移到另一组", accel: "⌃⌘→", group: "视图", owner: "menu" },
+  { id: "focus-other-group", label: "切到另一组", accel: "⌥Tab", group: "视图", owner: "menu" },
+  { id: "unsplit", label: "合并分屏", group: "视图", owner: "menu" },
 
   // ── 终端 ──
   /*

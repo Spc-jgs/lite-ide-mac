@@ -153,6 +153,22 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "zoom-in": return ctx.zoom(1);
     case "zoom-out": return ctx.zoom(-1);
     case "zoom-reset": return ctx.zoom(null);
+    // 分屏（issue #35）。都作用在活动标签上；不成立的情况菜单项已经灰了，这里再兜一次
+    case "split-right":
+      if (tabs.activeId !== null) tabs.moveToGroup(tabs.activeId, 1);
+      return tabs.audit("分屏");
+    case "move-to-other-group":
+      if (tabs.activeId !== null) tabs.moveToOther(tabs.activeId);
+      return tabs.audit("挪组");
+    case "focus-other-group":
+      if (tabs.split) {
+        tabs.focusGroup(tabs.activeGroup === 0 ? 1 : 0);
+        docs.focusEditor();
+      }
+      return;
+    case "unsplit":
+      tabs.unsplit();
+      return tabs.audit("合并分屏");
     case "toggle-wrap": {
       const t = tabs.active;
       if (t?.mode === "edit") t.wrap = !(t.wrap ?? wrapsByDefault(t.path));

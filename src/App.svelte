@@ -794,7 +794,14 @@
    * 都是走一遍然后什么也没发生。灰掉的菜单项本身就是一句解释。
    */
   $effect(() => {
-    void syncMenuState(tabs.active !== null, git.repo !== null, terms.activeId !== null, project.root !== null).catch(() => {});
+    void syncMenuState(
+      tabs.active !== null,
+      git.repo !== null,
+      terms.activeId !== null,
+      project.root !== null,
+      tabs.activeId !== null && tabs.canMove(tabs.activeId),
+      tabs.split,
+    ).catch(() => {});
   });
 
   /**
