@@ -1,4 +1,5 @@
 import {
+  normalizeGroups,
   parse,
   serialize,
   toLayout,
@@ -352,6 +353,69 @@ ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
   ok(a?.line === 3 && a?.col === undefined && a?.top === undefined && a?.toff === undefined, "列 0 / 顶行 -1 / 偏移 5000 各自丢掉，行号不连坐");
   ok(b?.col === 2 && b?.top === 7 && b?.toff === 3, "小数列取整、偏移四舍五入");
   ok(c?.line === 3 && c?.col === undefined && c?.top === undefined && c?.toff === undefined, "字符串 / null / NaN 一律当没有");
+}
+
+// ── 分屏（issue #35，docs/SPLIT.md 3.5）：不升 VERSION，老快照 = 全在左组 ──
+
+{
+  const old = parse(JSON.stringify({
+    v: VERSION, root: "/proj",
+    tabs: [{ path: "/proj/a" }, { path: "/proj/b" }, { path: "/proj/c" }],
+    active: 1, layout: DEFAULT_LAYOUT,
+  }))!;
+  ok(old.tabs.every((t) => t.group === undefined), "老快照没有 group：全在左组");
+  ok(old.tabs.map((t) => !!t.shown).join() === "false,true,false", "单栏时 shown 就是 active 那个");
+  ok(old.layout.splitRatio === 0.5, "老快照没有 splitRatio → 0.5");
+
+  const split = parse(JSON.stringify({
+    v: VERSION, root: "/proj",
+    tabs: [{ path: "/proj/a", shown: true }, { path: "/proj/b", group: 1 }, { path: "/proj/c", group: 1, shown: true }, { path: "/proj/d" }],
+    active: 2, layout: { ...DEFAULT_LAYOUT, splitRatio: 0.3 },
+  }))!;
+  ok(split.tabs.map((t) => t.group ?? 0).join() === "0,1,1,0", "group 只认字面的 1");
+  ok(split.tabs.map((t) => !!t.shown).join() === "true,false,true,false", "两组各一个 shown");
+  ok(split.layout.splitRatio === 0.3, "分隔线位置读回来");
+  const back = parse(serialize(split))!;
+  ok(back.tabs.map((t) => t.group ?? 0).join() === "0,1,1,0" && back.tabs.map((t) => !!t.shown).join() === "true,false,true,false", "分组经得起一来一回");
+
+  // active 所在的组以 active 为准：快照里右组标着 c 显示，但 active 指着 b → b
+  const conflict = parse(JSON.stringify({
+    v: VERSION, root: "/proj",
+    tabs: [{ path: "/proj/a", shown: true }, { path: "/proj/b", group: 1 }, { path: "/proj/c", group: 1, shown: true }],
+    active: 1, layout: DEFAULT_LAYOUT,
+  }))!;
+  ok(conflict.tabs.map((t) => !!t.shown).join() === "true,true,false", "active 比 shown 标记更可信");
+
+  // 没标 shown 的组取第一个；多标的只留一个
+  const messy = parse(JSON.stringify({
+    v: VERSION, root: "/proj",
+    tabs: [{ path: "/proj/a" }, { path: "/proj/b", shown: true }, { path: "/proj/c", group: 1, shown: true }, { path: "/proj/d", group: 1, shown: true }],
+    active: 3, layout: DEFAULT_LAYOUT,
+  }))!;
+  ok(messy.tabs.map((t) => !!t.shown).join() === "false,true,false,true", `左组取标着 shown 的 b；右组两个都标了，以 active 为准只留 d，实际 ${messy.tabs.map((t) => !!t.shown).join()}`);
+  const unmarked = parse(JSON.stringify({
+    v: VERSION, root: "/proj",
+    tabs: [{ path: "/proj/a" }, { path: "/proj/b" }, { path: "/proj/c", group: 1 }],
+    active: 2, layout: DEFAULT_LAYOUT,
+  }))!;
+  ok(unmarked.tabs.map((t) => !!t.shown).join() === "true,false,true", "一个 shown 都没标的组取第一个");
+
+  // 只有右组（左组的文件全没了）→ 单栏；只有 group:1 的标签 → 也是单栏
+  const onlyRight = normalizeGroups([{ path: "/a", group: 1 }, { path: "/b", group: 1, shown: true }], 0);
+  ok(onlyRight.every((t) => t.group === undefined) && onlyRight[0].shown === true && !onlyRight[1].shown, "只剩右组就是单栏，显示 active");
+  ok(normalizeGroups([], 0).length === 0, "空表不抛");
+
+  // withoutTabs 滤掉了某组正在显示的 → 那组第一个补上；滤空了一组 → 收成单栏
+  const s = split;
+  const dropped = withoutTabs(s, (p) => p === "/proj/c");
+  ok(dropped.tabs.map((t) => t.path.slice(-1) + (t.shown ? "*" : "")).join() === "a*,b*,d", `右组显示的被滤掉，b 补上：${dropped.tabs.map((t) => t.path.slice(-1) + (t.shown ? "*" : "")).join()}`);
+  const collapsed = withoutTabs(s, (p) => p === "/proj/b" || p === "/proj/c");
+  ok(collapsed.tabs.every((t) => t.group === undefined), "右组被滤空 → 单栏");
+  ok(collapsed.tabs.filter((t) => t.shown).length === 1, "单栏恰好一个 shown");
+
+  // splitRatio 夹在 0.2–0.8，坏值回默认
+  ok(toLayout({ splitRatio: 0.05 }).splitRatio === 0.2 && toLayout({ splitRatio: 5 }).splitRatio === 0.8, "分隔线位置要夹");
+  ok(toLayout({ splitRatio: "0.3" }).splitRatio === 0.5 && toLayout({ splitRatio: NaN }).splitRatio === 0.5, "坏的回 0.5");
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} 会话快照：${pass} 通过，${fail} 失败`);

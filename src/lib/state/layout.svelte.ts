@@ -32,6 +32,8 @@ class LayoutState {
    */
   panelView = $state<Layout["panelView"]>(DEFAULT_LAYOUT.panelView);
   gitTab = $state<Layout["gitTab"]>(DEFAULT_LAYOUT.gitTab);
+  /** 分屏分隔线的位置：左组占的比例（issue #35）。分没分屏由 `tabs.split` 说，这里只记位置 */
+  splitRatio = $state(DEFAULT_LAYOUT.splitRatio);
   /** 正在拖侧边栏的宽度。瞬态，不进快照 */
   resizing = $state(false);
 
@@ -49,6 +51,7 @@ class LayoutState {
     this.panelHeight = l.panelHeight;
     this.panelView = l.panelView;
     this.gitTab = l.gitTab;
+    this.splitRatio = l.splitRatio;
   }
 
   /** 拿去存快照的那份。在 effect 里调一次就把七个字段全订阅上了 */
@@ -61,6 +64,7 @@ class LayoutState {
       panelHeight: this.panelHeight,
       panelView: this.panelView,
       gitTab: this.gitTab,
+      splitRatio: this.splitRatio,
     };
   }
 

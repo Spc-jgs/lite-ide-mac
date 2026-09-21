@@ -106,6 +106,14 @@ export interface TabSnap {
   preview?: true;
   /** 钉住（issue #33 ⑰）。同上：只存 true */
   pinned?: true;
+  /**
+   * 分屏（issue #35，docs/SPLIT.md 3.5）：在右边那组。只存 1 —— 老快照没有这个字段，
+   * 「没有」= 左组，所以 VERSION 不动。issue 里写的是「这次要升」，摸完这个文件之后
+   * 不这么看：老值到新值有唯一且正确的对应，升了就是白丢一次「上次开了哪些文件」。
+   */
+  group?: 1;
+  /** 这一组正在显示的那个。每组恰好一个；老快照没有 → 左组显示的取 `active` */
+  shown?: true;
 }
 
 export interface Layout {
@@ -125,6 +133,8 @@ export interface Layout {
   panelView: "term" | "git";
   /** Git 工具窗当前的标签页。没有仓库时它只是个偏好，不参与渲染 */
   gitTab: "log" | "console";
+  /** 分屏的分隔线：左组占的比例（issue #35）。老快照没有 → 0.5，`toLayout` 夹在 0.2–0.8 */
+  splitRatio: number;
 }
 
 export interface Session {
@@ -156,6 +166,7 @@ export const DEFAULT_LAYOUT: Layout = {
   panelHeight: 260,
   panelView: "term",
   gitTab: "log",
+  splitRatio: 0.5,
 };
 
 /**
@@ -180,6 +191,9 @@ const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 640;
 const PANEL_MIN = 80;
 const PANEL_MAX = 900;
+/** 分隔线两头留 20%：再窄的一组连一行代码都看不全，而且拖不回来（手柄贴着边） */
+const SPLIT_MIN = 0.2;
+const SPLIT_MAX = 0.8;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(n)));
 
@@ -218,6 +232,10 @@ export function toLayout(v: unknown): Layout {
         : o.gitTab === undefined && o.panelView === "git"
           ? "console"
           : "log",
+    splitRatio:
+      typeof o.splitRatio === "number" && Number.isFinite(o.splitRatio)
+        ? Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, o.splitRatio))
+        : DEFAULT_LAYOUT.splitRatio,
   };
 }
 
@@ -262,6 +280,9 @@ export function parse(raw: string | null | undefined): Session | null {
     // 只认字面的 true。字符串 "true" / 1 之类一律当没有 —— 宁可多占一格也别猜
     if (e.preview === true) snap.preview = true;
     if (e.pinned === true) snap.pinned = true;
+    // 分屏：只认字面的 1 / true，同上
+    if (e.group === 1) snap.group = 1;
+    if (e.shown === true) snap.shown = true;
     /*
      * 草稿：类型不对、超长、或者是空串就当没有。
      *
@@ -314,12 +335,43 @@ export function parse(raw: string | null | undefined): Session | null {
 
   return {
     root: isStr(o.root) ? o.root : null,
-    tabs,
+    tabs: normalizeGroups(tabs, active),
     active,
     layout: toLayout(o.layout),
     recent,
     recentFiles,
   };
+}
+
+/**
+ * 把分组收拾成能直接用的样子（issue #35）。**纯函数，parse 和 `withoutTabs` 都过它**：
+ *
+ * - 右组一个标签都没有 → 单栏：所有 `group` 拿掉。左组没有而右组有 → 右组整体变左组
+ *   （快照里的组号只是「左右」，没有左的话右就是唯一的那组）。
+ * - 每组恰好一个 `shown`：`active` 所在的组以 `active` 为准（那是光标所在，比标记更可信），
+ *   另一组取第一个带 `shown` 的、没有就取第一个。多余的 `shown` 拿掉。
+ *
+ * 返回新数组，不动传进来的。`active` 越界时当 0 处理（调用方已经夹过）。
+ */
+export function normalizeGroups(tabs: TabSnap[], active: number): TabSnap[] {
+  const out = tabs.map((t) => ({ ...t }));
+  if (out.length === 0) return out;
+  const right = out.filter((t) => t.group === 1);
+  const left = out.filter((t) => t.group !== 1);
+  if (right.length === 0 || left.length === 0) {
+    for (const t of out) delete t.group;
+  }
+  const a = out[Math.min(Math.max(0, active), out.length - 1)];
+  const groups = out.some((t) => t.group === 1) ? [0, 1] : [0];
+  for (const g of groups) {
+    const mine = out.filter((t) => (t.group ?? 0) === g);
+    const pick = (a.group ?? 0) === g ? a : (mine.find((t) => t.shown) ?? mine[0]);
+    for (const t of mine) {
+      if (t === pick) t.shown = true;
+      else delete t.shown;
+    }
+  }
+  return out;
 }
 
 /**
@@ -344,7 +396,7 @@ export function withoutTabs(s: Session, drop: (path: string) => boolean): Sessio
     const kept = s.tabs.slice(0, s.active).filter((t) => !drop(t.path)).length;
     idx = Math.max(0, kept - 1);
   }
-  return { ...s, tabs, active: idx };
+  return { ...s, tabs: normalizeGroups(tabs, idx), active: idx };
 }
 
 /**

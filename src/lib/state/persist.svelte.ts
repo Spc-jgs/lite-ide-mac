@@ -199,12 +199,41 @@ class Persist {
      * 总比停在一个空内容区上好。
      */
     if (tabs.activeId === null && tabs.list.length > 0) tabs.show(tabs.list[0].id);
+    this.#regroup(saved);
     // 上次开着、这次已经不在的文件：位置记忆也删掉，不然它们
     // 会一直躺在快照里，每次启动都白试一遍
     for (const t of saved.tabs) {
       if (!tabs.list.some((x) => x.path === t.path)) docs.posByPath.delete(t.path);
     }
     tabs.audit("会话恢复");
+  }
+
+  /**
+   * 把分屏摆回去（issue #35）。**在标签都开完之后做**：`openPath` 把每个标签落在焦点组，
+   * 恢复期焦点组一直是 0，所以到这儿全在左组；这里按快照把右组的挑出来、两组各自显示谁点上。
+   * 判据和 `session.normalizeGroups` 一样是「能恢复多少算多少」：右组的文件一个都不在了
+   * 就是单栏；某组快照里显示的那个不在了，就显示这组第一个恢复出来的。
+   */
+  #regroup(saved: session.Session) {
+    if (!saved.tabs.some((t) => t.group === 1)) return;
+    for (const t of saved.tabs) {
+      if (t.group !== 1) continue;
+      const hit = tabs.byPath(t.path);
+      if (hit) hit.group = 1;
+    }
+    if (tabs.inGroup(1).length === 0 || tabs.inGroup(0).length === 0) {
+      for (const t of tabs.list) t.group = 0;
+      return;
+    }
+    const shownIn = (g: 0 | 1) => {
+      const want = saved.tabs.find((t) => (t.group ?? 0) === g && t.shown);
+      const hit = want ? tabs.byPath(want.path) : null;
+      return hit?.group === g ? hit.id : tabs.inGroup(g)[0].id;
+    };
+    tabs.shown = [shownIn(0), shownIn(1)];
+    // 活动标签是它所在组显示的那个 —— 它的组是刚改的，`shown` 要以它为准
+    const a = tabs.activeId ?? tabs.shown[0]!;
+    tabs.show(a);
   }
 
   /** 按当前状态拍一张快照 */
@@ -222,6 +251,9 @@ class Persist {
         }
         if (t.preview) snap.preview = true;
         if (t.pinned) snap.pinned = true;
+        // 分屏（issue #35）：右组打 1，每组正在显示的打 shown。单栏时 shown 就是活动的那个，照写不碍事
+        if (t.group === 1) snap.group = 1;
+        if (tabs.shown[t.group] === t.id) snap.shown = true;
         /*
          * 有未保存改动就把草稿一起存下来 —— 「没手动保存就退出，改动直接没」
          * 是这个应用最容易咬人的一条，而会话恢复对外说的是「回到上次的现场」。

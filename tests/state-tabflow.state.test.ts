@@ -20,6 +20,8 @@ const { worktree } = await import("../src/lib/state/worktree.svelte");
 const { project } = await import("../src/lib/state/project.svelte");
 const { readText, scratchDir } = await import("../src/lib/ipc/commands");
 const { setInvariantSink } = await import("../src/lib/state/invariant");
+const { persist } = await import("../src/lib/state/persist.svelte");
+const { layout } = await import("../src/lib/state/layout.svelte");
 // App 启动时拿一次草稿目录（`isScratch` 靠它，没到位一律算「不是」—— 猜错的方向必须是留下）
 project.scratchRoot = await scratchDir();
 
@@ -256,6 +258,51 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
     tabflow.doClose(t);
   }
   ok(tabs.list.length === 0 && tabs.shown[0] === null && tabs.activeId === null, "全关掉：单栏、没有显示的");
+}
+
+// ── 9. 分屏进快照、从快照回来（issue #35 第 ② 步）：走的是切项目那条真路（beforeRootChange → afterRootChange） ──
+{
+  const shownNames = () => tabs.shown.map((id) => (id === null ? "∅" : tabs.byId(id)!.name)).join("|");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  await tabflow.openPath("/proj/README.md");
+  await tabflow.openPath("/proj/pom.xml");
+  await tabflow.openPath("/proj/package.json");
+  await tabflow.openPath("/proj/Cargo.toml");
+  tabs.moveToGroup(tabs.byPath("/proj/package.json")!.id, 1);
+  tabs.moveToGroup(tabs.byPath("/proj/Cargo.toml")!.id, 1);
+  tabs.show(tabs.byPath("/proj/pom.xml")!.id);      // 左组显示 pom，焦点在左
+  layout.splitRatio = 0.35;
+  ok(tabs.split && shownNames() === "pom.xml|Cargo.toml" && tabs.activeGroup === 0, `摆好：${shownNames()}`);
+
+  const snap = persist.snapshot();
+  ok(snap.tabs.filter((t) => t.group === 1).map((t) => t.path.split("/").pop()).join() === "package.json,Cargo.toml", "右组两个打了 group: 1");
+  ok(snap.tabs.filter((t) => t.shown).map((t) => t.path.split("/").pop()).join() === "pom.xml,Cargo.toml", "两组各一个 shown");
+  ok(snap.tabs[snap.active].path.endsWith("pom.xml"), "active 指着焦点组显示的");
+  ok(snap.layout.splitRatio === 0.35, "分隔线位置进快照");
+
+  // 落盘、关掉、再从项目快照里回来
+  persist.restoring = false;
+  persist.beforeRootChange("/proj");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  ok(tabs.list.length === 0 && !tabs.split, "关干净了");
+  await persist.afterRootChange("/proj");
+  ok(tabs.list.length === 4, `四个都回来了，实际 ${tabs.list.length}`);
+  ok(tabs.split && shownNames() === "pom.xml|Cargo.toml", `分屏回来了，显示的还是那两个：${shownNames()}`);
+  ok(tabs.active?.name === "pom.xml" && tabs.activeGroup === 0, "焦点在左组的 pom");
+  ok(tabs.inGroup(1).map((t) => t.name).join() === "package.json,Cargo.toml", "右组顺序照旧");
+  tabs.audit("分屏恢复");
+
+  // 右组的文件都不在了 → 单栏回来
+  const raw = JSON.parse(localStorage.getItem("lite-ide.session:/proj")!);
+  raw.tabs = raw.tabs.map((t: { path: string }) => (t.path.endsWith("package.json") || t.path.endsWith("Cargo.toml") ? { ...t, path: t.path + ".gone" } : t));
+  localStorage.setItem("lite-ide.session:/proj", JSON.stringify(raw));
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  await persist.afterRootChange("/proj");
+  ok(tabs.list.length === 2 && !tabs.split && tabs.list.every((t) => t.group === 0), `右组全丢 → 单栏，实际 ${tabs.list.length} 个 split=${tabs.split}`);
+  ok(tabs.active?.name === "pom.xml", "焦点还在 pom");
+  tabs.audit("分屏恢复·右组全丢");
+  persist.restoring = true;
+  for (const t of [...tabs.list]) tabflow.doClose(t);
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
