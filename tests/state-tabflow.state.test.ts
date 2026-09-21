@@ -312,5 +312,43 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   for (const t of [...tabs.list]) tabflow.doClose(t);
 }
 
+// ── 10. 拖拽排序（tabs.moveTo，2026-09-21）：组内挪位、钉住区不许跨、跨组落在指定格 ──
+{
+  const order = (g: 0 | 1) => tabs.inGroup(g).map((t) => t.name.replace(/\..*$/, "")).join(",");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  for (const p of ["/proj/README.md", "/proj/pom.xml", "/proj/package.json", "/proj/Cargo.toml"]) await tabflow.openPath(p);
+  const [readme, pom, pkg, cargo] = ["README.md", "pom.xml", "package.json", "Cargo.toml"].map((n) => tabs.byPath(`/proj/${n}`)!);
+  ok(order(0) === "README,pom,package,Cargo", "起始顺序");
+
+  ok(tabs.moveTo(cargo.id, 0, 0), "拖到最前");
+  ok(order(0) === "Cargo,README,pom,package", `实际 ${order(0)}`);
+  ok(!tabs.moveTo(cargo.id, 0, 0), "拖回原位是空操作，返回 false");
+  ok(tabs.moveTo(cargo.id, 0, 2) && order(0) === "README,pom,Cargo,package", `往后挪：index 按去掉自己之后数，实际 ${order(0)}`);
+  ok(tabs.moveTo(readme.id, 0, 99) && order(0) === "pom,Cargo,package,README", `超出就是末尾，实际 ${order(0)}`);
+  ok(tabs.activeId === cargo.id, "组内挪位不动焦点");
+
+  // 钉住区：钉住的只能落在钉住区里，没钉的只能落在它后面
+  tabs.setPinned(pom.id, true);
+  tabs.setPinned(cargo.id, true);
+  ok(order(0) === "pom,Cargo,package,README", `两个钉住的在最左，实际 ${order(0)}`);
+  ok(tabs.moveTo(readme.id, 0, 0) && order(0) === "pom,Cargo,README,package", `没钉的拖到最前 → 夹到钉住区后面，实际 ${order(0)}`);
+  ok(!tabs.moveTo(cargo.id, 0, 3) && order(0) === "pom,Cargo,README,package", `钉住的拖到最后 → 夹回钉住区末尾，正好是原位 → 空操作，实际 ${order(0)}`);
+  ok(tabs.moveTo(cargo.id, 0, 0) && order(0) === "Cargo,pom,README,package", `钉住的在钉住区里可以挪，实际 ${order(0)}`);
+  tabs.audit("拖拽排序");
+
+  // 跨组：落在指定格
+  ok(tabs.moveTo(readme.id, 1, 0), "单栏时拖到组 1 = 向右分屏");
+  ok(tabs.split && order(1) === "README" && tabs.activeId === readme.id, "右组有了，焦点跟过去");
+  ok(tabs.moveTo(pkg.id, 1, 0) && order(1) === "package,README", `跨组落在第 0 格，实际 ${order(1)}`);
+  ok(tabs.moveTo(pom.id, 1, 1) && order(1) === "pom,package,README", `钉住的跨组：右组没有钉住的，钉住区是空的 → 夹到 0，实际 ${order(1)}`);
+  tabs.audit("拖拽跨组");
+  ok(!tabs.moveTo(cargo.id, 1, 0), "左组只剩一个，不许挪走");
+  tabs.unsplit();
+  for (const t of [...tabs.list]) {
+    t.pinned = false;
+    tabflow.doClose(t);
+  }
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

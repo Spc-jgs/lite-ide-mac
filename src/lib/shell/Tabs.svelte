@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { MenuItem } from "./ContextMenu.svelte";
+  import type { Group } from "../state/tab";
   import { cmenu } from "./context-menu.svelte";
   import Icon from "./Icon.svelte";
   import FileGlyph from "./FileGlyph.svelte";
@@ -37,6 +38,9 @@
     onMoveToOther,
     moveLabel = "移到另一组",
     dim = false,
+    group = 0,
+    canDrop = () => true,
+    onDrop,
     isScratch = () => false,
   }: {
     tabs: Tab[];
@@ -69,7 +73,56 @@
      * 字退到 dim、✕ 收起 —— 屏上「当前项」只有焦点组那一块是亮的（ui.md 第一条）。
      */
     dim?: boolean;
+    /** 这条标签条是哪一组的（分屏）。写在 DOM 上，拖拽按它认落点 */
+    group?: Group;
+    /** 拖拽：能不能落到某一组（`tabs.moveTo` 的前置条件） */
+    canDrop?: (id: number, g: Group) => boolean;
+    /** 拖拽落点：目标组 + 组内序号（不含被拖的那个） */
+    onDrop?: (id: number, g: Group, index: number) => void;
   } = $props();
+
+  /**
+   * 拖拽（2026-09-21）：这里只管「按下、挪过 5px」，过了阈值才 `import()` `tab-drag.ts` ——
+   * 幽灵标签、插入线、落点计算都在那边，不进入口包。没过阈值松手就是一次普通点击。
+   */
+  let press: { x: number; y: number; tab: Tab } | null = null;
+  const DRAG_START = 5;
+  /** 按下就开始拉模块（缓存的，第二次起是同步的）；过了阈值时多半已经到了 */
+  const dragMod = () => import("./tab-drag");
+  function onTabPointerDown(e: PointerEvent, tab: Tab) {
+    if (e.button !== 0 || e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || !onDrop) return;
+    press = { x: e.clientX, y: e.clientY, tab };
+    void dragMod().catch(() => {});
+    window.addEventListener("pointermove", onPressMove);
+    window.addEventListener("pointerup", onPressUp, { once: true });
+  }
+  function onPressUp() {
+    press = null;
+    window.removeEventListener("pointermove", onPressMove);
+  }
+  function onPressMove(e: PointerEvent) {
+    const p = press;
+    if (!p || Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_START) return;
+    onPressUp();
+    const spec = { id: p.tab.id, label: p.tab.title ?? p.tab.name, canDrop: (g: Group) => canDrop(p.tab.id, g) };
+    const drop = (g: Group, i: number) => onDrop?.(p.tab.id, g, i);
+    /*
+     * 模块还在路上时鼠标可能已经松开（一下快拖，第一次要等 chunk）。拿不到 `dragTab`
+     * 之前先记着最后的位置和有没有松手：到了再决定是接着拖，还是直接按松手位置落。
+     */
+    let last = e;
+    let released: PointerEvent | null = null;
+    const track = (ev: PointerEvent) => (last = ev);
+    const up = (ev: PointerEvent) => (released = ev);
+    window.addEventListener("pointermove", track);
+    window.addEventListener("pointerup", up, { once: true });
+    void dragMod().then((m) => {
+      window.removeEventListener("pointermove", track);
+      window.removeEventListener("pointerup", up);
+      if (released) m.dropAt(released.clientX, released.clientY, spec, drop);
+      else m.dragTab(last, spec, drop);
+    });
+  }
 
   /**
    * 圆点亮不亮、亮成什么色、标题说什么。项目文件：脏 = 未保存 = 关闭前会问。
@@ -219,7 +272,7 @@
   }
 </script>
 
-<div class="tabs" class:dim role="tablist" bind:this={bar} onwheel={onWheel}>
+<div class="tabs" class:dim role="tablist" data-group={group} bind:this={bar} onwheel={onWheel}>
   {#each tabs as tab, i (tab.id)}
     {@const dot = dotOf(tab)}
     <!-- 中键关标签，浏览器和各家编辑器通用的手势 -->
@@ -227,7 +280,9 @@
       class="tab"
       class:active={tab.id === activeId}
       role="presentation"
+      data-id={tab.id}
       bind:this={els[tab.id]}
+      onpointerdown={(e) => onTabPointerDown(e, tab)}
       onauxclick={(e) => {
         if (e.button === 1) {
           e.preventDefault();

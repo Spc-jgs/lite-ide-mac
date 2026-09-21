@@ -174,37 +174,68 @@ class Tabs {
   }
 
   /**
-   * 把一个标签挪到另一组；单栏时就是**向右分屏**（组 1 从这一下诞生）。
-   * 返回做没做成。不做的两种情况：
+   * 把一个标签挪到组 `g` 的第 `index` 格（按目标组里**除它自己以外**的标签数，从 0 起；
+   * 超出就是末尾）。拖拽排序和「移到另一组」都走这儿（2026-09-21）。返回做没做成。
+   *
+   * 钉住的区域不许跨：钉住的标签只能落在钉住区里，没钉的只能落在钉住区后面 ——
+   * `index` 会被夹进对应区间（VS Code 也是这么做的，「钉住的都在左边」由此保住）。
+   *
+   * 跨组时不做的两种情况：
    * - 它所在的组只有它一个 —— 挪走之后原组空了立刻收起，等于白做。IDEA / VS Code
    *   这时是把同一个文件开两份，而这轮不做同一文件双实例（docs/SPLIT.md 第 8 节）
-   * - 已经在目标组
-   * 做成之后目标组显示它、焦点跟过去；原组正显示它的话按 `remove` 的规则落到邻居。
+   * - 单栏时目标不是组 1（组 1 从这一下诞生，就是向右分屏）
+   * 跨组做成之后目标组显示它、焦点跟过去；原组正显示它的话按 `remove` 的规则落到邻居。
+   * 同组内挪位不动焦点。
    */
-  moveToGroup(id: number, g: Group): boolean {
+  moveTo(id: number, g: Group, index: number): boolean {
     const idx = this.list.findIndex((t) => t.id === id);
     if (idx < 0) return false;
     const t = this.list[idx];
     const from = t.group;
-    if (from === g) return false;
-    if (this.inGroup(from).length < 2) return false;
-    if (!this.split) {
-      if (g !== 1) return false;
-      this.shown = [this.shown[0], null];
+    if (from !== g) {
+      if (this.inGroup(from).length < 2) return false;
+      if (!this.split && g !== 1) return false;
     }
-    if (this.shown[from] === id) {
-      const gi = this.list.slice(0, idx).filter((x) => x.group === from).length;
-      const mates = this.inGroup(from).filter((x) => x.id !== id);
-      this.shown[from] = mates[Math.min(gi, mates.length - 1)].id;
+    const mates = this.inGroup(g).filter((x) => x.id !== id);
+    const pinnedCount = mates.filter((x) => x.pinned).length;
+    const clamped = Math.max(0, Math.min(Math.floor(index), mates.length));
+    const at = t.pinned ? Math.min(clamped, pinnedCount) : Math.max(clamped, pinnedCount);
+    // 同组、位置没变：什么都不做（拖回原位不该算一次操作）
+    if (from === g && this.#posIn(mates, t) === at) return false;
+    if (from !== g) {
+      if (!this.split) this.shown = [this.shown[0], null];
+      if (this.shown[from] === id) {
+        const gi = this.list.slice(0, idx).filter((x) => x.group === from).length;
+        const old = this.inGroup(from).filter((x) => x.id !== id);
+        this.shown[from] = old[Math.min(gi, old.length - 1)].id;
+      }
     }
     const rest = this.list.filter((x) => x.id !== id);
+    const flatAt = at < mates.length ? rest.indexOf(mates[at]) : this.#groupEnd(rest, g);
     t.group = g;
     // 挪动是显式的「我要这个文件」，和钉住一样顺手保留 —— 不然目标组可能同时有两个预览
     // （review 2026-09-21），之后 previewIn 只顶掉先找到的那个，另一个一直斜体挂着
     t.preview = false;
-    this.list = this.#insertAfterPinned(rest, t);
-    this.show(id);
+    this.list = [...rest.slice(0, flatAt), t, ...rest.slice(flatAt)];
+    if (from !== g) this.show(id);
     return true;
+  }
+
+  /** `t` 现在在同组（去掉它自己之后的序列）里的位置 */
+  #posIn(mates: TabState[], t: TabState): number {
+    let n = 0;
+    for (const x of this.list) {
+      if (x === t) return n;
+      if (x.group === t.group) n++;
+    }
+    return mates.length;
+  }
+
+  /** 挪到另一组的末尾；单栏时就是**向右分屏**。判据见 `moveTo` */
+  moveToGroup(id: number, g: Group): boolean {
+    const t = this.byId(id);
+    if (!t || t.group === g) return false;
+    return this.moveTo(id, g, Infinity);
   }
 
   /** 「移到另一组」：分屏时是对面那组，单栏时是向右分屏 */

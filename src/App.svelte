@@ -983,6 +983,12 @@
                 tabs.audit("挪组");
               }}
               moveLabel={tabs.split ? "移到另一组" : "向右分屏打开"}
+              group={gg}
+              canDrop={(id, g) => tabs.byId(id)?.group === g || tabs.canMove(id)}
+              onDrop={(id, g, i) => {
+                tabs.moveTo(id, g, i);
+                tabs.audit("拖标签");
+              }}
             />
           {/if}
           <Content
