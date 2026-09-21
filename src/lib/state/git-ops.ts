@@ -210,7 +210,7 @@ export async function openDiff(e: GitEntry, staged: boolean) {
   if (!tab) return;
   tab.diffStaged = staged;
   tab.diffUntracked = e.untracked && !staged;
-  tabs.activeId = id;
+  tabs.show(id);
   await reloadDiff(id);
 }
 
@@ -249,7 +249,7 @@ export async function openCommitDiff(sha: string, short: string, rel: string, to
       ...(toLocal ? { diffToLocal: true, title: `${name} ↔ 本地` } : {}),
     });
   }
-  tabs.activeId = id;
+  tabs.show(id);
   await reloadDiff(id);
 }
 
@@ -306,7 +306,7 @@ export async function openMerge(e: GitEntry) {
         t.eol = file.eol;
       }
     }
-    tabs.activeId = id;
+    tabs.show(id);
   } catch (err) {
     notify.fail(String(err));
   }

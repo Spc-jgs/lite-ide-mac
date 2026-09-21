@@ -904,7 +904,7 @@
           root={project.root ?? ""}
           isScratch={(p) => project.isScratch(p)}
           onSelect={(id) => {
-            tabs.activeId = id;
+            tabs.show(id);
             tabs.audit("切标签");
           }}
           onClose={(...a) => tabflow.requestClose(...a)}

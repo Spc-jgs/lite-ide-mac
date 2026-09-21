@@ -17,6 +17,9 @@ export interface LogViewState {
   onlyHits: boolean;
 }
 
+/** 分屏的两组（issue #35，docs/SPLIT.md）：0 左、1 右。用字面量不用 number —— 不做三组，类型上把门关死 */
+export type Group = 0 | 1;
+
 /**
  * 一个打开的标签。
  *
@@ -27,6 +30,8 @@ export interface LogViewState {
 export interface TabState {
   id: number;
   path: string;
+  /** 在哪一组。单栏时全是 0 */
+  group: Group;
   name: string;
   mode: "edit" | "log" | "diff" | "merge";
   dirty: boolean;

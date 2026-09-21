@@ -176,11 +176,12 @@ ok(tabsFaults([干净的编辑标签, { ...干净的编辑标签, id: 9, path: "
 
 {
   const f = tabsFaults([干净的编辑标签], 99);
-  ok(f.length === 1 && f[0][0].includes("不存在的标签"), "activeId 必须指得着");
+  // 单栏时 `shown` 默认就是 [activeId]，组那一层也会报一条 —— 这里只认 activeId 那条在不在
+  ok(f.some(([k]) => k.includes("activeId 指向一个不存在的标签")), "activeId 必须指得着");
 }
 {
   const f = tabsFaults([干净的编辑标签], null);
-  ok(f.length === 1 && f[0][0].includes("有标签但没有活动标签"), "有标签就必须有活动的那个");
+  ok(f.some(([k]) => k.includes("有标签但没有活动标签")), "有标签就必须有活动的那个");
 }
 
 // ── audit：把两组一起跑，并且认得出哪个是活的 ──────────────────────
@@ -188,10 +189,10 @@ ok(tabsFaults([干净的编辑标签, { ...干净的编辑标签, id: 9, path: "
 {
   const got = 收集();
   const 正在打字 = { ...干净的编辑标签, dirty: true };
-  audit([正在打字], 1, 1, "切标签");
+  audit([正在打字], 1, new Set([1]), "切标签");
   ok(got.length === 0, "audit 要把 liveId 传下去，否则正在打字的标签会报假警");
 
-  audit([正在打字], 1, null, "关标签");
+  audit([正在打字], 1, new Set(), "关标签");
   ok(got.length === 1, "同一组标签，没有活编辑器时就该报");
   ok(got[0].includes("@关标签"), "要带上转换点，不然不知道是在哪一步坏的");
 }
@@ -203,9 +204,9 @@ ok(tabsFaults([干净的编辑标签, { ...干净的编辑标签, id: 9, path: "
 {
   const got = 收集();
   const 坏的 = { ...干净的编辑标签, dirty: true };
-  audit([坏的], 1, null, "切标签");
-  audit([坏的], 1, null, "关标签");
-  audit([坏的], 1, null, "切模式");
+  audit([坏的], 1, new Set(), "切标签");
+  audit([坏的], 1, new Set(), "关标签");
+  audit([坏的], 1, new Set(), "切模式");
   ok(invariantCount("dirty 与 draft 不同真同假") === 3, "三个转换点算同一条");
   ok(got.length === 2, `三次只写 2 行（第 1、2 次），实得 ${got.length}`);
 }
@@ -236,6 +237,48 @@ ok(tabsFaults([干净的编辑标签, { ...干净的编辑标签, id: 9, path: "
   const b: TabLike = { ...干净的编辑标签, id: 2, path: "/p/b.ts" };
   ok(tabsFaults([a, b], 1).length === 0, "钉住的在前没问题");
   ok(tabsFaults([b, a], 1).some(([k]) => k.includes("钉住的标签排在了没钉住的后面")), "钉住的在后要报");
+}
+
+// ── 分屏（issue #35）：组那一层的不变量 ──
+
+{
+  const 左 = { ...干净的编辑标签, id: 1, path: "/p/a.ts", group: 0 };
+  const 右 = { ...干净的编辑标签, id: 2, path: "/p/b.ts", group: 1 };
+  ok(tabsFaults([左, 右], 2, [1, 2]).length === 0, "正常的分屏没有问题");
+  // 核心不变量：活动标签必须是它所在组正在显示的（绕过 tabs.show 直接赋 activeId 就会这样）
+  {
+    const f = tabsFaults([左, 右, { ...右, id: 3, path: "/p/c.ts" }], 3, [1, 2]);
+    ok(f.some(([k]) => k === "活动标签不是它所在组正在显示的"), "activeId 和 shown 对不上要报");
+  }
+  // 组里显示的必须是自己组的
+  {
+    const f = tabsFaults([左, 右], 2, [2, 2]);
+    ok(f.some(([k]) => k === "组里显示的是别组的标签"), "左组显示着右组的标签要报");
+  }
+  // 分屏时不能有空组：空了就该被收起
+  {
+    const f = tabsFaults([左, { ...左, id: 2, path: "/p/b.ts" }], 1, [1, null]);
+    ok(f.some(([k]) => k === "组数不是 1 或 2") === false, "两格是合法的组数");
+    ok(f.some(([k]) => k === "有标签但组里没有显示的") === false && f.length === 0, "右组没标签也没显示的 —— 这不算错，错的是「有标签没显示」");
+    const g = tabsFaults([左, 右], 1, [1, null]);
+    ok(g.some(([k]) => k === "有标签但组里没有显示的"), "右组有标签却没显示的要报");
+  }
+  // 收起分屏时漏改 group：标签落在不存在的组里
+  {
+    const f = tabsFaults([左, 右], 1, [1]);
+    ok(f.some(([k]) => k === "标签在一个不存在的组里"), "单栏里还有 group=1 的标签要报");
+  }
+  // 预览、钉住按组算：两组各一个预览不报，同一组两个才报
+  {
+    const p0 = { ...左, preview: true };
+    const p1 = { ...右, preview: true };
+    ok(!tabsFaults([p0, p1], 1, [1, 2]).some(([k]) => k === "预览标签超过一个"), "两组各一个预览是允许的");
+    const p1b = { ...右, id: 3, path: "/p/c.ts", preview: true };
+    ok(tabsFaults([p0, p1, p1b], 1, [1, 2]).some(([k]) => k === "预览标签超过一个"), "同一组两个预览要报");
+    const 右钉 = { ...右, id: 3, path: "/p/c.ts", pinned: true };
+    ok(!tabsFaults([左, 右钉], 1, [1, 3]).some(([k]) => k.includes("钉住")), "右组的钉住排在左组没钉的后面 —— 不同组，不算乱");
+    ok(tabsFaults([左, 右, 右钉], 1, [1, 2]).some(([k]) => k.includes("钉住")), "同一组里钉住的排在没钉的后面才报");
+  }
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} 运行时不变量：${pass} 通过，${fail} 失败`);

@@ -111,6 +111,8 @@ export interface TabLike {
   draft?: string;
   preview?: boolean;
   pinned?: boolean;
+  /** 分屏的组（issue #35）。没有 = 0，老测试和单栏都不用写 */
+  group?: number;
 }
 
 /** 只取最后一段。`key` 要常量，路径全文进 detail 也太长 */
@@ -171,8 +173,11 @@ export function tabFaults(t: TabLike, live: boolean): Array<[string, string]> {
 export function tabsFaults(
   tabs: TabLike[],
   activeId: number | null,
+  /** 每组正在显示谁（`tabs.shown`）。不传 = 单栏，显示的就是 activeId */
+  shown: ReadonlyArray<number | null> = [activeId],
 ): Array<[string, string]> {
   const out: Array<[string, string]> = [];
+  const groupOf = (t: TabLike) => t.group ?? 0;
 
   const paths = new Set<string>();
   const handles = new Map<number, number>();
@@ -189,21 +194,41 @@ export function tabsFaults(
     handles.set(t.handle, t.id);
   }
 
-  // 钉住的都在左边（issue #33 ⑰）：`setPinned` 负责挪位，别处只该改标记不该改顺序。
-  // 乱了的话「关闭右侧的」会把一个钉住的左邻居当成右边的东西
-  let seenUnpinned = false;
-  for (const t of tabs) {
-    if (!t.pinned) seenUnpinned = true;
-    else if (seenUnpinned) {
-      out.push(["钉住的标签排在了没钉住的后面", base(t.path)]);
-      break;
+  // 分屏之后下面几条都**按组**算（issue #35）：钉住排最左、预览最多一个，都是标签条上的事，
+  // 而标签条是每组一条
+  for (let g = 0; g < shown.length; g++) {
+    const mine = tabs.filter((t) => groupOf(t) === g);
+    // 钉住的都在左边（issue #33 ⑰）：`setPinned` 负责挪位，别处只该改标记不该改顺序。
+    // 乱了的话「关闭右侧的」会把一个钉住的左邻居当成右边的东西
+    let seenUnpinned = false;
+    for (const t of mine) {
+      if (!t.pinned) seenUnpinned = true;
+      else if (seenUnpinned) {
+        out.push(["钉住的标签排在了没钉住的后面", `组${g} ${base(t.path)}`]);
+        break;
+      }
+    }
+    // 预览标签同时最多一个：多了说明「顶掉旧的」那一步漏了，标签条会越积越多
+    const previews = mine.filter((t) => t.preview);
+    if (previews.length > 1) {
+      out.push(["预览标签超过一个", `组${g} ${previews.map((t) => base(t.path)).join(" ")}`]);
+    }
+    // 每组显示的必须是自己组里的一个；分屏时没有空组（空了就该收起，见 `tabs.remove`）
+    const sid = shown[g];
+    if (sid === null || sid === undefined) {
+      if (mine.length > 0) out.push(["有标签但组里没有显示的", `组${g} ${mine.length} 个`]);
+    } else {
+      const st = tabs.find((t) => t.id === sid);
+      if (!st) out.push(["组里显示的标签不存在", `组${g} id=${sid}`]);
+      else if (groupOf(st) !== g) out.push(["组里显示的是别组的标签", `组${g} 显示 ${base(st.path)}（组${groupOf(st)}）`]);
     }
   }
-
-  // 预览标签同时最多一个：多了说明「顶掉旧的」那一步漏了，标签条会越积越多
-  const previews = tabs.filter((t) => t.preview);
-  if (previews.length > 1) {
-    out.push(["预览标签超过一个", previews.map((t) => base(t.path)).join(" ")]);
+  if (shown.length !== 1 && shown.length !== 2) {
+    out.push(["组数不是 1 或 2", `${shown.length}`]);
+  }
+  // 标签落在不存在的组里：收起分屏时漏改了它的 group
+  for (const t of tabs) {
+    if (groupOf(t) >= shown.length) out.push(["标签在一个不存在的组里", `${base(t.path)} 组${groupOf(t)}`]);
   }
 
   if (activeId !== null && !tabs.some((t) => t.id === activeId)) {
@@ -213,6 +238,12 @@ export function tabsFaults(
   // 把 activeId 置空，所以这两件事必须同时发生
   if (activeId === null && tabs.length > 0) {
     out.push(["有标签但没有活动标签", `${tabs.length} 个`]);
+  }
+  // 核心不变量（docs/SPLIT.md 3.2）：活动标签就是它所在组正在显示的那个。
+  // 破了 = 有人绕过 `tabs.show()` 直接给 activeId 赋值，状态栏和屏上的内容对不上
+  const at = activeId === null ? undefined : tabs.find((t) => t.id === activeId);
+  if (at && shown[groupOf(at)] !== activeId) {
+    out.push(["活动标签不是它所在组正在显示的", `${base(at.path)} 组${groupOf(at)} 显示的是 id=${shown[groupOf(at)]}`]);
   }
   return out;
 }
@@ -226,15 +257,17 @@ export function tabsFaults(
 export function audit(
   tabs: TabLike[],
   activeId: number | null,
-  liveId: number | null,
+  /** 此刻挂着编辑器的标签 id。分屏之后可能两个（issue #35） */
+  liveIds: ReadonlySet<number>,
   where: string,
+  shown: ReadonlyArray<number | null> = [activeId],
 ): void {
   for (const t of tabs) {
-    for (const [key, detail] of tabFaults(t, t.id === liveId && t.mode === "edit")) {
+    for (const [key, detail] of tabFaults(t, liveIds.has(t.id) && t.mode === "edit")) {
       invariant(false, key, `${detail} @${where}`);
     }
   }
-  for (const [key, detail] of tabsFaults(tabs, activeId)) {
+  for (const [key, detail] of tabsFaults(tabs, activeId, shown)) {
     invariant(false, key, `${detail} @${where}`);
   }
 }

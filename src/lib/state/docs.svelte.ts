@@ -53,8 +53,8 @@ class Docs {
    * 和恢复时被读。普通 Map 就够。
    */
   readonly posByPath = new Map<string, ViewPos>();
-  /** 「读活动编辑器此刻的视口」的口子，认领规则同 `#live`。快照要的是此刻，不是上次换行时 */
-  #viewProbe: { path: string; get: () => ViewPos } | null = null;
+  /** 「读某个编辑器此刻的视口」的口子，按路径认领（同 `#live`）。快照要的是此刻，不是上次换行时 */
+  readonly #viewProbe = new Map<string, () => ViewPos>();
   hooks: {
     /** 保存成功之后。App 装的是 refreshGit */
     afterSave?: () => void;
@@ -65,32 +65,34 @@ class Docs {
   } = {};
 
   /**
-   * 当前挂载着的那个编辑器，以及从它里面读实时文本的口子。
+   * 挂载着的编辑器，以及从它们里面读实时文本的口子，按路径记。
    *
-   * 只可能有一个 —— 编辑器是 `{#key tabs.active.id}` 包着的，同一时刻只挂一个。
-   * 记路径是为了**认领**：切标签时新实例可能先挂、旧实例后卸，
-   * 旧实例交回的那个 null 不能把新实例的口子抹掉。
+   * 分屏之前只可能有一个（编辑器是 `{#key tabs.active.id}` 包着的），分屏之后每组一个
+   * （issue #35）。按路径**认领**：同一组切标签时新实例可能先挂、旧实例后卸，
+   * 旧实例交回的那个 null 只删自己那条，不会把新实例的口子抹掉。
+   * 一个文件只在一个组里（docs/SPLIT.md 第 2 节）是这里按路径键的前提。
    */
-  #live: { path: string; get: () => string } | null = null;
+  readonly #live = new Map<string, () => string>();
   /** 「读出光标底下那个词」的口子。认领规则同 `#live` */
-  #wordProbe: { path: string; get: () => string | null } | null = null;
+  readonly #wordProbe = new Map<string, () => string | null>();
 
   onEditorLive(path: string, get: (() => string) | null) {
-    if (get) this.#live = { path, get };
-    else if (this.#live?.path === path) this.#live = null;
+    if (get) this.#live.set(path, get);
+    else this.#live.delete(path);
     // 自检器要知道谁真的挂着编辑器（issue #36），和这里是同一份答案
-    tabs.livePath = this.#live?.path ?? null;
+    if (get) tabs.livePaths.add(path);
+    else tabs.livePaths.delete(path);
   }
 
   onEditorView(path: string, get: (() => ViewPos) | null) {
-    if (get) this.#viewProbe = { path, get };
-    else if (this.#viewProbe?.path === path) this.#viewProbe = null;
+    if (get) this.#viewProbe.set(path, get);
+    else this.#viewProbe.delete(path);
   }
 
   /** 某个标签的视口：活着的编辑器给此刻的，别的给上次离开时记下的 */
   viewOf(t: TabState): ViewPos | undefined {
-    const p = this.#viewProbe;
-    return p?.path === t.path && t.mode === "edit" ? p.get() : this.posByPath.get(t.path);
+    const get = t.mode === "edit" ? this.#viewProbe.get(t.path) : undefined;
+    return get ? get() : this.posByPath.get(t.path);
   }
 
   /** 只要行号的调用方（锚点、导航、工作树）用这个 */
@@ -99,14 +101,15 @@ class Docs {
   }
 
   onEditorWordProbe(path: string, get: (() => string | null) | null) {
-    if (get) this.#wordProbe = { path, get };
-    else if (this.#wordProbe?.path === path) this.#wordProbe = null;
+    if (get) this.#wordProbe.set(path, get);
+    else this.#wordProbe.delete(path);
   }
 
   /** 活动标签的编辑器里光标底下那个词；没有编辑器或没在词上就是 null */
   wordUnderCursor(): string | null {
     const t = tabs.active;
-    return t && this.#wordProbe?.path === t.path ? this.#wordProbe.get() : null;
+    const get = t ? this.#wordProbe.get(t.path) : undefined;
+    return get ? get() : null;
   }
 
   /**
@@ -141,8 +144,8 @@ class Docs {
    * 判据和取值都在 `doc.ts` 里，那边有测试。
    */
   liveText(t: TabState): string {
-    const live = this.#live;
-    return textToSave(t, live?.path === t.path && t.mode === "edit" ? live.get() : null);
+    const get = t.mode === "edit" ? this.#live.get(t.path) : undefined;
+    return textToSave(t, get ? get() : null);
   }
 
   /** ⌘S 之外的保存入口（命令面板）。编辑器里的 ⌘S 走 CM6 自己的 keymap */

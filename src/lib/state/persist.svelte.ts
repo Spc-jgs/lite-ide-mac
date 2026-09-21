@@ -160,7 +160,7 @@ class Persist {
         if (t.path === wantPath) {
           const hit = tabs.byPath(t.path);
           // 这一下是整个恢复过程里唯一一次内容区渲染
-          if (hit) tabs.activeId = hit.id;
+          if (hit) tabs.show(hit.id);
         }
       }
     } finally {
@@ -198,7 +198,7 @@ class Persist {
      * 或者 `saved.active` 越界。那时退到第一个恢复成功的标签，
      * 总比停在一个空内容区上好。
      */
-    if (tabs.activeId === null && tabs.list.length > 0) tabs.activeId = tabs.list[0].id;
+    if (tabs.activeId === null && tabs.list.length > 0) tabs.show(tabs.list[0].id);
     // 上次开着、这次已经不在的文件：位置记忆也删掉，不然它们
     // 会一直躺在快照里，每次启动都白试一遍
     for (const t of saved.tabs) {

@@ -112,13 +112,13 @@ class TabFlow {
       const exist = tabs.byPath(info.path);
       if (exist) {
         if (!opts.preview) tabs.keep(exist.id);
-        if (!this.restoringTabs) tabs.activeId = exist.id;
+        if (!this.restoringTabs) tabs.show(exist.id);
         // 显式打开一个已经开着的文件 = 「我要用它」，光标要进去；预览不抢焦点
         if (!opts.preview && !this.restoringTabs && exist.mode === "edit") docs.focusEditor();
         return;
       }
 
-      const tab: Omit<TabState, "id"> = {
+      const tab: Omit<TabState, "id" | "group"> = {
         path: info.path,
         name: info.name,
         mode: info.mode,
@@ -147,12 +147,13 @@ class TabFlow {
        * 内容区白白重建一次；而且旧的一关，「它在第几格」就没了。
        * 走 `doClose` 而不是 `tabs.remove`：日志模式的引擎句柄要还。
        */
-      const prev = opts.preview ? tabs.preview : null;
+      // 预览标签按组算（issue #35）：顶掉的是焦点组那一个
+      const prev = opts.preview ? tabs.previewIn(tabs.activeGroup) : null;
       if (opts.preview) tab.preview = true;
       const id = tabs.add(tab, prev ? tabs.list.indexOf(prev) : undefined);
       if (prev) this.doClose(prev);
       // 恢复期不抢：见 `restoringTabs` 上面那段
-      if (!this.restoringTabs) tabs.activeId = id;
+      if (!this.restoringTabs) tabs.show(id);
       /*
        * **开一个文件不再把它的父目录顶成项目根**（issue #40 第三层，2026-09-16）。
        *
@@ -335,7 +336,7 @@ class TabFlow {
        */
       for (const t of tabs.under(path, false)) {
         if (t.dirty && !(await docs.autosaveBeforeClose(t))) {
-          tabs.activeId = t.id;
+          tabs.show(t.id);
           this.pendingClose = t;
           notify.fail("这份草稿有没写进盘的改动，先处理它再移到废纸篓", 3200);
           return;
@@ -420,7 +421,7 @@ class TabFlow {
           this.doClose(again);
           return;
         }
-        tabs.activeId = again.id;
+        tabs.show(again.id);
         this.pendingClose = again;
       });
       return;
@@ -469,7 +470,7 @@ class TabFlow {
             return;
           }
           if (again) {
-            tabs.activeId = again.id;
+            tabs.show(again.id);
             this.pendingClose = again;
           } else {
             this.#askNextClose();
@@ -477,7 +478,7 @@ class TabFlow {
         });
         return;
       }
-      tabs.activeId = t.id; // 让人看见要丢的到底是什么
+      tabs.show(t.id); // 让人看见要丢的到底是什么
       this.pendingClose = t;
       return;
     }
@@ -499,7 +500,7 @@ class TabFlow {
       return;
     }
     if (kind === "save") {
-      tabs.activeId = t.id;
+      tabs.show(t.id);
       // 写失败就停在这儿，别往下关 —— 关了改动就真没了
       if (!(await docs.save(docs.liveText(t)))) {
         this.closeQueue = [];
