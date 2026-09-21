@@ -277,7 +277,13 @@
           }
         }, 80);
       } catch (e) {
-        if (!dead) error = String(e);
+        if (dead) return;
+        error = String(e);
+        // 过滤没跑成（正则 Rust 编不过）：回到全文，别让屏上停着上一个查询的结果 —— 那些行
+        // 看着像是这个查询筛出来的（review 2026-09-21）
+        filtered = false;
+        filterHits = null;
+        filterRunning = false;
       }
     }, 180);
 

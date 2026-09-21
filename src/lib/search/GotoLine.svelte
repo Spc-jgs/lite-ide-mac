@@ -41,12 +41,15 @@
   });
 
   /** 日志视图里的时间：`14:32`、`14:32:05`、`14:32:05.442`，前面可带 `2026-08-24 ` */
-  const TIME = /^\s*(?:\d{4}-\d{2}-\d{2}[ T])?\d{2}:\d{2}(?::\d{2}(?:[.,]\d{1,9})?)?\s*$/;
+  const TIME = /^\s*(?:\d{4}-\d{2}-\d{2}[ T])?(\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d{1,9})?)?\s*$/;
+  /** 时分秒的范围在框里就判掉：`25:99` 送到 Rust 解不出，报回来的却是「文件里没时间戳」（review 2026-09-21） */
+  const timeOk = (m: RegExpExecArray) => Number(m[1]) <= 23 && Number(m[2]) <= 59 && Number(m[3] ?? 0) <= 60;
 
   /** `12` / `12:34` / `12,34` / `:34`（只改列）。别的一律当没输 */
   function parse(s: string): { line: number; col?: number } | { time: string } | null {
     if (logMode) {
-      if (TIME.test(s)) return { time: s.trim() };
+      const t = TIME.exec(s);
+      if (t) return timeOk(t) ? { time: s.trim() } : null;
       const n = /^\s*(\d+)\s*$/.exec(s);
       return n ? { line: Number(n[1]) } : null;
     }

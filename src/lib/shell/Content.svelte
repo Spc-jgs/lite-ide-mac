@@ -319,7 +319,7 @@
       {@const id = tab.id}
       <logPane.comp
         handle={tab.handle}
-        gotoLine={nav.gotoLine}
+        gotoLine={focused ? nav.gotoLine : null}
         onGotoDone={() => nav.done()}
         encoding={tab.encoding ?? "utf-8"}
         initialFilter={tab.logView ?? null}
@@ -346,7 +346,7 @@
         baseline={tab.content ?? ""}
         savedTick={docs.savedTick}
         selfSaveTick={docs.selfSaveTick}
-        gotoLine={nav.gotoLine}
+        gotoLine={focused ? nav.gotoLine : null}
         onGotoDone={() => nav.done()}
         placeholder={project.isScratch(tab.path) ? scratchHint : null}
         {outlineTick}
