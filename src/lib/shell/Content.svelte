@@ -47,7 +47,8 @@
     tab: TabState | null;
     /**
      * 是不是焦点组。只管三件事：新挂的编辑器要不要抢光标、`docs.focusTick` 认不认、
-     * 大纲 / 日志状态行往不往上报（状态栏和大纲浮层只讲焦点组的）。
+     * 大纲往不往上报（大纲浮层只讲焦点组的）。日志状态行**不按它过滤**：App 按组各存
+     * 一份，状态栏取焦点组那份 —— 在这儿过滤的话非焦点组那份永远是旧的（review 2026-09-21）。
      */
     focused: boolean;
     Merge: typeof MergeView | undefined;
@@ -328,9 +329,7 @@
           const t = tabs.byId(id);
           if (t) t.logView = s;
         }}
-        onStatus={(t) => {
-          if (focused) onLogStatus(t);
-        }}
+        onStatus={onLogStatus}
         onTop={(l) => docs.markPos(tab.path, l)}
       />
     {/key}

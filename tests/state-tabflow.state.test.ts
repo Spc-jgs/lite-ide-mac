@@ -232,6 +232,13 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   await tabflow.openPath("/proj/src/OrderService.java", { preview: true });
   ok(tabs.previewIn(1)!.path.endsWith("OrderService.java") && tabs.previewIn(0)!.path.endsWith("main.py"), "右组的预览被顶掉，左组的不动");
   tabs.audit("预览按组");
+  // 把左组的预览挪进已经有预览的右组：挪动是显式动作，挪过去就不再是预览（review 2026-09-21）
+  const leftPreview = tabs.previewIn(0)!;
+  tabs.moveToGroup(leftPreview.id, 1);
+  ok(!leftPreview.preview && leftPreview.group === 1, "挪过去的那个不再是预览");
+  ok(tabs.inGroup(1).filter((t) => t.preview).length === 1, "右组仍然只有一个预览");
+  tabs.audit("挪预览");
+  tabs.moveToGroup(leftPreview.id, 0); // 挪回去，别影响下面几段的标签数
 
   // 右组关到空 → 收成单栏，全归组 0，焦点落到左组显示的
   for (const t of tabs.inGroup(1)) tabflow.doClose(t);

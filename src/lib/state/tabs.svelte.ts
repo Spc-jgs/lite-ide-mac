@@ -199,6 +199,9 @@ class Tabs {
     }
     const rest = this.list.filter((x) => x.id !== id);
     t.group = g;
+    // 挪动是显式的「我要这个文件」，和钉住一样顺手保留 —— 不然目标组可能同时有两个预览
+    // （review 2026-09-21），之后 previewIn 只顶掉先找到的那个，另一个一直斜体挂着
+    t.preview = false;
     this.list = this.#insertAfterPinned(rest, t);
     this.show(id);
     return true;
