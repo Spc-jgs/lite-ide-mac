@@ -9,3 +9,6 @@ memmap2 = "0.9"
 memchr = "2"
 # 大小写不敏感的多模式搜索，SIMD 加速（ripgrep 同作者）
 aho-corasick = "1"
+# 过滤框里的 /re/（2026-09-21）。按字节匹配（`regex::bytes`），文件不一定是 UTF-8。
+# 本来就在依赖树里（tauri 那串拽进来的），这里只是直接引
+regex = "1"

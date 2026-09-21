@@ -1,7 +1,8 @@
 <script lang="ts">
   import { ScrollMap } from "./scroll-map";
   import { LineCache, type Row } from "./line-cache";
-  import { parse, highlight, type LogFormat } from "./parse";
+  import { parse, type LogFormat } from "./parse";
+  import { parseQuery, highlightQuery } from "./query";
 
   let {
     handle,
@@ -51,6 +52,9 @@
     /** `gotoLine` 真的落到目标行了（不是被行数夹住那次）；上层据此销掉指令 */
     onGotoDone?: () => void;
   } = $props();
+
+  /** 过滤框那串字切好的样子（语法见 `query.ts`）；每行画高亮时不重切 */
+  let query = $derived(parseQuery(pattern));
 
   const LINE_HEIGHT = 20;
   /** 视口外多渲染几行，滚动时不露白 */
@@ -219,7 +223,7 @@
             <span class="cells">
               {#each seg.parts as part}
                 <span class="p" data-cls={part.cls}
-                  >{#each highlight(part.text, pattern, caseSensitive) as t, i}{#if i % 2 === 1}<mark
+                  >{#each highlightQuery(part.text, query, caseSensitive) as t, i}{#if i % 2 === 1}<mark
                       >{t}</mark
                     >{:else}{t}{/if}{/each}</span
                 >

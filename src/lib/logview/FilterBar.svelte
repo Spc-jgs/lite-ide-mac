@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseQuery } from "./query";
   import Icon from "../shell/Icon.svelte";
   import type { LevelCounts } from "../ipc/commands";
 
@@ -81,9 +82,12 @@
   </div>
 
   <div class="search">
+    <!-- 语法在 query.ts：空格 AND、-词 排除、"x y" 整串、/re/ 正则。写坏的正则让字变红，不弹东西 -->
     <input
       type="text"
-      placeholder="过滤内容…"
+      class:bad={parseQuery(pattern).bad}
+      placeholder="过滤：a b · -c · /re/"
+      title={"空格分开的都得有；-词 排除；\"x y\" 整串；/正则/。大小写跟右边的 Aa"}
       bind:value={pattern}
       spellcheck="false"
       autocomplete="off"
@@ -214,6 +218,8 @@
     outline: none;
   }
   .search input:focus { border-color: var(--accent); }
+  /* 正则写坏了：和编辑器查找面板同一个说法 —— 字变红，不弹任何东西；边打边写的正则大半时间是坏的 */
+  .search input.bad { color: var(--lvl-error); }
   .search input::placeholder { color: var(--text-faint); }
   .cs, .clr {
     height: 22px;

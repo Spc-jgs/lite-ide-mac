@@ -13,6 +13,7 @@ pub mod filter;
 pub mod index;
 pub mod level;
 pub mod probe;
+pub mod query;
 
 use memmap2::{Advice, Mmap, MmapOptions};
 use std::fs::File;
@@ -22,7 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub use block::MAX_LINE_BYTES;
-pub use filter::{FilterSpec, FilterTask};
+pub use filter::{FilterSpec, FilterTask, TextFilter};
 pub use index::{LineIndex, DEFAULT_STRIDE};
 pub use level::{Level, LevelMap, LevelMask, LevelStats};
 pub use probe::{probe, Mode, Probe};

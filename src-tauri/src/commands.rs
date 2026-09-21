@@ -530,9 +530,15 @@ pub fn log_lines(handle: u32, start: u64, count: u32, state: State<'_, AppState>
 
 /// 启动过滤。传空 pattern + 全级别掩码等于清除过滤。
 ///
-/// `label` 是这个文件的编码。关键字要**先编成文件那套字节**再下去搜 ——
-/// 一份 GBK 日志里搜「订单」，拿 UTF-8 的「订单」去比对是永远搜不到的。
-/// 编码这件事只有这一层知道（前端探测出来传上来），所以在这里做。
+/// `pattern` 是过滤框里那一串原文，语法在 `logengine::query`（空格 AND、`-` 排除、`/re/`
+/// 正则，和前端 `logview/query.ts` 同一套）。这里切开之后：
+///
+/// - 字面量按 `label`（文件编码）**编成文件那套字节**再下去搜 —— 一份 GBK 日志里搜
+///   「订单」，拿 UTF-8 的「订单」去比对是永远搜不到的。编码只有这一层知道。
+/// - 正则用 `regex::bytes` 编译，大小写跟过滤条那个开关。**正则不做编码转换**：非 ASCII
+///   的正则在 GBK 文件里对不上（多字节序列里可能夹着 ASCII 的元字符），编译时按文件是不是
+///   UTF-8 决定要不要 Unicode 语义 —— 非 UTF-8 文件里 `.` 只吃一个字节。写坏的正则报错
+///   回前端，整条过滤不跑：比静默当没这条要诚实。
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn log_filter(
@@ -546,14 +552,24 @@ pub fn log_filter(
 ) -> Result<bool, String> {
     let file = state.get(handle).ok_or("句柄已失效")?;
     let label = label.unwrap_or_else(|| "UTF-8".into());
-    let bytes = if pattern.is_empty() {
-        Vec::new()
-    } else {
-        fsservice::encoding::encode(&pattern, &label, false)
-    };
+    let q = logengine::query::parse(&pattern);
+    let utf8 = label.eq_ignore_ascii_case("utf-8") || label.eq_ignore_ascii_case("utf8");
+    let mut text = logengine::TextFilter::default();
+    for (term, neg) in q.include.iter().map(|t| (t, false)).chain(q.exclude.iter().map(|t| (t, true))) {
+        match term {
+            logengine::query::Term::Lit(s) => {
+                let bytes = fsservice::encoding::encode(s, &label, false);
+                if neg { text.exclude.push(bytes) } else { text.include.push(bytes) }
+            }
+            logengine::query::Term::Re(src) => {
+                let re = logengine::TextFilter::compile_re(src, !case_sensitive, utf8)?;
+                if neg { text.exclude_re.push(re) } else { text.include_re.push(re) }
+            }
+        }
+    }
     let spec = FilterSpec {
         levels: LevelMask::from_bits(level_bits),
-        pattern: bytes,
+        text,
         case_sensitive,
         collapse_stacks,
     };

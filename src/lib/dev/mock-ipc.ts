@@ -10,6 +10,7 @@
  */
 
 import { splitFrontmatter } from "../state/frontmatter";
+import { parseQuery, matchLine, isEmptyQuery } from "../logview/query";
 
 const LINES = [
   "2026-08-24 14:03:21.442 INFO  [http-nio-exec-4] c.l.OrderService - 处理完成 orderId=8842011 cost=142ms status=SUCCESS",
@@ -691,15 +692,13 @@ function stampOf(path: string) {
 
 function runFilter(s: LogSrc, levelBits: number, pattern: string, caseSensitive: boolean): number[] {
   const hits: number[] = [];
-  const pat = caseSensitive ? pattern : pattern.toLowerCase();
+  // 语法和真实现同一套（`logview/query.ts`，Rust 侧 `logengine::query`）
+  const q = parseQuery(pattern);
   // 桩只在前 5 万行上筛，够验证交互，不必真跑 900 万
   const n1 = Math.min(s.total, 50_000);
   for (let n = 0; n < n1; n++) {
     if ((levelBits & (1 << s.levelAt(n))) === 0) continue;
-    if (pat) {
-      const text = caseSensitive ? s.at(n) : s.at(n).toLowerCase();
-      if (!text.includes(pat)) continue;
-    }
+    if (!isEmptyQuery(q) && !matchLine(s.at(n), q, caseSensitive)) continue;
     hits.push(n);
   }
   return hits;
@@ -1189,7 +1188,8 @@ export function installMockIpc(): void {
         case "log_filter": {
           const bits = Number(a.levelBits);
           const pat = String(a.pattern ?? "");
-          if (bits === 0b111111 && !pat) {
+          // 真实现按 `is_noop` 判：全级别 + 切完没有条件 = 清除过滤（`"  "`、`//` 都算空）
+          if (bits === 0b111111 && isEmptyQuery(parseQuery(pat))) {
             filterHits = null;
             return false;
           }

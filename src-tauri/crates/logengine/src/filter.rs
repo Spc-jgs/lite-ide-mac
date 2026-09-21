@@ -14,19 +14,56 @@ use aho_corasick::AhoCorasick;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// 文本条件（2026-09-21 从单个关键字扩成多条，语法见 `query.rs`）。
+///
+/// 字面量是要搜的**字节**，不是 String：文件可能是 GBK / Big5，而前端敲进来的关键字
+/// 是 UTF-8 —— 直接拿 UTF-8 字节去搜 GBK 文件，中文永远搜不到。所以由命令层先按
+/// 文件的编码把每个关键字编成对应字节再传下来。这一层只管字节比对，不掺和编码。
+/// 正则同理用 `regex::bytes`，编译（含大小写开关）也在命令层做。
+///
+/// 语义：`include` 全部命中、`exclude` 一个都不命中，这一行才算中。
+#[derive(Debug, Clone, Default)]
+pub struct TextFilter {
+    pub include: Vec<Vec<u8>>,
+    pub exclude: Vec<Vec<u8>>,
+    pub include_re: Vec<regex::bytes::Regex>,
+    pub exclude_re: Vec<regex::bytes::Regex>,
+}
+
+impl TextFilter {
+    /// 只有一个关键字（老接口的形状，测试和简单调用方用）
+    pub fn single(pattern: Vec<u8>) -> Self {
+        let mut t = Self::default();
+        if !pattern.is_empty() {
+            t.include.push(pattern);
+        }
+        t
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.include.is_empty() && self.exclude.is_empty() && self.include_re.is_empty() && self.exclude_re.is_empty()
+    }
+
+    /// 编一条正则。`unicode` 按文件是不是 UTF-8 给：非 UTF-8 文件里 `.` 只吃一个字节，
+    /// `\w` 之类只认 ASCII —— 否则 GBK 的多字节序列会被当成坏 UTF-8 而永远不匹配。
+    /// regex 这个 crate 只在这个 crate 里引，命令层不直接碰它。
+    pub fn compile_re(src: &str, case_insensitive: bool, unicode: bool) -> Result<regex::bytes::Regex, String> {
+        regex::bytes::RegexBuilder::new(src)
+            .case_insensitive(case_insensitive)
+            .unicode(unicode)
+            .build()
+            .map_err(|e| format!("正则 /{src}/ 写错了：{e}"))
+    }
+}
+
 /// 过滤条件。
 #[derive(Debug, Clone)]
 pub struct FilterSpec {
     /// 允许显示的级别
     pub levels: LevelMask,
-    /// 文本关键字，空表示不按文本筛
-    /// 要搜的**字节**，不是 String。
-    ///
-    /// 文件可能是 GBK / Big5，而前端敲进来的关键字是 UTF-8 —— 直接拿 UTF-8
-    /// 字节去搜 GBK 文件，中文永远搜不到。所以由命令层先按文件的编码把关键字
-    /// 编成对应字节再传下来。这一层只管字节比对，不掺和编码。
-    pub pattern: Vec<u8>,
-    /// 是否区分大小写
+    /// 文本条件，空表示不按文本筛
+    pub text: TextFilter,
+    /// 是否区分大小写（只管字面量；正则的大小写在编译时就定了）
     pub case_sensitive: bool,
     /// 折叠异常堆栈：连续的 `at ...` 帧只保留第一帧
     pub collapse_stacks: bool,
@@ -35,7 +72,76 @@ pub struct FilterSpec {
 impl FilterSpec {
     /// 什么都不筛 —— 前端可据此直接走未过滤的快路径
     pub fn is_noop(&self) -> bool {
-        self.levels.is_all() && self.pattern.is_empty() && !self.collapse_stacks
+        self.levels.is_all() && self.text.is_empty() && !self.collapse_stacks
+    }
+}
+
+/// 一行的文本判定。字面量走一个 aho-corasick（include 和 exclude 合成一张表，按 pattern id
+/// 分辨），一趟扫完；正则逐条跑。先字面量后正则：正则贵，能被字面量否掉的行不进正则。
+struct LineMatcher {
+    ac: Option<AhoCorasick>,
+    /// 前 `n_include` 个 pattern 是 include，后面的是 exclude
+    n_include: usize,
+    n_total: usize,
+    include_re: Vec<regex::bytes::Regex>,
+    exclude_re: Vec<regex::bytes::Regex>,
+    /// 复用的「这一行见过哪些 pattern」，每行清一次
+    seen: Vec<bool>,
+}
+
+impl LineMatcher {
+    fn new(spec: &FilterSpec) -> Self {
+        let t = &spec.text;
+        let n_include = t.include.len();
+        let n_total = n_include + t.exclude.len();
+        let ac = if n_total == 0 {
+            None
+        } else {
+            AhoCorasick::builder()
+                .ascii_case_insensitive(!spec.case_sensitive)
+                .build(t.include.iter().chain(t.exclude.iter()))
+                .ok()
+        };
+        Self {
+            ac,
+            n_include,
+            n_total,
+            include_re: t.include_re.clone(),
+            exclude_re: t.exclude_re.clone(),
+            seen: vec![false; n_total],
+        }
+    }
+
+    fn is_match(&mut self, line: &[u8]) -> bool {
+        if let Some(ac) = &self.ac {
+            self.seen.iter_mut().for_each(|s| *s = false);
+            let mut hit_include = 0usize;
+            for m in ac.find_overlapping_iter(line) {
+                let id = m.pattern().as_usize();
+                if id >= self.n_include {
+                    return false; // 排除词出现了，后面不用看
+                }
+                if !self.seen[id] {
+                    self.seen[id] = true;
+                    hit_include += 1;
+                }
+            }
+            if hit_include < self.n_include {
+                return false;
+            }
+        }
+        let _ = self.n_total;
+        for re in &self.include_re {
+            if !re.is_match(line) {
+                return false;
+            }
+        }
+        for re in &self.exclude_re {
+            if re.is_match(line) {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -151,14 +257,7 @@ fn run(
     task: &FilterTask,
 ) -> Vec<u64> {
     let total = index.line_count();
-    let matcher = if spec.pattern.is_empty() {
-        None
-    } else {
-        AhoCorasick::builder()
-            .ascii_case_insensitive(!spec.case_sensitive)
-            .build([spec.pattern.as_slice()])
-            .ok()
-    };
+    let mut matcher = if spec.text.is_empty() { None } else { Some(LineMatcher::new(spec)) };
 
     // 命中率未知，先按 1/8 预留，避免过滤 INFO 这种大头时反复扩容
     let mut hits: Vec<u64> = Vec::with_capacity((total / 8).min(1 << 20) as usize);
@@ -187,7 +286,7 @@ fn run(
 
         // 先按级别筛 —— 纯内存查表，比文本匹配便宜得多
         if spec.levels.allows(levels.get(line)) {
-            let ok = match &matcher {
+            let ok = match matcher.as_mut() {
                 None => true,
                 Some(m) => m.is_match(&data[pos..end]),
             };
@@ -256,10 +355,45 @@ mod tests {
     fn spec(mask: LevelMask, pat: &str, cs: bool) -> FilterSpec {
         FilterSpec {
             levels: mask,
-            pattern: pat.as_bytes().to_vec(),
+            text: TextFilter::single(pat.as_bytes().to_vec()),
             case_sensitive: cs,
             collapse_stacks: false,
         }
+    }
+
+    /// 多条件：字面量按空格切，`-` 前缀排除；正则单独给
+    fn spec_q(q: &str, res: &[(&str, bool)], cs: bool) -> FilterSpec {
+        let mut text = TextFilter::default();
+        for w in q.split_whitespace() {
+            if let Some(neg) = w.strip_prefix('-') {
+                text.exclude.push(neg.as_bytes().to_vec());
+            } else {
+                text.include.push(w.as_bytes().to_vec());
+            }
+        }
+        for (src, neg) in res {
+            let re = regex::bytes::RegexBuilder::new(src).case_insensitive(!cs).build().unwrap();
+            if *neg { text.exclude_re.push(re) } else { text.include_re.push(re) }
+        }
+        FilterSpec { levels: LevelMask::ALL, text, case_sensitive: cs, collapse_stacks: false }
+    }
+
+    #[test]
+    fn 多条件_全部命中才算_排除词一个不能有() {
+        // BODY：0 started / 1 boom OrderService / 2 retry / 3 orderservice done / 4 cache
+        assert_eq!(filter(BODY, spec_q("orderservice", &[], false)), vec![1, 3], "单词，不分大小写");
+        assert_eq!(filter(BODY, spec_q("orderservice done", &[], false)), vec![3], "AND：两个都在的只有第 3 行");
+        assert_eq!(filter(BODY, spec_q("orderservice -done", &[], false)), vec![1], "排除：有 done 的那行去掉");
+        assert_eq!(filter(BODY, spec_q("-main", &[], false)), vec![2], "只有排除条件：不含 main 的");
+        assert_eq!(filter(BODY, spec_q("OrderService", &[], true)), vec![1], "区分大小写只剩一行");
+    }
+
+    #[test]
+    fn 正则_和字面量一起算() {
+        assert_eq!(filter(BODY, spec_q("", &[(r"a\.[BD]", false)], false)), vec![0, 2], "正则 a.B / a.D");
+        assert_eq!(filter(BODY, spec_q("main", &[(r"a\.[BD]", false)], false)), vec![0], "正则 AND 字面量");
+        assert_eq!(filter(BODY, spec_q("", &[("order", true)], false)), vec![0, 2, 4], "排除正则（不分大小写）");
+        assert_eq!(filter(BODY, spec_q("", &[("ORDER", false)], true)), Vec::<u64>::new(), "区分大小写的正则");
     }
 
     /// 非 UTF-8 日志里搜非 ASCII 关键字。
@@ -285,7 +419,7 @@ mod tests {
             &body,
             FilterSpec {
                 levels: LevelMask::ALL,
-                pattern: gbk_订单.to_vec(),
+                text: TextFilter::single(gbk_订单.to_vec()),
                 case_sensitive: false,
                 collapse_stacks: false,
             },
@@ -298,7 +432,7 @@ mod tests {
             &body,
             FilterSpec {
                 levels: LevelMask::ALL,
-                pattern: "订单".as_bytes().to_vec(),
+                text: TextFilter::single("订单".as_bytes().to_vec()),
                 case_sensitive: false,
                 collapse_stacks: false,
             },

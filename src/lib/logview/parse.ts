@@ -418,23 +418,6 @@ export function parse(line: string, fmt: LogFormat = "java"): Segments {
   return PARSERS[fmt](line);
 }
 
-/** 把一段文本按关键字切成 [普通, 命中, 普通, ...]，用于搜索高亮 */
-export function highlight(text: string, needle: string, caseSensitive: boolean): string[] {
-  if (!needle) return [text];
-  const hay = caseSensitive ? text : text.toLowerCase();
-  const pat = caseSensitive ? needle : needle.toLowerCase();
-  const out: string[] = [];
-  let pos = 0;
-  for (;;) {
-    const i = hay.indexOf(pat, pos);
-    if (i < 0) break;
-    out.push(text.slice(pos, i), text.slice(i, i + pat.length));
-    pos = i + pat.length;
-  }
-  out.push(text.slice(pos));
-  return out;
-}
-
 // ─────────────────────────── 草稿里的日志段（M10 ②） ───────────────────────────
 
 /**
