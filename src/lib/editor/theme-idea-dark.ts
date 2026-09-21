@@ -95,6 +95,33 @@ export const ideaDarkTheme = EditorView.theme(
       color: TEXT,
       boxShadow: "var(--shadow-pop)",
     },
+    /*
+     * 补全弹层：照右键菜单的样子（ui.md 二之二：5% 描边 + 内高光，当前项内缩圆角块）。
+     * CM6 默认给的是白底蓝条，深壁纸上像另一个应用弹出来的东西。
+     */
+    ".cm-tooltip.cm-tooltip-autocomplete": {
+      border: "var(--island-border)",
+      borderRadius: "var(--r-md)",
+      boxShadow: "var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06)",
+      padding: "4px",
+    },
+    ".cm-tooltip.cm-tooltip-autocomplete > ul": {
+      fontFamily: "var(--code-font)",
+      fontSize: "12px",
+      maxHeight: "240px",
+    },
+    ".cm-tooltip.cm-tooltip-autocomplete > ul > li": {
+      padding: "2px 8px",
+      borderRadius: "var(--r-sm)",
+      color: "var(--text-dim)",
+    },
+    ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {
+      backgroundColor: "var(--selected)",
+      color: "var(--text)",
+    },
+    ".cm-completionMatchedText": { textDecoration: "none", color: "var(--accent)" },
+    ".cm-completionIcon": { display: "none" },
+    ".cm-completionDetail": { color: "var(--text-faint)", fontStyle: "normal", marginLeft: "8px" },
   },
   { dark: true },
 );

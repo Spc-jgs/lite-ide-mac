@@ -7,6 +7,7 @@
   import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
   import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
   import { searchPanel } from "./search-panel";
+  import { autocompletion, closeBrackets, closeBracketsKeymap, completeAnyWord, completionKeymap } from "@codemirror/autocomplete";
   import { bracketMatching, foldGutter, foldKeymap, indentOnInput,
            indentUnit } from "@codemirror/language";
   import { ideaDarkTheme, ideaDarkHighlight } from "./theme-idea-dark";
@@ -234,6 +235,19 @@
   let view: EditorView | null = null;
   /** 语言扩展放在 compartment 里，切文件时热替换而不重建整个 state */
   const langSlot = new Compartment();
+  /** 补全按语言开关（见 `completionFor`）：换文件时和语言包一起热替换 */
+  const completeSlot = new Compartment();
+
+  /**
+   * 补全只给代码，不给散文。Markdown / 纯文本 / 没认出语言的文件一律不装 ——
+   * 记笔记时每敲一个词弹一个框，是「记两笔」这条路上最败兴的东西
+   * （VS Code 也默认对 markdown 关 quickSuggestions）。括号配对不受此限，
+   * 写笔记里的 `(` 也该有 `)`。
+   */
+  function completionFor(lang: ReturnType<typeof langOf>) {
+    if (lang === null || lang === "markdown") return [];
+    return [autocompletion(), EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }])];
+  }
   /** 缩略图同理：开关一下不该把光标和撤销栈也重置掉 */
   const mapSlot = new Compartment();
   const wrapSlot = new Compartment();
@@ -315,6 +329,18 @@
         foldGutter(),
         indentOnInput(),
         bracketMatching(),
+        /*
+         * 括号 / 引号自动配对 + 补全（2026-09-21）。之前一直没装：打 `(` 不出 `)`、
+         * 打 `"` 不出 `"` —— 这是 Sublime 都有的底线。
+         *
+         * 补全的来源有两层：语言包自己登记的（lang-javascript 的关键字与片段、lang-html
+         * 的标签…）走 `autocompletion()` 默认的 languageData；再全局挂一条 `completeAnyWord`，
+         * 没有 LSP 的编辑器靠「文档里出现过的词」就够把变量名和方法名补出来 —— 这个
+         * 应用立项时就排除了 LSP（PLAN.md），所以这一层就是补全的全部。
+         * 用 `EditorState.languageData` 而不是 `override`：override 会把语言包那层挤掉。
+         */
+        closeBrackets(),
+        completeSlot.of(completionFor(langOf(path))),
         highlightSelectionMatches(),
         // 自研的查找 / 替换面板（连同那条一直没接上的 ⌥⌘F）。
         // 它自己包着 `search({ top: true, createPanel })`，别在这儿再装一次 —— 
@@ -346,6 +372,12 @@
               return true;
             },
           },
+          /*
+           * 配对和补全的键在 defaultKeymap 前面：Backspace 删配对的两个字符、
+           * 补全弹层里的 ↑↓↵ / Esc 都得先于默认键位吃到，否则 ↵ 变成换行、Esc 落空
+           */
+          ...closeBracketsKeymap,
+          ...completionKeymap,
           ...defaultKeymap,
           ...historyKeymap,
           ...searchKeymap,
@@ -528,9 +560,10 @@
   });
 
   async function applyLang(p: string) {
-    const ext = await loadLang(langOf(p));
+    const lang = langOf(p);
+    const ext = await loadLang(lang);
     if (!view) return;
-    view.dispatch({ effects: langSlot.reconfigure(ext ?? []) });
+    view.dispatch({ effects: [langSlot.reconfigure(ext ?? []), completeSlot.reconfigure(completionFor(lang))] });
   }
 
   // 跳到指定行并居中。nonce 变化即触发，所以连点同一条搜索结果也能重新定位。
