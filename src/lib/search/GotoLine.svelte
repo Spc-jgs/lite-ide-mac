@@ -12,8 +12,20 @@
    */
   import { nav } from "../state/nav.svelte";
 
-  let { open = $bindable(false), current }: { open?: boolean; current: { line: number; col: number } | null } =
-    $props();
+  let {
+    open = $bindable(false),
+    current,
+    logMode = false,
+  }: {
+    open?: boolean;
+    current: { line: number; col: number } | null;
+    /**
+     * 日志视图里 ⌘L（2026-09-21）：输的是行号，或者时间 `14:32` / `14:32:05`。
+     * 两种视图对 `:` 的解释不一样 —— 编辑器里是「行:列」，日志里是时分秒；
+     * 日志没有「列」这回事，所以不冲突。
+     */
+    logMode?: boolean;
+  } = $props();
 
   let text = $state("");
   let input = $state<HTMLInputElement | null>(null);
@@ -28,8 +40,16 @@
     });
   });
 
+  /** 日志视图里的时间：`14:32`、`14:32:05`、`14:32:05.442`，前面可带 `2026-08-24 ` */
+  const TIME = /^\s*(?:\d{4}-\d{2}-\d{2}[ T])?\d{2}:\d{2}(?::\d{2}(?:[.,]\d{1,9})?)?\s*$/;
+
   /** `12` / `12:34` / `12,34` / `:34`（只改列）。别的一律当没输 */
-  function parse(s: string): { line: number; col?: number } | null {
+  function parse(s: string): { line: number; col?: number } | { time: string } | null {
+    if (logMode) {
+      if (TIME.test(s)) return { time: s.trim() };
+      const n = /^\s*(\d+)\s*$/.exec(s);
+      return n ? { line: Number(n[1]) } : null;
+    }
     const m = /^\s*(\d*)\s*(?:[:,]\s*(\d+))?\s*$/.exec(s);
     if (!m || (m[1] === "" && m[2] === undefined)) return null;
     const line = m[1] === "" ? (current?.line ?? 1) : Number(m[1]);
@@ -42,7 +62,8 @@
 
   function go() {
     if (!target) return;
-    nav.goto(target.line, target.col);
+    if ("time" in target) nav.seekTime(target.time);
+    else nav.goto(target.line, target.col);
     open = false;
   }
 
@@ -59,20 +80,22 @@
 
 {#if open}
   <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
-  <div class="box" role="dialog" aria-modal="true" aria-label="跳到行">
+  <div class="box" role="dialog" aria-modal="true" aria-label={logMode ? "跳到行或时间" : "跳到行"}>
     <label>
-      <span class="lbl">跳到行</span>
+      <span class="lbl">{logMode ? "跳到" : "跳到行"}</span>
       <input
         bind:this={input}
         bind:value={text}
         onkeydown={onKey}
-        placeholder="行[:列]"
+        placeholder={logMode ? "行号，或 14:32" : "行[:列]"}
         spellcheck="false"
         autocomplete="off"
       />
     </label>
     <span class="hint" class:bad={text.trim() !== "" && !target}>
-      {text.trim() !== "" && !target ? "只认「行」或「行:列」" : "↵ 跳过去 · Esc 关"}
+      {text.trim() !== "" && !target
+        ? (logMode ? "只认行号，或 14:32 / 14:32:05 这样的时间" : "只认「行」或「行:列」")
+        : "↵ 跳过去 · Esc 关"}
     </span>
   </div>
 {/if}

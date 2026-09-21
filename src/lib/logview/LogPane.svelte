@@ -5,11 +5,15 @@
   import { detectFormat, FORMAT_LABEL, type LogFormat } from "./parse";
   import { type LogStat, type LevelCounts } from "../ipc/commands";
   import type { LogViewState } from "../state/tab";
-  import { logStat, logLines, logFilter, logFilterStat, logRefresh, logFilterMap } from "../ipc/log";
+  import { logStat, logLines, logFilter, logFilterStat, logRefresh, logFilterMap, logSeekTime } from "../ipc/log";
+  import { notify } from "../state/notify.svelte";
 
   let {
     handle,
     gotoLine = null,
+    seekTime = null,
+    onSeekDone,
+    onSeek,
     encoding = "utf-8",
     initialFilter = null,
     initialTop = null,
@@ -20,6 +24,11 @@
   }: {
     handle: number;
     gotoLine?: { line: number; nonce: number } | null;
+    /** 跳到时间（`nav.seekTime`）：行号由 Rust 二分出来，这里把它变成一次 `jumpTo` */
+    seekTime?: { q: string; nonce: number } | null;
+    onSeekDone?: () => void;
+    /** 二分出来的行（1-based）。交给上层走 `nav.goto`，和 ⌘L 输行号是同一条路 */
+    onSeek?: (line: number) => void;
     /** 文件编码标签；由上层探测后传下来 */
     encoding?: string;
     /** 上次切走时的过滤 / tail 状态（`TabState.logView`），没有就全默认 */
@@ -87,7 +96,12 @@
    * 跳命中那种「往上留三行」用在这儿会每切一次标签往上漂三行，
    * 会话恢复原来就是这么漂的 —— 记的是顶行，恢复出来是顶行往上三行，再记、再漂。
    */
-  const restoreTo = initTop !== null && initTop > 1 ? { line: initTop, nonce: ++jumpNonce, top: true } : null;
+  /*
+   * **一次性的**：任何一次跳转落到位（`onGotoDone`）就把它清掉。它是 `jumpTo ?? gotoLine ?? restoreTo`
+   * 里的兜底，不清的话外面来的跳转（⌘L、跳到时间、搜索结果）落到位、`nav.done()` 把 gotoLine 置空，
+   * 兜底又冒出来把视口拽回上次的顶行 —— 2026-09-21 加跳到时间时撞上的：每跳一次都弹回第 47 行。
+   */
+  let restoreTo = $state(initTop !== null && initTop > 1 ? { line: initTop, nonce: ++jumpNonce, top: true } : null);
 
   /**
    * 跳到上/下一处命中。
@@ -105,6 +119,44 @@
    * 不缓存整张命中表 —— 900 万行的文件上它可能有几百万条，
    * 传到前端纯属浪费。每次只取一条。
    */
+  /** 视口顶上那一行（0-based 物理行）。跳时间不带日期时，Rust 拿它附近的日期补 */
+  let lastTop = 0;
+
+  /*
+   * 外面来了新的跳行指令（⌘L 输行号、跳到时间）就把 F3 留下的 `jumpTo` 让开：
+   * 下面 `jumpTo ?? gotoLine` 是 F3 优先，不让的话 ⌘L 永远被上一次 F3 挡住
+   * （2026-09-21 加跳到时间时撞上的：⌘L 输 50 不动，因为 jumpTo 还停在上一次）。
+   * 只在指令非空时让 —— 落到位后 `nav.done()` 把它置空，那时不能把 F3 的当前行高亮也清掉。
+   */
+  $effect(() => {
+    if (gotoLine) jumpTo = null;
+  });
+
+  $effect(() => {
+    const st = seekTime;
+    const h = handle;
+    if (!st) return;
+    let dead = false;
+    logSeekTime(h, st.q, lastTop)
+      .then((line) => {
+        if (dead) return;
+        onSeekDone?.();
+        if (line === null) {
+          notify.fail("这个文件里没认出时间戳（认 2026-08-24 14:03:21 / Aug 24 14:03:21 / nginx / JSON 那几种）", 3600);
+          return;
+        }
+        // 「只看命中」下视图行是命中序号，物理行跳不过去 —— 先切回全文
+        if (onlyHits) onlyHits = false;
+        onSeek?.(line + 1);
+      })
+      .catch((e) => {
+        if (!dead) error = String(e);
+      });
+    return () => {
+      dead = true;
+    };
+  });
+
   async function jumpHit(dir: 1 | -1) {
     const total = filterHits ?? 0;
     if (!filtered || total === 0) return;
@@ -320,11 +372,19 @@
       stickBottom={tailing}
       {epoch}
       gotoLine={jumpTo ?? gotoLine ?? restoreTo}
-      onGotoDone={() => onGotoDone?.()}
+      onGotoDone={() => {
+        restoreTo = null;
+        onGotoDone?.();
+      }}
       currentLine={jumpTo?.line ?? 0}
       {format}
       {encoding}
-      onTop={showFiltered ? undefined : onTop}
+      onTop={(l) => {
+        // 只看命中时视图行是命中序号，不是物理行，记了反而误导跳时间那条补日期
+        if (showFiltered) return;
+        lastTop = Math.max(0, l - 1); // onTop 报的是 1-based，Rust 那边按 0-based 物理行
+        onTop?.(l);
+      }}
     />
   </div>
 </div>

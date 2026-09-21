@@ -14,6 +14,7 @@ pub mod index;
 pub mod level;
 pub mod probe;
 pub mod query;
+pub mod seek;
 
 use memmap2::{Advice, Mmap, MmapOptions};
 use std::fs::File;
@@ -457,6 +458,13 @@ impl LogFile {
         Ok(Refreshed::Grew {
             new_lines: after.saturating_sub(before),
         })
+    }
+
+    /// 跳到时间（`seek` 模块）：第一条时间 ≥ `q` 的行；`near` 是光标附近的行，补日期用
+    pub fn seek_time(&self, q: &str, near: u64) -> Option<u64> {
+        let ix = self.snapshot();
+        let map = self.map();
+        seek::seek(&map, &ix, q, near)
     }
 
     /// 启动一次后台过滤。调用方负责在换条件时取消旧任务。

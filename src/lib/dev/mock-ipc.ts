@@ -1196,6 +1196,27 @@ export function installMockIpc(): void {
           filterHits = runFilter(src(a.handle), bits, pat, Boolean(a.caseSensitive));
           return true;
         }
+        /*
+         * 跳到时间（真实现在 logengine::seek，二分）。桩只认 `YYYY-MM-DD HH:MM:SS` 开头的行，
+         * 在前 5 万行里线性找第一条不早于目标的 —— 够验交互；日期不带就按第一条有时间戳的行补。
+         */
+        case "log_seek_time": {
+          const s = src(a.handle);
+          const q = String(a.query).trim();
+          const m = /^(?:(\d{4}-\d{2}-\d{2})[ T])?(\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?)$/.exec(q);
+          if (!m) return null;
+          const tsOf = (n: number) => /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)/.exec(s.at(n));
+          const n1 = Math.min(s.total, 50_000);
+          let date: string | undefined = m[1];
+          for (let n = 0; !date && n < n1; n++) date = tsOf(n)?.[1];
+          if (!date) return null;
+          const key = `${date} ${m[2]}`;
+          for (let n = 0; n < n1; n++) {
+            const t = tsOf(n);
+            if (t && `${t[1]} ${t[2]}` >= key) return n;
+          }
+          return n1 - 1;
+        }
         case "log_filter_stat":
           return filterHits === null
             ? null

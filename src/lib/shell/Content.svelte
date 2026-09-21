@@ -330,6 +330,9 @@
           if (t) t.logView = s;
         }}
         onStatus={onLogStatus}
+        seekTime={focused ? nav.gotoTime : null}
+        onSeekDone={() => nav.seekDone()}
+        onSeek={(l) => nav.goto(l)}
         onTop={(l) => docs.markPos(tab.path, l)}
       />
     {/key}

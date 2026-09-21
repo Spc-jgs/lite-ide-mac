@@ -584,6 +584,15 @@ pub fn log_filter(
     Ok(true)
 }
 
+/// 跳到时间（`logengine::seek`）：第一条时间 ≥ `query` 的行号；文件里认不出时间戳就 None。
+/// `near` 是视口顶上那一行，输入不带日期时拿它附近的日期补。二分只有几十次探测，但每次
+/// 都可能在 mmap 上缺页 —— 碰盘的一律走阻塞池（rust.md）。
+#[tauri::command]
+pub async fn log_seek_time(handle: u32, query: String, near: u64, state: State<'_, AppState>) -> Result<Option<u64>, String> {
+    let file = state.get(handle).ok_or("句柄已失效")?;
+    blocking(move || Ok(file.seek_time(&query, near))).await
+}
+
 #[tauri::command]
 pub fn log_filter_stat(handle: u32, state: State<'_, AppState>) -> Option<FilterStatDto> {
     let task = state.filter(handle)?;

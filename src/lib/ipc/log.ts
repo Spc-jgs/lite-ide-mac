@@ -42,3 +42,7 @@ export const logFilterMap = (handle: number, start: number, count: number) =>
   invoke<number[]>("log_filter_map", { handle, start, count });
 
 export const logRefresh = (handle: number) => invoke<RefreshResult>("log_refresh", { handle });
+
+/** 跳到时间：第一条时间 ≥ `query`（`14:32` / `14:32:05` / `2026-08-24 14:32`）的行号；认不出时间戳就 null */
+export const logSeekTime = (handle: number, query: string, near: number) =>
+  invoke<number | null>("log_seek_time", { handle, query, near });

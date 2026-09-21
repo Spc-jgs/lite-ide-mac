@@ -156,6 +156,7 @@ pub fn run() {
             commands::log_lines,
             commands::log_filter,
             commands::log_filter_stat,
+            commands::log_seek_time,
             commands::log_lines_filtered,
             commands::log_filter_map,
             commands::log_refresh,

@@ -158,7 +158,7 @@
 </script>
 
 {#if overlays.comps.goto}
-  <overlays.comps.goto bind:open={overlay.gotoOpen} current={nav.caret} />
+  <overlays.comps.goto bind:open={overlay.gotoOpen} current={nav.caret} logMode={tabs.active?.mode === "log"} />
 {/if}
 
 {#if keysPanel.comp}

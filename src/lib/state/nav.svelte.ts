@@ -39,6 +39,21 @@ class Nav {
   fwd = $state<NavSpot[]>([]);
 
   /** 让编辑器跳到某一行（可带列，1-based） */
+  /**
+   * 跳到时间（日志视图，2026-09-21）：`14:32` 这种。行号由 Rust 侧二分出来，所以这里只是
+   * 一条指令，由当前显示的日志视图消费（`LogPane` 收 `seekTime` prop），落到行之后销掉。
+   */
+  gotoTime = $state<{ q: string; nonce: number } | null>(null);
+  #timeNonce = 0;
+
+  seekTime(q: string) {
+    this.gotoTime = { q, nonce: ++this.#timeNonce };
+  }
+
+  seekDone() {
+    this.gotoTime = null;
+  }
+
   goto(line: number, col?: number) {
     this.gotoLine = col === undefined ? { line, nonce: ++this.#gotoNonce } : { line, col, nonce: ++this.#gotoNonce };
   }
