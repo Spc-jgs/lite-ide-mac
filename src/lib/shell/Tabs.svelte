@@ -34,6 +34,9 @@
     onNewScratch,
     onKeep,
     onPin,
+    onMoveToOther,
+    moveLabel = "移到另一组",
+    dim = false,
     isScratch = () => false,
   }: {
     tabs: Tab[];
@@ -58,6 +61,14 @@
     onKeep?: (id: number) => void;
     /** 钉住 / 取消钉住 */
     onPin?: (id: number, on: boolean) => void;
+    /** 挪到另一组（issue #35）。单栏时就是向右分屏，菜单项的字由 `moveLabel` 说 */
+    onMoveToOther?: (id: number) => void;
+    moveLabel?: string;
+    /**
+     * 非焦点组的标签条（issue #35，设计图②）：当前标签从 `--selected` 退到 `--hover`、
+     * 字退到 dim、✕ 收起 —— 屏上「当前项」只有焦点组那一块是亮的（ui.md 第一条）。
+     */
+    dim?: boolean;
   } = $props();
 
   /**
@@ -120,6 +131,11 @@
       });
     }
     out.push({ label: "关闭全部", run: () => onCloseMany?.(tabs.map((t) => t.id)) });
+    // 分屏（issue #35）：只有一个标签时不出现 —— 挪走它这一组就空了、立刻收起，等于白做。
+    // 判据同上面那句：不适用的项直接不出现
+    if (onMoveToOther && tabs.length > 1) {
+      out.push({ label: moveLabel, sep: true, run: () => onMoveToOther(tab.id) });
+    }
 
     if (isReal(tab.path)) {
       /*
@@ -203,7 +219,7 @@
   }
 </script>
 
-<div class="tabs" role="tablist" bind:this={bar} onwheel={onWheel}>
+<div class="tabs" class:dim role="tablist" bind:this={bar} onwheel={onWheel}>
   {#each tabs as tab, i (tab.id)}
     {@const dot = dotOf(tab)}
     <!-- 中键关标签，浏览器和各家编辑器通用的手势 -->
@@ -357,6 +373,10 @@
   /* 和标签同一套：28px 的圆角块 + hover 底色（ui.md 第一条） */
   /* 末尾的「新建草稿」和各处头里的工具按钮同一个 `.ibtn` */
   .tab.active { background: var(--selected); }
+  /* 非焦点组（issue #35）：当前项退一档，✕ 收起；hover 照常 —— 它仍然是能操作的 */
+  .tabs.dim .tab.active { background: var(--hover); }
+  .tabs.dim .tab.active .label { color: var(--text-dim); }
+  .tabs.dim .tab.active:not(:hover) .close:not(.dirty):not(.pin) { opacity: 0; }
   /* 标签溢出时给个细滚动条，否则完全看不出还有更多标签 */
   .tabs::-webkit-scrollbar { height: 3px; }
   .tabs::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--r-sm); }

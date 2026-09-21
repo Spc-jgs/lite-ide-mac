@@ -358,7 +358,12 @@
             scheduleMarks();
           }
           if (u.viewportChanged || u.geometryChanged) noteTop(u.view);
-          if (u.selectionSet || u.docChanged) {
+          /*
+           * 拿到焦点也报一次光标（`u.focusChanged`）：分屏之后状态栏那格行:列跟着焦点组走
+           * （issue #35），用键盘切过来时这个编辑器的光标没动，不报的话状态栏还印着
+           * 另一边的位置。同一个编辑器失焦时也会进这里，多报一次同样的数无妨
+           */
+          if (u.selectionSet || u.docChanged || (u.focusChanged && u.view.hasFocus)) {
             const head = u.state.selection.main.head;
             const ln = u.state.doc.lineAt(head);
             onCaret?.(ln.number, head - ln.from + 1);

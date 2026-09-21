@@ -25,6 +25,7 @@
   import { readPref, writePref, readNumPref, writeNumPref } from "./lib/state/prefs";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
+  import type { Group } from "./lib/state/tab";
   import { scratches } from "./lib/state/scratches.svelte";
   import {
     probePath,
@@ -276,7 +277,38 @@
   let panelTool = $derived<"term" | "git">(layout.panelView === "git" && git.repo ? "git" : "term");
 
   let hovering = $state(false);
-  let logStatus = $state("");
+  /** 日志视图的状态行，每组一份（issue #35）；状态栏只讲焦点组的 */
+  let logStatus = $state<string[]>(["", ""]);
+
+  /**
+   * 点进一组就让它成为焦点组。换组时顺手把光标收进它的编辑器（`docs.focusEditor` 只对
+   * 焦点组的编辑器生效，见 Content 里 `focusTick` 那段）—— 点的是标签条时光标还停在
+   * 标签按钮上，接着打字会打到空气里。同一组内点来点去不动焦点，免得每次点击都抢一下。
+   */
+  function focusGroup(g: Group) {
+    if (tabs.activeGroup === g) return;
+    tabs.focusGroup(g);
+    docs.focusEditor();
+  }
+
+  /** 分屏分隔线的拖拽（issue #35）。写的是比例不是像素：窗口一变宽两边按比例分，和侧边栏那种「固定宽」不同 */
+  function startSplitResize(e: PointerEvent) {
+    e.preventDefault();
+    const island = (e.currentTarget as HTMLElement).parentElement;
+    if (!island) return;
+    layout.resizing = true;
+    const move = (ev: PointerEvent) => {
+      const r = island.getBoundingClientRect();
+      layout.splitRatio = Math.max(0.2, Math.min(0.8, (ev.clientX - r.left) / r.width));
+    };
+    const up = () => {
+      layout.resizing = false;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
 
 
 
@@ -896,38 +928,71 @@
 
     <section class="main">
       <!-- 编辑器岛：标签栏是它的头，在岛里 —— 和两座工具窗岛同一个结构（头 + 身） -->
-      <div class="editor-island">
-      {#if tabs.list.length > 0}
-        <Tabs
-          tabs={tabs.list}
-          activeId={tabs.activeId}
-          root={project.root ?? ""}
-          isScratch={(p) => project.isScratch(p)}
-          onSelect={(id) => {
-            tabs.show(id);
-            tabs.audit("切标签");
-          }}
-          onClose={(...a) => tabflow.requestClose(...a)}
-          onCloseMany={(...a) => tabflow.closeMany(...a)}
-          onRevealInTree={revealInTree}
-          onNewScratch={(...a) => tabflow.newScratch(...a)}
-          onKeep={(id) => tabs.keep(id)}
-          onPin={(id, on) => tabs.setPinned(id, on)}
-        />
-      {/if}
+      <div class="editor-island" class:split={tabs.split}>
+      <!--
+        分屏（issue #35，docs/SPLIT.md 第 4 节）：岛里 `tabs.shown` 有几格就几组，每组一条标签条
+        + 一个 Content。组与组之间是岛**里面**的分区（一条 --border-soft 的线，悬停 / 拖动亮 accent），
+        不是两个岛 —— 两组都是编辑器，是同一个东西的两半（ui.md「岛按是什么分」）。
+        焦点组由 `tabs.activeGroup` 说；点进哪一组（pointerdown 捕获，连非焦点区域如日志视图也算）
+        哪一组就成为焦点组，键盘 Tab 走进去的用 focusin 兜住。
+      -->
+      {#each tabs.shown as _, g (g)}
+        {@const gg = g as Group}
+        {@const focused = tabs.activeGroup === g}
+        {#if g === 1}
+          <div
+            class="group-resizer"
+            role="separator"
+            aria-label="调整分屏比例"
+            aria-orientation="vertical"
+            onpointerdown={startSplitResize}
+          ></div>
+        {/if}
+        <div
+          class="group"
+          style:flex-basis={tabs.split ? `${(g === 0 ? layout.splitRatio : 1 - layout.splitRatio) * 100}%` : null}
+          onpointerdowncapture={() => focusGroup(gg)}
+          onfocusin={() => tabs.focusGroup(gg)}
+        >
+          {#if tabs.inGroup(gg).length > 0}
+            <Tabs
+              tabs={tabs.inGroup(gg)}
+              activeId={tabs.shown[g]}
+              dim={tabs.split && !focused}
+              root={project.root ?? ""}
+              isScratch={(p) => project.isScratch(p)}
+              onSelect={(id) => {
+                tabs.show(id);
+                tabs.audit("切标签");
+              }}
+              onClose={(...a) => tabflow.requestClose(...a)}
+              onCloseMany={(...a) => tabflow.closeMany(...a)}
+              onRevealInTree={revealInTree}
+              onNewScratch={(...a) => tabflow.newScratch(...a)}
+              onKeep={(id) => tabs.keep(id)}
+              onPin={(id, on) => tabs.setPinned(id, on)}
+              onMoveToOther={(id) => {
+                tabs.moveToOther(id);
+                tabs.audit("挪组");
+              }}
+              moveLabel={tabs.split ? "移到另一组" : "向右分屏打开"}
+            />
+          {/if}
+          <Content
+            tab={tabs.shownIn(gg)}
+            {focused}
+            Merge={gitUi.comps.merge}
+            Diff={gitUi.comps.diff}
+            {showMinimap}
+            outlineTick={overlay.outlineTick}
+            onLogStatus={(t) => (logStatus[g] = t)}
+            onOutline={(syms) => (overlay.symbols = syms)}
+          />
+        </div>
+      {/each}
 
-      <!-- 内容区顶上的那几条确认横幅，全在 Confirms.svelte 里读各自的 store -->
+      <!-- 内容区顶上的那几条确认横幅，全在 Confirms.svelte 里读各自的 store；浮在整个岛上，不按组 -->
       {#if confirms.comp}<confirms.comp Bars={gitUi.comps.bars} />{/if}
-
-
-      <Content
-        Merge={gitUi.comps.merge}
-        Diff={gitUi.comps.diff}
-        {showMinimap}
-        outlineTick={overlay.outlineTick}
-        onLogStatus={(t) => (logStatus = t)}
-        onOutline={(syms) => (overlay.symbols = syms)}
-      />
       </div>
 
       <!--
@@ -955,7 +1020,7 @@
     activeScratch={tabs.active ? project.isScratch(tabs.active.path) : false}
     activeEntry={git.activeEntry}
     root={project.root}
-    {logStatus}
+    logStatus={logStatus[tabs.activeGroup]}
     onReveal={revealInTree}
     onSwitchMode={() => tabflow.requestSwitchMode(tabs.active!)}
     onOpenEncoding={() => (overlay.encOpen = true)}
@@ -1044,12 +1109,52 @@
     flex: 1;
     min-height: 0;
     display: flex;
-    flex-direction: column;
+    flex-direction: row; /* 分屏时两组并排；单栏时只有一组，方向无所谓 */
     overflow: hidden;
     background: var(--content-bg);
     border: var(--island-border);
     border-radius: var(--island-radius);
   }
+  /* 一组 = 标签条（岛的头）+ 内容。单栏时它就是整个岛；分屏时按 splitRatio 分宽，`flex-basis` 由模板写 */
+  .group {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .editor-island.split .group { flex-grow: 0; flex-shrink: 0; }
+  /*
+   * 分屏的分隔线（issue #35，设计图）：岛里面的分区线，一律 --border-soft（ui.md 第二条）；
+   * 热区 7px，悬停 / 拖动时那 1px 亮成 accent —— 和侧边栏那条缝同一套语言。
+   * 宽度从两组里各扣 0.5 —— 不然两组 basis 加起来 100% 再加它这 1px 就溢出岛，右组被裁掉一像素
+   */
+  .group-resizer {
+    position: relative;
+    flex: none;
+    width: 1px;
+    margin: 0 -0.5px;
+    background: var(--border-soft);
+    cursor: col-resize;
+    z-index: 1;
+  }
+  .group-resizer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -3px;
+    right: -3px;
+  }
+  .group-resizer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: transparent;
+    transition: background 0.1s;
+  }
+  .group-resizer:hover::after, .group-resizer:active::after { background: var(--accent); }
+  @media (prefers-reduced-motion: reduce) { .group-resizer::after { transition: none; } }
 
 
 

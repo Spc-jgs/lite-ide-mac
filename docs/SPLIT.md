@@ -247,7 +247,7 @@ Goto Next Splitter；`⌃⌘→` 是 VS Code 的 Move Editor into Next Group。
 `Shift-Mod-\`（跳到配对括号）和 `Mod-Alt-\`（缩进选区）是占着的，**裸 `Mod-\` 没有**，
 `Alt-Tab` 没有。所以分屏不能用 ⇧⌘\ 那种变体，就是 ⌘\。
 
-标签右键菜单加两项：「向右分屏打开」（单栏时）/「移到另一侧」（分屏时）。
+标签右键菜单加一项：「向右分屏打开」（单栏时）/「移到另一组」（分屏时）。只有一个标签的组里**不出现**而不是灰掉 —— `Tabs.svelte` 里的规矩是「不适用的项直接不出现」（「关闭其他」也是这么做的），菜单栏那条才灰。
 文件树 / ⌘P 不加「在右侧打开」—— IDEA 也没有，想开在右边就先切过去再开。
 
 `syncMenuState` 现在传四个 bool；要多传 `split`，Rust 侧 `menu.rs` 灰掉对应项。
@@ -264,8 +264,7 @@ Goto Next Splitter；`⌃⌘→` 是 VS Code 的 Move Editor into Next Group。
 - `tests/invariant.test.ts`：新增三条不变量各一个红例。
 - 每条新测试按 AGENTS.md 那条：改坏被测代码跑一次确认红。
 - 浏览器：`pnpm dev` 里 ⌘\ 分屏、点两边切焦点看状态栏跟不跟、⌘W 关到空收起、刷新恢复。
-- `pnpm app:bundle` 收尾。入口包：新代码都在入口（tabs / Content / App），估计 +1.5–2.5 KB，
-  现在余量 4 KiB —— **这轮结束要重量一次**，压线就把 `tabflow` 拆 `*-ops.ts`（frontend.md 那条）。
+- `pnpm app:bundle` 收尾。入口包：新代码都在入口（tabs / Content / App）。**实测 ③ 做完 +5.5 KB**（136,948 → 142,472，估的 1.5–2.5 KB 少算了一倍多：tabs.svelte.ts 一个文件就 +2 KB，App / Content / session / persist / invariant 各 +0.5–1.3），已经过了 138 KiB 告警线 —— ④ 之后这轮内加一步 ⑤ 瘦身，把 `tabflow` / `docs` 里「有动作才跑」的方法拆去 `*-ops.ts`（frontend.md 2026-09-21 那段）。
 
 ## 7. 分步落地（四条提交）
 

@@ -13,6 +13,7 @@
   import type DiffView from "../git/DiffView.svelte";
   import type { Sym } from "../editor/outline";
   import type { KeyDef } from "../state/keymap";
+  import type { TabState } from "../state/tab";
   import { wrapsByDefault } from "../state/tab";
   import { isDirty } from "../state/doc";
   import { lazy } from "../lazy/lazy.svelte";
@@ -27,6 +28,36 @@
   import { nav } from "../state/nav.svelte";
   import { overlay } from "../state/overlay.svelte";
   import { lang } from "../state/lang.svelte";
+
+  let {
+    tab,
+    focused,
+    Merge,
+    Diff,
+    showMinimap,
+    outlineTick,
+    onLogStatus,
+    onOutline,
+  }: {
+    /**
+     * 这一组正在显示的标签（issue #35 分屏之后每组一个 Content）。原来这里直接读
+     * `tab`；现在「活动标签」是焦点组的事，这个组件只认自己那一个。
+     * 单栏且一个标签都没有时是 null，画空态卡片；分屏时不可能是 null（没有空组）。
+     */
+    tab: TabState | null;
+    /**
+     * 是不是焦点组。只管三件事：新挂的编辑器要不要抢光标、`docs.focusTick` 认不认、
+     * 大纲 / 日志状态行往不往上报（状态栏和大纲浮层只讲焦点组的）。
+     */
+    focused: boolean;
+    Merge: typeof MergeView | undefined;
+    Diff: typeof DiffView | undefined;
+    showMinimap: boolean;
+    /** 大纲浮层里点了一条，让编辑器重算一次符号 */
+    outlineTick: number;
+    onLogStatus: (text: string) => void;
+    onOutline: (syms: Sym[]) => void;
+  } = $props();
 
   /**
    * 空态卡片上列的那几条。
@@ -44,7 +75,7 @@
   ];
   let keyHints = $state<KeyDef[]>([]);
   $effect(() => {
-    if (tabs.active || keyHints.length) return;
+    if (tab || keyHints.length) return;
     void import("../state/keymap").then(({ byId }) => {
       keyHints = HINT_IDS.map((id) => byId(id)).filter((k) => k !== undefined);
     });
@@ -58,7 +89,7 @@
   const SCRATCH_HINT_IDS = ["open-folder", "quick-file"];
   let scratchHint = $state("记点东西…");
   $effect(() => {
-    const t = tabs.active;
+    const t = tab;
     if (!t || !project.isScratch(t.path) || scratchHint.includes("·")) return;
     void import("../state/keymap").then(({ byId }) => {
       const parts = SCRATCH_HINT_IDS.map((id) => byId(id))
@@ -68,22 +99,17 @@
     });
   });
 
-  let {
-    Merge,
-    Diff,
-    showMinimap,
-    outlineTick,
-    onLogStatus,
-    onOutline,
-  }: {
-    Merge: typeof MergeView | undefined;
-    Diff: typeof DiffView | undefined;
-    showMinimap: boolean;
-    /** 大纲浮层里点了一条，让编辑器重算一次符号 */
-    outlineTick: number;
-    onLogStatus: (text: string) => void;
-    onOutline: (syms: Sym[]) => void;
-  } = $props();
+
+  /**
+   * `docs.focusTick` 只在焦点组里往下传。直接传 `focused ? tick : 0` 不行：失焦那一下
+   * 值从 N 变成 0，编辑器把它当成一次新的「收回焦点」请求，反而把焦点抢回来。
+   * 所以非焦点时停在上一次的值，回到焦点时再对齐。
+   */
+  let focusTick = $state(0);
+  $effect(() => {
+    const t = docs.focusTick;
+    if (focused) focusTick = t;
+  });
 
   /**
    * CodeMirror 6 核心约 340KB，日志模式一点也用不上 —— 静态引入会把入口包
@@ -100,14 +126,15 @@
   const logPane = lazy(() => import("../logview/LogPane.svelte"), "日志视图");
 
   $effect(() => {
-    if (tabs.active?.mode === "edit") editor.load();
+    if (tab?.mode === "edit") editor.load();
   });
   $effect(() => {
-    if (tabs.active?.mode === "log") logPane.load();
+    if (tab?.mode === "log") logPane.load();
   });
-  // 活动标签不是编辑器时，状态栏那格行:列要消失 —— 上一个编辑器报的位置不能留着
+  // 焦点组显示的不是编辑器时，状态栏那格行:列要消失 —— 上一个编辑器报的位置不能留着。
+  // 非焦点组不管：它显示什么和状态栏无关（issue #35）
   $effect(() => {
-    if (tabs.active?.mode !== "edit") nav.caret = null;
+    if (focused && tab?.mode !== "edit") nav.caret = null;
   });
   // 按需加载失败要说出来（App 那张汇总名单的本地版，同 Panel）
   $effect(() => {
@@ -130,7 +157,6 @@
   let headText = $state<string | null>(null);
 
   $effect(() => {
-    const tab = tabs.active;
     const st = git.status;
     const r = git.repo;
     if (!tab || tab.mode !== "edit" || !r || !st || st.unborn) {
@@ -170,7 +196,6 @@
   let blame = $state<import("../ipc/commands").BlameHunk[] | null>(null);
   $effect(() => {
     const on = git.blameOn;
-    const tab = tabs.active;
     const st = git.status;
     const r = git.repo;
     if (!on || !tab || tab.mode !== "edit" || !r || !st || st.unborn || !tab.path.startsWith(`${st.root}/`)) {
@@ -209,7 +234,7 @@
 -->
 <svelte:boundary onerror={(e) => notify.fail(`内容区出错：${e}`)}>
 <div class="content">
-  {#if !tabs.active}
+  {#if !tab}
     <!--
       收进一张卡片。原本是四行居中文字铺在整个内容区里 —— 1440 宽的窗口上
       读起来是散的，眼睛没有落点。快捷键排成两列之后它才像个「起点」。
@@ -261,97 +286,104 @@
         {#if notify.error}<p class="err">{notify.error}</p>{/if}
       </div>
     </div>
-  {:else if tabs.active.mode === "merge" && Merge}
-    {#key tabs.active.id}
+  {:else if tab.mode === "merge" && Merge}
+    {#key tab.id}
       <Merge
-        text={tabs.active.mergeText ?? ""}
-        path={tabs.active.rel ?? tabs.active.name}
-        onResolve={(c, r) => void git.resolveMerge(tabs.active!, c, r)}
+        text={tab.mergeText ?? ""}
+        path={tab.rel ?? tab.name}
+        onResolve={(c, r) => void git.resolveMerge(tab, c, r)}
       />
     {/key}
-  {:else if tabs.active.mode === "merge"}
+  {:else if tab.mode === "merge"}
     <div class="empty"><p>正在载入合并视图…</p></div>
-  {:else if tabs.active.mode === "diff" && Diff}
-    {#key tabs.active.id}
+  {:else if tab.mode === "diff" && Diff}
+    {#key tab.id}
       <Diff
-        raw={tabs.active.diffRaw ?? ""}
-        capped={!!tabs.active.diffCapped}
-        path={tabs.active.rel ?? tabs.active.name}
-        staged={!!tabs.active.diffStaged}
-        commit={tabs.active.diffShort ?? ""}
-        toLocal={!!tabs.active.diffToLocal}
-        untracked={!!tabs.active.diffUntracked}
-        onToggleStaged={() => void git.toggleDiffSide(tabs.active!.id)}
+        raw={tab.diffRaw ?? ""}
+        capped={!!tab.diffCapped}
+        path={tab.rel ?? tab.name}
+        staged={!!tab.diffStaged}
+        commit={tab.diffShort ?? ""}
+        toLocal={!!tab.diffToLocal}
+        untracked={!!tab.diffUntracked}
+        onToggleStaged={() => void git.toggleDiffSide(tab.id)}
         onApplyHunk={(patch, unstage) => void git.applyHunk(patch, unstage)}
         onRevertHunk={(patch) => (git.pendingRevertHunk = patch)}
       />
     {/key}
-  {:else if tabs.active.mode === "diff"}
+  {:else if tab.mode === "diff"}
     <div class="empty"><p>正在载入差异视图…</p></div>
-  {:else if tabs.active.mode === "log" && tabs.active.handle !== undefined && logPane.comp}
-    {#key tabs.active.id}
-      {@const id = tabs.active.id}
+  {:else if tab.mode === "log" && tab.handle !== undefined && logPane.comp}
+    {#key tab.id}
+      {@const id = tab.id}
       <logPane.comp
-        handle={tabs.active.handle}
+        handle={tab.handle}
         gotoLine={nav.gotoLine}
         onGotoDone={() => nav.done()}
-        encoding={tabs.active.encoding ?? "utf-8"}
-        initialFilter={tabs.active.logView ?? null}
-        initialTop={docs.posByPath.get(tabs.active.path)?.line ?? null}
+        encoding={tab.encoding ?? "utf-8"}
+        initialFilter={tab.logView ?? null}
+        initialTop={docs.posByPath.get(tab.path)?.line ?? null}
         onFilter={(s) => {
-          // 按 id 取而不是 tabs.active：`{#key}` 换代那一拍 active 已经是下一个标签了（issue #36）
+          // 按 id 取而不是 `tab`：`{#key}` 换代那一拍这一组显示的已经是下一个标签了（issue #36）
           const t = tabs.byId(id);
           if (t) t.logView = s;
         }}
-        onStatus={onLogStatus}
-        onTop={(l) => docs.markPos(tabs.active!.path, l)}
+        onStatus={(t) => {
+          if (focused) onLogStatus(t);
+        }}
+        onTop={(l) => docs.markPos(tab.path, l)}
       />
     {/key}
-  {:else if tabs.active.mode === "log"}
+  {:else if tab.mode === "log"}
     <div class="empty"><p>正在载入日志视图…</p></div>
   {:else if editor.comp}
-    {#key tabs.active.id}
+    {#key tab.id}
       <editor.comp
-        path={tabs.active.path}
-        initial={tabs.active.draft ?? tabs.active.content ?? ""}
-        baseline={tabs.active.content ?? ""}
+        path={tab.path}
+        initial={tab.draft ?? tab.content ?? ""}
+        baseline={tab.content ?? ""}
         savedTick={docs.savedTick}
         selfSaveTick={docs.selfSaveTick}
         gotoLine={nav.gotoLine}
         onGotoDone={() => nav.done()}
-        placeholder={project.isScratch(tabs.active.path) ? scratchHint : null}
+        placeholder={project.isScratch(tab.path) ? scratchHint : null}
         {outlineTick}
         {headText}
         {showMinimap}
-        wrap={tabs.active.wrap ?? wrapsByDefault(tabs.active.path)}
-        indent={tabs.active.indent ?? null}
-        autofocus={!tabs.active.preview}
-        focusTick={docs.focusTick}
+        wrap={tab.wrap ?? wrapsByDefault(tab.path)}
+        indent={tab.indent ?? null}
+        autofocus={focused && !tab.preview}
+        {focusTick}
         {blame}
-        onBlamePick={(h) => void git.openCommitDiff(h.sha, h.short, tabs.active!.path.slice((git.status?.root.length ?? 0) + 1))}
+        onBlamePick={(h) => void git.openCommitDiff(h.sha, h.short, tab.path.slice((git.status?.root.length ?? 0) + 1))}
         onChange={(d) => {
           // 编辑器只知道「文本和磁盘一不一样」；换过编码 / 换行符的标签内容没变也是脏的
-          tabs.active!.dirty = isDirty(tabs.active!, d);
+          tab.dirty = isDirty(tab, d);
           // 动过手的预览标签就不再是「看一眼」了，保留下来（issue #33 ⑯）
-          if (d) tabs.keep(tabs.active!.id);
+          if (d) tabs.keep(tab.id);
           // 草稿的自动保存从这一下开始计时（issue #40）；是不是草稿由 docs 判
-          docs.noteEdit(tabs.active!.path);
+          docs.noteEdit(tab.path);
         }}
         onSave={(c) => docs.save(c)}
         onStash={(p, t) => docs.stashDraft(p, t)}
         onLive={(p, g) => docs.onEditorLive(p, g)}
         onWordProbe={(p, g) => docs.onEditorWordProbe(p, g)}
-        onOutline={onOutline}
-        onCursor={(l) => docs.markPos(tabs.active!.path, l)}
-        onCaret={(line, col) => (nav.caret = { line, col })}
-        initialView={docs.posByPath.get(tabs.active.path) ?? null}
+        onOutline={(syms) => {
+          if (focused) onOutline(syms);
+        }}
+        onCursor={(l) => docs.markPos(tab.path, l)}
+        onCaret={(line, col) => {
+          // 状态栏只讲焦点组的（issue #35）；非焦点组的编辑器不动光标，但保险起见挡一下
+          if (focused) nav.caret = { line, col };
+        }}
+        initialView={docs.posByPath.get(tab.path) ?? null}
         onView={(p, g) => docs.onEditorView(p, g)}
         onViewStash={(p, v) => docs.markView(p, v)}
         jumpFiles={files.list}
-        jumpRel={project.root && tabs.active.path.startsWith(`${project.root}/`)
-          ? tabs.active.path.slice(project.root.length + 1)
+        jumpRel={project.root && tab.path.startsWith(`${project.root}/`)
+          ? tab.path.slice(project.root.length + 1)
           : null}
-        jumpLang={lang.mod?.langOf(tabs.active.path) ?? ""}
+        jumpLang={lang.mod?.langOf(tab.path) ?? ""}
         onJump={(hit) => void nav.jumpTo(hit)}
       />
     {/key}
@@ -362,7 +394,7 @@
 
 {#snippet failed(err, reset)}
   <div class="content">
-    <Crash error={err} scope={tabs.active ? `${tabs.active.name} 的视图` : "内容区"} onReset={reset} />
+    <Crash error={err} scope={tab ? `${tab.name} 的视图` : "内容区"} onReset={reset} />
   </div>
 {/snippet}
 </svelte:boundary>
