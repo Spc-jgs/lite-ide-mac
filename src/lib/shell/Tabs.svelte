@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
+  import type { MenuItem } from "./ContextMenu.svelte";
+  import { cmenu } from "./context-menu.svelte";
   import Icon from "./Icon.svelte";
   import FileGlyph from "./FileGlyph.svelte";
   import { copyText, relTo, showInFinder } from "./pathactions";
@@ -89,6 +90,9 @@
   };
 
   let menu = $state<{ x: number; y: number; tab: Tab; i: number } | null>(null);
+  $effect(() => {
+    if (menu) cmenu.load();
+  });
 
   let items = $derived.by(() => {
     const m = menu;
@@ -303,8 +307,8 @@
   {/if}
 </div>
 
-{#if menu}
-  <ContextMenu
+{#if menu && cmenu.comp}
+  <cmenu.comp
     x={menu.x}
     y={menu.y}
     title={menu.tab.name}

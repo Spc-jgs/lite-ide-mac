@@ -8,7 +8,8 @@
    * 剩下的都是当前标签的事实，由 App 传进来 —— 标签表还在 App 里（#9 第 4 步）。
    */
   import Icon from "./Icon.svelte";
-  import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
+  import type { MenuItem } from "./ContextMenu.svelte";
+  import { cmenu } from "./context-menu.svelte";
   import { notify } from "../state/notify.svelte";
   import { crumbsOf, projectName } from "../state/crumbs";
   import { isLogName } from "../logview/is-log-name";
@@ -66,6 +67,9 @@
   let eol = $derived(active?.mode === "edit" ? (EOL_LABEL[active.eol ?? "LF"] ?? active.eol ?? "LF") : "");
 
   let fmtMenu = $state<{ x: number; y: number } | null>(null);
+  $effect(() => {
+    if (fmtMenu) cmenu.load();
+  });
   let fmtBtn = $state<HTMLButtonElement | null>(null);
   /**
    * 菜单项：三档常用缩进 + LF / CRLF。文件猜出来的是 3 空格这种不在档里的，把它也列进去
@@ -280,8 +284,8 @@
   {/if}
 </footer>
 
-{#if fmtMenu}
-  <ContextMenu
+{#if fmtMenu && cmenu.comp}
+  <cmenu.comp
     x={fmtMenu.x}
     y={fmtMenu.y}
     up

@@ -171,9 +171,6 @@ export interface CliInstall {
   linkCmd: string;
 }
 
-/** 装 `lite` 命令。开发构建（不在 .app 里）会 reject */
-export const installCli = () => invoke<CliInstall>("install_cli");
-
 /** 草稿目录里有什么，最近的在前。目录还不存在就是空列表，不是错误 */
 export const listScratches = () => invoke<ScratchEntry[]>("list_scratches");
 
@@ -229,9 +226,6 @@ export const diag = (msg: string) => invoke<void>("diag", { msg });
 export const appLog = (level: "info" | "warn" | "error", source: string, msg: string) =>
   invoke<void>("app_log", { level, source, msg }).catch(() => {});
 
-/** 日志文件的路径 —— 拿它开一个标签，用这个应用自己的日志引擎看 */
-export const appLogPath = () => invoke<string>("app_log_path");
-
 /**
  * Git 控制台里的一条（issue #29）。
  *
@@ -249,9 +243,6 @@ export interface GitCmd {
   err: string;
   errTruncated: boolean;
 }
-
-/** 清空应用日志（两份都清）。判据在 Rust 侧，前端只是按一下 */
-export const clearAppLog = () => invoke<void>("clear_app_log");
 
 /**
  * 启动完成时往 `app.log` 写一行预算数（issue #28）。
@@ -510,9 +501,6 @@ export const setRecent = (paths: string[]) => invoke<void>("set_recent", { paths
  */
 export const syncMenuState = (hasTab: boolean, hasRepo: boolean, hasTerm: boolean, hasRoot: boolean) =>
   invoke<void>("sync_menu_state", { hasTab, hasRepo, hasTerm, hasRoot });
-
-/** 交给系统默认浏览器打开。Rust 侧只放行 https —— 见那边的注释 */
-export const openExternal = (url: string) => invoke<void>("open_external", { url });
 
 // ── 拉取与推送 ───────────────────────────────────────────────────────
 

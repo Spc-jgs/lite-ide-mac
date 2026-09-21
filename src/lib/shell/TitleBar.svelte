@@ -9,7 +9,8 @@
    * 有三条路（挂件、Git 栏、菜单），位置得由同一个元素定。
    */
   import Icon from "./Icon.svelte";
-  import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
+  import type { MenuItem } from "./ContextMenu.svelte";
+  import { cmenu } from "./context-menu.svelte";
   import { devtoolsBuild, type GitStatus } from "../ipc/commands";
   import { projectName } from "../state/crumbs";
 
@@ -56,6 +57,9 @@
    * 而 `pnpm dev` 跑在浏览器里，那儿一个菜单项都没有。
    */
   let projMenu = $state<{ x: number; y: number } | null>(null);
+  $effect(() => {
+    if (projMenu) cmenu.load();
+  });
 
   function openProjMenu(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -162,8 +166,8 @@
   <span class="tgap" data-tauri-drag-region></span>
 </header>
 
-{#if projMenu}
-  <ContextMenu
+{#if projMenu && cmenu.comp}
+  <cmenu.comp
     x={projMenu.x}
     y={projMenu.y}
     label="项目"

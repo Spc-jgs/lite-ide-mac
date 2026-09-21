@@ -8,6 +8,7 @@
   import TitleBar from "./lib/shell/TitleBar.svelte";
   import Tabs from "./lib/shell/Tabs.svelte";
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
+  import { cmenu } from "./lib/shell/context-menu.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import { layout } from "./lib/state/layout.svelte";
   import { tabs } from "./lib/state/tabs.svelte";
@@ -18,24 +19,18 @@
   import { git } from "./lib/state/git.svelte";
   import { remote } from "./lib/state/remote.svelte";
   import { branches } from "./lib/state/branches.svelte";
-  import { nav } from "./lib/state/nav.svelte";
   import { persist, saved } from "./lib/state/persist.svelte";
   import { overlay } from "./lib/state/overlay.svelte";
   import { lang } from "./lib/state/lang.svelte";
   import { readPref, writePref, readNumPref, writeNumPref } from "./lib/state/prefs";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
-  import { wrapsByDefault } from "./lib/state/tab";
   import { scratches } from "./lib/state/scratches.svelte";
   import {
     probePath,
     ignoredDirs,
-    appLogPath,
-    clearAppLog,
     setRecent,
     syncMenuState,
-    openExternal,
-    diag,
     reportBudget,
     initialPaths,
     OPEN_PATHS_EVENT,
@@ -44,7 +39,6 @@
     gitUnstage,
     scratchDir,
     revealInFinder,
-    installCli,
   } from "./lib/ipc/commands";
 
 
@@ -162,7 +156,11 @@
    */
   const confirms = lazy(() => import("./lib/shell/Confirms.svelte"), "确认横幅");
   $effect(() => {
-    const id = setTimeout(() => confirms.load(), 300);
+    // 右键菜单的壳也搭这班车（`shell/context-menu.svelte.ts`）
+    const id = setTimeout(() => {
+      confirms.load();
+      cmenu.load();
+    }, 300);
     return () => clearTimeout(id);
   });
   $effect(() => {
@@ -364,56 +362,35 @@
     overlay.openBranches(branchBtn?.getBoundingClientRect());
   }
 
-
-
-
-  /** 项目主页。交给系统默认浏览器 —— 这个应用自己不开网页 */
   /**
-   * 打开应用自己的运行日志。
-   *
-   * 走的是普通的 `openPath` —— 那个文件多半会被判成日志模式（体积/行数），
-   * 于是级别过滤、tail、跳到下一处错误全都现成。**这就是这个功能的全部实现**：
-   * 一个日志查看器不需要另外做一个「日志窗口」。
-   *
-   * 正常情况下这个文件**一定在** —— 启动时 `applog::install` 就把它建出来了，
-   * 并且写了一行「启动 vX.Y.Z」。所以探不到它意味着日志根本没装上
-   * （目录建不了、权限不对），那条消息要这么说，不能只说「打不开」。
+   * 菜单项的处理表是懒的（`shell/menu-actions.ts`，入口包瘦身 2026-09-21）：菜单在窗口
+   * 出现之前一次都点不到。首屏后 300ms 预拉（同确认横幅那套）；没预拉到就现拉 ——
+   * 菜单事件本来就是 AppKit → IPC → 前端这条异步路，多一次本地 chunk 往返察觉不到。
+   * `import()` 的结果缓存在模块系统里，多次调用不会重复取。
    */
-  /**
-   * 清空应用日志。
-   *
-   * 清完必须走一次 `worktree.changed()` —— 否则开着那份日志的标签上
-   * 还摊着刚被清掉的几百行，人会以为没生效，然后再点一次。
-   * 这正是那条老规矩的又一例（**盘上的东西被外部改了，两件事要一起做**），
-   * 只不过这次「外部」是我们自己。
-   */
-  async function clearLog() {
+  const menuActions = () => import("./lib/shell/menu-actions");
+  $effect(() => {
+    const id = setTimeout(() => void menuActions().catch(() => {}), 300);
+    return () => clearTimeout(id);
+  });
+  async function runMenu(id: string) {
+    let m: Awaited<ReturnType<typeof menuActions>>;
     try {
-      await clearAppLog();
-      await worktree.changed();
-      notify.ok("应用日志已清空");
+      m = await menuActions();
     } catch (e) {
-      notify.fail(`清不掉应用日志：${e}`);
-    }
-  }
-
-  async function openAppLog() {
-    let path: string;
-    try {
-      path = await appLogPath();
-      await probePath(path);
-    } catch (e) {
-      notify.fail(`应用日志没装上：${e}`);
+      notify.fail(`菜单动作载入失败：${e}`);
       return;
     }
-    await tabflow.openPath(path);
-  }
-
-  async function openRepoPage() {
-    await openExternal("https://github.com/Spc-jgs/lite-ide-mac").catch(() => {
-      notify.fail("打不开项目主页", 2600);
+    await m.runMenu(id, {
+      toggleMinimap: () => (showMinimap = !showMinimap),
+      zoom: (d) => (editorFont = d === null ? FONT_DEFAULT : Math.max(9, Math.min(28, editorFont + d))),
+      openBranchPicker,
     });
   }
+
+
+
+
 
 
 
@@ -584,120 +561,6 @@
      * 留着它的后果是**多一个副作用**：在编辑器里按 ⌘B 跳转的同时，
      * 侧边栏自己开合一下。一个键干两件事，而速查表只说了一件。
      */
-  }
-
-  /**
-   * 「安装命令行工具…」（issue #40）。装上了说一句；软链没装上（/usr/local/bin 要 sudo）
-   * 就把那一句命令摆在横幅里 —— 它不会自动消失，人要把它抄进终端。
-   */
-  async function installCliTool() {
-    notify.clear();
-    try {
-      const r = await installCli();
-      if (r.linked) {
-        notify.ok(`${r.replaced ? "已重新安装" : "已安装"} lite 命令 —— 终端里 lite <路径> 就能开`, 5000);
-      } else {
-        notify.block(
-          "脚本已写好，但 /usr/local/bin 写不进去 —— 在终端里跑这一句补上软链：",
-          r.linkCmd,
-        );
-      }
-    } catch (e) {
-      notify.fail(String(e));
-    }
-  }
-
-  /**
-   * 菜单项按下去做什么。
-   *
-   * id 与 `keymap.ts`、`menu.rs` 三处同一套 —— 那两处由
-   * `tests/menu_sync.rs` 卡着，这里是第三处，漏一个 case 的表现是
-   * 「点了没反应」，所以末尾留了一条 diag。
-   */
-  async function runMenu(id: string) {
-    if (id.startsWith("recent:")) {
-      await tabflow.openRecent(id.slice("recent:".length));
-      return;
-    }
-    switch (id) {
-      case "open-folder": return void tabflow.openFolder();
-      case "close-project": return tabflow.closeProject();
-      case "new-scratch": return void tabflow.newScratch();
-      case "open-scratch-dir": return void tabflow.openScratchDir();
-      case "install-cli": return void installCliTool();
-      case "recent-clear": project.recent = []; return;
-      case "save": return docs.saveActive();
-      case "save-as": return void worktree.saveAs();
-      case "encoding":
-        if (tabs.active) overlay.encOpen = true;
-        return;
-      case "close-tab":
-        if (tabs.active) tabflow.requestClose(tabs.active.id);
-        return;
-      case "close-all-tabs": return tabflow.closeMany(tabs.list.map((t) => t.id));
-      case "toggle-mode":
-        if (tabs.active) tabflow.requestSwitchMode(tabs.active);
-        return;
-      case "quick-all": overlay.openQuick("all"); return;
-      case "quick-file": overlay.openQuick("file"); return;
-      case "recent-files": overlay.openQuick("file"); return;
-      case "quick-content": overlay.openQuick("content"); return;
-      case "find-word": return overlay.findWordAtCursor();
-      case "goto-line":
-        // 只对编辑器有意义：日志视图有自己的行号语义，差异 / 合并没有「行」
-        if (tabs.active?.mode === "edit") overlay.gotoOpen = true;
-        return;
-      case "nav-back": return void nav.go("back");
-      case "nav-fwd": return void nav.go("fwd");
-      case "outline": return overlay.openOutline();
-      case "toggle-sidebar": layout.toggleSidebar(project.root !== null); return;
-      case "toggle-panel": layout.panel = !layout.panel; return;
-      case "toggle-scratch":
-        // 已经在草稿视图上再点一次就收起侧边栏，和导轨上那个按钮同一个手势
-        if (layout.sidebar && layout.sideView === "scratch") layout.sidebar = false;
-        else layout.showSide("scratch");
-        return;
-      case "toggle-minimap": showMinimap = !showMinimap; return;
-      case "zoom-in": editorFont = Math.min(28, editorFont + 1); return;
-      case "zoom-out": editorFont = Math.max(9, editorFont - 1); return;
-      case "zoom-reset": editorFont = FONT_DEFAULT; return;
-      case "toggle-wrap": {
-        const t = tabs.active;
-        if (t?.mode === "edit") t.wrap = !(t.wrap ?? wrapsByDefault(t.path));
-        return;
-      }
-      case "new-terminal": terms.open(project.root ?? "~"); return;
-      case "close-terminal":
-        if (terms.activeId !== null) terms.close(terms.activeId);
-        return;
-      case "git-changes":
-        // 已经在 Git 视图上再点一次就切回去，和 ⇧⌘G 是同一个手势
-        layout.toggleGitChanges();
-        return;
-      case "git-file-diff": {
-        const en = git.activeEntry;
-        if (en) void git.openDiff(en, false);
-        else notify.fail("当前文件没有未提交的改动", 2600);
-        return;
-      }
-      case "git-blame":
-        git.blameOn = !git.blameOn;
-        if (git.blameOn && tabs.active?.mode !== "edit") notify.ok("注解已打开，打开一个仓库里的文件就能看到", 2600);
-        return;
-      case "git-log": layout.openGitTab("log"); return;
-      case "git-console": layout.openGitTab("console"); return;
-      case "git-branches": openBranchPicker(); return;
-      case "git-refresh": return void git.refresh();
-      case "git-pull": return void remote.pull();
-      case "git-push": return void remote.askPush();
-      case "git-fetch": return void remote.fetch("fetch");
-      case "help-keys": overlay.keysOpen = true; return;
-      case "help-repo": return void openRepoPage();
-      case "help-log": return void openAppLog();
-      case "help-log-clear": return void clearLog();
-      default:
-        diag(`菜单项 ${id} 没有对应的处理`);
-    }
   }
 
   /**
