@@ -13,9 +13,19 @@ const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.er
   const ids = KEYS.map((k) => k.id);
   ok(new Set(ids).size === ids.length, "id 不许重复 —— 菜单项 id 靠它路由");
 
-  const accels = KEYS.filter((k) => k.accel).map((k) => k.accel!);
-  const dup = accels.filter((a, i) => accels.indexOf(a) !== i);
+  /*
+   * 同一个键位不许挂两条 —— 例外是「控件自己吃键」的那一类（cm6 / xterm）：
+   * 它们按焦点分派，⌘F 在编辑器里归 CM6、在终端里归 xterm，不会双触发。
+   * 例外只到这儿：两条里只要有一条是 menu / key，就还是重复。
+   */
+  const widget = new Set(["cm6", "xterm"]);
+  const withAccel = KEYS.filter((k) => k.accel);
+  const dup = withAccel
+    .filter((k, i) => withAccel.findIndex((x) => x.accel === k.accel) !== i)
+    .filter((k) => !withAccel.filter((x) => x.accel === k.accel).every((x) => widget.has(x.owner)))
+    .map((k) => `${k.id}=${k.accel}`);
   ok(dup.length === 0, `同一个键位不许挂两条：${dup.join(" ")}`);
+  ok(withAccel.filter((k) => k.accel === "⌘F").map((k) => k.owner).sort().join() === "cm6,xterm", "⌘F 恰好两条：编辑器一条、终端一条");
 }
 
 /*
@@ -38,9 +48,9 @@ ok(accelOrderIsApple("⌃⇧`"), "⌃⇧` 是对的");
  * 这里能测的是数据层面的自洽：
  */
 for (const k of KEYS) {
-  if (k.owner === "cm6") {
+  if (k.owner === "cm6" || k.owner === "xterm") {
     // ⌘F 进了菜单就等于把 CM6 的查找抢没了，而且是静默的
-    ok(k.accel !== undefined, `${k.id} 标了 cm6 却没写键位，那它凭什么占着这个位置`);
+    ok(k.accel !== undefined, `${k.id} 标了 ${k.owner} 却没写键位，那它凭什么占着这个位置`);
   }
   if (k.gesture) {
     ok(k.accel === undefined, `${k.id} 既有手势又有 accel —— 只能有一个`);
@@ -86,6 +96,7 @@ ok(byId("并不存在的") === undefined, "找不到给 undefined，不抛");
 // ── 设计里点名的那几条，锁死 ──────────────────────────────────────
 
 ok(byId("cm-find")?.owner === "cm6", "⌘F 必须归 CM6 —— 进菜单等于把编辑器的查找抢没了");
+ok(byId("term-find")?.owner === "xterm", "终端的 ⌘F 归 xterm —— 同一个理由");
 ok(byId("quick-file")?.owner === "key", "⌘P 故意留在 keydown：进菜单会在终端里被抢走");
 ok(byId("quick-all")?.gesture === "连按两下 ⇧", "随处搜索是手势，菜单里只能写进标签");
 /*

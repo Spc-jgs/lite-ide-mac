@@ -710,6 +710,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** 远程操作的假 id，和被取消的那些 */
 let mockRemoteId = 0;
+/** 假 shell 的句柄表（见 `pty_spawn`）：id → 回传 Channel */
+let mockPtyId = 0;
+const mockPty = new Map<number, { onmessage?: (b: number[]) => void } | undefined>();
 const mockCancelled = new Set<number>();
 
 export function installMockIpc(): void {
@@ -1120,9 +1123,30 @@ export function installMockIpc(): void {
           }
           return out.slice(0, Number(a.limit) || 60);
         }
-        case "pty_spawn":
-          return 1;
-        case "pty_write":
+        /*
+         * 假 shell：只会回显（issue #34 加的）。原来 spawn 只返回一个 id、write 落进黑洞，
+         * 终端里永远是一个光标 —— 于是「终端里的 ⌘F 查找」在浏览器里**一个字都搜不到**，
+         * 只能等 45 秒一轮的 .app。现在：spawn 先吐一条横幅，敲什么回显什么，
+         * 回车换行并再给一个提示符。不模拟任何命令。
+         */
+        case "pty_spawn": {
+          const ch = a.onData as { onmessage?: (b: number[]) => void } | undefined;
+          const id = ++mockPtyId;
+          mockPty.set(id, ch);
+          const enc = new TextEncoder();
+          const say = (t: string) => ch?.onmessage?.([...enc.encode(t)]);
+          setTimeout(() => say(`lite-ide 桩 shell（只回显，不执行）  cwd=${String(a.cwd)}\r\n$ `), 30);
+          return id;
+        }
+        case "pty_write": {
+          const ch = mockPty.get(Number(a.id));
+          const enc = new TextEncoder();
+          const d = String(a.data);
+          // 回车 → 换行 + 新提示符；退格 → 退一格擦掉；其余原样回显（粘贴进来的一串里也可能夹着回车）
+          const out = d === "\x7f" ? "\b \b" : d.replace(/\r\n|\r|\n/g, "\r\n$ ");
+          ch?.onmessage?.([...enc.encode(out)]);
+          return null;
+        }
         case "pty_resize":
         // 桩里没有真 pty，也就没有要背压的对象。但这条 case 必须在 ——
         // 落到 default 的话浏览器里每写一批终端输出就报一次「未知命令」

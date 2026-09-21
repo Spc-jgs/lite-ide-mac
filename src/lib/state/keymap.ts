@@ -26,9 +26,14 @@
  * | `menu` | 带 accelerator | **不许有** |
  * | `key`  | 只有标签，不带 accelerator | 有 |
  * | `cm6`  | **一个字都不许进菜单** | 没有（CM6 自己的 keymap） |
+ * | `xterm` | 同 `cm6` | 没有（xterm 的 `attachCustomKeyEventHandler`） |
+ *
+ * `cm6` 和 `xterm` 是同一类：**控件自己吃键，按焦点分派**。所以 ⌘F 在表里出现两次
+ * （`cm-find` / `term-find`）是对的 —— 焦点在哪个控件里哪个接，不会双触发；
+ * `tests/keymap.test.ts` 里「同一个键位不许挂两条」对这一类放行。
  */
 
-export type Owner = "menu" | "key" | "cm6";
+export type Owner = "menu" | "key" | "cm6" | "xterm";
 
 export interface KeyDef {
   /** 与菜单项 id、随处搜索的 action id 是同一个 */
@@ -230,6 +235,8 @@ export const KEYS: KeyDef[] = [
    * 取决于 xterm 有没有吞掉这个组合 —— 菜单 accelerator 不看焦点。
    */
   { id: "new-terminal", label: "新建终端", accel: "⌃⇧`", group: "终端", owner: "menu" },
+  /** 焦点在终端里的 ⌘F（issue #34）。归 xterm，理由见文件头 owner 那张表 */
+  { id: "term-find", label: "在终端里查找", accel: "⌘F", group: "终端", owner: "xterm" },
   { id: "close-terminal", label: "关闭当前终端", group: "终端", owner: "menu" },
 
   /*

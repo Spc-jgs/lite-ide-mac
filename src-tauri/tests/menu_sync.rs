@@ -137,10 +137,10 @@ fn 菜单项的文案和键位必须和_keymap_ts_一致() {
         let Some((want, owner)) = keymap.get(id) else {
             panic!("菜单里有 `{id}`，而 keymap.ts 里没有 —— 键位表是唯一出处，先去那儿登记");
         };
-        assert_ne!(
-            owner, "cm6",
-            "`{id}` 在 keymap.ts 里归 CM6，却出现在菜单里。\n\
-             菜单项带 accelerator 会先把键吃掉 —— 这等于把编辑器的查找静默抢没了"
+        assert!(
+            owner != "cm6" && owner != "xterm",
+            "`{id}` 在 keymap.ts 里归 {owner}（控件自己吃键），却出现在菜单里。\n\
+             菜单项带 accelerator 会先把键吃掉 —— 这等于把编辑器 / 终端的查找静默抢没了"
         );
 
         // 标签：菜单允许把手势写进括号里（「随处搜索（连按两下 ⇧）」），

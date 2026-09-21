@@ -1,14 +1,78 @@
 <script lang="ts">
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
+  import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
   import { Channel } from "@tauri-apps/api/core";
   import "@xterm/xterm/css/xterm.css";
   import { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyAck } from "../ipc/pty";
+  import TermSearch from "./TermSearch.svelte";
 
   let { cwd, onExit }: { cwd: string; onExit: () => void } = $props();
 
   let host: HTMLDivElement | undefined = $state();
   let status = $state("正在启动 shell…");
+
+  /*
+   * ⌘F 查找（issue #34）。xterm 和 SearchAddon 在下面那条 effect 里建，这两个引用
+   * 只是让框的回调够得着它们 —— 普通变量，没人要按它们渲染。
+   * 「查找框开着」和「命中计数」才是状态。
+   */
+  let termRef: Terminal | null = null;
+  let search: SearchAddon | null = null;
+  let searchOpen = $state(false);
+  let count = $state("");
+  let box = $state<TermSearch | null>(null);
+  /** 打开框那一刻上次搜的词（`last.term` 不是 $state，模板要读它得经这里） */
+  let openedWith = $state("");
+  /** 上一次的查询，↵ / ⇧↵ 接着它找 */
+  let last: { term: string; opts: ISearchOptions } = { term: "", opts: {} };
+
+  /*
+   * 高亮的颜色。xterm 的装饰只吃字面色（同 theme 那段的理由），对着 app.css 的
+   * `--search-hit`（accent 38%）和 `--accent` 抄；概览尺（右侧那条）用同一对。
+   */
+  const DECOR = {
+    matchBackground: "#3a4f7a",
+    activeMatchBackground: "#5b8def",
+    matchOverviewRuler: "#5b8def",
+    activeMatchColorOverviewRuler: "#ffffff",
+  };
+
+  function onQuery(t: string, o: { caseSensitive: boolean; wholeWord: boolean; regex: boolean }) {
+    const prev = last.opts;
+    last = { term: t, opts: { caseSensitive: o.caseSensitive, wholeWord: o.wholeWord, regex: o.regex, decorations: DECOR } };
+    if (!search) return;
+    if (!t) {
+      search.clearDecorations();
+      count = "";
+      return;
+    }
+    /*
+     * 开关变了要先把高亮清掉再搜。addon 0.16.0 的 `findNext` 先把 `lastSearchOptions`
+     * 换成新的、再问「选项变了没」—— 拿新的和新的比，永远没变，于是词没变只改开关时
+     * 高亮和计数留在旧的那套上（实测：Aa 一按，选区跳到大小写匹配的下一个，
+     * 计数还写着 2/3）。清掉缓存的词，它就按「新搜索」走一遍。
+     */
+    if (prev.caseSensitive !== o.caseSensitive || prev.wholeWord !== o.wholeWord || prev.regex !== o.regex) {
+      search.clearDecorations();
+    }
+    // incremental：框里的字还在长的时候，命中就地扩展而不是跳到下一个
+    if (!search.findNext(t, { ...last.opts, incremental: true })) count = "无匹配";
+  }
+  const findNext = () => void (last.term && search?.findNext(last.term, last.opts));
+  const findPrev = () => void (last.term && search?.findPrevious(last.term, last.opts));
+  function openSearch() {
+    openedWith = last.term;
+    searchOpen = true;
+    // 框这一拍还没挂上；下一拍再把焦点放进去
+    queueMicrotask(() => box?.focus());
+  }
+  function closeSearch() {
+    searchOpen = false;
+    search?.clearDecorations();
+    count = "";
+    termRef?.focus();
+  }
 
   $effect(() => {
     if (!host) return;
@@ -16,6 +80,13 @@
     let ptyId: number | null = null;
 
     const term = new Terminal({
+      /*
+       * 查找的高亮走 `registerDecoration`（issue #34），xterm 6 把它归在 proposed API 里 ——
+       * 不开这个开关，`findNext` 带 decorations 就抛。开关的含义只是「这些 API 的签名
+       * 可能在版本间变」，而 addon-search 和 xterm 是同仓同版发的，签名变也一起变。
+       * 我们自己的代码不直接调任何 proposed API。
+       */
+      allowProposedApi: true,
       // 必须写具体字体名，不能用 var(--code-font)：
       // xterm 拿这个字符串去做字符宽度测量（建一个测量元素读 offsetWidth），
       // CSS 变量在那个上下文解析不了，整条声明作废，最后回退到浏览器默认
@@ -60,6 +131,25 @@
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    termRef = term;
+    search = new SearchAddon();
+    term.loadAddon(search);
+    // 命中计数：只有带 decorations 的查找才会发这个事件（addon 的约定）
+    search.onDidChangeResults((r) => {
+      count = r.resultCount === 0 ? "无匹配" : `${r.resultIndex < 0 ? "·" : r.resultIndex + 1}/${r.resultCount}`;
+    });
+    /*
+     * ⌘F 在这儿截（keymap.ts 里 `term-find` 的 owner 是 `xterm`，同 CM6 的 ⌘F 一样
+     * 由控件自己吃、一个字不进菜单）。返回 false = xterm 不再处理这个键。
+     * 只认 keydown：xterm 对同一次按键会拿 keydown / keypress / keyup 各问一遍。
+     */
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type === "keydown" && e.metaKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "f") {
+        openSearch();
+        return false;
+      }
+      return true;
+    });
     term.open(host);
     fit.fit();
 
@@ -124,6 +214,8 @@
       disposed = true;
       ro.disconnect();
       if (ptyId !== null) void ptyKill(ptyId);
+      search = null;
+      termRef = null;
       term.dispose();
       onExit();
     };
@@ -133,6 +225,9 @@
 <div class="term-wrap">
   {#if status}<div class="status">{status}</div>{/if}
   <div class="term" bind:this={host}></div>
+  {#if searchOpen}
+    <TermSearch bind:this={box} initial={openedWith} {count} {onQuery} onNext={findNext} onPrev={findPrev} onClose={closeSearch} />
+  {/if}
 </div>
 
 <style>

@@ -65,7 +65,8 @@
   function loadActions() {
     if (actions.length) return;
     void import("../state/keymap").then(({ KEYS }) => {
-      actions = KEYS.filter((k) => k.owner !== "cm6").map((k) => ({
+      // 控件自己吃键的那两类（cm6 / xterm）进不了命令面板：面板没法替它们把键送进控件
+      actions = KEYS.filter((k) => k.owner !== "cm6" && k.owner !== "xterm").map((k) => ({
         id: k.id,
         // Git 那一摊加前缀：单看「刷新状态」「提交历史」不知道是谁的
         label: k.group === "Git" ? `Git：${k.label}` : k.label,
