@@ -96,20 +96,42 @@
    * scroll 用捕获阶段：滚动的容器（文件树的 .list、标签栏）不冒泡到 window，
    * 不捕获的话菜单就飘在半空中指着一个早已滚走的东西。
    */
+  /*
+   * 关掉之后调用方会把焦点还给触发它的控件（标签、行），那一下也会触发下面的 focusin ——
+   * 不带这个标记，抢焦点的逻辑会把焦点又抢回一个正在卸载的菜单，最后落到 body 上。
+   */
+  let closing = false;
+  function close(refocus: boolean) {
+    closing = true;
+    onclose(refocus);
+  }
+
   $effect(() => {
     const onDown = (ev: PointerEvent) => {
-      if (el && !el.contains(ev.target as Node)) onclose(false);
+      if (el && !el.contains(ev.target as Node)) close(false);
     };
-    const onGone = () => onclose(false);
+    const onGone = () => close(false);
+    /*
+     * 焦点被别人抢走就抢回来。右键一个**不是当前**的标签：openMenu 先切标签、再开菜单，
+     * 菜单 focus() 之后新标签的编辑器才挂上来并 focus 自己 —— 菜单还开着，Esc 和方向键
+     * 却全进了编辑器，Esc 关不掉、↓ 在文档里动光标（2026-09-22 在浏览器里抓到的）。
+     * 编辑器只在挂载时抢一次，抢回来就完了；真点到外面的话上面的 pointerdown 先关菜单，
+     * 不会打起来。
+     */
+    const onFocusIn = (ev: FocusEvent) => {
+      if (!closing && el && !el.contains(ev.target as Node)) el.focus({ preventScroll: true });
+    };
     window.addEventListener("pointerdown", onDown, true);
     window.addEventListener("scroll", onGone, true);
     window.addEventListener("resize", onGone);
     window.addEventListener("blur", onGone);
+    window.addEventListener("focusin", onFocusIn, true);
     return () => {
       window.removeEventListener("pointerdown", onDown, true);
       window.removeEventListener("scroll", onGone, true);
       window.removeEventListener("resize", onGone);
       window.removeEventListener("blur", onGone);
+      window.removeEventListener("focusin", onFocusIn, true);
     };
   });
 
@@ -131,7 +153,7 @@
     switch (e.key) {
       case "Escape":
         e.preventDefault();
-        onclose(true);
+        close(true);
         break;
       case "ArrowDown":
         e.preventDefault();
@@ -154,7 +176,7 @@
         e.preventDefault();
         if (items[cursor]?.disabled) break;
         items[cursor]?.run();
-        onclose(true);
+        close(true);
         break;
     }
   }
@@ -201,7 +223,7 @@
       onclick={() => {
         if (it.disabled) return;
         it.run();
-        onclose(false);
+        close(false);
       }}
     >
       {#if checkable}<span class="tick" aria-hidden="true">{#if it.checked}<Icon name="check" size={11} />{/if}</span>{/if}{it.label}

@@ -32,6 +32,12 @@ import { minimapHighlighter, MINIMAP_DEFAULT } from "./theme-idea-dark";
 
 /** 缩略图宽度（CSS px） */
 const WIDTH = 88;
+/**
+ * 编辑器比这窄就把缩略图收起来。88px 在 480 里占 18%，剩下的正文不到 400px ——
+ * 那时缩略图不再是「概览」而是「遮住正文的一块板」。分屏两栏、窗口拖到 720 最小宽时
+ * 都会撞到；收起是自动的，视图菜单里的开关仍是用户的意愿，宽了会自己回来。
+ */
+const MIN_EDITOR_W = 480;
 /** 改动标记条占的宽度，画在最左边 */
 const MARK_W = 3;
 /** 墨迹左边距，与改动标记条拉开 */
@@ -98,6 +104,9 @@ class MinimapPlugin implements PluginValue {
   /** 可见画布当前的设备像素尺寸，没变就不重设（重设 = 重新分配位图） */
   private cw = 0;
   private ch = 0;
+  /** 编辑器窄到放不下缩略图（见 MIN_EDITOR_W）。measure 里读，paint 前写 */
+  private narrow = false;
+  private narrowDirty = false;
 
   constructor(view: EditorView) {
     this.view = view;
@@ -157,6 +166,7 @@ class MinimapPlugin implements PluginValue {
       read: () => this.measure(),
       write: (m) => {
         this.pending = false;
+        this.applyNarrow();
         if (m) this.paint(m);
       },
     });
@@ -215,6 +225,13 @@ class MinimapPlugin implements PluginValue {
   private measure(): Measured | null {
     const h = this.view.dom.clientHeight;
     if (h <= 0) return null;
+    const narrow = this.view.dom.clientWidth < MIN_EDITOR_W;
+    if (narrow !== this.narrow) {
+      this.narrow = narrow;
+      // 太窄：整块藏掉、正文的右留白也撤掉（写 DOM 放到 write 阶段，见 paint）
+      this.narrowDirty = true;
+    }
+    if (narrow) return null;
     const doc = this.view.state.doc;
     const g = this.geometry(h);
     const sc = this.view.scrollDOM;
@@ -226,6 +243,12 @@ class MinimapPlugin implements PluginValue {
   }
 
   /** 写阶段：只写 DOM 与 canvas，不读布局 */
+  private applyNarrow() {
+    if (!this.narrowDirty) return;
+    this.narrowDirty = false;
+    this.wrap.style.display = this.narrow ? "none" : "";
+    this.view.dom.classList.toggle("cm-minimap-off", this.narrow);
+  }
   private paint(m: Measured) {
     const ctx = this.ctx;
     if (!ctx) return;
@@ -382,6 +405,14 @@ class MinimapPlugin implements PluginValue {
 }
 
 const minimapTheme = EditorView.theme({
+  /*
+   * 正文给缩略图让出同样宽的一条。缩略图是绝对定位盖在滚动容器上的（挂在 .cm-editor，
+   * 不然跟着内容滚走），不让位的话长行的尾巴永远压在它底下 —— 横向滚到头也露不出来，
+   * 开了自动换行更糟：按整宽折行，每行最后几个字都被盖住。加在 .cm-content 上，
+   * 横向滚动范围跟着多出这一段，换行宽度也跟着收。
+   */
+  ".cm-content": { paddingRight: `${WIDTH + 8}px` },
+  "&.cm-minimap-off .cm-content": { paddingRight: "0" },
   ".cm-minimap": {
     position: "absolute",
     top: 0,
