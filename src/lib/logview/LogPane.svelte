@@ -5,6 +5,7 @@
   import { detectFormat, FORMAT_LABEL, type LogFormat } from "./parse";
   import { type LogStat, type LevelCounts } from "../ipc/commands";
   import type { LogViewState } from "../state/tab";
+  import { progress, type TaskHandle } from "../state/progress.svelte";
   import { logStat, logLines, logFilter, logFilterStat, logRefresh, logFilterMap, logSeekTime } from "../ipc/log";
   import { notify } from "../state/notify.svelte";
 
@@ -213,6 +214,32 @@
       .catch(() => (format = "plain"));
   });
 
+  /*
+   * 索引 / 级别扫描的进度报给状态栏那一格（`progress.svelte.ts`）。两者有真百分比
+   * （`indexedBytes / totalBytes`、`levelsScanned / totalBytes`），以前状态栏只印一句
+   * 「索引中…」把它们浪费了。一个句柄按阶段换文案，两个阶段都完了就收；组件销毁也收 ——
+   * 漏掉就是一条永远转着的任务。
+   */
+  let idxTask: TaskHandle | null = null;
+  const pct = (a: number, b: number) => (b > 0 ? Math.min(100, Math.floor((a * 100) / b)) : 0);
+  $effect(() => {
+    const s = stat;
+    const phase = !s ? null : !s.complete ? "index" : !s.levelsComplete ? "levels" : null;
+    if (!phase) {
+      idxTask?.end();
+      idxTask = null;
+      return;
+    }
+    const label = phase === "index" ? "索引日志" : "扫描级别";
+    const percent = phase === "index" ? pct(s!.indexedBytes, s!.totalBytes) : pct(s!.levelsScanned, s!.totalBytes);
+    if (idxTask) idxTask.set({ label, percent });
+    else idxTask = progress.start(label, { percent });
+  });
+  $effect(() => () => {
+    idxTask?.end();
+    idxTask = null;
+  });
+
   // 索引与级别扫描都在后台跑，轮询到两者都完成为止
   $effect(() => {
     const h = handle;
@@ -251,6 +278,9 @@
      * 在 1GB 文件上连打十个字，就是十个 80ms 的轮询一起烧 IPC。
      */
     let dead = false;
+    // 扫描进度报给状态栏那一格：`scannedLines / lineCount`。三处结束（扫完 / 出错 / cleanup）都要 end
+    let task: TaskHandle | null = null;
+    const total = stat?.lineCount ?? 0;
 
     const timer = setTimeout(async () => {
       try {
@@ -263,17 +293,23 @@
           return;
         }
         filterRunning = true;
+        task = progress.start("过滤日志", { percent: 0 });
         tick = setInterval(async () => {
           const fs = await logFilterStat(h);
           if (dead) return;
           if (!fs) {
             if (tick) clearInterval(tick);
+            task?.end();
+            task = null;
             return;
           }
           filterHits = fs.hits;
+          task?.set({ percent: pct(fs.scannedLines, total) });
           if (fs.complete) {
             filterRunning = false;
             if (tick) clearInterval(tick);
+            task?.end();
+            task = null;
           }
         }, 80);
       } catch (e) {
@@ -284,6 +320,8 @@
         filtered = false;
         filterHits = null;
         filterRunning = false;
+        task?.end();
+        task = null;
       }
     }, 180);
 
@@ -291,6 +329,7 @@
       dead = true;
       clearTimeout(timer);
       if (tick) clearInterval(tick);
+      task?.end();
     };
   });
 
@@ -346,8 +385,6 @@
     if (showFiltered) parts.push(`筛出 ${fmtNum(viewLines)}`);
     if (collapseStacks) parts.push("堆栈已折叠");
     if (rotations > 0) parts.push(`轮转过 ${rotations} 次，已跟上新文件`);
-    if (!stat.complete) parts.push("索引中…");
-    else if (!stat.levelsComplete) parts.push("级别扫描中…");
     if (error) parts.push(error);
     onStatus(parts.join("  ·  "));
   });

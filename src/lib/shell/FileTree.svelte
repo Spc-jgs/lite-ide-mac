@@ -1294,9 +1294,25 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     style:top="{ask.y}px"
     onkeydown={onAskKey}
   >
-    <div class="mhead" title={ask.kind === "rename" ? ask.row?.path : ask.dir}>
-      {ASK_TITLE[ask.kind]}{ask.kind === "rename" ? "" : ` · ${relOf(ask.dir) || rootName}`}
-    </div>
+    <!--
+      标题 + 对象行 + 输入 + 按钮（2026-09-22 起）。对象行说的是「在对哪个东西操作」：
+      新建是目标目录，改名是那个文件 —— 原来这信息塞在标题里（「新建文件 · docs」），
+      一行 11px 的灰字，人要读两遍才知道文件会建在哪。
+    -->
+    <div class="ptitle">{ASK_TITLE[ask.kind]}</div>
+    {#if ask.kind === "rename" && ask.row}
+      <div class="pobj" title={ask.row.path}>
+        <span class="ic">{#if ask.row.isDir}<Icon name="files" />{:else}<FileGlyph name={ask.row.name} size={14} />{/if}</span>
+        <span class="oname">{ask.row.name}</span>
+        <span class="opath">{relOf(parentOf(ask.row.path)) || rootName}</span>
+      </div>
+    {:else}
+      <div class="pobj" title={ask.dir}>
+        <span class="ic"><Icon name="files" /></span>
+        <span class="oname">{relOf(ask.dir) || rootName}/</span>
+        <span class="opath">建在这里</span>
+      </div>
+    {/if}
     <input
       class="pinput"
       bind:this={askInput}
@@ -1345,15 +1361,26 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     style:top="{move.y}px"
     onkeydown={onMoveKey}
   >
-    <div class="mhead" title={move.dest}>移动到 {relOf(move.dest) || "项目根"}</div>
-    <div class="ptext">
-      {#if move.rows.length === 1}
-        「<b>{move.rows[0].name}</b>」{move.rows[0].isDir ? "连同里面的全部内容" : ""}会被移到
-      {:else}
-        <b>{move.rows.length} 个条目</b>会被移到
-      {/if}
-      <span class="mono">{relOf(move.dest) || "项目根"}</span>。打开着的标签会跟过去。
+    <div class="ptitle">移动</div>
+    {#if move.rows.length === 1}
+      <div class="pobj" title={move.rows[0].path}>
+        <span class="ic">{#if move.rows[0].isDir}<Icon name="files" />{:else}<FileGlyph name={move.rows[0].name} size={14} />{/if}</span>
+        <span class="oname">{move.rows[0].name}</span>
+        <span class="opath">{relOf(parentOf(move.rows[0].path)) || rootName}</span>
+      </div>
+    {:else}
+      <div class="pobj" title={move.rows.map((r) => r.path).join("\n")}>
+        <span class="ic"><Icon name="files" /></span>
+        <span class="oname">{move.rows.length} 个条目</span>
+      </div>
+    {/if}
+    <div class="parrow" aria-hidden="true"><Icon name="chevron-down" size={11} /></div>
+    <div class="pobj dest" title={move.dest}>
+      <span class="ic"><Icon name="files" /></span>
+      <span class="oname">{relOf(move.dest) || rootName}/</span>
+      <span class="opath">移到这里</span>
     </div>
+    <div class="phint">{move.rows.some((r) => r.isDir) ? "目录连同里面的全部内容一起移；" : ""}打开着的标签会跟过去</div>
     <div class="prow">
       <button
         class="btn"
@@ -1379,15 +1406,17 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     style:top="{trash.y}px"
     onkeydown={onTrashKey}
   >
-    <div class="mhead" title={trash.rows.map((r) => r.path).join("\n")}>移到废纸篓</div>
-    <div class="ptext">
-      {#if trash.rows.length === 1}
-        「<b>{trash.rows[0].name}</b>」{trash.rows[0].isDir ? "连同里面的全部内容" : ""}会被移到废纸篓，
-      {:else}
-        <b>{trash.rows.length} 个条目</b>{trash.rows.some((r) => r.isDir) ? "（目录连同里面的全部内容）" : ""}会被移到废纸篓，
-      {/if}
-      可以在 Finder 里放回原处。
-    </div>
+    <div class="ptitle">移到废纸篓</div>
+    <!-- 最多列三条，其余「还有 N 个」—— 批量删的时候人要的是「我选中的是不是这几个」，不是全清单 -->
+    {#each trash.rows.slice(0, 3) as r (r.path)}
+      <div class="pobj" title={r.path}>
+        <span class="ic">{#if r.isDir}<Icon name="files" />{:else}<FileGlyph name={r.name} size={14} />{/if}</span>
+        <span class="oname">{r.name}</span>
+        <span class="opath">{relOf(parentOf(r.path)) || rootName}</span>
+      </div>
+    {/each}
+    {#if trash.rows.length > 3}<div class="pmore">还有 {trash.rows.length - 3} 个</div>{/if}
+    <div class="phint">{trash.rows.some((r) => r.isDir) ? "目录连同里面的全部内容一起进废纸篓；" : ""}可以在 Finder 里放回原处</div>
     {#if trash.dirty > 0}
       <!--
         未保存的改动在废纸篓里是**找不回来的**：文件回来的是磁盘上那一份，
@@ -1608,31 +1637,42 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   .g-conflict { color: var(--git-conflict); }
   /* 删除的文件划掉，但右端那个 D 字母不划 */
   .name.g-deleted { text-decoration: line-through; }
-  /* 菜单本体的样式在 ContextMenu.svelte；这条留着是因为输入框和确认框也用它当标题 */
-  .mhead {
-    padding: 3px 9px 5px;
-    margin-bottom: 3px;
-    border-bottom: 1px solid var(--border-soft);
-    color: var(--text-faint);
-    font-family: var(--ui-font);
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 260px;
-  }
-  /* 输入框 / 确认框：位置和外观都跟着菜单走，它们是从菜单原地长出来的 */
+  /*
+   * 输入框 / 确认框：位置跟着菜单走（从菜单原地长出来），样子照 macOS 的小面板：
+   * 标题 → 对象行（字形 + 名字 + 所在目录）→ 输入 / 说明 → 右对齐的按钮。
+   * 对象行用 `--hover` 打一层底，是「这一块是被操作的东西」的信号，不是可点的行。
+   * 面在 app.css 的 `.popup`。
+   */
   .pop {
     position: fixed;
     z-index: 60;
-    width: 260px;
-    padding: 4px 4px 6px;
-    /* 面在 app.css 的 `.popup`（原来这里是 9% 描边、没有内高光 —— 和右键菜单并排就是两种卡片） */
+    width: 300px;
+    padding: 10px 12px 10px;
     outline: none;
   }
+  .ptitle { margin: 0 0 8px; color: var(--text); font-family: var(--ui-font); font-size: 12.5px; font-weight: 500; }
+  .pobj {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 24px;
+    padding: 0 8px;
+    margin-bottom: 4px;
+    border-radius: var(--r-sm);
+    background: var(--hover);
+    color: var(--text);
+    font-size: 12px;
+  }
+  .pobj .ic { flex: none; display: inline-flex; color: var(--text-faint); }
+  .pobj .oname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--code-font); font-size: 12px; }
+  /* 所在目录：从左边省略（有用的是尾巴），ui.md 九 —— `direction: rtl` 只给路径 */
+  .pobj .opath { flex: none; margin-left: auto; max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; color: var(--text-faint); font-family: var(--ui-font); font-size: 11px; }
+  .parrow { display: flex; justify-content: center; margin: -2px 0 2px; color: var(--text-faint); }
+  .pmore { padding: 0 8px 2px; color: var(--text-faint); font-size: 11px; }
+  .phint { margin-top: 6px; color: var(--text-faint); font-family: var(--ui-font); font-size: 11.5px; line-height: 1.5; }
   .pinput {
     width: 100%;
-    margin: 2px 0 0;
+    margin: 4px 0 0;
     padding: 5px 8px;
     background: var(--elevated-hi);
     border: 1px solid var(--border);
@@ -1642,23 +1682,15 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     font-size: 12.5px;
   }
   .pinput:focus { outline: none; border-color: var(--accent); }
-  .ptext {
-    padding: 4px 6px 2px;
-    color: var(--text-dim);
-    font-family: var(--ui-font);
-    font-size: 12px;
-    line-height: 1.55;
-  }
-  .ptext b { color: var(--text); font-weight: 600; }
   .perr {
-    padding: 5px 6px 1px;
+    padding: 5px 0 1px;
     color: var(--lvl-error);
     font-size: 11.5px;
     line-height: 1.5;
   }
   .pwarn {
-    margin: 5px 4px 0;
-    padding: 5px 7px;
+    margin: 6px 0 0;
+    padding: 5px 8px;
     background: rgba(247, 84, 100, 0.1);
     border-radius: var(--r-sm);
     color: var(--lvl-error);
@@ -1669,8 +1701,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     display: flex;
     justify-content: flex-end;
     gap: 6px;
-    margin-top: 8px;
-    padding: 0 2px;
+    margin-top: 10px;
   }
   .err {
     padding: 8px 10px;

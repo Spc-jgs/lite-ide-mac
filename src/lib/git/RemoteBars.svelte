@@ -22,7 +22,6 @@
   import type { RemoteErr } from "../ipc/commands";
 
   let {
-    progress = null,
     diverge = null,
     push = null,
     err = null,
@@ -32,14 +31,7 @@
     onPush,
     onPull,
     onDismiss,
-    onCancel = null,
   }: {
-    /**
-     * 正在跑的远程操作的进度（M9，从 Git 页的分支行底下搬过来 —— 那一行删了）。
-     * 是卡片不是模态：拉取的时候人还想接着看代码。百分比可能是 null
-     * （git 的措辞不是稳定接口），那时只有一条来回跑的条。
-     */
-    progress?: { what: "pull" | "push" | "fetch"; phase: string; percent: number | null } | null;
     diverge: { upstream: string } | null;
     push: { branch: string; setUpstream: boolean; commits: string[] } | null;
     err: (RemoteErr & { hint: string }) | null;
@@ -51,32 +43,12 @@
     onPull: () => void;
     /** which: 关掉哪一条 */
     onDismiss: (which: "diverge" | "push" | "err") => void;
-    /** 取消正在跑的远程操作。push 进行中不给（状态不确定），由上层决定传不传 */
-    onCancel?: (() => void) | null;
   } = $props();
-
-  const WHAT = { pull: "拉取", push: "推送", fetch: "抓取" } as const;
 
   let remember = $state(false);
   /** git 的原话展开了没 */
   let rawOpen = $state(false);
 </script>
-
-{#if progress}
-  <div class="confirm prog">
-    <div class="pline">
-      <!-- 先说是在推还是在拉，再引 git 的原话 —— 只印 `Enumerating objects` 人不知道这是哪个动作的哪一步 -->
-      <span class="ptext"><b>{WHAT[progress.what]}</b> · {progress.phase}</span>
-      {#if progress.percent !== null}<span class="ppct">{progress.percent}%</span>{/if}
-      {#if onCancel}<button class="btn sm" onclick={onCancel}>取消</button>{/if}
-    </div>
-    <div class="pbar" class:indet={progress.percent === null}>
-      {#if progress.percent !== null}
-        <div class="pfill" style:width="{progress.percent}%"></div>
-      {/if}
-    </div>
-  </div>
-{/if}
 
 {#if diverge}
   <div class="confirm">
@@ -87,7 +59,7 @@
       记一下
     </label>
     <button class="btn" onclick={() => onMerge("rebase", remember)}>变基</button>
-    <button class="btn" onclick={() => onDismiss("diverge")}>取消</button>
+    <button class="btn" data-dismiss onclick={() => onDismiss("diverge")}>取消</button>
     <button class="btn primary" onclick={() => onMerge("merge", remember)}>合并</button>
   </div>
 {/if}
@@ -110,7 +82,7 @@
       {/if}
     </div>
     <span class="gap"></span>
-    <button class="btn" onclick={() => onDismiss("push")}>取消</button>
+    <button class="btn" data-dismiss onclick={() => onDismiss("push")}>取消</button>
     <button class="btn primary" onclick={onPush}>{push.setUpstream ? "推送并跟踪" : "推送"}</button>
   </div>
 {/if}
@@ -129,6 +101,7 @@
     {/if}
     <button
       class="btn"
+      data-dismiss
       onclick={() => {
         rawOpen = false;
         onDismiss("err");
@@ -175,27 +148,4 @@
   .remember { display: flex; align-items: center; gap: 4px; flex: none; font-size: 11.5px; }
   .remember input { margin: 0; }
 
-  /* 进度卡片：一行文字 + 3px 的条。indet 那条来回跑，只说「还在动」，**不能显示成 0%** */
-  .confirm.prog { flex-direction: column; align-items: stretch; gap: 6px; width: min(420px, calc(100% - 32px)); }
-  .pline { display: flex; align-items: center; gap: 8px; }
-  .ptext { flex: 1; min-width: 0; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ppct { flex: none; font-family: var(--code-font); font-size: 11px; color: var(--text-faint); }
-  .pbar { height: 3px; border-radius: 2px; background: var(--hover); overflow: hidden; }
-  .pfill { height: 100%; background: var(--accent); transition: width 0.12s linear; }
-  .pbar.indet::after {
-    content: "";
-    display: block;
-    width: 34%;
-    height: 100%;
-    background: var(--accent);
-    animation: slide 1.1s ease-in-out infinite;
-  }
-  @keyframes slide {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(300%); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .pbar.indet::after { animation: none; width: 100%; opacity: 0.4; }
-    .pfill { transition: none; }
-  }
 </style>

@@ -605,7 +605,45 @@ html, body {
   border-color: rgba(247, 84, 100, 0.35);
 }
 
+/*
+ * # 进度条只有一种：3px 圆角细条
+ *
+ * 后台任务的进度全在状态栏一格里（`state/progress.svelte.ts`），条本体做成原语放这儿，
+ * 画廊有样品。轨道是 `--hover`（中性白 7%），填充 accent；不知道多久的走 `indet`：
+ * 34% 宽的一段来回跑，**不能画成 0%** —— 0% 说的是「还没开始」，和「不知道多久」不是一回事。
+ * 宽度由摆它的地方定（状态栏 72px、卡片撑满）。
+ */
+.pbar {
+  position: relative;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.pbar > .pfill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+.pbar.indet::after {
+  content: "";
+  display: block;
+  width: 34%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: pbar-slide 1.1s ease-in-out infinite;
+}
+@keyframes pbar-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .btn, .ibtn { transition: none; }
   .popup, .scrim.dim, .confirm { animation: none; }
+  /* 不确定的条不跑了，但要留着「有东西在」：整条 40% 透明度 */
+  .pbar.indet::after { animation: none; width: 100%; opacity: 0.4; }
+  .pbar > .pfill { transition: none; }
 }

@@ -11,6 +11,7 @@
   import type { MenuItem } from "./ContextMenu.svelte";
   import { cmenu } from "./context-menu.svelte";
   import { notify } from "../state/notify.svelte";
+  import { progress } from "../state/progress.svelte";
   import { crumbsOf, projectName } from "../state/crumbs";
   import { isLogName } from "../logview/is-log-name";
   import { lang } from "../state/lang.svelte";
@@ -115,22 +116,12 @@
   「改动 N」的计数没丢，挪到导轨 Git 图标的角标上了。
 -->
 <footer class="statusbar">
-  <!-- 左槽 -->
   <!--
-    **「正在做」排在最前面。** 它是唯一一条「事情还没完」的消息，
-    而另外两条说的都是已经完了。操作跑着的时候被一条旧的「已保存」
-    顶掉，等于把界面上唯一能证明「它在动」的东西藏起来 ——
-    那正是 issue #15 要修的形状。
+    左槽。「正在做」原来排在这儿最前面（issue #15：它是唯一一条「事情还没完」的消息，
+    不能被「已保存」顶掉）—— 2026-09-22 起它和拉取推送、日志索引一起归右边的进度格
+    （`progress.svelte.ts`），左槽只剩做完的消息和面包屑，两边不再互相顶。
   -->
-  {#if notify.doing}
-    <!--
-      **整句放进一个表达式，不要写成 `正在{notify.doing}…`。**
-      那样 Svelte 会生成三个文本节点，在 macOS 的辅助功能树里就是三段
-      独立的 static text，读屏和自动化都拼不回一句话 ——
-      scripts/smoke.sh 里按「正在提交」找了半天找不到，就是这么回事。
-    -->
-    <span class="cell doing navslot"><span class="spinner sm now"></span>{`正在${notify.doing}…`}</span>
-  {:else if notify.info}
+  {#if notify.info}
     <span class="cell ok navslot">{notify.info}</span>
   {:else if notify.error}
     <span class="cell err navslot">{notify.error}</span>
@@ -150,6 +141,30 @@
     <span class="cell dim navslot">{root ? projectName(root) : ""}</span>
   {/if}
   <span class="spacer"></span>
+
+  <!--
+    后台任务的进度格（照 IDEA 右下角）：文字 · 3px 条 · 百分比 · 取消。只画最新的一个，
+    多于一个时加 +N。**文字放在一个表达式里**：smoke.sh 按「正在提交」整句找，
+    拆成三个文本节点在辅助功能树里拼不回来（以前左槽那条的教训）。
+    `{#key}`：任务换了整格重来一遍淡入，一个任务内部只更新条和数字。
+  -->
+  {#if progress.current}
+    {@const t = progress.current}
+    {@const more = progress.all.length - 1}
+    {#key t.id}
+      <span class="cell task" title={t.label}>
+        <span class="tlabel">{more > 0 ? `${t.label}  +${more}` : t.label}</span>
+        <span class="pbar" class:indet={t.percent === null}>
+          {#if t.percent !== null}<span class="pfill" style:width="{t.percent}%"></span>{/if}
+        </span>
+        {#if t.percent !== null}<span class="tpct">{t.percent}%</span>{/if}
+        {#if t.cancel}
+          <button class="ibtn xs" onclick={t.cancel} title="取消" aria-label="取消 {t.label}"><Icon name="x" size={10} /></button>
+        {/if}
+      </span>
+    {/key}
+    <span class="vsep" aria-hidden="true"></span>
+  {/if}
 
   <!-- 右槽 -->
   {#if active?.mode === "merge"}
@@ -370,18 +385,13 @@
   .statusbar .dim { color: var(--text-faint); }
   .statusbar .ok { color: var(--accent); }
   .statusbar .err { color: var(--lvl-error); }
-  /*
-   * 「正在做」是中性的：不是成功也不是失败，用正文色，不抢 accent。
-   * 加一点点透明当作「还没定下来」的暗示。
-   *
-   * 环是 2026-09-21 加的。之前这里写着「不用转圈动画，状态栏上一个一直转的东西比它想传达
-   * 的信息更吵」—— 那条担心的是**常驻**的转圈；而 `doing` 本来就只在操作跑着的时候存在，
-   * 而且 `gitDo` 已经等过 300ms 才把它放出来（慢操作才说话）。真正的问题是反过来的：
-   * 一句 75% 透明的「正在提交…」和旁边的面包屑几乎一个样，人分不出它是「在动」还是「卡了」。
-   * `now`：这句话已经等过 300ms 才出现，环不必再等 150ms。
-   */
-  .statusbar .doing { display: inline-flex; align-items: center; gap: 6px; color: var(--text); opacity: 0.75; }
   .statusbar .warn { color: var(--lvl-warn); }
+  /* 进度格：文字最多 220px 省略；条 72px；百分比等宽字不抖 */
+  .statusbar .task { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); animation: fade-in 90ms ease-out; }
+  .statusbar .task .tlabel { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ui-font); }
+  .statusbar .task .pbar { width: 72px; flex: none; }
+  .statusbar .task .tpct { flex: none; min-width: 3ch; text-align: right; font-size: 10.5px; color: var(--text-faint); }
+  .statusbar .task .ibtn { margin-left: -2px; }
   .statusbar .cbtn.enc { font-size: 11px; }
   /* 解码有损是必须让人看见的事，不能只做成一个安静的标签 */
   .statusbar .cbtn.enc.bad { color: var(--lvl-error); }

@@ -668,6 +668,8 @@ function srcOf(path: string): LogSrc {
 let filterHits: number[] | null = null;
 /** log_filter_stat 被问了几次 —— 前三次说「还没扫完」 */
 let filterStatCalls = 0;
+/** log_stat 按句柄被问了几次 —— 前几次说「索引中 / 级别扫描中」 */
+const logStatCalls = new Map<string, number>();
 
 /** 句柄 → 打开时那条路径。真实现的 LogFile 也是这么存的 */
 const LOG_PATHS: Record<number, string> = {};
@@ -1196,15 +1198,24 @@ export function installMockIpc(): void {
         }
         case "log_stat": {
           const s = src(a.handle);
+          /*
+           * 故意分三步：真实现索引 1GB 要一秒多、级别扫描再一秒，状态栏「索引中 / 级别扫描中」
+           * 和级别胶囊上的「…」只在那段时间存在。轮询 100ms 一次：前 3 次「索引中」（行数按比例长），
+           * 再 3 次「级别扫描中」，之后齐了。同 git_commit 那条的道理（rules/frontend.md）。
+           */
+          const n = (logStatCalls.get(String(a.handle)) ?? 0) + 1;
+          logStatCalls.set(String(a.handle), n);
+          const indexing = n <= 3;
+          const scanning = n <= 6;
           return {
-            lineCount: s.total,
-            indexedBytes: s.bytes,
+            lineCount: indexing ? Math.floor((s.total * n) / 3) : s.total,
+            indexedBytes: indexing ? Math.floor((s.bytes * n) / 3) : s.bytes,
             totalBytes: s.bytes,
-            complete: true,
+            complete: !indexing,
             indexBytes: 71_472,
-            levels: s.levels,
-            levelsComplete: true,
-            levelsScanned: s.bytes,
+            levels: scanning ? [0, 0, 0, 0, 0, 0] : s.levels,
+            levelsComplete: !scanning,
+            levelsScanned: scanning ? Math.floor((s.bytes * Math.max(0, n - 3)) / 3) : s.bytes,
           };
         }
         case "log_lines": {
@@ -1257,7 +1268,9 @@ export function installMockIpc(): void {
           filterStatCalls++;
           const done = filterStatCalls >= 4;
           const hits = done ? filterHits.length : Math.floor((filterHits.length * filterStatCalls) / 4);
-          return { hits, complete: done, scannedLines: done ? 50_000 : 12_500 * filterStatCalls };
+          // scannedLines 按总行数比例走：状态栏的进度格用它算百分比，写死 12,500 在 900 万行里永远是 0%
+          const total = src(a.handle).total;
+          return { hits, complete: done, scannedLines: done ? total : Math.floor((total * filterStatCalls) / 4) };
         }
         case "log_lines_filtered": {
           if (!filterHits) return encodeBlock(Number(a.start), []);

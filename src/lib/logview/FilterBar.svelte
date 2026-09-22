@@ -124,9 +124,9 @@
         title="显示全文，在命中之间跳转 —— 看得到上下文"
       >全文</button>
     </div>
-    <!-- 扫描还在跑（1GB 要一两秒）：计数后面挂环，不是一个「…」—— ui.md 十四，「还在等」只有一种长相 -->
+    <!-- 扫描还在跑时计数会一直长；进度本身在状态栏的进度格里（`progress.svelte.ts`），这儿不再挂环 -->
     <span class="hits" class:running={filterRunning}>
-      {#if hitIndex > 0}<b>{fmt(hitIndex)}</b>/{/if}{fmt(filterHits)} 条{#if filterRunning}<span class="spinner sm now"></span>{/if}
+      {#if hitIndex > 0}<b>{fmt(hitIndex)}</b>/{/if}{fmt(filterHits)} 条
     </span>
     <div class="jump">
       <button class="ibtn sm" onclick={() => onJump?.(-1)} disabled={!filterHits} title="上一处 ⇧↵ / ⇧F3" aria-label="上一处">
@@ -243,7 +243,6 @@
     flex: none;
   }
   .hits.running { color: var(--text-faint); }
-  .hits .spinner { margin-left: 6px; vertical-align: -1px; }
   .hits b { color: var(--text); font-weight: 600; }
 
   /* 「只看命中 / 全文」是二选一，做成连在一起的分段控件而不是两个独立按钮 */

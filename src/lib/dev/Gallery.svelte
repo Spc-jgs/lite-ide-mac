@@ -88,6 +88,20 @@
   </section>
 
   <section>
+    <h2>进度条 <code>.pbar</code> <small>3px 圆角细条，轨道 --hover、填充 accent；<code>indet</code> 来回跑（不知道多久，不能画成 0%）。后台任务全在状态栏一格里：文字 · 条 · 百分比 · 取消</small></h2>
+    <div class="row">
+      <span class="lbl">62%</span><span class="pbar w"><span class="pfill" style:width="62%"></span></span>
+      <span class="lbl">indet</span><span class="pbar w indet"></span>
+      <span class="lbl">状态栏</span>
+      <span class="sbdemo">
+        <span class="task"><span class="tlabel">推送 · Writing objects</span><span class="pbar"><span class="pfill" style:width="62%"></span></span><span class="tpct">62%</span><button class="ibtn xs"><Icon name="x" size={10} /></button></span>
+        <span class="vsep"></span>
+        <span class="task"><span class="tlabel">正在提交…</span><span class="pbar indet"></span></span>
+      </span>
+    </div>
+  </section>
+
+  <section>
     <h2>确认卡片 <code>.confirm</code> <small>无色 = 选择题；<code>warn</code> = 要你决定；<code>bad</code> = 不可逆 / 没做成。主动作最右，取消紧挨其左，越不可逆越靠左</small></h2>
     <div class="cards">
       <div class="confirm"><span><b>README.md</b> 有未保存的改动</span><span class="gap"></span><button class="btn">丢弃改动</button><button class="btn">取消</button><button class="btn primary">保存并关闭</button></div>
@@ -148,6 +162,13 @@
   .ic:hover { background: var(--hover); }
   .loading { display: inline-flex; align-items: center; gap: 8px; color: var(--text-faint); font-size: 12px; }
   .cards { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .pbar.w { width: 160px; }
+  /* 状态栏那格的仿真：照 StatusBar.svelte 的 .task 抄尺寸，改那边记得改这边 */
+  .sbdemo { display: inline-flex; align-items: center; gap: 16px; height: 24px; padding: 0 12px; background: var(--chrome-scrim); border-radius: var(--r-sm); font-size: 11.5px; }
+  .sbdemo .task { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); }
+  .sbdemo .pbar { width: 72px; }
+  .sbdemo .tpct { font-size: 10.5px; color: var(--text-faint); font-family: var(--code-font); }
+  .sbdemo .vsep { width: 1px; height: 11px; background: var(--border); }
   .popup.demo { width: 160px; padding: 14px; font-size: 12px; color: var(--text-dim); }
   .tone { display: flex; align-items: center; gap: 8px; }
   .sw { width: 28px; height: 20px; border-radius: var(--r-sm); border: 1px solid var(--border); }
