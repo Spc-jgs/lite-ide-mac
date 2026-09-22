@@ -417,10 +417,18 @@
    * 整行不许折；空间不够时按「输入框收缩 → 复选框的字省略 → 计数让位」的次序让。
    * 最小窗宽 720 时日志栏只有 ~190px，那时能保住的只有输入框和「全部分支」。
    */
-  .tools { overflow: hidden; }
+  .tools { overflow: hidden; container-type: inline-size; }
   .tools > * { flex: none; white-space: nowrap; }
-  .tools .chk { flex: 0 1 auto; min-width: 0; }
+  /*
+   * 复选框的字**默认不缩**。flex 按「基准宽 × shrink」分摊缺口，之前和输入框等权一起缩：
+   * 1000px 的窗口里侧边栏一开（条 390px），输入框还有 160，字已经被省略成「全部…」——
+   * 差的那 1px 就够触发 ellipsis。条窄到 300 以下（最小窗宽 720 时是 190）才允许它让，
+   * 用容器查询而不是媒体查询：条的宽度看的是侧边栏开没开，不是窗口多宽。
+   */
   .tools .chk > span { overflow: hidden; text-overflow: ellipsis; }
+  @container (max-width: 300px) {
+    .tools .chk { flex: 0 1 auto; min-width: 0; }
+  }
   .q {
     flex: 0 1 200px;
     min-width: 80px;

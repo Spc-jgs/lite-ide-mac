@@ -666,6 +666,8 @@ function srcOf(path: string): LogSrc {
 }
 
 let filterHits: number[] | null = null;
+/** log_filter_stat 被问了几次 —— 前三次说「还没扫完」 */
+let filterStatCalls = 0;
 
 /** 句柄 → 打开时那条路径。真实现的 LogFile 也是这么存的 */
 const LOG_PATHS: Record<number, string> = {};
@@ -1221,6 +1223,7 @@ export function installMockIpc(): void {
             return false;
           }
           filterHits = runFilter(src(a.handle), bits, pat, Boolean(a.caseSensitive));
+          filterStatCalls = 0;
           return true;
         }
         /*
@@ -1244,10 +1247,18 @@ export function installMockIpc(): void {
           }
           return n1 - 1;
         }
-        case "log_filter_stat":
-          return filterHits === null
-            ? null
-            : { hits: filterHits.length, complete: true, scannedLines: 50_000 };
+        case "log_filter_stat": {
+          if (filterHits === null) return null;
+          /*
+           * 故意分四次才 complete：真实现扫 1GB 要一两秒，过滤条上「N 条 + 环」那个状态
+           * 只在扫描中间存在，桩一次到位的话它在浏览器里一次都看不到（同 git_commit 那条）。
+           * 命中数按比例长上去，看得出是在扫。
+           */
+          filterStatCalls++;
+          const done = filterStatCalls >= 4;
+          const hits = done ? filterHits.length : Math.floor((filterHits.length * filterStatCalls) / 4);
+          return { hits, complete: done, scannedLines: done ? 50_000 : 12_500 * filterStatCalls };
+        }
         case "log_lines_filtered": {
           if (!filterHits) return encodeBlock(Number(a.start), []);
           const slice = filterHits.slice(Number(a.start), Number(a.start) + Number(a.count));
