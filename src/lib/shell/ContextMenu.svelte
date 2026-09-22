@@ -166,7 +166,7 @@
   将来给侧边栏或标签栏加动画时要留意这条。
 -->
 <div
-  class="menu"
+  class="menu popup"
   role="menu"
   tabindex="-1"
   aria-label={label}
@@ -215,12 +215,8 @@
     z-index: 60;
     min-width: 168px;
     padding: 5px;
-    background: var(--elevated);
-    /* M8：外框降到 5%，投影外再叠一圈 0.5px 内高光 —— 深壁纸上卡片边缘靠它读出来，不靠亮线 */
-    border: var(--island-border);
-    border-radius: var(--r-md);
-    /* 底是纯黑的时候，靠色阶已经拉不开距离了 —— 投影要更深、更散 */
-    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    /* 面在 app.css 的 `.popup`。菜单**不淡入**：macOS 原生菜单是瞬出的，右键之后手已经在往条目上走了 */
+    animation: none;
     outline: none;
   }
   .mhead {

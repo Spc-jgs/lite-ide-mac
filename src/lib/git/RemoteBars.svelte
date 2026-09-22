@@ -55,6 +55,8 @@
     onCancel?: (() => void) | null;
   } = $props();
 
+  const WHAT = { pull: "拉取", push: "推送", fetch: "抓取" } as const;
+
   let remember = $state(false);
   /** git 的原话展开了没 */
   let rawOpen = $state(false);
@@ -63,7 +65,8 @@
 {#if progress}
   <div class="confirm prog">
     <div class="pline">
-      <span class="ptext">{progress.phase}</span>
+      <!-- 先说是在推还是在拉，再引 git 的原话 —— 只印 `Enumerating objects` 人不知道这是哪个动作的哪一步 -->
+      <span class="ptext"><b>{WHAT[progress.what]}</b> · {progress.phase}</span>
       {#if progress.percent !== null}<span class="ppct">{progress.percent}%</span>{/if}
       {#if onCancel}<button class="btn sm" onclick={onCancel}>取消</button>{/if}
     </div>
@@ -83,9 +86,9 @@
       <input type="checkbox" bind:checked={remember} />
       记一下
     </label>
-    <button class="btn primary" onclick={() => onMerge("merge", remember)}>合并</button>
     <button class="btn" onclick={() => onMerge("rebase", remember)}>变基</button>
     <button class="btn" onclick={() => onDismiss("diverge")}>取消</button>
+    <button class="btn primary" onclick={() => onMerge("merge", remember)}>合并</button>
   </div>
 {/if}
 
@@ -107,8 +110,8 @@
       {/if}
     </div>
     <span class="gap"></span>
-    <button class="btn primary" onclick={onPush}>{push.setUpstream ? "推送并跟踪" : "推送"}</button>
     <button class="btn" onclick={() => onDismiss("push")}>取消</button>
+    <button class="btn primary" onclick={onPush}>{push.setUpstream ? "推送并跟踪" : "推送"}</button>
   </div>
 {/if}
 
@@ -121,10 +124,6 @@
       {#if rawOpen && err.raw}<pre class="raw">{err.raw}</pre>{/if}
     </div>
     <span class="gap"></span>
-    {#if err.kind === "rejected"}
-      <!-- 给下一步，不是给句号 -->
-      <button class="btn primary" onclick={onPull}>先拉取</button>
-    {/if}
     {#if err.raw}
       <button class="btn" onclick={() => (rawOpen = !rawOpen)}>{rawOpen ? "收起" : "看 git 的原话"}</button>
     {/if}
@@ -134,36 +133,15 @@
         rawOpen = false;
         onDismiss("err");
       }}>知道了</button>
+    {#if err.kind === "rejected"}
+      <!-- 给下一步，不是给句号 —— 它是主动作，排最右 -->
+      <button class="btn primary" onclick={onPull}>先拉取</button>
+    {/if}
   </div>
 {/if}
 
 <style>
-  /* 形状跟 Confirms.svelte 里那几条确认卡片一致 —— 它们浮在同一叠里（M8：卡片，不是通栏横条） */
-  .confirm {
-    pointer-events: auto;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    max-width: min(760px, calc(100% - 32px));
-    padding: 8px 10px 8px 14px;
-    background: var(--elevated);
-    border: var(--island-border);
-    border-radius: var(--r-md);
-    box-shadow: var(--shadow-pop);
-    font-size: 12px;
-    color: var(--text-dim);
-  }
-  /*
-   * 带列表/原话的那两条要贴顶对齐 —— 一行文字和三行列表并排时，
-   * 居中会让按钮飘到中间。
-   */
-  .confirm.tall { align-items: flex-start; padding: 10px 10px 10px 14px; }
-  .confirm.bad {
-    background: linear-gradient(rgba(214, 174, 88, 0.12), rgba(214, 174, 88, 0.12)), var(--elevated);
-    border-color: rgba(214, 174, 88, 0.35);
-  }
-  .confirm .gap { flex: 1; }
-  .confirm b { color: var(--text); font-weight: 500; }
+  /* 卡片的面在 app.css 的 `.confirm`（和 Confirms.svelte 那几条浮在同一叠里，2026-09-21 收成一份） */
   .mono { font-family: var(--code-font); }
   .info { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 
@@ -196,8 +174,6 @@
 
   .remember { display: flex; align-items: center; gap: 4px; flex: none; font-size: 11.5px; }
   .remember input { margin: 0; }
-
-  .btn { flex: none; }
 
   /* 进度卡片：一行文字 + 3px 的条。indet 那条来回跑，只说「还在动」，**不能显示成 0%** */
   .confirm.prog { flex-direction: column; align-items: stretch; gap: 6px; width: min(420px, calc(100% - 32px)); }

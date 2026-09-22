@@ -383,10 +383,229 @@ html, body {
 }
 .ibtn:hover { background: var(--hover); color: var(--text); }
 .ibtn:active { background: var(--pressed); }
-.ibtn:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .ibtn:disabled { opacity: 0.35; pointer-events: none; }
 .ibtn.on { color: var(--text); background: var(--selected); }
 .ibtn.sm { width: 20px; height: 20px; }
 .ibtn.xs { width: 16px; height: 16px; }
 .ibtn.xs:hover { background: var(--pressed); }
 .ibtn.lg { width: 26px; height: 26px; }
+
+/*
+ * # 动效只有三种，而且全在这一段里
+ *
+ * 2026-09-21 之前全应用只有两处动画（远程进度那条来回跑的条、日志跟随尾部的呼吸点），
+ * 其余一律瞬切：按钮 hover 一帧变色，浮层一帧出现，确认卡片一帧压到编辑器上。
+ * 瞬切不是错 —— macOS 原生菜单就是瞬出的 —— 但**浮层和卡片瞬出会让人找不到它是从哪儿来的**：
+ * 眼睛还在触发它的那个控件上，一块 600px 的板子已经在屏幕中央了。
+ *
+ * 三种，各管一件事，时长都短到「感觉得到、数不出来」：
+ *
+ * | 动效 | 给谁 | 时长 | 为什么是这个形状 |
+ * |---|---|---|---|
+ * | `transition` 底色 / 字色 | `.btn` `.ibtn` 的 hover | 70ms | 只做 hover，**按下瞬切** —— 按下去还要等 70ms 才变色，手感是「黏」 |
+ * | `fade-in` 淡入 | 浮层 `.popup`、压暗的 `.scrim` | 90ms | **只动透明度，不动位移 / 缩放**：分支浮层和右键菜单打开后要量自己的矩形往视口里钳，动了 transform 量出来的就是动画中途的那一帧 |
+ * | `drop-in` 淡入 + 下落 4px | 确认卡片 `.confirm` | 120ms | 卡片从内容岛顶边「落下来」，和它的位置（贴顶）是一回事；它不钳位，可以动位移 |
+ *
+ * 列表行的 hover **故意不加**：Finder / IDEA 的行都是瞬切，而且行是一屏几十个，
+ * 滚过去一片渐变反而显得糊。
+ *
+ * `prefers-reduced-motion` 关掉上面三种；spinner **不关** —— 它是「还在等」这个信息本身，
+ * 停下来就成了一个断掉的圆环。
+ */
+/*
+ * 焦点环只有一种：1px accent，内缩 1px。2026-09-22 之前 13 处各写一份，内容全一样只差 offset。
+ * 只给按钮和几种 role —— 不写成裸的 `:focus-visible`，那会套到 CM6 的 contenteditable 和
+ * xterm 的 textarea 上，编辑器一获焦就多一圈蓝框。`:where()` 让它的优先级是 0，
+ * 组件里要外扩（`.btn` 是 1px，标签上的 ✕ 是 -2px）照旧写自己的。
+ */
+:where(button, [role="button"], [role="treeitem"], [role="tab"], [role="option"], [role="menuitem"]):focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.btn,
+.ibtn {
+  transition: background-color 70ms ease-out, color 70ms ease-out, border-color 70ms ease-out;
+}
+.btn:active,
+.ibtn:active {
+  transition: none;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes drop-in {
+  from { opacity: 0; translate: 0 -4px; }
+}
+
+/*
+ * # 「还在等」只有一种长相：12px 的缺口圆环
+ *
+ * 之前没有这个原语，于是四处各想各的：底部工具窗「正在载入终端…」是一行灰字，
+ * Git 页刷新是把图标染成 accent（不转），分支浮层是一行「载入中…」，
+ * 文件树展开目录的 `loading` 记着但**什么都不画**。用户能分辨的只有「有字 / 没字」。
+ *
+ * **150ms 之内不出现。** 本地盘上建文件、改名、列目录几乎都在 50ms 内回来，
+ * 那时一个环闪一帧再消失，看着像坏了。人感知不到 100ms 以内的等待，所以等待指示
+ * 要等它「值得指示」了才出 —— 同 `gitDo` 那条「慢操作才说话」的 300ms 线是一个道理，
+ * 这里取 150 是因为按钮上的正文要先隐形再出环，两步加起来别超过人开始怀疑的那一刻。
+ * 靠 `animation-delay` 做，不靠 JS 计时器：状态层只管 `busy` 真假，什么时候画是样式的事。
+ *
+ * 三种用法，同一个环：
+ *
+ * - `.spinner` 单独放：跟一句话并排（「正在载入终端…」）、占图标的位置（文件树的折叠箭头）。
+ *   `sm` 10px 给 12px 的格子。
+ * - `.btn.busy` / `.ibtn.busy`：按钮**保持原来的宽高**，正文隐形、环居中 —— 宽度一跳，
+ *   旁边的按钮就跟着挪，人正要点的那个就不在原处了。正文用 `-webkit-text-fill-color`
+ *   隐形而不是 `color: transparent`，因为环的颜色取 `currentColor`，`color` 一透环也透。
+ * - `.busy` 和 `disabled` **一起写**（`disabled={busy} class:busy={busy}`）：disabled 管
+ *   「不响应键盘和 AT」，busy 管「长得像在干活」—— disabled 单独的样子是「灰掉」，
+ *   那说的是「不能点」，不是「在做」。primary 的 busy 要压过 primary 的 disabled 样式，
+ *   不然实心蓝会在按下的那一刻变成一个空心框。
+ */
+@keyframes appear {
+  to { opacity: 1; }
+}
+@keyframes busy-text {
+  to { -webkit-text-fill-color: transparent; }
+}
+@keyframes busy-hide {
+  to { visibility: hidden; }
+}
+.spinner,
+.btn.busy::after,
+.ibtn.busy::after {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 1.25px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0;
+  animation: spin 0.8s linear infinite, appear 0s linear 150ms forwards;
+}
+.spinner {
+  display: inline-block;
+  flex: none;
+  color: var(--text-faint);
+}
+.spinner.sm { width: 10px; height: 10px; }
+/* 调用方已经自己等过一段（状态栏的 doing 是 300ms 之后才出的）：环不必再等 */
+.spinner.now { animation-delay: 0s, 0s; }
+
+.btn.busy,
+.ibtn.busy {
+  position: relative;
+  pointer-events: none;
+  animation: busy-text 0s linear 150ms forwards;
+}
+.btn.busy > *,
+.ibtn.busy > * { animation: busy-hide 0s linear 150ms forwards; }
+.btn.busy::after,
+.ibtn.busy::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+.ibtn.busy::after { width: 11px; height: 11px; }
+.btn.sm.busy::after { width: 10px; height: 10px; }
+.btn.busy:disabled,
+.ibtn.busy:disabled { opacity: 1; }
+.btn.primary.busy:disabled { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger.busy:disabled { background: var(--lvl-error); border-color: var(--lvl-error); color: #fff; }
+/* 分裂按钮的主体在忙时，右半边的 ▾ 跟着保持实心 —— 它们是一个按钮的两半，一半蓝一半空心就成了两个按钮 */
+.btn-split > .btn.primary.busy + .btn.primary:disabled {
+  background: var(--accent);
+  border-color: var(--accent);
+  border-left-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+  opacity: 0.6;
+}
+
+/*
+ * # 浮层的面只有一处定义
+ *
+ * 2026-09-21 之前「不透明的抬起面 + 5% 描边 + 投影 + 内高光」这四行在 QuickSearch、Outline、
+ * Keys、EncodingPicker、BranchPicker、GotoLine、ContextMenu、文件树的三个小弹窗里各抄一份，
+ * 已经漂了：三处圆角 r-lg（ui.md 一说 r-md 留给浮层），文件树弹窗是 9% 描边没有内高光，
+ * scrim 四处压暗两处不压。
+ *
+ * 这里只管**面**（底、边、圆角、投影、淡入）。位置、尺寸、层级仍在各组件里 ——
+ * 居中还是挂在挂件底下、z-index 41 还是 60（浮层里叠菜单），那是各自的事。
+ *
+ * scrim 两种：`.scrim` 只干「点外面关掉」，anchored 的浮层用它（ui.md 十二：切分支只是随手
+ * 看一眼，不该长得像模态）；`.scrim.dim` 压暗 35%，居中的全屏检索（随处搜索、大纲、
+ * 速查表、编码）用它 —— 它们没有触发它的控件，压暗是在说「现在焦点在这儿」。
+ */
+.popup {
+  background: var(--elevated);
+  border: var(--island-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  animation: fade-in 90ms ease-out;
+}
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.scrim.dim {
+  background: rgba(0, 0, 0, 0.35);
+  animation: fade-in 90ms ease-out;
+}
+
+/*
+ * # 确认卡片
+ *
+ * `Confirms.svelte` 和 `RemoteBars.svelte` 的卡片浮在同一叠里，原来各写一份 `.confirm`，
+ * 后者的注释还写着「形状跟 Confirms 一致」—— 靠注释保持一致的两份拷贝，到 2026-09-21
+ * 已经漂成：`b` 600 / 500、padding 不同、失败色一边红一边琥珀、两边都没有内高光。
+ *
+ * 色只有两档，按「要你做什么」分，不按「哪个功能」分：
+ * - `warn` 琥珀 = **要你决定**（外部改过、仓库信任、分岔）—— 不是出错
+ * - `bad` 红 = **不可逆**（丢弃、移除、删分支）或**没做成**（git 的多行说明、推送被拒）
+ * 普通选择题不上色（关脏标签、切分支被挡住）—— ui.md 十三：选择题长得和普通确认一样。
+ *
+ * 按钮的次序照 macOS：**主动作在最右，「取消」紧挨它左边，其余往左排，越不可逆越靠左**
+ * （Xcode 的「要保存吗」就是 [不保存] … [取消] [保存]）。之前卡片是主动作在最左、弹窗是在最右，
+ * 同一个应用里两种次序，人每次都要先读一遍再点。
+ */
+.confirm {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(760px, calc(100% - 32px));
+  padding: 8px 10px 8px 14px;
+  background: var(--elevated);
+  border: var(--island-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  color: var(--text-dim);
+  animation: drop-in 120ms ease-out;
+}
+.confirm b { color: var(--text); font-weight: 600; }
+.confirm .btn { flex: none; }
+.confirm .gap { flex: 1; }
+/* 带列表 / 多行说明的：贴顶对齐 —— 一行字和三行列表并排时，居中会让按钮飘到中间 */
+.confirm.tall { align-items: flex-start; padding: 10px 10px 10px 14px; }
+/* 色罩叠在 --elevated 上，卡片仍然不透明（浮层不许透）；边线跟着色走 */
+.confirm.warn {
+  background: linear-gradient(rgba(214, 174, 88, 0.12), rgba(214, 174, 88, 0.12)), var(--elevated);
+  border-color: rgba(214, 174, 88, 0.35);
+}
+.confirm.bad {
+  background: linear-gradient(rgba(247, 84, 100, 0.10), rgba(247, 84, 100, 0.10)), var(--elevated);
+  border-color: rgba(247, 84, 100, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .ibtn { transition: none; }
+  .popup, .scrim.dim, .confirm { animation: none; }
+}

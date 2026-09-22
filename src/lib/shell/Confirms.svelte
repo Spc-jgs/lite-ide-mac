@@ -38,10 +38,10 @@
 -->
 <div class="stack" class:below-tabs={tabs.list.length > 0}>
 {#if tabs.active?.conflict}
-  <div class="confirm conflict">
+  <div class="confirm warn">
     <span><b>{tabs.active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
-    <button class="btn primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留我的</button>
     <button class="btn" onclick={() => docs.resolveConflict(tabs.active!, "disk")}>用磁盘上的</button>
+    <button class="btn primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留我的</button>
   </div>
 {/if}
 
@@ -52,7 +52,7 @@
     列的是白名单外的键 —— 人看的就是「它想跑什么」，所以值一定要露出来，
     origin 只在被 include 进来时才显示（那时危险在另一个文件里）。
   -->
-  <div class="confirm conflict trust">
+  <div class="confirm warn tall trust">
     <span class="btext">
       <b>这个仓库的 .git/config 里有 {r.suspects.length} 条会让 git 执行命令的配置，Git 功能先没启用</b>
       <span class="bbody">{r.suspects
@@ -63,8 +63,8 @@
         信任 = 按这份内容记住这个仓库；config 再变会重新问。
       </span>
     </span>
-    <button class="btn primary" onclick={() => void git.trust()}>信任这个仓库</button>
     <button class="btn" onclick={() => (git.trustOpen = false)}>先不动 git</button>
+    <button class="btn primary" onclick={() => void git.trust()}>信任这个仓库</button>
   </div>
 {/if}
 
@@ -74,13 +74,13 @@
       <b>{tabflow.pendingSwitch.name}</b> 有 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)}MB，
       编辑模式会把全文读进内存，可能明显卡顿
     </span>
-    <button class="btn primary" onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
     <button class="btn" onclick={() => (tabflow.pendingSwitch = null)}>取消</button>
+    <button class="btn primary" onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
   </div>
 {/if}
 
 {#if notify.banner}
-  <div class="confirm err-banner">
+  <div class="confirm bad tall err-banner">
     <span class="btext">
       <b>{notify.banner.title}</b>
       <span class="bbody">{notify.banner.body}</span>
@@ -90,20 +90,20 @@
 {/if}
 
 {#if branches.pendingWtRemove}
-  <div class="confirm danger">
+  <div class="confirm bad">
     <span>
       要移除工作树 <b>{branches.pendingWtRemove.path}</b> 吗？
       <b>那个目录会被删掉</b>，里面未提交的改动会一起没
     </span>
-    <button class="btn danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, false)}>移除</button>
     <button class="btn danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, true)}>强制移除</button>
     <button class="btn" onclick={() => (branches.pendingWtRemove = null)}>取消</button>
+    <button class="btn danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, false)}>移除</button>
   </div>
 {/if}
 
 {#if branches.pendingBranchDelete}
   {@const d = branches.pendingBranchDelete}
-  <div class="confirm danger">
+  <div class="confirm bad">
     <span>
       {#if d.notMerged}
         <b>{d.name}</b> 上还有没合进别处的提交，git 拦下了。仍然删除的话<b>那些提交会丢</b>
@@ -111,8 +111,8 @@
         要删除分支 <b>{d.name}</b> 吗？<b>这一步不可撤销</b>
       {/if}
     </span>
-    <button class="btn danger" onclick={() => branches.deleteBranch(d.name, d.notMerged)}>{d.notMerged ? "仍然删除" : "删除"}</button>
     <button class="btn" onclick={() => (branches.pendingBranchDelete = null)}>取消</button>
+    <button class="btn danger" onclick={() => branches.deleteBranch(d.name, d.notMerged)}>{d.notMerged ? "仍然删除" : "删除"}</button>
   </div>
 {/if}
 
@@ -128,6 +128,14 @@
       <b>{branches.pendingCheckout.files.length} 个文件</b>的改动：
       <span class="rest">{branches.pendingCheckout.files.slice(0, 3).join("、")}{branches.pendingCheckout.files.length > 3 ? " …" : ""}</span>
     </span>
+    <!-- 越不可逆越靠左：丢东西的排最左，IDEA 的 Smart Checkout（收进 stash、切过去、再放回来）在它右边 -->
+    <button class="btn danger" onclick={() => void branches.discardThenCheckout()}>丢弃这些改动并切换</button>
+    <button
+      class="btn"
+      onclick={() => void branches.stashThenCheckout()}
+      title="改动收进 stash → 切过去 → 再取回来。取回时撞上冲突会留在改动列表里"
+    >stash 再切换</button>
+    <button class="btn" onclick={() => (branches.pendingCheckout = null)}>取消</button>
     <button
       class="btn primary"
       onclick={() => {
@@ -135,19 +143,11 @@
         layout.showSide("git");
       }}
     >去提交</button>
-    <!-- IDEA 的 Smart Checkout：收进 stash、切过去、再放回来。不丢东西的那条路排在丢东西的前面 -->
-    <button
-      class="btn"
-      onclick={() => void branches.stashThenCheckout()}
-      title="改动收进 stash → 切过去 → 再取回来。取回时撞上冲突会留在改动列表里"
-    >stash 再切换</button>
-    <button class="btn danger" onclick={() => void branches.discardThenCheckout()}>丢弃这些改动并切换</button>
-    <button class="btn" onclick={() => (branches.pendingCheckout = null)}>取消</button>
   </div>
 {/if}
 
 {#if git.pendingDiscard}
-  <div class="confirm danger">
+  <div class="confirm bad">
     <span>
       要丢弃
       {#if git.pendingDiscard.length === 1}
@@ -157,17 +157,17 @@
       {/if}
       的改动吗？未跟踪的文件会被直接删除，<b>这一步不可撤销</b>
     </span>
-    <button class="btn danger" onclick={() => void git.discard(git.pendingDiscard!)}>丢弃</button>
     <button class="btn" onclick={() => (git.pendingDiscard = null)}>取消</button>
+    <button class="btn danger" onclick={() => void git.discard(git.pendingDiscard!)}>丢弃</button>
   </div>
 {/if}
 
 {#if git.pendingRevertHunk}
   <!-- 撤销一块（issue #38）：和上面那条同一档 —— 动盘上的文件，不可撤销 -->
-  <div class="confirm danger">
+  <div class="confirm bad">
     <span>要撤销这一块吗？工作区里这几行的改动会被丢掉，<b>这一步不可撤销</b></span>
-    <button class="btn danger" onclick={() => void git.revertHunk(git.pendingRevertHunk!)}>撤销这一块</button>
     <button class="btn" onclick={() => (git.pendingRevertHunk = null)}>取消</button>
+    <button class="btn danger" onclick={() => void git.revertHunk(git.pendingRevertHunk!)}>撤销这一块</button>
   </div>
 {/if}
 
@@ -205,9 +205,9 @@
       <!-- 批量关闭时要说清后面还有几个，否则人不知道这个框还要弹几次 -->
       <span class="rest">（后面还有 {tabflow.closeQueue.length} 个）</span>
     {/if}
-    <button class="btn primary" onclick={() => void tabflow.resolveClose("save")}>保存并关闭</button>
     <button class="btn" onclick={() => void tabflow.resolveClose("discard")}>丢弃改动</button>
     <button class="btn" onclick={() => void tabflow.resolveClose("cancel")}>取消</button>
+    <button class="btn primary" onclick={() => void tabflow.resolveClose("save")}>保存并关闭</button>
   </div>
 {/if}
 </div>
@@ -228,40 +228,10 @@
   }
   /* 有标签栏时从它底下 8px 开始（标签栏 38px） */
   .stack.below-tabs { top: 46px; }
-  .confirm {
-    pointer-events: auto;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    max-width: min(760px, calc(100% - 32px));
-    padding: 8px 10px 8px 14px;
-    background: var(--elevated);
-    border: var(--island-border);
-    border-radius: var(--r-md);
-    box-shadow: var(--shadow-pop);
-    font-size: 12px;
-  }
-  .confirm b { color: var(--text); font-weight: 600; }
+  /* 卡片的面（底、边、投影、淡入、warn / bad 两档色）在 app.css 的 `.confirm`；这里只剩正文排版 */
   .confirm .rest { color: var(--text-faint); font-size: 11.5px; }
-  .confirm .btn { flex: none; }
-  /* 带色的三种：色罩叠在 --elevated 上，卡片仍然不透明（浮层不许透）；边线跟着色走 */
-  .confirm.conflict {
-    background: linear-gradient(rgba(214, 174, 88, 0.12), rgba(214, 174, 88, 0.12)), var(--elevated);
-    border-color: rgba(214, 174, 88, 0.35);
-  }
-  /* 不可撤销的操作用红色描边，别让它长得跟普通确认一样 */
-  .confirm.danger {
-    background: linear-gradient(rgba(247, 84, 100, 0.10), rgba(247, 84, 100, 0.10)), var(--elevated);
-    border-color: rgba(247, 84, 100, 0.35);
-  }
-  .confirm.err-banner {
-    align-items: flex-start;
-    width: min(760px, calc(100% - 32px));
-    background: linear-gradient(rgba(247, 84, 100, 0.10), rgba(247, 84, 100, 0.10)), var(--elevated);
-    border-color: rgba(247, 84, 100, 0.35);
-  }
   .err-banner .btext, .trust .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-  .confirm.trust { align-items: flex-start; width: min(760px, calc(100% - 32px)); }
+  .confirm.trust, .confirm.err-banner { width: min(760px, calc(100% - 32px)); }
   .trust .bbody { white-space: pre-wrap; font-family: var(--code-font); font-size: 11.5px; line-height: 1.55; color: var(--text); }
   .err-banner b { color: var(--lvl-error); }
   /* git 的说明本来就是分行排版的，保住换行；太长时可以滚 */

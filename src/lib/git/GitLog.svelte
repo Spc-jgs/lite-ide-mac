@@ -461,7 +461,6 @@
   }
   .crow:hover { background: var(--hover); }
   .crow.on { background: var(--selected); color: var(--text); }
-  .crow:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .g { flex: none; display: block; }
   .subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .who { flex: none; width: 110px; color: var(--text-faint); font-size: 11.5px;
@@ -525,7 +524,6 @@
     white-space: nowrap;
   }
   .drow:hover { background: var(--hover); }
-  .drow:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .fname { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
   .fdir {
     flex: 1;

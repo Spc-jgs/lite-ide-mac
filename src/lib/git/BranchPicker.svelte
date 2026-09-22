@@ -487,7 +487,7 @@
         {#if err}
           <div class="none err">{err}</div>
         {:else if loading && branches.length === 0}
-          <div class="none">载入中…</div>
+          <div class="none wait"><span class="spinner"></span>载入中…</div>
         {:else if selectable.length === 0}
           <div class="none">没有匹配</div>
         {/if}
@@ -607,7 +607,6 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; z-index: 40; }
   .popup {
     position: fixed;
     top: 14vh;
@@ -617,10 +616,7 @@
     max-height: 66vh;
     display: flex;
     flex-direction: column;
-    background: var(--elevated);
-    border: var(--island-border);
-    border-radius: var(--r-md);
-    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
     z-index: 41;
     overflow: hidden;
   }
@@ -662,6 +658,7 @@
   .results { overflow-y: auto; padding: 4px 0 6px; }
   .none { padding: 18px 14px; color: var(--text-faint); font-size: 12.5px; text-align: center; }
   .none.err { color: var(--lvl-error); font-family: var(--code-font); text-align: left; }
+  .none.wait { display: flex; align-items: center; justify-content: center; gap: 8px; }
   .divider { height: 1px; background: var(--border-soft); margin: 5px 12px; }
 
   /* 分组头 / 文件夹：带折叠箭头的一行，照 IDEA 的树。分组头吸顶 */

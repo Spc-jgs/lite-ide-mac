@@ -158,7 +158,7 @@
 </script>
 
 {#if overlays.comps.goto}
-  <overlays.comps.goto bind:open={overlay.gotoOpen} current={nav.caret} logMode={tabs.active?.mode === "log"} />
+  <overlays.comps.goto bind:open={overlay.gotoOpen} anchor={overlay.gotoAnchor} current={nav.caret} logMode={tabs.active?.mode === "log"} />
 {/if}
 
 {#if keysPanel.comp}
@@ -190,6 +190,7 @@
 {#if encPicker.comp && tabs.active}
   <encPicker.comp
     bind:open={overlay.encOpen}
+    anchor={overlay.encAnchor}
     current={tabs.active.encoding ?? "UTF-8"}
     bom={!!tabs.active.bom}
     lossy={!!tabs.active.lossy}

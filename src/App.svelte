@@ -875,6 +875,7 @@
           <gitUi.comps.pane
             status={git.status}
             busy={git.busy}
+            committing={git.writing === "提交"}
             onOpenDiff={(e, staged) => void (e.conflicted ? git.openMerge(e) : git.openDiff(e, staged))}
             onStage={(paths) => void git.run("暂存失败", () => gitStage(git.repo!, paths), "暂存")}
             onUnstage={(paths) =>
@@ -1036,7 +1037,7 @@
     logStatus={logStatus[tabs.activeGroup]}
     onReveal={revealInTree}
     onSwitchMode={() => tabflow.requestSwitchMode(tabs.active!)}
-    onOpenEncoding={() => (overlay.encOpen = true)}
+    onOpenEncoding={(rect) => overlay.openEncoding(rect)}
     onOpenDiff={() => void git.openDiff(git.activeEntry!, false)}
     onSetIndent={(ind) => {
       // 同 toggle-wrap：这个文件的属性，直接写标签；编辑器那边 compartment 热替换

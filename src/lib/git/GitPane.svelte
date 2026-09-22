@@ -8,6 +8,7 @@
   let {
     status,
     busy,
+    committing = false,
     onOpenDiff,
     onStage,
     onUnstage,
@@ -23,6 +24,11 @@
   }: {
     status: GitStatus | null;
     busy: boolean;
+    /**
+     * 提交在跑（pre-commit 钩子跑什么是仓库说了算，一遍 eslint 三十秒）。
+     * 读的是 `git.writing`，不是 `notify.doing` —— 后者 300ms 之后才亮，按钮的 busy 由样式自己延迟
+     */
+    committing?: boolean;
     onOpenDiff: (e: GitEntry, staged: boolean) => void;
     onStage: (paths: string[]) => void;
     onUnstage: (paths: string[]) => void;
@@ -247,7 +253,7 @@
       {#if status.detached}<span class="tagx">游离</span>{/if}
       {#if status.unborn}<span class="tagx">尚无提交</span>{/if}
       <span class="gap"></span>
-      <button class="ibtn" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:spin={busy}>
+      <button class="ibtn" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:busy={busy}>
         <Icon name="refresh" size={14} />
       </button>
       <button class="ibtn" onclick={openMenu} title="更多操作" aria-label="更多操作">
@@ -300,12 +306,18 @@
         </label>
         <span class="gap"></span>
         <div class="btn-split">
-          <button class="btn primary" disabled={!canCommit} onclick={() => doCommit()}>
+          <button
+            class="btn primary"
+            disabled={!canCommit || committing}
+            class:busy={committing}
+            aria-busy={committing}
+            onclick={() => doCommit()}
+          >
             提交 {staged.length > 0 ? `(${staged.length})` : ""}
           </button>
           <button
             class="btn primary"
-            disabled={!canCommit}
+            disabled={!canCommit || committing}
             onclick={openCommitMenu}
             title="提交并推送…"
             aria-label="更多提交方式"
@@ -414,7 +426,6 @@
     color: var(--text-dim);
   }
   /* 头上的工具按钮是 `.ibtn`（app.css）；转着的刷新用 accent 说「正在跑」 */
-  .head .ibtn.spin { color: var(--accent); }
   .tagx {
     flex: none;
     font-size: 10px;
@@ -562,7 +573,6 @@
     cursor: pointer;
   }
   .gdir:hover { background: var(--hover); }
-  .gdir:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .gcaret { display: inline-flex; color: var(--text-faint); transition: transform 0.12s; transform: rotate(90deg); }
   .gdir.closed .gcaret { transform: none; }
   .gname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--code-font); }
@@ -591,7 +601,6 @@
     white-space: nowrap;
   }
   .frow:disabled { cursor: default; }
-  .frow:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .fname { flex: none; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
   .fname.gone { text-decoration: line-through; opacity: 0.65; }
   .fdir {

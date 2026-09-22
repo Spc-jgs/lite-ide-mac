@@ -65,7 +65,7 @@
 </script>
 
 {#if open}
-  <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
+  <div class="scrim dim" onclick={() => (open = false)} role="presentation"></div>
   <div class="popup" role="dialog" aria-modal="true" aria-label="文件结构">
     <div class="head">
       <span class="t">文件结构</span>
@@ -89,7 +89,7 @@
       {:else if symbols.length === 0}
         <div class="none">没找到符号</div>
       {:else if rows.length === 0}
-        <div class="none">没有匹配</div>
+        <div class="none">没有叫这个名的符号 —— 清空输入看全部结构</div>
       {/if}
       {#each rows as row, i (row.sym.kind + row.sym.name + row.sym.line)}
         <button
@@ -111,7 +111,6 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
   .popup {
     position: fixed;
     top: 12vh;
@@ -121,10 +120,7 @@
     max-height: 70vh;
     display: flex;
     flex-direction: column;
-    background: var(--elevated);
-    border: var(--island-border); /* M8：浮层边线降一档，靠内高光勾边 */
-    border-radius: var(--r-md);
-    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
     z-index: 41;
     overflow: hidden;
   }

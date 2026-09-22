@@ -121,7 +121,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "save": return docs.saveActive();
     case "save-as": return void worktree.saveAs();
     case "encoding":
-      if (tabs.active) overlay.encOpen = true;
+      if (tabs.active) overlay.openEncoding();
       return;
     case "close-tab":
       if (tabs.active) tabflow.requestClose(tabs.active.id);
@@ -137,7 +137,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "find-word": return overlay.findWordAtCursor();
     case "goto-line":
       // 编辑器跳行:列；日志视图跳行或时间（2026-09-21）。差异 / 合并没有「行」
-      if (tabs.active?.mode === "edit" || tabs.active?.mode === "log") overlay.gotoOpen = true;
+      if (tabs.active?.mode === "edit" || tabs.active?.mode === "log") overlay.openGoto();
       return;
     case "nav-back": return void nav.go("back");
     case "nav-fwd": return void nav.go("fwd");

@@ -216,7 +216,6 @@
   /* 浮层开着时挂件保持点亮 —— 否则那块浮层看着像凭空冒出来的 */
   .twidget.on { background: var(--selected); color: var(--text-dim); }
   .twidget:active { background: var(--pressed); }
-  .twidget:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .twidget .wlabel {
     overflow: hidden;
     text-overflow: ellipsis;

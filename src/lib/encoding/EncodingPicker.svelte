@@ -10,8 +10,11 @@
     readonly = false,
     onReopen,
     onSaveAs,
+    anchor = null,
   }: {
     open?: boolean;
+    /** 状态栏那格的位置（左、上沿减 4）：有就挂在它上面，没有就居中（菜单开的） */
+    anchor?: { x: number; y: number } | null;
     current: string;
     bom: boolean;
     lossy: boolean;
@@ -21,6 +24,23 @@
   } = $props();
 
   let list = $state<[string, string][]>([]);
+  /*
+   * 挂在状态栏那格上面时：钳进视口，抄 ContextMenu 的 `up` —— 读一次矩形、写一次 style，
+   * 改 DOM 不写回 props。`y` 是格子上沿，浮层的下边贴着它。
+   */
+  let popEl = $state<HTMLDivElement | null>(null);
+  $effect(() => {
+    const e = popEl;
+    const a = anchor;
+    if (!e || !a) return;
+    // 编码表是异步拉的：列表一到高度就变，钳完的 top 会过时 —— 依赖里带上它
+    void list.length;
+    const r = e.getBoundingClientRect();
+    const pad = 8;
+    e.style.left = `${Math.max(pad, Math.min(a.x, window.innerWidth - r.width - pad))}px`;
+    e.style.top = `${Math.max(pad, a.y - r.height)}px`;
+  });
+
   let sel = $state(0);
   let withBom = $state(false);
 
@@ -75,8 +95,9 @@
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="scrim" onclick={() => (open = false)}></div>
-  <div class="popup" role="dialog" aria-label="文件编码">
+  <!-- 从格子上开的不压暗：它是随手换一下的东西，不是要你先处理完的对话框（ui.md 十二） -->
+  <div class="scrim" class:dim={!anchor} onclick={() => (open = false)}></div>
+  <div class="popup" class:anchored={!!anchor} bind:this={popEl} role="dialog" aria-label="文件编码">
     <div class="head">
       <span>文件编码</span>
       <span class="cur">当前：{current}{bom ? " + BOM" : ""}</span>
@@ -116,7 +137,6 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
   .popup {
     position: fixed;
     top: 16vh;
@@ -126,13 +146,12 @@
     max-height: 62vh;
     display: flex;
     flex-direction: column;
-    background: var(--elevated);
-    border: var(--island-border); /* M8：浮层边线降一档，靠内高光勾边 */
-    border-radius: var(--r-md);
-    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
     z-index: 41;
     overflow: hidden;
   }
+  /* 挂在状态栏格子上时：不居中，left/top 由 effect 写进 style */
+  .popup.anchored { top: 0; left: 0; transform: none; max-height: min(62vh, calc(100vh - 60px)); }
   .head {
     display: flex;
     align-items: baseline;

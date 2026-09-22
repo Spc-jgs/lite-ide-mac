@@ -262,6 +262,40 @@
     if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
 
+  /*
+   * 溢出提示：滚出去的那一边渐隐。
+   *
+   * `overflow-x: auto` 配 macOS 的覆盖式滚动条 = 不滚的时候什么都不画，藏起来的标签
+   * 就是不存在。IDEA 用一个 ⋯ 下拉列出藏起来的，这里先用最便宜的：哪边还有东西哪边
+   * 渐隐 28px（滚到头的那一边不渐隐，不然最后一个标签永远蒙着一层）。
+   * 三个时机都要量：滚动、条本身变宽窄（ResizeObserver）、标签增减。
+   */
+  let fadeL = $state(false);
+  let fadeR = $state(false);
+  function measure() {
+    const b = bar;
+    if (!b) return;
+    fadeL = b.scrollLeft > 1;
+    fadeR = b.scrollLeft + b.clientWidth < b.scrollWidth - 1;
+  }
+  $effect(() => {
+    const b = bar;
+    if (!b) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(b);
+    b.addEventListener("scroll", measure, { passive: true });
+    measure();
+    return () => {
+      ro.disconnect();
+      b.removeEventListener("scroll", measure);
+    };
+  });
+  $effect(() => {
+    void tabs.length;
+    // 等这一轮 DOM 更新完再量，不然量到的是加标签之前的宽度
+    queueMicrotask(measure);
+  });
+
   /** 竖着滚滚轮就横向滚标签栏 —— 触控板上这是最自然的手势 */
   function onWheel(e: WheelEvent) {
     if (!bar) return;
@@ -272,7 +306,7 @@
   }
 </script>
 
-<div class="tabs" class:dim role="tablist" data-group={group} bind:this={bar} onwheel={onWheel}>
+<div class="tabs" class:dim class:fade-l={fadeL} class:fade-r={fadeR} role="tablist" data-group={group} bind:this={bar} onwheel={onWheel}>
   {#each tabs as tab, i (tab.id)}
     {@const dot = dotOf(tab)}
     <!-- 中键关标签，浏览器和各家编辑器通用的手势 -->
@@ -413,6 +447,19 @@
     overflow-x: auto;
     overflow-y: hidden;
     user-select: none;
+  }
+  /* 溢出的那一边渐隐（见 measure）。mask 套在滚动容器上，滚出去的内容跟着一起被蒙 */
+  .tabs.fade-l {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 28px);
+    mask-image: linear-gradient(to right, transparent, #000 28px);
+  }
+  .tabs.fade-r {
+    -webkit-mask-image: linear-gradient(to left, transparent, #000 28px);
+    mask-image: linear-gradient(to left, transparent, #000 28px);
+  }
+  .tabs.fade-l.fade-r {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
   }
   .tab {
     display: flex;

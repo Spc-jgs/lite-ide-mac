@@ -16,6 +16,7 @@
     open = $bindable(false),
     current,
     logMode = false,
+    anchor = null,
   }: {
     open?: boolean;
     current: { line: number; col: number } | null;
@@ -25,10 +26,27 @@
      * 日志没有「列」这回事，所以不冲突。
      */
     logMode?: boolean;
+    /** 状态栏「行:列」那格的位置：从格子点开的挂在它上面，⌘L 开的居中 */
+    anchor?: { x: number; y: number } | null;
   } = $props();
 
   let text = $state("");
   let input = $state<HTMLInputElement | null>(null);
+
+  /*
+   * 挂在状态栏那格上面时：钳进视口，抄 ContextMenu 的 `up` —— 读一次矩形、写一次 style，
+   * 改 DOM 不写回 props。`y` 是格子上沿，浮层的下边贴着它。
+   */
+  let popEl = $state<HTMLDivElement | null>(null);
+  $effect(() => {
+    const e = popEl;
+    const a = anchor;
+    if (!e || !a) return;
+    const r = e.getBoundingClientRect();
+    const pad = 8;
+    e.style.left = `${Math.max(pad, Math.min(a.x, window.innerWidth - r.width - pad))}px`;
+    e.style.top = `${Math.max(pad, a.y - r.height)}px`;
+  });
 
   $effect(() => {
     if (!open) return;
@@ -83,7 +101,7 @@
 
 {#if open}
   <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
-  <div class="box" role="dialog" aria-modal="true" aria-label={logMode ? "跳到行或时间" : "跳到行"}>
+  <div class="box popup" class:anchored={!!anchor} bind:this={popEl} role="dialog" aria-modal="true" aria-label={logMode ? "跳到行或时间" : "跳到行"}>
     <label>
       <span class="lbl">{logMode ? "跳到" : "跳到行"}</span>
       <input
@@ -104,7 +122,6 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; z-index: 40; }
   .box {
     position: fixed;
     top: 14vh;
@@ -115,13 +132,10 @@
     flex-direction: column;
     gap: 6px;
     padding: 10px 12px;
-    /* 浮层不透明 —— 桌面在 webview 之外，半透明只会让壁纸清晰地穿过来 */
-    background: var(--elevated);
-    border: var(--island-border); /* M8：浮层边线降一档，靠内高光勾边 */
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
     z-index: 41;
   }
+  .box.anchored { top: 0; left: 0; transform: none; }
   label { display: flex; align-items: center; gap: 10px; }
   .lbl { flex: none; font-size: 12px; color: var(--text-dim); }
   input {

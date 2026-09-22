@@ -216,3 +216,43 @@ export function segments(text: string, positions: number[]): { t: string; hit: b
   if (cursor < text.length) out.push({ t: text.slice(cursor), hit: false });
   return out;
 }
+
+/**
+ * 内容命中行的高亮 + 截片段。
+ *
+ * 文件名和操作走 `segments`（fuzzy 的命中位置），内容行没有位置 —— 搜的是子进程里的 rg
+ * 或内置的 memmem，只回来一行文字。这里在前端再找一遍：**smart-case 的字面量优先**
+ * （rg 的 `--smart-case`：没大写就不区分大小写），找不到再当正则试一次（rg 那条路
+ * 把 pattern 当正则，`order\.id` 这种字面量找不到但正则找得到），正则也不合法就不高亮 ——
+ * 宁可少一个高亮，也不要抛错让整个列表不渲染。
+ *
+ * 截片段：行是 `white-space: nowrap` + ellipsis 印的，命中在第 120 列时人看到的是一行
+ * 无关的前缀加省略号。命中前留 `before` 个字符，前面的收成一个「…」；命中之后不截，
+ * 剩下的交给 ellipsis。
+ */
+export function snippet(text: string, query: string, before = 28): { t: string; hit: boolean }[] {
+  const q = query.trim();
+  if (!q) return [{ t: text, hit: false }];
+  const sensitive = /[A-Z]/.test(q);
+  let idx = sensitive ? text.indexOf(q) : text.toLowerCase().indexOf(q.toLowerCase());
+  let len = q.length;
+  if (idx < 0) {
+    try {
+      const m = new RegExp(q, sensitive ? "" : "i").exec(text);
+      if (m && m[0].length > 0) {
+        idx = m.index;
+        len = m[0].length;
+      }
+    } catch {
+      /* 不是合法正则：不高亮 */
+    }
+  }
+  if (idx < 0) return [{ t: text, hit: false }];
+  const start = idx > before ? idx - before : 0;
+  const head = (start > 0 ? "…" : "") + text.slice(start, idx);
+  const out: { t: string; hit: boolean }[] = [];
+  if (head) out.push({ t: head, hit: false });
+  out.push({ t: text.slice(idx, idx + len), hit: true });
+  if (idx + len < text.length) out.push({ t: text.slice(idx + len), hit: false });
+  return out;
+}

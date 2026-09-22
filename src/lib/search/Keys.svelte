@@ -84,7 +84,7 @@
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
+  <div class="scrim dim" onclick={() => (open = false)} role="presentation"></div>
   <div class="popup" role="dialog" aria-modal="true" aria-label="快捷键速查">
     <div class="head">
       <span class="ic"><Icon name="search" size={16} /></span>
@@ -99,7 +99,7 @@
 
     <div class="list">
       {#if groups.length === 0}
-        <div class="none">没有匹配</div>
+        <div class="none">没有匹配的键位 —— 按功能名（保存）或键名（⌘S）都能搜</div>
       {/if}
       {#each groups as g (g.name)}
         <div class="sec">{g.name}</div>
@@ -129,7 +129,6 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
   .popup {
     position: fixed;
     top: 12vh;
@@ -139,11 +138,7 @@
     max-height: 70vh;
     display: flex;
     flex-direction: column;
-    /* 浮层必须不透明：桌面在 webview 之外，backdrop-filter 模糊不到它 */
-    background: var(--elevated);
-    border: var(--island-border); /* M8：浮层边线降一档，靠内高光勾边 */
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
     z-index: 41;
     overflow: hidden;
   }

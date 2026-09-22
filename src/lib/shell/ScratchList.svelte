@@ -321,7 +321,6 @@
     text-align: left;
     cursor: default;
   }
-  .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   /*
    * 锚点 chip：贴在第二行右端。字色比 meta 亮一档 —— 它是这条草稿区别于备忘录的
    * 那一样东西；能跳的（有 at）hover 变 accent，只有分支的不变。

@@ -1236,7 +1236,10 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
           ? `${row.name} —— 生成物目录。搜索（⌘P / ⇧⌘F）不进这里，点开仍然可以看`
           : row.name}
       >
-        {#if row.isDir}
+        {#if row.isDir && loading.has(row.path)}
+          <!-- 列目录还没回来：箭头的格子换成环。原来 `loading` 记着但什么都不画，大目录 / 网络盘上点了像没反应 -->
+          <span class="caret"><span class="spinner sm"></span></span>
+        {:else if row.isDir}
           <span class="caret" class:open={expanded.has(row.path)}>
             <Icon name="chevron-right" size={10} />
           </span>
@@ -1282,7 +1285,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
 {#if ask}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
-    class="pop"
+    class="pop popup"
     role="dialog"
     tabindex="-1"
     aria-label={ASK_TITLE[ask.kind]}
@@ -1319,7 +1322,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
           rowAt(cursor)?.focus();
         }}>取消</button
       >
-      <button class="btn primary" disabled={ask.busy} onclick={() => void submitAsk()}>
+      <button class="btn primary" disabled={ask.busy} class:busy={ask.busy} aria-busy={ask.busy} onclick={() => void submitAsk()}>
         {ask.kind === "rename" ? "改名" : "新建"}
       </button>
     </div>
@@ -1333,7 +1336,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
 {#if move}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
-    class="pop"
+    class="pop popup"
     role="dialog"
     aria-label="移动"
     tabindex="-1"
@@ -1359,7 +1362,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
           rowAt(cursor)?.focus();
         }}>取消</button
       >
-      <button class="btn primary" disabled={move.busy} onclick={() => void doMove()}>移动</button>
+      <button class="btn primary" disabled={move.busy} class:busy={move.busy} aria-busy={move.busy} onclick={() => void doMove()}>移动</button>
     </div>
   </div>
 {/if}
@@ -1367,7 +1370,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
 {#if trash}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
-    class="pop"
+    class="pop popup"
     role="dialog"
     aria-label="移到废纸篓"
     tabindex="-1"
@@ -1402,7 +1405,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
           rowAt(cursor)?.focus();
         }}>取消</button
       >
-      <button class="btn danger" disabled={trash.busy} onclick={() => void doTrash()}>
+      <button class="btn danger" disabled={trash.busy} class:busy={trash.busy} aria-busy={trash.busy} onclick={() => void doTrash()}>
         移到废纸篓
       </button>
     </div>
@@ -1512,7 +1515,6 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     white-space: nowrap;
   }
   .row.dir { color: var(--text); }
-  .row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   /*
    * 定位命中：只描一圈边，不改底色 —— 底色是 git 装饰和 .active 在用的，
    * 抢过来会让「这行是当前文件」和「这行刚被定位到」混成一个样子。
@@ -1625,10 +1627,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     z-index: 60;
     width: 260px;
     padding: 4px 4px 6px;
-    background: var(--elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    box-shadow: var(--shadow-pop);
+    /* 面在 app.css 的 `.popup`（原来这里是 9% 描边、没有内高光 —— 和右键菜单并排就是两种卡片） */
     outline: none;
   }
   .pinput {

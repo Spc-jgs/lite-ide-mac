@@ -44,7 +44,8 @@
     /** 点面包屑里的目录：在文件树里定位 */
     onReveal: (path: string) => void;
     onSwitchMode: () => void;
-    onOpenEncoding: () => void;
+    /** 带上格子的矩形：浮层挂在它上面 */
+    onOpenEncoding: (rect: DOMRect) => void;
     onOpenDiff: () => void;
     /** 「缩进 · 换行符」那格的菜单选了一项（issue #37）。都是这个文件的属性，写回标签 */
     onSetIndent: (ind: "tab" | number) => void;
@@ -128,7 +129,7 @@
       独立的 static text，读屏和自动化都拼不回一句话 ——
       scripts/smoke.sh 里按「正在提交」找了半天找不到，就是这么回事。
     -->
-    <span class="cell doing navslot">{`正在${notify.doing}…`}</span>
+    <span class="cell doing navslot"><span class="spinner sm now"></span>{`正在${notify.doing}…`}</span>
   {:else if notify.info}
     <span class="cell ok navslot">{notify.info}</span>
   {:else if notify.error}
@@ -167,8 +168,9 @@
     -->
     {#if nav.caret}
       <button
-        class="cell btn pos"
-        onclick={() => (overlay.gotoOpen = true)}
+        class="cell cbtn pos"
+        class:on={overlay.gotoOpen && overlay.gotoAnchor !== null}
+        onclick={(e) => overlay.openGoto(e.currentTarget.getBoundingClientRect())}
         title="跳到行 ⌘L"
       >{nav.caret.line}:{nav.caret.col}</button>
       <span class="vsep" aria-hidden="true"></span>
@@ -187,7 +189,7 @@
     -->
     {#if active.mode === "log" || isLogName(active.path)}
       <button
-        class="cell btn mode"
+        class="cell cbtn mode"
         onclick={onSwitchMode}
         title={active.mode === "log" ? "切换到编辑模式" : "切换到日志模式（只读，带级别过滤与 tail）"}
       >
@@ -218,7 +220,7 @@
       <!-- 缩进 · 换行符。混用的换行符标黄：那是文件坏了，保存时会统一成 LF；点了能改（issue #37） -->
       <span class="vsep drop-2" aria-hidden="true"></span>
       <button
-        class="cell btn fmt drop-2"
+        class="cell cbtn fmt drop-2"
         class:warn={active.eol === "mixed"}
         class:on={fmtMenu !== null}
         bind:this={fmtBtn}
@@ -230,9 +232,10 @@
     {/if}
     <span class="vsep" aria-hidden="true"></span>
     <button
-      class="cell btn enc"
+      class="cell cbtn enc"
       class:bad={active.lossy}
-      onclick={onOpenEncoding}
+      class:on={overlay.encOpen}
+      onclick={(e) => onOpenEncoding(e.currentTarget.getBoundingClientRect())}
       title={active.lossy
         ? "有解不出的字节，点这里换个编码重新打开"
         : "文件编码 —— 点击可换编码重新打开或另存"}
@@ -268,7 +271,7 @@
     {#if activeEntry}
       <span class="vsep" aria-hidden="true"></span>
       <button
-        class="cell btn git"
+        class="cell cbtn git"
         onclick={onOpenDiff}
         title="查看这个文件的改动"
       >
@@ -369,33 +372,49 @@
   .statusbar .err { color: var(--lvl-error); }
   /*
    * 「正在做」是中性的：不是成功也不是失败，用正文色，不抢 accent。
-   * 加一点点透明当作「还没定下来」的暗示 —— 不用转圈动画，
-   * 状态栏上一个一直转的东西比它想传达的信息更吵。
+   * 加一点点透明当作「还没定下来」的暗示。
+   *
+   * 环是 2026-09-21 加的。之前这里写着「不用转圈动画，状态栏上一个一直转的东西比它想传达
+   * 的信息更吵」—— 那条担心的是**常驻**的转圈；而 `doing` 本来就只在操作跑着的时候存在，
+   * 而且 `gitDo` 已经等过 300ms 才把它放出来（慢操作才说话）。真正的问题是反过来的：
+   * 一句 75% 透明的「正在提交…」和旁边的面包屑几乎一个样，人分不出它是「在动」还是「卡了」。
+   * `now`：这句话已经等过 300ms 才出现，环不必再等 150ms。
    */
-  .statusbar .doing { color: var(--text); opacity: 0.75; }
+  .statusbar .doing { display: inline-flex; align-items: center; gap: 6px; color: var(--text); opacity: 0.75; }
   .statusbar .warn { color: var(--lvl-warn); }
-  .statusbar .btn.enc { font-size: 11px; }
+  .statusbar .cbtn.enc { font-size: 11px; }
   /* 解码有损是必须让人看见的事，不能只做成一个安静的标签 */
-  .statusbar .btn.enc.bad { color: var(--lvl-error); }
-  .statusbar .btn {
+  .statusbar .cbtn.enc.bad { color: var(--lvl-error); }
+  /*
+   * 状态栏的格子（2026-09-22 之前叫 `.btn`）：撞上了 app.css 的全局 `.btn`，靠这里覆盖着
+   * 才没长成 24px 描边按钮 —— 全局那套一改（加个 transition、改个圆角）这里就跟着变。
+   * 改名之后原来从全局白捡的几条（inline-flex、行高、不换行）在这儿自己写。
+   */
+  .statusbar .cbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
     background: transparent;
     border: none;
     color: var(--text-faint);
     font-family: var(--code-font);
     font-size: 11.5px;
-    padding: 1px 6px;
+    line-height: 1;
+    padding: 0 6px;
     border-radius: var(--r-sm);
+    white-space: nowrap;
     cursor: default;
   }
-  .statusbar .btn:hover { background: var(--hover); color: var(--text); }
-  .statusbar .btn.mode { color: var(--text-dim); }
+  .statusbar .cbtn:hover { background: var(--hover); color: var(--text); }
+  .statusbar .cbtn.mode { color: var(--text-dim); }
   /* 菜单开着时这格保持点亮（ui.md 第十二条），不然那块浮层像凭空冒出来的 */
-  .statusbar .btn.on { background: var(--selected); color: var(--text); }
-  .statusbar .btn.fmt.warn { color: var(--lvl-warn); }
-  .statusbar .btn.mode:hover { color: var(--accent); }
-  .statusbar .btn.git { color: var(--git-modified); }
+  .statusbar .cbtn.on { background: var(--selected); color: var(--text); }
+  .statusbar .cbtn.fmt.warn { color: var(--lvl-warn); }
+  .statusbar .cbtn.mode:hover { color: var(--accent); }
+  .statusbar .cbtn.git { color: var(--git-modified); }
   /* 行:列是等宽数字，给个最小宽度，光标从 9 行跳到 10 行时右边那几格不动 */
-  .statusbar .btn.pos { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+  .statusbar .cbtn.pos { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
   /*
    * 挂件之间的竖线。**这是分区不是分项** —— 模式、语言/只读原因、编码、
    * 保存状态、git 状态，五组各说一件事，同字号同颜色排在一起时得有个断点。

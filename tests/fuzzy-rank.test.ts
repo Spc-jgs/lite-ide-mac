@@ -11,7 +11,7 @@
  *
  * 覆盖 fuzzy.ts 注释里那四条偏好，外加 rank 的稳定性和 segments 的切分。
  */
-import { fuzzyMatch, rank, segments } from "../src/lib/search/fuzzy.ts";
+import { fuzzyMatch, rank, segments, snippet } from "../src/lib/search/fuzzy.ts";
 
 let pass = 0,
   fail = 0;
@@ -259,6 +259,23 @@ ok(fuzzyMatch("文档/说明.md", "xyz") === null, "中文串里搜不到就是 
 {
   const t = fuzzyMatch("İstanbul.ts", "i");
   ok(t === null || t.positions.length === 1, "土耳其点 I 之类的特殊大小写不能崩");
+}
+
+// ── 10. snippet：内容行的高亮与截片段 ──
+{
+  const hit = (s: { t: string; hit: boolean }[]) => s.filter((x) => x.hit).map((x) => x.t).join("");
+  const join = (s: { t: string; hit: boolean }[]) => s.map((x) => x.t).join("");
+  ok(hit(snippet("return repo.save(order);", "order")) === "order", "字面量命中");
+  ok(hit(snippet("public Order persist(Order o)", "order")) === "Order", "没大写就不区分大小写（smart-case）");
+  ok(hit(snippet("public Order persist(order o)", "Order")) === "Order", "有大写就区分");
+  ok(join(snippet("return repo.save(order);", "order")) === "return repo.save(order);", "没截时拼回来是原串");
+  const long = "x".repeat(100) + "needle" + "y".repeat(10);
+  const s = snippet(long, "needle");
+  ok(s[0].t.startsWith("…") && s[0].t.length === 29, `命中太靠后要截，前面收成 …，实得 ${s[0].t.length}`);
+  ok(hit(s) === "needle" && s[2].t === "y".repeat(10), "截过之后命中和尾巴都还在");
+  ok(hit(snippet("metrics.record(order.id)", "order\\.id")) === "order.id", "字面量找不到时按正则再试");
+  ok(snippet("abc", "(").length === 1 && !snippet("abc", "(")[0].hit, "不合法的正则不高亮也不抛");
+  ok(snippet("abc", "").length === 1, "空查询整行不高亮");
 }
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} 模糊匹配排序：${pass} 通过，${fail} 失败`);

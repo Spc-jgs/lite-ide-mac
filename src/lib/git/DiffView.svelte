@@ -302,7 +302,8 @@
     {#if blocks.length > 0}
       <span class="nav">
         <button class="ibtn sm" onclick={() => jump(-1)} title="上一处改动 ⇧F7" aria-label="上一处改动"><Icon name="chevron-up" size={11} /></button>
-        <span class="pos">{cur < 0 ? "—" : cur + 1}/{blocks.length}</span>
+        <!-- 还没跳过时说「3 处」，跳过才说「1/3」—— 「—/3」读不出是什么 -->
+        <span class="pos">{cur < 0 ? `${blocks.length} 处` : `${cur + 1}/${blocks.length}`}</span>
         <button class="ibtn sm" onclick={() => jump(1)} title="下一处改动 F7" aria-label="下一处改动"><Icon name="chevron-down" size={11} /></button>
       </span>
     {/if}

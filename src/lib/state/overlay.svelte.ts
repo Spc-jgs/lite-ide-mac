@@ -30,6 +30,13 @@ class Overlay {
   encOpen = $state(false);
   /** 跳到行（⌘L）。只在有编辑器时有意义，开它的人自己判 */
   gotoOpen = $state(false);
+  /**
+   * 编码 / 跳行这两个浮层从状态栏的格子上开时，挂在那格**上面**（ui.md 十二：浮层从触发它
+   * 的控件那儿掉出来，同一排的缩进菜单早就是这样）；⌘L / 菜单开的没有触发控件，照旧居中。
+   * `y` 是格子的上沿减 4，浮层的**下边**贴着它。
+   */
+  encAnchor = $state<{ x: number; y: number } | null>(null);
+  gotoAnchor = $state<{ x: number; y: number } | null>(null);
 
   branchOpen = $state(false);
   /**
@@ -40,6 +47,16 @@ class Overlay {
    * 浮层渲染的那一帧就要知道往哪儿掉。
    */
   branchAnchor = $state<{ x: number; y: number } | null>(null);
+
+  /** 有 `rect`（状态栏那格）就挂在它上面，没有就居中 */
+  openEncoding(rect?: DOMRect) {
+    this.encAnchor = rect ? { x: rect.left, y: rect.top - 4 } : null;
+    this.encOpen = true;
+  }
+  openGoto(rect?: DOMRect) {
+    this.gotoAnchor = rect ? { x: rect.left, y: rect.top - 4 } : null;
+    this.gotoOpen = true;
+  }
 
   /** 开随处搜索。`seed` 不传就是清空 —— 见 `quickSeed` 的注释 */
   openQuick(scope: "all" | "file" | "content" | "action", seed = "") {

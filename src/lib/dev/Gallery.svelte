@@ -70,6 +70,40 @@
   </section>
 
   <section>
+    <h2>等待 <code>.spinner</code> / <code>.busy</code> <small>同一个环；150ms 之内不出现（这一页是常亮的，所以你看到的是 150ms 之后的样子）；busy 的按钮宽高不变、和 disabled 一起写</small></h2>
+    <div class="row">
+      <span class="lbl">spinner</span>
+      <span class="spinner"></span>
+      <span class="spinner sm"></span>
+      <span class="loading"><span class="spinner"></span>正在载入终端…</span>
+      <span class="lbl">btn.busy</span>
+      <button class="btn busy" disabled>默认</button>
+      <button class="btn primary busy" disabled>主动作</button>
+      <button class="btn danger busy" disabled>不可逆</button>
+      <button class="btn sm primary busy" disabled>主动作 sm</button>
+      <span class="btn-split"><button class="btn primary busy" disabled>提交 (3)</button><button class="btn primary" disabled><Icon name="chevron-down" size={11} /></button></span>
+      <span class="lbl">ibtn.busy</span>
+      <button class="ibtn busy" disabled title="刷新中"><Icon name="refresh" /></button>
+    </div>
+  </section>
+
+  <section>
+    <h2>确认卡片 <code>.confirm</code> <small>无色 = 选择题；<code>warn</code> = 要你决定；<code>bad</code> = 不可逆 / 没做成。主动作最右，取消紧挨其左，越不可逆越靠左</small></h2>
+    <div class="cards">
+      <div class="confirm"><span><b>README.md</b> 有未保存的改动</span><span class="gap"></span><button class="btn">丢弃改动</button><button class="btn">取消</button><button class="btn primary">保存并关闭</button></div>
+      <div class="confirm warn"><span><b>README.md</b> 在编辑器外被改过，而你这边也有未保存的改动</span><span class="gap"></span><button class="btn">用磁盘上的</button><button class="btn primary">保留我的</button></div>
+      <div class="confirm bad"><span>要丢弃 <b>src/App.svelte</b> 的改动吗？<b>这一步不可撤销</b></span><span class="gap"></span><button class="btn">取消</button><button class="btn danger">丢弃</button></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>浮层的面 <code>.popup</code> / <code>.scrim</code> <small>底、5% 边、r-md、投影 + 内高光、90ms 淡入；位置和尺寸各组件自己管。右键菜单用同一个面但不淡入</small></h2>
+    <div class="row">
+      <div class="popup demo">浮层 / 菜单 / 弹窗</div>
+    </div>
+  </section>
+
+  <section>
     <h2>图标 <code>Icon</code> <small>{ICON_NAMES.length} 个 · 16 网格、字形收在 2–14、描边 1.25、端点 round；默认 14px，行内 11–12，标签上的 ✕ 10</small></h2>
     <div class="icons">
       {#each ICON_NAMES as n (n)}
@@ -112,6 +146,9 @@
   .icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
   .ic { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: var(--r-sm); color: var(--text-dim); }
   .ic:hover { background: var(--hover); }
+  .loading { display: inline-flex; align-items: center; gap: 8px; color: var(--text-faint); font-size: 12px; }
+  .cards { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .popup.demo { width: 160px; padding: 14px; font-size: 12px; color: var(--text-dim); }
   .tone { display: flex; align-items: center; gap: 8px; }
   .sw { width: 28px; height: 20px; border-radius: var(--r-sm); border: 1px solid var(--border); }
   .tone small { color: var(--text-faint); }

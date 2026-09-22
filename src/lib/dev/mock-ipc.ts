@@ -707,6 +707,24 @@ function runFilter(s: LogSrc, levelBits: number, pattern: string, caseSensitive:
 /** 桩里模拟耗时用。真实现的每一段进度之间本来就有间隔 */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 内容搜索的匹配，**对齐真实现的 rg**：pattern 当正则、`--smart-case`（没大写就不区分大小写）。
+ * 原来一律 `toLowerCase().includes()`，搜「Order」会多回来 `order-service` 那几行 ——
+ * 界面上高亮（`fuzzy.ts` 的 `snippet`，也是 smart-case）正确地不标它们，于是浏览器里
+ * 看到「有结果却没高亮」，去查高亮却查不出毛病。桩和真实现分叉就是这么骗人的。
+ * 不是合法正则就退回字面量（rg 那边会报错，桩里不值得模拟一条错误路径）。
+ */
+function grepMatcher(pattern: string): (text: string) => boolean {
+  const sensitive = /[A-Z]/.test(pattern);
+  try {
+    const re = new RegExp(pattern, sensitive ? "" : "i");
+    return (t) => re.test(t);
+  } catch {
+    const p = sensitive ? pattern : pattern.toLowerCase();
+    return (t) => (sensitive ? t : t.toLowerCase()).includes(p);
+  }
+}
+
 /** 远程操作的假 id，和被取消的那些 */
 let mockRemoteId = 0;
 /** 假 shell 的句柄表（见 `pty_spawn`）：id → 回传 Channel */
@@ -860,6 +878,12 @@ export function installMockIpc(): void {
         }
         case "list_dir": {
           const path = String(a.path);
+          /*
+           * `node_modules` **故意慢**：文件树展开目录的等待指示（折叠箭头换成环）150ms 之内不出，
+           * 而桩 0ms 返回的话它在浏览器里一次都验不到 —— 同 `git_commit` 那条的道理。
+           * 挑 node_modules 是因为真机上它就是最慢的那个（几万个条目）。
+           */
+          if (path.endsWith("/node_modules")) await sleep(900);
           // 排序规则抄 Rust 侧 list_dir：目录在前，同类按名称不区分大小写。
           // 桩里原来是按写死的顺序返回的 —— 新建一个文件之后它会吊在列表最后，
           // 而真实现会把它排到该在的位置，「新建完滚过去」那段交互就白验了
@@ -1078,6 +1102,9 @@ export function installMockIpc(): void {
         case "trash_entry": {
           const path = String(a.path);
           if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
+          // 故意慢：废纸篓走的是 Finder（NSWorkspace），Finder 忙的时候真会等上一秒。
+          // 弹窗里主动作按钮的 busy 态（`.btn.busy`）只在这条路上能在浏览器里看到
+          await sleep(800);
           dropSubtree(path);
           console.info(`[mock] 移到废纸篓 ${path}`);
           return null;
@@ -1096,28 +1123,28 @@ export function installMockIpc(): void {
           return { files, truncated };
         }
         case "grep_project": {
-          const pat = String(a.pattern).toLowerCase();
+          const hit = grepMatcher(String(a.pattern));
           const out: Array<{ path: string; line: number; text: string }> = [];
           for (const [full, content] of Object.entries(FILES)) {
             // 只搜项目根底下的：真 rg 跑在 /proj 里，草稿目录那些它根本看不见
             if (!full.startsWith("/proj/") || searchSkips(full)) continue;
             const rel = full.replace(/^\/proj\//, "");
             content.split("\n").forEach((text, i) => {
-              if (text.toLowerCase().includes(pat)) out.push({ path: rel, line: i + 1, text });
+              if (hit(text)) out.push({ path: rel, line: i + 1, text });
             });
           }
           return out.slice(0, Number(a.limit) || 60);
         }
         case "grep_scratches": {
           // 只搜草稿目录；文件头（锚点）里的命中滤掉，同 Rust 侧
-          const pat = String(a.pattern).toLowerCase();
+          const hit = grepMatcher(String(a.pattern));
           const out: Array<{ path: string; line: number; text: string }> = [];
           for (const [full, content] of Object.entries(FILES)) {
             if (!full.startsWith(`${SCRATCH_DIR}/`)) continue;
             const [anchor, off] = splitFrontmatter(content);
             const headLines = anchor ? content.slice(0, off).replace(/\n$/, "").split("\n").length : 0;
             content.split("\n").forEach((text, i) => {
-              if (i + 1 > headLines && text.toLowerCase().includes(pat)) out.push({ path: full, line: i + 1, text });
+              if (i + 1 > headLines && hit(text)) out.push({ path: full, line: i + 1, text });
             });
           }
           return out.slice(0, Number(a.limit) || 60);

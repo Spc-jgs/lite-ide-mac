@@ -296,7 +296,7 @@
       />
     {/key}
   {:else if tab.mode === "merge"}
-    <div class="empty"><p>正在载入合并视图…</p></div>
+    <div class="empty"><p class="wait"><span class="spinner"></span>正在载入合并视图…</p></div>
   {:else if tab.mode === "diff" && Diff}
     {#key tab.id}
       <Diff
@@ -313,7 +313,7 @@
       />
     {/key}
   {:else if tab.mode === "diff"}
-    <div class="empty"><p>正在载入差异视图…</p></div>
+    <div class="empty"><p class="wait"><span class="spinner"></span>正在载入差异视图…</p></div>
   {:else if tab.mode === "log" && tab.handle !== undefined && logPane.comp}
     {#key tab.id}
       {@const id = tab.id}
@@ -337,7 +337,7 @@
       />
     {/key}
   {:else if tab.mode === "log"}
-    <div class="empty"><p>正在载入日志视图…</p></div>
+    <div class="empty"><p class="wait"><span class="spinner"></span>正在载入日志视图…</p></div>
   {:else if editor.comp}
     {#key tab.id}
       <editor.comp
@@ -390,7 +390,7 @@
       />
     {/key}
   {:else}
-    <div class="empty"><p>正在载入编辑器…</p></div>
+    <div class="empty"><p class="wait"><span class="spinner"></span>正在载入编辑器…</p></div>
   {/if}
 </div>
 
@@ -437,6 +437,8 @@
   }
   .empty .big { font-size: 14.5px; color: var(--text); margin-bottom: 4px; }
   .empty p { margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--text-faint); }
+  /* 懒加载的那几块在等 chunk：环 + 一句话（ui.md 十四）。150ms 内回来的看不到环，热缓存下就是一闪而过的字 */
+  .empty .wait { display: inline-flex; align-items: center; gap: 8px; }
   /*
    * 主动作是按钮，拖拽退成第二说法 —— 拖拽是这几种开法里最不像 macOS 的一种，
    * 而它原来是卡片上唯一的说法。

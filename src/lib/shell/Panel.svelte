@@ -248,7 +248,7 @@
             </div>
           {/each}
         {:else}
-          <div class="loading">正在载入终端…</div>
+          <div class="loading"><span class="spinner"></span>正在载入终端…</div>
         {/if}
       </div>
       <!-- 收起时别去拉 git log：那是一串没人看的子进程 -->
@@ -258,7 +258,7 @@
           {#if gitcon.comp}
             <gitcon.comp />
           {:else}
-            <div class="loading">正在载入 Git 控制台…</div>
+            <div class="loading"><span class="spinner"></span>正在载入 Git 控制台…</div>
           {/if}
         </div>
       {/if}
@@ -267,7 +267,7 @@
           {#if gitLogReady}
             {@render gitLog()}
           {:else}
-            <div class="loading">正在载入 Git 日志…</div>
+            <div class="loading"><span class="spinner"></span>正在载入 Git 日志…</div>
           {/if}
         </div>
       {/if}
@@ -416,8 +416,10 @@
   .term-slot.hidden { visibility: hidden; pointer-events: none; z-index: -1; }
 
   .loading {
-    display: grid;
-    place-content: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     height: 100%;
     color: var(--text-faint);
     font-size: 12px;

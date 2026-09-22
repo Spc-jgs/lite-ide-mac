@@ -4,7 +4,7 @@
   import { grepProject, grepScratches } from "../ipc/search";
   import { files } from "../state/files.svelte";
   import { project } from "../state/project.svelte";
-  import { rank, segments } from "./fuzzy";
+  import { rank, segments, snippet } from "./fuzzy";
   import Icon from "../shell/Icon.svelte";
   import FileGlyph from "../shell/FileGlyph.svelte";
 
@@ -244,7 +244,7 @@
 
 {#if open}
   <!-- 点遮罩关闭；键盘路径由输入框的 onKey 负责，这里不重复挂监听 -->
-  <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
+  <div class="scrim dim" onclick={() => (open = false)} role="presentation"></div>
   <div class="popup" role="dialog" aria-modal="true" aria-label="随处搜索">
     <!--
       输入排第一。面板打开之后的下一个动作永远是打字，
@@ -273,10 +273,13 @@
     <div class="results">
       {#if rows.length === 0}
         <div class="none">
-          {#if searching}搜索中…
+          {#if searching}<span class="wait"><span class="spinner"></span>搜索中…</span>
           {:else if query.length === 0}输入以开始{#if scope === "all" || scope === "file"} —— 打开过的文件会列在这儿{/if}
           {:else if (scope === "content" || scope === "all") && query.length < 2}内容搜索至少输入 2 个字符
-          {:else}没有匹配{/if}
+          {:else if scope === "file"}没有匹配的文件 —— <kbd>Tab</kbd> 换到「内容」搜正文
+          {:else if scope === "content"}正文里没有这个词 —— <kbd>Tab</kbd> 换到「文件」按名找
+          {:else if scope === "action"}没有这个操作 —— <kbd>Tab</kbd> 换到「全部」
+          {:else}没有匹配 —— 换个词，或 <kbd>Tab</kbd> 缩小范围{/if}
         </div>
       {/if}
       {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" ? `${row.path}:${row.line}` : row.kind === "file" || row.kind === "recent" ? row.path : row.action.id))}
@@ -314,12 +317,13 @@
             <span class="side">{recentSide(row.path)}</span>
           {:else if row.kind === "scratch"}
             <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
-            <span class="main mono">{row.text.trim()}</span>
+            <span class="main mono">{#each snippet(row.text.trim(), query) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
             <!-- 右边是标题不是路径：`~/Library/…/2026-09-15 0930.md:31` 认不出是哪条 -->
             <span class="side plain">{row.title}</span>
           {:else}
             <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
-            <span class="main mono">{row.text.trim()}</span>
+            <!-- 内容行也高亮命中，并把命中截到看得见的位置 —— 之前只有文件名和操作有 <mark>，十几行结果得自己再找一遍 -->
+            <span class="main mono">{#each snippet(row.text.trim(), query) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
             <span class="side">{row.path}:{row.line}</span>
           {/if}
         </button>
@@ -342,7 +346,6 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
   .popup {
     position: fixed;
     top: 14vh;
@@ -352,11 +355,7 @@
     max-height: 66vh;
     display: flex;
     flex-direction: column;
-    /* 浮层不透明 —— 桌面在 webview 之外，半透明只会让壁纸清晰地穿过来 */
-    background: var(--elevated);
-    border: var(--island-border); /* M8：浮层边线降一档，靠内高光勾边 */
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
     z-index: 41;
     overflow: hidden;
   }
@@ -405,6 +404,7 @@
 
   .results { overflow-y: auto; padding: 2px 0 4px; }
   .none { padding: 18px 14px; color: var(--text-faint); font-size: 12.5px; text-align: center; }
+  .none .wait { display: inline-flex; align-items: center; gap: 8px; }
 
   /* 分组头。列表一长，它一滚就看不见了 —— 吸顶 */
   .sec {
