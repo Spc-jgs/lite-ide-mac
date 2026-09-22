@@ -190,7 +190,7 @@
     color: var(--text-dim);
     font-family: var(--code-font);
     font-size: 11px;
-    cursor: pointer;
+    cursor: default;
   }
   .chip:hover { background: var(--hover); }
   .chip .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
@@ -231,7 +231,7 @@
     color: var(--text-faint);
     font-family: var(--code-font);
     font-size: 10.5px;
-    cursor: pointer;
+    cursor: default;
   }
   .cs:hover { background: var(--hover); color: var(--text); }
   .cs.on { background: var(--accent-sel); color: var(--text); }
@@ -294,7 +294,7 @@
     border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: 11px;
-    cursor: pointer;
+    cursor: default;
     flex: none;
   }
   .tail:hover { background: var(--hover); }

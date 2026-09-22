@@ -183,7 +183,9 @@
    * 提交列表的键盘导航。浏览历史是「一条条往下看」的动作，
    * 每看一条都要摸鼠标是很累的。
    */
-  let rowEls: HTMLButtonElement[] = [];
+  // `$state`：裸数组每渲染一行 Svelte 就警告一次「binding to a non-reactive property」，
+  // 十一条提交刷十一条，真正该看的警告全埋在里面（BranchPicker 那份早就是 $state）
+  let rowEls = $state<HTMLButtonElement[]>([]);
 
   function onRowKey(e: KeyboardEvent, i: number) {
     // 键盘也能开菜单（⇧F10 / ContextMenu），同文件树、标签栏

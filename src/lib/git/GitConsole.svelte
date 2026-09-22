@@ -190,7 +190,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
   }
   .tools .gap { flex: 1; }
   .tools .bad { color: var(--danger, #e5534b); }
-  .chk { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .chk { display: flex; align-items: center; gap: 4px; cursor: default; }
   .chk input { margin: 0; }
 
   .empty {
@@ -217,7 +217,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
     border: 0;
     padding: 2px 8px;
     text-align: left;
-    cursor: pointer;
+    cursor: default;
     font-family: var(--mono-font, ui-monospace, monospace);
     font-size: 11.5px;
     color: var(--text);
@@ -252,7 +252,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
     border: 0;
     padding: 3px 8px;
     color: var(--text-dim);
-    cursor: pointer;
+    cursor: default;
     opacity: 0;
     font-size: 11px;
     white-space: nowrap;

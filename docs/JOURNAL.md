@@ -7586,3 +7586,16 @@ Web Animations API 拿**：`a.currentTime = 200` 手动拨过去，再读计算�
   app.css 的 `.ibtn`，面板里那份 24×26 的复制品删了。日志过滤条的清除 ✕ 顺手一起换。
 - **查找计数「·/3」改「3 处」**，同上一批 Diff 头的「—/3」。三处（编辑器 / 终端 / Diff）
   现在一个形状：光标不在匹配上说总数，在上面说 i/N。
+
+## 2026-09-22 · 第六批：cherry-pick 撞冲突说人话、光标形状、Svelte 警告刷屏
+
+- **cherry-pick / 取回 stash 撞上冲突时横幅是 git 的原话**（"hint: After resolving the
+  conflicts, mark them with git add/rm…"）—— ui.md 十三第三档说的正是这种：不是出错，是
+  「你得先决定怎么办」，原话是写给命令行用户的。`run` 失败后刷新一次 status，有冲突文件就把
+  横幅换成「N 个文件冲突中：…，在「改动」里点开逐个解决，全部解决后正常提交」，原话附在
+  下面。判据在刷新后的状态上，不去 `contains("could not apply")`。
+- **光标形状**：全应用按钮是 `cursor: default`（macOS 原生控件是箭头），日志过滤条、Git 控制台、
+  Git 页分组头、缩略图共 8 处是 `pointer`，统一掉。
+- **GitLog 的 `bind:this={rowEls[i]}` 每渲染一行警告一次**「binding to a non-reactive
+  property」，11 条提交刷 11 条 —— FileTree 的注释早就写过这个坑，BranchPicker 那份也早是
+  `$state`。改成 `$state`。开发时控制台的噪音会把真正的警告埋掉，这类要当 bug 修。

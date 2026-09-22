@@ -420,7 +420,8 @@ const minimapTheme = EditorView.theme({
     bottom: 0,
     width: `${WIDTH}px`,
     zIndex: "3",
-    cursor: "pointer",
+    // 箭头不是小手：全应用的按钮都是 cursor: default（macOS 原生控件就是这样），这里原来是唯一的 pointer
+    cursor: "default",
     borderLeft: "1px solid rgba(255,255,255,.06)",
     // 必须不透明：半透明时长行会从底下透出来，糊成一片
     background: "#1e1f22",

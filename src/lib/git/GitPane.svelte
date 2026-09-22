@@ -570,7 +570,7 @@
     font-size: 12px;
     text-align: left;
     border-radius: var(--r-sm);
-    cursor: pointer;
+    cursor: default;
   }
   .gdir:hover { background: var(--hover); }
   .gcaret { display: inline-flex; color: var(--text-faint); transition: transform 0.12s; transform: rotate(90deg); }

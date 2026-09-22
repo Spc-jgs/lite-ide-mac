@@ -109,9 +109,28 @@ export async function stashPop(): Promise<boolean> {
     notify.ok("已取回 stash", 3000);
   }, "取回 stash");
   // `run` 失败不刷新，而 pop 撞上冲突时盘上**已经**变了 —— 冲突得让人看见
-  if (!ok) await git.refresh();
+  if (!ok) await conflictOrRaw("取回 stash");
   await worktree.changed();
   return ok;
+}
+
+/**
+ * 写操作失败、刷新之后发现是**撞上冲突**：把横幅从「git 的原话」换成第三档的说法
+ * （ui.md 十三：把挡路的摆出来，给现成的出路）。git 那段 "hint: After resolving the
+ * conflicts, mark them with git add/rm…" 是写给命令行用户的；界面用户要的是
+ * 「哪几个文件、去哪儿解决」。不是冲突（比如 sha 不存在）就保留 `run` 已经弹出的原话。
+ */
+async function conflictOrRaw(what: string) {
+  await git.refresh();
+  const files = git.status?.entries.filter((e) => e.conflicted).map((e) => e.path) ?? [];
+  if (files.length === 0) return;
+  const raw = notify.banner?.body ?? "";
+  notify.block(
+    `${what} 撞上冲突，没有回滚`,
+    `${files.length} 个文件冲突中：${files.join("、")}\n` +
+      "在「改动」里点开逐个解决，保存即标记为已解决；全部解决后正常提交。" +
+      (raw ? `\n\ngit 的原话：${raw}` : ""),
+  );
 }
 
 /**
@@ -263,7 +282,7 @@ export async function cherryPick(sha: string, short: string): Promise<boolean> {
     await gitCherryPick(git.repo!, sha);
     notify.ok(`已把 ${short} cherry-pick 到当前分支`, 3000);
   }, "cherry-pick");
-  if (!ok) await git.refresh();
+  if (!ok) await conflictOrRaw(`cherry-pick ${short}`);
   await worktree.changed();
   return ok;
 }
