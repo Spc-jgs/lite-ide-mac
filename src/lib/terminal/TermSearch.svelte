@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * 终端里的查找框（issue #34）。**长得和编辑器那个一样**（`editor/search-panel.ts`）：
-   * 输入框里嵌开关和计数、右边 ↑ ↓ ✕。样子照抄不复用代码 —— 那个是 CM6 的 Panel，
+   * 输入框里嵌开关和计数、右边上一个 / 下一个 / 关闭。样子照抄不复用代码 —— 那个是 CM6 的 Panel，
    * 靠 `EditorView.theme` 注入样式、靠 `runScopeHandlers` 转键；这里是普通 DOM。
    *
    * **浮在终端右上角，不把终端往下推。** 编辑器的面板是 `top: true` 挤开正文的，
@@ -11,6 +11,8 @@
    * 搜索本身在 `Terminal.svelte`（它持有 xterm 和 SearchAddon），这里只管
    * 「人输入了什么、按了什么」，通过回调报过去；命中计数从那边灌回来。
    */
+  import Icon from "../shell/Icon.svelte";
+
   let {
     initial = "",
     count,
@@ -88,9 +90,10 @@
     <button class="tg" class:on={wholeWord} type="button" title="全词匹配" onclick={() => { wholeWord = !wholeWord; input?.focus(); }}>W</button>
     <button class="tg" class:on={regex} type="button" title="正则表达式" onclick={() => { regex = !regex; input?.focus(); }}>.*</button>
   </div>
-  <button class="nav" type="button" title="上一个（⇧↵）" onclick={onPrev}>↑</button>
-  <button class="nav" type="button" title="下一个（↵）" onclick={onNext}>↓</button>
-  <button class="nav" type="button" title="关闭（esc）" onclick={onClose}>✕</button>
+  <!-- 箭头和 ✕ 走 Icon + .ibtn（ui.md 八），和编辑器的查找面板一起从字体符号换过来的 -->
+  <button class="ibtn nav" type="button" title="上一个（⇧↵）" aria-label="上一个" onclick={onPrev}><Icon name="chevron-up" size={12} /></button>
+  <button class="ibtn nav" type="button" title="下一个（↵）" aria-label="下一个" onclick={onNext}><Icon name="chevron-down" size={12} /></button>
+  <button class="ibtn nav" type="button" title="关闭（esc）" aria-label="关闭" onclick={onClose}><Icon name="x" size={12} /></button>
 </div>
 
 <style>
@@ -170,20 +173,6 @@
   }
   .tg:hover { background: var(--hover); color: var(--text-dim); }
   .tg.on { background: var(--accent); color: #fff; }
-  .nav {
-    flex: none;
-    display: grid;
-    place-content: center;
-    width: 24px;
-    height: 26px;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: var(--r-sm);
-    color: var(--text-dim);
-    font-size: 12px;
-    line-height: 1;
-    cursor: default;
-  }
-  .nav:hover { background: var(--hover); color: var(--text); }
+  /* 导航按钮就是 app.css 的 `.ibtn`，这里只在 26 高的行里摆正 */
+  .nav { align-self: center; }
 </style>

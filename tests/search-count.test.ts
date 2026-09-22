@@ -64,8 +64,8 @@ ok(countLabel(坏正则, countMatches(st("abc"), 坏正则)) === "无效", "坏�
 ok(countLabel(q("y"), big) === "", "太大不数时留白，而不是显示 0");
 ok(countLabel(q("x"), c) === `1/${MAX_COUNT}+`, "到上限要带 +");
 ok(
-  countLabel(q("foo"), countMatches(st("foo bar foo baz foo", 19), q("foo"))) === "·/3",
-  "光标不在任何匹配上时用 ·，不是 0",
+  countLabel(q("foo"), countMatches(st("foo bar foo baz foo", 19), q("foo"))) === "3 处",
+  "光标不在任何匹配上时说「3 处」，不是 0/3 也不是 ·/3",
 );
 
 console.log(`${fail === 0 ? "✅" : "❌"} 查找计数：${pass} 通过，${fail} 失败`);

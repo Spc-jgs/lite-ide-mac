@@ -51,10 +51,15 @@ export function countMatches(state: EditorState, query: SearchQuery): Counted {
   return { index, total, capped: false, skipped: false };
 }
 
-/** 显示成 `3/17`。没有匹配、没数、还没输入时给不同的字 */
+/**
+ * 显示成 `3/17`。没有匹配、没数、还没输入时给不同的字。
+ * 光标还不在任何一个匹配上时说「17 处」，不说「·/17」—— 那个点读不出是什么
+ * （Diff 头的「—/3」2026-09-22 同样改成了「3 处」，两处一个形状）。
+ */
 export function countLabel(q: SearchQuery, c: Counted): string {
   if (!q.search) return "";
   if (c.skipped) return q.valid ? "" : "无效";
   if (c.total === 0) return "无匹配";
-  return `${c.index || "·"}/${c.total}${c.capped ? "+" : ""}`;
+  const n = `${c.total}${c.capped ? "+" : ""}`;
+  return c.index ? `${c.index}/${n}` : `${n} 处`;
 }

@@ -105,7 +105,7 @@
       title="区分大小写"
     >Aa</button>
     {#if pattern}
-      <button class="clr" onclick={() => (pattern = "")} title="清除">✕</button>
+      <button class="ibtn sm" onclick={() => (pattern = "")} title="清除" aria-label="清除过滤"><Icon name="x" size={10} /></button>
     {/if}
   </div>
 
@@ -222,7 +222,7 @@
   /* 正则写坏了：和编辑器查找面板同一个说法 —— 字变红，不弹任何东西；边打边写的正则大半时间是坏的 */
   .search input.bad { color: var(--lvl-error); }
   .search input::placeholder { color: var(--text-faint); }
-  .cs, .clr {
+  .cs {
     height: 22px;
     min-width: 22px;
     background: transparent;
@@ -233,7 +233,7 @@
     font-size: 10.5px;
     cursor: pointer;
   }
-  .cs:hover, .clr:hover { background: var(--hover); color: var(--text); }
+  .cs:hover { background: var(--hover); color: var(--text); }
   .cs.on { background: var(--accent-sel); color: var(--text); }
 
   .hits {

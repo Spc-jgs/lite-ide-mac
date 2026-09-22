@@ -136,7 +136,8 @@
     term.loadAddon(search);
     // 命中计数：只有带 decorations 的查找才会发这个事件（addon 的约定）
     search.onDidChangeResults((r) => {
-      count = r.resultCount === 0 ? "无匹配" : `${r.resultIndex < 0 ? "·" : r.resultIndex + 1}/${r.resultCount}`;
+      // 形状同编辑器的 countLabel：不在任何匹配上时「N 处」，在上面时「i/N」
+      count = r.resultCount === 0 ? "无匹配" : r.resultIndex < 0 ? `${r.resultCount} 处` : `${r.resultIndex + 1}/${r.resultCount}`;
     });
     /*
      * ⌘F 在这儿截（keymap.ts 里 `term-find` 的 owner 是 `xterm`，同 CM6 的 ⌘F 一样

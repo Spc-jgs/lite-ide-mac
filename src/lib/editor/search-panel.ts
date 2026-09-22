@@ -51,6 +51,8 @@ import {
 import type { Extension } from "@codemirror/state";
 import { Prec } from "@codemirror/state";
 import { countLabel, countMatches } from "./search-count";
+import { mount, unmount } from "svelte";
+import Icon from "../shell/Icon.svelte";
 import { EditorView, keymap, runScopeHandlers, type Panel } from "@codemirror/view";
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -110,12 +112,20 @@ function createPanel(view: EditorView): Panel {
   tgRe.textContent = ".*";
   fBox.append(find, count, tgCase, tgWord, tgRe);
 
-  const prev = el("button", "ls-nav", { type: "button", title: "上一个（⇧↵）" });
-  prev.textContent = "↑";
-  const next = el("button", "ls-nav", { type: "button", title: "下一个（↵）" });
-  next.textContent = "↓";
-  const close = el("button", "ls-nav ls-close", { type: "button", title: "关闭（esc）" });
-  close.textContent = "✕";
+  /*
+   * 箭头和 ✕ 用 `Icon`，不用字体里的 ↑ ↓ ✕（ui.md 八：图标只有一处定义，字体符号的粗细和
+   * 基线跟 svg 对不上 —— 这个面板和终端的查找条曾经是全应用最后两处字形按钮）。
+   * 面板是裸 DOM 拼的，Svelte 5 的 `mount` 能把组件挂进任何元素；`destroy` 里 unmount。
+   */
+  const prev = el("button", "ibtn ls-nav", { type: "button", title: "上一个（⇧↵）", "aria-label": "上一个" });
+  const next = el("button", "ibtn ls-nav", { type: "button", title: "下一个（↵）", "aria-label": "下一个" });
+  const close = el("button", "ibtn ls-nav", { type: "button", title: "关闭（esc）", "aria-label": "关闭" });
+  const icons = [
+    mount(Icon, { target: twist, props: { name: "chevron-right", size: 11 } }),
+    mount(Icon, { target: prev, props: { name: "chevron-up", size: 12 } }),
+    mount(Icon, { target: next, props: { name: "chevron-down", size: 12 } }),
+    mount(Icon, { target: close, props: { name: "x", size: 12 } }),
+  ];
   rFind.append(fBox, prev, next, close);
 
   // ── 替换行 ───────────────────────────────────────────────────
@@ -154,7 +164,8 @@ function createPanel(view: EditorView): Panel {
 
   function setTwist() {
     root.classList.toggle("open", openReplace);
-    twist.textContent = openReplace ? "⌄" : "›";
+    // 同文件树的折叠箭头：一个 chevron-right，展开就转 90°
+    twist.classList.toggle("open", openReplace);
     twist.setAttribute("aria-expanded", String(openReplace));
   }
 
@@ -276,6 +287,7 @@ function createPanel(view: EditorView): Panel {
     },
     destroy() {
       if (timer) clearTimeout(timer);
+      for (const i of icons) void unmount(i);
       panels.delete(view);
     },
   };
@@ -314,16 +326,18 @@ const panelTheme = EditorView.theme({
 
   ".cm-lite-search .ls-twist": {
     flex: "none",
+    display: "grid",
+    placeContent: "center",
     width: "16px",
     height: "26px",
     padding: "0",
     background: "transparent",
     border: "none",
     color: "var(--text-faint)",
-    fontSize: "11px",
-    lineHeight: "1",
     cursor: "default",
   },
+  ".cm-lite-search .ls-twist svg": { transition: "transform 0.12s ease" },
+  ".cm-lite-search .ls-twist.open svg": { transform: "rotate(90deg)" },
   ".cm-lite-search .ls-twist:hover": { color: "var(--text)" },
 
   /*
@@ -386,22 +400,8 @@ const panelTheme = EditorView.theme({
   ".cm-lite-search .ls-tg:hover": { background: "var(--hover)", color: "var(--text-dim)" },
   ".cm-lite-search .ls-tg.on": { background: "var(--accent)", color: "#fff" },
 
-  ".cm-lite-search .ls-nav": {
-    flex: "none",
-    display: "grid",
-    placeContent: "center",
-    width: "24px",
-    height: "26px",
-    padding: "0",
-    background: "transparent",
-    border: "none",
-    borderRadius: "var(--r-sm)",
-    color: "var(--text-dim)",
-    fontSize: "12px",
-    lineHeight: "1",
-    cursor: "default",
-  },
-  ".cm-lite-search .ls-nav:hover": { background: "var(--hover)", color: "var(--text)" },
+  // 导航按钮就是 app.css 的 `.ibtn`（24），这里只把它在 26 高的行里摆正
+  ".cm-lite-search .ls-nav": { alignSelf: "center" },
   ".cm-lite-search .ls-bt": {
     flex: "none",
     height: "26px",
