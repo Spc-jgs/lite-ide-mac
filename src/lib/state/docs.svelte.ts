@@ -244,18 +244,38 @@ class Docs {
   }
 
   /**
-   * 把该存的草稿都写进盘。判据在 `autosave.ts`（纯函数，有测试）。
+   * 把该自动存的都写进盘：草稿停手就存，项目文件只在「离开」时存。判据在 `autosave.ts`（纯函数，有测试）。
    *
    * 三个入口共用：停止输入半秒后的那次、App 里 4 秒一次的 tick（兜住
    * 「恢复出来就是脏的、之后一个字没敲」的草稿）、以及 `force` 的那几处
-   * （失焦、切走、关闭、退出）。
+   * （失焦、切走、关闭、退出）。`leave`（窗口失焦、焦点进终端）连项目文件一起存 ——
+   * 「改完去终端跑 mvn」时编译的得是改完的那份（autosave.ts 头上有来由）。
    *
    * 退出那次多半写不完 —— pagehide 是同步的，IPC 回不来进程就没了。
    * 那不是问题：会话快照已经把脏草稿 stash 住了，下次启动恢复成脏标签，
    * 4 秒 tick 一到就补上。判据里 `idleMs: Infinity` 那条就是给它的。
    */
-  async autosaveSweep(force = false) {
+  /**
+   * 原生面板（另存为）开着的那段时间里，窗口失焦不算「离开」。
+   *
+   * 不压住的话：普通文件做另存为 → 面板一弹主窗口 resign key、WebView 收到 blur →
+   * 离开就存把改动先写回**原文件** → 再存到新路径。人要的是原文件不动（code review 2026-09-23）。
+   */
+  #leaveMuted = 0;
+  async muteLeave<T>(fn: () => Promise<T>): Promise<T> {
+    this.#leaveMuted++;
+    try {
+      return await fn();
+    } finally {
+      this.#leaveMuted--;
+    }
+  }
+
+  async autosaveSweep(force = false, leave = false) {
+    // 另存为的面板开着时窗口也会失焦 —— 那一下不算「离开」，见 `muteLeave`
+    if (this.#leaveMuted > 0) leave = false;
     const now = Date.now();
+    const root = project.root;
     for (const tab of tabs.list) {
       if (this.#saving.has(tab.path)) continue;
       const edited = this.#lastEdit.get(tab.path);
@@ -268,6 +288,9 @@ class Docs {
         idleMs: edited === undefined ? Infinity : now - edited,
         failedMs: failed === undefined ? null : now - failed,
         force,
+        leave,
+        inProject: !!root && tab.path.startsWith(`${root}/`),
+        lossy: tab.lossy === true,
       });
       if (!due) continue;
       this.#saving.add(tab.path);
@@ -284,7 +307,8 @@ class Docs {
         // 标签留在脏状态，圆点还亮着，⌘S 那条路照常兜底
         if (!this.#warnedFail.has(tab.path)) {
           this.#warnedFail.add(tab.path);
-          notify.fail(`草稿自动保存失败：${String(e)} —— 已保留在编辑器里，可 ⌘S 重试`, 6000);
+          const what = project.isScratch(tab.path) ? "草稿" : tab.name;
+          notify.fail(`${what} 自动保存失败：${String(e)} —— 已保留在编辑器里，可 ⌘S 重试`, 6000);
         }
       } finally {
         this.#saving.delete(tab.path);

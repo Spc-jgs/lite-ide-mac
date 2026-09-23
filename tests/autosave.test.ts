@@ -31,13 +31,22 @@ const base: AutosaveInput = {
 // ── 1. 基线要存 ──
 ok(autosaveDue(base), "草稿、脏、空闲够久：该存");
 
-// ── 2. 非草稿永远不存 —— 这是整个判据里最不能静默失效的一条 ──
-ok(!autosaveDue({ ...base, scratch: false }), "项目文件不自动存");
-ok(!autosaveDue({ ...base, scratch: false, force: true }), "项目文件强制也不存");
+// ── 2. 项目文件：停手不存、切标签 / 关闭 / 退出（force）不存，只有「离开」存 ──
+ok(!autosaveDue({ ...base, scratch: false }), "项目文件停手不存（半成品会触发 watcher / 构建）");
+ok(!autosaveDue({ ...base, scratch: false, force: true }), "项目文件切标签 / 关闭 / 退出也不存 —— 那些有「关闭前会问」");
 ok(
   !autosaveDue({ ...base, scratch: false, idleMs: Infinity, force: true }),
-  "项目文件：别的条件全满足也不存",
+  "项目文件：别的条件全满足、只要不是离开就不存",
 );
+const proj = { ...base, scratch: false, inProject: true };
+ok(autosaveDue({ ...proj, idleMs: 0, leave: true }), "项目文件离开（失焦 / 进终端）就存，不等空闲期");
+ok(!autosaveDue({ ...proj, leave: true, conflict: true }), "离开也不盖冲突");
+ok(!autosaveDue({ ...proj, leave: true, editing: false }), "离开也不存日志 / 差异");
+ok(!autosaveDue({ ...proj, leave: true, failedMs: 100 }), "刚写失败过的，离开也先不重试");
+ok(!autosaveDue({ ...proj, inProject: false, leave: true }), "项目外的文件（Finder 随手打开的）离开也不存");
+ok(!autosaveDue({ ...proj, leave: true, lossy: true }), "有损编码的文件离开也不存 —— 写回去就是永久丢字节");
+ok(!autosaveDue({ ...base, lossy: true, force: true }), "草稿有损也不自动存");
+ok(autosaveDue({ ...base, idleMs: 0, leave: true }), "草稿：离开等同强制");
 
 // ── 3. 没东西可存的情况 ──
 ok(!autosaveDue({ ...base, dirty: false }), "不脏就不写");

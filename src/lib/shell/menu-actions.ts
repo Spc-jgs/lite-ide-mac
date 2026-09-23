@@ -179,7 +179,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
       if (terms.activeId !== null) terms.close(terms.activeId);
       return;
     case "git-changes":
-      // 已经在 Git 视图上再点一次就切回去，和 ⇧⌘G 是同一个手势
+      // 已经在 Git 视图上再点一次就切回去，和 ⌘K 是同一个手势
       layout.toggleGitChanges();
       return;
     case "git-file-diff": {

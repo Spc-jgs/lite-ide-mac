@@ -125,6 +125,13 @@ export const KEYS: KeyDef[] = [
   { id: "quick-file", label: "找文件…", accel: "⌘P", group: "导航", owner: "key" },
   /** IDEA 的 ⌘E：⌘P 空着的时候列的就是最近打开的，这条只是那个手势的名字。留 keydown 的理由同 ⌘P */
   { id: "recent-files", label: "最近文件…", accel: "⌘E", group: "导航", owner: "key" },
+  /*
+   * 切标签（2026-09-23 之前一个键都没有）。归 keydown 不归菜单：⌃Tab 要「松开 ⌃ 才选定」，
+   * 菜单项只有按下没有松开；⌘⇧[ ⌘⇧] 跟着它一起，省得一对键分两处接。终端里 xterm 已经放行。
+   */
+  { id: "tab-prev", label: "上一个标签", accel: "⇧⌘[", group: "导航", owner: "key" },
+  { id: "tab-next", label: "下一个标签", accel: "⇧⌘]", group: "导航", owner: "key" },
+  { id: "tab-recent", label: "按最近使用切标签（按住 ⌃ 连按往回翻）", accel: "⌃Tab", group: "导航", owner: "key" },
   {
     id: "quick-content",
     label: "在项目中搜索…",
@@ -147,8 +154,9 @@ export const KEYS: KeyDef[] = [
    * （没有就什么都不做），不需要读编辑器内部状态，和 ⌘B 那种 cm6 的不一样。
    */
   { id: "goto-line", label: "跳到行…", accel: "⌘L", group: "导航", owner: "menu" },
-  { id: "nav-back", label: "回到上一个位置", accel: "⌥⌘←", group: "导航", owner: "menu" },
-  { id: "nav-fwd", label: "再回来", accel: "⌥⌘→", group: "导航", owner: "menu" },
+  // ⌘[ / ⌘] 是 IDEA 的主键位，菜单一项只挂得下一个，别名走 App.svelte 的 keydown
+  { id: "nav-back", label: "回到上一个位置", accel: "⌥⌘←", alias: "⌘[", group: "导航", owner: "menu" },
+  { id: "nav-fwd", label: "再回来", accel: "⌥⌘→", alias: "⌘]", group: "导航", owner: "menu" },
   /*
    * 跳转够不着时的退路。**名字上就不叫跳转** —— 它是拿光标下那个词
    * 跑一次全局搜索，给的是候选不是答案。省掉的只是「选中、复制、⇧⌘F、粘贴」。
@@ -184,7 +192,29 @@ export const KEYS: KeyDef[] = [
     owner: "cm6",
   },
   { id: "cm-find", label: "在当前文件里查找", accel: "⌘F", group: "编辑", owner: "cm6" },
-  { id: "cm-replace", label: "查找并替换", accel: "⌥⌘F", group: "编辑", owner: "cm6" },
+  { id: "cm-replace", label: "查找并替换", accel: "⌘R", group: "编辑", owner: "cm6" },
+  /*
+   * 查找面板开着时的上 / 下一处。CM6 的 `searchKeymap` 本来就有，**登记在这儿是为了让测试看得见**：
+   * ⇧⌘G 原来是菜单上的「改动列表」—— 菜单先吃键，编辑器里「查找上一处」几周都是死的，
+   * 而 CM6 自带的键不在这张表里，「同一个键位不许挂两条」那条测试看不见它（2026-09-23）。
+   */
+  { id: "cm-find-next", label: "查找下一处", accel: "⌘G", group: "编辑", owner: "cm6" },
+  { id: "cm-find-prev", label: "查找上一处", accel: "⇧⌘G", group: "编辑", owner: "cm6" },
+  /*
+   * 编辑器键位照 IDEA（2026-09-23，理由和逐条对照在 `editor/idea-keys.ts` 头上）。
+   * ⌘/ 也是同一个遭遇：菜单上挂着「快捷键速查」，编辑器里的注释一直按不出来。
+   */
+  { id: "cm-comment", label: "注释 / 取消注释", accel: "⌘/", group: "编辑", owner: "cm6" },
+  { id: "cm-block-comment", label: "块注释", accel: "⌥⌘/", group: "编辑", owner: "cm6" },
+  { id: "cm-duplicate", label: "复制行（有选区时复制选区）", accel: "⌘D", group: "编辑", owner: "cm6" },
+  { id: "cm-delete-line", label: "删除行", accel: "⌘⌫", group: "编辑", owner: "cm6" },
+  { id: "cm-move-up", label: "上移行", accel: "⌥⇧↑", group: "编辑", owner: "cm6" },
+  { id: "cm-move-down", label: "下移行", accel: "⌥⇧↓", group: "编辑", owner: "cm6" },
+  { id: "cm-extend", label: "扩大选区", accel: "⌥↑", group: "编辑", owner: "cm6" },
+  { id: "cm-shrink", label: "缩小选区", accel: "⌥↓", group: "编辑", owner: "cm6" },
+  { id: "cm-next-occ", label: "再选中下一个相同的词", accel: "⌃G", group: "编辑", owner: "cm6" },
+  { id: "cm-all-occ", label: "选中所有相同的词", accel: "⌃⌘G", group: "编辑", owner: "cm6" },
+  { id: "cm-case", label: "切换大小写", accel: "⇧⌘U", group: "编辑", owner: "cm6" },
   { id: "encoding", label: "文件编码…", group: "编辑", owner: "menu" },
   { id: "toggle-mode", label: "切换编辑 / 日志模式", group: "编辑", owner: "menu" },
 
@@ -251,7 +281,8 @@ export const KEYS: KeyDef[] = [
   { id: "log-prev-hit", label: "日志：上一处命中", accel: "⇧F3", group: "导航", owner: "key" },
 
   // ── Git ──
-  { id: "git-changes", label: "改动列表", accel: "⇧⌘G", group: "Git", owner: "menu" },
+  // ⌘K：IDEA 里就是打开提交窗口。原来是 ⇧⌘G，把编辑器的「查找上一处」抢没了（见 cm-find-prev）
+  { id: "git-changes", label: "改动列表", accel: "⌘K", group: "Git", owner: "menu" },
   /*
    * 拉取 = fetch + 本地合并两步，不是 `git pull`。
    * 键位照 IDEA：⇧⌘P 更新项目、⌥⌘P 推送。
@@ -267,7 +298,8 @@ export const KEYS: KeyDef[] = [
   { id: "git-refresh", label: "刷新状态", group: "Git", owner: "menu" },
 
   // ── 帮助 ──
-  { id: "help-keys", label: "快捷键速查", accel: "⌘/", group: "帮助", owner: "menu" },
+  // 原来挂着 ⌘/，把编辑器的注释抢没了（见 cm-comment）。IDEA 的速查也没有默认键；⇧⇧ 搜「快捷键」能到
+  { id: "help-keys", label: "快捷键速查", group: "帮助", owner: "menu" },
   /*
    * 没有键位。登记在这儿不是为了速查表（`shortcuts()` 会把它滤掉），
    * 是因为**菜单里的每一项都必须在这张表里有登记** ——

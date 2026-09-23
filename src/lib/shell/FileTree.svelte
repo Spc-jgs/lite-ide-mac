@@ -747,6 +747,25 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
         speed = "";
         click(row);
         break;
+      /*
+       * F2 改名、⌫ / ⌘⌫ 移到废纸篓（2026-09-23 交互习惯那轮）：原来只有右键菜单里有，
+       * 键盘走到一个文件上却删不掉、改不了名。F2 是 IDEA 的；⌫ 是 IDEA 项目视图的「删除」，
+       * ⌘⌫ 是 Finder 的 —— 两个都接。都走右键菜单那同一道确认，不会一按就没。
+       */
+      case "F2":
+        if (row.path === root) break;
+        e.preventDefault();
+        openAsk("rename", parentOf(row.path), row, rowPos(i));
+        break;
+      case "Backspace":
+      case "Delete": {
+        if (e.altKey || e.ctrlKey) break;
+        const many = selected.size > 1 && selected.has(row.path) ? selectedRows : [row];
+        if (many.some((r) => r.path === root)) break;
+        e.preventDefault();
+        openTrashAsk(many, rowPos(i));
+        break;
+      }
       // 键盘也能开菜单：⇧F10 是 Windows/Linux 的老约定，ContextMenu 是那个专用键。
       // 只有鼠标能开的菜单等于把功能藏起来了
       case "F10":
@@ -848,8 +867,9 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     rename: "重命名",
   } as const;
 
-  function openAsk(kind: "newFile" | "newDir" | "rename", dir: string, row?: Row) {
-    const at = menu ?? { x: 0, y: 0 };
+  /** `pos`：键盘触发时（F2、⌫）没有右键菜单可贴，贴着那一行弹（`rowPos`） */
+  function openAsk(kind: "newFile" | "newDir" | "rename", dir: string, row?: Row, pos?: { x: number; y: number }) {
+    const at = pos ?? menu ?? { x: 0, y: 0 };
     ask = {
       kind,
       x: at.x,
@@ -862,8 +882,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     };
   }
 
-  function openTrashAsk(list: Row[]) {
-    const at = menu ?? { x: 0, y: 0 };
+  function openTrashAsk(list: Row[], pos?: { x: number; y: number }) {
+    const at = pos ?? menu ?? { x: 0, y: 0 };
     // 选了目录又选了它里面的文件：算未保存标签时别数两遍 —— 子树在父目录里已经算过
     const tops = list.filter((r) => !list.some((o) => o !== r && o.isDir && r.path.startsWith(`${o.path}/`)));
     const dirty = tops.reduce((n, r) => n + (dirtyUnder?.(r.path) ?? 0), 0);
@@ -962,6 +982,12 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     const multi = selected.size > 1 && selected.has(rows[i].path);
     if (!multi) selected = new Set();
     menu = { x: e.clientX, y: e.clientY, row: rows[i], multi };
+  }
+
+  /** 贴着第 i 行左下角的位置 —— 键盘打开的浮层（菜单、改名框、废纸篓确认）都从这儿弹 */
+  function rowPos(i: number): { x: number; y: number } | undefined {
+    const r = rowAt(i)?.getBoundingClientRect();
+    return r ? { x: r.left + 12, y: r.bottom - 2 } : undefined;
   }
 
   function openMenuAtRow(i: number) {

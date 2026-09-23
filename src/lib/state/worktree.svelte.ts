@@ -34,7 +34,8 @@ class Worktree {
     const wasScratch = project.isScratch(from);
     // 草稿建议用第一行当文件名（标签栏上显示的就是它），没有第一行才用时间戳那个名
     const suggested = wasScratch && t.title ? `${t.title.replace(/[/\\:]/g, "-").slice(0, 60)}.md` : t.name;
-    const to = await pickSavePath(project.root, suggested).catch(() => null);
+    // 面板开着时窗口会失焦：压住「离开就存」，不然原文件先被写入改动（docs.muteLeave）
+    const to = await docs.muteLeave(() => pickSavePath(project.root, suggested).catch(() => null));
     if (!to || to === from) return;
     notify.clear();
     let text = docs.liveText(t);

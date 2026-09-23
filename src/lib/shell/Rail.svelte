@@ -62,11 +62,15 @@
       <Icon name="files" />
     </button>
     {#if repo}
+      <!--
+        tooltip 里的 ⌘K 是写死的：从 keymap.ts 取（byId）会把整张键位表拽进入口包，
+        2026-09-23 实测 +6.8 KB，就为一行 tooltip。改键位时这里要跟着改（原来是 ⇧⌘G）。
+      -->
       <button
         class="ibtn lg rbtn"
         class:on={layout.sidebar && layout.sideView === "git"}
         onclick={() => layout.showSide("git")}
-        title="Git 改动 ⌘⇧G"
+        title="Git 改动 ⌘K"
         aria-label="Git 改动"
       >
         <Icon name="git" />

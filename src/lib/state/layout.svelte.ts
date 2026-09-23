@@ -94,7 +94,7 @@ class LayoutState {
     this.sidebar = true;
   }
 
-  /** ⇧⌘G：已经在 Git 视图上再按一次就切回文件树 —— 一个键既是去也是回 */
+  /** ⌘K：已经在 Git 视图上再按一次就切回文件树 —— 一个键既是去也是回 */
   toggleGitChanges() {
     this.sideView = this.sidebar && this.sideView === "git" ? "files" : "git";
     this.sidebar = true;

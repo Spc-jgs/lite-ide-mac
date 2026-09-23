@@ -10,8 +10,10 @@
   import { lazy, lazyGroup } from "./lib/lazy/lazy.svelte";
   import { cmenu } from "./lib/shell/context-menu.svelte";
   import { notify } from "./lib/state/notify.svelte";
+  import { nav } from "./lib/state/nav.svelte";
   import { layout } from "./lib/state/layout.svelte";
   import { tabs } from "./lib/state/tabs.svelte";
+  import type { TabState } from "./lib/state/tab";
   import { tabflow } from "./lib/state/tabflow.svelte";
   import { project } from "./lib/state/project.svelte";
   import { worktree } from "./lib/state/worktree.svelte";
@@ -452,7 +454,12 @@
    * 那边可能正在用 Spotlight 找刚记的东西。
    */
   $effect(() => {
-    const onBlur = () => void docs.autosaveSweep(true);
+    // 项目文件也在这一刻存（`leave`）：IDEA 切到别的应用就存盘，从不按 ⌘S 的手在这里会被坑
+    const onBlur = () => {
+      void docs.autosaveSweep(true, true);
+      // 按着 ⌃ 切走了，那次 keyup 收不到：当场算选定，不然下一次 ⌃Tab 会接着上一趟翻
+      endTabWalk();
+    };
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
   });
@@ -521,7 +528,28 @@
   /** 双击 Shift 的上一次时间戳；按下任何其他键即作废 */
   let lastShiftUp = 0;
 
+  /**
+   * ⌃Tab 往回翻的那一趟：按下 ⌃ 之后连按 Tab 沿着「最近使用」往更早的走，**松开 ⌃ 才算选定**
+   * （⌘Tab 的模型，IDEA 的 Switcher 也是）。途中路过的标签不记进最近使用 —— 不然按两下 Tab
+   * 想去第三个，路过的第二个就成了「最近」，下一趟的顺序全乱。
+   */
+  let tabWalk: { list: TabState[]; i: number } | null = null;
+  function endTabWalk() {
+    if (!tabWalk) return;
+    tabWalk = null;
+    if (tabs.active) tabs.touch(tabs.active.id);
+    tabs.audit("⌃Tab");
+  }
+
+  /** 键盘切过去之后焦点交给新的编辑器：编辑器是 `{#key}` 重建的，不交的话接着打的字没有去处 */
+  function showByKey(t: TabState, track = true) {
+    tabs.show(t.id, track);
+    if (track) tabs.audit("切标签");
+    if (t.mode === "edit") docs.focusEditor();
+  }
+
   function onWindowKeyUp(e: KeyboardEvent) {
+    if (e.key === "Control") endTabWalk();
     if (e.key !== "Shift") {
       lastShiftUp = 0;
       return;
@@ -537,6 +565,38 @@
     }
   }
 
+  /**
+   * 这一下是不是方括号键（带不带 ⇧）。`e.key` 带 ⇧ 时是 `{` `}`，非美式布局上更是别的字符；
+   * `e.code` 是物理键位，不受布局和 ⇧ 影响 —— 两个都认。
+   */
+  function bracketOf(e: KeyboardEvent): "[" | "]" | null {
+    // 在输入框里（查找框、过滤框、改名框）不接：打着字按一下就切走文件，查找框和刚打的字一起没了。
+    // 终端的输入是 xterm 那个隐藏 textarea，那里照接 —— 从终端回退到编辑器正是常用的
+    const el = document.activeElement;
+    if (el?.tagName === "INPUT" || (el?.tagName === "TEXTAREA" && !el.closest(".xterm"))) return null;
+    if (e.code === "BracketLeft" || e.key === "[" || e.key === "{") return "[";
+    if (e.code === "BracketRight" || e.key === "]" || e.key === "}") return "]";
+    return null;
+  }
+
+  /**
+   * 在文件树、Git 面板、日志视图里按 Esc 回到编辑器（IDEA 的工具窗就是这样，2026-09-23）。
+   * 走到这儿的 Esc 是没被任何组件认领的（认领了的会 `preventDefault` —— 文件树第一下 Esc 是清选区，
+   * 第二下才回来）。不接的几处：
+   * - 终端：vim / less 要用 Esc，一按就把焦点拽走等于没法用
+   * - 多行文本框：写了一半的提交说明，Esc 不该把人赶出去
+   * - 弹窗里：那一下是关弹窗的
+   * - 当前标签不是编辑器（日志 / 差异）：没有编辑器可回
+   */
+  function escBackToEditor(e: KeyboardEvent): boolean {
+    if (e.defaultPrevented || e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return false;
+    if (tabs.active?.mode !== "edit") return false;
+    const el = document.activeElement as HTMLElement | null;
+    if (el?.closest(".cm-editor, .xterm, textarea, [role=dialog], [role=alertdialog]")) return false;
+    docs.focusEditor();
+    return true;
+  }
+
   function onWindowKey(e: KeyboardEvent) {
     /*
      * 按住 Shift 时 e.key 给的是**大写字母**（规范如此：key 是修饰后的字符值），
@@ -548,7 +608,43 @@
       overlay.quickOpen = false;
       return;
     }
+    if (e.key === "Escape" && escBackToEditor(e)) return;
+    // ⌃Tab / ⌃⇧Tab：按最近使用切标签（见 `tabWalk`）。xterm 那边已经放行（Terminal.svelte）
+    if (e.key === "Tab" && e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      tabWalk ??= { list: tabs.byRecent(), i: 0 };
+      const n = tabWalk.list.length;
+      if (n < 2) {
+        tabWalk = null;
+        return;
+      }
+      tabWalk.i = (tabWalk.i + (e.shiftKey ? -1 : 1) + n) % n;
+      showByKey(tabWalk.list[tabWalk.i], false);
+      return;
+    }
     if (!e.metaKey) return;
+    const bracket = bracketOf(e);
+    /*
+     * ⌘⇧[ / ⌘⇧]：当前组里按位置切到上 / 下一个标签（Safari、终端、Xcode、IDEA 都是这对）。
+     * 带 ⇧ 时 `e.key` 是 `{` `}`（美式键盘），两种都认。
+     */
+    if (bracket && e.shiftKey && !e.altKey && !e.ctrlKey) {
+      e.preventDefault();
+      const t = tabs.neighbor(bracket === "[" ? -1 : 1);
+      if (t) showByKey(t);
+      return;
+    }
+    /*
+     * ⌘[ / ⌘]：回退 / 前进（IDEA 的主键位；⌥⌘← / ⌥⌘→ 在菜单上，这两个是别名）。
+     * 编辑器里 CM6 原来拿它们减 / 加缩进，已经从默认键位里摘掉（`idea-keys.ts` 的
+     * `editorDefaults`）—— 不摘的话 CM6 先跑、事件照样冒泡到这儿，按一下两件事。
+     * 带 ⇧ 的 ⌘⇧[ / ⌘⇧] 是切标签，不归这里。
+     */
+    if (bracket && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+      e.preventDefault();
+      void nav.go(bracket === "[" ? "back" : "fwd");
+      return;
+    }
     /*
      * ── 这里只剩两条 ──
      *
@@ -723,6 +819,18 @@
           if (e.payload.type === "over") hovering = true;
           else if (e.payload.type === "drop") {
             hovering = false;
+            /*
+             * 落在终端上 = 插入路径，不是打开（2026-09-23）：Terminal.app / iTerm 的肌肉记忆，
+             * 拖一个文件进去是为了接着敲 `cat` / `tail -f`。位置是物理像素，除以缩放比才是 CSS 像素。
+             * 交给那个终端自己写（Terminal.svelte 听 `lite-drop-paths`），App 不碰 pty。
+             */
+            const dpr = window.devicePixelRatio || 1;
+            const at = document.elementFromPoint(e.payload.position.x / dpr, e.payload.position.y / dpr);
+            const term = at?.closest(".xterm");
+            if (term) {
+              term.dispatchEvent(new CustomEvent("lite-drop-paths", { detail: e.payload.paths, bubbles: true }));
+              return;
+            }
             for (const p of e.payload.paths) void tabflow.openPath(p);
           } else hovering = false;
         }),
@@ -790,7 +898,7 @@
    * 让用不上的菜单项变灰。
    *
    * 这是加菜单栏白捡的：今天所有键位都是 window 级监听，**不管当下
-   * 有没有意义都会触发** —— 没有标签时按 ⌘S、不是 Git 仓库时按 ⇧⌘G，
+   * 有没有意义都会触发** —— 没有标签时按 ⌘S、不是 Git 仓库时按 ⌘K，
    * 都是走一遍然后什么也没发生。灰掉的菜单项本身就是一句解释。
    */
   $effect(() => {
@@ -1001,6 +1109,8 @@
             outlineTick={overlay.outlineTick}
             onLogStatus={(t) => (logStatus[g] = t)}
             onOutline={(syms) => (overlay.symbols = syms)}
+            onMenuAction={(id) => void runMenu(id)}
+            onReveal={revealInTree}
           />
         </div>
       {/each}

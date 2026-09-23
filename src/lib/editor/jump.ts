@@ -47,7 +47,7 @@ export interface JumpTarget {
   /** 1-based 行号；没有就是跳到文件开头 */
   line?: number;
   /** 凭什么敢跳 —— 进 tooltip，让人知道这一下的依据 */
-  why: "本文件" | "import" | "同包" | "成员" | "堆栈";
+  why: "本文件" | "import" | "同包" | "成员" | "堆栈" | "终端";
 }
 
 export interface JumpHit {
@@ -233,7 +233,10 @@ export function packageOf(state: EditorState): string | null {
   return pkg;
 }
 
-/** `a/b/../c` → `a/c`。TS 的相对 import 必须先规范化才能拿去比 */
+/**
+ * `a/b/../c` → `a/c`。TS 的相对 import 必须先规范化才能拿去比。
+ * `terminal/links.ts` 里有同一个函数的拷贝（理由在那边），改一处记得改另一处。
+ */
 function normalize(p: string): string {
   const out: string[] = [];
   for (const seg of p.split("/")) {

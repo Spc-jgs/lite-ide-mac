@@ -1813,9 +1813,10 @@ index 1a2b3c4..5d6e7f8 100644
           return ["feat(notary): 补公证订单字段", "fix(notary): 退款审核状态对不上"];
 
         case "open_external": {
-          // 真实现只放行 https，桩也照做：不然浏览器里试不出那条约束
+          // 真实现只放行 http / https（2026-09-23 为终端链接放开了 http），桩也照做：不然浏览器里试不出那条约束
           const url = String(a.url ?? "");
-          if (!url.startsWith("https://")) throw new Error(`只允许 https 链接，实得：${url}`);
+          if (!url.startsWith("https://") && !url.startsWith("http://")) throw new Error(`只允许 http / https 链接，实得：${url}`);
+          console.info(`[mock] open_external ${url}`);
           return null;
         }
 

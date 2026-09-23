@@ -350,5 +350,65 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   }
 }
 
+// ── 11. 项目文件「离开就存」（2026-09-23）：切标签不存、离开（失焦 / 进终端）存编辑器此刻的文本 ──
+// 丢数据形状：改完代码去内置终端跑 mvn，编译的是改之前那份 —— 人以为存了（IDEA 从不按 ⌘S）
+{
+  await tabflow.openPath("/proj/package.json");
+  const t = tabs.active!;
+  const before = await disk(t.path);
+  const ed = mountEditor(t.path, t.content!);
+  ed.type("\n// 离开之前打的");
+  await docs.autosaveSweep(true); // 切标签 / 关闭那种 force：项目文件不存
+  ok((await disk(t.path)) === before, "force（切标签 / 关闭）不静默存项目文件");
+  ok(t.dirty, "没存就还脏着");
+  await docs.autosaveSweep(true, true); // 离开
+  ok((await disk(t.path)).endsWith("// 离开之前打的"), "离开时写进盘的是编辑器此刻的文本");
+  ok(!t.dirty, "存完不脏了");
+}
+
+// ── 12. 切标签的键（2026-09-23）：⌘⇧[ ⌘⇧] 按位置首尾相接，⌃Tab 按最近使用、路过的不算 ──
+{
+  for (const p of ["/proj/README.md", "/proj/vite.config.ts", "/proj/package.json"]) {
+    await tabflow.openPath(p, { preview: false });
+  }
+  const [a, b, c] = ["/proj/README.md", "/proj/vite.config.ts", "/proj/package.json"].map((p) => tabs.byPath(p)!);
+  const g = tabs.inGroup(a.group);
+  tabs.show(g[g.length - 1].id);
+  ok(tabs.neighbor(1) === g[0], "⌘⇧]：最后一个的下一个是第一个");
+  tabs.show(g[0].id);
+  ok(tabs.neighbor(-1) === g[g.length - 1], "⌘⇧[：第一个的上一个是最后一个");
+  ok(tabs.neighbor(1) === g[1], "⌘⇧]：中间照顺序走");
+  tabs.show(a.id);
+  tabs.show(b.id);
+  ok(tabs.byRecent()[0] === b && tabs.byRecent()[1] === a, `⌃Tab 的第一站是上一个看过的：${tabs.byRecent().map((t) => t.name).join(",")}`);
+  // 按住 ⌃ 往回翻：路过 a（track=false）再停到 c，松开时只记 c
+  tabs.show(a.id, false);
+  tabs.show(c.id, false);
+  tabs.touch(c.id);
+  const r = tabs.byRecent();
+  ok(r[0] === c && r[1] === b && r[2] === a, `路过的 a 不算最近，顺序是 c,b,a：${r.map((t) => t.name).join(",")}`);
+  // 真实路径上每一站都会把焦点交给编辑器，组容器的 focusin 调 focusGroup —— 那也不能记（code review）
+  tabs.show(a.id, false);
+  tabs.focusGroup(a.group);
+  tabs.show(b.id, false);
+  tabs.focusGroup(b.group);
+  tabs.touch(b.id);
+  const r2 = tabs.byRecent();
+  ok(r2[0] === b && r2[1] === c && r2[2] === a, `途中的 focusin 不把路过的 a 记成最近：${r2.map((t) => t.name).join(",")}`);
+}
+
+// ── 13. 另存为的面板开着时窗口失焦不算「离开」（code review 2026-09-23）：原文件不许被先写入改动 ──
+{
+  await tabflow.openPath("/proj/README.md", { preview: false });
+  const t = tabs.active!;
+  const before = await disk(t.path);
+  const ed = mountEditor(t.path, t.content!);
+  ed.type("\n另存为之前打的");
+  await docs.muteLeave(() => docs.autosaveSweep(true, true));
+  ok((await disk(t.path)) === before, "面板开着时的失焦不写原文件");
+  await docs.autosaveSweep(true, true);
+  ok((await disk(t.path)).endsWith("另存为之前打的"), "面板关了之后照常离开就存");
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

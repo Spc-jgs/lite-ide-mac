@@ -1,15 +1,34 @@
 /**
- * 草稿自动保存的**判据**（issue #40 第一层）。纯函数，零 import —— `tests/` 里裸 node 跑。
+ * 自动保存的**判据**（草稿：issue #40 第一层；项目文件「离开就存」：2026-09-23）。
+ * 纯函数，零 import —— `tests/` 里裸 node 跑。
  *
- * # 为什么只有草稿自动存
+ * # 草稿：停手就存
  *
  * 草稿一出生就有真实路径、由机器命名、住在应用自己的目录里 —— 当初选
  * 「scratch 而不是 Untitled」（JOURNAL 2026-09-09）已经把「存哪、叫什么」
  * 两个问题拆掉了，但「要不要存」还留着让人按 ⌘S。Sublime 赢在 hot exit：
  * 三个问题一个都不用答。草稿自动落盘就是把最后那个也拆掉。
  *
- * **项目文件一律不自动存**，这是有意的：半成品写进盘会触发 watcher、构建工具
+ * **项目文件不在停手时存**，这是有意的：打字停半秒就写盘，半成品会触发 watcher、构建工具
  * 和 git 差异，那些代价是真的；而草稿目录里什么都没有在盯着它。
+ *
+ * # 但项目文件要「离开就存」（2026-09-23）
+ *
+ * 上面那条理由只论证了「停手就存」，没论证「离开就存」—— 两者的时机完全不同。
+ * IDEA 的做法是切到别的应用、或者焦点进了内置终端时存盘：那一刻人不在打字，
+ * 写进去的不是半截的字；而「改完代码去终端跑 mvn」是这个应用的主路径 ——
+ * 不存的话，编译的是改之前那份，人不会想到是没存（IDEA 用户从来不按 ⌘S）。
+ *
+ * 所以项目文件只认 `leave`：窗口失焦、焦点进了终端。切标签、关标签、退出都不算 ——
+ * 关标签和退出有「关闭前会问」那套，不该被静默存盘替掉。
+ *
+ * **只认项目根下的**：从 Finder 随手打开看看的 `~/Downloads/x.yml`、`/etc/hosts` 不在「改完去跑构建」
+ * 这条路上，静默写它们没有理由（code review 2026-09-23）。
+ *
+ * # 有损编码的一律不自动存
+ *
+ * 按错的编码读进来（GBK 当 UTF-8）的文件，解不出的字节已经变成 U+FFFD；带着它写回去就是
+ * 永久丢字节。手动 ⌘S 至少是人按下去的（状态栏挂着 ⚠），自动保存不能替人做这个决定。
  *
  * # 时机
  *
@@ -37,19 +56,29 @@ export interface AutosaveInput {
   failedMs: number | null;
   /** 强制：切走 / 关闭 / 失焦 / 退出，不等空闲期 */
   force: boolean;
+  /**
+   * 人离开了编辑器：窗口失焦，或者焦点进了内置终端。项目文件**只在这时**存（见文件头）；
+   * 对草稿它等同于 `force`。
+   */
+  leave?: boolean;
+  /** 在项目根下（非草稿只有这种才「离开就存」，见文件头） */
+  inProject?: boolean;
+  /** 按错的编码读进来、有解不出的字节（`TextFile.lossy`）。自动保存一律跳过 */
+  lossy?: boolean;
 }
 
 /**
  * 现在该不该把这个标签写进盘。
  *
- * 顺序有讲究：**「是不是草稿」排第一**，非草稿后面什么条件都不看 ——
- * 这一条去掉的话测试要红（项目文件永远不自动存）。
+ * 顺序有讲究：**「是不是草稿」排第一**，非草稿只认 `leave` —— 这一条放宽成 `force`
+ * 的话，切标签、关标签也会静默存项目文件，测试要红。
  */
 export function autosaveDue(i: AutosaveInput): boolean {
-  if (!i.scratch) return false;
+  if (i.lossy) return false;
+  if (!i.scratch && !(i.leave && i.inProject)) return false;
   if (!i.editing || !i.dirty || i.conflict) return false;
   if (i.failedMs !== null && i.failedMs < AUTOSAVE_RETRY_MS) return false;
-  if (i.force) return true;
+  if (i.force || i.leave) return true;
   return i.idleMs >= AUTOSAVE_IDLE_MS;
 }
 

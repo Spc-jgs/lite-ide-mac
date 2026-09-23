@@ -85,7 +85,7 @@ function createPanel(view: EditorView): Panel {
   const twist = el("button", "ls-twist", {
     type: "button",
     "aria-label": "展开 / 收起替换",
-    title: "替换（⌥⌘F）",
+    title: "替换（⌘R）",
   });
   const rows = el("div", "ls-rows");
   const rFind = el("div", "ls-row");
@@ -417,8 +417,25 @@ const panelTheme = EditorView.theme({
   ".cm-lite-search .ls-bt:hover": { background: "var(--hover)", color: "var(--text)" },
 });
 
+function openOrExpandReplace(view: EditorView): boolean {
+  const p = panels.get(view);
+  if (p) {
+    p.expand();
+    return true;
+  }
+  /*
+   * 面板还没开：先把展开状态置位，`createPanel` 会照着它画。
+   *
+   * **这里必须自己调 `openSearchPanel`。** `searchKeymap` 里没有
+   * `Mod-Alt-f`（那正是这条键位以前是假的原因），返回 `false`
+   * 底下没有人接得住 —— 按下去仍然什么都不会发生。
+   */
+  openReplace = true;
+  return openSearchPanel(view);
+}
+
 /**
- * 装上查找面板 + 那条一直没接上的 ⌥⌘F。
+ * 装上查找面板 + 替换键（⌘R，以及那条一直没接上的 ⌥⌘F）。
  *
  * `Prec.highest` 的理由同 `jump-ext` 的 ⌘B：`searchKeymap` 里没有这条，
  * 但别的扩展将来可能有，而「装了不生效」这类问题不报错、只是按了没反应。
@@ -430,27 +447,20 @@ export function searchPanel(): Extension {
     Prec.highest(
       keymap.of([
         {
+          // ⌘R 是 IDEA 的替换（2026-09-23 编辑器键位改照 IDEA，idea-keys.ts）；⌥⌘F 是 VSCode 的，
+          // 原来就有、不碍事，照留 —— 速查表只列 ⌘R
+          key: "Mod-r",
+          scope: "editor search-panel",
+          preventDefault: true,
+          run: (view) => openOrExpandReplace(view),
+        },
+        {
           key: "Mod-Alt-f",
           // 两个作用域都要：焦点在正文里按（editor）和焦点在查找框里按
           // （search-panel，经面板的 `runScopeHandlers` 转交）都得管用
           scope: "editor search-panel",
           preventDefault: true,
-          run: (view) => {
-            const p = panels.get(view);
-            if (p) {
-              p.expand();
-              return true;
-            }
-            /*
-             * 面板还没开：先把展开状态置位，`createPanel` 会照着它画。
-             *
-             * **这里必须自己调 `openSearchPanel`。** `searchKeymap` 里没有
-             * `Mod-Alt-f`（那正是这条键位以前是假的原因），返回 `false`
-             * 底下没有人接得住 —— 按下去仍然什么都不会发生。
-             */
-            openReplace = true;
-            return openSearchPanel(view);
-          },
+          run: (view) => openOrExpandReplace(view),
         },
       ]),
     ),

@@ -104,7 +104,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let nav_fwd = item(app, "nav-fwd", "再回来", Some("Alt+CmdOrCtrl+Right"))?;
     let find_word = item(app, "find-word", "在项目里找这个名字", None)?;
 
-    let git_changes = item(app, "git-changes", "改动列表", Some("Shift+CmdOrCtrl+G"))?;
+    let git_changes = item(app, "git-changes", "改动列表", Some("CmdOrCtrl+K"))?;
     let git_file_diff = item(app, "git-file-diff", "查看当前文件的改动", None)?;
     let git_blame = item(app, "git-blame", "显示 / 隐藏注解（blame）", None)?;
     let git_log = item(app, "git-log", "提交历史", None)?;
@@ -241,7 +241,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .build()?;
 
     let help = SubmenuBuilder::new(app, "帮助")
-        .item(&item(app, "help-keys", "快捷键速查", Some("CmdOrCtrl+/"))?)
+        .item(&item(app, "help-keys", "快捷键速查", None)?)
         .separator()
         .item(&item(app, "help-log", "打开应用日志", None)?)
         .item(&item(app, "help-log-clear", "清空应用日志", None)?)

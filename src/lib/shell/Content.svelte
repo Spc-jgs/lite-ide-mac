@@ -28,6 +28,7 @@
   import { nav } from "../state/nav.svelte";
   import { overlay } from "../state/overlay.svelte";
   import { lang } from "../state/lang.svelte";
+  import type { EditorMenuApi } from "../editor/menu-api";
 
   let {
     tab,
@@ -38,6 +39,8 @@
     outlineTick,
     onLogStatus,
     onOutline,
+    onMenuAction,
+    onReveal,
   }: {
     /**
      * 这一组正在显示的标签（issue #35 分屏之后每组一个 Content）。原来这里直接读
@@ -58,12 +61,16 @@
     outlineTick: number;
     onLogStatus: (text: string) => void;
     onOutline: (syms: Sym[]) => void;
+    /** 编辑器右键菜单里那几项和菜单栏是同一个动作（在项目里找这个名字、查看改动、注解），走同一条路 */
+    onMenuAction: (id: string) => void;
+    /** 在文件树中定位（标签右键菜单用的同一个） */
+    onReveal: (path: string) => void;
   } = $props();
 
   /**
    * 空态卡片上列的那几条。
    *
-   * 不是全表 —— 全表在 ⌘/ 的速查浮层里。这里只留「不知道就上不了手」的，
+   * 不是全表 —— 全表在「帮助 › 快捷键速查」那个浮层里。这里只留「不知道就上不了手」的，
    * 顺序即显示顺序（两列铺开）。**从 keymap.ts 取，不手抄**：
    * 原来手抄的那份把 ⌘⇧F / ⌘⇧O / ⌘⇧G 三处修饰键次序全写反了。
    *
@@ -226,6 +233,20 @@
   });
 
   // ⌘Click 跳转要的文件索引：和 ⌘P 共用 `files` 那一份（App 里一条 effect 跟着 root / treeTick 刷）
+
+  /*
+   * 编辑器的右键菜单（2026-09-23 交互习惯那轮），菜单本身在 EditorMenu.svelte —— 懒的：
+   * 右键才出现的东西不该进入口包（它连带的 pathactions 放在这儿实测 +3 KB）。
+   */
+  let edMenu = $state<{ x: number; y: number; path: string; api: EditorMenuApi } | null>(null);
+  const edMenuUi = lazy(() => import("./EditorMenu.svelte"), "编辑器右键菜单");
+  $effect(() => {
+    if (edMenu) edMenuUi.load();
+  });
+  // 菜单开着时切了标签（键盘切的），编辑器已经 {#key} 重建：菜单手里的 api 指着销毁掉的那个，关掉
+  $effect(() => {
+    if (edMenu && tab?.path !== edMenu.path) edMenu = null;
+  });
 </script>
 
 <!--
@@ -387,12 +408,26 @@
           : null}
         jumpLang={lang.mod?.langOf(tab.path) ?? ""}
         onJump={(hit) => void nav.jumpTo(hit)}
+        onContextMenu={(e, api) => (edMenu = { x: e.clientX, y: e.clientY, path: tab.path, api })}
       />
     {/key}
   {:else}
     <div class="empty"><p class="wait"><span class="spinner"></span>正在载入编辑器…</p></div>
   {/if}
 </div>
+
+{#if edMenu && edMenuUi.comp}
+  <!-- 不用 {...edMenu} 展开：展开会把运行时的 spread_props 拽进入口包（frontend.md 09-21 那条） -->
+  <edMenuUi.comp
+    x={edMenu.x}
+    y={edMenu.y}
+    path={edMenu.path}
+    api={edMenu.api}
+    {onMenuAction}
+    {onReveal}
+    onclose={() => (edMenu = null)}
+  />
+{/if}
 
 {#snippet failed(err, reset)}
   <div class="content">

@@ -68,17 +68,58 @@ class Tabs {
    * 切到某个标签：它所在的组显示它，它成为活动标签（焦点跟到那一组）。
    * **所有切标签的写入都走这儿**，理由见文件头。id 不存在什么也不做。
    */
-  show(id: number) {
+  show(id: number, track = true) {
     const t = this.byId(id);
     if (!t) return;
     this.shown[t.group] = id;
     this.activeId = id;
+    // `track = false`：⌃Tab 按住 ⌃ 往回翻的途中，路过的不算「看过」，松开 ⌃ 才记（App.svelte）
+    if (track) this.touch(id);
+  }
+
+  /**
+   * 最近看过的标签 id，新的在前。⌃Tab 用（IDEA / VSCode 的 ⌃Tab 都按最近使用切，
+   * 最常见的是在两个文件之间来回）。只在人切过去时记（`show` / `focusGroup`）——
+   * 关标签时顺手落到的邻居不算，那不是人选的。不是响应式的：没有界面读它。
+   */
+  #mru: number[] = [];
+
+  touch(id: number) {
+    this.#mru = [id, ...this.#mru.filter((x) => x !== id)].slice(0, 64);
+  }
+
+  /** 按最近使用排的全部标签，当前的在第一个；从没被切到过的（会话恢复开的）按表里的顺序垫在后面 */
+  byRecent(): TabState[] {
+    const out: TabState[] = [];
+    const push = (t: TabState | null) => {
+      if (t && !out.includes(t)) out.push(t);
+    };
+    push(this.active);
+    for (const id of this.#mru) push(this.byId(id));
+    for (const t of this.list) push(t);
+    return out;
+  }
+
+  /** ⌘⇧[ / ⌘⇧]：当前组里按位置的上 / 下一个，首尾相接。组里只有一个就是 null */
+  neighbor(dir: 1 | -1): TabState | null {
+    const cur = this.active;
+    if (!cur) return null;
+    const mates = this.inGroup(cur.group);
+    if (mates.length < 2) return null;
+    const i = mates.indexOf(cur);
+    return mates[(i + dir + mates.length) % mates.length];
   }
 
   /** 焦点换到另一组（点进它的编辑器 / 标签条），显示的标签不变 */
   focusGroup(g: Group) {
     const id = this.shown[g];
-    if (id !== null && id !== undefined) this.activeId = id;
+    // 活动标签真的变了才记进最近使用：⌃Tab 往回翻时每一站都把焦点交给编辑器，组容器的
+    // focusin 会走到这儿 —— 那时活动标签已经是这一站了，再 touch 就把路过的记成「看过」
+    // （code review 2026-09-23；状态层测试直接调 show(id, false)，绕过了这条路）
+    if (id !== null && id !== undefined && id !== this.activeId) {
+      this.activeId = id;
+      this.touch(id);
+    }
   }
 
   /**

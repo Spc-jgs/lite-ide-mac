@@ -6,6 +6,43 @@
   import "@xterm/xterm/css/xterm.css";
   import { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyAck } from "../ipc/pty";
   import TermSearch from "./TermSearch.svelte";
+  import { docs } from "../state/docs.svelte";
+  import { files } from "../state/files.svelte";
+  import { project } from "../state/project.svelte";
+  import { nav } from "../state/nav.svelte";
+  import { openExternal } from "../ipc/app";
+  import { stackFrame, frameResolver } from "../logview/stack-frame";
+  import { findTermLinks, type LinkCtx, type TermLink } from "./links";
+  import { dropText } from "./shell-quote";
+
+  /*
+   * 终端里的链接（links.ts）要的三样：文件索引做成 Set（每次悬停都要问好几个路径，几万条的数组
+   * `includes` 太慢）、堆栈帧的解析器（按索引缓存）、起始目录相对项目根的那段。索引一换全跟着换。
+   */
+  let fileSet = $derived(new Set(files.list));
+  let resolveFrame = $derived(frameResolver(files.list));
+  function linkCtx(): LinkCtx {
+    const root = project.root;
+    return {
+      root,
+      cwdRel: root && (cwd === root || cwd.startsWith(`${root}/`)) ? cwd.slice(root.length + 1) : null,
+      has: (rel) => fileSet.has(rel),
+      frameAt: (text) => {
+        const f = stackFrame(text);
+        const rel = f && resolveFrame(f.suffix);
+        return f && rel ? { from: f.from, to: f.to, rel, line: f.line } : null;
+      },
+    };
+  }
+
+  function openLink(l: TermLink) {
+    if (l.kind === "url") {
+      void openExternal(l.url).catch((e) => console.warn("打不开链接", e));
+      return;
+    }
+    // 走 jumpTo：先把当前位置压栈，⌥⌘← / ⌘[ 回得来
+    void nav.jumpTo({ from: 0, to: 0, text: l.rel, target: { rel: l.rel, line: l.line, why: "终端" } });
+  }
 
   let { cwd, onExit }: { cwd: string; onExit: () => void } = $props();
 
@@ -149,10 +186,89 @@
         openSearch();
         return false;
       }
+      /*
+       * 切标签的键（⌃Tab、⌘⇧[ ⌘⇧]）和回退 / 前进（⌘[ ⌘]）归窗口（App.svelte 的 keydown）：
+       * 返回 false 让 xterm 别碰，事件照样冒泡上去。不放行的话 ⌃Tab 会变成一个 Tab 送进 shell
+       * （zsh 当场弹补全），而焦点在终端里正是最想切回编辑器的时候。
+       */
+      if (e.ctrlKey && e.key === "Tab") return false;
+      if (e.metaKey && ["[", "]", "{", "}"].includes(e.key)) return false;
       return true;
     });
     term.open(host);
     fit.fit();
+
+    /*
+     * 焦点进终端 = 人离开编辑器去跑命令了：把改过的文件存盘（`autosave.ts` 的 `leave`）。
+     * IDEA 同一条（「切到内置终端时保存」）—— 改完代码点进终端敲 mvn，编译的得是改完那份。
+     * 听 xterm 自己那个隐藏 textarea 的 focus：点进来、⌘J 打开、切终端标签都走它。
+     */
+    const onEnter = () => void docs.autosaveSweep(true, true);
+    term.textarea?.addEventListener("focus", onEnter);
+
+    // 从 Finder 拖进来的文件：插入转义好的路径（App.svelte 按落点派过来），同 Terminal.app
+    const onDropPaths = (ev: Event) => {
+      const paths = (ev as CustomEvent<string[]>).detail;
+      if (ptyId === null || !paths?.length) return;
+      void ptyWrite(ptyId, dropText(paths));
+      term.focus();
+    };
+    // 记下挂在哪个元素上：清理时要从同一个上摘（闭包里的 `host` 到那时可能已经换了）
+    const dropHost = host;
+    dropHost.addEventListener("lite-drop-paths", onDropPaths);
+
+    /*
+     * 输出里的网址、项目文件路径、堆栈帧能 ⌘Click（links.ts）。⌘ 才开：终端里单击 / 拖选是在选字复制，
+     * iTerm、VSCode 的终端也是 ⌘Click —— 和编辑器的 ⌘Click 跳转同一个手势。
+     *
+     * 两件要换算的事：
+     * - **折行**：底部面板窄，maven 报的绝对路径动辄一百多个字，大半会折行 —— 而那正是最想点的时候。
+     *   从这一行往上找到折行的起点、往下找到终点，拼回一整条逻辑行再找链接，范围可以跨行。
+     * - **格子 ≠ 下标**：xterm 的范围按格子算，中文一个字占两格，正则给的是字符串下标。
+     *   拼的时候给每个 UTF-16 单元记下它在第几行第几格、占几格。
+     */
+    const linkReg = term.registerLinkProvider({
+      provideLinks(y, done) {
+        const buf = term.buffer.active;
+        let top = y - 1;
+        while (top > 0 && buf.getLine(top)?.isWrapped) top--;
+        let bottom = y - 1;
+        while (buf.getLine(bottom + 1)?.isWrapped) bottom++;
+        let text = "";
+        const at: { x: number; y: number; w: number }[] = [];
+        for (let r = top; r <= bottom; r++) {
+          const line = buf.getLine(r);
+          if (!line) break;
+          for (let x = 0; x < line.length; x++) {
+            const cell = line.getCell(x);
+            if (!cell || cell.getWidth() === 0) continue; // 宽字符的后半格
+            const ch = cell.getChars() || " ";
+            for (let k = 0; k < ch.length; k++) at.push({ x, y: r, w: cell.getWidth() });
+            text += ch;
+          }
+        }
+        // 只要碰到问的这一行的（跨行的链接，上下几行各问一次，各自都给出同一条）
+        const found = findTermLinks(text.trimEnd(), linkCtx()).filter(
+          (l) => at[l.start].y <= y - 1 && at[l.end - 1].y >= y - 1,
+        );
+        if (found.length === 0) return done(undefined);
+        done(
+          found.map((l) => {
+            const a = at[l.start];
+            const z = at[l.end - 1];
+            return {
+              range: { start: { x: a.x + 1, y: a.y + 1 }, end: { x: z.x + z.w, y: z.y + 1 } },
+              text: text.slice(l.start, l.end),
+              activate: (e: MouseEvent) => {
+                if (e.metaKey) openLink(l);
+              },
+              hover: () => term.element && (term.element.title = "⌘ + 点击打开"),
+              leave: () => term.element && (term.element.title = ""),
+            };
+          }),
+        );
+      },
+    });
 
     /*
      * 已经被 xterm 吃下、但还没报回 Rust 的字节数（issue #18 第一条）。
@@ -212,6 +328,9 @@
     ro.observe(host);
 
     return () => {
+      term.textarea?.removeEventListener("focus", onEnter);
+      dropHost.removeEventListener("lite-drop-paths", onDropPaths);
+      linkReg.dispose();
       disposed = true;
       ro.disconnect();
       if (ptyId !== null) void ptyKill(ptyId);

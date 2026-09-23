@@ -4,7 +4,9 @@
   import { EditorView, keymap, lineNumbers, highlightActiveLine,
            highlightActiveLineGutter, drawSelection, rectangularSelection,
            crosshairCursor, highlightSpecialChars } from "@codemirror/view";
-  import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+  import { history, historyKeymap, indentWithTab } from "@codemirror/commands";
+  import { ideaKeymap, editorDefaults, ideaKeysState } from "./idea-keys";
+  import { saveHistory, stateWithHistory } from "./undo-store";
   import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
   import { searchPanel } from "./search-panel";
   import { autocompletion, closeBrackets, closeBracketsKeymap, completeAnyWord, completionKeymap } from "@codemirror/autocomplete";
@@ -21,6 +23,7 @@
   import type { BlameHunk } from "../ipc/commands";
   import { diffLines } from "../git/linediff";
   import { resolveJump, rawWordAt, javaToolsOf, type JumpHit } from "./jump";
+  import type { EditorMenuApi } from "./menu-api";
   import { jumpExtension, recheckJump } from "./jump-ext";
   import { foldFrontmatter } from "./frontmatter-fold";
   import { bodyPlaceholder } from "./body-placeholder";
@@ -58,6 +61,7 @@
     jumpRel = null,
     jumpLang = "",
     onJump,
+    onContextMenu,
     onWordProbe,
   }: {
     path: string;
@@ -116,6 +120,11 @@
     jumpLang?: string;
     /** 跳。压导航栈、开标签都是 App 的事，这里只报「往哪儿跳」 */
     onJump?: (hit: JumpHit) => void;
+    /**
+     * 右键（2026-09-23）：编辑器把光标挪到点的位置、问一次这里能不能跳，连同剪切 / 复制 / 粘贴
+     * 交出去；菜单长什么样、别的项做什么是 Content 的事。不给就是 WebView 自带的那个菜单。
+     */
+    onContextMenu?: (e: MouseEvent, api: EditorMenuApi) => void;
     /**
      * 交出「读出光标底下那个词」的能力，给菜单里那条「在项目里找这个名字」。
      *
@@ -295,15 +304,54 @@
     settle: () => (view ? (javaToolsOf(view.state, 0)?.settle() ?? null) : null),
   };
 
+  /**
+   * 右键：点在选区外就先把光标挪过去（IDEA / VSCode 都这样 —— 菜单作用在「点的那个词」上，
+   * 不是光标原来停的地方）；点在选区里保留选区，好剪切 / 复制。
+   */
+  function openContextMenu(e: MouseEvent, v: EditorView): boolean {
+    if (!onContextMenu) return false;
+    const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
+    if (pos !== null && !v.state.selection.ranges.some((r) => pos >= r.from && pos <= r.to)) {
+      v.dispatch({ selection: { anchor: pos } });
+    }
+    e.preventDefault();
+    const sel = () => v.state.sliceDoc(v.state.selection.main.from, v.state.selection.main.to);
+    const hit = jumpHooks.resolve(v.state.selection.main.head);
+    onContextMenu(e, {
+      hit,
+      hasSelection: !v.state.selection.main.empty,
+      copy: async () => {
+        await navigator.clipboard.writeText(sel());
+      },
+      cut: async () => {
+        const text = sel();
+        if (!text) return;
+        await navigator.clipboard.writeText(text);
+        v.dispatch(v.state.replaceSelection(""), { userEvent: "delete.cut" });
+      },
+      // 读剪贴板在 WKWebView 里可能被拦（或弹系统的「粘贴」确认）：读不到就抛，调用方说一句「用 ⌘V」
+      paste: async () => {
+        const text = await navigator.clipboard.readText();
+        v.dispatch(v.state.replaceSelection(text), { userEvent: "input.paste", scrollIntoView: true });
+      },
+      focus: () => v.focus(),
+    });
+    return true;
+  }
+
   /** `indentUnit` 要的那个字符串：覆盖优先，没有就猜；猜不出按 4 空格 */
   function indentUnitOf(over: "tab" | number | null): string {
     const ind = over ?? detectIndent(baseline ?? initial);
     return ind === "tab" ? "\t" : " ".repeat(typeof ind === "number" ? ind : 4);
   }
 
-  function build(doc: string) {
-    return EditorState.create({
-      doc,
+  /**
+   * 建 state。`histKey` 给了就去 `undo-store` 找这份文档切走前存下的撤销历史 ——
+   * 切标签会销毁重建编辑器（`{#key tab.id}`），不接回来的话 ⌘Z 撤不回切走前打的字。
+   * （不叫 `path`：那会遮住同名的 prop，函数体里 `langOf(path)` 读的是 prop。）
+   */
+  function build(doc: string, histKey?: string) {
+    const config = {
       extensions: [
         lineNumbers(),
         // 紧挨着行号、在折叠标记左边 —— IDEA / VS Code 都是这个位置。gutter 的
@@ -362,6 +410,8 @@
         indentSlot.of(indentUnit.of(indentUnitOf(indent))),
         langSlot.of([]),
         jumpExtension(jumpHooks),
+        ideaKeysState,
+        EditorView.domEventHandlers({ contextmenu: (e, v) => openContextMenu(e, v) }),
         ideaDarkTheme,
         ideaDarkHighlight,
         keymap.of([
@@ -380,7 +430,9 @@
            */
           ...closeBracketsKeymap,
           ...completionKeymap,
-          ...defaultKeymap,
+          // IDEA 的键排在 CM6 默认键位前面：⌘D ⌥↑ ⌥⇧↓ ⌘⌫ 在两边含义不同，先到先得（idea-keys.ts）
+          ...ideaKeymap,
+          ...editorDefaults,
           ...historyKeymap,
           ...searchKeymap,
           ...foldKeymap,
@@ -408,7 +460,8 @@
           }
         }),
       ],
-    });
+    };
+    return histKey ? stateWithHistory(histKey, doc, config) : EditorState.create({ ...config, doc });
   }
 
   /**
@@ -420,6 +473,8 @@
   function stash() {
     if (!view) return;
     onStash?.(curPath, view.state.doc.toString());
+    // 撤销历史也交出去，切回来时 `build` 接上（undo-store.ts）
+    saveHistory(curPath, view.state);
   }
 
   /*
@@ -444,7 +499,7 @@
     untrack(() => {
       curPath = path;
       baseText = baseline ?? initial;
-      view = new EditorView({ state: build(initial), parent: host });
+      view = new EditorView({ state: build(initial, path), parent: host });
       // 挂载先报一次：updateListener 只在有更新时才跑，不报的话状态栏那格
       // 会停在上一个标签的位置上，直到人动一下光标
       onCaret?.(1, 1);
@@ -532,7 +587,7 @@
      */
     const 文本变了 = text.length !== view.state.doc.length || text !== view.state.doc.toString();
     if (换了文件) {
-      view.setState(build(text));
+      view.setState(build(text, p));
       void applyLang(p);
       // 新 state 里注解那个槽是空的，改动标记的字段也是新的：两个都要重下
       blameInstalled = false;

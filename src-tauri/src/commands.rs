@@ -1773,8 +1773,11 @@ pub fn sync_menu_state(
 /// 从终端启动时 PATH 是用户的，不该让它决定我们调到哪个 `open`。
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {
-    if !url.starts_with("https://") {
-        return Err(format!("只允许 https 链接，实得：{url}"));
+    // 只放行 http / https：闸要拦的是别的 scheme（file://、能拉起应用的自定义 scheme），
+    // 这两个都只会交给浏览器。http 是 2026-09-23 为终端里的链接放开的 ——
+    // 最常点的恰恰是 `http://localhost:8080`（src/lib/terminal/links.ts）
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(format!("只允许 http / https 链接，实得：{url}"));
     }
     crate::diag!("open_external {url}");
     let st = std::process::Command::new("/usr/bin/open")
