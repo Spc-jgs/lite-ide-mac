@@ -7829,3 +7829,16 @@ Web Animations API 拿**：`a.currentTime = 200` 手动拨过去，再读计算�
 | | |
 |---|---|
 | 测试 | 新增 idea-keys / undo-store / term-links / shell-quote 四个文件，状态层 +2 段；38 个文件全绿；改坏验红 14 处 |
+
+## 2026-09-23 · CI 红了两天没人看见：`state.rs` 的单元测试还在用 `FilterSpec.pattern`
+
+09-18 写的「轮转按名重开」测试用 `pattern: b"a".to_vec()` 构造 `FilterSpec`；09-21 日志过滤改成
+`空格 AND / -排除 / "整串" / /正则/` 时，字段换成了 `text: TextFilter`，这一处漏改 —— **lib 的测试目标
+编译不过**，CI 的「Rust 测试」一步从 09-21 起每次都红（`b3e07e0`、`d526cef`、`34f5662` 三次）。
+
+为什么本地一直没发现：那几轮收尾只跑了 `cargo test --test menu_sync --test dto_sync` —— 集成测试不编译
+`src/` 里的 `#[cfg(test)]` 模块。前端的 `pnpm test`、`pnpm check` 全绿，也看不到它。
+
+修法：`text: logengine::TextFilter::single(b"a".to_vec())`（`filter.rs` 自己的测试也是这么构造的）。
+`cargo test --workspace --locked` 全过。**以后改了 Rust 的结构体，收尾跑完整的 `cargo test --workspace`，
+推送前先看一眼主干的 CI 本来是不是绿的** —— 推到红的主干上，新的失败会被旧的盖住。

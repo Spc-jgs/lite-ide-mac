@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(st.get(h).unwrap().stat().line_count, 3);
         let spec = logengine::FilterSpec {
             levels: logengine::LevelMask::ALL,
-            pattern: b"a".to_vec(),
+            text: logengine::TextFilter::single(b"a".to_vec()),
             case_sensitive: true,
             collapse_stacks: false,
         };
