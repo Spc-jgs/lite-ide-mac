@@ -47,7 +47,7 @@ export interface JumpTarget {
   /** 1-based 行号；没有就是跳到文件开头 */
   line?: number;
   /** 凭什么敢跳 —— 进 tooltip，让人知道这一下的依据 */
-  why: "本文件" | "import" | "同包" | "成员";
+  why: "本文件" | "import" | "同包" | "成员" | "堆栈";
 }
 
 export interface JumpHit {

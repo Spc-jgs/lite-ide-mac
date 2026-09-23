@@ -3,6 +3,7 @@
   import { LineCache, type Row } from "./line-cache";
   import { parse, type LogFormat } from "./parse";
   import { parseQuery, highlightQuery } from "./query";
+  import { withLink } from "./stack-frame";
 
   let {
     handle,
@@ -18,6 +19,8 @@
     epoch = 0,
     onTop,
     onGotoDone,
+    frameAt,
+    onFrame,
   }: {
     handle: number;
     lineCount: number;
@@ -51,6 +54,13 @@
     onTop?: (line: number) => void;
     /** `gotoLine` 真的落到目标行了（不是被行数夹住那次）；上层据此销掉指令 */
     onGotoDone?: () => void;
+    /**
+     * 堆栈行里哪一段能跳到项目源码（`OrderService.java:142`）；跳不了（在 jar 里、认不准）就 null。
+     * 判据在 LogPane（它有文件索引），这里只管画和点 —— 见 stack-frame.ts
+     */
+    frameAt?: (text: string) => { from: number; to: number } | null;
+    /** 点了那段链接。给的是整行原文，由上层再解析一次去开文件 */
+    onFrame?: (text: string) => void;
   } = $props();
 
   /** 过滤框那串字切好的样子（语法见 `query.ts`）；每行画高亮时不重切 */
@@ -166,6 +176,17 @@
     }
   }
 
+  /** 链接一律用事件委托：屏幕上几十行，每行挂一个 onclick 在滚动时反复装卸 */
+  function onClick(e: MouseEvent) {
+    const a = (e.target as HTMLElement).closest<HTMLElement>('.p[data-cls="link"]');
+    const n = a?.closest<HTMLElement>(".row")?.dataset.n;
+    if (!a || n === undefined || !onFrame) return;
+    // 拖选一段文字松手也会落一个 click：有选区就是在复制，不跳
+    if (getSelection()?.toString()) return;
+    const row = cache.get(Number(n));
+    if (row) onFrame(row.text);
+  }
+
   function onKeydown(e: KeyboardEvent) {
     if (!viewport) return;
     const page = viewportHeight - LINE_HEIGHT;
@@ -203,6 +224,7 @@
   bind:clientHeight={viewportHeight}
   onscroll={onScroll}
   onkeydown={onKeydown}
+  onclick={onClick}
   tabindex="0"
   role="log"
   aria-label="日志内容"
@@ -211,8 +233,10 @@
     <div class="layer" style:transform="translateY({layerTop}px)">
       {#each rows as { n, row } (n)}
         {@const seg = row ? parse(row.text, format) : null}
+        {@const link = seg?.stack && frameAt && row ? frameAt(row.text) : null}
         <div
           class="row"
+          data-n={n}
           class:pending={!row}
           class:stack={seg?.stack}
           class:current={currentLine > 0 && n === currentLine - 1}
@@ -221,7 +245,7 @@
           <span class="gutter" style:width={gutterWidth}>{row ? row.phys + 1 : ""}</span>
           {#if seg}
             <span class="cells">
-              {#each seg.parts as part}
+              {#each link ? withLink(seg.parts, link.from, link.to) : seg.parts as part}
                 <span class="p" data-cls={part.cls}
                   >{#each highlightQuery(part.text, query, caseSensitive) as t, i}{#if i % 2 === 1}<mark
                       >{t}</mark
@@ -298,6 +322,20 @@
   .p[data-cls="key"] { color: var(--lvl-warn); }
   .p[data-cls="meta"] { color: var(--text-dim); }
   .p[data-cls="dim"] { color: var(--text-faint); }
+  /*
+   * 能跳到项目源码的帧：一直带下划线（IDEA 的控制台也是），不用悬停才出现 ——
+   * 一眼扫下来哪几帧是自己的代码，这本身就是信息。跳不了的（jar 里的）不画，所以链接
+   * 在堆栈里是稀疏的，不吵。小手而不是箭头：它是文本里的链接，和编辑器 ⌘hover 的下划线同类，
+   * 不是按钮（按钮一律箭头，ui.md）
+   */
+  /* 带上 .row.stack：下面那条 `.row.stack .p` 的灰是三个类的权重，只写 .p[data-cls] 压不过它 */
+  .row.stack .p[data-cls="link"] {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
   .p[data-cls="msg"] { color: var(--text); }
 
   /* 级别色只染级别段；ERROR 例外——整行都该扎眼 */

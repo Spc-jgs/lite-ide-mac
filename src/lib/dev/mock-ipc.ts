@@ -20,7 +20,9 @@ const LINES = [
   "java.lang.IllegalStateException: connection pool exhausted",
   "\tat com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",
   "\tat com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:197)",
-  "\tat com.liteide.OrderService.persist(OrderService.java:142)",
+  // 堆栈跳源码（2026-09-23）：这一帧的包路径对得上 moduleB 里那份 OrderClient.java，画成链接；
+  // 上面两帧 Hikari 在 jar 里，不画 —— 桩上两种形态都要看得到
+  "\tat com.demo.core.OrderClient.ping(OrderClient.java:4)",
   "Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 timed out",
   "2026-08-24 14:03:26.101 INFO  [kafka-listener-0] c.l.KafkaConsumer - 处理完成 orderId=8842014 cost=37ms status=SUCCESS",
   "2026-08-24 14:03:26.550 TRACE [main] c.l.InventoryLock - enter acquire(sku=A-1180)",

@@ -21,7 +21,8 @@ export type PartClass =
   | "key" // 结构化日志的键
   | "meta" // IP、方法、状态码之类的附属信息
   | "msg" // 正文
-  | "dim"; // 分隔符等次要内容
+  | "dim" // 分隔符等次要内容
+  | "link"; // 堆栈帧里能跳到项目源码的「文件:行号」—— 不是解析器产的，LogView 叠上去的（stack-frame.ts）
 
 export interface Part {
   text: string;

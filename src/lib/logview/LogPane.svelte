@@ -8,6 +8,9 @@
   import { progress, type TaskHandle } from "../state/progress.svelte";
   import { logStat, logLines, logFilter, logFilterStat, logRefresh, logFilterMap, logSeekTime } from "../ipc/log";
   import { notify } from "../state/notify.svelte";
+  import { files } from "../state/files.svelte";
+  import { nav } from "../state/nav.svelte";
+  import { stackFrame, frameResolver } from "./stack-frame";
 
   let {
     handle,
@@ -388,6 +391,24 @@
     if (error) parts.push(error);
     onStatus(parts.join("  ·  "));
   });
+
+  /*
+   * 堆栈帧 → 项目源码（stack-frame.ts）。按 ⌘P 那份文件索引坐实；索引换了（新建文件、换项目）
+   * 解析器跟着重建，它的缓存也就扔了。没开项目时索引是空的，一帧都不画 —— 不知道「项目」
+   * 是哪个，就说不出哪帧是自己的代码。
+   */
+  let resolveFrame = $derived(frameResolver(files.list));
+  function frameAt(text: string) {
+    const f = stackFrame(text);
+    return f && resolveFrame(f.suffix) ? f : null;
+  }
+  function openFrame(text: string) {
+    const f = stackFrame(text);
+    const rel = f && resolveFrame(f.suffix);
+    if (!f || !rel) return;
+    // 走 jumpTo 而不是直接开：它先把「日志的这一行」压进导航栈，⌥⌘← 能回来接着看
+    void nav.jumpTo({ from: f.from, to: f.to, text: text.slice(f.from, f.to), target: { rel, line: f.line, why: "堆栈" } });
+  }
 </script>
 
 <div class="pane">
@@ -428,6 +449,8 @@
         lastTop = Math.max(0, l - 1); // onTop 报的是 1-based，Rust 那边按 0-based 物理行
         onTop?.(l);
       }}
+      {frameAt}
+      onFrame={openFrame}
     />
   </div>
 </div>
