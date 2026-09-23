@@ -356,6 +356,8 @@ them before you switch branches"），把它转发给界面用户等于让他自
   卡片和弹窗都是这一条 —— 之前卡片主动作在左、弹窗在右，一屏两种次序。
 - 动效只有三种（hover 70ms / 浮层 90ms 淡入 / 卡片 120ms 淡入下落），理由在 app.css 那段
   注释里。浮层**只动透明度** —— 要钳位的浮层动了 transform 量到的是动画中途那一帧。
+- **分段控件是 `.segs`**（几个 `.btn` 共一个描边，`on` 那段 accent-sel 底 + accent 边）。差异视图的
+  「双栏 / 统一」和日志的「只看命中 / 全文」都是它；别再各写一份。
 - **进度条是 `.pbar`**（3px 细条，`indet` 来回跑），只出现在状态栏的进度格里。有百分比就登记
   百分比（`progress.start(label, { percent })` + `set`），没有就 `null`（不确定条），
   **不能画成 0%**。`end` 放 finally / effect cleanup，漏掉就是一条永远转着的任务。

@@ -1,4 +1,4 @@
-import { findDiffSegments, diffLineKind } from "../src/lib/git/diff.ts";
+import { findDiffSegments, diffLineKind, linePieces } from "../src/lib/git/diff.ts";
 
 let pass = 0,
   fail = 0;
@@ -39,6 +39,30 @@ ok(s3.length === 2 && s3[1].from === D.length + 1, `空行隔开的是两段：$
 
 ok(diffLineKind("\\ No newline at end of file") === "meta", "No newline 是 meta");
 ok(diffLineKind("") === null, "空行不是 diff 行");
+
+
+// ── linePieces：语法段 × 行内改动区间 ──
+{
+  const l = { kind: "add" as const, text: "int timeout = 5000;", span: [14, 18] as [number, number] };
+  const toks = [
+    { t: "int", cls: "kw" },
+    { t: " timeout = ", cls: "" },
+    { t: "5000", cls: "num" },
+    { t: ";", cls: "" },
+  ];
+  const p = linePieces(l, toks);
+  ok(p.map((x) => x.t).join("") === l.text, "拼回来必须是原串");
+  ok(p.filter((x) => x.hit).map((x) => x.t).join("") === "5000", `改动区间应该是 5000，实得 ${JSON.stringify(p.filter((x) => x.hit))}`);
+  ok(p.find((x) => x.t === "5000")?.cls === "num", "改动区间里的语法类名要保住");
+  ok(p.find((x) => x.t === "int")?.cls === "kw" && !p.find((x) => x.t === "int")?.hit, "区间外的段不带 hit");
+  // 区间切在一个语法段中间：段被切开，两半类名一样、hit 不一样
+  const q = linePieces({ kind: "del" as const, text: "foobar", span: [3, 6] }, [{ t: "foobar", cls: "id" }]);
+  ok(q.length === 2 && q[0].t === "foo" && !q[0].hit && q[1].t === "bar" && q[1].hit && q[1].cls === "id", "区间切在段中间要切开");
+  // 没有语法信息：退化成三段
+  const r = linePieces({ kind: "add" as const, text: "ab😀cd", span: [2, 3] }, null);
+  ok(r.filter((x) => x.hit).map((x) => x.t).join("") === "😀", "span 是 code point 计的，emoji 算一个字");
+  ok(linePieces({ kind: "ctx" as const, text: "x" }, null).length === 1, "没有 span 就是一整段");
+}
 
 console.log(`${fail === 0 ? "✅" : "❌"} diff 段：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

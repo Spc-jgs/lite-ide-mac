@@ -339,6 +339,15 @@ html, body {
 .btn.danger:hover { background: #ff6674; border-color: #ff6674; color: #fff; }
 .btn.quiet { border-color: transparent; color: var(--text-faint); }
 .btn.quiet:hover { background: var(--hover); color: var(--text); }
+/*
+ * 分段控件：几个 `.btn` 共一个描边，中间不重复画线，`on` 的那段用 `--accent-sel` 底 + accent 边
+ * （2026-09-22 收成一份：差异视图的「双栏 / 统一」和日志的「只看命中 / 全文」原来各写各的，
+ * 一个 accent-sel 底、一个还带 accent 边，并排就是两种控件）。
+ */
+.segs { display: inline-flex; }
+.segs > .btn:not(:first-child) { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+.segs > .btn:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.segs > .btn.on { background: var(--accent-sel); border-color: var(--accent); color: var(--text); position: relative; z-index: 1; }
 /* 分裂按钮：主体 + ▾ 共一个圆角，中间一条细线 —— 看着是一个按钮的两半 */
 .btn-split { display: inline-flex; }
 .btn-split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }

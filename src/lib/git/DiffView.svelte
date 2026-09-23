@@ -1,9 +1,10 @@
 <script lang="ts">
   import { splitHunks, hunkPatch, pickLines } from "./hunks";
   import Icon from "../shell/Icon.svelte";
+  import { highlightDiff, type Tok } from "./diff-highlight";
   import {
     parseDiff,
-    segs,
+    linePieces,
     toSideBySide,
     changeBlocks,
     blankRuns,
@@ -184,12 +185,52 @@
    */
   const SIDE_MIN = 720;
   let narrow = $derived(boxW > 0 && boxW < SIDE_MIN);
-  /** 真正在显示的形态 */
-  let sideOn = $derived(side && !narrow);
   let box = $state<HTMLElement | null>(null);
   let cur = $state(-1);
 
   let files = $derived<DiffFile[]>(parseDiff(raw));
+  /*
+   * **单边差异**：新增或删除整个文件，只有一侧有内容。
+   *
+   * 这种 diff 用双栏对照是自找难看：左边整栏空着（一大片斜纹）、右边整片绿，中间那条
+   * 分栏线把屏幕劈成「一半废的 + 一半有用的」，还多一列永远空着的行号。IDEA 对新文件
+   * 根本不给双栏。所以这里**强制统一视图**，「双栏」那段灰掉并说明原因；统一视图里
+   * 把那列空行号也去掉（46px 的空列），只剩一条 hunk 的话那条块头也不画 ——
+   * 「从第 1 行开始，共 70 行」对一个全新文件不是信息。
+   */
+  let oneSided = $derived.by<"add" | "del" | null>(() => {
+    if (files.length !== 1) return null;
+    const f = files[0];
+    if (f.isNew || untracked) return "add";
+    if (f.isDeleted) return "del";
+    return null;
+  });
+  /** 真正在显示的形态 */
+  let sideOn = $derived(side && !narrow && !oneSided);
+  /*
+   * 语法着色（`diff-highlight.ts`）。异步：语言包要按需加载、解析要时间，先按平的画，
+   * 算好了再上色 —— 一份 diff 通常几十毫秒，肉眼看不到那一下。`dead` 同 LogPane 那条：
+   * raw 换了，上一趟还在飞的结果不能盖回来。多文件的 diff 各文件各算（路径不同语言不同）。
+   */
+  let hl = $state<Map<DiffLine, Tok[]> | null>(null);
+  $effect(() => {
+    const fs = files;
+    hl = null;
+    let dead = false;
+    void (async () => {
+      const merged = new Map<DiffLine, Tok[]>();
+      for (const f of fs) {
+        const m = await highlightDiff(f.lines, f.path).catch(() => null);
+        if (dead) return;
+        if (m) for (const [k, v] of m) merged.set(k, v);
+      }
+      if (!dead && merged.size) hl = merged;
+    })();
+    return () => {
+      dead = true;
+    };
+  });
+  const pieces = (l: DiffLine) => linePieces(l, hl?.get(l) ?? null);
   let adds = $derived(files.reduce((n, f) => n + f.adds, 0));
   let dels = $derived(files.reduce((n, f) => n + f.dels, 0));
 
@@ -290,11 +331,24 @@
 
 <svelte:window onkeydown={onKey} />
 
+<!-- 一行代码：语法段 × 行内改动区间。平的段直接印文本，少一层 span -->
+{#snippet code(l: DiffLine)}
+  {#each pieces(l) as p}
+    {#if p.hit}<mark class={p.cls || undefined}>{p.t}</mark>{:else if p.cls}<span class={p.cls}>{p.t}</span>{:else}{p.t}{/if}
+  {/each}
+{/snippet}
+
 <div class="diff" bind:clientWidth={boxW}>
   <div class="bar">
     <span class="path" title={path}>{path}</span>
     {#if files[0]?.oldPath}
       <span class="renamed">← {files[0].oldPath}</span>
+    {/if}
+    <!-- 整个文件新增 / 删除是这份 diff 最要紧的一句话，比 `+70 −0` 好读 -->
+    {#if oneSided === "add"}
+      <span class="tag add">新增的文件</span>
+    {:else if oneSided === "del"}
+      <span class="tag del">删除的文件</span>
     {/if}
     <span class="gap"></span>
     <span class="stat"><b class="a">+{adds}</b> <b class="d">−{dels}</b></span>
@@ -312,9 +366,15 @@
       <button
         class="btn sm"
         class:on={sideOn}
-        disabled={narrow}
+        disabled={narrow || !!oneSided}
         onclick={() => (side = true)}
-        title={narrow ? "窗口太窄，双栏每列放不下一行代码；拉宽就会自动切回来" : "左右分栏对照"}
+        title={oneSided === "add"
+          ? "整个文件是新增的，没有旧版可对照"
+          : oneSided === "del"
+            ? "整个文件被删了，没有新版可对照"
+            : narrow
+              ? "窗口太窄，双栏每列放不下一行代码；拉宽就会自动切回来"
+              : "左右分栏对照"}
       >双栏</button>
       <button class="btn sm" class:on={!sideOn} onclick={() => (side = false)} title="统一视图（窄窗口更合适）">统一</button>
     </span>
@@ -355,7 +415,8 @@
         {#each sideShown as r, i (i)}
           {#if r.kind === "hunk" || r.kind === "meta"}
             <div class="span4 {r.kind}" data-row={i}>
-              <span class="htxt">{r.text || "⋯"}</span>
+              {#if r.kind === "hunk"}<span class="fold" aria-hidden="true"><Icon name="more-h" size={12} /></span>{/if}
+              <span class="htxt">{r.text}</span>
               {#if r.kind === "hunk" && selHunk === sideHunk[i]}
                 <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
                   {staged ? "取消暂存" : "暂存"}选中的 {sel.size} 行
@@ -378,13 +439,13 @@
             <div class="no {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:sel={on} data-row={i} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>{L?.oldNo ?? ""}</div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:flat={flat.left[i]} class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>
-              {#if L}{@const s = segs(L)}{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}{/if}
+              {#if L}{@render code(L)}{/if}
             </div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="no mid {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>{R?.newNo ?? ""}</div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="tx {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:flat={flat.right[i]} class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>
-              {#if R}{@const s = segs(R)}{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}{/if}
+              {#if R}{@render code(R)}{/if}
             </div>
           {/if}
         {/each}
@@ -392,10 +453,14 @@
     {:else}
       <div class="uni" class:wrap>
         {#each uniShown as l, i (i)}
-          {#if l.kind === "hunk" || l.kind === "meta"}
+          {#if l.kind === "hunk" && oneSided && patches.hunks.length <= 1}
+            <!-- 单边差异只有一块：那条「从第 1 行开始」的块头不是信息（跳转不指向块头，去掉安全） -->
+          {:else if l.kind === "hunk" || l.kind === "meta"}
             <div class="row {l.kind}" data-row={i}>
-              <span class="no"></span><span class="no"></span><span class="sign"></span>
-              <span class="txt">{l.text || "⋯"}</span>
+              {#if oneSided !== "add"}<span class="no"></span>{/if}
+              {#if oneSided !== "del"}<span class="no"></span>{/if}
+              <span class="sign fold" aria-hidden="true">{#if l.kind === "hunk"}<Icon name="more-h" size={12} />{/if}</span>
+              <span class="txt">{l.text}</span>
               {#if l.kind === "hunk" && selHunk === uniHunk[i]}
                 <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
                   {staged ? "取消暂存" : "暂存"}选中的 {sel.size} 行
@@ -411,13 +476,12 @@
               {/if}
             </div>
           {:else}
-            {@const s = segs(l)}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="row {l.kind}" class:sel={sel.has(l)} data-row={i} onmousedown={noShiftSel} onclick={(e) => pickRow([l], e)}>
-              <span class="no">{l.oldNo ?? ""}</span>
-              <span class="no">{l.newNo ?? ""}</span>
+              {#if oneSided !== "add"}<span class="no">{l.oldNo ?? ""}</span>{/if}
+              {#if oneSided !== "del"}<span class="no">{l.newNo ?? ""}</span>{/if}
               <span class="sign">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : ""}</span>
-              <span class="txt">{s[0]}{#if s[1]}<mark>{s[1]}</mark>{/if}{s[2]}</span>
+              <span class="txt">{@render code(l)}</span>
             </div>
           {/if}
         {/each}
@@ -467,6 +531,15 @@
   .bar .stat { font-family: var(--code-font); font-size: 11px; white-space: nowrap; }
   .bar .stat .a { color: var(--diff-add-fg); font-weight: 500; }
   .bar .stat .d { color: var(--diff-del-fg); font-weight: 500; }
+  .bar .tag {
+    flex: none;
+    padding: 1px 7px;
+    border-radius: var(--r-sm);
+    font-size: 11px;
+    font-family: var(--ui-font);
+  }
+  .bar .tag.add { background: var(--diff-add-strong); color: var(--text); }
+  .bar .tag.del { background: var(--diff-del-strong); color: var(--text); }
   .bar .sha {
     font-family: var(--code-font);
     font-size: 11px;
@@ -479,19 +552,16 @@
   .nav { display: inline-flex; align-items: center; gap: 1px; }
   .nav .pos { font-family: var(--code-font); font-size: 10px; color: var(--text-faint); min-width: 30px; text-align: center; }
 
-  /* 分段控件：两个 .btn.sm 共一个描边，中间不重复画线 */
-  .segs { display: inline-flex; }
-  .segs .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-  .segs .btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
-  .bar .btn.on { background: var(--accent-sel); color: var(--text); }
-  /* 窄窗口下「双栏」会断成两行 —— .btn 自带 nowrap */
+  /* 分段控件是 app.css 的 `.segs`；「换行」是独立开关，`on` 同一套长相 */
+  .bar .btn.on { background: var(--accent-sel); border-color: var(--accent); color: var(--text); }
 
+  /* 字号 / 行高同编辑器（13px × 1.55 ≈ 20）：一个文件在编辑器和差异里切来切去，字不该忽大忽小 */
   .body {
     flex: 1;
     overflow: auto;
     font-family: var(--code-font);
-    font-size: 12.5px;
-    line-height: 19px;
+    font-size: 13px;
+    line-height: 20px;
   }
 
   /*
@@ -508,7 +578,11 @@
     min-width: 100%;
     align-items: stretch;
   }
-  .grid > div { white-space: pre; height: 19px; }
+  .grid > div { white-space: pre; height: 20px; }
+  /*
+   * 块头：一条 `--hover` 的带子，**不画上下边线**（岛里不用线分项）。左边一个 ⋯ 说「这里折着
+   * 没显示的行」，后面跟 git 报的函数上下文（斜体，它是注释性质的）。
+   */
   .span4 {
     grid-column: 1 / -1;
     padding-left: 12px;
@@ -516,8 +590,6 @@
     color: var(--text-faint);
     font-size: 11.5px;
     font-style: italic;
-    border-top: 1px solid var(--border-soft);
-    border-bottom: 1px solid var(--border-soft);
   }
   .span4.meta {
     font-style: normal;
@@ -525,15 +597,17 @@
     background: var(--selected);
   }
   .no {
-    padding-right: 8px;
+    padding-right: 10px;
     text-align: right;
-    color: var(--text-faint);
-    font-size: 11px;
+    color: var(--gutter-fg);
+    font-size: 11.5px;
     user-select: none;
     /* 行号列吸在左边：横向滚动时仍然知道自己在第几行 */
     position: sticky;
     left: 0;
     background: var(--content-solid);
+    /* 同编辑器的行号栏：右边一条 soft 线把行号和正文分开 */
+    box-shadow: inset -1px 0 0 var(--border-soft);
   }
   /*
    * 吸住的列**背景必须不透明**，否则横向滚动时正文会从行号底下透出来。
@@ -544,12 +618,13 @@
   .no.del { background: linear-gradient(var(--diff-del-bg), var(--diff-del-bg)), var(--content-solid); }
   .no.add { background: linear-gradient(var(--diff-add-bg), var(--diff-add-bg)), var(--content-solid); }
   .no.blank { background: var(--content-solid); }
+  /* 右栏的行号：也是分栏线 —— 左边一条 soft 线（左栏正文 → 右栏行号），不用 9% 的 */
   .no.mid {
     left: auto;
     position: static;
-    border-left: 1px solid var(--border);
+    box-shadow: inset 1px 0 0 var(--border-soft), inset -1px 0 0 var(--border-soft);
   }
-  .tx { padding: 0 14px 0 4px; }
+  .tx { padding: 0 14px 0 8px; }
   .tx.del { background: var(--diff-del-bg); }
   .tx.add { background: var(--diff-add-bg); }
   /* 对面没有对应行：画成静音的斜纹底，一眼看出「这里本来就没东西」 */
@@ -586,20 +661,18 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     height: auto;
-    min-height: 19px;
+    min-height: 20px;
   }
   .uni.wrap .row {
     height: auto;
-    min-height: 19px;
+    min-height: 20px;
     /* min-content 会按最长那行撑宽整行，留着就等于没开换行 */
     min-width: 0;
   }
   .uni.wrap .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
 
   /*
-   * 锁死 19px 是为了行距整齐 —— hunk 行带上下边框，不锁就比别的行高 2px，
-   * 一屏里几条 hunk 就是几处台阶。box-sizing 是全局 border-box，
-   * 所以边框算在这 19px 里面。
+   * 锁死 20px 是为了行距整齐（同编辑器的行高）。
    *
    * 这**不再是**跳转的前提。以前「上一处 / 下一处改动」按 下标 × 行高 算，
    * 于是等高变成了一条藏在 CSS 里的隐性契约（改样式的人无从知道自己在动它）；
@@ -607,7 +680,7 @@
    */
   .uni .row {
     display: flex;
-    height: 19px;
+    height: 20px;
     white-space: pre;
     min-width: min-content;
   }
@@ -615,8 +688,11 @@
     flex: none;
     width: 46px;
     position: static;
+    box-shadow: none;
   }
-  .uni .sign { flex: none; width: 14px; text-align: center; user-select: none; }
+  /* 统一视图两列行号是一个栏：线画在最后一列右边（单边差异只有一列，那就是它自己） */
+  .uni .no:last-of-type { box-shadow: inset -1px 0 0 var(--border-soft); }
+  .uni .sign { flex: none; width: 18px; text-align: center; user-select: none; }
   .uni .txt { flex: 1; padding-right: 16px; }
   .uni .row.add { background: var(--diff-add-bg); }
   .uni .row.del { background: var(--diff-del-bg); }
@@ -627,9 +703,8 @@
     background: var(--hover);
     color: var(--text-faint);
     font-size: 11.5px;
-    border-top: 1px solid var(--border-soft);
-    border-bottom: 1px solid var(--border-soft);
   }
+  .uni .row.hunk .no, .uni .row.hunk .no + .no { background: transparent; box-shadow: none; }
   .uni .row.hunk .txt { font-style: italic; }
   /* 按块暂存的按钮：hover 那一行才出（ui.md 第三条：每一块上都有的东西不常驻） */
   /* 是 `.btn.sm`；这里只管位置和「hover 那一行才出」 */
@@ -656,10 +731,12 @@
   .uni .row.sel { box-shadow: inset 3px 0 0 var(--accent); filter: brightness(1.35); }
   .grid .sel { filter: brightness(1.35); }
   .grid .no.sel[data-row] { box-shadow: inset 3px 0 0 var(--accent); }
-  /* 块头比普通行高 3px：装得下 20 的 `.btn.sm`（普通行 19）。它本来就是分隔，高一点反而更像分隔 */
-  .uni .row.hunk, .span4.hunk { min-height: 22px; }
+  /* 块头比普通行高 4px：装得下 20 的 `.btn.sm` 还有呼吸位。它本来就是分隔，高一点反而更像分隔 */
+  .uni .row.hunk, .span4.hunk { min-height: 24px; }
   .row.hunk:hover .hbtn, .span4.hunk:hover .hbtn, .hbtn:focus-visible { opacity: 1; }
-  .span4.hunk { display: flex; align-items: center; }
+  .span4.hunk { display: flex; align-items: center; gap: 6px; }
+  /* 折叠标记：⋯ 图标，说「这上面有没显示的行」 */
+  .fold { display: inline-flex; align-items: center; justify-content: center; color: var(--text-faint); }
   .span4.hunk .htxt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .uni .row.meta { color: var(--text-faint); font-size: 11px; }
 

@@ -38,6 +38,8 @@
       <button class="btn" disabled>默认 · 禁用</button>
       <button class="btn primary" disabled>主动作 · 禁用</button>
       <span class="btn-split"><button class="btn primary">提交</button><button class="btn primary"><Icon name="chevron-down" size={11} /></button></span>
+      <span class="lbl">segs</span>
+      <span class="segs"><button class="btn sm on">双栏</button><button class="btn sm">统一</button></span>
     </div>
     <div class="row">
       <button class="btn sm">默认 sm</button>

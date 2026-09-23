@@ -474,3 +474,43 @@ export function findDiffSegments(lines: string[]): DiffSegment[] {
   flush();
   return out;
 }
+
+/**
+ * 把一行切成最终要画的片段：语法段（`toks`，UTF-16 偏移）和行内改动区间（`span`，
+ * code point 偏移）两套边界叠在一起。返回的每一段带 `hit`（在改动区间里，画成 `<mark>`）
+ * 和 `cls`（语法类名，空串 = 平的）。没有语法信息时 `toks` 传 null，退化成 `segs` 那三段。
+ *
+ * 两套偏移单位不同是历史原因：`span` 是按字符配对算出来的（一个 emoji 算一个），
+ * 解析器给的是 UTF-16。在这儿换算一次，别让渲染层知道这回事。
+ */
+export function linePieces(
+  l: DiffLine,
+  toks: { t: string; cls: string }[] | null,
+): { t: string; cls: string; hit: boolean }[] {
+  const cuts: number[] = [];
+  if (l.span) {
+    const cs = [...l.text];
+    cuts.push(cs.slice(0, l.span[0]).join("").length, cs.slice(0, l.span[1]).join("").length);
+  }
+  const src = toks && toks.length ? toks : [{ t: l.text, cls: "" }];
+  const out: { t: string; cls: string; hit: boolean }[] = [];
+  let off = 0;
+  for (const tk of src) {
+    let a = off;
+    const end = off + tk.t.length;
+    // 在改动区间的两个边界处把这一段切开
+    for (const c of cuts) {
+      if (c > a && c < end) {
+        out.push({ t: l.text.slice(a, c), cls: tk.cls, hit: inSpan(a) });
+        a = c;
+      }
+    }
+    if (end > a) out.push({ t: l.text.slice(a, end), cls: tk.cls, hit: inSpan(a) });
+    off = end;
+  }
+  return out;
+
+  function inSpan(at: number) {
+    return cuts.length === 2 && at >= cuts[0] && at < cuts[1];
+  }
+}

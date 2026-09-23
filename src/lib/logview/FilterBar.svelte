@@ -110,15 +110,15 @@
   </div>
 
   {#if filterHits !== null}
-    <div class="nav">
+    <div class="segs">
       <button
-        class="seg"
+        class="btn sm"
         class:on={onlyHits}
         onclick={() => (onlyHits = true)}
         title="只显示命中的行"
       >只看命中</button>
       <button
-        class="seg"
+        class="btn sm"
         class:on={!onlyHits}
         onclick={() => (onlyHits = false)}
         title="显示全文，在命中之间跳转 —— 看得到上下文"
@@ -246,22 +246,7 @@
   .hits b { color: var(--text); font-weight: 600; }
 
   /* 「只看命中 / 全文」是二选一，做成连在一起的分段控件而不是两个独立按钮 */
-  .nav { display: flex; flex: none; }
-  .seg {
-    padding: 3px 9px;
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-faint);
-    font-family: var(--ui-font);
-    font-size: 11.5px;
-    cursor: default;
-    white-space: nowrap;
-  }
-  .seg:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
-  .seg:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; border-left: none; }
-  .seg:hover { background: var(--hover); color: var(--text); }
-  .seg.on { background: var(--accent-sel); color: var(--text); border-color: var(--accent); }
-  .seg.on + .seg { border-left-color: var(--accent); }
+  /* 「只看命中 / 全文」是 app.css 的 `.segs` */
 
   .jump { display: flex; gap: 1px; flex: none; }
 

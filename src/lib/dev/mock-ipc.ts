@@ -179,6 +179,34 @@ jobs:
    * 元素名会跟正文一个颜色，看起来像「没上色」。桩里没有 XML 文件的时候
    * 这个问题在浏览器里根本看不出来 —— 而这正是 issue #5。
    */
+  "/proj/src/NewController.java": `package com.etianqu.api.lawyer.controller.ai;
+
+import com.etianqu.framework.shared.response.Response;
+import com.etianqu.share.client.ShareClient;
+import io.swagger.v3.oas.annotations.Operation;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+/** 新加的分享接口。桩里用它撑起「整个文件都是新增」那种 diff */
+@RestController
+public class NewController {
+
+    private final ShareClient shareClient;
+
+    public NewController(ShareClient shareClient) {
+        this.shareClient = shareClient;
+    }
+
+    @Operation(summary = "创建分享")
+    @PostMapping("/share")
+    public Response<String> create(@RequestBody String body) {
+        // 超时 5000 是压测之后定的
+        int timeout = 5000;
+        return Response.ok(shareClient.create(body, timeout));
+    }
+}
+`,
   "/proj/pom.xml": `<?xml version="1.0" encoding="UTF-8"?>
 <!-- Maven 项目描述，用于在浏览器里验证 XML 着色 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -1339,6 +1367,9 @@ export function installMockIpc(): void {
               g("scratch/draft.md", ".", "?", { untracked: true }),
               g("scratch/tmp/notes.md", ".", "?", { untracked: true }),
               g("notes.txt", ".", "?", { untracked: true }),
+              // 未跟踪的 Java 文件：新文件 diff 的真实形态（多行 + 有语法着色），
+              // 用户 2026-09-22 截的那张丑图就是这种
+              g("src/NewController.java", ".", "?", { untracked: true }),
               resolved.has("src/conflict.rs")
                 ? g("src/conflict.rs", "M", ".", { staged: true })
                 : g("src/conflict.rs", "U", "U", { conflicted: true }),
@@ -1410,7 +1441,44 @@ export function installMockIpc(): void {
           }
           return { text: lines.join("\n"), truncated: false };
         }
-        case "git_diff":
+        case "git_diff": {
+          /*
+           * 未跟踪文件（`--no-index` 那条路）：整份是新增的。**这个形态桩原来没有**，
+           * 于是「新文件的 diff 左边空一整栏」这件事在浏览器里一次都看不见 ——
+           * 用户拿真 .app 截了图才发现（2026-09-22）。桩要覆盖真实现的每一种形态，
+           * 不只是最常见那种。
+           */
+          // 整个文件被删（`docs/old.md` 在 git_status 里是 D）：单边差异的另一半形态
+          if (String(a.path) === "docs/old.md") {
+            const body = ["# 旧的说明", "", "这份文档已经并进 README，删掉。", "", "- 迁移记录见 JOURNAL"];
+            return {
+              truncated: false,
+              text: [
+                `diff --git a/${a.path} b/${a.path}`,
+                "deleted file mode 100644",
+                "index 1111111..0000000",
+                `--- a/${a.path}`,
+                "+++ /dev/null",
+                `@@ -1,${body.length} +0,0 @@`,
+                ...body.map((l) => `-${l}`),
+              ].join("\n"),
+            };
+          }
+          if (a.untracked) {
+            const body = (FILES[`${a.root}/${a.path}`] ?? "还没写内容\n").replace(/\n$/, "").split("\n");
+            return {
+              truncated: false,
+              text: [
+                `diff --git a/${a.path} b/${a.path}`,
+                "new file mode 100644",
+                "index 0000000..1111111",
+                "--- /dev/null",
+                `+++ b/${a.path}`,
+                `@@ -0,0 +1,${body.length} @@`,
+                ...body.map((l) => `+${l}`),
+              ].join("\n"),
+            };
+          }
           /*
            * 两个 hunk 是有意的：
            *
@@ -1447,6 +1515,7 @@ index 1a2b3c4..5d6e7f8 100644
          conn.close();
      }`,
           };
+        }
         case "git_stage":
           // 暂存一个冲突文件 = 标记为解决（真 git 就是这么算的）
           for (const x of a.paths as string[]) resolved.add(x);
