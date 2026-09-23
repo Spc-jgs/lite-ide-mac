@@ -280,6 +280,11 @@ public class AdminController {
         this.orderClient = orderClient;
         this.helper = helper;
     }
+
+    // 成员跳转（2026-09-23）：⌘Click ping 跨模块跳到 OrderClient 的方法，tag 跳同包那个类的方法
+    public String status() {
+        return orderClient.ping() + helper.tag();
+    }
 }
 `,
   "/proj/moduleA/src/main/java/com/demo/api/SamePkgHelper.java": `package com.demo.api;

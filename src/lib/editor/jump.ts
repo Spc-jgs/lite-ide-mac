@@ -1,14 +1,17 @@
 /**
  * ⌘Click / ⌘B 跳到声明。
  *
- * # 这里只做「敢跳的」那两层
+ * # 这里只做「敢跳的」那几层
  *
  * IDEA 靠 PSI 全量索引，VSCode 靠 LSP —— 两条路都要一个常驻进程和一次
  * 建索引的等待，和这个应用的立身之本冲突（PLAN.md 里 LSP 是明确排除的）。
- * 所以这里只做**不需要类型解析就能确定**的两层：
+ * 所以这里只做**不需要类型推断就能确定**的几层 —— 零层会读变量的声明类型，
+ * 但只认源码里写出来的那个名字（`OrderRepository repo`），`var`、链式调用的返回值、
+ * 泛型实参一概不推：推一半的类型比不推更危险，它会在你最信它的时候跳错。
  *
  * | 层 | 靠什么 | 准不准 |
  * |---|---|---|
+ * | 零、Java：局部变量 / 字段 / `q.成员`（2026-09-23） | 单文件符号表（`java-scope.ts`）+ 接收者声明类型所在的文件 | 准：类型只认写出来的，推不出就不画 |
  * | 一、本文件里的声明 | CM6 已经解析好的 Lezer 树 | 准 |
  * | 二、import / package 推出来的文件 | 语言规范强制的「包路径 = 目录路径」 | 准 |
  * | 三、全项目按名字搜 | —— | **不做**，见下 |
@@ -35,6 +38,8 @@ import type { EditorState } from "@codemirror/state";
 // 相对 import 少个扩展名就跑不起来（`ERR_MODULE_NOT_FOUND`）。
 // 符号表由调用方传进来，理由见 `JumpCtx.symbols`。
 import type { Sym } from "./outline";
+// 同理只拿类型：Java 那层的实现跟着 Java 语言包懒加载，经 languageData 交过来（`JavaTools`）
+import type { JavaRef, MemberSig } from "./java-scope";
 
 export interface JumpTarget {
   /** 相对项目根的路径。**空串表示就在本文件里** */
@@ -42,7 +47,7 @@ export interface JumpTarget {
   /** 1-based 行号；没有就是跳到文件开头 */
   line?: number;
   /** 凭什么敢跳 —— 进 tooltip，让人知道这一下的依据 */
-  why: "本文件" | "import" | "同包";
+  why: "本文件" | "import" | "同包" | "成员";
 }
 
 export interface JumpHit {
@@ -316,39 +321,48 @@ export interface JumpCtx {
   rel: string | null;
   /** 语言 id，取自 `langs.langOf(path)` */
   lang: string;
+  /**
+   * 别的文件的成员表读回来之后叫一声（成员跳转，见 java-peek.ts）：编辑器在鼠标还停着的
+   * 地方重问一次，把下划线补上。
+   */
+  recheck?: () => void;
 }
 
 /**
- * 解析一次跳转。**同步纯函数** —— ⌘hover 每动一下都要问它一次，
- * 中间隔一次 IPC 的话下划线会跟不上鼠标。
- *
- * 顺序就是可信度从高到低：本文件的声明 → import → 同包。
- * 一层都不中就返回 null，界面上什么都不画。
+ * Java 那一层的工具，由 Java 语言包经 languageData（键 `javaTools`）提供 —— 这样这个文件
+ * 不引 Java 的实现，别的语言、入口包都不为它买单。测试里直接拼一个。
  */
-export function resolveJump(state: EditorState, pos: number, ctx: JumpCtx): JumpHit | null {
-  const w = wordAt(state, pos);
-  if (!w) return null;
+export interface JavaTools {
+  refAt: (state: EditorState, pos: number) => JavaRef;
+  /** 本文件里某个类自己声明的成员；本文件没有这个类就是 null */
+  membersHere: (state: EditorState, cls: string) => Map<string, MemberSig[]> | null;
+  /** 别的文件（相对项目根）里同名类的成员；`undefined` = 还在读 */
+  peek: (rel: string, onReady?: () => void) => Map<string, (MemberSig & { line: number })[]> | null | undefined;
+  pick: <T extends MemberSig>(sigs: T[] | undefined, call: boolean, argc: number) => T | null;
+  settle: () => Promise<void> | null;
+}
 
-  // ── 一、本文件里的声明 ──
-  const here = state.doc.lineAt(w.from).number;
-  const local = ctx.symbols.find((s) => s.name === w.text);
-  // 声明就在光标这一行时不给下划线：跳到自己等于点了没反应
-  if (local && local.line !== here) {
-    return { ...w, target: { rel: "", line: local.line, why: "本文件" } };
-  }
+export function javaToolsOf(state: EditorState, pos: number): JavaTools | undefined {
+  return state.languageDataAt<JavaTools>("javaTools", pos)[0];
+}
 
+/**
+ * 一个类型名在哪个文件：import → 同包。**只回答确定的**（后缀撞两份就认怂，见 `findIn`）。
+ * 普通的 ⌘Click 类型名和成员跳转「先找到接收者的类」共用这一段。
+ */
+function locateType(state: EditorState, name: string, ctx: JumpCtx): { rel: string; why: "import" | "同包" } | null {
   if (!ctx.rel) return null;
   const javaLike = JAVA_LIKE.has(ctx.lang);
 
-  // ── 二、import ──
-  const spec = importsOf(state, ctx.lang).get(w.text);
+  // ── import ──
+  const spec = importsOf(state, ctx.lang).get(name);
   if (spec) {
     const hit = findIn(ctx.files, candidatesFor(spec, ctx.lang, ctx.rel), javaLike);
-    if (hit) return { ...w, target: { rel: hit, why: "import" } };
+    if (hit) return { rel: hit, why: "import" };
   }
 
   /*
-   * ── 三、同包（Java 同包不写 import，包路径就是目录路径）──
+   * ── 同包（Java 同包不写 import，包路径就是目录路径）──
    *
    * **先看自己这个目录，找不到再退回全项目后缀匹配。** 两级不能合并：
    *
@@ -368,19 +382,84 @@ export function resolveJump(state: EditorState, pos: number, ctx: JumpCtx): Jump
       const ext = ctx.rel.slice(ctx.rel.lastIndexOf("."));
       // 先问自己这个目录 —— 但要先确认 package 声明和目录真的对得上，
       // 对不上说明这文件不在标准布局里（生成的代码、脚本目录里的 .java）
-      const 同目录 = `${dir}/${w.text}${ext}`;
-      if (
-        dir.endsWith(`/${pkg.replace(/\./g, "/")}`) &&
-        同目录 !== ctx.rel &&
-        ctx.files.includes(同目录)
-      ) {
-        return { ...w, target: { rel: 同目录, why: "同包" } };
+      const 同目录 = `${dir}/${name}${ext}`;
+      if (dir.endsWith(`/${pkg.replace(/\./g, "/")}`) && 同目录 !== ctx.rel && ctx.files.includes(同目录)) {
+        return { rel: 同目录, why: "同包" };
       }
-      const hit = findIn(ctx.files, candidatesFor(`${pkg}.${w.text}`, ctx.lang, ctx.rel), true);
+      const hit = findIn(ctx.files, candidatesFor(`${pkg}.${name}`, ctx.lang, ctx.rel), true);
       // 命中自己那一份不算 —— 那就是当前文件
-      if (hit && hit !== ctx.rel) return { ...w, target: { rel: hit, why: "同包" } };
+      if (hit && hit !== ctx.rel) return { rel: hit, why: "同包" };
     }
   }
-
   return null;
+}
+
+/**
+ * Java 那一层：本文件的符号表说得出什么，就按它来，**说「推不出」时也按它来**。
+ *
+ * 返回 `undefined` = 这层不管，往下走按名字的那几层；`null` = 这层管了、答案是不给下划线。
+ * 两者必须分开：`order.getItems()` 的接收者类型推不出来时，按名字往下走会命中本文件里
+ * 一个同名方法 —— 跳错了还亮着下划线（2026-09-23 之前就是这样）。
+ */
+function resolveJava(
+  state: EditorState,
+  w: { from: number; to: number; text: string },
+  ctx: JumpCtx,
+  tools: JavaTools,
+): JumpHit | null | undefined {
+  const ref = tools.refAt(state, w.from);
+  if (!ref) return undefined;
+  if (ref.kind === "opaque") return null;
+  const here = state.doc.lineAt(w.from).number;
+  if (ref.kind === "decl") {
+    const line = state.doc.lineAt(ref.pos).number;
+    // 声明就在这一行：跳到自己等于点了没反应（和第一层同一条）
+    return line === here ? null : { ...w, target: { rel: "", line, why: "本文件" } };
+  }
+  // 成员：先看接收者的类是不是就在本文件（内部类、自己类名调 static 方法）
+  const local = tools.membersHere(state, ref.recv);
+  if (local) {
+    const sig = tools.pick(local.get(ref.name), ref.call, ref.argc);
+    if (!sig) return null;
+    const line = state.doc.lineAt(sig.pos).number;
+    return line === here ? null : { ...w, target: { rel: "", line, why: "本文件" } };
+  }
+  const where = locateType(state, ref.recv, ctx);
+  if (!where) return null;
+  const members = tools.peek(where.rel, ctx.recheck);
+  // 还在读 / 读不了 / 那个类里没有（继承来的）/ 重载分不出 —— 都不画
+  const sig = members ? tools.pick(members.get(ref.name), ref.call, ref.argc) : null;
+  return sig ? { ...w, target: { rel: where.rel, line: sig.line, why: "成员" } } : null;
+}
+
+/**
+ * 解析一次跳转。**同步纯函数** —— ⌘hover 每动一下都要问它一次，
+ * 中间隔一次 IPC 的话下划线会跟不上鼠标。
+ *
+ * 顺序：Java 的单文件符号表（能按作用域 / 声明类型说清楚的）→ 本文件的声明（按名字）
+ * → import → 同包。一层都不中就返回 null，界面上什么都不画。成员跳转要读别的文件，
+ * 但读是异步的、这里不等 —— 见 java-peek.ts。
+ */
+export function resolveJump(state: EditorState, pos: number, ctx: JumpCtx): JumpHit | null {
+  const w = wordAt(state, pos);
+  if (!w) return null;
+
+  // ── 零、Java 的单文件符号表（局部变量、字段、成员）──
+  const tools = JAVA_LIKE.has(ctx.lang) ? javaToolsOf(state, w.from) : undefined;
+  if (tools) {
+    const hit = resolveJava(state, w, ctx, tools);
+    if (hit !== undefined) return hit;
+  }
+
+  // ── 一、本文件里的声明 ──
+  const here = state.doc.lineAt(w.from).number;
+  const local = ctx.symbols.find((s) => s.name === w.text);
+  // 声明就在光标这一行时不给下划线：跳到自己等于点了没反应
+  if (local && local.line !== here) {
+    return { ...w, target: { rel: "", line: local.line, why: "本文件" } };
+  }
+
+  // ── 二、三：import / 同包 ──
+  const where = locateType(state, w.text, ctx);
+  return where ? { ...w, target: where } : null;
 }

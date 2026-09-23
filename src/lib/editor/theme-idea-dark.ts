@@ -149,6 +149,8 @@ export const HIGHLIGHT_SPEC: { tag: Tag | Tag[]; color: string; fontStyle?: stri
     { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "#56a8f5" },
     { tag: [t.definition(t.function(t.variableName))], color: "#56a8f5" },
     { tag: [t.propertyName], color: "#c77dbb" },
+    // static 字段：IDEA 是紫斜体。目前只有 java-semantic.ts 用它（没有语法包产出这个标签，2026-09-23 grep 过）
+    { tag: [t.constant(t.propertyName)], color: "#c77dbb", fontStyle: "italic" },
     { tag: [t.variableName, t.definition(t.variableName)], color: TEXT },
     { tag: [t.constant(t.variableName), t.standard(t.variableName)], color: "#c77dbb" },
 
@@ -182,7 +184,9 @@ export const HIGHLIGHT_SPEC: { tag: Tag | Tag[]; color: string; fontStyle?: stri
     { tag: [t.list], color: "#cf8e6d" },
 ];
 
-export const ideaDarkHighlight = syntaxHighlighting(HighlightStyle.define(HIGHLIGHT_SPEC));
+/** 导出给 `java-semantic.ts` 取类名（`style([tag])`）—— 它画的 mark 要和语法着色同一张样式表 */
+export const ideaHighlightStyle = HighlightStyle.define(HIGHLIGHT_SPEC);
+export const ideaDarkHighlight = syntaxHighlighting(ideaHighlightStyle);
 
 /**
  * 给缩略图用的高亮器：把语法标签直接映射成色值字符串。

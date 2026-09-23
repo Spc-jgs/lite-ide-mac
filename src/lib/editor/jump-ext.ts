@@ -41,7 +41,18 @@ export interface JumpHooks {
   resolve: (pos: number) => JumpHit | null;
   /** 真的跳。由 App 决定开哪个标签、跳到哪一行、以及把当前位置压进导航栈 */
   jump: (hit: JumpHit) => void;
+  /**
+   * 有答案还在路上时（成员跳转在读别的文件，见 java-peek.ts），等它们回来。
+   * ⌘B 用 —— 键盘没有「鼠标停着」可以回头补，只能等。没有在读的就返回 null。
+   */
+  settle?: () => Promise<void> | null;
 }
+
+/**
+ * 「答案回来了，再问一次」。成员跳转第一次 hover 时目标文件还没读，下划线先不画；
+ * 读完 dispatch 这个，鼠标还停着、⌘ 还按着的话就在原地重问、把下划线补上。
+ */
+export const recheckJump = StateEffect.define<null>();
 
 /** null 表示把下划线撤掉 */
 const setTarget = StateEffect.define<{ from: number; to: number } | null>();
@@ -105,12 +116,22 @@ export function jumpExtension(hooks: JumpHooks): Extension {
 
   /** ⌘ 松开之后鼠标停在哪儿 —— keyup 时没有坐标，得记着 */
   let xy: { x: number; y: number } | null = null;
+  /** ⌘ 还按着没有。`recheckJump` 回来时要知道该不该补下划线 */
+  let meta = false;
 
   return [
     targetField,
+    // 不在 update 里直接 refresh：refresh 会 dispatch，而 update 进行中 dispatch 会抛
+    EditorView.updateListener.of((u) => {
+      if (!u.transactions.some((tr) => tr.effects.some((e) => e.is(recheckJump)))) return;
+      setTimeout(() => {
+        if (meta && xy) refresh(u.view, xy.x, xy.y);
+      });
+    }),
     EditorView.domEventHandlers({
       mousemove(e, view) {
         xy = { x: e.clientX, y: e.clientY };
+        meta = e.metaKey;
         if (e.metaKey) refresh(view, e.clientX, e.clientY);
         else clear(view);
         return false;
@@ -126,10 +147,12 @@ export function jumpExtension(hooks: JumpHooks): Extension {
       },
       // 按住 / 松开 ⌘ 时鼠标不动，也要跟着亮 / 灭
       keydown(e, view) {
+        meta = e.metaKey;
         if (e.metaKey && xy) refresh(view, xy.x, xy.y);
         return false;
       },
       keyup(e, view) {
+        meta = e.metaKey;
         if (!e.metaKey) clear(view);
         return false;
       },
@@ -160,8 +183,20 @@ export function jumpExtension(hooks: JumpHooks): Extension {
           preventDefault: true,
           run: (view) => {
             const hit = hooks.resolve(view.state.selection.main.head);
-            if (!hit) return false;
-            hooks.jump(hit);
+            if (hit) {
+              hooks.jump(hit);
+              return true;
+            }
+            // 答案可能还在路上（第一次对一个成员按 ⌘B，目标文件还没读过）：等它回来再问一次。
+            // 光标这期间挪走了就算了 —— 跳的是按下那一刻指着的东西
+            const wait = hooks.settle?.();
+            if (!wait) return false;
+            const at = view.state.selection.main.head;
+            void wait.then(() => {
+              if (view.state.selection.main.head !== at) return;
+              const late = hooks.resolve(at);
+              if (late) hooks.jump(late);
+            });
             return true;
           },
         },

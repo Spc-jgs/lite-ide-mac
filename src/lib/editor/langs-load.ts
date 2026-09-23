@@ -15,8 +15,9 @@
  * import 一下，下面这 500 行连同 67 个 `import()` 的桩就又回到入口包里了。
  */
 
-import type { Extension } from "@codemirror/state";
+import type { EditorState, Extension } from "@codemirror/state";
 import type { LangId } from "./langs";
+import type { JavaTools } from "./jump";
 
 const cache = new Map<string, Extension>();
 
@@ -51,8 +52,28 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
       break;
     }
     case "java": {
-      const m = await import("@codemirror/lang-java");
-      ext = m.java();
+      const [m, lang, hl, sem, scope, peek] = await Promise.all([
+        import("@codemirror/lang-java"),
+        import("@codemirror/language"),
+        import("./java-highlight"),
+        import("./java-semantic"),
+        import("./java-scope"),
+        import("./java-peek"),
+      ]);
+      // 语法包的标签太粗：注解补在标签层（编辑器、缩略图、差异视图都从这里拿语言，三处一起生效）；
+      // 方法 / 字段声明补在 ViewPlugin 里，只有编辑器有 —— 为什么分两处见 java-highlight.ts
+      const language = m.javaLanguage.configure({ props: [hl.javaStyleTags] });
+      const text = (st: EditorState) => (a: number, z: number) => st.sliceDoc(a, z);
+      // 成员跳转的那一层（jump.ts 的 `JavaTools`）。走 languageData 交过去，jump.ts 就不用引
+      // java-scope —— 不然这几个文件会跟着 jump.ts 进编辑器 chunk，别的语言也得背
+      const javaTools: JavaTools = {
+        refAt: (st, pos) => scope.javaRefAt(lang.syntaxTree(st), text(st), pos),
+        membersHere: (st, cls) => scope.javaMembersOf(lang.syntaxTree(st), text(st), cls),
+        peek: peek.peekMembers,
+        pick: scope.pickMember,
+        settle: peek.settlePeeks,
+      };
+      ext = new lang.LanguageSupport(language, [sem.javaSemantic, language.data.of({ javaTools })]);
       break;
     }
     case "javascript": {

@@ -20,8 +20,8 @@
   import { detectIndent } from "./indent";
   import type { BlameHunk } from "../ipc/commands";
   import { diffLines } from "../git/linediff";
-  import { resolveJump, rawWordAt, type JumpHit } from "./jump";
-  import { jumpExtension } from "./jump-ext";
+  import { resolveJump, rawWordAt, javaToolsOf, type JumpHit } from "./jump";
+  import { jumpExtension, recheckJump } from "./jump-ext";
   import { foldFrontmatter } from "./frontmatter-fold";
   import { bodyPlaceholder } from "./body-placeholder";
   import type { ViewPos } from "../state/docs.svelte";
@@ -288,9 +288,11 @@
             files: jumpFiles,
             rel: jumpRel,
             lang: jumpLang,
+            recheck: () => view?.dispatch({ effects: recheckJump.of(null) }),
           })
         : null,
     jump: (hit: JumpHit) => onJump?.(hit),
+    settle: () => (view ? (javaToolsOf(view.state, 0)?.settle() ?? null) : null),
   };
 
   /** `indentUnit` 要的那个字符串：覆盖优先，没有就猜；猜不出按 4 空格 */
