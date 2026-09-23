@@ -7678,3 +7678,81 @@ Web Animations API 拿**：`a.currentTime = 200` 手动拨过去，再读计算�
 未跟踪的 Java 文件，好看到「多行 + 语法着色」的真实形态），`docs/old.md` 返回
 `deleted file mode`。又一次印证 frontend.md 那条：**桩要覆盖真实现的每一种形态，
 不只是最常见那种。**
+
+## 2026-09-23 · Java 着色像 IDEA、成员跳转、堆栈帧点了跳源码
+
+起因：用户说「代码着色和快捷跳转还只是最简单的功能」。拿一段 Spring 代码跑 `@lezer/java` 的
+`highlightTree`，逐词看标签：`@Service` 是 `variableName`（白）、`persist` 方法声明是
+`definition(variableName)`（白）、字段声明同上、`order.id` 的 `id` 是 `variableName`（白）。
+主题里明明有注解色 —— **语法包从来不产出 `annotation` 标签，那条配色是死的**，不报错。
+
+分四步，每步都有测试、把被测代码改坏验过红（共 15 处）：
+
+1. **语法层补色**（`java-highlight.ts`）：注解连 `@` 一起黄。
+2. **单文件符号表 + 字段使用处**（`java-scope.ts` / `java-semantic.ts`）：方法声明蓝、
+   字段紫、static 斜体，`repo.save()` / `this.repo` / `order.id` 里的字段也紫。
+3. **成员跳转**：`repo.findById()` ⌘Click 跳到 `OrderRepository` 里那个方法（`java-peek.ts`）。
+4. **堆栈帧链接**（`logview/stack-frame.ts`）：日志里 `at com.a.B.m(B.java:42)` 能坐实到
+   项目源码的画成链接，点了跳过去，⌥⌘← 回日志。
+
+### 坑一：`@lezer/highlight` 的规则合并是反的
+
+第 1 步本来想全用路径规则：`"MethodDeclaration/Definition": t.definition(t.function(...))`。
+测试一跑：注解那几条绿，**`Definition` 那几条全红**，颜色一个没变。读源码：每条规则链内部
+按路径深度**从深到浅**排（`Rule.sort`），而两个来源合并时（`ruleNodeProp.combine`）写的是
+`if (!a || b && a.depth >= b.depth) take b` —— 实际先取**浅**的。语法包自带一条不看上下文的
+裸 `Definition`（深度 0），合并后排第一，`getStyleTags` 碰到不看上下文的规则直接返回。
+上游 main 分支同样。注解能生效纯属形状碰巧：`MarkerAnnotation` 原来没规则，谈不上合并；
+`Identifier` 两边头一条都是深度 1，打平时取后加的。
+
+**想给上游报这个 bug 时才发现**：GitHub 上的 `lezer-parser/*` 和 `codemirror/dev` 都已归档只读
+（`gh issue create` 报 `Repository was archived`），README 里的 ISSUES 链接也还指着旧地方；
+项目迁到了作者自建的 `code.haverbeke.berlin/codemirror/dev`，要在那边注册账号才能提。
+最小复现和一行修法（`a.depth >= b.depth` → `b.depth >= a.depth`，本地打补丁验过 `run` 变成
+`fn-def`）写好了，等用户自己发。以后 CodeMirror / Lezer 的问题别去 GitHub 找。
+
+改成 ViewPlugin 画 mark。颜色冲突靠 **CM6 的约定：优先级高的 decoration 生成内层 DOM**
+（`Prec.high`）—— 内层自己的 color 盖住外层继承下来的，不用去比两条 CSS 谁在样式表里靠后
+（同一张表里正文色那条恰好在后面，会赢）。代价：差异视图和缩略图走 `highlightTree`，
+只拿得到注解那一层。
+
+### 坑二：判不准就不上色，所以一半测试是「这里**不该**紫」
+
+作用域按块走（局部变量只遮它那个块里的同名字段），`@lezer/java` 1.1.3 不认的写法要兜：
+`o instanceof Foo x` 的 `x` 是**错误节点**不是 `Definition`，不兜的话 if 里的 `use(x)` 被画成
+字段。它的作用域还是流敏感的（`if (!(o instanceof Foo x)) return; use(x);`），所以整个方法里的
+错误节点文字都当局部变量 —— 最保守的答案。`q.m` 按 `q` 是「变量 / 类型 / 包 / 表达式」分：
+`System.out` 用类型访问的字段语言上一定是 static（斜体）；`java.util.List` 的每一段都不上色。
+
+### 坑三：成员跳转要读别的文件，但下划线必须同步
+
+⌘hover 每动一格问一次，中间隔 IPC 下划线跟不上鼠标。成员表放缓存（5 秒算旧），没读过的
+先**不画**、后台读、读回来 dispatch `recheckJump` 在鼠标原地重问。桩上量：第一下 null，
+150ms 后补上。⌘B 没有「鼠标停着」可补，等 in-flight 读完再问一次。
+
+**顺带修的两个旧错**：`order.getItems()` 在本文件也有 `getItems` 时，第一层按名字匹配会
+跳到本文件那个 —— 跳错了还亮着下划线；同名局部变量点了跳字段。零层「推不出」时返回
+「不画」而不是 `undefined` 往下落，两条分支各有测试（第一版只测了一条，验红时发现
+「推不出类型」那条改坏也不红 —— `order` 的类型推得出来，走的是另一个分支）。
+
+### 小坑
+
+- `java-peek` 的 `load` 在没有项目根时一次 await 都不经过，同步跑完先 `inflight.delete`
+  再被 `inflight.set` —— 那一条永远挂在「在读」上。先登记、`.then` 推到下一拍。
+- node 原生剥类型不支持 `constructor(private text)`（要生成代码的 TS 语法），测试直接报
+  `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`。
+- 测试直接跑 `.ts`，被测文件里相对 import 不带扩展名就解析不了 —— 纯函数都放在只引包的
+  文件里（`java-scope.ts`），胶水（IPC、runes 状态）另放。
+- `tree.iterate({from, to})` 会把恰好贴着端点的节点也交出来，可视区域不止一段时同一个词
+  会被画两次，要严格重叠。
+- 日志视图里 `.row.stack .p` 的灰是三个类的权重，`.p[data-cls="link"]` 压不过，链接是灰的。
+- 在桩里验 hover 时第 0 个 `ping` 命中的是我刚加的注释（注释里不该有下划线 —— 顺带验了负例）。
+
+### 数字
+
+| | |
+|---|---|
+| 声明上色，3000 行文件 | 每屏 0.01ms，全文 0.5ms |
+| 加上字段使用处（冷符号表 = 每次敲键） | 每屏 0.05–0.1ms，全文 3.2ms |
+| 入口包 | 145,753 → 145,786 B（+33）；Java 那几个文件在懒 chunk，java-scope 8.4 KB |
+| 测试 | 新增 4 个文件 114 条；`pnpm test` 34 个文件全绿 |
