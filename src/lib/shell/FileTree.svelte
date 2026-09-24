@@ -2,13 +2,14 @@
   import Icon from "./Icon.svelte";
   import FileGlyph from "./FileGlyph.svelte";
   import { tick, untrack } from "svelte";
-  import { trashEntry, type DirEntry, type GitEntry, type GitStatus } from "../ipc/commands";
+  import { trashEntry, type DirEntry, type GitStatus } from "../ipc/commands";
 import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   import { notify } from "../state/notify.svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { copyText, relTo, showInFinder } from "./pathactions";
   import { readPref, writePref } from "../state/prefs";
-  import { flatten, type Row } from "./tree-rows";
+  import { flatten, speedHit as speedHitIn, speedNext as speedNextIn, type Row } from "./tree-rows";
+  import { gitMarks, decoOf } from "./tree-git";
 
   let {
     root,
@@ -216,93 +217,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
 
   const rootName = $derived(root.slice(root.lastIndexOf("/") + 1) || root);
 
-  /**
-   * git 状态 → 绝对路径查找表。三样东西一起算，因为都要遍历同一份 entries：
-   *
-   * - `own`  —— 文件/目录**自身**的状态
-   * - `roll` —— 祖先目录的「里面有东西改了」冒泡标记。IDE 里最有用的那个提示：
-   *   目录收着也知道里面有动静
-   * - `utDirs` —— 整个未跟踪的目录。里面的文件 Rust 侧已经摊开进 entries 了，
-   *   这份名单是给**目录自己**上色用的：少了它，一个全新的目录只剩
-   *   「里面有东西改了」的冒泡标记，和一个改了一行的老目录长得一样。
-   *   前缀匹配那半边留着兜底 —— 条目撞上 5000 条上限被截断时，
-   *   里面的文件可能一条都没进来
-   */
-  let git = $derived.by(() => {
-    const own = new Map<string, string>();
-    const roll = new Set<string>();
-    const utDirs: string[] = [];
-    const st = gitStatus;
-    if (!st) return { own, roll, utDirs };
-
-    // 一路冒泡到仓库根为止
-    const bubble = (abs: string) => {
-      let p = abs;
-      for (;;) {
-        const i = p.lastIndexOf("/");
-        if (i < 0) break;
-        p = p.slice(0, i);
-        if (p.length <= st.root.length) break;
-        roll.add(p);
-      }
-    };
-
-    for (const e of st.entries) {
-      const abs = `${st.root}/${e.path}`;
-      own.set(abs, klass(e));
-      bubble(abs);
-    }
-    // 目录名带着末尾的斜杠，去掉它才是目录自己的路径
-    for (const d of st.untrackedDirs ?? []) {
-      const abs = `${st.root}/${d.slice(0, -1)}`;
-      own.set(abs, "untracked");
-      utDirs.push(`${abs}/`);
-      bubble(abs);
-    }
-    return { own, roll, utDirs };
-  });
-
-  function klass(e: GitEntry): string {
-    if (e.conflicted) return "conflict";
-    if (e.untracked) return "untracked";
-    // 工作区的状态更贴近「我现在看到的这个文件怎么了」，优先它
-    const c = e.work !== "." && e.work !== " " ? e.work : e.index;
-    switch (c) {
-      case "A": return "added";
-      case "D": return "deleted";
-      case "R":
-      case "C": return "renamed";
-      default: return "modified";
-    }
-  }
-
-  const LETTER: Record<string, string> = {
-    modified: "M",
-    added: "A",
-    deleted: "D",
-    untracked: "?",
-    renamed: "R",
-    conflict: "!",
-  };
-
-  /**
-   * 一行显示什么装饰：自身状态优先，其次未跟踪目录前缀，最后才是冒泡点。
-   *
-   * 合并行盖住好几层，**链上任何一层有自身状态都算**：git 把整个未跟踪的目录报在最上面
-   * 那一层（`?? com/`），而这一行的 `path` 是最深的 `com/demo/order`，只查它就漏了。
-   * 中间几层除了下一层什么都没有，所以最深那层的冒泡点就代表了整行。
-   */
-  function deco(row: Row): { cls: string; ch: string } | null {
-    for (const p of row.chain) {
-      const own = git.own.get(p);
-      if (own) return { cls: own, ch: LETTER[own] ?? "·" };
-    }
-    for (const d of git.utDirs) {
-      if (row.path.startsWith(d)) return { cls: "untracked", ch: "?" };
-    }
-    if (git.roll.has(row.path)) return { cls: "roll", ch: "" };
-    return null;
-  }
+  /** git 着色：状态 → 查找表 → 每行的标记。计算全在 `tree-git.ts`（纯函数，裸 node 能测） */
+  let git = $derived(gitMarks(gitStatus));
 
   function click(row: Row) {
     if (row.isDir) toggle(row.path);
@@ -644,24 +560,13 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   let speed = $state("");
   let speedLower = $derived(speed.toLowerCase());
 
-  /** 名字里命中的那一段 [起, 止)，没命中 null。大小写不敏感 */
-  function speedHit(name: string): [number, number] | null {
-    if (speedLower === "") return null;
-    const k = name.toLowerCase().indexOf(speedLower);
-    return k < 0 ? null : [k, k + speedLower.length];
-  }
+  /** 名字里命中的那一段 [起, 止)，没命中 null。匹配本身在 `tree-rows.ts` */
+  const speedHit = (name: string) => speedHitIn(name, speedLower);
   // 按画出来的字（`label`）找：人看见的是 com.demo.order，打 demo 就该命中
   let speedAny = $derived(speedLower === "" || rows.some((r) => speedHit(r.label) !== null));
 
   /** 从 `from` 起（含）往 `dir` 方向找下一个命中的行，绕圈；没有给 -1 */
-  function speedNext(from: number, dir: 1 | -1): number {
-    const n = rows.length;
-    for (let k = 0; k < n; k++) {
-      const j = (((from + dir * k) % n) + n) % n;
-      if (speedHit(rows[j].label)) return j;
-    }
-    return -1;
-  }
+  const speedNext = (from: number, dir: 1 | -1) => speedNextIn(rows, from, dir, speedLower);
 
   /** 返回 true = 这次按键归打字定位，别的分支不用再看 */
   function speedKey(e: KeyboardEvent, i: number): boolean {
@@ -1250,7 +1155,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     }}
   >
     {#each rows as row, i (row.path)}
-      {@const d = deco(row)}
+      {@const d = decoOf(row, git)}
       {@const hit = speedHit(row.label)}
       <button
         class="row"

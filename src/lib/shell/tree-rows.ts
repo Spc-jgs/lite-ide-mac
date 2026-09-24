@@ -138,3 +138,23 @@ export function flatten({ root, children, expanded, dims, compact }: TreeInput):
   walk(root, 0, false, false);
   return out;
 }
+
+// ─────────────────── 打字定位（issue #33 ⑧）的匹配 ───────────────────
+// 从 FileTree.svelte 搬出来（2026-09-24）。`q` 是已经小写化的那串字（组件里的 `speedLower`）。
+
+/** 名字里命中的那一段 [起, 止)，没命中 null。大小写不敏感 */
+export function speedHit(name: string, q: string): [number, number] | null {
+  if (q === "") return null;
+  const k = name.toLowerCase().indexOf(q);
+  return k < 0 ? null : [k, k + q.length];
+}
+
+/** 从 `from` 起（含）往 `dir` 方向找下一个命中的行，绕圈；没有给 -1。按画出来的字（`label`）找 */
+export function speedNext(rows: readonly { label: string }[], from: number, dir: 1 | -1, q: string): number {
+  const n = rows.length;
+  for (let k = 0; k < n; k++) {
+    const j = (((from + dir * k) % n) + n) % n;
+    if (speedHit(rows[j].label, q)) return j;
+  }
+  return -1;
+}

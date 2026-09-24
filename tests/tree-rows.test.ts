@@ -1,4 +1,4 @@
-import { flatten, dirKindOf, type TreeInput } from "../src/lib/shell/tree-rows.ts";
+import { flatten, dirKindOf, speedHit, speedNext, type TreeInput } from "../src/lib/shell/tree-rows.ts";
 import type { DirEntry } from "../src/lib/ipc/commands.ts";
 
 let pass = 0,
@@ -158,6 +158,17 @@ const show = (t: TreeInput) =>
   const rows = flatten(tree(kids, ["/p/target"]));
   eq(rows.map((r) => r.dirKind), ["excluded", "folder"], "只有 target 本身是排除图标，里面的子目录是普通文件夹（压暗照样继承）");
   eq(rows.map((r) => r.generated), [true, true], "压暗跟着整棵子树");
+}
+
+// ── 打字定位的匹配 ──
+{
+  eq(speedHit("com.demo.order", "demo"), [4, 8], "命中的那一段 [起, 止)");
+  eq(speedHit("OrderService.java", "order"), [0, 5], "大小写不敏感（q 已经小写化）");
+  eq(speedHit("x", ""), null, "没打字就不命中");
+  const rows = [{ label: "a.ts" }, { label: "order.ts" }, { label: "b.ts" }, { label: "Order2.ts" }];
+  eq(speedNext(rows, 2, 1, "order"), 3, "往下找");
+  eq(speedNext(rows, 0, -1, "order"), 3, "往上绕圈");
+  eq(speedNext(rows, 0, 1, "zzz"), -1, "没有命中给 -1");
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} tree-rows：${pass} 通过，${fail} 失败`);
