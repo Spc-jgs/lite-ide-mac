@@ -1252,6 +1252,9 @@ export function installMockIpc(): void {
         case "pty_ack":
           return null;
         case "pty_kill":
+          // 同真实现：返回「这个终端之前在不在」。原来这里少了 return，一路贯穿进 open_log ——
+          // 关一个终端，桩就开了一个日志句柄（前端丢弃返回值，所以一直没人看见）
+          return mockPty.delete(Number(a.id));
         case "open_log": {
           /*
            * 记住**打开时那条路径**，因为真实现就是这么存的
