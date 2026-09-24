@@ -10,8 +10,11 @@ export interface EditorMenuApi {
   hasSelection: boolean;
   cut: () => Promise<void>;
   copy: () => Promise<void>;
-  /** 读剪贴板可能被 WebView 拦下，读不到会抛 */
-  paste: () => Promise<void>;
+  /**
+   * 经 Rust 的 pbpaste 读剪贴板（不弹 WKWebView 的确认）；超 8 MB 或读不到会抛。
+   * 剪贴板里没有文字时返回 false、什么都不改 —— 空串替换选区等于删掉选区
+   */
+  paste: () => Promise<boolean>;
   /** 菜单关了把焦点还给编辑器 */
   focus: () => void;
 }

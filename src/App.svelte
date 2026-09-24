@@ -75,6 +75,11 @@
     document.documentElement.style.setProperty("--editor-font-size", `${editorFont}px`);
     writeNumPref("editorFont", editorFont);
   });
+  /*
+   * 代码字体是内置的 webfont，没人用它就不会去加载。终端建的那一刻要按它量字符宽度，
+   * 所以启动就先拉一次（本地文件，毫秒级），别等第一个用它的人。见 Terminal.svelte 的兜底
+   */
+  void document.fonts.load('13px "JetBrains Mono"');
 
   /**
    * git 说这个项目里哪些目录被忽略了。**按项目问一次，不是按目录问。**

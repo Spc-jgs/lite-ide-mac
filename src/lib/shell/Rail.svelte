@@ -184,8 +184,8 @@
       凿一个洞。角标本身不透明，压住一段描边足够说清「它在上面」。
     */
     color: #101014;
-    font-family: var(--code-font);
-    font-size: 9px;
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
+    font-size: var(--fs-xs);
     font-weight: 600;
   }
   @media (prefers-reduced-motion: reduce) { .rbtn { transition: none; } }

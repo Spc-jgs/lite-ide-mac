@@ -119,7 +119,7 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 148,799 B = 145.3 KiB → CI 取整 145（2026-09-23 晚），告警线是「> 145」、红线 160 —— 离告警只剩约 700 B**。code review 修的那几条 +376 B。
+（**当前 142,813 B = 139.5 KiB → CI 取整 139（2026-09-24 晚），告警线是「> 145」、红线 160**。09-24 换 IDEA 官方图标 −6.2 KB：自绘图标的 path 数据原来全在入口的 `Icon.svelte` 里，现在是 `public/icons/` 下的静态文件，JS 里只剩路径（FileGlyph 的扩展名表 +1 KB 已算在内）。09-24 合并单层目录 +180 B：入口里的 `Icon.svelte` 多了一个 `compact` 图标（`tree-rows.ts` 跟着 FileTree 走，不在入口）。09-23 晚剪贴板 / 焦点那两轮 +37 B。code review 修的那几条 +376 B。
 09-23 交互习惯那轮 +2.6 KB，归因：App 的全局按键（切标签 / Esc / 方括号）1.3 KB、Content 0.6、tabs 的最近使用 0.4 —— 都是窗口一出来就得能用的。
 **第一版 +9.7 KB，两处是不该进的**：导轨 tooltip 为了不写死 `⌘K` 引了 `byId`，**整张 keymap.ts 跟着进了入口（+6.8 KB）**；编辑器右键菜单写在 Content 里、连带 pathactions（+3 KB）—— 改成字面量、菜单挪进懒加载的 EditorMenu.svelte。**一个 `import { byId }` 就能把一整张表拽进来，每轮都要重量的理由就在这儿。**
 09-21 晚是 142,131：09-22 那几批交互打磨涨了 3.6 KB（没逐项归因，是在事后对比 HEAD 构建时才发现的），09-23 白天 Java 着色 / 成员跳转 / 堆栈链接只 +33 B —— 那些全在 Java 和日志的懒 chunk 里；CI 算的是 `size / 1024` 取整。这两条线是 2026-09-21 从 138/150 放宽的：清单上能搬去懒 chunk 的都搬完了（下面两段），剩下的是接线；入口包只占启动的 14%（JOURNAL 09-18）。**放宽不等于不数**：这个数字每轮照旧重量、照旧记在这儿，涨了要说得出是谁。

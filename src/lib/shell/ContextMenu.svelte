@@ -28,6 +28,7 @@
     checked?: boolean;
   }
 
+  import { tick } from "svelte";
   import Icon from "./Icon.svelte";
 
   let {
@@ -55,6 +56,7 @@
     /**
      * 关掉。`refocus` 为真表示是键盘或 Esc 关的 —— 调用方该把焦点收回到
      * 打开菜单的那个元素上，否则焦点掉到 body，接着按 Tab 会从头开始走。
+     * 调用方没收（或者是鼠标点的某一项）的话，壳自己兜底，见 `giveBack`。
      */
     onclose: (refocus: boolean) => void;
   } = $props();
@@ -101,16 +103,46 @@
    * 不带这个标记，抢焦点的逻辑会把焦点又抢回一个正在卸载的菜单，最后落到 body 上。
    */
   let closing = false;
-  function close(refocus: boolean) {
+  /** `back`：选了一项或按了 Esc —— 事后把焦点还回去（见 `giveBack`）。点外面、滚走、窗口失焦关的不还 */
+  function close(refocus: boolean, back: boolean) {
     closing = true;
     onclose(refocus);
+    if (back) void giveBack();
+  }
+
+  /**
+   * 打开之前焦点在谁身上。组件一创建就记 —— 这时菜单还没 `focus()` 自己（那在下面的 effect 里）。
+   */
+  const before = document.activeElement;
+
+  /**
+   * 菜单把焦点借走了，关的时候要还。原来只有键盘那条路（`refocus`）还，而且还要调用方记得还：
+   * 鼠标点中「复制路径」「4 空格」之后焦点掉在 body 上，接着打的字、⌘Z 全落空
+   * （2026-09-23：标签栏、文件树、状态栏、编辑器四个菜单都这样；十三个菜单里七个连键盘那条路都没还）。
+   *
+   * **还给右键之前的焦点，不是被右键的那个元素**：在编辑器里打字、右键标签复制个路径，
+   * 接着该还能打字 —— IDEA 也是这样。WebKit 点按钮不给按钮焦点，所以真机上这就是编辑器。
+   *
+   * **等一次 `tick()` 再判**，不在关的当下还：那时 DOM 还没动 ——
+   * 要关掉的标签还在、重命名的输入框还没挂上。等这一轮更新和 effect 跑完再看：
+   * 焦点已经有人接了（输入框、确认框、调用方按 `refocus` 收回的那个元素）就不插手；
+   * 落空了、而且原来那个元素还在页面上，才还给它。
+   */
+  async function giveBack() {
+    const menuEl = el;
+    await tick();
+    const now = document.activeElement;
+    if (now && now !== document.body && !menuEl?.contains(now)) return;
+    if (before instanceof HTMLElement && before !== document.body && before.isConnected) {
+      before.focus({ preventScroll: true });
+    }
   }
 
   $effect(() => {
     const onDown = (ev: PointerEvent) => {
-      if (el && !el.contains(ev.target as Node)) close(false);
+      if (el && !el.contains(ev.target as Node)) close(false, false);
     };
-    const onGone = () => close(false);
+    const onGone = () => close(false, false);
     /*
      * 焦点被别人抢走就抢回来。右键一个**不是当前**的标签：openMenu 先切标签、再开菜单，
      * 菜单 focus() 之后新标签的编辑器才挂上来并 focus 自己 —— 菜单还开着，Esc 和方向键
@@ -153,7 +185,7 @@
     switch (e.key) {
       case "Escape":
         e.preventDefault();
-        close(true);
+        close(true, true);
         break;
       case "ArrowDown":
         e.preventDefault();
@@ -176,7 +208,7 @@
         e.preventDefault();
         if (items[cursor]?.disabled) break;
         items[cursor]?.run();
-        close(true);
+        close(true, true);
         break;
     }
   }
@@ -223,10 +255,10 @@
       onclick={() => {
         if (it.disabled) return;
         it.run();
-        close(false);
+        close(false, true);
       }}
     >
-      {#if checkable}<span class="tick" aria-hidden="true">{#if it.checked}<Icon name="check" size={11} />{/if}</span>{/if}{it.label}
+      {#if checkable}<span class="tick" aria-hidden="true">{#if it.checked}<Icon name="check" />{/if}</span>{/if}{it.label}
     </button>
   {/each}
 </div>
@@ -247,7 +279,7 @@
     /* 标题下面不画线（M8）：字色和间距已经把它和条目分开了 */
     color: var(--text-faint);
     font-family: var(--ui-font);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -262,7 +294,7 @@
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font);
-    font-size: 12.5px;
+    font-size: var(--fs-md);
     text-align: left;
     white-space: nowrap;
     cursor: default;

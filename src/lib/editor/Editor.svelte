@@ -24,6 +24,7 @@
   import { diffLines } from "../git/linediff";
   import { resolveJump, rawWordAt, javaToolsOf, type JumpHit } from "./jump";
   import type { EditorMenuApi } from "./menu-api";
+  import { readClipboard } from "../ipc/fs";
   import { jumpExtension, recheckJump } from "./jump-ext";
   import { foldFrontmatter } from "./frontmatter-fold";
   import { bodyPlaceholder } from "./body-placeholder";
@@ -329,10 +330,15 @@
         await navigator.clipboard.writeText(text);
         v.dispatch(v.state.replaceSelection(""), { userEvent: "delete.cut" });
       },
-      // 读剪贴板在 WKWebView 里可能被拦（或弹系统的「粘贴」确认）：读不到就抛，调用方说一句「用 ⌘V」
+      // 走 Rust 的 pbpaste：navigator.clipboard.readText() 在 WKWebView 里每次都要再点一下系统的
+      // 「Paste」气泡（2026-09-23 真机验的）。读不到（超 8 MB、pbpaste 失败）就抛，调用方把原因说出来。
+      // 剪贴板里没有文字（刚截的图）时 pbpaste 吐空、退出码 0 —— 这时**不能** replaceSelection("")，
+      // 那等于把选区删了；返回 false 让调用方提示，⌘V 在这种时候也是什么都不做
       paste: async () => {
-        const text = await navigator.clipboard.readText();
+        const text = await readClipboard();
+        if (!text) return false;
         v.dispatch(v.state.replaceSelection(text), { userEvent: "input.paste", scrollIntoView: true });
+        return true;
       },
       focus: () => v.focus(),
     });

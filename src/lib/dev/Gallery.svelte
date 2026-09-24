@@ -29,7 +29,7 @@
   <h1>通用控件 <small>app.css · Icon.svelte —— 改了这两处来这儿看全家福</small></h1>
 
   <section>
-    <h2>文字按钮 <code>.btn</code> <small>尺寸 24 / <code>sm</code> 20；语义 默认 / <code>primary</code> / <code>danger</code> / <code>quiet</code>；组件里只写语义</small></h2>
+    <h2>文字按钮 <code>.btn</code> <small>尺寸 28 / <code>sm</code> 24，字号 13 / 12；语义 默认 / <code>primary</code> / <code>danger</code> / <code>quiet</code>；组件里只写语义</small></h2>
     <div class="row">
       <button class="btn">默认</button>
       <button class="btn primary">主动作</button>
@@ -37,7 +37,7 @@
       <button class="btn quiet">安静</button>
       <button class="btn" disabled>默认 · 禁用</button>
       <button class="btn primary" disabled>主动作 · 禁用</button>
-      <span class="btn-split"><button class="btn primary">提交</button><button class="btn primary"><Icon name="chevron-down" size={11} /></button></span>
+      <span class="btn-split"><button class="btn primary">提交</button><button class="btn primary"><Icon name="chevron-down" /></button></span>
       <span class="lbl">segs</span>
       <span class="segs"><button class="btn sm on">双栏</button><button class="btn sm">统一</button></span>
     </div>
@@ -47,7 +47,7 @@
       <button class="btn sm danger">不可逆 sm</button>
       <button class="btn sm quiet">安静 sm</button>
       <button class="btn sm" disabled>禁用 sm</button>
-      <button class="btn sm"><Icon name="swap" size={11} /> 带图标</button>
+      <button class="btn sm"><Icon name="swap" /> 带图标</button>
     </div>
   </section>
 
@@ -59,13 +59,13 @@
       <button class="ibtn on" title="开关态"><Icon name="follow" /></button>
       <button class="ibtn" disabled title="禁用"><Icon name="collapse" /></button>
       <span class="lbl">sm</span>
-      <button class="ibtn sm"><Icon name="plus" size={12} /></button>
-      <button class="ibtn sm"><Icon name="minus" size={12} /></button>
-      <button class="ibtn sm"><Icon name="undo" size={12} /></button>
-      <button class="ibtn sm"><Icon name="more-h" size={12} /></button>
+      <button class="ibtn sm"><Icon name="plus" /></button>
+      <button class="ibtn sm"><Icon name="minus" /></button>
+      <button class="ibtn sm"><Icon name="undo" /></button>
+      <button class="ibtn sm"><Icon name="more-h" /></button>
       <span class="lbl">xs</span>
-      <span class="chip">标签 <button class="ibtn xs"><Icon name="x" size={10} /></button></span>
-      <span class="chip on">当前 <button class="ibtn xs"><Icon name="pin" size={11} /></button></span>
+      <span class="chip">标签 <button class="ibtn xs"><Icon name="x" /></button></span>
+      <span class="chip on">当前 <button class="ibtn xs"><Icon name="pin" /></button></span>
       <span class="lbl">lg</span>
       <span class="rail"><button class="ibtn lg"><Icon name="files" /></button><button class="ibtn lg on"><Icon name="git" /></button><button class="ibtn lg"><Icon name="terminal" /></button></span>
     </div>
@@ -83,7 +83,7 @@
       <button class="btn primary busy" disabled>主动作</button>
       <button class="btn danger busy" disabled>不可逆</button>
       <button class="btn sm primary busy" disabled>主动作 sm</button>
-      <span class="btn-split"><button class="btn primary busy" disabled>提交 (3)</button><button class="btn primary" disabled><Icon name="chevron-down" size={11} /></button></span>
+      <span class="btn-split"><button class="btn primary busy" disabled>提交 (3)</button><button class="btn primary" disabled><Icon name="chevron-down" /></button></span>
       <span class="lbl">ibtn.busy</span>
       <button class="ibtn busy" disabled title="刷新中"><Icon name="refresh" /></button>
     </div>
@@ -96,7 +96,7 @@
       <span class="lbl">indet</span><span class="pbar w indet"></span>
       <span class="lbl">状态栏</span>
       <span class="sbdemo">
-        <span class="task"><span class="tlabel">推送 · Writing objects</span><span class="pbar"><span class="pfill" style:width="62%"></span></span><span class="tpct">62%</span><button class="ibtn xs"><Icon name="x" size={10} /></button></span>
+        <span class="task"><span class="tlabel">推送 · Writing objects</span><span class="pbar"><span class="pfill" style:width="62%"></span></span><span class="tpct">62%</span><button class="ibtn xs"><Icon name="x" /></button></span>
         <span class="vsep"></span>
         <span class="task"><span class="tlabel">正在提交…</span><span class="pbar indet"></span></span>
       </span>
@@ -120,7 +120,7 @@
   </section>
 
   <section>
-    <h2>图标 <code>Icon</code> <small>{ICON_NAMES.length} 个 · 16 网格、字形收在 2–14、描边 1.25、端点 round；默认 14px，行内 11–12，标签上的 ✕ 10</small></h2>
+    <h2>图标 <code>Icon</code> <small>{ICON_NAMES.length} 个 · JetBrains 新 UI 官方图标（来源见 public/icons/SOURCES.md）；一律 16，组件里不传尺寸；单色走 mask 跟着 color 变，彩色的画原色</small></h2>
     <div class="icons">
       {#each ICON_NAMES as n (n)}
         <div class="ic"><Icon name={n} /><code>{n}</code></div>

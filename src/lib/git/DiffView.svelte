@@ -355,10 +355,10 @@
 
     {#if blocks.length > 0}
       <span class="nav">
-        <button class="ibtn sm" onclick={() => jump(-1)} title="上一处改动 ⇧F7" aria-label="上一处改动"><Icon name="chevron-up" size={11} /></button>
+        <button class="ibtn sm" onclick={() => jump(-1)} title="上一处改动 ⇧F7" aria-label="上一处改动"><Icon name="chevron-up" /></button>
         <!-- 还没跳过时说「3 处」，跳过才说「1/3」—— 「—/3」读不出是什么 -->
         <span class="pos">{cur < 0 ? `${blocks.length} 处` : `${cur + 1}/${blocks.length}`}</span>
-        <button class="ibtn sm" onclick={() => jump(1)} title="下一处改动 F7" aria-label="下一处改动"><Icon name="chevron-down" size={11} /></button>
+        <button class="ibtn sm" onclick={() => jump(1)} title="下一处改动 F7" aria-label="下一处改动"><Icon name="chevron-down" /></button>
       </span>
     {/if}
 
@@ -393,7 +393,7 @@
       </span>
     {:else}
       <button class="btn sm" onclick={onToggleStaged} title="在「已暂存 ↔ 未暂存」之间切换">
-        {staged ? "已暂存的改动" : "未暂存的改动"} <Icon name="swap" size={11} />
+        {staged ? "已暂存的改动" : "未暂存的改动"} <Icon name="swap" />
       </button>
     {/if}
   </div>
@@ -415,7 +415,7 @@
         {#each sideShown as r, i (i)}
           {#if r.kind === "hunk" || r.kind === "meta"}
             <div class="span4 {r.kind}" data-row={i}>
-              {#if r.kind === "hunk"}<span class="fold" aria-hidden="true"><Icon name="more-h" size={12} /></span>{/if}
+              {#if r.kind === "hunk"}<span class="fold" aria-hidden="true"><Icon name="more-h" /></span>{/if}
               <span class="htxt">{r.text}</span>
               {#if r.kind === "hunk" && selHunk === sideHunk[i]}
                 <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
@@ -459,7 +459,7 @@
             <div class="row {l.kind}" data-row={i}>
               {#if oneSided !== "add"}<span class="no"></span>{/if}
               {#if oneSided !== "del"}<span class="no"></span>{/if}
-              <span class="sign fold" aria-hidden="true">{#if l.kind === "hunk"}<Icon name="more-h" size={12} />{/if}</span>
+              <span class="sign fold" aria-hidden="true">{#if l.kind === "hunk"}<Icon name="more-h" />{/if}</span>
               <span class="txt">{l.text}</span>
               {#if l.kind === "hunk" && selHunk === uniHunk[i]}
                 <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
@@ -515,34 +515,34 @@
     padding: 0 10px;
     background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     border-bottom: 1px solid var(--border-soft);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     color: var(--text-dim);
     user-select: none;
   }
   .bar .path {
-    font-family: var(--code-font);
+    font-family: var(--ui-font);
     color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .bar .renamed { font-family: var(--code-font); color: var(--text-faint); font-size: 11px; }
+  .bar .renamed { font-family: var(--ui-font); color: var(--text-faint); font-size: var(--fs-sm); }
   .bar .gap { flex: 1; }
-  .bar .stat { font-family: var(--code-font); font-size: 11px; white-space: nowrap; }
+  .bar .stat { font-family: var(--ui-font); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); white-space: nowrap; }
   .bar .stat .a { color: var(--diff-add-fg); font-weight: 500; }
   .bar .stat .d { color: var(--diff-del-fg); font-weight: 500; }
   .bar .tag {
     flex: none;
     padding: 1px 7px;
     border-radius: var(--r-sm);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     font-family: var(--ui-font);
   }
   .bar .tag.add { background: var(--diff-add-strong); color: var(--text); }
   .bar .tag.del { background: var(--diff-del-strong); color: var(--text); }
   .bar .sha {
     font-family: var(--code-font);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--accent);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
@@ -550,7 +550,7 @@
   }
 
   .nav { display: inline-flex; align-items: center; gap: 1px; }
-  .nav .pos { font-family: var(--code-font); font-size: 10px; color: var(--text-faint); min-width: 30px; text-align: center; }
+  .nav .pos { font-family: var(--ui-font); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--text-faint); min-width: 30px; text-align: center; }
 
   /* 分段控件是 app.css 的 `.segs`；「换行」是独立开关，`on` 同一套长相 */
   .bar .btn.on { background: var(--accent-sel); border-color: var(--accent); color: var(--text); }
@@ -560,7 +560,7 @@
     flex: 1;
     overflow: auto;
     font-family: var(--code-font);
-    font-size: 13px;
+    font-size: var(--fs-md);
     line-height: 20px;
   }
 
@@ -588,7 +588,7 @@
     padding-left: 12px;
     background: var(--hover);
     color: var(--text-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     font-style: italic;
   }
   .span4.meta {
@@ -600,7 +600,7 @@
     padding-right: 10px;
     text-align: right;
     color: var(--gutter-fg);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     user-select: none;
     /* 行号列吸在左边：横向滚动时仍然知道自己在第几行 */
     position: sticky;
@@ -702,7 +702,7 @@
   .uni .row.hunk {
     background: var(--hover);
     color: var(--text-faint);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
   }
   .uni .row.hunk .no, .uni .row.hunk .no + .no { background: transparent; box-shadow: none; }
   .uni .row.hunk .txt { font-style: italic; }
@@ -738,7 +738,7 @@
   /* 折叠标记：⋯ 图标，说「这上面有没显示的行」 */
   .fold { display: inline-flex; align-items: center; justify-content: center; color: var(--text-faint); }
   .span4.hunk .htxt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .uni .row.meta { color: var(--text-faint); font-size: 11px; }
+  .uni .row.meta { color: var(--text-faint); font-size: var(--fs-sm); }
 
   /* 行内高亮：颜色更实，把真正改动的那几个字挑出来 */
   mark { background: transparent; color: inherit; border-radius: var(--r-sm); padding: 0 1px; }
@@ -750,6 +750,6 @@
     text-align: center;
     color: var(--text-faint);
     font-family: var(--ui-font);
-    font-size: 12.5px;
+    font-size: var(--fs-md);
   }
 </style>

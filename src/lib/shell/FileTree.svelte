@@ -8,6 +8,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { copyText, relTo, showInFinder } from "./pathactions";
   import { readPref, writePref } from "../state/prefs";
+  import { flatten, type Row } from "./tree-rows";
 
   let {
     root,
@@ -66,19 +67,6 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     /** 进了废纸篓。App 负责关掉受影响的标签 */
     onTrashed?: (path: string, isDir: boolean) => void;
   } = $props();
-
-  /**
-   * 扁平化渲染：把展开的树拍平成一个带 depth 的列表，而不是递归组件。
-   * 渲染就是一个 each，将来要给大仓库加虚拟滚动也直接可用。
-   */
-  interface Row {
-    name: string;
-    path: string;
-    isDir: boolean;
-    depth: number;
-    /** 生成物目录：压暗、不自动展开。**它在树里、点得开**（issue #13） */
-    generated: boolean;
-  }
 
   /** path → 子项。未加载过的目录不在表里，展开时才请求 */
   let children = $state(new Map<string, DirEntry[]>());
@@ -164,12 +152,18 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     untrack(() => void reload());
   });
 
+  /**
+   * 展开 / 收起。合并行要把**链上每一层**一起记进 `expanded` / 一起摘掉：
+   * 往链中间新建一个文件（或者关掉合并）之后那一行会拆开，中间那几层得是「展开着」的，
+   * 不然人刚展开的东西一拆就全收回去了。子项只读最深那一层 —— 中间几层画不出来，用不着。
+   */
   function toggle(path: string) {
+    const chain = rows[rowIndexOf(path)]?.chain ?? [path];
     const next = new Set(expanded);
     if (next.has(path)) {
-      next.delete(path);
+      for (const p of chain) next.delete(p);
     } else {
-      next.add(path);
+      for (const p of chain) next.add(p);
       void load(path);
     }
     expanded = next;
@@ -196,26 +190,29 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   }
 
   /**
-   * 深度优先展开成扁平列表。
-   *
-   * `inGen` 往下传：**生成物是整棵子树的性质，不是那一行的性质**。
-   * 只标记顶上那一行的话，展开 `node_modules/` 往下滚两屏，那行早就滚没了 ——
-   * 剩下的是一片看着和自己代码一模一样的东西。
+   * 合并单层目录（IDEA 的 Compact Middle Packages）：`com/demo/order` 画成一行 `com.demo.order`。
+   * 默认开，树头有开关。纯偏好，存 localStorage（同「跟随」）。
    */
-  let rows = $derived.by(() => {
-    const out: Row[] = [];
-    const walk = (dir: string, depth: number, inGen: boolean) => {
-      const items = children.get(dir);
-      if (!items) return;
-      for (const it of items) {
-        const gen = inGen || dims(it);
-        out.push({ name: it.name, path: it.path, isDir: it.isDir, depth, generated: gen });
-        if (it.isDir && expanded.has(it.path)) walk(it.path, depth + 1, gen);
-      }
-    };
-    walk(root, 0, false);
-    return out;
+  let compact = $state(readPref("tree-compact", true));
+  $effect(() => {
+    writePref("tree-compact", compact);
   });
+  /*
+   * 关掉合并时，链中间那几层要自己成行了 —— 它们在 `expanded` 里（展开合并行时一起记进去的，
+   * 见 `toggle`），但子项从来没读过，不补读的话那几行是「展开着却是空的」。
+   */
+  $effect(() => {
+    if (compact) return;
+    untrack(() => {
+      for (const d of expanded) if (!children.has(d)) void load(d);
+    });
+  });
+
+  /** 拍平成行：推导全在 `tree-rows.ts`（纯函数，裸 node 能测），这里只喂数据 */
+  let rows = $derived(flatten({ root, children, expanded, dims, compact }));
+
+  /** 盖住 `path` 的那一行（合并行盖住链上每一层）。找不到给 -1 */
+  const rowIndexOf = (path: string) => rows.findIndex((r) => r.chain.includes(path));
 
   const rootName = $derived(root.slice(root.lastIndexOf("/") + 1) || root);
 
@@ -288,14 +285,22 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     conflict: "!",
   };
 
-  /** 一行显示什么装饰：自身状态优先，其次未跟踪目录前缀，最后才是冒泡点 */
-  function deco(path: string): { cls: string; ch: string } | null {
-    const own = git.own.get(path);
-    if (own) return { cls: own, ch: LETTER[own] ?? "·" };
-    for (const d of git.utDirs) {
-      if (path.startsWith(d)) return { cls: "untracked", ch: "?" };
+  /**
+   * 一行显示什么装饰：自身状态优先，其次未跟踪目录前缀，最后才是冒泡点。
+   *
+   * 合并行盖住好几层，**链上任何一层有自身状态都算**：git 把整个未跟踪的目录报在最上面
+   * 那一层（`?? com/`），而这一行的 `path` 是最深的 `com/demo/order`，只查它就漏了。
+   * 中间几层除了下一层什么都没有，所以最深那层的冒泡点就代表了整行。
+   */
+  function deco(row: Row): { cls: string; ch: string } | null {
+    for (const p of row.chain) {
+      const own = git.own.get(p);
+      if (own) return { cls: own, ch: LETTER[own] ?? "·" };
     }
-    if (git.roll.has(path)) return { cls: "roll", ch: "" };
+    for (const d of git.utDirs) {
+      if (row.path.startsWith(d)) return { cls: "untracked", ch: "?" };
+    }
+    if (git.roll.has(row.path)) return { cls: "roll", ch: "" };
     return null;
   }
 
@@ -407,7 +412,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     }
     e.preventDefault();
     const batch = dragging;
-    ghost = { x: e.clientX + 12, y: e.clientY + 12, text: batch.length === 1 ? batch[0].name : `${batch.length} 个条目` };
+    ghost = { x: e.clientX + 12, y: e.clientY + 12, text: batch.length === 1 ? batch[0].label : `${batch.length} 个条目` };
     const dir = dirUnder(e.clientX, e.clientY);
     dropTarget = dir !== null && canDropOn(batch, dir) ? dir : null;
   }
@@ -557,7 +562,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     // 等这一轮渲染落地，那一行才在 DOM 里
     await tick();
     if (seq !== revealSeq) return;
-    const i = rows.findIndex((r) => r.path === acc);
+    // 目标可能是合并行链中间的一层（`com/demo`）：落到盖住它的那一行上
+    const i = rowIndexOf(acc);
     if (i < 0) return;
     cursor = i;
     rowAt(i)?.scrollIntoView({ block: "nearest" });
@@ -565,7 +571,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     // 跟随（标签换了树自己走过去）不闪：那不是人点的，闪一下反而分神
     if (quiet) return;
     // 目标可能本来就在视野里，滚动等于没反应 —— 闪一下才知道点中了
-    flash = acc;
+    flash = rows[i].path;
     if (flashTimer) clearTimeout(flashTimer);
     flashTimer = setTimeout(() => {
       flash = "";
@@ -644,14 +650,15 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     const k = name.toLowerCase().indexOf(speedLower);
     return k < 0 ? null : [k, k + speedLower.length];
   }
-  let speedAny = $derived(speedLower === "" || rows.some((r) => speedHit(r.name) !== null));
+  // 按画出来的字（`label`）找：人看见的是 com.demo.order，打 demo 就该命中
+  let speedAny = $derived(speedLower === "" || rows.some((r) => speedHit(r.label) !== null));
 
   /** 从 `from` 起（含）往 `dir` 方向找下一个命中的行，绕圈；没有给 -1 */
   function speedNext(from: number, dir: 1 | -1): number {
     const n = rows.length;
     for (let k = 0; k < n; k++) {
       const j = (((from + dir * k) % n) + n) % n;
-      if (speedHit(rows[j].name)) return j;
+      if (speedHit(rows[j].label)) return j;
     }
     return -1;
   }
@@ -680,7 +687,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     if (e.key.length !== 1) return false;
     speed += e.key;
     // 当前行还命中就不动（多打一个字不该把人甩到别处），不命中才往下找
-    if (!speedHit(rows[i].name)) {
+    if (!speedHit(rows[i].label)) {
       const j = speedNext(i + 1, 1);
       if (j >= 0) focusRow(j);
     }
@@ -1012,7 +1019,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
       x,
       y,
       // 项目根永远不是生成物 —— 你是特意把它当项目打开的
-      row: { name: rootName, path: root, isDir: true, depth: -1, generated: false },
+      row: { name: rootName, label: rootName, path: root, chain: [root], isDir: true, depth: -1, generated: false, srcRoot: false, dirKind: "folder" },
       fromHead: true,
     };
   }
@@ -1193,17 +1200,18 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     >{rootName}</button>
     <span class="gap"></span>
     <!--
-      树头的三个动作，照 IDEA 项目工具窗的头：定位当前文件 / 折叠全部 / 跟随开关。
+      树头的四个动作，照 IDEA 项目工具窗的头：定位当前文件 / 折叠全部 / 跟随开关 /
+      合并单层目录（IDEA 藏在齿轮菜单里的 Compact Middle Packages，这里没有齿轮，平铺出来）。
       整条栏各只有一个，不是每一项上重复的东西，所以常驻（ui.md 第三条的例外），
       但只用 --text-faint，hover 才亮。
     -->
     {#if activePath}
       <button class="ibtn" onclick={locate} title="在树里定位当前文件" aria-label="定位当前文件">
-        <Icon name="locate" size={14} />
+        <Icon name="locate" />
       </button>
     {/if}
     <button class="ibtn" onclick={collapseAll} title="折叠全部" aria-label="折叠全部">
-      <Icon name="collapse" size={14} />
+      <Icon name="collapse" />
     </button>
     <button
       class="ibtn"
@@ -1213,7 +1221,17 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
       aria-label="跟随标签"
       aria-pressed={follow}
     >
-      <Icon name="follow" size={14} />
+      <Icon name="follow" />
+    </button>
+    <button
+      class="ibtn"
+      class:on={compact}
+      onclick={() => (compact = !compact)}
+      title={compact ? "合并单层目录：开（com/demo/order 画成 com.demo.order）" : "合并单层目录：关（一层一行）"}
+      aria-label="合并单层目录"
+      aria-pressed={compact}
+    >
+      <Icon name="compact" />
     </button>
   </div>
   {#if speed !== ""}
@@ -1232,8 +1250,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     }}
   >
     {#each rows as row, i (row.path)}
-      {@const d = deco(row.path)}
-      {@const hit = speedHit(row.name)}
+      {@const d = deco(row)}
+      {@const hit = speedHit(row.label)}
       <button
         class="row"
         class:dir={row.isDir}
@@ -1250,7 +1268,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
         aria-level={row.depth + 1}
         aria-expanded={row.isDir ? expanded.has(row.path) : undefined}
         aria-selected={row.path === activePath}
-        style:padding-left="{6 + row.depth * 13}px"
+        style:padding-left="{6 + row.depth * 19}px"
         onclick={(e) => onRowClick(e, i)}
         ondblclick={() => {
           if (!row.isDir) onOpen(row.path, false, true);
@@ -1259,15 +1277,15 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
         onkeydown={(e) => onRowKey(e, i)}
         oncontextmenu={(e) => openMenu(e, i)}
         title={row.generated
-          ? `${row.name} —— 生成物目录。搜索（⌘P / ⇧⌘F）不进这里，点开仍然可以看`
-          : row.name}
+          ? `${row.label} —— 生成物目录。搜索（⌘P / ⇧⌘F）不进这里，点开仍然可以看`
+          : row.label}
       >
         {#if row.isDir && loading.has(row.path)}
           <!-- 列目录还没回来：箭头的格子换成环。原来 `loading` 记着但什么都不画，大目录 / 网络盘上点了像没反应 -->
           <span class="caret"><span class="spinner sm"></span></span>
         {:else if row.isDir}
           <span class="caret" class:open={expanded.has(row.path)}>
-            <Icon name="chevron-right" size={10} />
+            <Icon name="chevron-right" />
           </span>
         {:else}
           <span class="caret spacer"></span>
@@ -1277,9 +1295,9 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
           「按扩展名分色」的字形，两者不是一个家族，不必强行统一。
           但**文件夹这一个形状必须只有一处定义** —— 导轨上和树里画的是同一样东西。
         -->
-        <FileGlyph name={row.name} isDir={row.isDir} size={14} />
+        <FileGlyph name={row.name} isDir={row.isDir} kind={row.dirKind} />
         <span class="name g-{d?.cls ?? 'none'}">
-          {#if hit}{row.name.slice(0, hit[0])}<mark>{row.name.slice(hit[0], hit[1])}</mark>{row.name.slice(hit[1])}{:else}{row.name}{/if}
+          {#if hit}{row.label.slice(0, hit[0])}<mark>{row.label.slice(hit[0], hit[1])}</mark>{row.label.slice(hit[1])}{:else}{row.label}{/if}
         </span>
         {#if d}
           <span class="gap"></span>
@@ -1300,9 +1318,9 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   <ContextMenu
     x={menu.x}
     y={menu.y}
-    title={menu.row.name}
+    title={menu.row.label}
     titleTip={menu.row.path}
-    label="{menu.row.name} 的操作"
+    label="{menu.row.label} 的操作"
     {items}
     onclose={closeMenu}
   />
@@ -1328,7 +1346,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     <div class="ptitle">{ASK_TITLE[ask.kind]}</div>
     {#if ask.kind === "rename" && ask.row}
       <div class="pobj" title={ask.row.path}>
-        <span class="ic">{#if ask.row.isDir}<Icon name="files" />{:else}<FileGlyph name={ask.row.name} size={14} />{/if}</span>
+        <span class="ic">{#if ask.row.isDir}<Icon name="files" />{:else}<FileGlyph name={ask.row.name} />{/if}</span>
         <span class="oname">{ask.row.name}</span>
         <span class="opath">{relOf(parentOf(ask.row.path)) || rootName}</span>
       </div>
@@ -1390,7 +1408,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     <div class="ptitle">移动</div>
     {#if move.rows.length === 1}
       <div class="pobj" title={move.rows[0].path}>
-        <span class="ic">{#if move.rows[0].isDir}<Icon name="files" />{:else}<FileGlyph name={move.rows[0].name} size={14} />{/if}</span>
+        <span class="ic">{#if move.rows[0].isDir}<Icon name="files" />{:else}<FileGlyph name={move.rows[0].name} />{/if}</span>
         <span class="oname">{move.rows[0].name}</span>
         <span class="opath">{relOf(parentOf(move.rows[0].path)) || rootName}</span>
       </div>
@@ -1400,7 +1418,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
         <span class="oname">{move.rows.length} 个条目</span>
       </div>
     {/if}
-    <div class="parrow" aria-hidden="true"><Icon name="chevron-down" size={11} /></div>
+    <div class="parrow" aria-hidden="true"><Icon name="chevron-down" /></div>
     <div class="pobj dest" title={move.dest}>
       <span class="ic"><Icon name="files" /></span>
       <span class="oname">{relOf(move.dest) || rootName}/</span>
@@ -1436,7 +1454,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     <!-- 最多列三条，其余「还有 N 个」—— 批量删的时候人要的是「我选中的是不是这几个」，不是全清单 -->
     {#each trash.rows.slice(0, 3) as r (r.path)}
       <div class="pobj" title={r.path}>
-        <span class="ic">{#if r.isDir}<Icon name="files" />{:else}<FileGlyph name={r.name} size={14} />{/if}</span>
+        <span class="ic">{#if r.isDir}<Icon name="files" />{:else}<FileGlyph name={r.name} />{/if}</span>
         <span class="oname">{r.name}</span>
         <span class="opath">{relOf(parentOf(r.path)) || rootName}</span>
       </div>
@@ -1490,7 +1508,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     align-items: center;
     gap: 2px;
     padding: 0 4px 0 10px;
-    font-size: 11px;
+    font-size: var(--fs-sm);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-dim);
@@ -1538,7 +1556,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     border: none;
     color: var(--text-dim);
     font-family: var(--ui-font);
-    font-size: 12.5px;
+    font-size: var(--fs-md);
     text-align: left;
     cursor: default;
     white-space: nowrap;
@@ -1560,7 +1578,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     position: fixed;
     z-index: 60;
     padding: 2px 8px;
-    font-size: 12px;
+    font-size: var(--fs-md);
     color: var(--text);
     background: var(--elevated);
     border: 1px solid var(--border);
@@ -1580,28 +1598,28 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   /*
    * 展开箭头。**必须是 SVG，不能是文字里的 ▸。**
    *
-   * 原来是 `<span style="font-size:9px">▸</span>` + `rotate(90deg)`。
+   * 原来是 `<span style="font-size:var(--fs-xs)">▸</span>` + `rotate(90deg)`。
    * 盒子确实是垂直居中的（上下各 4.8px），但**字形在自己的 em 盒里本来就偏上**，
    * 一旋转，那点偏移就从"偏上"变成"偏左上"，箭头看着离开了它该在的位置。
    * 加上 9px 的字本来就渲染得糊，两件事叠在一起就是"这里怎么怪怪的"。
    *
    * SVG 的几何是自己说了算的：给一个方盒、内容居中，绕盒心转 90° 前后都对齐。
    */
+  /*
+   * 箭头 16（图标的网格），每层缩进 19 = 箭头 16 + 行里的间距 3：子项的箭头正好落在父项的图标底下，
+   * IDEA 的树就是这么对齐的。原来箭头 12、缩进 13，换成 16 的图标后子项会缩进得比箭头还窄
+   */
   .caret {
     flex: none;
     display: grid;
     place-content: center;
-    width: 12px;
-    height: 12px;
+    width: 16px;
+    height: 16px;
     color: var(--text-faint);
     transition: transform 0.12s ease;
   }
   .caret.open { transform: rotate(90deg); }
   .caret.spacer { visibility: hidden; }
-  /* 只有配置类破例给个颜色 —— 改错它的代价最大 */
-  /* 字形本身在 FileGlyph 里，这里只管「行被选中/悬停时它跟着提亮」 */
-  .row.active :global(.glyph), .row:hover :global(.glyph) { color: var(--text-dim); }
-  .row.active :global(.glyph.conf), .row:hover :global(.glyph.conf) { opacity: 1; }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 打字定位命中的那几个字：底色不换字色，斜体 / 压暗 / git 色都保得住 */
   .name mark { background: var(--selection-match); color: inherit; border-radius: 2px; }
@@ -1611,8 +1629,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     right: 8px;
     z-index: 2;
     padding: 2px 8px;
-    font-family: var(--code-font);
-    font-size: 12px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-md);
     color: var(--text);
     background: var(--elevated);
     border: 1px solid var(--border);
@@ -1621,7 +1639,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     pointer-events: none;
   }
   .speed.none { color: var(--lvl-warn); }
-  .speed .hint { margin-left: 8px; font-family: inherit; font-size: 11px; color: var(--text-faint); }
+  .speed .hint { margin-left: 8px; font-family: inherit; font-size: var(--fs-sm); color: var(--text-faint); }
   /*
    * 生成物目录（issue #13）。**压暗，不隐藏。**
    *
@@ -1642,8 +1660,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
      两样都给是有意的 —— 颜色扫得快，字母说得准（红绿色觉障碍也读得出） */
   .gmark {
     flex: none;
-    font-family: var(--code-font);
-    font-size: 10.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
     font-weight: 600;
     line-height: 1;
   }
@@ -1676,7 +1694,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     padding: 10px 12px 10px;
     outline: none;
   }
-  .ptitle { margin: 0 0 8px; color: var(--text); font-family: var(--ui-font); font-size: 12.5px; font-weight: 500; }
+  .ptitle { margin: 0 0 8px; color: var(--text); font-family: var(--ui-font); font-size: var(--fs-md); font-weight: 500; }
   .pobj {
     display: flex;
     align-items: center;
@@ -1687,15 +1705,15 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     border-radius: var(--r-sm);
     background: var(--hover);
     color: var(--text);
-    font-size: 12px;
+    font-size: var(--fs-md);
   }
   .pobj .ic { flex: none; display: inline-flex; color: var(--text-faint); }
-  .pobj .oname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--code-font); font-size: 12px; }
+  .pobj .oname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ui-font); font-size: var(--fs-md); }
   /* 所在目录：从左边省略（有用的是尾巴），ui.md 九 —— `direction: rtl` 只给路径 */
-  .pobj .opath { flex: none; margin-left: auto; max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; color: var(--text-faint); font-family: var(--ui-font); font-size: 11px; }
+  .pobj .opath { flex: none; margin-left: auto; max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-sm); }
   .parrow { display: flex; justify-content: center; margin: -2px 0 2px; color: var(--text-faint); }
-  .pmore { padding: 0 8px 2px; color: var(--text-faint); font-size: 11px; }
-  .phint { margin-top: 6px; color: var(--text-faint); font-family: var(--ui-font); font-size: 11.5px; line-height: 1.5; }
+  .pmore { padding: 0 8px 2px; color: var(--text-faint); font-size: var(--fs-sm); }
+  .phint { margin-top: 6px; color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-sm); line-height: 1.5; }
   .pinput {
     width: 100%;
     margin: 4px 0 0;
@@ -1704,14 +1722,14 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--text);
-    font-family: var(--code-font);
-    font-size: 12.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-md);
   }
   .pinput:focus { outline: none; border-color: var(--accent); }
   .perr {
     padding: 5px 0 1px;
     color: var(--lvl-error);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     line-height: 1.5;
   }
   .pwarn {
@@ -1720,7 +1738,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     background: rgba(247, 84, 100, 0.1);
     border-radius: var(--r-sm);
     color: var(--lvl-error);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     line-height: 1.5;
   }
   .prow {
@@ -1732,8 +1750,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   .err {
     padding: 8px 10px;
     color: var(--lvl-error);
-    font-size: 11.5px;
-    font-family: var(--code-font);
+    font-size: var(--fs-sm);
+    font-family: var(--ui-font);
   }
   @media (prefers-reduced-motion: reduce) { .caret { transition: none; } }
 </style>

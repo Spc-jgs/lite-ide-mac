@@ -130,13 +130,13 @@
     gap: 8px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--border-soft);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     user-select: none;
   }
   .head .t { color: var(--text); }
-  .head .f { color: var(--text-faint); font-family: var(--code-font); font-size: 10.5px; }
+  .head .f { color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-xs); }
   .head .gap { flex: 1; }
-  .head .hint { color: var(--text-faint); font-family: var(--code-font); font-size: 10px; }
+  .head .hint { color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-xs); }
 
   input {
     border: none;
@@ -144,15 +144,15 @@
     background: transparent;
     color: var(--text);
     font-family: var(--ui-font);
-    font-size: 14px;
+    font-size: var(--fs-lg);
     padding: 9px 12px;
     outline: none;
   }
   input::placeholder { color: var(--text-faint); }
 
   .list { overflow-y: auto; padding: 4px 0; }
-  .none { padding: 20px 14px; color: var(--text-faint); font-size: 12.5px; text-align: center; line-height: 1.8; }
-  .none .sub { font-size: 11px; }
+  .none { padding: 20px 14px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; line-height: 1.8; }
+  .none .sub { font-size: var(--fs-sm); }
   .row {
     display: flex;
     align-items: baseline;
@@ -163,14 +163,14 @@
     border: none;
     text-align: left;
     cursor: default;
-    font-size: 12.5px;
+    font-size: var(--fs-md);
   }
   /* 列表里的当前项一律中性白叠加，强调色留给真正抢注意力的东西 */
   .row.sel { background: var(--selected); }
   .kind {
     flex: none;
-    font-size: 9.5px;
-    font-family: var(--code-font);
+    font-size: var(--fs-xs);
+    font-family: var(--ui-font);
     padding: 1px 5px;
     border-radius: var(--r-sm);
     background: var(--elevated-hi);
@@ -178,12 +178,12 @@
     min-width: 3.4em;
     text-align: center;
   }
-  .name { color: var(--text); font-family: var(--code-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name { color: var(--text); font-family: var(--ui-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .line {
     margin-left: auto;
     color: var(--text-faint);
-    font-family: var(--code-font);
-    font-size: 11px;
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
+    font-size: var(--fs-sm);
     font-variant-numeric: tabular-nums;
   }
   mark { background: transparent; color: var(--accent); font-weight: 600; }

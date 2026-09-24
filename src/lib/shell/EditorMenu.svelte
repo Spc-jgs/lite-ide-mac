@@ -46,8 +46,15 @@
       { label: "复制", disabled: !api.hasSelection, run: () => void api.copy() },
       {
         label: "粘贴",
-        // 读剪贴板在 WKWebView 里可能被拦：读不到就说一声，不静默失败
-        run: () => void api.paste().catch(() => notify.ok("这里读不到剪贴板，用 ⌘V 粘贴", 2600)),
+        // 读不到（超 8 MB、pbpaste 失败）就把原因说出来，不静默失败 —— ⌘V 那条路不受影响
+        // 做完焦点回编辑器靠 ContextMenu 的 giveBack（右键编辑器时焦点就在编辑器上）
+        run: () =>
+          void api
+            .paste()
+            .then((pasted) => {
+              if (!pasted) notify.ok("剪贴板里没有文字", 2600);
+            })
+            .catch((e) => notify.fail(`粘贴失败：${String(e)}`, 3600)),
       },
       { label: "复制路径", sep: true, run: () => void copyText(path, "路径") },
       { label: "复制相对路径", disabled: !inProject, run: () => void copyText(relTo(project.root!, path), "相对路径") },
@@ -65,7 +72,7 @@
 
   function close(refocus: boolean) {
     onclose();
-    // 键盘 / Esc 关的：焦点还给编辑器（鼠标点了某一项的，那一项自己决定焦点去哪）
+    // 键盘 / Esc 关的：焦点还给编辑器。鼠标点了某一项的，由 ContextMenu 还给右键之前的焦点
     if (refocus) api.focus();
   }
 </script>

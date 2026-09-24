@@ -350,7 +350,7 @@
           竖线整排去掉之后，那条带看着像标签又被切了一刀。
         -->
         <span class="glyphwrap {tab.mode}">
-          <FileGlyph name={tab.name} size={13} />
+          <FileGlyph name={tab.name} />
         </span>
         <span class="name" class:preview={tab.preview}>{tab.title ?? tab.name}</span>
         {#if tab.id === activeId && tab.mode !== "edit"}
@@ -374,7 +374,7 @@
           title={dot.on ? `已钉住，${dot.title} —— 点击取消钉住` : "已钉住 —— 点击取消钉住"}
           aria-label="取消钉住 {tab.name}"
         >
-          <span class="x"><Icon name="pin" size={11} /></span>
+          <span class="x"><Icon name="pin" /></span>
           {#if dot.on}<span class="dot" aria-hidden="true"></span>{/if}
         </button>
       {:else}
@@ -386,7 +386,7 @@
           title={dot.on ? dot.title : "关闭"}
           aria-label="关闭 {tab.name}"
         >
-          <span class="x"><Icon name="x" size={10} /></span>
+          <span class="x"><Icon name="x" /></span>
           {#if dot.on}<span class="dot" aria-hidden="true"></span>{/if}
         </button>
       {/if}
@@ -407,7 +407,7 @@
   -->
   {#if onNewScratch}
     <button class="ibtn" onclick={onNewScratch} title="新建草稿（⌘N）" aria-label="新建草稿">
-      <Icon name="plus" size={13} />
+      <Icon name="plus" />
     </button>
   {/if}
 </div>
@@ -504,7 +504,7 @@
     border: none;
     color: var(--text-dim);
     font-family: var(--ui-font);
-    font-size: 12.5px;
+    font-size: var(--fs-md);
     cursor: default;
     overflow: hidden;
   }
@@ -514,12 +514,12 @@
   .name.preview { font-style: italic; }
   .badge {
     flex: none;
-    font-size: 9px;
+    font-size: var(--fs-xs);
     padding: 1px 4px;
     border-radius: var(--r-sm);
     background: var(--hover);
     color: var(--text-faint);
-    font-family: var(--code-font);
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
   }
   .badge.diff { color: var(--git-modified); }
   .badge.merge { color: var(--lvl-warn); }

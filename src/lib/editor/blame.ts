@@ -80,7 +80,7 @@ export function blameGutter(onPick: (h: BlameHunk) => void) {
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
-        fontSize: "11px",
+        fontSize: "var(--fs-sm)",
         color: "var(--text-faint)",
       },
       ".cm-blame.first": { color: "var(--text-dim)", borderTop: "1px solid var(--border-soft)" },

@@ -159,7 +159,7 @@
         </span>
         {#if t.percent !== null}<span class="tpct">{t.percent}%</span>{/if}
         {#if t.cancel}
-          <button class="ibtn xs" onclick={t.cancel} title="取消" aria-label="取消 {t.label}"><Icon name="x" size={10} /></button>
+          <button class="ibtn xs" onclick={t.cancel} title="取消" aria-label="取消 {t.label}"><Icon name="x" /></button>
         {/if}
       </span>
     {/key}
@@ -208,7 +208,7 @@
         onclick={onSwitchMode}
         title={active.mode === "log" ? "切换到编辑模式" : "切换到日志模式（只读，带级别过滤与 tail）"}
       >
-        {active.mode === "log" ? "日志模式" : "编辑模式"} <Icon name="swap" size={11} />
+        {active.mode === "log" ? "日志模式" : "编辑模式"} <Icon name="swap" />
       </button>
       <!--
         **竖线跟着它后面那格一起退场。**
@@ -335,7 +335,7 @@
     /* 状态栏整体是 code-font，而路径是可读文本不是标识符 */
     font-family: var(--ui-font);
   }
-  .statusbar .crumbs .sep { flex: none; color: var(--text-faint); font-size: 10px; }
+  .statusbar .crumbs .sep { flex: none; color: var(--text-faint); font-size: var(--fs-xs); }
   .crumb {
     flex: none;
     max-width: 160px;
@@ -343,10 +343,10 @@
     padding: 0 4px;
     background: transparent;
     border: none;
-    border-radius: 5px;
+    border-radius: var(--r-xs);
     color: var(--text-faint);
     font-family: var(--ui-font);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     line-height: 17px;
     cursor: default;
     overflow: hidden;
@@ -371,9 +371,9 @@
     /* 同标题栏：贴着窗口下边，需要一层 scrim 兜住 11.5px 的小字 */
     background: var(--chrome-scrim);
     /* 不画上边线（M8）：理由同标题栏，scrim 就是分区 */
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     color: var(--text-dim);
-    font-family: var(--code-font);
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
     user-select: none;
   }
   .statusbar .spacer { flex: 1; min-width: 0; }
@@ -390,9 +390,9 @@
   .statusbar .task { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); animation: fade-in 90ms ease-out; }
   .statusbar .task .tlabel { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ui-font); }
   .statusbar .task .pbar { width: 72px; flex: none; }
-  .statusbar .task .tpct { flex: none; min-width: 3ch; text-align: right; font-size: 10.5px; color: var(--text-faint); }
+  .statusbar .task .tpct { flex: none; min-width: 3ch; text-align: right; font-size: var(--fs-xs); color: var(--text-faint); }
   .statusbar .task .ibtn { margin-left: -2px; }
-  .statusbar .cbtn.enc { font-size: 11px; }
+  .statusbar .cbtn.enc { font-size: var(--fs-sm); }
   /* 解码有损是必须让人看见的事，不能只做成一个安静的标签 */
   .statusbar .cbtn.enc.bad { color: var(--lvl-error); }
   /*
@@ -408,8 +408,8 @@
     background: transparent;
     border: none;
     color: var(--text-faint);
-    font-family: var(--code-font);
-    font-size: 11.5px;
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
+    font-size: var(--fs-sm);
     line-height: 1;
     padding: 0 6px;
     border-radius: var(--r-sm);

@@ -36,17 +36,88 @@ pub struct Entry {
     ///
     /// `generated` 为假时这一位没有意义（恒为假）。
     pub contested: bool,
+    /// 从这个目录往下「里面只有一个子目录、别的什么都没有」的那一串名字，**不含它自己**。
+    /// `java/` 底下只有 `com/demo/order` 这一路的话，`java` 这一项带 `["com", "demo", "order"]`
+    /// 的是 `com` —— 见 [`single_child_chain`]。文件和不探的目录恒为空。
+    ///
+    /// 这是**结构上的事实**，不是显示规则：合不合并、用 `/` 还是 `.` 连、在源码根那儿断开，
+    /// 全是前端 `tree-rows.ts` 的事。这里只负责「一次 IPC 就把这一串读回来」——
+    /// 文件树是懒展开的，不提前往下读，就不知道 `src` 底下是不是只有 `main`。
+    pub chain: Vec<String>,
+}
+
+/// 单子目录链最多往下探几层。正常项目五六层（`com/company/project/module`），
+/// 再深就是造出来的病态目录，不值得一路读下去。
+const CHAIN_MAX_DEPTH: usize = 32;
+
+/// 一次 [`list_dir`] 最多为探链读多少个目录。
+///
+/// 每个子目录要多读一次（`read_dir` 只取前两项就停，一次几十微秒），一层几千个子目录时
+/// 列一层目录就会变成读几千个目录。超了预算的就不探 —— 界面上只是那几行不合并，
+/// 不会错。
+const CHAIN_BUDGET: usize = 512;
+
+/// 从 `dir` 往下走，每一层**只有一个条目、而且它是真目录**就继续，返回沿途的名字。
+///
+/// 停下的几种情况：分叉了（两个以上条目）、空了、唯一那一项是文件或软链、
+/// 读不了、到了深度上限或预算用完，以及唯一那一项是生成物 / 有争议的目录 ——
+/// 那种目录要自己占一行，合并进去它就没法被单独压暗了。
+///
+/// **软链不跟**：跟了可能绕回自己；而且合并出来的那一行说的是「盘上就是这一串目录」，
+/// 软链不是。（`list_dir` 本来也不把指向目录的软链当目录。）
+fn single_child_chain(dir: &Path, budget: &mut usize) -> Vec<String> {
+    let mut chain = Vec::new();
+    let mut cur = dir.to_path_buf();
+    while chain.len() < CHAIN_MAX_DEPTH && *budget > 0 {
+        *budget -= 1;
+        let Ok(rd) = fs::read_dir(&cur) else { break };
+        let mut only = None;
+        let mut forked = false;
+        for ent in rd {
+            let Ok(ent) = ent else {
+                forked = true; // 读到一半出错：当它分叉了，不冒险合并
+                break;
+            };
+            // 树里不列的东西探链时也不算数（`.DS_Store` 不许把链从中间截断）
+            if excludes::is_hidden(&ent.file_name().to_string_lossy()) {
+                continue;
+            }
+            if only.is_some() {
+                forked = true;
+                break;
+            }
+            only = Some(ent);
+        }
+        let Some(ent) = only.filter(|_| !forked) else { break };
+        if !ent.file_type().is_ok_and(|t| t.is_dir()) {
+            break;
+        }
+        let name = ent.file_name().to_string_lossy().into_owned();
+        if excludes::is_generated_dir(&name) || excludes::is_contested_dir(&name) {
+            break;
+        }
+        cur.push(&name);
+        chain.push(name);
+    }
+    chain
 }
 
 /// 列出一层目录。不递归 —— 文件树按需展开，避免大仓库一次性遍历。
 ///
-/// **点文件和点目录一律列出来。** 原来它们跟着 `show_hidden` 一起被藏了，
+/// **点文件和点目录列出来**（例外见下）。原来它们跟着 `show_hidden` 一起被藏了，
 /// 于是 `.gitignore` `.github/` `.env` `.claude/` 这些**天天要改的项目文件**
 /// 在文件树里根本不存在，只能靠 ⌘P 摸黑打开。
 ///
 /// 藏它们的那个理由（「否则文件树被淹没」）说的其实是 `node_modules` 那一类，
 /// 而那一类现在由 [`excludes::GENERATED_DIRS`] 单独挡着 —— 两件事本来就不该
-/// 共用一个开关。`.git/` 也照列：树是懒展开的，不点开它就只是一行。
+/// 共用一个开关。
+///
+/// **例外是 [`excludes::is_hidden`]**：版本库目录（`.git` `.svn` `.hg` `CVS`）和系统杂物
+/// （`.DS_Store` `Thumbs.db`）不列 —— 它们不是项目的内容。`.git/` 原来照列（「懒展开，不点开
+/// 就只是一行」），2026-09-24 起不列：那条理由只算了成本，没算树上能对它右键删除、改名、
+/// 往里拖文件。搜索那边用的是同一个函数。
+///
+/// 每个子目录顺手探一条单子目录链（[`Entry::chain`]），有深度上限和预算。
 ///
 /// 那份名单是**和搜索共用的同一份**。原来这里自己有四个、searchsvc 自己有十四个，
 /// 于是「树里看不见」和「⌘P 搜不到」是两套判据，各自演化。
@@ -80,6 +151,9 @@ pub fn list_dir(dir: impl AsRef<Path>) -> io::Result<Vec<Entry>> {
     for ent in fs::read_dir(dir.as_ref())? {
         let ent = ent?;
         let name = ent.file_name().to_string_lossy().into_owned();
+        if excludes::is_hidden(&name) {
+            continue;
+        }
         let meta = match ent.metadata() {
             Ok(m) => m,
             // 断掉的软链等：跳过而不是整个目录失败
@@ -95,6 +169,7 @@ pub fn list_dir(dir: impl AsRef<Path>) -> io::Result<Vec<Entry>> {
             path: ent.path(),
             is_dir,
             size: if is_dir { 0 } else { meta.len() },
+            chain: Vec::new(),
         });
     }
     out.sort_by(|a, b| {
@@ -102,6 +177,11 @@ pub fn list_dir(dir: impl AsRef<Path>) -> io::Result<Vec<Entry>> {
             .cmp(&a.is_dir)
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
+    // 排完序再探：预算不够时，先吃到预算的是界面上排在前面的那些
+    let mut budget = CHAIN_BUDGET;
+    for e in out.iter_mut().filter(|e| e.is_dir && !e.generated && !e.contested) {
+        e.chain = single_child_chain(&e.path, &mut budget);
+    }
     Ok(out)
 }
 
@@ -371,6 +451,76 @@ pub fn reveal_in_finder(path: impl AsRef<Path>) -> io::Result<()> {
             st.code().map_or_else(|| "被信号中断".to_string(), |c| c.to_string())
         )))
     }
+}
+
+// ─────────────────── 剪贴板 ───────────────────
+
+/// 剪贴板最多读这么多。超过就**报错不粘**：静默截断等于往代码里插半截东西。
+/// 8 MB 远超手动复制的正常量；真要粘那么大的，⌘V 那条路不经过这里（WebView 自己处理）。
+pub const CLIPBOARD_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// 剪贴板里的纯文本 —— 编辑器右键菜单的「粘贴」用。
+///
+/// # 为什么不在前端 `navigator.clipboard.readText()`
+///
+/// WKWebView 对网页**主动读**剪贴板每次都要人再确认：点了菜单里的「粘贴」之后还会弹一个系统的
+/// 「Paste」气泡，得再点一下（2026-09-23 真机验的）。⌘V 走的是浏览器交给页面的粘贴事件，
+/// 不经过这道检查 —— 所以只有右键菜单这条路要绕到本地进程来读。
+///
+/// # 子进程纪律（rust.md）
+///
+/// - 绝对路径 `/usr/bin/pbpaste`，不靠 PATH（同 `reveal_in_finder`）
+/// - stdin 接空、stderr 丢掉：绝不卡住等输入，也不让一条没人读的 stderr 管道写满
+/// - **输出有上限**（`CLIPBOARD_MAX_BYTES`），多读一个字节来分辨「正好满」和「还有」
+/// - **显式给 UTF-8 locale**：从 Finder 启动的 .app 没有 `LANG`，这时 pbpaste 按系统的旧编码吐 ——
+///   简体中文系统上是 GB18030（「订单」出来是 `B6 A9 B5 A5`，2026-09-23 实测），
+///   下面的 `from_utf8` 就会报「不是 UTF-8」
+pub fn clipboard_text() -> io::Result<String> {
+    read_text_capped(pbpaste_cmd(), CLIPBOARD_MAX_BYTES)
+}
+
+/// 单拎出来给测试看它带没带 locale —— 真去读剪贴板的测试会冲掉跑测试那个人的剪贴板
+fn pbpaste_cmd() -> Command {
+    let mut cmd = Command::new("/usr/bin/pbpaste");
+    cmd.args(["-Prefer", "txt"])
+        .env("LANG", "en_US.UTF-8")
+        .env("LC_ALL", "en_US.UTF-8");
+    cmd
+}
+
+/// 跑一个命令、读它的 stdout 当 UTF-8 文本，最多 `cap` 字节；超了就杀掉并报错。
+/// 单拎出来是为了能用普通命令测上限那几条（剪贴板在 CI 上不一定有东西）。
+fn read_text_capped(mut cmd: Command, cap: usize) -> io::Result<String> {
+    use std::io::Read;
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let mut out = Vec::new();
+    child
+        .stdout
+        .take()
+        .expect("stdout 已 piped")
+        .take(cap as u64 + 1)
+        .read_to_end(&mut out)?;
+    if out.len() > cap {
+        // 管道已经关了，它再写就会卡在写上 —— 杀掉，并且 wait 收尸，别留僵尸进程
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(io::Error::other(format!(
+            "剪贴板内容超过 {} MB，没有粘贴 —— 用 ⌘V",
+            cap / 1024 / 1024
+        )));
+    }
+    let st = child.wait()?;
+    if !st.success() {
+        return Err(io::Error::other(format!(
+            "读不到剪贴板（退出码 {}）",
+            st.code().map_or_else(|| "被信号中断".to_string(), |c| c.to_string())
+        )));
+    }
+    String::from_utf8(out).map_err(|_| io::Error::other("剪贴板里的文字不是 UTF-8"))
 }
 
 // ─────────────────── 新建 / 重命名 / 移到废纸篓 ───────────────────
@@ -1022,6 +1172,51 @@ pub fn install_cli(script: &Path, content: &str, link: &Path) -> io::Result<CliI
 mod tests {
     use super::*;
 
+    // ── 剪贴板：上限那几条用普通命令测（CI 上剪贴板不一定有东西） ──
+
+    fn sh(script: &str) -> Command {
+        let mut c = Command::new("/bin/sh");
+        c.args(["-c", script]);
+        c
+    }
+
+    /// 编码真正的风险在 pbpaste 的 locale，不在这里：printf 原样吐字节，不看 locale。
+    /// 这条只管「UTF-8 字节进来，原样解成字符串」，locale 由下一条管
+    #[test]
+    fn 剪贴板_utf8字节原样解码() {
+        let t = read_text_capped(sh("printf '订单 8842011 超时'"), 1024).unwrap();
+        assert_eq!(t, "订单 8842011 超时");
+    }
+
+    #[test]
+    fn 剪贴板_pbpaste必须带utf8_locale() {
+        // 少了这两个，从 Finder 启动时中文剪贴板读出来是 GB18030，粘贴直接报错
+        let cmd = pbpaste_cmd();
+        let envs: Vec<_> = cmd.get_envs().collect();
+        for key in ["LANG", "LC_ALL"] {
+            let v = envs.iter().find(|(k, _)| *k == key).and_then(|(_, v)| *v);
+            assert_eq!(v.and_then(|v| v.to_str()), Some("en_US.UTF-8"), "{key}");
+        }
+    }
+
+    #[test]
+    fn 剪贴板_超过上限报错不截断() {
+        let e = read_text_capped(sh("head -c 5000 /dev/zero | tr '\\0' a"), 1000).unwrap_err();
+        assert!(e.to_string().contains("没有粘贴"), "{e}");
+    }
+
+    #[test]
+    fn 剪贴板_正好等于上限不算超() {
+        // 多读一个字节就是为了这条：读满 cap 和「后面还有」是两回事
+        let t = read_text_capped(sh("head -c 1000 /dev/zero | tr '\\0' a"), 1000).unwrap();
+        assert_eq!(t.len(), 1000);
+    }
+
+    #[test]
+    fn 剪贴板_命令失败报错() {
+        assert!(read_text_capped(sh("exit 3"), 1000).is_err());
+    }
+
     /// 挪进目录、同名拒绝、目录不能挪进自己、挪回原处是空操作
     #[test]
     fn move_entry_四条判据() {
@@ -1117,6 +1312,95 @@ mod tests {
         fs::remove_dir_all(d).ok();
     }
 
+    /// 取 `list_dir(d)` 里某一项的链
+    fn chain_of(d: &Path, name: &str) -> Vec<String> {
+        list_dir(d).unwrap().into_iter().find(|e| e.name == name).unwrap().chain
+    }
+
+    #[test]
+    fn 单子目录链_走到分叉为止_杂物不算数() {
+        let d = sandbox("chain");
+        let pkg = d.join("src/main/java/com/demo");
+        fs::create_dir_all(pkg.join("order")).unwrap();
+        fs::create_dir_all(pkg.join("user")).unwrap();
+        // Finder 打开过 com/ 就会有这个 —— 它不许把链从中间截断
+        fs::write(d.join("src/main/java/com/.DS_Store"), "x").unwrap();
+        // 唯一那一项是文件：链到这里停，文件不进链
+        fs::create_dir_all(d.join("docs/guide")).unwrap();
+        fs::write(d.join("docs/guide/a.md"), "x").unwrap();
+        fs::create_dir(d.join("empty")).unwrap();
+        fs::write(d.join("README.md"), "x").unwrap();
+
+        assert_eq!(chain_of(&d, "src"), ["main", "java", "com", "demo"], "demo 底下分叉了，停在 demo");
+        assert_eq!(chain_of(&d, "docs"), ["guide"]);
+        assert!(chain_of(&d, "empty").is_empty());
+        assert!(chain_of(&d, "README.md").is_empty(), "文件没有链");
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 单子目录链_生成物和有争议的目录要自己占一行() {
+        let d = sandbox("chain-gen");
+        fs::create_dir_all(d.join("web/node_modules/vue")).unwrap();
+        fs::create_dir_all(d.join("native/build/out")).unwrap();
+        fs::create_dir_all(d.join("node_modules/a/b")).unwrap();
+        assert!(chain_of(&d, "web").is_empty(), "合并成 web/node_modules 的话它就没法单独压暗了");
+        assert!(chain_of(&d, "native").is_empty(), "build 要等 git 说了算，不能先吞进链里");
+        assert!(chain_of(&d, "node_modules").is_empty(), "生成物目录自己不探：不预取是它的规矩");
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 单子目录链_不跟软链() {
+        let d = sandbox("chain-link");
+        fs::create_dir_all(d.join("real/inner")).unwrap();
+        fs::create_dir(d.join("l")).unwrap();
+        std::os::unix::fs::symlink(d.join("real"), d.join("l/to-real")).unwrap();
+        assert!(chain_of(&d, "l").is_empty(), "软链可能绕回自己，也不是盘上真的一串目录");
+        fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn 单子目录链_有深度上限和预算() {
+        let d = sandbox("chain-cap");
+        let mut deep = d.join("deep");
+        for i in 0..40 {
+            deep.push(format!("d{i}"));
+        }
+        fs::create_dir_all(&deep).unwrap();
+        assert_eq!(chain_of(&d, "deep").len(), CHAIN_MAX_DEPTH);
+        fs::remove_dir_all(&d).ok();
+
+        // 600 个子目录、每个底下一层：每个要读两次（有一个孩子 → 再读那个孩子发现空了），
+        // 预算 512 只够前 256 个。超了的**不探**，而不是把整次列目录拖慢
+        let d = sandbox("chain-budget");
+        for i in 0..600 {
+            fs::create_dir_all(d.join(format!("m{i:03}/x"))).unwrap();
+        }
+        let got = list_dir(&d).unwrap();
+        let probed = got.iter().filter(|e| !e.chain.is_empty()).count();
+        assert_eq!(probed, CHAIN_BUDGET / 2);
+        assert!(!got[0].chain.is_empty() && got[599].chain.is_empty(), "按显示顺序先到先得");
+        fs::remove_dir_all(d).ok();
+    }
+
+    /// 按名单循环造，不照抄名字：往 `excludes` 里加一个名字，这条自动就验到了
+    #[test]
+    fn 版本库目录和系统杂物不列出来() {
+        let d = sandbox("hidden-names");
+        for n in excludes::VCS_DIRS {
+            fs::create_dir(d.join(n)).unwrap();
+        }
+        for n in excludes::JUNK_FILES {
+            fs::write(d.join(n), "x").unwrap();
+        }
+        fs::create_dir(d.join(".github")).unwrap();
+        fs::write(d.join(".env"), "x").unwrap();
+        let names: Vec<String> = list_dir(&d).unwrap().into_iter().map(|e| e.name).collect();
+        assert_eq!(names, [".github", ".env"], "别的点文件、点目录照列");
+        fs::remove_dir_all(d).ok();
+    }
+
     #[test]
     fn 目录在前_同类按名称排序() {
         let d = sandbox("sort");
@@ -1148,7 +1432,6 @@ mod tests {
         fs::write(d.join("visible.rs"), "x").unwrap();
         fs::write(d.join(".env"), "x").unwrap();
         fs::create_dir(d.join(".github")).unwrap();
-        fs::create_dir(d.join(".git")).unwrap();
         fs::create_dir(d.join("build")).unwrap();
         fs::create_dir(d.join("node_modules")).unwrap();
         // **一个叫 build 的文件不是生成物目录。** shell 脚本里这个名字很常见，
@@ -1169,7 +1452,6 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                (".git".into(), false, false),
                 (".github".into(), false, false),
                 // build 是有争议的：名字像，但要问过 git 才算数
                 ("build".into(), true, true),

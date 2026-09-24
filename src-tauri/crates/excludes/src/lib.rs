@@ -27,6 +27,11 @@
 //! **这一条是硬要求**：树里压暗的东西搜得到、树里正常的东西搜不到，
 //! 比两边都错更难理解。
 //!
+//! # 另有一档是**两边都不列**的（2026-09-24）
+//!
+//! 版本库目录和系统杂物（[`VCS_DIRS`] / [`JUNK_FILES`]）不是「生成物」—— 它们不是项目的内容，
+//! 是工具和系统替人放的。文件树不列、搜索不进，判据是 [`is_hidden`]，两边调同一个函数。
+//!
 //! 这个 crate 仍然零依赖，也不知道 git 的存在。
 
 /// **只可能是生成物**的名字。见到就跳，不用问任何人。
@@ -35,8 +40,8 @@
 /// 没有人手写一个叫 `node_modules` 的源码目录，`target/` 里那 1GB 也不是
 /// 谁敲出来的。跳掉它们不会误伤，所以不必为它们多起一个 git 子进程。
 ///
-/// （和「名字带不带点」无关 —— 点文件和点目录在文件树里一律列出来，
-/// `.gitignore` `.github/` `.claude/` 是天天要改的项目文件。）
+/// （和「名字带不带点」无关 —— 点文件和点目录在文件树里照列，
+/// `.gitignore` `.github/` `.claude/` 是天天要改的项目文件；不列的只有 [`is_hidden`] 那一档。）
 pub const CERTAIN_GENERATED_DIRS: &[&str] = &[
     "node_modules", // npm / pnpm / yarn
     "target",       // cargo / maven
@@ -74,10 +79,31 @@ pub const GENERATED_DIRS: &[&str] = &[
     "vendor",
 ];
 
+/// 版本库自己的目录。**文件树不列，搜索不进。**
+///
+/// 原来文件树照列 `.git/`，理由只论证了成本（「懒展开，不点开就一行」），没论证能对它做什么：
+/// 树上能对它右键「移到废纸篓」、改名、把文件拖进去 —— 手一滑仓库就坏了。这种误操作不该有入口。
+/// 代价是想看 `.git/config`、hooks 时树里没有入口（⌘P 本来也搜不到它），走终端。
+/// 取 VS Code（`files.exclude`）和 IDEA（Ignored Files）默认**都**藏的那几个。
+pub const VCS_DIRS: &[&str] = &[".git", ".svn", ".hg", "CVS"];
+
+/// 系统替人放的杂物文件。**文件树不列，搜索不进。**
+///
+/// `.DS_Store` 是 Finder 打开过的目录里都有的；`Thumbs.db` 是 Windows 资源管理器留下的，
+/// 从共享盘、别人的压缩包里带过来。还有一层：它们会把「单层目录合并」的链从中间截断
+/// （`com/` 里多一个 `.DS_Store`，`com.demo.order` 就并不起来），合并之后又被整行盖住 ——
+/// 树里看不见一个明明列出来的文件。
+pub const JUNK_FILES: &[&str] = &[".DS_Store", "Thumbs.db"];
+
+/// 这个名字文件树不列、搜索不进（[`VCS_DIRS`] + [`JUNK_FILES`]）。只看名字，不看是文件还是目录。
+pub fn is_hidden(name: &str) -> bool {
+    VCS_DIRS.contains(&name) || JUNK_FILES.contains(&name)
+}
+
 /// 点号开头的生成物目录。
 ///
-/// **只有搜索侧用得上。** 文件树对点目录一律列出来（理由见
-/// `fsservice::list_dir`），所以这份名单在树那边没有意义；
+/// **只有搜索侧用得上。** 文件树对点目录照列（理由见 `fsservice::list_dir`；
+/// 不列的 `.git` 那几个归 [`VCS_DIRS`]），所以这份名单在树那边没有意义；
 /// 搜索则一律不进点目录，这里逐个列出来是为了把同一条规则也交给 `rg`
 /// —— 装了 rg 和没装 rg 搜出来的结果不能不一样。
 pub const GENERATED_DOT_DIRS: &[&str] = &[

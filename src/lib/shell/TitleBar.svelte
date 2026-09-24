@@ -140,12 +140,12 @@
   <button class="twidget proj" onclick={(e) => openProjMenu(e)} title={projTip}>
     <span class="sq" aria-hidden="true">{projInitial}</span>
     <span class="wlabel">{projName}</span>
-    <Icon name="chevron-down" size={10} />
+    <Icon name="chevron-down" />
   </button>
   {#if restricted}
     <!-- 和分支挂件同一个位置：它回答的还是「Git 在哪」—— 答案是「没启用，点我看为什么」 -->
     <button class="twidget warn" onclick={onOpenTrust} title="这个仓库的 .git/config 里有会执行命令的配置，Git 功能没启用 —— 点开看是哪几条">
-      <Icon name="git" size={12} />
+      <Icon name="git" />
       <span class="wlabel">Git 未启用</span>
     </button>
   {:else if gitSt}
@@ -156,11 +156,11 @@
       onclick={onOpenBranches}
       title="切换分支 / 工作树"
     >
-      <Icon name="git" size={12} />
+      <Icon name="git" />
       <span class="wlabel">{gitSt.branch || "游离"}</span>
       {#if gitSt.ahead}<span class="ab">↑{gitSt.ahead}</span>{/if}
       {#if gitSt.behind}<span class="ab">↓{gitSt.behind}</span>{/if}
-      <Icon name="chevron-down" size={10} />
+      <Icon name="chevron-down" />
     </button>
   {/if}
   <span class="tgap" data-tauri-drag-region></span>
@@ -186,7 +186,7 @@
     /* 贴着窗口上边，窗口阴影在这条边上最弱 —— 浅色壁纸下不压一层，小字糊进桌面 */
     background: var(--chrome-scrim);
     /* 不画下边线（M8）：它自己压着 --chrome-scrim，和下面的玻璃已经分开了 */
-    font-size: 12.5px;
+    font-size: var(--fs-md);
     user-select: none;
   }
   /* tgap 是**拖动区**，不是留白 —— 面包屑搬走之后这一大片正是拿窗口的地方 */
@@ -209,7 +209,7 @@
     border-radius: var(--r-sm);
     color: var(--text-faint);
     font-family: var(--ui-font);
-    font-size: 12px;
+    font-size: var(--fs-md);
     cursor: default;
   }
   .twidget:hover { background: var(--hover); color: var(--text-dim); }
@@ -234,14 +234,14 @@
     place-content: center;
     width: 16px;
     height: 16px;
-    border-radius: 5px;
+    border-radius: var(--r-xs);
     background: var(--selected);
     color: var(--text);
-    font-size: 9.5px;
+    font-size: var(--fs-xs);
     font-weight: 600;
   }
   .twidget:hover .sq { background: var(--pressed); }
 
   /* 分支名是标识符，用等宽；ahead/behind 用 accent，它是「该做点什么」的信号 */
-  .twidget .ab { color: var(--accent); font-family: var(--code-font); flex: none; font-size: 11px; }
+  .twidget .ab { color: var(--accent); font-family: var(--ui-font); font-variant-numeric: tabular-nums; flex: none; font-size: var(--fs-sm); }
 </style>

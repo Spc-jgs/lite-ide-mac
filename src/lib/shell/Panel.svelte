@@ -184,7 +184,7 @@
                 onclick={() => terms.close(t.id)}
                 aria-label="关闭 {t.title}"
                 title="关闭 {t.title}"
-              ><Icon name="x" size={10} /></button>
+              ><Icon name="x" /></button>
             </div>
           {/each}
         </div>
@@ -345,7 +345,7 @@
    */
   .tw-name {
     flex: none;
-    font-size: 12px;
+    font-size: var(--fs-md);
     color: var(--text);
     padding-right: 7px;
   }
@@ -386,7 +386,7 @@
     background: transparent;
     border: none;
     color: var(--text-dim);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     padding: 0 2px 0 9px;
     cursor: default;
     overflow: hidden;
@@ -422,6 +422,6 @@
     gap: 8px;
     height: 100%;
     color: var(--text-faint);
-    font-size: 12px;
+    font-size: var(--fs-md);
   }
 </style>

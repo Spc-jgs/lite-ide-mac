@@ -470,8 +470,8 @@
     border-radius: var(--r-md);
     text-align: left;
   }
-  .empty .big { font-size: 14.5px; color: var(--text); margin-bottom: 4px; }
-  .empty p { margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--text-faint); }
+  .empty .big { font-size: var(--fs-lg); color: var(--text); margin-bottom: 4px; }
+  .empty p { margin: 0; font-size: var(--fs-sm); line-height: 1.6; color: var(--text-faint); }
   /* 懒加载的那几块在等 chunk：环 + 一句话（ui.md 十四）。150ms 内回来的看不到环，热缓存下就是一闪而过的字 */
   .empty .wait { display: inline-flex; align-items: center; gap: 8px; }
   /*
@@ -487,14 +487,14 @@
   .empty .go .gap { flex: 1; }
   /* 卡片上的两个动作是 `.btn primary` / `.btn`：同一行两个实心按钮就分不出哪个是主的 */
   .empty .go kbd {
-    font-family: var(--code-font);
-    font-size: 10.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
     color: var(--text-faint);
     background: var(--hover);
     border-radius: var(--r-sm);
     padding: 1px 5px;
   }
-  .empty .lastly { font-size: 11.5px; color: var(--text-faint); }
+  .empty .lastly { font-size: var(--fs-sm); color: var(--text-faint); }
   /* 空态是最需要「最近」的时刻 —— 那时侧边栏还没有任何内容 */
   .empty .link {
     background: transparent;
@@ -502,7 +502,7 @@
     padding: 0;
     color: var(--accent);
     font-family: var(--ui-font);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     cursor: default;
     max-width: 160px;
     overflow: hidden;
@@ -517,8 +517,8 @@
     grid-template-columns: 1fr 1fr;
     gap: 5px 20px;
     margin-top: 14px;
-    font-family: var(--code-font);
-    font-size: 11px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-sm);
     color: var(--text-dim);
   }
   .empty .keymap b { color: var(--text-faint); font-weight: 400; margin-right: 4px; }
@@ -528,6 +528,6 @@
     border-top: 1px solid var(--border-soft);
     color: var(--lvl-error);
     font-family: var(--code-font);
-    font-size: 11px;
+    font-size: var(--fs-sm);
   }
 </style>

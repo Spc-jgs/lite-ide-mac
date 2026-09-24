@@ -1,7 +1,8 @@
 <script module lang="ts">
   /**
    * 全部图标名。**类型从这张表派生**（不是反过来）：画廊页（`?gallery`）要把每一个都摆出来，
-   * 而 TS 的联合类型在运行时不存在，只有值才能被遍历。加图标 = 在这儿加一行 + 下面加一个分支。
+   * 而 TS 的联合类型在运行时不存在，只有值才能被遍历。
+   * 加图标 = 在这儿加一行 + `public/icons/<名字>.svg` 放一个文件 + `SOURCES.md` 记一行来源。
    */
   export const ICON_NAMES = [
     "pull",
@@ -19,6 +20,7 @@
     "locate",
     "collapse",
     "follow",
+    "compact",
     "pin",
     "more-v",
     "minus",
@@ -36,198 +38,69 @@
     "x",
     "undo",
   ] as const;
+
   export type IconName = (typeof ICON_NAMES)[number];
+
+  /**
+   * 带颜色的那几个：画原色（`<img>`），不跟着 hover / 选中变色。
+   *
+   * `warn` 是黄的、`note`（草稿）带一个蓝色时钟 —— 颜色本身就是意思。`folder`、`compact` 是**深灰填充 + 浅灰描边**
+   * 的双色图标：走 mask 的话只剩透明度，填充和描边糊成一整块实心。其余全是单一灰色，走 mask。
+   */
+  const COLORED: ReadonlySet<IconName> = new Set<IconName>(["warn", "note", "folder", "compact"]);
 </script>
 
 <script lang="ts">
   /**
-   * 界面图标的唯一出处。
+   * 界面图标的唯一出处 —— **JetBrains 新 UI 的官方图标**（2026-09-24 换的）。
    *
-   * 收拢之前它们是 16 个内联 `<svg>` 散在 6 个文件里，而且**不是一套**：
-   * `stroke-width` 全仓库有 6 个取值（1.2 / 1.25 / 1.3 / 1.4 / 1.5 / 2），
-   * viewBox 有 12 / 16 / 20，渲染尺寸有 10 / 12 / 13 / 14 / 16，
-   * 端点处理也各写各的 —— 搜索有 round cap、文件夹有 round join、Git 两个都没有。
+   * 之前是自己手画的 32 个：规矩是齐的（16 网格、1.25 描边、round 端点），但形状是我们画的，
+   * 和 IDEA 并排一看就知道不是一家。现在整套取自 intellij-community 的 `platform/icons/src/expui/`
+   * （Apache 2.0，许可和逐个来源见 `public/icons/`），深色主题版，文件原样不改。
+   * **例外**：`tag` 是自绘的 —— IDEA 新 UI 没有 git 标签的独立图标，见 `SOURCES.md`。
    *
-   * 单看每一个都挑不出毛病，但它们并排放在一条 34px 宽的导轨上时，
-   * 差别是看得见的：文件夹明显比 Git 重，搜索的 1.4 描边比旁边的 1.3 更黑。
-   * 这类问题不会被谁报成 bug，只是「看着不太对」。
+   * # 为什么是 `public/` 里的文件，不是内联 SVG
    *
-   * # 这一套的规矩
+   * 这个组件在入口包里，而入口包离 160 KB 红线只剩十来 KB —— 六十多个 SVG 内联进来就是 60 多 KB。
+   * 放 `public/` 里原样拷进产物，JS 里只剩一个路径。（不走 `import x from "./x.svg"`：
+   * Vite 会把小于 4 KB 的内联成 data URL，塞回 JS 里，而且 base64 还更大。）
    *
-   * - **一个网格**：`viewBox="0 0 16 16"`，字形都收在 2–14 这个 12×12 的
-   *   视觉框里。不是「填满 16」—— 填满的那个（原来的文件夹）会显得比别人大一号。
-   * - **一个描边**：1.25。粗细是图标里最容易被看出来的差异，
-   *   一套里出现两个值就等于告诉人「这俩不是一家的」。
-   * - **端点和拐角一律 round**。只有部分图标 round 的话，
-   *   没 round 的那几个线头看着像被切掉了。
-   * - **实心块只用来表示「哪一半是主体」**（侧边栏/底部面板那两个开关），
-   *   一律 `opacity: 0.28` 的 currentColor —— 不另取颜色，
-   *   这样跟着 hover / 选中态一起变。
+   * # 单色的走 CSS mask，不是 `<img>`
    *
-   * 加新图标先问一句：它能不能收进 2–14 这个框、只用 1.25 的描边画出来。
-   * 画不出来的多半是想塞太多细节进 14px。
+   * 图标的颜色要跟着状态走（hover 亮、选中白、禁用暗）—— `<img>` 画的是文件里写死的 `#CED0D6`，
+   * 改不了。mask 只取 SVG 的**形状**（透明度），颜色是 `background-color: currentColor`，
+   * 于是和原来的描边图标一样跟着 `color` 变。顺带文件一个字都不用改（改了按 Apache 2.0 要逐个注明）。
+   *
+   * CSP 的 `img-src 'self'` 管 mask 图片和 `<img>`，本来就放行。
    */
-  let { name, size = 14 }: { name: IconName; size?: number } = $props();
+  /**
+   * `size` 默认 16，**组件里别再传** —— JetBrains 的图标是按 16 的网格画的，缩到 10–12 线条落在半像素上。
+   * 2026-09-24 之前各处传了 10 / 11 / 12 / 13 / 14 / 16 / 17 七种，一起去掉了。
+   */
+  let { name, size = 16 }: { name: IconName; size?: number } = $props();
 </script>
 
-<svg
-  viewBox="0 0 16 16"
-  width={size}
-  height={size}
-  fill="none"
-  stroke="currentColor"
-  stroke-width="1.25"
-  stroke-linecap="round"
-  stroke-linejoin="round"
-  aria-hidden="true"
->
-  {#if name === "sidebar"}
-    <!-- 侧边栏开关：左侧那一块是实心的，表示"侧边栏在这边" -->
-    <rect x="2" y="3" width="12" height="10" rx="2" />
-    <path d="M6.4 3 V13" />
-    <path d="M4 3 H6.4 V13 H4 A2 2 0 0 1 2 11 V5 A2 2 0 0 1 4 3 Z"
-          fill="currentColor" stroke="none" opacity="0.28" />
-  {:else if name === "files"}
-    <!--
-      文件夹。比原来那个小一圈 —— 它是这条导轨上唯一的大块闭合形状，
-      按原尺寸画出来比旁边的 Git 重得多。
-    -->
-    <path d="M2.6 12.4 V4.6 a1.2 1.2 0 0 1 1.2-1.2 h2.3 l1.3 1.6 h4.8
-             a1.2 1.2 0 0 1 1.2 1.2 v6.2 a1.2 1.2 0 0 1-1.2 1.2 H3.8
-             a1.2 1.2 0 0 1-1.2-1.2 Z" />
-  {:else if name === "git"}
-    <!--
-      分支：一条主干 + 从中段岔出去、拐上去接到第三个结点。
-      原来那版用一条 Q 曲线从上面的结点斜拉到下面的结点，
-      两头都是斜着扎进圆里的，看着像"连线"而不是"分支"。
-    -->
-    <circle cx="4.6" cy="3.4" r="1.7" />
-    <circle cx="4.6" cy="12.6" r="1.7" />
-    <circle cx="11.4" cy="3.4" r="1.7" />
-    <path d="M4.6 5.1 V10.9" />
-    <path d="M11.4 5.1 V6.6 a2.4 2.4 0 0 1-2.4 2.4 H4.6" />
-  {:else if name === "search"}
-    <circle cx="7" cy="7" r="4" />
-    <path d="M9.95 9.95 L13.2 13.2" />
-  {:else if name === "terminal"}
-    <!--
-      终端。原来这里是个「底部面板」开关（同 sidebar 的外框、实心块在下面）——
-      导轨上不再有「面板」这个笼统的开关，改成两个具体的工具窗，
-      于是图标也得说清是哪一个：提示符 + 光标下划线。
-    -->
-    <rect x="2" y="3" width="12" height="10" rx="2" />
-    <path d="M5.1 6.5 L7.2 8.5 L5.1 10.5" />
-    <path d="M8.6 10.6 H11.1" />
-  {:else if name === "history"}
-    <!--
-      提交历史。**不能复用 `git` 那个分支图标** —— 导轨上「Git 改动」已经
-      占着它了，同一列里出现两个一样的形状，人只能靠位置记忆去分。
-    -->
-    <circle cx="8" cy="8" r="5.4" />
-    <path d="M8 4.8 V8.2 L10.4 9.7" />
-  {:else if name === "note"}
-    <!--
-      草稿：一张右上角折了一角的纸，里面两行字。导轨上它和文件夹并排，
-      所以和文件夹一样收在 2.6–13.4 里，别画满 16。
-    -->
-    <path d="M4.2 2.6 H9.6 L12.6 5.6 V12.2 a1.2 1.2 0 0 1-1.2 1.2 H4.2
-             a1.2 1.2 0 0 1-1.2-1.2 V3.8 a1.2 1.2 0 0 1 1.2-1.2 Z" />
-    <path d="M9.4 2.8 V5.8 H12.4" />
-    <path d="M5.6 8.2 H10.4" />
-    <path d="M5.6 10.6 H8.8" />
-  {:else if name === "more-v"}
-    <!-- 更多操作。竖排三点是工具窗头上的惯例位置（横排的 ⋯ 归区段头） -->
-    <circle cx="8" cy="3.9" r="0.95" fill="currentColor" stroke="none" />
-    <circle cx="8" cy="8" r="0.95" fill="currentColor" stroke="none" />
-    <circle cx="8" cy="12.1" r="0.95" fill="currentColor" stroke="none" />
-  {:else if name === "minus"}
-    <!-- 收起工具窗。一条线，不是 ✕ —— 东西还在，只是不占地方了 -->
-    <path d="M4 8 H12" />
-  {:else if name === "locate"}
-    <!-- 定位：准星。IDEA 项目窗头上那个「Select Opened File」就是这个形状 -->
-    <circle cx="8" cy="8" r="3.6" />
-    <path d="M8 2.4 V4.8 M8 11.2 V13.6 M2.4 8 H4.8 M11.2 8 H13.6" />
-  {:else if name === "collapse"}
-    <!-- 折叠全部：两组向内的折角，IDEA / VS Code 都是这个意思 -->
-    <path d="M4 5.6 L8 2.4 L12 5.6 M4 10.4 L8 13.6 L12 10.4" />
-  {:else if name === "follow"}
-    <!-- 跟随：箭头指向一个框 —— 「标签换了，树跟着走到那儿」 -->
-    <rect x="2.6" y="3" width="10.8" height="10" rx="1.6" />
-    <path d="M5.4 8 H10.4 M8.4 5.8 L10.6 8 L8.4 10.2" />
-  {:else if name === "pin"}
-    <!-- 钉住：图钉，斜着 —— VS Code 钉住的标签就是这个形状占了 ✕ 的位置 -->
-    <path d="M9.6 2.4 L13.6 6.4 L11.6 7.2 L9.4 9.4 L9.2 12.4 L3.6 6.8 L6.6 6.6 L8.8 4.4 Z" />
-    <path d="M6.4 9.6 L2.8 13.2" />
-  {:else if name === "refresh"}
-    <path d="M13 8 A5 5 0 1 1 11.4 4.3" />
-    <path d="M13 2.6 V5.2 H10.4" />
-  {:else if name === "check"}
-    <path d="M3.6 8.3 L6.6 11.3 L12.4 5" />
-  {:else if name === "plus"}
-    <path d="M8 3.6 V12.4 M3.6 8 H12.4" />
-  {:else if name === "warn"}
-    <!--
-      三角感叹号。Crash.svelte 原来自己画了一个 viewBox 20 的版本 ——
-      同一个意思在两个网格上画两遍，粗细也不一样。
-    -->
-    <path d="M8 2.8 L14.4 13.4 H1.6 Z" />
-    <path d="M8 6.9 V9.8" />
-    <circle cx="8" cy="11.7" r="0.75" fill="currentColor" stroke="none" />
-  {:else if name === "chevron-up"}
-    <path d="M4.2 9.6 L8 5.8 L11.8 9.6" />
-  {:else if name === "chevron-down"}
-    <path d="M4.2 6.4 L8 10.2 L11.8 6.4" />
-  {:else if name === "chevron-right"}
-    <path d="M6.4 4.2 L10.2 8 L6.4 11.8" />
-  {:else if name === "pull"}
-    <!-- 更新项目：箭头从右上指到左下，IDEA 的 Update Project 就是这个形状 -->
-    <path d="M12.4 3.6 L3.8 12.2" />
-    <path d="M3.8 6.2 V12.2 H9.8" />
-  {:else if name === "push"}
-    <!-- 推送：右上 -->
-    <path d="M3.6 12.4 L12.2 3.8" />
-    <path d="M6.2 3.8 H12.2 V9.8" />
-  {:else if name === "commit"}
-    <!-- 提交：线上一个点 -->
-    <circle cx="8" cy="8" r="2.4" />
-    <path d="M1.8 8 H5.6 M10.4 8 H14.2" />
-  {:else if name === "folder"}
-    <path d="M1.8 4.4 A1.2 1.2 0 0 1 3 3.2 H6.2 L7.6 4.8 H13 A1.2 1.2 0 0 1 14.2 6 V11.8 A1.2 1.2 0 0 1 13 13 H3 A1.2 1.2 0 0 1 1.8 11.8 Z" />
-  {:else if name === "tag"}
-    <path d="M2.4 2.4 H7.6 L13.6 8.4 L8.4 13.6 L2.4 7.6 Z" />
-    <circle cx="5.4" cy="5.4" r="0.9" fill="currentColor" stroke="none" />
-  {:else if name === "swap"}
-    <!-- 切换（日志 ⇄ 编辑、暂存 ⇄ 工作区）：两条反向箭头。原来是字体里的 ⇄，粗细和基线跟 svg 对不上 -->
-    <path d="M3 5.6 H12.6 M10.2 3.2 L12.6 5.6 L10.2 8" />
-    <path d="M13 10.4 H3.4 M5.8 8 L3.4 10.4 L5.8 12.8" />
-  {:else if name === "more-h"}
-    <!-- 更多（横）。`more-v` 是竖的三点；头上横排的用这个 -->
-    <circle cx="3.6" cy="8" r="0.9" fill="currentColor" stroke="none" />
-    <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
-    <circle cx="12.4" cy="8" r="0.9" fill="currentColor" stroke="none" />
-  {:else if name === "branch-current"}
-    <!-- 当前分支：靶心。外圈淡一档，和 sidebar 的实心块同一个「次要部分」处理 -->
-    <circle cx="8" cy="8" r="2.6" />
-    <circle cx="8" cy="8" r="5.6" opacity="0.45" />
-  {:else if name === "remote"}
-    <!-- 远程分支：地球 -->
-    <circle cx="8" cy="8" r="5.6" />
-    <path d="M2.4 8 H13.6" />
-    <path d="M8 2.4 C9.5 4 10.3 6 10.3 8 S9.5 12 8 13.6 C6.5 12 5.7 10 5.7 8 S6.5 4 8 2.4 Z" />
-  {:else if name === "x"}
-    <!-- 关闭。原来标签上是字体里的 ✕（9px），和图钉那个 svg 并排时粗细对不上 -->
-    <path d="M4 4 L12 12 M12 4 L4 12" />
-  {:else if name === "undo"}
-    <!-- 丢弃改动 / 放回去：往左回的箭头。原来是字体里的 ↺ -->
-    <path d="M5.6 5.2 H10.2 a2.9 2.9 0 0 1 0 5.8 H4.4" />
-    <path d="M7.4 3 L5 5.2 L7.4 7.4" />
-  {/if}
-</svg>
+{#if COLORED.has(name)}
+  <img class="icon" src="/icons/{name}.svg" width={size} height={size} alt="" aria-hidden="true" draggable="false" />
+{:else}
+  <span
+    class="icon mono"
+    style:width="{size}px"
+    style:height="{size}px"
+    style:--src="url(/icons/{name}.svg)"
+    aria-hidden="true"
+  ></span>
+{/if}
 
 <style>
-  svg {
-    display: block;
-    /* 图标只跟着字色走，不自己带颜色 —— hover / 选中态才不用各写一遍 */
-    color: inherit;
+  .icon {
+    display: inline-block;
+    flex: none;
+    vertical-align: middle;
+  }
+  .mono {
+    background-color: currentColor;
+    -webkit-mask: var(--src) center / contain no-repeat;
+    mask: var(--src) center / contain no-repeat;
   }
 </style>

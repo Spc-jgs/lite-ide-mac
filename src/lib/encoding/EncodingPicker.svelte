@@ -158,16 +158,16 @@
     gap: 10px;
     padding: 10px 14px 8px;
     border-bottom: 1px solid var(--border-soft);
-    font-size: 13px;
+    font-size: var(--fs-md);
     color: var(--text);
     user-select: none;
   }
-  .head .cur { font-family: var(--code-font); font-size: 11px; color: var(--text-faint); }
+  .head .cur { font-family: var(--ui-font); font-size: var(--fs-sm); color: var(--text-faint); }
   .warn {
     padding: 8px 14px;
     background: rgba(247, 84, 100, 0.10);
     border-bottom: 1px solid var(--lvl-error);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     line-height: 1.6;
     color: var(--text-dim);
   }
@@ -184,16 +184,16 @@
     border: none;
     color: var(--text-dim);
     font-family: var(--ui-font);
-    font-size: 12.5px;
+    font-size: var(--fs-md);
     text-align: left;
     cursor: default;
     white-space: nowrap;
   }
   .row.on { background: var(--accent-sel); color: var(--text); }
-  .lb { flex: none; width: 110px; font-family: var(--code-font); font-size: 12px; }
+  .lb { flex: none; width: 110px; font-family: var(--ui-font); font-size: var(--fs-md); }
   .ds { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-        color: var(--text-faint); font-size: 11px; }
-  .now { flex: none; font-size: 10px; color: var(--accent); }
+        color: var(--text-faint); font-size: var(--fs-sm); }
+  .now { flex: none; font-size: var(--fs-xs); color: var(--accent); }
   .foot {
     display: flex;
     align-items: center;
@@ -202,6 +202,6 @@
     border-top: 1px solid var(--border-soft);
   }
   .foot .gap { flex: 1; }
-  .bom { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-faint); }
+  .bom { display: flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--text-faint); }
   .bom input { margin: 0; accent-color: var(--accent); }
 </style>

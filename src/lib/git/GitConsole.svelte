@@ -184,7 +184,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
     padding: 4px 8px;
     background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     border-bottom: 1px solid var(--border);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--text-dim);
     user-select: none;
   }
@@ -196,7 +196,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
   .empty {
     padding: 18px;
     color: var(--text-dim);
-    font-size: 12px;
+    font-size: var(--fs-md);
     line-height: 1.7;
   }
 
@@ -219,7 +219,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
     text-align: left;
     cursor: default;
     font-family: var(--mono-font, ui-monospace, monospace);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     color: var(--text);
   }
   .head .t { flex: none; color: var(--text-dim); }
@@ -254,7 +254,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
     color: var(--text-dim);
     cursor: default;
     opacity: 0;
-    font-size: 11px;
+    font-size: var(--fs-sm);
     white-space: nowrap;
   }
   .row:hover .copy { opacity: 1; }
@@ -262,7 +262,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
 
   .detail {
     padding: 4px 8px 8px 30px;
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--text-dim);
     background: var(--hover);
   }
@@ -272,7 +272,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
     white-space: pre-wrap;
     word-break: break-word;
     font-family: var(--mono-font, ui-monospace, monospace);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     color: var(--text);
   }
   .detail .cut { margin-top: 4px; font-style: italic; }

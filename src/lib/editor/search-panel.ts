@@ -121,10 +121,10 @@ function createPanel(view: EditorView): Panel {
   const next = el("button", "ibtn ls-nav", { type: "button", title: "下一个（↵）", "aria-label": "下一个" });
   const close = el("button", "ibtn ls-nav", { type: "button", title: "关闭（esc）", "aria-label": "关闭" });
   const icons = [
-    mount(Icon, { target: twist, props: { name: "chevron-right", size: 11 } }),
-    mount(Icon, { target: prev, props: { name: "chevron-up", size: 12 } }),
-    mount(Icon, { target: next, props: { name: "chevron-down", size: 12 } }),
-    mount(Icon, { target: close, props: { name: "x", size: 12 } }),
+    mount(Icon, { target: twist, props: { name: "chevron-right" } }),
+    mount(Icon, { target: prev, props: { name: "chevron-up" } }),
+    mount(Icon, { target: next, props: { name: "chevron-down" } }),
+    mount(Icon, { target: close, props: { name: "x" } }),
   ];
   rFind.append(fBox, prev, next, close);
 
@@ -368,7 +368,7 @@ const panelTheme = EditorView.theme({
     outline: "none",
     color: "var(--text)",
     fontFamily: "var(--code-font)",
-    fontSize: "12px",
+    fontSize: "var(--fs-md)",
   },
   // 正则写坏了：让框里的字变红，不弹任何东西 —— 边打边写的正则大半时间都是坏的
   ".cm-lite-search .ls-in.bad": { color: "var(--lvl-error)" },
@@ -376,8 +376,9 @@ const panelTheme = EditorView.theme({
     flex: "none",
     padding: "0 4px",
     color: "var(--text-faint)",
-    fontFamily: "var(--code-font)",
-    fontSize: "11px",
+    fontFamily: "var(--ui-font)",
+    fontVariantNumeric: "tabular-nums",
+    fontSize: "var(--fs-sm)",
     whiteSpace: "nowrap",
   },
   ".cm-lite-search .ls-tg": {
@@ -391,8 +392,8 @@ const panelTheme = EditorView.theme({
     border: "none",
     borderRadius: "var(--r-sm)",
     color: "var(--text-faint)",
-    fontFamily: "var(--code-font)",
-    fontSize: "10.5px",
+    fontFamily: "var(--ui-font)",
+    fontSize: "var(--fs-xs)",
     fontWeight: "600",
     lineHeight: "1",
     cursor: "default",
@@ -411,7 +412,7 @@ const panelTheme = EditorView.theme({
     borderRadius: "var(--r-sm)",
     color: "var(--text-dim)",
     fontFamily: "var(--ui-font)",
-    fontSize: "11.5px",
+    fontSize: "var(--fs-sm)",
     cursor: "default",
   },
   ".cm-lite-search .ls-bt:hover": { background: "var(--hover)", color: "var(--text)" },

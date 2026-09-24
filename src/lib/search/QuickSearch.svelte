@@ -251,7 +251,7 @@
       而范围十次里有九次不用改 —— 让它占第一行是把最常用的挤到了第二位。
     -->
     <div class="q">
-      <span class="qic"><Icon name="search" size={16} /></span>
+      <span class="qic"><Icon name="search" /></span>
       <input
         bind:this={input}
         bind:value={query}
@@ -293,7 +293,7 @@
         {/if}
         <button class="row" class:sel={i === cursor} onclick={() => choose(row)} onmouseenter={() => (cursor = i)}>
           {#if row.kind === "action"}
-            <span class="ic act"><Icon name="chevron-right" size={13} /></span>
+            <span class="ic act"><Icon name="chevron-right" /></span>
             <span class="main">
               {#each row.seg as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}
             </span>
@@ -306,22 +306,22 @@
             -->
             {#if row.action.hint}<span class="key">{row.action.hint}</span>{/if}
           {:else if row.kind === "file"}
-            <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
+            <span class="ic"><FileGlyph name={fileName(row.path)} /></span>
             <span class="main">
               {#each tailSeg(row.seg, row.path.lastIndexOf("/") + 1) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}
             </span>
             <span class="side">{row.scratch ? "草稿" : dirName(row.path)}</span>
           {:else if row.kind === "recent"}
-            <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
+            <span class="ic"><FileGlyph name={fileName(row.path)} /></span>
             <span class="main">{fileName(row.path)}</span>
             <span class="side">{recentSide(row.path)}</span>
           {:else if row.kind === "scratch"}
-            <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
+            <span class="ic"><FileGlyph name={fileName(row.path)} /></span>
             <span class="main mono">{#each snippet(row.text.trim(), query) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
             <!-- 右边是标题不是路径：`~/Library/…/2026-09-15 0930.md:31` 认不出是哪条 -->
             <span class="side plain">{row.title}</span>
           {:else}
-            <span class="ic"><FileGlyph name={fileName(row.path)} size={14} /></span>
+            <span class="ic"><FileGlyph name={fileName(row.path)} /></span>
             <!-- 内容行也高亮命中，并把命中截到看得见的位置 —— 之前只有文件名和操作有 <mark>，十几行结果得自己再找一遍 -->
             <span class="main mono">{#each snippet(row.text.trim(), query) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
             <span class="side">{row.path}:{row.line}</span>
@@ -375,7 +375,7 @@
     background: transparent;
     color: var(--text);
     font-family: var(--ui-font);
-    font-size: 15px;
+    font-size: var(--fs-lg);
     padding: 13px 0;
     outline: none;
   }
@@ -396,14 +396,14 @@
     border: none;
     border-radius: var(--r-sm);
     color: var(--text-dim);
-    font-size: 12px;
+    font-size: var(--fs-md);
     cursor: default;
   }
   .tab:hover { background: var(--hover); }
   .tab.on { background: var(--selected); color: var(--text); }
 
   .results { overflow-y: auto; padding: 2px 0 4px; }
-  .none { padding: 18px 14px; color: var(--text-faint); font-size: 12.5px; text-align: center; }
+  .none { padding: 18px 14px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; }
   .none .wait { display: inline-flex; align-items: center; gap: 8px; }
 
   /* 分组头。列表一长，它一滚就看不见了 —— 吸顶 */
@@ -413,7 +413,7 @@
     z-index: 1;
     padding: 7px 14px 3px;
     background: var(--elevated);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -436,7 +436,7 @@
     border-radius: var(--r-md);
     text-align: left;
     cursor: default;
-    font-size: 12.5px;
+    font-size: var(--fs-md);
     color: var(--text-dim);
   }
   .row.sel { background: var(--selected); color: var(--text); }
@@ -452,7 +452,7 @@
     flex: none;
     max-width: 60%;
   }
-  .main.mono { font-family: var(--code-font); font-size: 11.5px; }
+  .main.mono { font-family: var(--code-font); font-size: var(--fs-sm); }
 
   /*
    * `direction: rtl` 让长路径从**左边**省略 —— 路径有用的是尾巴。
@@ -463,8 +463,8 @@
    */
   .side {
     color: var(--text-faint);
-    font-size: 11px;
-    font-family: var(--code-font);
+    font-size: var(--fs-sm);
+    font-family: var(--ui-font);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -478,8 +478,8 @@
   .key {
     flex: none;
     margin-left: auto;
-    font-family: var(--code-font);
-    font-size: 10.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
     color: var(--text-faint);
     background: var(--hover);
     border-radius: var(--r-sm);
@@ -496,16 +496,16 @@
     padding: 7px 14px;
     border-top: 1px solid var(--border-soft);
     background: var(--chrome-scrim);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     color: var(--text-faint);
     user-select: none;
   }
   .foot .gap { flex: 1; }
   kbd {
-    font-family: var(--code-font);
-    font-size: 10px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
     background: var(--hover);
-    border-radius: 4px;
+    border-radius: var(--r-xs);
     padding: 1px 5px;
     margin-right: 3px;
   }

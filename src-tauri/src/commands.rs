@@ -85,6 +85,8 @@ pub struct DirEntryDto {
     /// 这个名字有第二种可能（`dist` / `build` / `vendor`），
     /// 前端要拿 [`ignored_dirs`] 的答案对一遍才决定压不压暗。
     pub contested: bool,
+    /// 往下「只有一个子目录」的那一串名字，不含自己。显示规则在前端 `tree-rows.ts`，见 `fsservice::Entry::chain`
+    pub chain: Vec<String>,
 }
 
 /// 探测一个路径：是目录还是文件，文件该用哪种模式打开。
@@ -146,6 +148,7 @@ pub async fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
                 size: e.size,
                 generated: e.generated,
                 contested: e.contested,
+                chain: e.chain,
             })
             .collect())
     })
@@ -236,6 +239,13 @@ pub async fn file_stamp(path: String) -> Result<StampDto, String> {
 #[tauri::command]
 pub fn reveal_in_finder(path: String) -> Result<(), String> {
     fsservice::reveal_in_finder(&path).map_err(|e| format!("{e}"))
+}
+
+/// 剪贴板里的纯文本（编辑器右键菜单的「粘贴」，理由见 `fsservice::clipboard_text`）。
+/// 起子进程 → 阻塞池。
+#[tauri::command]
+pub async fn read_clipboard() -> Result<String, String> {
+    blocking(|| fsservice::clipboard_text().map_err(|e| e.to_string())).await
 }
 
 /// 草稿目录：`~/Library/Application Support/<identifier>/scratches`。

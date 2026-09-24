@@ -122,8 +122,8 @@
     margin: 0;
     padding: 0 0 0 2px;
     list-style: none;
-    font-family: var(--code-font);
-    font-size: 10.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
     line-height: 1.7;
     color: var(--text-faint);
   }
@@ -142,10 +142,10 @@
     white-space: pre-wrap;
     user-select: text;
   }
-  .hint { font-size: 11px; color: var(--text-dim); }
-  .raw { font-size: 10.5px; color: var(--text-faint); max-height: 120px; overflow: auto; }
+  .hint { font-size: var(--fs-sm); color: var(--text-dim); }
+  .raw { font-size: var(--fs-xs); color: var(--text-faint); max-height: 120px; overflow: auto; }
 
-  .remember { display: flex; align-items: center; gap: 4px; flex: none; font-size: 11.5px; }
+  .remember { display: flex; align-items: center; gap: 4px; flex: none; font-size: var(--fs-sm); }
   .remember input { margin: 0; }
 
 </style>

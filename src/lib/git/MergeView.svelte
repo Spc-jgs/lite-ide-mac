@@ -135,16 +135,16 @@
     padding: 0 10px;
     background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     border-bottom: 1px solid var(--border-soft);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     color: var(--text-dim);
     user-select: none;
   }
-  .bar .path { font-family: var(--code-font); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar .path { font-family: var(--ui-font); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bar .gap { flex: 1; }
   .bar .left { color: var(--lvl-warn); }
   .bar .done { color: var(--diff-add-fg); }
 
-  .body { flex: 1; overflow: auto; font-family: var(--code-font); font-size: 12.5px; line-height: 19px; }
+  .body { flex: 1; overflow: auto; font-family: var(--code-font); font-size: var(--fs-md); line-height: 19px; }
   .cl { white-space: pre; padding: 0 12px; color: var(--text-dim); }
   .cl.empty { color: var(--text-faint); font-style: italic; font-family: var(--ui-font); }
   .ctx .cl { color: var(--text-faint); }
@@ -152,7 +152,7 @@
     padding: 2px 12px;
     color: var(--text-faint);
     font-family: var(--ui-font);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     background: var(--hover);
     border-top: 1px solid var(--border-soft);
     border-bottom: 1px solid var(--border-soft);
@@ -174,7 +174,7 @@
     padding: 3px 8px;
     background: var(--hover);
     font-family: var(--ui-font);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--text-faint);
     user-select: none;
   }
@@ -201,10 +201,10 @@
     border-bottom: 1px solid var(--border-soft);
     color: var(--text-faint);
     font-family: var(--ui-font);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     cursor: default;
   }
-  .pick .nm { font-family: var(--code-font); }
+  .pick .nm { font-family: var(--ui-font); }
   /* 「取这边」平时不出现，鼠标到了才浮出来 —— 标题栏保持安静，
      但一靠近就明确告诉你这一整条是可以点的 */
   .pick .hint { margin-left: auto; opacity: 0; color: var(--accent); }
@@ -212,5 +212,5 @@
   .pick:hover .hint { opacity: 1; }
   .pick.on { color: var(--text); background: var(--accent-sel); }
   .pick.on .hint { opacity: 1; color: var(--diff-add-fg); }
-  .none { padding: 24px; text-align: center; color: var(--text-faint); font-family: var(--ui-font); font-size: 12.5px; }
+  .none { padding: 24px; text-align: center; color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-md); }
 </style>

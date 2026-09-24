@@ -145,7 +145,7 @@ src/                    前端（Svelte 5 + CM6）
   lib/editor/           编辑器：语言表、Markdown 实时预览、缩略图、符号大纲
   lib/git/              Git：改动面板、泳道日志、双栏差异、冲突解决、分支选择器
   lib/shell/            文件树、标签栏
-  lib/dev/mock-ipc.ts   浏览器里的 IPC 桩，生产构建会被 tree-shake 掉
+  lib/dev/mock-ipc.ts   浏览器里的 IPC 桩，生产构建里被 DEV 常量分支整段删掉
 
 src-tauri/
   src/commands.rs       命令层：只解包参数和转错误，不写业务
@@ -182,3 +182,10 @@ M0–M16 全部完成，日常在用。不追求功能完备，够自己用就�
 ## 许可
 
 MIT
+
+内置的第三方素材各自保留原许可：
+
+| 素材 | 来源 | 许可 | 位置 |
+|---|---|---|---|
+| 界面与文件类型图标 | [JetBrains/intellij-community](https://github.com/JetBrains/intellij-community) 的新 UI 图标 | Apache 2.0 | `public/icons/`（`LICENSE-Apache-2.0.txt`、`NOTICE.txt`、逐个来源见 `SOURCES.md`） |
+| 代码字体 JetBrains Mono | [JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono) | SIL OFL 1.1 | `public/fonts/`（`OFL.txt`） |

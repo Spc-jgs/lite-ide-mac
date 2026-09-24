@@ -157,7 +157,7 @@
     <span class="title">草稿</span>
     <span class="gap"></span>
     <button class="ibtn" onclick={onNew} title="新建草稿 ⌘N" aria-label="新建草稿">
-      <Icon name="plus" size={14} />
+      <Icon name="plus" />
     </button>
   </div>
   <div class="list">
@@ -168,7 +168,7 @@
     {#each groups as g (g.label)}
       {#if g.label}
         <button class="sec" class:closed={g.others && !othersOpen} onclick={() => g.others && (othersOpen = !othersOpen)} disabled={!g.others}>
-          {#if g.others}<span class="caret"><Icon name="chevron-right" size={10} /></span>{/if}
+          {#if g.others}<span class="caret"><Icon name="chevron-right" /></span>{/if}
           <span class="sname">{g.label}</span>
           <span class="cnt">{g.rows.length}</span>
         </button>
@@ -266,7 +266,7 @@
     align-items: center;
     gap: 2px;
     padding: 0 4px 0 10px;
-    font-size: 11px;
+    font-size: var(--fs-sm);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-dim);
@@ -276,7 +276,7 @@
   .head .gap { flex: 1; min-width: 6px; }
   /* 头上的工具按钮是 `.ibtn`（app.css） */
   .list { flex: 1; overflow: auto; padding: 4px 6px; }
-  .empty { padding: 10px 6px; font-size: 12px; color: var(--text-faint); }
+  .empty { padding: 10px 6px; font-size: var(--fs-md); color: var(--text-faint); }
   /* 分组头：吸顶、底色跟外壳走（ui.md 第四条）；「其他」能折 */
   .sec {
     position: sticky;
@@ -290,7 +290,7 @@
     background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     border: none;
     color: var(--text-faint);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     letter-spacing: 0.05em;
     text-transform: uppercase;
     text-align: left;
@@ -300,7 +300,7 @@
   .sec .caret { display: inline-flex; transform: rotate(90deg); transition: transform 0.12s; }
   .sec.closed .caret { transform: none; }
   .sec .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sec .cnt { font-family: var(--code-font); background: var(--selected); border-radius: var(--r-sm); padding: 0 5px; font-size: 10px; letter-spacing: 0; }
+  .sec .cnt { font-family: var(--ui-font); font-variant-numeric: tabular-nums; background: var(--selected); border-radius: var(--r-sm); padding: 0 5px; font-size: var(--fs-xs); letter-spacing: 0; }
   /* 两行一条，内缩圆角块；当前项的长相和文件树、标签栏同一套（ui.md 第一条） */
   .rowwrap { position: relative; border-radius: var(--r-sm); }
   .rowwrap:hover { background: var(--hover); }
@@ -336,8 +336,8 @@
     border-radius: var(--r-sm);
     background: var(--selected);
     color: var(--text-dim);
-    font-family: var(--code-font);
-    font-size: 10px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
     line-height: 16px;
     white-space: nowrap;
     overflow: hidden;
@@ -353,7 +353,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--fs-md);
     color: var(--text);
   }
   .row .line.faint { color: var(--text-faint); }
@@ -375,8 +375,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--text-faint);
-    font-family: var(--code-font);
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
   }
 </style>

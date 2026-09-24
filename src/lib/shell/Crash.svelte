@@ -64,7 +64,7 @@
 <div class="crash">
   <div class="box">
     <div class="head">
-      <Icon name="warn" size={16} />
+      <Icon name="warn" />
       <span>{scope}出错了</span>
     </div>
 
@@ -117,18 +117,18 @@
     align-items: center;
     gap: 8px;
     color: var(--lvl-error);
-    font-size: 14px;
+    font-size: var(--fs-lg);
     margin-bottom: 10px;
   }
   .msg {
     margin: 0 0 8px;
-    font-family: var(--code-font);
-    font-size: 12.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-md);
     line-height: 1.6;
     color: var(--text);
     word-break: break-word;
   }
-  .hint { margin: 0 0 12px; font-size: 12px; line-height: 1.7; color: var(--text-faint); }
+  .hint { margin: 0 0 12px; font-size: var(--fs-md); line-height: 1.7; color: var(--text-faint); }
   .hint b { color: var(--lvl-warn); font-weight: 500; }
   pre {
     margin: 0 0 14px;
@@ -139,7 +139,7 @@
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     font-family: var(--code-font);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     line-height: 1.65;
     color: var(--text-dim);
     white-space: pre-wrap;

@@ -27,6 +27,32 @@
  * 白 15% 边、10px 圆角、交互态一律中性白叠加），只是现在它们被安进了
  * 正确的层里，而不是平铺成一张不透明的板子。
  */
+/*
+ * 代码字体：JetBrains Mono（IDEA 的默认代码字体，2026-09-24 从 SF Mono 换过来）。
+ *
+ * 内置而不是指望系统里装了：它不是 macOS 自带的。用**可变字重**的两个文件（正体 / 斜体各一个，
+ * 共 232 KB）覆盖编辑器用到的 400 / 600 / 700 —— 按字重拆开要五六个文件。
+ * 来源 github.com/JetBrains/JetBrainsMono `fonts/webfonts/`，OFL-1.1。
+ *
+ * 放 `public/fonts/` 而不是 `src/assets/`：**OFL 要求字体分发时附带许可证**，`public/` 原样进产物，
+ * `OFL.txt` 跟着字体一起进 .app；放 `src/assets/` 的话 Vite 只发被引用的字体文件，许可证留在仓库里。
+ * 不进 JS 包，CSP 的 `font-src 'self'` 本来就放行。
+ */
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-wght.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Italic-wght.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   /*
    * 这一行不是可有可无的。
@@ -186,6 +212,7 @@
   --island-gap: 6px;
   --island-radius: 8px;
   --island-border: 1px solid var(--border-soft);
+  --r-xs: 4px; /* 小块：键帽、面包屑、项目方块（2026-09-24 收的，原来 4 / 5 各写各的） */
   --r-sm: 6px;
   --r-md: 10px;
   --r-lg: 14px;
@@ -207,7 +234,20 @@
   --diff-del-fg: #d1707a;
 
   --ui-font: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
-  --code-font: "SF Mono", Menlo, ui-monospace, monospace;
+  --code-font: "JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace;
+
+  /*
+   * 字号只有这四档（2026-09-24 照 IDEA 新 UI 收的）。原来 12 种，9 / 9.5 / 10 / 10.5 / 11 / 11.5 /
+   * 12 / 12.5 / 13 / 14 / 14.5 / 15 —— 其中五种是半像素，而且最常用的是 11 和 11.5：列表、菜单都偏小，
+   * 再叠一层灰字，整个界面看着发虚。IDEA 新 UI 界面默认 13、次要 12。
+   *
+   * **组件里只写档位，不写数字** —— 写数字就是下一轮的第 13 种。
+   * 代码区（编辑器、终端）不在这里：编辑器跟 `--editor-font-size`（可缩放），终端单独设。
+   */
+  --fs-xs: 11px; /* 角标、计数、键位提示 */
+  --fs-sm: 12px; /* 次要：状态栏、分组头、说明 */
+  --fs-md: 13px; /* 默认：列表、标签、菜单、按钮、正文 */
+  --fs-lg: 15px; /* 浮层的输入框、空态的大标题 */
 
   --line-height: 20px;
 }
@@ -256,7 +296,7 @@ html, body {
   background: transparent;
   color: var(--text);
   font-family: var(--ui-font);
-  font-size: 13px;
+  font-size: var(--fs-md);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -302,7 +342,8 @@ html, body {
  * 一屏里四种高度四种字号三种底色逻辑，人眼看到的就是「不协调」。M8 统一了
  * **图标**按钮（24×24），文字按钮没跟上。
  *
- * 两层：尺寸一层（`.btn` 24 高 / `.btn.sm` 20 高，字号 11.5 / 11，圆角 r-sm），
+ * 两层：尺寸一层（`.btn` 28 高 / `.btn.sm` 24 高，字号 13 / 12，圆角 r-sm —— 2026-09-24 照 IDEA 新 UI
+ * 从 24 / 20、11.5 / 11 放大：字号收成四档之后，24 高塞 13 号字太挤，IDEA 的文字按钮就是 28），
  * 语义一层（默认描边 = 普通；`primary` = 这一排里那一个主动作，accent 实心；
  * `quiet` = 无边，给分组头 / 行内那种不该抢眼的；`danger` = 不可逆，红实心）。
  * 组件里只写语义，不再写尺寸 —— 尺寸写在组件里就是又一套。
@@ -312,14 +353,14 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  height: 24px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 12px;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   color: var(--text-dim);
   font-family: var(--ui-font);
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   line-height: 1;
   white-space: nowrap;
   cursor: default;
@@ -329,7 +370,7 @@ html, body {
 .btn:active { background: var(--pressed); }
 .btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .btn:disabled { opacity: 0.45; pointer-events: none; }
-.btn.sm { height: 20px; padding: 0 7px; font-size: 11px; }
+.btn.sm { height: 24px; padding: 0 9px; font-size: var(--fs-sm); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: #6d9af1; border-color: #6d9af1; color: #fff; }
 .btn.primary:active { background: #4f7fe0; }
@@ -595,7 +636,7 @@ html, body {
   border: var(--island-border);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
   animation: drop-in 120ms ease-out;
 }

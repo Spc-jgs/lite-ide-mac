@@ -91,9 +91,9 @@
     <button class="tg" class:on={regex} type="button" title="正则表达式" onclick={() => { regex = !regex; input?.focus(); }}>.*</button>
   </div>
   <!-- 箭头和 ✕ 走 Icon + .ibtn（ui.md 八），和编辑器的查找面板一起从字体符号换过来的 -->
-  <button class="ibtn nav" type="button" title="上一个（⇧↵）" aria-label="上一个" onclick={onPrev}><Icon name="chevron-up" size={12} /></button>
-  <button class="ibtn nav" type="button" title="下一个（↵）" aria-label="下一个" onclick={onNext}><Icon name="chevron-down" size={12} /></button>
-  <button class="ibtn nav" type="button" title="关闭（esc）" aria-label="关闭" onclick={onClose}><Icon name="x" size={12} /></button>
+  <button class="ibtn nav" type="button" title="上一个（⇧↵）" aria-label="上一个" onclick={onPrev}><Icon name="chevron-up" /></button>
+  <button class="ibtn nav" type="button" title="下一个（↵）" aria-label="下一个" onclick={onNext}><Icon name="chevron-down" /></button>
+  <button class="ibtn nav" type="button" title="关闭（esc）" aria-label="关闭" onclick={onClose}><Icon name="x" /></button>
 </div>
 
 <style>
@@ -144,14 +144,14 @@
     outline: none;
     color: var(--text);
     font-family: var(--code-font);
-    font-size: 12px;
+    font-size: var(--fs-md);
   }
   .count {
     flex: none;
     padding: 0 4px;
     color: var(--text-faint);
-    font-family: var(--code-font);
-    font-size: 11px;
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
+    font-size: var(--fs-sm);
     white-space: nowrap;
   }
   .tg {
@@ -165,8 +165,8 @@
     border: none;
     border-radius: var(--r-sm);
     color: var(--text-faint);
-    font-family: var(--code-font);
-    font-size: 10.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
     font-weight: 600;
     line-height: 1;
     cursor: default;

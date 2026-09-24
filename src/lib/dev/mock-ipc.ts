@@ -295,6 +295,11 @@ public class SamePkgHelper {
     public String tag() { return "同包，不写 import"; }
 }
 `,
+  "/proj/moduleA/src/test/java/com/demo/api/AdminControllerTest.java": `package com.demo.api;
+
+class AdminControllerTest {
+}
+`,
   "/proj/moduleB/src/main/java/com/demo/core/OrderClient.java": `package com.demo.core;
 
 public class OrderClient {
@@ -503,6 +508,8 @@ const GENERATED = new Set(["node_modules", "target", "dist", "build", "venv", "_
  * 判据抄 `excludes::CONTESTED_DIRS`。
  */
 const CONTESTED = new Set(["dist", "build", "vendor"]);
+/** 抄 `excludes::VCS_DIRS` + `JUNK_FILES`：版本库目录和系统杂物，树里不列、探链不算 */
+const HIDDEN = new Set([".git", ".svn", ".hg", "CVS", ".DS_Store", "Thumbs.db"]);
 
 /**
  * 桩里扮演 `gitsvc::ignored_dirs` 的答案：只有 `dist/` 被忽略，`build/` 不被忽略。
@@ -549,14 +556,22 @@ const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj/src": [["OrderService.java", false], ["main.py", false], ["gbk-legacy.java", false], ["big5-notes.txt", false], ["long.ts", false]],
   // 跳转用的那对 Java（见 FILES 里的说明）。目录一层层列出来，
   // 否则文件树点不进去，而 ⌘P 又能搜到 —— 两边对不上就是桩在骗人
-  "/proj/moduleA": [["src", true]],
-  "/proj/moduleA/src": [["main", true]],
+  // 模块底下有 pom.xml —— 不放的话「合并单层目录」会把 moduleA/src/main 并成一行，真项目里不会这样
+  "/proj/moduleA": [["src", true], ["pom.xml", false]],
+  "/proj/moduleA/src": [["main", true], ["test", true]],
   "/proj/moduleA/src/main": [["java", true]],
   "/proj/moduleA/src/main/java": [["com", true]],
-  "/proj/moduleA/src/main/java/com": [["demo", true]],
+  // Finder 打开过的目录会有 .DS_Store：桩照 Rust 侧不列它，也不让它截断 com.demo.api 那条链
+  "/proj/moduleA/src/main/java/com": [["demo", true], [".DS_Store", false]],
   "/proj/moduleA/src/main/java/com/demo": [["api", true]],
   "/proj/moduleA/src/main/java/com/demo/api": [["AdminController.java", false], ["SamePkgHelper.java", false]],
-  "/proj/moduleB": [["src", true]],
+  "/proj/moduleA/src/test": [["java", true]],
+  "/proj/moduleA/src/test/java": [["com", true]],
+  "/proj/moduleA/src/test/java/com": [["demo", true]],
+  "/proj/moduleA/src/test/java/com/demo": [["api", true]],
+  "/proj/moduleA/src/test/java/com/demo/api": [["AdminControllerTest.java", false]],
+  // moduleB 故意没有 test：src 底下只有 main，合并成「src/main」一行，看得到 / 连接的那一种
+  "/proj/moduleB": [["src", true], ["pom.xml", false]],
   "/proj/moduleB/src": [["main", true]],
   "/proj/moduleB/src/main": [["java", true]],
   "/proj/moduleB/src/main/java": [["com", true]],
@@ -566,6 +581,24 @@ const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj/logs": [["access-2026-08-24.log", false]],
   "/proj/docs": [["ARCHITECTURE.md", false]],
 };
+
+/**
+ * 抄 `fsservice::single_child_chain`：往下每层**只有一个条目、而且是目录**就继续。
+ * `HIDDEN` 里的不算数，生成物 / 有争议的目录断开（它们要自己占一行才能压暗）。
+ */
+function mockChain(dir: string): string[] {
+  const out: string[] = [];
+  let cur = dir;
+  while (out.length < 32) {
+    const kids = (DIRS[cur] ?? []).filter(([n]) => !HIDDEN.has(n));
+    if (kids.length !== 1 || !kids[0][1]) break;
+    const name = kids[0][0];
+    if (GENERATED.has(name) || CONTESTED.has(name)) break;
+    cur = `${cur}/${name}`;
+    out.push(name);
+  }
+  return out;
+}
 
 /**
  * 桩里的名字校验。**规则必须和 `fsservice::validate_name` 一条不差** ——
@@ -926,7 +959,7 @@ export function installMockIpc(): void {
           // 排序规则抄 Rust 侧 list_dir：目录在前，同类按名称不区分大小写。
           // 桩里原来是按写死的顺序返回的 —— 新建一个文件之后它会吊在列表最后，
           // 而真实现会把它排到该在的位置，「新建完滚过去」那段交互就白验了
-          const sorted = [...(DIRS[path] ?? [])].sort(
+          const sorted = [...(DIRS[path] ?? [])].filter(([name]) => !HIDDEN.has(name)).sort(
             (x, y) =>
               Number(y[1]) - Number(x[1]) ||
               x[0].toLowerCase().localeCompare(y[0].toLowerCase()),
@@ -940,6 +973,7 @@ export function installMockIpc(): void {
             // 一个叫 build 的文件（shell 脚本）不算
             generated: isDir && GENERATED.has(name),
             contested: isDir && CONTESTED.has(name),
+            chain: isDir && !GENERATED.has(name) && !CONTESTED.has(name) ? mockChain(`${path}/${name}`) : [],
           }));
         }
         case "detect_encoding":
@@ -1812,6 +1846,10 @@ index 1a2b3c4..5d6e7f8 100644
         case "git_outgoing":
           return ["feat(notary): 补公证订单字段", "fix(notary): 退款审核状态对不上"];
 
+        case "read_clipboard":
+          // 真实现是 Rust 侧 pbpaste（不弹 WKWebView 的「Paste」确认）。桩里给一段固定的，
+          // 浏览器里的 navigator.clipboard 会要权限，调 UI 时不想每次都点
+          return "/* 桩里的剪贴板 */";
         case "open_external": {
           // 真实现只放行 http / https（2026-09-23 为终端链接放开了 http），桩也照做：不然浏览器里试不出那条约束
           const url = String(a.url ?? "");

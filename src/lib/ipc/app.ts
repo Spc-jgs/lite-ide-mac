@@ -18,5 +18,5 @@ export const appLogPath = () => invoke<string>("app_log_path");
 /** 清空应用日志（两份都清）。判据在 Rust 侧，前端只是按一下 */
 export const clearAppLog = () => invoke<void>("clear_app_log");
 
-/** 交给系统默认浏览器打开。Rust 侧只放行 https —— 见那边的注释 */
+/** 交给系统默认浏览器打开。Rust 侧只放行 http / https —— 见那边的注释 */
 export const openExternal = (url: string) => invoke<void>("open_external", { url });

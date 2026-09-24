@@ -2,7 +2,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DirEntry } from "./commands";
 
-/** 列一层目录。点文件一律列出来，生成物目录（`excludes` crate 那份名单）一律不列 */
+/**
+ * 列一层目录。点文件照列；生成物目录也列、只带 `generated` 标记由界面压暗（issue #13）；
+ * 不列的只有版本库目录和系统杂物（`excludes::is_hidden`）。每个子目录带一条单层目录链（`chain`）
+ */
 export const listDir = (path: string) => invoke<DirEntry[]>("list_dir", { path });
 
 /** 界面上给用户挑的编码清单：[标签, 说明][] */
@@ -22,3 +25,10 @@ export const moveEntry = (path: string, dest: string) => invoke<string>("move_en
 
 export const renameEntry = (path: string, name: string) =>
   invoke<string>("rename_entry", { path, name });
+
+/**
+ * 剪贴板里的纯文本（编辑器右键菜单的「粘贴」）。走 Rust 的 pbpaste 而不是 `navigator.clipboard`：
+ * WKWebView 对网页主动读剪贴板每次都要再点一下系统的「Paste」气泡。超过 8 MB 会 reject —— 见
+ * `fsservice::clipboard_text`
+ */
+export const readClipboard = () => invoke<string>("read_clipboard");

@@ -46,6 +46,13 @@
 
   let { cwd, onExit }: { cwd: string; onExit: () => void } = $props();
 
+  /*
+   * 必须写具体字体名，不能用 var(--code-font)：xterm 拿这个字符串去做字符宽度测量
+   * （建一个测量元素读 offsetWidth），CSS 变量在那个上下文解析不了，整条声明作废，
+   * 最后回退到浏览器默认等宽字体 —— 又丑、字距还不准。字体名跟 app.css 的 --code-font 保持一致。
+   */
+  const TERM_FONT = '"JetBrains Mono", "SF Mono", Menlo, Monaco, monospace';
+
   let host: HTMLDivElement | undefined = $state();
   let status = $state("正在启动 shell…");
 
@@ -124,12 +131,9 @@
        * 我们自己的代码不直接调任何 proposed API。
        */
       allowProposedApi: true,
-      // 必须写具体字体名，不能用 var(--code-font)：
-      // xterm 拿这个字符串去做字符宽度测量（建一个测量元素读 offsetWidth），
-      // CSS 变量在那个上下文解析不了，整条声明作废，最后回退到浏览器默认
-      // 等宽字体——又丑、字距还不准。
-      fontFamily: '"SF Mono", "JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
-      fontSize: 12.5,
+      fontFamily: TERM_FONT, // 为什么写死字体名见 TERM_FONT
+      // 同编辑器的默认字号（IDEA 的终端也跟编辑器字体走）
+      fontSize: 13,
       // 终端惯例是紧凑排布，1.2 太松散
       lineHeight: 1.15,
       letterSpacing: 0,
@@ -197,6 +201,19 @@
     });
     term.open(host);
     fit.fit();
+    /*
+     * 字体还没到就建了终端的话，xterm 按备用字体量了字符宽度，之后每一格都错位。
+     * 到了之后让它重量一次：xterm 对「同一个值」的赋值当没变，所以先换个名字再换回来。
+     * （App 启动时就预拉了这个字体，终端又不在会话恢复里，正常走不到这儿 —— 这是兜底。）
+     */
+    if (!document.fonts.check('13px "JetBrains Mono"')) {
+      void document.fonts.load('13px "JetBrains Mono"').then(() => {
+        if (disposed) return;
+        term.options.fontFamily = "monospace";
+        term.options.fontFamily = TERM_FONT;
+        fit.fit();
+      });
+    }
 
     /*
      * 焦点进终端 = 人离开编辑器去跑命令了：把改过的文件存盘（`autosave.ts` 的 `leave`）。
@@ -368,8 +385,8 @@
     display: grid;
     place-content: center;
     color: var(--text-faint);
-    font-family: var(--code-font);
-    font-size: 12px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-md);
     pointer-events: none;
   }
   /* xterm 自己管内部 DOM，这里只保证它撑满 */

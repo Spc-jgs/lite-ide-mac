@@ -137,7 +137,7 @@
   }
   .box.anchored { top: 0; left: 0; transform: none; }
   label { display: flex; align-items: center; gap: 10px; }
-  .lbl { flex: none; font-size: 12px; color: var(--text-dim); }
+  .lbl { flex: none; font-size: var(--fs-md); color: var(--text-dim); }
   input {
     flex: 1;
     min-width: 0;
@@ -147,11 +147,11 @@
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--text);
-    font-family: var(--code-font);
-    font-size: 13px;
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
+    font-size: var(--fs-md);
     outline: none;
   }
   input:focus { border-color: var(--accent); }
-  .hint { font-size: 11px; color: var(--text-faint); }
+  .hint { font-size: var(--fs-sm); color: var(--text-faint); }
   .hint.bad { color: var(--lvl-warn); }
 </style>

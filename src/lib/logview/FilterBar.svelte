@@ -105,7 +105,7 @@
       title="区分大小写"
     >Aa</button>
     {#if pattern}
-      <button class="ibtn sm" onclick={() => (pattern = "")} title="清除" aria-label="清除过滤"><Icon name="x" size={10} /></button>
+      <button class="ibtn sm" onclick={() => (pattern = "")} title="清除" aria-label="清除过滤"><Icon name="x" /></button>
     {/if}
   </div>
 
@@ -130,10 +130,10 @@
     </span>
     <div class="jump">
       <button class="ibtn sm" onclick={() => onJump?.(-1)} disabled={!filterHits} title="上一处 ⇧↵ / ⇧F3" aria-label="上一处">
-        <Icon name="chevron-up" size={11} />
+        <Icon name="chevron-up" />
       </button>
       <button class="ibtn sm" onclick={() => onJump?.(1)} disabled={!filterHits} title="下一处 ↵ / F3" aria-label="下一处">
-        <Icon name="chevron-down" size={11} />
+        <Icon name="chevron-down" />
       </button>
     </div>
   {/if}
@@ -173,7 +173,7 @@
     min-height: 34px;
     background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     border-bottom: 1px solid var(--border-soft); /* M8：岛内分区线 5% */
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     user-select: none;
   }
   .gap { flex: 1; }
@@ -188,8 +188,8 @@
     border: 1px solid transparent;
     border-radius: var(--r-sm);
     color: var(--text-dim);
-    font-family: var(--code-font);
-    font-size: 11px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-sm);
     cursor: default;
   }
   .chip:hover { background: var(--hover); }
@@ -215,7 +215,7 @@
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--code-font);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     outline: none;
   }
   .search input:focus { border-color: var(--accent); }
@@ -229,15 +229,15 @@
     border: 1px solid transparent;
     border-radius: var(--r-sm);
     color: var(--text-faint);
-    font-family: var(--code-font);
-    font-size: 10.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
     cursor: default;
   }
   .cs:hover { background: var(--hover); color: var(--text); }
   .cs.on { background: var(--accent-sel); color: var(--text); }
 
   .hits {
-    font-family: var(--code-font);
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
     color: var(--accent);
     font-variant-numeric: tabular-nums;
     flex: none;
@@ -261,7 +261,7 @@
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--text-dim);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     cursor: default;
     flex: none;
   }
@@ -277,7 +277,7 @@
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--text-dim);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     cursor: default;
     flex: none;
   }

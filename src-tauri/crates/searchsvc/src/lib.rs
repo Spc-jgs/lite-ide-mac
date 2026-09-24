@@ -184,6 +184,11 @@ fn walk(
             return;
         }
         let name = ent.file_name().to_string_lossy().into_owned();
+        // 版本库目录、系统杂物：文件树不列的，这里也不进（同一个函数）。
+        // 点开头的那几个下一行本来也挡得住，挡不住的是 `CVS/` 和 `Thumbs.db`
+        if excludes::is_hidden(&name) {
+            continue;
+        }
         if name.starts_with('.') && name != ".env" {
             continue;
         }
@@ -333,6 +338,11 @@ fn grep_rg(root: &Path, pattern: &str, limit: usize, skip: &Skip) -> io::Result<
     }
     for g in skip.rg_globs() {
         cmd.arg("--glob").arg(g);
+    }
+    // 文件树不列的（版本库目录、系统杂物）。rg 默认不进隐藏文件，点开头的几个本来就挡住了；
+    // 这里是给 `CVS/` 和 `Thumbs.db` 的。`!**/名字` 对目录和文件都生效，目录整个剪掉（实测过）
+    for n in excludes::VCS_DIRS.iter().chain(excludes::JUNK_FILES) {
+        cmd.arg("--glob").arg(format!("!**/{n}"));
     }
     /*
      * `--` 之后才是路径。
@@ -519,6 +529,15 @@ mod tests {
             fs::create_dir_all(d.join(name)).unwrap();
             fs::write(d.join(name).join("noise.txt"), "needle in noise\n").unwrap();
         }
+        // 文件树不列的那一档（版本库目录、系统杂物）同样按名单造：`CVS/`、`Thumbs.db` 不带点，
+        // 「点开头一律跳过」那条挡不住它们
+        for name in excludes::VCS_DIRS {
+            fs::create_dir_all(d.join(name)).unwrap();
+            fs::write(d.join(name).join("noise.txt"), "needle in noise\n").unwrap();
+        }
+        for name in excludes::JUNK_FILES {
+            fs::write(d.join(name), "needle in noise\n").unwrap();
+        }
         /*
          * issue #19 的形状。
          *
@@ -594,10 +613,12 @@ mod tests {
                 "{name} 不该进索引：{files:?}"
             );
         }
-        assert!(
-            !files.iter().any(|f| f.contains(".git")),
-            "点目录不该进索引"
-        );
+        for name in excludes::VCS_DIRS.iter().chain(excludes::JUNK_FILES) {
+            assert!(
+                !files.iter().any(|f| f.split('/').any(|seg| seg == *name)),
+                "{name} 文件树不列，索引也不该有：{files:?}"
+            );
+        }
         fs::remove_dir_all(d).ok();
     }
 
@@ -610,6 +631,9 @@ mod tests {
         assert!(paths.contains(&"src/main.rs"));
         for name in excludes::GENERATED_DIRS {
             assert!(!paths.iter().any(|p| p.contains(name)), "{name} 不该被搜到");
+        }
+        for name in excludes::VCS_DIRS.iter().chain(excludes::JUNK_FILES) {
+            assert!(!paths.iter().any(|p| p.split('/').any(|seg| seg == *name)), "{name} 不该被搜到");
         }
         // 行号必须是 1-based，与编辑器一致
         let readme = hits.iter().find(|h| h.path == "README.md").unwrap();

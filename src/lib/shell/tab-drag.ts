@@ -43,7 +43,7 @@ export function dragTab(e: PointerEvent, spec: DragSpec, onDrop: (g: Group, inde
     position: "fixed",
     zIndex: "60",
     padding: "2px 8px",
-    fontSize: "12px",
+    fontSize: "var(--fs-md)",
     fontFamily: "var(--ui-font)",
     color: "var(--text)",
     background: "var(--elevated)",

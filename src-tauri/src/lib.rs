@@ -142,6 +142,7 @@ pub fn run() {
             commands::write_text,
             commands::file_stamp,
             commands::reveal_in_finder,
+            commands::read_clipboard,
             commands::create_entry,
             commands::scratch_dir,
             commands::create_scratch,

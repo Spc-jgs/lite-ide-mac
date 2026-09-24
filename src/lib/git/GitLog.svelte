@@ -392,7 +392,7 @@
     padding: 0 10px;
     box-sizing: border-box;
     border-bottom: 1px solid var(--border-soft);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--text-dim);
     user-select: none;
   }
@@ -409,7 +409,7 @@
     padding: 0 8px;
     background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     border-bottom: 1px solid var(--border-soft); /* M8 */
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--text-dim);
     user-select: none;
   }
@@ -440,14 +440,14 @@
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     padding: 2px 7px;
   }
   .q:focus { outline: none; border-color: var(--accent); }
   .chk { display: flex; align-items: center; gap: 4px; }
   .chk.off { opacity: 0.4; }
   .chk input { margin: 0; accent-color: var(--accent); }
-  .cnt { font-family: var(--code-font); font-size: 10.5px; color: var(--text-faint); }
+  .cnt { font-family: var(--ui-font); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--text-faint); }
 
   .rows { flex: 1; overflow: auto; }
   /* 内缩的圆角块，和文件树 / 标签栏同一套（ui.md 第一条）—— 原来是通栏色条 */
@@ -464,7 +464,7 @@
     border: none;
     color: var(--text-dim);
     font-family: var(--ui-font);
-    font-size: 12.5px;
+    font-size: var(--fs-md);
     text-align: left;
     cursor: default;
     white-space: nowrap;
@@ -473,17 +473,17 @@
   .crow.on { background: var(--selected); color: var(--text); }
   .g { flex: none; display: block; }
   .subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .who { flex: none; width: 110px; color: var(--text-faint); font-size: 11.5px;
+  .who { flex: none; width: 110px; color: var(--text-faint); font-size: var(--fs-sm);
          overflow: hidden; text-overflow: ellipsis; }
-  .when { flex: none; width: 96px; color: var(--text-faint); font-size: 11px; text-align: right; }
+  .when { flex: none; width: 96px; color: var(--text-faint); font-size: var(--fs-sm); text-align: right; }
 
   .ref {
     display: inline-block;
     margin-right: 5px;
     padding: 0 5px;
     border-radius: var(--r-sm); /* M8 */
-    font-size: 10px;
-    font-family: var(--code-font);
+    font-size: var(--fs-xs);
+    font-family: var(--ui-font);
     background: var(--selected);
     color: var(--text-dim);
     border: 1px solid var(--border);
@@ -496,17 +496,17 @@
     padding: 10px;
     border-bottom: 1px solid var(--border-soft);
   }
-  .dsubject { color: var(--text); font-size: 13px; line-height: 1.45; margin-bottom: 7px; }
+  .dsubject { color: var(--text); font-size: var(--fs-md); line-height: 1.45; margin-bottom: 7px; }
   .dmeta {
     display: flex;
     flex-wrap: wrap;
     gap: 4px 10px;
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--text-dim);
   }
   .dmeta .dim { color: var(--text-faint); }
   .tagx {
-    font-size: 10px;
+    font-size: var(--fs-xs);
     color: var(--lvl-warn);
     border: 1px solid var(--lvl-warn);
     border-radius: var(--r-sm);
@@ -528,7 +528,7 @@
     border: none;
     color: var(--text-dim);
     font-family: var(--ui-font);
-    font-size: 12px;
+    font-size: var(--fs-md);
     text-align: left;
     cursor: default;
     white-space: nowrap;
@@ -539,7 +539,7 @@
     flex: 1;
     min-width: 0;
     color: var(--text-faint);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     overflow: hidden;
     text-overflow: ellipsis;
     /* 路径太长砍前面 —— 结尾的目录名才有辨识度 */
@@ -550,8 +550,8 @@
     flex: none;
     width: 11px;
     text-align: center;
-    font-family: var(--code-font);
-    font-size: 10.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
     font-weight: 600;
   }
   .m.modified { color: var(--git-modified); }
@@ -559,6 +559,6 @@
   .m.deleted { color: var(--git-deleted); }
   .m.renamed { color: var(--git-renamed); }
 
-  .msg { padding: 16px 12px; color: var(--text-faint); font-size: 12px; text-align: center; }
+  .msg { padding: 16px 12px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; }
   .msg.err { color: var(--lvl-error); font-family: var(--code-font); text-align: left; }
 </style>

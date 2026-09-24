@@ -476,11 +476,11 @@
   <div class="popup" class:anchored={!!anchor} bind:this={popEl} role="dialog" aria-label="分支与工作树">
     {#if mode === "list"}
       <div class="search">
-        <span class="sic"><Icon name="search" size={14} /></span>
+        <span class="sic"><Icon name="search" /></span>
         <input bind:this={input} bind:value={q} placeholder="搜索分支和操作" spellcheck="false" autocomplete="off" />
         <!-- IDEA 搜索框右边那个 ↙ 是 Fetch。抓取只读、不动工作区，放在这儿随手点 -->
         <button class="ibtn" onclick={() => { onFetch(); open = false; }} title="抓取远程（fetch --prune）" aria-label="抓取远程">
-          <Icon name="pull" size={14} />
+          <Icon name="pull" />
         </button>
       </div>
       <div class="results" bind:this={listEl}>
@@ -496,8 +496,8 @@
             <div class="divider"></div>
           {:else if r.kind === "sec" || r.kind === "folder"}
             <button class="hdr" class:folder={r.kind === "folder"} style:padding-left="{14 + (r.kind === "folder" ? r.depth : 0) * 18}px" onclick={() => click(i)} aria-expanded={r.open}>
-              <span class="caret" class:closed={!r.open}><Icon name="chevron-right" size={10} /></span>
-              {#if r.kind === "folder"}<span class="ic faint"><Icon name="folder" size={14} /></span>{/if}
+              <span class="caret" class:closed={!r.open}><Icon name="chevron-right" /></span>
+              {#if r.kind === "folder"}<span class="ic faint"><Icon name="folder" /></span>{/if}
               <span class="hlabel">{r.label}</span>
             </button>
           {:else}
@@ -515,7 +515,7 @@
               <!-- aria-label 用全名：文件夹里的行只显示后半截，读屏 / smoke 要按全名找 -->
               <button class="row" style:padding-left="{8 + r.depth * 18}px" aria-label={r.kind === "branch" ? r.label : undefined} onclick={() => click(i)} onmouseenter={() => { if (i2 >= 0) sel = i2; }}>
                 {#if r.kind === "action"}
-                  <span class="ic act">{#if r.icon}<Icon name={r.icon} size={14} />{/if}</span>
+                  <span class="ic act">{#if r.icon}<Icon name={r.icon} />{/if}</span>
                   <span class="lb ui">{r.label}</span>
                   <span class="gap"></span>
                   {#if r.accel}<span class="key">{r.accel}</span>{/if}
@@ -527,7 +527,7 @@
                     {:else if r.branch.isRemote}
                       <Icon name="remote" />
                     {:else}
-                      <Icon name="git" size={14} />
+                      <Icon name="git" />
                     {/if}
                   </span>
                   <span class="lb" class:cur={r.current}>{leaf(r)}</span>
@@ -535,14 +535,14 @@
                   {#if r.current && behind}<span class="ab">↓{behind}</span>{/if}
                   <span class="gap"></span>
                   {#if r.branch.upstream}<span class="up">{r.branch.upstream}</span>{/if}
-                  <span class="rm" aria-hidden="true"><Icon name="chevron-right" size={11} /></span>
+                  <span class="rm" aria-hidden="true"><Icon name="chevron-right" /></span>
                 {:else}
-                  <span class="ic worktree"><Icon name="files" size={14} /></span>
+                  <span class="ic worktree"><Icon name="files" /></span>
                   <span class="lb" class:cur={r.current}>{r.label}</span>
                   {#if r.current}<span class="now">当前</span>{/if}
                   <span class="gap"></span>
                   <span class="up">{shortPath(r.tree.path)}</span>
-                  <span class="rm" aria-hidden="true"><Icon name="chevron-right" size={11} /></span>
+                  <span class="rm" aria-hidden="true"><Icon name="chevron-right" /></span>
                 {/if}
               </button>
             </div>
@@ -651,12 +651,12 @@
     background: transparent;
     color: var(--text);
     font-family: var(--ui-font);
-    font-size: 13px;
+    font-size: var(--fs-md);
     outline: none;
   }
   .search input::placeholder { color: var(--text-faint); }
   .results { overflow-y: auto; padding: 4px 0 6px; }
-  .none { padding: 18px 14px; color: var(--text-faint); font-size: 12.5px; text-align: center; }
+  .none { padding: 18px 14px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; }
   .none.err { color: var(--lvl-error); font-family: var(--code-font); text-align: left; }
   .none.wait { display: flex; align-items: center; justify-content: center; gap: 8px; }
   .divider { height: 1px; background: var(--border-soft); margin: 5px 12px; }
@@ -672,7 +672,7 @@
     background: var(--elevated);
     color: var(--text-dim);
     font-family: var(--ui-font);
-    font-size: 12px;
+    font-size: var(--fs-md);
     text-align: left;
     cursor: default;
     user-select: none;
@@ -698,21 +698,21 @@
     border: none;
     color: var(--text-dim);
     font-family: var(--ui-font);
-    font-size: 12.5px;
+    font-size: var(--fs-md);
     text-align: left;
     cursor: default;
     white-space: nowrap;
   }
   .rowwrap.on .row { color: var(--text); }
   .row .gap { flex: 1; min-width: 8px; }
-  .lb { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; font-family: var(--code-font); font-size: 12px; }
-  .lb.ui { font-family: var(--ui-font); font-size: 12.5px; }
+  .lb { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; font-family: var(--ui-font); font-size: var(--fs-md); }
+  .lb.ui { font-family: var(--ui-font); font-size: var(--fs-md); }
   .lb.cur { color: var(--text); font-weight: 600; }
   /* 右边那列：上游 / 工作树路径。IDEA 就是这么把 origin/… 靠右放的 */
-  .up { flex: none; max-width: 42%; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); font-family: var(--code-font); font-size: 11px; }
-  .key { flex: none; color: var(--text-faint); font-family: var(--code-font); font-size: 11px; }
-  .now { flex: none; font-size: 10px; padding: 0 5px; border-radius: var(--r-sm); background: var(--elevated-hi); color: var(--accent); }
-  .ab { flex: none; font-family: var(--code-font); font-size: 10.5px; color: var(--accent); }
+  .up { flex: none; max-width: 42%; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-sm); }
+  .key { flex: none; color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-sm); }
+  .now { flex: none; font-size: var(--fs-xs); padding: 0 5px; border-radius: var(--r-sm); background: var(--elevated-hi); color: var(--accent); }
+  .ab { flex: none; font-family: var(--ui-font); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--accent); }
   /* 行尾的 ›：按下去还有一层。常驻但压暗，选中那行才提亮 */
   .rm { flex: none; display: flex; color: var(--text-faint); opacity: 0.45; }
   .rowwrap:hover .rm, .rowwrap.on .rm { opacity: 1; }
@@ -733,17 +733,17 @@
     padding: 7px 14px;
     border-top: 1px solid var(--border-soft);
     background: var(--chrome-scrim);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     color: var(--text-faint);
     user-select: none;
   }
   .foot .gap { flex: 1; }
-  kbd { font-family: var(--code-font); font-size: 10px; background: var(--hover); border-radius: 4px; padding: 1px 5px; margin-right: 3px; }
+  kbd { font-family: var(--ui-font); font-size: var(--fs-xs); background: var(--hover); border-radius: var(--r-xs); padding: 1px 5px; margin-right: 3px; }
 
   .form { padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 10px; }
-  .ftitle { font-size: 14px; color: var(--text); }
-  .fdesc { margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--text-faint); }
-  .form label { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim); }
+  .ftitle { font-size: var(--fs-lg); color: var(--text); }
+  .fdesc { margin: 0; font-size: var(--fs-sm); line-height: 1.6; color: var(--text-faint); }
+  .form label { display: flex; align-items: center; gap: 10px; font-size: var(--fs-md); color: var(--text-dim); }
   .form label > span { flex: none; width: 34px; }
   .fi {
     flex: 1;
@@ -751,8 +751,8 @@
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     color: var(--text);
-    font-family: var(--code-font);
-    font-size: 12px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-md);
     padding: 5px 8px;
     outline: none;
   }

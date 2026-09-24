@@ -93,7 +93,7 @@
   .no-root {
     padding: 14px 12px;
     color: var(--text-faint);
-    font-size: 12px;
+    font-size: var(--fs-md);
     background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     height: 100%;
   }

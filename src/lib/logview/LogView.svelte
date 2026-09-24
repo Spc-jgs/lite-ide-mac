@@ -286,7 +286,7 @@
     height: var(--line-height);
     line-height: var(--line-height);
     font-family: var(--code-font);
-    font-size: 12px;
+    font-size: var(--fs-md);
     white-space: pre;
     padding-right: 12px;
   }

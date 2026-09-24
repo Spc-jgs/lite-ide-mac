@@ -251,16 +251,16 @@
   /* 有标签栏时从它底下 8px 开始（标签栏 38px） */
   .stack.below-tabs { top: 46px; }
   /* 卡片的面（底、边、投影、淡入、warn / bad 两档色）在 app.css 的 `.confirm`；这里只剩正文排版 */
-  .confirm .rest { color: var(--text-faint); font-size: 11.5px; }
+  .confirm .rest { color: var(--text-faint); font-size: var(--fs-sm); }
   .err-banner .btext, .trust .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .confirm.trust, .confirm.err-banner { width: min(760px, calc(100% - 32px)); }
-  .trust .bbody { white-space: pre-wrap; font-family: var(--code-font); font-size: 11.5px; line-height: 1.55; color: var(--text); }
+  .trust .bbody { white-space: pre-wrap; font-family: var(--code-font); font-size: var(--fs-sm); line-height: 1.55; color: var(--text); }
   .err-banner b { color: var(--lvl-error); }
   /* git 的说明本来就是分行排版的，保住换行；太长时可以滚 */
   .err-banner .bbody {
     white-space: pre-wrap;
     font-family: var(--code-font);
-    font-size: 11.5px;
+    font-size: var(--fs-sm);
     line-height: 1.55;
     color: var(--text-dim);
     max-height: 7.5em;

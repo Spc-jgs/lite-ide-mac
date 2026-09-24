@@ -198,10 +198,10 @@
       {#if !grouped}<span class="fdir">{dirName(e.path)}</span>{/if}
     </button>
     {#if side === "index"}
-      <button class="ibtn sm rowact" onclick={() => onUnstage([e.path])} title="取消暂存" aria-label="取消暂存"><Icon name="minus" size={12} /></button>
+      <button class="ibtn sm rowact" onclick={() => onUnstage([e.path])} title="取消暂存" aria-label="取消暂存"><Icon name="minus" /></button>
     {:else}
-      <button class="ibtn sm rowact" onclick={() => onDiscard([e])} title="丢弃改动" aria-label="丢弃改动"><Icon name="undo" size={12} /></button>
-      <button class="ibtn sm rowact" onclick={() => onStage([e.path])} title="暂存" aria-label="暂存"><Icon name="plus" size={12} /></button>
+      <button class="ibtn sm rowact" onclick={() => onDiscard([e])} title="丢弃改动" aria-label="丢弃改动"><Icon name="undo" /></button>
+      <button class="ibtn sm rowact" onclick={() => onStage([e.path])} title="暂存" aria-label="暂存"><Icon name="plus" /></button>
     {/if}
   </div>
 {/snippet}
@@ -218,7 +218,7 @@
           title={g.dir}
           aria-expanded={!collapsed.has(key)}
         >
-          <span class="gcaret"><Icon name="chevron-right" size={10} /></span>
+          <span class="gcaret"><Icon name="chevron-right" /></span>
           <span class="gname">{g.dir}</span>
           <span class="gcnt">{g.items.length}</span>
         </button>
@@ -254,10 +254,10 @@
       {#if status.unborn}<span class="tagx">尚无提交</span>{/if}
       <span class="gap"></span>
       <button class="ibtn" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:busy={busy}>
-        <Icon name="refresh" size={14} />
+        <Icon name="refresh" />
       </button>
       <button class="ibtn" onclick={openMenu} title="更多操作" aria-label="更多操作">
-        <Icon name="more-v" size={14} />
+        <Icon name="more-v" />
       </button>
     </div>
 
@@ -268,7 +268,7 @@
         干净时唯一还能做的事是看历史，那就把它放出来。
       -->
       <div class="empty">
-        <span class="emark"><Icon name="check" size={17} /></span>
+        <span class="emark"><Icon name="check" /></span>
         <span class="etitle">工作区干净</span>
         {#if behind || ahead}
           <span class="esub">
@@ -321,7 +321,7 @@
             onclick={openCommitMenu}
             title="提交并推送…"
             aria-label="更多提交方式"
-          ><Icon name="chevron-down" size={10} /></button>
+          ><Icon name="chevron-down" /></button>
         </div>
       </div>
     </div>
@@ -360,7 +360,7 @@
           <span class="cnt">{unstaged.length}</span>
           <span class="gap"></span>
           <button class="btn sm quiet" onclick={() => onStage(unstaged.map((e) => e.path))}>全部暂存</button>
-          <button class="ibtn sm more" onclick={openWorkMenu} title="更多操作" aria-label="更多操作"><Icon name="more-h" size={12} /></button>
+          <button class="ibtn sm more" onclick={openWorkMenu} title="更多操作" aria-label="更多操作"><Icon name="more-h" /></button>
         </div>
         {@render fileList(unstaged, "work")}
       {/if}
@@ -410,15 +410,15 @@
     align-items: center;
     gap: 4px;
     padding: 0 4px 0 10px;
-    font-size: 11px;
+    font-size: var(--fs-sm);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-dim);
     user-select: none;
   }
   .head .hcnt {
-    font-family: var(--code-font);
-    font-size: 10px;
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
+    font-size: var(--fs-xs);
     letter-spacing: 0;
     background: var(--selected);
     border-radius: var(--r-sm);
@@ -428,7 +428,7 @@
   /* 头上的工具按钮是 `.ibtn`（app.css）；转着的刷新用 accent 说「正在跑」 */
   .tagx {
     flex: none;
-    font-size: 10px;
+    font-size: var(--fs-xs);
     letter-spacing: 0;
     text-transform: none;
     color: var(--lvl-warn);
@@ -464,8 +464,8 @@
     background: var(--hover);
     color: var(--git-added);
   }
-  .etitle { color: var(--text-dim); font-size: 12.5px; }
-  .esub { color: var(--text-faint); font-size: 11px; line-height: 1.6; }
+  .etitle { color: var(--text-dim); font-size: var(--fs-md); }
+  .esub { color: var(--text-faint); font-size: var(--fs-sm); line-height: 1.6; }
   .esub .mono { font-family: var(--code-font); }
   .commit textarea {
     width: 100%;
@@ -480,7 +480,7 @@
     border-radius: var(--r-md);
     color: var(--text);
     font-family: var(--ui-font);
-    font-size: 12px;
+    font-size: var(--fs-md);
     line-height: 1.5;
     padding: 8px 10px;
   }
@@ -491,7 +491,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--text-faint);
     user-select: none;
     /* 侧边栏能拖到 160px，不锁住就会断成「改写上一/条」 */
@@ -503,7 +503,7 @@
   .conflict-mark { display: flex; color: var(--lvl-error); }
   .blocked {
     margin: 6px 0 0;
-    font-size: 11px;
+    font-size: var(--fs-sm);
     color: var(--lvl-warn);
   }
 
@@ -525,7 +525,7 @@
     align-items: center;
     gap: 6px;
     padding: 8px 2px 4px 6px;
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -542,14 +542,14 @@
   }
   .sec > * { white-space: nowrap; }
   .sec .cnt {
-    font-family: var(--code-font);
+    font-family: var(--ui-font); font-variant-numeric: tabular-nums;
     background: var(--selected);
     border-radius: var(--r-sm);
     padding: 0 5px;
-    font-size: 10px;
+    font-size: var(--fs-xs);
   }
   /* 分组头里的按钮再小一号，字色不抢眼；⋯ 那个只装「全部丢弃」 */
-  .sec .btn.sm { height: 18px; padding: 0 6px; font-size: 10.5px; letter-spacing: 0; text-transform: none; }
+  .sec .btn.sm { height: 18px; padding: 0 6px; font-size: var(--fs-xs); letter-spacing: 0; text-transform: none; }
 
   /* 行操作按钮平时不占视觉，hover 才浮出来 —— 列表安静，动作随手可及 */
   /* 悬停是内缩圆角块，和文件树同一套 —— 两边挨着，做法不一样一眼看得出来 */
@@ -567,7 +567,7 @@
     border: none;
     background: none;
     color: var(--text-dim);
-    font-size: 12px;
+    font-size: var(--fs-md);
     text-align: left;
     border-radius: var(--r-sm);
     cursor: default;
@@ -575,8 +575,8 @@
   .gdir:hover { background: var(--hover); }
   .gcaret { display: inline-flex; color: var(--text-faint); transition: transform 0.12s; transform: rotate(90deg); }
   .gdir.closed .gcaret { transform: none; }
-  .gname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--code-font); }
-  .gcnt { margin-left: auto; color: var(--text-faint); font-size: 11px; }
+  .gname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ui-font); }
+  .gcnt { margin-left: auto; color: var(--text-faint); font-size: var(--fs-sm); }
   .frow-wrap:hover { background: var(--hover); }
   .frow-wrap .rowact { opacity: 0; }
   .frow-wrap:hover .rowact { opacity: 1; }
@@ -595,7 +595,7 @@
     border: none;
     color: var(--text-dim);
     font-family: var(--ui-font);
-    font-size: 12.5px;
+    font-size: var(--fs-md);
     text-align: left;
     cursor: default;
     white-space: nowrap;
@@ -607,7 +607,7 @@
     flex: 1;
     min-width: 0;
     color: var(--text-faint);
-    font-size: 11px;
+    font-size: var(--fs-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     /* 路径太长时砍前面而不是后面 —— 结尾的目录名才是有辨识度的那截 */
@@ -618,8 +618,8 @@
     flex: none;
     width: 12px;
     text-align: center;
-    font-family: var(--code-font);
-    font-size: 11px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-sm);
     font-weight: 600;
   }
   .m.modified { color: var(--git-modified); }
@@ -629,5 +629,5 @@
   .m.renamed { color: var(--git-renamed); }
   .m.conflict { color: var(--git-conflict); }
 
-  .hint { padding: 14px 12px; color: var(--text-faint); font-size: 12px; }
+  .hint { padding: 14px 12px; color: var(--text-faint); font-size: var(--fs-md); }
 </style>

@@ -49,6 +49,8 @@ export const ideaDarkTheme = EditorView.theme(
     },
     ".cm-scroller": {
       fontFamily: "var(--code-font)",
+      // JetBrains Mono 带连字（`!=` `->` 画成一个字形），IDEA 默认关着 —— 看代码的人要看见真实的字符
+      fontVariantLigatures: "none",
       lineHeight: "1.55",
       overflow: "auto",
     },
@@ -107,7 +109,7 @@ export const ideaDarkTheme = EditorView.theme(
     },
     ".cm-tooltip.cm-tooltip-autocomplete > ul": {
       fontFamily: "var(--code-font)",
-      fontSize: "12px",
+      fontSize: "var(--fs-md)",
       maxHeight: "240px",
     },
     ".cm-tooltip.cm-tooltip-autocomplete > ul > li": {

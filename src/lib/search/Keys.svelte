@@ -87,7 +87,7 @@
   <div class="scrim dim" onclick={() => (open = false)} role="presentation"></div>
   <div class="popup" role="dialog" aria-modal="true" aria-label="快捷键速查">
     <div class="head">
-      <span class="ic"><Icon name="search" size={16} /></span>
+      <span class="ic"><Icon name="search" /></span>
       <input
         bind:this={box}
         bind:value={q}
@@ -153,13 +153,13 @@
     background: transparent;
     color: var(--text);
     font-family: var(--ui-font);
-    font-size: 15px;
+    font-size: var(--fs-lg);
     outline: none;
   }
   input::placeholder { color: var(--text-faint); }
 
   .list { overflow-y: auto; border-top: 1px solid var(--border-soft); padding-bottom: 4px; }
-  .none { padding: 18px 16px; color: var(--text-faint); font-size: 12.5px; text-align: center; }
+  .none { padding: 18px 16px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; }
 
   /* 分组头吸顶：底色跟着所在层走，填死色会在滚动时拖出一条实心带 */
   .sec {
@@ -168,14 +168,14 @@
     z-index: 1;
     padding: 9px 16px 4px;
     background: var(--elevated);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-faint);
     user-select: none;
   }
 
-  .row { display: flex; align-items: center; gap: 10px; padding: 5px 16px; font-size: 12.5px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 5px 16px; font-size: var(--fs-md); }
   .label { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .keys { margin-left: auto; display: flex; gap: 5px; flex: none; }
   /*
@@ -184,8 +184,8 @@
    * 在 RTL 段落里它会跑到字母/数字右边，把 ⌘1 显示成 1⌘（v0.5.0 修过一次）。
    */
   kbd {
-    font-family: var(--code-font);
-    font-size: 11.5px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-sm);
     color: var(--text);
     background: var(--hover);
     border-radius: var(--r-sm);
@@ -201,10 +201,10 @@
     padding: 7px 16px;
     border-top: 1px solid var(--border-soft);
     background: var(--chrome-scrim);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     color: var(--text-faint);
     user-select: none;
   }
   .foot .gap { flex: 1; }
-  .foot kbd { font-size: 10px; padding: 1px 5px; color: var(--text-faint); }
+  .foot kbd { font-size: var(--fs-xs); padding: 1px 5px; color: var(--text-faint); }
 </style>
