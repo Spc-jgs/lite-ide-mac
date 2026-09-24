@@ -56,7 +56,7 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 - 插件系统、Windows 支持、LSP、遥测、自动更新器 —— 立项时就明确排除了，
   理由在 [PLAN.md](PLAN.md) 和 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 拿 `cargo build --release` 当验证
-- 在 `src-tauri/src/commands.rs` 里写业务逻辑
+- 在 `src-tauri/src/commands/` 里写业务逻辑
 - 写错的注释。错的注释比没有注释更害人，这条是有过教训的
 
 ## 按你在改什么去读

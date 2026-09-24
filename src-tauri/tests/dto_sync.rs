@@ -7,13 +7,14 @@
 //! **一片空白**，没人会往类型上想。
 //!
 //! 这里不上 ts-rs（要给 crate 加依赖、加生成步骤、还要把生成物提交进仓库），
-//! 改成一条**只读源码的测试**：解析 `commands.rs` 里带 `#[derive(serde::Serialize)]`
+//! 改成一条**只读源码的测试**：解析 `commands/dto.rs` 里带 `#[derive(serde::Serialize)]`
 //! 的结构体和 `commands.ts` 里的 `export interface`，比字段名集合。
 //! 造价是这一个文件，拦住的是同一类 bug。
 
 use std::collections::BTreeSet;
 
-const RUST: &str = include_str!("../src/commands.rs");
+// DTO 集中在 commands/dto.rs（2026-09-24 拆命令层时收的）。放回别的文件，这条测试就看不见它了
+const RUST: &str = include_str!("../src/commands/dto.rs");
 const TS: &str = include_str!("../../src/lib/ipc/commands.ts");
 
 /// Rust 结构体 ↔ TS 接口的对应关系。

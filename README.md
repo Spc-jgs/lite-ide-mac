@@ -148,7 +148,7 @@ src/                    前端（Svelte 5 + CM6）
   lib/dev/mock-ipc.ts   浏览器里的 IPC 桩，生产构建里被 DEV 常量分支整段删掉
 
 src-tauri/
-  src/commands.rs       命令层：只解包参数和转错误，不写业务
+  src/commands/         命令层：只解包参数和转错误，不写业务（按领域分文件，DTO 在 dto.rs）
   crates/logengine/     日志引擎（零 Tauri 依赖，可单独 bench）
   crates/fsservice/     文件读写 + 编码检测
   crates/gitsvc/        Git（起 git 子进程）

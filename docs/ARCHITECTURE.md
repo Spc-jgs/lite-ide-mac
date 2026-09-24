@@ -287,11 +287,11 @@ fs:changed         { path, kind }
 而这份文档一直宣称它存在。
 
 不上 ts-rs 的理由（事后确认，不是偷懒）：要给 crate 加依赖、加生成步骤、
-把生成物提交进仓库，而全部 DTO 只有 15 个、且都集中在 `commands.rs` 一个文件里。
+把生成物提交进仓库，而全部 DTO 只有 15 个、且都集中在一个文件里（现在是 `commands/dto.rs`）。
 代价与收益不成比例。
 
 真正落地的是 `src-tauri/tests/dto_sync.rs`：**一条只读源码的测试**，解析
-`commands.rs` 里带 `#[derive(serde::Serialize)]` 的结构体和 `commands.ts` 里的
+`commands/dto.rs` 里带 `#[derive(serde::Serialize)]` 的结构体和 `commands.ts` 里的
 `export interface`，逐字段比。漏改一侧就红，还会强制新 DTO 到 `PAIRS` 表里登记一行。
 它同时卡住 `#[serde(rename_all = "camelCase")]` —— 少了它，`line_count` 会原样
 序列化成 snake_case，而 TS 侧写的是 `lineCount`，运行时就是一个 `undefined`，
@@ -324,7 +324,7 @@ lite-ide/
    ├─ tauri.conf.json            # bundle id 固定 com.liteide.app（UNINSTALL.md 的前提）
    ├─ src/
    │  ├─ main.rs / lib.rs        # lib.rs 里装小 runtime、建菜单、挂窗口材质
-   │  ├─ commands.rs             # #[tauri::command] 薄封装，不写业务逻辑
+   │  ├─ commands/               # #[tauri::command] 薄封装，不写业务逻辑；按领域分文件，DTO 在 dto.rs
    │  ├─ menu.rs                 # 菜单栏（keymap.ts 的一份拷贝，menu_sync 卡住）
    │  └─ state.rs                # 句柄表：日志会话 / 过滤任务 / pty / 远程操作
    └─ crates/

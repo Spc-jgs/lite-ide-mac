@@ -14,7 +14,7 @@ paths:
 
 ## 命令层不写业务
 
-`src-tauri/src/commands.rs` 只做三件事：解包参数、查句柄、转错误。
+`src-tauri/src/commands/`（按领域分文件，2026-09-24 从一个 `commands.rs` 拆开）只做三件事：解包参数、查句柄、转错误。
 一行业务逻辑都不写。业务全在 `crates/` 里 —— 那五个 crate **不依赖 Tauri**，
 才能脱离 GUI 单测和跑 bench。
 
@@ -327,7 +327,7 @@ git 的 stdout 89 字节、stderr 2892 字节）。钩子一话多就写满 stde
 
 ## 过 IPC 的 DTO 靠测试卡住，不是靠自觉
 
-`src-tauri/tests/dto_sync.rs` 解析 `commands.rs` 的 `#[derive(serde::Serialize)]`
+`src-tauri/tests/dto_sync.rs` 解析 `commands/dto.rs` 的 `#[derive(serde::Serialize)]`
 结构体和 `commands.ts` 的 `export interface`，逐字段比，并强制每个 DTO 都带
 `#[serde(rename_all = "camelCase")]`。
 
@@ -350,7 +350,7 @@ git 的 stdout 89 字节、stderr 2892 字节）。钩子一话多就写满 stde
 - **不 join 那条排空线程**。孙子进程攥着 slave 时 EOF 不会来，join 本身会变成第二个挂点。
 - **收尸有界**：`wait()` 是 5s 上限的 `try_wait()` 轮询。宁可留个僵尸到进程退出，
   也不能让界面永久卡死。
-- `commands.rs` 那个 pty 读线程的 `send 失败即 break` **依赖上面那条排空线程**才不挂。
+- `commands/pty.rs` 那个 pty 读线程的 `send 失败即 break` **依赖上面那条排空线程**才不挂。
   这是跨文件的隐式依赖，而回归测试在 ptysvc 里。
 
 回归测试是 `关掉不排空的终端不能把kill卡死`，阈值卡 2s 不是 8s ——
