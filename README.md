@@ -145,7 +145,7 @@ src/                    前端（Svelte 5 + CM6）
   lib/editor/           编辑器：语言表、Markdown 实时预览、缩略图、符号大纲
   lib/git/              Git：改动面板、泳道日志、双栏差异、冲突解决、分支选择器
   lib/shell/            文件树、标签栏
-  lib/dev/mock-ipc.ts   浏览器里的 IPC 桩，生产构建里被 DEV 常量分支整段删掉
+  lib/dev/mock*         浏览器里的 IPC 桩（按领域分在 mock/），生产构建里被 DEV 常量分支整段删掉
 
 src-tauri/
   src/commands/         命令层：只解包参数和转错误，不写业务（按领域分文件，DTO 在 dto.rs）

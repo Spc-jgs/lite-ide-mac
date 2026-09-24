@@ -319,7 +319,7 @@ lite-ide/
 │     ├─ terminal/               # xterm.js 封装
 │     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / docs / tabflow / project / worktree / git / branches / remote / nav / persist / overlay / lang / notify）+ 纯类型/函数（tab / crumbs）
 │     ├─ lazy/                   # lazy() / lazyGroup()，按需加载的唯一出处
-│     └─ dev/                    # mock-ipc.ts，只在 DEV 构建里存在
+│     └─ dev/                    # mock-ipc.ts + mock/（按领域，和 commands/ 对应），只在 DEV 构建里存在
 └─ src-tauri/
    ├─ tauri.conf.json            # bundle id 固定 com.liteide.app（UNINSTALL.md 的前提）
    ├─ src/

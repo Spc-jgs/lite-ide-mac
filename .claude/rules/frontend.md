@@ -409,7 +409,7 @@ effect 也就不会再跑第二次。
 
 ## 桩必须和真实现严格对齐
 
-`src/lib/dev/mock-ipc.ts` 是浏览器里调 UI 用的（`pnpm dev`，热更新毫秒级，
+`src/lib/dev/mock-ipc.ts`（按领域分在 `mock/` 下，和 `src-tauri/src/commands/` 一一对应；共享的假数据在 `mock/data.ts`）是浏览器里调 UI 用的（`pnpm dev`，热更新毫秒级，
 比等 Tauri 重编译快得多）。它喂的数据结构**必须**和 Rust 侧 DTO 一致 ——
 分叉之后它就失去了全部价值，还会骗人。改 DTO 记得同步改桩。
 

@@ -5,7 +5,7 @@ macOS 个人工作台。Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研�
 ## 命令
 
 ```bash
-pnpm dev            # 浏览器 + IPC 桩（src/lib/dev/mock-ipc.ts）。改 UI 用这个，热更新毫秒级
+pnpm dev            # 浏览器 + IPC 桩（src/lib/dev/mock-ipc.ts + mock/）。改 UI 用这个，热更新毫秒级
 pnpm app            # Tauri 开发模式
 pnpm app:build      # 只编可执行文件
 pnpm app:bundle     # 打包 .app + .dmg，产物在 src-tauri/target/release/bundle/
@@ -42,7 +42,7 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 - 起子进程前先问「它的输出有上限吗」，没有就设闸
 - 改了过 IPC 的 DTO，两侧一起改 —— `src-tauri/tests/dto_sync.rs` 会卡住漂移
 - 改了键位或菜单，先改 `src/lib/state/keymap.ts` —— `menu_sync.rs` 会卡住漂移
-- 改了 Rust 侧 DTO / 命令，同步改 `src/lib/dev/mock-ipc.ts`。桩一分叉就开始骗人
+- 改了 Rust 侧 DTO / 命令，同步改桩 `src/lib/dev/mock/<领域>.ts`（和 `src-tauri/src/commands/<领域>.rs` 一一对应）。桩一分叉就开始骗人
 - 改完给出数字。「快了很多」没有信息量，「1112ms → 0.008ms」有
 
 **先问再做：**
