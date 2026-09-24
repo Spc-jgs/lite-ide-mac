@@ -38,7 +38,7 @@
   │
 IPC        ipc/*.ts ⇄ DTO ⇄ mock-ipc.ts（浏览器桩）                         ← dto_sync.rs 卡漂移
   │
-命令层     commands.rs：88 个命令，只解包、转错误，重活进阻塞池
+命令层     commands/（按领域分文件，DTO 在 dto.rs）：88 个命令，只解包、转错误，重活进阻塞池
   │
 服务 crate logengine · gitsvc · fsservice · searchsvc · ptysvc · excludes · applog   ← 不依赖 Tauri
 ```
@@ -55,18 +55,21 @@ IPC        ipc/*.ts ⇄ DTO ⇄ mock-ipc.ts（浏览器桩）                   
 
 ## 4. 要调整的：四个巨石
 
-| 文件 | 行数 | 里面装了什么 | 怎么拆 |
+2026-09-24 做完了三个半（每个一个提交，纯搬家，按行多重集对比证明没改逻辑）：
+
+| 文件 | 拆之前 | 拆之后 | 状态 |
 |---|---|---|---|
-| `crates/gitsvc/src/lib.rs` | 3,614 | status、log、diff、分支、提交、合并、stash、忽略判定……31 个公开函数，外加加固 | 已经拆出过 `remote` / `progress` / `trust` / `console`，照这个路子按领域继续拆：`status.rs`、`log.rs`、`diff.rs`、`branch.rs`、`commit.rs`；`git_cmd` 和加固留在 `lib.rs` |
-| `src-tauri/src/commands.rs` | 2,015 | 88 个命令 + 所有 DTO | 按领域分文件：`commands/{fs,git,log,pty,search,app}.rs`。**DTO 位置要跟着改 `dto_sync.rs` 的解析**，这一步要先改测试 |
-| `shell/FileTree.svelte` | 1,757 | 加载、拍平、git 着色、多选、拖拽、菜单、三个对话框、打字定位、定位 | 拍平已经拆出去了（`tree-rows.ts`）。下一刀：多选 + 拖拽成一个模块，菜单 + 对话框成一个组件 |
-| `dev/mock-ipc.ts` | 1,911 | 88 个命令的桩 + 假数据 | 按领域分文件，和 `commands/` 一一对应 |
+| `crates/gitsvc/src/lib.rs` | 3,614 | `lib.rs` 772 + status / changes / blame / commit / history / branch + `tests.rs` | ✅ `c56d937` |
+| `src-tauri/src/commands.rs` | 2,015 | `commands/` 十个文件，DTO 全在 `dto.rs` | ✅ `026f8af` |
+| `dev/mock-ipc.ts` | 1,911 | `mock-ipc.ts` 94 + `mock/` 九个文件，和 `commands/` 一一对应 | ✅ `87d648b` |
+| `shell/FileTree.svelte` | 1,757 | 1,662：纯函数（拍平、git 着色、打字定位）都搬进了 `.ts` | 🟡 `cff0a4d`，见下 |
 
-**为什么现在拆**：这几个文件已经大到「改一处要先读懂一大片」。对人是负担，对 AI 更是 —— 这一个月里好几次改动都是先要在上千行里找到位置、避开几十处耦合。
-**怎么拆才安全**：一次只拆一个，**纯搬家、不改行为**，靠现有测试兜底（gitsvc 的测试在 crate 里，
-FileTree 有 `tree-rows` 的测试和浏览器验收）。拆完才在上面加功能 —— 同「合并单层目录」那次先拆 `tree-rows.ts` 的做法。
+**FileTree 剩下的不是搬家**：多选、拖拽、菜单、三个对话框要拆成子组件，就得重新设计属性和回调
+（改名成功后清哪些缓存、定位到哪一行），这是真重构、有行为风险。它也不是多窗口的前置 ——
+多窗口改的是 Rust 侧的事件分发和 App 的接线。所以留到有需要改文件树的时候再做，那时顺手拆。
 
-不拆的：`App.svelte`（1,291 行）在 issue #9 已经拆过一轮，剩下的主要是接线；`Editor.svelte`（788 行）还算好。
+拆的过程中顺带撞出三个已有的问题，各自单独提交：gitsvc 一段文档注释挂错了函数（`a895eb8`）、
+桩里 `pty_kill` 贯穿进了 `open_log`（`5a79187`）、合并包名那轮加的一段代码从没起过作用（`cff0a4d`）。
 
 ## 5. 需要拍板的
 
@@ -192,8 +195,8 @@ src/lib/agent/        懒加载
 
 | 阶段 | 做什么 | 大概 |
 |---|---|---|
-| A 整理 | 拆第 4 节的四个巨石（纯搬家，一次一个）；清已知 bug | **进行中**（2026-09-24 定：先做这个） |
-| B 多窗口 | 第 6 节：一个窗口一个文件夹，工作树在新窗口里开。**先写设计稿、过了再动工**；#41（关窗不退出）一起设计 | A 之后 |
+| A 整理 | 拆第 4 节的四个巨石（纯搬家，一次一个） | ✅ 2026-09-24（FileTree 的组件拆分留到改文件树时再做） |
+| B 多窗口 | 第 6 节：一个窗口一个文件夹，工作树在新窗口里开。**先写设计稿、过了再动工**；#41（关窗不退出）一起设计 | **下一步** |
 | 之后 | 跨文件替换 #42 · ⌘P 的 `@` / `:` #43 · 配置文件 #44 · AI 第一步 #45 · ACP 客户端 #46 · 开源门面 #47 · 通用任务运行 #48 | 各自按 issue 排 |
 
 每个阶段结束都照老规矩：`app:bundle` 真机验收、JOURNAL 记坑、入口包重量。
