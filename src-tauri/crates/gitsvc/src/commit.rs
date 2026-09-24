@@ -2,16 +2,6 @@
 
 use super::*;
 
-/// 给一次失败的 `git commit` 分档。
-///
-/// **只有两种能可靠认出来**，别的照旧原样透出去 —— 猜错的分类比不分类更害人：
-///
-/// - `nothing to commit` 是 git 自己说的（在 stdout 里），而且 `LC_ALL=C`
-///   保证了它不会被翻译成用户的语言，字符串是稳的。
-/// - 钩子拒绝**没有信号**，只能看形状：git 自己一句话都没说，而仓库里确实
-///   挂着一个可执行的 `pre-commit`。实测（2026-09-08）钩子拒绝时退出码 1、
-///   stdout 一个字都没有、stderr 全是钩子的输出；而 `nothing to commit`
-///   反过来 —— 话在 stdout 里，stderr 是空的。
 /// 提交路径上**有没有装钩子**。
 ///
 /// # 钩子在哪，由 git 说了算
@@ -56,6 +46,16 @@ fn commit_hook_installed(root: &Path) -> bool {
         })
 }
 
+/// 给一次失败的 `git commit` 分档。
+///
+/// **只有两种能可靠认出来**，别的照旧原样透出去 —— 猜错的分类比不分类更害人：
+///
+/// - `nothing to commit` 是 git 自己说的（在 stdout 里），而且 `LC_ALL=C`
+///   保证了它不会被翻译成用户的语言，字符串是稳的。
+/// - 钩子拒绝**没有信号**，只能看形状：git 自己一句话都没说，而仓库里确实
+///   挂着一个可执行的 `pre-commit`。实测（2026-09-08）钩子拒绝时退出码 1、
+///   stdout 一个字都没有、stderr 全是钩子的输出；而 `nothing to commit`
+///   反过来 —— 话在 stdout 里，stderr 是空的。
 fn classify_commit_failure(root: &Path, stdout: &str, stderr: &str) -> Error {
     /*
      * **顺序就是判据的强弱，不能换。**
