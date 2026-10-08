@@ -50,6 +50,7 @@ Java 服务日志。Chromium 的字符串模型决定了大文件要么卡死要
 | 索引内存 | **69.8 KB** | 每 1024 行一个 checkpoint；全量偏移要 69.7 MB |
 | 按级别过滤 | 86 ms | 45.6 万条命中 |
 | 常驻内存 | **152–158 MB** 起来时 · 开 12 个文件 207–259 MB | 4 个进程合计，我们自己那个只占 **32–38 MB**，其余是 WebKit。8 轮开关无泄漏 |
+| 每多一个窗口 | **+30–120 MB** | 一个项目一个窗口，每个窗口一个 WebKit 渲染进程；多少看开着什么（小文件 30–45 MB，大文件 105–122 MB），跟开了多久无关 |
 | 热启动 | **412–429 ms** | 进程起点到会话恢复完、画完；其中入口包只占 57ms |
 | 二进制 | 5.3 MB | `.dmg` 2.9 MB |
 
@@ -133,6 +134,7 @@ libgit2 静态链进来要多 2MB，整个 `.app` 现在才 4.9MB。
 | [BENCHMARK.md](docs/BENCHMARK.md) | 性能数字与实现陷阱 |
 | [JOURNAL.md](docs/JOURNAL.md) | 时间线上每一步的经过与取舍，含每个踩过的坑 |
 | [USAGE.md](docs/USAGE.md) | 怎么装、快捷键速查、两种模式的区别 |
+| [MULTIWINDOW.md](docs/MULTIWINDOW.md) | 多窗口的设计，以及动工前那次「用完即删」的实测推翻了哪两条假设 |
 | [RELEASE.md](docs/RELEASE.md) | 打包、产物在哪、怎么发版、CI 在做什么 |
 | [PLAN.md](PLAN.md) | 立项时的调研与产品方案（历史文档，已被 ARCHITECTURE 修正过） |
 | [UNINSTALL.md](UNINSTALL.md) | 怎么卸干净 |

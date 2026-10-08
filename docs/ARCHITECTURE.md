@@ -96,7 +96,7 @@ Java 专用的这些代码跟着 Java 语言包懒加载，经 CM6 的 `language
 ## 2. 系统架构
 
 ```
-┌─ WebView 进程（WKWebView，系统自带）──────────────────────┐
+┌─ WebView 进程（WKWebView，系统自带；每个窗口一个）─────────┐
 │  Svelte 5（runes 状态）                                    │
 │  ┌────────────────┐          ┌──────────────────────────┐ │
 │  │ 编辑模式        │          │ 日志模式（只读）           │ │
@@ -121,6 +121,18 @@ Java 专用的这些代码跟着 Java 语言包懒加载，经 CM6 的 `language
                           │ 子进程
                     rg  ·  zsh  ·  (M6 可选 lsp)
 ```
+
+**多窗口（2026-10-08，设计和全过程见 [MULTIWINDOW.md](MULTIWINDOW.md)）：一个项目一个原生窗口，
+每个窗口一个 WebView。** 前端状态天然按窗口隔开（每个 WebView 是独立的 JS 堆）；Rust 主进程只有一个，
+所以那边的东西要回答「属于谁」—— 只属于一个窗口的留在窗口里，多个窗口都要读写的只有一个主人（Rust）：
+
+| 在哪 | 管什么 |
+|---|---|
+| `state.rs` | 终端、日志句柄、文件监听、远程操作都记着 owner（窗口 label），窗口销毁时 `release_window` 只收它自己的 |
+| `windows.rs` | 窗口登记表：谁在前台、各自的项目根、每个窗口一个收件箱、各自的菜单状态、最近关掉的、「最近打开」名单；路由纯函数 `route`。**不依赖 Tauri，只做决定** |
+| `winctl.rs` | 动手：建窗口、`windows.json` 存盘、Dock 重开、没有窗口时的菜单、自己的「退出」（先让每个窗口 `flush` 再 `exit`） |
+| 前端 `listenHere` | 只收发给本窗口的事件 —— 裸 `listen` 默认目标是 `Any`，Rust 定了向它也照收 |
+| 前端 `persist` | 每个窗口写 `lite-ide.session:<项目根>`；全局那份不再写（升级时迁一次） |
 
 **为什么 logengine 要独立成 crate 且不依赖 Tauri：** 它是唯一需要 benchmark 和压力测试的模块。
 独立后可以 `cargo bench` 直接拿 1GB 测试文件跑，不用启动整个 app。这是能不能持续优化的前提。
@@ -323,10 +335,13 @@ lite-ide/
 └─ src-tauri/
    ├─ tauri.conf.json            # bundle id 固定 com.liteide.app（UNINSTALL.md 的前提）
    ├─ src/
-   │  ├─ main.rs / lib.rs        # lib.rs 里装小 runtime、建菜单、挂窗口材质
+   │  ├─ main.rs / lib.rs        # lib.rs 里装小 runtime、建菜单、挂窗口材质、窗口事件与退出事件的接线
    │  ├─ commands/               # #[tauri::command] 薄封装，不写业务逻辑；按领域分文件，DTO 在 dto.rs
    │  ├─ menu.rs                 # 菜单栏（keymap.ts 的一份拷贝，menu_sync 卡住）
-   │  └─ state.rs                # 句柄表：日志会话 / 过滤任务 / pty / 远程操作
+   │  ├─ open.rs                 # 系统送来的「打开这个文件」（Finder / Dock / open -a）：URL → 路径 → 路由
+   │  ├─ windows.rs              # 窗口登记表 + 路由（只做决定，不碰 Tauri，裸单测）
+   │  ├─ winctl.rs               # 建窗口、windows.json、Dock 重开、退出（动手的那一层）
+   │  └─ state.rs                # 句柄表：日志会话 / 过滤任务 / pty / 远程操作，每样都记着属于哪个窗口
    └─ crates/
       ├─ logengine/   ★          # index / mmap / reader / filter / level + benches
       ├─ applog/                 # 应用自己的运行日志（只记异常，2 份 × 2MB 封顶）
@@ -363,7 +378,7 @@ lite-ide/
 | `TabState` 类型、`underPath` | `state/tab.ts` | 类型 + 一个纯函数，`tests/tabs-under.test.ts` |
 | 标签表：开了哪些、哪个在前，加 / 删 / 找 / 「某路径底下」 / 不变量自检 | `state/tabs.svelte.ts` | 打开 / 关闭 / 保存的流程还在 App，各自调这里的原语 |
 | 文档生命周期：保存、外部改动、冲突裁决、草稿回写、光标位置、编辑器的两个口子 | `state/docs.svelte.ts` | 判据在 `doc.ts`（纯函数）；往外两个钩子 `afterSave` / `afterPos` 由 App 装 |
-| 项目根、最近打开、草稿目录 | `state/project.svelte.ts` | `root` 是读得最多的值，搬它是为了让打开文件那条流程能搬 |
+| 项目根、最近打开、草稿目录 | `state/project.svelte.ts` | `root` 是读得最多的值，搬它是为了让打开文件那条流程能搬。`recent` 只是 Rust 那份的副本（多窗口第 4 步） |
 | 打开 / 关闭（含「未保存怎么办」那一问）/ 切模式 | `state/tabflow.svelte.ts` | 三条确认横幅还在 App 的标记里，读这里的 `pendingClose` / `pendingSwitch` / `closeQueue`；第 5 步和 git 那几条一起合成一个组件 |
 | 盘上的东西被外部改了：`treeTick`、重读 + 重列、改名跟走、进废纸篓一并关 | `state/worktree.svelte.ts` | `afterFsChange` 还在 App（要刷 git，第 5 步） |
 | Git：仓库根 / 状态 / 忙、写操作的统一出口（占锁 · 进度 · 收口）、丢弃、提交、差异与合并标签 | `state/git.svelte.ts` | 三块互相调，放一个文件；`editorMarks` 那条 effect 还在 App |
@@ -371,7 +386,7 @@ lite-ide/
 | 拉取与推送：进度、取消、分岔决策、推送确认、失败提示 | `state/remote.svelte.ts` | 往外一个钩子 `warmUi`（先把 Git 那组懒组件拉起来，确认条在里面） |
 | 内容区顶上的全部确认横幅（七条 + 远程三条） | `shell/Confirms.svelte` | 读各自 store 的 `pending*`，按钮直接调 store；`RemoteBars` 以组件类型传进来 |
 | 跳转与跳转历史、给编辑器的「跳到某行」信号 | `state/nav.svelte.ts` | |
-| 会话快照的时机：启动恢复、防抖落盘、退出补写、脏标签定期落盘 | `state/persist.svelte.ts` | `saved` 在模块初始化时同步读一次；格式在 `session.ts` |
+| 会话快照的时机：启动恢复、防抖落盘、退出补写、脏标签定期落盘、升级迁移、清理 | `state/persist.svelte.ts` | 每个窗口写自己那份（`session.keyFor`）；首屏布局在模块初始化时从 `lite-ide.layout` 同步读；格式在 `session.ts` |
 | 五个浮层的开合 | `state/overlay.svelte.ts` | 开它们的人散在六处，所以是 store 不是组件状态 |
 | 语言识别表（懒拉） | `state/lang.svelte.ts` | 状态栏 / 内容区 / 大纲三处直接读 |
 | 内容区：四种视图 + 起点卡片 | `shell/Content.svelte` | `Merge` / `Diff` 以组件类型传进来 |
@@ -454,7 +469,9 @@ lite-ide/
 | 内存：起来（恢复 1 标签 + 1 终端，四个进程合计） | **< 200MB**，2026-09-18 实测 **152–158MB** | 650MB+ |
 | 内存：开 12 个文件 | **< 300MB**，实测峰值 207–259MB；关完回到 178–195 | — |
 | 内存：开关 12 个文件 × 8 轮，关完序列的斜率 | **≈ 0**（无线性泄漏），实测 −2.4MB/轮、R² 0.14 | — |
-| 进程数（实测 4） | ≤ 5 ✅ | 23+ |
+| 进程数（一个窗口实测 4） | 3 + 窗口数（每个窗口一个 WebContent） | 23+ |
+| 内存：每多一个窗口 | **< 150MB**，2026-10-08 实测：开着大文件时新窗口的 WebContent 105–122MB，只开小文件 30–45MB。**跟开着什么走，跟开了多久无关**（10 秒 / 70 秒对照，MULTIWINDOW.md 第 5 节） | 每个窗口 200–400MB |
+| 内存：三个窗口都开大文件 | 实测 **509–512MB**（含 GPU 进程约 120MB —— 它跟着什么走还没查清） | — |
 | 打开 1GB 日志到首屏 | **< 1s** | 卡死 |
 | 1GB 日志滚动帧率 | **60fps** | 不可用 |
 | 1GB 日志常驻内存 | **< 200MB**（与文件大小无关） | 不可用 |
@@ -593,9 +610,9 @@ CSP 违规、Rust panic。保留策略与隐私边界写在 [UNINSTALL.md](../UN
 | 规则 | 原因 |
 |---|---|
 | npm 依赖一律进项目 `node_modules`，禁 `-g` | 卸载 = 删目录，零残留 |
-| 不建 LaunchAgent / 登录项 / 常驻进程 | 删了就干净 |
-| pty 与 rg 子进程必须随主窗口退出一并 kill | 防孤儿进程 |
-| 配置缓存只写 `com.liteide.app` 标准目录 | 卸载路径确定 |
+| 不建 LaunchAgent / 登录项 / 后台常驻进程（关掉最后一个窗口应用留在 Dock 上是 macOS 常规，⌘Q 就退） | 删了就干净 |
+| pty 与 rg 子进程必须随它所属的窗口关闭一并 kill（`state.rs::release_window`）；⌘Q 不经过窗口销毁，进程退出时内核收掉 pty | 防孤儿进程 |
+| 配置缓存只写 `com.liteide.app` 标准目录（窗口列表和「最近打开」在 `Application Support/…/windows.json`） | 卸载路径确定 |
 | bundle id 固定 `com.liteide.app`，永不改 | UNINSTALL.md 全部路径的前提 |
 | `rust-toolchain.toml` pin 版本 | 防 rustup update 后编译行为漂移 |
 | 前端入口包只放两种模式都要的东西 | CM6 核心约 340KB，静态引入会把入口从 71KB 顶到 412KB；日志模式用不上它，必须按需加载 |
@@ -675,7 +692,7 @@ Git 工具窗里的「控制台」标签（和「提交历史」并列；v1.0.0 
 | | |
 |---|---|
 | 记在哪 | **`run_capped_raw` 和 `remote::run_streaming` 各一处**，不在调用点 —— 同一条纪律写四遍就是迟早漏一遍（HARDENING 当初就是为此挪到 `git_cmd` 上的） |
-| 存在哪 | **只在内存**（`gitsvc::console` 的一个环，300 条封顶）。落 `app.log` 会破掉那边「只写异常」的规矩：一次状态刷新就是一条 |
+| 存在哪 | **只在内存**（`gitsvc::console` 的一个环，300 条封顶，整个进程一份；每个窗口只看、只清自己仓库的，`entries_under` / `clear_under`）。落 `app.log` 会破掉那边「只写异常」的规矩：一次状态刷新就是一条 |
 | 凭据 | `mask()`，**进环之前**打码。存原文再在展示时打码的话，凭据已经在进程内存里躺了一遍 |
 
 **记全部，不只记失败。** issue 里担心「全记会把失败的淹掉」，
