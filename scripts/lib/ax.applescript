@@ -100,7 +100,15 @@ on run argv
       -- 于是行上的焦点没了，⇧F10 打空，菜单不出来。
       -- 先在这儿激活，`keys` 那次就成了 no-op，焦点保得住。
       if act is "paste" or act is "rowfocus" or act is "focuskey" or act is "caretjump" then set frontmost to true
-      set w to window 1
+      -- 多窗口（2026-10-08）：默认找第 1 个窗口；设了 LITE_AX_WIN 就按标题找那一个。
+      -- smoke 的主窗口带着 LITE_IDE_ONTOP 永远在最上面，`window 1` 永远是它 ——
+      -- `open -a` 一个别的目录现在会开新窗口，不指名的话那个窗口里的东西一个都找不到
+      set wantWin to system attribute "LITE_AX_WIN"
+      if wantWin is "" then
+        set w to window 1
+      else
+        set w to window wantWin
+      end if
     end tell
   end tell
   delay 0.2

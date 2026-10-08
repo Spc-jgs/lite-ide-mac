@@ -432,3 +432,15 @@ export function serialize(s: Session, withDrafts = true): string {
     recentFiles: (s.recentFiles ?? []).slice(0, RECENT_FILES_MAX),
   });
 }
+
+/**
+ * 这份快照里有没有未保存的草稿。坏数据、读不出来一律当没有（同 `parse`，不抛）。
+ *
+ * 给 `persist` 的清理用（多窗口第 3 步提前补的一道闸，docs/MULTIWINDOW.md 4.1）：
+ * 每个窗口都按**自己内存里**的最近列表去清别的项目的快照，开两个窗口之后，
+ * A 会把 B 刚开的那个项目的快照当成「挤出去的」删掉 —— 连同里面没保存的内容。
+ * 带草稿的一律不删，是那条洞里唯一会丢东西的部分。
+ */
+export function hasDrafts(raw: string | null | undefined): boolean {
+  return parse(raw)?.tabs.some((t) => t.draft !== undefined) ?? false;
+}

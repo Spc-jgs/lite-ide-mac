@@ -286,6 +286,9 @@ export const watchRoot = (root: string) => invoke<void>("watch_root", { root }).
  */
 export const setWindowRoot = (root: string) => invoke<void>("set_window_root", { root }).catch(() => {});
 
+/** 回 Rust 退出前发来的 `flush`：「我存好了」。回不过去 Rust 等满 2 秒照样退 —— 吞掉 */
+export const quitReady = () => invoke<void>("quit_ready").catch(() => {});
+
 /**
  * 只收**发给这个窗口**的事件（多窗口第 2 步，docs/MULTIWINDOW.md 3.3）。
  *

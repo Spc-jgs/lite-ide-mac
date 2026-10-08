@@ -40,6 +40,7 @@
     watchRoot,
     setWindowRoot,
     listenHere,
+    quitReady,
     gitStage,
     gitUnstage,
     scratchDir,
@@ -479,17 +480,19 @@
   });
 
   /*
-   * 退出前补一次。
+   * 窗口关掉前补一次。
    *
-   * 防抖有 400ms 的窗口，而「移完光标马上 ⌘Q」正好落在里面 ——
-   * 那次移动就丢了。pagehide 比 beforeunload 可靠（Safari/WKWebView 上
-   * beforeunload 不一定触发），两个都挂上，写两次也无所谓。
+   * 防抖有 400ms 的窗口，而「移完光标马上关窗口」正好落在里面 —— 那次移动就丢了。
+   * **这条只管「关掉一个窗口」**：第 0 步实测关单个窗口时 pagehide 里的同步写能落盘；
+   * ⌘Q 时它**兜不住**（AppKit 的 `terminate:` 直接结束进程，pagehide 里写的一条都没留下）。
+   * 原来这里写的是「能兜住正常退出」，那是错的。⌘Q 走下面那条 `flush` 事件。
+   * pagehide 比 beforeunload 可靠（Safari/WKWebView 上 beforeunload 不一定触发），两个都挂上。
    */
   $effect(() => {
     const flush = () => {
       persist.flush();
-      // 退出时草稿多半写不完（IPC 回不来进程就没了），但发出去不亏：
-      // 写不完的那份已经在快照里 stash 住，下次启动 4 秒内补上
+      // 关窗口时草稿多半写不完（IPC 回不来窗口就没了），但发出去不亏：
+      // 写不完的那份已经在快照里 stash 住，下次打开 4 秒内补上
       void docs.autosaveSweep(true);
     };
     window.addEventListener("pagehide", flush);
@@ -498,6 +501,27 @@
       window.removeEventListener("pagehide", flush);
       window.removeEventListener("beforeunload", flush);
     };
+  });
+
+  /*
+   * ⌘Q 之前存好现场（多窗口第 3 步，docs/MULTIWINDOW.md 3.6）。
+   *
+   * 「退出」现在是我们自己的菜单项：Rust 先给每个窗口发 `flush`，等各自回 `quit_ready`
+   * （最多 2 秒）再退。所以这里**可以 await** —— 自动保存真的写完了再回话，
+   * 不像 pagehide 那样「发出去不亏」。失败也要回话：不回的话 Rust 会白等满 2 秒。
+   */
+  $effect(() => {
+    const reg = listenHere("flush", async () => {
+      try {
+        persist.flush();
+        await docs.autosaveSweep(true);
+      } catch {
+        /* 存不下也要放行退出 —— 快照里已经 stash 住的，下次启动会补上 */
+      } finally {
+        void quitReady();
+      }
+    }).catch(() => null);
+    return () => void reg.then((f) => f?.()).catch(() => {});
   });
 
 

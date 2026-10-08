@@ -43,10 +43,11 @@ pub fn paths_from_urls(urls: &[Url]) -> Vec<String> {
         .collect()
 }
 
-/// 把一批路径送到该去的窗口（issue #40 + 多窗口第 2 步）。
+/// 把一批路径送到该去的窗口（issue #40 + 多窗口第 2、3 步）。
 ///
 /// 往哪个窗口送由 `windows::route` 定（目录找开着它的窗口，文件找项目包含它的窗口，
-/// 都没有就给前台）；那个窗口的前端还没起来就先攒在它的收件箱里。
+/// 都没有就给前台）；那个窗口的前端还没起来就先攒在它的收件箱里；该开新窗口的
+/// （没开着的目录而前台已经有项目、或者一个窗口都没有）就开一个。
 /// 判目录要碰盘，所以在这儿做，登记表保持纯。
 pub fn deliver(app: &AppHandle, paths: Vec<String>) {
     use tauri::Manager;
@@ -60,10 +61,18 @@ pub fn deliver(app: &AppHandle, paths: Vec<String>) {
             (p, dir)
         })
         .collect();
-    let now = app.state::<crate::state::AppState>().windows.deliver(items);
-    for (label, paths) in now {
+    let d = app.state::<crate::state::AppState>().windows.deliver(items);
+    for (label, paths) in d.now {
         crate::diag!("open-paths → {label} {paths:?}");
         let _ = app.emit_to(label.as_str(), EVENT, &paths);
+    }
+    for paths in d.new {
+        // 一个目录一个窗口，那个目录就是它的项目；散文件合开一个没有项目的窗口
+        let root = match paths.as_slice() {
+            [p] if std::path::Path::new(p).is_dir() => Some(p.clone()),
+            _ => None,
+        };
+        crate::winctl::create(app, root, None, paths);
     }
 }
 

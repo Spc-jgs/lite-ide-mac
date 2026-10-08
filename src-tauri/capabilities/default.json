@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "主窗口能力集。只开实际用到的，不引入任何插件。",
-  "windows": ["main"],
+  "description": "窗口能力集。只开实际用到的，不引入任何插件。main 是启动时那个窗口，w-* 是之后开的（多窗口，docs/MULTIWINDOW.md 3.7）—— 同一套权限，没有给新窗口多开任何一项。",
+  "windows": ["main", "w-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging"

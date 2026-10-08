@@ -109,6 +109,12 @@ export const KEYS: KeyDef[] = [
   { id: "save-as", label: "另存为…", accel: "⇧⌘S", group: "文件", owner: "menu" },
   { id: "close-tab", label: "关闭标签", accel: "⌘W", group: "文件", owner: "menu" },
   { id: "close-all-tabs", label: "关闭所有标签", group: "文件", owner: "menu" },
+  /*
+   * 「退出」原来是 predefined 的，不在这张表里。多窗口第 3 步换成了自己的一项：
+   * predefined 那个走 AppKit 的 `terminate:`，前端来不及存现场（docs/MULTIWINDOW.md 3.6）。
+   * 在应用菜单（最左边那个）里，归「文件」组只是为了速查表和随处搜索里有个位置。
+   */
+  { id: "quit", label: "退出 lite-ide", accel: "⌘Q", group: "文件", owner: "menu" },
 
   // ── 导航 ──
   /*

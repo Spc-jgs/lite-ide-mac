@@ -18,5 +18,8 @@ export const appLogPath = () => invoke<string>("app_log_path");
 /** 清空应用日志（两份都清）。判据在 Rust 侧，前端只是按一下 */
 export const clearAppLog = () => invoke<void>("clear_app_log");
 
+/** 退出：和菜单栏的 ⌘Q 走同一条路（先让每个窗口存好现场，见 `winctl::quit`）。只有随处搜索用它 */
+export const requestQuit = () => invoke<void>("request_quit");
+
 /** 交给系统默认浏览器打开。Rust 侧只放行 http / https —— 见那边的注释 */
 export const openExternal = (url: string) => invoke<void>("open_external", { url });

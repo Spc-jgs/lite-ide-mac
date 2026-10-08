@@ -14,7 +14,7 @@
  * 它们是 `$state`，搬进普通模块就得改成另一套；通过 `MenuCtx` 回调过去。
  */
 import { probePath, diag } from "../ipc/commands";
-import { installCli, appLogPath, clearAppLog, openExternal } from "../ipc/app";
+import { installCli, appLogPath, clearAppLog, openExternal, requestQuit } from "../ipc/app";
 import { notify } from "../state/notify.svelte";
 import { layout } from "../state/layout.svelte";
 import { tabs } from "../state/tabs.svelte";
@@ -203,6 +203,8 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "help-repo": return void openRepoPage();
     case "help-log": return void openAppLog();
     case "help-log-clear": return void clearLog();
+    // 菜单栏上的「退出」Rust 自己接了，到不了这里；这条是随处搜索里点的（同一条路）
+    case "quit": return void requestQuit().catch(() => {});
     default:
       diag(`菜单项 ${id} 没有对应的处理`);
   }

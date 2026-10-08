@@ -325,7 +325,9 @@ class Persist {
       const stale: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (k && k.startsWith(prefix) && !keep.has(k)) stale.push(k);
+        // 带着未保存内容的不删：多窗口时 A 的最近列表里没有 B 刚开的项目，
+        // 不拦的话 A 一落盘就把 B 的草稿当成「挤出去的」删了（session.hasDrafts）
+        if (k && k.startsWith(prefix) && !keep.has(k) && !session.hasDrafts(localStorage.getItem(k))) stale.push(k);
       }
       for (const k of stale) localStorage.removeItem(k);
     } catch {
@@ -355,8 +357,9 @@ class Persist {
    *
    * 响应式那条 effect 订阅的是布局、标签、项目根 —— **打字不动其中任何一个**，
    * 所以光靠它，「改了半天一直没切标签也没退出」这个最该被记住的状态一次都不会存。
-   * 退出前的 pagehide 补写能兜住正常退出，但兜不住崩溃（Rust 侧是 panic = abort，
-   * 一个 panic 就是进程当场死，没有 pagehide）。
+   * ⌘Q 前有 `flush` 事件补写（App.svelte，多窗口第 3 步），关单个窗口有 pagehide，
+   * 但两条都兜不住崩溃（Rust 侧是 panic = abort，进程当场死）、也兜不住 Dock 右键「退出」
+   * 和注销关机（那几条直接走 AppKit 的 `terminate:`）—— 这个定时落盘是它们的退路。
    *
    * 只在真有脏标签时才动；`write` 里还有一道「和上次一模一样就不写」。
    */

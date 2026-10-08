@@ -10,6 +10,7 @@ import {
   MAX_DRAFTS_CHARS,
   RECENT_MAX,
   withoutTabs,
+  hasDrafts,
   type Session,
 } from "../src/lib/state/session.ts";
 
@@ -416,6 +417,14 @@ ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
   // splitRatio 夹在 0.2–0.8，坏值回默认
   ok(toLayout({ splitRatio: 0.05 }).splitRatio === 0.2 && toLayout({ splitRatio: 5 }).splitRatio === 0.8, "分隔线位置要夹");
   ok(toLayout({ splitRatio: "0.3" }).splitRatio === 0.5 && toLayout({ splitRatio: NaN }).splitRatio === 0.5, "坏的回 0.5");
+}
+
+// ── 清理快照时，带草稿的不删（多窗口第 3 步）──
+{
+  const base = { v: VERSION, root: "/proj", active: 0, layout: DEFAULT_LAYOUT, recent: [] };
+  ok(hasDrafts(JSON.stringify({ ...base, tabs: [{ path: "/proj/a" }, { path: "/proj/b", draft: "改了", stamp: { mtimeMs: 1, size: 1 } }] })), "有一个标签带草稿就算有");
+  ok(!hasDrafts(JSON.stringify({ ...base, tabs: [{ path: "/proj/a" }] })), "全是干净标签：可以删");
+  ok(!hasDrafts(null) && !hasDrafts("{坏") && !hasDrafts(JSON.stringify({ ...base, v: 999, tabs: [] })), "读不出来的不抛，当没有");
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} 会话快照：${pass} 通过，${fail} 失败`);

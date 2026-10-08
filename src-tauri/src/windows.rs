@@ -25,9 +25,87 @@
 //! 和「取走并标记就绪」在同一把锁下判，中间没有缝 —— 和原来那个全局的一样。
 //! 一个窗口都还没登记时送来的（冷启动时系统事件可能比 `setup` 早），先放进
 //! `orphans`，第一个来取的窗口一起拿走。
+//!
+//! # 第 3 步加的：位置、关掉的窗口、存盘（docs/MULTIWINDOW.md 3.5–3.8）
+//!
+//! 每个窗口记着位置和大小；用户关掉的窗口挪进 `closed`（点 Dock 图标时开回最近关的那个）。
+//! [`Windows::snapshot`] 给出要落盘的 [`Saved`]，`winctl.rs` 写进 `windows.json`。
+//! **随改随存，不等退出**：⌘Q 不经过窗口的生命周期（第 0 步实测），退出那一刻
+//! 没有任何钩子保证跑得完。
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
+
+/// 窗口的位置和大小，逻辑像素（换显示器缩放比也对得上）
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Frame {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// 落盘的一个窗口：开着哪个项目、在哪
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SavedWin {
+    pub root: Option<String>,
+    pub frame: Option<Frame>,
+}
+
+/// `windows.json` 的全部内容
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Saved {
+    pub v: u32,
+    /// 退出时开着的窗口，**最久没碰的在前、前台的在最后** —— 按这个顺序建，最后建的就在最前面
+    pub windows: Vec<SavedWin>,
+    /// 用户关掉的窗口，最近关的在前
+    pub closed: Vec<SavedWin>,
+}
+
+/// 格式版本。字段含义变了就 +1，读到不认识的版本整份当没有（同 session.ts 的 VERSION）
+pub const SAVED_VERSION: u32 = 1;
+/// 最多恢复几个窗口。防的是坏文件或循环里开窗口 —— 和 MAX_PTYS 一样是防跑飞的闸
+pub const MAX_RESTORE: usize = 12;
+/// 「最近关掉的」记几个
+const MAX_CLOSED: usize = 8;
+
+/// 读 `windows.json`。**任何坏数据都只当作没有，绝不 panic** —— 这在启动路径上，
+/// 抛一次应用就打不开，而用户没办法清掉那份坏文件。
+pub fn parse_saved(text: &str) -> Saved {
+    match serde_json::from_str::<Saved>(text) {
+        Ok(s) if s.v == SAVED_VERSION => s,
+        _ => Saved::default(),
+    }
+}
+
+/// 启动时开哪几个窗口（按建的顺序）。
+///
+/// - 上次退出时开着几个，就开回几个（封顶 [`MAX_RESTORE`]）；
+/// - 上次退出时一个都没开（全关掉之后才 ⌘Q），开回**最近关掉的那一个** ——
+///   和点 Dock 图标是同一个意思：「回到我上次在干的」；
+/// - 都没有：空，照今天的老路（第一个窗口自己恢复会话）。
+///
+/// **项目目录已经不在的跳过**（`exists` 由调用方判，要碰盘）：项目删了、挪了、
+/// 外接盘没插，开一个指着空目录的窗口只会让人去关它。没有项目的空窗口照常恢复。
+pub fn restore_plan(saved: &Saved, exists: impl Fn(&str) -> bool) -> Vec<SavedWin> {
+    let alive = |w: &&SavedWin| w.root.as_deref().is_none_or(&exists);
+    let windows: Vec<SavedWin> = saved.windows.iter().filter(alive).cloned().collect();
+    if !windows.is_empty() {
+        let n = windows.len();
+        return windows[n.saturating_sub(MAX_RESTORE)..].to_vec();
+    }
+    saved.closed.iter().find(alive).cloned().into_iter().collect()
+}
+
+/// `ExitRequested` 要不要拦（#41）。
+///
+/// 第 0 步实测：`code == None` **只**出现在「最后一个窗口被销毁」时 —— ⌘Q 根本不走
+/// `ExitRequested`，我们自己的「退出」调的是 `app.exit(0)`，带着 `Some(0)`。
+/// 所以 None 一律拦（应用留在 Dock 上），Some 一律放。
+pub fn should_prevent_exit(code: Option<i32>) -> bool {
+    code.is_none()
+}
 
 /// 菜单的可用状态（`sync_menu_state` 推过来的那六个开关）。
 /// 每个窗口各存一份，哪个窗口到前台就把它那份套到原生菜单上。
@@ -44,6 +122,7 @@ pub struct MenuState {
 #[derive(Default)]
 struct Win {
     root: Option<String>,
+    frame: Option<Frame>,
     /// 前端取过一次收件箱了没有：取过之后直接发事件
     ready: bool,
     inbox: Vec<String>,
@@ -55,6 +134,15 @@ struct Inner {
     wins: HashMap<String, Win>,
     mru: Vec<String>,
     orphans: Vec<String>,
+    closed: Vec<SavedWin>,
+    /// 下一个新窗口的编号。**只增不复用**：复用 label 的话，还没收拾干净的旧资源
+    /// （`release_window` 还在跑）会撞上新窗口
+    next: u32,
+    /// 正在退出：还没回话的窗口
+    quitting: Option<Vec<String>>,
+    /// 登记过窗口了没有。没有 = 还在冷启动、`setup` 都没跑到，这时送来的路径只能当孤儿等第一个窗口；
+    /// 有 = 窗口都被关掉了，该开新窗口。**不能拿「现在有没有窗口」判** —— 两种情况下都是零个
+    started: bool,
 }
 
 #[derive(Default)]
@@ -63,10 +151,19 @@ pub struct Windows {
 }
 
 /// 一条路径该去哪。
+/// [`Windows::deliver`] 的结果
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Delivery {
+    /// 现在就发：(窗口, 路径)
+    pub now: Vec<(String, Vec<String>)>,
+    /// 要开的新窗口，每个带着它该打开的路径
+    pub new: Vec<Vec<String>>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
     To(String),
-    /// 该开一个新窗口。第 3 步之前还建不了窗口，调用方退回前台窗口（= 今天的行为）
+    /// 该开一个新窗口
     New,
 }
 
@@ -123,6 +220,7 @@ impl Windows {
     /// 窗口建好了。新窗口排到最前面：它一出来就是前台
     pub fn register(&self, label: &str) {
         let mut g = self.lock();
+        g.started = true;
         g.wins.entry(label.to_string()).or_default();
         g.mru.retain(|l| l != label);
         g.mru.insert(0, label.to_string());
@@ -135,11 +233,118 @@ impl Windows {
         self.lock().wins.get(label).and_then(|w| w.menu)
     }
 
-    /// 窗口销毁。它收件箱里没来得及送出的路径一起丢掉（窗口都没了，没人看了）
+    /// 用户关掉了一个窗口：从登记表里拿掉，记进「最近关掉的」（点 Dock 图标时开回它）。
+    /// 它收件箱里没来得及送出的路径一起丢掉（窗口都没了，没人看了）。
+    ///
+    /// ⌘Q 不走这里（没有 `Destroyed`），所以退出时开着的窗口不会被当成「关掉的」。
     pub fn remove(&self, label: &str) {
         let mut g = self.lock();
-        g.wins.remove(label);
+        if let Some(w) = g.wins.remove(label) {
+            if w.root.is_some() || w.frame.is_some() {
+                let s = SavedWin { root: w.root, frame: w.frame };
+                g.closed.retain(|c| c.root != s.root);
+                g.closed.insert(0, s);
+                g.closed.truncate(MAX_CLOSED);
+            }
+        }
         g.mru.retain(|l| l != label);
+        if let Some(q) = g.quitting.as_mut() {
+            q.retain(|l| l != label);
+        }
+    }
+
+    /// 还开着几个窗口
+    pub fn len(&self) -> usize {
+        self.lock().wins.len()
+    }
+
+    /// 新窗口的 label：`w-1`、`w-2`……（第一个窗口是配置里的 `main`）
+    pub fn next_label(&self) -> String {
+        let mut g = self.lock();
+        g.next += 1;
+        format!("w-{}", g.next)
+    }
+
+    pub fn set_frame(&self, label: &str, f: Frame) {
+        if let Some(w) = self.lock().wins.get_mut(label) {
+            w.frame = Some(f);
+        }
+    }
+
+    pub fn frame(&self, label: &str) -> Option<Frame> {
+        self.lock().wins.get(label).and_then(|w| w.frame)
+    }
+
+    /// 取出最近关掉的那个（点 Dock 图标重开它）
+    pub fn take_closed(&self) -> Option<SavedWin> {
+        let mut g = self.lock();
+        if g.closed.is_empty() { None } else { Some(g.closed.remove(0)) }
+    }
+
+    /// 启动时把上次存的「最近关掉的」接回来；`taken` 是这次启动已经开回去的，从名单里去掉
+    pub fn load_closed(&self, closed: Vec<SavedWin>, taken: &[SavedWin]) {
+        let mut g = self.lock();
+        g.closed = closed.into_iter().filter(|c| !taken.iter().any(|t| t.root == c.root)).collect();
+        g.closed.truncate(MAX_CLOSED);
+    }
+
+    /// 要落盘的样子
+    pub fn snapshot(&self) -> Saved {
+        let g = self.lock();
+        let windows = g
+            .mru
+            .iter()
+            .rev()
+            .filter_map(|l| g.wins.get(l))
+            .map(|w| SavedWin { root: w.root.clone(), frame: w.frame })
+            .collect();
+        Saved { v: SAVED_VERSION, windows, closed: g.closed.clone() }
+    }
+
+    /// 直接往某个窗口送路径，不走路由（启动时恢复、新建窗口时用：目的地已经定了）。
+    /// 前端起来了就返回 true，调用方去发；没起来就攒进它的收件箱。
+    pub fn assign(&self, label: &str, paths: Vec<String>) -> bool {
+        let mut g = self.lock();
+        let w = g.wins.entry(label.to_string()).or_default();
+        if w.ready {
+            return true;
+        }
+        w.inbox.extend(paths);
+        false
+    }
+
+    /// 取走冷启动时攒下的孤儿（`setup` 登记完窗口之后重新路由用）
+    pub fn take_orphans(&self) -> Vec<String> {
+        std::mem::take(&mut self.lock().orphans)
+    }
+
+    /// 前端起来了没有（取过收件箱）
+    pub fn is_ready(&self, label: &str) -> bool {
+        self.lock().wins.get(label).is_some_and(|w| w.ready)
+    }
+
+    /// 开始退出。返回要等哪几个窗口回话（前端起来了的那些）；已经在退出了返回 None
+    /// —— 连按两下 ⌘Q 不该把流程跑两遍。
+    pub fn begin_quit(&self) -> Option<Vec<String>> {
+        let mut g = self.lock();
+        if g.quitting.is_some() {
+            return None;
+        }
+        let ready: Vec<String> = g.wins.iter().filter(|(_, w)| w.ready).map(|(l, _)| l.clone()).collect();
+        g.quitting = Some(ready.clone());
+        Some(ready)
+    }
+
+    /// 某个窗口说「我存好了」
+    pub fn quit_ack(&self, label: &str) {
+        if let Some(q) = self.lock().quitting.as_mut() {
+            q.retain(|l| l != label);
+        }
+    }
+
+    /// 还有几个窗口没回话
+    pub fn quit_pending(&self) -> usize {
+        self.lock().quitting.as_ref().map_or(0, Vec::len)
     }
 
     /// 前台窗口
@@ -177,42 +382,60 @@ impl Windows {
         out
     }
 
-    /// 送一批路径：每条按 [`route`] 找到窗口，那个窗口的前端起来了就交给调用方去发，
-    /// 没起来就攒进它的收件箱。返回「现在就该发」的 (label, 路径)。
+    /// 送一批路径：每条按 [`route`] 找到窗口，那个窗口的前端起来了就放进 `now` 交给调用方去发，
+    /// 没起来就攒进它的收件箱；该开新窗口的放进 `new`（每个目录一个窗口，散文件合进一个）。
     ///
     /// `items` 是 (路径, 是不是目录) —— 判目录要碰盘，由调用方做，这里保持纯。
-    pub fn deliver(&self, items: Vec<(String, bool)>) -> Vec<(String, Vec<String>)> {
+    pub fn deliver(&self, items: Vec<(String, bool)>) -> Delivery {
         let mut g = self.lock();
-        let mut now: Vec<(String, Vec<String>)> = Vec::new();
+        let mut out = Delivery::default();
+        let mut loose: Vec<String> = Vec::new();
         for (path, is_dir) in items {
-            let target = {
+            /*
+             * 还没登记过窗口 = 冷启动、`setup` 都没跑到（Finder 双击启动时 `Opened` 比 `setup` 早）。
+             * 这时路由什么都看不见，判出来一律是「开新窗口」—— 目录照那个判断走的话，
+             * 就会在 main 旁边多开一个窗口、main 自己空着（第 3 步真机验收撞见的）。
+             * 先全部攒着，`setup` 登记完、恢复完之后由 [`Windows::take_orphans`] 取出来重新路由。
+             */
+            if !g.started {
+                g.orphans.push(path);
+                continue;
+            }
+            let r = {
                 let wins: Vec<(&str, Option<&str>)> =
                     g.wins.iter().map(|(l, w)| (l.as_str(), w.root.as_deref())).collect();
                 let mru: Vec<&str> = g.mru.iter().map(String::as_str).collect();
-                match route(&path, is_dir, &wins, &mru) {
-                    Route::To(l) => Some(l),
-                    // 第 3 步之前建不了窗口：退回前台，和今天「在当前窗口里换项目」一样
-                    Route::New => mru.first().map(|s| s.to_string()),
-                }
+                route(&path, is_dir, &wins, &mru)
             };
-            let Some(label) = target else {
-                g.orphans.push(path);
-                continue;
+            let label = match r {
+                Route::To(l) => l,
+                Route::New if is_dir => {
+                    out.new.push(vec![path]);
+                    continue;
+                }
+                Route::New => {
+                    // 窗口都关了（#41）之后送来的散文件：合进一个新窗口
+                    loose.push(path);
+                    continue;
+                }
             };
             let Some(w) = g.wins.get_mut(&label) else {
                 g.orphans.push(path);
                 continue;
             };
             if w.ready {
-                match now.iter_mut().find(|(l, _)| *l == label) {
+                match out.now.iter_mut().find(|(l, _)| *l == label) {
                     Some((_, v)) => v.push(path),
-                    None => now.push((label, vec![path])),
+                    None => out.now.push((label, vec![path])),
                 }
             } else {
                 w.inbox.push(path);
             }
         }
-        now
+        if !loose.is_empty() {
+            out.new.push(loose);
+        }
+        out
     }
 }
 
@@ -274,11 +497,11 @@ mod tests {
     fn 没起来的窗口先攒_取走之后直接发() {
         let w = Windows::default();
         w.register("main");
-        assert!(w.deliver(vec![("/a.log".into(), false)]).is_empty(), "前端没起来：不该发");
+        assert!(w.deliver(vec![("/a.log".into(), false)]).now.is_empty(), "前端没起来：不该发");
         assert_eq!(w.take_inbox("main"), ["/a.log"], "取的时候一并拿走");
         assert!(w.take_inbox("main").is_empty(), "取过就空了");
         assert_eq!(
-            w.deliver(vec![("/b.log".into(), false)]),
+            w.deliver(vec![("/b.log".into(), false)]).now,
             [("main".to_string(), vec!["/b.log".to_string()])],
             "取过一次之后直接发"
         );
@@ -287,9 +510,24 @@ mod tests {
     #[test]
     fn 一个窗口都没登记时送来的_第一个来取的窗口拿走() {
         let w = Windows::default();
-        assert!(w.deliver(vec![("/a.log".into(), false)]).is_empty());
+        assert_eq!(w.deliver(vec![("/a.log".into(), false)]), Delivery::default(), "冷启动早于 setup：既不发也不开新窗口");
         w.register("main");
         assert_eq!(w.take_inbox("main"), ["/a.log"], "冷启动时系统事件比 setup 早，不能丢");
+    }
+
+    /*
+     * 第 3 步真机验收撞见的：Finder 双击一个目录冷启动，`Opened` 比 `setup` 早，
+     * 那时路由看不见任何窗口，判成「开新窗口」—— 结果 main 空着，旁边多开一个。
+     * 目录也得先攒着，等 setup 登记完再取出来重新路由。
+     */
+    #[test]
+    fn 冷启动时送来的目录_也先攒着_不开新窗口() {
+        let w = Windows::default();
+        assert_eq!(w.deliver(vec![("/p/a".into(), true)]), Delivery::default(), "setup 之前：不能开新窗口");
+        w.register("main");
+        assert_eq!(w.take_orphans(), ["/p/a"], "setup 之后取出来重新路由");
+        assert_eq!(w.deliver(vec![("/p/a".into(), true)]).new, Vec::<Vec<String>>::new(), "这时 main 是空的前台：进 main，不开新窗口");
+        assert_eq!(w.take_inbox("main"), ["/p/a"]);
     }
 
     #[test]
@@ -301,11 +539,9 @@ mod tests {
         w.set_root("w-1", Some("/p/b".into()));
         w.take_inbox("main");
         w.take_inbox("w-1");
-        let mut got = w.deliver(vec![
-            ("/p/a/1".into(), false),
-            ("/p/b/2".into(), false),
-            ("/p/a/3".into(), false),
-        ]);
+        let mut got = w
+            .deliver(vec![("/p/a/1".into(), false), ("/p/b/2".into(), false), ("/p/a/3".into(), false)])
+            .now;
         got.sort();
         assert_eq!(
             got,
@@ -339,5 +575,130 @@ mod tests {
         assert_eq!(w.front().as_deref(), Some("main"), "菜单事件要落到还活着的那个");
         w.remove("main");
         assert_eq!(w.front(), None);
+    }
+
+    // ── 第 3 步：开新窗口、关窗不退出、存盘、退出 ──
+
+    #[test]
+    fn 该开新窗口的_目录各开一个_散文件合开一个() {
+        let w = Windows::default();
+        w.register("main");
+        w.set_root("main", Some("/p/a".into()));
+        w.take_inbox("main");
+        let d = w.deliver(vec![("/p/b".into(), true), ("/p/c".into(), true)]);
+        assert_eq!(d.new, [vec!["/p/b".to_string()], vec!["/p/c".to_string()]], "前台有项目：每个没开着的目录一个新窗口");
+        assert!(d.now.is_empty());
+
+        // 窗口都关了（#41：应用还在 Dock 上）之后送来的散文件：合开一个窗口，不能当孤儿 ——
+        // 孤儿要等「下一个来取收件箱的窗口」，而这时候没有窗口会来
+        w.remove("main");
+        let d = w.deliver(vec![("/x.log".into(), false), ("/y.log".into(), false)]);
+        assert_eq!(d.new, [vec!["/x.log".to_string(), "/y.log".to_string()]]);
+    }
+
+    #[test]
+    fn 关窗不退出_只拦最后一个窗口没了的那种() {
+        assert!(should_prevent_exit(None), "最后一个窗口销毁：拦下，应用留在 Dock 上");
+        assert!(!should_prevent_exit(Some(0)), "我们自己的「退出」调的 app.exit(0)：放行");
+    }
+
+    #[test]
+    fn 关掉的窗口记下来_点dock时开回最近的那个() {
+        let w = Windows::default();
+        let f = Frame { x: 10.0, y: 20.0, w: 800.0, h: 600.0 };
+        for (l, r) in [("main", "/p/a"), ("w-1", "/p/b")] {
+            w.register(l);
+            w.set_root(l, Some(r.into()));
+            w.set_frame(l, f);
+        }
+        w.remove("main");
+        w.remove("w-1");
+        assert_eq!(w.len(), 0);
+        assert_eq!(w.take_closed().and_then(|s| s.root).as_deref(), Some("/p/b"), "最近关的在前");
+        assert_eq!(w.take_closed().and_then(|s| s.root).as_deref(), Some("/p/a"));
+        assert!(w.take_closed().is_none());
+    }
+
+    #[test]
+    fn 同一个项目关两次只记一条() {
+        let w = Windows::default();
+        for l in ["main", "w-1"] {
+            w.register(l);
+            w.set_root(l, Some("/p/a".into()));
+            w.remove(l);
+        }
+        assert_eq!(w.snapshot().closed.len(), 1, "不然 Dock 点两下开回同一个项目两次");
+    }
+
+    #[test]
+    fn 存盘的顺序_最久没碰的在前_前台的在最后() {
+        let w = Windows::default();
+        for (l, r) in [("main", "/p/a"), ("w-1", "/p/b"), ("w-2", "/p/c")] {
+            w.register(l);
+            w.set_root(l, Some(r.into()));
+        }
+        w.focus("main");
+        let roots: Vec<_> = w.snapshot().windows.into_iter().map(|s| s.root.unwrap()).collect();
+        assert_eq!(roots, ["/p/b", "/p/c", "/p/a"], "按这个顺序建，最后建的 main 那个项目落在最前面");
+    }
+
+    #[test]
+    fn 坏的windows_json一律当没有() {
+        for bad in ["", "{", "null", "[]", r#"{"v":99,"windows":[],"closed":[]}"#, r#"{"v":1,"windows":"x"}"#] {
+            assert_eq!(parse_saved(bad), Saved::default(), "{bad:?}");
+        }
+        let good = Saved {
+            v: SAVED_VERSION,
+            windows: vec![SavedWin { root: Some("/p/a".into()), frame: Some(Frame { x: 1.0, y: 2.0, w: 3.0, h: 4.0 }) }],
+            closed: vec![],
+        };
+        assert_eq!(parse_saved(&serde_json::to_string(&good).unwrap()), good, "写出去的要读得回来");
+    }
+
+    #[test]
+    fn 启动时开哪几个() {
+        let win = |r: &str| SavedWin { root: Some(r.into()), frame: None };
+        let all = |_: &str| true;
+        let s = Saved { v: 1, windows: vec![win("/a"), win("/b")], closed: vec![win("/c")] };
+        assert_eq!(restore_plan(&s, all), [win("/a"), win("/b")], "上次开着几个就开几个，顺序不变");
+
+        let s = Saved { v: 1, windows: vec![], closed: vec![win("/c"), win("/d")] };
+        assert_eq!(restore_plan(&s, all), [win("/c")], "全关掉之后才 ⌘Q 的：开回最近关的那一个");
+
+        assert!(restore_plan(&Saved::default(), all).is_empty(), "什么都没存：照老路");
+
+        let many = Saved { v: 1, windows: (0..30).map(|i| win(&format!("/{i}"))).collect(), closed: vec![] };
+        let plan = restore_plan(&many, all);
+        assert_eq!(plan.len(), MAX_RESTORE, "坏文件里写了 30 个窗口也只开这么多");
+        assert_eq!(plan.last().unwrap().root.as_deref(), Some("/29"), "留的是最近的那几个（前台在最后）");
+    }
+
+    #[test]
+    fn 项目目录没了的窗口不恢复() {
+        let win = |r: Option<&str>| SavedWin { root: r.map(Into::into), frame: None };
+        let gone = |r: &str| r != "/deleted";
+        let s = Saved { v: 1, windows: vec![win(Some("/deleted")), win(Some("/b")), win(None)], closed: vec![] };
+        assert_eq!(restore_plan(&s, gone), [win(Some("/b")), win(None)], "删掉的项目跳过；没有项目的空窗口照常回来");
+
+        let s = Saved { v: 1, windows: vec![win(Some("/deleted"))], closed: vec![win(Some("/deleted")), win(Some("/c"))] };
+        assert_eq!(restore_plan(&s, gone), [win(Some("/c"))], "开着的全没了：退到最近关的、还在的那个");
+    }
+
+    #[test]
+    fn 退出_等前端起来了的窗口回话_连按两下不重来() {
+        let w = Windows::default();
+        w.register("main");
+        w.register("w-1");
+        w.register("w-2");
+        w.take_inbox("main");
+        w.take_inbox("w-1"); // w-2 的前端还没起来：等它也等不来回话
+        let mut wait = w.begin_quit().unwrap();
+        wait.sort();
+        assert_eq!(wait, ["main", "w-1"]);
+        assert!(w.begin_quit().is_none(), "连按两下 ⌘Q：流程不该跑两遍");
+        w.quit_ack("main");
+        assert_eq!(w.quit_pending(), 1);
+        w.remove("w-1");
+        assert_eq!(w.quit_pending(), 0, "等着的窗口自己关掉了：不能一直等它");
     }
 }

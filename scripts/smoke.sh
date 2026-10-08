@@ -86,6 +86,13 @@ FIX="$(mktemp -d /tmp/lite-ide-smoke.XXXXXX)"
 WORK="$(mktemp -d /tmp/lite-ide-smoke-work.XXXXXX)"
 LOG="$WORK/app.log"
 CLIP="$WORK/clipboard.bak"
+# 开着哪些窗口（多窗口第 3 步起应用随改随存，下次启动照着开回来）。这个脚本用的是你真实的
+# .app 和数据，不还原的话，下次双击会多出一个窗口，指着这里早就删掉的临时仓库
+WINJSON="${HOME}/Library/Application Support/com.liteide.app/windows.json"
+WINBAK="$WORK/windows.json.bak"
+# 备份那一步跑过没有。cleanup 比备份先挂上：没跑到备份就退出（比如找不到 .app）时，
+# 「没有备份文件」不等于「本来就没有 windows.json」，那时一个字节都不能动它
+WINSAVED=0
 AXLIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/ax.applescript"
 PASS=0; FAIL=0
 
@@ -110,6 +117,11 @@ note() { printf '  \033[33m•\033[0m %s\n' "$1"; }
 
 cleanup() {
   pkill -f "MacOS/lite-ide" 2>/dev/null
+  # 等它真的退了再还原 windows.json —— 它退出时（RunEvent::Exit）还会补存一次，晚到的那次会把还原盖掉
+  for _ in $(seq 1 20); do pgrep -f "MacOS/lite-ide" >/dev/null || break; sleep 0.25; done
+  if [ "$WINSAVED" = 1 ]; then
+    if [ -f "$WINBAK" ]; then cp "$WINBAK" "$WINJSON"; else rm -f "$WINJSON"; fi
+  fi
   # 剪贴板是用户的东西，借来用完要还
   [ -f "$CLIP" ] && pbcopy < "$CLIP"
   # 前台应用同理。敲键盘那十来次会把焦点抢过来，跑完要放回原处 ——
@@ -257,6 +269,8 @@ open_from_tree() {
 
 [ -x "$APP" ] || { echo "找不到 .app —— 先跑 pnpm app:bundle"; exit 2; }
 pbpaste > "$CLIP" 2>/dev/null
+[ -f "$WINJSON" ] && cp "$WINJSON" "$WINBAK"
+WINSAVED=1
 PREV_APP=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null)
 echo "跑之前的前台应用是「${PREV_APP:-未知}」，跑完会还回去"
 echo "（只有敲快捷键的那十来步会占用键盘，其余步骤不抢焦点，可以继续用电脑）"
@@ -1043,6 +1057,15 @@ printf '*.txt filter=evil\n' > "${TRAP}/.gitattributes"
 printf 'bait\n' > "${TRAP}/bait.txt"
 rm -f "${PWNED}"
 open -a "${APP_BUNDLE}" "${TRAP}"
+# 多窗口第 3 步起：主窗口已经开着一个项目，再送一个目录进来是**开新窗口**，不是在原窗口里换项目。
+# 窗口标题是项目名，下面的 AX 调用都按这个名字去那个窗口里找（ax.applescript 的 LITE_AX_WIN）
+TRAPWIN=$(basename "${TRAP}")
+for _ in $(seq 1 20); do
+  osascript -e "tell application \"System Events\" to tell process \"lite-ide\" to exists window \"${TRAPWIN}\"" 2>/dev/null | grep -q true && break
+  sleep 0.5
+done
+check "$(osascript -e 'tell application "System Events" to tell process "lite-ide" to count windows' 2>/dev/null)" "2" "送来另一个目录：开了新窗口（不是在原窗口里换项目）"
+export LITE_AX_WIN="${TRAPWIN}"
 if wait_has AXButton "Git 未启用" 10; then
   ok "受限：挂件写着「Git 未启用」"
   [ ! -e "${PWNED}" ] && ok "config 里那条命令没被执行" || bad "config 里的命令被执行了 —— 白名单没拦住"
@@ -1059,6 +1082,10 @@ if wait_has AXButton "Git 未启用" 10; then
 else
   bad "有可疑 config 的仓库没进受限（挂件上没有「Git 未启用」）"
 fi
+unset LITE_AX_WIN
+# 关掉这个窗口：后面几段（菜单「关闭所有标签」、编辑器实例计数）都默认只有主窗口
+osascript -e "tell application \"System Events\" to tell process \"lite-ide\" to click (first button of window \"${TRAPWIN}\" whose subrole is \"AXCloseButton\")" >/dev/null 2>&1
+sleep 1
 # 信任记在 app data 的 trust.json 里，fixture 路径每次都新，不会污染下一次
 
 say "⑪ 界面自己有没有报错"

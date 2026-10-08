@@ -250,8 +250,12 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .build()?;
 
     /*
-     * 应用菜单（最左边）走 predefined：`about` / `services` / `quit`
+     * 应用菜单（最左边）走 predefined：`about` / `services` / `hide`
      * 各自挂着系统行为，自己拼一个的话「服务」「隐藏其他」会全没。
+     *
+     * **「退出」例外，是我们自己的一项**（多窗口第 3 步）。predefined 的退出走 AppKit 的
+     * `terminate:`，进程直接结束，前端没有机会落盘 —— 第 0 步实测 ⌘Q 前最后几秒的输入会丢。
+     * 自己的这项先让每个窗口存好现场再退（`winctl::quit`）。
      */
     let app_menu = SubmenuBuilder::new(app, "lite-ide")
         .about_with_text("关于 lite-ide", None)
@@ -261,7 +265,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .hide_with_text("隐藏 lite-ide")
         .hide_others_with_text("隐藏其他")
         .separator()
-        .quit_with_text("退出 lite-ide")
+        .item(&item(app, "quit", "退出 lite-ide", Some("CmdOrCtrl+Q"))?)
         .build()?;
 
     let menu = MenuBuilder::new(app)

@@ -6,6 +6,7 @@ mod open;
 mod state;
 mod trust_store;
 mod windows;
+mod winctl;
 
 /// 把 Tauri 的 async runtime 换成一个小的。
 ///
@@ -71,13 +72,18 @@ pub fn run() {
         .on_menu_event(|app, event| {
             use tauri::{Emitter, Manager};
             let id = event.id().0.as_str();
+            // 「退出」是第二个在 Rust 侧处理的：要先让每个窗口存好现场再退（winctl::quit）
+            if id == "quit" {
+                winctl::quit(app);
+                return;
+            }
             // 只发给前台窗口（多窗口第 2 步）。原来是广播：两个窗口时在 A 里按 ⌘S，B 也保存。
-            // 一个窗口都没有时没人接 —— 第 3 步之前不会发生（最后一个窗口关了进程就退了）
+            // 一个窗口都没有时（#41：关掉最后一个窗口应用还在）由 Rust 自己接能接的那几项
             match app.state::<state::AppState>().windows.front() {
                 Some(label) => {
                     let _ = app.emit_to(label.as_str(), "menu", id);
                 }
-                None => crate::diag!("菜单 {id}：没有窗口可以接"),
+                None => winctl::menu_without_window(app, id),
             }
         })
         .on_window_event(|window, event| {
@@ -89,6 +95,15 @@ pub fn run() {
                 tauri::WindowEvent::Destroyed => {
                     st.release_window(window.label());
                     st.windows.remove(window.label());
+                    winctl::save_soon();
+                    // 最后一个窗口没了：前端都没了，没人再同步菜单状态 —— 要靠窗口的项全灰掉
+                    // （#41 那条）。「打开文件夹」「新建草稿」不在这些组里，照样能点
+                    if st.windows.len() == 0 {
+                        menu::apply(window.app_handle(), windows::MenuState::default());
+                    }
+                }
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                    winctl::track(window.app_handle(), window);
                 }
                 // 到前台了：菜单事件改发给它，原生菜单的可用状态换成它存着的那份
                 // （前端自己不知道什么时候「到前台」了，等它推会慢一拍或者根本不来）
@@ -96,6 +111,8 @@ pub fn run() {
                     if let Some(m) = st.windows.focus(window.label()) {
                         menu::apply(window.app_handle(), m);
                     }
+                    // 前台换了：落盘的窗口顺序跟着变（下次启动最后建的那个在最前面）
+                    winctl::save_soon();
                 }
                 _ => {}
             }
@@ -141,10 +158,17 @@ pub fn run() {
              */
             let st = app.state::<state::AppState>();
             st.windows.register("main");
-            let args: Vec<String> = std::env::args()
+            winctl::start_saver(app.handle());
+            // 上次退出时开着的窗口开回来（多窗口第 3 步）。要在送 argv 之前：
+            // 恢复出来的窗口先报上项目根，argv 里的目录才路由得对（已经开着就不再开一个）
+            winctl::restore_at_launch(app.handle());
+            let mut args: Vec<String> = std::env::args()
                 .skip(1)
                 .filter(|a| !a.starts_with('-') && std::path::Path::new(a).exists())
                 .collect();
+            // 冷启动时比 setup 早到的系统事件（Finder 双击启动）攒成了孤儿：
+            // 现在窗口登记完、恢复完了，各自的项目根都知道，和 argv 一起重新路由
+            args.extend(st.windows.take_orphans());
             open::deliver(app.handle(), args);
 
             if let Some(w) = app.get_webview_window("main") {
@@ -200,6 +224,8 @@ pub fn run() {
             commands::close_log,
             commands::initial_paths,
             commands::set_window_root,
+            commands::quit_ready,
+            commands::request_quit,
             commands::list_project_files,
             commands::grep_project,
             commands::git_root,
@@ -266,13 +292,24 @@ pub fn run() {
          * 冷启动和已在运行都走它 —— 读 `argv` 一条都接不到。按窗口路由，
          * 那个窗口的前端没就绪时先攒在它的收件箱里；细节见 `open.rs` / `windows.rs`。
          */
-        .run(|app, event| {
+        .run(|app, event| match event {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = event {
-                open::deliver(app, open::paths_from_urls(&urls));
+            tauri::RunEvent::Opened { urls } => open::deliver(app, open::paths_from_urls(&urls)),
+            /*
+             * 关掉最后一个窗口不退出（#41）。第 0 步实测：`code == None` 只来自「最后一个窗口
+             * 被销毁」；⌘Q 走我们自己的「退出」→ `app.exit(0)`，带着 `Some(0)`，放行。
+             */
+            tauri::RunEvent::ExitRequested { code, api, .. } => {
+                if windows::should_prevent_exit(code) {
+                    api.prevent_exit();
+                }
             }
-            #[cfg(not(target_os = "macos"))]
-            let _ = (app, event);
+            // 点 Dock 图标，而且一个看得见的窗口都没有：开回最近关掉的那个
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { has_visible_windows: false, .. } => winctl::reopen(app),
+            // 不管从哪条路退出（Dock 右键退出、注销也走这里），最后补存一次窗口位置
+            tauri::RunEvent::Exit => winctl::save_now(app),
+            _ => {}
         });
 }
 

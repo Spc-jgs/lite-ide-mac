@@ -578,6 +578,20 @@ logicalHeightForGridItem → 一路 layout 到底`；粘了 2000 行日志的草
 `keyboardSetUnicodeString` + `post(tap: .cghidEventTap)`，每键之间 `sleep` 12ms。
 smoke.sh 只关心对错不关心时长，它用 `keystroke` 没问题。
 
+## 验多窗口、Dock、`open -a`：用临时身份的 `.app`（2026-10-08）
+
+Dock 重开（`RunEvent::Reopen`）、`open -a` 送文件（`Opened`）只有注册过的 `.app` 收得到，裸二进制验不了；
+而你的 `.app` 用的是真实数据（会话快照、`windows.json`），测试开出来的窗口下次会被恢复出来。做法：
+
+```bash
+pnpm tauri build --bundles app --config '{"identifier":"com.liteide.mwtest","productName":"lite-ide-mwtest"}'
+```
+
+身份不同，WebKit / Application Support / Logs 全是另一套目录；System Events 用
+`first process whose bundle identifier is "com.liteide.mwtest"` 找它。验完删数据目录、
+`lsregister -u` 再删 `.app`（盘上只留一份 `.app` 那条）。**跑之前先清它的数据目录**：
+上一轮中途崩了留下的 `windows.json` 会被这一轮恢复出来，看着像 bug。
+
 ## 驱动真 `.app` 的两个坑（2026-09-17）
 
 - **别用 `tell application "lite-ide" to activate`。** 它按名字找的是 bundle 里那份 `.app`，

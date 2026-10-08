@@ -410,5 +410,25 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   ok((await disk(t.path)).endsWith("另存为之前打的"), "面板关了之后照常离开就存");
 }
 
+// ── 清理别的项目的快照：带未保存内容的不删（多窗口第 3 步，docs/MULTIWINDOW.md 4.1）──
+// 每个窗口按自己内存里的最近列表清别人的快照；开两个窗口时 A 的列表里没有 B 刚开的项目，
+// 不拦的话 A 一落盘，B 那份连同草稿就没了。这里模拟「B 的快照」：不在本窗口的最近列表里
+{
+  const { VERSION, DEFAULT_LAYOUT } = await import("../src/lib/state/session");
+  const snap = (root: string, draft: boolean) =>
+    JSON.stringify({
+      v: VERSION, root, active: 0, layout: DEFAULT_LAYOUT, recent: [],
+      tabs: [{ path: `${root}/a.txt`, ...(draft ? { draft: "没保存的", stamp: { mtimeMs: 1, size: 1 } } : {}) }],
+    });
+  localStorage.setItem("lite-ide.session:/other-dirty", snap("/other-dirty", true));
+  localStorage.setItem("lite-ide.session:/other-clean", snap("/other-clean", false));
+  project.recent = [];
+  persist.restoring = false;
+  persist.flush();
+  ok(localStorage.getItem("lite-ide.session:/other-dirty") !== null, "别的项目的快照里有没保存的内容：不能删");
+  ok(localStorage.getItem("lite-ide.session:/other-clean") === null, "干净的照旧清掉（最近列表封顶 8 份快照的规矩不变）");
+  persist.restoring = true;
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

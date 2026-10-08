@@ -62,7 +62,22 @@ pub fn initial_paths(window: tauri::Window, state: State<'_, AppState>) -> Vec<S
 /// （会话恢复、⌘O、关闭项目都在那边改它），所以由前端在它变的时候报过来。
 #[tauri::command]
 pub fn set_window_root(window: tauri::Window, root: String, state: State<'_, AppState>) {
+    crate::winctl::set_title(&window, Some(root.as_str()).filter(|r| !r.is_empty()));
     state.windows.set_root(window.label(), Some(root));
+    // 下次启动按这个开回来（windows.json）
+    crate::winctl::save_soon();
+}
+
+/// 前端说「我存好了」—— 回的是退出前发给它的 `flush`（`winctl::quit`）
+#[tauri::command]
+pub fn quit_ready(window: tauri::Window, state: State<'_, AppState>) {
+    state.windows.quit_ack(window.label());
+}
+
+/// 从随处搜索里点「退出」：和菜单栏的 ⌘Q 走同一条路
+#[tauri::command]
+pub fn request_quit(app: tauri::AppHandle) {
+    crate::winctl::quit(&app);
 }
 
 /// 前端把执行轨迹与 JS 错误报回来。release 没有 devtools，
