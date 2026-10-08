@@ -213,9 +213,15 @@ pub async fn write_text(
 /// 事件在监听线程上 emit，Tauri 的 emit 是线程安全的、不阻塞。
 /// 防抖和合并在 `fsservice::watch` 里，这儿只负责接线。
 #[tauri::command]
-pub fn watch_root(app: tauri::AppHandle, state: tauri::State<AppState>, root: String) -> Result<(), String> {
+pub fn watch_root(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<AppState>,
+    root: String,
+) -> Result<(), String> {
+    // 每个窗口一个监听：换的是**这个窗口**的，别的窗口的不动（docs/MULTIWINDOW.md 3.2）
     if root.is_empty() {
-        state.set_watch(None);
+        state.set_watch(window.label(), None);
         return Ok(());
     }
     let w = fsservice::watch::watch(&root, move |c| {
@@ -226,6 +232,6 @@ pub fn watch_root(app: tauri::AppHandle, state: tauri::State<AppState>, root: St
         };
         let _ = app.emit("fs-changed", kind);
     })?;
-    state.set_watch(Some(w));
+    state.set_watch(window.label(), Some(w));
     Ok(())
 }

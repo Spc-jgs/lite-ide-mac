@@ -73,10 +73,11 @@ pub fn run() {
             let _ = app.emit("menu", id);
         })
         .on_window_event(|window, event| {
-            // 窗口关了，终端必须跟着走 —— 否则留下孤儿 zsh 常驻
+            // 窗口关了，它名下的终端、日志句柄、监听、远程操作跟着走 —— 否则留下孤儿 zsh 常驻。
+            // 只收**这个窗口**的：别的窗口的终端里可能正跑着 gradle（docs/MULTIWINDOW.md 3.2）
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 use tauri::Manager;
-                window.state::<state::AppState>().kill_all_ptys();
+                window.state::<state::AppState>().release_window(window.label());
             }
         })
         .setup(|app| {

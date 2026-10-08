@@ -4,7 +4,7 @@ use super::*;
 
 /// 打开日志文件。mmap 是 O(1) 的，此调用不读盘，立即返回。
 #[tauri::command]
-pub fn open_log(path: String, state: State<'_, AppState>) -> Result<OpenResult, String> {
+pub fn open_log(path: String, window: tauri::Window, state: State<'_, AppState>) -> Result<OpenResult, String> {
     crate::diag!("open_log path={path}");
     let file = LogFile::open(&path).map_err(|e| format!("打不开 {path}：{e}"))?;
     let name = std::path::Path::new(&path)
@@ -13,7 +13,7 @@ pub fn open_log(path: String, state: State<'_, AppState>) -> Result<OpenResult, 
         .unwrap_or_else(|| path.clone());
     let size = file.size();
     Ok(OpenResult {
-        handle: state.insert(file),
+        handle: state.insert(window.label(), file),
         name,
         size,
     })

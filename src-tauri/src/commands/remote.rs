@@ -63,12 +63,15 @@ pub async fn git_fetch(
     remote: String,
     op_id: u32,
     on_progress: tauri::ipc::Channel<ProgressDto>,
+    window: tauri::Window,
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<(), RemoteErrDto> {
     let id = op_id;
+    // op_id 是前端发的、每个窗口各数各的，所以按 (窗口, id) 登记
+    let owner = window.label().to_string();
     // 撞号就当场退，**不能 end_remote**：表里那条是别人的，划掉它
     // 等于把那个还在跑的操作的取消能力一起划掉
-    let Some(cancel) = state.begin_remote(id) else {
+    let Some(cancel) = state.begin_remote(&owner, id) else {
         return Err(busy_err_dto(id));
     };
     crate::diag!("git_fetch id={id} remote={remote}");
@@ -78,7 +81,7 @@ pub async fn git_fetch(
     .await;
     // end_remote 必须无论如何都跑到 —— 漏一次，那个 id 就永远留在表里，
     // 而 `git_cancel` 会对着一个早就结束的操作返回 true
-    state.end_remote(id);
+    state.end_remote(&owner, id);
     r.map_err(join_err_dto)?.map_err(to_err_dto)
 }
 
@@ -94,11 +97,13 @@ pub async fn git_push(
     set_upstream: bool,
     op_id: u32,
     on_progress: tauri::ipc::Channel<ProgressDto>,
+    window: tauri::Window,
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<(), RemoteErrDto> {
     let id = op_id;
+    let owner = window.label().to_string();
     // 同 git_fetch：撞号当场退，不碰表里那条
-    let Some(cancel) = state.begin_remote(id) else {
+    let Some(cancel) = state.begin_remote(&owner, id) else {
         return Err(busy_err_dto(id));
     };
     crate::diag!("git_push id={id} remote={remote} branch={branch} set_upstream={set_upstream}");
@@ -107,7 +112,7 @@ pub async fn git_push(
         gitsvc::remote::push(&root, &remote, &branch, opts, &cancel, &mut pump(&on_progress))
     })
     .await;
-    state.end_remote(id);
+    state.end_remote(&owner, id);
     r.map_err(join_err_dto)?.map_err(to_err_dto)
 }
 
@@ -145,9 +150,9 @@ pub async fn git_merge_upstream(
 /// 而远程可能已经收完了 —— 一个点了之后状态不确定的取消按钮，
 /// 比没有按钮更糟。前端负责不显示那个按钮，这里不拦（拦了也只是重复一遍）。
 #[tauri::command]
-pub fn git_cancel(id: u32, state: tauri::State<'_, crate::state::AppState>) -> bool {
+pub fn git_cancel(id: u32, window: tauri::Window, state: tauri::State<'_, crate::state::AppState>) -> bool {
     crate::diag!("git_cancel id={id}");
-    state.cancel_remote(id)
+    state.cancel_remote(window.label(), id)
 }
 
 

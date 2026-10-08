@@ -12,6 +12,17 @@ paths:
 `src-tauri/build.rs` 里有 `cargo:rerun-if-changed=../dist`。少了它，
 改完前端重新构建，产物里嵌的还是旧的。
 
+## 进程级的资源要记着它属于哪个窗口（多窗口，2026-10-08）
+
+`AppState` 里的日志句柄、终端、文件监听、远程操作都登记了 `owner`（窗口 label），
+窗口 `Destroyed` 时 `release_window(label)` 只收那个窗口的。**以后再加一张「活的资源」表，
+照同一个形状：登记时记 owner、`release_window` 里加一段、`state.rs` 里那条
+「关掉一个窗口只收它自己的东西」加一组断言。**
+
+owner 从命令参数里的 `window: tauri::Window` 取（Tauri 注入，前端不用传、也传不错）。
+id 由前端发的表（远程操作）要按 `(owner, id)` 记 —— 每个窗口都从 1 数起。
+⌘Q 不经过 `Destroyed`（docs/MULTIWINDOW.md 3.6），别指望在那里做退出时的收尾。
+
 ## 命令层不写业务
 
 `src-tauri/src/commands/`（按领域分文件，2026-09-24 从一个 `commands.rs` 拆开）只做三件事：解包参数、查句柄、转错误。

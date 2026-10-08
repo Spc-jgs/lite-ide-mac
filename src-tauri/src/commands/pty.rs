@@ -26,6 +26,7 @@ pub fn pty_spawn(
     cols: u16,
     rows: u16,
     on_data: tauri::ipc::Channel<Vec<u8>>,
+    window: tauri::Window,
     state: State<'_, AppState>,
 ) -> Result<u32, String> {
     use std::io::Read;
@@ -34,7 +35,8 @@ pub fn pty_spawn(
         ptysvc::Session::spawn(&cwd, cols, rows).map_err(|e| format!("终端起不来：{e}"))?;
     // 满了就拒绝。`sess` 在这儿 drop 掉 —— Session::drop 会 kill 那个 zsh，
     // 所以刚起的这个不会变成孤儿（UNINSTALL.md 的承诺）
-    let (id, flow) = state.insert_pty(sess)?;
+    // 记在发起调用的窗口名下：那个窗口关掉时只杀它自己的终端
+    let (id, flow) = state.insert_pty(window.label(), sess)?;
     crate::diag!("pty_spawn id={id} cwd={cwd}");
 
     std::thread::Builder::new()
