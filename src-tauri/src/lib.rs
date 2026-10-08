@@ -81,6 +81,8 @@ pub fn run() {
             // 一个窗口都没有时（#41：关掉最后一个窗口应用还在）由 Rust 自己接能接的那几项
             match app.state::<state::AppState>().windows.front() {
                 Some(label) => {
+                    // 发给了谁：多窗口验收要靠这一行看「在 A 里按 ⌘S，只有 A 收到」
+                    crate::diag!("menu {id} → {label}");
                     let _ = app.emit_to(label.as_str(), "menu", id);
                 }
                 None => winctl::menu_without_window(app, id),

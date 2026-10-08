@@ -232,6 +232,7 @@ pub fn watch_root(
             fsservice::watch::Change::Files => "files",
         };
         // 只发给开着这个项目的窗口（多窗口第 2 步）：别的窗口收到也只是白刷一遍
+        crate::diag!("fs-changed {kind} → {label}");
         let _ = app.emit_to(label.as_str(), "fs-changed", kind);
     })?;
     state.set_watch(window.label(), Some(w));

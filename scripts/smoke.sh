@@ -1107,6 +1107,40 @@ osascript -e "tell application \"System Events\" to tell process \"lite-ide\" to
 sleep 1
 # 信任记在 app data 的 trust.json 里，fixture 路径每次都新，不会污染下一次
 
+say "⑲ 两个窗口：送来别的项目开新窗口，文件进它自己的窗口，关掉它不碰主窗口的终端（多窗口，2026-10-08）"
+#
+# 多窗口第 1–4 步的回归。⑰ 已经验了「送另一个目录 → 开新窗口」这一条，这里补三条只有两个窗口
+# 同时开着才会出错的：路由（文件进项目包含它的那个窗口）、去重（同一个项目不开第二个窗口）、
+# 资源归属（关掉一个窗口只收它自己的终端 —— 原来是关任何一个窗口就杀掉所有终端）。
+FIX2="${WORK}/second-proj"; mkdir -p "${FIX2}"; printf 'second\n' > "${FIX2}/f2.txt"
+W2=$(basename "${FIX2}"); W1=$(basename "${FIX}")
+SEW(){ osascript -e "tell application \"System Events\" to tell process \"lite-ide\" to $1" 2>/dev/null; }
+open -a "${APP_BUNDLE}" "${FIX2}"
+for _ in $(seq 1 20); do [ "$(SEW 'count windows')" = 2 ] && break; sleep 0.5; done
+check "$(SEW 'count windows')" "2" "送来另一个项目：开了第二个窗口"
+open -a "${APP_BUNDLE}" "${FIX2}/f2.txt"
+export LITE_AX_WIN="${W2}"
+if wait_has AXButton "关闭 f2.txt" 8; then ok "那个项目里的文件进了它自己的窗口"; else bad "f2.txt 没开在 ${W2} 的窗口里"; fi
+export LITE_AX_WIN="${W1}"
+[ "$(ax has AXButton "关闭 f2.txt")" = "OK" ] && bad "f2.txt 也开在了主窗口里（路由没生效）" || ok "主窗口里没有它"
+unset LITE_AX_WIN
+open -a "${APP_BUNDLE}" "${FIX2}"; sleep 1.5
+check "$(SEW 'count windows')" "2" "再送一次同一个项目：回到那个窗口，不开第三个"
+# 主窗口开一个终端，再关掉第二个窗口：主窗口的终端要还在
+SEW "perform action \"AXRaise\" of window \"${W1}\"" >/dev/null; SEW 'set frontmost to true' >/dev/null; sleep 0.8
+menu "终端" "新建终端"; sleep 3
+MAINPID=$(pgrep -f "MacOS/lite-ide" | head -1); ZSH1=$(pgrep -P "${MAINPID}" zsh | head -1)
+if [ -z "${ZSH1}" ]; then
+  bad "主窗口的终端没起来（这条后面的断言没法做）"
+else
+  SEW "click (first button of window \"${W2}\" whose subrole is \"AXCloseButton\")" >/dev/null
+  for _ in $(seq 1 20); do [ "$(SEW 'count windows')" = 1 ] && break; sleep 0.5; done
+  sleep 1
+  check "$(SEW 'count windows')" "1" "第二个窗口关掉了"
+  kill -0 "${ZSH1}" 2>/dev/null && ok "主窗口的终端还活着（关掉别的窗口不杀它）" || bad "关掉第二个窗口，主窗口的终端被杀了"
+  menu "终端" "关闭当前终端"; sleep 1
+fi
+
 say "⑪ 界面自己有没有报错"
 ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "$LOG")
 check "$ERRS" "0" "诊断通道里没有前端报错 / CSP 违规"

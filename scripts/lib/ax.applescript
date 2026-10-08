@@ -82,8 +82,11 @@ on run argv
   set act to item 1 of argv
   set wantRole to item 2 of argv
   set wantName to item 3 of argv
+  -- 进程名默认 lite-ide；设了 LITE_AX_PROC 就找那个（多窗口验收用的临时身份 .app 叫别的名字）
+  set procName to system attribute "LITE_AX_PROC"
+  if procName is "" then set procName to "lite-ide"
   tell application "System Events"
-    tell process "lite-ide"
+    tell process procName
       -- **只有要敲键盘的动作才抢焦点。**
       --
       -- `keystroke` 发给的是**当前前台应用**，不抢的话 paste 那两下
