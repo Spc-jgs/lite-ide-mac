@@ -50,18 +50,17 @@ pub fn paths_from_urls(urls: &[Url]) -> Vec<String> {
 /// （没开着的目录而前台已经有项目、或者一个窗口都没有）就开一个。
 /// 判目录要碰盘，所以在这儿做，登记表保持纯。
 pub fn deliver(app: &AppHandle, paths: Vec<String>) {
+    deliver_from(app, paths, None);
+}
+
+/// 同 [`deliver`]，但这批路径是某个窗口自己要开的（`open_window`）：路由时把它当前台
+/// （理由见 `Windows::deliver` 的 `from`）
+pub fn deliver_from(app: &AppHandle, paths: Vec<String>, from: Option<&str>) {
     use tauri::Manager;
     if paths.is_empty() {
         return;
     }
-    let items = paths
-        .into_iter()
-        .map(|p| {
-            let dir = std::path::Path::new(&p).is_dir();
-            (p, dir)
-        })
-        .collect();
-    let d = app.state::<crate::state::AppState>().windows.deliver(items);
+    let d = app.state::<crate::state::AppState>().windows.deliver(prepare(paths), from);
     for (label, paths) in d.now {
         crate::diag!("open-paths → {label} {paths:?}");
         let _ = app.emit_to(label.as_str(), EVENT, &paths);
@@ -79,6 +78,24 @@ pub fn deliver(app: &AppHandle, paths: Vec<String>) {
         };
         crate::winctl::create(app, root, None, paths);
     }
+}
+
+/// 路由之前把每条路径整理成和前端同一种写法，顺便判是不是目录（`Windows::deliver` 要的那对）。
+///
+/// **软链接要先解析**（`fsservice::canonical`，和前端 `probe_path` 是同一个函数）：前端报上来的项目根是解析过的
+/// （`/tmp/x` → `/private/tmp/x`），存进 `windows.json` 的也是；而直接 exec 二进制时 argv 里是原样的 `/tmp/x`。
+/// 路由按字符串比，两种写法对不上 → 「这个目录没窗口开着、前台有项目」→ **同一个项目开出第二个窗口**。
+/// smoke 的「AX 数到 0 先杀掉重起一次」那条路撞见的：重起之后一上来就是两个窗口（JOURNAL 2026-10-08）。
+/// Finder / `open -a` 送来的已经是解析过的，所以平时撞不上 —— 在入口统一一次，不靠「平时撞不上」。
+fn prepare(paths: Vec<String>) -> Vec<(String, bool)> {
+    paths
+        .into_iter()
+        .map(|p| {
+            let p = fsservice::canonical(&p).to_string_lossy().into_owned();
+            let dir = std::path::Path::new(&p).is_dir();
+            (p, dir)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -105,5 +122,25 @@ mod tests {
     fn 非_file_scheme_一律忽略() {
         let urls = [u("https://example.com/a.log"), u("file:///a.md"), u("mailto:x@y")];
         assert_eq!(paths_from_urls(&urls), ["/a.md"]);
+    }
+
+    #[test]
+    fn 软链接要先解析_和前端报上来的项目根同一种写法() {
+        let base = std::env::temp_dir().join(format!("lite-ide-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let real = base.join("real");
+        std::fs::create_dir_all(real.join("src")).unwrap();
+        std::fs::write(real.join("src/a.txt"), "x").unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let real = std::fs::canonicalize(&real).unwrap().to_string_lossy().into_owned();
+
+        let got = prepare(vec![
+            link.to_string_lossy().into_owned(),
+            link.join("src/a.txt").to_string_lossy().into_owned(),
+        ]);
+        let _ = std::fs::remove_dir_all(&base);
+        assert_eq!(got[0], (real.clone(), true), "经软链接送来的目录：解析成真身，不然和窗口记着的根对不上、开第二个窗口");
+        assert_eq!(got[1], (format!("{real}/src/a.txt"), false), "文件也一样，不然落不进项目包含它的那个窗口");
     }
 }

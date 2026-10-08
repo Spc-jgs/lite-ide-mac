@@ -644,7 +644,8 @@ fn 跑过的_git_要落进控制台并带上加固参数() {
     let 我的目录 = dir.to_string_lossy().into_owned();
     // 这个测试里所有的断言都靠这个闭包认领自己那几条，不靠顺序
     let 我的 = |argv_有: &str| {
-        console::entries()
+        // 走界面在用的那个口（按仓库看，多窗口第 4 步）—— 全局的 `entries()` 审查时当死代码删了
+        console::entries_under(&dir)
             .into_iter()
             .find(|e| e.cwd == 我的目录 && e.argv.iter().any(|a| a == argv_有))
             .unwrap_or_else(|| panic!("控制台里找不到 `{argv_有}` 那条"))
@@ -659,7 +660,8 @@ fn 跑过的_git_要落进控制台并带上加固参数() {
      * 命令，环里于是有两条 `init`。`entries()` 是**最新在前**，
      * 所以诱饵必须排在自己这条**后面**才顶得上第一位；
      * 放前面的话按顺序取照样能蒙对，这个诱饵就白放了（第一版就是这么写的，
-     * 把认领改回「只看 argv」它照样绿）。
+     * 把认领改回「只看 argv」它照样绿）。现在取的是 `entries_under(我的目录)`，
+     * 诱饵在别的目录里，顺带验了「按仓库看」真的把别的仓库滤掉了。
      */
     let 诱饵 = tmpdir("console-decoy");
     run(&诱饵, &["init", "-q", "-b", "main"]).unwrap();

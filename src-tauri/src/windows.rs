@@ -134,6 +134,8 @@ struct Win {
     ready: bool,
     inbox: Vec<String>,
     menu: Option<MenuState>,
+    /// 前端起来、恢复完之后要新建一份草稿（没有窗口时按了「新建草稿」，[`Windows::want_scratch`]）
+    start_scratch: bool,
 }
 
 #[derive(Default)]
@@ -345,9 +347,18 @@ impl Windows {
         std::mem::take(&mut self.lock().orphans)
     }
 
-    /// 前端起来了没有（取过收件箱）
-    pub fn is_ready(&self, label: &str) -> bool {
-        self.lock().wins.get(label).is_some_and(|w| w.ready)
+    /// 这个窗口起来之后要新建一份草稿（没有窗口时按了「新建草稿」）。
+    ///
+    /// 原来是建完窗口、等它的前端就绪、再补发一个 `menu: new-scratch` —— 可「就绪」只是取过了收件箱，
+    /// 它的启动流程还在跑，恢复完一看一个标签都没有就自己落进一份草稿（`launchScratch`），
+    /// 两件事撞在一起就是两份草稿。改成记一笔，前端在启动流程里该决定「落进哪份草稿」的那一刻取走
+    pub fn want_scratch(&self, label: &str) {
+        self.lock().wins.entry(label.to_string()).or_default().start_scratch = true;
+    }
+
+    /// 取走「起来之后新建草稿」那一笔。只给一次
+    pub fn take_start_scratch(&self, label: &str) -> bool {
+        self.lock().wins.get_mut(label).is_some_and(|w| std::mem::take(&mut w.start_scratch))
     }
 
     /// 开始退出。返回要等哪几个窗口回话（前端起来了的那些）；已经在退出了返回 None
@@ -503,7 +514,13 @@ impl Windows {
     /// 没起来就攒进它的收件箱；该开新窗口的放进 `new`（每个目录一个窗口，散文件合进一个）。
     ///
     /// `items` 是 (路径, 是不是目录) —— 判目录要碰盘，由调用方做，这里保持纯。
-    pub fn deliver(&self, items: Vec<(String, bool)>) -> Delivery {
+    ///
+    /// `from`：是某个窗口自己要打开的（`open_window`：⌘O、最近打开、拖进来一个文件夹），
+    /// 路由时就把**它**当前台，不看焦点顺序。焦点顺序回答的是「用户现在在看哪个窗口」，
+    /// 而这里问的是「谁要开」—— 往后台窗口里拖一个文件夹时两者不是同一个：前台恰好是个空窗口的话，
+    /// 目录会被塞进那个空窗口，而不是给拖的那个窗口开一个新的（代码审查查出来的）。
+    /// 系统送来的（Finder、`open -a`、Dock）没有发起的窗口，传 None。
+    pub fn deliver(&self, items: Vec<(String, bool)>, from: Option<&str>) -> Delivery {
         let mut g = self.lock();
         let mut out = Delivery::default();
         let mut loose: Vec<String> = Vec::new();
@@ -521,7 +538,11 @@ impl Windows {
             let r = {
                 let wins: Vec<(&str, Option<&str>)> =
                     g.wins.iter().map(|(l, w)| (l.as_str(), w.root.as_deref())).collect();
-                let mru: Vec<&str> = g.mru.iter().map(String::as_str).collect();
+                let mut mru: Vec<&str> = g.mru.iter().map(String::as_str).collect();
+                if let Some(f) = from.filter(|f| g.wins.contains_key(*f)) {
+                    mru.retain(|l| *l != f);
+                    mru.insert(0, f);
+                }
                 route(&path, is_dir, &wins, &mru)
             };
             let label = match r {
@@ -614,11 +635,11 @@ mod tests {
     fn 没起来的窗口先攒_取走之后直接发() {
         let w = Windows::default();
         w.register("main");
-        assert!(w.deliver(vec![("/a.log".into(), false)]).now.is_empty(), "前端没起来：不该发");
+        assert!(w.deliver(vec![("/a.log".into(), false)], None).now.is_empty(), "前端没起来：不该发");
         assert_eq!(w.take_inbox("main"), ["/a.log"], "取的时候一并拿走");
         assert!(w.take_inbox("main").is_empty(), "取过就空了");
         assert_eq!(
-            w.deliver(vec![("/b.log".into(), false)]).now,
+            w.deliver(vec![("/b.log".into(), false)], None).now,
             [("main".to_string(), vec!["/b.log".to_string()])],
             "取过一次之后直接发"
         );
@@ -627,7 +648,7 @@ mod tests {
     #[test]
     fn 一个窗口都没登记时送来的_第一个来取的窗口拿走() {
         let w = Windows::default();
-        assert_eq!(w.deliver(vec![("/a.log".into(), false)]), Delivery::default(), "冷启动早于 setup：既不发也不开新窗口");
+        assert_eq!(w.deliver(vec![("/a.log".into(), false)], None), Delivery::default(), "冷启动早于 setup：既不发也不开新窗口");
         w.register("main");
         assert_eq!(w.take_inbox("main"), ["/a.log"], "冷启动时系统事件比 setup 早，不能丢");
     }
@@ -640,10 +661,10 @@ mod tests {
     #[test]
     fn 冷启动时送来的目录_也先攒着_不开新窗口() {
         let w = Windows::default();
-        assert_eq!(w.deliver(vec![("/p/a".into(), true)]), Delivery::default(), "setup 之前：不能开新窗口");
+        assert_eq!(w.deliver(vec![("/p/a".into(), true)], None), Delivery::default(), "setup 之前：不能开新窗口");
         w.register("main");
         assert_eq!(w.take_orphans(), ["/p/a"], "setup 之后取出来重新路由");
-        assert_eq!(w.deliver(vec![("/p/a".into(), true)]).new, Vec::<Vec<String>>::new(), "这时 main 是空的前台：进 main，不开新窗口");
+        assert_eq!(w.deliver(vec![("/p/a".into(), true)], None).new, Vec::<Vec<String>>::new(), "这时 main 是空的前台：进 main，不开新窗口");
         assert_eq!(w.take_inbox("main"), ["/p/a"]);
     }
 
@@ -657,7 +678,7 @@ mod tests {
         w.take_inbox("main");
         w.take_inbox("w-1");
         let mut got = w
-            .deliver(vec![("/p/a/1".into(), false), ("/p/b/2".into(), false), ("/p/a/3".into(), false)])
+            .deliver(vec![("/p/a/1".into(), false), ("/p/b/2".into(), false), ("/p/a/3".into(), false)], None)
             .now;
         got.sort();
         assert_eq!(
@@ -702,14 +723,14 @@ mod tests {
         w.register("main");
         w.set_root("main", Some("/p/a".into()));
         w.take_inbox("main");
-        let d = w.deliver(vec![("/p/b".into(), true), ("/p/c".into(), true)]);
+        let d = w.deliver(vec![("/p/b".into(), true), ("/p/c".into(), true)], None);
         assert_eq!(d.new, [vec!["/p/b".to_string()], vec!["/p/c".to_string()]], "前台有项目：每个没开着的目录一个新窗口");
         assert!(d.now.is_empty());
 
         // 窗口都关了（#41：应用还在 Dock 上）之后送来的散文件：合开一个窗口，不能当孤儿 ——
         // 孤儿要等「下一个来取收件箱的窗口」，而这时候没有窗口会来
         w.remove("main");
-        let d = w.deliver(vec![("/x.log".into(), false), ("/y.log".into(), false)]);
+        let d = w.deliver(vec![("/x.log".into(), false), ("/y.log".into(), false)], None);
         assert_eq!(d.new, [vec!["/x.log".to_string(), "/y.log".to_string()]]);
     }
 
@@ -917,5 +938,32 @@ mod tests {
         w.remove("w-1");
         w.set_root("main", None);
         assert!(w.claim_empty("main"), "占着的窗口关了：谁来要给谁");
+    }
+
+    #[test]
+    fn 窗口自己要开的目录_按发起的窗口路由_不按焦点() {
+        let w = Windows::default();
+        w.register("w-1");
+        w.set_root("w-1", Some("/p/a".into()));
+        w.register("main"); // 空窗口，后建，焦点在它这儿
+        w.take_inbox("main");
+        w.take_inbox("w-1");
+        let d = w.deliver(vec![("/p/c".into(), true)], Some("w-1"));
+        assert_eq!(d.new, [vec!["/p/c".to_string()]], "w-1 有项目、是它要开：开新窗口，不塞进前台那个空窗口");
+        assert!(d.now.is_empty());
+        let d = w.deliver(vec![("/p/c".into(), true)], None);
+        assert_eq!(d.now, [("main".to_string(), vec!["/p/c".to_string()])], "系统送来的照旧看焦点：前台是空窗口就用它");
+        let d = w.deliver(vec![("/p/x".into(), true)], Some("w-9"));
+        assert_eq!(d.now.len() + d.new.len(), 1, "发起的窗口已经没了：退回焦点顺序，不丢");
+    }
+
+    #[test]
+    fn 没有窗口时新建草稿_记一笔_只给一次() {
+        let w = Windows::default();
+        w.register("w-1");
+        assert!(!w.take_start_scratch("w-1"), "没记过：不给");
+        w.want_scratch("w-1");
+        assert!(w.take_start_scratch("w-1"));
+        assert!(!w.take_start_scratch("w-1"), "取过就没了：刷新页面不该再新建一份");
     }
 }

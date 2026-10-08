@@ -523,5 +523,34 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   localStorage.removeItem("lite-ide.session:");
 }
 
+// ── 代码审查补的：启动恢复完之后落进哪份草稿（tabflow.settleStart）──
+// ① 两个没有项目的窗口别开同一份空草稿；② 没有窗口时按「新建草稿」只新建一份
+{
+  const { createScratch } = await import("../src/lib/ipc/commands");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  if (project.root !== null) await tabflow.closeProject();
+  // 盘上「最新那份空草稿」，假装另一个窗口正开着它
+  const latest = await createScratch("2026-10-08 2359");
+  await tabflow.settleStart({ wantNew: false, ownsEmpty: true });
+  ok(tabs.active?.path === latest, `拿着空窗口快照的那个：复用最新的空草稿（${tabs.active?.path}）`);
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+
+  const latest2 = await createScratch("2026-10-08 2359");
+  await tabflow.settleStart({ wantNew: false, ownsEmpty: false });
+  ok(tabs.list.length === 1 && tabs.active?.path !== latest2, "别的空窗口：新建一份，不去开那个窗口正开着的同一个文件");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+
+  const latest3 = await createScratch("2026-10-08 2359");
+  await tabflow.settleStart({ wantNew: true, ownsEmpty: true });
+  ok(tabs.list.length === 1, `没有窗口时按的「新建草稿」：只有一份（${tabs.list.length}）`);
+  ok(tabs.active?.path !== latest3, "而且是新建的那份 —— 按的是「新建」");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+
+  await tabflow.openPath("/proj");
+  await tabflow.settleStart({ wantNew: false, ownsEmpty: false });
+  ok(tabs.list.length === 0, "有项目的窗口恢复完空着就空着");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

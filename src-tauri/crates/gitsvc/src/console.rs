@@ -98,13 +98,10 @@ impl Console {
         self.ring.push_back(e);
     }
 
-    /// **最新的在前** —— 要看的永远是「刚才那条」。
+    /// 整个环，**最新的在前** —— 要看的永远是「刚才那条」。
+    /// 界面只按仓库看（[`Console::entries_under`]，多窗口第 4 步），这个留给测试看全貌
     pub fn entries(&self) -> Vec<Entry> {
         self.ring.iter().rev().cloned().collect()
-    }
-
-    pub fn clear(&mut self) {
-        self.ring.clear();
     }
 
     /// 只要在 `root` 这个仓库里跑的那些（多窗口第 4 步）。环是整个进程一份，
@@ -133,14 +130,6 @@ fn lock() -> std::sync::MutexGuard<'static, Console> {
 
 pub fn record(cwd: &Path, argv: &[String], code: Option<i32>, dur: Duration, err: &[u8]) {
     lock().record(cwd, argv, code, dur, err);
-}
-
-pub fn entries() -> Vec<Entry> {
-    lock().entries()
-}
-
-pub fn clear() {
-    lock().clear();
 }
 
 pub fn entries_under(root: &Path) -> Vec<Entry> {

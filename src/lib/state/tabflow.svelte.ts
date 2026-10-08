@@ -229,6 +229,24 @@ class TabFlow {
    * 只在启动时用：关掉最后一个标签回到卡片，那时人是主动清空的。
    * 也只在**没有项目的窗口**里用（多窗口第 4 步，理由在 App.svelte 调它的地方）。
    */
+  /**
+   * 启动恢复完之后，这个窗口要不要、落进哪份草稿。从 App 的启动流程里拎出来，好在状态测试里测
+   * （代码审查查出来的两条都在这儿）：
+   *
+   * - `wantNew`：没有窗口时按了「新建草稿」，Rust 开了这个窗口并记了一笔（`takeStartScratch`）。
+   *   **只新建这一份**，不再走下面的自动落草稿 —— 原来是 Rust 等窗口就绪后补发一个菜单事件，
+   *   而「就绪」时启动流程还在跑，恢复完自己又 `launchScratch` 一次，两份。
+   * - 恢复完一个标签都没有、也没有项目：落进一份草稿。**只有拿着「没有项目的那份快照」的窗口
+   *   （`ownsEmpty`）去复用最新那份空草稿**；别的没有项目的窗口新建一份 —— 不然两个空窗口
+   *   开的是同一个文件、各写各的。
+   * - 有项目的窗口空着就空着（多窗口第 4 步，App 那段注释）。
+   */
+  async settleStart(o: { wantNew: boolean; ownsEmpty: boolean }) {
+    if (o.wantNew) return this.newScratch();
+    if (tabs.list.length > 0 || project.root !== null) return;
+    return o.ownsEmpty ? this.launchScratch() : this.newScratch();
+  }
+
   async launchScratch() {
     await scratches.refresh().catch(() => {});
     const empty = scratches.list

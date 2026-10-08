@@ -82,6 +82,11 @@ class Persist {
   #ownsEmpty = false;
   #claiming: Promise<boolean> | null = null;
 
+  /** 那份快照这会儿归不归这个窗口（启动时决定「复用最新的空草稿还是新建一份」要用，见 `tabflow.settleStart`） */
+  get ownsEmpty() {
+    return this.#ownsEmpty;
+  }
+
   #claimEmpty(): Promise<boolean> {
     if (this.#ownsEmpty) return Promise.resolve(true);
     this.#claiming ??= claimEmptySession()

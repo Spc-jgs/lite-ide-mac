@@ -282,6 +282,7 @@ pub fn run() {
             commands::clear_recent,
             commands::adopt_recent,
             commands::claim_empty_session,
+            commands::take_start_scratch,
             commands::open_window,
             commands::sync_menu_state,
             commands::open_external,

@@ -50,6 +50,9 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
       const hook = (globalThis as { __mockClaimEmpty?: () => boolean }).__mockClaimEmpty;
       return hook ? hook() : true;
     }
+    // 浏览器里没有「没有窗口时按新建草稿」这回事
+    case "take_start_scratch":
+      return false;
     // 浏览器里没有「退出」可言：两条都只是不报错
     case "quit_ready":
     case "request_quit":

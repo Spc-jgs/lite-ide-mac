@@ -263,11 +263,19 @@ pub fn claim_empty_session(window: tauri::Window, state: State<'_, AppState>) ->
 ///
 /// 走和 Finder 送来的路径同一个路由：已经有窗口开着它就去那个窗口，否则开新窗口
 /// （调用它的窗口已经有项目了 —— 没有项目的窗口前端自己就地打开，不来这儿）。
+/// 路由时把**调用它的窗口**当前台，不看焦点（`Windows::deliver` 的 `from`）。
 /// 返回 true = 交给 Rust 了；浏览器桩返回 false，前端退回「就地换项目」。
 #[tauri::command]
-pub fn open_window(app: tauri::AppHandle, path: String) -> bool {
-    crate::open::deliver(&app, vec![path]);
+pub fn open_window(app: tauri::AppHandle, window: tauri::Window, path: String) -> bool {
+    crate::open::deliver_from(&app, vec![path], Some(window.label()));
     true
+}
+
+/// 这个窗口起来之后要不要新建一份草稿（没有窗口时按了「新建草稿」，`Windows::want_scratch`）。
+/// 前端在启动流程里决定「落进哪份草稿」的那一刻问一次
+#[tauri::command]
+pub fn take_start_scratch(window: tauri::Window, state: State<'_, AppState>) -> bool {
+    state.windows.take_start_scratch(window.label())
 }
 
 /// 按当下的上下文让菜单项变灰。

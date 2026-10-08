@@ -130,11 +130,25 @@ cleanup() {
   if [ "$WINSAVED" = 1 ]; then
     if [ -f "$WINBAK" ]; then cp "$WINBAK" "$WINJSON"; else rm -f "$WINJSON"; fi
   fi
-  # WebKit 的辅助进程在主进程退出后还要一小会儿才收尾，它们手里攥着 localStorage 的库
+  # WebKit 的辅助进程在主进程退出后还要一小会儿才收尾，它们手里攥着 localStorage 的库。
+  # **等到没有进程还开着这个目录里的文件再还原**（最多 10 秒）。原来是固定 `sleep 1` ——
+  # 那是猜的：收尾慢的那次，还原完又被它写回去一笔，等于没还原，而且没有任何迹象（代码审查查出来的）。
+  # 还原完隔 2 秒再和备份比一次：晚到的写不再是猜测，当场看得见
   if [ "$WKSAVED" = 1 ]; then
-    sleep 1
+    local t0=$SECONDS
+    while [ $((SECONDS - t0)) -lt 10 ] && lsof +D "$WEBKIT" >/dev/null 2>&1; do sleep 0.25; done
+    if lsof +D "$WEBKIT" >/dev/null 2>&1; then
+      echo "  ！WebKit 数据目录等了 10 秒还有进程开着：$(lsof +D "$WEBKIT" 2>/dev/null | awk 'NR>1{print $1}' | sort -u | tr '\n' ' ')"
+    else
+      echo "  （WebKit 数据目录在 $((SECONDS - t0)) 秒内没人占着了，还原）"
+    fi
     rm -rf "$WEBKIT"
     [ -d "$WEBKITBAK" ] && cp -Rp "$WEBKITBAK" "$WEBKIT"
+    sleep 2
+    if [ -d "$WEBKITBAK" ] && ! diff -rq "$WEBKITBAK" "$WEBKIT" >/dev/null 2>&1; then
+      echo "  ！！还原完 2 秒，WebKit 数据目录又被改了 —— 你的会话快照可能被这次 smoke 盖掉一部分，备份在 $WEBKITBAK"
+      KEEP=1
+    fi
   fi
   # 剪贴板是用户的东西，借来用完要还
   [ -f "$CLIP" ] && pbcopy < "$CLIP"

@@ -544,6 +544,8 @@ export const clearRecent = () => invoke<RecentProjects>("clear_recent");
 export const adoptRecent = (projects: string[]) => invoke<RecentProjects>("adopt_recent", { projects });
 /** 没有项目的那份会话快照（`lite-ide.session:`）给不给这个窗口。同一时刻只归一个窗口（Rust 的 `Windows::claim_empty`） */
 export const claimEmptySession = () => invoke<boolean>("claim_empty_session");
+/** 这个窗口起来之后要不要新建一份草稿（没有窗口时按了「新建草稿」，Rust 的 `Windows::want_scratch`）。只给一次 */
+export const takeStartScratch = () => invoke<boolean>("take_start_scratch");
 
 /**
  * 在合适的窗口里打开一个目录：已经有窗口开着它就去那个窗口，否则开新窗口（多窗口第 4 步）。

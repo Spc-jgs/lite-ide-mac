@@ -32,11 +32,7 @@ pub fn load(app: &AppHandle) -> Saved {
 /// 立刻写一次
 pub fn save_now(app: &AppHandle) {
     let Some(path) = file(app) else { return };
-    // 拍快照也在锁里：两个线程先后进来时，后写的那份一定是后拍的，旧的盖不掉新的
-    let _g = SAVE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let snap = app.state::<AppState>().windows.snapshot();
-    let Ok(text) = serde_json::to_string_pretty(&snap) else { return };
-    write_locked(&path, &text);
+    save_to(&path, || serde_json::to_string_pretty(&app.state::<AppState>().windows.snapshot()).ok());
 }
 
 /// 同一时刻只许一个线程写 `windows.json`。
@@ -47,14 +43,16 @@ pub fn save_now(app: &AppHandle) {
 /// 落盘的就是 B 写了一半的 JSON，`parse_saved` 读到坏文件当没有，**窗口列表和「最近打开」一起没了**。
 static SAVE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn write_atomic(path: &std::path::Path, text: &str) {
+/// 拿着锁拍快照、写盘。拍快照也在锁里：两个线程先后进来时，后写的那份一定是后拍的，旧的盖不掉新的。
+/// `save_now` 和测试走的是这同一个函数 —— 测试要是只测一个「带锁的写」而 `save_now` 自己另拿锁，
+/// 把 `save_now` 里那把锁删掉测试照样绿（审查修完之后编译器的「没人用」警告提醒的）
+fn save_to(path: &std::path::Path, text: impl FnOnce() -> Option<String>) {
     let _g = SAVE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    write_locked(path, text);
+    if let Some(t) = text() {
+        write_locked(path, &t);
+    }
 }
 
-/// 临时文件 + rename：写到一半崩了，留下的是旧的那份而不是半截 JSON。
-/// rename 之前 `sync_all`：rename 只保证「要么旧的要么新的」，不保证新那份的内容已经落盘
-/// （rust.md「保存一份已有文件」那节），掉电后可能是一个 0 字节的文件盖掉了旧的。
 fn write_locked(path: &std::path::Path, text: &str) {
     use std::io::Write;
     if let Some(dir) = path.parent() {
@@ -102,7 +100,11 @@ pub fn frame_from(pos: tauri::PhysicalPosition<i32>, size: tauri::PhysicalSize<u
     Frame { x: pos.x as f64 / s, y: pos.y as f64 / s, w: size.width as f64 / s, h: size.height as f64 / s }
 }
 
-/// 记下一个窗口现在的位置（`Moved` / `Resized` 时）
+/// 记下一个窗口现在在哪：`Moved` / `Resized` 时，以及**窗口刚建好时**（[`note_frame`]）。
+///
+/// 只靠 `Moved` / `Resized` 不够：一个建出来之后没被拖过的窗口一次都不会触发它们，
+/// 登记表里就没有它的位置，下次启动只能按「从前台错开」去摆 —— 第 3 步真机验收里
+/// 没挪过的那个窗口重开后跑到了别处，就是这么来的。
 pub fn track(app: &AppHandle, w: &tauri::Window) {
     if let (Ok(p), Ok(s), Ok(k)) = (w.outer_position(), w.inner_size(), w.scale_factor()) {
         app.state::<AppState>().windows.set_frame(w.label(), frame_from(p, s, k));
@@ -110,16 +112,9 @@ pub fn track(app: &AppHandle, w: &tauri::Window) {
     }
 }
 
-/// 窗口刚建好时记一次它**实际**在哪。
-///
-/// 只靠 `Moved` / `Resized` 不够：一个建出来之后没被拖过的窗口一次都不会触发它们，
-/// 登记表里就没有它的位置，下次启动只能按「从前台错开」去摆 —— 第 3 步真机验收里
-/// 没挪过的那个窗口重开后跑到了别处，就是这么来的。
-pub fn note_frame(app: &AppHandle, w: &tauri::WebviewWindow) {
-    if let (Ok(p), Ok(s), Ok(k)) = (w.outer_position(), w.inner_size(), w.scale_factor()) {
-        app.state::<AppState>().windows.set_frame(w.label(), frame_from(p, s, k));
-        save_soon();
-    }
+/// 刚建好的窗口（手上拿的是 `WebviewWindow`）记一次位置。和 [`track`] 是同一件事，只换个入口
+fn note_frame(app: &AppHandle, w: &tauri::WebviewWindow) {
+    track(app, &w.as_ref().window());
 }
 
 /// 存下来的位置还在某块屏幕上吗。外接显示器拔掉之后，上次在副屏上的窗口
@@ -298,16 +293,9 @@ pub fn menu_without_window(app: &AppHandle, id: &str) {
     } else if let Some(path) = id.strip_prefix(crate::menu::RECENT_PREFIX) {
         crate::open::deliver(app, vec![path.to_string()]);
     } else if id == "new-scratch" {
-        // 开一个空窗口，等它的前端起来再把「新建草稿」转给它
+        // 开一个空窗口，记一笔「起来之后新建草稿」，它的前端在启动流程里取走（理由见 Windows::want_scratch）
         if let Some(label) = create(app, None, None, Vec::new()) {
-            let app = app.clone();
-            std::thread::spawn(move || {
-                let t = Instant::now();
-                while !app.state::<AppState>().windows.is_ready(&label) && t.elapsed() < Duration::from_secs(10) {
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                let _ = app.emit_to(label.as_str(), "menu", "new-scratch");
-            });
+            app.state::<AppState>().windows.want_scratch(&label);
         }
     } else {
         crate::diag!("菜单 {id}：没有窗口可以接");
@@ -352,7 +340,7 @@ mod tests {
      * 审查查出来的：三条线程同时写同一个临时文件，落盘的可能是半截。
      * 每条线程写一份「整份都是同一个字母」的内容，读回来的必须是某一份完整的 ——
      * 混了字母或者长度不对，就是写到一半被别人截断 / rename 走了。
-     * 验红：去掉 write_atomic 里那把锁，这条在本机几轮之内就红。
+     * 验红：去掉 save_to 里那把锁，这条在本机几轮之内就红。
      */
     #[test]
     fn 几个线程同时存盘_落下的总是完整的某一份() {
@@ -366,7 +354,7 @@ mod tests {
                 sc.spawn(move || {
                     let text: String = std::iter::repeat_n(c, 256 * 1024).collect();
                     for _ in 0..40 {
-                        write_atomic(path, &text);
+                        save_to(path, || Some(text.clone()));
                         if let Ok(got) = std::fs::read_to_string(path) {
                             let first = got.chars().next();
                             if got.len() != text.len() || got.chars().any(|x| Some(x) != first) {

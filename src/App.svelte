@@ -38,6 +38,7 @@
     syncMenuState,
     reportBudget,
     initialPaths,
+    takeStartScratch,
     OPEN_PATHS_EVENT,
     watchRoot,
     setWindowRoot,
@@ -786,8 +787,12 @@
        * 每个项目窗口都去开它，就是同一份文件同时开在几个窗口里、各写各的（第 4 步真机验收撞见的）。
        * 为一个项目开的窗口，主角是那个项目，空着就空着（IDEA / VS Code 也是空的编辑区）；
        * 「什么都没开、随手记一笔」那个 Sublime 的场景，正是没有项目的窗口。
+       * 判断在 `tabflow.settleStart`（没有窗口时按的「新建草稿」、两个空窗口别开同一份，都在那儿）。
        */
-      .then(() => (tabs.list.length === 0 && project.root === null ? tabflow.launchScratch() : undefined))
+      .then(async () => {
+        const wantNew = await takeStartScratch().catch(() => false);
+        await tabflow.settleStart({ wantNew, ownsEmpty: persist.ownsEmpty });
+      })
       .catch(() => {})
       .finally(() => {
         persist.restoring = false;
