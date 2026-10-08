@@ -3,6 +3,9 @@ mod commands;
 pub mod diag;
 pub mod menu;
 mod open;
+// 第 1 步只有「做决定」那一层，还没有调用方；第 2 步接上命令和监听之后去掉这行
+#[allow(dead_code)]
+mod settings;
 mod state;
 mod trust_store;
 mod windows;
