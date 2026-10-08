@@ -281,6 +281,7 @@ pub fn run() {
             commands::forget_recent,
             commands::clear_recent,
             commands::adopt_recent,
+            commands::claim_empty_session,
             commands::open_window,
             commands::sync_menu_state,
             commands::open_external,

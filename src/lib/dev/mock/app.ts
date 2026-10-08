@@ -14,7 +14,7 @@ const APP_LOG = "/Users/you/Library/Logs/com.liteide.app/app.log";
  */
 let mockRecent: string[] = ["/proj", "/Users/you/work/another-repo"];
 let mockRoot = "";
-const recentDto = () => ({ projects: [...mockRecent], open: mockRoot ? [mockRoot] : [] });
+const recentDto = () => ({ projects: [...mockRecent], keep: mockRoot ? [mockRoot] : [] });
 
 export async function appCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
@@ -43,6 +43,12 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
     case "open_window": {
       const hook = (globalThis as { __mockOpenWindow?: (p: string) => boolean }).__mockOpenWindow;
       return hook ? hook(String(a.path)) : false;
+    }
+    // 浏览器里只有一个「窗口」：那份快照总是它的。
+    // 状态测试要验「另一个空窗口占着」那条分支时挂一个 __mockClaimEmpty 钩子
+    case "claim_empty_session": {
+      const hook = (globalThis as { __mockClaimEmpty?: () => boolean }).__mockClaimEmpty;
+      return hook ? hook() : true;
     }
     // 浏览器里没有「退出」可言：两条都只是不报错
     case "quit_ready":

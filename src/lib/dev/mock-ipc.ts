@@ -2,8 +2,9 @@
  * 浏览器里的 Tauri IPC 桩 —— 只在 `pnpm dev` 且不在 Tauri 里时装载。
  *
  * 为什么值得留着：调 UI 若走 Tauri，每改一行都要等约 40 秒重新编译壳；
- * 挂上这个桩后在浏览器里改，热更新是毫秒级。生产构建里
- * `import.meta.env.DEV` 为假，整个模块会被 tree-shake 掉。
+ * 挂上这个桩后在浏览器里改，热更新是毫秒级。它进不了生产产物，靠的是 `main.ts` 里
+ * `if (import.meta.env.DEV) await import(...)` 那个死分支（生产构建里条件是常量假，整句在语法层面就没了），
+ * **不是 tree-shaking** —— 原来静态 import 的写法就漏过 1,195 字节的假数据（frontend.md「别靠 tree-shaking」那节）。
  *
  * 喂的数据与 Rust 侧格式严格一致（含 log_lines 的线格式二进制），
  * 否则桩就失去了验证价值。

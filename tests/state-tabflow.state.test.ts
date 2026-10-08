@@ -411,7 +411,7 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
 }
 
 // ── 清理别的项目的快照（多窗口第 3、4 步，docs/MULTIWINDOW.md 4.1）──
-// 名单在 Rust：「最近打开」变了的时候 App 带着 keep（最近打开 + 开着的窗口）叫 prune。
+// 名单在 Rust：「最近打开」变了的时候 App 带着 keep（最近打开 + 开着的窗口 + 最近关掉的）叫 prune。
 // 带未保存内容的不删（第 3 步提前补的闸）；keep 是空的一个都不删（升级迁移那一刻名单还是空的）
 {
   const { VERSION, DEFAULT_LAYOUT } = await import("../src/lib/state/session");
@@ -484,6 +484,43 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   ok(localStorage.getItem("lite-ide.session:/gone") !== null, "它那份快照照样迁过去了");
   localStorage.removeItem("lite-ide.session:/gone");
   for (const t of [...tabs.list]) tabflow.doClose(t);
+}
+
+// ── 代码审查补的：没有项目的那份快照（`lite-ide.session:`）同一时刻只归一个窗口 ──
+// 两个没有项目的窗口都去恢复它，同一批标签和草稿就开在两个窗口里、之后轮流互相覆盖
+{
+  const { VERSION, DEFAULT_LAYOUT } = await import("../src/lib/state/session");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  await tabflow.closeProject();
+  ok(project.root === null, "前提：这个窗口没有项目");
+  const theirs = JSON.stringify({ v: VERSION, root: null, active: 0, layout: DEFAULT_LAYOUT, recent: [], tabs: [{ path: "/proj/README.md" }] });
+  localStorage.setItem("lite-ide.session:", theirs);
+  const g = globalThis as { __mockClaimEmpty?: () => boolean };
+  g.__mockClaimEmpty = () => false; // 另一个没有项目的窗口占着它
+  await persist.restoreEmpty();
+  ok(tabs.list.length === 0, "要不到：不恢复 —— 不然那个窗口的标签在这儿也开一份");
+  await tabflow.newScratch();
+  persist.restoring = false;
+  persist.flush();
+  await new Promise((r) => setTimeout(r, 20));
+  ok(localStorage.getItem("lite-ide.session:") === theirs, "要不到：也不写，不盖掉占着它的那个窗口的");
+
+  delete g.__mockClaimEmpty; // 占着的那个关了：桩默认给
+  persist.flush();
+  await new Promise((r) => setTimeout(r, 20));
+  ok(localStorage.getItem("lite-ide.session:") === theirs, "内容没变：不再去问（不然每次防抖都多一次 IPC）");
+  await tabflow.openPath("/proj/README.md");
+  persist.flush();
+  await new Promise((r) => setTimeout(r, 450));
+  const mine = JSON.parse(localStorage.getItem("lite-ide.session:") ?? "null");
+  ok(mine?.tabs?.some((t: { path: string }) => project.isScratch(t.path)), "内容一变就再去要，要到了照常写");
+  persist.restoring = true;
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  await persist.restoreEmpty();
+  // 草稿那个标签是空的，关的时候就从盘上删了，恢复不出来是对的；看同一个 README —— 要不到时没开出来
+  ok(tabs.list.some((t) => t.path === "/proj/README.md"), "要到了：恢复");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  localStorage.removeItem("lite-ide.session:");
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);

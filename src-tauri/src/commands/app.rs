@@ -252,6 +252,13 @@ pub fn adopt_recent(app: tauri::AppHandle, projects: Vec<String>, state: State<'
     crate::winctl::recent_dto(&app)
 }
 
+/// 没有项目的窗口要恢复 / 写「没有项目的那份会话快照」之前先问一句：给不给它。
+/// 同一时刻只归一个窗口（`Windows::claim_empty`），不然两个空窗口会开出同一批标签
+#[tauri::command]
+pub fn claim_empty_session(window: tauri::Window, state: State<'_, AppState>) -> bool {
+    state.windows.claim_empty(window.label())
+}
+
 /// 在合适的窗口里打开一个目录（⌘O、最近打开、打开工作树、拖进来一个文件夹）。
 ///
 /// 走和 Finder 送来的路径同一个路由：已经有窗口开着它就去那个窗口，否则开新窗口

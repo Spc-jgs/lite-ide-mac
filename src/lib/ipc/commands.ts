@@ -534,14 +534,16 @@ export const pickSavePath = (dir: string | null, name: string) =>
 export interface RecentProjects {
   /** 最新的在前，最多 8 个 */
   projects: string[];
-  /** 开着的窗口各自的项目根 —— 清理会话快照时这些一律留着 */
-  open: string[];
+  /** 开着的窗口各自的项目根 + 最近关掉、点 Dock 还会开回来的那几个 —— 清理会话快照时这些一律留着 */
+  keep: string[];
 }
 export const recentProjects = () => invoke<RecentProjects>("recent_projects");
 export const forgetRecent = (dir: string) => invoke<RecentProjects>("forget_recent", { dir });
 export const clearRecent = () => invoke<RecentProjects>("clear_recent");
 /** 升级后第一次启动：把旧全局快照里的「最近打开」交给 Rust。那边已经有名单就不收 */
 export const adoptRecent = (projects: string[]) => invoke<RecentProjects>("adopt_recent", { projects });
+/** 没有项目的那份会话快照（`lite-ide.session:`）给不给这个窗口。同一时刻只归一个窗口（Rust 的 `Windows::claim_empty`） */
+export const claimEmptySession = () => invoke<boolean>("claim_empty_session");
 
 /**
  * 在合适的窗口里打开一个目录：已经有窗口开着它就去那个窗口，否则开新窗口（多窗口第 4 步）。

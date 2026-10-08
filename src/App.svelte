@@ -919,7 +919,7 @@
    */
   function applyRecent(r: RecentProjects) {
     project.recent = r.projects;
-    persist.prune([...r.projects, ...r.open]);
+    persist.prune([...r.projects, ...r.keep]);
   }
   $effect(() => {
     void recentProjects().then(applyRecent).catch(() => {});

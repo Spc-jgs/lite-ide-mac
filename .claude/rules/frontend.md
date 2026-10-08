@@ -592,6 +592,10 @@ pnpm tauri build --bundles app --config '{"identifier":"com.liteide.mwtest","pro
 `lsregister -u` 再删 `.app`（盘上只留一份 `.app` 那条）。**跑之前先清它的数据目录**：
 上一轮中途崩了留下的 `windows.json` 会被这一轮恢复出来，看着像 bug。
 
+**数「某样东西开在几个窗口里」别用 AX**（2026-10-08 代码审查验收）：同名窗口按序号取会指到同一个，后台窗口里网页的
+AX 树读不全，两种都实测骗过人。按窗口 id `screencapture -l`（只截测试应用自己的窗口，不截整屏）+ Vision 识字；
+非 Retina 屏上的 1 倍图要先放大两倍，不然一个字都认不出、「认不出」会被当成「没有」。详见 JOURNAL 同日。
+
 ## 驱动真 `.app` 的两个坑（2026-09-17）
 
 - **别用 `tell application "lite-ide" to activate`。** 它按名字找的是 bundle 里那份 `.app`，

@@ -29,17 +29,44 @@ pub fn load(app: &AppHandle) -> Saved {
         .unwrap_or_default()
 }
 
-/// 立刻写一次。临时文件 + rename：写到一半崩了，留下的是旧的那份而不是半截 JSON
+/// 立刻写一次
 pub fn save_now(app: &AppHandle) {
     let Some(path) = file(app) else { return };
+    // 拍快照也在锁里：两个线程先后进来时，后写的那份一定是后拍的，旧的盖不掉新的
+    let _g = SAVE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let snap = app.state::<AppState>().windows.snapshot();
     let Ok(text) = serde_json::to_string_pretty(&snap) else { return };
+    write_locked(&path, &text);
+}
+
+/// 同一时刻只许一个线程写 `windows.json`。
+///
+/// 写它的有三条线程：存盘线程（`save_soon` 攒够 400ms）、退出线程（`quit` 等完回话）、
+/// 主线程（`RunEvent::Exit`）。⌘Q 时后两条几乎同时到，存盘线程也可能正好醒着。
+/// 它们共用同一个临时文件名：A 写到一半，B 把它截断重写，A 先 rename 过去 ——
+/// 落盘的就是 B 写了一半的 JSON，`parse_saved` 读到坏文件当没有，**窗口列表和「最近打开」一起没了**。
+static SAVE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn write_atomic(path: &std::path::Path, text: &str) {
+    let _g = SAVE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    write_locked(path, text);
+}
+
+/// 临时文件 + rename：写到一半崩了，留下的是旧的那份而不是半截 JSON。
+/// rename 之前 `sync_all`：rename 只保证「要么旧的要么新的」，不保证新那份的内容已经落盘
+/// （rust.md「保存一份已有文件」那节），掉电后可能是一个 0 字节的文件盖掉了旧的。
+fn write_locked(path: &std::path::Path, text: &str) {
+    use std::io::Write;
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, text).is_ok() {
-        let _ = std::fs::rename(&tmp, &path);
+    let ok = std::fs::File::create(&tmp).and_then(|mut f| {
+        f.write_all(text.as_bytes())?;
+        f.sync_all()
+    });
+    if ok.is_ok() {
+        let _ = std::fs::rename(&tmp, path);
     }
 }
 
@@ -133,7 +160,7 @@ pub fn recent_changed(app: &AppHandle) {
 
 pub fn recent_dto(app: &AppHandle) -> crate::commands::RecentDto {
     let st = app.state::<AppState>();
-    crate::commands::RecentDto { projects: st.windows.recent(), open: st.windows.open_roots() }
+    crate::commands::RecentDto { projects: st.windows.recent(), keep: st.windows.keep_roots() }
 }
 
 /// 建一个新窗口：和 `main` 同一份配置（`tauri.conf.json` 的 `windows[0]`），换个 label。
@@ -229,8 +256,8 @@ pub fn restore_at_launch(app: &AppHandle) {
 
 /// 点 Dock 图标、而且一个看得见的窗口都没有（#41）。
 ///
-/// 窗口其实还在、只是最小化了：把它们放回来，不另开。真的一个都没有：开回最近关掉的那个
-/// （项目和位置），连那个都没有就开一个空窗口。
+/// 窗口其实还在、只是最小化了：把它们放回来，不另开。真的一个都没有：开回最近关掉的、
+/// 项目目录还在的那个（项目和位置），连那个都没有就开一个空窗口。
 pub fn reopen(app: &AppHandle) {
     let st = app.state::<AppState>();
     if st.windows.len() > 0 {
@@ -243,7 +270,7 @@ pub fn reopen(app: &AppHandle) {
         }
         return;
     }
-    match st.windows.take_closed() {
+    match st.windows.take_closed(|r| std::path::Path::new(r).is_dir()) {
         Some(SavedWin { root, frame }) => {
             let paths = root.clone().into_iter().collect();
             create(app, root, frame, paths);
@@ -315,4 +342,42 @@ pub fn quit(app: &AppHandle) {
         save_now(&app);
         app.exit(0);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /*
+     * 审查查出来的：三条线程同时写同一个临时文件，落盘的可能是半截。
+     * 每条线程写一份「整份都是同一个字母」的内容，读回来的必须是某一份完整的 ——
+     * 混了字母或者长度不对，就是写到一半被别人截断 / rename 走了。
+     * 验红：去掉 write_atomic 里那把锁，这条在本机几轮之内就红。
+     */
+    #[test]
+    fn 几个线程同时存盘_落下的总是完整的某一份() {
+        let dir = std::env::temp_dir().join(format!("lite-ide-winsave-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("windows.json");
+        let bad = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|sc| {
+            for c in ['a', 'b', 'c', 'd'] {
+                let (path, bad) = (&path, &bad);
+                sc.spawn(move || {
+                    let text: String = std::iter::repeat_n(c, 256 * 1024).collect();
+                    for _ in 0..40 {
+                        write_atomic(path, &text);
+                        if let Ok(got) = std::fs::read_to_string(path) {
+                            let first = got.chars().next();
+                            if got.len() != text.len() || got.chars().any(|x| Some(x) != first) {
+                                bad.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(bad.into_inner(), 0, "读到了半截或者拼起来的文件");
+    }
 }

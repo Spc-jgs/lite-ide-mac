@@ -156,6 +156,8 @@ struct Inner {
     /// 而且清理快照时按的是**自己那份**，会把别的窗口刚开的项目当成「挤出去的」删掉。
     /// 原生的「最近打开」菜单整个应用只有一份，名单也只能有一个主人。
     recent: Vec<String>,
+    /// 「没有项目的那份会话快照」（`lite-ide.session:`）现在归哪个窗口（[`Windows::claim_empty`]）
+    empty: Option<String>,
 }
 
 #[derive(Default)]
@@ -288,10 +290,20 @@ impl Windows {
         self.lock().wins.get(label).and_then(|w| w.frame)
     }
 
-    /// 取出最近关掉的那个（点 Dock 图标重开它）
-    pub fn take_closed(&self) -> Option<SavedWin> {
+    /// 取出最近关掉的、项目目录还在的那个（点 Dock 图标重开它）。
+    ///
+    /// 目录已经没了的一路丢掉（`exists` 由调用方判，要碰盘）—— 同 [`restore_plan`]：
+    /// 开一个指着空目录的窗口只会让人去关它，还会经 `set_root` 把这个死目录顶回「最近打开」第一位。
+    /// 没有项目的空窗口照常算数。
+    pub fn take_closed(&self, exists: impl Fn(&str) -> bool) -> Option<SavedWin> {
         let mut g = self.lock();
-        if g.closed.is_empty() { None } else { Some(g.closed.remove(0)) }
+        while !g.closed.is_empty() {
+            let s = g.closed.remove(0);
+            if s.root.as_deref().is_none_or(&exists) {
+                return Some(s);
+            }
+        }
+        None
     }
 
     /// 启动时把上次存的「最近关掉的」和「最近打开」接回来；
@@ -395,9 +407,40 @@ impl Windows {
         self.lock().recent.clone()
     }
 
-    /// 开着的窗口各自的项目根（清理快照时这些一律留着）
-    pub fn open_roots(&self) -> Vec<String> {
-        self.lock().wins.values().filter_map(|w| w.root.clone()).collect()
+    /// 清理会话快照时一律留着的项目根：开着的窗口各自的项目，加上「最近关掉的」那几个。
+    ///
+    /// 关掉的也要留：点 Dock 图标会把它们开回来（[`Windows::take_closed`]），快照被删了的话
+    /// 开回来的是一个空窗口。它们不一定还在「最近打开」那 8 个里 —— 关掉之后又开了几个别的项目，
+    /// 就被挤出去了，而原来清理只认「最近打开 + 开着的」。
+    pub fn keep_roots(&self) -> Vec<String> {
+        let g = self.lock();
+        let mut out: Vec<String> = g.wins.values().filter_map(|w| w.root.clone()).collect();
+        for r in g.closed.iter().filter_map(|c| c.root.as_ref()) {
+            if !out.contains(r) {
+                out.push(r.clone());
+            }
+        }
+        out
+    }
+
+    /// 一个没有项目的窗口要用「没有项目的那份会话快照」：给不给它。
+    ///
+    /// 那份快照只有一个键（`lite-ide.session:`），两个没有项目的窗口都去恢复它，
+    /// 同一批标签、同一份草稿就会同时开在两个窗口里，之后两边轮流写，谁后写谁算数。
+    /// 所以同一时刻只归一个窗口：没人占着、或者占着它的窗口已经关了 / 已经有项目了，就给。
+    /// 不用专门「释放」—— 判的时候看占着的那个现在还算不算数。有项目的窗口要不到。
+    pub fn claim_empty(&self, label: &str) -> bool {
+        let mut g = self.lock();
+        if !g.wins.get(label).is_some_and(|w| w.root.is_none()) {
+            return false;
+        }
+        if let Some(h) = &g.empty {
+            if h != label && g.wins.get(h).is_some_and(|w| w.root.is_none()) {
+                return false;
+            }
+        }
+        g.empty = Some(label.to_string());
+        true
     }
 
     /// 从「最近打开」里拿掉一个（点了才发现目录没了）。返回变了没有
@@ -688,9 +731,10 @@ mod tests {
         w.remove("main");
         w.remove("w-1");
         assert_eq!(w.len(), 0);
-        assert_eq!(w.take_closed().and_then(|s| s.root).as_deref(), Some("/p/b"), "最近关的在前");
-        assert_eq!(w.take_closed().and_then(|s| s.root).as_deref(), Some("/p/a"));
-        assert!(w.take_closed().is_none());
+        let all = |_: &str| true;
+        assert_eq!(w.take_closed(all).and_then(|s| s.root).as_deref(), Some("/p/b"), "最近关的在前");
+        assert_eq!(w.take_closed(all).and_then(|s| s.root).as_deref(), Some("/p/a"));
+        assert!(w.take_closed(all).is_none());
     }
 
     #[test]
@@ -822,5 +866,56 @@ mod tests {
         let back = Windows::default();
         back.load(&saved, &[]);
         assert_eq!(back.recent(), ["/p/a"], "存了能读回来");
+    }
+
+    // ── 审查之后补的 ──
+
+    #[test]
+    fn 点dock重开_跳过目录已经没了的() {
+        let w = Windows::default();
+        for (l, r) in [("main", "/p/a"), ("w-1", "/deleted"), ("w-2", "/p/c")] {
+            w.register(l);
+            w.set_root(l, Some(r.into()));
+        }
+        w.remove("main");
+        w.remove("w-2");
+        w.remove("w-1"); // 最近关的是 /deleted，后来它的目录被删了
+        let gone = |r: &str| r != "/deleted";
+        assert_eq!(w.take_closed(gone).and_then(|s| s.root).as_deref(), Some("/p/c"), "删掉的那个跳过，开下一个还在的");
+        assert!(w.snapshot().closed.iter().all(|c| c.root.as_deref() != Some("/deleted")), "死目录顺手丢掉，下次不用再试");
+    }
+
+    #[test]
+    fn 清理快照时_关掉的窗口的项目也留着() {
+        let w = Windows::default();
+        w.register("main");
+        w.set_root("main", Some("/p/closed".into()));
+        w.remove("main");
+        w.register("w-1");
+        for i in 0..RECENT_MAX {
+            w.set_root("w-1", Some(format!("/p/{i}")));
+        }
+        assert!(!w.recent().contains(&"/p/closed".to_string()), "前提：它已经被挤出「最近打开」了");
+        let keep = w.keep_roots();
+        assert!(keep.contains(&"/p/closed".to_string()), "点 Dock 还会把它开回来：快照不能删");
+        assert!(keep.contains(&format!("/p/{}", RECENT_MAX - 1)), "开着的照样留");
+    }
+
+    #[test]
+    fn 没有项目的那份快照_同一时刻只归一个窗口() {
+        let w = Windows::default();
+        w.register("main");
+        w.register("w-1");
+        w.register("w-2");
+        w.set_root("w-2", Some("/p/a".into()));
+        assert!(w.claim_empty("main"), "没人占着：给");
+        assert!(w.claim_empty("main"), "再要一次还是它的");
+        assert!(!w.claim_empty("w-1"), "main 占着：另一个没项目的窗口要不到");
+        assert!(!w.claim_empty("w-2"), "有项目的窗口要不到");
+        w.set_root("main", Some("/p/b".into()));
+        assert!(w.claim_empty("w-1"), "main 有项目了：它不再算数，给 w-1");
+        w.remove("w-1");
+        w.set_root("main", None);
+        assert!(w.claim_empty("main"), "占着的窗口关了：谁来要给谁");
     }
 }

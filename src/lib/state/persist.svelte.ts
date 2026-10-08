@@ -1,4 +1,4 @@
-import { adoptRecent, probePath } from "../ipc/commands";
+import { adoptRecent, claimEmptySession, probePath } from "../ipc/commands";
 import * as session from "./session";
 import { stashed } from "./doc";
 import { notify } from "./notify.svelte";
@@ -71,6 +71,31 @@ class Persist {
   #warnedBig = new Set<string>();
 
   /**
+   * 「没有项目的那份快照」（`lite-ide.session:`）这会儿归不归这个窗口。
+   *
+   * 那份快照只有一个键。两个没有项目的窗口（上次退出时开着两个、⌘N 开的空窗口、在一个窗口里
+   * 关闭项目）都去恢复它，同一批标签和草稿就同时开在两个窗口里，之后两边轮流写、谁后写谁算数 ——
+   * 代码审查查出来的。所以先问 Rust 要（`claimEmptySession`），要到了才恢复、才写；
+   * 要不到的那个窗口这一份不记，它开着的草稿文件本身都在盘上。
+   * 有了项目就不再归它（`afterRootChange` 清掉），再变回没有项目时重新要。
+   */
+  #ownsEmpty = false;
+  #claiming: Promise<boolean> | null = null;
+
+  #claimEmpty(): Promise<boolean> {
+    if (this.#ownsEmpty) return Promise.resolve(true);
+    this.#claiming ??= claimEmptySession()
+      .catch(() => false)
+      .then((ok) => {
+        this.#claiming = null;
+        // 问的这一会儿里有了项目：那份不归它了
+        this.#ownsEmpty = ok && project.root === null;
+        return this.#ownsEmpty;
+      });
+    return this.#claiming;
+  }
+
+  /**
    * 升级后第一次启动：把旧的全局快照迁成它那个项目自己的一份，「最近打开」交给 Rust，
    * 然后删掉旧键。返回这个窗口该开的路径 —— 没人指名时就是升级前开着的那个项目，
    * 不然升级完第一次打开，上次的现场就没了。
@@ -108,6 +133,7 @@ class Persist {
    * 都不该报错。启动流程里任何一句 throw 都等于应用打不开。
    */
   async restoreEmpty() {
+    if (!(await this.#claimEmpty())) return;
     await this.#restoreSnapshot(this.#read(null));
   }
 
@@ -148,6 +174,7 @@ class Persist {
   }
 
   async afterRootChange(next: string) {
+    this.#ownsEmpty = false;
     // 草稿不跟项目走（issue #40）：它是贴在桌角的便签，换个项目它还在
     for (const t of [...tabs.list]) if (!t.dirty && !project.isScratch(t.path)) tabflow.doClose(t);
     /*
@@ -329,6 +356,19 @@ class Persist {
       return; // 序列化都失败就彻底放弃，不能让它冒到启动路径上
     }
     if (text === this.#lastWritten) return;
+    if (snap.root === null && !this.#ownsEmpty) {
+      /*
+       * 没有项目、那份快照还没归它：先去要，要到了再写一次。要不到就不写 ——
+       * 另一个没有项目的窗口占着它（`#ownsEmpty` 的注释）。记下这一串，内容没变就不再去问
+       */
+      this.#lastWritten = text;
+      void this.#claimEmpty().then((ok) => {
+        if (!ok) return;
+        this.#lastWritten = "";
+        this.schedule();
+      });
+      return;
+    }
     /*
      * 写这个窗口自己那份（按项目根，没有项目是 `lite-ide.session:`），连草稿标签一起。
      * 原来写两份：不带后缀的全局「上次退出时」+ 项目那份 —— 全局那份在多窗口下是
@@ -363,7 +403,7 @@ class Persist {
    *
    * 原来每次落盘都清、按的是**这个窗口内存里**的最近列表 —— 多窗口时 A 的列表里没有 B 刚开的
    * 项目，A 一落盘就把 B 的快照当成「挤出去的」删了。现在名单在 Rust，「最近打开」变了的时候
-   * （`recent-changed`）由 App 带着 Rust 给的 `keep`（最近打开 + 开着的窗口）叫这里一次。
+   * （`recent-changed`）由 App 带着 Rust 给的 `keep`（最近打开 + 开着的窗口 + 点 Dock 还会开回来的）叫这里一次。
    * 删哪些的判据全在 `session.staleKeys`（带草稿的、keep 为空时一律不删）。
    */
   prune(keep: string[]) {
