@@ -8398,3 +8398,33 @@ README / DIRECTION / AGENTS 的索引表 / `rules/ui.md` 的菜单事件那条�
 修法：`open::prepare` 在判目录时一起过一遍 `fsservice::canonical`（和前端 `probe_path` 同一个函数），入口统一一次。
 单测造一个软链接目录，去掉那一行就红。真 `.app` 上照 smoke 那条路走：直接 exec 二进制带 `/tmp/…` 起、杀掉、再起 ——
 修好的是一个窗口；去掉修复的构建上重起之后是 **两个同名窗口**（`mwS.XCsE, mwS.XCsE`），和 smoke 那次一模一样，原因坐实。
+
+## 2026-10-08 · #44 配置文件第 0 步：三项实测，推翻两处、换掉一处
+
+设计稿（docs/SETTINGS.md）第 8 节列了三件动工前要量的事，结果第 8 节有表，这里记过程里值得记的。
+
+### 「编辑器保存换 inode，直接盯文件就收不到了」—— 在 macOS 上不对
+
+设计稿写「监听目录、不监听文件」，理由是 tmp + rename 之后原文件的 inode 没了。写一个小程序直接调 `fsservice::write_text` 和 `notify`，
+同一个目录上挂两个监听（盯目录按名字过滤 / 直接盯文件），换五种保存方式：**两个都全收得到**，包括 vim 换了 inode 之后。
+FSEvents 按路径监听，那条理由只在 inotify / kqueue 上成立。
+
+结论没变（还是监听目录），理由换了：**设计里文件可能还不存在**（不存在不建），而 `notify` 监听不存在的路径直接报错、之后建出来也收不到 ——
+这条也是量出来的。**一个对的决定配一个错的理由，下一个人会照着错的理由去「优化」**：比如以为 macOS 上没这个问题、改成直接盯文件，
+然后「第一次建出设置文件不生效」。
+
+同一个实验里两个更要紧的：FSEvents 的事件类型会把这个路径过去的标记一起带上（原地覆写报「改名」；lite-ide 第二次 `write_text` 时
+`settings.json` 只有两条「改名」、**没有「内容变了」**），所以只能「碰过就重读、和上次比内容」；vim 存一次 11 条，夹着 `.swp`、
+`settings.json~`、`4913`。
+
+### 现成的 JSON 高亮遇到注释：注释掉的默认值和真设置一个颜色
+
+lezer 的 JSON 语法在 Node 里直接跑：注释里的 `"JetBrains Mono"` 被认成键名，`// "editor.fontFamily": ...` 整行按真设置上色。
+模板恰恰是「所有键都注释着列出来」，这比不高亮还误导。legacy-modes 的 JavaScript `json` 模式认注释，但键名报
+`Unknown highlighting tag property`、和值一个颜色 —— 给 `StreamLanguage.define` 补一张 `tokenTable: { property: tags.propertyName }` 就对了。
+
+### 首屏缓存：前提不成立，整套删掉
+
+设计稿要在 localStorage 里缓存一份设置给首屏用，前提是「挂载前一次 IPC 往返太贵」。在临时身份的 `.app` 上往 `main.ts` 临时加探针：
+挂载前 `invoke` 一次，**< 1ms**（WebKit 的 `performance.now()` 精度是 1ms，九次全是 0 或 1），三个窗口同时恢复时也一样；
+启动到挂载约 410ms。缓存要解决的问题不存在，留着它只会多一份「和真值可能不一致」的状态。**先量那个「太贵」，再决定要不要绕开它。**
