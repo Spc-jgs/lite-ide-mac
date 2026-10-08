@@ -5,6 +5,7 @@ pub mod menu;
 mod open;
 mod state;
 mod trust_store;
+mod windows;
 
 /// 把 Tauri 的 async runtime 换成一个小的。
 ///
@@ -68,16 +69,35 @@ pub fn run() {
          * 搬到 Rust 来就是把一份状态存两处。
          */
         .on_menu_event(|app, event| {
-            use tauri::Emitter;
+            use tauri::{Emitter, Manager};
             let id = event.id().0.as_str();
-            let _ = app.emit("menu", id);
+            // 只发给前台窗口（多窗口第 2 步）。原来是广播：两个窗口时在 A 里按 ⌘S，B 也保存。
+            // 一个窗口都没有时没人接 —— 第 3 步之前不会发生（最后一个窗口关了进程就退了）
+            match app.state::<state::AppState>().windows.front() {
+                Some(label) => {
+                    let _ = app.emit_to(label.as_str(), "menu", id);
+                }
+                None => crate::diag!("菜单 {id}：没有窗口可以接"),
+            }
         })
         .on_window_event(|window, event| {
             // 窗口关了，它名下的终端、日志句柄、监听、远程操作跟着走 —— 否则留下孤儿 zsh 常驻。
             // 只收**这个窗口**的：别的窗口的终端里可能正跑着 gradle（docs/MULTIWINDOW.md 3.2）
-            if matches!(event, tauri::WindowEvent::Destroyed) {
-                use tauri::Manager;
-                window.state::<state::AppState>().release_window(window.label());
+            use tauri::Manager;
+            let st = window.state::<state::AppState>();
+            match event {
+                tauri::WindowEvent::Destroyed => {
+                    st.release_window(window.label());
+                    st.windows.remove(window.label());
+                }
+                // 到前台了：菜单事件改发给它，原生菜单的可用状态换成它存着的那份
+                // （前端自己不知道什么时候「到前台」了，等它推会慢一拍或者根本不来）
+                tauri::WindowEvent::Focused(true) => {
+                    if let Some(m) = st.windows.focus(window.label()) {
+                        menu::apply(window.app_handle(), m);
+                    }
+                }
+                _ => {}
             }
         })
         .setup(|app| {
@@ -111,6 +131,21 @@ pub fn run() {
             let (m, handles) = menu::build(app.handle())?;
             app.set_menu(m)?;
             app.manage(handles);
+
+            /*
+             * 登记第一个窗口，再把命令行参数送进它的收件箱。
+             *
+             * `argv` 原来是 `initial_paths` 每次被调时现读的 —— 多窗口下每个新窗口都会调它，
+             * 于是每个窗口都会把启动参数再开一遍（第 0 步的原型里 w-1 就多开了 App.svelte）。
+             * 启动参数只属于启动时那一个窗口，在这儿送一次。
+             */
+            let st = app.state::<state::AppState>();
+            st.windows.register("main");
+            let args: Vec<String> = std::env::args()
+                .skip(1)
+                .filter(|a| !a.starts_with('-') && std::path::Path::new(a).exists())
+                .collect();
+            open::deliver(app.handle(), args);
 
             if let Some(w) = app.get_webview_window("main") {
                 budget::mark("window");
@@ -164,6 +199,7 @@ pub fn run() {
             commands::log_refresh,
             commands::close_log,
             commands::initial_paths,
+            commands::set_window_root,
             commands::list_project_files,
             commands::grep_project,
             commands::git_root,
@@ -227,15 +263,13 @@ pub fn run() {
         /*
          * `run` 而不是 `.run(ctx)`：要接 `RunEvent::Opened`（issue #40）。
          * macOS 把 Finder 双击 / 拖 Dock / `open -a` 都送成这个事件，
-         * 冷启动和已在运行都走它 —— 读 `argv` 一条都接不到。前端没就绪时
-         * 先攒在 `open::Inbox`，由 `initial_paths` 一并取走；细节见 `open.rs`。
+         * 冷启动和已在运行都走它 —— 读 `argv` 一条都接不到。按窗口路由，
+         * 那个窗口的前端没就绪时先攒在它的收件箱里；细节见 `open.rs` / `windows.rs`。
          */
         .run(|app, event| {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
-                use tauri::Manager;
-                let paths = open::paths_from_urls(&urls);
-                app.state::<state::AppState>().open_inbox.deliver(app, paths);
+                open::deliver(app, open::paths_from_urls(&urls));
             }
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);

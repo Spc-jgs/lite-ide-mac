@@ -46,8 +46,9 @@ pub struct AppState {
     /// **先摘出来再在锁外 drop**，同 pty 那条 —— drop 要等防抖线程退出，
     /// 持着锁等就是在锁里做慢事。
     watch: Mutex<HashMap<String, fsservice::watch::Watch>>,
-    /// 系统送来的「打开这个文件」，前端就绪前先攒在这（issue #40，见 `open.rs`）
-    pub open_inbox: crate::open::Inbox,
+    /// 开着哪些窗口、谁在前台、各自的项目根和收件箱（多窗口第 2 步，见 `windows.rs`）。
+    /// 原来这里是一个全局的 `open::Inbox`，现在每个窗口一个，收在登记表里
+    pub windows: crate::windows::Windows,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
 }

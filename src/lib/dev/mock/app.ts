@@ -12,6 +12,9 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
     case "initial_paths":
       return ["/proj"];
+    // 真实现只是记下来给多窗口路由用；浏览器里只有一个「窗口」，没东西可路由
+    case "set_window_root":
+      return null;
     // 浏览器里没有 Rust 侧的 LITE_IDE_DEBUG，那条内存统计链路整个不存在。
     // 落到 default 的 null 也能让前端不建定时器，但那是碰巧对 ——
     // 显式写出来，读桩的人才看得出这条命令被想过。

@@ -38,6 +38,8 @@
     initialPaths,
     OPEN_PATHS_EVENT,
     watchRoot,
+    setWindowRoot,
+    listenHere,
     gitStage,
     gitUnstage,
     scratchDir,
@@ -719,17 +721,14 @@
      * **先挂监听，再取启动路径。** `initial_paths` 那一次调用把 Rust 侧标成
      * 「前端就绪」，之后系统送来的路径改为直接发 `open-paths` 事件 ——
      * 监听挂在它后面的话，中间那一拍到的事件就发给了空气。
-     * 动态 import 的理由同拖放那条：静态引会把 event 那串拽进入口包。
+     * 只收发给这个窗口的（`listenHere`）：多窗口时 Rust 按项目把路径路由到某一个窗口。
      */
     let unlisten: (() => void) | null = null;
     let dead = false;
-    const ready = import("@tauri-apps/api/event")
-      .then((m) =>
-        m.listen<string[]>(OPEN_PATHS_EVENT, (e) => {
-          // 负载不是数组就不动：桩的 `__mockMenu` 会把菜单事件广播给所有监听器
-          if (Array.isArray(e.payload)) void openIncoming(e.payload);
-        }),
-      )
+    const ready = listenHere<string[]>(OPEN_PATHS_EVENT, (e) => {
+      // 负载不是数组就不动：桩的 `__mockMenu` 会把菜单事件广播给所有监听器
+      if (Array.isArray(e.payload)) void openIncoming(e.payload);
+    })
       .then((f) => {
         if (dead) f();
         else unlisten = f;
@@ -847,16 +846,11 @@
   });
 
   /**
-   * 菜单事件。
-   *
-   * `@tauri-apps/api/event` 同样走动态 import，理由和拖放那条一样 ——
-   * 静态引会把它连着 core 的一串拽进入口包，而菜单在窗口出现之前
-   * 一次都点不到。
+   * 菜单事件。只收发给这个窗口的：Rust 只发给前台窗口，全局 `listen` 会让
+   * 后台窗口也照做一遍（在 A 里按 ⌘S，B 也保存）。动态 import 在 `listenHere` 里。
    */
   $effect(() => {
-    const reg = import("@tauri-apps/api/event")
-      .then((m) => m.listen<string>("menu", (e) => void runMenu(e.payload)))
-      .catch(() => null);
+    const reg = listenHere<string>("menu", (e) => void runMenu(e.payload)).catch(() => null);
     return () => void reg.then((f) => f?.()).catch(() => {});
   });
 
@@ -871,21 +865,20 @@
    */
   $effect(() => {
     void watchRoot(project.root ?? "");
+    // 同一时刻报给路由：Finder 双击的文件要落到项目包含它的窗口（多窗口第 2 步）
+    void setWindowRoot(project.root ?? "");
   });
   $effect(() => {
-    const reg = import("@tauri-apps/api/event")
-      .then((m) =>
-        m.listen<string>("fs-changed", (e) => {
-          if (e.payload === "git") {
-            // 先看 config 是不是变了（issue #24），再刷状态；受限时 refresh 本来就是空转
-            void git.recheckTrust().then(() => git.refresh());
-          } else {
-            void worktree.changed();
-            void git.refresh();
-          }
-        }),
-      )
-      .catch(() => null);
+    // 只收这个窗口自己那个监听发来的（Rust 那边是 emit_to）
+    const reg = listenHere<string>("fs-changed", (e) => {
+      if (e.payload === "git") {
+        // 先看 config 是不是变了（issue #24），再刷状态；受限时 refresh 本来就是空转
+        void git.recheckTrust().then(() => git.refresh());
+      } else {
+        void worktree.changed();
+        void git.refresh();
+      }
+    }).catch(() => null);
     return () => void reg.then((f) => f?.()).catch(() => {});
   });
 

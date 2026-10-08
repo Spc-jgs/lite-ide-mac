@@ -329,6 +329,11 @@ pub fn refresh_recent(app: &AppHandle<Wry>, paths: &[String]) -> tauri::Result<(
     Ok(())
 }
 
+/// 把某个窗口存着的那份状态套到原生菜单上（窗口到前台时，见 `lib.rs`）
+pub fn apply(app: &AppHandle<Wry>, m: crate::windows::MenuState) {
+    sync_enabled(app, m.has_tab, m.has_repo, m.has_term, m.has_root, m.can_move, m.split);
+}
+
 /// 按当下的上下文让菜单项变灰。
 pub fn sync_enabled(
     app: &AppHandle<Wry>,

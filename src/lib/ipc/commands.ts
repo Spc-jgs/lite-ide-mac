@@ -8,6 +8,7 @@
  * 新加命令时先问一句「窗口出现之前有用吗」，没用就别放这儿。
  */
 import { invoke } from "@tauri-apps/api/core";
+import type { EventCallback, UnlistenFn } from "@tauri-apps/api/event";
 
 export interface OpenResult {
   handle: number;
@@ -277,6 +278,32 @@ export const devtoolsBuild = () => invoke<boolean>("devtools_build").catch(() =>
  * 起不来（路径没了、FSEvents 出错）只是少了实时刷新，焦点刷新那条路还在 —— 吞掉。
  */
 export const watchRoot = (root: string) => invoke<void>("watch_root", { root }).catch(() => {});
+
+/**
+ * 告诉 Rust 这个窗口开着哪个项目（空串 = 没有）。多窗口的路由要用：Finder 双击的文件
+ * 落到项目包含它的窗口，打开一个已经开着的目录就去那个窗口（`windows.rs`）。
+ * 报不过去只是路由退回前台窗口，不影响干活 —— 吞掉。
+ */
+export const setWindowRoot = (root: string) => invoke<void>("set_window_root", { root }).catch(() => {});
+
+/**
+ * 只收**发给这个窗口**的事件（多窗口第 2 步，docs/MULTIWINDOW.md 3.3）。
+ *
+ * `@tauri-apps/api/event` 的 `listen` 默认目标是 `Any`，意思是「不管发给谁的我都要」——
+ * Rust 那边用 `emit_to` 定了向也没用，第 0 步的原型里给 w-1 发的 `open-paths`，
+ * main 照样多开了一个标签。带上自己的 label，Tauri 才会按目标筛。
+ * 广播（`app.emit`）照样收得到：筛选只对定了向的事件起作用。
+ *
+ * 两个模块都动态 import，理由同 App 里原来那几处：静态引会把 event / webview
+ * 那一串拽进入口包，而这些事件在窗口出现之前一个都不会来。
+ */
+export async function listenHere<T>(event: string, cb: EventCallback<T>): Promise<UnlistenFn> {
+  const [{ listen }, { getCurrentWebview }] = await Promise.all([
+    import("@tauri-apps/api/event"),
+    import("@tauri-apps/api/webview"),
+  ]);
+  return listen<T>(event, cb, { target: { kind: "Webview", label: getCurrentWebview().label } });
+}
 
 // ─────────────────────────── 终端 ───────────────────────────
 

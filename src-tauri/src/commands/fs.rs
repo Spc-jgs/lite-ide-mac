@@ -224,13 +224,15 @@ pub fn watch_root(
         state.set_watch(window.label(), None);
         return Ok(());
     }
+    let label = window.label().to_string();
     let w = fsservice::watch::watch(&root, move |c| {
         use tauri::Emitter;
         let kind = match c {
             fsservice::watch::Change::Git => "git",
             fsservice::watch::Change::Files => "files",
         };
-        let _ = app.emit("fs-changed", kind);
+        // 只发给开着这个项目的窗口（多窗口第 2 步）：别的窗口收到也只是白刷一遍
+        let _ = app.emit_to(label.as_str(), "fs-changed", kind);
     })?;
     state.set_watch(window.label(), Some(w));
     Ok(())

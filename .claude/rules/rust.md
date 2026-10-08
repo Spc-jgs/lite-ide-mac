@@ -23,6 +23,11 @@ owner 从命令参数里的 `window: tauri::Window` 取（Tauri 注入，前端�
 id 由前端发的表（远程操作）要按 `(owner, id)` 记 —— 每个窗口都从 1 数起。
 ⌘Q 不经过 `Destroyed`（docs/MULTIWINDOW.md 3.6），别指望在那里做退出时的收尾。
 
+**发给前端的事件要两头都定向。** Rust 用 `emit_to(label, …)`，前端用 `listenHere`
+（`ipc/commands.ts`）—— 裸的 `listen` 默认目标是 `Any`，发给别的窗口的它照收不误
+（第 0 步实测：给 w-1 发的 `open-paths`，main 也开了）。该发给谁由 `windows.rs` 定：
+菜单给前台，文件变动给开着那个项目的，打开文件按 `windows::route`。
+
 ## 命令层不写业务
 
 `src-tauri/src/commands/`（按领域分文件，2026-09-24 从一个 `commands.rs` 拆开）只做三件事：解包参数、查句柄、转错误。
@@ -476,8 +481,8 @@ Tauri 把它包成 `RunEvent::Opened { urls }`，冷启动和已在运行都走�
 （LS 发给已在运行的那个，不需要 single-instance 插件）。两条要记住：
 
 - **事件可能比前端先到。** Finder 双击冷启动，`Opened` 在监听挂上之前就来。
-  `open::Inbox` 先攒，前端 `initial_paths` 取走并标记就绪；**前端必须先 `listen`
-  再调 `initial_paths`**，反过来中间那一拍就丢了。
+  先攒在目标窗口的收件箱里（`windows.rs`，每个窗口一个），前端 `initial_paths` 取走并标记就绪；
+  **前端必须先 `listen` 再调 `initial_paths`**，反过来中间那一拍就丢了。
 - **`lite` 命令是 `exec open -a "<.app>" "$@"`，不能软链到二进制** —— 软链走
   `argv` 只在冷启动时有效，应用开着时会再起一个进程。
 

@@ -42,20 +42,27 @@ pub fn install_cli(app: tauri::AppHandle) -> Result<CliInstallDto, String> {
 /// 文件和目录都接受：目录会成为项目根，文件则打开并把父目录当根。
 /// 早先只认 `is_file()`，`lite-ide <目录>` 静默什么都不做。
 ///
-/// **调用这一次就把 inbox 标成「前端就绪」** —— 之后再来的路径直接发事件。
+/// **调用这一次就把这个窗口的收件箱标成「前端就绪」** —— 之后再来的路径直接发事件。
 /// 所以前端必须**先挂好 `open-paths` 的监听再调它**，反过来中间那一拍到的就丢了。
+///
+/// 多窗口第 2 步起，收件箱是**每个窗口一个**（`windows.rs`），取的是调用它的那个窗口的；
+/// `argv` 在 `setup` 时就送进了第一个窗口的收件箱，不再每次现读 —— 否则每个新窗口
+/// 都会把启动参数再开一遍。
 #[tauri::command]
-pub fn initial_paths(state: State<'_, AppState>) -> Vec<String> {
-    let args: Vec<String> = std::env::args().collect();
-    let mut found: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter(|a| !a.starts_with('-') && Path::new(a).exists())
-        .cloned()
-        .collect();
-    found.extend(state.open_inbox.take());
-    crate::diag!("initial_paths -> {found:?}");
+pub fn initial_paths(window: tauri::Window, state: State<'_, AppState>) -> Vec<String> {
+    let found = state.windows.take_inbox(window.label());
+    crate::diag!("initial_paths {} -> {found:?}", window.label());
     found
+}
+
+/// 前端告诉 Rust「我这个窗口现在开着哪个项目」（空串 = 没有项目）。
+///
+/// 路由要用：Finder 双击一个文件，该落到项目包含它的那个窗口；打开一个目录，
+/// 已经有窗口开着它就该去那个窗口（`windows::route`）。项目根的真相在前端
+/// （会话恢复、⌘O、关闭项目都在那边改它），所以由前端在它变的时候报过来。
+#[tauri::command]
+pub fn set_window_root(window: tauri::Window, root: String, state: State<'_, AppState>) {
+    state.windows.set_root(window.label(), Some(root));
 }
 
 /// 前端把执行轨迹与 JS 错误报回来。release 没有 devtools，
@@ -206,10 +213,16 @@ pub fn set_recent(app: tauri::AppHandle, paths: Vec<String>) -> Result<(), Strin
 /// 今天所有键位都是 window 级监听，**不管当下有没有意义都会触发** ——
 /// 没有标签时按 ⌘S、不是 Git 仓库时按 ⇧⌘G，都是走一遍然后什么也没发生。
 /// 灰掉的菜单项本身就是一句解释：不是坏了，是现在用不上。
+///
+/// 原生菜单整个应用只有一份，而每个窗口的状态不一样（多窗口第 2 步）：先存进这个窗口
+/// 自己那份，**它在前台才真的改菜单**；在后台的等它到前台时由 `lib.rs` 套上。
+/// 否则菜单反映的是「最后一个推过来的窗口」，不一定是你正在看的那个。
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn sync_menu_state(
     app: tauri::AppHandle,
+    window: tauri::Window,
+    state: State<'_, AppState>,
     has_tab: bool,
     has_repo: bool,
     has_term: bool,
@@ -217,7 +230,10 @@ pub fn sync_menu_state(
     can_move: bool,
     split: bool,
 ) {
-    crate::menu::sync_enabled(&app, has_tab, has_repo, has_term, has_root, can_move, split);
+    let m = crate::windows::MenuState { has_tab, has_repo, has_term, has_root, can_move, split };
+    if state.windows.set_menu(window.label(), m) {
+        crate::menu::apply(&app, m);
+    }
 }
 
 /// 交给系统默认浏览器打开一个网址。目前只服务「帮助 › 项目主页」。
