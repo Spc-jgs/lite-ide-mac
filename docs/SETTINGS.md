@@ -217,7 +217,7 @@ IPC 往返在临时身份的 `.app` 上往 `main.ts` 临时加了一个探针、
 |---|---|---|
 | 0 ✅ | 第 8 节三件事实测 | 结论已写回（第 8 节）：推翻两处、换掉一处 |
 | 1 ✅ | Rust：剥注释 + 键定义 + 合并默认值 + 校验（纯函数，裸单测）；`ui-state.json` 的解析 / 序列化（读写盘在第 2 步） | `src-tauri/src/settings.rs`，20 条测试；17 处各自改坏都红（第一版有一处没抓到，见 JOURNAL） |
-| 2 | Rust：`watch_file`、命令、广播；启动时读 | 测试：文件一开始不存在、后来被建出来要收得到；tmp + rename 之后还收得到；同目录别的文件被写不触发；内容没变不广播 |
+| 2 ✅ | Rust：`watch_file`（fsservice）、`settingsctl.rs`（读盘、监听、存 `ui-state.json`、广播）、`commands/settings.rs`（`settings` / `settings_schema` / `set_ui_state` / `step_font` / `adopt_ui_state` / `open_settings`）；DTO 和 TS 类型、桩 `mock/settings.ts` | `watch_file` 4 条、Store 5 条、模板 1 条，各自改坏都红（有一处绿：是多余的代码，删了，见 JOURNAL）；临时身份 `.app` 8/8 |
 | 3 | 前端：`settings.svelte.ts`（挂载前 `await settings()`）、字体字号接上、5 个旧偏好改走 `ui-state`；**迁移**（下面） | 状态测试；真 `.app` 上两个窗口，A 里关缩略图 B 跟着关 |
 | 4 | 「设置…」菜单、模板、补全、行内报错、状态栏提示；`terminal.shell` | 真 `.app` 验收（第 11 节） |
 | 5 | 文档：USAGE 加一节「设置」，ARCHITECTURE 的文件表，DIRECTION 第 6 节标完成 | —— |

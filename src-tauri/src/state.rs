@@ -49,6 +49,8 @@ pub struct AppState {
     /// 开着哪些窗口、谁在前台、各自的项目根和收件箱（多窗口第 2 步，见 `windows.rs`）。
     /// 原来这里是一个全局的 `open::Inbox`，现在每个窗口一个，收在登记表里
     pub windows: crate::windows::Windows,
+    /// 设置（issue #44）：`settings.json` + `ui-state.json`，整个进程一份，变了广播给每个窗口（`settingsctl.rs`）
+    pub settings: crate::settings::Store,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
 }

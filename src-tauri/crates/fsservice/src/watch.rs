@@ -180,6 +180,88 @@ pub fn watch(
     Ok(Watch { _watcher: watcher, stop, wake })
 }
 
+/// 一个活着的单文件监听（[`watch_file`]）。**drop 即停**，同 [`Watch`]
+pub struct FileWatch {
+    _watcher: RecommendedWatcher,
+    stop: Arc<AtomicBool>,
+    wake: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl Drop for FileWatch {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        self.wake.1.notify_all();
+    }
+}
+
+/// 监听**一个文件**：`settings.json` 那种（issue #44，docs/SETTINGS.md 7.2）。它变了（防抖之后）调一次 `on_change`。
+///
+/// 三条都是第 0 步实测出来的，改之前先看那一节：
+///
+/// - **监听它所在的目录（不递归），按文件名过滤，不直接盯这个文件。** 文件可能还不存在（设置文件只在点「设置…」时才建），
+///   而 notify 监听一个不存在的路径**直接报错**，之后建出来也收不到。父目录不存在由调用方先建。
+///   （原来以为的理由「保存会换 inode」在 macOS 上不成立：FSEvents 按路径监听。）
+/// - **不看事件类型，也不说变了什么。** FSEvents 会把这个路径过去的标记一起带上：原地覆写报「改名」，
+///   lite-ide 第二次 `write_text` 时只有两条「改名」、没有「内容变了」。所以只报「碰过」，调用方重读、和上次比内容。
+/// - **按文件名精确比**：vim 的 `settings.json~`、我们自己的 `.settings.json.lite-ide-tmp` 都带着这个名字；
+///   同目录的 `windows.json`、`ui-state.json` 一直在被应用自己写。
+///
+/// 防抖同 [`watch`]：第一条到了等 [`DEBOUNCE`]，期间的合成一条（vim 存一次就是 11 条）。
+pub fn watch_file(path: impl AsRef<Path>, on_change: impl Fn() + Send + 'static) -> Result<FileWatch, String> {
+    let path = path.as_ref();
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(format!("{} 不是一个文件路径", path.display()));
+    };
+    let name = name.to_os_string();
+    let wake: Arc<(Mutex<bool>, Condvar)> = Arc::new((Mutex::new(false), Condvar::new()));
+    let stop = Arc::new(AtomicBool::new(false));
+
+    let w2 = Arc::clone(&wake);
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
+        let Ok(ev) = res else { return };
+        if matches!(ev.kind, notify::EventKind::Access(_)) {
+            return;
+        }
+        if !ev.paths.iter().any(|p| p.file_name() == Some(name.as_os_str())) {
+            return;
+        }
+        let (lock, cv) = &*w2;
+        *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        cv.notify_one();
+    })
+    .map_err(|e| format!("起不了文件监听：{e}"))?;
+    watcher
+        .watch(dir, RecursiveMode::NonRecursive)
+        .map_err(|e| format!("监听不了 {}：{e}", dir.display()))?;
+
+    let w3 = Arc::clone(&wake);
+    let s3 = Arc::clone(&stop);
+    thread::Builder::new()
+        .name("file-watch-debounce".into())
+        .spawn(move || {
+            let (lock, cv) = &*w3;
+            loop {
+                let mut hit = lock.lock().unwrap_or_else(|e| e.into_inner());
+                while !*hit {
+                    if s3.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    hit = cv.wait(hit).unwrap_or_else(|e| e.into_inner());
+                }
+                drop(hit);
+                thread::sleep(DEBOUNCE);
+                if s3.load(Ordering::SeqCst) {
+                    return;
+                }
+                *lock.lock().unwrap_or_else(|e| e.into_inner()) = false;
+                on_change();
+            }
+        })
+        .map_err(|e| format!("起不了防抖线程：{e}"))?;
+
+    Ok(FileWatch { _watcher: watcher, stop, wake })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,5 +378,73 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<Change>();
         let r = watch("/nonexistent/dir/for/lite-ide", move |c| tx.send(c).unwrap());
         assert!(r.is_err());
+    }
+
+    // ── watch_file（issue #44）──
+
+    /// 起一个单文件监听，先把建目录、建文件留下的陈事件排干净（同上面 `只动_git_底下就是_git` 那段注释）
+    fn file_watch(path: &Path) -> (FileWatch, mpsc::Receiver<()>) {
+        let (tx, rx) = mpsc::channel();
+        let w = watch_file(path, move || tx.send(()).unwrap()).expect("起不来");
+        thread::sleep(Duration::from_millis(200));
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {}
+        (w, rx)
+    }
+
+    #[test]
+    fn 单文件_一开始不存在_后来建出来要收得到() {
+        // 设置文件只在点「设置…」时才建：启动时它多半不存在，而你可能在 Finder 里或者用别的编辑器第一次把它建出来
+        let d = tmp();
+        let f = d.join("settings.json");
+        let (_w, rx) = file_watch(&f);
+        std::fs::write(&f, "{}").unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("建出来之后 5 秒内没收到");
+    }
+
+    #[test]
+    fn 单文件_照编辑器那样存_临时文件加改名_连存两次都收得到() {
+        let d = tmp();
+        let f = d.join("settings.json");
+        std::fs::write(&f, "{}").unwrap();
+        let (_w, rx) = file_watch(&f);
+        crate::write_text(&f, "{\"a\": 1}").unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("第一次存没收到");
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {}
+        // 第二次存：实测这次 FSEvents 只给「改名」、没有「内容变了」—— 按类型筛就会漏
+        crate::write_text(&f, "{\"a\": 2}").unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("第二次存没收到");
+    }
+
+    #[test]
+    fn 单文件_同目录别的文件被写_不触发() {
+        let d = tmp();
+        let f = d.join("settings.json");
+        std::fs::write(&f, "{}").unwrap();
+        let (_w, rx) = file_watch(&f);
+        // 照 winctl::save_now 写 windows.json；ui-state.json 原地写；一个只是名字里带着 settings.json 的
+        std::fs::write(d.join("windows.json.tmp"), "{}").unwrap();
+        std::fs::rename(d.join("windows.json.tmp"), d.join("windows.json")).unwrap();
+        std::fs::write(d.join("ui-state.json"), "{}").unwrap();
+        std::fs::write(d.join("settings.json~"), "{}").unwrap();
+        let got = rx.recv_timeout(Duration::from_millis(1500));
+        assert!(got.is_err(), "别的文件被写也触发了");
+        // 监听本身还活着
+        std::fs::write(&f, "{\"b\": 1}").unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("真改了反而没收到");
+    }
+
+    #[test]
+    fn 单文件_一阵写只合成一条() {
+        // vim 存一次是 11 条事件
+        let d = tmp();
+        let f = d.join("settings.json");
+        std::fs::write(&f, "{}").unwrap();
+        let (_w, rx) = file_watch(&f);
+        for i in 0..20 {
+            std::fs::write(&f, format!("{{\"n\": {i}}}")).unwrap();
+        }
+        rx.recv_timeout(Duration::from_secs(5)).expect("没收到");
+        let extra = rx.recv_timeout(DEBOUNCE * 2);
+        assert!(extra.is_err(), "一阵写发出了不止一条");
     }
 }

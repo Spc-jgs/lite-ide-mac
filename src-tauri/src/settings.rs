@@ -213,7 +213,7 @@ pub fn parse(text: &str) -> Result<Parsed, Problem> {
         pos: pos_of_line_byte(text, e.line(), e.column()),
         // 最常见的是没写完（少个 `}`、引号没收尾），给句人话；别的保留 serde_json 的原文（去掉它自己带的行列，我们另算）
         msg: if e.classify() == serde_json::error::Category::Eof {
-            "没写完：可能少了 } 或者引号没收尾".into()
+            "没写完，可能少了 } 或者引号没收尾".into()
         } else {
             e.to_string().split(" at line ").next().unwrap_or_default().to_string()
         },
@@ -522,6 +522,134 @@ pub fn font_size(base: i64, offset: i64) -> i64 {
     (base + offset).clamp(FONT_MIN, FONT_MAX)
 }
 
+// ─────────────────────────── 合起来：前端要的样子 ───────────────────────────
+
+/// 前端拿到就能用的值：两份文件合起来、空值已经换成实际用的（终端字体空 = 跟编辑器；字号 = 基础 + 偏移）。
+/// 这些合并规则放在这儿而不是前端：多个窗口各自算一遍，迟早有一个算得不一样
+#[derive(Clone, Debug, PartialEq)]
+pub struct Effective {
+    pub editor_font_family: String,
+    /// 实际字号（基础 + ⌘= 的偏移）
+    pub editor_font_size: i64,
+    /// `settings.json` 里写的基础字号（⌘0 回到它）
+    pub editor_font_base: i64,
+    pub terminal_font_family: String,
+    pub terminal_font_size: i64,
+    /// 空 = `$SHELL`
+    pub terminal_shell: String,
+    pub minimap: bool,
+    pub tree_compact: bool,
+    pub tree_follow: bool,
+    pub git_grouped: bool,
+}
+
+pub fn effective(s: &Settings, u: &UiState) -> Effective {
+    Effective {
+        editor_font_family: s.editor_font_family.clone(),
+        editor_font_size: font_size(s.editor_font_size, u.font_offset),
+        editor_font_base: s.editor_font_size,
+        terminal_font_family: if s.terminal_font_family.trim().is_empty() {
+            s.editor_font_family.clone()
+        } else {
+            s.terminal_font_family.clone()
+        },
+        terminal_font_size: s.terminal_font_size,
+        terminal_shell: s.terminal_shell.clone(),
+        minimap: u.minimap,
+        tree_compact: u.tree_compact,
+        tree_follow: u.tree_follow,
+        git_grouped: u.git_grouped,
+    }
+}
+
+/// 进程里唯一的一份设置（`AppState.settings`）。**跨窗口共享的东西只有 Rust 一个主人**（MULTIWINDOW.md 3.5）：
+/// 原来 5 个偏好在 localStorage 里各窗口各读各的，A 里关了缩略图 B 不知道。
+#[derive(Default)]
+pub struct Store {
+    inner: std::sync::Mutex<StoreInner>,
+}
+
+#[derive(Default)]
+struct StoreInner {
+    parsed: Parsed,
+    /// 读过 `settings.json` 没有：没读过 = 启动时，整份坏了用默认值；读过 = 运行中，整份坏了留上一份好的
+    loaded: bool,
+    ui: UiState,
+    /// 启动时 `ui-state.json` 不存在 —— 升级后第一次启动，等前端交来旧的 localStorage 偏好（[`Store::adopt_legacy`]）
+    ui_fresh: bool,
+}
+
+impl Default for Parsed {
+    fn default() -> Self {
+        Parsed { settings: Settings::default(), problems: Vec::new() }
+    }
+}
+
+impl Store {
+    fn lock(&self) -> std::sync::MutexGuard<'_, StoreInner> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 读到了 `settings.json` 的这份原文（启动时、文件监听报「碰过」时）。返回生效的设置或者问题列表变了没有 ——
+    /// 变了调用方才广播。
+    ///
+    /// **比的是解析的结果，不是「有没有事件」**：文件监听只说「碰过」不说「变了」（`fsservice::watch_file` 的注释），
+    /// `touch` 一下、vim 存一个没改的文件都会来，结果一样就不广播。（第一版另外先比了一道原文，验红时删掉它测试照样绿 ——
+    /// 解析是纯函数，原文一样结果必然一样，那道比较挡下的这里都会挡下，是多余的，删了。）
+    /// 运行中整份坏了留着上一份好的（[`load`]），启动时没有上一份就是默认值
+    pub fn load_settings(&self, text: Option<String>) -> bool {
+        let mut g = self.lock();
+        let prev = g.loaded.then(|| g.parsed.settings.clone());
+        let next = load(text.as_deref(), prev.as_ref());
+        g.loaded = true;
+        let changed = next != g.parsed;
+        g.parsed = next;
+        changed
+    }
+
+    /// 启动时读到的 `ui-state.json`（None = 不存在）
+    pub fn load_ui(&self, text: Option<&str>) {
+        let mut g = self.lock();
+        g.ui = text.map(parse_ui).unwrap_or_default();
+        g.ui_fresh = text.is_none();
+    }
+
+    /// 当前生效的值和问题
+    pub fn view(&self) -> (Effective, Vec<Problem>) {
+        let g = self.lock();
+        (effective(&g.parsed.settings, &g.ui), g.parsed.problems.clone())
+    }
+
+    /// 改界面状态，返回变了没有（变了调用方存盘、广播）。`f` 拿到的是界面状态和当前的基础字号（⌘= 要用）
+    pub fn update_ui(&self, f: impl FnOnce(&mut UiState, i64) -> Result<bool, String>) -> Result<bool, String> {
+        let mut g = self.lock();
+        let base = g.parsed.settings.editor_font_size;
+        let changed = f(&mut g.ui, base)?;
+        if changed {
+            // 有过一次真正的改动就不再是「升级后第一次」：之后交来的旧偏好不能盖掉它
+            g.ui_fresh = false;
+        }
+        Ok(changed)
+    }
+
+    /// 升级后第一次启动，前端交来 localStorage 里的旧偏好。**只在 `ui-state.json` 原来不存在、而且这次启动还没收过时收**
+    /// —— 多窗口时每个窗口都会交一次，后面几次不能把第一次的、或者用户刚改的盖掉（同 `Windows::adopt_recent`）
+    pub fn adopt_legacy(&self, legacy: UiState) -> bool {
+        let mut g = self.lock();
+        if !g.ui_fresh {
+            return false;
+        }
+        g.ui_fresh = false;
+        let changed = g.ui != legacy;
+        g.ui = legacy;
+        changed
+    }
+
+    pub fn ui_text(&self) -> String {
+        serialize_ui(&self.lock().ui)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -740,5 +868,71 @@ mod tests {
         assert_eq!(font_size(FONT_DEFAULT, u.font_offset), 16, "迁完字号和原来一样");
         assert_eq!(UiState::from_legacy(None, None, None, None, None), UiState::default(), "什么都没存过");
         assert_eq!(UiState::from_legacy(None, None, None, None, Some(99)).font_offset, FONT_MAX - FONT_DEFAULT, "手改过的怪值也夹住");
+    }
+
+    // ── 合起来、Store ──
+
+    #[test]
+    fn 合起来_终端字体空就跟编辑器_字号是基础加偏移() {
+        let s = Settings { editor_font_family: "Fira Code".into(), editor_font_size: 14, ..Settings::default() };
+        let u = UiState { font_offset: 2, minimap: false, ..UiState::default() };
+        let e = effective(&s, &u);
+        assert_eq!((e.terminal_font_family.as_str(), e.editor_font_size, e.editor_font_base), ("Fira Code", 16, 14));
+        assert!(!e.minimap);
+        let s = Settings { terminal_font_family: "Menlo".into(), ..s };
+        assert_eq!(effective(&s, &u).terminal_font_family, "Menlo", "写了就用写的");
+    }
+
+    #[test]
+    fn store_原文没变不算变_运行中坏了留上一份_删掉回到默认() {
+        let st = Store::default();
+        assert!(!st.load_settings(None), "启动时文件不存在：和默认一样，不算变");
+        assert!(st.load_settings(Some("{\"editor.fontSize\": 15}".into())));
+        assert!(!st.load_settings(Some("{\"editor.fontSize\": 15}".into())), "touch 一下、存一个没改的：原文一样，不广播");
+        assert!(st.load_settings(Some("{\"editor.fontSize\": 1".into())), "坏了：问题列表变了，要广播（状态栏要说）");
+        let (e, problems) = st.view();
+        assert_eq!(e.editor_font_size, 15, "运行中改坏了：留着上一份好的");
+        assert!(problems[0].is_fatal());
+        assert!(st.load_settings(Some("{\"editor.fontSize\": 1}".into())), "修好了");
+        assert_eq!(st.view().0.editor_font_size, FONT_MIN);
+        assert!(st.load_settings(None));
+        assert_eq!(st.view().0.editor_font_size, FONT_DEFAULT, "文件删了：回到默认");
+    }
+
+    #[test]
+    fn store_启动时就坏了_没有上一份_用默认() {
+        let st = Store::default();
+        assert!(st.load_settings(Some("{".into())), "问题列表从空变成一条：算变");
+        assert_eq!(st.view().0, effective(&Settings::default(), &UiState::default()));
+    }
+
+    #[test]
+    fn store_旧偏好只在_ui_state_原来不存在时收一次() {
+        let st = Store::default();
+        st.load_ui(None);
+        let legacy = UiState { minimap: false, ..UiState::default() };
+        assert!(st.adopt_legacy(legacy.clone()), "升级后第一次：收");
+        assert!(!st.adopt_legacy(UiState::default()), "第二个窗口也交一次：不收，不能把第一次的盖回去");
+        assert!(!st.view().0.minimap);
+
+        let st = Store::default();
+        st.load_ui(Some(&serialize_ui(&UiState::default())));
+        assert!(!st.adopt_legacy(legacy.clone()), "ui-state.json 本来就有：迁移早做过了");
+
+        let st = Store::default();
+        st.load_ui(None);
+        st.update_ui(|u, _| u.set("git.grouped", true)).unwrap();
+        assert!(!st.adopt_legacy(legacy), "用户已经在新版里改过了：旧的不能盖掉它");
+        assert!(st.view().0.git_grouped);
+    }
+
+    #[test]
+    fn store_字号按当前的基础字号走() {
+        let st = Store::default();
+        st.load_settings(Some("{\"editor.fontSize\": 20}".into()));
+        st.update_ui(|u, base| Ok(u.step_font(base, Some(3)))).unwrap();
+        assert_eq!(st.view().0.editor_font_size, 23);
+        st.update_ui(|u, base| Ok(u.step_font(base, None))).unwrap();
+        assert_eq!(st.view().0.editor_font_size, 20, "⌘0 回到 settings.json 里的 20");
     }
 }

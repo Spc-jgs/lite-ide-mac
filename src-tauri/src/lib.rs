@@ -3,9 +3,8 @@ mod commands;
 pub mod diag;
 pub mod menu;
 mod open;
-// 第 1 步只有「做决定」那一层，还没有调用方；第 2 步接上命令和监听之后去掉这行
-#[allow(dead_code)]
 mod settings;
+mod settingsctl;
 mod state;
 mod trust_store;
 mod windows;
@@ -154,6 +153,9 @@ pub fn run() {
             app.set_menu(m)?;
             app.manage(handles);
 
+            // 设置在任何窗口的前端开口要它之前读好（前端挂载前就 await settings()，见 settingsctl::init）
+            settingsctl::init(app.handle());
+
             /*
              * 登记第一个窗口，再把命令行参数送进它的收件箱。
              *
@@ -286,6 +288,12 @@ pub fn run() {
             commands::adopt_recent,
             commands::claim_empty_session,
             commands::take_start_scratch,
+            commands::settings,
+            commands::settings_schema,
+            commands::set_ui_state,
+            commands::step_font,
+            commands::adopt_ui_state,
+            commands::open_settings,
             commands::open_window,
             commands::sync_menu_state,
             commands::open_external,

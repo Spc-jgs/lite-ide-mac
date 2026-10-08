@@ -22,6 +22,7 @@ mod pty;
 mod remote;
 mod scratch;
 mod search;
+mod settings;
 
 pub use app::*;
 pub use dto::*;
@@ -32,6 +33,7 @@ pub use pty::*;
 pub use remote::*;
 pub use scratch::*;
 pub use search::*;
+pub use settings::*;
 
 /// 把一段**会阻塞**的活挪到 tokio 的阻塞池上。
 ///

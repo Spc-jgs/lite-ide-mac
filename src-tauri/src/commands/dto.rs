@@ -383,3 +383,54 @@ pub struct RecentDto {
     pub projects: Vec<String>,
     pub keep: Vec<String>,
 }
+
+/// 生效的设置（issue #44，docs/SETTINGS.md）：`settings.json` 和 `ui-state.json` 合起来、空值换成实际用的
+/// （`settings::effective`）。前端拿到直接用，不再自己合并 —— 多个窗口各算一遍迟早有一个算得不一样。
+/// 变了的时候 Rust 广播 `settings-changed`，负载就是这个，全量
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsDto {
+    pub editor_font_family: String,
+    /// 实际字号 = 基础 + ⌘= 的偏移
+    pub editor_font_size: i64,
+    /// `settings.json` 里写的基础字号
+    pub editor_font_base: i64,
+    /// 已经换算过：没写就是编辑器那个
+    pub terminal_font_family: String,
+    pub terminal_font_size: i64,
+    /// 空 = `$SHELL`
+    pub terminal_shell: String,
+    pub minimap: bool,
+    pub tree_compact: bool,
+    pub tree_follow: bool,
+    pub git_grouped: bool,
+    /// 读 `settings.json` 时发现的问题（SETTINGS.md 第 6 节：每一种都要告诉人）
+    pub problems: Vec<SettingProblemDto>,
+    /// `settings.json` 的绝对路径（状态栏的提示点了要打开它）
+    pub path: String,
+}
+
+/// 设置文件里的一个问题。`line` / `col` 从 1 数，**`col` 按 UTF-16 数**（CM6 的位置就是 JS 字符串下标，拿到就能用）
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingProblemDto {
+    pub text: String,
+    pub line: Option<usize>,
+    pub col: Option<usize>,
+    /// 整份文件用不了（语法错）：这时生效的是上一份好的，或者默认值
+    pub fatal: bool,
+}
+
+/// 一个设置项的定义（`settings::DEFS`），给编辑 `settings.json` 时的补全用
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingDefDto {
+    pub key: String,
+    /// `"string"` / `"integer"`
+    pub kind: String,
+    /// 默认值的 JSON 字面量，原样可以插进文件
+    pub default: String,
+    pub doc: String,
+    pub min: Option<i64>,
+    pub max: Option<i64>,
+}

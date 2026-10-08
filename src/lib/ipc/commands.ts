@@ -548,6 +548,51 @@ export const claimEmptySession = () => invoke<boolean>("claim_empty_session");
 export const takeStartScratch = () => invoke<boolean>("take_start_scratch");
 
 /**
+ * 生效的设置（issue #44，docs/SETTINGS.md）：`settings.json` 和 `ui-state.json` **在 Rust 那边合好了**，
+ * 空值也换成了实际用的（终端字体没写就是编辑器那个、字号 = 基础 + ⌘= 的偏移）—— 拿到直接用，不在前端再合一遍。
+ * 变了 Rust 广播 `settings-changed`，负载就是它，全量。
+ */
+export interface Settings {
+  editorFontFamily: string;
+  /** 实际字号 = 基础 + ⌘= 的偏移 */
+  editorFontSize: number;
+  /** `settings.json` 里写的基础字号（⌘0 回到它） */
+  editorFontBase: number;
+  terminalFontFamily: string;
+  terminalFontSize: number;
+  /** 空 = `$SHELL` */
+  terminalShell: string;
+  minimap: boolean;
+  treeCompact: boolean;
+  treeFollow: boolean;
+  gitGrouped: boolean;
+  /** 读 `settings.json` 时发现的问题 —— 每一种都要告诉人（SETTINGS.md 第 6 节） */
+  problems: SettingProblem[];
+  /** `settings.json` 的绝对路径 */
+  path: string;
+}
+
+/** 设置文件里的一个问题。`line` / `col` 从 1 数，`col` 按 UTF-16 数 —— 和 CM6 的位置同一种单位，拿到就能用 */
+export interface SettingProblem {
+  text: string;
+  line: number | null;
+  col: number | null;
+  /** 整份文件用不了：生效的是上一份好的，或者默认值 */
+  fatal: boolean;
+}
+
+/** 一个设置项的定义（Rust 的 `settings::DEFS`），编辑 `settings.json` 时补全用 */
+export interface SettingDef {
+  key: string;
+  kind: "string" | "integer";
+  /** 默认值的 JSON 字面量 */
+  default: string;
+  doc: string;
+  min: number | null;
+  max: number | null;
+}
+
+/**
  * 在合适的窗口里打开一个目录：已经有窗口开着它就去那个窗口，否则开新窗口（多窗口第 4 步）。
  * 返回 false = 没交出去（浏览器桩只有一个「窗口」），调用方就地换项目。
  */
