@@ -1,5 +1,3 @@
-import { RECENT_MAX } from "./session";
-
 /**
  * 项目根、最近打开过的项目、草稿目录。
  *
@@ -15,13 +13,12 @@ class Project {
    *
    * 记的是**项目根不是文件**：会话恢复本来就以 root 为单位，
    * 开回一个项目上次的标签会跟着回来，比记住散落的文件有用得多。
+   *
+   * **这只是一份副本**（多窗口第 4 步）：名单在 Rust（`windows.rs`），窗口开了一个项目时
+   * Rust 自己记，变了广播 `recent-changed`，App 收到就整份换掉。前端不再自己往里加 ——
+   * 原来每个窗口各记各的、各写各的，后写的盖掉先写的。
    */
   recent = $state<string[]>([]);
-
-  /** 把一个目录顶到最近列表最前面。已经在里面就是往前挪，不是加一条 */
-  remember(dir: string) {
-    this.recent = [dir, ...this.recent.filter((r) => r !== dir)].slice(0, RECENT_MAX);
-  }
 
   /**
    * 草稿目录的绝对路径（`~/Library/Application Support/com.liteide.app/scratches`）。

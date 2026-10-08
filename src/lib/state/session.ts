@@ -52,8 +52,60 @@
  */
 export const VERSION = 3;
 
-/** localStorage 的键，与既有的 `lite-ide.minimap` 同前缀 */
+/**
+ * localStorage 的键，与既有的 `lite-ide.minimap` 同前缀。
+ *
+ * **多窗口第 4 步起，不带后缀的这一个不再写**：它原来是「上次退出时的现场」，整个应用一份 ——
+ * 开两个窗口就是后写的盖掉先写的，下次启动只恢复得出一个。现在每个窗口写它自己那份
+ * （[`keyFor`]），哪些窗口要开回来由 Rust 的 `windows.json` 记。这个键只在升级后第一次
+ * 启动时读一次（迁移），然后删掉。
+ */
 export const KEY = "lite-ide.session";
+
+/**
+ * 一个窗口的快照存在哪：按它开着的项目。没有项目的窗口（只开着草稿、随手打开的文件）是
+ * `lite-ide.session:`。两个窗口不会开着同一个项目（Rust 的路由保证），所以按项目根分不会撞；
+ * 没有项目的窗口同时有两个时共用那一份，后写的赢 —— 这种窗口很少，而且里面多半只有草稿。
+ */
+export function keyFor(root: string | null): string {
+  return `${KEY}:${root ?? ""}`;
+}
+
+/**
+ * 「最近一次用的布局」，任何窗口都写（多窗口第 4 步）。
+ *
+ * 布局要在**模块初始化时同步**灌进去（晚一拍就看得见侧边栏从 240 跳到上次的宽度），
+ * 而那时这个窗口还不知道自己是哪个项目 —— 项目根要等 `initial_paths` 那次 IPC 回来。
+ * 所以首屏先用这一份铺，恢复到这个窗口自己的快照时再换成它那份（多数时候是一样的）。
+ */
+export const LAYOUT_KEY = "lite-ide.layout";
+
+/** 读 [`LAYOUT_KEY`]。坏数据当没有（`toLayout` 自己会把坏字段各自回退） */
+export function parseLayout(raw: string | null | undefined): Layout | null {
+  if (!isStr(raw)) return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    return typeof v === "object" && v !== null && !Array.isArray(v) ? toLayout(v) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 清理快照时要删哪些（多窗口第 4 步）。纯函数，判据全在这儿：
+ *
+ * - 只看 `lite-ide.session:<项目根>`；不带后缀的旧键、没有项目的那份 `lite-ide.session:` 不碰
+ * - `keep`（「最近打开」+ 开着的窗口的项目）里的留着
+ * - **带未保存草稿的留着** —— 第 3 步提前补的那道闸
+ * - **`keep` 是空的就一个都不删**：升级后第一次启动，「最近打开」还没从旧快照迁到 Rust 那一刻
+ *   名单是空的，照常删的话所有项目的快照一次清光
+ */
+export function staleKeys(keys: string[], keep: string[], read: (k: string) => string | null): string[] {
+  if (keep.length === 0) return [];
+  const prefix = `${KEY}:`;
+  const live = new Set(keep.map((r) => keyFor(r)));
+  return keys.filter((k) => k.startsWith(prefix) && k !== prefix && !live.has(k) && !hasDrafts(read(k)));
+}
 
 /**
  * 最多记多少个标签。
@@ -344,7 +396,7 @@ export function parse(raw: string | null | undefined): Session | null {
 }
 
 /**
- * 把分组收拾成能直接用的样子（issue #35）。**纯函数，parse 和 `withoutTabs` 都过它**：
+ * 把分组收拾成能直接用的样子（issue #35）。**纯函数，parse 过它**：
  *
  * - 右组一个标签都没有 → 单栏：所有 `group` 拿掉。左组没有而右组有 → 右组整体变左组
  *   （快照里的组号只是「左右」，没有左的话右就是唯一的那组）。
@@ -372,31 +424,6 @@ export function normalizeGroups(tabs: TabSnap[], active: number): TabSnap[] {
     }
   }
   return out;
-}
-
-/**
- * 去掉一部分标签（issue #40：草稿不归任何项目）。
- *
- * 每个项目那份快照里**不能有草稿**：草稿标签是跨项目常驻的，记进项目 A 的快照，
- * 就会在「A 里开草稿 → 切到 B → 在 B 里关掉它 → 切回 A」时被 A 复活。
- * 所以写项目那份时把草稿滤掉，读回来时再滤一遍（老快照里可能还有）——
- * 两头都滤，老格式就不用升 VERSION：老值到新值有唯一且正确的对应。
- *
- * `active` 跟着重算：它是下标，滤掉几行就会指错。原来指着的那个还在就指它，
- * 被滤掉了（活动标签正是一份草稿）就退到 0 —— 那时项目自己的标签里
- * 没有哪个更有资格，第一个总比一个越界的下标强。
- */
-export function withoutTabs(s: Session, drop: (path: string) => boolean): Session {
-  const activePath = s.tabs[s.active]?.path;
-  const tabs = s.tabs.filter((t) => !drop(t.path));
-  let idx = activePath === undefined ? -1 : tabs.findIndex((t) => t.path === activePath);
-  // 活动的正是被滤掉的那份：退到它**左边最近**的项目标签（原来退到 0，切回来时
-  // 视线从标签条中间跳到最左）。左边一个都没有才是 0
-  if (idx < 0) {
-    const kept = s.tabs.slice(0, s.active).filter((t) => !drop(t.path)).length;
-    idx = Math.max(0, kept - 1);
-  }
-  return { ...s, tabs: normalizeGroups(tabs, idx), active: idx };
 }
 
 /**

@@ -139,6 +139,9 @@ export async function gitCmd(cmd: string, a: A): Promise<unknown> {
         "-c", "protocol.ext.allow=never",
       ];
       const now = Date.now();
+      // 真实现只给 `root` 那个仓库的（按路径段比）：桩里三条都在 /proj
+      const root = String(a.root ?? "");
+      const under = (cwd: string) => cwd === root || cwd.startsWith(`${root}/`);
       return [
         {
           ms: now - 800, cwd: "/proj",
@@ -157,7 +160,7 @@ export async function gitCmd(cmd: string, a: A): Promise<unknown> {
           argv: [...加固, "rev-parse", "--show-toplevel"],
           code: 0, durMs: 12, err: "", errTruncated: false,
         },
-      ];
+      ].filter((r) => under(r.cwd));
     }
     case "clear_git_console":
       return null;

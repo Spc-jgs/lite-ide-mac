@@ -410,9 +410,9 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   ok((await disk(t.path)).endsWith("另存为之前打的"), "面板关了之后照常离开就存");
 }
 
-// ── 清理别的项目的快照：带未保存内容的不删（多窗口第 3 步，docs/MULTIWINDOW.md 4.1）──
-// 每个窗口按自己内存里的最近列表清别人的快照；开两个窗口时 A 的列表里没有 B 刚开的项目，
-// 不拦的话 A 一落盘，B 那份连同草稿就没了。这里模拟「B 的快照」：不在本窗口的最近列表里
+// ── 清理别的项目的快照（多窗口第 3、4 步，docs/MULTIWINDOW.md 4.1）──
+// 名单在 Rust：「最近打开」变了的时候 App 带着 keep（最近打开 + 开着的窗口）叫 prune。
+// 带未保存内容的不删（第 3 步提前补的闸）；keep 是空的一个都不删（升级迁移那一刻名单还是空的）
 {
   const { VERSION, DEFAULT_LAYOUT } = await import("../src/lib/state/session");
   const snap = (root: string, draft: boolean) =>
@@ -422,12 +422,68 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
     });
   localStorage.setItem("lite-ide.session:/other-dirty", snap("/other-dirty", true));
   localStorage.setItem("lite-ide.session:/other-clean", snap("/other-clean", false));
-  project.recent = [];
+  localStorage.setItem("lite-ide.session:/kept", snap("/kept", false));
+  persist.restoring = false;
+  persist.prune([]);
+  ok(localStorage.getItem("lite-ide.session:/other-clean") !== null, "名单是空的：一个都不删（迁移前那一刻 Rust 那边还是空的）");
+  persist.prune(["/kept"]);
+  ok(localStorage.getItem("lite-ide.session:/other-dirty") !== null, "别的项目的快照里有没保存的内容：不能删");
+  ok(localStorage.getItem("lite-ide.session:/other-clean") === null, "不在名单里的干净快照清掉");
+  ok(localStorage.getItem("lite-ide.session:/kept") !== null, "名单里的留着");
+  ok(localStorage.getItem("lite-ide.session:/proj") !== null, "自己这个窗口的项目：不在名单里也留着（可能刚打开，还没进 Rust 的名单）");
+  persist.restoring = true;
+  for (const k of ["/other-dirty", "/kept"]) localStorage.removeItem(`lite-ide.session:${k}`);
+}
+
+// ── 多窗口第 4 步：快照按窗口存、草稿标签跟着窗口、升级迁移、开目录交给 Rust ──
+{
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  localStorage.removeItem("lite-ide.session");
+  await tabflow.openPath("/proj/README.md");
+  await tabflow.newScratch();
+  const scratch = tabs.list.find((t) => project.isScratch(t.path));
+  ok(!!scratch, "开了一份草稿");
   persist.restoring = false;
   persist.flush();
-  ok(localStorage.getItem("lite-ide.session:/other-dirty") !== null, "别的项目的快照里有没保存的内容：不能删");
-  ok(localStorage.getItem("lite-ide.session:/other-clean") === null, "干净的照旧清掉（最近列表封顶 8 份快照的规矩不变）");
+  const mine = JSON.parse(localStorage.getItem("lite-ide.session:/proj") ?? "null");
+  ok(mine?.tabs?.some((t: { path: string }) => t.path === scratch?.path), "草稿标签存进了这个窗口自己那份（原来要滤掉、存在全局那份里）");
+  ok(localStorage.getItem("lite-ide.session") === null, "不带后缀的全局快照不再写 —— 多窗口时后写的会盖掉先写的");
+  ok(localStorage.getItem("lite-ide.layout") !== null, "布局另存一份，给下一个窗口铺首屏");
   persist.restoring = true;
+
+  // 已经有项目的窗口打开另一个目录：交给 Rust（开新窗口 / 回到开着它的窗口），这个窗口不动
+  const asked: string[] = [];
+  (globalThis as { __mockOpenWindow?: (p: string) => boolean }).__mockOpenWindow = (p) => (asked.push(p), true);
+  const before = tabs.list.length;
+  await tabflow.openPath("/proj/src");
+  ok(asked.join() === "/proj/src", `交给了 Rust：${asked.join()}`);
+  ok(project.root === "/proj" && tabs.list.length === before, "这个窗口的项目和标签都没动");
+  await tabflow.openPath("/proj");
+  ok(asked.length === 1, "打开自己这个项目：什么都不做，也不去问 Rust");
+  delete (globalThis as { __mockOpenWindow?: unknown }).__mockOpenWindow;
+
+  // 升级后第一次启动：旧的全局快照（带草稿标签、最近打开）迁成项目自己的一份，然后删掉旧键
+  const { VERSION, DEFAULT_LAYOUT } = await import("../src/lib/state/session");
+  // /proj/src 是桩认得的目录（升级前开着的项目还在）
+  localStorage.setItem("lite-ide.session", JSON.stringify({
+    v: VERSION, root: "/proj/src", active: 0, layout: DEFAULT_LAYOUT,
+    recent: ["/proj/src", "/elsewhere"],
+    tabs: [{ path: "/proj/src/a.txt" }, { path: `${project.scratchRoot}/note.md`, draft: "便签", stamp: { mtimeMs: 1, size: 1 } }],
+  }));
+  const paths = await persist.migrate([]);
+  ok(paths.join() === "/proj/src", `没人指名时开回升级前那个项目：${paths.join()}`);
+  ok(localStorage.getItem("lite-ide.session") === null, "旧键删掉了");
+  const moved = JSON.parse(localStorage.getItem("lite-ide.session:/proj/src") ?? "null");
+  ok(moved?.tabs?.length === 2 && moved.tabs[1].draft === "便签", "旧快照整份（连草稿标签和草稿）迁进了项目自己那份");
+  ok((await persist.migrate(["/x"])).join() === "/x", "迁过一次就不再迁；有人指名时按指名的开");
+  localStorage.removeItem("lite-ide.session:/proj/src");
+
+  // 升级前开着的是个已经没了的目录（冒烟测试的临时仓库就是这样留在真实数据里的）：迁，但不去开
+  localStorage.setItem("lite-ide.session", JSON.stringify({ v: VERSION, root: "/gone", active: 0, layout: DEFAULT_LAYOUT, recent: [], tabs: [] }));
+  ok((await persist.migrate([])).length === 0, "目录没了：不开它，免得升级完第一次打开就是一句「打不开」");
+  ok(localStorage.getItem("lite-ide.session:/gone") !== null, "它那份快照照样迁过去了");
+  localStorage.removeItem("lite-ide.session:/gone");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);

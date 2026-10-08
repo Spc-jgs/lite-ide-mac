@@ -61,6 +61,10 @@ pub struct Saved {
     pub windows: Vec<SavedWin>,
     /// 用户关掉的窗口，最近关的在前
     pub closed: Vec<SavedWin>,
+    /// 最近打开的项目，最新的在前（多窗口第 4 步从前端的 localStorage 搬过来）。
+    /// `serde(default)`：第 3 步写的文件没有这个字段，照样读得进来，不用升版本
+    #[serde(default)]
+    pub recent: Vec<String>,
 }
 
 /// 格式版本。字段含义变了就 +1，读到不认识的版本整份当没有（同 session.ts 的 VERSION）
@@ -69,6 +73,9 @@ pub const SAVED_VERSION: u32 = 1;
 pub const MAX_RESTORE: usize = 12;
 /// 「最近关掉的」记几个
 const MAX_CLOSED: usize = 8;
+/// 「最近打开」记几个。和 `session.ts` 的 RECENT_MAX、`menu.rs` 的 RECENT_MAX 是同一个数
+/// （照 macOS 自己的「最近使用的项目」）
+pub const RECENT_MAX: usize = 8;
 
 /// 读 `windows.json`。**任何坏数据都只当作没有，绝不 panic** —— 这在启动路径上，
 /// 抛一次应用就打不开，而用户没办法清掉那份坏文件。
@@ -143,6 +150,12 @@ struct Inner {
     /// 登记过窗口了没有。没有 = 还在冷启动、`setup` 都没跑到，这时送来的路径只能当孤儿等第一个窗口；
     /// 有 = 窗口都被关掉了，该开新窗口。**不能拿「现在有没有窗口」判** —— 两种情况下都是零个
     started: bool,
+    /// 最近打开的项目，最新的在前。
+    ///
+    /// 原来每个窗口在自己内存里各有一份、各自写进 localStorage：后写的盖掉先写的，
+    /// 而且清理快照时按的是**自己那份**，会把别的窗口刚开的项目当成「挤出去的」删掉。
+    /// 原生的「最近打开」菜单整个应用只有一份，名单也只能有一个主人。
+    recent: Vec<String>,
 }
 
 #[derive(Default)]
@@ -281,11 +294,13 @@ impl Windows {
         if g.closed.is_empty() { None } else { Some(g.closed.remove(0)) }
     }
 
-    /// 启动时把上次存的「最近关掉的」接回来；`taken` 是这次启动已经开回去的，从名单里去掉
-    pub fn load_closed(&self, closed: Vec<SavedWin>, taken: &[SavedWin]) {
+    /// 启动时把上次存的「最近关掉的」和「最近打开」接回来；
+    /// `taken` 是这次启动已经开回去的，从「最近关掉的」里去掉
+    pub fn load(&self, saved: &Saved, taken: &[SavedWin]) {
         let mut g = self.lock();
-        g.closed = closed.into_iter().filter(|c| !taken.iter().any(|t| t.root == c.root)).collect();
+        g.closed = saved.closed.iter().filter(|c| !taken.iter().any(|t| t.root == c.root)).cloned().collect();
         g.closed.truncate(MAX_CLOSED);
+        g.recent = saved.recent.iter().take(RECENT_MAX).cloned().collect();
     }
 
     /// 要落盘的样子
@@ -298,7 +313,7 @@ impl Windows {
             .filter_map(|l| g.wins.get(l))
             .map(|w| SavedWin { root: w.root.clone(), frame: w.frame })
             .collect();
-        Saved { v: SAVED_VERSION, windows, closed: g.closed.clone() }
+        Saved { v: SAVED_VERSION, windows, closed: g.closed.clone(), recent: g.recent.clone() }
     }
 
     /// 直接往某个窗口送路径，不走路由（启动时恢复、新建窗口时用：目的地已经定了）。
@@ -352,10 +367,69 @@ impl Windows {
         self.lock().mru.first().cloned()
     }
 
-    pub fn set_root(&self, label: &str, root: Option<String>) {
-        if let Some(w) = self.lock().wins.get_mut(label) {
-            w.root = root.filter(|r| !r.is_empty());
+    /// 这个窗口现在开着哪个项目。开了一个项目就记进「最近打开」——
+    /// 一个项目会从好几条路被打开（⌘O、拖进来、Finder、工作树、会话恢复），
+    /// 记在这一个口上不会漏。返回「最近打开」变了没有（调用方据此刷菜单、通知各窗口）。
+    ///
+    /// **只有这个窗口的项目根真的换了才算「刚打开」。** 每个窗口的前端起来都会再报一次
+    /// 自己的根（启动时 Rust 已经替它设过了）—— 那几次不能动顺序，不然每次启动之后
+    /// 「最近打开」的顺序取决于哪个窗口的前端先加载完。
+    pub fn set_root(&self, label: &str, root: Option<String>) -> bool {
+        let root = root.filter(|r| !r.is_empty()).map(|r| trim_slash(&r).to_string());
+        let mut g = self.lock();
+        if let Some(w) = g.wins.get_mut(label) {
+            if w.root == root {
+                return false;
+            }
+            w.root = root.clone();
         }
+        let Some(r) = root else { return false };
+        let before = g.recent.clone();
+        g.recent.retain(|x| *x != r);
+        g.recent.insert(0, r);
+        g.recent.truncate(RECENT_MAX);
+        g.recent != before
+    }
+
+    pub fn recent(&self) -> Vec<String> {
+        self.lock().recent.clone()
+    }
+
+    /// 开着的窗口各自的项目根（清理快照时这些一律留着）
+    pub fn open_roots(&self) -> Vec<String> {
+        self.lock().wins.values().filter_map(|w| w.root.clone()).collect()
+    }
+
+    /// 从「最近打开」里拿掉一个（点了才发现目录没了）。返回变了没有
+    pub fn forget_recent(&self, dir: &str) -> bool {
+        let mut g = self.lock();
+        let n = g.recent.len();
+        g.recent.retain(|x| x != trim_slash(dir));
+        g.recent.len() != n
+    }
+
+    pub fn clear_recent(&self) -> bool {
+        let mut g = self.lock();
+        let changed = !g.recent.is_empty();
+        g.recent.clear();
+        changed
+    }
+
+    /// 从老版本接过来的「最近打开」（升级后第一次启动，前端读到旧的全局快照时交过来）。
+    /// **只在这边还是空的时候收**：已经有了说明迁移做过，再收一次会把旧名单盖回去
+    pub fn adopt_recent(&self, list: Vec<String>) -> bool {
+        let mut g = self.lock();
+        if !g.recent.is_empty() {
+            return false;
+        }
+        for r in list {
+            let r = trim_slash(&r).to_string();
+            if !r.is_empty() && !g.recent.contains(&r) {
+                g.recent.push(r);
+            }
+        }
+        g.recent.truncate(RECENT_MAX);
+        !g.recent.is_empty()
     }
 
     /// 存下这个窗口的菜单状态。返回 true = 它就是前台，调用方该立刻套到原生菜单上；
@@ -651,6 +725,7 @@ mod tests {
             v: SAVED_VERSION,
             windows: vec![SavedWin { root: Some("/p/a".into()), frame: Some(Frame { x: 1.0, y: 2.0, w: 3.0, h: 4.0 }) }],
             closed: vec![],
+            recent: vec!["/p/a".into()],
         };
         assert_eq!(parse_saved(&serde_json::to_string(&good).unwrap()), good, "写出去的要读得回来");
     }
@@ -659,15 +734,15 @@ mod tests {
     fn 启动时开哪几个() {
         let win = |r: &str| SavedWin { root: Some(r.into()), frame: None };
         let all = |_: &str| true;
-        let s = Saved { v: 1, windows: vec![win("/a"), win("/b")], closed: vec![win("/c")] };
+        let s = Saved { v: 1, windows: vec![win("/a"), win("/b")], closed: vec![win("/c")], recent: vec![] };
         assert_eq!(restore_plan(&s, all), [win("/a"), win("/b")], "上次开着几个就开几个，顺序不变");
 
-        let s = Saved { v: 1, windows: vec![], closed: vec![win("/c"), win("/d")] };
+        let s = Saved { v: 1, windows: vec![], closed: vec![win("/c"), win("/d")], recent: vec![] };
         assert_eq!(restore_plan(&s, all), [win("/c")], "全关掉之后才 ⌘Q 的：开回最近关的那一个");
 
         assert!(restore_plan(&Saved::default(), all).is_empty(), "什么都没存：照老路");
 
-        let many = Saved { v: 1, windows: (0..30).map(|i| win(&format!("/{i}"))).collect(), closed: vec![] };
+        let many = Saved { v: 1, windows: (0..30).map(|i| win(&format!("/{i}"))).collect(), closed: vec![], recent: vec![] };
         let plan = restore_plan(&many, all);
         assert_eq!(plan.len(), MAX_RESTORE, "坏文件里写了 30 个窗口也只开这么多");
         assert_eq!(plan.last().unwrap().root.as_deref(), Some("/29"), "留的是最近的那几个（前台在最后）");
@@ -677,10 +752,10 @@ mod tests {
     fn 项目目录没了的窗口不恢复() {
         let win = |r: Option<&str>| SavedWin { root: r.map(Into::into), frame: None };
         let gone = |r: &str| r != "/deleted";
-        let s = Saved { v: 1, windows: vec![win(Some("/deleted")), win(Some("/b")), win(None)], closed: vec![] };
+        let s = Saved { v: 1, windows: vec![win(Some("/deleted")), win(Some("/b")), win(None)], closed: vec![], recent: vec![] };
         assert_eq!(restore_plan(&s, gone), [win(Some("/b")), win(None)], "删掉的项目跳过；没有项目的空窗口照常回来");
 
-        let s = Saved { v: 1, windows: vec![win(Some("/deleted"))], closed: vec![win(Some("/deleted")), win(Some("/c"))] };
+        let s = Saved { v: 1, windows: vec![win(Some("/deleted"))], closed: vec![win(Some("/deleted")), win(Some("/c"))], recent: vec![] };
         assert_eq!(restore_plan(&s, gone), [win(Some("/c"))], "开着的全没了：退到最近关的、还在的那个");
     }
 
@@ -700,5 +775,52 @@ mod tests {
         assert_eq!(w.quit_pending(), 1);
         w.remove("w-1");
         assert_eq!(w.quit_pending(), 0, "等着的窗口自己关掉了：不能一直等它");
+    }
+
+    // ── 第 4 步：「最近打开」只有一份，在这儿 ──
+
+    #[test]
+    fn 窗口报上项目根就记进最近打开_各窗口共用一份() {
+        let w = Windows::default();
+        w.register("main");
+        w.register("w-1");
+        assert!(w.set_root("main", Some("/p/a".into())), "第一次开：变了");
+        assert!(w.set_root("w-1", Some("/p/b/".into())), "另一个窗口开的也记进同一份，末尾斜杠去掉");
+        assert_eq!(w.recent(), ["/p/b", "/p/a"], "最新的在前");
+        assert!(!w.set_root("w-1", Some("/p/b".into())), "同一个窗口报同一个根：不是「刚打开」");
+        assert!(!w.set_root("main", Some("/p/a".into())), "前端起来再报一次自己的根（启动时 Rust 已经设过）：不能动顺序");
+        assert_eq!(w.recent(), ["/p/b", "/p/a"]);
+        assert!(!w.set_root("main", None), "关闭项目不往名单里加东西");
+        assert!(w.set_root("main", Some("/p/a".into())), "关掉再开回来：算刚打开，挪到最前面");
+        assert_eq!(w.recent(), ["/p/a", "/p/b"]);
+        for i in 0..20 {
+            w.set_root("main", Some(format!("/p/{i}")));
+        }
+        assert_eq!(w.recent().len(), RECENT_MAX, "封顶");
+    }
+
+    #[test]
+    fn 最近打开_遗忘清空_老名单只在空的时候收() {
+        let w = Windows::default();
+        assert!(w.adopt_recent(vec!["/a".into(), "/b/".into(), "/a".into(), "".into()]), "升级后第一次：收下老名单");
+        assert_eq!(w.recent(), ["/a", "/b"], "去重、去斜杠、丢空串");
+        assert!(!w.adopt_recent(vec!["/old".into()]), "已经有了：迁移做过，不能把旧名单盖回去");
+        assert!(w.forget_recent("/a"));
+        assert!(!w.forget_recent("/a"), "没有的不算变");
+        assert!(w.clear_recent());
+        assert!(w.recent().is_empty());
+    }
+
+    #[test]
+    fn 最近打开跟着windows_json走_第3步写的旧文件也读得进来() {
+        let old = r#"{"v":1,"windows":[],"closed":[]}"#;
+        assert_eq!(parse_saved(old).recent, Vec::<String>::new(), "没有 recent 字段：当空的，不是整份作废");
+        let w = Windows::default();
+        w.register("main");
+        w.set_root("main", Some("/p/a".into()));
+        let saved = parse_saved(&serde_json::to_string(&w.snapshot()).unwrap());
+        let back = Windows::default();
+        back.load(&saved, &[]);
+        assert_eq!(back.recent(), ["/p/a"], "存了能读回来");
     }
 }

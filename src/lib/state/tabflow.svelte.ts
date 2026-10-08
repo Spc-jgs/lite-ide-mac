@@ -7,6 +7,7 @@ import {
   closeLog,
   discardEmptyScratch,
   createScratch,
+  openWindow,
 } from "../ipc/commands";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
@@ -106,6 +107,13 @@ class TabFlow {
       if (info.kind === "dir") {
         const old = project.root;
         if (old === info.path) return;
+        /*
+         * 已经有项目的窗口**不就地换项目**（多窗口第 4 步，照 IDEA）：交给 Rust 路由 ——
+         * 已经有窗口开着它就去那个窗口，没开着就开一个新的。⌘O、最近打开、打开工作树、
+         * 拖进来一个文件夹全走这一句。没有项目的窗口照旧就地变成这个项目。
+         * 浏览器桩只有一个「窗口」，`openWindow` 返回 false，退回就地换。
+         */
+        if (old !== null && (await openWindow(info.path))) return;
         this.hooks.beforeRootChange?.(old, info.path);
         project.root = info.path;
         await this.hooks.afterRootChange?.(info.path);
@@ -219,6 +227,7 @@ class TabFlow {
    * 空草稿，一个月后列表全是垃圾。最新那份草稿如果正文还是空的（`firstLine` 空串），
    * 就开它 —— 盘上最多只有一份空草稿，也不需要退出时反向清理。
    * 只在启动时用：关掉最后一个标签回到卡片，那时人是主动清空的。
+   * 也只在**没有项目的窗口**里用（多窗口第 4 步，理由在 App.svelte 调它的地方）。
    */
   async launchScratch() {
     await scratches.refresh().catch(() => {});

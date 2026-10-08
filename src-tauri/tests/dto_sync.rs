@@ -42,6 +42,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("BranchDto", "GitBranch"),
     ("WorktreeDto", "GitWorktree"),
     ("ProgressDto", "RemoteProgress"),
+    ("RecentDto", "RecentProjects"),
     ("GitCmdDto", "GitCmd"),
     ("RemoteErrDto", "RemoteErr"),
     ("SwitchErrDto", "SwitchErr"),

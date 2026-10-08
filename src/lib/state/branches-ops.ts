@@ -3,6 +3,7 @@ import { gitSwitch, gitStashPush, gitStashPop, gitWorktreeAdd, gitWorktreeRemove
 import { notify } from "./notify.svelte";
 import { git } from "./git.svelte";
 import { tabflow } from "./tabflow.svelte";
+import { project } from "./project.svelte";
 import { worktree } from "./worktree.svelte";
 import { branches } from "./branches.svelte";
 import { readListPref, writeListPref } from "./prefs";
@@ -116,15 +117,17 @@ export async function discardThenCheckout() {
 }
 
 /**
- * 打开一个工作树 = **把项目根换过去**。
+ * 打开一个工作树 = **在新窗口里开它**（多窗口第 4 步，正是 IDEA 里对 Codex 工作树的用法）。
  *
- * `openPath` 对目录只做 `root = path`，**打开的标签一个都不动** ——
- * 于是文件树和 Git 栏切到了新工作树，而标签还指着旧的那份。
- * 这不是 bug（开着别处的文件是合法的），但一声不吭就变了半个界面，
- * 人会以为「怎么点了没反应」。做完说一句。
+ * 走 `openPath`：这个窗口有项目（开得了分支浮层就一定有），Rust 就开一个新窗口，
+ * 已经开着这个工作树就回到那个窗口 —— 窗口自己会出来，不用再说什么。
+ * 浏览器桩里只有一个「窗口」，退回就地换项目根：那时标签一个都不动，文件树和 Git 栏
+ * 切到了新工作树、标签还指着旧的那份，一声不吭就变了半个界面，所以说一句。
  */
 export async function openWorktree(path: string) {
+  const before = project.root;
   await tabflow.openPath(path);
+  if (project.root === before) return;
   const name = path.slice(path.lastIndexOf("/") + 1) || path;
   notify.ok(`项目根已切到 ${name}（打开的标签没有动）`, 3200);
 }

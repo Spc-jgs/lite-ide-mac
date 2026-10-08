@@ -121,6 +121,21 @@ pub fn set_title(w: &tauri::Window, root: Option<&str>) {
     let _ = w.set_title(&title_for(root));
 }
 
+/// 「最近打开」变了：重建原生菜单、告诉每个窗口（标题栏的下拉、空态卡片、快照清理都要用）、落盘。
+///
+/// **广播，不定向**：每个窗口都要知道。前端用 `listenHere` 也收得到 —— 筛选只对定了向的事件起作用
+pub fn recent_changed(app: &AppHandle) {
+    let dto = recent_dto(app);
+    let _ = crate::menu::refresh_recent(app, &dto.projects);
+    let _ = app.emit("recent-changed", &dto);
+    save_soon();
+}
+
+pub fn recent_dto(app: &AppHandle) -> crate::commands::RecentDto {
+    let st = app.state::<AppState>();
+    crate::commands::RecentDto { projects: st.windows.recent(), open: st.windows.open_roots() }
+}
+
 /// 建一个新窗口：和 `main` 同一份配置（`tauri.conf.json` 的 `windows[0]`），换个 label。
 ///
 /// `paths` 进它的收件箱，它的前端起来调 `initial_paths` 时取走 —— **新窗口靠这个知道
@@ -160,7 +175,9 @@ pub fn create(app: &AppHandle, root: Option<String>, frame: Option<Frame>, paths
     // 材质层每个窗口都要挂一次，不挂就是一扇透明的空窗（lib.rs 那段注释）
     crate::apply_window_material(&w);
     st.windows.register(&label);
-    st.windows.set_root(&label, root);
+    if st.windows.set_root(&label, root) {
+        recent_changed(app);
+    }
     note_frame(app, &w);
     // 极少数情况下它的前端已经抢先取过收件箱了：那就直接发
     if st.windows.assign(&label, paths.clone()) && !paths.is_empty() {
@@ -180,7 +197,7 @@ pub fn restore_at_launch(app: &AppHandle) {
     let saved = load(app);
     let plan = crate::windows::restore_plan(&saved, |r| std::path::Path::new(r).is_dir());
     let st = app.state::<AppState>();
-    st.windows.load_closed(saved.closed.clone(), &plan);
+    st.windows.load(&saved, &plan);
     let main = app.get_webview_window("main");
     let mut it = plan.into_iter();
     let Some(first) = it.next() else {
@@ -198,6 +215,8 @@ pub fn restore_at_launch(app: &AppHandle) {
         note_frame(app, &w);
         if let Some(r) = &first.root {
             let _ = w.set_title(&title_for(Some(r)));
+            // 按建窗口的顺序（最久没碰的先）依次记进「最近打开」，最后前台那个排最前 ——
+            // 和上次退出时一致。前端起来再报同一个根时不会再动它（见 set_root）
             st.windows.set_root("main", Some(r.clone()));
             st.windows.assign("main", vec![r.clone()]);
         }

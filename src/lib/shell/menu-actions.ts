@@ -13,7 +13,7 @@
  * 几个只属于 App 组件的状态（缩略图开关、字号、分支挂件的锚点元素）不搬 ——
  * 它们是 `$state`，搬进普通模块就得改成另一套；通过 `MenuCtx` 回调过去。
  */
-import { probePath, diag } from "../ipc/commands";
+import { probePath, diag, clearRecent } from "../ipc/commands";
 import { installCli, appLogPath, clearAppLog, openExternal, requestQuit } from "../ipc/app";
 import { notify } from "../state/notify.svelte";
 import { layout } from "../state/layout.svelte";
@@ -117,7 +117,8 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "new-scratch": return void tabflow.newScratch();
     case "open-scratch-dir": return void tabflow.openScratchDir();
     case "install-cli": return void installCliTool();
-    case "recent-clear": project.recent = []; return;
+    // 名单在 Rust（多窗口第 4 步）：清完它广播 recent-changed，每个窗口跟着更新
+    case "recent-clear": project.recent = []; void clearRecent().catch(() => {}); return;
     case "save": return docs.saveActive();
     case "save-as": return void worktree.saveAs();
     case "encoding":

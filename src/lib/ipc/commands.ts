@@ -526,8 +526,28 @@ export const pickFolder = () => invoke<string | null>("pick_folder");
 export const pickSavePath = (dir: string | null, name: string) =>
   invoke<string | null>("pick_save_path", { dir, name });
 
-/** 刷新「最近打开」子菜单。列表存在会话快照里，变了就把整张表推过来 */
-export const setRecent = (paths: string[]) => invoke<void>("set_recent", { paths });
+/**
+ * 「最近打开」的项目。**名单在 Rust**（多窗口第 4 步）：原生菜单整个应用只有一份，
+ * 名单也只能有一个主人 —— 原来每个窗口各存一份、互相覆盖。窗口开了一个项目时 Rust 自己
+ * 记一笔（`set_window_root`），变了广播 `recent-changed`；前端只在启动时主动取一次。
+ */
+export interface RecentProjects {
+  /** 最新的在前，最多 8 个 */
+  projects: string[];
+  /** 开着的窗口各自的项目根 —— 清理会话快照时这些一律留着 */
+  open: string[];
+}
+export const recentProjects = () => invoke<RecentProjects>("recent_projects");
+export const forgetRecent = (dir: string) => invoke<RecentProjects>("forget_recent", { dir });
+export const clearRecent = () => invoke<RecentProjects>("clear_recent");
+/** 升级后第一次启动：把旧全局快照里的「最近打开」交给 Rust。那边已经有名单就不收 */
+export const adoptRecent = (projects: string[]) => invoke<RecentProjects>("adopt_recent", { projects });
+
+/**
+ * 在合适的窗口里打开一个目录：已经有窗口开着它就去那个窗口，否则开新窗口（多窗口第 4 步）。
+ * 返回 false = 没交出去（浏览器桩只有一个「窗口」），调用方就地换项目。
+ */
+export const openWindow = (path: string) => invoke<boolean>("open_window", { path }).catch(() => false);
 
 /**
  * 按当下的上下文让菜单项变灰。

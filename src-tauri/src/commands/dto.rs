@@ -371,3 +371,14 @@ pub struct RemoteErrDto {
     pub message: String,
     pub raw: String,
 }
+
+/// 「最近打开」的项目（多窗口第 4 步起名单在 Rust，`windows.rs`）。
+///
+/// `open` 是开着的窗口各自的项目根：前端清理别的项目的会话快照时，这些一律留着 ——
+/// 开着十几个窗口时它们不一定都还在「最近打开」那 8 个里。
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentDto {
+    pub projects: Vec<String>,
+    pub open: Vec<String>,
+}

@@ -9,8 +9,10 @@ import {
   MAX_DRAFT_CHARS,
   MAX_DRAFTS_CHARS,
   RECENT_MAX,
-  withoutTabs,
   hasDrafts,
+  keyFor,
+  parseLayout,
+  staleKeys,
   type Session,
 } from "../src/lib/state/session.ts";
 
@@ -307,29 +309,10 @@ ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
   ok(parse(serialize(pinned!))?.tabs[0].pinned === true, "钉住要经得起一来一回");
 }
 
-// ── withoutTabs：项目那份快照里不能有草稿（issue #40） ──
+// ── 草稿视图（issue #40） ──
+// 原来这一段还测 `withoutTabs`（把草稿标签从项目快照里滤掉）：多窗口第 4 步起草稿标签跟着窗口、
+// 原样存进窗口自己那份，那个函数没人用了，连同它的测试一起删掉
 {
-  const S = "/scratches";
-  const isScratch = (p: string) => p.startsWith(`${S}/`);
-  const mixed: Session = {
-    ...base,
-    tabs: [{ path: "/proj/a.ts" }, { path: `${S}/1.md`, draft: "x" }, { path: "/proj/b.md" }, { path: `${S}/2.md` }],
-    active: 2,
-  };
-  const r = withoutTabs(mixed, isScratch);
-  ok(r.tabs.length === 2, "两份草稿要滤掉");
-  ok(r.tabs.every((t) => !isScratch(t.path)), "剩下的全是项目文件");
-  ok(r.active === 1, "活动标签下标要跟着重算（原来指 b.md，滤完它在第 1 位）");
-  ok(mixed.tabs.length === 4, "不改原对象");
-
-  const activeIsScratch = withoutTabs({ ...mixed, active: 1 }, isScratch);
-  ok(activeIsScratch.active === 0, "活动标签本身是草稿（左边只有 a.ts）时退到 a.ts");
-  const activeIsLastScratch = withoutTabs({ ...mixed, active: 3 }, isScratch);
-  ok(activeIsLastScratch.active === 1, "活动的是最后那份草稿时退到它左边最近的 b.md，不是 0");
-
-  const none = withoutTabs({ ...base, tabs: [], active: 0 }, isScratch);
-  ok(none.tabs.length === 0 && none.active === 0, "空的照样空");
-
   // 老快照的 sideView 认不出就回 files；新值 scratch 要认
   ok(toLayout({ sideView: "scratch" }).sideView === "scratch", "sideView 认 scratch");
   ok(toLayout({ sideView: "bogus" }).sideView === "files", "sideView 认不出回 files");
@@ -406,13 +389,6 @@ ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
   ok(onlyRight.every((t) => t.group === undefined) && onlyRight[0].shown === true && !onlyRight[1].shown, "只剩右组就是单栏，显示 active");
   ok(normalizeGroups([], 0).length === 0, "空表不抛");
 
-  // withoutTabs 滤掉了某组正在显示的 → 那组第一个补上；滤空了一组 → 收成单栏
-  const s = split;
-  const dropped = withoutTabs(s, (p) => p === "/proj/c");
-  ok(dropped.tabs.map((t) => t.path.slice(-1) + (t.shown ? "*" : "")).join() === "a*,b*,d", `右组显示的被滤掉，b 补上：${dropped.tabs.map((t) => t.path.slice(-1) + (t.shown ? "*" : "")).join()}`);
-  const collapsed = withoutTabs(s, (p) => p === "/proj/b" || p === "/proj/c");
-  ok(collapsed.tabs.every((t) => t.group === undefined), "右组被滤空 → 单栏");
-  ok(collapsed.tabs.filter((t) => t.shown).length === 1, "单栏恰好一个 shown");
 
   // splitRatio 夹在 0.2–0.8，坏值回默认
   ok(toLayout({ splitRatio: 0.05 }).splitRatio === 0.2 && toLayout({ splitRatio: 5 }).splitRatio === 0.8, "分隔线位置要夹");
@@ -425,6 +401,28 @@ ok(坏的回来?.tabs.length === 4, "坏草稿不能连累标签");
   ok(hasDrafts(JSON.stringify({ ...base, tabs: [{ path: "/proj/a" }, { path: "/proj/b", draft: "改了", stamp: { mtimeMs: 1, size: 1 } }] })), "有一个标签带草稿就算有");
   ok(!hasDrafts(JSON.stringify({ ...base, tabs: [{ path: "/proj/a" }] })), "全是干净标签：可以删");
   ok(!hasDrafts(null) && !hasDrafts("{坏") && !hasDrafts(JSON.stringify({ ...base, v: 999, tabs: [] })), "读不出来的不抛，当没有");
+}
+
+// ── 多窗口第 4 步：每个窗口一份、首屏布局、该清哪些 ──
+{
+  ok(keyFor("/p/a") === "lite-ide.session:/p/a" && keyFor(null) === "lite-ide.session:", "按项目根分；没有项目的窗口是带冒号的空后缀");
+  ok(parseLayout(JSON.stringify({ ...DEFAULT_LAYOUT, sidebarWidth: 300 }))?.sidebarWidth === 300, "首屏布局读得回来");
+  ok(parseLayout(JSON.stringify({ sidebarWidth: 99999 }))?.sidebarWidth === 640, "坏尺寸照样要夹（toLayout）");
+  ok(parseLayout("{坏") === null && parseLayout(null) === null && parseLayout("[]") === null, "坏数据当没有，不抛");
+
+  const base = { v: VERSION, active: 0, layout: DEFAULT_LAYOUT, recent: [] };
+  const store: Record<string, string> = {
+    "lite-ide.session": "旧的全局那份",
+    "lite-ide.session:": JSON.stringify({ ...base, root: null, tabs: [] }),
+    "lite-ide.session:/a": JSON.stringify({ ...base, root: "/a", tabs: [] }),
+    "lite-ide.session:/b": JSON.stringify({ ...base, root: "/b", tabs: [] }),
+    "lite-ide.session:/c": JSON.stringify({ ...base, root: "/c", tabs: [{ path: "/c/x", draft: "没存", stamp: { mtimeMs: 1, size: 1 } }] }),
+    "lite-ide.minimap": "1",
+  };
+  const read = (k: string) => store[k] ?? null;
+  const gone = staleKeys(Object.keys(store), ["/a"], read);
+  ok(gone.join() === "lite-ide.session:/b", `只清不在名单里、没有草稿的项目快照：${gone.join()}`);
+  ok(staleKeys(Object.keys(store), [], read).length === 0, "名单是空的：一个都不删（升级迁移前那一刻 Rust 的名单还是空的）");
 }
 
 console.log(`${fail === 0 ? "✅" : "❌"} 会话快照：${pass} 通过，${fail} 失败`);

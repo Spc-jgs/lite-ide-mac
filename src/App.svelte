@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack, tick } from "svelte";
+  import { tick } from "svelte";
   import Rail from "./lib/shell/Rail.svelte";
   import Sidebar from "./lib/shell/Sidebar.svelte";
   import StatusBar from "./lib/shell/StatusBar.svelte";
@@ -21,7 +21,7 @@
   import { git } from "./lib/state/git.svelte";
   import { remote } from "./lib/state/remote.svelte";
   import { branches } from "./lib/state/branches.svelte";
-  import { persist, saved } from "./lib/state/persist.svelte";
+  import { persist } from "./lib/state/persist.svelte";
   import { overlay } from "./lib/state/overlay.svelte";
   import { lang } from "./lib/state/lang.svelte";
   import { readPref, writePref, readNumPref, writeNumPref } from "./lib/state/prefs";
@@ -32,7 +32,9 @@
   import {
     probePath,
     ignoredDirs,
-    setRecent,
+    recentProjects,
+    clearRecent,
+    type RecentProjects,
     syncMenuState,
     reportBudget,
     initialPaths,
@@ -762,33 +764,37 @@
       .then(() => initialPaths())
       .then(async (paths) => {
         if (tabs.list.length > 0 || project.root !== null) return;
-        if (paths.length === 0) {
-          await persist.restore();
-          return;
-        }
         /*
-         * 有人指名了路径 —— 命令行、Finder 双击、拖到 Dock 图标、`open -a` 都走这
-         * （后三种是 `RunEvent::Opened`，Rust 侧攒下来一并给的）。分两种情况：
+         * 这个窗口该开什么，Rust 已经替它定好了（多窗口第 4 步）：上次开着的项目、
+         * Finder / 命令行送来的目录或文件，都在 `initial_paths` 里。升级后第一次启动还要
+         * 把旧的全局快照迁一下 —— 没人指名时它会把升级前开着的那个项目塞回来。
          *
-         * - 全是**文件**：先把上次的现场恢复出来，再把它们开在上面。
-         *   `lite-ide a.rs` 的意思是「顺手看一眼这个文件」，不是
-         *   「把我的工作区清空」—— VS Code 的 `code a.js` 就是这个行为。
-         * - 有**另一个目录**：那是在切项目，旧项目的标签铺过来只会碍事。
-         *   同一个目录则照常恢复。
+         * - 有**目录**：那就是这个窗口的项目，项目根一设上 `afterRootChange` 就把它的快照摆回来
+         * - 只有**文件**（或者什么都没有）：这是一个没有项目的窗口，先恢复它自己那份（草稿、
+         *   上次随手开着的），再把文件开在上面 —— `lite-ide a.rs` 是「顺手看一眼」，
+         *   不是「把我的现场清空」，VS Code 的 `code a.js` 也是这个行为
          */
+        paths = await persist.migrate(paths);
         const infos = await Promise.all(paths.map((p) => probePath(p).catch(() => null)));
-        const switchingProject = infos.some((i) => i?.kind === "dir" && i.path !== saved?.root);
-        if (!switchingProject) await persist.restore();
+        if (!infos.some((i) => i?.kind === "dir")) await persist.restoreEmpty();
         await openIncoming(paths);
       })
       .catch(() => {})
-      // 恢复完还是一个标签都没有：落在草稿里（`launchScratch`），不停在空态卡片上
-      .then(() => (tabs.list.length === 0 ? tabflow.launchScratch() : undefined))
+      /*
+       * 恢复完还是一个标签都没有：落在草稿里（`launchScratch`），不停在空态卡片上 ——
+       * **只在没有项目的窗口里**（多窗口第 4 步）。`launchScratch` 开的是「最新那份空草稿」，
+       * 每个项目窗口都去开它，就是同一份文件同时开在几个窗口里、各写各的（第 4 步真机验收撞见的）。
+       * 为一个项目开的窗口，主角是那个项目，空着就空着（IDEA / VS Code 也是空的编辑区）；
+       * 「什么都没开、随手记一笔」那个 Sublime 的场景，正是没有项目的窗口。
+       */
+      .then(() => (tabs.list.length === 0 && project.root === null ? tabflow.launchScratch() : undefined))
       .catch(() => {})
       .finally(() => {
         persist.restoring = false;
         persist.schedule();
         void writeBudgetLine();
+        // 恢复完、迁移完才清理快照：之前名单和快照都不全（persist.prune 的注释）
+        void recentProjects().then(applyRecent).catch(() => {});
       });
     return () => {
       dead = true;
@@ -907,13 +913,18 @@
   });
 
   /**
-   * 最近列表变了就推给 Rust 重建子菜单。
-   *
-   * 只在 Tauri 里有意义（浏览器里 invoke 走的是桩），失败一律吞掉 ——
-   * 菜单没刷新是件不影响干活的事，不值得弹一条错误。
+   * 「最近打开」：名单在 Rust（多窗口第 4 步）。启动时取一次，之后 Rust 在它变了的时候
+   * 广播 `recent-changed`（任何一个窗口开了新项目、清空、遗忘）。原生菜单 Rust 自己重建，
+   * 这边只管标题栏的下拉、空态卡片，以及按最新的名单清理用不着的会话快照。
    */
+  function applyRecent(r: RecentProjects) {
+    project.recent = r.projects;
+    persist.prune([...r.projects, ...r.open]);
+  }
   $effect(() => {
-    void setRecent([...project.recent]).catch(() => {});
+    void recentProjects().then(applyRecent).catch(() => {});
+    const reg = listenHere<RecentProjects>("recent-changed", (e) => applyRecent(e.payload)).catch(() => null);
+    return () => void reg.then((f) => f?.()).catch(() => {});
   });
 
   /**
@@ -934,28 +945,6 @@
     ).catch(() => {});
   });
 
-  /**
-   * 项目根换了就记一笔。
-   *
-   * 放 effect 里而不是在 `openPath` 里调，是因为 project.root 有四条来路
-   * （拖放、命令行、面包屑、菜单）—— 挂在赋值点上要写四遍，
-   * 而**写四遍就等于早晚漏一遍**。
-   */
-  $effect(() => {
-    const r = project.root;
-    if (!r) return;
-    /*
-     * **必须 untrack。**
-     *
-     * `remember` 里读了 `recent`（要去重、要截断），而它写的也是 `recent` ——
-     * 不套 untrack 的话这条 effect 就是「读一个状态又写同一个状态」，
-     * Svelte 直接抛 `effect_update_depth_exceeded`，整个内容区变成崩溃屏。
-     * （第一次跑就撞上了，不是什么边角情况。）
-     *
-     * 这条 effect 该依赖的只有 `root` —— 项目根换了才记一笔。
-     */
-    untrack(() => project.remember(r));
-  });
 
 </script>
 
@@ -972,7 +961,7 @@
     bind:branchBtn
     onOpenRecent={(r) => void tabflow.openRecent(r)}
     onOpenFolder={() => void tabflow.openFolder()}
-    onClearRecent={() => (project.recent = [])}
+    onClearRecent={() => void clearRecent().then(applyRecent).catch(() => {})}
     onOpenBranches={openBranchPicker}
     restricted={!!git.restricted}
     onOpenTrust={() => (git.trustOpen = true)}

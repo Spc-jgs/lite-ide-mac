@@ -7,8 +7,9 @@ use super::*;
 /// 只在内存里（`gitsvc::console`），关掉应用就没 —— 它的用途是
 /// 「刚才那条为什么失败」，不是考古。判据、上限和打码全在那边。
 #[tauri::command]
-pub fn git_console() -> Vec<GitCmdDto> {
-    gitsvc::console::entries()
+pub fn git_console(root: String) -> Vec<GitCmdDto> {
+    // 只给这个窗口的仓库的（多窗口第 4 步）：环是整个进程一份
+    gitsvc::console::entries_under(std::path::Path::new(&root))
         .into_iter()
         .map(|e| GitCmdDto {
             ms: e.ms,
@@ -22,10 +23,11 @@ pub fn git_console() -> Vec<GitCmdDto> {
         .collect()
 }
 
-/// 清空 Git 控制台。只碰内存里那个环，盘上本来就没有东西。
+/// 清空 Git 控制台**里这个仓库的那些**。只碰内存里那个环，盘上本来就没有东西。
+/// 别的窗口（别的仓库）的记录留着 —— 在 A 里点「清空」，B 的控制台不该跟着空掉
 #[tauri::command]
-pub fn clear_git_console() {
-    gitsvc::console::clear();
+pub fn clear_git_console(root: String) {
+    gitsvc::console::clear_under(std::path::Path::new(&root));
 }
 
 /// 找 `path` 所属的仓库根。不是仓库返回 null —— 这是正常情况，

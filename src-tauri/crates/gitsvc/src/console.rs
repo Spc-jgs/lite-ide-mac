@@ -106,6 +106,19 @@ impl Console {
     pub fn clear(&mut self) {
         self.ring.clear();
     }
+
+    /// 只要在 `root` 这个仓库里跑的那些（多窗口第 4 步）。环是整个进程一份，
+    /// 每个窗口的控制台只看自己那个仓库 —— 照 IDEA，Git 控制台是按项目的。
+    ///
+    /// `Path::starts_with` **按路径段比**：`/p/bc` 不在 `/p/b` 底下。
+    pub fn entries_under(&self, root: &Path) -> Vec<Entry> {
+        self.ring.iter().rev().filter(|e| Path::new(&e.cwd).starts_with(root)).cloned().collect()
+    }
+
+    /// 只清 `root` 这个仓库的 —— 在 A 窗口点「清空」，B 窗口的记录不该跟着没
+    pub fn clear_under(&mut self, root: &Path) {
+        self.ring.retain(|e| !Path::new(&e.cwd).starts_with(root));
+    }
 }
 
 static RING: OnceLock<Mutex<Console>> = OnceLock::new();
@@ -128,6 +141,14 @@ pub fn entries() -> Vec<Entry> {
 
 pub fn clear() {
     lock().clear();
+}
+
+pub fn entries_under(root: &Path) -> Vec<Entry> {
+    lock().entries_under(root)
+}
+
+pub fn clear_under(root: &Path) {
+    lock().clear_under(root);
 }
 
 fn entry(cwd: &Path, argv: &[String], code: Option<i32>, dur: Duration, err: &[u8]) -> Entry {
@@ -321,6 +342,20 @@ mod tests {
         // **必须切在字符边界上**：切在半个 UTF-8 上，整段会变成一串替换字符，
         // 而这段正是要给人读的东西
         assert!(got[0].err.ends_with('啊'), "切在了半个字符上：{:?}", &got[0].err[got[0].err.len().saturating_sub(6)..]);
+    }
+
+    /// 多窗口第 4 步：每个窗口只看、只清自己那个仓库的
+    #[test]
+    fn 按仓库看和清_按路径段比() {
+        let mut c = Console::default();
+        for cwd in ["/p/b", "/p/b/sub", "/p/bc", "/q"] {
+            c.record(Path::new(cwd), &[cwd.to_string()], Some(0), Duration::ZERO, b"");
+        }
+        let mine: Vec<_> = c.entries_under(Path::new("/p/b")).into_iter().map(|e| e.cwd).collect();
+        assert_eq!(mine, ["/p/b/sub", "/p/b"], "子目录里跑的算；/p/bc 不算（不是字符串前缀）；最新的在前");
+        c.clear_under(Path::new("/p/b"));
+        let left: Vec<_> = c.entries().into_iter().map(|e| e.cwd).collect();
+        assert_eq!(left, ["/q", "/p/bc"], "别的仓库的记录不能跟着清掉");
     }
 
     #[test]

@@ -93,6 +93,14 @@ WINBAK="$WORK/windows.json.bak"
 # 备份那一步跑过没有。cleanup 比备份先挂上：没跑到备份就退出（比如找不到 .app）时，
 # 「没有备份文件」不等于「本来就没有 windows.json」，那时一个字节都不能动它
 WINSAVED=0
+# **会话快照（localStorage）也是真实数据，整个 WebKit 目录一起备份、还原**（2026-10-08）。
+# 原来不还原：每跑一次，「上次的现场」「最近打开」就被这里的临时仓库盖掉一次 ——
+# 多窗口第 4 步时去读你的真实数据，「最近打开」8 条里 6 条是这个脚本留下的临时目录。
+# 第 4 步之后这件事更伤：新版启动会把旧的全局快照迁走、把「最近打开」交给 Rust 存进
+# windows.json，而这里跑完要还原 windows.json —— 不连 WebKit 一起还原，名单就两头落空
+WEBKIT="${HOME}/Library/WebKit/com.liteide.app"
+WEBKITBAK="$WORK/webkit.bak"
+WKSAVED=0
 AXLIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/ax.applescript"
 PASS=0; FAIL=0
 
@@ -121,6 +129,12 @@ cleanup() {
   for _ in $(seq 1 20); do pgrep -f "MacOS/lite-ide" >/dev/null || break; sleep 0.25; done
   if [ "$WINSAVED" = 1 ]; then
     if [ -f "$WINBAK" ]; then cp "$WINBAK" "$WINJSON"; else rm -f "$WINJSON"; fi
+  fi
+  # WebKit 的辅助进程在主进程退出后还要一小会儿才收尾，它们手里攥着 localStorage 的库
+  if [ "$WKSAVED" = 1 ]; then
+    sleep 1
+    rm -rf "$WEBKIT"
+    [ -d "$WEBKITBAK" ] && cp -Rp "$WEBKITBAK" "$WEBKIT"
   fi
   # 剪贴板是用户的东西，借来用完要还
   [ -f "$CLIP" ] && pbcopy < "$CLIP"
@@ -271,6 +285,11 @@ open_from_tree() {
 pbpaste > "$CLIP" 2>/dev/null
 [ -f "$WINJSON" ] && cp "$WINJSON" "$WINBAK"
 WINSAVED=1
+# 备份失败就不跑：没有备份的话，还原那一步会把你的真实会话删掉
+if [ -d "$WEBKIT" ]; then
+  cp -Rp "$WEBKIT" "$WEBKITBAK" || { echo "备份 WebKit 数据目录失败，不跑了（不然跑完没东西可还原）"; exit 2; }
+fi
+WKSAVED=1
 PREV_APP=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null)
 echo "跑之前的前台应用是「${PREV_APP:-未知}」，跑完会还回去"
 echo "（只有敲快捷键的那十来步会占用键盘，其余步骤不抢焦点，可以继续用电脑）"

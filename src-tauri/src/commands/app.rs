@@ -61,9 +61,12 @@ pub fn initial_paths(window: tauri::Window, state: State<'_, AppState>) -> Vec<S
 /// 已经有窗口开着它就该去那个窗口（`windows::route`）。项目根的真相在前端
 /// （会话恢复、⌘O、关闭项目都在那边改它），所以由前端在它变的时候报过来。
 #[tauri::command]
-pub fn set_window_root(window: tauri::Window, root: String, state: State<'_, AppState>) {
+pub fn set_window_root(app: tauri::AppHandle, window: tauri::Window, root: String, state: State<'_, AppState>) {
     crate::winctl::set_title(&window, Some(root.as_str()).filter(|r| !r.is_empty()));
-    state.windows.set_root(window.label(), Some(root));
+    // 开了一个新项目就记进「最近打开」（同一个根重复报不算，见 Windows::set_root）
+    if state.windows.set_root(window.label(), Some(root)) {
+        crate::winctl::recent_changed(&app);
+    }
     // 下次启动按这个开回来（windows.json）
     crate::winctl::save_soon();
 }
@@ -214,13 +217,50 @@ pub async fn pick_save_path(app: tauri::AppHandle, dir: Option<String>, name: St
     d.blocking_save_file().map(|p| p.to_string())
 }
 
-/// 刷新「最近打开」子菜单。
-///
-/// 列表存在前端的会话快照里（那本来就是「上次开的是哪个项目」的归属地），
-/// 变了就把整张表推过来重建 —— 最多 8 项，不值得算增量。
+/// 「最近打开」的项目。名单在 Rust（多窗口第 4 步）：原生菜单整个应用只有一份，
+/// 名单也只能有一个主人 —— 原来每个窗口各存一份、互相覆盖。变了的时候 Rust 会广播
+/// `recent-changed`，前端只在启动时主动取这一次。
 #[tauri::command]
-pub fn set_recent(app: tauri::AppHandle, paths: Vec<String>) -> Result<(), String> {
-    crate::menu::refresh_recent(&app, &paths).map_err(|e| format!("刷新最近打开失败：{e}"))
+pub fn recent_projects(app: tauri::AppHandle) -> RecentDto {
+    crate::winctl::recent_dto(&app)
+}
+
+/// 点了一个最近项目，发现目录没了：从名单里拿掉
+#[tauri::command]
+pub fn forget_recent(app: tauri::AppHandle, dir: String, state: State<'_, AppState>) -> RecentDto {
+    if state.windows.forget_recent(&dir) {
+        crate::winctl::recent_changed(&app);
+    }
+    crate::winctl::recent_dto(&app)
+}
+
+#[tauri::command]
+pub fn clear_recent(app: tauri::AppHandle, state: State<'_, AppState>) -> RecentDto {
+    if state.windows.clear_recent() {
+        crate::winctl::recent_changed(&app);
+    }
+    crate::winctl::recent_dto(&app)
+}
+
+/// 升级后第一次启动：前端读到旧版的全局快照，把里面的「最近打开」交过来。
+/// 这边已经有名单了就不收（`Windows::adopt_recent`）
+#[tauri::command]
+pub fn adopt_recent(app: tauri::AppHandle, projects: Vec<String>, state: State<'_, AppState>) -> RecentDto {
+    if state.windows.adopt_recent(projects) {
+        crate::winctl::recent_changed(&app);
+    }
+    crate::winctl::recent_dto(&app)
+}
+
+/// 在合适的窗口里打开一个目录（⌘O、最近打开、打开工作树、拖进来一个文件夹）。
+///
+/// 走和 Finder 送来的路径同一个路由：已经有窗口开着它就去那个窗口，否则开新窗口
+/// （调用它的窗口已经有项目了 —— 没有项目的窗口前端自己就地打开，不来这儿）。
+/// 返回 true = 交给 Rust 了；浏览器桩返回 false，前端退回「就地换项目」。
+#[tauri::command]
+pub fn open_window(app: tauri::AppHandle, path: String) -> bool {
+    crate::open::deliver(&app, vec![path]);
+    true
 }
 
 /// 按当下的上下文让菜单项变灰。

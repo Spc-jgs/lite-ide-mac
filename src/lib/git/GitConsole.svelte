@@ -24,6 +24,7 @@
   import { onMount } from "svelte";
   import { type GitCmd } from "../ipc/commands";
 import { gitConsole, clearGitConsole } from "../ipc/git";
+  import { git } from "../state/git.svelte";
 
   let rows = $state<GitCmd[]>([]);
   let onlyFailed = $state(false);
@@ -37,7 +38,8 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
 
   async function refresh() {
     try {
-      rows = await gitConsole();
+      // 只看这个窗口的仓库（多窗口第 4 步）。没有仓库时这一页本来就不出现
+      rows = git.repo ? await gitConsole(git.repo) : [];
     } catch {
       /* 拉不到就保持上一份 —— 一个诊断页面不该自己再弹一个错 */
     }
@@ -69,7 +71,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
 
   async function wipe() {
     try {
-      await clearGitConsole();
+      if (git.repo) await clearGitConsole(git.repo);
     } catch {
       /* 清不掉也不值得报错 */
     }

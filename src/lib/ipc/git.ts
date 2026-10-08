@@ -15,10 +15,12 @@ import type { GitCmd, GitEntry, DiffText, GitLogEntry, GitBranch, GitWorktree, R
  * 只在内存里，关掉应用就没 —— 它回答的是「刚才那条为什么失败」，不是考古。
  * 上限、截断和凭据打码全在 Rust 侧（`gitsvc::console`），前端只负责显示。
  */
-export const gitConsole = () => invoke<GitCmd[]>("git_console");
+/** 只要 `root` 这个仓库的（多窗口第 4 步：环是整个进程一份，每个窗口只看自己的） */
+export const gitConsole = (root: string) => invoke<GitCmd[]>("git_console", { root });
 
 /** 清空 Git 控制台。只碰内存里那个环，盘上本来就没有东西 */
-export const clearGitConsole = () => invoke<void>("clear_git_console");
+/** 只清 `root` 这个仓库的 —— 别的窗口的记录留着 */
+export const clearGitConsole = (root: string) => invoke<void>("clear_git_console", { root });
 
 export const gitDiff = (root: string, path: string, staged: boolean, untracked: boolean) =>
   invoke<DiffText>("git_diff", { root, path, staged, untracked });

@@ -8,13 +8,42 @@ import { type A, bump, FILES, NOT_MINE } from "./data";
  */
 const APP_LOG = "/Users/you/Library/Logs/com.liteide.app/app.log";
 
+/*
+ * 「最近打开」（多窗口第 4 步起名单在 Rust）。桩里也留一份，和真实现一样由 `set_window_root`
+ * 记 —— 不然浏览器里标题栏的下拉、空态卡片上的「继续上次的项目」永远是空的。
+ */
+let mockRecent: string[] = ["/proj", "/Users/you/work/another-repo"];
+let mockRoot = "";
+const recentDto = () => ({ projects: [...mockRecent], open: mockRoot ? [mockRoot] : [] });
+
 export async function appCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
     case "initial_paths":
       return ["/proj"];
     // 真实现只是记下来给多窗口路由用；浏览器里只有一个「窗口」，没东西可路由
-    case "set_window_root":
+    case "set_window_root": {
+      const r = String(a.root ?? "").replace(/\/+$/, "");
+      if (r && r !== mockRoot) mockRecent = [r, ...mockRecent.filter((x) => x !== r)].slice(0, 8);
+      mockRoot = r;
       return null;
+    }
+    case "recent_projects":
+      return recentDto();
+    case "forget_recent":
+      mockRecent = mockRecent.filter((x) => x !== String(a.dir));
+      return recentDto();
+    case "clear_recent":
+      mockRecent = [];
+      return recentDto();
+    case "adopt_recent":
+      if (mockRecent.length === 0) mockRecent = (a.projects as string[]).slice(0, 8);
+      return recentDto();
+    // 浏览器里只有一个「窗口」：不接，前端退回就地换项目（真实现开新窗口）。
+    // 状态测试要验「交给 Rust」那条分支时挂一个 __mockOpenWindow 钩子
+    case "open_window": {
+      const hook = (globalThis as { __mockOpenWindow?: (p: string) => boolean }).__mockOpenWindow;
+      return hook ? hook(String(a.path)) : false;
+    }
     // 浏览器里没有「退出」可言：两条都只是不报错
     case "quit_ready":
     case "request_quit":
@@ -85,7 +114,6 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
       return v && v.trim() ? v.trim() : null;
     }
     // 菜单在浏览器里不存在，这两条是空操作 —— 但要显式写出来
-    case "set_recent":
     case "sync_menu_state":
       return null;
     // ── 拉取与推送 ──

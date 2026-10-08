@@ -1,4 +1,4 @@
-import { probePath, readText, openLog, closeLog, scratchDir, pickFolder, trashEntry, revealInFinder } from "../ipc/commands";
+import { probePath, readText, openLog, closeLog, scratchDir, pickFolder, trashEntry, revealInFinder, forgetRecent } from "../ipc/commands";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { docs } from "./docs.svelte";
@@ -46,9 +46,9 @@ export function closeProject() {
 /**
  * 开原生的选择文件夹面板。取消了什么也不做。
  *
- * 选中之后走的是 `openPath` —— 它对目录的处理就是把 `project.root` 设过去，
- * 和拖一个文件夹进来、命令行传目录**是同一条路**。
- * 另起一套的话，「切项目要不要清掉旧标签」这类判断就会有两份。
+ * 选中之后走的是 `openPath` —— 和拖一个文件夹进来、命令行传目录**是同一条路**：
+ * 这个窗口已经有项目就交给 Rust 开新窗口（或者回到开着它的那个窗口），没有就地打开。
+ * 另起一套的话，「开新窗口还是就地换」这类判断就会有两份。
  */
 export async function openFolder() {
   const dir = await pickFolder().catch(() => null);
@@ -67,7 +67,9 @@ export async function openRecent(dir: string) {
   const info = await probePath(dir).catch(() => null);
   if (info?.kind !== "dir") {
     notify.fail(`打不开 ${dir} —— 已从最近记录里移除`, 3200);
+    // 名单在 Rust（多窗口第 4 步）：它删完会广播 recent-changed，别的窗口跟着更新
     project.recent = project.recent.filter((r) => r !== dir);
+    void forgetRecent(dir).then((r) => (project.recent = r.projects)).catch(() => {});
     return;
   }
   await tabflow.openPath(dir);

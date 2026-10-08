@@ -162,6 +162,8 @@ pub fn run() {
             // 上次退出时开着的窗口开回来（多窗口第 3 步）。要在送 argv 之前：
             // 恢复出来的窗口先报上项目根，argv 里的目录才路由得对（已经开着就不再开一个）
             winctl::restore_at_launch(app.handle());
+            // 「最近打开」菜单：名单在 windows.json 里，现在就建（原来要等前端起来推过来）
+            let _ = menu::refresh_recent(app.handle(), &st.windows.recent());
             let mut args: Vec<String> = std::env::args()
                 .skip(1)
                 .filter(|a| !a.starts_with('-') && std::path::Path::new(a).exists())
@@ -273,7 +275,11 @@ pub fn run() {
             commands::watch_root,
             commands::pick_folder,
             commands::pick_save_path,
-            commands::set_recent,
+            commands::recent_projects,
+            commands::forget_recent,
+            commands::clear_recent,
+            commands::adopt_recent,
+            commands::open_window,
             commands::sync_menu_state,
             commands::open_external,
             commands::git_fetch,
