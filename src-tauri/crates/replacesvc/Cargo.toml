@@ -1,0 +1,16 @@
+[package]
+name = "replacesvc"
+version = "0.1.0"
+edition = "2021"
+description = "跨文件查找替换：扫描、两段提交、替换日志、撤销与崩溃恢复（零 Tauri 依赖，#42）"
+
+[dependencies]
+# 匹配只问 searchsvc 的 Matcher（查找、替换预览、替换执行一个答案）；写盘只走 fsservice 的准备 / 提交两半
+# （权限位、软链、硬链接那三条保存语义不另写）。为什么单独一个 crate：替换同时要搜索和写盘，
+# 放进任何一边都会让两个 crate 互相依赖
+searchsvc = { path = "../searchsvc" }
+fsservice = { path = "../fsservice" }
+# 替换日志的 manifest.json。两个都已经在依赖树里（主 crate 用它们）
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+

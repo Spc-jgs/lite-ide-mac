@@ -660,3 +660,83 @@ export interface RemoteErr {
   raw: string;
 }
 
+
+// ── 跨文件替换（#42）。和 src-tauri/src/commands/dto.rs 里的 Replace*Dto 一一对应（dto_sync.rs 卡着）──
+
+export interface ReplaceHit {
+  line: number;
+  /** UTF-16，从 1 起 */
+  col: number;
+  text: string;
+  spans: [number, number][];
+}
+
+export interface ReplaceFile {
+  rel: string;
+  /** 绝对路径：按它找开着的标签 */
+  path: string;
+  /** 用的是编辑器里那份（开着、有未保存改动） */
+  editor: boolean;
+  hits: ReplaceHit[];
+}
+
+export interface ReplaceSkip {
+  rel: string;
+  /** lossy / mixed-eol / too-big / same / changed / edited-since / never-saved / unreadable */
+  why: string;
+  /** 给人看的那句话（Rust 侧写的，原样显示） */
+  text: string;
+}
+
+export interface ReplaceScan {
+  files: ReplaceFile[];
+  skipped: ReplaceSkip[];
+  binary: number;
+  total: number;
+  /** 命中超过 5000：预览照常、不许执行 */
+  truncated: boolean;
+  /** 项目超过 5 万个文件：之后的没看 */
+  indexTruncated: boolean;
+}
+
+export interface ReplaceAfter {
+  text: string;
+  spans: [number, number][];
+}
+
+export interface ReplaceEdit {
+  from: number;
+  to: number;
+  insert: string;
+}
+
+export interface ReplaceChanged {
+  rel: string;
+  path: string;
+  count: number;
+  /** 开着这个文件的编辑器要跟着做的改动（UTF-16，原文里的位置） */
+  edits: ReplaceEdit[];
+  onDisk: boolean;
+}
+
+export interface ReplaceOutcome {
+  changed: ReplaceChanged[];
+  skipped: ReplaceSkip[];
+  undo: boolean;
+}
+
+/** 执行失败：truncated / pending / too-big（`bytes` 是改前全文多大，要用户点头）/ failed */
+export interface ReplaceError {
+  code: string;
+  message: string;
+  bytes: number;
+}
+
+export interface ReplacePending {
+  /** preparing / committing / done */
+  state: string;
+  root: string;
+  atMs: number;
+  files: number;
+  changed: number;
+}

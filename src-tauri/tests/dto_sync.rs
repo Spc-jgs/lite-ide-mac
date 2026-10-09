@@ -56,6 +56,16 @@ const PAIRS: &[(&str, &str)] = &[
     ("ScratchDto", "ScratchEntry"),
     ("AnchorDto", "ScratchAnchor"),
     ("CliInstallDto", "CliInstall"),
+    ("ReplaceHitDto", "ReplaceHit"),
+    ("ReplaceFileDto", "ReplaceFile"),
+    ("ReplaceSkipDto", "ReplaceSkip"),
+    ("ReplaceScanDto", "ReplaceScan"),
+    ("ReplaceAfterDto", "ReplaceAfter"),
+    ("ReplaceEditDto", "ReplaceEdit"),
+    ("ReplaceChangedDto", "ReplaceChanged"),
+    ("ReplaceOutcomeDto", "ReplaceOutcome"),
+    ("ReplaceErrorDto", "ReplaceError"),
+    ("ReplacePendingDto", "ReplacePending"),
 ];
 
 struct RustStruct {

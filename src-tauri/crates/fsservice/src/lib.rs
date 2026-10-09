@@ -251,15 +251,28 @@ fn read_capped(path: &Path, label: &str, cap: u64) -> io::Result<encoding::Decod
             cap >> 20
         )));
     }
+    Ok(decode_bytes(&bytes, label))
+}
+
+/// 已经读进来的字节 → 文本：探编码（`label` 非空就按它）、记下换行符、统一成 `\n`。和 [`read_text_detect`] 同一套。
+///
+/// 拆出来给跨文件替换用（#42）：它要**只读一次**就同时拿到原始字节（进替换日志，撤销时一个字节不差地写回）
+/// 和解码后的文本（拿去匹配）—— 读两次的话，文件可能正好在两次之间被改，日志里存的就不是被替换的那一份
+pub fn decode_bytes(bytes: &[u8], label: &str) -> encoding::Decoded {
     let mut d = if label.is_empty() {
-        encoding::decode(&bytes)
+        encoding::decode(bytes)
     } else {
-        encoding::decode_as(&bytes, label)
+        encoding::decode_as(bytes, label)
     };
     // 换行符和编码同一条规矩：读进来记住是什么，前端只见 \n，写回去换回来（eol.rs）
     d.eol = eol::detect(&d.content);
     d.content = eol::normalize(d.content);
-    Ok(d)
+    d
+}
+
+/// 文本 → 要写进盘的字节：换行符换回原样、按原编码和 BOM 编回去。[`write_text_as`] 写的就是它
+pub fn encode_text(content: &str, label: &str, bom: bool, line_ending: eol::Eol) -> Vec<u8> {
+    encoding::encode(&eol::denormalize(content, line_ending), label, bom)
 }
 
 /// 只要内容的便捷版本，给不关心编码的调用方用（测试、内部工具）。
@@ -275,8 +288,7 @@ pub fn write_text_as(
     bom: bool,
     line_ending: eol::Eol,
 ) -> io::Result<()> {
-    let bytes = encoding::encode(&eol::denormalize(content, line_ending), label, bom);
-    write_bytes(path, &bytes)
+    prepare_text_as(path, content, label, bom, line_ending)?.commit()
 }
 
 /// UTF-8 无 BOM 的便捷版本
@@ -322,23 +334,93 @@ fn write_in_place(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 fn write_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
+    prepare_bytes(path, bytes)?.commit()
+}
+
+/// 准备好、还没换上去的一次写盘。**写盘拆成两半是给跨文件替换用的**（#42，docs/REPLACE.md 12.2）：
+/// 先把所有文件的新内容都写成临时文件（这一步失败，一个原文件都没动），全部准备好了再逐个换上。
+/// 普通保存还是「准备完马上提交」（[`write_bytes`]），三条保存语义（权限位、软链写真身、硬链接原地写）
+/// 都在准备这一半里，两种用法拿到的是同一套。
+///
+/// 没提交就丢掉（`drop`）会把临时文件删掉 —— 准备了一半出错返回时，不留残留。
+pub struct Prepared {
+    target: PathBuf,
+    how: How,
+}
+
+enum How {
+    /// 临时文件已经写好、fsync、抄好权限，提交时 rename 过去。`None` = 已经提交或放弃
+    Rename { tmp: Option<PathBuf> },
+    /// 硬链接组里的一份：rename 会把它摘出去，只能原地覆写 —— **而原地覆写没有「先准备好」这回事**，
+    /// 字节先拿着，提交时才写。替换把这一类排在提交段最后，中途崩溃靠替换日志恢复
+    InPlace { bytes: Vec<u8> },
+}
+
+impl Prepared {
+    /// 真正会被写的那个文件（软链已经解开）
+    pub fn target(&self) -> &Path {
+        &self.target
+    }
+
+    /// 提交时是原地覆写（硬链接）—— 替换据此把它排到最后
+    pub fn in_place(&self) -> bool {
+        matches!(self.how, How::InPlace { .. })
+    }
+
+    pub fn commit(mut self) -> io::Result<()> {
+        match &mut self.how {
+            How::InPlace { bytes } => write_in_place(&self.target, bytes),
+            How::Rename { tmp } => {
+                let Some(t) = tmp.take() else { return Ok(()) };
+                // rename 在同一文件系统内是原子的
+                match fs::rename(&t, &self.target) {
+                    Ok(()) => {
+                        // 目录项也要落盘，否则掉电后可能连改名都没发生
+                        if let Some(dir) = self.target.parent() {
+                            if let Ok(d) = fs::File::open(dir) {
+                                let _ = d.sync_all();
+                            }
+                        }
+                        Ok(())
+                    }
+                    Err(e) => {
+                        let _ = fs::remove_file(&t);
+                        Err(e)
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Prepared {
+    fn drop(&mut self) {
+        if let How::Rename { tmp: Some(t) } = &self.how {
+            let _ = fs::remove_file(t);
+        }
+    }
+}
+
+/// 这个文件写盘时用的临时文件名。名字是可预测的 —— 崩溃恢复靠它找到上次留下的残留（替换日志里只记目标文件）
+pub fn tmp_path_for(target: &Path) -> PathBuf {
+    let dir = target.parent().unwrap_or_else(|| Path::new("."));
+    dir.join(format!(".{}.lite-ide-tmp", target.file_name().unwrap_or_default().to_string_lossy()))
+}
+
+/// 准备写一份字节：解软链、写临时文件、fsync、抄权限；硬链接只记下字节（见 [`How::InPlace`]）
+pub fn prepare_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<Prepared> {
     use std::io::Write;
     use std::os::unix::fs::MetadataExt;
 
     let target = resolve_link(path.as_ref())?;
-    let target = target.as_path();
-    let meta = fs::symlink_metadata(target).ok();
+    let meta = fs::symlink_metadata(&target).ok();
 
     // 硬链接组里的一份：rename 会把它摘出去，只能原地覆写
     if meta.as_ref().is_some_and(|m| m.nlink() > 1) {
-        return write_in_place(target, bytes);
+        return Ok(Prepared { target, how: How::InPlace { bytes: bytes.to_vec() } });
     }
 
-    let dir = target.parent().unwrap_or_else(|| Path::new("."));
-    let tmp = dir.join(format!(
-        ".{}.lite-ide-tmp",
-        target.file_name().unwrap_or_default().to_string_lossy()
-    ));
+    let tmp = tmp_path_for(&target);
 
     // `create_new` 而不是 `fs::write`：临时文件名是可预测的，而
     // `fs::write` 对一条**已经在那儿的软链**会顺着它写到别处去。
@@ -351,6 +433,9 @@ fn write_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
         }
         Err(e) => return Err(e),
     };
+    // 临时文件建出来了就归 Prepared 管：下面任何一步出错返回，drop 会把它删掉
+    // （原来出错时留着一个 `.x.lite-ide-tmp` 在用户的目录里）
+    let p = Prepared { target, how: How::Rename { tmp: Some(tmp.clone()) } };
     f.write_all(bytes)?;
     // **少了这一句，掉电之后拿到的可能是一个 0 字节文件盖掉了原文。**
     // rename 只保证「要么旧的要么新的」，不保证新的那份内容已经落盘 ——
@@ -367,21 +452,18 @@ fn write_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     if let Some(m) = &meta {
         fs::set_permissions(&tmp, m.permissions())?;
     }
+    Ok(p)
+}
 
-    // rename 在同一文件系统内是原子的
-    match fs::rename(&tmp, target) {
-        Ok(()) => {
-            // 目录项也要落盘，否则掉电后可能连改名都没发生
-            if let Ok(d) = fs::File::open(dir) {
-                let _ = d.sync_all();
-            }
-            Ok(())
-        }
-        Err(e) => {
-            let _ = fs::remove_file(&tmp);
-            Err(e)
-        }
-    }
+/// 准备写一份文本：按原来的编码、BOM、换行符编回字节，再走 [`prepare_bytes`]
+pub fn prepare_text_as(
+    path: impl AsRef<Path>,
+    content: &str,
+    label: &str,
+    bom: bool,
+    line_ending: eol::Eol,
+) -> io::Result<Prepared> {
+    prepare_bytes(path, &encode_text(content, label, bom, line_ending))
 }
 
 /// `open -R` 的参数。
@@ -1513,6 +1595,55 @@ mod tests {
     /// rename 换的是目录项，原来那个 inode 还被另一个名字拿着 ——
     /// 于是「同一个文件」悄悄变成了两个，另一头再也收不到改动。
     /// 这条走的是原地覆写那条分支（判据同 vim 的 `backupcopy=auto`）。
+    /// **准备不碰原文件，提交才换上**（#42 两段提交的前提）：准备完原文件一个字节没变、
+    /// 临时文件在；提交后内容换了、临时文件没了、权限照旧
+    #[test]
+    fn 准备和提交分两步() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = sandbox("prepare-commit");
+        let f = d.join("run.sh");
+        fs::write(&f, "old\n").unwrap();
+        fs::set_permissions(&f, fs::Permissions::from_mode(0o755)).unwrap();
+        let p = prepare_bytes(&f, b"new\n").unwrap();
+        assert_eq!(fs::read_to_string(&f).unwrap(), "old\n", "准备阶段不能动原文件");
+        assert!(tmp_path_for(&f).exists(), "新内容先落在临时文件里");
+        assert!(!p.in_place());
+        p.commit().unwrap();
+        assert_eq!(fs::read_to_string(&f).unwrap(), "new\n");
+        assert!(!tmp_path_for(&f).exists(), "提交后不留临时文件");
+        assert_eq!(fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o755, "权限照旧");
+    }
+
+    /// **准备了不提交（出错返回、或者别的文件准备失败放弃整次），临时文件要自己收掉。**
+    /// 替换准备几百个文件、第 200 个失败时，前 199 个的临时文件不能留在用户的目录里
+    #[test]
+    fn 准备了不提交_临时文件自己收掉() {
+        let d = sandbox("prepare-drop");
+        let f = d.join("a.txt");
+        fs::write(&f, "old").unwrap();
+        let p = prepare_bytes(&f, b"new").unwrap();
+        assert!(tmp_path_for(&f).exists());
+        drop(p);
+        assert!(!tmp_path_for(&f).exists(), "没提交的临时文件被收掉了");
+        assert_eq!(fs::read_to_string(&f).unwrap(), "old", "原文件没动");
+    }
+
+    /// 硬链接只能原地写，准备阶段什么都不写，提交时才写 —— 替换要知道这一类，把它排到最后
+    #[test]
+    fn 硬链接的准备不落盘() {
+        let d = sandbox("prepare-hardlink");
+        let a = d.join("a.txt");
+        let b = d.join("b.txt");
+        fs::write(&a, "old").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+        let p = prepare_bytes(&a, b"new").unwrap();
+        assert!(p.in_place());
+        assert!(!tmp_path_for(&a).exists(), "原地写不经过临时文件");
+        assert_eq!(fs::read_to_string(&b).unwrap(), "old", "准备阶段两份都没变");
+        p.commit().unwrap();
+        assert_eq!(fs::read_to_string(&b).unwrap(), "new", "提交后另一份也变了（还在一个链接组里）");
+    }
+
     #[test]
     fn 保存不拆掉硬链接() {
         use std::os::unix::fs::MetadataExt;

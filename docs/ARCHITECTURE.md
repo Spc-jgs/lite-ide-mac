@@ -114,7 +114,8 @@ Java 专用的这些代码跟着 Java 语言包懒加载，经 CM6 的 `language
 │  │   MappedFile → LineIndex → LogSession                 │  │
 │  ├──────────────────────────────────────────────────────┤  │
 │  │ crates/fsservice   notify 文件监听 + 文件树            │  │
-│  │ crates/searchsvc   ripgrep 子进程（--json 流式）        │  │
+│  │ crates/searchsvc   Matcher（唯一的匹配规则）+ rg 找候选 │  │
+│  │ crates/replacesvc  跨文件替换：两段提交 + 替换日志     │  │
 │  │ crates/ptysvc      portable-pty → zsh                 │  │
 │  └──────────────────────────────────────────────────────┘  │
 └─────────────────────────┬───────────────────────────────────┘

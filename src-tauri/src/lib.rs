@@ -207,6 +207,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::replace_scan,
+            commands::replace_preview,
+            commands::replace_apply,
+            commands::replace_undo,
+            commands::replace_pending,
+            commands::replace_recover,
             commands::probe_path,
             commands::list_dir,
             commands::ignored_dirs,

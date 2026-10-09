@@ -49,6 +49,9 @@ pub struct AppState {
     /// 开着哪些窗口、谁在前台、各自的项目根和收件箱（多窗口第 2 步，见 `windows.rs`）。
     /// 原来这里是一个全局的 `open::Inbox`，现在每个窗口一个，收在登记表里
     pub windows: crate::windows::Windows,
+    /// 每个窗口最近一次的替换扫描（#42）。替换串变了只重算「改后」不重新扫盘（一次完整扫描约 0.45s），
+    /// 执行时也用它核对 —— 所以要留着。按窗口记 owner，窗口关了就收（rust.md「活的资源表」）
+    scans: Mutex<HashMap<String, Arc<replacesvc::Scan>>>,
     /// 设置（issue #44）：`settings.json` + `ui-state.json`，整个进程一份，变了广播给每个窗口（`settingsctl.rs`）
     pub settings: crate::settings::Store,
     next_handle: AtomicU32,
@@ -56,6 +59,22 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// 记下这个窗口最近一次的替换扫描（顶掉上一次）
+    pub fn set_scan(&self, owner: &str, scan: Option<replacesvc::Scan>) {
+        let old = {
+            let mut t = self.scans.lock().expect("替换扫描表锁被毒化");
+            match scan {
+                Some(s) => t.insert(owner.to_string(), Arc::new(s)),
+                None => t.remove(owner),
+            }
+        };
+        drop(old);
+    }
+
+    pub fn scan(&self, owner: &str) -> Option<Arc<replacesvc::Scan>> {
+        self.scans.lock().expect("替换扫描表锁被毒化").get(owner).cloned()
+    }
+
     /// 登记一个打开的日志，记在 `owner` 窗口名下
     pub fn insert(&self, owner: &str, file: LogFile) -> u32 {
         let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
@@ -307,6 +326,7 @@ impl AppState {
         }
 
         self.set_watch(owner, None);
+        self.set_scan(owner, None);
 
         // 只置位不 kill，理由同 cancel_remote。关掉的窗口没人看进度了，
         // 网络卡住的 fetch 不取消的话就再也没人能取消它
@@ -480,6 +500,10 @@ mod tests {
         let ra = st.begin_remote("a", 1).unwrap();
         let rb = st.begin_remote("b", 1).unwrap();
 
+        let q = replacesvc::Query::literal("a");
+        st.set_scan("a", Some(replacesvc::scan(&d, &[], false, &q, &Default::default()).unwrap()));
+        st.set_scan("b", Some(replacesvc::scan(&d, &[], false, &q, &Default::default()).unwrap()));
+
         st.release_window("a");
 
         assert!(st.pty(pa).is_none(), "a 的终端该收掉");
@@ -496,6 +520,8 @@ mod tests {
         assert!(ra.load(Ordering::Relaxed), "a 还在跑的远程操作要取消 —— 窗口没了就再没人能取消它");
         assert!(!rb.load(Ordering::Relaxed), "b 的远程操作不能被取消");
         assert!(st.cancel_remote("b", 1), "b 的登记还该在表里");
+        assert!(st.scan("a").is_none(), "a 的替换扫描该收掉（里面攥着命中文件的全文）");
+        assert!(st.scan("b").is_some(), "b 的不能跟着没");
         let _ = std::fs::remove_dir_all(&d);
     }
 

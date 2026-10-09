@@ -41,7 +41,7 @@ pub async fn ignored_dirs(root: String) -> Result<Option<Vec<String>>, String> {
 ///
 /// 问不到就退回按名字判（不是 git 仓库、git 不在、仓库太大读不动）——
 /// **绝不能因此把整次搜索判成失败**。
-fn skip_for(root: &str) -> searchsvc::Skip {
+pub(crate) fn skip_for(root: &str) -> searchsvc::Skip {
     match gitsvc::ignored_dirs(std::path::Path::new(root)) {
         Ok(ignored) => searchsvc::Skip::with_git(ignored),
         Err(e) => {

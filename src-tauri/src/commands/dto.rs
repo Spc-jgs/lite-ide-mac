@@ -436,3 +436,99 @@ pub struct SettingDefDto {
     pub min: Option<i64>,
     pub max: Option<i64>,
 }
+
+// ── 跨文件替换（#42）。字段说明见 replacesvc，这里只是过 IPC 的形状 ──
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceHitDto {
+    pub line: u64,
+    /// UTF-16，从 1 起
+    pub col: u32,
+    pub text: String,
+    pub spans: Vec<[u32; 2]>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceFileDto {
+    pub rel: String,
+    /// 绝对路径：前端按它找开着的标签
+    pub path: String,
+    /// 用的是编辑器里那份（开着、有未保存改动）
+    pub editor: bool,
+    pub hits: Vec<ReplaceHitDto>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceSkipDto {
+    pub rel: String,
+    pub why: String,
+    /// 给人看的那句话（replacesvc::Why::text）
+    pub text: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceScanDto {
+    pub files: Vec<ReplaceFileDto>,
+    pub skipped: Vec<ReplaceSkipDto>,
+    pub binary: usize,
+    pub total: usize,
+    pub truncated: bool,
+    pub index_truncated: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceAfterDto {
+    pub text: String,
+    pub spans: Vec<[u32; 2]>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceEditDto {
+    pub from: u32,
+    pub to: u32,
+    pub insert: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceChangedDto {
+    pub rel: String,
+    pub path: String,
+    pub count: usize,
+    pub edits: Vec<ReplaceEditDto>,
+    pub on_disk: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceOutcomeDto {
+    pub changed: Vec<ReplaceChangedDto>,
+    pub skipped: Vec<ReplaceSkipDto>,
+    pub undo: bool,
+}
+
+/// 执行失败。`code`：`truncated`（命中太多）/ `pending`（上次中断还没收拾）/ `too-big`（要点头才做，`bytes` 是多大）/ `failed`
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceErrorDto {
+    pub code: String,
+    pub message: String,
+    pub bytes: u64,
+}
+
+/// 上次留下的替换日志。`state`：`preparing` / `committing` / `done`
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacePendingDto {
+    pub state: String,
+    pub root: String,
+    pub at_ms: u64,
+    pub files: usize,
+    pub changed: usize,
+}

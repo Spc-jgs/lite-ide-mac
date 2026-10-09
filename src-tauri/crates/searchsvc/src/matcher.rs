@@ -30,6 +30,7 @@ impl Query {
 pub struct Matcher {
     re: Regex,
     word: bool,
+    regex: bool,
     /// 「词字符」的定义直接借 `regex` 的 `\w`（Unicode：字母、数字、连接号、组合记号）——
     /// 自己写 `is_alphanumeric() || '_'` 会和正则里的 `\w` 在组合记号上对不上
     wordch: Regex,
@@ -48,7 +49,7 @@ impl Matcher {
             .multi_line(true)
             .build()
             .map_err(|e| format!("正则写错了：{}", first_line(&e.to_string())))?;
-        Ok(Matcher { re, word: q.word, wordch: Regex::new(r"^\w").expect("固定的正则") })
+        Ok(Matcher { re, word: q.word, regex: q.regex, wordch: Regex::new(r"^\w").expect("固定的正则") })
     }
 
     /// 全部命中的字节区间，按出现顺序、互不重叠。**空命中不算**：`a*` 这种正则在每个位置都能配上一个空串，
@@ -79,6 +80,24 @@ impl Matcher {
             return self.re.find_iter(text).any(|m| m.start() != m.end());
         }
         !self.find_all(text).is_empty()
+    }
+
+    /// `text` 里 `[start, end)` 这一处替换成什么（#42）。字面量模式下替换串原样用 —— 写 `$1` 就是 `$1`；
+    /// 正则模式下 `$1` / `${name}` / `$$` 照 `regex` 的语法展开（分组不存在展开成空串，和 rg `-r` 一样）
+    pub fn replacement(&self, text: &str, at: (usize, usize), repl: &str) -> String {
+        if !self.regex {
+            return repl.to_string();
+        }
+        // 从这一处的起点重新配一次拿分组。整词模式下 find_all 可能是跳过了前面不合格的候选才找到它的，
+        // 但从它的起点开始配，最左最先的那个就是它
+        match self.re.captures_at(text, at.0) {
+            Some(c) if c.get(0).is_some_and(|m| (m.start(), m.end()) == at) => {
+                let mut out = String::new();
+                c.expand(repl, &mut out);
+                out
+            }
+            _ => repl.to_string(),
+        }
     }
 
     /*
@@ -204,6 +223,18 @@ mod tests {
         assert!(e.starts_with("正则写错了"), "{e}");
         assert!(!e.contains('\n'), "一行放得下：{e}");
         assert!(Matcher::new(&Query::literal("")).is_err());
+    }
+
+    #[test]
+    fn 替换串_正则才展开分组() {
+        let t = "getName getAge";
+        let re = q(r"get(\w+)", false, false, true);
+        let at = re.find_all(t);
+        assert_eq!(re.replacement(t, at[0], "fetch$1"), "fetchName");
+        assert_eq!(re.replacement(t, at[1], "${1}Of"), "AgeOf");
+        assert_eq!(re.replacement(t, at[0], "$$1"), "$1", "$$ 是字面的 $");
+        let lit = q("getName", false, false, false);
+        assert_eq!(lit.replacement(t, lit.find_all(t)[0], "x$1"), "x$1", "字面量模式下 $1 原样");
     }
 
     #[test]
