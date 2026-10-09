@@ -109,7 +109,11 @@ git add src-tauri/Cargo.lock
 ### 1.5 跑一遍 smoke
 
 ```bash
-./scripts/smoke.sh
+scripts/build-test-app.sh
+```
+
+```bash
+scripts/smoke.sh
 ```
 
 **用真的 `.app` 点一遍验收清单**（issue #11）：提交（带话多的 pre-commit 钩子）、
@@ -121,7 +125,9 @@ git add src-tauri/Cargo.lock
 一个 26MB 全中文的 UTF-8 日志在界面上整份是乱码，而行数和级别统计全对、
 每一层的单测也全绿。那次是手点的，现在固化成脚本了。
 
-要它跑得动，终端需要「辅助功能」权限（第一次会弹窗）。
+2026-10-09 起它跑的是 `build-test-app.sh` 打的临时身份 `.app`，走测试通道（`scripts/lib/bridge.sh`）：
+不发全局按键、不读 AX、不碰你的数据，不需要「辅助功能」权限，跑的时候可以照常用电脑。
+代价是它验不到「系统怎么把输入交给应用」那一层（菜单键位、输入法、真实右键），见 smoke.sh 文件头。
 
 ### 1.5.1 界面改过就重拍 README 的图
 

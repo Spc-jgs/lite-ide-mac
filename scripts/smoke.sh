@@ -10,41 +10,34 @@
 # 而行数和级别统计全对，每一层的单测也全绿 —— 错的是编码探测的那个标签，
 # 只有真打开一个大中文日志才看得见。
 #
-# 那次是手点的。这个脚本把那一遍固化下来。
+# # 它怎么点得动界面：测试通道（2026-10-09 起）
 #
-# # 它靠什么点得动界面
+# 被测的是 `scripts/build-test-app.sh` 打的**临时身份 .app**（com.liteide.mwtest），
+# 指令走它里面的测试通道（`src-tauri/src/testbridge.rs`，客户端 `scripts/lib/bridge.sh`）：
+# 在页面里按名字点按钮、读界面上的字，菜单项由 Rust 侧直接触发。
 #
-# WKWebView 把整棵 DOM 暴露成了 macOS 的辅助功能树，所以 AppleScript 能按名字
-# 找到按钮并 AXPress、能给编辑器设焦点、能读回文本。（issue #11 原来写着
-# 「AppleScript 够不着 webview」，那条是错的。）
+# 原来是站在应用外面模仿人 —— System Events 敲键、AX 树按名字找元素、剪贴板粘贴，
+# 用的是你**真实的** lite-ide.app 和真实数据（跑之前备份、跑完还原）。三样都出过事：
 #
-# 七个踩过的坑，都写进实现里了，别改回去：
+#   - 敲键发给「当前最前面的应用」。2026-10-08 一次验收的 ⌘= 全落进了用户正在用的应用；
+#     后来加了「不在前台就整轮停下」，安全了，但你一碰电脑它就停。
+#   - AX 点击偶尔落空、刚弹出的浮层第一次必找不到（#22 那一串间歇红），
+#     为此长出了 click_then / paste_into 两层重试，重试次数还要单独报。
+#   - 备份还原真实数据：cleanup 跑两遍会把你的 WebKit 数据删掉（2026-10-09 修过），
+#     「移到废纸篓」那一步往你的废纸篓里留文件。
 #
-#   1. `click at {x, y}` 不行（报 -25208），必须按元素 AXPress。
-#   2. `set value of text area` 不生效 —— 它不触发 input 事件，Svelte 收不到。
-#   3. **中文输入法会把敲进去的 ASCII 吃掉**：`keystroke "verify: commit"`
-#      出来的是 `verify啊commit through贴合realapp`。所以一律走剪贴板 + ⌘V，
-#      粘贴不过输入法（⌘V 这种带修饰键的组合本身不受影响）。
-#   4. 别记 AX 路径 —— 界面一变它就断（暂存之后「提交」会变成「提交 (1)」）。
-#      每次按角色 + 名字重新递归查。
-#   5. **`$VAR` 后面紧跟中文，变量名会被吃掉一截**：`echo "分支 $BR，远程 ..."`
-#      里的 `$BR，` 被 bash 当成了变量 `BR<那几个字节>`，`set -u` 下直接
-#      `unbound variable` 把脚本打断。这个脚本正文全是中文，撞上的概率很高 ——
-#      **变量一律写 `${VAR}`**。写这段自检的提示文案时又踩了第二次。
-#   6. **刚出现的浮层/菜单，第一次查找必落空。** WKWebView 的 AX 子树是
-#      惰性构建的：⇧⌘F 的浮层弹出来之后，紧接着的第一次 `findIt` 返回
-#      NOTFOUND，而下一次同样的查找就成功。所以**动手之前先 `wait_has`
-#      确认它出来了** —— 轮询正好把落空的那一次消化掉，顺便验了前提。
-#      直接上手的话报出来的是「输入框找不到（浮层没出来？）」，
-#      而浮层其实好端端开着，排查方向完全错。
-#   7. **只有 `keystroke` 需要应用在前台，别的一概不需要。** click、读属性、
-#      set focused、连点原生菜单栏，在应用处于后台时全部照常生效
-#      （实测：前台停在 Finder，点「Git 改动」面板照常出来、点文件树的行
-#      文件照常打开、点「文件 → 关闭所有标签」标签确实关掉）。
-#      原来每一次 AX 调用都无条件 `set frontmost`，跑一遍几百次，
-#      人根本没法同时用电脑。现在只有 paste 和 keys 抢。
-#      （试过用 Swift 的 `CGEventPostToPid` 把键直接投给进程、完全不抢焦点，
-#      对这个 WKWebView **无效** —— ⌘P 发过去没有任何反应。）
+# 现在：**不发全局按键、不读 AX、不碰剪贴板、不碰你的数据**，跑的时候可以照常用电脑。
+# 启动那一下会闪一次焦点（tao 无条件激活，见 bridge.sh 的 lite_launch），之后一次都不抢 ——
+# 最后一条断言就是验这个的。
+#
+# # 它验不到的：系统怎么把输入交给应用
+#
+# 页面里的点击和按键是 DOM 事件，不经过 macOS。所以下面这一层**这里验不到**，归验证方案第三轮（真实输入）：
+#   - ⌘S / ⌘W 这类菜单键位，AppKit 有没有先吃掉、交给了谁（#53）—— 这里走 `menu` 指令，直达菜单事件的处理函数
+#   - 中文输入法、剪贴板（原来专门绕过输入法走 ⌘V，见 git 历史里这个文件的旧版）
+#   - 真实右键时 WebKit 把焦点给了谁（#50）
+#
+# 业务层面（存盘、git、搜索、日志、窗口路由）一条没少，编号和原来一一对应。
 #
 # # 断言尽量落在盘上
 #
@@ -53,10 +46,12 @@
 # 那正是它当初漏掉的地方。
 #
 # 用法：
-#   ./scripts/smoke.sh              # 用已经打好的 .app
-#   ./scripts/smoke.sh --keep       # 跑完不删临时仓库，方便自己再点两下
+#   scripts/build-test-app.sh      # 改了代码先打测试 .app（约 3 分钟）
+#   scripts/smoke.sh               # 跑
+#   scripts/smoke.sh --keep        # 跑完不删临时仓库和日志
 #
-# 前提：先 `pnpm app:bundle`；终端需要「辅助功能」权限（第一次会弹窗）。
+# **用 bash 跑，别 source 进 zsh**：bridge.sh 靠 BASH_SOURCE 找自己在哪。
+# 不需要「辅助功能」权限（不读 AX 了）。
 
 set -uo pipefail
 
@@ -68,237 +63,73 @@ for a in "$@"; do
   esac
 done
 
-# **必须给 pbcopy 一个 UTF-8 的 locale。** LANG 没设的时候（从 GUI 或某些
-# 自动化环境起的 shell 就是这样），`printf '中文' | pbcopy` 会把剪贴板置成
-# **空的** —— 于是脚本里那句「⌘A 全选、⌘V 粘贴」变成了「全选、粘个空」，
-# 编辑器被清空，⌘S 老老实实把 0 字节写进了文件。
-# 这个坑写 smoke.sh 时踩到了：`real/config.txt` 变成 0 字节，而断言只会说
-# 「内容不对」，看不出是剪贴板的锅。
-export LANG=${LANG:-en_US.UTF-8}
+# **变量一律写 `${VAR}`**：`$VAR` 后面紧跟中文时，bash 会把中文的字节当成变量名的一部分，
+# `set -u` 下直接 unbound variable 把脚本打断。这个脚本正文全是中文，撞上过两次
+export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="$ROOT/src-tauri/target/release/bundle/macos/lite-ide.app"
-APP="$APP_BUNDLE/Contents/MacOS/lite-ide"
-FIX="$(mktemp -d /tmp/lite-ide-smoke.XXXXXX)"
-# **这三个都不能放进 $FIX** —— 那是个 git 仓库，而应用会一直往日志里写。
-# 放进去的话 `git status` 永远不干净，「提交之后工作区该是空的」这条断言
-# 就永远不会成立，而失败信息会指向一个根本不存在的死锁
-WORK="$(mktemp -d /tmp/lite-ide-smoke-work.XXXXXX)"
-LOG="$WORK/app.log"
-CLIP="$WORK/clipboard.bak"
-# 开着哪些窗口（多窗口第 3 步起应用随改随存，下次启动照着开回来）。这个脚本用的是你真实的
-# .app 和数据，不还原的话，下次双击会多出一个窗口，指着这里早就删掉的临时仓库
-WINJSON="${HOME}/Library/Application Support/com.liteide.app/windows.json"
-WINBAK="$WORK/windows.json.bak"
-# 备份那一步跑过没有。cleanup 比备份先挂上：没跑到备份就退出（比如找不到 .app）时，
-# 「没有备份文件」不等于「本来就没有 windows.json」，那时一个字节都不能动它
-WINSAVED=0
-# **会话快照（localStorage）也是真实数据，整个 WebKit 目录一起备份、还原**（2026-10-08）。
-# 原来不还原：每跑一次，「上次的现场」「最近打开」就被这里的临时仓库盖掉一次 ——
-# 多窗口第 4 步时去读你的真实数据，「最近打开」8 条里 6 条是这个脚本留下的临时目录。
-# 第 4 步之后这件事更伤：新版启动会把旧的全局快照迁走、把「最近打开」交给 Rust 存进
-# windows.json，而这里跑完要还原 windows.json —— 不连 WebKit 一起还原，名单就两头落空
-WEBKIT="${HOME}/Library/WebKit/com.liteide.app"
-WEBKITBAK="$WORK/webkit.bak"
-WKSAVED=0
-# 跑之前 WebKit 目录在不在。在、而备份不见了的时候，还原那一步**一个字节都不能动它**（见 cleanup）
-WKHAD=0
-AXLIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/ax.applescript"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/bridge.sh"
+[ -d "${LITE_APP}" ] || { echo "找不到测试 .app —— 先跑 scripts/build-test-app.sh"; exit 2; }
+
+# **规范路径**：/tmp 是 /private/tmp 的软链，应用打开项目时会规范化（open.rs 的 prepare）。
+# 不规范化的话，下面拿 FIX 去比项目根、拼文件树行的 data-path，全都对不上
+FIX=$(cd "$(mktemp -d /tmp/lite-ide-smoke.XXXXXX)" && pwd -P)
+WORK=$(cd "${LITE_WORK}" && pwd -P)
+LOG="${LITE_LOG}"
+APPLOG="${HOME}/Library/Logs/${LITE_ID}/app.log"
 PASS=0; FAIL=0
 
-# **每个段落开头把焦点还回去。**
-#
-# `keys` 抢了焦点是不会自己还的，而第一次敲键盘发生在 ② —— 不还的话
-# 从那之后 lite-ide 就一直占着前台，实测占用率 94%，等于没改。
-#
-# 还焦点只能放在**段落边界**上：段落内部常常是「粘贴 → ⌘S」这种连续动作，
-# 中间还掉的话，后面那下 ⌘S 就打进用户正在用的应用里去了。
-# `say` 恰好只在每段开头调用一次，是现成的边界。
+# 焦点：测试应用起来之后**一次都不该跑到最前面**。判「最前面是不是它」，不判「最前面一直是开始时那个」——
+# 你在测试跑的时候切换应用是正常的（accept/settings.sh 第一版就是这么误报的）。每段开头采样一次
+STOLEN=0
 say()  {
-  [ -n "${PREV_APP:-}" ] && osascript -e "tell application \"${PREV_APP}\" to activate" >/dev/null 2>&1
+  [ "$(lite_front_id)" = "${LITE_ID}" ] && STOLEN=$((STOLEN + 1))
   printf '\n\033[1m== %s\033[0m\n' "$1"
 }
 ok()   { PASS=$((PASS+1)); printf '  \033[32m✓\033[0m %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  \033[31m✗\033[0m %s\n' "$1"; }
 check(){ if [ "$1" = "$2" ]; then ok "$3"; else bad "$3（期望 [$2]，实得 [$1]）"; fi; }
-# 只观察、不计成败。给「这条断言本身还没验稳」的项用 ——
-# 把没把握的东西算进成败，等于教人忽略红色
-note() { printf '  \033[33m•\033[0m %s\n' "$1"; }
 
-# **cleanup 只跑一次。** 原来是 `trap cleanup EXIT INT TERM PIPE`：bash 收到 TERM / Ctrl-C 时跑完 cleanup **不退出、接着往下跑**，
-# 退出时 EXIT 再跑一遍 cleanup（2026-10-09 用一个小脚本实测：cleanup 跑两次、中间「TERM 之后脚本还在往下跑」）。
-# 第一遍把 $WORK（备份就在里面）删了，第二遍照样 `rm -rf $WEBKIT` 再去拷一个已经不在的备份 —— 你的会话快照就没了；
-# windows.json 那段同理（没备份就删）。现在：INT / TERM / PIPE 一律 exit，由 EXIT 触发唯一的一次 cleanup；cleanup 自己也认「跑过了」
+# **cleanup 只跑一次**：INT / TERM / PIPE 一律 exit，由 EXIT 触发唯一的一次。
+# bash 收到 TERM / Ctrl-C 时跑完 trap **不退出、接着往下跑**，退出时 EXIT 再跑一遍（2026-10-09 实测）。
+# 现在 cleanup 只删临时目录和测试身份的数据，跑两遍也无害，但这个形状留着：下一个往 cleanup 里加东西的人不用再踩一次
 CLEANED=0
 cleanup() {
-  [ "$CLEANED" = 1 ] && return
+  [ "${CLEANED}" = 1 ] && return
   CLEANED=1
-  pkill -f "MacOS/lite-ide" 2>/dev/null
-  # 等它真的退了再还原 windows.json —— 它退出时（RunEvent::Exit）还会补存一次，晚到的那次会把还原盖掉
-  for _ in $(seq 1 20); do pgrep -f "MacOS/lite-ide" >/dev/null || break; sleep 0.25; done
-  if [ "$WINSAVED" = 1 ]; then
-    if [ -f "$WINBAK" ]; then cp "$WINBAK" "$WINJSON"; else rm -f "$WINJSON"; fi
-  fi
-  # WebKit 的辅助进程在主进程退出后还要一小会儿才收尾，它们手里攥着 localStorage 的库。
-  # **等到没有进程还开着这个目录里的文件再还原**（最多 10 秒）。原来是固定 `sleep 1` ——
-  # 那是猜的：收尾慢的那次，还原完又被它写回去一笔，等于没还原，而且没有任何迹象（代码审查查出来的）。
-  # 还原完隔 2 秒再和备份比一次：晚到的写不再是猜测，当场看得见
-  if [ "$WKSAVED" = 1 ]; then
-    local t0=$SECONDS
-    while [ $((SECONDS - t0)) -lt 10 ] && lsof +D "$WEBKIT" >/dev/null 2>&1; do sleep 0.25; done
-    if lsof +D "$WEBKIT" >/dev/null 2>&1; then
-      echo "  ！WebKit 数据目录等了 10 秒还有进程开着：$(lsof +D "$WEBKIT" 2>/dev/null | awk 'NR>1{print $1}' | sort -u | tr '\n' ' ')"
-    else
-      echo "  （WebKit 数据目录在 $((SECONDS - t0)) 秒内没人占着了，还原）"
-    fi
-    if [ "$WKHAD" = 1 ] && [ ! -d "$WEBKITBAK" ]; then
-      # 原来有数据、备份却不见了：宁可留着这次跑出来的样子，也不能先删再拷一个不存在的备份
-      echo "  ！！WebKit 的备份不见了，没有还原（你的数据没动）：$WEBKIT"
-    else
-      rm -rf "$WEBKIT"
-      [ -d "$WEBKITBAK" ] && cp -Rp "$WEBKITBAK" "$WEBKIT"
-    fi
-    sleep 2
-    if [ -d "$WEBKITBAK" ] && ! diff -rq "$WEBKITBAK" "$WEBKIT" >/dev/null 2>&1; then
-      echo "  ！！还原完 2 秒，WebKit 数据目录又被改了 —— 你的会话快照可能被这次 smoke 盖掉一部分，备份在 $WEBKITBAK"
-      KEEP=1
-    fi
-  fi
-  # 剪贴板是用户的东西，借来用完要还
-  [ -f "$CLIP" ] && pbcopy < "$CLIP"
-  # 前台应用同理。敲键盘那十来次会把焦点抢过来，跑完要放回原处 ——
-  # 不放的话，人回到电脑前发现自己打的字进了一个已经被 kill 的窗口
-  [ -n "${PREV_APP:-}" ] && osascript -e "tell application \"${PREV_APP}\" to activate" >/dev/null 2>&1
-  if [ "$KEEP" = 1 ]; then
-    echo; echo "临时仓库留着了：${FIX}（日志在 ${LOG}）"
+  if [ "${KEEP}" = 1 ]; then
+    lite_teardown keep
+    echo; echo "临时仓库留着了：${FIX}（stderr 在 ${LOG}）"
   else
-    rm -rf "$FIX" "$WORK"   # $REMOTE / $OTHER 都在 $WORK 底下
+    lite_teardown
+    rm -rf "${FIX}"
   fi
 }
-# **PIPE 也要收。** `./scripts/smoke.sh | head -20` 这种用法很自然，而 head
-# 提前退出会给脚本一个 SIGPIPE —— 只 trap EXIT 的话 cleanup 跑不完整，
-# 留下一个还活着的 lite-ide。下一次再跑，AX 的 `process "lite-ide"` 可能
-# 认到那个旧实例上去，于是满屏红，而应用本身好好的。踩过一次。
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 141' PIPE
-# 测试应用没能到最前面：整轮停下（见 notfront）
-trap 'exit 4' USR1
 
-# ─────────────────── AppleScript 那一层 ───────────────────
+# ─────────────────── 和页面说话的几样 ───────────────────
 #
-# AX 库在 scripts/lib/ax.applescript（2026-09-18 抽出去的：screenshots.sh 也要用，
-# 两份只会分岔）。用法：osascript ax.applescript <动作> <角色> <名字>
+# 都作用在 ${W} 那个窗口上（窗口的 label：main、w-1…）。⑰ ⑲ 开了别的窗口时临时改它
 
-# **动手的动作 NOTFOUND 就再试一次**（issue #22）。
-#
-# 这个脚本间歇红的形状是「红的位置每次不一样，重跑就绿」，最常见的一条是
-# `NOTFOUND`：菜单已经弹出来了，但递归遍历那一趟没找到目标。原因在
-# AppKit 那侧 —— 元素进 AX 树比它画出来晚，而这个窗口的树有上千个节点，
-# 遍历本身就要几百毫秒，机器一忙就更容易赶在树建好之前跑完。
-#
-# 只重试「动手」的那几个动作。**`has` 不重试**：它是查询，而且脚本里
-# 有一半的 `has` 是**负向断言**（「不该出现 X」）—— 给它加 0.6 秒重试，
-# 等于给每一条负向断言无谓地加半秒，还会让人以为那些位置也在等什么。
-# 要等的 `has` 有 `wait_has`，那是显式的。
-# **按键之前测试应用必须在最前面，不在就整轮停下。** `keystroke` / `key code` 发给的是「当前最前面的应用」，
-# 而「先 set frontmost 再敲」会被系统悄悄拦掉 —— 2026-10-08 一次验收里 ⌘= / ⌘- / ⌘0 全落进了用户正在用的 Claude 应用
-# （frontend.md「验收脚本不发全局按键」）。这里的键有 ⌘S、⌘W、⌘A ⌘V：落进别的应用就是在别人的文档上乱按。
-# 宁可这一轮不跑完。在 `$(…)` 子 shell 里也停得下：信号发给的是主脚本（$$），由 trap 'exit 4' USR1 退出、EXIT 收尾
-notfront() {
-  printf '\n\033[31m!! 测试应用没能到最前面（你可能正在用电脑）：这一下按键不发，整轮停下 —— 不能把按键打进你正在用的应用\033[0m\n' >&2
-  kill -USR1 $$
-}
-
-ax() {
-  local r
-  r=$(osascript "$AXLIB" "$1" "$2" "${3:-}" 2>&1 | tail -1)
-  if [ "$r" = "NOTFOUND" ] && [ "$1" != "has" ]; then
-    sleep 0.6
-    r=$(osascript "$AXLIB" "$1" "$2" "${3:-}" 2>&1 | tail -1)
-  fi
-  [ "$r" = "NOTFRONT" ] && notfront
-  printf '%s' "$r"
-}
-
-# 界面文本快照。读用 `entire contents` 那条路 —— 它的**文本输出**里带名字，
-# 正好和上面递归查找的用途互补
-ax_text() {
-  osascript -e 'tell application "System Events" to tell process "lite-ide" to get entire contents of window 1' 2>/dev/null | tr ',' '\n'
-}
-
-# **这个必须抢焦点** —— `keystroke` 只发给前台应用，没有别的办法：
-# 试过用 Swift 的 `CGEventPostToPid` 直接投递给进程（不经前台），
-# 对这个 WKWebView **无效**（⌘P 发过去一点反应都没有）。
-# 所以脚本运行期间会有十来次短暂占用键盘，其余步骤都不抢（见 AXLIB 里的注释）。
-keys() {
-  local r
-  # 设完前台**先看一眼是不是真的到了**，到了才敲。检查和按键在同一次 osascript 里，中间只隔 0.2 秒
-  r=$(osascript -e "tell application \"System Events\"
-  tell process \"lite-ide\" to set frontmost to true
-  delay 0.2
-  if name of first process whose frontmost is true is not \"lite-ide\" then return \"NOTFRONT\"
-  tell process \"lite-ide\"
-    $1
-  end tell
-  return \"OK\"
-end tell" 2>/dev/null)
-  [ "$r" = "NOTFRONT" ] && notfront
-  return 0
-}
-
-# 点原生菜单栏。**能走菜单栏就别敲快捷键** —— 菜单栏是真的 AppKit 菜单，
-# 点得到就说明那条命令确实被触发了；而快捷键是发给 webview 的，
-# 焦点在别处（比如浮层里的输入框）时会被吃掉，表现成「命令没反应」，
-# 排查方向却指向命令本身。
-#
-# **不抢焦点**：AppKit 的菜单项在应用处于后台时照样点得动，而且真的执行
-# （实测：前台停在 Finder，点「文件 → 关闭所有标签」，标签确实关掉了）。
-menu() { osascript -e "tell application \"System Events\" to tell process \"lite-ide\"
-  click menu item \"$2\" of menu 1 of menu bar item \"$1\" of menu bar 1
-end tell" >/dev/null 2>&1; }
-
-# 选中全部再粘贴（绕开输入法，见文件头第 3 条）。
-# `$1` 是目标元素的角色，`$2` 是要粘的文本
-#
-# **粘完要验，没粘上就再粘一次**（issue #22）。间歇红里最常见的形状是「AX 说 OK，
-# 界面上什么都没变」：`set focused` 和 `keystroke` 之间那 0.4 秒里，webview 把焦点
-# 复位了一次，⌘A ⌘V 打进了别处。验的办法是等粘进去的第一行出现在界面上（编辑器里
-# 一行是一个 AXStaticText，输入框里是它的 AXValue）—— 每处调用方原来各自写一遍
-# 「没出现就再粘」，现在收进这里。
-paste_into() {
-  local role=$1 text=$2 probe try r
-  probe=$(printf '%s' "$text" | head -1 | cut -c1-40)
-  printf '%s' "$text" | pbcopy
-  for try in 1 2 3; do
-    r=$(ax paste "$role" "")
-    [ "$r" = "OK" ] || return 1
-    if wait_has AXStaticText "$probe" 3 || [ "$(ax has "$role" "$probe")" = "OK" ]; then
-      return 0
-    fi
-    RETRIES=$((RETRIES+1))
-    note "粘贴没落进去，再粘一次（#22，第 $try 次）"
-  done
-  return 1
-}
-
-# 点一下，等它该有的反应；没反应就再点（issue #22）。
-# 用法：click_then <click|click~> <角色> <名字> <检查命令...>
-# 检查命令自己带等待（`wait_has …` / `wait_for …`），成功即算点生效。
-# 「AX 按压偶尔落空、位置每次不同」的间歇红，靠的就是这一层：不是猜它为什么落空，
-# 是看结果 —— 该出现的没出现，就当没点着。
-RETRIES=0
-click_then() {
-  local act=$1 role=$2 name=$3 try; shift 3
-  for try in 1 2 3; do
-    [ "$(ax "$act" "$role" "$name")" = "OK" ] || return 1
-    if "$@"; then return 0; fi
-    RETRIES=$((RETRIES+1))
-    note "「$name」点了没反应，再点一次（#22，第 $try 次）"
-  done
-  return 1
-}
+W=main
+# 把一段文字变成 JS 字符串字面量。文件内容带换行、路径带空格和中文，手拼引号迟早拼错
+q()        { python3 -c 'import json,sys; print(json.dumps(sys.argv[1], ensure_ascii=False))' "$1"; }
+# 跑一段 JS，return true 才算成立
+is()       { [ "$(lite eval "${W}" "$1" 2>/dev/null)" = "true" ]; }
+has()      { is "return __lite.has($(q "$1"))"; }
+wait_has() { lite_wait "${W}" "return __lite.has($(q "$1"))" "${2:-8}"; }
+# click <名字> [角色 button|menuitem|treeitem|any] [匹配 exact|prefix|contains]
+click()    { is "return __lite.click($(q "$1"), $(q "${2:-button}"), $(q "${3:-exact}"))"; }
+exists()   { is "return __lite.exists($(q "$1"), $(q "${2:-any}"), $(q "${3:-contains}"))"; }
+wait_exists() { lite_wait "${W}" "return __lite.exists($(q "$1"), $(q "${2:-any}"), $(q "${3:-contains}"))" "${4:-8}"; }
+key()      { lite eval "${W}" "__lite.key($(q "$1")); return true" >/dev/null; }
+fill()     { is "__lite.fill($(q "$1")${2:+, $(q "$2")}); return true"; }
+set_text() { is "__lite.setText($(q "$1")); return true"; }
+# 菜单项：和点原生菜单走同一个处理函数（winctl::menu_event），只发给 ${W}
+menu()     { lite menu "$1" "${W}" >/dev/null; }
+active()   { lite eval "${W}" "return __lite.tabs.active?.path ?? ''" 2>/dev/null; }
 
 # 轮询等一个 shell 条件成立，超时返回 1
 wait_for() {
@@ -311,45 +142,36 @@ wait_for() {
   return 1
 }
 
-# 等界面上出现某段文字。**每一步动手之前都用它确认前提** ——
-# 不确认的话，一次「消息没粘进去」会被报成「提交挂住了」，
-# 而那两件事的排查方向完全不同（写 smoke.sh 时就被这么误导过一轮）
-wait_has() {
-  local role=$1 sub=$2 secs=${3:-8} i=0
-  while [ $i -lt $((secs * 2)) ]; do
-    [ "$(ax has "$role" "$sub")" = "OK" ] && return 0
-    sleep 0.5; i=$((i+1))
-  done
-  return 1
+# 侧边栏切到文件树。**看一眼再点**：导轨上点「当前那个」是收起（ui.md 第十条），已经在文件树上再点一下树就没了
+show_tree() {
+  is "return !!document.querySelector('[role=\"tree\"]')?.getClientRects().length" && return 0
+  click "文件树"
+  lite_wait "${W}" "return !!document.querySelector('[role=\"tree\"]')?.getClientRects().length" 4
 }
 
-# 文件树里点开一个文件。**按名字找那一行**，不记行号 ——
-# 行号随展开状态变，而展开状态随上一步做了什么变
+# 文件树里点开一个文件（相对 ${FIX}）。**按 data-path 找那一行**，不按名字、不记行号 ——
+# 名字会重，行号随展开状态变。等到它成了活动标签才返回
 open_from_tree() {
-  if [ "$(ax row "" "$1")" != "OK" ]; then
+  local p="${FIX}/$1"
+  show_tree
+  if ! is "return __lite.tap($(q "[role=\"treeitem\"][data-path=\"${p}\"]"))"; then
     bad "文件树里找不到 $1"; return 1
   fi
-  sleep 2
+  lite_wait "${W}" "return __lite.tabs.active?.path === $(q "${p}")" 6 || { bad "点了 $1 但它没成为活动标签"; return 1; }
 }
+
+# 按 ID 找窗口：项目根是这个目录的那个窗口的 label
+win_of() {
+  lite windows | python3 -c 'import json,sys; print(next((w["label"] for w in json.load(sys.stdin) if w["root"] == sys.argv[1]), ""))' "$1"
+}
+nwin() { lite windows | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
 
 # ─────────────────── 造一个验收用的仓库 ───────────────────
 
-[ -x "$APP" ] || { echo "找不到 .app —— 先跑 pnpm app:bundle"; exit 2; }
-pbpaste > "$CLIP" 2>/dev/null
-[ -f "$WINJSON" ] && cp "$WINJSON" "$WINBAK"
-WINSAVED=1
-# 备份失败就不跑：没有备份的话，还原那一步会把你的真实会话删掉
-if [ -d "$WEBKIT" ]; then
-  cp -Rp "$WEBKIT" "$WEBKITBAK" || { echo "备份 WebKit 数据目录失败，不跑了（不然跑完没东西可还原）"; exit 2; }
-  WKHAD=1
-fi
-WKSAVED=1
-PREV_APP=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null)
-echo "跑之前的前台应用是「${PREV_APP:-未知}」，跑完会还回去"
-echo "（只有敲快捷键的那十来步会占用键盘，其余步骤不抢焦点，可以继续用电脑）"
+lite_clean_data   # 上一次被 kill -9 的话，测试身份的数据可能还在；从干净的开始
 
-say "造 fixture：$FIX"
-cd "$FIX"
+say "造 fixture：${FIX}"
+cd "${FIX}"
 git init -q -b main .
 git config user.email smoke@local; git config user.name smoke
 printf '#!/bin/sh\necho hello\n' > run.sh; chmod 755 run.sh
@@ -413,168 +235,55 @@ git add -A && git commit -qm "初始提交"
 git branch feature/x
 # 话多的钩子：3000 行稳稳超过管道那几十 KB 缓冲，用来复现那个死锁。
 #
-# **末尾那句 sleep 8 是给「进行中提示」用的**（issue #15 的 ①b）。
-#
-# 修好之后提交不到 1 秒就完了，那句「正在提交…」一闪而过，直接断言就是
-# 一条间歇红。而窗口要开得比直觉**大得多**：`ax has` 自己就要递归遍历一遍
-# AX 树，实测耗时以**秒**计 —— 第一版给了 2 秒，结果「点按钮」和「查断言」
-# 这两次遍历加起来就把窗口用光了，功能明明是好的却报红
-# （诊断时单独跑，`has「正在提交」` 是 OK 的）。
-printf '#!/bin/sh\nfor i in $(seq 1 3000); do echo "smoke: 噪声 $i"; done\nsleep 8\nexit 0\n' > .git/hooks/pre-commit
+# **末尾那句 sleep 3 是给「进行中提示」用的**（issue #15 的 ①b）：修好之后提交不到 1 秒就完了，
+# 那句「正在提交…」一闪而过，直接断言就是一条间歇红。原来走 AX 时要 sleep 8 ——
+# 光是一次 AX 树遍历就以秒计；现在问一次页面是几十毫秒，3 秒绰绰有余，每轮省 5 秒
+printf '#!/bin/sh\nfor i in $(seq 1 3000); do echo "smoke: 噪声 $i"; done\nsleep 3\nexit 0\n' > .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 printf 'v2 改过了\n' > note.txt
 echo "  大日志 $(du -h big.log | cut -f1)，钩子 3000 行"
 
-say "起 .app"
-# 起应用 + 等前端挂载 + 等窗口进 AX 树。**装成函数是为了能重来一次**，见下面。
-APPLOG="${HOME}/Library/Logs/com.liteide.app/app.log"
-launch_app() {
-  : > "$LOG"
-  # 记下应用日志此刻的行数：⑪ 只看这次跑出来的那一截（不变量假警去的是这个文件，
-  # 不是 stderr —— issue #36 那条稳定复现的假警就是这么在 smoke 眼皮底下漏过去的）
-  APPLOG_START=$(wc -l < "$APPLOG" 2>/dev/null || echo 0)
-  LITE_IDE_DEBUG=1 LITE_IDE_ONTOP=1 LITE_IDE_POS=0,40 "$APP" "$FIX" > "$LOG" 2>&1 &
-  # 从作业表里摘掉：不摘的话 cleanup 里的 pkill 会让 bash 在最后印一行
-  # `Terminated: 15`，那行看着像脚本自己出错了，实际是收尾正常杀进程
-  disown
-  if ! wait_for 20 'grep -q "App 已挂载" '"$LOG"; then
-    bad "20 秒内没挂起来，后面全跳过"; exit 1
-  fi
-  sleep 2
-  # **拿得到窗口才往下跑。**
-  #
-  # 没有「辅助功能」权限时 System Events 不报权限错，只是把窗口数报成 0，
-  # 于是后面每一条断言都红 —— 12 条全红看起来像应用整个坏掉了，
-  # 而真正的原因和被测的东西一点关系都没有。2026-09-07 被这个骗过一轮。
-  #
-  # 特别注意：`name of every process` **不需要**授权也能用，所以
-  # 「osascript 能列出进程」不能拿来当权限已给的证据 —— 我就是这么判错的。
-  # **要轮询，不能查一次就判死。**
-  # 窗口注册进辅助功能树比「前端挂载完」晚，机器忙的时候（比如刚跑完一轮
-  # app:bundle）能晚好几秒 —— 只查一次的那一版在这里误报过：应用好好的、
-  # `count of windows` 手动查是 1，脚本却报「拿不到窗口」然后整个跳过。
-  WINS=0
-  for _ in $(seq 1 20); do
-    WINS=$(osascript -e 'tell application "System Events" to tell process "lite-ide" to get count of windows' 2>/dev/null)
-    [ "${WINS:-0}" != "0" ] && break
-    sleep 0.5
-  done
-}
-launch_app
-# **数到 0 先杀掉重起一次，再判死。**
-#
-# 2026-09-15 抓到过：窗口先进了 AX 树（数到 1），一秒后被系统挪到主屏的
-# **非活动 Space** —— CGWindowList 里坐标还在 (0,40)，`kCGWindowIsOnscreen`
-# 却没了，而 AX 只列当前 Space 的窗口。同一个 .app、同一个目录，连着 4 次 0
-# 之后又连着 6 次 1，原因没查到，是间歇的。间歇的东西重来一次比等人便宜。
-if [ "${WINS:-0}" = "0" ]; then
-  note "AX 数到 0 个窗口，杀掉重起一次再判"
-  pkill -f "MacOS/lite-ide" 2>/dev/null; sleep 2
-  launch_app
+say "起 .app（后台，临时身份）"
+lite_launch "${FIX}" || exit 1
+if lite_wait main "return __lite.project.root === $(q "${FIX}")" 15; then
+  ok "挂载成功，项目根是 fixture"
+else
+  bad "15 秒内项目没开起来（项目根：$(lite eval main 'return __lite.project.root' 2>&1)）"; exit 1
 fi
-if [ "${WINS:-0}" = "0" ]; then
-  # **先问一句屏幕是不是锁着的。**
-  #
-  # 锁屏时应用照常启动（webview 挂载、diag 有输出），但系统不合成 GUI 窗口，
-  # 于是**每个进程**的 `count of windows` 都是 0 —— Finder、Claude 一样是 0。
-  # 这个现象和「没有辅助功能权限」长得一模一样，而排查方向完全相反：
-  # 2026-09-10 照着那条提示查了两轮权限，最后截屏才发现屏幕是锁的。
-  if ioreg -n Root -d1 -a 2>/dev/null | grep -A 1 CGSSessionScreenIsLocked | grep -q "<true/>"; then
-    printf '\n\033[31m屏幕锁着，AX 拿不到任何窗口 —— 不是权限问题，也不是应用坏了。\033[0m\n'
-    echo "解锁之后重跑。（锁屏时应用照常启动，但系统不合成 GUI 窗口，"
-    echo "所以每个进程的 count of windows 都是 0，Finder 也一样。）"
-    exit 2
-  fi
-  printf '\n\033[31m拿不到 lite-ide 的窗口（count of windows = 0，重起一次仍然是 0），后面全部跳过。\033[0m\n'
-  echo "两种可能，按概率排："
-  echo "  1. 跑这个脚本的**宿主应用**没有「辅助功能」权限。"
-  echo "     注意 TCC 认的是「责任进程」——从 Claude Code 里跑的话，"
-  echo "     要勾的是 Claude.app，不是终端（父进程链：zsh ← claude ← Claude.app）。"
-  echo "     系统设置 → 隐私与安全性 → 辅助功能。"
-  echo "  2. 应用真的没建出窗口 —— 看 ${LOG}。"
-  exit 2
-fi
-ok "挂载成功"
-ok "AX 拿得到窗口（$WINS 个）"
-
-# **窗口有了不等于里面的东西找得到。**
-#
-# 2026-09-10 观察到的一次红（6 过 23 失）就是这个形状：窗口拿得到、⌘N 也
-# 建出了草稿（那步不需要找元素）、前端零报错、editors 正常归零 ——
-# **唯独 webview 里一个元素都找不到**。紧接着手工同样起一次，第一次轮询
-# 窗口就出现、元素也找得到。
-#
-# 推测是刚解锁 / 机器忙的时候，WKWebView 的 AX 子树建得比「窗口出现」晚得多，
-# 而上面那道闸等的是窗口，没等子树。于是脚本一路往下跑，把「树还没建好」
-# 报成了二十多条业务断言失败 —— **一个会误报的哨兵，过一阵就没人当真了**，
-# 这比漏掉一次真 bug 更贵。
-#
-# 判据用「树里有多少个节点」而不是找某个具体元素：具体元素会随界面改动，
-# 而「子树是不是空的」这件事不会。空窗口是个位数，正常是几百上千。
-WEBN=0
-for _ in $(seq 1 30); do
-  WEBN=$(ax_text | wc -l | tr -d ' ')
-  [ "${WEBN:-0}" -gt 40 ] && break
-  sleep 0.5
-done
-if [ "${WEBN:-0}" -le 40 ]; then
-  printf '\n\033[31mwebview 的辅助功能子树没建出来（只有 %s 个节点），后面全部跳过。\033[0m\n' "$WEBN"
-  echo "这不是应用坏了 —— 窗口在、前端也挂载了，只是 AX 树还是空的。"
-  echo "多半是机器忙（刚解锁、刚跑完 app:bundle、Spotlight 在索引）。等一会儿重跑。"
-  exit 2
-fi
-ok "webview 的 AX 子树建好了（$WEBN 个节点）"
-
-# **把遗留的横幅关掉再开始。**
-#
-# 会话快照是跨次留存的（localStorage 在 WKWebView 的容器里），而上一轮的
-# fixture 目录已经被删了 —— 这一轮启动时会话恢复去开那些标签就会失败，
-# 弹出一条「知道了」横幅。它和这轮要验的东西毫无关系，但会让
-# 「界面上有没有失败提示」这类断言全部误报（写这个脚本时被它骗过一轮：
-# 提交明明成功了，却被报成「钩子把它挂住了」）。
-for _ in 1 2 3; do
-  [ "$(ax click AXButton "知道了")" = "OK" ] || break
-  sleep 0.4
-done
 
 # ─────────────────── 1. 提交（带话多的钩子）───────────────────
 
 say "① 提交：3000 行的 pre-commit 钩子不能把它挂住"
 MSG="smoke: commit through the real app"
-if [ "$(ax click AXButton "Git 改动")" != "OK" ]; then
+if ! click "Git 改动"; then
   bad "点不到「Git 改动」"
-elif ! wait_has AXButton "全部暂存" 10; then
+elif ! wait_exists "全部暂存" button exact 10; then
   bad "Git 面板没渲染出来"
+elif ! fill "${MSG}" ".commit textarea" || ! wait_has "${MSG}" 3; then
+  bad "提交信息没填进输入框（不是钩子的问题，是这一步没做成）"
 else
-  paste_into AXTextArea "$MSG"
-  if ! wait_has AXStaticText "$MSG" 5; then
-    bad "提交信息没粘进输入框（不是钩子的问题，是这一步没做成）"
+  click "全部暂存"
+  wait_for 4 'git -C "'"${FIX}"'" diff --cached --quiet; [ $? -ne 0 ]' || bad "没暂存上"
+  # 盘上暂存了不等于界面已经刷过来。**暂存之后按钮名字会变成「提交 (N)」**，
+  # 不等就会点到上一帧的旧按钮
+  if ! wait_exists "提交 (" button prefix 10; then
+    bad "界面没刷出「提交 (N)」"
   else
-    click_then click AXButton "全部暂存" wait_for 4 'git -C "'"$FIX"'" diff --cached --quiet; [ $? -ne 0 ]' || bad "没暂存上"
-    # 盘上暂存了不等于界面已经刷过来。**暂存之后按钮名字会变成「提交 (N)」**，
-    # 不等就会点到上一帧的旧按钮
-    if ! wait_has AXButton "提交 (" 10; then
-      bad "界面没刷出「提交 (N)」"
+    click "提交 (" button prefix || bad "点不到提交按钮"
+    # ①b issue #15：慢操作不能一声不吭。钩子里那句 sleep 3 撑开了窗口
+    if wait_has "正在提交" 3; then
+      ok "提交进行中有提示（issue #15）"
     else
-      [ "$(ax "click~" AXButton "提交 (")" = "OK" ] || bad "点不到提交按钮"
-      # ①b issue #15：慢操作不能一声不吭。钩子里那句 sleep 8 撑开了窗口，
-      # 这里**不额外 sleep** —— 光是上一句点按钮的树遍历就已经花掉一两秒了
-      if [ "$(ax has AXStaticText "正在提交")" = "OK" ]; then
-        ok "提交进行中有提示（issue #15）"
-      else
-        bad "点了提交但界面一声不吭 —— 和「点了没反应」分不出来"
-      fi
-      # **断言认「多了一条提交、标题对得上」，不认「工作区变干净」** ——
-      # 后者会被任何无关的工作区噪声搅黄（应用自己的日志、临时文件、
-      # 上一步留下的改动），而那时的失败信息会指向一个不存在的死锁
-      if wait_for 40 '[ "$(git -C "'"$FIX"'" log -1 --format=%s)" = "'"$MSG"'" ]'; then
-        ok "提交落地（$(git -C "$FIX" log -1 --format='%h %s')）"
-      else
-        bad "40 秒内没提交成功 —— 多半是钩子把它挂住了（stderr 没被并发排空）"
-        echo "     暂存区：$(git -C "$FIX" diff --cached --name-only | tr '\n' ' ')"
-        echo "     git log：$(git -C "$FIX" log --oneline | head -2 | tr '\n' ' ')"
-        echo "     界面上的提示：$(ax has AXStaticText "失败")"
-      fi
+      bad "点了提交但界面一声不吭 —— 和「点了没反应」分不出来"
+    fi
+    # **断言认「多了一条提交、标题对得上」，不认「工作区变干净」** ——
+    # 后者会被任何无关的工作区噪声搅黄，而那时的失败信息会指向一个不存在的死锁
+    if wait_for 40 '[ "$(git -C "'"${FIX}"'" log -1 --format=%s)" = "'"${MSG}"'" ]'; then
+      ok "提交落地（$(git -C "${FIX}" log -1 --format='%h %s')）"
+    else
+      bad "40 秒内没提交成功 —— 多半是钩子把它挂住了（stderr 没被并发排空）"
+      echo "     暂存区：$(git -C "${FIX}" diff --cached --name-only | tr '\n' ' ')"
+      echo "     git log：$(git -C "${FIX}" log --oneline | head -2 | tr '\n' ' ')"
     fi
   fi
 fi
@@ -582,128 +291,90 @@ fi
 # ─────────────────── 2. 保存不动文件的身份 ───────────────────
 
 say "② ⌘P 唤得出来（它是懒加载的，首屏之后才预拉）"
-# **先切回文件树**：Git 面板上那个提交信息框也是 AXTextArea，
-# 留着它，「找第一个 text area」会抓到它而不是编辑器 —— 于是内容粘进了
-# 提交框、⌘S 什么也没存，而断言看起来只是「内容没改」
-[ "$(ax click AXButton "文件树")" = "OK" ] || bad "点不到「文件树」"
-sleep 1.5
-keys 'keystroke "p" using {command down}'
-sleep 1.5
-#
-# ⚠ **这一条目前只观察，不计成败。**
-#
-# ⌘P 本身是好的 —— 手工在真 .app 里用它开过文件、也列得出候选。红的是
-# 「怎么认出浮层出来了」这件事：
-#
-#   - 别认「随处搜索」：那是空态卡片上的字，浮层不出来它也在，
-#     那条断言会**永远绿**（这种断言比没有更糟）。
-#   - 认输入框的占位符要读 `AXPlaceholderValue` —— 没有 label 的 `<input>`
-#     的 placeholder 只落在这个属性上，`AXTitle` / `AXDescription` / `AXValue`
-#     都是空的。上面 findSub 刚补上这条，**但还没验过**。
-#   - 兜底认浮层脚注里的「换范围」，那几个字只有这个浮层有。
-#
-# 下次谁跑到这儿：确认一下这两条能不能认出来，能就把 `note` 改回 `ok/bad`。
-if [ "$(ax has AXTextField "输入文件名")" = "OK" ] || [ "$(ax has AXStaticText "换范围")" = "OK" ]; then
+# ⌘P 归网页自己接（keymap.ts 里 owner = key），所以页面里发一次 keydown 走的就是它真实的那条路。
+# 认浮层用输入框的占位符：别认「随处搜索」—— 那是空态卡片上的字，浮层不出来它也在，那条断言会**永远绿**。
+# （走 AX 时这条一直只能观察不计成败：占位符落在 AXPlaceholderValue 上，读不稳。现在读的是 DOM，转正）
+show_tree
+key "Mod-p"
+if wait_has "输入文件名" 5; then
   ok "⌘P 唤出来了"
 else
-  note "⌘P 浮层没认出来 —— 待确认是它没出来，还是这条断言认错了属性（见上面注释）"
+  bad "⌘P 没唤出浮层"
 fi
-keys 'key code 53'   # Esc 收掉
-sleep 0.8
+key "Escape"
+lite_wait "${W}" "return !__lite.has('输入文件名')" 3 || bad "Esc 没收掉 ⌘P 浮层"
 
 say "③ 保存一个 0755 的脚本：权限不能丢"
 # 走文件树而不是 ⌘P —— 这一步要验的是保存，不是打开方式；
 # 混在一起的话，⌘P 抽风会被报成「保存坏了」
-open_from_tree "run.sh"
-if ! wait_has AXStaticText "echo" 6; then
-  bad "run.sh 没打开"
-elif paste_into AXTextArea '#!/bin/sh
-echo hello from smoke'; then
-  keys 'keystroke "s" using {command down}'
-  wait_for 10 'grep -q "hello from smoke" "'"$FIX"'/run.sh"'
+if open_from_tree "run.sh" && wait_has "echo" 6; then
+  set_text '#!/bin/sh
+echo hello from smoke'
+  menu save
+  wait_for 10 'grep -q "hello from smoke" "'"${FIX}"'/run.sh"'
   check "$(stat -f %Lp run.sh)" "755" "权限还是 755"
   check "$(./run.sh 2>&1)" "hello from smoke" "内容改了，而且还能执行"
 else
-  bad "粘不进编辑器"
+  bad "run.sh 没打开"
 fi
 
 say "④ 保存一条软链：不能把链接换成普通文件"
-# 走文件树而不是 ⌘P —— 这一步要验的是保存，不是打开方式。
-# （原来这里写的是「软链在 ⌘P 里搜不到，见 issue #19」，那条已经修了，
-#  软链搜得到的断言在 ⑧ 的第二段。）
-open_from_tree "link.txt"
-if ! wait_has AXStaticText "原始内容" 6; then
-  bad "link.txt 没打开"
-elif paste_into AXTextArea '通过 app 改过的
-第二行还在'; then
-  keys 'keystroke "s" using {command down}'
-  sleep 2
+if open_from_tree "link.txt" && wait_has "原始内容" 6; then
+  set_text '通过 app 改过的
+第二行还在'
+  menu save
+  wait_for 10 'grep -q "通过 app 改过的" "'"${FIX}"'/real/config.txt"'
   [ -L link.txt ] && ok "link.txt 仍然是软链" || bad "软链被换成普通文件了"
   check "$(head -1 real/config.txt)" "通过 app 改过的" "改动写进了真身"
   [ -z "$(ls -a | grep 'lite-ide-tmp')" ] && ok "没留下临时文件" || bad "留了临时文件"
 else
-  bad "打不开 link.txt"
+  bad "link.txt 没打开"
 fi
 
 # ─────────────────── 4. 切分支 ───────────────────
-
 #
-# **切分支是两步的，不是一步**（2026-09-10 改成 IDEA 式）：
-# 点一行只是弹出那一行的动作菜单，真正切过去的是菜单里的「检出」
-#（2026-09-16 照 IDEA 改的措辞，原来叫「切换到 X」）。
-# 理由见 `BranchPicker.svelte` 的 `rowMenu` ——「点一下就切」在一个
-# 误点代价很大的操作上太轻了。
+# **切分支是两步的，不是一步**（2026-09-10 改成 IDEA 式）：点一行只是弹出那一行的动作菜单，
+# 真正切过去的是菜单里的「检出」。理由见 `BranchPicker.svelte` 的 `rowMenu` ——
+# 「点一下就切」在一个误点代价很大的操作上太轻了。
 #
 # 这一步 2026-09-11 才发现是坏的：改分支选择器的那一轮说了「先不跑 smoke」，
 # 于是脚本一直在验一个已经不存在的行为，而它红的时候只说「没切过去」——
 # **听起来像切分支坏了，其实是脚本过期了**。改 UI 的那一轮就该连它一起改。
 say "⑤ 切分支"
-[ "$(ax click AXButton "main")" = "OK" ] || bad "点不开分支浮层"
-sleep 1.5
-# 分支行的 AX 名字是 aria-label 的全名（文件夹里只显示后半截 `x`）—— 按前缀点
-if [ "$(ax "click~" AXButton "feature/x")" != "OK" ]; then
+if ! click "main"; then
+  bad "点不开分支浮层（标题栏上没有叫 main 的挂件）"
+# 分支行的名字是 aria-label 的全名（文件夹里只显示后半截 `x`）—— 按「含」点
+elif ! wait_exists "feature/x" button contains 6 || ! click "feature/x" button contains; then
   bad "分支浮层里找不到 feature/x"
+# **菜单项的角色是 menuitem，不是 button**：`ContextMenu.svelte` 里是 `<button role="menuitem">`。
+# 只认「检出」两个字：菜单项的措辞跟 IDEA 走，分支名不在上面
+elif wait_exists "检出" menuitem contains 8 && click "检出" menuitem contains; then
+  wait_for 20 '[ "$(git -C "'"${FIX}"'" rev-parse --abbrev-ref HEAD)" = "feature/x" ]' \
+    && ok "切到了 feature/x" || bad "点了「检出」但分支没变"
 else
-  # 第二步：行菜单里的「切换到 …」。
-  #
-  # **角色是 AXMenuItem，不是 AXButton。** `ContextMenu.svelte` 里那些是
-  # `<button role="menuitem">`，而 WebKit 按 role 映射 —— DOM 是什么标签不算数。
-  # 第一版写成 AXButton，红在「行菜单里没有切换到」，看着像菜单没弹出来。
-  # （文件树的右键菜单那一步用的就是 AXMenuItem，照着抄就对了。）
-  #
-  # **等它出来，别 sleep 一个定数**：菜单是点完那一下才挂上去的，
-  # 而这台机器上什么时候慢是没准的（见 issue #30）。
-  # 只认「检出」两个字：菜单项的措辞跟 IDEA 走，分支名不在上面。
-  if wait_has AXMenuItem "检出" 8 && [ "$(ax "click~" AXMenuItem "检出")" = "OK" ]; then
-    wait_for 20 '[ "$(git -C "'"$FIX"'" rev-parse --abbrev-ref HEAD)" = "feature/x" ]' \
-      && ok "切到了 feature/x" || bad "点了「检出」但分支没变"
-  else
-    bad "行菜单里没有「检出」—— 是不是又改回一步了？"
-  fi
+  bad "行菜单里没有「检出」—— 是不是又改回一步了？"
 fi
 
 # ─────────────────── 5. 大日志：正文不能是乱码 ───────────────────
 
 say "⑥ 打开 26MB 的中文日志：正文不能是乱码"
-[ "$(ax click AXButton "文件树")" = "OK" ] || true
-sleep 1
-open_from_tree "big.log"
-RSS_BEFORE=$(ps -o rss= -p "$(pgrep -f 'MacOS/lite-ide' | head -1)" | tr -d ' ')
-# **这里不能用 ax_text**：日志一开，`entire contents` 就是几千行，
-# osascript 的输出会被截断，于是断言变成「碰运气」。按角色递归找确定得多
-if [ "$(ax has AXStaticText "服务处理完成")" = "OK" ]; then
-  ok "中文正常（界面上读回了「服务处理完成」）"
-else
-  bad "正文乱码 —— detect_encoding 的样本又被切在半个字符上了（见 rules/rust.md）"
+RSS_BEFORE=$(ps -o rss= -p "$(lite_pid)" | tr -d ' ')
+if open_from_tree "big.log"; then
+  if wait_has "服务处理完成" 10; then
+    ok "中文正常（界面上读回了「服务处理完成」）"
+  else
+    bad "正文乱码 —— detect_encoding 的样本又被切在半个字符上了（见 rules/rust.md）"
+  fi
+  wait_has "400,000" 10 && ok "行数统计对（400,000）" || bad "行数统计不对"
 fi
-[ "$(ax has AXStaticText "400,000")" = "OK" ] && ok "行数统计对（400,000）" || bad "行数统计不对"
+RSS_OPEN=$(ps -o rss= -p "$(lite_pid)" | tr -d ' ')
 
 say "⑦ 关掉大日志：mmap 要跟着放掉"
-[ "$(ax "click~" AXButton "关闭 big.log")" = "OK" ] || bad "点不到关闭按钮"
+click "关闭 big.log" || bad "点不到关闭按钮"
 sleep 3
-RSS_AFTER=$(ps -o rss= -p "$(pgrep -f 'MacOS/lite-ide' | head -1)" | tr -d ' ')
-echo "  RSS $RSS_BEFORE → $RSS_AFTER KB"
-[ "$RSS_AFTER" -lt "$RSS_BEFORE" ] && ok "内存降下来了" || bad "关掉之后内存没降"
+RSS_AFTER=$(ps -o rss= -p "$(lite_pid)" | tr -d ' ')
+echo "  RSS 打开前 ${RSS_BEFORE} → 开着 ${RSS_OPEN} → 关掉 ${RSS_AFTER} KB"
+[ "${RSS_AFTER}" -lt "${RSS_OPEN}" ] && ok "内存降下来了" || bad "关掉之后内存没降"
 
 say "⑱ 日志轮转：tail 不断、按名重开（2026-09-18）"
 #
@@ -711,202 +382,150 @@ say "⑱ 日志轮转：tail 不断、按名重开（2026-09-18）"
 # 现在 Rust 侧同一个句柄按名重开，前端按原条件重跑，状态栏说一句「轮转过 N 次」。
 # 三步：开 rot.log 打开 tail → 追加三行（行数 100 → 103，证明 tail 活着）
 # → mv + 新建 5 行的同名文件（行数变成 5、状态栏有「轮转过 1 次」，证明跟上了新文件）。
-open_from_tree "rot.log"
-# 4KB 的 .log 按大小判定走的是编辑模式（日志模式是给大文件的），状态栏那格点一下切过去
-if click_then click AXButton "编辑模式" wait_has AXStaticText "100 行" 8; then
-  ok "rot.log 切到日志模式（100 行）"
-  if click_then click AXButton "跟随尾部" wait_has AXStaticText "100 行" 2; then
-    printf '追加 1\n追加 2\n追加 3\n' >> "${FIX}/rot.log"
-    wait_has AXStaticText "103 行" 6 && ok "tail 活着：追加三行后 103 行" || bad "tail 没跟上追加（还不是 103 行）"
-    mv "${FIX}/rot.log" "${FIX}/rot.log.1"
-    sleep 0.3
-    printf '新 1\n新 2\n新 3\n新 4\n新 5\n' > "${FIX}/rot.log"
-    if wait_has AXStaticText "轮转过 1 次" 8; then
-      ok "轮转被认出来了，tail 还开着"
-      wait_has AXStaticText "5 行" 4 && ok "句柄背后已经是新文件（5 行）" || bad "轮转后行数不是新文件的"
+if open_from_tree "rot.log"; then
+  # 4KB 的 .log 按大小判定走的是编辑模式（日志模式是给大文件的），状态栏那格点一下切过去
+  if click "编辑模式" button contains && wait_has "100 行" 8; then
+    ok "rot.log 切到日志模式（100 行）"
+    if click "跟随尾部" button contains; then
+      printf '追加 1\n追加 2\n追加 3\n' >> "${FIX}/rot.log"
+      wait_has "103 行" 6 && ok "tail 活着：追加三行后 103 行" || bad "tail 没跟上追加（还不是 103 行）"
+      mv "${FIX}/rot.log" "${FIX}/rot.log.1"
+      sleep 0.3
+      printf '新 1\n新 2\n新 3\n新 4\n新 5\n' > "${FIX}/rot.log"
+      if wait_has "轮转过 1 次" 8; then
+        ok "轮转被认出来了，tail 还开着"
+        wait_has "5 行" 4 && ok "句柄背后已经是新文件（5 行）" || bad "轮转后行数不是新文件的"
+      else
+        bad "轮转没被认出来（状态栏没有「轮转过 1 次」）"
+      fi
     else
-      bad "轮转没被认出来（状态栏没有「轮转过 1 次」）"
+      bad "点不到「跟随尾部」"
     fi
   else
-    bad "点不到「跟随尾部」"
+    bad "rot.log 没切到日志模式"
   fi
-else
-  bad "rot.log 没开出来"
 fi
-[ "$(ax "click~" AXButton "关闭 rot.log")" = "OK" ] || true
+click "关闭 rot.log" || true
 
 # ─────────────────── 6. 全局搜索 / 废纸篓 / 远程 ───────────────────
 #
-# 下面这三段补的是 issue #11 清单里剩下的那几条命令。它们和上面几条一起在
-# 2026-09-06 那轮被挪到了 tokio 的阻塞池，但一直只有「提交 / 切分支 / 保存」
-# 在真 .app 里被点过 —— `grep_project`、`trash_entry`、`git_fetch`、`git_push`
-# 一次都没有。补齐之前说「#11 验完了」是说满了。
+# 下面这三段补的是 issue #11 清单里剩下的那几条命令：`grep_project`、`trash_entry`、`git_fetch`、`git_push`。
 
 say "⑧ ⇧⌘F 全局搜索（grep_project）"
-# 先把焦点收回文件树：上一步刚关掉日志标签，焦点可能还在日志面板上，
-# 而 ⇧⌘F 是发给 webview 的
-[ "$(ax click AXButton "文件树")" = "OK" ] || true
-sleep 1
-keys 'keystroke "f" using {command down, shift down}'
-sleep 1.5
-# **先确认浮层真的出来了，再动手。** 这一步同时干了两件事：确认前提，
-# 以及把「新子树第一次查找必落空」那一次消化掉（见文件头第 6 条）。
-# 认「换范围」是因为那几个字只有这个浮层的脚注有。
-if ! wait_has AXStaticText "换范围" 8; then
+# ⇧⌘F 归菜单（owner = menu），走菜单指令。浮层弹出来自己会把焦点放进输入框，fill 填的就是它
+menu quick-content
+if ! wait_has "换范围" 8; then
   bad "⇧⌘F 的浮层没出来"
-elif ! paste_into AXTextField "ZQXJ_SMOKE_NEEDLE"; then
-  bad "浮层出来了，但输入框粘不进去"
-else
-  # 搜索要扫整个 fixture，里面躺着那个 26MB 的大日志 —— 给足时间。
-  # **结果行是 AXButton，不是 AXStaticText** —— 整条（命中行 + 路径 + 行号）
-  # 合成一个按钮名：`ZQXJ_SMOKE_NEEDLE deep/nested/needle.txt:1`。
-  # 一开始按 AXStaticText 找，25 秒等不到，报出来像是「搜索没返回」，
-  # 其实结果早就在屏幕上了。
-  if wait_has AXButton "needle.txt" 25; then
-    ok "搜到了 deep/nested/needle.txt"
-    keys 'key code 36'   # ↵ 打开第一条命中
-    # 断言认第二行 —— 第一行是命中行，浮层上本来就印着它
-    if wait_has AXStaticText "这一行要把文件打开才看得见" 10; then
-      ok "点得开，打开的确实是那个文件"
-    else
-      bad "搜到了但没打开（命令回来了，前端跳转那一步断了？）"
-    fi
+elif ! fill "ZQXJ_SMOKE_NEEDLE"; then
+  bad "浮层出来了，但焦点不在输入框上"
+# 搜索要扫整个 fixture，里面躺着那个 26MB 的大日志 —— 给足时间。
+# **结果行是一整个按钮**（命中行 + 路径 + 行号合成一个名字），按「含」找文件名
+elif wait_exists "needle.txt" button contains 25; then
+  ok "搜到了 deep/nested/needle.txt"
+  key "Enter"   # 打开第一条命中
+  # 断言认第二行 —— 第一行是命中行，浮层上本来就印着它
+  if lite_wait "${W}" "return __lite.text()?.includes('这一行要把文件打开才看得见') === true" 10; then
+    ok "点得开，打开的确实是那个文件"
   else
-    bad "25 秒内没搜到那根针"
-    keys 'key code 53'
+    bad "搜到了但没打开（命令回来了，前端跳转那一步断了？）"
   fi
+else
+  bad "25 秒内没搜到那根针"
+  key "Escape"
 fi
-sleep 0.8
 
 # ── 同一条命令，再验 issue #19：软链文件的内容也要搜得到 ──
 #
 # ④ 把「通过 app 改过的」写进了 `real/config.txt`，而 `link.txt` 指向它。
 # 修好之前，rg 和内置实现**都**整个跳过 symlink，于是结果里只有
-# `real/config.txt` 那一条 —— 一个在文件树里点得开、存得进去的文件，
-# 在搜索里够不着。
-[ "$(ax click AXButton "文件树")" = "OK" ] || true
-sleep 1
-# **等上一个浮层真的退场再开第二次。** 第一次那个是按 ↵ 关掉的，
-# 关闭有动画/异步，紧接着按 ⇧⌘F 会被还没走的浮层吃掉 ——
-# 报出来是「第二次的浮层没出来」，而其实是第一次的还在。
-# 这条是间歇的（跑三次红一次），比稳定红更难查。
-for _ in $(seq 1 12); do
-  [ "$(ax has AXStaticText "换范围")" = "OK" ] || break
-  sleep 0.5
-done
-keys 'keystroke "f" using {command down, shift down}'
-sleep 1.5
-if ! wait_has AXStaticText "换范围" 8; then
+# `real/config.txt` 那一条 —— 一个在文件树里点得开、存得进去的文件，在搜索里够不着。
+#
+# **等上一个浮层真的退场再开第二次**：关闭是异步的，紧接着再开会被还没走的浮层吃掉
+lite_wait "${W}" "return !__lite.has('换范围')" 6
+menu quick-content
+if ! wait_has "换范围" 8; then
   bad "第二次 ⇧⌘F 的浮层没出来"
-elif ! paste_into AXTextField "通过 app 改过的"; then
-  bad "第二次 ⇧⌘F 粘不进去"
-elif wait_has AXButton "link.txt" 25; then
+elif ! fill "通过 app 改过的"; then
+  bad "第二次 ⇧⌘F 焦点不在输入框上"
+elif wait_exists "link.txt" button contains 25; then
   ok "软链文件的内容也搜得到（issue #19）"
 else
   bad "搜不到 link.txt —— issue #19 回归了（symlink 又被整个跳过？）"
 fi
-keys 'key code 53'
-sleep 0.8
+key "Escape"
+lite_wait "${W}" "return !__lite.has('换范围')" 4
 
 say "⑨ 移到废纸篓（trash_entry）：不能是真删除"
-# 键盘开上下文菜单。`click at {x, y}` 在 webview 里被系统拒（-25208，见文件头），
-# 所以右键点不出来 —— ⇧F10 是文件树自己认的第二个入口（FileTree.svelte:430）
-[ "$(ax click AXButton "文件树")" = "OK" ] || true
-sleep 1
-if [ "$(ax rowfocus "" "${TRASH_NAME}")" != "OK" ]; then
+show_tree
+ROW="[role=\"treeitem\"][data-path=\"${FIX}/${TRASH_NAME}\"]"
+if ! is "return __lite.rightClick($(q "${ROW}"))"; then
   bad "文件树里找不到 ${TRASH_NAME}"
+elif ! wait_exists "移到废纸篓" menuitem contains 6; then
+  bad "右键没开出上下文菜单（或者菜单里没有这一项）"
+elif ! click "移到废纸篓" menuitem contains; then
+  bad "菜单出来了，但点不到「移到废纸篓」"
 else
-  sleep 0.6
-  keys 'key code 109 using {shift down}'   # ⇧F10
-  sleep 1.2
-  # 先等菜单出来再点 —— 刚出现的子树第一次查找必落空（文件头第 6 条）。
-  # **菜单项是 AXMenuItem，不是 AXButton** —— ContextMenu 的 ARIA role
-  # 被 WKWebView 映射成了 `menu item ... of menu "note.txt 的操作"`。
-  # 按 AXButton 找是找不到的，而报出来的是「⇧F10 没开出菜单」，
-  # 于是会往「快捷键没生效」的方向查 —— 菜单其实好端端开着。
-  if ! wait_has AXMenuItem "移到废纸篓" 6; then
-    bad "⇧F10 没开出上下文菜单（或者菜单里没有这一项）"
-  # **用 `click~` 不用 `click`。** `click` 走 findIt，认的是 AXTitle/AXDescription
-  # **精确相等**；菜单项的名字落在别的属性上，于是 `has`（contains）找得到、
-  # `click` 找不到 —— 报出来是「菜单出来了但点不到」，看着像菜单项被禁用了。
-  elif ! click_then "click~" AXMenuItem "移到废纸篓" wait_has AXButton "移到废纸篓" 3; then
-    bad "菜单出来了，但点不到「移到废纸篓」"
-  else
-    # 确认框是另一个新出现的子树，同样先等 —— 它上面的按钮是真 <button>，
-    # 所以这里回到 AXButton
-    if ! wait_has AXButton "移到废纸篓" 6; then
-      bad "确认框没出来"
-    fi
-    [ "$(ax "click~" AXButton "移到废纸篓")" = "OK" ] || bad "确认框上点不到「移到废纸篓」"
-    if wait_for 15 '[ ! -e "'"$FIX"'/'"${TRASH_NAME}"'" ]'; then
-      ok "${TRASH_NAME} 从工作区没了"
-      # **进废纸篓才算对，不是真删除。**
-      #
-      # **按具体路径查，不要列目录。** 终端没有「完全磁盘访问」权限时
-      # `ls ~/.Trash` / `find ~/.Trash` 会 Operation not permitted 返回空，
-      # 而 `stat ~/.Trash/具体文件名` 读得到 —— 这条 rules/rust.md 里早写着，
-      # 第一版这里写的是 `find`，于是把一次正常的废纸篓操作报成了「真删除」。
-      #
-      # 找到了也不动它：那是用户的废纸篓，脚本只读不写（结尾提示一句）。
-      if [ -e "${HOME}/.Trash/${TRASH_NAME}" ]; then
-        ok "在废纸篓里找得到（Finder 里可以「放回原处」）"
-        TRASHED=1
-      else
-        bad "工作区没了，但 ~/.Trash/${TRASH_NAME} 不在 —— 这就成真删除了"
-      fi
+  # 确认卡片上的是真 <button>，回到 button 角色
+  if ! wait_exists "移到废纸篓" button contains 6; then
+    bad "确认框没出来"
+  fi
+  click "移到废纸篓" button contains || bad "确认框上点不到「移到废纸篓」"
+  if wait_for 15 '[ ! -e "'"${FIX}"'/'"${TRASH_NAME}"'" ]'; then
+    ok "${TRASH_NAME} 从工作区没了"
+    # **进废纸篓才算对，不是真删除。按具体路径查，不要列目录**：没有「完全磁盘访问」权限时
+    # `ls ~/.Trash` 会 Operation not permitted 返回空，而 `stat ~/.Trash/具体文件名` 读得到。
+    # 找到了也不动它：那是你的废纸篓（结尾提示一句）
+    if [ -e "${HOME}/.Trash/${TRASH_NAME}" ]; then
+      ok "在废纸篓里找得到（Finder 里可以「放回原处」）"
+      TRASHED=1
     else
-      bad "15 秒内文件还在"
+      bad "工作区没了，但 ~/.Trash/${TRASH_NAME} 不在 —— 这就成真删除了"
     fi
+  else
+    bad "15 秒内文件还在"
   fi
 fi
 
 say "⑩ 推送 / 拉取（git_push / git_fetch）"
 # **remote 是这一步现加的，不写进 fixture。** 一开始就有上游的话，
-# 分支按钮的名字会跟着变（`main` → 带上 ↑N 之类），而 ⑤ 是按精确名字点它的 ——
-# 会把上面那条搞红，且失败信息完全指不到这里。
-REMOTE="$WORK/origin.git"
-OTHER="$WORK/other"
-git init -q --bare "$REMOTE"
-git remote add origin "$REMOTE"
+# 分支挂件的名字会跟着变（`main` → 带上 ↑N 之类），而 ⑤ 是按精确名字点它的。
+REMOTE="${WORK}/origin.git"
+OTHER="${WORK}/other"
+git init -q --bare "${REMOTE}"
+git remote add origin "${REMOTE}"
 BR=$(git rev-parse --abbrev-ref HEAD)
 echo "  当前分支 ${BR}，远程 ${REMOTE}"
 
-menu "Git" "推送…"
-sleep 1.5
+menu git-push
 # 没有上游时按钮是「推送并跟踪」，有上游时是「推送」—— 这里必然是前者
-if [ "$(ax click AXButton "推送并跟踪")" != "OK" ]; then
+if ! wait_exists "推送并跟踪" button exact 6 || ! click "推送并跟踪"; then
   bad "推送确认条没出来（或按钮不叫这个名字）"
+elif wait_for 30 'git -C "'"${REMOTE}"'" rev-parse --verify -q "'"${BR}"'"'; then
+  check "$(git -C "${REMOTE}" rev-parse "${BR}")" "$(git rev-parse HEAD)" "推上去的 sha 和本地一致"
 else
-  if wait_for 30 'git -C "'"$REMOTE"'" rev-parse --verify -q "'"$BR"'"'; then
-    check "$(git -C "$REMOTE" rev-parse "$BR")" "$(git rev-parse HEAD)" "推上去的 sha 和本地一致"
-  else
-    bad "30 秒内没推上去"
-  fi
+  bad "30 秒内没推上去"
 fi
 
 # 造一个「别人推了新东西」的远程，再从界面上拉。
 #
-# **`-b ${BR}` 不能省。** bare 仓库的 HEAD 建出来就指向默认的 `main`，
-# 而我们只往它推了 `feature/x` —— 不带 `-b` 的话 clone 会 warning
-# 「remote HEAD refers to nonexistent ref」、检出一个空工作区，
-# 后面的 commit 和 push 全部失败，而报出来的是「造不出远程的新提交」，
-# 看着像脚本坏了却指不到这一行。
-git clone -q -b "${BR}" "$REMOTE" "$OTHER" 2>/dev/null
-git -C "$OTHER" config user.email smoke@local
-git -C "$OTHER" config user.name smoke
-printf '从另一个克隆推上来的\n' > "$OTHER/from-remote.txt"
-git -C "$OTHER" add -A
-git -C "$OTHER" commit -qm "远程的新提交"
-if git -C "$OTHER" push -q origin "HEAD:$BR" 2>/dev/null; then
-  UP=$(git -C "$OTHER" rev-parse HEAD)
-  menu "Git" "拉取"
+# **`-b ${BR}` 不能省。** bare 仓库的 HEAD 建出来就指向默认的 `main`，而我们只往它推了 `feature/x` ——
+# 不带 `-b` 的话 clone 检出一个空工作区，后面的 commit 和 push 全部失败。
+git clone -q -b "${BR}" "${REMOTE}" "${OTHER}" 2>/dev/null
+git -C "${OTHER}" config user.email smoke@local
+git -C "${OTHER}" config user.name smoke
+printf '从另一个克隆推上来的\n' > "${OTHER}/from-remote.txt"
+git -C "${OTHER}" add -A
+git -C "${OTHER}" commit -qm "远程的新提交"
+if git -C "${OTHER}" push -q origin "HEAD:${BR}" 2>/dev/null; then
+  UP=$(git -C "${OTHER}" rev-parse HEAD)
+  menu git-pull
   # 拉取 = fetch + 本地合并两步（不是 git pull）。这里必然是快进：
   # 新提交只加了一个文件，碰不到 ③④ 改过的那两个
-  if wait_for 40 '[ "$(git -C "'"$FIX"'" rev-parse HEAD)" = "'"$UP"'" ]'; then
-    ok "拉取把本地推进到了远程那一条（$(echo "$UP" | cut -c1-7)）"
-    [ -f "$FIX/from-remote.txt" ] && ok "新文件落到了工作区" || bad "HEAD 动了但文件没落盘"
+  if wait_for 40 '[ "$(git -C "'"${FIX}"'" rev-parse HEAD)" = "'"${UP}"'" ]'; then
+    ok "拉取把本地推进到了远程那一条（$(echo "${UP}" | cut -c1-7)）"
+    [ -f "${FIX}/from-remote.txt" ] && ok "新文件落到了工作区" || bad "HEAD 动了但文件没落盘"
   else
-    bad "40 秒内没拉下来（HEAD 还停在 $(git -C "$FIX" rev-parse --short HEAD)）"
+    bad "40 秒内没拉下来（HEAD 还停在 $(git -C "${FIX}" rev-parse --short HEAD)）"
   fi
 else
   bad "造不出远程的新提交 —— 这一步是脚本自己的问题，不是应用的"
@@ -918,31 +537,14 @@ say "⑬ 切标签不能丢掉未保存的改动（issue #9 的护栏）"
 # 编辑器被 `{#key active.id}` 包着，切标签就是**销毁重建**，而它的实时文本
 # 从来没被存回去 —— 切走再切回来，改动和标签上那个「有未保存改动」的圆点
 # **一起**消失，界面干干净净，人根本不会察觉自己丢了东西。
-#
-# 补在这里是因为 issue #9（拆 App.svelte）要动的正是这一块：
-# `tabs` / `activeId` / `active` 那个 `$derived` 一旦跨了模块边界，
-# 这条路就是第一个会断的。**没有这条断言，重构完「看起来没事」不作数。**
-[ "$(ax click AXButton "文件树")" = "OK" ] || true
-sleep 1
 MARK="切标签不该丢的内容"
-if ! open_from_tree "note.txt"; then
-  bad "打不开 note.txt"
-elif ! paste_into AXTextArea "${MARK}"; then
-  bad "粘不进编辑器"
-else
-  sleep 1
-  # 切走：打开另一个文件（**不保存** note.txt）
-  if ! open_from_tree "run.sh"; then
-    bad "切不到 run.sh"
-  else
-    sleep 1.5
-    # 切回来
-    if ! open_from_tree "note.txt"; then
-      bad "切不回 note.txt"
-    elif wait_has AXStaticText "${MARK}" 8; then
+if open_from_tree "note.txt"; then
+  set_text "${MARK}"
+  # 切走：打开另一个文件（**不保存** note.txt），再切回来
+  if open_from_tree "run.sh" && open_from_tree "note.txt"; then
+    if lite_wait "${W}" "return __lite.text() === $(q "${MARK}")" 8; then
       ok "切走再切回来，未保存的改动还在"
-      # 盘上那份必须还是旧的 —— 这条顺带证明「还在」的是草稿而不是
-      # 「其实已经被存进去了」，那是另一回事
+      # 盘上那份必须还是旧的 —— 这条顺带证明「还在」的是草稿而不是「其实已经被存进去了」
       if grep -q "${MARK}" "${FIX}/note.txt" 2>/dev/null; then
         bad "内容被写进盘了 —— 这一步不该保存"
       else
@@ -952,29 +554,24 @@ else
       bad "切回来之后改动没了 —— v0.4.1 那个 bug 回来了"
     fi
   fi
+  # **把这个脏标签存掉再走。** 留着未保存的改动，⑫ 那句「关闭所有标签」会弹确认框，
+  # 标签关不掉、editors 也就不归零 —— 报出来是「编辑器实例没释放」，而那跟释放一点关系都没有
+  menu save
+  wait_for 6 'grep -q "'"${MARK}"'" "'"${FIX}"'/note.txt"'
 fi
-# **把这个脏标签存掉再走。** 留着未保存的改动，⑫ 那句「关闭所有标签」
-# 会弹确认框（有改动的标签要逐个问），标签关不掉、editors 也就不归零 ——
-# 报出来是「编辑器实例没释放」，而那跟释放一点关系都没有。
-keys 'keystroke "s" using {command down}'
-sleep 2
 
 say "⑭ 草稿：⌘N 建出来、不按 ⌘S 也落盘、空的关掉就丢"
 #
-# **必须在真 .app 上测。** 三条里有两条在浏览器的 `pnpm dev` 上根本走不到：
-# 「新建草稿」是菜单项（`keymap.ts` 里 `owner: "menu"`），桩里没有原生菜单栏；
-# 而草稿目录是 Tauri 的 `app_data_dir()` 算出来的，桩里那条是编的。
-#
-# 草稿目录是**用户真实的那一个**，所以这一段造的东西测完自己收干净 ——
-# 不能让跑一次验收就在人家的草稿堆里留两片纸。
-SCRATCHES="${HOME}/Library/Application Support/com.liteide.app/scratches"
+# **必须在真 .app 上测**：「新建草稿」是菜单项，桩里没有原生菜单栏；
+# 草稿目录是 Tauri 的 `app_data_dir()` 算出来的，桩里那条是编的。
+# 草稿目录在测试身份的数据目录里，跑完整个删掉，不用一份份收拾
+SCRATCHES="${LITE_DATA}/scratches"
 mkdir -p "${SCRATCHES}"
 ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.before"
 
-menu "文件" "新建草稿"
-sleep 2
-ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.after"
-NEW1=$(comm -13 "${WORK}/scratch.before" "${WORK}/scratch.after" | head -1)
+menu new-scratch
+wait_for 4 '[ -n "$(ls "'"${SCRATCHES}"'" | sort | comm -13 "'"${WORK}"'/scratch.before" -)" ]'
+NEW1=$(ls "${SCRATCHES}" 2>/dev/null | sort | comm -13 "${WORK}/scratch.before" - | head -1)
 if [ -z "${NEW1}" ]; then
   bad "⌘N 没有在草稿目录里建出东西"
 else
@@ -984,26 +581,22 @@ else
   else
     bad "草稿名字不对：${NEW1}"
   fi
-
-  # 写点东西，**不按 ⌘S** —— 草稿自动落盘（issue #40）。断言落在**盘上**，不读界面。
-  # 停止输入 500ms 就该写，等 2 秒是给 IPC 和机器忙留余量
+  # 写点东西，**不存** —— 草稿自动落盘（issue #40）。断言落在**盘上**，不读界面。
+  # 停止输入 500ms 就该写，等 4 秒是给 IPC 和机器忙留余量
   DRAFT="排查用的 traceId b67c353d"
-  if ! paste_into AXTextArea "${DRAFT}"; then
-    bad "粘不进草稿"
+  lite_wait "${W}" "return __lite.tabs.active?.path === $(q "${SCRATCHES}/${NEW1}")" 4
+  set_text "${DRAFT}"
+  if wait_for 4 'grep -q "'"${DRAFT}"'" "'"${SCRATCHES}/${NEW1}"'"'; then
+    ok "没按 ⌘S，草稿自己写进了盘上那份文件"
   else
-    sleep 2
-    if grep -q "${DRAFT}" "${SCRATCHES}/${NEW1}" 2>/dev/null; then
-      ok "没按 ⌘S，草稿自己写进了盘上那份文件"
-    else
-      bad "草稿没有自动落盘（或存到别处去了）"
-    fi
+    bad "草稿没有自动落盘（或存到别处去了）"
   fi
-  # 关草稿标签不该弹「保存 / 丢弃」—— 弹了的话这条菜单之后确认框还挂着
-  menu "文件" "关闭标签"
-  sleep 1.5
-  if [ "$(ax has AXButton "丢弃改动")" = "OK" ]; then
+  # 关草稿标签不该弹「保存 / 丢弃」
+  menu close-tab
+  sleep 1
+  if exists "丢弃改动" button contains; then
     bad "关草稿标签还在问「保存 / 丢弃」"
-    ax click~ AXButton "丢弃改动" >/dev/null
+    click "丢弃改动" button contains
   else
     ok "关草稿标签没有问"
   fi
@@ -1011,10 +604,10 @@ fi
 
 # 二、点了加号又一个字没写：关掉就该把那个 0 字节的文件丢掉
 ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.before2"
-menu "文件" "新建草稿"
-sleep 2
-menu "文件" "关闭标签"
-sleep 2
+menu new-scratch
+wait_for 4 '[ -n "$(ls "'"${SCRATCHES}"'" | sort | comm -13 "'"${WORK}"'/scratch.before2" -)" ]'
+menu close-tab
+sleep 1.5
 ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.after2"
 if diff -q "${WORK}/scratch.before2" "${WORK}/scratch.after2" >/dev/null; then
   ok "空草稿关掉之后盘上没留下东西"
@@ -1022,44 +615,36 @@ else
   bad "空草稿留在盘上了：$(comm -13 "${WORK}/scratch.before2" "${WORK}/scratch.after2" | tr '\n' ' ')"
 fi
 
-# 收干净：只删这一段自己造出来的那些，用户原有的一份都不碰
-ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.end"
-comm -13 "${WORK}/scratch.before" "${WORK}/scratch.end" | while read -r f; do
-  [ -n "${f}" ] && rm -f "${SCRATCHES}/${f}"
-done
-
 say "⑮ ⌘B 跳到声明：跨模块的 import，和不写 import 的同包"
-
+#
 # **这一段只有真 .app 跑得了。** 两层的依据都是「包路径 = 目录路径」，
 # 而浏览器里那个桩的 Java 文件 package 和目录对不上（见 fixture 那段）。
+# ⌘B 归 CM6（owner = cm6），光标放好、编辑器拿到焦点，页面里发的 keydown 走的就是它真实的 keymap。
 #
-# 光标用**方向键**送过去，不用 ⌘F：那条路要开查找面板、↵、再 Esc 关掉，
-# 三步里任何一步焦点没接上后面的 ⌘B 就打空，而打空和「跳转坏了」在结果上
-# 一模一样。第一版就是栽在这儿，查了半天其实是驱动的问题。
-#
-# 行列数对着 fixture 里那份 AdminController.java 数（⌘↑ 之后从第 1 行起算）：
-#   第 8 行 `    private final OrderClient orderClient;`   → 下 7、右 24
-#   第 9 行 `    private final SamePkgHelper helper;`      → 下 8、右 24
-#   第 6 行 `@RestController`                              → 下 5、右 8
-jump_at() { ax caretjump AXTextArea "$1" >/dev/null; sleep 2; }
-
-# **用 ⌘P 开，不用文件树**：这几个文件躺在 moduleA/src/main/java/com/demo/api/
-# 底下，文件树要展开六层才点得到。
+# 行列对着 fixture 里那份 AdminController.java 数（都从 1 起）：
+#   第 8 行 `    private final OrderClient orderClient;`   第 25 列落在 OrderClient 上
+#   第 9 行 `    private final SamePkgHelper helper;`      第 25 列落在 SamePkgHelper 上
+#   第 6 行 `@RestController`                              第 9 列
+ADMIN="${FIX}/moduleA/src/main/java/com/demo/api/AdminController.java"
+jump_at() {
+  is "__lite.caret($1, $2); __lite.key('Mod-b'); return true"
+}
+# **用 ⌘P 开，不用文件树**：这几个文件在六层目录底下，文件树要一层层展开
 open_by_quick() {
-  keys 'keystroke "p" using {command down}'
-  sleep 1.5
-  paste_into AXTextField "$1" >/dev/null 2>&1 || { bad "⌘P 的输入框粘不进去"; return 1; }
-  sleep 1.5
-  keys 'key code 36'
-  sleep 2
+  key "Mod-p"
+  wait_has "输入文件名" 5 || { bad "⌘P 浮层没出来"; return 1; }
+  fill "$1" || { bad "⌘P 的焦点不在输入框上"; return 1; }
+  wait_exists "$1" any contains 8 || { bad "⌘P 里搜不到 $1"; return 1; }
+  key "Enter"
+  lite_wait "${W}" "return __lite.tabs.active?.path?.endsWith($(q "/$1")) === true" 6
 }
 
 if ! open_by_quick "AdminController.java"; then
   bad "打不开 AdminController.java"
 else
   # ① 跨模块：import com.demo.core.OrderClient → moduleB 那份
-  jump_at "7:24"
-  if wait_has AXStaticText "ZQXJ_CROSSMODULE" 8; then
+  jump_at 8 25
+  if lite_wait "${W}" "return __lite.tabs.active?.path?.endsWith('/OrderClient.java') === true" 8; then
     ok "⌘B 跨模块跳到了 moduleB 的 OrderClient.java"
   else
     bad "跨模块跳转没到（import 那一层）"
@@ -1069,8 +654,8 @@ else
   if ! open_by_quick "AdminController.java"; then
     bad "切不回 AdminController.java"
   else
-    jump_at "8:24"
-    if wait_has AXStaticText "ZQXJ_SAMEPKG" 8; then
+    jump_at 9 25
+    if lite_wait "${W}" "return __lite.tabs.active?.path?.endsWith('/SamePkgHelper.java') === true" 8; then
       ok "⌘B 跳到了同包的 SamePkgHelper.java（它没有 import）"
     else
       bad "同包跳转没到"
@@ -1078,22 +663,14 @@ else
   fi
 
   # ③ 第三方不该跳：RestController 在 jar 里，项目索引里没有它的源码。
-  #    这一条守的是「有下划线 = 我确定」——它比前两条更要紧，因为跳错了
-  #    人是不会怀疑的。
-  #
-  #    **它单独绿不算数**：⌘B 压根没触发它也会绿。所以只有前两条也绿的时候
-  #    这一条才有意义 —— 三条是一组，看结果要一起看。
+  #    这一条守的是「有下划线 = 我确定」——它比前两条更要紧，因为跳错了人是不会怀疑的。
+  #    **它单独绿不算数**：⌘B 压根没触发它也会绿。三条是一组，看结果要一起看。
   if ! open_by_quick "AdminController.java"; then
     bad "切不回 AdminController.java"
   else
-    jump_at "5:8"
-    STILL=$(ax has AXStaticText "AdminController.java")
-    JUMPED=$(ax has AXStaticText "ZQXJ_CROSSMODULE")
-    if [ "${STILL}" = "OK" ] && [ "${JUMPED}" != "OK" ]; then
-      ok "第三方（jar 里的）按 ⌘B 不动，停在原地"
-    else
-      bad "第三方不该跳，却跳走了"
-    fi
+    jump_at 6 9
+    sleep 2
+    check "$(active)" "${ADMIN}" "第三方（jar 里的）按 ⌘B 不动，停在原地"
   fi
 fi
 
@@ -1102,18 +679,18 @@ fi
 say "⑯ 系统送来的文件（open -a）：进已开着的窗口，不起第二个进程"
 #
 # Finder 双击 / 拖 Dock / 「打开方式」/ `open -a` 走的都是同一个 Apple Event
-# （`RunEvent::Opened`，issue #40），命令行参数一条都接不到。这里用 `open -a`
-# 代表那四条路 —— 它是唯一能从脚本里发的。路径故意带中文和空格：
+# （`RunEvent::Opened`，issue #40），命令行参数一条都接不到。这里用 `open -a` 代表那四条路 ——
+# 它是唯一能从脚本里发的。`-g`：后台送，不把应用拉到前面。路径故意带中文和空格：
 # 事件里是 `file://` 百分号编码，解错了就是「文件不存在」。
 mkdir -p "${FIX}/odoc 目录"
 printf 'odoc probe\n' > "${FIX}/odoc 目录/系统送来 的.txt"
-open -a "${APP_BUNDLE}" "${FIX}/odoc 目录/系统送来 的.txt"
-if wait_has AXButton "关闭 系统送来 的.txt" 8; then
+open -g -a "${LITE_APP}" "${FIX}/odoc 目录/系统送来 的.txt"
+if wait_exists "关闭 系统送来 的.txt" button exact 8; then
   ok "open -a 送来的文件开成了标签"
 else
   bad "open -a 送来的文件没开（RunEvent::Opened 没接上？）"
 fi
-check "$(pgrep -f 'MacOS/lite-ide' | wc -l | tr -d ' ')" "1" "还是一个进程（Launch Services 发给了已在运行的实例）"
+check "$(pgrep -f "lite-ide-mwtest.app/Contents/MacOS" | wc -l | tr -d ' ')" "1" "还是一个进程（Launch Services 发给了已在运行的实例）"
 
 say "⑰ 别人给的仓库：.git/config 里有会执行命令的键，Git 不启用、一个命令都不跑（issue #24）"
 #
@@ -1129,37 +706,38 @@ git -C "${TRAP}" config filter.evil.clean "touch '${PWNED}'; cat"
 printf '*.txt filter=evil\n' > "${TRAP}/.gitattributes"
 printf 'bait\n' > "${TRAP}/bait.txt"
 rm -f "${PWNED}"
-open -a "${APP_BUNDLE}" "${TRAP}"
-# 多窗口第 3 步起：主窗口已经开着一个项目，再送一个目录进来是**开新窗口**，不是在原窗口里换项目。
-# 窗口标题是项目名，下面的 AX 调用都按这个名字去那个窗口里找（ax.applescript 的 LITE_AX_WIN）
-TRAPWIN=$(basename "${TRAP}")
-for _ in $(seq 1 20); do
-  osascript -e "tell application \"System Events\" to tell process \"lite-ide\" to exists window \"${TRAPWIN}\"" 2>/dev/null | grep -q true && break
-  sleep 0.5
-done
-check "$(osascript -e 'tell application "System Events" to tell process "lite-ide" to count windows' 2>/dev/null)" "2" "送来另一个目录：开了新窗口（不是在原窗口里换项目）"
-export LITE_AX_WIN="${TRAPWIN}"
-if wait_has AXButton "Git 未启用" 10; then
-  ok "受限：挂件写着「Git 未启用」"
-  [ ! -e "${PWNED}" ] && ok "config 里那条命令没被执行" || bad "config 里的命令被执行了 —— 白名单没拦住"
-  if click_then click AXButton "Git 未启用" wait_has AXButton "信任这个仓库" 5; then
-    ok "点开是确认卡片"
-    if click_then click AXButton "信任这个仓库" wait_has AXButton "Git 改动" 10; then
-      ok "信任之后 Git 出来了"
+open -g -a "${LITE_APP}" "${TRAP}"
+# 主窗口已经开着一个项目，再送一个目录进来是**开新窗口**，不是在原窗口里换项目
+wait_for 10 '[ -n "$(win_of "'"${TRAP}"'")" ]'
+TRAPWIN=$(win_of "${TRAP}")
+check "$(nwin)" "2" "送来另一个目录：开了新窗口（不是在原窗口里换项目）"
+if [ -z "${TRAPWIN}" ]; then
+  bad "找不到项目根是 trap-repo 的窗口，这一段后面的断言没法做"
+else
+  W="${TRAPWIN}"
+  lite_wait "${W}" "return true" 10
+  if wait_exists "Git 未启用" button contains 10; then
+    ok "受限：挂件写着「Git 未启用」"
+    [ ! -e "${PWNED}" ] && ok "config 里那条命令没被执行" || bad "config 里的命令被执行了 —— 白名单没拦住"
+    if click "Git 未启用" button contains && wait_exists "信任这个仓库" button exact 5; then
+      ok "点开是确认卡片"
+      if click "信任这个仓库" && wait_exists "Git 改动" button exact 10; then
+        ok "信任之后 Git 出来了"
+      else
+        bad "点了信任，Git 没出来"
+      fi
     else
-      bad "点了信任，Git 没出来"
+      bad "点挂件没开出确认卡片"
     fi
   else
-    bad "点挂件没开出确认卡片"
+    bad "有可疑 config 的仓库没进受限（挂件上没有「Git 未启用」）"
   fi
-else
-  bad "有可疑 config 的仓库没进受限（挂件上没有「Git 未启用」）"
+  W=main
+  # 关掉这个窗口（和点红叉一样）：后面几段都默认只有主窗口
+  lite close "${TRAPWIN}" >/dev/null
+  wait_for 6 '[ "$(nwin)" = 1 ]'
 fi
-unset LITE_AX_WIN
-# 关掉这个窗口：后面几段（菜单「关闭所有标签」、编辑器实例计数）都默认只有主窗口
-osascript -e "tell application \"System Events\" to tell process \"lite-ide\" to click (first button of window \"${TRAPWIN}\" whose subrole is \"AXCloseButton\")" >/dev/null 2>&1
-sleep 1
-# 信任记在 app data 的 trust.json 里，fixture 路径每次都新，不会污染下一次
+# 信任记在测试身份的 trust.json 里，跑完整个删掉
 
 say "⑲ 两个窗口：送来别的项目开新窗口，文件进它自己的窗口，关掉它不碰主窗口的终端（多窗口，2026-10-08）"
 #
@@ -1167,60 +745,60 @@ say "⑲ 两个窗口：送来别的项目开新窗口，文件进它自己的�
 # 同时开着才会出错的：路由（文件进项目包含它的那个窗口）、去重（同一个项目不开第二个窗口）、
 # 资源归属（关掉一个窗口只收它自己的终端 —— 原来是关任何一个窗口就杀掉所有终端）。
 FIX2="${WORK}/second-proj"; mkdir -p "${FIX2}"; printf 'second\n' > "${FIX2}/f2.txt"
-W2=$(basename "${FIX2}"); W1=$(basename "${FIX}")
-SEW(){ osascript -e "tell application \"System Events\" to tell process \"lite-ide\" to $1" 2>/dev/null; }
-open -a "${APP_BUNDLE}" "${FIX2}"
-for _ in $(seq 1 20); do [ "$(SEW 'count windows')" = 2 ] && break; sleep 0.5; done
-check "$(SEW 'count windows')" "2" "送来另一个项目：开了第二个窗口"
-open -a "${APP_BUNDLE}" "${FIX2}/f2.txt"
-export LITE_AX_WIN="${W2}"
-if wait_has AXButton "关闭 f2.txt" 8; then ok "那个项目里的文件进了它自己的窗口"; else bad "f2.txt 没开在 ${W2} 的窗口里"; fi
-export LITE_AX_WIN="${W1}"
-[ "$(ax has AXButton "关闭 f2.txt")" = "OK" ] && bad "f2.txt 也开在了主窗口里（路由没生效）" || ok "主窗口里没有它"
-unset LITE_AX_WIN
-open -a "${APP_BUNDLE}" "${FIX2}"; sleep 1.5
-check "$(SEW 'count windows')" "2" "再送一次同一个项目：回到那个窗口，不开第三个"
-# 主窗口开一个终端，再关掉第二个窗口：主窗口的终端要还在
-SEW "perform action \"AXRaise\" of window \"${W1}\"" >/dev/null; SEW 'set frontmost to true' >/dev/null; sleep 0.8
-menu "终端" "新建终端"; sleep 3
-MAINPID=$(pgrep -f "MacOS/lite-ide" | head -1); ZSH1=$(pgrep -P "${MAINPID}" zsh | head -1)
-if [ -z "${ZSH1}" ]; then
-  bad "主窗口的终端没起来（这条后面的断言没法做）"
+open -g -a "${LITE_APP}" "${FIX2}"
+wait_for 10 '[ -n "$(win_of "'"${FIX2}"'")" ]'
+W2=$(win_of "${FIX2}")
+check "$(nwin)" "2" "送来另一个项目：开了第二个窗口"
+if [ -z "${W2}" ]; then
+  bad "找不到项目根是 second-proj 的窗口，这一段后面的断言没法做"
 else
-  SEW "click (first button of window \"${W2}\" whose subrole is \"AXCloseButton\")" >/dev/null
-  for _ in $(seq 1 20); do [ "$(SEW 'count windows')" = 1 ] && break; sleep 0.5; done
-  sleep 1
-  check "$(SEW 'count windows')" "1" "第二个窗口关掉了"
-  kill -0 "${ZSH1}" 2>/dev/null && ok "主窗口的终端还活着（关掉别的窗口不杀它）" || bad "关掉第二个窗口，主窗口的终端被杀了"
-  menu "终端" "关闭当前终端"; sleep 1
+  lite_wait "${W2}" "return true" 10
+  open -g -a "${LITE_APP}" "${FIX2}/f2.txt"
+  W="${W2}"
+  if wait_exists "关闭 f2.txt" button exact 8; then ok "那个项目里的文件进了它自己的窗口"; else bad "f2.txt 没开在 ${W2} 的窗口里"; fi
+  W=main
+  exists "关闭 f2.txt" button exact && bad "f2.txt 也开在了主窗口里（路由没生效）" || ok "主窗口里没有它"
+  open -g -a "${LITE_APP}" "${FIX2}"; sleep 1.5
+  check "$(nwin)" "2" "再送一次同一个项目：回到那个窗口，不开第三个"
+  # 主窗口开一个终端，再关掉第二个窗口：主窗口的终端要还在
+  menu new-terminal
+  MAINPID=$(lite_pid)
+  wait_for 6 '[ -n "$(pgrep -P "'"${MAINPID}"'" zsh)" ]'
+  ZSH1=$(pgrep -P "${MAINPID}" zsh | head -1)
+  if [ -z "${ZSH1}" ]; then
+    bad "主窗口的终端没起来（这条后面的断言没法做）"
+  else
+    lite close "${W2}" >/dev/null
+    wait_for 10 '[ "$(nwin)" = 1 ]'
+    sleep 1
+    check "$(nwin)" "1" "第二个窗口关掉了"
+    kill -0 "${ZSH1}" 2>/dev/null && ok "主窗口的终端还活着（关掉别的窗口不杀它）" || bad "关掉第二个窗口，主窗口的终端被杀了"
+    menu close-terminal
+  fi
 fi
 
 say "⑪ 界面自己有没有报错"
-ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "$LOG")
-check "$ERRS" "0" "诊断通道里没有前端报错 / CSP 违规"
+ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "${LOG}")
+check "${ERRS}" "0" "诊断通道里没有前端报错 / CSP 违规"
 # 不变量自检（issue #27）写的是 app.log 不是 stderr。上面十几段开文件、打字、切标签、
-# 关标签把每个转换点都走了一遍 —— 这一截里有一条 [invariant] 就是真的有 bug（#36）
-INV=$(tail -n +$((APPLOG_START + 1)) "$APPLOG" 2>/dev/null | grep -c "\[invariant\]" || true)
+# 关标签把每个转换点都走了一遍 —— 有一条 [invariant] 就是真的有 bug（#36）。
+# 测试身份的数据目录是这次跑之前清空的，整份 app.log 都是这一轮的
+INV=$(grep -c "\[invariant\]" "${APPLOG}" 2>/dev/null || true)
 if [ "${INV:-0}" = "0" ]; then
   ok "这一轮没有不变量报警"
 else
   bad "不变量报了 ${INV} 条："
-  tail -n +$((APPLOG_START + 1)) "$APPLOG" | grep "\[invariant\]" | head -5 | sed 's/^/      /'
+  grep "\[invariant\]" "${APPLOG}" | head -5 | sed 's/^/      /'
 fi
 
 say "⑫ 关掉全部标签之后，编辑器实例要归零（issue #10）"
 #
-# 这条读的是 `[diag/web] mem editors=N`，那是前端在 `LITE_IDE_DEBUG=1` 时
-# 每 3 秒报一次的**对象数**。为什么不看进程内存：`scripts/mem.sh` 量的
-# Physical footprint 噪声有 ±15MB，比要测的信号还大；而这个数是确定的。
+# 这条读的是 `[diag/web] mem editors=N`，前端在 `LITE_IDE_DEBUG=1` 时每 3 秒报一次的**对象数**。
+# 为什么不看进程内存：Physical footprint 噪声有 ±15MB，比要测的信号还大；而这个数是确定的。
 #
-# **验过红**：把 `Editor.svelte` 的 cleanup 改成不 `view.destroy()`、
-# 把 DOM 搬到 body 上（模拟「没清干净」这个故障形态），重新打包跑一遍 ——
-# 开 3 个标签时 editors 从 1 变成 3、关完之后停在 3 不归零，这条稳稳变红。
-#
-# 它同时兼了收尾：把标签关干净，别把 fixture 的路径留在会话快照里，
-# 否则下次启动时会话恢复会去开一个已经删掉的目录。
-menu "文件" "关闭所有标签"
+# **验过红**：把 `Editor.svelte` 的 cleanup 改成不 `view.destroy()`、把 DOM 搬到 body 上，
+# 重新打包跑一遍 —— 开 3 个标签时 editors 从 1 变成 3、关完之后停在 3 不归零，这条稳稳变红。
+menu close-all-tabs
 sleep 5   # 诊断定时器 3 秒一报，等它在关完之后至少再报一次
 LAST=$(grep "mem editors" "${LOG}" | tail -1)
 echo "  ${LAST:-（一条 mem 行都没有）}"
@@ -1230,10 +808,10 @@ case "${LAST}" in
   *)             bad "标签全关了，但 editors 没归零 —— 编辑器实例没释放" ;;
 esac
 
+say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
+check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次 —— 你可以照常用电脑"
+
 [ "${TRASHED:-0}" = 1 ] && echo "  （⑨ 往废纸篓里放了 ${TRASH_NAME}，脚本不动它 —— 自己清或者放回原处）"
 
-printf '\n\033[1m通过 %d 条，失败 %d 条\033[0m' "$PASS" "$FAIL"
-# 重试次数单独报：它是 #22 的体温计 —— 全绿但重试了三次，和一次没重试，不是一回事
-[ "$RETRIES" -gt 0 ] && printf '（AX 动作重试了 %d 次，见 issue #22）' "$RETRIES"
-printf '\n'
-[ "$FAIL" -eq 0 ] || exit 1
+printf '\n\033[1m通过 %d 条，失败 %d 条\033[0m\n' "${PASS}" "${FAIL}"
+[ "${FAIL}" -eq 0 ] || exit 1

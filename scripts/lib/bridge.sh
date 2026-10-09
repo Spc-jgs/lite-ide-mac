@@ -1,6 +1,6 @@
 # 测试通道的 bash 那半（source 它）。协议见 src-tauri/src/testbridge.rs，客户端是同目录的 bridge.py。
 #
-# 和 smoke.sh 的老路比：**不发全局按键、不读 AX 树、不截图、启动不抢焦点**（`open -g`）——
+# 和原来站在应用外面模仿人（System Events 敲键、AX 树、截图）比：**不发全局按键、不读 AX 树、不截图、启动后不抢焦点** ——
 # 被测的是临时身份的 .app（scripts/build-test-app.sh 打的），数据目录和你的 lite-ide 是两套。
 #
 #   lite_launch [路径…]     后台起应用，等到 main 窗口的前端能回话
@@ -8,7 +8,7 @@
 #   lite_eval <窗口> <JS>   同 lite eval
 #   lite_wait <窗口> <JS> [秒]   反复跑那段 JS，直到它 return true（默认等 10 秒）
 #   lite_quit               点它自己的「退出」（走 winctl::quit，先存现场）
-#   lite_teardown           杀掉、删数据目录（不删 .app，下次不用重打）
+#   lite_teardown [keep]    杀掉、删数据目录（不删 .app，下次不用重打）；带 keep 留着临时目录（stderr 日志在里面）
 #   lite_front              此刻最前面的应用叫什么（证明测试没抢你的焦点）
 
 LITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -69,7 +69,7 @@ lite_teardown() {
   pkill -f "lite-ide-mwtest.app/Contents/MacOS" 2>/dev/null
   sleep 1
   lite_clean_data
-  rm -rf "${LITE_WORK}"
+  [ "${1:-}" = keep ] || rm -rf "${LITE_WORK}"
   # 从 LaunchServices 注销：不然 Finder 的「打开方式」里会多一个 lite-ide-mwtest。.app 留在盘上，下次不用重打；
   # 下次 `open -a` 它时系统会临时再登记
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "${LITE_APP}" >/dev/null 2>&1

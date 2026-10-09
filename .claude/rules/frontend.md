@@ -576,7 +576,7 @@ logicalHeightForGridItem → 一路 layout 到底`；粘了 2000 行日志的草
 其实是驱动工具慢（同一份空草稿：`keystroke` p50 55ms，CGEvent 21ms）。
 用 `CGEventPost`：十几行 Swift，`CGEvent(keyboardEventSource:virtualKey:keyDown:)` +
 `keyboardSetUnicodeString` + `post(tap: .cghidEventTap)`，每键之间 `sleep` 12ms。
-smoke.sh 只关心对错不关心时长，它用 `keystroke` 没问题。
+（smoke.sh 2026-10-09 起走测试通道，一个键都不敲了。）
 
 ## 验多窗口、Dock、`open -a`：用临时身份的 `.app`（2026-10-08）
 
@@ -600,7 +600,8 @@ AX 树读不全，两种都实测骗过人。按窗口 id `screencapture -l`（�
 
 `scripts/build-test-app.sh` 打一份带测试通道的临时身份 `.app`（Rust `--features test-bridge` + 前端 `VITE_TEST_BRIDGE=1`），
 脚本 `source scripts/lib/bridge.sh`，用 `lite_launch` / `lite eval <窗口> '<JS>'` / `lite menu <id>` / `lite_quit` 驱动它 ——
-**不发全局按键、不读 AX 树、不截图、后台起不抢焦点**，你可以照常用电脑。样板是 `scripts/accept/settings.sh`；协议在
+**不发全局按键、不读 AX 树、不截图、后台起不抢焦点**，你可以照常用电脑。样板是 `scripts/accept/settings.sh`，
+`scripts/smoke.sh` 也走它（按名字点按钮、读字、填输入框都在 `__lite` 上：`click` / `has` / `fill` / `key` / `setText`）；协议在
 `src-tauri/src/testbridge.rs` 头上，页面里能用的东西在 `src/lib/dev/test-hooks.ts`（`window.__lite`）。
 
 - **正式包里没有它**：Rust 侧整个模块 `#[cfg(feature = "test-bridge")]`；前端在 main.ts 的常量条件里 `await import()`，CI 有哨兵。
@@ -620,8 +621,9 @@ Claude 桌面应用（把它的界面缩放改了），而测试应用一个键�
 **一律点被测进程自己的菜单**：`click menu item "放大字号" of menu "视图" of menu bar 1`（`tell` 那个进程），退出点它的
 「退出 lite-ide」。对着进程操作，谁在最前都落不到别的应用上；快捷键在应用里触发的就是同一个菜单项。真要敲键的场景
 （编辑器里打字），先断言 `name of first process whose frontmost is true` 是测试应用，不是就停下，不要「设一下再敲」。
-`scripts/smoke.sh` 的 `keys()` 和 `ax.applescript` 里会按键的三个动作（paste / caretjump / focuskey）**每一下按键之前**
-都查前台是不是被测进程（2026-10-09），不是就一个键都不发、整轮以退出码 4 停下 —— 宁可这一轮不跑完。
+`ax.applescript` 里会按键的三个动作（paste / caretjump / focuskey）**每一下按键之前**都查前台是不是被测进程
+（2026-10-09），不是就一个键都不发、返回 NOTFRONT —— 宁可这一轮不跑完。smoke.sh 同日改走测试通道，不再用它们；
+还在用 `ax.applescript` 的是 `screenshots.sh`。
 
 ## 驱动真 `.app` 的两个坑（2026-09-17）
 

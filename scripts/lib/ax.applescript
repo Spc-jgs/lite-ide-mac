@@ -1,4 +1,4 @@
--- lite-ide 的 AX 驱动库：smoke.sh 和 screenshots.sh 共用。
+-- lite-ide 的 AX 驱动库：screenshots.sh 在用。（smoke.sh 原来也用，2026-10-09 起走测试通道，见 scripts/lib/bridge.sh）
 -- 用法：osascript ax.applescript <动作> <角色> <名字>
 --   动作：click / click~（名字含）/ has / focus / row / rowfocus / paste / focuskey / caretjump
 --   返回 "OK" 或 "NOTFOUND"。只有要敲键盘的动作才把应用拉到前台（见 run 里的注释）。
@@ -81,7 +81,7 @@ end findRow
 -- **按键之前，被测进程必须真的在最前面。** `keystroke` / `key code` 发给的是「当前最前面的应用」，
 -- 而 `set frontmost to true` 会被系统悄悄拦掉（2026-10-08 一次验收里 ⌘= 全落进了用户的 Claude 应用）。
 -- 每一下按键之前都查：动作里几下键之间隔着几百毫秒，人在这中间切走了，下一下就打进别人的应用。
--- 不在就返回 NOTFRONT、一个键都不发，smoke.sh 收到就整轮停下
+-- 不在就返回 NOTFRONT、一个键都不发，调用方收到就该整轮停下
 on frontIs(p)
   tell application "System Events" to return ((name of first process whose frontmost is true) is p)
 end frontIs

@@ -33,7 +33,7 @@
 # 带 devtools feature 的构建，这个脚本给不出来。
 #
 # 用法：先 `pnpm app:bundle`，然后 `./scripts/mem.sh [轮数，默认 8]`
-# 需要终端有「辅助功能」权限（同 smoke.sh）。
+# 需要终端有「辅助功能」权限（它走 AX）。
 set -uo pipefail
 export LANG=${LANG:-en_US.UTF-8}
 
@@ -49,7 +49,7 @@ AXLIB="${WORK}/ax.applescript"
 cleanup(){ pkill -f "MacOS/lite-ide" 2>/dev/null; rm -rf "${FIX}" "${WORK}"; }
 trap cleanup EXIT
 
-# 只用得上「按名字点一行」和「按名字找元素」，从 smoke.sh 抄这两条
+# 只用得上「按名字点一行」和「按名字找元素」，从 ax.applescript 那一套抄这两条
 cat > "${AXLIB}" <<'APPLESCRIPT'
 on findRow(el, nm)
   tell application "System Events"

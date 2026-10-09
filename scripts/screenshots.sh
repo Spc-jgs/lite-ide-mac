@@ -9,7 +9,7 @@
 # README 里的图和 .app 里的样子对不上时，重跑一遍就是了。
 #
 # 起的是 Contents/MacOS 里那个裸二进制而不是 `open -a`：两者的 WebKit 存储目录不同
-# （见 rules/frontend.md「驱动真 .app 的两个坑」），裸二进制那份是 smoke 用的，
+# （见 rules/frontend.md「驱动真 .app 的两个坑」），裸二进制那份不是你双击的那份 .app 的数据，
 # 不会把示例项目写进用户自己的「最近打开」。
 #
 # 用法：先 `pnpm app:bundle`，然后 `./scripts/screenshots.sh`。会占用键盘十几秒。
