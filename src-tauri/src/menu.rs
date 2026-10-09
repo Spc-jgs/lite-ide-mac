@@ -260,6 +260,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let app_menu = SubmenuBuilder::new(app, "lite-ide")
         .about_with_text("关于 lite-ide", None)
         .separator()
+        .item(&item(app, "open-settings", "设置…", Some("CmdOrCtrl+,"))?)
+        .separator()
         .services_with_text("服务")
         .separator()
         .hide_with_text("隐藏 lite-ide")

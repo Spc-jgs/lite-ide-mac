@@ -13,6 +13,13 @@ import { DEFAULT_SETTINGS, LEGACY_MOVED_KEY, cssVars, readLegacyPrefs, type UiKe
  */
 class SettingsStore {
   v = $state<Settings>(DEFAULT_SETTINGS);
+  /** 不在组件里、拿不到 `$effect` 的地方（CM6 的扩展）要知道设置变了：在这儿登记 */
+  #subs = new Set<(s: Settings) => void>();
+
+  subscribe(cb: (s: Settings) => void): () => void {
+    this.#subs.add(cb);
+    return () => this.#subs.delete(cb);
+  }
 
   /** 换上一份新的：存下来、写 CSS 变量。Rust 回的、广播来的都走这里 */
   apply(s: Settings) {
@@ -24,6 +31,7 @@ class SettingsStore {
      */
     const label = (globalThis as { __TAURI_INTERNALS__?: { metadata?: { currentWebview?: { label?: string } } } }).__TAURI_INTERNALS__?.metadata?.currentWebview?.label ?? "?";
     invoke("diag", { msg: `settings → ${label}: editor=${s.editorFontSize}px terminal=${s.terminalFontSize}px minimap=${s.minimap} problems=${s.problems.length}` }).catch(() => {});
+    for (const cb of this.#subs) cb(s);
     if (typeof document === "undefined") return; // 状态测试里没有 document
     for (const [k, val] of cssVars(s)) document.documentElement.style.setProperty(k, val);
   }

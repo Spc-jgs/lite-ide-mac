@@ -31,8 +31,10 @@ pub fn pty_spawn(
 ) -> Result<u32, String> {
     use std::io::Read;
 
+    // 用哪个 shell 归设置管（issue #44 的 terminal.shell）；空串 = $SHELL
+    let shell = crate::settingsctl::terminal_shell(&state);
     let (sess, mut reader) =
-        ptysvc::Session::spawn(&cwd, cols, rows).map_err(|e| format!("终端起不来：{e}"))?;
+        ptysvc::Session::spawn_with(&shell, &cwd, cols, rows).map_err(|e| format!("终端起不来：{e}"))?;
     // 满了就拒绝。`sess` 在这儿 drop 掉 —— Session::drop 会 kill 那个 zsh，
     // 所以刚起的这个不会变成孤儿（UNINSTALL.md 的承诺）
     // 记在发起调用的窗口名下：那个窗口关掉时只杀它自己的终端

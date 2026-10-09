@@ -290,6 +290,13 @@ pub fn menu_without_window(app: &AppHandle, id: &str) {
                 crate::open::deliver(&app, vec![p.to_string()]);
             }
         });
+    } else if id == "open-settings" {
+        // 建模板要碰盘，挪出主线程；建好了当成「打开一个文件」送去路由 —— 一个窗口都没有时它会开一个
+        let app = app.clone();
+        std::thread::spawn(move || match crate::settingsctl::open_settings(&app) {
+            Ok(p) => crate::open::deliver(&app, vec![p]),
+            Err(e) => applog::write(applog::Level::Warn, "settings", &e),
+        });
     } else if let Some(path) = id.strip_prefix(crate::menu::RECENT_PREFIX) {
         crate::open::deliver(app, vec![path.to_string()]);
     } else if id == "new-scratch" {

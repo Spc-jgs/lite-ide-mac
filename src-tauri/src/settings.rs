@@ -147,6 +147,8 @@ pub enum Problem {
     Clamped { key: &'static str, pos: Pos, from: i64, to: i64 },
     /// 同一个键写了两次：后写的算数（和 JSON 解析器的行为一致），提醒一句
     Duplicate { key: String, pos: Pos },
+    /// `terminal.shell` 指的文件不存在或者不能执行：用 `$SHELL`
+    BadShell { path: String, pos: Pos },
 }
 
 impl Problem {
@@ -161,7 +163,8 @@ impl Problem {
             | Problem::Unknown { pos, .. }
             | Problem::WrongType { pos, .. }
             | Problem::Clamped { pos, .. }
-            | Problem::Duplicate { pos, .. } => Some(*pos),
+            | Problem::Duplicate { pos, .. }
+            | Problem::BadShell { pos, .. } => Some(*pos),
             Problem::NotObject => None,
         }
     }
@@ -175,6 +178,7 @@ impl Problem {
             Problem::WrongType { key, want, .. } => format!("{key} 要是{want}，这次用的默认值"),
             Problem::Clamped { key, from, to, .. } => format!("{key} 是 {from}，超出范围，按 {to} 算"),
             Problem::Duplicate { key, .. } => format!("{key} 写了不止一次，按最后一个算"),
+            Problem::BadShell { path, .. } => format!("terminal.shell 指的 {path} 不存在或者不能执行，终端用的是 $SHELL"),
         }
     }
 }
@@ -416,6 +420,20 @@ fn floor_char(s: &str, mut i: usize) -> usize {
     i
 }
 
+/// `terminal.shell` 写了一个用不了的路径：退回 `$SHELL`（空串），报一条问题，标在那个键上
+fn check_shell(p: &mut Parsed, text: &str, ok: impl Fn(&str) -> bool) {
+    let path = p.settings.terminal_shell.trim().to_string();
+    if path.is_empty() || ok(&path) {
+        return;
+    }
+    let pos = strip(text)
+        .ok()
+        .and_then(|clean| top_level_keys(&clean).into_iter().rev().find(|(k, _)| k == "terminal.shell"))
+        .map_or(Pos { line: 1, col: 1 }, |(_, off)| pos_of_offset(text, off));
+    p.settings.terminal_shell = String::new();
+    p.problems.push(Problem::BadShell { path, pos });
+}
+
 /// 「设置…」时 `settings.json` 不存在就建这一份：全部设置项都列出来、**全都注释着** ——
 /// 没写的就是默认值，所以模板本身等于「什么都没改」。去掉行首的 `// ` 就生效。
 pub fn template() -> String {
@@ -597,10 +615,14 @@ impl Store {
     /// `touch` 一下、vim 存一个没改的文件都会来，结果一样就不广播。（第一版另外先比了一道原文，验红时删掉它测试照样绿 ——
     /// 解析是纯函数，原文一样结果必然一样，那道比较挡下的这里都会挡下，是多余的，删了。）
     /// 运行中整份坏了留着上一份好的（[`load`]），启动时没有上一份就是默认值
-    pub fn load_settings(&self, text: Option<String>) -> bool {
+    ///
+    /// `shell_ok`：`terminal.shell` 写的那个路径能不能用（要碰盘，调用方判，这里保持纯）。不能用就退回 `$SHELL`
+    /// 并报一条 [`Problem::BadShell`] —— SETTINGS.md 第 6 节：静默退回会让人以为自己的 shell 生效了
+    pub fn load_settings(&self, text: Option<String>, shell_ok: impl Fn(&str) -> bool) -> bool {
         let mut g = self.lock();
         let prev = g.loaded.then(|| g.parsed.settings.clone());
-        let next = load(text.as_deref(), prev.as_ref());
+        let mut next = load(text.as_deref(), prev.as_ref());
+        check_shell(&mut next, text.as_deref().unwrap_or_default(), shell_ok);
         g.loaded = true;
         let changed = next != g.parsed;
         g.parsed = next;
@@ -886,23 +908,23 @@ mod tests {
     #[test]
     fn store_原文没变不算变_运行中坏了留上一份_删掉回到默认() {
         let st = Store::default();
-        assert!(!st.load_settings(None), "启动时文件不存在：和默认一样，不算变");
-        assert!(st.load_settings(Some("{\"editor.fontSize\": 15}".into())));
-        assert!(!st.load_settings(Some("{\"editor.fontSize\": 15}".into())), "touch 一下、存一个没改的：原文一样，不广播");
-        assert!(st.load_settings(Some("{\"editor.fontSize\": 1".into())), "坏了：问题列表变了，要广播（状态栏要说）");
+        assert!(!st.load_settings(None, |_| true), "启动时文件不存在：和默认一样，不算变");
+        assert!(st.load_settings(Some("{\"editor.fontSize\": 15}".into()), |_| true));
+        assert!(!st.load_settings(Some("{\"editor.fontSize\": 15}".into()), |_| true), "touch 一下、存一个没改的：原文一样，不广播");
+        assert!(st.load_settings(Some("{\"editor.fontSize\": 1".into()), |_| true), "坏了：问题列表变了，要广播（状态栏要说）");
         let (e, problems) = st.view();
         assert_eq!(e.editor_font_size, 15, "运行中改坏了：留着上一份好的");
         assert!(problems[0].is_fatal());
-        assert!(st.load_settings(Some("{\"editor.fontSize\": 1}".into())), "修好了");
+        assert!(st.load_settings(Some("{\"editor.fontSize\": 1}".into()), |_| true), "修好了");
         assert_eq!(st.view().0.editor_font_size, FONT_MIN);
-        assert!(st.load_settings(None));
+        assert!(st.load_settings(None, |_| true));
         assert_eq!(st.view().0.editor_font_size, FONT_DEFAULT, "文件删了：回到默认");
     }
 
     #[test]
     fn store_启动时就坏了_没有上一份_用默认() {
         let st = Store::default();
-        assert!(st.load_settings(Some("{".into())), "问题列表从空变成一条：算变");
+        assert!(st.load_settings(Some("{".into()), |_| true), "问题列表从空变成一条：算变");
         assert_eq!(st.view().0, effective(&Settings::default(), &UiState::default()));
     }
 
@@ -929,10 +951,22 @@ mod tests {
     #[test]
     fn store_字号按当前的基础字号走() {
         let st = Store::default();
-        st.load_settings(Some("{\"editor.fontSize\": 20}".into()));
+        st.load_settings(Some("{\"editor.fontSize\": 20}".into()), |_| true);
         st.update_ui(|u, base| Ok(u.step_font(base, Some(3)))).unwrap();
         assert_eq!(st.view().0.editor_font_size, 23);
         st.update_ui(|u, base| Ok(u.step_font(base, None))).unwrap();
         assert_eq!(st.view().0.editor_font_size, 20, "⌘0 回到 settings.json 里的 20");
+    }
+
+    #[test]
+    fn shell_用不了_退回_shell_环境变量_报出来_标在那个键上() {
+        let st = Store::default();
+        let text = "{\n  \"terminal.shell\": \"/no/such/fish\"\n}";
+        st.load_settings(Some(text.into()), |p| p == "/bin/zsh");
+        let (e, problems) = st.view();
+        assert_eq!(e.terminal_shell, "", "用不了：退回 $SHELL");
+        assert_eq!(problems, vec![Problem::BadShell { path: "/no/such/fish".into(), pos: Pos { line: 2, col: 3 } }]);
+        st.load_settings(Some("{\"terminal.shell\": \"/bin/zsh\"}".into()), |p| p == "/bin/zsh");
+        assert_eq!(st.view(), (Effective { terminal_shell: "/bin/zsh".into(), ..effective(&Settings::default(), &UiState::default()) }, vec![]), "能用：照用，不报");
     }
 }

@@ -115,6 +115,11 @@ export const KEYS: KeyDef[] = [
    * 在应用菜单（最左边那个）里，归「文件」组只是为了速查表和随处搜索里有个位置。
    */
   { id: "quit", label: "退出 lite-ide", accel: "⌘Q", group: "文件", owner: "menu" },
+  /*
+   * 设置（issue #44）：在编辑器里打开 settings.json，不存在就先建一份带注释的模板。
+   * 在应用菜单里（macOS 惯例：「关于」下面），⌘, 是 macOS 和 IDEA 共同的设置键。没有窗口时也能点（开一个窗口打开它）
+   */
+  { id: "open-settings", label: "设置…", accel: "⌘,", group: "文件", owner: "menu" },
 
   // ── 导航 ──
   /*

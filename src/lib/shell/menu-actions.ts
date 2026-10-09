@@ -14,7 +14,7 @@
  * 它们是 `$state`，搬进普通模块就得改成另一套；通过 `MenuCtx` 回调过去。
  */
 import { probePath, diag, clearRecent } from "../ipc/commands";
-import { installCli, appLogPath, clearAppLog, openExternal, requestQuit } from "../ipc/app";
+import { installCli, appLogPath, clearAppLog, openExternal, openSettings, requestQuit } from "../ipc/app";
 import { notify } from "../state/notify.svelte";
 import { layout } from "../state/layout.svelte";
 import { tabs } from "../state/tabs.svelte";
@@ -69,6 +69,21 @@ async function installCliTool() {
  * 并且写了一行「启动 vX.Y.Z」。所以探不到它意味着日志根本没装上
  * （目录建不了、权限不对），那条消息要这么说，不能只说「打不开」。
  */
+/**
+ * 「设置…」（issue #44）：Rust 不存在就建模板，这边开成**正式标签**（不是预览：开它就是要改）。
+ * 有问题就跳到第一个问题那一行 —— 点状态栏那个提示也走这儿
+ */
+export async function openSettingsFile(line?: number) {
+  let path: string;
+  try {
+    path = await openSettings();
+  } catch (e) {
+    notify.fail(`打不开设置文件：${e}`);
+    return;
+  }
+  await nav.openAt(path, line, false);
+}
+
 async function openAppLog() {
   let path: string;
   try {
@@ -206,6 +221,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "help-log-clear": return void clearLog();
     // 菜单栏上的「退出」Rust 自己接了，到不了这里；这条是随处搜索里点的（同一条路）
     case "quit": return void requestQuit().catch(() => {});
+    case "open-settings": return void openSettingsFile();
     default:
       diag(`菜单项 ${id} 没有对应的处理`);
   }

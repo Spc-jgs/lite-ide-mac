@@ -34,11 +34,13 @@ impl Session {
         Self::spawn_with("", cwd, cols, rows)
     }
 
-    /// 指定 shell 的版本。
+    /// 指定 shell 的版本。`shell` 为空串时同 [`Session::spawn`]：用 `$SHELL`。
     ///
-    /// # 为什么要有
+    /// 产品里用它接设置里的 `terminal.shell`（issue #44）；空着就是 `$SHELL`。
     ///
-    /// **给测试用的，理由是 issue #30。** 这个仓库的 pty 测试原来一律起
+    /// # 为什么原来就有
+    ///
+    /// **先是给测试用的，理由是 issue #30。** 这个仓库的 pty 测试原来一律起
     /// `$SHELL -l` —— 也就是把**用户整份 `.zshrc` 拉进测试的判据里**。
     /// 代价在这台机器上是实打实的：`.zshrc` 里的 `pyenv init` 会在后台
     /// 起一个 `pyenv rehash`，而提示符在它之前就出来了 ——

@@ -8500,3 +8500,29 @@ lezer 的 JSON 语法在 Node 里直接跑：注释里的 `"JetBrains Mono"` 被
 
 **一个「快捷键没反应」的现象，先确认键到了哪个进程，再去查代码。** 这次第一反应是去 grep 前端有没有吃掉 `=`（#53 那个 ⌘S 的形状），
 其实键压根没进这个进程。
+
+## 2026-10-09 · #44 第 4 步：「设置…」、补全、行内标注、terminal.shell
+
+应用菜单里加「设置…」⌘,（`open_settings` 用 `create_new`：不存在才建模板）；没有窗口时 Rust 在后台线程建好、当成「打开一个文件」
+送去路由（会开一个窗口）。编辑设置文件时挂 `editor/settings-file.ts`（懒加载，单独一个 chunk）：legacy `json` 模式 + `tokenTable`、
+行首敲 `"` 补全键名、Rust 报的问题画成那一行的底色 + 行尾一句话；状态栏常驻「设置有 N 处问题」，点了跳到第一个。
+`terminal.shell`：读设置时判一次（不能用就退回 `$SHELL`、报一条问题，标在那个键上），起终端时再判一次（之后被删了的也不至于起不来）。
+入口包 +832 B。
+
+### 没引 `@codemirror/lint`
+
+它在 node_modules 里（被 lang-json 带进来的），但不是这个项目的直接依赖 —— 用它就是加依赖，要先问。这里要的只是「这行有问题、
+问题是什么」：一个 `StateField<DecorationSet>`（行装饰 + 行尾 widget）、改着的时候 `map` 跟着文字走、广播来了整份换掉，几十行。
+
+### 两处测试工具的坑
+
+- **Node 的 TS 支持只剥类型**：`constructor(readonly text: string)`（参数属性）是要编译的 TS 写法，测试跑的 node 直接报
+  `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`。svelte-check 不报，因为它是真的 TS 编译器。改成显式字段。
+- **批量验红的脚本漏判了一处**：「行号越界不夹」那一处改坏之后测试进程是**抛异常崩掉**的，不打印「✗」，而脚本只认「✗」，
+  报成了绿。单独重跑看到 `RangeError: Invalid line number 99`。**判红要看退出码 / 「N 个测试文件失败」，不能只认失败行的格式。**
+
+### 浏览器里拿 EditorView：`.cm-content` 上挂的是 `cmTile`
+
+这一版 CM6 在内容节点上挂的是 `cmTile`（`.view` 就是 EditorView），不是老文章里的 `cmView`。补全用页面已加载的那份
+`@codemirror_autocomplete.js`（从 `performance.getEntriesByType("resource")` 找 URL）的 `startCompletion` / `acceptCompletion` ——
+自己另 import 一份会是另一个模块实例，认不出这个编辑器。

@@ -15,6 +15,7 @@
   import { ideaDarkTheme, ideaDarkHighlight } from "./theme-idea-dark";
   import { langOf } from "./langs";
   import { loadLang } from "./langs-load";
+  import { settings } from "../state/settings.svelte";
   import { outlineOf, symbolCache, type Sym } from "./outline";
   import { minimap } from "./minimap";
   import { changeMarks, setChangeMarks } from "./changemarks";
@@ -623,6 +624,17 @@
   });
 
   async function applyLang(p: string) {
+    /*
+     * 设置文件（issue #44）：不按扩展名走 lang-json —— 它不认注释，注释掉的默认值会和生效的设置一个颜色
+     * （第 0 步实测）。换成 settings-file 那套（高亮 + 键名补全 + 问题标在行上），补全它自带，通用的那份不挂，
+     * 不然一次弹两套候选。判据是路径等于 Rust 给的那个，不是文件名 —— 项目里叫 settings.json 的别的文件照常
+     */
+    if (settings.v.path !== "" && p === settings.v.path) {
+      const m = await import("./settings-file");
+      if (!view) return;
+      view.dispatch({ effects: [langSlot.reconfigure(m.settingsFile()), completeSlot.reconfigure([])] });
+      return;
+    }
     const lang = langOf(p);
     const ext = await loadLang(lang);
     if (!view) return;

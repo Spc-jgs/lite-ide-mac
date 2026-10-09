@@ -30,6 +30,23 @@ fn read(p: &Option<PathBuf>) -> Option<String> {
     p.as_ref().and_then(|p| std::fs::read_to_string(p).ok())
 }
 
+/// `terminal.shell` 写的路径能不能当 shell 起：是个文件、有执行位。目录、断掉的软链、没 x 位的都不行
+pub fn shell_ok(p: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// 新开终端用哪个 shell：设置里写的（`terminal.shell`），空 = `$SHELL`（`ptysvc::Session::spawn_with` 收到空串就用它）。
+/// **起的这一刻再判一次**：读设置时还在、后来被删了的（卸载了 fish）也要退回 `$SHELL`，不然终端起不来
+pub fn terminal_shell(st: &AppState) -> String {
+    let shell = st.settings.view().0.terminal_shell;
+    if shell.is_empty() || shell_ok(&shell) {
+        return shell;
+    }
+    applog::write(applog::Level::Warn, "settings", &format!("terminal.shell 指的 {shell} 用不了了，这个终端用的是 $SHELL"));
+    String::new()
+}
+
 /// 文件监听活多久应用就活多久，放在这儿而不是每个窗口一份
 static WATCH: Mutex<Option<fsservice::watch::FileWatch>> = Mutex::new(None);
 
@@ -40,7 +57,7 @@ static WATCH: Mutex<Option<fsservice::watch::FileWatch>> = Mutex::new(None);
 pub fn init(app: &AppHandle) {
     let st = app.state::<AppState>();
     let sp = settings_path(app);
-    st.settings.load_settings(read(&sp));
+    st.settings.load_settings(read(&sp), shell_ok);
     st.settings.load_ui(read(&ui_path(app)).as_deref());
     let (_, problems) = st.settings.view();
     for p in &problems {
@@ -63,7 +80,7 @@ pub fn init(app: &AppHandle) {
 /// 文件监听报「碰过」：重读，真变了才广播（原文没变 `load_settings` 自己会认出来）
 fn reload(app: &AppHandle) {
     let text = read(&settings_path(app));
-    if app.state::<AppState>().settings.load_settings(text) {
+    if app.state::<AppState>().settings.load_settings(text, shell_ok) {
         crate::diag!("settings-changed（文件）");
         broadcast(app);
     }

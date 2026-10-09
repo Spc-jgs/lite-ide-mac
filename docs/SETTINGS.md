@@ -219,7 +219,7 @@ IPC 往返在临时身份的 `.app` 上往 `main.ts` 临时加了一个探针、
 | 1 ✅ | Rust：剥注释 + 键定义 + 合并默认值 + 校验（纯函数，裸单测）；`ui-state.json` 的解析 / 序列化（读写盘在第 2 步） | `src-tauri/src/settings.rs`，20 条测试；17 处各自改坏都红（第一版有一处没抓到，见 JOURNAL） |
 | 2 ✅ | Rust：`watch_file`（fsservice）、`settingsctl.rs`（读盘、监听、存 `ui-state.json`、广播）、`commands/settings.rs`（`settings` / `settings_schema` / `set_ui_state` / `step_font` / `adopt_ui_state` / `open_settings`）；DTO 和 TS 类型、桩 `mock/settings.ts` | `watch_file` 4 条、Store 5 条、模板 1 条，各自改坏都红（有一处绿：是多余的代码，删了，见 JOURNAL）；临时身份 `.app` 8/8 |
 | 3 ✅ | 前端：`settings.svelte.ts`（挂载前 `await settings.init()`）+ `settings-view.ts`（纯函数）、字体字号接上（CSS 变量 + 终端 `term.options`，**不重建终端**）、5 个旧偏好改走 Rust；**迁移**（下面） | 纯函数 10 条 + 状态测试 11 条，4 处改坏都红；浏览器里改设置终端不重建（去掉 `untrack` 就重建，验过红）；临时身份 `.app` 9/9（用真实数据副本升级、两窗口字号同步、⌘0 回到配置里的字号、写坏保持）；入口包 +1,072 B |
-| 4 | 「设置…」菜单、模板、补全、行内报错、状态栏提示；`terminal.shell` | 真 `.app` 验收（第 11 节） |
+| 4 ✅ | 「设置…」⌘,（应用菜单；没有窗口时开一个窗口打开它）、模板（`create_new`）、`settings-file.ts`（legacy `json` 模式 + `tokenTable`、键名补全、问题标在行上，懒加载）、状态栏「设置有 N 处问题」、`terminal.shell`（读设置时判一次报问题，起终端时再判一次） | 补全 / 标注 8 条 + Rust 1 条，4 处改坏都红；浏览器里：注释整行一个颜色、括号匹配正常、补全插入不多引号、标注和状态栏提示；临时身份 `.app` 10/10（不发全局按键）；入口包 +832 B |
 | 5 | 文档：USAGE 加一节「设置」，ARCHITECTURE 的文件表，DIRECTION 第 6 节标完成 | —— |
 
 **迁移**：升级后第一次启动，`ui-state.json` 不存在而 localStorage 里有旧的 5 个值 → 前端交给 Rust（同 `adoptRecent`：Rust 那边已经有了就不收）。旧的 `editorFont` 换算成偏移（旧值 − 13）。**旧键不删**：回退到旧版本时偏好还在。`settings.json` 不因为迁移而被建出来（第 6 节：只在你点「设置…」时建）。

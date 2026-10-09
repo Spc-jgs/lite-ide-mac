@@ -20,6 +20,7 @@
   import type { TabState } from "../state/tab";
   import { scratchSaveState, SCRATCH_SAVE_LABEL } from "../state/autosave";
   import type { GitEntry } from "../ipc/commands";
+  import { settings } from "../state/settings.svelte";
 
   let {
     active,
@@ -141,6 +142,20 @@
     <span class="cell dim navslot">{root ? projectName(root) : ""}</span>
   {/if}
   <span class="spacer"></span>
+
+  <!--
+    设置文件有问题（issue #44，SETTINGS.md 第 6 节「每一种都要告诉你」）：常驻到改好为止，悬停列出全部，
+    点了打开 settings.json 跳到第一个问题那一行。不走 notify：那是一闪而过的，而这是「你的设置现在没按你写的生效」
+  -->
+  {#if settings.v.problems.length > 0}
+    {@const ps = settings.v.problems}
+    <button
+      class="cell cbtn warn"
+      title={ps.map((p) => (p.line ? `第 ${p.line} 行：` : "") + p.text).join("\n")}
+      onclick={() => void nav.openAt(settings.v.path, ps[0].line ?? undefined, false)}
+    >设置有 {ps.length} 处问题</button>
+    <span class="vsep" aria-hidden="true"></span>
+  {/if}
 
   <!--
     后台任务的进度格（照 IDEA 右下角）：文字 · 3px 条 · 百分比 · 取消。只画最新的一个，

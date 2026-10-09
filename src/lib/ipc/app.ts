@@ -7,7 +7,7 @@
  * 几次的「安装命令行工具…」付钱。DTO（`CliInstall`）还在 `commands.ts`，`dto_sync.rs` 只看那儿。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { CliInstall } from "./commands";
+import type { CliInstall, SettingDef } from "./commands";
 
 /** 装 `lite` 命令。开发构建（不在 .app 里）会 reject */
 export const installCli = () => invoke<CliInstall>("install_cli");
@@ -20,6 +20,10 @@ export const clearAppLog = () => invoke<void>("clear_app_log");
 
 /** 退出：和菜单栏的 ⌘Q 走同一条路（先让每个窗口存好现场，见 `winctl::quit`）。只有随处搜索用它 */
 export const requestQuit = () => invoke<void>("request_quit");
+/** 「设置…」：settings.json 不存在就建模板（已有的一个字节都不碰），返回路径 */
+export const openSettings = () => invoke<string>("open_settings");
+/** 设置项的定义（补全用）。跟着用它的编辑器扩展一起懒加载 */
+export const settingsSchema = () => invoke<SettingDef[]>("settings_schema");
 
 /** 交给系统默认浏览器打开。Rust 侧只放行 http / https —— 见那边的注释 */
 export const openExternal = (url: string) => invoke<void>("open_external", { url });
