@@ -669,6 +669,10 @@ export interface ReplaceHit {
   col: number;
   text: string;
   spans: [number, number][];
+  /** 跨了几行（1 = 不跨行） */
+  lines: number;
+  /** 跨行时改前那几行（超过 200 行中间折叠） */
+  block: string | null;
 }
 
 export interface ReplaceFile {
@@ -702,6 +706,8 @@ export interface ReplaceScan {
 export interface ReplaceAfter {
   text: string;
   spans: [number, number][];
+  /** 有一边跨行时改后那几行 */
+  block: string | null;
 }
 
 export interface ReplaceEdit {

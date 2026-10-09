@@ -4,12 +4,13 @@
  * 照真实现的规则走（不然浏览器里试出来的和 .app 里不一样，桩就开始骗人）：
  * 命中由 `grepMatcher`（和 Rust 的 Matcher 同一套开关语义）算；位置是 UTF-16（JS 字符串本来就是）；
  * 执行前核对内容没变过；撤销前核对此刻还是「改后」那份。
- * 不模拟的：两段提交、替换日志落盘、崩溃恢复（那些是盘上的事，在 replacesvc 的测试里验）；
+ * 不模拟的：两段提交、替换日志落盘、崩溃恢复（那些是盘上的事，在 replacesvc 的测试里验）；跨行的命中（桩只按行找，
+ * `lines` 恒为 1 —— 跨行的界面要在真 .app 上看，smoke ㉒ 有一条）；
  * `$<name>` 这类 JS 和 Rust 正则方言不同的展开写法。
  */
 import { type A, bump, FILES, grepMatcher, NOT_MINE } from "./data";
 
-type Hit = { start: number; end: number; line: number; col: number; text: string; spans: [number, number][] };
+type Hit = { start: number; end: number; line: number; col: number; text: string; spans: [number, number][]; lines: number; block: string | null };
 type File = { rel: string; path: string; editor: boolean; text: string; hits: Hit[] };
 
 let last: { files: File[]; regex: boolean; matcher: (t: string) => [number, number][]; re: RegExp | null } | null = null;
@@ -24,7 +25,7 @@ function hitsOf(text: string, find: (t: string) => [number, number][]): Hit[] {
   let off = 0;
   lines.forEach((ln, i) => {
     for (const [a, b] of find(ln)) {
-      out.push({ start: off + a, end: off + b, line: i + 1, col: a + 1, text: ln.slice(0, 400), spans: [[a, Math.min(b, 400)]] });
+      out.push({ start: off + a, end: off + b, line: i + 1, col: a + 1, text: ln.slice(0, 400), spans: [[a, Math.min(b, 400)]], lines: 1, block: null });
     }
     off += ln.length + 1;
   });
@@ -64,7 +65,7 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
       last = { files, regex: !!a.regex, matcher, re };
       const total = files.reduce((n, f) => n + f.hits.length, 0);
       return {
-        files: files.map((f) => ({ rel: f.rel, path: f.path, editor: f.editor, hits: f.hits.map(({ line, col, text, spans }) => ({ line, col, text, spans })) })),
+        files: files.map((f) => ({ rel: f.rel, path: f.path, editor: f.editor, hits: f.hits.map(({ line, col, text, spans, lines, block }) => ({ line, col, text, spans, lines, block })) })),
         skipped: [],
         binary: 0,
         total,
@@ -81,7 +82,7 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
           const le = f.text.indexOf("\n", h.end) < 0 ? f.text.length : f.text.indexOf("\n", h.end);
           const r = replacementFor(f, h, repl);
           const text = f.text.slice(ls, h.start) + r + f.text.slice(h.end, le);
-          return { text: text.slice(0, 400), spans: [[h.start - ls, h.start - ls + r.length]] };
+          return { text: text.slice(0, 400), spans: [[h.start - ls, h.start - ls + r.length]], block: null };
         }),
       );
     }

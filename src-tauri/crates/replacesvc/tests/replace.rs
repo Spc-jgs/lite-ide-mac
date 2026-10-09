@@ -408,3 +408,53 @@ fn 正则替换展开分组_utf16位置对() {
     assert_eq!(out.changed[0].edits[0], Edit { from: 3, to: 11, insert: "fetchName(".into() });
     fs::remove_dir_all(d).ok();
 }
+
+#[test]
+fn 跨行替换_预览带片段_crlf文件换行符不变() {
+    // docs/REPLACE.md 12.3 + 验收 8：`@Autowired\n    private` 这种跨行的词。CRLF 文件里写 \n 一样配得上，写回去还是 CRLF
+    let d = sandbox("multiline");
+    let root = d.join("proj");
+    fs::write(root.join("A.java"), "class A {\r\n    @Autowired\r\n    private Repo repo;\r\n}\r\n").unwrap();
+    let q = Query { pattern: r"@Autowired\n\s*private".into(), regex: true, ..Default::default() };
+    let s = scan_all(&root, &q);
+    assert_eq!(s.total, 1);
+    let h = &s.files[0].hits[0];
+    assert_eq!((h.line, h.lines), (2, 2), "记在起头那一行，跨 2 行");
+    assert_eq!(h.text, "    @Autowired", "列表里显示起头那一行");
+    assert_eq!(h.block.as_deref(), Some("    @Autowired\n    private Repo repo;"), "点开看的是整的那两行");
+    let after = s.after("private final");
+    assert_eq!(after[0][0].block.as_deref(), Some("    private final Repo repo;"), "改后那一块：两行并成了一行");
+    let j = d.join("journal");
+    let none = HashMap::new();
+    let picks = all(&s);
+    apply(&s, &opts(&j, "private final", &picks, &none)).unwrap();
+    assert_eq!(read(&root.join("A.java")), "class A {\r\n    private final Repo repo;\r\n}\r\n", "换行符还是 CRLF");
+    fs::remove_dir_all(d).ok();
+}
+
+#[test]
+fn 不写换行的词不跨行_和查找一致() {
+    // `\s` 配得上换行：不按行找的话 foo 和下一行的 bar 会被连起来替换，而 ⇧⌘F 搜不到它 —— 同一个词两个答案
+    let d = sandbox("noml");
+    let root = d.join("proj");
+    fs::write(root.join("a.txt"), "foo\nbar\nfoo bar\n").unwrap();
+    let s = scan_all(&root, &Query { pattern: r"foo\s+bar".into(), regex: true, ..Default::default() });
+    assert_eq!(s.total, 1);
+    assert_eq!(s.files[0].hits[0].line, 3);
+    fs::remove_dir_all(d).ok();
+}
+
+#[test]
+fn 超长的跨行命中_预览中间折叠() {
+    let d = sandbox("fold");
+    let root = d.join("proj");
+    let body: String = (0..300).map(|i| format!("l{i}\n")).collect();
+    fs::write(root.join("a.txt"), format!("BEGIN\n{body}END\n")).unwrap();
+    let s = scan_all(&root, &Query { pattern: r"BEGIN\n[\s\S]*?\nEND".into(), regex: true, ..Default::default() });
+    let h = &s.files[0].hits[0];
+    assert_eq!(h.lines, 302);
+    let b = h.block.as_deref().unwrap();
+    assert_eq!(b.lines().count(), 41, "头 20 + 一行说明 + 尾 20");
+    assert!(b.contains("中间 262 行没显示"), "{b}");
+    fs::remove_dir_all(d).ok();
+}

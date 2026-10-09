@@ -11,7 +11,7 @@ const eq = (a: unknown, b: unknown, m: string) => {
   }
 };
 
-const hit = (line: number, col: number) => ({ line, col, text: "", spans: [] as [number, number][] });
+const hit = (line: number, col: number) => ({ line, col, text: "", spans: [] as [number, number][], lines: 1, block: null as string | null });
 const scan = {
   files: [
     { rel: "A.java", path: "/p/A.java", editor: false, hits: [hit(1, 1), hit(2, 1)] },
@@ -60,6 +60,18 @@ eq(applyEdits("abc", []), "abc", "没有编辑：原样");
 // ── 摊平 + 虚拟滚动 ──
 eq(flatten(scan, new Set()).length, 3 + 5, "三个文件头 + 五处");
 eq(flatten(scan, new Set(["B.java"])).map((r) => r.kind).join(","), "file,hit,hit,file,file,hit", "折叠的文件只剩文件头");
+// 跨行的命中：点开之后拆成改前 / 改后两块，一行一行（行高固定，虚拟滚动才能用乘法定位）
+{
+  const ml = { ...scan, files: [{ rel: "M.java", path: "/p/M.java", editor: false, hits: [{ ...hit(2, 5), lines: 2, block: "    @Autowired\n    private Repo r;" }] }] };
+  const after = [[{ text: "", spans: [] as [number, number][], block: "    private final Repo r;" }]];
+  eq(flatten(ml, new Set(), new Set(), after).length, 2, "没点开：文件头 + 一行");
+  const open = flatten(ml, new Set(), new Set([hitKey("M.java", hit(2, 5))]), after);
+  eq(
+    open.map((r) => (r.kind === "block" ? `${r.side}${r.text.trim()}` : r.kind)),
+    ["file", "hit", "-@Autowired", "-private Repo r;", "+private final Repo r;"],
+    "点开：改前两行、改后一行",
+  );
+}
 eq(visibleRange(1000, 24, 0, 240), [0, 18], "顶上：可见 10 行 + 下面多画 8 行");
 eq(visibleRange(1000, 24, 2400, 240), [92, 118], "滚到第 100 行：上下各多画 8 行");
 eq(visibleRange(5, 24, 0, 240), [0, 5], "不够一屏：全画");

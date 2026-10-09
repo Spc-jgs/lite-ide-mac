@@ -56,14 +56,32 @@ export function applyEdits(text: string, edits: readonly ReplaceEdit[]): string 
   return out;
 }
 
-/** 列表里的一行：文件头，或者一处命中。摊平了给虚拟滚动 —— 5000 处一次全画出来，DOM 节点就是几万个 */
-export type Row = { kind: "file"; fi: number } | { kind: "hit"; fi: number; hi: number };
+/**
+ * 列表里的一行：文件头、一处命中，或者点开「跨 N 行」之后改前（`-`）/ 改后（`+`）片段里的一行。
+ * 摊平了给虚拟滚动 —— 5000 处一次全画出来，DOM 节点就是几万个。跨行的片段也拆成一行一行：行高固定，虚拟滚动才能用乘法定位
+ */
+export type Row =
+  | { kind: "file"; fi: number }
+  | { kind: "hit"; fi: number; hi: number }
+  | { kind: "block"; fi: number; hi: number; side: "-" | "+"; text: string };
 
-export function flatten(scan: ReplaceScan, collapsed: ReadonlySet<string>): Row[] {
+export function flatten(
+  scan: ReplaceScan,
+  collapsed: ReadonlySet<string>,
+  expanded: ReadonlySet<string> = new Set(),
+  after: readonly (readonly ({ block: string | null } | undefined)[])[] = [],
+): Row[] {
   const out: Row[] = [];
   scan.files.forEach((f, fi) => {
     out.push({ kind: "file", fi });
-    if (!collapsed.has(f.rel)) f.hits.forEach((_, hi) => out.push({ kind: "hit", fi, hi }));
+    if (collapsed.has(f.rel)) return;
+    f.hits.forEach((h, hi) => {
+      out.push({ kind: "hit", fi, hi });
+      if (h.lines <= 1 || !expanded.has(hitKey(f.rel, h))) return;
+      for (const t of (h.block ?? h.text).split("\n")) out.push({ kind: "block", fi, hi, side: "-", text: t });
+      const a = after[fi]?.[hi]?.block;
+      if (a !== null && a !== undefined) for (const t of a.split("\n")) out.push({ kind: "block", fi, hi, side: "+", text: t });
+    });
   });
   return out;
 }

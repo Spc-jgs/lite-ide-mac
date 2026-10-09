@@ -816,6 +816,36 @@ if rp_open; then
     click "撤销"
     wait_for 10 'grep -q "ZQXJ_RENAME b1" "'"${REP}"'/b.txt"'
   fi
+  # 验收 8：跨行的词（docs/REPLACE.md 12.3）。CRLF 文件里写 \n 一样配得上，预览标「跨 2 行」、点开看得到整块，写回去还是 CRLF。
+  # 浏览器桩只按行找，跨行的界面只有真 .app 上看得到
+  printf 'class M {\r\n    @Autowired\r\n    private Repo r;\r\n}\r\n' > "${REP}/m.java"
+  if rp_open; then
+    is "document.querySelector($(q "${RP} .toggles button[aria-label^=\"正则\"]")).click(); return true"
+    fill '@Autowired\n\s*private' "${RP} input[aria-label=\"查找\"]"
+    fill "private final" "${RP} input[aria-label=\"替换为\"]"
+    if rp_wait_info "1 处 · 1 个文件"; then
+      ok "跨行的词在 CRLF 文件里找到了（1 处）"
+      if click "跨 2 行" button prefix; then
+        lite_wait "${W}" "return [...document.querySelectorAll($(q "${RP} .row.blk"))].some((r) => r.innerText.includes('private final Repo r;'))" 5 \
+          && ok "「跨 2 行」点开：改后那一块是并成一行的 private final Repo r;" || bad "点开之后没看到改后的整块"
+      else
+        bad "跨行的命中没有「跨 2 行」的标记"
+      fi
+      click "替换 1 处" button prefix
+      wait_for 10 'grep -q "private final" "'"${REP}"'/m.java"'
+      check "$(od -c "${REP}/m.java" | grep -c '\\r')" "$(printf 'class M {\r\n    private final Repo r;\r\n}\r\n' | od -c | grep -c '\\r')" "替换后 m.java 的换行符还是 CRLF"
+      check "$(tr -d '\r' < "${REP}/m.java")" "$(printf 'class M {\n    private final Repo r;\n}')" "两行并成了一行，内容对"
+    else
+      bad "跨行的词没找到：$(rp_info)"
+    fi
+  fi
+  # 「正则」开关记在 store 里、浮层关了还开着：再开一次把它关掉，后面几段（和 ⇧⌘F）按默认来
+  if rp_open; then
+    is "const b = document.querySelector($(q "${RP} .toggles button[aria-label^=\"正则\"]")); if (b.getAttribute('aria-pressed') === 'true') b.click(); return true"
+    lite_wait "${W}" "return document.querySelector($(q "${RP} .toggles button[aria-label^=\"正则\"]"))?.getAttribute('aria-pressed') === 'false'" 3 || bad "正则开关没关回去"
+    key "Escape"
+    lite_wait "${W}" "return !document.querySelector($(q "${RP}"))" 4
+  fi
   # a.txt 改回原样：留着没存的改动的话，⑫ 那句「关闭所有标签」会弹确认框，editors 就不归零
   is "__lite.tabs.show(__lite.tabs.byPath($(q "${REP}/a.txt")).id); await new Promise(r => setTimeout(r, 300)); __lite.setText('ZQXJ_RENAME a1\nZQXJ_RENAME a2\n'); return true"
   lite_wait "${W}" "return __lite.tabs.byPath($(q "${REP}/a.txt"))?.dirty === false" 4 || bad "a.txt 改回原样之后还是脏的"

@@ -55,6 +55,33 @@ pub struct Hit {
     /// 这一行（截到 400 字），和这一处在行里的 UTF-16 区间
     pub text: String,
     pub spans: Vec<[u32; 2]>,
+    /// 跨了几行（1 = 不跨行）。跨行的命中在列表里仍然只占一行，标「跨 N 行」（docs/REPLACE.md 12.3）
+    pub lines: u32,
+    /// 跨行时：改前那几行（整行，超过 200 行中间折叠），点开「跨 N 行」看的就是它
+    pub block: Option<String>,
+}
+
+/// 跨行命中的预览片段：超过 [`FOLD_OVER`] 行只留头尾各 [`FOLD_KEEP`] 行 —— 一个几千行的命中把列表撑满没人看得完，
+/// 执行不受影响（改的是整个命中）
+const FOLD_OVER: usize = 200;
+const FOLD_KEEP: usize = 20;
+
+fn fold(block: &str) -> String {
+    let lines: Vec<&str> = block.split('\n').collect();
+    if lines.len() <= FOLD_OVER {
+        return block.to_string();
+    }
+    let hidden = lines.len() - FOLD_KEEP * 2;
+    let mut out: Vec<String> = lines[..FOLD_KEEP].iter().map(|l| l.to_string()).collect();
+    out.push(format!("…（中间 {hidden} 行没显示，替换照样改）…"));
+    out.extend(lines[lines.len() - FOLD_KEEP..].iter().map(|l| l.to_string()));
+    out.join("\n")
+}
+
+/// 一处命中占的整行范围：从起头那一行的行首，到结尾那一行的行尾（跨行的命中跨几行就是几行）
+fn block_bounds(text: &str, s: usize, e: usize) -> (usize, usize) {
+    let (ls, le) = line_bounds(text, s);
+    (ls, if e > le { line_bounds(text, e).1 } else { le })
 }
 
 #[derive(Debug, Clone)]
@@ -174,6 +201,8 @@ fn hits_of(m: &Matcher, text: &str) -> Vec<Hit> {
         last = s;
         let (ls, le) = line_bounds(text, s);
         let lt = &text[ls..le];
+        let lines = text[s..e].matches('\n').count() as u32 + 1;
+        let (_, be) = block_bounds(text, s, e);
         out.push(Hit {
             start: s,
             end: e,
@@ -181,6 +210,8 @@ fn hits_of(m: &Matcher, text: &str) -> Vec<Hit> {
             col: text[ls..s].encode_utf16().count() as u32 + 1,
             text: lt.chars().take(LINE_CLIP).collect(),
             spans: searchsvc::utf16_spans(lt, &[(s - ls, e.min(le) - ls)], LINE_CLIP),
+            lines,
+            block: (lines > 1).then(|| fold(&text[ls..be])),
         });
     }
     out
@@ -321,9 +352,12 @@ pub fn scan(
 /// 预览里「改后」那一行
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct After {
+    /// 改后的第一行（跨行的命中、或者替换串里有换行时，后面的在 `block` 里）
     pub text: String,
     /// 换上去的那一段在这一行里的 UTF-16 区间
     pub spans: Vec<[u32; 2]>,
+    /// 改前或改后有一边跨行时：改后那几行（整行，超过 200 行中间折叠）
+    pub block: Option<String>,
 }
 
 impl Scan {
@@ -335,14 +369,15 @@ impl Scan {
                 f.hits
                     .iter()
                     .map(|h| {
-                        let (ls, le) = line_bounds(&f.text, h.start);
+                        let (ls, be) = block_bounds(&f.text, h.start, h.end);
                         let r = self.matcher.replacement(&f.text, (h.start, h.end), repl);
-                        let tail_end = if h.end > le { line_bounds(&f.text, h.end).1 } else { le };
-                        let line = format!("{}{}{}", &f.text[ls..h.start], r, &f.text[h.end..tail_end]);
+                        let whole = format!("{}{}{}", &f.text[ls..h.start], r, &f.text[h.end..be]);
+                        let first = whole.split('\n').next().unwrap_or_default();
                         let at = h.start - ls;
                         After {
-                            spans: searchsvc::utf16_spans(&line, &[(at, at + r.len())], LINE_CLIP),
-                            text: line.chars().take(LINE_CLIP).collect(),
+                            spans: searchsvc::utf16_spans(first, &[(at, (at + r.len()).min(first.len()))], LINE_CLIP),
+                            text: first.chars().take(LINE_CLIP).collect(),
+                            block: (h.lines > 1 || r.contains('\n')).then(|| fold(&whole)),
                         }
                     })
                     .collect()

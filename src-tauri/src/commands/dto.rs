@@ -447,6 +447,10 @@ pub struct ReplaceHitDto {
     pub col: u32,
     pub text: String,
     pub spans: Vec<[u32; 2]>,
+    /// 跨了几行（1 = 不跨行）
+    pub lines: u32,
+    /// 跨行时改前那几行（超过 200 行中间折叠）
+    pub block: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -485,6 +489,8 @@ pub struct ReplaceScanDto {
 pub struct ReplaceAfterDto {
     pub text: String,
     pub spans: Vec<[u32; 2]>,
+    /// 有一边跨行时改后那几行
+    pub block: Option<String>,
 }
 
 #[derive(serde::Serialize)]

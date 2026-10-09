@@ -55,7 +55,7 @@
     return () => clearTimeout(t);
   });
 
-  let rows = $derived(replace.scan ? flatten(replace.scan, replace.collapsed) : []);
+  let rows = $derived(replace.scan ? flatten(replace.scan, replace.collapsed, replace.expanded, replace.after) : []);
   let range = $derived(visibleRange(rows.length, ROW, scrollTop, viewH));
   let n = $derived(replace.scan ? counts(replace.scan, replace.unchecked) : { hits: 0, files: 0 });
   let canRun = $derived(!!replace.scan && !replace.scan.truncated && n.hits > 0 && !replace.scanning && !replace.applying);
@@ -91,6 +91,15 @@
     if (next.has(k)) next.delete(k);
     else next.add(k);
     replace.unchecked = next;
+  }
+
+  /** 点开 / 收起「跨 N 行」：改前改后两块逐行摊在下面（docs/REPLACE.md 12.3） */
+  function toggleExpand(rel: string, h: { line: number; col: number }) {
+    const k = hitKey(rel, h);
+    const next = new Set(replace.expanded);
+    if (next.has(k)) next.delete(k);
+    else next.add(k);
+    replace.expanded = next;
   }
 
   function toggleCollapse(rel: string) {
@@ -163,7 +172,7 @@
         <div class="none">没有找到 —— 换个词，或者看看上面三个开关</div>
       {/if}
       <div class="inner" style:height="{rows.length * ROW}px">
-        {#each rows.slice(range[0], range[1]) as row, k (row.kind === "file" ? `f${row.fi}` : `h${row.fi}:${row.hi}`)}
+        {#each rows.slice(range[0], range[1]) as row, k (row.kind === "file" ? `f${row.fi}` : row.kind === "hit" ? `h${row.fi}:${row.hi}` : `b${range[0] + k}`)}
           {@const f = replace.scan!.files[row.fi]}
           {#if row.kind === "file"}
             {@const st = fileState(f, replace.unchecked)}
@@ -184,6 +193,12 @@
               <span class="side">{dirOf(f.rel)}</span>
               <span class="cnt">{f.hits.length}</span>
             </div>
+          {:else if row.kind === "block"}
+            <!-- 跨行命中点开之后的片段：改前（-）/ 改后（+）各一块，一行一行，像 diff 那样 -->
+            <div class="row blk" class:minus={row.side === "-"} style:top="{(range[0] + k) * ROW}px">
+              <span class="sign">{row.side}</span>
+              <span class="code">{row.text}</span>
+            </div>
           {:else}
             {@const h = f.hits[row.hi]}
             {@const d = inlineDiff(h, replace.after[row.fi]?.[row.hi])}
@@ -191,6 +206,16 @@
               <input type="checkbox" checked={!replace.unchecked.has(hitKey(f.rel, h))} onchange={() => toggleHit(f.rel, h)} />
               <span class="ln">{h.line}</span>
               <span class="code">{d.pre}<del>{d.old}</del>{#if d.neu !== null}<ins>{d.neu}</ins>{/if}{d.post}</span>
+              {#if h.lines > 1}
+                <!-- 跨行的命中在列表里仍然只占一行（不让一个大块把列表撑乱），点这个看整块 -->
+                <button
+                  class="btn quiet sm multi"
+                  onclick={(e) => {
+                    e.preventDefault();
+                    toggleExpand(f.rel, h);
+                  }}
+                >跨 {h.lines} 行 {replace.expanded.has(hitKey(f.rel, h)) ? "▴" : "▾"}</button>
+              {/if}
             </label>
           {/if}
         {/each}
@@ -302,6 +327,13 @@
   .code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--code-font); font-size: var(--fs-sm); color: var(--text-dim); }
   del { color: var(--lvl-error); text-decoration: line-through; background: color-mix(in srgb, var(--lvl-error) 14%, transparent); }
   ins { color: var(--text); text-decoration: none; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .multi { flex: none; }
+  .row.blk { padding-left: 64px; }
+  .row.blk .sign { flex: none; width: 10px; font-family: var(--code-font); color: color-mix(in srgb, var(--accent) 80%, var(--text)); }
+  .row.blk.minus .sign { color: var(--lvl-error); }
+  .row.blk .code { white-space: pre; color: var(--text); }
+  .row.blk.minus .code { color: var(--text-dim); }
+  .row.blk:hover { background: transparent; }
 
   .foot {
     flex: none;

@@ -1,4 +1,4 @@
-import type { ReplacePending, ReplaceScan } from "../ipc/commands";
+import type { ReplaceAfter, ReplacePending, ReplaceScan } from "../ipc/commands";
 
 /**
  * 跨文件替换（#42）的状态。**放 store 不放浮层**：浮层一 Esc 就销毁，而查询、替换串、你取消勾选的那几处
@@ -12,9 +12,11 @@ class ReplaceState {
   unchecked = $state<Set<string>>(new Set());
   /** 折叠起来的文件（相对路径） */
   collapsed = $state<Set<string>>(new Set());
+  /** 点开了「跨 N 行」的那几处（`hitKey`） */
+  expanded = $state<Set<string>>(new Set());
   scan = $state<ReplaceScan | null>(null);
   /** `scan.files[i].hits[j]` 一一对应的「改后」那一行 */
-  after = $state<{ text: string; spans: [number, number][] }[][]>([]);
+  after = $state<ReplaceAfter[][]>([]);
   scanning = $state(false);
   applying = $state(false);
   /** 扫描 / 执行没做成的那句话（正则写错了、上次中断没处理…） */

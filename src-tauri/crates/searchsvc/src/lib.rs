@@ -280,16 +280,35 @@ pub fn grep(root: impl AsRef<Path>, q: &Query, limit: usize, skip: &Skip) -> io:
     }
 }
 
-/// 一行 → 一条命中（这一行里没有 Matcher 认的命中就是 None）。两条路都走它，结果的形状一个字都不各写各的
-fn hit_of(m: &Matcher, path: String, line: u64, text: &str) -> Option<Hit> {
-    let text = text.trim_end_matches(['\n', '\r']);
-    let spans = m.find_all(text);
-    if spans.is_empty() {
-        return None;
+/// 一块文本（`first_line` 起的连续几行）→ 命中，**按起始行分**：每一行一条，带这一行里起头的那几处。
+/// 跨行的命中记在它起头的那一行上，显示那一行（#42 第 5 步）。
+///
+/// 两条路都走它：rg 给的是一行（不跨行）或一块（`-U`，几行连着），内置实现给的是一行或整个文件 ——
+/// 「按起始行分」只写这一处，两条路拆出来的形状才一样（rg 会把挨着的两处跨行命中并成一块，不拆就对不上）
+fn hits_in_block(m: &Matcher, path: &str, first_line: u64, block: &str) -> Vec<Hit> {
+    let block = block.trim_end_matches(['\n', '\r']);
+    let all = m.find_all(block);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < all.len() {
+        let s = all[i].0;
+        let ls = block[..s].rfind('\n').map_or(0, |x| x + 1);
+        let le = block[s..].find('\n').map_or(block.len(), |x| s + x);
+        let line = &block[ls..le];
+        let mut spans = Vec::new();
+        while i < all.len() && all[i].0 <= le {
+            spans.push((all[i].0 - ls, all[i].1.min(le) - ls));
+            i += 1;
+        }
+        let clipped = clip(line.trim_end());
+        out.push(Hit {
+            path: path.to_string(),
+            line: first_line + block[..ls].matches('\n').count() as u64,
+            spans: utf16_spans(line, &spans, clipped.chars().count()),
+            text: clipped,
+        });
     }
-    let clipped = clip(text.trim_end());
-    let spans = utf16_spans(text, &spans, clipped.chars().count());
-    Some(Hit { path, line, text: clipped, spans })
+    out
 }
 
 /// rg 是否可用，供界面显示当前走的哪条路
@@ -336,6 +355,10 @@ fn grep_rg(root: &Path, q: &Query, m: &Matcher, limit: usize, skip: &Skip) -> io
         cmd.arg("-F");
     }
     cmd.arg(if q.case { "-s" } else { "-i" });
+    // 跨行（正则里写了 \n）：rg 默认按行搜，不加 -U 它直接报错「不许有字面的 \n」
+    if m.multiline() {
+        cmd.arg("-U");
+    }
     // **跟内置实现跳同一批目录。**
     //
     // rg 靠 `.gitignore` 跳过 node_modules 之类，但项目不一定是 git 仓库、
@@ -391,7 +414,7 @@ fn grep_rg(root: &Path, q: &Query, m: &Matcher, limit: usize, skip: &Skip) -> io
         .map(|(_, s)| s)
         .unwrap_or_default();
 
-    cmd.args(["-e", &q.pattern]).arg("--").arg(root);
+    cmd.args(["-e", m.rg_pattern()]).arg("--").arg(root);
     for s in &syms {
         cmd.arg(root.join(s));
     }
@@ -419,12 +442,15 @@ fn grep_rg(root: &Path, q: &Query, m: &Matcher, limit: usize, skip: &Skip) -> io
                 Ok(_) => {}
                 Err(_) => break,
             }
-            if let Some(h) = parse_rg_line(&line, root, &canon, m) {
+            for h in parse_rg_line(&line, root, &canon, m) {
                 hits.push(h);
                 if hits.len() >= limit {
                     掐掉了 = true;
                     break;
                 }
+            }
+            if 掐掉了 {
+                break;
             }
         }
     }
@@ -451,17 +477,22 @@ fn grep_rg(root: &Path, q: &Query, m: &Matcher, limit: usize, skip: &Skip) -> io
     Ok(hits)
 }
 
-/// 解析 rg `--json` 的一行。不是命中、解不出来、或者 Matcher 不认这一行，都返回 None。
-fn parse_rg_line(line: &[u8], root: &Path, canon: &Path, m: &Matcher) -> Option<Hit> {
-    if line.is_empty() {
-        return None;
-    }
-    let v = serde_json::from_slice::<serde_json::Value>(line).ok()?;
-    if v["type"] != "match" {
-        return None;
-    }
-    let d = &v["data"];
-    hit_of(m, rel(root, canon, d["path"]["text"].as_str()?), d["line_number"].as_u64()?, d["lines"]["text"].as_str()?)
+/// 解析 rg `--json` 的一行（一个「命中」消息 = 一行，或者 `-U` 时连着的几行）。
+/// 不是命中、解不出来、或者 Matcher 一处都不认，都是空的。
+fn parse_rg_line(line: &[u8], root: &Path, canon: &Path, m: &Matcher) -> Vec<Hit> {
+    let parse = || -> Option<Vec<Hit>> {
+        if line.is_empty() {
+            return None;
+        }
+        let v = serde_json::from_slice::<serde_json::Value>(line).ok()?;
+        if v["type"] != "match" {
+            return None;
+        }
+        let d = &v["data"];
+        let path = rel(root, canon, d["path"]["text"].as_str()?);
+        Some(hits_in_block(m, &path, d["line_number"].as_u64()?, d["lines"]["text"].as_str()?))
+    };
+    parse().unwrap_or_default()
 }
 
 /// 进程内回落实现：遍历索引到的文件逐个扫，按行交给 Matcher。
@@ -488,15 +519,13 @@ fn grep_builtin(root: &Path, m: &Matcher, limit: usize, skip: &Skip) -> io::Resu
         if memchr::memchr(0, &bytes[..bytes.len().min(4096)]).is_some() {
             continue;
         }
-        // 非 UTF-8 的字节换成 U+FFFD 再按行找 —— rg 也是把内容当 UTF-8 看的，两边对得上
+        // 非 UTF-8 的字节换成 U+FFFD 再找 —— rg 也是把内容当 UTF-8 看的，两边对得上。
+        // 整个文件当一块交出去：不跨行的词 Matcher 自己按行找，跨行的在整份上找；按起始行拆成命中由 hits_in_block 做
         let text = String::from_utf8_lossy(&bytes);
-        for (idx, line) in text.split('\n').enumerate() {
-            // 行号 1-based，与编辑器显示一致
-            if let Some(h) = hit_of(m, rel_path.clone(), idx as u64 + 1, line) {
-                hits.push(h);
-                if hits.len() >= limit {
-                    break;
-                }
+        for h in hits_in_block(m, &rel_path, 1, &text) {
+            hits.push(h);
+            if hits.len() >= limit {
+                break;
             }
         }
     }
@@ -606,22 +635,22 @@ mod tests {
         let root = Path::new("/proj");
         let hit = Matcher::new(&Query::literal("hit")).unwrap();
         let one = br#"{"type":"match","data":{"path":{"text":"/proj/src/a.rs"},"line_number":7,"lines":{"text":"  hit here\n"}}}"#;
-        let h = parse_rg_line(one, root, root, &hit).expect("这是一条命中");
+        let h = parse_rg_line(one, root, root, &hit).pop().expect("这是一条命中");
         assert_eq!(h.path, "src/a.rs", "路径要转成相对根的");
         assert_eq!(h.line, 7);
         assert_eq!(h.text, "  hit here", "行尾换行要去掉，行首缩进要留着");
         assert_eq!(h.spans, vec![[2, 5]], "命中在哪一段由 Matcher 算，UTF-16 下标");
         // rg 给了这一行、Matcher 不认（比如整词不合格）：这一行不算命中
         let word = Matcher::new(&Query { pattern: "hi".into(), word: true, ..Default::default() }).unwrap();
-        assert!(parse_rg_line(one, root, root, &word).is_none(), "最后由 Matcher 说了算");
+        assert!(parse_rg_line(one, root, root, &word).is_empty(), "最后由 Matcher 说了算");
 
         // 不是命中的、坏的、空的，一律 None，不能 panic
-        assert!(parse_rg_line(br#"{"type":"begin","data":{}}"#, root, root, &hit).is_none());
-        assert!(parse_rg_line(b"{ this is not json", root, root, &hit).is_none());
-        assert!(parse_rg_line(b"", root, root, &hit).is_none());
+        assert!(parse_rg_line(br#"{"type":"begin","data":{}}"#, root, root, &hit).is_empty());
+        assert!(parse_rg_line(b"{ this is not json", root, root, &hit).is_empty());
+        assert!(parse_rg_line(b"", root, root, &hit).is_empty());
         assert!(
             parse_rg_line(br#"{"type":"match","data":{"path":{"text":"/proj/a"}}}"#, root, root, &hit)
-                .is_none(),
+                .is_empty(),
             "缺字段的命中要当没有，不能 unwrap 崩掉"
         );
     }
@@ -767,6 +796,10 @@ mod tests {
         .unwrap();
         // 最后一行没有换行：内置实现原来按换行切，这一行永远搜不到
         fs::write(d.join("src/nolf.txt"), "first\nlastline here").unwrap();
+        // 跨行（#42 第 5 步）：CRLF 和 LF 各一份；两处跨行命中挨着（rg -U 会把它们并成一块）；
+        // 还有一行 `foo  bar` 给「不写 \n 就不跨行」那条 —— 上一行的 foo 和下一行的 bar 不能被 \s+ 连起来
+        fs::write(d.join("src/ml-crlf.txt"), "head\r\nfoo\r\nbar\r\ntail\r\n").unwrap();
+        fs::write(d.join("src/ml-lf.txt"), "x1\ny1\nx2\ny2\nfoo\nbar\nfoo  bar\n").unwrap();
         let cases: &[(&str, bool, bool, bool)] = &[
             // (词, 区分大小写, 整词, 正则)
             ("needle", false, false, false),
@@ -782,6 +815,9 @@ mod tests {
             ("order", false, true, false),
             (r"o\w+r", false, false, true),
             ("lastline", false, false, false),
+            (r"foo\nbar", false, false, true),
+            (r"x\d\ny\d", false, false, true),
+            (r"foo\s+bar", false, false, true),
         ];
         let key = |hs: Vec<Hit>| {
             let mut v: Vec<(String, u64, Vec<[u32; 2]>)> = hs.into_iter().map(|h| (h.path, h.line, h.spans)).collect();
@@ -795,6 +831,16 @@ mod tests {
             let b = key(grep_builtin(&d, &m, 100, &Skip::by_name()).unwrap());
             assert_eq!(a, b, "rg 与内置实现对「{p}」（区分大小写 {case}、整词 {word}、正则 {regex}）搜出的结果不一致");
             assert!(!a.is_empty(), "「{p}」一条都没搜到 —— 语料里每个词都有命中，两边一起空着说明测试本身坏了");
+            if p == r"foo\s+bar" {
+                assert!(a.iter().all(|(f, l, _)| !(f.ends_with("ml-lf.txt") && *l == 5)), "不写 \\n 就不跨行：第 5 行的 foo 不该和第 6 行的 bar 连起来");
+            }
+            if p == r"foo\nbar" {
+                assert!(a.iter().any(|(f, l, _)| f.ends_with("ml-crlf.txt") && *l == 2), "CRLF 文件里的跨行也搜得到（记在起头那一行）：{a:?}");
+            }
+            if p == r"x\d\ny\d" {
+                let ls: Vec<u64> = a.iter().filter(|(f, ..)| f.ends_with("ml-lf.txt")).map(|(_, l, _)| *l).collect();
+                assert_eq!(ls, vec![1, 3], "挨着的两处跨行命中各记一条（rg 并成一块的话要拆开）");
+            }
         }
         fs::remove_dir_all(d).ok();
     }

@@ -83,7 +83,18 @@ pub async fn replace_scan(
                 rel: f.rel.clone(),
                 path: f.abs.to_string_lossy().into_owned(),
                 editor: matches!(f.source, replacesvc::Source::Editor),
-                hits: f.hits.iter().map(|h| ReplaceHitDto { line: h.line, col: h.col, text: h.text.clone(), spans: h.spans.clone() }).collect(),
+                hits: f
+                    .hits
+                    .iter()
+                    .map(|h| ReplaceHitDto {
+                        line: h.line,
+                        col: h.col,
+                        text: h.text.clone(),
+                        spans: h.spans.clone(),
+                        lines: h.lines,
+                        block: h.block.clone(),
+                    })
+                    .collect(),
             })
             .collect(),
         skipped: scan.skipped.iter().cloned().map(skip_dto).collect(),
@@ -108,7 +119,7 @@ pub async fn replace_preview(
         Ok(scan
             .after(&replacement)
             .into_iter()
-            .map(|f| f.into_iter().map(|a| ReplaceAfterDto { text: a.text, spans: a.spans }).collect())
+            .map(|f| f.into_iter().map(|a| ReplaceAfterDto { text: a.text, spans: a.spans, block: a.block }).collect())
             .collect())
     })
     .await
