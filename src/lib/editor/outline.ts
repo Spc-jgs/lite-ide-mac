@@ -10,9 +10,9 @@
  * 没有语法树，大纲为空 —— 界面会明说，不假装。
  */
 
-import { syntaxTree } from "@codemirror/language";
-import type { EditorState } from "@codemirror/state";
-import type { SyntaxNode } from "@lezer/common";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
+import { EditorState, type Extension } from "@codemirror/state";
+import type { SyntaxNode, Tree } from "@lezer/common";
 
 export interface Sym {
   name: string;
@@ -41,7 +41,11 @@ const KINDS: Record<string, string> = {
   // JavaScript / TypeScript
   FunctionDeclaration: "函数",
   MethodDefinition: "方法",
-  PropertyDefinition: "属性",
+  /*
+   * 类字段的声明节点是 `PropertyDeclaration`。原来这里写的是 `PropertyDefinition` —— 那是**名字**节点，
+   * 方法名、类字段名、接口里的属性名都是它，于是 TS / JS 的每个方法在大纲里列两次（2026-10-09 #43 的测试抓到的）
+   */
+  PropertyDeclaration: "属性",
   ClassExpression: "类",
   InterfaceDeclaration_TS: "接口",
   TypeAliasDeclaration: "类型",
@@ -121,10 +125,15 @@ function nameOf(state: EditorState, node: SyntaxNode): string | null {
   return ids[ids.length - 1];
 }
 
-/** 提取当前文档的符号大纲 */
-export function outlineOf(state: EditorState): Sym[] {
+/**
+ * 提取当前文档的符号大纲。`tree` 不给就用 state 上现成的那棵（编辑器里就是它）。
+ *
+ * **`ensureSyntaxTree` 解析出来的树要传进来**：它推进的是解析上下文，state 上 `syntaxTree(state)` 读到的
+ * 还是建 state 时那棵只铺了开头的树。不传的话 5000 行的 Java 只拿到前 54 个符号，而且没有任何报错
+ * （2026-10-09 #43 的测试抓到的）
+ */
+export function outlineOf(state: EditorState, tree: Tree = syntaxTree(state)): Sym[] {
   const out: Sym[] = [];
-  const tree = syntaxTree(state);
   // 文档还没解析完（超大文件）时不硬扛，返回空由界面提示
   if (tree.length < state.doc.length / 2 && state.doc.length > 200_000) return out;
 
@@ -155,6 +164,23 @@ export function outlineOf(state: EditorState): Sym[] {
     },
   });
   return out;
+}
+
+/** 解析最多等这么久。Lezer 是增量的，超时拿到的是没铺完的树 —— 大文件上 `outlineOf` 对半棵树返回空表，不假装 */
+const PARSE_MS = 300;
+/** 太大的不解析：符号跳转不是给几 MB 的生成文件准备的 */
+const MAX_CHARS = 2_000_000;
+
+/**
+ * **没打开的文件**的符号（issue #43：⌘P 里 `文件@符号`）。照编辑器那样建一份 `EditorState`、挂上语言扩展、
+ * 让 Lezer 解析一遍，再走同一个 `outlineOf` —— 符号怎么认、名字怎么抠和大纲是一套，不另写。
+ * 语言扩展由调用方给（`file-symbols.ts` 按文件名懒加载），这里只依赖 CM6 的包，裸 node 里测得了
+ */
+export function outlineOfText(text: string, lang: Extension): Sym[] {
+  if (text.length > MAX_CHARS) return [];
+  const state = EditorState.create({ doc: text, extensions: [lang] });
+  const tree = ensureSyntaxTree(state, state.doc.length, PARSE_MS);
+  return tree ? outlineOf(state, tree) : [];
 }
 
 /**

@@ -674,6 +674,38 @@ else
   fi
 fi
 
+say "㉑ ⌘P 一个框走到底：文件@符号、文件:行:列、单独的 @ 和 :（issue #43）"
+#
+# Sublime 的 Goto Anything。符号来自 Lezer 语法树（和 ⇧⌘O 的大纲同一套），没打开的文件现读现解析。
+# 断言认「活动标签 + 光标落在哪一行哪一列」，不认浮层上印了什么 —— 列表对了而回车跳歪了，用户看到的是后者
+goto_by_quick() {
+  key "Mod-p"
+  wait_has "输入文件名" 5 || { bad "⌘P 浮层没出来"; return 1; }
+  fill "$1" || { bad "⌘P 的焦点不在输入框上"; return 1; }
+  wait_exists "$2" button contains 8 || { bad "「$1」的结果里没有「$2」"; key "Escape"; return 1; }
+  key "Enter"
+}
+where_is() { lite eval "${W}" "return __lite.tabs.active?.path.split('/').pop() + ' ' + __lite.where()" 2>/dev/null; }
+# OrderClient.java 第 4 行：`    public String ping() { … }`
+if goto_by_quick "OrderClient@ping" "OrderClient.java:4"; then
+  wait_for 6 '[ "$(where_is)" = "OrderClient.java 4:1" ]'
+  check "$(where_is)" "OrderClient.java 4:1" "文件@符号：没打开的文件现解析，回车跳到 ping 那一行"
+fi
+# SamePkgHelper.java 第 4 行第 12 列：`    public String tag()` 里 String 的 S
+if goto_by_quick "SamePkgHelper:4:12" "SamePkgHelper.java:4:12"; then
+  wait_for 6 '[ "$(where_is)" = "SamePkgHelper.java 4:12" ]'
+  check "$(where_is)" "SamePkgHelper.java 4:12" "文件:行:列"
+fi
+# 当前文件（还是 SamePkgHelper）：单独的 @ 和 :
+if goto_by_quick "@SamePkg" "SamePkgHelper.java:3"; then
+  wait_for 6 '[ "$(where_is)" = "SamePkgHelper.java 3:1" ]'
+  check "$(where_is)" "SamePkgHelper.java 3:1" "单独的 @：当前文件的符号"
+fi
+if goto_by_quick ":1" "第 1 行"; then
+  wait_for 6 '[ "$(where_is)" = "SamePkgHelper.java 1:1" ]'
+  check "$(where_is)" "SamePkgHelper.java 1:1" "单独的 :：当前文件跳行"
+fi
+
 # ─────────────────── 收尾 ───────────────────
 
 say "⑯ 系统送来的文件（open -a）：进已开着的窗口，不起第二个进程"

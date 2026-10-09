@@ -183,7 +183,7 @@
     root={project.root}
     {actions}
     scratches={scratches.list}
-    onOpenFile={(p, l, preview) => nav.openAt(p, l, preview)}
+    onOpenFile={(p, l, preview, col) => nav.openAt(p, l, preview, col)}
   />
 {/if}
 

@@ -21,7 +21,10 @@ import { terms } from "../state/terms.svelte";
 (globalThis as Record<string, unknown>).__liteHooks = "lite-test-hooks-loaded";
 
 type View = {
-  state: { doc: { toString(): string; length: number; line(n: number): { from: number } }; selection: { main: { head: number } } };
+  state: {
+    doc: { toString(): string; length: number; line(n: number): { from: number }; lineAt(pos: number): { number: number; from: number } };
+    selection: { main: { head: number } };
+  };
   dispatch(tr: unknown): void;
   focus(): void;
 };
@@ -104,6 +107,13 @@ export function installTestHooks() {
       const v = mustEditor();
       v.dispatch({ selection: { anchor: v.state.doc.line(line).from + col - 1 } });
       v.focus();
+    },
+    /** 光标此刻在哪：`"行:列"`（都从 1 起）。跳转类的断言读它 */
+    where: () => {
+      const v = mustEditor();
+      const h = v.state.selection.main.head;
+      const l = v.state.doc.lineAt(h);
+      return `${l.number}:${h - l.from + 1}`;
     },
     /** 按名字点一下（`el.click()`，和 AX 的「按下」一样只触发 click）。没找到返回 false，不抛 —— 脚本拿它当判断 */
     click: (name: string, role = "button", match: Match = "exact") => {

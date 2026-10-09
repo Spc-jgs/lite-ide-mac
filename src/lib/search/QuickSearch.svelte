@@ -1,10 +1,14 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { type Hit, type ScratchEntry } from "../ipc/commands";
+  import { readText, type Hit, type ScratchEntry } from "../ipc/commands";
   import { grepProject, grepScratches } from "../ipc/search";
   import { files } from "../state/files.svelte";
   import { project } from "../state/project.svelte";
   import { rank, segments, snippet } from "./fuzzy";
+  import { parseGoto, type Goto } from "./goto";
+  import type { Sym } from "../editor/outline";
+  import { tabs } from "../state/tabs.svelte";
+  import { docs } from "../state/docs.svelte";
   import Icon from "../shell/Icon.svelte";
   import FileGlyph from "../shell/FileGlyph.svelte";
 
@@ -50,7 +54,7 @@
      * 按内容命中的是「看看这一处」，开成预览（issue #33 ⑯）。VS Code 的默认
      * 也是这么分的（`enablePreviewFromQuickOpen` 关、搜索结果开）。
      */
-    onOpenFile: (path: string, line: number | undefined, preview: boolean) => void;
+    onOpenFile: (path: string, line: number | undefined, preview: boolean, col?: number) => void;
   } = $props();
 
   const SCOPES: { id: Scope; label: string }[] = [
@@ -68,12 +72,79 @@
   let cursor = $state(0);
   let input: HTMLInputElement | undefined = $state();
 
+  /*
+   * ── Goto Anything（issue #43）──
+   *
+   * `文件@符号` / `文件:行` 只在「全部」「文件」两个范围里认：「内容」里 `@` 和 `:` 就是要搜的字，
+   * 「操作」里没有文件。认出来之后，文件那一档按 `@` / `:` **前面那半截**排，内容和操作那两档不出 ——
+   * 拿 `order@list` 整串去搜正文只会搜出一片空白，还白跑一趟子进程。
+   */
+  const PLAIN: Goto = { kind: "plain" };
+  let goto = $derived(scope === "all" || scope === "file" ? parseGoto(query) : PLAIN);
+  /** 拿去给文件排序的那段：普通搜索是整串，跳转语法是分隔符前面那半截 */
+  let fileQ = $derived(goto.kind === "plain" ? query : goto.file);
+
+  /*
+   * 打 `@` / `:` 之前，光标停在哪个文件上，就跳进哪个文件 —— 不一定是排第一的那个（Sublime 也是这样）。
+   * 在 keydown 里记：那时输入框里的值还没带上这个字符，正好就是文件那半截。
+   * 文件那半截一改，这个记录就不算数了（`pinned.q` 对不上）
+   */
+  let pinned = $state<{ q: string; path: string } | null>(null);
+
+  const abs = (p: string) => (p.startsWith("/") || !root ? p : `${root}/${p}`);
+
+  /** `@` / `:` 指向的那个文件（绝对路径）。文件那半截是空的 = 当前标签 */
+  let target = $derived.by((): string | null => {
+    if (goto.kind === "plain") return null;
+    if (goto.file === "") return tabs.active?.path ?? null;
+    if (pinned && pinned.q.trim() === goto.file) return abs(pinned.path);
+    const top = rank(files.list, goto.file, (f) => f, 1)[0];
+    return top ? abs(top.item) : null;
+  });
+
+  // 那个文件的符号。开着的用编辑器里的文本（可能有没存的改动），没开的读盘
+  let syms = $state<Sym[]>([]);
+  let symsOf = $state<string | null>(null);
+  let symsLoading = $state(false);
+  $effect(() => {
+    const p = goto.kind === "symbol" ? target : null;
+    if (!open || !p) {
+      symsOf = null;
+      syms = [];
+      return;
+    }
+    if (p === untrack(() => symsOf)) return;
+    let dead = false;
+    symsLoading = true;
+    void (async () => {
+      try {
+        const tab = tabs.byPath(p);
+        const text = tab && tab.mode === "edit" ? docs.liveText(tab) : (await readText(p)).content;
+        const { fileSymbols } = await import("../editor/file-symbols");
+        const s = await fileSymbols(p, text);
+        if (dead) return;
+        syms = s;
+        symsOf = p;
+      } catch {
+        if (dead) return;
+        syms = [];
+        symsOf = p;
+      } finally {
+        if (!dead) symsLoading = false;
+      }
+    })();
+    return () => {
+      dead = true;
+    };
+  });
+
   // 打开时把上次的输入换成这次的（没有 seed 就是清空）。文件索引不在这儿拉 ——
   // 那是 `files` store 的事，App 里一条 effect 跟着 root / treeTick 刷，⌘Click 跳转共用同一份
   $effect(() => {
     if (!open) return;
     query = untrack(() => seed);
     cursor = 0;
+    pinned = null;
     queueMicrotask(() => input?.focus());
   });
 
@@ -82,7 +153,7 @@
     const q = query;
     const sc = scope;
     const r = root;
-    if (!open || q.length < 2 || (sc !== "all" && sc !== "content")) {
+    if (!open || q.length < 2 || (sc !== "all" && sc !== "content") || goto.kind !== "plain") {
       hits = [];
       shits = [];
       return;
@@ -122,7 +193,12 @@
   });
 
   type Row =
-    | { kind: "file"; path: string; seg: { t: string; hit: boolean }[]; scratch?: true }
+    /** `line` / `col`：`文件:行` 时选它就跳到那儿 */
+    | { kind: "file"; path: string; seg: { t: string; hit: boolean }[]; scratch?: true; line?: number; col?: number }
+    /** `文件@符号`：`path` 是绝对路径 */
+    | { kind: "symbol"; path: string; sym: Sym; seg: { t: string; hit: boolean }[] }
+    /** 单独的 `:行`：当前文件 */
+    | { kind: "line"; path: string; line: number; col?: number }
     /** ⌘E / ⌘P 空着的时候列的：最近打开的文件（绝对路径） */
     | { kind: "recent"; path: string }
     | { kind: "content"; path: string; line: number; text: string }
@@ -132,6 +208,16 @@
 
   let rows = $derived.by(() => {
     const out: Row[] = [];
+    if (goto.kind === "symbol") {
+      if (!target || symsOf !== target) return out;
+      const picked = goto.sym ? rank(syms, goto.sym, (s) => s.name, 60) : syms.slice(0, 200).map((s) => ({ item: s, positions: [] }));
+      for (const r of picked) out.push({ kind: "symbol", path: target, sym: r.item, seg: segments(r.item.name, r.positions) });
+      return out;
+    }
+    if (goto.kind === "line" && goto.file === "") {
+      if (target && goto.line !== null) out.push({ kind: "line", path: target, line: goto.line, col: goto.col ?? undefined });
+      return out;
+    }
     /*
      * 什么都没输、范围是全部 / 文件：列最近打开的（IDEA 的 ⌘E）。这个工具的定位就是在三五个
      * 文件和一份日志之间来回，「上一个」比「找一个」常用得多。输入一个字它就让位给匹配。
@@ -140,27 +226,30 @@
       for (const p of files.recent.slice(0, 10)) out.push({ kind: "recent", path: p });
       return out;
     }
-    if (scope === "all" || scope === "action") {
+    if ((scope === "all" && goto.kind === "plain") || scope === "action") {
       for (const r of rank(actions, query, (a) => a.label, scope === "action" ? 20 : 4)) {
         out.push({ kind: "action", action: r.item, seg: segments(r.item.label, r.positions) });
       }
     }
     if (scope === "all" || scope === "file") {
-      for (const r of rank(files.list, query, (f) => f, scope === "file" ? 40 : 8)) {
-        out.push({ kind: "file", path: r.item, seg: segments(r.item, r.positions) });
+      // `文件:行` 时文件那一档放宽到 40 条（同「文件」范围）：这时候列表里只有它
+      const line = goto.kind === "line" && goto.line !== null ? { line: goto.line, col: goto.col ?? undefined } : {};
+      for (const r of rank(files.list, fileQ, (f) => f, scope === "file" || goto.kind !== "plain" ? 40 : 8)) {
+        out.push({ kind: "file", path: r.item, seg: segments(r.item, r.positions), ...line });
       }
       // 草稿按文件名匹配（目录那串对所有草稿都一样，拿它排名只会全体并列）
-      for (const r of rank(scratches, query, (e) => e.name, scope === "file" ? 10 : 3)) {
+      for (const r of rank(scratches, fileQ, (e) => e.name, scope === "file" ? 10 : 3)) {
         const off = r.item.path.lastIndexOf("/") + 1;
         out.push({
           kind: "file",
           path: r.item.path,
           scratch: true,
           seg: [{ t: r.item.path.slice(0, off), hit: false }, ...segments(r.item.name, r.positions)],
+          ...line,
         });
       }
     }
-    if (scope === "all" || scope === "content") {
+    if ((scope === "all" && goto.kind === "plain") || scope === "content") {
       for (const h of hits.slice(0, scope === "content" ? 60 : 8)) {
         out.push({ kind: "content", path: h.path, line: h.line, text: h.text });
       }
@@ -180,12 +269,20 @@
   function choose(row: Row) {
     open = false;
     if (row.kind === "action") row.action.run();
-    else if (row.kind === "file" || row.kind === "recent") onOpenFile(row.path, undefined, false);
+    else if (row.kind === "file") onOpenFile(row.path, row.line, false, row.col);
+    else if (row.kind === "recent") onOpenFile(row.path, undefined, false);
+    else if (row.kind === "symbol") onOpenFile(row.path, row.sym.line, false);
+    else if (row.kind === "line") onOpenFile(row.path, row.line, false, row.col);
     // 草稿命中也是「看看这一处」，但草稿标签不做预览（它是「我的东西」，被顶掉会莫名其妙）
     else onOpenFile(row.path, row.line, row.kind === "content");
   }
 
   function onKey(e: KeyboardEvent) {
+    // 打 `@` / `:` 那一下记住光标停在哪个文件上（见 `pinned`）
+    if ((e.key === "@" || e.key === ":") && goto.kind === "plain") {
+      const r = rows[cursor];
+      pinned = r && (r.kind === "file" || r.kind === "recent") ? { q: query, path: r.path } : null;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       open = false;
@@ -206,7 +303,7 @@
     }
   }
 
-  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开" } as const;
+  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开", symbol: "符号", line: "跳到行" } as const;
 
   /** 最近文件右边那列：项目里的显示相对目录，草稿标「草稿」，别处的显示整条目录 */
   const recentSide = (p: string) => {
@@ -273,7 +370,14 @@
     <div class="results">
       {#if rows.length === 0}
         <div class="none">
-          {#if searching}<span class="wait"><span class="spinner"></span>搜索中…</span>
+          {#if goto.kind === "symbol" && !target}{#if goto.file}没有匹配的文件{:else}没有打开的文件 —— 在 <kbd>@</kbd> 前面写文件名{/if}
+          {:else if goto.kind === "symbol" && (symsLoading || symsOf !== target)}<span class="wait"><span class="spinner"></span>解析中…</span>
+          {:else if goto.kind === "symbol" && syms.length === 0}这个文件没有可列的符号 —— 只有带语法树的语言才有（Java、Python、TS…）
+          {:else if goto.kind === "symbol"}没有叫这个的符号
+          {:else if goto.kind === "line" && goto.file === "" && !target}没有打开的文件 —— 在 <kbd>:</kbd> 前面写文件名
+          {:else if goto.kind === "line" && goto.file === ""}输入行号
+          {:else if goto.kind === "line"}没有匹配的文件
+          {:else if searching}<span class="wait"><span class="spinner"></span>搜索中…</span>
           {:else if query.length === 0}输入以开始{#if scope === "all" || scope === "file"} —— 打开过的文件会列在这儿{/if}
           {:else if (scope === "content" || scope === "all") && query.length < 2}内容搜索至少输入 2 个字符
           {:else if scope === "file"}没有匹配的文件 —— <kbd>Tab</kbd> 换到「内容」搜正文
@@ -282,7 +386,7 @@
           {:else}没有匹配 —— 换个词，或 <kbd>Tab</kbd> 缩小范围{/if}
         </div>
       {/if}
-      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" ? `${row.path}:${row.line}` : row.kind === "file" || row.kind === "recent" ? row.path : row.action.id))}
+      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" || row.kind === "line" ? `${row.path}:${row.line}` : row.kind === "symbol" ? `${row.sym.line}:${row.sym.name}` : row.kind === "file" || row.kind === "recent" ? row.path : row.action.id))}
         <!--
           分组头代替每行的类型胶囊。结果本来就是按类型排好的，
           每行再印一遍「文件」「操作」等于把分组信息摊到了每一行上 ——
@@ -308,9 +412,19 @@
           {:else if row.kind === "file"}
             <span class="ic"><FileGlyph name={fileName(row.path)} /></span>
             <span class="main">
-              {#each tailSeg(row.seg, row.path.lastIndexOf("/") + 1) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}
+              {#each tailSeg(row.seg, row.path.lastIndexOf("/") + 1) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}{#if row.line !== undefined}<span class="at">:{row.line}{#if row.col !== undefined}:{row.col}{/if}</span>{/if}
             </span>
             <span class="side">{row.scratch ? "草稿" : dirName(row.path)}</span>
+          {:else if row.kind === "symbol"}
+            <span class="ic kind">{row.sym.kind}</span>
+            <span class="main">
+              {#each row.seg as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}
+            </span>
+            <span class="side plain">{fileName(row.path)}:{row.sym.line}</span>
+          {:else if row.kind === "line"}
+            <span class="ic"><FileGlyph name={fileName(row.path)} /></span>
+            <span class="main">第 {row.line} 行{#if row.col !== undefined}，第 {row.col} 列{/if}</span>
+            <span class="side plain">{fileName(row.path)}</span>
           {:else if row.kind === "recent"}
             <span class="ic"><FileGlyph name={fileName(row.path)} /></span>
             <span class="main">{fileName(row.path)}</span>
@@ -335,6 +449,11 @@
       <span><kbd>↑↓</kbd> 选择</span>
       <span><kbd>↵</kbd> 打开</span>
       <span><kbd>Tab</kbd> 换范围</span>
+      {#if scope === "all" || scope === "file"}
+        <!-- 一个框走到底（issue #43）：不写出来没人知道能这么用 -->
+        <span><kbd>@</kbd> 符号</span>
+        <span><kbd>:</kbd> 行</span>
+      {/if}
       <span class="gap"></span>
       {#if files.truncated && (scope === "all" || scope === "file")}
         <!-- 「没找到」和「索引没看到那儿」是两个答案，rust.md：truncated 必须一路传到界面 -->
@@ -442,6 +561,10 @@
   .row.sel { background: var(--selected); color: var(--text); }
   .ic { flex: none; display: flex; color: var(--text-faint); }
   .ic.act { color: var(--lvl-warn); }
+  /* 符号行没有文件图标，图标那格放类别（类 / 方法 / 字段），和 ⇧⌘O 的大纲同一套字 */
+  .ic.kind { width: 28px; justify-content: flex-end; font-size: var(--fs-xs); }
+  /* `文件:行` 那行在文件名后面跟着 `:42`，淡一档 —— 它是「要去的地方」不是文件名的一部分 */
+  .at { color: var(--text-faint); }
   .row.sel .ic :global(.glyph) { color: var(--text-dim); }
 
   .main {
