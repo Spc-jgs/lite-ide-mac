@@ -244,7 +244,7 @@ printf 'v2 改过了\n' > note.txt
 echo "  大日志 $(du -h big.log | cut -f1)，钩子 3000 行"
 
 say "起 .app（后台，临时身份）"
-lite_launch "${FIX}" || exit 1
+lite_launch "${FIX}" || exit $?   # 2 = 测试 .app 比源码旧，见 bridge.sh 的 lite_stale
 if lite_wait main "return __lite.project.root === $(q "${FIX}")" 15; then
   ok "挂载成功，项目根是 fixture"
 else

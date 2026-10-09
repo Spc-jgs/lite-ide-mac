@@ -3,7 +3,7 @@
 # 和原来站在应用外面模仿人（System Events 敲键、AX 树、截图）比：**不发全局按键、不读 AX 树、不截图、启动后不抢焦点** ——
 # 被测的是临时身份的 .app（scripts/build-test-app.sh 打的），数据目录和你的 lite-ide 是两套。
 #
-#   lite_launch [路径…]     后台起应用，等到 main 窗口的前端能回话
+#   lite_launch [路径…]     后台起应用，等到 main 窗口的前端能回话；测试 .app 比源码旧就拒绝（返回 2）
 #   lite <子命令> …         bridge.py 的子命令（windows / menu / close / eval）
 #   lite_eval <窗口> <JS>   同 lite eval
 #   lite_wait <窗口> <JS> [秒]   反复跑那段 JS，直到它 return true（默认等 10 秒）
@@ -43,8 +43,25 @@ lite_clean_data() {
 
 lite_front_id() { osascript -e 'tell application "System Events" to get bundle identifier of first process whose frontmost is true' 2>/dev/null; }
 
+# 比测试 .app 新的源文件，打印第一个（没有就什么都不打）。
+#
+# 测试 .app 要手动重打（约 3 分钟），忘了重打，验的就是旧代码 —— 而且照样全绿。这个仓库在「跑的是哪个构建」上栽过
+# （AGENTS.md 验证纪律：照着现象查了半天，最后发现早就修好了）。比的是 mtime：git 切分支也会把文件变新，宁可多打一次。
+# 只列进构建的东西；`tests/` 底下的不算（测试改了，产物不变）
+lite_stale() {
+  (cd "${LITE_ROOT}" && find src public index.html vite.config.ts svelte.config.js package.json pnpm-lock.yaml \
+    src-tauri/src src-tauri/crates src-tauri/capabilities src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/build.rs \
+    src-tauri/tauri.conf.json -type f -newer "${LITE_APP}/Contents/MacOS/lite-ide" -not -path '*/tests/*' 2>/dev/null | head -1)
+}
+
 lite_launch() {
   [ -d "${LITE_APP}" ] || { echo "没有测试 .app，先跑 scripts/build-test-app.sh" >&2; return 2; }
+  local stale
+  stale=$(lite_stale)
+  if [ -n "${stale}" ] && [ "${LITE_ALLOW_STALE:-}" != 1 ]; then
+    echo "测试 .app 比源码旧（${stale} 在它打完之后改过）：先跑 scripts/build-test-app.sh。确实要测旧的那份就设 LITE_ALLOW_STALE=1" >&2
+    return 2
+  fi
   local prev
   prev=$(lite_front_id)
   # -g：后台起。--env 只给这一个进程，不改你的环境
