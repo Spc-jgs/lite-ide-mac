@@ -985,6 +985,55 @@ case "${LAST}" in
   *)             bad "标签全关了，但 editors 没归零 —— 编辑器实例没释放" ;;
 esac
 
+say "㉔ 发送到终端：选中几行 → 终端里出现 @引用、没回车；路径带空格；跟着 cd 走（#45）"
+#
+# 真 shell（你的 $SHELL -l）、真 pty、真 bracketed paste —— 桩上的假 shell 这三样都没有。
+# 没装 / 没登录 claude 不影响：验的是写进终端的那串字，claude 认不认这个格式由 tests/claude-ref.test.ts 拿它自己的正则反解
+SND="${FIX}/sp dir"
+mkdir -p "${SND}"
+printf 'l1\nl2\nl3\nl4\nl5\n' > "${SND}/a b.txt"
+# 「没开终端时发送 → 开一个」：先全关掉
+is "__lite.terms.closeAll(); return true"
+is "await __lite.tabflow.openPath($(q "${SND}/a b.txt"), { preview: false }); return true"
+if lite_wait "${W}" "return (__lite.text() ?? '').startsWith('l1')" 8; then
+  # 第 2 行开头选到第 4 行开头：终点在行首，第 4 行不算 → L2-3
+  is "__lite.select(2, 1, 4, 1); return true"
+  menu send-to-terminal
+  # 新开的终端要等登录 shell 起来：平时 0.6 秒，冷启动实测到过一分钟（ptysvc 的 PROMPT_BUDGET），给足。
+  # 2026-10-09 第一次跑红过一次：30 秒里终端一个字都没画出来，之后单独循环 6 次都是 0.6 秒，原因没查清 —— 失败信息里带上了现场
+  REF1='@"sp dir/a b.txt#L2-3"'
+  if lite_wait "${W}" "return __lite.termText().includes($(q "${REF1}"))" 70; then
+    ok "没开终端：开了一个，引用写进去了 ${REF1}"
+    # 没回车：shell 要是执行了，下面会有一行报错（command not found / no such file）、引用不在最后一行
+    sleep 1
+    LASTROW=$(lite eval "${W}" "return __lite.termText().trimEnd().split('\\n').pop()" 2>/dev/null)
+    case "${LASTROW}" in *"${REF1}"*) ok "停在提示符上没执行" ;; *) bad "引用不在最后一行，像是被回车执行了：${LASTROW}" ;; esac
+    # 跟着 cd 走：找到这个终端的 pty（关掉的不在表里，pty_cwd 返回 null），往里敲 cd，再发一次
+    PID_JS="for (let i = 1; i < 200; i++) { if (await window.__TAURI_INTERNALS__.invoke('pty_cwd', { id: i })) return i; } return 0"
+    PTY=$(lite eval "${W}" "${PID_JS}" 2>/dev/null)
+    if [ -n "${PTY}" ] && [ "${PTY}" != 0 ]; then
+      # 先清掉提示符上那串引用（⌃U），再 cd
+      is "await window.__TAURI_INTERNALS__.invoke('pty_write', { id: ${PTY}, data: '\\u0015cd \"sp dir\"\\r' }); return true"
+      if lite_wait "${W}" "return (await window.__TAURI_INTERNALS__.invoke('pty_cwd', { id: ${PTY} })) === $(q "${SND}")" 10; then
+        is "__lite.select(5, 1, 5, 3); return true"
+        menu send-to-terminal
+        lite_wait "${W}" "return __lite.termText().includes($(q '@"a b.txt#L5"'))" 10 \
+          && ok "cd 进 sp dir 之后：引用变成相对它的 @\"a b.txt#L5\"" \
+          || bad "cd 之后引用没跟着变：$(lite eval "${W}" "return __lite.termText().trimEnd().split('\\n').pop()" 2>/dev/null)"
+      else
+        bad "cd 之后 pty_cwd 没跟上：$(lite eval "${W}" "return await window.__TAURI_INTERNALS__.invoke('pty_cwd', { id: ${PTY} })" 2>/dev/null)"
+      fi
+    else
+      bad "找不到这个终端的 pty id"
+    fi
+  else
+    bad "70 秒内终端里没出现 ${REF1}：$(lite eval "${W}" "return JSON.stringify({ terms: __lite.terms.list.length, active: __lite.terms.activeId, tab: __lite.tabs.active?.path ?? null, panel: !!document.querySelector('.panel:not(.hidden)'), text: __lite.termText().trimEnd().split('\\n').slice(-3) })" 2>/dev/null)"
+  fi
+  is "__lite.terms.closeAll(); return true"
+else
+  bad "a b.txt 没打开"
+fi
+
 say "㉓ 替换完退出再打开：撤销卡片还在，点了能撤（#42，docs/REPLACE.md 12.1）"
 #
 # 替换日志落在盘上：应用退出、内存里的东西全丢了，撤销还在。放在最后是因为要退出再起一次应用，

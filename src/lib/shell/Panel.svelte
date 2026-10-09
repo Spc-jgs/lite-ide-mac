@@ -244,7 +244,7 @@
         {#if terminal.comp}
           {#each terms.list as t (t.id)}
             <div class="term-slot" class:hidden={t.id !== terms.activeId}>
-              <terminal.comp cwd={t.cwd} onExit={() => terms.close(t.id)} />
+              <terminal.comp id={t.id} cwd={t.cwd} onExit={() => terms.close(t.id)} />
             </div>
           {/each}
         {:else}

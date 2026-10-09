@@ -391,6 +391,7 @@
         onStash={(p, t) => docs.stashDraft(p, t)}
         onLive={(p, g) => docs.onEditorLive(p, g)}
         onWordProbe={(p, g) => docs.onEditorWordProbe(p, g)}
+        onLinesProbe={(p, g) => docs.onEditorLinesProbe(p, g)}
         onOutline={(syms) => {
           if (focused) onOutline(syms);
         }}

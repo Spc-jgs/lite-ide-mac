@@ -113,6 +113,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let git_refresh = item(app, "git-refresh", "刷新状态", None)?;
 
     let close_terminal = item(app, "close-terminal", "关闭当前终端", None)?;
+    // #45：要有一个打开的文件才有东西可发
+    let send_to_terminal = item(app, "send-to-terminal", "发送到终端", Some("Alt+CmdOrCtrl+K"))?;
     // 分屏（issue #35）。键位的取舍见 keymap.ts 那段
     let split_right = item(app, "split-right", "向右分屏", Some("CmdOrCtrl+\\"))?;
     let move_other = item(app, "move-to-other-group", "移到另一组", Some("Ctrl+CmdOrCtrl+Right"))?;
@@ -232,6 +234,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let term = SubmenuBuilder::new(app, "终端")
         .item(&item(app, "new-terminal", "新建终端", Some("Ctrl+Shift+Backquote"))?)
         .item(&close_terminal)
+        .separator()
+        .item(&send_to_terminal)
         .build()?;
 
     let window = SubmenuBuilder::new(app, "窗口")
@@ -299,6 +303,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
             nav_back,
             nav_fwd,
             find_word,
+            send_to_terminal,
         ],
         needs_repo: vec![
             git_changes, git_log, git_console, git_branches, git_refresh, git_pull, git_push,

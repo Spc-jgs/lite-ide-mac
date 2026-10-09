@@ -14,6 +14,9 @@ export const ptyWrite = (id: number, data: string) => invoke<void>("pty_write", 
 export const ptyResize = (id: number, cols: number, rows: number) =>
   invoke<void>("pty_resize", { id, cols, rows });
 
+/** 终端前台进程此刻的工作目录（#45：`@` 引用按它算相对路径）；拿不到是 null */
+export const ptyCwd = (id: number) => invoke<string | null>("pty_cwd", { id });
+
 export const ptyKill = (id: number) => invoke<boolean>("pty_kill", { id });
 
 /**

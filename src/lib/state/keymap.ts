@@ -281,6 +281,12 @@ export const KEYS: KeyDef[] = [
   /** 焦点在终端里的 ⌘F（issue #34）。归 xterm，理由见文件头 owner 那张表 */
   { id: "term-find", label: "在终端里查找", accel: "⌘F", group: "终端", owner: "xterm" },
   { id: "close-terminal", label: "关闭当前终端", group: "终端", owner: "menu" },
+  /*
+   * 把当前文件 / 选中的几行以 `@路径#L10-20` 写进终端里的 claude（#45），不回车。
+   * ⌥⌘K 照 Claude Code 官方 JetBrains 插件的「插入文件引用」—— 在 IDEA 里装了插件的人手上已经是这个键；
+   * IDEA 默认键位里 ⌥⌘K 没有占用，表里也没人用。归菜单：焦点在终端里时也该能按（选完代码切进终端再想起来）
+   */
+  { id: "send-to-terminal", label: "发送到终端", accel: "⌥⌘K", group: "终端", owner: "menu" },
 
   /*
    * 日志模式里跳过滤命中。挂在 window 上（`LogPane.svelte`），

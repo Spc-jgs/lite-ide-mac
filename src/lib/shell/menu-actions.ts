@@ -27,6 +27,7 @@ import { nav } from "../state/nav.svelte";
 import { overlay } from "../state/overlay.svelte";
 import { replace } from "../state/replace.svelte";
 import { terms } from "../state/terms.svelte";
+import { sendToTerminal } from "../terminal/send";
 import { docs } from "../state/docs.svelte";
 import { wrapsByDefault } from "../state/tab";
 
@@ -158,6 +159,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
       return;
     }
     case "find-word": return overlay.findWordAtCursor();
+    case "send-to-terminal": return void sendToTerminal();
     case "goto-line":
       // 编辑器跳行:列；日志视图跳行或时间（2026-09-21）。差异 / 合并没有「行」
       if (tabs.active?.mode === "edit" || tabs.active?.mode === "log") overlay.openGoto();

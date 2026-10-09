@@ -4,6 +4,8 @@ import { type A, NOT_MINE } from "./data";
 /** 假 shell 的句柄表（见 `pty_spawn`）：id → 回传 Channel */
 let mockPtyId = 0;
 const mockPty = new Map<number, { onmessage?: (b: number[]) => void } | undefined>();
+/** 起在哪个目录。假 shell 不执行 `cd`，所以前台进程的目录永远是它（`pty_cwd`） */
+const mockCwd = new Map<number, string>();
 
 export async function ptyCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
@@ -17,6 +19,7 @@ export async function ptyCmd(cmd: string, a: A): Promise<unknown> {
       const ch = a.onData as { onmessage?: (b: number[]) => void } | undefined;
       const id = ++mockPtyId;
       mockPty.set(id, ch);
+      mockCwd.set(id, String(a.cwd));
       const enc = new TextEncoder();
       const say = (t: string) => ch?.onmessage?.([...enc.encode(t)]);
       setTimeout(() => say(`lite-ide 桩 shell（只回显，不执行）  cwd=${String(a.cwd)}\r\n$ `), 30);
@@ -31,6 +34,8 @@ export async function ptyCmd(cmd: string, a: A): Promise<unknown> {
       ch?.onmessage?.([...enc.encode(out)]);
       return null;
     }
+    case "pty_cwd":
+      return mockCwd.get(Number(a.id)) ?? null;
     case "pty_resize":
     // 桩里没有真 pty，也就没有要背压的对象。但这条 case 必须在 ——
     // 落到 default 的话浏览器里每写一批终端输出就报一次「未知命令」
@@ -39,6 +44,7 @@ export async function ptyCmd(cmd: string, a: A): Promise<unknown> {
     case "pty_kill":
       // 同真实现：返回「这个终端之前在不在」。原来这里少了 return，一路贯穿进 open_log ——
       // 关一个终端，桩就开了一个日志句柄（前端丢弃返回值，所以一直没人看见）
+      mockCwd.delete(Number(a.id));
       return mockPty.delete(Number(a.id));
     default:
       return NOT_MINE;

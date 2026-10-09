@@ -6,3 +6,5 @@ description = "真 zsh 终端（portable-pty 封装，零 Tauri 依赖）"
 
 [dependencies]
 portable-pty = "0.9"
+# 读前台进程的工作目录（`Session::fg_cwd`，#45）。不是新包：portable-pty 本来就依赖它，锁文件里早有
+libc = "0.2"

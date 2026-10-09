@@ -118,6 +118,16 @@ pub fn pty_write(id: u32, data: String, state: State<'_, AppState>) -> Result<()
     r.map_err(|e| format!("写入失败：{e}"))
 }
 
+/// 终端前台进程此刻在哪个目录（#45）。拿不到给 `None`，前端退回起终端时的目录。
+///
+/// 留在主线程上，同 `pty_write`：两次系统调用（`tcgetpgrp` + `proc_pidinfo`），不碰盘不等子进程。
+#[tauri::command]
+pub fn pty_cwd(id: u32, state: State<'_, AppState>) -> Option<String> {
+    let sess = state.pty(id)?;
+    let dir = sess.lock().expect("pty 锁被毒化").fg_cwd();
+    dir.map(|d| d.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub fn pty_resize(id: u32, cols: u16, rows: u16, state: State<'_, AppState>) -> Result<(), String> {
     let sess = state.pty(id).ok_or("终端已关闭")?;

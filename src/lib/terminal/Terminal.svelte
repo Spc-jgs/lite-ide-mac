@@ -4,11 +4,12 @@
   import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
   import { Channel } from "@tauri-apps/api/core";
   import "@xterm/xterm/css/xterm.css";
-  import { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyAck } from "../ipc/pty";
+  import { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyAck, ptyCwd } from "../ipc/pty";
   import TermSearch from "./TermSearch.svelte";
   import { docs } from "../state/docs.svelte";
   import { files } from "../state/files.svelte";
   import { project } from "../state/project.svelte";
+  import { attach as attachHook } from "./hooks";
   import { nav } from "../state/nav.svelte";
   import { openExternal } from "../ipc/app";
   import { stackFrame, frameResolver } from "../logview/stack-frame";
@@ -47,7 +48,8 @@
     void nav.jumpTo({ from: 0, to: 0, text: l.rel, target: { rel: l.rel, line: l.line, why: "终端" } });
   }
 
-  let { cwd, onExit }: { cwd: string; onExit: () => void } = $props();
+  /** `id` 是终端标签的 id（`terms.list`），交「发送到终端」的口子时用它认领 */
+  let { id: tabId, cwd, onExit }: { id: number; cwd: string; onExit: () => void } = $props();
 
   /*
    * 字体和字号来自设置（issue #44：`terminal.fontFamily` / `terminal.fontSize`，字体没写就跟编辑器）。
@@ -342,7 +344,30 @@
        * **回调在 xterm 真的解析完这批之后才响**，报的时机就该是那里。
        * 收到就报等于没有背压 —— 要限的正是「收到了但还没被消费」的那一段。
        */
-      term.write(bytes, () => ack(bytes.length));
+      term.write(bytes, () => {
+        ack(bytes.length);
+        if (term.modes.bracketedPasteMode) attach();
+      });
+    };
+
+    /*
+     * 「发送到终端」（#45）的口子，**shell 能接输入了才交**：刚起的 shell 还在跑 rc，这时写进去的字
+     * 会被 tty 回显一遍、等提示符画出来又被清掉（ptysvc 测试里 `wait_prompt` 那段就是这个坑）。
+     * 判据是 bracketed paste 开了 —— zsh 的行编辑器每次开始读一行时打开它、跑命令时关掉，
+     * 它开着 = 正在提示符上等你打字。不开这个模式的 shell 等两秒兜底。
+     */
+    let attached = false;
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    const attach = () => {
+      if (attached || disposed || ptyId === null) return;
+      attached = true;
+      clearTimeout(fallback);
+      const id = ptyId;
+      attachHook(tabId, {
+        paste: (t) => term.paste(t),
+        cwd: () => ptyCwd(id).catch(() => null),
+        focus: () => term.focus(),
+      });
     };
 
     ptySpawn(cwd, term.cols, term.rows, chan)
@@ -357,6 +382,8 @@
         status = "";
         term.onData((d) => void ptyWrite(id, d));
         term.focus();
+        if (term.modes.bracketedPasteMode) attach();
+        else fallback = setTimeout(attach, 2000);
       })
       .catch((e) => (status = String(e)));
 
@@ -376,6 +403,8 @@
       dropHost.removeEventListener("lite-drop-paths", onDropPaths);
       linkReg.dispose();
       disposed = true;
+      clearTimeout(fallback);
+      if (attached) attachHook(tabId, null);
       ro.disconnect();
       if (ptyId !== null) void ptyKill(ptyId);
       search = null;

@@ -16,6 +16,7 @@
   import { git } from "../state/git.svelte";
   import { nav } from "../state/nav.svelte";
   import { notify } from "../state/notify.svelte";
+  import { sendToTerminal } from "../terminal/send";
 
   let {
     x,
@@ -42,6 +43,8 @@
     const out: MenuItem[] = [
       { label: "跳到声明", disabled: !api.hit, run: () => api.hit && void nav.jumpTo(api.hit) },
       { label: "在项目里找这个名字", disabled: !project.root, run: () => onMenuAction("find-word") },
+      // 发的是**右键的这个文件**（分屏时它不一定是活动的那组），所以直接调，不经 onMenuAction
+      { label: "发送到终端", run: () => void sendToTerminal(path) },
       { label: "剪切", sep: true, disabled: !api.hasSelection, run: () => void api.cut() },
       { label: "复制", disabled: !api.hasSelection, run: () => void api.copy() },
       {

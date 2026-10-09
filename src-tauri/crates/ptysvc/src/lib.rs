@@ -115,6 +115,17 @@ impl Session {
             .map_err(to_io)
     }
 
+    /// 终端**前台进程**此刻的工作目录（#45：往终端里的 `claude` 送 `@相对路径`）。
+    ///
+    /// 要的是前台进程的，不是 shell 的，也不是起终端时那个目录：`@` 引用由 claude 按**它自己的**
+    /// 工作目录解析，而人可能 `cd` 到子目录再起 claude，也可能 `(cd x && claude)`。
+    /// 前台进程组由 tty 记着（`tcgetpgrp`，portable-pty 的 `process_group_leader`），
+    /// 组长的 cwd 用 `proc_pidinfo` 读 —— Terminal.app 的标签标题走的是同一条路。
+    /// 没拿到就是 `None`（进程刚好退了、权限不够），调用方退回起终端时的目录。
+    pub fn fg_cwd(&self) -> Option<std::path::PathBuf> {
+        cwd_of(self.master.process_group_leader()?)
+    }
+
     /// 杀掉 shell 并收尸。**保证有界返回** —— 它跑在 `Drop` 里，
     /// 而 `Drop` 又跑在持着 pty 表锁的地方，挂住就是整个终端功能全死。
     ///
@@ -183,6 +194,33 @@ impl Drop for Session {
 
 fn to_io(e: impl std::fmt::Display) -> std::io::Error {
     std::io::Error::other(e.to_string())
+}
+
+/// 进程的当前目录。macOS 没有 `/proc/<pid>/cwd`，内核给的口子是 `PROC_PIDVNODEPATHINFO`。
+#[cfg(target_os = "macos")]
+fn cwd_of(pid: libc::pid_t) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut info: libc::proc_vnodepathinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_vnodepathinfo>() as libc::c_int;
+    // SAFETY: 缓冲区是一个完整的 proc_vnodepathinfo，大小如实告诉内核
+    let n = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDVNODEPATHINFO, 0, &mut info as *mut _ as *mut libc::c_void, size)
+    };
+    // 返回值是写了多少字节；不等于整个结构体就是没拿到（进程没了 / 不让看）
+    if n != size {
+        return None;
+    }
+    // libc 为了老编译器把 `[c_char; MAXPATHLEN]` 写成了 32×32 的二维数组，内存里是连着的一整段
+    let raw = &info.pvi_cdir.vip_path;
+    // SAFETY: 32×32 个 c_char 连续存放，按字节读不越界
+    let bytes = unsafe { std::slice::from_raw_parts(raw.as_ptr() as *const u8, std::mem::size_of_val(raw)) };
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    (end > 0).then(|| std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes[..end])))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn cwd_of(pid: i32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
 }
 
 #[cfg(test)]
@@ -613,6 +651,50 @@ mod tests {
             drop(sess);
             probe("  drop 回来了 ✓ 整条链走完");
         });
+    }
+
+    /// #45：读到的是**前台进程**的目录 —— `cd` 之后跟着变；前台跑着别的进程时是那个进程的，不是 shell 的。
+    /// 第三段是这条测试存在的理由：只读 shell 的 cwd 前两段照样绿，而 `(cd x && claude)` 那种用法就送错路径。
+    #[test]
+    fn 前台进程的工作目录() {
+        let base = std::env::temp_dir().join(format!(
+            "ptysvc-fgcwd-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(base.join("sub")).unwrap();
+        std::fs::create_dir_all(base.join("sub2")).unwrap();
+        // /var/folders 是 /private/var/folders 的软链，内核给的是真身
+        let base = base.canonicalize().unwrap();
+        let (sess, reader) = Session::spawn_with(TEST_SHELL, base.to_str().unwrap(), 80, 24).expect("起不来");
+        let mut out = Output::new(reader);
+        assert!(out.wait_prompt(PROMPT_BUDGET), "{PROMPT_BUDGET}s 内 shell 一个字都没吐出来");
+        let dir = base.clone();
+        with_deadline(25, move || {
+            let until = |want: &std::path::Path| {
+                let t = Instant::now();
+                while t.elapsed() < Duration::from_secs(10) {
+                    if sess.lock().unwrap().fg_cwd().as_deref() == Some(want) {
+                        return true;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                false
+            };
+            assert!(until(&dir), "起终端的目录没读到：{:?}", sess.lock().unwrap().fg_cwd());
+            sess.lock().unwrap().write_input(b"cd sub\n").unwrap();
+            assert!(until(&dir.join("sub")), "cd 之后没跟上：{:?}", sess.lock().unwrap().fg_cwd());
+            // 子 shell 换到 sub2 再 exec 成 sleep：前台是它，shell 自己还在 sub
+            sess.lock().unwrap().write_input(b"(cd ../sub2 && exec sleep 5)\n").unwrap();
+            assert!(
+                until(&dir.join("sub2")),
+                "前台进程的目录没读到（读成了 shell 的？）：{:?}\n输出：{:?}",
+                sess.lock().unwrap().fg_cwd(),
+                out.text()
+            );
+            drop(sess);
+        });
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// issue #2 的回归测试：**没人排空 master 时，kill 不能被卡死**。

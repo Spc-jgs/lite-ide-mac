@@ -6,6 +6,7 @@ import { textToSave, settled, stashed } from "./doc";
 import { scratchTitle } from "./frontmatter";
 import { autosaveDue, AUTOSAVE_IDLE_MS } from "./autosave";
 import type { TabState } from "./tab";
+import type { LineSpan } from "../terminal/claude-ref";
 
 /** 冲突裁决、换编码 / 换行符在 `docs-ops.ts`，按需加载 —— 理由见那边的文件头 */
 const ops = () => import("./docs-ops");
@@ -78,6 +79,8 @@ class Docs {
   readonly #live = new Map<string, () => string>();
   /** 「读出光标底下那个词」的口子。认领规则同 `#live` */
   readonly #wordProbe = new Map<string, () => string | null>();
+  /** 「选中的几段落在哪几行」的口子（#45）。认领规则同 `#live` */
+  readonly #linesProbe = new Map<string, () => LineSpan[]>();
 
   onEditorLive(path: string, get: (() => string) | null) {
     if (get) this.#live.set(path, get);
@@ -106,6 +109,16 @@ class Docs {
   onEditorWordProbe(path: string, get: (() => string | null) | null) {
     if (get) this.#wordProbe.set(path, get);
     else this.#wordProbe.delete(path);
+  }
+
+  onEditorLinesProbe(path: string, get: (() => LineSpan[]) | null) {
+    if (get) this.#linesProbe.set(path, get);
+    else this.#linesProbe.delete(path);
+  }
+
+  /** 这个文件的编辑器里选中的几段落在哪几行；没开编辑器或没选东西是空数组 */
+  selectedLines(path: string): LineSpan[] {
+    return this.#linesProbe.get(path)?.() ?? [];
   }
 
   /** 活动标签的编辑器里光标底下那个词；没有编辑器或没在词上就是 null */

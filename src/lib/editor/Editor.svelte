@@ -30,6 +30,7 @@
   import { foldFrontmatter } from "./frontmatter-fold";
   import { bodyPlaceholder } from "./body-placeholder";
   import type { ViewPos } from "../state/docs.svelte";
+  import { lineSpan, type LineSpan } from "../terminal/claude-ref";
 
   let {
     path,
@@ -65,6 +66,7 @@
     onJump,
     onContextMenu,
     onWordProbe,
+    onLinesProbe,
   }: {
     path: string;
     /** 要显示的文本。有未保存的草稿时**是草稿**，不是磁盘上那份 */
@@ -135,6 +137,8 @@
      * 是保存路径上的，出过一次会丢数据的 bug，不值得为一个搜索入口去动它。
      */
     onWordProbe?: (path: string, get: (() => string | null) | null) => void;
+    /** 「选中的几段各落在哪几行」（#45 发送到终端）。契约同 `onWordProbe`；没选东西给空数组 */
+    onLinesProbe?: (path: string, get: (() => LineSpan[]) | null) => void;
     onChange: (dirty: boolean) => void;
     onSave: (content: string) => void;
     /**
@@ -211,6 +215,18 @@
   function noteTop(v: EditorView) {
     v.requestMeasure({ read: measureTop, write: (t) => (lastTop = t) });
   }
+  /** 每段非空选区落在哪几行（多光标各选一段就是几段）；全是空光标就是空数组 = 「整个文件」 */
+  function linesNow(): LineSpan[] {
+    if (!view) return [];
+    const doc = view.state.doc;
+    return view.state.selection.ranges
+      .filter((r) => !r.empty)
+      .map((r) => {
+        const to = doc.lineAt(r.to);
+        return lineSpan(doc.lineAt(r.from).number, to.number, r.to - to.from);
+      });
+  }
+
   function viewNow(): ViewPos {
     const v = view!;
     const head = v.state.selection.main.head;
@@ -531,6 +547,7 @@
       onWordProbe?.(curPath, () =>
         view ? rawWordAt(view.state, view.state.selection.main.head) : null,
       );
+      onLinesProbe?.(curPath, linesNow);
       seenFocus = focusTick;
       if (autofocus) view.focus();
     });
@@ -544,6 +561,7 @@
         onView?.(curPath, null);
         onLive?.(curPath, null);
         onWordProbe?.(curPath, null);
+        onLinesProbe?.(curPath, null);
       });
       view?.destroy();
       view = null;
@@ -576,6 +594,7 @@
       untrack(() => {
         onLive?.(curPath, null);
         onWordProbe?.(curPath, null);
+        onLinesProbe?.(curPath, null);
       });
     }
     curPath = p;
@@ -620,7 +639,10 @@
     }
     // 脏不脏看**文档**对基线，不看 prop：自己存的落盘那次文档可能已经领先 initial
     onChange(view.state.doc.toString() !== baseText);
-    untrack(() => onLive?.(p, () => view?.state.doc.toString() ?? ""));
+    untrack(() => {
+      onLive?.(p, () => view?.state.doc.toString() ?? "");
+      onLinesProbe?.(p, linesNow);
+    });
   });
 
   async function applyLang(p: string) {

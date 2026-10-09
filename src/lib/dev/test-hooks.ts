@@ -108,6 +108,15 @@ export function installTestHooks() {
       v.dispatch({ selection: { anchor: v.state.doc.line(line).from + col - 1 } });
       v.focus();
     },
+    /** 选中从 (l1, c1) 到 (l2, c2)，行列都从 1 起（#45 发送到终端读选区） */
+    select: (l1: number, c1: number, l2: number, c2: number) => {
+      const v = mustEditor();
+      const at = (l: number, c: number) => v.state.doc.line(l).from + c - 1;
+      v.dispatch({ selection: { anchor: at(l1, c1), head: at(l2, c2) } });
+      v.focus();
+    },
+    /** 亮着的那个终端画出来的字（xterm 的 DOM 渲染层，一行一行） */
+    termText: () => document.querySelector<HTMLElement>(".term-slot:not(.hidden) .xterm-rows")?.innerText ?? "",
     /** 光标此刻在哪：`"行:列"`（都从 1 起）。跳转类的断言读它 */
     where: () => {
       const v = mustEditor();
