@@ -14,6 +14,9 @@
   import { stackFrame, frameResolver } from "../logview/stack-frame";
   import { findTermLinks, type LinkCtx, type TermLink } from "./links";
   import { dropText } from "./shell-quote";
+  import { settings } from "../state/settings.svelte";
+  import { fontStack } from "../state/settings-view";
+  import { untrack } from "svelte";
 
   /*
    * 终端里的链接（links.ts）要的三样：文件索引做成 Set（每次悬停都要问好几个路径，几万条的数组
@@ -47,11 +50,12 @@
   let { cwd, onExit }: { cwd: string; onExit: () => void } = $props();
 
   /*
-   * 必须写具体字体名，不能用 var(--code-font)：xterm 拿这个字符串去做字符宽度测量
+   * 字体和字号来自设置（issue #44：`terminal.fontFamily` / `terminal.fontSize`，字体没写就跟编辑器）。
+   * 必须给具体的字体名，不能用 var(--code-font)：xterm 拿这个字符串去做字符宽度测量
    * （建一个测量元素读 offsetWidth），CSS 变量在那个上下文解析不了，整条声明作废，
-   * 最后回退到浏览器默认等宽字体 —— 又丑、字距还不准。字体名跟 app.css 的 --code-font 保持一致。
+   * 最后回退到浏览器默认等宽字体 —— 又丑、字距还不准。`fontStack` 给的是带退路的具体字符串。
    */
-  const TERM_FONT = '"JetBrains Mono", "SF Mono", Menlo, Monaco, monospace';
+  const termFont = () => fontStack(settings.v.terminalFontFamily);
 
   let host: HTMLDivElement | undefined = $state();
   let status = $state("正在启动 shell…");
@@ -62,6 +66,7 @@
    * 「查找框开着」和「命中计数」才是状态。
    */
   let termRef: Terminal | null = null;
+  let fitRef: FitAddon | null = null;
   let search: SearchAddon | null = null;
   let searchOpen = $state(false);
   let count = $state("");
@@ -118,6 +123,23 @@
     termRef?.focus();
   }
 
+  /*
+   * 设置里的终端字体 / 字号变了：改开着的终端，**不重建**（重建会杀掉 shell）。改完 fit 一次：
+   * 字号变了每行能放的列数就变了，pty 那边的尺寸要跟着报（fit 触发 onResize → ptyResize）
+   */
+  $effect(() => {
+    const family = termFont();
+    const size = settings.v.terminalFontSize;
+    untrack(() => {
+      const t = termRef;
+      if (!t) return;
+      if (t.options.fontFamily === family && t.options.fontSize === size) return;
+      t.options.fontFamily = family;
+      t.options.fontSize = size;
+      fitRef?.fit();
+    });
+  });
+
   $effect(() => {
     if (!host) return;
     let disposed = false;
@@ -131,9 +153,13 @@
        * 我们自己的代码不直接调任何 proposed API。
        */
       allowProposedApi: true,
-      fontFamily: TERM_FONT, // 为什么写死字体名见 TERM_FONT
-      // 同编辑器的默认字号（IDEA 的终端也跟编辑器字体走）
-      fontSize: 13,
+      /*
+       * **读设置要 untrack**：这条 effect 的依赖只该是 `host`。直接读 `settings.v` 的话它就成了依赖 ——
+       * 设置一变 cleanup 就跑，终端整个销毁重建、shell 被杀（frontend.md「effect 的依赖集是第一次跑时读出来的」）。
+       * 设置变了由下面那条单独的 effect 改 `term.options`
+       */
+      fontFamily: untrack(termFont),
+      fontSize: untrack(() => settings.v.terminalFontSize),
       // 终端惯例是紧凑排布，1.2 太松散
       lineHeight: 1.15,
       letterSpacing: 0,
@@ -173,6 +199,7 @@
     const fit = new FitAddon();
     term.loadAddon(fit);
     termRef = term;
+    fitRef = fit;
     search = new SearchAddon();
     term.loadAddon(search);
     // 命中计数：只有带 decorations 的查找才会发这个事件（addon 的约定）
@@ -210,7 +237,7 @@
       void document.fonts.load('13px "JetBrains Mono"').then(() => {
         if (disposed) return;
         term.options.fontFamily = "monospace";
-        term.options.fontFamily = TERM_FONT;
+        term.options.fontFamily = untrack(termFont);
         fit.fit();
       });
     }
@@ -353,6 +380,7 @@
       if (ptyId !== null) void ptyKill(ptyId);
       search = null;
       termRef = null;
+      fitRef = null;
       term.dispose();
       onExit();
     };

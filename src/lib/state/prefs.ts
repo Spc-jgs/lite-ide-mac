@@ -1,46 +1,12 @@
 /**
- * 纯偏好的开关，存 localStorage。
+ * 存在 localStorage 里的小列表（现在只有「最近切过的分支」，按仓库记）。
  *
- * 这些是「怎么显示」的选择（缩略图开不开、文件树跟不跟着标签），不是现场 ——
- * 不进会话快照（那份是「上次开了什么」，两件事的生命周期不同：换项目快照换，
- * 偏好不换）。读失败（隐私模式、站点数据被清）就用默认值，写失败就算了，
- * 都不能把启动流程炸掉。
+ * 原来缩略图、文件树紧凑 / 跟随、Git 分组、编辑器字号这 5 个开关也在这儿（`readPref` / `readNumPref`），
+ * issue #44 收归 Rust（`ui-state.json`，`state/settings.svelte.ts`）：它们跨窗口共享，而 localStorage
+ * 里各窗口各读各的，A 里关了 B 不知道。旧值升级时迁一次（`settings-view.ts` 的 `readLegacyPrefs`），旧键留着不删。
+ *
+ * 读失败（隐私模式、站点数据被清）就当空，写失败就算了，都不能把启动流程炸掉。
  */
-export function readPref(key: string, dflt: boolean): boolean {
-  try {
-    const v = localStorage.getItem(`lite-ide.${key}`);
-    return v === null ? dflt : v === "1";
-  } catch {
-    return dflt;
-  }
-}
-
-export function writePref(key: string, v: boolean) {
-  try {
-    localStorage.setItem(`lite-ide.${key}`, v ? "1" : "0");
-  } catch {
-    /* 存不下就算了，下次开还是默认值 */
-  }
-}
-
-/** 数字偏好（编辑器字号）。读回来不是有限数就用默认值 —— 手改过的 localStorage 什么都可能是 */
-export function readNumPref(key: string, dflt: number): number {
-  try {
-    const v = Number(localStorage.getItem(`lite-ide.${key}`));
-    return Number.isFinite(v) && v > 0 ? v : dflt;
-  } catch {
-    return dflt;
-  }
-}
-
-export function writeNumPref(key: string, v: number) {
-  try {
-    localStorage.setItem(`lite-ide.${key}`, String(v));
-  } catch {
-    /* 同上 */
-  }
-}
-
 /** 字符串列表偏好（最近切过的分支）。读回来不是数组就当空 */
 export function readListPref(key: string): string[] {
   try {

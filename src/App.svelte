@@ -24,7 +24,7 @@
   import { persist } from "./lib/state/persist.svelte";
   import { overlay } from "./lib/state/overlay.svelte";
   import { lang } from "./lib/state/lang.svelte";
-  import { readPref, writePref, readNumPref, writeNumPref } from "./lib/state/prefs";
+  import { settings } from "./lib/state/settings.svelte";
   import { terms } from "./lib/state/terms.svelte";
   import { docs } from "./lib/state/docs.svelte";
   import type { Group } from "./lib/state/tab";
@@ -65,22 +65,12 @@
 
 
 
-  /** 缩略图开关。纯偏好，存 localStorage（理由见 state/prefs.ts） */
-  let showMinimap = $state(readPref("minimap", true));
-  $effect(() => {
-    writePref("minimap", showMinimap);
-  });
-
   /**
-   * 编辑器字号（⌘= / ⌘- / ⌘0）。写在 :root 的 CSS 变量上，CM6 主题读它 ——
-   * 不重建编辑器，光标和撤销栈都不动。夹在 9–28：小于 9 看不清，大于 28 一行放不下几个字。
+   * 缩略图开关、编辑器字号（⌘= / ⌘- / ⌘0）：归 Rust 管（issue #44，`state/settings.svelte.ts`），所有窗口一份。
+   * 字号落在 :root 的 `--editor-font-size` 上（settings.apply 写），CM6 主题读它 —— 不重建编辑器，光标和撤销栈都不动。
+   * 夹在 9–28、⌘0 回到 settings.json 里写的字号，都是 Rust 那边定的（`UiState::step_font`）
    */
-  const FONT_DEFAULT = 13;
-  let editorFont = $state(readNumPref("editorFont", FONT_DEFAULT));
-  $effect(() => {
-    document.documentElement.style.setProperty("--editor-font-size", `${editorFont}px`);
-    writeNumPref("editorFont", editorFont);
-  });
+  const showMinimap = $derived(settings.v.minimap);
   /*
    * 代码字体是内置的 webfont，没人用它就不会去加载。终端建的那一刻要按它量字符宽度，
    * 所以启动就先拉一次（本地文件，毫秒级），别等第一个用它的人。见 Terminal.svelte 的兜底
@@ -427,8 +417,8 @@
       return;
     }
     await m.runMenu(id, {
-      toggleMinimap: () => (showMinimap = !showMinimap),
-      zoom: (d) => (editorFont = d === null ? FONT_DEFAULT : Math.max(9, Math.min(28, editorFont + d))),
+      toggleMinimap: () => settings.toggle("editor.minimap"),
+      zoom: (d) => settings.zoom(d),
       openBranchPicker,
     });
   }

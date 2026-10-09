@@ -8468,3 +8468,35 @@ lezer 的 JSON 语法在 Node 里直接跑：注释里的 `"JetBrains Mono"` 被
 验收脚本里 `（$c0 → $c1）`：变量名后面直接跟全角括号，bash 把括号的字节也吞进了变量名，`set -u` 报 unbound。
 这个坑本会话前面踩过一次（多窗口第 5 步），写新脚本时又忘了。这次用正则把脚本里所有 `$name` 一次改成 `${name}`。
 **一个坑踩第二次，说明「记住它」不管用，要换成不依赖记性的做法**：写 bash 一律 `${}`。
+
+## 2026-10-08 · #44 第 3 步：前端接上设置
+
+`settings.svelte.ts`（挂载前 `await settings.init()`：取设置、迁旧偏好、挂广播）+ `settings-view.ts`（字体栈、CSS 变量、
+读旧偏好，纯函数）。App 的缩略图和字号、FileTree 的紧凑 / 跟随、GitPane 的分组都改成读 `settings.v`、点了交给 Rust；
+`prefs.ts` 只剩「最近切过的分支」那张列表。入口包 144,412 → 145,484 B（+1,072）。
+
+### 终端：设置一变就重建 —— 浏览器里验过红
+
+终端在一条依赖 `host` 的 effect 里建。建的时候直接读 `settings.v.terminalFontSize` 的话，它就成了这条 effect 的依赖：
+设置一变 cleanup 就跑，**终端整个销毁重建、shell 被杀**（frontend.md「effect 的依赖集是第一次跑时读出来的」）。建的时候读设置套
+`untrack`，字体字号的变化交给另一条只改 `term.options` 的 effect。`pnpm dev` 里开一个终端、`settings.apply` 改字号：
+`.xterm` 还是同一个 DOM 节点、字号变了；去掉 `untrack` 重载再来一次，节点换了 —— 正是要防的那个。
+
+### 迁移：交失败了不能记「迁过了」
+
+旧偏好交给 Rust 之后在 localStorage 记一笔 `lite-ide.prefs-moved`（旧键不删，所以要另外记，不然删了 `ui-state.json` 想回到默认，
+下次启动旧值又迁回来）。第一版是 `adoptUiState(...).catch(() => s)` 之后无条件记 —— 交失败了也记，这几个旧偏好就永远丢了。
+状态测试里把 `adopt_ui_state` 这一个命令换成抛错，验过红。
+
+### 验收：截图权限没了，按键落进了用户的应用
+
+量「B 窗口的字跟着变大」原计划用按窗口截图 + Vision 量字高（acceptance 6 那套）。这次 `screencapture -l` 全部
+「could not create image from window」—— 屏幕录制权限这会儿不可用（系统设置，不碰）。改成让前端每次换设置往诊断通道打一行
+`settings → w-1: editor=16px …`（只在 `LITE_IDE_DEBUG=1` 时输出；窗口名读 Tauri 挂在页面上的元数据，不引窗口 API）。
+
+然后 ⌘= 全没反应。排查时发现**按键根本没到测试应用：最前面的是 Claude 桌面应用**。`keystroke` 发给前台应用，
+「先 set frontmost 再敲」那一步被系统悄悄拦了 —— ⌘= / ⌘- / ⌘0 全落进了用户的 Claude（界面缩放被改，最后一下 ⌘0 把它恢复成了实际大小）。
+改成点被测进程自己的菜单，9/9。规矩记在 frontend.md「验收脚本不发全局按键」；`scripts/smoke.sh` 的 `keys()` 有同样的风险，没改，记下待定。
+
+**一个「快捷键没反应」的现象，先确认键到了哪个进程，再去查代码。** 这次第一反应是去 grep 前端有没有吃掉 `=`（#53 那个 ⌘S 的形状），
+其实键压根没进这个进程。

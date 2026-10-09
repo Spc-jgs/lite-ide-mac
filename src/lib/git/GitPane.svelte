@@ -3,7 +3,7 @@
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
   import type { GitEntry, GitStatus } from "../ipc/commands";
   import { groupByDir } from "./group";
-  import { readPref, writePref } from "../state/prefs";
+  import { settings } from "../state/settings.svelte";
 
   let {
     status,
@@ -113,14 +113,13 @@
   }
 
   /**
-   * 按目录分组 / 平铺（issue #33 ⑮）。偏好存 localStorage，默认平铺 ——
+   * 按目录分组 / 平铺（issue #33 ⑮）。偏好归 Rust 管、所有窗口一份（issue #44），默认平铺 ——
    * 二十个以内平铺一眼扫得完，多了再切。折叠状态不存：那是这一刻的事。
    */
-  let grouped = $state(readPref("git-grouped", false));
+  const grouped = $derived(settings.v.gitGrouped);
   let collapsed = $state(new Set<string>());
   function toggleGrouped() {
-    grouped = !grouped;
-    writePref("git-grouped", grouped);
+    settings.toggle("git.grouped");
   }
   function toggleDir(key: string) {
     const next = new Set(collapsed);

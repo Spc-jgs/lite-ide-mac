@@ -581,6 +581,21 @@ export interface SettingProblem {
   fatal: boolean;
 }
 
+/** 当前生效的设置（Rust 启动时就读好了，只读内存）。挂载之前就要 await 它 */
+export const getSettings = () => invoke<Settings>("settings");
+/** 改一个开关。返回改完的样子；别的窗口靠 `settings-changed` 广播 */
+export const setUiState = (key: string, value: boolean) => invoke<Settings>("set_ui_state", { key, value });
+/** ⌘= / ⌘- / ⌘0（null）。在 Rust 那边按当前值加减 —— 两个窗口同时按，各自传绝对值会互相盖掉 */
+export const stepFont = (delta: number | null) => invoke<Settings>("step_font", { delta });
+/** 升级后第一次启动：把 localStorage 里的旧偏好交给 Rust。收不收那边定（`ui-state.json` 原来就有就不收） */
+export const adoptUiState = (p: {
+  minimap: boolean | null;
+  treeCompact: boolean | null;
+  treeFollow: boolean | null;
+  gitGrouped: boolean | null;
+  editorFont: number | null;
+}) => invoke<Settings>("adopt_ui_state", p);
+
 /** 一个设置项的定义（Rust 的 `settings::DEFS`），编辑 `settings.json` 时补全用 */
 export interface SettingDef {
   key: string;

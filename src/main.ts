@@ -2,6 +2,7 @@ import { mount } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App.svelte";
 import { setInvariantSink } from "./lib/state/invariant";
+import { settings } from "./lib/state/settings.svelte";
 import "./app.css";
 
 /*
@@ -192,6 +193,11 @@ function fatal(e: unknown, phase: string) {
 diag("main.ts 开始执行");
 // 启动分段（预算行 `phases=`）：入口脚本开始跑 = 入口包下载 + 解析完了
 invoke("boot_mark", { name: "js" }).catch(() => {});
+/*
+ * 设置要在第一帧之前就位：字体、字号、缩略图开不开（issue #44，见 settings.svelte.ts 的 init）。
+ * 第 0 步实测这一次往返 < 1ms，所以直接等，不做首屏缓存。它自己不抛
+ */
+await settings.init();
 let app;
 try {
   /*

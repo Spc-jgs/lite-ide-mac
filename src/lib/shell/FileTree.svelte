@@ -7,7 +7,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   import { notify } from "../state/notify.svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { copyText, relTo, showInFinder } from "./pathactions";
-  import { readPref, writePref } from "../state/prefs";
+  import { settings } from "../state/settings.svelte";
   import { flatten, speedHit as speedHitIn, speedNext as speedNextIn, type Row } from "./tree-rows";
   import { gitMarks, decoOf } from "./tree-git";
 
@@ -192,12 +192,9 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
 
   /**
    * 合并单层目录（IDEA 的 Compact Middle Packages）：`com/demo/order` 画成一行 `com.demo.order`。
-   * 默认开，树头有开关。纯偏好，存 localStorage（同「跟随」）。
+   * 默认开，树头有开关。归 Rust 管、所有窗口一份（issue #44，`state/settings.svelte.ts`），同「跟随」。
    */
-  let compact = $state(readPref("tree-compact", true));
-  $effect(() => {
-    writePref("tree-compact", compact);
-  });
+  const compact = $derived(settings.v.treeCompact);
   /*
    * 关掉合并时，链中间那几层要自己成行了 —— 它们在 `expanded` 里（展开合并行时一起记进去的，
    * 见 `toggle`），但子项从来没读过，不补读的话那几行是「展开着却是空的」。
@@ -499,16 +496,13 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
    * 跟随：活动标签换了，树自己展开到那个文件并选中（issue #33 ⑤）。
    *
    * IDEA 的「Always Select Opened File」、VS Code 的 `autoReveal`。默认开 ——
-   * 树不跟着走的话，⌘P 开的文件在树里永远是「不知道在哪」。纯偏好，
-   * 存 localStorage，不进会话快照（理由见 state/prefs.ts）。
+   * 树不跟着走的话，⌘P 开的文件在树里永远是「不知道在哪」。归 Rust 管、所有窗口一份
+   * （issue #44），不进会话快照：它是偏好不是现场。
    *
    * 走 `reveal(path, quiet)`：展开沿途、滚到 nearest、不闪。**只在文件在项目根
    * 底下时**，草稿、应用日志这类项目外的标签树里本来就没有。
    */
-  let follow = $state(readPref("tree-follow", true));
-  $effect(() => {
-    writePref("tree-follow", follow);
-  });
+  const follow = $derived(settings.v.treeFollow);
   $effect(() => {
     const p = activePath;
     if (!follow || !p) return;
@@ -1121,7 +1115,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     <button
       class="ibtn"
       class:on={follow}
-      onclick={() => (follow = !follow)}
+      onclick={() => settings.toggle("tree.follow")}
       title={follow ? "跟随标签：开（切标签时树自动定位）" : "跟随标签：关"}
       aria-label="跟随标签"
       aria-pressed={follow}
@@ -1131,7 +1125,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     <button
       class="ibtn"
       class:on={compact}
-      onclick={() => (compact = !compact)}
+      onclick={() => settings.toggle("tree.compact")}
       title={compact ? "合并单层目录：开（com/demo/order 画成 com.demo.order）" : "合并单层目录：关（一层一行）"}
       aria-label="合并单层目录"
       aria-pressed={compact}

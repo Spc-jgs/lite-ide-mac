@@ -596,6 +596,18 @@ pnpm tauri build --bundles app --config '{"identifier":"com.liteide.mwtest","pro
 AX 树读不全，两种都实测骗过人。按窗口 id `screencapture -l`（只截测试应用自己的窗口，不截整屏）+ Vision 识字；
 非 Retina 屏上的 1 倍图要先放大两倍，不然一个字都认不出、「认不出」会被当成「没有」。详见 JOURNAL 同日。
 
+## 验收脚本不发全局按键（2026-10-08）
+
+System Events 的 `keystroke` / `key code` 发给的是**当前最前面的应用**，不是你 `tell process` 的那个。「先 `set frontmost to true`
+再敲」靠不住：新版 macOS 限制程序抢前台，这一步会悄悄不生效 —— #44 第 3 步验收时，⌘= / ⌘- / ⌘0 全落进了用户正在用的
+Claude 桌面应用（把它的界面缩放改了），而测试应用一个键都没收到，表现成「快捷键没反应」，排查方向一开始指向了代码。
+（同一个脚本里的 ⌘Q 那几次碰巧测试应用在前台；不在的话退出的就是用户的应用。）
+
+**一律点被测进程自己的菜单**：`click menu item "放大字号" of menu "视图" of menu bar 1`（`tell` 那个进程），退出点它的
+「退出 lite-ide」。对着进程操作，谁在最前都落不到别的应用上；快捷键在应用里触发的就是同一个菜单项。真要敲键的场景
+（编辑器里打字），先断言 `name of first process whose frontmost is true` 是测试应用，不是就停下，不要「设一下再敲」。
+`scripts/smoke.sh` 的 `keys()` 还是「设一下再敲」，没改（2026-10-08 记下，待定）。
+
 ## 驱动真 `.app` 的两个坑（2026-09-17）
 
 - **别用 `tell application "lite-ide" to activate`。** 它按名字找的是 bundle 里那份 `.app`，
