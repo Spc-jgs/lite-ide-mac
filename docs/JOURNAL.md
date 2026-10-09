@@ -8526,3 +8526,29 @@ lezer 的 JSON 语法在 Node 里直接跑：注释里的 `"JetBrains Mono"` 被
 这一版 CM6 在内容节点上挂的是 `cmTile`（`.view` 就是 EditorView），不是老文章里的 `cmView`。补全用页面已加载的那份
 `@codemirror_autocomplete.js`（从 `performance.getEntriesByType("resource")` 找 URL）的 `startCompletion` / `acceptCompletion` ——
 自己另 import 一份会是另一个模块实例，认不出这个编辑器。
+
+## 2026-10-09 · smoke 按键前查前台；顺带堵掉「Ctrl-C 之后 cleanup 跑两次、删掉真实数据」
+
+### 按键前查前台
+
+`keys()` 原来是「`set frontmost to true`，delay 0.2，敲」。前一天的验收已经证明这一步会被系统悄悄拦掉、键落进用户的应用 ——
+smoke 敲的是 ⌘S、⌘W、⌘A ⌘V，落进别人的文档就是乱按。现在 `keys()` 设完前台先看一眼、是被测进程才敲；
+`ax.applescript` 里会按键的三个动作（paste / caretjump / focuskey）**每一下键之前**都查（paste 是 ⌘A、停 0.2 秒、⌘V：
+人在这 0.2 秒里切走，⌘V 就把测试内容粘进别人的文档）。不在前台：一个键都不发，整轮以退出码 4 停下。
+检查本身加了一个只查不按的 `frontcheck` 动作测过两个方向（Chrome 在前台时对 lite-ide 是 NOTFRONT、对 Chrome 是 OK）。
+
+### 要让整轮停下，先撞见了一个更危险的
+
+`ax()` 是在 `$(…)` 里跑的，那里 `exit` 只退子 shell —— 要停整轮得给主脚本发信号。而 smoke 原来是 `trap cleanup EXIT INT TERM PIPE`：
+写个十行的小脚本实测，**bash 收到 TERM 跑完 cleanup 不退出、接着往下跑，退出时 EXIT 再跑一遍 cleanup**。Ctrl-C 一样。
+
+smoke 的 cleanup 第一遍会删掉 `$WORK`（WebKit 和 `windows.json` 的备份就在里面），第二遍照样 `rm -rf` 用户的 WebKit 目录、
+再去拷一个已经不在的备份 —— **会话快照全没了**；`windows.json` 那段是「没备份就删」，第二遍也删。这个洞是 2026-10-08 加
+「备份并还原真实数据」时留下的：为了保护数据加的那段代码，在两次 cleanup 下反过来删数据。之前没撞上，只是因为没人在 smoke 跑到一半按 Ctrl-C。
+
+改法：cleanup 只认 EXIT 一个入口、自己也记「跑过了」；INT / TERM / PIPE / 「不在前台」一律 `exit`（由 EXIT 触发唯一一次）；
+WebKit 还原时「原来有数据、备份却不见了」就一个字节都不动。验证：照搬新的 trap 写法，TERM 和「不在前台」两种中断都只 cleanup 一次、
+退出码 143 / 4、之后不再往下跑；把 WebKit 还原那一段从 smoke.sh **原样抠出来**跑在临时目录上：没备份时数据原样、有备份时照常还原。
+
+**`trap … INT TERM` 不等于「收到信号就退出」**：trap 接管了信号，默认的「终止」就没了，handler 跑完脚本照常继续。
+要退出得在 handler 里自己 `exit`。`scripts/screenshots.sh` 是同一种写法，它的 cleanup 跑两次不丢数据（只是 Ctrl-C 之后还会接着截图），没改。

@@ -131,6 +131,9 @@ Java 专用的这些代码跟着 Java 语言包懒加载，经 CM6 的 `language
 | `state.rs` | 终端、日志句柄、文件监听、远程操作都记着 owner（窗口 label），窗口销毁时 `release_window` 只收它自己的 |
 | `windows.rs` | 窗口登记表：谁在前台、各自的项目根、每个窗口一个收件箱、各自的菜单状态、最近关掉的、「最近打开」名单；路由纯函数 `route`。**不依赖 Tauri，只做决定** |
 | `winctl.rs` | 动手：建窗口、`windows.json` 存盘、Dock 重开、没有窗口时的菜单、自己的「退出」（先让每个窗口 `flush` 再 `exit`） |
+| `settings.rs` | 设置（#44，[SETTINGS.md](SETTINGS.md)）：`settings.json`（用户写，JSONC）的解析、默认值、容错规则，`ui-state.json`（应用写：按钮和 ⌘= 改的）；键的定义只有一份（`DEFS`）。**不依赖 Tauri，只做决定** |
+| `settingsctl.rs` | 动手：启动时读、监听 `settings.json`（监听目录、按名字过滤）、存 `ui-state.json`、广播 `settings-changed` 给所有窗口 |
+| 前端 `settings` | 挂载前 `await` 一次，之后只收广播；5 个界面偏好原来在各窗口的 localStorage 里各读各的，现在都归 Rust |
 | 前端 `listenHere` | 只收发给本窗口的事件 —— 裸 `listen` 默认目标是 `Any`，Rust 定了向它也照收 |
 | 前端 `persist` | 每个窗口写 `lite-ide.session:<项目根>`；全局那份不再写（升级时迁一次） |
 
@@ -341,6 +344,8 @@ lite-ide/
    │  ├─ open.rs                 # 系统送来的「打开这个文件」（Finder / Dock / open -a）：URL → 路径 → 路由
    │  ├─ windows.rs              # 窗口登记表 + 路由（只做决定，不碰 Tauri，裸单测）
    │  ├─ winctl.rs               # 建窗口、windows.json、Dock 重开、退出（动手的那一层）
+   │  ├─ settings.rs             # 设置：解析、默认值、容错、界面状态（只做决定，裸单测）
+   │  ├─ settingsctl.rs          # 设置：读盘、监听、存盘、广播（动手的那一层）
    │  └─ state.rs                # 句柄表：日志会话 / 过滤任务 / pty / 远程操作，每样都记着属于哪个窗口
    └─ crates/
       ├─ logengine/   ★          # index / mmap / reader / filter / level + benches
@@ -612,7 +617,7 @@ CSP 违规、Rust panic。保留策略与隐私边界写在 [UNINSTALL.md](../UN
 | npm 依赖一律进项目 `node_modules`，禁 `-g` | 卸载 = 删目录，零残留 |
 | 不建 LaunchAgent / 登录项 / 后台常驻进程（关掉最后一个窗口应用留在 Dock 上是 macOS 常规，⌘Q 就退） | 删了就干净 |
 | pty 与 rg 子进程必须随它所属的窗口关闭一并 kill（`state.rs::release_window`）；⌘Q 不经过窗口销毁，进程退出时内核收掉 pty | 防孤儿进程 |
-| 配置缓存只写 `com.liteide.app` 标准目录（窗口列表和「最近打开」在 `Application Support/…/windows.json`） | 卸载路径确定 |
+| 配置缓存只写 `com.liteide.app` 标准目录（`Application Support/…/` 下：窗口列表和「最近打开」在 `windows.json`，设置在 `settings.json` / `ui-state.json`） | 卸载路径确定 |
 | bundle id 固定 `com.liteide.app`，永不改 | UNINSTALL.md 全部路径的前提 |
 | `rust-toolchain.toml` pin 版本 | 防 rustup update 后编译行为漂移 |
 | 前端入口包只放两种模式都要的东西 | CM6 核心约 340KB，静态引入会把入口从 71KB 顶到 412KB；日志模式用不上它，必须按需加载 |

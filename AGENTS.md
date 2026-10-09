@@ -68,6 +68,7 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 | 界面长什么样 | [.claude/rules/ui.md](.claude/rules/ui.md) —— 十二条写死的界面规矩、键位与菜单栏 |
 | 架构与性能预算 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 窗口、事件发给谁、会话快照、退出 | [docs/MULTIWINDOW.md](docs/MULTIWINDOW.md) —— 一个项目一个窗口；进程级的资源要记 owner，跨窗口的东西只有 Rust 一个主人 |
+| 设置、偏好、`settings.json` | [docs/SETTINGS.md](docs/SETTINGS.md) —— 你写的文件应用只读不改，按钮改的另存一份；加设置项先改 `settings.rs` 的 `DEFS`，别的都从它来 |
 | 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位 |
 | 踩过的坑的全过程 | [docs/JOURNAL.md](docs/JOURNAL.md) |
 | 发版 / CI | [docs/RELEASE.md](docs/RELEASE.md) |
