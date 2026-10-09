@@ -24,6 +24,11 @@
   import { branches } from "../state/branches.svelte";
   import { remote } from "../state/remote.svelte";
   import { overlay } from "../state/overlay.svelte";
+  import { replace } from "../state/replace.svelte";
+  import { project } from "../state/project.svelte";
+
+  /** 替换的动作跟着替换浮层懒加载；卡片上点了才拉（启动时那一问已经拉过了，多半是现成的） */
+  const replaceOps = () => import("../state/replace-ops");
 
   let stackEl = $state<HTMLElement | null>(null);
 
@@ -36,7 +41,7 @@
    */
   function onKey(e: KeyboardEvent) {
     if (e.key !== "Escape" || e.defaultPrevented) return;
-    if (overlay.quickOpen || overlay.outlineOpen || overlay.keysOpen || overlay.encOpen || overlay.gotoOpen || overlay.branchOpen) return;
+    if (overlay.quickOpen || overlay.outlineOpen || overlay.keysOpen || overlay.encOpen || overlay.gotoOpen || overlay.branchOpen || overlay.replaceOpen) return;
     if (document.activeElement?.closest(".xterm")) return;
     const btn = stackEl?.querySelector<HTMLButtonElement>(".confirm [data-dismiss]");
     if (!btn) return;
@@ -89,6 +94,29 @@
     </span>
     <button class="btn" data-dismiss onclick={() => (git.trustOpen = false)}>先不动 git</button>
     <button class="btn primary" onclick={() => void git.trust()}>信任这个仓库</button>
+  </div>
+{/if}
+
+{#if replace.interrupted && replace.interrupted.root === project.root}
+  {@const p = replace.interrupted}
+  <!--
+    上次替换提交到一半应用没了（#42，docs/REPLACE.md 12.2）。琥珀色：要你决定，不是出错。
+    默认动作（最右、primary）是退回改前：一个「改了一半」的仓库比哪边都糟。没有「知道了」—— 两条路必须选一条
+  -->
+  <div class="confirm warn">
+    <span>上次的替换中途中断了：<b>已改 {p.changed} 个文件</b>，共 {p.files} 个</span>
+    <button class="btn" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(false))}>保留现状</button>
+    <button class="btn primary" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(true))}>全部退回改前</button>
+  </div>
+{/if}
+
+{#if replace.done && replace.done.root === project.root}
+  {@const d = replace.done}
+  <!-- 撤销的退路（#42 第 6 节）：不加确认框，做完给这一张。下一次替换、或者点掉，它就没了；应用重启后还会再出一次 -->
+  <div class="confirm">
+    <span>{d.hits ? `已替换 ${d.files} 个文件 ${d.hits} 处` : `上次的替换（${d.files} 个文件）还能撤销`}</span>
+    <button class="btn" data-dismiss onclick={() => (replace.done = null)}>知道了</button>
+    <button class="btn primary" onclick={() => void replaceOps().then((m) => m.undo())}>撤销</button>
   </div>
 {/if}
 

@@ -150,6 +150,8 @@ export const KEYS: KeyDef[] = [
     group: "导航",
     owner: "menu",
   },
+  /* 跨文件替换（#42）：IDEA 的 Replace in Path 就是 ⇧⌘R；编辑器里 ⌘R 是文件内替换（cm-replace），不冲突 */
+  { id: "replace-content", label: "在项目中替换…", accel: "⇧⌘R", group: "导航", owner: "menu" },
   { id: "outline", label: "文件结构…", accel: "⇧⌘O", group: "导航", owner: "menu" },
   /*
    * 跳到声明。**只做「敢跳的」那两层**（本文件的符号表、import 推出来的文件），

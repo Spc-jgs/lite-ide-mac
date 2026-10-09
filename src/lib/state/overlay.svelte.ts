@@ -24,6 +24,11 @@ class Overlay {
    * IDEA 的查找框也是开着「区分大小写」关掉再开还开着。只在这次运行里记，不进设置（以后有人要再说）
    */
   searchOpts = $state({ case: false, word: false, regex: false });
+  /** ⇧⌘F 的内容范围里此刻输入的词。⇧⌘R 从那儿切过去时带上它（不用再打一遍） */
+  contentQuery = $state("");
+
+  /** 跨文件替换（#42，⇧⌘R）。查询、替换串、勾选在 `replace.svelte.ts` 里，浮层关了还在 */
+  replaceOpen = $state(false);
 
   outlineOpen = $state(false);
   /** 大纲浮层里点了一条，让编辑器重算一次符号 */
@@ -68,6 +73,14 @@ class Overlay {
     this.quickScope = scope;
     this.quickSeed = seed;
     this.quickOpen = true;
+  }
+
+  /** ⇧⌘R。⇧⌘F 开着、内容范围里有词的话，带着那个词切过来 —— 「搜到了想换掉」是最常见的路 */
+  openReplace(): string | null {
+    const carry = this.quickOpen && this.quickScope === "content" && this.contentQuery ? this.contentQuery : null;
+    this.quickOpen = false;
+    this.replaceOpen = true;
+    return carry;
   }
 
   openOutline() {

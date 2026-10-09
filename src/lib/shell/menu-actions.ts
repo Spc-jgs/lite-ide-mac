@@ -25,6 +25,7 @@ import { git } from "../state/git.svelte";
 import { remote } from "../state/remote.svelte";
 import { nav } from "../state/nav.svelte";
 import { overlay } from "../state/overlay.svelte";
+import { replace } from "../state/replace.svelte";
 import { terms } from "../state/terms.svelte";
 import { docs } from "../state/docs.svelte";
 import { wrapsByDefault } from "../state/tab";
@@ -150,6 +151,12 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "quick-file": overlay.openQuick("file"); return;
     case "recent-files": overlay.openQuick("file"); return;
     case "quick-content": overlay.openQuick("content"); return;
+    case "replace-content": {
+      if (!project.root) return;
+      const carry = overlay.openReplace();
+      if (carry) replace.query = carry;
+      return;
+    }
     case "find-word": return overlay.findWordAtCursor();
     case "goto-line":
       // 编辑器跳行:列；日志视图跳行或时间（2026-09-21）。差异 / 合并没有「行」

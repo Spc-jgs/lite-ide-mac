@@ -193,6 +193,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "quick-file", "找文件…", None)?)
         .item(&item(app, "recent-files", "最近文件…", None)?)
         .item(&item(app, "quick-content", "在项目中搜索…", Some("Shift+CmdOrCtrl+F"))?)
+        .item(&item(app, "replace-content", "在项目中替换…", Some("Shift+CmdOrCtrl+R"))?)
         .item(&outline)
         .separator()
         /*

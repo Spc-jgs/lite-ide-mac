@@ -9,6 +9,7 @@
   import type { Sym } from "../editor/outline";
   import { tabs } from "../state/tabs.svelte";
   import { docs } from "../state/docs.svelte";
+  import { overlay } from "../state/overlay.svelte";
   import Icon from "../shell/Icon.svelte";
   import FileGlyph from "../shell/FileGlyph.svelte";
 
@@ -328,6 +329,11 @@
     }
   }
 
+  // ⇧⌘R 从这儿切到替换时带上这个词（overlay.openReplace）。只认内容范围：在「文件」里打的是文件名
+  $effect(() => {
+    overlay.contentQuery = open && scope === "content" ? query : "";
+  });
+
   /** 开关只管内容搜索：「文件」「操作」两个范围里不画（按了也没东西可变） */
   let contentOn = $derived(scope === "all" || scope === "content");
   const TOGGLES: { key: keyof SearchOpts; icon: "match-case" | "whole-word" | "regex"; title: string }[] = [
@@ -501,6 +507,10 @@
       <span><kbd>↑↓</kbd> 选择</span>
       <span><kbd>↵</kbd> 打开</span>
       <span><kbd>Tab</kbd> 换范围</span>
+      {#if scope === "content"}
+        <!-- 搜到了想换掉（#42）：⇧⌘R 带着这个词切到替换 -->
+        <span><kbd>⇧⌘R</kbd> 替换</span>
+      {/if}
       {#if scope === "all" || scope === "file"}
         <!-- 一个框走到底（issue #43）：不写出来没人知道能这么用 -->
         <span><kbd>@</kbd> 符号</span>

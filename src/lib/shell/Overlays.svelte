@@ -128,6 +128,26 @@
   const encPicker = lazy(() => import("../encoding/EncodingPicker.svelte"), "编码选择器");
 
   /*
+   * 跨文件替换（#42，⇧⌘R）。单独一个块、按下去才拉：它带着 replace-ops / replace-model，
+   * 而大多数人一天也不会用一次 —— 不像 ⌘P 那样值得首屏之后就预拉
+   */
+  const replacePanel = lazy(() => import("../search/ReplacePanel.svelte"), "替换浮层");
+  $effect(() => {
+    if (overlay.replaceOpen) replacePanel.load();
+  });
+
+  /*
+   * 开了一个项目：问一次有没有上次留下的替换日志（应用重启后还能撤销、上次中断要收拾，docs/REPLACE.md 12.1 / 12.2）。
+   * 推到首屏之后（1.5 秒）再问：这一问要拉 replace-ops 那个块，不该挤进首屏之前
+   */
+  $effect(() => {
+    const r = project.root;
+    if (!r) return;
+    const id = setTimeout(() => void import("../state/replace-ops").then((m) => m.checkPending(r)), 1500);
+    return () => clearTimeout(id);
+  });
+
+  /*
    * 速查表是「忘了才看」的东西，一次都不点开也很正常 ——
    * 让它在首屏之前被解析执行不划算。判据同 ARCHITECTURE 那条：
    * 问一句「这东西在窗口出现之前有用吗」。
@@ -142,7 +162,7 @@
   });
   // 按需加载失败要说出来（App 那张汇总名单的本地版，同 Panel / Content）
   $effect(() => {
-    const e = overlays.error || encPicker.error || keysPanel.error;
+    const e = overlays.error || encPicker.error || keysPanel.error || replacePanel.error;
     if (e) notify.fail(e);
   });
 
@@ -186,6 +206,10 @@
     scratches={scratches.list}
     onOpenFile={(p, l, preview, col) => nav.openAt(p, l, preview, col)}
   />
+{/if}
+
+{#if replacePanel.comp}
+  <replacePanel.comp bind:open={overlay.replaceOpen} />
 {/if}
 
 {#if encPicker.comp && tabs.active}
