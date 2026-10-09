@@ -101,6 +101,8 @@ WINSAVED=0
 WEBKIT="${HOME}/Library/WebKit/com.liteide.app"
 WEBKITBAK="$WORK/webkit.bak"
 WKSAVED=0
+# 跑之前 WebKit 目录在不在。在、而备份不见了的时候，还原那一步**一个字节都不能动它**（见 cleanup）
+WKHAD=0
 AXLIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/ax.applescript"
 PASS=0; FAIL=0
 
@@ -123,7 +125,14 @@ check(){ if [ "$1" = "$2" ]; then ok "$3"; else bad "$3（期望 [$2]，实得 [
 # 把没把握的东西算进成败，等于教人忽略红色
 note() { printf '  \033[33m•\033[0m %s\n' "$1"; }
 
+# **cleanup 只跑一次。** 原来是 `trap cleanup EXIT INT TERM PIPE`：bash 收到 TERM / Ctrl-C 时跑完 cleanup **不退出、接着往下跑**，
+# 退出时 EXIT 再跑一遍 cleanup（2026-10-09 用一个小脚本实测：cleanup 跑两次、中间「TERM 之后脚本还在往下跑」）。
+# 第一遍把 $WORK（备份就在里面）删了，第二遍照样 `rm -rf $WEBKIT` 再去拷一个已经不在的备份 —— 你的会话快照就没了；
+# windows.json 那段同理（没备份就删）。现在：INT / TERM / PIPE 一律 exit，由 EXIT 触发唯一的一次 cleanup；cleanup 自己也认「跑过了」
+CLEANED=0
 cleanup() {
+  [ "$CLEANED" = 1 ] && return
+  CLEANED=1
   pkill -f "MacOS/lite-ide" 2>/dev/null
   # 等它真的退了再还原 windows.json —— 它退出时（RunEvent::Exit）还会补存一次，晚到的那次会把还原盖掉
   for _ in $(seq 1 20); do pgrep -f "MacOS/lite-ide" >/dev/null || break; sleep 0.25; done
@@ -142,8 +151,13 @@ cleanup() {
     else
       echo "  （WebKit 数据目录在 $((SECONDS - t0)) 秒内没人占着了，还原）"
     fi
-    rm -rf "$WEBKIT"
-    [ -d "$WEBKITBAK" ] && cp -Rp "$WEBKITBAK" "$WEBKIT"
+    if [ "$WKHAD" = 1 ] && [ ! -d "$WEBKITBAK" ]; then
+      # 原来有数据、备份却不见了：宁可留着这次跑出来的样子，也不能先删再拷一个不存在的备份
+      echo "  ！！WebKit 的备份不见了，没有还原（你的数据没动）：$WEBKIT"
+    else
+      rm -rf "$WEBKIT"
+      [ -d "$WEBKITBAK" ] && cp -Rp "$WEBKITBAK" "$WEBKIT"
+    fi
     sleep 2
     if [ -d "$WEBKITBAK" ] && ! diff -rq "$WEBKITBAK" "$WEBKIT" >/dev/null 2>&1; then
       echo "  ！！还原完 2 秒，WebKit 数据目录又被改了 —— 你的会话快照可能被这次 smoke 盖掉一部分，备份在 $WEBKITBAK"
@@ -165,7 +179,12 @@ cleanup() {
 # 提前退出会给脚本一个 SIGPIPE —— 只 trap EXIT 的话 cleanup 跑不完整，
 # 留下一个还活着的 lite-ide。下一次再跑，AX 的 `process "lite-ide"` 可能
 # 认到那个旧实例上去，于是满屏红，而应用本身好好的。踩过一次。
-trap cleanup EXIT INT TERM PIPE
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 141' PIPE
+# 测试应用没能到最前面：整轮停下（见 notfront）
+trap 'exit 4' USR1
 
 # ─────────────────── AppleScript 那一层 ───────────────────
 #
@@ -183,6 +202,15 @@ trap cleanup EXIT INT TERM PIPE
 # 有一半的 `has` 是**负向断言**（「不该出现 X」）—— 给它加 0.6 秒重试，
 # 等于给每一条负向断言无谓地加半秒，还会让人以为那些位置也在等什么。
 # 要等的 `has` 有 `wait_has`，那是显式的。
+# **按键之前测试应用必须在最前面，不在就整轮停下。** `keystroke` / `key code` 发给的是「当前最前面的应用」，
+# 而「先 set frontmost 再敲」会被系统悄悄拦掉 —— 2026-10-08 一次验收里 ⌘= / ⌘- / ⌘0 全落进了用户正在用的 Claude 应用
+# （frontend.md「验收脚本不发全局按键」）。这里的键有 ⌘S、⌘W、⌘A ⌘V：落进别的应用就是在别人的文档上乱按。
+# 宁可这一轮不跑完。在 `$(…)` 子 shell 里也停得下：信号发给的是主脚本（$$），由 trap 'exit 4' USR1 退出、EXIT 收尾
+notfront() {
+  printf '\n\033[31m!! 测试应用没能到最前面（你可能正在用电脑）：这一下按键不发，整轮停下 —— 不能把按键打进你正在用的应用\033[0m\n' >&2
+  kill -USR1 $$
+}
+
 ax() {
   local r
   r=$(osascript "$AXLIB" "$1" "$2" "${3:-}" 2>&1 | tail -1)
@@ -190,6 +218,7 @@ ax() {
     sleep 0.6
     r=$(osascript "$AXLIB" "$1" "$2" "${3:-}" 2>&1 | tail -1)
   fi
+  [ "$r" = "NOTFRONT" ] && notfront
   printf '%s' "$r"
 }
 
@@ -203,11 +232,21 @@ ax_text() {
 # 试过用 Swift 的 `CGEventPostToPid` 直接投递给进程（不经前台），
 # 对这个 WKWebView **无效**（⌘P 发过去一点反应都没有）。
 # 所以脚本运行期间会有十来次短暂占用键盘，其余步骤都不抢（见 AXLIB 里的注释）。
-keys() { osascript -e "tell application \"System Events\" to tell process \"lite-ide\"
-  set frontmost to true
+keys() {
+  local r
+  # 设完前台**先看一眼是不是真的到了**，到了才敲。检查和按键在同一次 osascript 里，中间只隔 0.2 秒
+  r=$(osascript -e "tell application \"System Events\"
+  tell process \"lite-ide\" to set frontmost to true
   delay 0.2
-  $1
-end tell" >/dev/null 2>&1; }
+  if name of first process whose frontmost is true is not \"lite-ide\" then return \"NOTFRONT\"
+  tell process \"lite-ide\"
+    $1
+  end tell
+  return \"OK\"
+end tell" 2>/dev/null)
+  [ "$r" = "NOTFRONT" ] && notfront
+  return 0
+}
 
 # 点原生菜单栏。**能走菜单栏就别敲快捷键** —— 菜单栏是真的 AppKit 菜单，
 # 点得到就说明那条命令确实被触发了；而快捷键是发给 webview 的，
@@ -302,6 +341,7 @@ WINSAVED=1
 # 备份失败就不跑：没有备份的话，还原那一步会把你的真实会话删掉
 if [ -d "$WEBKIT" ]; then
   cp -Rp "$WEBKIT" "$WEBKITBAK" || { echo "备份 WebKit 数据目录失败，不跑了（不然跑完没东西可还原）"; exit 2; }
+  WKHAD=1
 fi
 WKSAVED=1
 PREV_APP=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null)

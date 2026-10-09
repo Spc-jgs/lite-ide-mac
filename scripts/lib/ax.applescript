@@ -78,6 +78,14 @@ on findRow(el, nm)
   return missing value
 end findRow
 
+-- **按键之前，被测进程必须真的在最前面。** `keystroke` / `key code` 发给的是「当前最前面的应用」，
+-- 而 `set frontmost to true` 会被系统悄悄拦掉（2026-10-08 一次验收里 ⌘= 全落进了用户的 Claude 应用）。
+-- 每一下按键之前都查：动作里几下键之间隔着几百毫秒，人在这中间切走了，下一下就打进别人的应用。
+-- 不在就返回 NOTFRONT、一个键都不发，smoke.sh 收到就整轮停下
+on frontIs(p)
+  tell application "System Events" to return ((name of first process whose frontmost is true) is p)
+end frontIs
+
 on run argv
   set act to item 1 of argv
   set wantRole to item 2 of argv
@@ -85,6 +93,11 @@ on run argv
   -- 进程名默认 lite-ide；设了 LITE_AX_PROC 就找那个（多窗口验收用的临时身份 .app 叫别的名字）
   set procName to system attribute "LITE_AX_PROC"
   if procName is "" then set procName to "lite-ide"
+  -- 只查不按：不碰窗口、不找元素，一个键都不发（测这道检查本身用）
+  if act is "frontcheck" then
+    if my frontIs(procName) then return "OK"
+    return "NOTFRONT"
+  end if
   tell application "System Events"
     tell process procName
       -- **只有要敲键盘的动作才抢焦点。**
@@ -137,8 +150,10 @@ on run argv
       -- 现象是提交框里还是占位符、编辑器被 ⌘A 清空后存成了 0 字节。
       set focused of el to true
       delay 0.4
+      if not my frontIs(procName) then return "NOTFRONT"
       keystroke "a" using {command down}
       delay 0.2
+      if not my frontIs(procName) then return "NOTFRONT"
       keystroke "v" using {command down}
       delay 0.5
     else if act is "caretjump" then
@@ -156,16 +171,20 @@ on run argv
       set rightN to (item 2 of nn) as integer
       set focused of el to true
       delay 0.4
+      if not my frontIs(procName) then return "NOTFRONT"
       key code 126 using {command down}
       delay 0.3
       repeat downN times
+        if not my frontIs(procName) then return "NOTFRONT"
         key code 125
       end repeat
       delay 0.2
       repeat rightN times
+        if not my frontIs(procName) then return "NOTFRONT"
         key code 124
       end repeat
       delay 0.3
+      if not my frontIs(procName) then return "NOTFRONT"
       keystroke "b" using {command down}
       delay 0.3
     else if act is "focuskey" then
@@ -175,6 +194,7 @@ on run argv
       -- 而焦点明明刚设过（`set focused` 返回 OK）。踩过一次。
       set focused of el to true
       delay 0.4
+      if not my frontIs(procName) then return "NOTFRONT"
       keystroke wantName using {command down}
       delay 0.3
     else if act is "row" then

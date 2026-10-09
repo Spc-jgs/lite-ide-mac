@@ -606,7 +606,8 @@ Claude 桌面应用（把它的界面缩放改了），而测试应用一个键�
 **一律点被测进程自己的菜单**：`click menu item "放大字号" of menu "视图" of menu bar 1`（`tell` 那个进程），退出点它的
 「退出 lite-ide」。对着进程操作，谁在最前都落不到别的应用上；快捷键在应用里触发的就是同一个菜单项。真要敲键的场景
 （编辑器里打字），先断言 `name of first process whose frontmost is true` 是测试应用，不是就停下，不要「设一下再敲」。
-`scripts/smoke.sh` 的 `keys()` 还是「设一下再敲」，没改（2026-10-08 记下，待定）。
+`scripts/smoke.sh` 的 `keys()` 和 `ax.applescript` 里会按键的三个动作（paste / caretjump / focuskey）**每一下按键之前**
+都查前台是不是被测进程（2026-10-09），不是就一个键都不发、整轮以退出码 4 停下 —— 宁可这一轮不跑完。
 
 ## 驱动真 `.app` 的两个坑（2026-09-17）
 
