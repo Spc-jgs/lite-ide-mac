@@ -127,7 +127,9 @@ jobs:
         # 三条都在同一个字面量里，改动它之前先看这里。
         run: |
           bad=0
-          for s in "m13/git" "合并 M12：界面打磨与使用手册" "M11 符号大纲：⌘⇧O 文件结构"; do
+          # 最后一条是测试钩子（src/lib/dev/test-hooks.ts 模块级挂的那个串，2026-10-09）：
+          # 它只该出现在 VITE_TEST_BRIDGE=1 的测试构建里，正式产物里出现 = main.ts 那个死分支被改坏了
+          for s in "m13/git" "合并 M12：界面打磨与使用手册" "M11 符号大纲：⌘⇧O 文件结构" "lite-test-hooks-loaded"; do
             if grep -rlF "$s" dist/assets/*.js >/dev/null 2>&1; then
               echo "::error::开发桩漏进产物了：在 dist 里找到「$s」"
               grep -rlF "$s" dist/assets/*.js
@@ -135,7 +137,7 @@ jobs:
             fi
           done
           if [ "$bad" = 1 ]; then
-            echo "::error::main.ts 里那句 import 必须是 \`await import()\`，不能是静态 import。"
+            echo "::error::main.ts 里桩和测试钩子那两句 import 必须是 \`await import()\`（包在 import.meta.env 的常量条件里），不能是静态 import。"
             exit 1
           fi
           echo "产物里没有开发桩的痕迹 ✓"

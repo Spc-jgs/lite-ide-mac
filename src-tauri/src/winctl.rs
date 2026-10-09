@@ -187,6 +187,8 @@ pub fn create(app: &AppHandle, root: Option<String>, frame: Option<Frame>, paths
     if let Some(f) = frame {
         b = b.position(f.x, f.y).inner_size(f.w, f.h);
     }
+    // 新窗口默认拿焦点（会把应用拉到前台）；测试构建在后台跑时不拿（crate::may_take_focus）
+    b = b.focused(crate::may_take_focus());
     let w = match b.build() {
         Ok(w) => w,
         Err(e) => {
@@ -260,7 +262,7 @@ pub fn reopen(app: &AppHandle) {
             let _ = w.unminimize();
             let _ = w.show();
         }
-        if let Some(w) = st.windows.front().and_then(|l| app.get_webview_window(&l)) {
+        if let Some(w) = st.windows.front().and_then(|l| app.get_webview_window(&l)).filter(|_| crate::may_take_focus()) {
             let _ = w.set_focus();
         }
         return;
@@ -273,6 +275,25 @@ pub fn reopen(app: &AppHandle) {
         None => {
             create(app, None, None, Vec::new());
         }
+    }
+}
+
+/// 菜单项按下去了（原生菜单栏，以及测试通道的 `menu` 指令 —— 两边走这同一个函数，测的才是同一条路）。
+pub fn menu_event(app: &AppHandle, id: &str) {
+    // 「退出」是第二个在 Rust 侧处理的：要先让每个窗口存好现场再退（winctl::quit）
+    if id == "quit" {
+        quit(app);
+        return;
+    }
+    // 只发给前台窗口（多窗口第 2 步）。原来是广播：两个窗口时在 A 里按 ⌘S，B 也保存。
+    // 一个窗口都没有时（#41：关掉最后一个窗口应用还在）由 Rust 自己接能接的那几项
+    match app.state::<AppState>().windows.front() {
+        Some(label) => {
+            // 发给了谁：多窗口验收要靠这一行看「在 A 里按 ⌘S，只有 A 收到」
+            crate::diag!("menu {id} → {label}");
+            let _ = app.emit_to(label.as_str(), "menu", id);
+        }
+        None => menu_without_window(app, id),
     }
 }
 

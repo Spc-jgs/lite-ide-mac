@@ -66,7 +66,7 @@ pub fn deliver_from(app: &AppHandle, paths: Vec<String>, from: Option<&str>) {
         let _ = app.emit_to(label.as_str(), EVENT, &paths);
         // 送到哪个窗口，哪个窗口到前面来：「再开一次 A」的意思就是「回到 A 那个窗口」，
         // Finder 双击一个属于 B 项目的文件，也该是 B 的窗口出来
-        if let Some(w) = app.get_webview_window(&label) {
+        if let Some(w) = app.get_webview_window(&label).filter(|_| crate::may_take_focus()) {
             let _ = w.set_focus();
         }
     }

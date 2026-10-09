@@ -596,6 +596,20 @@ pnpm tauri build --bundles app --config '{"identifier":"com.liteide.mwtest","pro
 AX 树读不全，两种都实测骗过人。按窗口 id `screencapture -l`（只截测试应用自己的窗口，不截整屏）+ Vision 识字；
 非 Retina 屏上的 1 倍图要先放大两倍，不然一个字都认不出、「认不出」会被当成「没有」。详见 JOURNAL 同日。
 
+## 真 `.app` 验收走测试通道（2026-10-09）
+
+`scripts/build-test-app.sh` 打一份带测试通道的临时身份 `.app`（Rust `--features test-bridge` + 前端 `VITE_TEST_BRIDGE=1`），
+脚本 `source scripts/lib/bridge.sh`，用 `lite_launch` / `lite eval <窗口> '<JS>'` / `lite menu <id>` / `lite_quit` 驱动它 ——
+**不发全局按键、不读 AX 树、不截图、后台起不抢焦点**，你可以照常用电脑。样板是 `scripts/accept/settings.sh`；协议在
+`src-tauri/src/testbridge.rs` 头上，页面里能用的东西在 `src/lib/dev/test-hooks.ts`（`window.__lite`）。
+
+- **正式包里没有它**：Rust 侧整个模块 `#[cfg(feature = "test-bridge")]`；前端在 main.ts 的常量条件里 `await import()`，CI 有哨兵。
+  2026-10-09 在正式包的二进制里 `strings | grep LITE_IDE_TEST_SOCK` 是 0、测试包里是 1
+- **焦点**：启动那一下关不掉（tao 在「启动完成」里无条件 `activateIgnoringOtherApps`，Tauri 没开放那个开关），`lite_launch`
+  起来之后立刻把焦点还给你原来的应用；之后应用自己的 `set_focus`、新窗口拿焦点在测试构建里都关了（`crate::may_take_focus`）
+- **它验不到的**：走的是应用内部的路，`macOS 把按键交给谁`、`WebKit 在真右键时把焦点给谁`这一层验不到（#53、#50）——
+  那要真输入，而真输入前必须断言测试应用在最前（下一节）。还有：测试构建里窗口不主动拿焦点，「焦点切换」相关的行为在这里测不到
+
 ## 验收脚本不发全局按键（2026-10-08）
 
 System Events 的 `keystroke` / `key code` 发给的是**当前最前面的应用**，不是你 `tell process` 的那个。「先 `set frontmost to true`

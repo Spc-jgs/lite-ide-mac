@@ -5,6 +5,25 @@ pub mod menu;
 mod open;
 mod settings;
 mod settingsctl;
+#[cfg(feature = "test-bridge")]
+mod testbridge;
+
+/// 这次能不能主动把窗口 / 应用拉到前台（`set_focus`、新窗口默认拿焦点）。**正式构建里恒为 true，行为一点不变。**
+///
+/// 只有测试构建、而且测试通道在听（`LITE_IDE_TEST_SOCK` 设了）时为 false：测试要在用户照常用电脑时跑
+/// （`open -g` 在后台起），而启动时那一下 `set_focus` 会盖过 `-g`、把用户正在用的应用顶下去（2026-10-09 实测：
+/// 不带路径后台起，最前面立刻从 Chrome 变成 lite-ide）。代价：测试构建里测不到「焦点切换」相关的行为 ——
+/// 那一类要靠真输入去验（scripts/lib/bridge.sh 头上）
+pub(crate) fn may_take_focus() -> bool {
+    #[cfg(feature = "test-bridge")]
+    {
+        std::env::var_os("LITE_IDE_TEST_SOCK").is_none()
+    }
+    #[cfg(not(feature = "test-bridge"))]
+    {
+        true
+    }
+}
 mod state;
 mod trust_store;
 mod windows;
@@ -71,25 +90,7 @@ pub fn run() {
          * 它们要读的状态（当前标签、当前仓库、终端列表）都在那边，
          * 搬到 Rust 来就是把一份状态存两处。
          */
-        .on_menu_event(|app, event| {
-            use tauri::{Emitter, Manager};
-            let id = event.id().0.as_str();
-            // 「退出」是第二个在 Rust 侧处理的：要先让每个窗口存好现场再退（winctl::quit）
-            if id == "quit" {
-                winctl::quit(app);
-                return;
-            }
-            // 只发给前台窗口（多窗口第 2 步）。原来是广播：两个窗口时在 A 里按 ⌘S，B 也保存。
-            // 一个窗口都没有时（#41：关掉最后一个窗口应用还在）由 Rust 自己接能接的那几项
-            match app.state::<state::AppState>().windows.front() {
-                Some(label) => {
-                    // 发给了谁：多窗口验收要靠这一行看「在 A 里按 ⌘S，只有 A 收到」
-                    crate::diag!("menu {id} → {label}");
-                    let _ = app.emit_to(label.as_str(), "menu", id);
-                }
-                None => winctl::menu_without_window(app, id),
-            }
-        })
+        .on_menu_event(|app, event| winctl::menu_event(app, event.id().0.as_str()))
         .on_window_event(|window, event| {
             // 窗口关了，它名下的终端、日志句柄、监听、远程操作跟着走 —— 否则留下孤儿 zsh 常驻。
             // 只收**这个窗口**的：别的窗口的终端里可能正跑着 gradle（docs/MULTIWINDOW.md 3.2）
@@ -155,6 +156,8 @@ pub fn run() {
 
             // 设置在任何窗口的前端开口要它之前读好（前端挂载前就 await settings()，见 settingsctl::init）
             settingsctl::init(app.handle());
+            #[cfg(feature = "test-bridge")]
+            testbridge::start(app.handle());
 
             /*
              * 登记第一个窗口，再把命令行参数送进它的收件箱。
@@ -183,7 +186,9 @@ pub fn run() {
             if let Some(w) = app.get_webview_window("main") {
                 budget::mark("window");
                 apply_window_material(&w);
-                let _ = w.set_focus();
+                if may_take_focus() {
+                    let _ = w.set_focus();
+                }
                 // 开发期验证用：LITE_IDE_ONTOP=1 让窗口置顶，方便截图取证
                 if std::env::var("LITE_IDE_ONTOP").is_ok() {
                     let _ = w.set_always_on_top(true);

@@ -8552,3 +8552,36 @@ WebKit 还原时「原来有数据、备份却不见了」就一个字节都不�
 
 **`trap … INT TERM` 不等于「收到信号就退出」**：trap 接管了信号，默认的「终止」就没了，handler 跑完脚本照常继续。
 要退出得在 handler 里自己 `exit`。`scripts/screenshots.sh` 是同一种写法，它的 cleanup 跑两次不丢数据（只是 Ctrl-C 之后还会接着截图），没改。
+
+## 2026-10-09 · 测试通道（验证方案第一轮）
+
+验收和 smoke 原来站在应用外面模仿人（System Events 敲键、AX 点、截图量），三样都靠不住：键落进用户的应用（10-08）、
+AX 偶尔点空（#22）、截图权限会过期。测试通道让测试在应用内部下指令、读状态：Rust `--features test-bridge`
+（`testbridge.rs`：Unix socket、四个指令 windows / menu / close / eval），前端 `VITE_TEST_BRIDGE=1` 时挂 `window.__lite`，
+脚本侧 `scripts/lib/bridge.py` + `bridge.sh`。`eval` 的回话走 Tauri 现成的事件通道（页面 `plugin:event|emit`），
+正式版不需要任何测试专用的命令。菜单分发拎成 `winctl::menu_event`，原生菜单和测试通道走同一个函数。
+
+`scripts/accept/settings.sh` 是第一份走它的验收，8/8。其中「两个窗口同时连按放大字号各 5 下」是 #44 第 2 步那条
+「改和写在同一把锁里」第一次被真的测到：两个窗口都是 23、`ui-state.json` 里也是 +10。**这条没验红** ——
+去掉锁之后是竞态，红不红看运气，而且一次测试构建要 3 分钟；如实记着。
+
+### 焦点被抢：三层，一层层量出来
+
+目标是「用户照常用电脑时也能跑」。每一步后面记一次最前面是谁，一次只变一个量：
+
+1. 带路径 `open -g` 起：一起来最前面就变成 lite-ide。怀疑 `open.rs` 送路径时的 `set_focus` → **不带路径起，照样被抢**，不是它
+2. `setup` 里对主窗口无条件 `set_focus()`，加上新窗口默认拿焦点、Dock 重开的 `set_focus`：全部改成先问 `may_take_focus()`
+   （正式构建恒为 true，测试通道开着时为 false）→ **照样被抢**
+3. 主窗口是配置建的，默认 `focus: true`：测试构建的覆盖配置里改成 false（`--config` 是 JSON Merge Patch，数组整个替换，
+   所以从 tauri.conf.json 读出窗口配置只改这一项，不手抄）→ **还是被抢**
+4. 读 tao 0.35.3 的源码：`app_state.rs` 的 `launched()` 里无条件 `ns_app.activateIgnoringOtherApps(ignore)`，`ignore` 默认 true；
+   tao 有 `set_activate_ignoring_other_apps`，**Tauri 没开放**。这一下关不掉 —— `lite_launch` 起来之后立刻把焦点还给原来的应用
+   （按 bundle id，不按进程名）。之后每一步都不再碰焦点
+
+第一版焦点断言也写错了：判的是「最前面一直是开始时那个应用」，而用户在测试跑的时候切到了 Chrome —— 那不是被抢。
+改成「测试应用从来没跑到最前面」。
+
+### 正式包里确实没有
+
+正式包二进制 `strings | grep -c LITE_IDE_TEST_SOCK` 是 0，测试包是 1（证明这个 grep 搜得到）；正式前端产物里没有测试钩子的哨兵串。
+CI 的「开发桩不许进产物」加了这个哨兵（`lite-test-hooks-loaded`，模块级副作用 —— 函数体里的串会被 shake 掉，那种哨兵永远不响）。

@@ -385,6 +385,13 @@ impl Windows {
         self.lock().quitting.as_ref().map_or(0, Vec::len)
     }
 
+    /// 开着的窗口：(label, 项目根)，前台的在前。只有测试通道用（`testbridge.rs` 的 `windows` 指令）
+    #[cfg(feature = "test-bridge")]
+    pub fn list(&self) -> Vec<(String, Option<String>)> {
+        let g = self.lock();
+        g.mru.iter().filter_map(|l| g.wins.get(l).map(|w| (l.clone(), w.root.clone()))).collect()
+    }
+
     /// 前台窗口
     pub fn front(&self) -> Option<String> {
         self.lock().mru.first().cloned()

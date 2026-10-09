@@ -198,6 +198,14 @@ invoke("boot_mark", { name: "js" }).catch(() => {});
  * 第 0 步实测这一次往返 < 1ms，所以直接等，不做首屏缓存。它自己不抛
  */
 await settings.init();
+/*
+ * 测试构建（scripts/build-test-app.sh，VITE_TEST_BRIDGE=1）才挂测试钩子（window.__lite，见 lib/dev/test-hooks.ts）。
+ * 正式构建里条件是常量假，整句连同那个 import 在语法层面就没了 —— 同上面桩那条，不靠 tree-shaking；CI 有哨兵盯着
+ */
+if (import.meta.env.VITE_TEST_BRIDGE === "1") {
+  const { installTestHooks } = await import("./lib/dev/test-hooks");
+  installTestHooks();
+}
 let app;
 try {
   /*
