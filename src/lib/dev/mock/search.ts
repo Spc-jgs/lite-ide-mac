@@ -46,14 +46,15 @@ export async function searchCmd(cmd: string, a: A): Promise<unknown> {
       return { files, truncated };
     }
     case "grep_project": {
-      const hit = grepMatcher(String(a.pattern));
-      const out: Array<{ path: string; line: number; text: string }> = [];
+      const hit = grepMatcher(String(a.pattern), a);
+      const out: Array<{ path: string; line: number; text: string; spans: [number, number][] }> = [];
       for (const [full, content] of Object.entries(FILES)) {
         // 只搜项目根底下的：真 rg 跑在 /proj 里，草稿目录那些它根本看不见
         if (!full.startsWith("/proj/") || searchSkips(full)) continue;
         const rel = full.replace(/^\/proj\//, "");
         content.split("\n").forEach((text, i) => {
-          if (hit(text)) out.push({ path: rel, line: i + 1, text });
+          const spans = hit(text);
+          if (spans.length) out.push({ path: rel, line: i + 1, text, spans });
         });
       }
       return out.slice(0, Number(a.limit) || 60);

@@ -179,6 +179,7 @@
   <overlays.comps.quick
     bind:open={overlay.quickOpen}
     bind:scope={overlay.quickScope}
+    bind:opts={overlay.searchOpts}
     seed={overlay.quickSeed}
     root={project.root}
     {actions}

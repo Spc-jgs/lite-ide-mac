@@ -65,20 +65,34 @@ pub async fn list_project_files(root: String) -> Result<ProjectFilesDto, String>
     .await
 }
 
-/// 全局内容搜索。有 rg 用 rg，没有就用进程内实现，两者结果一致。
+/// 全局内容搜索。有 rg 用 rg，没有就用进程内实现，两者结果一致（每一行都由 `searchsvc::Matcher` 判）。
+/// 三个开关和 ⇧⌘F 浮层上的三个按钮一一对应（#42）。
 #[tauri::command]
-pub async fn grep_project(root: String, pattern: String, limit: usize) -> Result<Vec<HitDto>, String> {
+pub async fn grep_project(
+    root: String,
+    pattern: String,
+    case: bool,
+    word: bool,
+    regex: bool,
+    limit: usize,
+) -> Result<Vec<HitDto>, String> {
     blocking(move || {
-        let hits = searchsvc::grep(&root, &pattern, limit, &skip_for(&root))
-            .map_err(|e| format!("搜索失败：{e}"))?;
-        Ok(hits
-            .into_iter()
-            .map(|h| HitDto {
-                path: h.path,
-                line: h.line,
-                text: h.text,
-            })
-            .collect())
+        let q = searchsvc::Query { pattern, case, word, regex };
+        let hits = searchsvc::grep(&root, &q, limit, &skip_for(&root)).map_err(|e| grep_error(&e))?;
+        Ok(hits.into_iter().map(hit_dto).collect())
     })
     .await
+}
+
+pub(crate) fn hit_dto(h: searchsvc::Hit) -> HitDto {
+    HitDto { path: h.path, line: h.line, text: h.text, spans: h.spans }
+}
+
+/// 正则写错了那句本身就是给人看的（「正则写错了：…」），不再套一层「搜索失败」
+pub(crate) fn grep_error(e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::InvalidInput {
+        e.to_string()
+    } else {
+        format!("搜索失败：{e}")
+    }
 }

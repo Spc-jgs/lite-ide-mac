@@ -261,21 +261,20 @@ ok(fuzzyMatch("文档/说明.md", "xyz") === null, "中文串里搜不到就是 
   ok(t === null || t.positions.length === 1, "土耳其点 I 之类的特殊大小写不能崩");
 }
 
-// ── 10. snippet：内容行的高亮与截片段 ──
+// ── 10. snippet：内容行的高亮与截片段（#42 起位置由 Rust 给，这里只画）──
 {
-  const hit = (s: { t: string; hit: boolean }[]) => s.filter((x) => x.hit).map((x) => x.t).join("");
+  const hit = (s: { t: string; hit: boolean }[]) => s.filter((x) => x.hit).map((x) => x.t).join("|");
   const join = (s: { t: string; hit: boolean }[]) => s.map((x) => x.t).join("");
-  ok(hit(snippet("return repo.save(order);", "order")) === "order", "字面量命中");
-  ok(hit(snippet("public Order persist(Order o)", "order")) === "Order", "没大写就不区分大小写（smart-case）");
-  ok(hit(snippet("public Order persist(order o)", "Order")) === "Order", "有大写就区分");
-  ok(join(snippet("return repo.save(order);", "order")) === "return repo.save(order);", "没截时拼回来是原串");
+  ok(hit(snippet("return repo.save(order);", [[17, 22]])) === "order", "照给的位置画");
+  ok(hit(snippet("Order o = order;", [[0, 5], [10, 15]])) === "Order|order", "一行里几处都画");
+  ok(join(snippet("return repo.save(order);", [[17, 22]])) === "return repo.save(order);", "没截时拼回来是原串");
+  ok(hit(snippet("    foo bar", [[4, 7]])) === "foo" && join(snippet("    foo bar", [[4, 7]])) === "foo bar", "行首缩进去掉，位置跟着挪");
   const long = "x".repeat(100) + "needle" + "y".repeat(10);
-  const s = snippet(long, "needle");
+  const s = snippet(long, [[100, 106]]);
   ok(s[0].t.startsWith("…") && s[0].t.length === 29, `命中太靠后要截，前面收成 …，实得 ${s[0].t.length}`);
   ok(hit(s) === "needle" && s[2].t === "y".repeat(10), "截过之后命中和尾巴都还在");
-  ok(hit(snippet("metrics.record(order.id)", "order\\.id")) === "order.id", "字面量找不到时按正则再试");
-  ok(snippet("abc", "(").length === 1 && !snippet("abc", "(")[0].hit, "不合法的正则不高亮也不抛");
-  ok(snippet("abc", "").length === 1, "空查询整行不高亮");
+  ok(snippet("abc", []).length === 1 && !snippet("abc", [])[0].hit, "没有位置：整行不高亮");
+  ok(snippet("abc", [[5, 9]]).length === 1, "位置越界（截过的行）：不高亮也不抛");
 }
 
 // ── 配得进文件名就只在文件名里配（2026-10-09，issue #43 撞上的）──

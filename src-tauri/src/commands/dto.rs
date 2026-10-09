@@ -167,6 +167,8 @@ pub struct HitDto {
     pub path: String,
     pub line: u64,
     pub text: String,
+    /// 命中在 `text` 里的哪几段（UTF-16 下标）。前端照这个高亮，不自己照着搜索词再找一遍（#42）
+    pub spans: Vec<[u32; 2]>,
 }
 
 #[derive(serde::Serialize)]

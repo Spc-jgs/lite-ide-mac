@@ -232,39 +232,31 @@ export function segments(text: string, positions: number[]): { t: string; hit: b
 /**
  * 内容命中行的高亮 + 截片段。
  *
- * 文件名和操作走 `segments`（fuzzy 的命中位置），内容行没有位置 —— 搜的是子进程里的 rg
- * 或内置的 memmem，只回来一行文字。这里在前端再找一遍：**smart-case 的字面量优先**
- * （rg 的 `--smart-case`：没大写就不区分大小写），找不到再当正则试一次（rg 那条路
- * 把 pattern 当正则，`order\.id` 这种字面量找不到但正则找得到），正则也不合法就不高亮 ——
- * 宁可少一个高亮，也不要抛错让整个列表不渲染。
+ * **命中在哪由 Rust 说了算**（`Hit.spans`，`searchsvc::Matcher` 算的，UTF-16 下标），这里只负责画（#42）。
+ * 原来是在前端照着搜索词再找一遍（smart-case 的字面量优先、找不到再当正则试）—— 那是第三套匹配规则：
+ * 整词、区分大小写、正则这几个开关一加，它找出来的就会和真正命中的那几段对不上。
  *
- * 截片段：行是 `white-space: nowrap` + ellipsis 印的，命中在第 120 列时人看到的是一行
- * 无关的前缀加省略号。命中前留 `before` 个字符，前面的收成一个「…」；命中之后不截，
- * 剩下的交给 ellipsis。
+ * 行首的缩进去掉（列表里一行放不下）；第一处命中太靠后时前面收成「…」，让它出现在看得见的地方。
  */
-export function snippet(text: string, query: string, before = 28): { t: string; hit: boolean }[] {
-  const q = query.trim();
-  if (!q) return [{ t: text, hit: false }];
-  const sensitive = /[A-Z]/.test(q);
-  let idx = sensitive ? text.indexOf(q) : text.toLowerCase().indexOf(q.toLowerCase());
-  let len = q.length;
-  if (idx < 0) {
-    try {
-      const m = new RegExp(q, sensitive ? "" : "i").exec(text);
-      if (m && m[0].length > 0) {
-        idx = m.index;
-        len = m[0].length;
-      }
-    } catch {
-      /* 不是合法正则：不高亮 */
-    }
-  }
-  if (idx < 0) return [{ t: text, hit: false }];
-  const start = idx > before ? idx - before : 0;
-  const head = (start > 0 ? "…" : "") + text.slice(start, idx);
+export function snippet(text: string, spans: [number, number][], before = 28): { t: string; hit: boolean }[] {
+  const lead = text.length - text.trimStart().length;
+  const body = text.trimEnd().slice(lead);
+  const ss = spans
+    .map(([a, b]) => [Math.max(0, a - lead), Math.min(body.length, b - lead)] as const)
+    .filter(([a, b]) => b > a);
+  if (ss.length === 0) return [{ t: body, hit: false }];
+  const start = ss[0][0] > before ? ss[0][0] - before : 0;
   const out: { t: string; hit: boolean }[] = [];
-  if (head) out.push({ t: head, hit: false });
-  out.push({ t: text.slice(idx, idx + len), hit: true });
-  if (idx + len < text.length) out.push({ t: text.slice(idx + len), hit: false });
+  let cursor = start;
+  if (start > 0) out.push({ t: "…", hit: false });
+  for (const [a, b] of ss) {
+    if (a < cursor) continue;
+    if (a > cursor) out.push({ t: body.slice(cursor, a), hit: false });
+    out.push({ t: body.slice(a, b), hit: true });
+    cursor = b;
+  }
+  if (cursor < body.length) out.push({ t: body.slice(cursor), hit: false });
+  // 「…」和紧跟的普通段并成一段（测试和渲染都只关心「普通 / 命中」交替）
+  if (start > 0 && out[1] && !out[1].hit) out.splice(0, 2, { t: "…" + out[1].t, hit: false });
   return out;
 }

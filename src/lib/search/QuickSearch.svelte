@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { readText, type Hit, type ScratchEntry } from "../ipc/commands";
-  import { grepProject, grepScratches } from "../ipc/search";
+  import { grepProject, grepScratches, type SearchOpts } from "../ipc/search";
   import { files } from "../state/files.svelte";
   import { project } from "../state/project.svelte";
   import { rank, segments, snippet } from "./fuzzy";
@@ -25,6 +25,7 @@
     open = $bindable(),
     root,
     scope = $bindable(),
+    opts = $bindable(),
     seed = "",
     actions,
     scratches = [],
@@ -33,6 +34,8 @@
     open: boolean;
     root: string | null;
     scope: Scope;
+    /** 内容搜索的三个开关（#42），记在 overlay store 里，浮层关了还在 */
+    opts: SearchOpts;
     /**
      * 草稿（issue #40）。它们不在项目里，`listProjectFiles` 列不到，
      * 但「⌘P 打个时间戳就翻到那条笔记」是翻草稿最快的一条路。显示时标「草稿」，
@@ -69,6 +72,8 @@
   /** 草稿里的内容命中（M10 ③）。和项目那趟并行，各自 60 条上限 */
   let shits = $state<Hit[]>([]);
   let searching = $state(false);
+  /** 内容搜索没做成的那句话（正则写错了最常见）。原来一律吞掉当「没搜到」—— 写错的正则和真没有长得一模一样 */
+  let searchErr = $state<string | null>(null);
   let cursor = $state(0);
   let input: HTMLInputElement | undefined = $state();
 
@@ -153,6 +158,9 @@
     const q = query;
     const sc = scope;
     const r = root;
+    // 三个开关拆开读：effect 要跟着它们变，而 `opts` 这个对象本身换不换不一定
+    const o: SearchOpts = { case: opts.case, word: opts.word, regex: opts.regex };
+    searchErr = null;
     if (!open || q.length < 2 || (sc !== "all" && sc !== "content") || goto.kind !== "plain") {
       hits = [];
       shits = [];
@@ -173,13 +181,18 @@
     let dead = false;
     const timer = setTimeout(() => {
       // 项目和草稿两趟并行。没开项目时只搜草稿 —— 「上次那个坑我记在哪了」不需要先开项目
-      const proj = r ? grepProject(r, q, 60) : Promise.resolve([] as Hit[]);
-      const scr = scratches.length ? grepScratches(q, 60) : Promise.resolve([] as Hit[]);
-      Promise.all([proj.catch(() => [] as Hit[]), scr.catch(() => [] as Hit[])])
+      const proj = r ? grepProject(r, q, o, 60) : Promise.resolve([] as Hit[]);
+      const scr = scratches.length ? grepScratches(q, o, 60) : Promise.resolve([] as Hit[]);
+      // 两趟各自失败不拖累另一趟；但失败的那句话要留下来给人看（项目那趟优先，两趟说的多半是同一句）
+      let err: string | null = null;
+      // Tauri 拒绝时给的是字符串，桩里抛的是 Error：都只要那句话本身，别带出「Error: 」
+      const keep = (p: Promise<Hit[]>) => p.catch((e) => ((err ??= e instanceof Error ? e.message : String(e)), [] as Hit[]));
+      Promise.all([keep(proj), keep(scr)])
         .then(([h, sh]) => {
           if (dead) return;
           hits = h;
           shits = sh;
+          searchErr = err;
         })
         .finally(() => {
           if (!dead) searching = false;
@@ -201,9 +214,9 @@
     | { kind: "line"; path: string; line: number; col?: number }
     /** ⌘E / ⌘P 空着的时候列的：最近打开的文件（绝对路径） */
     | { kind: "recent"; path: string }
-    | { kind: "content"; path: string; line: number; text: string }
+    | { kind: "content"; path: string; line: number; text: string; spans: [number, number][] }
     /** 草稿里的内容命中：单独一组「草稿」，右边那列是那条草稿的标题 */
-    | { kind: "scratch"; path: string; line: number; text: string; title: string }
+    | { kind: "scratch"; path: string; line: number; text: string; spans: [number, number][]; title: string }
     | { kind: "action"; action: Action; seg: { t: string; hit: boolean }[] };
 
   let rows = $derived.by(() => {
@@ -251,11 +264,11 @@
     }
     if ((scope === "all" && goto.kind === "plain") || scope === "content") {
       for (const h of hits.slice(0, scope === "content" ? 60 : 8)) {
-        out.push({ kind: "content", path: h.path, line: h.line, text: h.text });
+        out.push({ kind: "content", path: h.path, line: h.line, text: h.text, spans: h.spans });
       }
       for (const h of shits.slice(0, scope === "content" ? 30 : 4)) {
         const e = scratches.find((s) => s.path === h.path);
-        out.push({ kind: "scratch", path: h.path, line: h.line, text: h.text, title: e?.firstLine || fileName(h.path) });
+        out.push({ kind: "scratch", path: h.path, line: h.line, text: h.text, spans: h.spans, title: e?.firstLine || fileName(h.path) });
       }
     }
     return out;
@@ -277,7 +290,19 @@
     else onOpenFile(row.path, row.line, row.kind === "content");
   }
 
+  /*
+   * ⌥C / ⌥W / ⌥X 切三个开关 —— IDEA 查找框的键位（键位跟 IDEA）。认 `code` 不认 `key`：
+   * macOS 上按住 ⌥ 敲 C，`key` 是「ç」。只在浮层里生效，不进 keymap.ts（那张表管的是全局的键）
+   */
+  const TOGGLE: Record<string, keyof SearchOpts> = { KeyC: "case", KeyW: "word", KeyX: "regex" };
+
   function onKey(e: KeyboardEvent) {
+    if (e.altKey && !e.metaKey && !e.ctrlKey && TOGGLE[e.code] && contentOn) {
+      e.preventDefault();
+      const k = TOGGLE[e.code];
+      opts[k] = !opts[k];
+      return;
+    }
     // 打 `@` / `:` 那一下记住光标停在哪个文件上（见 `pinned`）
     if ((e.key === "@" || e.key === ":") && goto.kind === "plain") {
       const r = rows[cursor];
@@ -302,6 +327,14 @@
       scope = SCOPES[(i + (e.shiftKey ? -1 + SCOPES.length : 1)) % SCOPES.length].id;
     }
   }
+
+  /** 开关只管内容搜索：「文件」「操作」两个范围里不画（按了也没东西可变） */
+  let contentOn = $derived(scope === "all" || scope === "content");
+  const TOGGLES: { key: keyof SearchOpts; icon: "match-case" | "whole-word" | "regex"; title: string }[] = [
+    { key: "case", icon: "match-case", title: "区分大小写（⌥C）" },
+    { key: "word", icon: "whole-word", title: "整词（⌥W）—— 前后都不是字母数字下划线才算；中文字也算字母，一串中文里找不到" },
+    { key: "regex", icon: "regex", title: "正则（⌥X）" },
+  ];
 
   const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开", symbol: "符号", line: "跳到行" } as const;
 
@@ -357,6 +390,24 @@
         spellcheck="false"
         autocomplete="off"
       />
+      {#if contentOn}
+        <!-- 三个开关（#42），照 IDEA 查找框：输入框右边，开着是 `on` 态 -->
+        <span class="toggles">
+          {#each TOGGLES as t (t.key)}
+            <button
+              class="ibtn"
+              class:on={opts[t.key]}
+              title={t.title}
+              aria-label={t.title}
+              aria-pressed={opts[t.key]}
+              onclick={() => {
+                opts[t.key] = !opts[t.key];
+                input?.focus();
+              }}
+            ><Icon name={t.icon} /></button>
+          {/each}
+        </span>
+      {/if}
     </div>
 
     <div class="scopes">
@@ -370,7 +421,8 @@
     <div class="results">
       {#if rows.length === 0}
         <div class="none">
-          {#if goto.kind === "symbol" && !target}{#if goto.file}没有匹配的文件{:else}没有打开的文件 —— 在 <kbd>@</kbd> 前面写文件名{/if}
+          {#if searchErr && (scope === "content" || scope === "all")}<span class="err">{searchErr}</span>
+          {:else if goto.kind === "symbol" && !target}{#if goto.file}没有匹配的文件{:else}没有打开的文件 —— 在 <kbd>@</kbd> 前面写文件名{/if}
           {:else if goto.kind === "symbol" && (symsLoading || symsOf !== target)}<span class="wait"><span class="spinner"></span>解析中…</span>
           {:else if goto.kind === "symbol" && syms.length === 0}这个文件没有可列的符号 —— 只有带语法树的语言才有（Java、Python、TS…）
           {:else if goto.kind === "symbol"}没有叫这个的符号
@@ -431,13 +483,13 @@
             <span class="side">{recentSide(row.path)}</span>
           {:else if row.kind === "scratch"}
             <span class="ic"><FileGlyph name={fileName(row.path)} /></span>
-            <span class="main mono">{#each snippet(row.text.trim(), query) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
+            <span class="main mono">{#each snippet(row.text, row.spans) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
             <!-- 右边是标题不是路径：`~/Library/…/2026-09-15 0930.md:31` 认不出是哪条 -->
             <span class="side plain">{row.title}</span>
           {:else}
             <span class="ic"><FileGlyph name={fileName(row.path)} /></span>
             <!-- 内容行也高亮命中，并把命中截到看得见的位置 —— 之前只有文件名和操作有 <mark>，十几行结果得自己再找一遍 -->
-            <span class="main mono">{#each snippet(row.text.trim(), query) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
+            <span class="main mono">{#each snippet(row.text, row.spans) as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
             <span class="side">{row.path}:{row.line}</span>
           {/if}
         </button>
@@ -499,6 +551,8 @@
     outline: none;
   }
   input::placeholder { color: var(--text-faint); }
+  .toggles { flex: none; display: flex; gap: 2px; }
+  .err { color: var(--lvl-error); }
 
   .scopes {
     flex: none;

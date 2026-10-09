@@ -37,6 +37,10 @@
     "remote",
     "x",
     "undo",
+    // ⇧⌘F 的三个开关（#42）：和 IDEA 查找框里那三个是同一份
+    "match-case",
+    "whole-word",
+    "regex",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];

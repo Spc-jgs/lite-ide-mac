@@ -36,6 +36,9 @@
 | `icons/remote.svg` | `platform/icons/src/expui/toolwindows/web_dark.svg` |
 | `icons/x.svg` | `platform/icons/src/expui/general/closeSmall_dark.svg` |
 | `icons/undo.svg` | `platform/icons/src/expui/vcs/revert_dark.svg` |
+| `icons/match-case.svg` | `platform/icons/src/expui/inline/matchCase_dark.svg` |
+| `icons/whole-word.svg` | `platform/icons/src/expui/inline/exactWords_dark.svg` |
+| `icons/regex.svg` | `platform/icons/src/expui/inline/regex_dark.svg` |
 | `icons/file/folder.svg` | `platform/icons/src/expui/nodes/folder_dark.svg` |
 | `icons/file/package.svg` | `platform/icons/src/expui/nodes/package_dark.svg` |
 | `icons/file/sourceRoot.svg` | `platform/icons/src/expui/nodes/sourceRoot_dark.svg` |

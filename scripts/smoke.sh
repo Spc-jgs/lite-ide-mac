@@ -127,6 +127,10 @@ wait_exists() { lite_wait "${W}" "return __lite.exists($(q "$1"), $(q "${2:-any}
 key()      { lite eval "${W}" "__lite.key($(q "$1")); return true" >/dev/null; }
 fill()     { is "__lite.fill($(q "$1")${2:+, $(q "$2")}); return true"; }
 set_text() { is "__lite.setText($(q "$1")); return true"; }
+# 浮层的结果列表里有没有这段字。**别用 exists 在整页找**：标签栏上「关闭 needle.txt」那种按钮也含这个名字，
+# 文件开过一次，「搜到了 needle.txt」就永远成立（#42 加 ⑧ 第三段时撞上的，第二段的软链断言也因此一直有落空的可能）
+in_results() { is "return !!document.querySelector('.popup .results')?.innerText.includes($(q "$1"))"; }
+wait_results() { lite_wait "${W}" "return !!document.querySelector('.popup .results')?.innerText.includes($(q "$1"))" "${2:-8}"; }
 # 菜单项：和点原生菜单走同一个处理函数（winctl::menu_event），只发给 ${W}
 menu()     { lite menu "$1" "${W}" >/dev/null; }
 active()   { lite eval "${W}" "return __lite.tabs.active?.path ?? ''" 2>/dev/null; }
@@ -420,7 +424,7 @@ elif ! fill "ZQXJ_SMOKE_NEEDLE"; then
   bad "浮层出来了，但焦点不在输入框上"
 # 搜索要扫整个 fixture，里面躺着那个 26MB 的大日志 —— 给足时间。
 # **结果行是一整个按钮**（命中行 + 路径 + 行号合成一个名字），按「含」找文件名
-elif wait_exists "needle.txt" button contains 25; then
+elif wait_results "needle.txt" 25; then
   ok "搜到了 deep/nested/needle.txt"
   key "Enter"   # 打开第一条命中
   # 断言认第二行 —— 第一行是命中行，浮层上本来就印着它
@@ -447,10 +451,33 @@ if ! wait_has "换范围" 8; then
   bad "第二次 ⇧⌘F 的浮层没出来"
 elif ! fill "通过 app 改过的"; then
   bad "第二次 ⇧⌘F 焦点不在输入框上"
-elif wait_exists "link.txt" button contains 25; then
+elif wait_results "link.txt" 25; then
   ok "软链文件的内容也搜得到（issue #19）"
 else
   bad "搜不到 link.txt —— issue #19 回归了（symlink 又被整个跳过？）"
+fi
+key "Escape"
+lite_wait "${W}" "return !__lite.has('换范围')" 4
+
+# ── 同一条命令，三个开关真的传到了 Rust（#42）──
+#
+# 原来 ⇧⌘F 用 rg 的 smart-case：小写的词不分大小写、带大写的就区分，界面上看不出来。现在是显式的开关，
+# 默认不分大小写。这一段验「开关从浮层经 IPC 到了 Rust 的匹配器」：同一个小写的词，开关关着搜得到大写的针，
+# 打开「区分大小写」就一条都没有。只在前端改了状态、没传下去的话，两次结果一样
+menu quick-content
+if ! wait_has "换范围" 8 || ! fill "zqxj_smoke_needle"; then
+  bad "第三次 ⇧⌘F 的浮层没出来"
+else
+  wait_results "needle.txt" 25 && ok "开关全关：小写的词搜得到大写的针（不分大小写是默认）" || bad "开关全关时搜不到大写的针"
+  click "区分大小写" button prefix
+  lite_wait "${W}" "return document.querySelector('.toggles button')?.getAttribute('aria-pressed') === 'true'" 3
+  if lite_wait "${W}" "return !document.querySelector('.popup .results')?.innerText.includes('needle.txt')" 10; then
+    ok "打开「区分大小写」：小写的词不再命中大写的针（开关传到了 Rust）"
+  else
+    bad "打开「区分大小写」之后结果没变 —— 开关没传下去？"
+  fi
+  # 关回去：开关记在 store 里，浏览器桩和后面几段都按默认来
+  click "区分大小写" button prefix
 fi
 key "Escape"
 lite_wait "${W}" "return !__lite.has('换范围')" 4
@@ -634,7 +661,7 @@ open_by_quick() {
   key "Mod-p"
   wait_has "输入文件名" 5 || { bad "⌘P 浮层没出来"; return 1; }
   fill "$1" || { bad "⌘P 的焦点不在输入框上"; return 1; }
-  wait_exists "$1" any contains 8 || { bad "⌘P 里搜不到 $1"; return 1; }
+  wait_results "$1" 8 || { bad "⌘P 里搜不到 $1"; return 1; }
   key "Enter"
   lite_wait "${W}" "return __lite.tabs.active?.path?.endsWith($(q "/$1")) === true" 6
 }
@@ -682,7 +709,7 @@ goto_by_quick() {
   key "Mod-p"
   wait_has "输入文件名" 5 || { bad "⌘P 浮层没出来"; return 1; }
   fill "$1" || { bad "⌘P 的焦点不在输入框上"; return 1; }
-  wait_exists "$2" button contains 8 || { bad "「$1」的结果里没有「$2」"; key "Escape"; return 1; }
+  wait_results "$2" 8 || { bad "「$1」的结果里没有「$2」"; key "Escape"; return 1; }
   key "Enter"
 }
 where_is() { lite eval "${W}" "return __lite.tabs.active?.path.split('/').pop() + ' ' + __lite.where()" 2>/dev/null; }

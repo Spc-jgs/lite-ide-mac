@@ -316,6 +316,8 @@ export interface Hit {
   path: string;
   line: number;
   text: string;
+  /** 命中在 `text` 里的哪几段（UTF-16 下标），Rust 的 Matcher 算的；高亮照这个画（#42） */
+  spans: [number, number][];
 }
 
 /** ⌘P / ⌘Click 用的文件索引。`truncated`：到了 Rust 侧 5 万的上限，后面的没看 */

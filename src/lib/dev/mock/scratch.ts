@@ -76,14 +76,15 @@ export async function scratchCmd(cmd: string, a: A): Promise<unknown> {
     }
     case "grep_scratches": {
       // 只搜草稿目录；文件头（锚点）里的命中滤掉，同 Rust 侧
-      const hit = grepMatcher(String(a.pattern));
-      const out: Array<{ path: string; line: number; text: string }> = [];
+      const hit = grepMatcher(String(a.pattern), a);
+      const out: Array<{ path: string; line: number; text: string; spans: [number, number][] }> = [];
       for (const [full, content] of Object.entries(FILES)) {
         if (!full.startsWith(`${SCRATCH_DIR}/`)) continue;
         const [anchor, off] = splitFrontmatter(content);
         const headLines = anchor ? content.slice(0, off).replace(/\n$/, "").split("\n").length : 0;
         content.split("\n").forEach((text, i) => {
-          if (i + 1 > headLines && hit(text)) out.push({ path: full, line: i + 1, text });
+          const spans = i + 1 > headLines ? hit(text) : [];
+          if (spans.length) out.push({ path: full, line: i + 1, text, spans });
         });
       }
       return out.slice(0, Number(a.limit) || 60);

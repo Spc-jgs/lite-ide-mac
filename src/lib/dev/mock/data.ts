@@ -485,21 +485,37 @@ export function stampOf(path: string) {
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * 内容搜索的匹配，**对齐真实现的 rg**：pattern 当正则、`--smart-case`（没大写就不区分大小写）。
- * 原来一律 `toLowerCase().includes()`，搜「Order」会多回来 `order-service` 那几行 ——
- * 界面上高亮（`fuzzy.ts` 的 `snippet`，也是 smart-case）正确地不标它们，于是浏览器里
- * 看到「有结果却没高亮」，去查高亮却查不出毛病。桩和真实现分叉就是这么骗人的。
- * 不是合法正则就退回字面量（rg 那边会报错，桩里不值得模拟一条错误路径）。
+ * 内容搜索的匹配，**对齐 Rust 的 `searchsvc::Matcher`**（#42）：三个开关显式给、没有 smart-case；
+ * 整词 = 命中的前后都不是词字符（rg `-w` 的意思，不是 `\b`）；空命中不算；返回每一处的 UTF-16 区间。
+ * 原来这里照着 rg 的 smart-case 写，#42 之后真实现不是那样了 —— 桩和真实现分叉就是这么骗人的。
+ * 正则写错了照真实现抛「正则写错了：…」。JS 和 Rust 的正则方言有细微差别（比如 `(?i)` 内联开关 JS 不认），桩里不追。
  */
-export function grepMatcher(pattern: string): (text: string) => boolean {
-  const sensitive = /[A-Z]/.test(pattern);
+export function grepMatcher(pattern: string, o: { case?: boolean; word?: boolean; regex?: boolean } = {}): (text: string) => [number, number][] {
+  const src = o.regex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let re: RegExp;
   try {
-    const re = new RegExp(pattern, sensitive ? "" : "i");
-    return (t) => re.test(t);
-  } catch {
-    const p = sensitive ? pattern : pattern.toLowerCase();
-    return (t) => (sensitive ? t : t.toLowerCase()).includes(p);
+    re = new RegExp(src, o.case ? "gmu" : "gimu");
+  } catch (e) {
+    throw new Error(`正则写错了：${(e as Error).message}`);
   }
+  const wordch = /[\p{L}\p{N}\p{M}_]/u;
+  return (text) => {
+    const out: [number, number][] = [];
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      const a = m.index;
+      const b = a + m[0].length;
+      const ok = b > a && (!o.word || (!wordch.test(text[a - 1] ?? "") && !wordch.test(text[b] ?? "")));
+      if (ok) {
+        out.push([a, b]);
+        re.lastIndex = b;
+      } else {
+        re.lastIndex = a + 1;
+      }
+    }
+    return out;
+  };
 }
 
 /** 处理函数说「这条命令不归我」—— 和返回 `null` / `undefined` 区分开 */

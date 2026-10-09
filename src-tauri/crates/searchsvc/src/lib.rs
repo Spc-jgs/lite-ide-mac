@@ -11,6 +11,9 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+mod matcher;
+pub use matcher::{utf16_spans, Matcher, Query};
+
 /// 不进哪些目录 —— **一次搜索开始之前算好一份，两条实现路径共用**。
 ///
 /// # 为什么不再是一个 `fn skip_dir(name)`
@@ -253,26 +256,40 @@ pub struct Hit {
     pub line: u64,
     /// 该行内容（已截断到合理长度）
     pub text: String,
+    /// 这一行里命中的那几段，`text` 里的 UTF-16 下标（前端高亮用）。由 [`Matcher`] 算，
+    /// 不让前端照着搜索词再找一遍 —— 正则、整词那几种它找出来的会和这里不一样
+    pub spans: Vec<[u32; 2]>,
 }
 
 /// 单条命中里最多带回多少字符 —— 压缩包里的超长行会把结果面板撑垮
 const MAX_HIT_LEN: usize = 400;
 
-/// 全局内容搜索。有 rg 用 rg，没有就用进程内实现。
-pub fn grep(
-    root: impl AsRef<Path>,
-    pattern: &str,
-    limit: usize,
-    skip: &Skip,
-) -> io::Result<Vec<Hit>> {
-    if pattern.is_empty() {
+/// 全局内容搜索。有 rg 用 rg，没有就用进程内实现；**每一行算不算命中都由 [`Matcher`] 说了算**，两条路结果一致。
+///
+/// 正则写错了是 `InvalidInput`，消息是给人看的一句话（「正则写错了：…」）。
+pub fn grep(root: impl AsRef<Path>, q: &Query, limit: usize, skip: &Skip) -> io::Result<Vec<Hit>> {
+    if q.pattern.is_empty() {
         return Ok(Vec::new());
     }
-    match grep_rg(root.as_ref(), pattern, limit, skip) {
+    // 先编好：写错的正则在这里就报，不等 rg 报一段英文、再回落到内置实现报第二遍
+    let m = Matcher::new(q).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    match grep_rg(root.as_ref(), q, &m, limit, skip) {
         Ok(hits) => Ok(hits),
         // rg 不在、版本不对、输出格式变了 —— 一律回落，不让搜索功能整个瘫掉
-        Err(_) => grep_builtin(root.as_ref(), pattern, limit, skip),
+        Err(_) => grep_builtin(root.as_ref(), &m, limit, skip),
     }
+}
+
+/// 一行 → 一条命中（这一行里没有 Matcher 认的命中就是 None）。两条路都走它，结果的形状一个字都不各写各的
+fn hit_of(m: &Matcher, path: String, line: u64, text: &str) -> Option<Hit> {
+    let text = text.trim_end_matches(['\n', '\r']);
+    let spans = m.find_all(text);
+    if spans.is_empty() {
+        return None;
+    }
+    let clipped = clip(text.trim_end());
+    let spans = utf16_spans(text, &spans, clipped.chars().count());
+    Some(Hit { path, line, text: clipped, spans })
 }
 
 /// rg 是否可用，供界面显示当前走的哪条路
@@ -303,18 +320,22 @@ const MAX_RG_BYTES: u64 = 8 << 20;
  * 的功能，先问一句：这东西的输出有上限吗」。gitsvc 有 MAX_DIFF_BYTES，
  * searchsvc 一直没有。
  */
-fn grep_rg(root: &Path, pattern: &str, limit: usize, skip: &Skip) -> io::Result<Vec<Hit>> {
+fn grep_rg(root: &Path, q: &Query, m: &Matcher, limit: usize, skip: &Skip) -> io::Result<Vec<Hit>> {
     use std::io::{BufRead, BufReader, Read};
 
     let mut cmd = Command::new("rg");
-    cmd.args([
-        "--json",
-        "--line-number",
-        "--no-heading",
-        "--smart-case",
-        "--max-filesize",
-        "8M",
-    ]);
+    cmd.args(["--json", "--line-number", "--no-heading", "--max-filesize", "8M"]);
+    /*
+     * **开关显式翻译，不再用 `--smart-case`**（#42）。rg 在这里只负责「哪些行可能命中」，
+     * 每一行最后由 Matcher 再判一次（`hit_of`）—— 所以 rg 多给几行没关系，**少给不行**。
+     * - 字面量传 `-F`、大小写传 `-i` / `-s`：第 0 步逐条比过，和 `regex` 的语义一致（含 Unicode 大小写）
+     * - **不传 `-w`**：rg 的整词和 Matcher 一致，但「一致」是实测出来的，不是约定的；不传的话 rg 给的是超集，
+     *   整词完全由 Matcher 判，以后两边哪个变了都不会漏
+     */
+    if !q.regex {
+        cmd.arg("-F");
+    }
+    cmd.arg(if q.case { "-s" } else { "-i" });
     // **跟内置实现跳同一批目录。**
     //
     // rg 靠 `.gitignore` 跳过 node_modules 之类，但项目不一定是 git 仓库、
@@ -370,7 +391,7 @@ fn grep_rg(root: &Path, pattern: &str, limit: usize, skip: &Skip) -> io::Result<
         .map(|(_, s)| s)
         .unwrap_or_default();
 
-    cmd.args(["-e", pattern]).arg("--").arg(root);
+    cmd.args(["-e", &q.pattern]).arg("--").arg(root);
     for s in &syms {
         cmd.arg(root.join(s));
     }
@@ -398,7 +419,7 @@ fn grep_rg(root: &Path, pattern: &str, limit: usize, skip: &Skip) -> io::Result<
                 Ok(_) => {}
                 Err(_) => break,
             }
-            if let Some(h) = parse_rg_line(&line, root, &canon) {
+            if let Some(h) = parse_rg_line(&line, root, &canon, m) {
                 hits.push(h);
                 if hits.len() >= limit {
                     掐掉了 = true;
@@ -430,8 +451,8 @@ fn grep_rg(root: &Path, pattern: &str, limit: usize, skip: &Skip) -> io::Result<
     Ok(hits)
 }
 
-/// 解析 rg `--json` 的一行。不是命中、或者解不出来都返回 None。
-fn parse_rg_line(line: &[u8], root: &Path, canon: &Path) -> Option<Hit> {
+/// 解析 rg `--json` 的一行。不是命中、解不出来、或者 Matcher 不认这一行，都返回 None。
+fn parse_rg_line(line: &[u8], root: &Path, canon: &Path, m: &Matcher) -> Option<Hit> {
     if line.is_empty() {
         return None;
     }
@@ -440,18 +461,12 @@ fn parse_rg_line(line: &[u8], root: &Path, canon: &Path) -> Option<Hit> {
         return None;
     }
     let d = &v["data"];
-    Some(Hit {
-        path: rel(root, canon, d["path"]["text"].as_str()?),
-        line: d["line_number"].as_u64()?,
-        text: clip(d["lines"]["text"].as_str()?.trim_end()),
-    })
+    hit_of(m, rel(root, canon, d["path"]["text"].as_str()?), d["line_number"].as_u64()?, d["lines"]["text"].as_str()?)
 }
 
-/// 进程内回落实现：遍历索引到的文件逐个扫。
-fn grep_builtin(root: &Path, pattern: &str, limit: usize, skip: &Skip) -> io::Result<Vec<Hit>> {
+/// 进程内回落实现：遍历索引到的文件逐个扫，按行交给 Matcher。
+fn grep_builtin(root: &Path, m: &Matcher, limit: usize, skip: &Skip) -> io::Result<Vec<Hit>> {
     let files = list_files(root, skip)?;
-    let needle = pattern.as_bytes();
-    let finder = memchr::memmem::Finder::new(needle);
     let mut hits = Vec::new();
 
     for rel_path in files {
@@ -473,20 +488,16 @@ fn grep_builtin(root: &Path, pattern: &str, limit: usize, skip: &Skip) -> io::Re
         if memchr::memchr(0, &bytes[..bytes.len().min(4096)]).is_some() {
             continue;
         }
-        let mut start = 0usize;
-        for (idx, nl) in memchr::memchr_iter(b'\n', &bytes).enumerate() {
-            if finder.find(&bytes[start..nl]).is_some() {
-                hits.push(Hit {
-                    path: rel_path.clone(),
-                    // 行号 1-based，与编辑器显示一致
-                    line: idx as u64 + 1,
-                    text: clip(String::from_utf8_lossy(&bytes[start..nl]).trim_end()),
-                });
+        // 非 UTF-8 的字节换成 U+FFFD 再按行找 —— rg 也是把内容当 UTF-8 看的，两边对得上
+        let text = String::from_utf8_lossy(&bytes);
+        for (idx, line) in text.split('\n').enumerate() {
+            // 行号 1-based，与编辑器显示一致
+            if let Some(h) = hit_of(m, rel_path.clone(), idx as u64 + 1, line) {
+                hits.push(h);
                 if hits.len() >= limit {
                     break;
                 }
             }
-            start = nl + 1;
         }
     }
     Ok(hits)
@@ -510,6 +521,15 @@ fn clip(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 只有词、开关全关 —— 原来那些测试的语义（#42 之前只有这一种）
+    fn rg_lit(root: &Path, p: &str, limit: usize, skip: &Skip) -> io::Result<Vec<Hit>> {
+        let q = Query::literal(p);
+        grep_rg(root, &q, &Matcher::new(&q).unwrap(), limit, skip)
+    }
+    fn builtin_lit(root: &Path, p: &str, limit: usize, skip: &Skip) -> io::Result<Vec<Hit>> {
+        grep_builtin(root, &Matcher::new(&Query::literal(p)).unwrap(), limit, skip)
+    }
     use std::fs;
     use std::path::PathBuf;
 
@@ -576,7 +596,7 @@ mod tests {
         let body = "needle\n".repeat(300);
         fs::write(d.join("many.txt"), &body).unwrap();
 
-        let hits = grep_rg(&d, "needle", 3, &Skip::by_name()).expect("掐掉子进程不能被当成失败");
+        let hits = rg_lit(&d, "needle", 3, &Skip::by_name()).expect("掐掉子进程不能被当成失败");
         assert_eq!(hits.len(), 3, "要几条给几条");
         fs::remove_dir_all(d).ok();
     }
@@ -584,18 +604,23 @@ mod tests {
     #[test]
     fn rg_单行解析() {
         let root = Path::new("/proj");
+        let hit = Matcher::new(&Query::literal("hit")).unwrap();
         let one = br#"{"type":"match","data":{"path":{"text":"/proj/src/a.rs"},"line_number":7,"lines":{"text":"  hit here\n"}}}"#;
-        let h = parse_rg_line(one, root, root).expect("这是一条命中");
+        let h = parse_rg_line(one, root, root, &hit).expect("这是一条命中");
         assert_eq!(h.path, "src/a.rs", "路径要转成相对根的");
         assert_eq!(h.line, 7);
         assert_eq!(h.text, "  hit here", "行尾换行要去掉，行首缩进要留着");
+        assert_eq!(h.spans, vec![[2, 5]], "命中在哪一段由 Matcher 算，UTF-16 下标");
+        // rg 给了这一行、Matcher 不认（比如整词不合格）：这一行不算命中
+        let word = Matcher::new(&Query { pattern: "hi".into(), word: true, ..Default::default() }).unwrap();
+        assert!(parse_rg_line(one, root, root, &word).is_none(), "最后由 Matcher 说了算");
 
         // 不是命中的、坏的、空的，一律 None，不能 panic
-        assert!(parse_rg_line(br#"{"type":"begin","data":{}}"#, root, root).is_none());
-        assert!(parse_rg_line(b"{ this is not json", root, root).is_none());
-        assert!(parse_rg_line(b"", root, root).is_none());
+        assert!(parse_rg_line(br#"{"type":"begin","data":{}}"#, root, root, &hit).is_none());
+        assert!(parse_rg_line(b"{ this is not json", root, root, &hit).is_none());
+        assert!(parse_rg_line(b"", root, root, &hit).is_none());
         assert!(
-            parse_rg_line(br#"{"type":"match","data":{"path":{"text":"/proj/a"}}}"#, root, root)
+            parse_rg_line(br#"{"type":"match","data":{"path":{"text":"/proj/a"}}}"#, root, root, &hit)
                 .is_none(),
             "缺字段的命中要当没有，不能 unwrap 崩掉"
         );
@@ -625,7 +650,7 @@ mod tests {
     #[test]
     fn 内置实现能搜到内容且同样跳过噪声() {
         let d = sandbox("builtin");
-        let hits = grep_builtin(&d, "needle", 50, &Skip::by_name()).unwrap();
+        let hits = builtin_lit(&d, "needle", 50, &Skip::by_name()).unwrap();
         let paths: Vec<&str> = hits.iter().map(|h| h.path.as_str()).collect();
         assert!(paths.contains(&"README.md"));
         assert!(paths.contains(&"src/main.rs"));
@@ -644,9 +669,9 @@ mod tests {
     #[test]
     fn 无命中返回空() {
         let d = sandbox("empty");
-        assert!(grep_builtin(&d, "绝不存在的词", 50, &Skip::by_name()).unwrap().is_empty());
+        assert!(builtin_lit(&d, "绝不存在的词", 50, &Skip::by_name()).unwrap().is_empty());
         assert!(
-            grep(&d, "", 50, &Skip::by_name()).unwrap().is_empty(),
+            grep(&d, &Query::literal(""), 50, &Skip::by_name()).unwrap().is_empty(),
             "空 pattern 不该扫全项目"
         );
         fs::remove_dir_all(d).ok();
@@ -655,7 +680,7 @@ mod tests {
     #[test]
     fn grep_入口在有无_rg_时都能工作() {
         let d = sandbox("entry");
-        let hits = grep(&d, "needle", 50, &Skip::by_name()).unwrap();
+        let hits = grep(&d, &Query::literal("needle"), 50, &Skip::by_name()).unwrap();
         assert!(!hits.is_empty(), "无论走 rg 还是回落，都该有命中");
         for name in excludes::GENERATED_DIRS {
             assert!(hits.iter().all(|h| !h.path.contains(name)), "{name} 不该被搜到");
@@ -701,14 +726,14 @@ mod tests {
     fn 软链文件的内容两条路都要搜得到() {
         let d = sandbox("symgrep");
 
-        let hits = grep_builtin(&d, "项目外的真身", 50, &Skip::by_name()).unwrap();
+        let hits = builtin_lit(&d, "项目外的真身", 50, &Skip::by_name()).unwrap();
         assert!(
             hits.iter().any(|h| h.path == "link.txt"),
             "内置实现没搜到软链文件：{hits:?}"
         );
 
         if ripgrep_available() {
-            let hits = grep_rg(&d, "项目外的真身", 50, &Skip::by_name()).unwrap();
+            let hits = rg_lit(&d, "项目外的真身", 50, &Skip::by_name()).unwrap();
             assert!(
                 hits.iter().any(|h| h.path == "link.txt"),
                 "rg 没搜到软链文件：{hits:?}"
@@ -720,6 +745,14 @@ mod tests {
         fs::remove_dir_all(d).ok();
     }
 
+    /*
+     * **两条路结果必须一致，而且要专挑会出分歧的词来比**（#42）。
+     *
+     * 原来这条只搜 `needle` —— 没有正则字符、全小写，正好绕开了两条路全部的分歧：
+     * 那时装了 rg 是正则 + smart-case（`a.b` 命中 `axb`、`foo` 命中 `Foo`），没装是字面量 + 区分大小写，
+     * 这条测试一直是绿的。下面每一个词都是第 0 步实测里「可能对不上」的那一类，三个开关都过一遍。
+     * 比的是路径、行号**和命中在哪一段** —— 高亮也要一致。
+     */
     #[test]
     fn 两条实现路径结果必须一致() {
         if !ripgrep_available() {
@@ -727,19 +760,42 @@ mod tests {
             return;
         }
         let d = sandbox("parity");
-        let mut a: Vec<(String, u64)> = grep_rg(&d, "needle", 100, &Skip::by_name())
-            .unwrap()
-            .into_iter()
-            .map(|h| (h.path, h.line))
-            .collect();
-        let mut b: Vec<(String, u64)> = grep_builtin(&d, "needle", 100, &Skip::by_name())
-            .unwrap()
-            .into_iter()
-            .map(|h| (h.path, h.line))
-            .collect();
-        a.sort();
-        b.sort();
-        assert_eq!(a, b, "rg 与内置实现搜出的结果不一致");
+        fs::write(
+            d.join("src/tricky.txt"),
+            "axb\na.b\nFoo foo FOO\nonly FOO here\nstraße STRASSE\nσας ΣΑΣ\n查询订单状态\n 订单 \na -x b\nfoo-x\n.foo bar\nx.foo\norder_id reorder order\n",
+        )
+        .unwrap();
+        // 最后一行没有换行：内置实现原来按换行切，这一行永远搜不到
+        fs::write(d.join("src/nolf.txt"), "first\nlastline here").unwrap();
+        let cases: &[(&str, bool, bool, bool)] = &[
+            // (词, 区分大小写, 整词, 正则)
+            ("needle", false, false, false),
+            ("a.b", false, false, false),
+            ("a.b", false, false, true),
+            ("Foo", false, false, false),
+            ("Foo", true, false, false),
+            ("straße", false, false, false),
+            ("ΣΑΣ", false, false, false),
+            ("-x", false, true, false),
+            (".foo", false, true, false),
+            ("订单", false, true, false),
+            ("order", false, true, false),
+            (r"o\w+r", false, false, true),
+            ("lastline", false, false, false),
+        ];
+        let key = |hs: Vec<Hit>| {
+            let mut v: Vec<(String, u64, Vec<[u32; 2]>)> = hs.into_iter().map(|h| (h.path, h.line, h.spans)).collect();
+            v.sort();
+            v
+        };
+        for &(p, case, word, regex) in cases {
+            let q = Query { pattern: p.into(), case, word, regex };
+            let m = Matcher::new(&q).unwrap();
+            let a = key(grep_rg(&d, &q, &m, 100, &Skip::by_name()).unwrap());
+            let b = key(grep_builtin(&d, &m, 100, &Skip::by_name()).unwrap());
+            assert_eq!(a, b, "rg 与内置实现对「{p}」（区分大小写 {case}、整词 {word}、正则 {regex}）搜出的结果不一致");
+            assert!(!a.is_empty(), "「{p}」一条都没搜到 —— 语料里每个词都有命中，两边一起空着说明测试本身坏了");
+        }
         fs::remove_dir_all(d).ok();
     }
 
@@ -802,7 +858,7 @@ mod tests {
             v
         };
 
-        let 内置 = paths(grep_builtin(&d, "NEEDLE", 50, &skip).unwrap());
+        let 内置 = paths(builtin_lit(&d, "NEEDLE", 50, &skip).unwrap());
         assert!(
             内置.iter().any(|p| p.contains("toolchain.cmake")),
             "被跟踪的 build/ 是源码，必须搜得到 —— 实得 {内置:?}"
@@ -824,7 +880,7 @@ mod tests {
         // 两条路必须一致 —— 这是这个模块的前提
         if ripgrep_available() {
             assert_eq!(
-                paths(grep_rg(&d, "NEEDLE", 50, &skip).unwrap()),
+                paths(rg_lit(&d, "NEEDLE", 50, &skip).unwrap()),
                 内置,
                 "装了 rg 和没装 rg 搜出来的结果不一样了"
             );
@@ -851,7 +907,7 @@ mod tests {
         let d = sandbox("clip");
         let long = format!("needle{}\n", "x".repeat(2000));
         fs::write(d.join("long.txt"), &long).unwrap();
-        let hits = grep_builtin(&d, "needle", 50, &Skip::by_name()).unwrap();
+        let hits = builtin_lit(&d, "needle", 50, &Skip::by_name()).unwrap();
         let h = hits.iter().find(|h| h.path == "long.txt").unwrap();
         assert!(h.text.chars().count() <= MAX_HIT_LEN);
         fs::remove_dir_all(d).ok();
@@ -915,7 +971,7 @@ mod tests {
         let mut greps = Vec::new();
         for _ in 0..5 {
             let t = std::time::Instant::now();
-            let hits = grep(root, "NEEDLE-4242", 200, &skip).unwrap();
+            let hits = grep(root, &Query::literal("NEEDLE-4242"), 200, &skip).unwrap();
             greps.push((t.elapsed(), hits.len()));
         }
         greps.sort_by_key(|g| g.0);

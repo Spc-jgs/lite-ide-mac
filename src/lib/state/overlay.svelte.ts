@@ -19,6 +19,11 @@ class Overlay {
    * 会莫名其妙地出现在下一次 ⌘P 里。
    */
   quickSeed = $state("");
+  /**
+   * 内容搜索的三个开关（#42）。放 store 不放浮层：浮层一关就销毁，开关应该记着 ——
+   * IDEA 的查找框也是开着「区分大小写」关掉再开还开着。只在这次运行里记，不进设置（以后有人要再说）
+   */
+  searchOpts = $state({ case: false, word: false, regex: false });
 
   outlineOpen = $state(false);
   /** 大纲浮层里点了一条，让编辑器重算一次符号 */
