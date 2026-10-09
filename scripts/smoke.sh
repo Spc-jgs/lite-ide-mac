@@ -81,8 +81,13 @@ PASS=0; FAIL=0
 # 焦点：测试应用起来之后**一次都不该跑到最前面**。判「最前面是不是它」，不判「最前面一直是开始时那个」——
 # 你在测试跑的时候切换应用是正常的（accept/settings.sh 第一版就是这么误报的）。每段开头采样一次
 STOLEN=0
+STOLEN_AT=""
 say()  {
-  [ "$(lite_front_id)" = "${LITE_ID}" ] && STOLEN=$((STOLEN + 1))
+  # 记下是哪一段开头发现的：数字只说「被抢了」，段名才指得出是谁抢的
+  if [ "$(lite_front_id)" = "${LITE_ID}" ]; then
+    STOLEN=$((STOLEN + 1))
+    STOLEN_AT="${STOLEN_AT}${STOLEN_AT:+、}${1%%：*}"
+  fi
   printf '\n\033[1m== %s\033[0m\n' "$1"
 }
 ok()   { PASS=$((PASS+1)); printf '  \033[32m✓\033[0m %s\n' "$1"; }
@@ -733,6 +738,89 @@ if goto_by_quick ":1" "第 1 行"; then
   check "$(where_is)" "SamePkgHelper.java 1:1" "单独的 :：当前文件跳行"
 fi
 
+say "㉒ ⇧⌘R 跨文件替换：预览、勾选、开着没存的只改编辑器、权限、软链只一次、撤销、预览后被改的跳过（#42）"
+#
+# issue #42 的验收（docs/REPLACE.md 第 11 节）在真 .app 上走一遍：浮层 → IPC → replacesvc → 盘 → 开着的标签。
+# 用自己造的 rep/ 目录，不碰前面几段的文件。三个文件各两处；link.txt 是 b.txt 的软链（同一个文件只该替换一次）；
+# a.txt 开着、有没存的改动（替换只该进编辑器、盘上不动）；c.sh 是 0755（权限要留着）。
+# 断言落在盘上和标签状态上；浮层上读的只有「几处 · 几个文件」那一句
+REP="${FIX}/rep"
+mkdir -p "${REP}"
+printf 'ZQXJ_RENAME a1\nZQXJ_RENAME a2\n' > "${REP}/a.txt"
+printf 'ZQXJ_RENAME b1\nZQXJ_RENAME b2\n' > "${REP}/b.txt"
+printf '#!/bin/sh\necho ZQXJ_RENAME; echo ZQXJ_RENAME\n' > "${REP}/c.sh"; chmod 755 "${REP}/c.sh"
+ln -s b.txt "${REP}/link.txt"
+RP='.popup[aria-label="在项目中替换"]'
+rp_info() { lite eval "${W}" "return document.querySelector($(q "${RP} .info"))?.innerText ?? ''" 2>/dev/null; }
+rp_wait_info() { lite_wait "${W}" "return (document.querySelector($(q "${RP} .info"))?.innerText ?? '').includes($(q "$1"))" "${2:-15}"; }
+rp_open() {
+  menu replace-content
+  lite_wait "${W}" "return !!document.querySelector($(q "${RP}"))" 6 || { bad "⇧⌘R 的浮层没出来"; return 1; }
+}
+tab_text() { lite eval "${W}" "__lite.tabs.show(__lite.tabs.byPath($(q "$1")).id); await new Promise(r => setTimeout(r, 300)); return __lite.text()" 2>/dev/null; }
+
+# a.txt 开着，打几个字不存
+is "await __lite.tabflow.openPath($(q "${REP}/a.txt"), { preview: false }); return true"
+lite_wait "${W}" "return __lite.tabs.active?.path === $(q "${REP}/a.txt")" 6
+is "__lite.caret(1, 1); __lite.type('UNSAVED '); return true"
+lite_wait "${W}" "return __lite.tabs.byPath($(q "${REP}/a.txt"))?.dirty === true" 4 || bad "a.txt 没变脏（这一段的前提没做成）"
+
+if rp_open; then
+  fill "ZQXJ_RENAME" "${RP} input[aria-label=\"查找\"]"
+  fill "ZQXJ_GATEWAY" "${RP} input[aria-label=\"替换为\"]"
+  if rp_wait_info "6 处 · 3 个文件"; then
+    ok "预览 6 处 · 3 个文件（link.txt 和 b.txt 是同一个文件，只算一次）"
+  else
+    bad "预览不是 6 处 · 3 个文件：$(rp_info)"
+  fi
+  # 展开「跳过 N 个」看名单。N 不止 1：fixture 里那个 26MB 的 big.log 超过 8MB，也会如实列成「没有看」
+  SKIPS=$(lite eval "${W}" "[...document.querySelectorAll($(q "${RP} .info button"))].find((b) => b.innerText.startsWith('跳过'))?.click(); await new Promise(r => setTimeout(r, 100)); return document.querySelector($(q "${RP} .skipped"))?.innerText ?? ''" 2>/dev/null)
+  case "${SKIPS}" in *"link.txt"*"同一个文件"*) ok "软链那条列在「跳过」里，说清了为什么" ;; *) bad "软链没列在跳过里：${SKIPS}" ;; esac
+  # 取消勾 b.txt 的第一处（验收 1：六处取消一处）
+  BTN=$(lite eval "${W}" "const rows = [...document.querySelectorAll($(q "${RP} .row"))]; const i = rows.findIndex((r) => r.classList.contains('file') && r.querySelector('.fname')?.textContent === 'b.txt'); rows[i + 1].querySelector('input').click(); await new Promise(r => setTimeout(r, 100)); return document.querySelector($(q "${RP} .q.r .btn")).innerText" 2>/dev/null)
+  check "${BTN}" "替换 5 处 · 3 个文件" "取消勾一处，按钮上跟着变"
+  lite_wait "${W}" "return !!document.querySelector($(q "${RP} ins"))?.textContent.includes('ZQXJ_GATEWAY')" 5 || bad "预览里没有改后的那一段"
+  click "替换 5 处" button prefix
+  if wait_has "已替换 3 个文件 5 处" 15; then
+    ok "执行了，撤销卡片出来了"
+  else
+    bad "执行后没有撤销卡片（$(lite eval "${W}" "return document.querySelector('.statusbar')?.innerText" 2>/dev/null)）"
+  fi
+  check "$(cat "${REP}/b.txt")" "$(printf 'ZQXJ_RENAME b1\nZQXJ_GATEWAY b2')" "b.txt：取消勾的那处没动、另一处换了（软链没让它被换两次）"
+  check "$(stat -f %Lp "${REP}/c.sh")" "755" "c.sh 的执行权限还在（验收 3）"
+  check "$("${REP}/c.sh" | tr '\n' ' ')" "ZQXJ_GATEWAY ZQXJ_GATEWAY " "c.sh 换了两处，而且还能执行"
+  [ -L "${REP}/link.txt" ] && ok "link.txt 还是软链" || bad "软链被换成了普通文件"
+  check "$(head -1 "${REP}/a.txt")" "ZQXJ_RENAME a1" "a.txt 开着有没存的改动：盘上那份没被覆盖（验收 2）"
+  check "$(tab_text "${REP}/a.txt" | head -1)" "UNSAVED ZQXJ_GATEWAY a1" "a.txt 的替换进了编辑器，没存的那几个字还在"
+  is "return __lite.tabs.byPath($(q "${REP}/a.txt")).dirty === true" && ok "a.txt 的圆点还在（替换不替你存）" || bad "a.txt 变成不脏了 —— 替换替用户存了盘？"
+
+  # 验收 4：撤销
+  click "撤销"
+  if wait_for 10 '[ "$(cat "'"${REP}"'/b.txt")" = "$(printf "ZQXJ_RENAME b1\nZQXJ_RENAME b2")" ]'; then
+    ok "撤销：b.txt 回到原样"
+  else
+    bad "撤销之后 b.txt 不是原样：$(cat "${REP}/b.txt" | tr '\n' ' ')"
+  fi
+  check "$("${REP}/c.sh" | tr '\n' ' ')" "ZQXJ_RENAME ZQXJ_RENAME " "撤销：c.sh 回到原样"
+  check "$(tab_text "${REP}/a.txt" | head -1)" "UNSAVED ZQXJ_RENAME a1" "撤销：a.txt 编辑器里回到替换前，没存的字还在"
+
+  # 验收 6：预览之后在外面改了一个文件 —— 执行时它被跳过并说明，其余照常
+  if rp_open; then
+    rp_wait_info "6 处 · 3 个文件" || bad "第二次预览不是 6 处：$(rp_info)"
+    printf 'echo extra\n' >> "${REP}/c.sh"
+    click "替换 6 处" button prefix
+    wait_has "已替换 2 个文件" 15 || bad "第二次执行后没有卡片：$(lite eval "${W}" "return document.querySelector('.statusbar')?.innerText" 2>/dev/null)"
+    check "$(tail -1 "${REP}/c.sh")" "echo extra" "预览之后被改过的 c.sh 没动（只有外面加的那一行）"
+    grep -q ZQXJ_GATEWAY "${REP}/c.sh" && bad "c.sh 被替换了 —— 预览之后的改动没被发现" || ok "c.sh 跳过了，没在一份没给人看过的内容上动手"
+    check "$(head -1 "${REP}/b.txt")" "ZQXJ_GATEWAY b1" "其余照常替换"
+    click "撤销"
+    wait_for 10 'grep -q "ZQXJ_RENAME b1" "'"${REP}"'/b.txt"'
+  fi
+  # a.txt 改回原样：留着没存的改动的话，⑫ 那句「关闭所有标签」会弹确认框，editors 就不归零
+  is "__lite.tabs.show(__lite.tabs.byPath($(q "${REP}/a.txt")).id); await new Promise(r => setTimeout(r, 300)); __lite.setText('ZQXJ_RENAME a1\nZQXJ_RENAME a2\n'); return true"
+  lite_wait "${W}" "return __lite.tabs.byPath($(q "${REP}/a.txt"))?.dirty === false" 4 || bad "a.txt 改回原样之后还是脏的"
+fi
+
 # ─────────────────── 收尾 ───────────────────
 
 say "⑯ 系统送来的文件（open -a）：进已开着的窗口，不起第二个进程"
@@ -867,8 +955,34 @@ case "${LAST}" in
   *)             bad "标签全关了，但 editors 没归零 —— 编辑器实例没释放" ;;
 esac
 
+say "㉓ 替换完退出再打开：撤销卡片还在，点了能撤（#42，docs/REPLACE.md 12.1）"
+#
+# 替换日志落在盘上：应用退出、内存里的东西全丢了，撤销还在。放在最后是因为要退出再起一次应用，
+# 前面几段（尤其 ⑪ 读的 stderr、⑫ 数的编辑器实例）都要在同一个进程里看
+printf 'ZQXJ_RESTART x\n' > "${REP}/r.txt"
+if rp_open; then
+  fill "ZQXJ_RESTART" "${RP} input[aria-label=\"查找\"]"
+  fill "ZQXJ_AFTER" "${RP} input[aria-label=\"替换为\"]"
+  rp_wait_info "1 处 · 1 个文件" || bad "重启那段的预览不对：$(rp_info)"
+  click "替换 1 处" button prefix
+  if wait_for 10 'grep -q ZQXJ_AFTER "'"${REP}"'/r.txt"'; then
+    lite_quit || bad "退出不了"
+    lite_launch "${FIX}" || exit 1
+    lite_wait main "return __lite.project.root === $(q "${FIX}")" 15
+    if wait_has "还能撤销" 12; then
+      ok "退出再打开：撤销卡片还在"
+      click "撤销"
+      wait_for 10 '[ "$(cat "'"${REP}"'/r.txt")" = "ZQXJ_RESTART x" ]' && ok "点了撤销，r.txt 回到原样（应用重启过也撤得了）" || bad "重启后撤销没撤回去：$(cat "${REP}/r.txt")"
+    else
+      bad "退出再打开之后没有撤销卡片"
+    fi
+  else
+    bad "重启那段的替换没执行"
+  fi
+fi
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
-check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次 —— 你可以照常用电脑"
+check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 
 [ "${TRASHED:-0}" = 1 ] && echo "  （⑨ 往废纸篓里放了 ${TRASH_NAME}，脚本不动它 —— 自己清或者放回原处）"
 
