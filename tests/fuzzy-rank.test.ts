@@ -278,5 +278,17 @@ ok(fuzzyMatch("文档/说明.md", "xyz") === null, "中文串里搜不到就是 
   ok(snippet("abc", "").length === 1, "空查询整行不高亮");
 }
 
+// ── 配得进文件名就只在文件名里配（2026-10-09，issue #43 撞上的）──
+{
+  const ADMIN = "moduleA/src/main/java/com/demo/api/AdminController.java";
+  const ORDER = "moduleB/src/main/java/com/demo/core/OrderClient.java";
+  // 原来 admin 的 a 落在目录 moduleA 的大写 A 上，后面四个散在 demo / api 里，OrderClient 反而排第一
+  before([ORDER, ADMIN], "admin", ADMIN, ORDER);
+  ok(fuzzyMatch(ADMIN, "admin")!.positions[0] === ADMIN.lastIndexOf("/") + 1, "admin 落在文件名开头，不是目录 moduleA 上");
+  // 配不进文件名的照旧走整条路径：带目录的 query 不能因此配不上
+  ok(fuzzyMatch(ADMIN, "api/admin") !== null, "带目录的 query 照样配得上");
+  ok(fuzzyMatch(ADMIN, "demoadm") !== null, "字母一半在目录里的照样配得上");
+}
+
 console.log(`\n${fail === 0 ? "✅" : "❌"} 模糊匹配排序：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

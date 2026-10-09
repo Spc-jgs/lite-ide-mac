@@ -72,6 +72,18 @@ let capBuf = new Int32Array(64);
  * 满足「后面配得完」，也就必然在上界之内）。
  *
  * 仍然不做全局最优：那要动态规划，几万条路径上不划算。
+ *
+ * # 配得进文件名就只在文件名里配（2026-10-09，issue #43 撞上的）
+ *
+ * 第二趟从左往右，第一个字符落在哪就定了后面的格局。`admin` 配
+ * `moduleA/…/demo/api/AdminController.java`：第一个 a 落在目录 `moduleA` 的 A 上（大写，算词首），
+ * 剩下四个只能跟着散在 `demo` `api` 里，**根本走不到文件名里那段连续的 Admin** ——
+ * 于是 `OrderClient.java`（a 在 java、d m 在 demo、i n 在 Client）反而排第一。
+ * 打分偏好文件名只管得了分数，管不了位置是怎么挑出来的。
+ *
+ * 第一趟本来就知道答案：`cap[0]` 是第一个字符**最右**能落在哪还不耽误后面。它落在最后一个 `/` 之后，
+ * 就说明整个 query 配得进文件名 —— 第二趟从文件名开头起步即可。不多跑一趟：试过「先单独配一遍文件名，
+ * 不行再配整条」，5 万条路径上没命中的查询 3.9ms → 6.8ms，因为每条都多扫一次。
  */
 export function fuzzyMatch(text: string, query: string): Match | null {
   if (!query) return { score: 0, positions: [] };
@@ -93,9 +105,10 @@ export function fuzzyMatch(text: string, query: string): Match | null {
     cap[qi] = tj--;
   }
 
-  // ── 第二趟：从左往右，词首优先，上界卡住
+  // ── 第二趟：从左往右，词首优先，上界卡住。配得进文件名就从文件名开头起步（见上）
+  const slash = text.lastIndexOf("/");
   const positions: number[] = new Array(q);
-  let ti = 0;
+  let ti = cap[0] > slash ? slash + 1 : 0;
   for (let qi = 0; qi < q; qi++) {
     const c = lowQuery.charCodeAt(qi);
     const hi = cap[qi];
@@ -122,7 +135,6 @@ export function fuzzyMatch(text: string, query: string): Match | null {
 
   // ── 打分
   let score = 0;
-  const slash = text.lastIndexOf("/");
   for (let i = 0; i < q; i++) {
     const p = positions[i];
     score += 10;
