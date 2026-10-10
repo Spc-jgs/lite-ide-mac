@@ -1069,6 +1069,34 @@ if rp_open; then
   fi
 fi
 
+say "㉕ 任务：⌃⌥R 选一个跑 → 输出进运行窗、ERROR 认成 error 级 → ⌘F2 停，进程一个不剩（#48）"
+#
+# 发版前那一眼：跑得起来、看得见、停得掉。机制的全套在 scripts/accept/tasks.sh（重跑、软停不理的强杀、端口卡片、崩溃后的卡片），
+# 真 mvn / pnpm / python 在 scripts/accept/tasks-real.sh。任务走 /usr/bin/python3，不靠你的 PATH（任务的 shell 也是隔开的 ZDOTDIR）
+TMARK="smoke48-$$"
+mkdir -p "${FIX}/.lite-ide"
+cat > "${FIX}/.lite-ide/tasks.json" <<EOF
+[ { "name": "smoke-task", "command": "/usr/bin/python3 -c 'import time; print(\"2026-10-10 09:00:00 ERROR demo 示范 ERROR 行\"); time.sleep(999)' ${TMARK}" } ]
+EOF
+menu run-pick
+if lite_wait "${W}" "return !!document.querySelector('.picker .row')" 8 \
+  && is "const r = [...document.querySelectorAll('.picker .row')].find((x) => x.querySelector('.name')?.innerText === 'smoke-task'); r?.click(); return !!r"; then
+  if wait_for 15 'pgrep -f "'"${TMARK}"'"' && lite_wait "${W}" "return !!document.querySelector('.run .row[data-lvl=\"error\"]')" 10; then
+    ok "跑起来了：输出进了运行窗，ERROR 那行认成了 error 级"
+  else
+    bad "任务没跑起来或输出没进运行窗（进程 $(pgrep -f "${TMARK}" | wc -l | tr -d ' ') 个）"
+  fi
+  menu run-stop
+  wait_for 8 '! pgrep -f "'"${TMARK}"'"' && ok "⌘F2：进程一个不剩" || bad "⌘F2 之后 8 秒还有 $(pgrep -f "${TMARK}" | wc -l | tr -d ' ') 个进程"
+  lite_wait "${W}" "return document.querySelector('.ptab.on .dot')?.classList.contains('stopped')" 5 \
+    && ok "那格是「已停止」，不是失败" || bad "那格不是「已停止」：$(lite eval "${W}" "return document.querySelector('.ptab.on .dot')?.className ?? ''" 2>/dev/null)"
+  click "关闭 smoke-task" || true
+else
+  bad "⌃⌥R 的任务列表里没有 smoke-task"
+fi
+pkill -KILL -f "${TMARK}" 2>/dev/null
+rm -rf "${FIX}/.lite-ide"
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 

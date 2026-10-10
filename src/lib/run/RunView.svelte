@@ -37,7 +37,9 @@
     };
   });
 
-  const FOLLOW = { levelBits: 0b111111, pattern: "", caseSensitive: false, tailing: true, collapseStacks: false, onlyHits: false };
+  // onlyHits 和日志标签页的默认一样是 true：点 ERROR 就只剩 ERROR 行（issue #48 验收 1「能过滤」）。第 3 步写成了 false（全文 + 标命中），
+  // 点了级别一行都不藏、看着像过滤坏了 —— 第 5 步拿真 Spring Boot 验收时撞见的。想看上下文，过滤条上「全文」一点就回去
+  const FOLLOW = { levelBits: 0b111111, pattern: "", caseSensitive: false, tailing: true, collapseStacks: false, onlyHits: true };
 </script>
 
 {#if handle !== null}

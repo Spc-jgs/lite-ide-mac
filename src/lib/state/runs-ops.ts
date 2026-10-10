@@ -80,7 +80,9 @@ export async function stopRun(id: number | null = runs.activeId) {
   if (!r || (r.status !== "running" && r.status !== "stopping")) return;
   const got = await taskStop(r.id);
   const now = runs.list.find((t) => t.id === id);
-  if (now && got === "stopping") now.status = "stopping";
+  // 只在它还「在跑」时标：退得快的（vite 几毫秒）退出事件比这一条的回包先到，已经是「已停止」了，
+  // 再标回「正在停」就再也没有事件来改它（tasks-real.sh 在真 .app 上撞见的）
+  if (now && got === "stopping" && now.status === "running") now.status = "stopping";
 }
 
 /** 关掉一格：还在跑就软停（Rust 那边在后台等宽限期）。关掉最后一格，运行窗跟着收起（同终端，`terms.close`） */

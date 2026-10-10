@@ -154,6 +154,11 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
         return "killed";
       }
       r.status = "stopping";
+      // 名字带 quick 的退得快（vite 收到 SIGINT 几毫秒就退）：退出事件比这一条的回包先到 —— 真 .app 上撞见过这个次序
+      if (r.name.includes("quick")) {
+        emitExit(id, { code: 130, stopped: true });
+        return "stopping";
+      }
       r.timer = setTimeout(() => emitExit(id, { code: 130, stopped: true }), 600);
       return "stopping";
     }

@@ -68,8 +68,13 @@ lite_launch() {
   # ZDOTDIR 指到一个空目录：测试应用里开的终端是你的登录 zsh，不隔开的话它读你的 .zshrc、往你的 ~/.zsh_history 里写
   # （2026-10-09 smoke ㉔ 的 `cd "sp dir"` 就这么写进去了十条）。zsh 的配置和历史都跟着 ZDOTDIR 走（/etc/zshrc 里
   # HISTFILE=${ZDOTDIR:-$HOME}/.zsh_history），这一项让它们都落在临时目录里；顺带测试不再受你 rc 的快慢影响
+  #
+  # LITE_USER_SHELL=1 不隔开：scripts/accept/tasks-real.sh 要验的就是「从 Finder 起的应用，任务的登录 shell 读你的 .zshrc、找得到 mvn / pnpm」。
+  # 那份脚本不开终端（任务是 `-ilc`，命令不经行编辑器、不进历史 —— TASKS.md 第 10 节实测），并且前后比对你的历史文件
+  local zdot=(--env ZDOTDIR="${LITE_WORK}/zdot")
+  [ "${LITE_USER_SHELL:-}" = 1 ] && zdot=()
   mkdir -p "${LITE_WORK}/zdot"
-  open -g --env LITE_IDE_TEST_SOCK="${LITE_TEST_SOCK}" --env LITE_IDE_DEBUG=1 --env ZDOTDIR="${LITE_WORK}/zdot" \
+  open -g --env LITE_IDE_TEST_SOCK="${LITE_TEST_SOCK}" --env LITE_IDE_DEBUG=1 ${zdot[@]+"${zdot[@]}"} \
     --stderr "${LITE_LOG}" -a "${LITE_APP}" "$@"
   lite_wait main "return true" 20 || { echo "20 秒内 main 窗口没回话（日志 ${LITE_LOG}）" >&2; return 1; }
   # **启动时那一下抢焦点关不掉**：tao（Tauri 底下的窗口库）在「启动完成」里无条件 activateIgnoringOtherApps，

@@ -51,8 +51,15 @@ while True:
 EOF
 mkdir -p "${P}/.lite-ide"
 # 命令行里带上 MARK：按它数进程（${MARK} 只是一个不影响运行的参数）
-printf '[ { "name": "srv", "command": "/usr/bin/python3 srv.py %s" }, { "name": "busy", "command": "/usr/bin/python3 srv.py %s %s" } ]\n' \
-  "${MARK}" "${MARK}" "${PORT2}" > "${P}/.lite-ide/tasks.json"
+# stub：软停不理的（`trap '' INT` 之后起的子进程继承「忽略 SIGINT」，Python 启动时见它被忽略就不装自己的处理）—— TASKS.md 第 7 节第 5 条。
+# 不用 `sleep 999 <标记>`：macOS 的 sleep 只收一个参数，多一个就报用法错误立刻退出 —— 第一版这么写，后面「被强杀」两条成了空断言绿
+cat > "${P}/.lite-ide/tasks.json" <<EOF
+[
+  { "name": "srv", "command": "/usr/bin/python3 srv.py ${MARK}" },
+  { "name": "busy", "command": "/usr/bin/python3 srv.py ${MARK} ${PORT2}" },
+  { "name": "stub", "command": "trap '' INT; /usr/bin/python3 -c 'import time; time.sleep(999)' ${MARK}-stub" }
+]
+EOF
 
 listening() { lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; }
 procs() { pgrep -f "${MARK}" | wc -l | tr -d ' '; }
@@ -80,6 +87,30 @@ ok "$( [ -n "${L}" ] && echo 1)" "输出落在应用数据目录里：${L#${HOME
 n1=$(grep -c tick "${L}" 2>/dev/null); sleep 1.6; n2=$(grep -c tick "${L}" 2>/dev/null)
 ok "$( [ "${n2:-0}" -ge $(( ${n1:-0} + 2 )) ] && echo 1)" "输出是实时的（没 flush 的 print，1.6 秒里多了 $(( ${n2:-0} - ${n1:-0} )) 行）—— PYTHONUNBUFFERED 生效了"
 
+echo "== 日志视图：ERROR 标红；点 ERROR 那一级只剩 ERROR 行（issue 验收 1）"
+# JS 放进变量：bash 3.2 会把 "$( … "{ a, b }" … )" 里的花括号按逗号展开（smoke ㉔ 踩过）
+RED_JS=$(cat <<'JS'
+const r = [...document.querySelectorAll('.run .row[data-lvl="error"]')].find((x) => x.innerText.includes('示范 ERROR'));
+if (!r) return 'ERROR 行没认成 error 级';
+const p = r.querySelector('.p[data-cls="level"]');
+const probe = document.createElement('span'); probe.style.color = 'var(--lvl-error)'; document.body.append(probe);
+const want = getComputedStyle(probe).color; probe.remove();
+const got = p ? getComputedStyle(p).color : '没有 level 段';
+return got === want ? 'red' : `${got}，应为 ${want}`;
+JS
+)
+ONLY_ERR_JS=$(cat <<'JS'
+const rows = [...document.querySelectorAll('.run .row:not(.pending)')];
+return rows.length > 0 && rows.every((r) => r.dataset.lvl === 'error') && rows.some((r) => r.innerText.includes('示范 ERROR'));
+JS
+)
+ok "$( [ "$(lite_eval main "${RED_JS}" 2>/dev/null)" = red ] && echo 1)" "ERROR 行标红：$(lite_eval main "${RED_JS}" 2>/dev/null)"
+lite_eval main "document.querySelector('.run .chip.error')?.click(); return true" >/dev/null
+# 第 3 步把运行窗的过滤写成了「全文 + 标命中」，点了级别一行不藏 —— 第 5 步拿真 Spring Boot 验收时才撞见，这条补在这里
+ok "$(lite_wait main "${ONLY_ERR_JS}" 8 && echo 1)" "点 ERROR：只剩 ERROR 行（tick 那几行藏起来了）"
+lite_eval main "document.querySelector('.run .chip.error')?.click(); return true" >/dev/null
+ok "$(lite_wait main "return [...document.querySelectorAll('.run .row')].some((r) => r.innerText.includes('tick'))" 8 && echo 1)" "再点一下复原，tick 回来了"
+
 echo "== ⌃R 重跑：先停旧的（端口要先空出来）再起，不留两份"
 lite_eval main "__lite.key('Ctrl-r'); return true" >/dev/null
 sleep 1
@@ -91,6 +122,23 @@ lite menu run-stop main >/dev/null
 ok "$(wait_for 6 '! listening && [ "$(procs)" = 0 ]' && echo 1)" "6 秒内端口空了、srv 进程一个不剩"
 ok "$(lite_wait main "return document.querySelector('.ptab.on .dot')?.classList.contains('stopped')" 5 && echo 1)" "那格是「已停止」：$(dot)"
 ok "$(grep -q 'T48-收尾' "$(logf)" && echo 1)" "停之前它跑了自己的收尾（SIGINT 的处理函数）"
+
+echo "== 软停不理的（trap '' INT）：5 秒后被强杀；软停中再按一次立刻强杀（TASKS.md 第 7 节第 5 条）"
+stubs() { pgrep -f "${MARK}-stub" | wc -l | tr -d ' '; }
+pick_srv stub >/dev/null
+ok "$(wait_for 10 '[ "$(stubs)" -ge 1 ] && [ "$(dot)" = running ]' && sleep 1 && [ "$(dot)" = running ] && echo 1)" "stub 跑起来了、一秒后还在跑（先确认它活着，后面几条才不是空的）：$(dot)"
+lite menu run-stop main >/dev/null
+sleep 2.5
+ok "$( [ "$(stubs)" -ge 1 ] && [ "$(dot)" = stopping ] && echo 1)" "软停 2.5 秒后它还在（不理 SIGINT），那格是「正在停」：$(dot)"
+ok "$(wait_for 5 '[ "$(stubs)" = 0 ]' && echo 1)" "宽限期（5 秒）一到被强杀，一个不剩"
+ok "$(lite_wait main "return document.querySelector('.ptab.on .dot')?.classList.contains('stopped')" 5 && echo 1)" "那格是「已停止」：$(dot)"
+pick_srv stub >/dev/null
+wait_for 10 '[ "$(stubs)" -ge 1 ]'
+lite menu run-stop main >/dev/null
+sleep 0.3
+lite menu run-stop main >/dev/null
+ok "$(wait_for 2 '[ "$(stubs)" = 0 ]' && echo 1)" "软停中再按一次 ⌘F2：2 秒内就没了，不用等满 5 秒"
+lite_eval main "return __lite.click('关闭 stub')" >/dev/null
 
 echo "== 关掉这一格：还在跑的话跟着软停"
 pick_srv >/dev/null

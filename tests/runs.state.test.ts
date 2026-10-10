@@ -27,6 +27,7 @@ project.root = "/proj";
 FILES["/proj/.lite-ide/tasks.json"] = `[
   { "name": "后端", "command": "mvn spring-boot:run" },
   { "name": "fail-boot", "command": "mvn -q spring-boot:run" },
+  { "name": "quick-web", "command": "pnpm dev" },
 ]`;
 
 // ── ⌃R 一个都没跑过：开任务列表，不是没反应 ──
@@ -74,6 +75,15 @@ await ops.stopRun(runs.list[0].id);
 await ops.stopRun(runs.list[0].id);
 await sleep(50);
 ok(runs.list[0].status === "stopped", `软停中再按一次应该立刻结束：${runs.list[0].status}`);
+
+// ── 退得快的：退出事件比 task_stop 的回包先到（vite 收到 SIGINT 几毫秒就退）。回包回来不能再把「已停止」改回「正在停」——
+//    那样就再也没有事件来改它，格子永远停在「正在停」（第 5 步 tasks-real.sh 在真 .app 上撞见的）──
+await ops.runTask("quick-web");
+const qw = runs.list.find((r) => r.name === "quick-web")!;
+await ops.stopRun(qw.id);
+await sleep(50);
+ok(runs.list.find((r) => r.id === qw.id)?.status === "stopped", `退得快的停完是「已停止」：${runs.list.find((r) => r.id === qw.id)?.status}`);
+ops.closeRun(qw.id);
 
 // ── 端口被占（第 4 步）：fail-boot 失败时 8080 被别的程序占着 → 那格带上「谁占着」；「结束它并重跑」→ 端口空了、原地重跑起来 ──
 const fb2 = runs.list.find((r) => r.name === "fail-boot")!;
