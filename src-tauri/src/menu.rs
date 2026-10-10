@@ -113,6 +113,11 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let git_refresh = item(app, "git-refresh", "刷新状态", None)?;
 
     let close_terminal = item(app, "close-terminal", "关闭当前终端", None)?;
+    // #48：任务属于项目，没项目时都灰。「再跑上一个」归 key（终端里的 ⌃R 是 shell 的搜历史），菜单项不挂键位
+    let run_last = item(app, "run-last", "再跑上一个任务", None)?;
+    let run_pick = item(app, "run-pick", "运行任务…", Some("Ctrl+Alt+R"))?;
+    let run_stop = item(app, "run-stop", "停止任务", Some("CmdOrCtrl+F2"))?;
+    let tasks_file = item(app, "tasks-file", "打开 tasks.json", None)?;
     // #45：要有一个打开的文件才有东西可发
     let send_to_terminal = item(app, "send-to-terminal", "发送到终端", Some("Alt+CmdOrCtrl+K"))?;
     // 分屏（issue #35）。键位的取舍见 keymap.ts 那段
@@ -238,6 +243,14 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&send_to_terminal)
         .build()?;
 
+    let run = SubmenuBuilder::new(app, "运行")
+        .item(&run_last)
+        .item(&run_pick)
+        .item(&run_stop)
+        .separator()
+        .item(&tasks_file)
+        .build()?;
+
     let window = SubmenuBuilder::new(app, "窗口")
         .minimize_with_text("最小化")
         .maximize_with_text("缩放")
@@ -276,7 +289,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .build()?;
 
     let menu = MenuBuilder::new(app)
-        .items(&[&app_menu, &file, &edit, &view, &goto, &git, &term, &window, &help])
+        .items(&[&app_menu, &file, &edit, &view, &goto, &git, &term, &run, &window, &help])
         .build()?;
 
     // 认了这两个，系统才会自动往「窗口」里塞窗口列表、往「帮助」里塞搜索框
@@ -310,7 +323,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
             git_fetch,
         ],
         needs_term: vec![close_terminal],
-        needs_root: vec![close_project],
+        needs_root: vec![close_project, run_last, run_pick, run_stop, tasks_file],
         needs_two: vec![split_right, move_other],
         needs_split: vec![focus_other, unsplit],
     };

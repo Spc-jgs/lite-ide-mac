@@ -29,6 +29,8 @@ class Overlay {
 
   /** 跨文件替换（#42，⇧⌘R）。查询、替换串、勾选在 `replace.svelte.ts` 里，浮层关了还在 */
   replaceOpen = $state(false);
+  /** 任务列表（#48，⌃⌥R；⌃R 一个都没跑过时也开它） */
+  taskPicker = $state(false);
 
   outlineOpen = $state(false);
   /** 大纲浮层里点了一条，让编辑器重算一次符号 */

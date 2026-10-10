@@ -15,8 +15,9 @@
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { lazy } from "../lazy/lazy.svelte";
   import { notify } from "../state/notify.svelte";
-  import { layout } from "../state/layout.svelte";
+  import { layout, type PanelTool } from "../state/layout.svelte";
   import { terms } from "../state/terms.svelte";
+  import { runs, type RunStatus } from "../state/runs.svelte";
 
   let {
     root,
@@ -27,7 +28,7 @@
   }: {
     root: string | null;
     repo: string | null;
-    panelTool: "term" | "git";
+    panelTool: PanelTool;
     /** 提交历史那个懒加载 chunk 到了没 */
     gitLogReady: boolean;
     gitLog: Snippet;
@@ -40,6 +41,24 @@
    * 一个诊断页面不该让每个人的启动多付钱。
    */
   const gitcon = lazy(() => import("../git/GitConsole.svelte"), "Git 控制台");
+  /** 运行窗（#48）的一格：日志视图那一整套，跑过任务才拉 */
+  const runView = lazy(() => import("../run/RunView.svelte"), "运行输出");
+  /** 运行窗的动作（停、关、重跑）在懒加载的 runs-ops 里，按一下才拉 */
+  const ops = () => import("../state/runs-ops");
+
+  $effect(() => {
+    if (layout.panel && panelTool === "run") runView.load();
+  });
+
+  /** 状态点说什么（悬停时）。颜色在样式里：跑着绿、停止中琥珀、失败红、结束了灰 */
+  const STATUS_TEXT: Record<RunStatus, string> = {
+    running: "在跑",
+    stopping: "正在停（等它收尾，再按一次停止就强制结束）",
+    stopped: "已停止",
+    done: "已结束",
+    failed: "失败",
+  };
+  let activeRun = $derived(runs.list.find((r) => r.id === runs.activeId) ?? null);
 
   $effect(() => {
     if (layout.panel) terminal.load();
@@ -54,7 +73,7 @@
    * 两个 lazy 和用它们的地方在同一个文件里，漏不掉。
    */
   $effect(() => {
-    const e = terminal.error || gitcon.error;
+    const e = terminal.error || gitcon.error || runView.error;
     if (e) notify.fail(e);
   });
 
@@ -68,15 +87,23 @@
   });
 
   /** 面板头右边那两个下拉：`list` 是全部终端，`more` 是更多操作 */
-  let panelMenu = $state<{ x: number; y: number; kind: "list" | "more" } | null>(null);
+  let panelMenu = $state<{ x: number; y: number; kind: "list" | "more" | "run" } | null>(null);
 
-  function openPanelMenu(e: MouseEvent, kind: "list" | "more") {
+  function openPanelMenu(e: MouseEvent, kind: "list" | "more" | "run") {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     panelMenu = { x: r.left, y: r.bottom + 2, kind };
   }
 
   let panelMenuItems = $derived.by<MenuItem[]>(() => {
     if (!panelMenu) return [];
+    if (panelMenu.kind === "run") {
+      const id = runs.activeId;
+      const r = runs.list.find((x) => x.id === id);
+      return [
+        { label: "在编辑区打开这份输出", run: () => void ops().then((m) => m.openRunLog(id)) },
+        { label: "打开 tasks.json", run: () => void ops().then((m) => m.openTasksFile(r?.root ?? root)) },
+      ];
+    }
     if (panelMenu.kind === "list") {
       // 前面那个格子标出当前项。全角空格占位，切换时标题不会左右跳
       return terms.list.map((t) => ({
@@ -147,8 +174,25 @@
       面板收起再展开时，第一眼要能认出这是哪个工具窗。
     -->
     <div class="panel-head">
-      <span class="tw-name">{panelTool === "term" ? "终端" : "Git"}</span>
-      {#if panelTool === "git"}
+      <span class="tw-name">{panelTool === "term" ? "终端" : panelTool === "run" ? "运行" : "Git"}</span>
+      {#if panelTool === "run"}
+        <!-- 运行窗（#48）：一次运行一格，格子上一个状态点；关掉一格 = 还在跑就软停（同 IDEA 的 Run 工具窗） -->
+        <div class="ptabs">
+          {#each runs.list as r (r.id)}
+            <div class="ptab" class:on={r.id === runs.activeId}>
+              <button class="pt-label" onclick={() => (runs.activeId = r.id)} title="{r.command}（{STATUS_TEXT[r.status]}）">
+                <span class="dot {r.status}" aria-label={STATUS_TEXT[r.status]}></span>{r.name}
+              </button>
+              <button
+                class="ibtn xs pt-x"
+                onclick={() => void ops().then((m) => m.closeRun(r.id))}
+                aria-label="关闭 {r.name}"
+                title={r.status === "running" || r.status === "stopping" ? `关闭并停止 ${r.name}` : `关闭 ${r.name}`}
+              ><Icon name="x" /></button>
+            </div>
+          {/each}
+        </div>
+      {:else if panelTool === "git"}
         <!--
           Git 窗的两个标签。和终端标签同一套样式，只是没有 ✕ ——
           它们不是开出来的东西，关不掉。
@@ -212,6 +256,25 @@
         {/if}
       {/if}
       <span class="gap"></span>
+      {#if panelTool === "run" && activeRun}
+        {@const r = activeRun}
+        <button
+          class="ibtn"
+          onclick={() => void ops().then((m) => m.runTask(r.name, r.root))}
+          title="重跑「{r.name}」⌃R"
+          aria-label="重跑"
+        ><Icon name="rerun" /></button>
+        <button
+          class="ibtn"
+          disabled={r.status !== "running" && r.status !== "stopping"}
+          onclick={() => void ops().then((m) => m.stopRun(r.id))}
+          title={r.status === "stopping" ? "强制结束（不等它收尾）" : "停止 ⌘F2"}
+          aria-label={r.status === "stopping" ? "强制结束" : "停止"}
+        ><Icon name="stop" /></button>
+        <button class="ibtn" onclick={(e) => openPanelMenu(e, "run")} title="更多操作" aria-label="更多操作">
+          <Icon name="more-v" />
+        </button>
+      {/if}
       <!--
         「更多」只在终端页出 —— 提交历史那边一条真动作都没有，
         摆一个点开是空的按钮，比没有这个按钮糟。
@@ -251,6 +314,18 @@
           <div class="loading"><span class="spinner"></span>正在载入终端…</div>
         {/if}
       </div>
+      <!-- 运行窗：只挂当前那一格（卸载不碰进程，见 RunView 头上那段）。按 id 重建：重跑换了 id，句柄跟着换 -->
+      {#if layout.panel && panelTool === "run" && activeRun}
+        <div class="tool-slot">
+          {#if runView.comp}
+            {#key activeRun.id}
+              <runView.comp log={activeRun.log} />
+            {/key}
+          {:else}
+            <div class="loading"><span class="spinner"></span>正在载入…</div>
+          {/if}
+        </div>
+      {/if}
       <!-- 收起时别去拉 git log：那是一串没人看的子进程 -->
       <!-- 同上：切走就整个销毁，那条 1.5 秒的轮询跟着停 -->
       {#if layout.panel && panelTool === "git" && layout.gitTab === "console" && repo}
@@ -279,7 +354,7 @@
   <ContextMenu
     x={panelMenu.x}
     y={panelMenu.y}
-    label={panelMenu.kind === "list" ? "全部终端" : "终端的操作"}
+    label={panelMenu.kind === "list" ? "全部终端" : panelMenu.kind === "run" ? "运行的操作" : "终端的操作"}
     items={panelMenuItems}
     onclose={() => (panelMenu = null)}
   />
@@ -424,4 +499,17 @@
     color: var(--text-faint);
     font-size: var(--fs-md);
   }
+  /* 运行窗标签上的状态点（#48）：颜色说状态，悬停的 title 说成字 */
+  .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    flex: none;
+  }
+  .dot.running { background: var(--git-added); }
+  .dot.stopping { background: var(--lvl-warn); }
+  .dot.failed { background: var(--lvl-error); }
 </style>

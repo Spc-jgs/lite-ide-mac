@@ -766,3 +766,23 @@ export interface TaskList {
   /** 读的时候发现的问题，一条一句话 */
   problems: string[];
 }
+
+export interface TaskRun {
+  /** 这一次运行的 id（停、关都拿它） */
+  id: number;
+  name: string;
+  command: string;
+  /** 输出写在哪个文件：开日志句柄用 */
+  log: string;
+}
+
+/** `task-exit` 事件：一次运行结束了（只发给起它的窗口） */
+export interface TaskExit {
+  id: number;
+  code: number | null;
+  signal: number | null;
+  /** 是我们停的：不算失败（pnpm 被停掉后退出码非零，TASKS.md 第 10 节） */
+  stopped: boolean;
+  failed: boolean;
+}
+

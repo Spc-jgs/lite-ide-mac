@@ -54,8 +54,28 @@ pub struct AppState {
     scans: Mutex<HashMap<String, Arc<replacesvc::Scan>>>,
     /// 设置（issue #44）：`settings.json` + `ui-state.json`，整个进程一份，变了广播给每个窗口（`settingsctl.rs`）
     pub settings: crate::settings::Store,
+    /// 跑着（或跑完了、标签还开着）的任务（#48）。同终端：记 owner，窗口关了只收它自己的
+    runs: Mutex<HashMap<u32, Run>>,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
+    next_run: AtomicU32,
+}
+
+/// 一次任务运行。`task` 是 `Arc`：停的时候要有一份活过宽限期（`Task` 被 drop 就是立刻 SIGKILL）
+pub struct Run {
+    pub owner: String,
+    pub root: String,
+    pub name: String,
+    pub task: Arc<tasksvc::Task>,
+}
+
+/// 软停一个任务并**在后台线程里攥着它**直到宽限期结束：表里摘掉了、`Arc` 在这条线程里还活着，
+/// 不会因为最后一份引用没了就当场 SIGKILL（那样 Spring 的关闭钩子就没机会跑）
+pub fn stop_in_background(task: Arc<tasksvc::Task>) {
+    let _ = std::thread::Builder::new().name("task-retire".into()).spawn(move || {
+        tasksvc::stop_group(task.pgid(), tasksvc::GRACE);
+        drop(task);
+    });
 }
 
 impl AppState {
@@ -177,6 +197,49 @@ struct Pty {
 pub const MAX_PTYS: usize = 16;
 
 impl AppState {
+    pub fn insert_run(&self, run: Run) -> u32 {
+        let id = self.next_run.fetch_add(1, Ordering::Relaxed);
+        self.runs.lock().expect("任务表锁被毒化").insert(id, run);
+        id
+    }
+
+    pub fn run_task(&self, id: u32) -> Option<Arc<tasksvc::Task>> {
+        self.runs.lock().expect("任务表锁被毒化").get(&id).map(|r| Arc::clone(&r.task))
+    }
+
+    /// 这个窗口里同一个项目、同一个名字的那次（重跑要先停它，不然端口还占着）
+    pub fn find_run(&self, owner: &str, root: &str, name: &str) -> Option<(u32, Arc<tasksvc::Task>)> {
+        let tab = self.runs.lock().expect("任务表锁被毒化");
+        tab.iter().find(|(_, r)| r.owner == owner && r.root == root && r.name == name).map(|(id, r)| (*id, Arc::clone(&r.task)))
+    }
+
+    /// 摘掉一条。**在锁外**处理它（同 kill_pty：别在表锁里做发信号、等收尸这类事）
+    pub fn remove_run(&self, id: u32) -> Option<Run> {
+        self.runs.lock().expect("任务表锁被毒化").remove(&id)
+    }
+
+    /// 退出前：软停全部（SIGINT 整组），返回还活着的，调用方等它们一会儿
+    pub fn stop_all_runs(&self) -> Vec<Arc<tasksvc::Task>> {
+        let all: Vec<Arc<tasksvc::Task>> = self.runs.lock().expect("任务表锁被毒化").values().map(|r| Arc::clone(&r.task)).collect();
+        for t in &all {
+            if t.alive() {
+                t.stop(tasksvc::GRACE);
+            }
+        }
+        all
+    }
+
+    /// 进程真要结束了（`RunEvent::Exit`）：还活着的一律 SIGKILL。`process::exit` 不跑析构，
+    /// 不在这儿杀，`Task::drop` 那道兜底一次都轮不到 —— 任务在自己的进程组里，不会跟着应用死
+    pub fn kill_all_runs(&self) {
+        let all: Vec<Run> = self.runs.lock().expect("任务表锁被毒化").drain().map(|(_, r)| r).collect();
+        for r in &all {
+            if r.task.alive() {
+                r.task.kill();
+            }
+        }
+    }
+
     /// 登记一个终端，返回它的 id 和背压闸。
     ///
     /// 满了就**拒绝**（调用方负责把 Session drop 掉，也就是 kill）。
@@ -327,6 +390,18 @@ impl AppState {
 
         self.set_watch(owner, None);
         self.set_scan(owner, None);
+
+        // 这个窗口的任务：先礼后兵地停（宽限期在后台线程里等，窗口关掉不用等它们）
+        let runs: Vec<Run> = {
+            let mut tab = self.runs.lock().expect("任务表锁被毒化");
+            let ids: Vec<u32> = tab.iter().filter(|(_, r)| r.owner == owner).map(|(id, _)| *id).collect();
+            ids.iter().filter_map(|id| tab.remove(id)).collect()
+        };
+        for r in runs {
+            if r.task.alive() {
+                stop_in_background(r.task);
+            }
+        }
 
         // 只置位不 kill，理由同 cancel_remote。关掉的窗口没人看进度了，
         // 网络卡住的 fetch 不取消的话就再也没人能取消它
@@ -504,6 +579,23 @@ mod tests {
         st.set_scan("a", Some(replacesvc::scan(&d, &[], false, &q, &Default::default()).unwrap()));
         st.set_scan("b", Some(replacesvc::scan(&d, &[], false, &q, &Default::default()).unwrap()));
 
+        // 任务（#48）：真起两个 sleep，a 的那个要被停掉、b 的不能动。zsh + 空 ZDOTDIR：不读跑测试的人的 .zshrc（issue #30）
+        std::fs::create_dir_all(d.join("zdot")).unwrap();
+        let start = |owner: &str| {
+            let spec = tasksvc::Spec {
+                shell: "/bin/zsh".into(),
+                command: "sleep 300".into(),
+                cwd: d.clone(),
+                env: vec![("ZDOTDIR".into(), d.join("zdot").to_string_lossy().into_owned())],
+                log: d.join(format!("run-{owner}.log")),
+                cap: tasksvc::LOG_CAP,
+            };
+            let task = Arc::new(tasksvc::Task::start(&spec).unwrap());
+            st.insert_run(Run { owner: owner.into(), root: "/p".into(), name: "t".into(), task: Arc::clone(&task) });
+            task
+        };
+        let (ta, tb) = (start("a"), start("b"));
+
         st.release_window("a");
 
         assert!(st.pty(pa).is_none(), "a 的终端该收掉");
@@ -522,6 +614,21 @@ mod tests {
         assert!(st.cancel_remote("b", 1), "b 的登记还该在表里");
         assert!(st.scan("a").is_none(), "a 的替换扫描该收掉（里面攥着命中文件的全文）");
         assert!(st.scan("b").is_some(), "b 的不能跟着没");
+
+        assert!(st.find_run("a", "/p", "t").is_none(), "a 的任务该从表里摘掉");
+        assert!(st.find_run("b", "/p", "t").is_some(), "b 的任务不能跟着没");
+        let t = std::time::Instant::now();
+        while ta.alive() && t.elapsed() < std::time::Duration::from_secs(8) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(!ta.alive(), "a 的任务进程组该停掉（窗口没了就再没人能停它）");
+        assert!(tb.alive(), "关的是 a，b 的任务还在跑");
+        st.kill_all_runs();
+        let t = std::time::Instant::now();
+        while tb.alive() && t.elapsed() < std::time::Duration::from_secs(3) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(!tb.alive(), "kill_all_runs 之后 b 也该没了（退出时那一下）");
         let _ = std::fs::remove_dir_all(&d);
     }
 

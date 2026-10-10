@@ -132,6 +132,11 @@
    * 而大多数人一天也不会用一次 —— 不像 ⌘P 那样值得首屏之后就预拉
    */
   const replacePanel = lazy(() => import("../search/ReplacePanel.svelte"), "替换浮层");
+  /** 任务列表（#48，⌃⌥R）：按下去才拉 */
+  const taskPicker = lazy(() => import("../run/TaskPicker.svelte"), "任务列表");
+  $effect(() => {
+    if (overlay.taskPicker) taskPicker.load();
+  });
   $effect(() => {
     if (overlay.replaceOpen) replacePanel.load();
   });
@@ -162,7 +167,7 @@
   });
   // 按需加载失败要说出来（App 那张汇总名单的本地版，同 Panel / Content）
   $effect(() => {
-    const e = overlays.error || encPicker.error || keysPanel.error || replacePanel.error;
+    const e = overlays.error || encPicker.error || keysPanel.error || replacePanel.error || taskPicker.error;
     if (e) notify.fail(e);
   });
 
@@ -208,6 +213,9 @@
   />
 {/if}
 
+{#if taskPicker.comp}
+  <taskPicker.comp bind:open={overlay.taskPicker} />
+{/if}
 {#if replacePanel.comp}
   <replacePanel.comp bind:open={overlay.replaceOpen} />
 {/if}

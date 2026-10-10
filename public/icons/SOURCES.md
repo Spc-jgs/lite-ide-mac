@@ -78,3 +78,6 @@
 | `icons/file/kotlin.svg` | `plugins/kotlin/base/resources/resources/org/jetbrains/kotlin/idea/icons/expui/kotlin_dark.svg` |
 | `icons/file/rust.svg` | `platform/icons/src/language/rust_dark.svg`（上游没有 expui 版，这一份已经是 16px 扁平风格） |
 | `icons/file/go.svg` | `platform/icons/src/language/go_dark.svg`（同上） |
+| `icons/run.svg` | `platform/icons/src/expui/run/run_dark.svg`（#48，2026-10-10） |
+| `icons/stop.svg` | `platform/icons/src/expui/run/stop_dark.svg`（同上） |
+| `icons/rerun.svg` | `platform/icons/src/expui/run/rerun_dark.svg`（同上） |

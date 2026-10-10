@@ -1,6 +1,12 @@
 import { DEFAULT_LAYOUT, type Layout } from "./session";
 
 /**
+ * 底部的工具窗。比快照里的 `Layout["panelView"]` 多一个 `run`（#48 的运行窗）：
+ * 任务跟着进程死，重启时没有一次运行可恢复（同终端）—— 所以 `run` 只活在运行时，存快照时写成 `term`
+ */
+export type PanelTool = Layout["panelView"] | "run";
+
+/**
  * 外壳的布局状态：侧边栏开合 / 宽度 / 视图，底部面板开合 / 高度 / 工具窗 / 标签。
  *
  * # 为什么单独一个模块
@@ -30,7 +36,7 @@ class LayoutState {
    * 底部是哪个工具窗（`term` / `git`），以及 Git 窗里选中的标签（#31）。
    * 都是**存下来的偏好**：可以是 `git` 而当下并没有仓库，渲染侧另算。
    */
-  panelView = $state<Layout["panelView"]>(DEFAULT_LAYOUT.panelView);
+  panelView = $state<PanelTool>(DEFAULT_LAYOUT.panelView);
   gitTab = $state<Layout["gitTab"]>(DEFAULT_LAYOUT.gitTab);
   /** 分屏分隔线的位置：左组占的比例（issue #35）。分没分屏由 `tabs.split` 说，这里只记位置 */
   splitRatio = $state(DEFAULT_LAYOUT.splitRatio);
@@ -62,7 +68,7 @@ class LayoutState {
       sideView: this.sideView,
       panel: this.panel,
       panelHeight: this.panelHeight,
-      panelView: this.panelView,
+      panelView: this.panelView === "run" ? "term" : this.panelView,
       gitTab: this.gitTab,
       splitRatio: this.splitRatio,
     };
@@ -109,7 +115,7 @@ class LayoutState {
    * 这个偏好 —— 偏好是 git 而没有仓库时亮着的是终端那个按钮，再点它就该收起，
    * 而不是「切到终端」（已经在了）。
    */
-  togglePanel(v: Layout["panelView"], showing: Layout["panelView"]) {
+  togglePanel(v: PanelTool, showing: PanelTool) {
     if (this.panel && showing === v) {
       this.panel = false;
       return;

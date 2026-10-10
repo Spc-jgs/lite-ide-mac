@@ -17,6 +17,8 @@ use tauri::{AppHandle, Emitter, Manager};
 const CASCADE: f64 = 28.0;
 /// 退出时最多等各窗口回话多久。超时照样退：一个卡死的窗口不能让应用退不掉
 const QUIT_WAIT: Duration = Duration::from_secs(2);
+/// 退出时等跑着的任务收尾，最多这么久（从开始退出算）。比 tasksvc::GRACE 短：人按了退出，不能干等 5 秒
+const RUNS_WAIT: Duration = Duration::from_secs(3);
 
 fn file(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_data_dir().ok().map(|d| d.join("windows.json"))
@@ -343,6 +345,8 @@ pub fn quit(app: &AppHandle) {
     let st = app.state::<AppState>();
     let Some(wait) = st.windows.begin_quit() else { return };
     crate::diag!("退出：等 {wait:?} 回话");
+    // 跑着的任务（#48）先软停：和前端落盘同时进行，Spring 的关闭钩子趁这段时间跑（第 0 步实测 0.25 秒）
+    let runs = st.stop_all_runs();
     for l in &wait {
         let _ = app.emit_to(l.as_str(), "flush", ());
     }
@@ -357,6 +361,10 @@ pub fn quit(app: &AppHandle) {
             applog::write(applog::Level::Warn, "window", &format!("退出时有 {left} 个窗口 2 秒内没回话，没等它们"));
         }
         crate::diag!("退出：等了 {}ms，没回话的 {left} 个", t.elapsed().as_millis());
+        // 任务再多给一会儿收尾，从开始退出算总共不超过 RUNS_WAIT；还没走完的在 RunEvent::Exit 里强杀
+        while runs.iter().any(|r| r.alive()) && t.elapsed() < RUNS_WAIT {
+            std::thread::sleep(Duration::from_millis(50));
+        }
         save_now(&app);
         // 收尾放到主线程上做：系统那条路的钩子也跑在主线程上，「它在不在等回话」和「我们收没收尾」就不会抢
         let a = app.clone();

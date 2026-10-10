@@ -8,7 +8,8 @@
    * issue #9 第 2 步把底部面板抽出去时一起挪走。
    */
   import Icon from "./Icon.svelte";
-  import { layout } from "../state/layout.svelte";
+  import { layout, type PanelTool } from "../state/layout.svelte";
+  import { runs } from "../state/runs.svelte";
 
   let {
     root,
@@ -23,9 +24,9 @@
     /** 未提交改动的条数，画在 Git 改动图标的角标上 */
     changes: number;
     /** 底部面板**实际在显示**的工具窗 */
-    panelTool: "term" | "git";
+    panelTool: PanelTool;
     onSearch: () => void;
-    onTogglePanel: (v: "term" | "git") => void;
+    onTogglePanel: (v: PanelTool) => void;
   } = $props();
 
   /** 侧边栏此刻在不在屏幕上（不是偏好，是判决）：按钮亮不亮、tooltip 说收起还是展开都看它 */
@@ -140,6 +141,24 @@
       aria-label="Git"
     >
       <Icon name="history" />
+    </button>
+  {/if}
+  <!--
+    运行窗（#48）。**跑过任务才出现**（ui.md 第十条「工具窗有内容才出现」）：没跑过的时候它是空的，
+    一个永远空着的按钮只是噪音。角标是还活着的几个（跑着 / 正在停），全停了就不画 —— 同 Git 改动那个角标的判据
+  -->
+  {#if runs.list.length > 0}
+    <button
+      class="ibtn lg rbtn"
+      class:on={layout.panel && panelTool === "run"}
+      onclick={() => onTogglePanel("run")}
+      title="运行 ⌃⌥R"
+      aria-label="运行"
+    >
+      <Icon name="run" />
+      {#if runs.alive() > 0}
+        <span class="badge">{runs.alive()}</span>
+      {/if}
     </button>
   {/if}
 </nav>

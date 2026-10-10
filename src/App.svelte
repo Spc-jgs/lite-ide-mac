@@ -11,7 +11,8 @@
   import { cmenu } from "./lib/shell/context-menu.svelte";
   import { notify } from "./lib/state/notify.svelte";
   import { nav } from "./lib/state/nav.svelte";
-  import { layout } from "./lib/state/layout.svelte";
+  import { layout, type PanelTool } from "./lib/state/layout.svelte";
+  import { runs } from "./lib/state/runs.svelte";
   import { tabs } from "./lib/state/tabs.svelte";
   import type { TabState } from "./lib/state/tab";
   import { tabflow } from "./lib/state/tabflow.svelte";
@@ -277,7 +278,10 @@
    * 所以渲染一律看这个，写状态才写 `layout.panelView` —— 偏好留着，
    * 下次真打开仓库时提交历史还在。
    */
-  let panelTool = $derived<"term" | "git">(layout.panelView === "git" && git.repo ? "git" : "term");
+  let panelTool = $derived<PanelTool>(
+    // 运行窗（#48）同一条判据：偏好是 run 但一次运行都没有（全关了），亮的是终端
+    layout.panelView === "git" && git.repo ? "git" : layout.panelView === "run" && runs.list.length > 0 ? "run" : "term",
+  );
 
   let hovering = $state(false);
   /** 日志视图的状态行，每组一份（issue #35）；状态栏只讲焦点组的 */
@@ -644,6 +648,16 @@
       }
       tabWalk.i = (tabWalk.i + (e.shiftKey ? -1 : 1) + n) % n;
       showByKey(tabWalk.list[tabWalk.i], false);
+      return;
+    }
+    /*
+     * ⌃R：再跑上一个任务（#48，IDEA macOS 键位的 Run）。**归 key 不归菜单**（keymap.ts）：终端里的 ⌃R 是 shell 的
+     * 「搜历史」，天天用；挂进菜单 AppKit 会先把键吃掉，终端里就再也搜不了历史。所以焦点在终端里时不接、让给 shell
+     */
+    if (k === "r" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if ((e.target as HTMLElement | null)?.closest?.(".xterm")) return;
+      e.preventDefault();
+      void import("./lib/state/runs-ops").then((m) => m.rerunLast());
       return;
     }
     if (!e.metaKey) return;

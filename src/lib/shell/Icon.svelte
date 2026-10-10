@@ -41,6 +41,10 @@
     "match-case",
     "whole-word",
     "regex",
+    // 运行工具窗（#48）：运行 / 停止 / 重跑，IDEA 的 Run 工具窗同一套
+    "run",
+    "stop",
+    "rerun",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];
@@ -51,7 +55,7 @@
    * `warn` 是黄的、`note`（草稿）带一个蓝色时钟 —— 颜色本身就是意思。`folder`、`compact` 是**深灰填充 + 浅灰描边**
    * 的双色图标：走 mask 的话只剩透明度，填充和描边糊成一整块实心。其余全是单一灰色，走 mask。
    */
-  const COLORED: ReadonlySet<IconName> = new Set<IconName>(["warn", "note", "folder", "compact"]);
+  const COLORED: ReadonlySet<IconName> = new Set<IconName>(["warn", "note", "folder", "compact", "run", "stop", "rerun"]);
 </script>
 
 <script lang="ts">

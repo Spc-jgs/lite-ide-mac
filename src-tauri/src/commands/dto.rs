@@ -562,3 +562,26 @@ pub struct TaskListDto {
     /// 读的时候发现的问题，一条一句话（写错的那个任务跳过了、哪一行语法错）
     pub problems: Vec<String>,
 }
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRunDto {
+    /// 这一次运行的 id（停、关都拿它）
+    pub id: u32,
+    pub name: String,
+    pub command: String,
+    /// 输出写在哪个文件：前端拿去开日志句柄
+    pub log: String,
+}
+
+/// 「任务退出了」事件（`task-exit`，只发给起它的窗口）
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskExitDto {
+    pub id: u32,
+    pub code: Option<i32>,
+    pub signal: Option<i32>,
+    /// 是我们停的（不算失败，见 tasksvc::State::Exited）
+    pub stopped: bool,
+    pub failed: bool,
+}

@@ -1871,6 +1871,7 @@ dependencies = [
  "searchsvc",
  "serde",
  "serde_json",
+ "tasksvc",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

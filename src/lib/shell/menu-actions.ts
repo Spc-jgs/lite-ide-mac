@@ -160,6 +160,11 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     }
     case "find-word": return overlay.findWordAtCursor();
     case "send-to-terminal": return void sendToTerminal();
+    // 运行（#48）：动作在懒加载的 runs-ops 里（这个文件本身也是懒的，多一层 import 察觉不到）
+    case "run-last": return void import("../state/runs-ops").then((m) => m.rerunLast());
+    case "run-pick": overlay.taskPicker = true; return;
+    case "run-stop": return void import("../state/runs-ops").then((m) => m.stopRun());
+    case "tasks-file": return void import("../state/runs-ops").then((m) => m.openTasksFile());
     case "goto-line":
       // 编辑器跳行:列；日志视图跳行或时间（2026-09-21）。差异 / 合并没有「行」
       if (tabs.active?.mode === "edit" || tabs.active?.mode === "log") overlay.openGoto();

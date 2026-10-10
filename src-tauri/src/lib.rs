@@ -291,6 +291,9 @@ pub fn run() {
             commands::pty_cwd,
             commands::task_list,
             commands::task_new_file,
+            commands::task_run,
+            commands::task_stop,
+            commands::task_close,
             commands::pty_kill,
             commands::diag,
             commands::app_log,
@@ -350,7 +353,11 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { has_visible_windows: false, .. } => winctl::reopen(app),
             // 不管从哪条路退出（Dock 右键退出、注销也走这里），最后补存一次窗口位置
-            tauri::RunEvent::Exit => winctl::save_now(app),
+            tauri::RunEvent::Exit => {
+                winctl::save_now(app);
+                // 退出流程里已经软停过（winctl::quit），这里把宽限期里没走完的强杀掉 —— 进程一结束就没人管它们了
+                tauri::Manager::state::<state::AppState>(app).kill_all_runs();
+            }
             _ => {}
         });
 }

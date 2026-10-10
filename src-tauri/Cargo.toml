@@ -54,6 +54,7 @@ ptysvc = { path = "crates/ptysvc" }
 searchsvc = { path = "crates/searchsvc" }
 replacesvc = { path = "crates/replacesvc" }
 gitsvc = { path = "crates/gitsvc" }
+tasksvc = { path = "crates/tasksvc" }
 
 # 「打开文件夹…」的原生选择框。
 #

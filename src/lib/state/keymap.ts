@@ -57,7 +57,7 @@ export interface KeyDef {
    * 速查表是按「这个键管哪一摊」分的，两者不必一致
    * （比如「文件编码…」在菜单的「文件」下，在速查表里归「编辑」）。
    */
-  group: "导航" | "编辑" | "视图" | "Git" | "终端" | "文件" | "帮助";
+  group: "导航" | "编辑" | "视图" | "Git" | "终端" | "运行" | "文件" | "帮助";
   owner: Owner;
 }
 
@@ -287,6 +287,17 @@ export const KEYS: KeyDef[] = [
    * IDEA 默认键位里 ⌥⌘K 没有占用，表里也没人用。归菜单：焦点在终端里时也该能按（选完代码切进终端再想起来）
    */
   { id: "send-to-terminal", label: "发送到终端", accel: "⌥⌘K", group: "终端", owner: "menu" },
+
+  // ── 运行（#48，docs/TASKS.md Q1：照 IDEA 的 macOS 键位）──
+  /*
+   * ⌃R 归 key，**不能进菜单**：终端里的 ⌃R 是 shell 的「搜历史」，菜单 accelerator 会被 AppKit 先吃掉，
+   * 终端里就再也搜不了历史。App.svelte 的 keydown 接它，焦点在 xterm 里时放过（同 ⌘P 那条）
+   */
+  { id: "run-last", label: "再跑上一个任务", accel: "⌃R", group: "运行", owner: "key" },
+  { id: "run-pick", label: "运行任务…", accel: "⌃⌥R", group: "运行", owner: "menu" },
+  /** 第一下软停（SIGINT 整组，5 秒后强杀），正在软停时再按一下立刻强杀 —— 同 IDEA 的停止按钮 */
+  { id: "run-stop", label: "停止任务", accel: "⌘F2", group: "运行", owner: "menu" },
+  { id: "tasks-file", label: "打开 tasks.json", group: "运行", owner: "menu" },
 
   /*
    * 日志模式里跳过滤命中。挂在 window 上（`LogPane.svelte`），
