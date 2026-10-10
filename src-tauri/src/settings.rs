@@ -278,14 +278,14 @@ fn check(d: &Def, v: &Value) -> Check {
     }
 }
 
-/// 把注释和末尾逗号换成**等长的空格**，交给 `serde_json`。
+/// 把注释和末尾逗号换成**等长的空格**，交给 `serde_json`。`.lite-ide/tasks.json` 也用它（`taskdefs.rs`，#48）：一种 JSONC 一个解析器。
 ///
 /// 换成空格而不是删掉：剥完之后每个字节的位置不变，`serde_json` 报的行列、[`top_level_keys`] 找到的偏移，
 /// 拿回原文上就对得上。注释里的多字节字符整段换掉（一个汉字三个空格），所以结果仍是合法的 UTF-8。
 ///
 /// 要认的边界：字符串里的 `//`（`"http://…"` 不是注释）、字符串里的 `\"`、`/* */` 跨行（换行留着，行号才不乱）。
 /// 没收尾的 `/*` 算语法错 —— 不然它后面的设置全被当成注释吞掉，而你看不出为什么不生效。
-fn strip(text: &str) -> Result<String, Problem> {
+pub(crate) fn strip(text: &str) -> Result<String, Problem> {
     let mut b = text.as_bytes().to_vec();
     let n = b.len();
     let mut i = 0;
@@ -407,7 +407,7 @@ fn pos_of_offset(text: &str, off: usize) -> Pos {
 }
 
 /// `serde_json` 给的（行，按字节数的列）→ [`Pos`]
-fn pos_of_line_byte(text: &str, line: usize, byte_col: usize) -> Pos {
+pub(crate) fn pos_of_line_byte(text: &str, line: usize, byte_col: usize) -> Pos {
     let start: usize = text.split_inclusive('\n').take(line.saturating_sub(1)).map(str::len).sum();
     pos_of_offset(text, start + byte_col.saturating_sub(1))
 }

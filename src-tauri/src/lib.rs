@@ -5,6 +5,7 @@ pub mod menu;
 mod open;
 mod settings;
 mod settingsctl;
+mod taskdefs;
 #[cfg(feature = "test-bridge")]
 mod testbridge;
 
@@ -288,6 +289,8 @@ pub fn run() {
             commands::pty_ack,
             commands::pty_resize,
             commands::pty_cwd,
+            commands::task_list,
+            commands::task_new_file,
             commands::pty_kill,
             commands::diag,
             commands::app_log,

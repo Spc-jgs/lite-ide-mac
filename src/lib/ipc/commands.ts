@@ -746,3 +746,23 @@ export interface ReplacePending {
   files: number;
   changed: number;
 }
+
+// ── 任务（#48，docs/TASKS.md） ──
+
+export interface TaskDef {
+  name: string;
+  /** 一整行命令 */
+  command: string;
+  /** 相对项目根；"" = 根 */
+  cwd: string;
+  /** "file" = `.lite-ide/tasks.json` 里写的；"package" = 自动认出来的 package.json scripts */
+  source: "file" | "package";
+}
+
+export interface TaskList {
+  tasks: TaskDef[];
+  /** `tasks.json` 在不在：列表底部给「打开」还是「新建」 */
+  file: boolean;
+  /** 读的时候发现的问题，一条一句话 */
+  problems: string[];
+}

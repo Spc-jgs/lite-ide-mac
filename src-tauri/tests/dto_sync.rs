@@ -59,6 +59,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("ReplaceHitDto", "ReplaceHit"),
     ("ReplaceFileDto", "ReplaceFile"),
     ("ReplaceSkipDto", "ReplaceSkip"),
+    ("TaskDefDto", "TaskDef"),
+    ("TaskListDto", "TaskList"),
     ("ReplaceScanDto", "ReplaceScan"),
     ("ReplaceAfterDto", "ReplaceAfter"),
     ("ReplaceEditDto", "ReplaceEdit"),

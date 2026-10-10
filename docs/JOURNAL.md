@@ -8826,3 +8826,13 @@ tao 退出用的是 `stop` 不是 `terminate:`，所以我们自己的 `app.exit
   这条进了设计（TASKS.md 第 11 节）：`&` 起的后台命令没有收尾的机会。
 
 **验红脚本自己的坑**：macOS 的 `sed` 不认 `0,/re/`（GNU 才有），「只改第一处」的那次改坏根本没改上，被「改坏没生效」那一行拦住了 —— 那一行就是为这种事留的。
+
+## 2026-10-10 · #48 第 2 步：任务从哪来 —— tasks.json + 自动认出的 package.json scripts
+
+`taskdefs.rs`（主 crate，挨着 settings.rs 用同一个 JSONC 解析器）+ `task_list` / `task_new_file` 两个命令 + DTO + 桩。细节在 TASKS.md 第 12 节。
+8 条测试，11 处改坏各自验红（scripts 按名字排、钩子不滤、`cwd` 放出项目、重名不拦、拼错的键不说、同名不以文件为准、不听 packageManager、
+新建用会截断的写法、node_modules 不跳过、怪名字不套引号）；`dto_sync` 删掉 TS 一个字段当场红。桩从 `FILES` 里读，浏览器里调一次：
+假项目列出 `dev`、`app:build`（文件顺序，没有锁文件所以是 npm），新建模板后 0 个任务 0 条问题。
+
+一处要记的：**serde_json 的 `Map` 默认按键名排序**（没开 `preserve_order`）。package.json 的 scripts 是作者按「最常用的在前」排的，读成字母序
+`dev` 就跑到 `build` 后面去了。为这一处去开整个依赖树的 feature 会改变所有用 `Map` 的地方的行为，不值；`scripts` 自己写反序列化器按文档顺序收。

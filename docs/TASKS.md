@@ -144,7 +144,7 @@
 |---|---|---|
 | 0 | 实测：三个真工具 × 管道 / pty 的输出；`-ilc` 在你真 `.zshrc` 下有没有警告；`mvn spring-boot:run` / `pnpm dev` / `python` 的进程树，SIGINT 之后谁退了、端口什么时候空 | 结果写回本文 |
 | 1 ✅ | `crates/tasksvc`：起（shell、进程组、合并 stdout/stderr 写文件、剥 ANSI、轮转）、停（软 → 硬）、退出码、`live.json` | 单测：孙进程一起停、端口空了；软停不理 SIGINT 的进程 5 秒后被强杀；输出无上限时文件按 1GB 轮转（测试里上限可注入） |
-| 2 | 任务从哪来：`tasks.json` 解析 + package.json 认脚本；命令、DTO、桩 | 纯函数测试 + dto_sync |
+| 2 ✅ | 任务从哪来：`tasks.json` 解析 + package.json 认脚本；命令、DTO、桩 | 纯函数测试 + dto_sync |
 | 3 | 界面：运行工具窗 + LogPane、⌃R / ⌃⌥R / ⌘F2、任务列表；keymap / 菜单 | `pnpm dev` 桩上走一遍；状态层测试 |
 | 4 | 端口被占的卡片、上次没停干净的卡片 | 测试通道验收：故意先占 8080 |
 | 5 | smoke 一段 + `scripts/accept/tasks.sh`（issue 的三条验收），文档 | 真 .app |
@@ -241,4 +241,18 @@ vite 就是本仓库的 `pnpm dev --port 18081`；Python 是一个每秒 `print`
 - **轮转放在写之前判。** 第一版是「写完这块发现过线、在末尾切开再换」：越线的那块整块进 `.1`，当前那份可能是空的，日志视图跟着一个空文件。
   改成「已经过线、又在行首，先换再写」。`sink.rs` 里有两条确定造出这个形状的单元测试（集成测试要看最后一块碰不碰巧跨线，靠不住）。
 - 测试的 shell 是 `/bin/zsh -ilc` + 空的 `ZDOTDIR`：和产品同一条路，又不把跑测试的人的 `.zshrc` 拉进判据（issue #30）。
+
+## 12. 第 2 步落地时定的细节（2026-10-10）
+
+- **解析放在主 crate 的 `taskdefs.rs`**，挨着 `settings.rs`，直接用它的 JSONC 剥注释（`settings::strip`）：一种格式一个解析器。进程那半在 `tasksvc`。
+- **`tasks.json` 坏一个跳一个**：缺 name / command、`cwd` 是绝对路径或用 `..` 出了项目、重名（用前面那个）、不认识的键（`cmd`、`dir` 这种拼错）——
+  每条都说一句（`problems`），别的任务照常列出来。语法错说第几行。和 settings.json 一个规矩：**静默跳过会让人以为写对了**。
+- **package.json 的 scripts 按文件里的顺序**：serde_json 没开 `preserve_order`，`Map` 按键名排序（`dev` 会排到 `build` 后面）。
+  不为这一处去开整个依赖树的 feature，`scripts` 自己写了个反序列化器按文档顺序收。
+- **不列生命周期钩子**：`preinstall` / `postinstall` / `prepare` 那一串是 npm 自己在 install / publish 时跑的；`preX` / `postX` 在 `X` 存在时是它的附属
+  （`preview` 不是 `view` 的钩子 —— 没有 `view` 这个 script 就留着，测试里有这一条）。
+- **包管理器**：`packageManager` 字段（corepack 的约定）优先，其次从那个目录往上到项目根找锁文件，都没有就 npm。命令统一写 `<pm> run <script>`；
+  名字带空格、引号的套单引号，`build:prod` 这种常见的不套。
+- **找 package.json 只看根目录和一层子目录**，跳过 `node_modules` 和隐藏目录。`apps/web` 这种第二层的不认，第一版不管。
+- **新建 `tasks.json` 用 `create_new`**：已经有了就不动它（rust.md「std API 会吃掉已有文件」）。模板里三个例子全注释掉，解析出来是空的。
 
