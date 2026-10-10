@@ -5,6 +5,8 @@ edition = "2021"
 description = "通用任务运行：起（登录 shell、自己的进程组）、停（先软后硬、整组）、输出落盘与轮转、崩溃后收尸（零 Tauri 依赖，#48）"
 
 [dependencies]
+# 起 lsof、读它的输出（有上限、丢掉就收尸）：2026-10-10 整体审核时收成一处
+procutil = { path = "../procutil" }
 # killpg / proc_pidinfo（进程组信号、组长的启动时间）。不是新包：ptysvc、gitsvc 已经直接依赖它
 libc = "0.2"
 # live.json（崩溃后收尸的记录）。两个都已经在依赖树里

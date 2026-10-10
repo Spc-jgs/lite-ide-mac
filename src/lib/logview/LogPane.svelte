@@ -353,7 +353,12 @@
   $effect(() => {
     const h = handle;
     if (!tailing) return;
+    // 上一次还没回来就跳过这一拍：log_refresh 在 Rust 的阻塞池上跑（2026-10-10 从主线程挪过去），日志在网络卷上时一次能慢过 500ms，
+    // 不跳的话同一个句柄上两次刷新 / 两次轮转重开并排跑。原来在主线程上，天然一个接一个
+    let refreshing = false;
     const id = setInterval(async () => {
+      if (refreshing) return;
+      refreshing = true;
       try {
         const r = await logRefresh(h);
         if (r.kind === "grew") stat = await logStat(h);
@@ -363,6 +368,8 @@
         }
       } catch {
         /* 文件临时不可读（轮转的空档、权限抖动），下一轮再试 */
+      } finally {
+        refreshing = false;
       }
     }, 500);
     return () => clearInterval(id);

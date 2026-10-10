@@ -9,7 +9,7 @@
 
 use std::io;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 mod matcher;
 pub use matcher::{utf16_spans, Matcher, Query};
@@ -343,7 +343,9 @@ fn grep_rg(root: &Path, q: &Query, m: &Matcher, limit: usize, skip: &Skip) -> io
     use std::io::{BufRead, BufReader, Read};
 
     let mut cmd = Command::new("rg");
-    cmd.args(["--json", "--line-number", "--no-heading", "--max-filesize", "8M"]);
+    // --no-messages：打不开 / 读不了的文件不往 stderr 报（「Permission denied」每个一行）。这些对搜索结果没意义，
+    // 而一个满是没权限目录的根（家目录）能把 stderr 写过管道缓冲 —— 见下面排空 stderr 那段
+    cmd.args(["--json", "--line-number", "--no-heading", "--max-filesize", "8M", "--no-messages"]);
     /*
      * **开关显式翻译，不再用 `--smart-case`**（#42）。rg 在这里只负责「哪些行可能命中」，
      * 每一行最后由 Matcher 再判一次（`hit_of`）—— 所以 rg 多给几行没关系，**少给不行**。
@@ -419,11 +421,10 @@ fn grep_rg(root: &Path, q: &Query, m: &Matcher, limit: usize, skip: &Skip) -> io
         cmd.arg(root.join(s));
     }
 
-    let mut child = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    // procutil 起：stderr 一起来就在另一条线程里排空。原来读完 stdout 才读 stderr，rg 往 stderr 写满管道缓冲（64KB）就和我们互相等住，
+    // 搜索永远不回来、每搜一次多卡住一个 rg 和一条阻塞池线程（2026-10-10 整体审核时复现：1500 个没权限的目录，卡在 65,378 字节）。
+    // 中途 `?` 返回时 Running 被丢掉，rg 跟着被杀掉、收尸
+    let mut child = procutil::spawn(&mut cmd, procutil::ERR_CAP)?;
 
     // rg 一般原样保留传入的前缀，但遇到软链时可能吐出解析后的真实路径
     // （macOS 上 /var → /private/var）。两个前缀都试，否则结果里会混进绝对路径。
@@ -432,8 +433,8 @@ fn grep_rg(root: &Path, q: &Query, m: &Matcher, limit: usize, skip: &Skip) -> io
     let mut hits = Vec::new();
     let mut 掐掉了 = false;
     {
-        let stdout = child.stdout.take().expect("stdout 已 piped");
-        let mut reader = BufReader::new(stdout.take(MAX_RG_BYTES));
+        // 读到 MAX_RG_BYTES 就不读了：finish 关掉读端，rg 下一次写收到 SIGPIPE 自己退
+        let mut reader = BufReader::new(child.stdout().take(MAX_RG_BYTES));
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -459,16 +460,14 @@ fn grep_rg(root: &Path, q: &Query, m: &Matcher, limit: usize, skip: &Skip) -> io
         let _ = child.kill();
     }
 
-    // stderr 也要限量读：管道写满时 rg 会阻塞，而我们已经不读 stdout 了
-    let mut err = Vec::new();
-    if let Some(stderr) = child.stderr.as_mut() {
-        let _ = stderr.take(8 << 10).read_to_end(&mut err);
-    }
-    let status = child.wait()?;
+    let procutil::Finished { status, stderr: err } = child.finish()?;
 
     // 被我们掐掉的进程退出码没有意义，不能当成失败。
-    // 没掐的情况下：0 = 有命中，1 = 无命中（正常），>=2 才是真出错
-    if !掐掉了 && status.code().is_some_and(|c| c >= 2) {
+    // 没掐的情况下：0 = 有命中，1 = 无命中（正常），2 = 「过程中出过错」—— **有文件读不了也是 2**，命中照样都给了。
+    // 文件读不了的报错 --no-messages 已经关掉了，所以 2 + stderr 是空的 = 只是有些文件没权限，结果照用；
+    // stderr 里有话（正则写错之类，--no-messages 不关这些）才是真出错。原来 >=2 一律算失败：项目里有一个没权限的目录，
+    // rg 的结果整个扔掉、回落到内置实现再搜一遍（2026-10-10 加死锁那条测试时撞见）
+    if !掐掉了 && status.code().is_some_and(|c| c >= 2) && !err.iter().all(u8::is_ascii_whitespace) {
         return Err(io::Error::other(format!(
             "rg 执行失败：{}",
             String::from_utf8_lossy(&err).trim()
@@ -628,6 +627,38 @@ mod tests {
         let hits = rg_lit(&d, "needle", 3, &Skip::by_name()).expect("掐掉子进程不能被当成失败");
         assert_eq!(hits.len(), 3, "要几条给几条");
         fs::remove_dir_all(d).ok();
+    }
+
+    /// 根里一堆没权限的目录：rg 每个往 stderr 报一行。原来读完 stdout 才读 stderr，stderr 写过管道缓冲（64KB）就和 rg 互相等，
+    /// 搜索永远不回来（2026-10-10 整体审核时复现，卡在 65,378 字节）。给 10 秒：卡住的话这里报失败，不把整个测试挂住
+    #[test]
+    fn rg_满是没权限的目录也不能卡死() {
+        use std::os::unix::fs::PermissionsExt;
+        if !ripgrep_available() {
+            return; // 机器上没有 rg，这条不适用
+        }
+        let d = std::env::temp_dir().join(format!("searchsvc-test-denied-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("a.txt"), "needle\n").unwrap();
+        let locked: Vec<_> = (0..1500).map(|i| d.join(format!("locked_directory_with_a_reasonably_long_name_{i}"))).collect();
+        for p in &locked {
+            fs::create_dir(p).unwrap();
+            fs::set_permissions(p, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let root = d.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(rg_lit(&root, "needle", 100, &Skip::by_name()));
+        });
+        let got = rx.recv_timeout(std::time::Duration::from_secs(10));
+        // 先把权限还回去，不然删不掉
+        for p in &locked {
+            let _ = fs::set_permissions(p, fs::Permissions::from_mode(0o755));
+        }
+        fs::remove_dir_all(&d).ok();
+        let hits = got.expect("10 秒没回来：stderr 没排空，和 rg 互相等住了").expect("rg 不该报错");
+        assert_eq!(hits.len(), 1, "没权限的目录跳过，能读的照常搜到");
     }
 
     #[test]
@@ -868,8 +899,8 @@ mod tests {
             Command::new("git")
                 .args(args)
                 .current_dir(&d)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false)

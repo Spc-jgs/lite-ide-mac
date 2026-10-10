@@ -906,6 +906,7 @@ dependencies = [
  "encoding_rs",
  "excludes",
  "notify",
+ "procutil",
  "trash",
 ]
 
@@ -1160,6 +1161,7 @@ name = "gitsvc"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "procutil",
 ]
 
 [[package]]
@@ -2586,6 +2588,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "procutil"
+version = "0.1.0"
+
+[[package]]
 name = "ptysvc"
 version = "0.1.0"
 dependencies = [
@@ -2859,6 +2865,7 @@ version = "0.1.0"
 dependencies = [
  "excludes",
  "memchr",
+ "procutil",
  "regex",
  "serde_json",
 ]
@@ -3351,6 +3358,7 @@ name = "tasksvc"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "procutil",
  "serde",
  "serde_json",
 ]

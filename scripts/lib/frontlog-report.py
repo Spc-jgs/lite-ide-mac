@@ -41,8 +41,12 @@ def main():
         held_s = f"占了 {nxt[0] - t} ms、之后给了「{nxt[2]}」" if nxt else "到结束一直在前台"
         where = f"{mark[1]}（开始后 {t - mark[0]} ms）" if mark else "第一段之前"
         line = f"从「{prev}」手里拿走，{held_s}；发生在 {where}"
-        (launch if mark and mark[1] == "[启动测试应用]" and t - mark[0] < 5000 else other).append(line)
-    print(f"  测试应用跑到前台 {len(launch) + len(other)} 次：启动那一下 {len(launch)} 次（已知，会还回去），别的 {len(other)} 次")
+        # 「启动那一下」只有**很快还回去**才算已知的：lite_launch 起来后会把焦点还给原来的应用，正常是零点几秒。
+        # 占了好几秒、或者一直没还的，照样列出来 —— 第一版只看「是不是刚启动」，㉓ 重启后焦点一直没还回去，被归进了「已知」里（2026-10-10）
+        quick = nxt is not None and nxt[0] - t < 2000
+        is_launch = mark and mark[1] == "[启动测试应用]" and t - mark[0] < 5000
+        (launch if is_launch and quick else other).append(line)
+    print(f"  测试应用跑到前台 {len(launch) + len(other)} 次：启动那一下、很快还回去的 {len(launch)} 次（已知），别的 {len(other)} 次")
     for line in other:
         print(f"    · {line}")
 

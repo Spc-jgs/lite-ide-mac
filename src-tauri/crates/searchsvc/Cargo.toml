@@ -12,3 +12,5 @@ regex = "1"
 
 # 跳过哪些目录：与 fsservice 共用同一份名单（不共用会出「完全够不着」的目录）
 excludes = { path = "../excludes" }
+# 起 rg、读它的输出（两个管道并发读、丢掉就收尸）：2026-10-10 整体审核时收成一处
+procutil = { path = "../procutil" }

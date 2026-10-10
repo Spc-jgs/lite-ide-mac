@@ -89,7 +89,11 @@ lite_launch() {
   [ "${LITE_USER_SHELL:-}" = 1 ] && zdot=()
   mkdir -p "${LITE_WORK}/zdot"
   lite_mark "[启动测试应用]"
-  open -g --env LITE_IDE_TEST_SOCK="${LITE_TEST_SOCK}" --env LITE_IDE_DEBUG=1 ${zdot[@]+"${zdot[@]}"} \
+  # PATH 设成 Finder 双击时那样（launchd 的默认值）：**`open` 会把调用它的终端的环境整个带给应用**（2026-10-10 整体审核实测：
+  # 测试应用的 PATH 里有 homebrew、fnm、pyenv），不设的话验的是「从终端起的应用」—— 搜索会用上 rg（Finder 起的找不到，走内置实现），
+  # tasks-real.sh「从 Finder 起也找得到 mvn」那条成了空的。`open --env` 只能覆盖、不能删，LANG 这类终端有、Finder 没有的还是会带过去
+  open -g --env PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    --env LITE_IDE_TEST_SOCK="${LITE_TEST_SOCK}" --env LITE_IDE_DEBUG=1 ${zdot[@]+"${zdot[@]}"} \
     --stderr "${LITE_LOG}" -a "${LITE_APP}" "$@"
   lite_wait main "return true" 20 || { echo "20 秒内 main 窗口没回话（日志 ${LITE_LOG}）" >&2; return 1; }
   # **启动时那一下抢焦点关不掉**：tao（Tauri 底下的窗口库）在「启动完成」里无条件 activateIgnoringOtherApps，

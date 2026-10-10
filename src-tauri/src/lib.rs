@@ -3,6 +3,7 @@ mod commands;
 pub mod diag;
 pub mod menu;
 mod open;
+mod owned;
 mod settings;
 mod settingsctl;
 mod taskdefs;

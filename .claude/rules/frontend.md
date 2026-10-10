@@ -404,6 +404,13 @@ effect 也就不会再跑第二次。
 判据：**用回包去改一个事件也会改的状态，先看它现在是什么**（这里是「只在还『在跑』时才标」），别假设回包一定先到。
 桩要能演出「事件先到」这个次序（`mock/tasks.ts` 里名字带 quick 的任务），不然状态层测试永远走不到这条路。
 
+## 页面里不许直接插 HTML（2026-10-10）
+
+IPC 能读写任意文件、能往终端里写命令 —— 页面里一旦能跑别人的脚本，就等于拿到这台机器。防线两层：CSP 只许跑自己打包的脚本
+（`script-src 'self'`，不许内联、不许 eval）；页面里的文字全走 Svelte 的文本插值（自动转义）。后一层由 `tests/no-html-sinks.test.ts`
+卡着：`{@html}`、给 `innerHTML` / `outerHTML` 赋值（清空除外）、`insertAdjacentHTML`、`document.write` 出现就红。
+真要渲染富文本（Markdown 预览之类）：先过白名单清洗，再改那条测试认清洗函数，别直接放开。
+
 ## 状态消息走 `notify`
 
 别直接写 `error = …` 再自己 `setTimeout` 清除。

@@ -465,40 +465,9 @@ pub(crate) fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
     c
 }
 
-/// 起一条线程把 stderr 排空，最多**留下** `cap` 字节。
-///
-/// **不能先把 stdout 读完再去读 stderr。** 那是个真的会挂住的死锁：两个管道
-/// 各有几十 KB 缓冲，子进程写满 stderr 就阻塞在写上，而我们正等着 stdout 的
-/// EOF —— 那个 EOF 要等子进程退出才来。
-///
-/// 这不是理论风险，是**实测撞上的**：git 2.50 把 pre-commit 钩子的 stdout
-/// **转到了 stderr**（实测一个 200 行的钩子：stdout 89 字节、stderr 2892 字节），
-/// 于是一个话多的钩子就能让 `git commit` 和我们互相等到天荒地老 ——
-/// 界面上表现为「点了提交，然后什么都不再发生」。
-///
-/// 原来的 `.output()` 反而没这个问题：它内部就是并发读两个管道的。
-/// 手写顺序读的那一刻就得把这条一起写下来。
-///
-/// 线程里**超过 cap 也要继续读**，只是不再存 —— 停下来就是同一个死锁。
-fn drain_stderr(mut src: std::process::ChildStderr, cap: usize) -> std::thread::JoinHandle<Vec<u8>> {
-    use std::io::Read;
-    std::thread::spawn(move || {
-        let mut kept = Vec::new();
-        let mut chunk = [0u8; 8 << 10];
-        loop {
-            match src.read(&mut chunk) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    if kept.len() < cap {
-                        let room = cap - kept.len();
-                        kept.extend_from_slice(&chunk[..n.min(room)]);
-                    }
-                }
-            }
-        }
-        kept
-    })
-}
+// 并发排空 stderr 原来在这里（`drain_stderr`），2026-10-10 收进 `procutil`（搜索那边把它写反了、复现过死锁）。
+// 留一句出处：**git 2.50 把 pre-commit 钩子的 stdout 转到了 stderr**（实测 200 行的钩子：stdout 89 字节、stderr 2892 字节），
+// 一个话多的钩子就能让 `git commit` 和我们互相等住 —— 2026-09-07 真的挂过（`钩子话多不能把提交挂住`）
 
 /// stderr 留多少字节 —— 够拼出一句能读的报错就行
 const MAX_STDERR_BYTES: usize = 8 << 10;
@@ -552,48 +521,9 @@ fn run_raw_capped(cwd: &Path, args: &[&str], cap: usize) -> R<Vec<u8>> {
 /// 替 `commit` 做「stderr 非空就报 stderr」，正是它造成了这个误判，
 /// 抽出 `drain_both` 之后那层壳没人用了，已删。
 fn drain_both(cwd: &Path, args: &[&str], cap: usize) -> R<(Vec<u8>, bool, String, bool)> {
-    use std::io::Read;
-
-    let mut child = git_cmd(cwd, args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(Error::NoGit)?;
-
-    // 先把 stderr 挂到自己的线程上再读 stdout —— 次序反了就是死锁，见 drain_stderr
-    let errs = drain_stderr(
-        child.stderr.take().expect("stderr 已 piped"),
-        MAX_STDERR_BYTES,
-    );
-
-    let mut out = Vec::new();
-    // 数总量而不是「out 满没满」：正好读满 cap 而后面再没有了，那不算截断
-    let mut total = 0usize;
-    {
-        let stdout = child.stdout.as_mut().expect("stdout 已 piped");
-        let mut buf = [0u8; 16 << 10];
-        loop {
-            match stdout.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    total += n;
-                    if out.len() < cap {
-                        let room = cap - out.len();
-                        out.extend_from_slice(&buf[..n.min(room)]);
-                    }
-                }
-            }
-        }
-    }
-    let truncated = total > cap;
-    let err = errs.join().unwrap_or_default();
-    let status = child.wait().map_err(Error::NoGit)?;
-    Ok((
-        out,
-        truncated,
-        String::from_utf8_lossy(&err).trim().to_string(),
-        status.success(),
-    ))
+    // 读完、超出的不存（不杀）：提交的退出码要算数 —— 杀了「提交成功但钩子话多」和「提交失败」就分不出来（rust.md 那张表）
+    let c = procutil::run_capped(&mut git_cmd(cwd, args), cap, MAX_STDERR_BYTES, procutil::Overflow::Drain).map_err(Error::NoGit)?;
+    Ok((c.stdout, c.truncated, String::from_utf8_lossy(&c.stderr).trim().to_string(), c.status.success()))
 }
 
 pub(crate) fn run(cwd: &Path, args: &[&str]) -> R<String> {
@@ -647,7 +577,6 @@ fn argv_of(c: &Command) -> Vec<String> {
 }
 
 fn run_capped_raw(cwd: &Path, args: &[&str], cap: usize, ok_codes: &[i32]) -> R<(Vec<u8>, bool)> {
-    use std::io::Read;
 
     // Git 控制台（issue #29）。**记在这一处，不在各个调用点** ——
     // 同一条纪律写四遍就是迟早漏一遍，HARDENING 当初就是因为这个才挪到
@@ -656,53 +585,16 @@ fn run_capped_raw(cwd: &Path, args: &[&str], cap: usize, ok_codes: &[i32]) -> R<
     let argv = argv_of(&cmd);
     let t0 = std::time::Instant::now();
 
-    let mut child = match cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
+    // 读满 cap 就杀掉（procutil::Overflow::Kill）：别让 git 为一份没人要看的输出继续跑完。stderr 在另一条线程里并发排空
+    let c = match procutil::run_capped(&mut cmd, cap, MAX_STDERR_BYTES, procutil::Overflow::Kill) {
         Ok(c) => c,
         Err(e) => {
-            // 起不来也要记 —— 「git 不在」是最该被看见的一种失败，
-            // 而它连退出码都没有
+            // 起不来也要记 —— 「git 不在」是最该被看见的一种失败，而它连退出码都没有
             console::record(cwd, &argv, None, t0.elapsed(), e.to_string().as_bytes());
             return Err(Error::NoGit(e));
         }
     };
-
-    /*
-     * stderr 先挂到自己的线程上，再读 stdout。
-     *
-     * 原来是「读完 stdout 再顺序读 stderr」，注释写的是「stderr 也要限量读：
-     * 管道写满时 git 会阻塞」—— 限量是对的，**顺序是错的**：子进程写满 stderr
-     * 就卡在写上，而我们在等 stdout 的 EOF，那个 EOF 要等它退出才来。
-     * 2026-09-07 在 `git commit` 上真的挂住了一次（见 drain_stderr）。
-     */
-    let errs = drain_stderr(
-        child.stderr.take().expect("stderr 已 piped"),
-        MAX_STDERR_BYTES,
-    );
-
-    let mut out = Vec::new();
-    {
-        let stdout = child.stdout.as_mut().expect("stdout 已 piped");
-        // 多读一个字节：正好读满 cap 和「后面还有」是两回事，
-        // 差这一个字节就分不清，会给一份完整的输出误报截断
-        stdout
-            .take(cap as u64 + 1)
-            .read_to_end(&mut out)
-            .map_err(Error::NoGit)?;
-    }
-
-    let truncated = out.len() > cap;
-    if truncated {
-        out.truncate(cap);
-        // 别让 git 为一份没人要看的输出继续跑完
-        let _ = child.kill();
-    }
-
-    let err = errs.join().unwrap_or_default();
-    let status = child.wait().map_err(Error::NoGit)?;
+    let (out, truncated, err, status) = (c.stdout, c.truncated, c.stderr, c.status);
 
     /*
      * 记进控制台。**掐掉的那次记 `None` 而不是它的退出码** ——

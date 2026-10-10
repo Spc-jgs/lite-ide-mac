@@ -159,8 +159,10 @@
    **「能过滤」是这一步才真的成立的**，见第 15 节
 2. 停止后 8080 释放，**没有残留 `java` 进程**（查进程组，不只查主进程）—— ✅ `tasks-real.sh`：组里两个 JVM，⌘F2 后端口空、组里一个不剩，`@PreDestroy` 跑了
 3. `pnpm dev`、`python main.py` 同样能跑；`python` 的 `print` **实时**出来（不是结束才出来）—— ✅ `tasks-real.sh`（vite 三层进程停干净；pyenv 的 python 跑着时就看得到输出）
-4. 从 Finder 启动的 lite-ide 里跑，能找到 `mvn` / `pnpm`（不靠从终端启动）—— ✅ `tasks-real.sh`：应用经 `open` 起（LaunchServices，和 Finder 双击同一条路），
-   任务的登录 shell 读你真的 `.zshrc`；脚本前后比对 `~/.zsh_history`，一个字节没变
+4. 从 Finder 启动的 lite-ide 里跑，能找到 `mvn` / `pnpm`（不靠从终端启动）—— ✅ `tasks-real.sh`：应用的 PATH 设成 Finder 双击时那样（`/usr/bin:/bin:/usr/sbin:/sbin`），
+   先断言应用自己找不到 mvn / pnpm，再看任务的登录 shell（读你真的 `.zshrc`）找得到；脚本前后比对 `~/.zsh_history`，一个字节没变。
+   **更正（2026-10-10 整体审核）**：第 5 步当时写的是「应用经 `open` 起，和 Finder 双击同一条路」—— 错的，`open` 会把终端的环境整个带给应用，
+   那时应用的 PATH 里本来就有 mvn，这条验收是空的。结论当时靠的是第 0 步（模拟的空 PATH 下 `zsh -ilc` 找得到）；现在 bridge.sh 设了 PATH，这条才真的验到
 5. 软停不理的进程（`trap '' INT`）5 秒后被强杀；软停期间再按一次立刻强杀 —— ✅ `tasks.sh`（另有 tasksvc 的单测）
 6. 8080 先被占着时跑「后端」：卡片说出是谁占的；点「结束它并重跑」能跑起来 —— ✅ `tasks.sh`（第 4 步）
 7. 跑着任务时让应用崩掉（测试构建里 `kill -9` 自己），重开 → 「上次没停干净」的卡片，点「结束」端口空了 —— ✅ `tasks.sh`（第 4 步）

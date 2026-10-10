@@ -17,6 +17,7 @@
 //! （发号必须早于用号，见 rust.md），每个窗口都从 1 数起，所以那张表按
 //! `(owner, id)` 记。
 
+use crate::owned::Owned;
 use logengine::{FilterTask, LogFile};
 use ptysvc::Session;
 use std::collections::{HashMap, HashSet};
@@ -25,13 +26,13 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 pub struct AppState {
-    /// 句柄 → (owner, 日志文件)
-    files: Mutex<HashMap<u32, (String, Arc<LogFile>)>>,
+    /// 句柄 → 日志文件（记在打开它的窗口名下）。按窗口登记的几张表都是 [`Owned`]：`release_window` 一张不落地收
+    files: Owned<u32, Arc<LogFile>>,
     /// 每个文件当前生效的过滤任务。换条件时旧任务会被取消并替换。
     filters: Mutex<HashMap<u32, Arc<FilterTask>>>,
     /// 活着的终端会话。Session::drop 会 kill 掉 shell，
     /// 所以从这张表里移除 == 终止那个终端（UNINSTALL.md 的「不留孤儿进程」）。
-    ptys: Mutex<HashMap<u32, Pty>>,
+    ptys: Owned<u32, Pty>,
     /// 正在跑的远程操作（fetch / push）的取消令牌。
     ///
     /// 存的是令牌不是子进程句柄：kill 由 `gitsvc::remote` 里的看门线程做，
@@ -40,22 +41,22 @@ pub struct AppState {
     ///
     /// 键是 `(owner, op_id)`：op_id 由前端发、每个窗口各数各的，两个窗口同时
     /// fetch 都会用 1 号 —— 只按 id 记的话，后来的那个会被当成撞号拒绝。
-    remotes: Mutex<HashMap<(String, u32), gitsvc::remote::Cancel>>,
+    remotes: Owned<(String, u32), gitsvc::remote::Cancel>,
     /// 项目根上的文件系统监听（issue #33 ⑳），**每个窗口最多一个**：换项目根就换掉，
     /// 旧的 drop 即停。原来整个进程只有一个槽位，第二个窗口打开项目会把第一个的顶掉。
     /// **先摘出来再在锁外 drop**，同 pty 那条 —— drop 要等防抖线程退出，
     /// 持着锁等就是在锁里做慢事。
-    watch: Mutex<HashMap<String, fsservice::watch::Watch>>,
+    watch: Owned<String, fsservice::watch::Watch>,
     /// 开着哪些窗口、谁在前台、各自的项目根和收件箱（多窗口第 2 步，见 `windows.rs`）。
     /// 原来这里是一个全局的 `open::Inbox`，现在每个窗口一个，收在登记表里
     pub windows: crate::windows::Windows,
     /// 每个窗口最近一次的替换扫描（#42）。替换串变了只重算「改后」不重新扫盘（一次完整扫描约 0.45s），
     /// 执行时也用它核对 —— 所以要留着。按窗口记 owner，窗口关了就收（rust.md「活的资源表」）
-    scans: Mutex<HashMap<String, Arc<replacesvc::Scan>>>,
+    scans: Owned<String, Arc<replacesvc::Scan>>,
     /// 设置（issue #44）：`settings.json` + `ui-state.json`，整个进程一份，变了广播给每个窗口（`settingsctl.rs`）
     pub settings: crate::settings::Store,
     /// 跑着（或跑完了、标签还开着）的任务（#48）。同终端：记 owner，窗口关了只收它自己的
-    runs: Mutex<HashMap<u32, Run>>,
+    runs: Owned<u32, Run>,
     /// 「哪些任务还在跑」的账本（#48 第 4 步），落在 `<应用数据>/runs/live.json`：应用崩了之后收尸用（`tasksvc::live`）
     live: Mutex<LiveBook>,
     /// 摘出了运行表、正在软停收尾的任务（关掉一格、关窗口、重跑时的旧那次）。退出时它们也要等、也要强杀 ——
@@ -90,7 +91,6 @@ impl LiveBook {
 
 /// 一次任务运行。`task` 是 `Arc`：停的时候要有一份活过宽限期（`Task` 被 drop 就是立刻 SIGKILL）
 pub struct Run {
-    pub owner: String,
     pub root: String,
     pub name: String,
     pub task: Arc<tasksvc::Task>,
@@ -118,36 +118,26 @@ impl Drop for RunClaim<'_> {
 impl AppState {
     /// 记下这个窗口最近一次的替换扫描（顶掉上一次）
     pub fn set_scan(&self, owner: &str, scan: Option<replacesvc::Scan>) {
-        let old = {
-            let mut t = self.scans.lock().expect("替换扫描表锁被毒化");
-            match scan {
-                Some(s) => t.insert(owner.to_string(), Arc::new(s)),
-                None => t.remove(owner),
-            }
+        let old = match scan {
+            Some(s) => self.scans.insert(owner, owner.to_string(), Arc::new(s)),
+            None => self.scans.remove(&owner.to_string()),
         };
         drop(old);
     }
 
     pub fn scan(&self, owner: &str) -> Option<Arc<replacesvc::Scan>> {
-        self.scans.lock().expect("替换扫描表锁被毒化").get(owner).cloned()
+        self.scans.get(&owner.to_string(), Arc::clone)
     }
 
     /// 登记一个打开的日志，记在 `owner` 窗口名下
     pub fn insert(&self, owner: &str, file: LogFile) -> u32 {
         let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
-        self.files
-            .lock()
-            .expect("会话表锁被毒化")
-            .insert(handle, (owner.to_string(), Arc::new(file)));
+        self.files.insert(owner, handle, Arc::new(file));
         handle
     }
 
     pub fn get(&self, handle: u32) -> Option<Arc<LogFile>> {
-        self.files
-            .lock()
-            .expect("会话表锁被毒化")
-            .get(&handle)
-            .map(|(_, f)| Arc::clone(f))
+        self.files.get(&handle, Arc::clone)
     }
 
     /// 文件被轮转 / 截断了，**同一个句柄**换成按名重开的那份（`tail -F` 的语义）。
@@ -165,12 +155,7 @@ impl AppState {
         let fresh = LogFile::open(old.path())?;
         self.clear_filter(handle);
         // 原地换掉文件、owner 不动：轮转是同一个窗口里的同一个标签
-        let old = self
-            .files
-            .lock()
-            .expect("会话表锁被毒化")
-            .get_mut(&handle)
-            .map(|(_, f)| std::mem::replace(f, Arc::new(fresh)));
+        let old = self.files.get_mut(&handle, |f| std::mem::replace(f, Arc::new(fresh)));
         // 读和换之间这个句柄可能刚被关掉：那就什么都不换。原来是直接 `insert`，
         // 会把一个已经关掉的句柄重新塞回表里，从此没人再关它
         Ok(old.is_some())
@@ -178,11 +163,8 @@ impl AppState {
 
     pub fn close(&self, handle: u32) -> bool {
         self.clear_filter(handle);
-        self.files
-            .lock()
-            .expect("会话表锁被毒化")
-            .remove(&handle)
-            .is_some()
+        // 摘出来的那份在这一句之后、锁外析构（原来是临时值，析构在锁里）
+        self.files.remove(&handle).is_some()
     }
 
     /// 装上新的过滤任务，并取消上一个 —— 用户改关键字时旧扫描必须立刻停，
@@ -217,8 +199,6 @@ impl AppState {
 struct Pty {
     sess: Arc<Mutex<Session>>,
     flow: Arc<ptysvc::Flow>,
-    /// 哪个窗口开的。窗口销毁时只杀它自己的（`release_window`）
-    owner: String,
 }
 
 /// 同时能开几个终端（issue #18 第三条）。
@@ -277,30 +257,29 @@ impl AppState {
         self.live.lock().expect("live 账本锁被毒化").list.iter().find(|l| l.pgid == pgid).map(|l| l.name.clone())
     }
 
-    pub fn insert_run(&self, run: Run) -> u32 {
+    pub fn insert_run(&self, owner: &str, run: Run) -> u32 {
         let id = self.next_run.fetch_add(1, Ordering::Relaxed);
-        self.runs.lock().expect("任务表锁被毒化").insert(id, run);
+        self.runs.insert(owner, id, run);
         id
     }
 
     pub fn run_task(&self, id: u32) -> Option<Arc<tasksvc::Task>> {
-        self.runs.lock().expect("任务表锁被毒化").get(&id).map(|r| Arc::clone(&r.task))
+        self.runs.get(&id, |r| Arc::clone(&r.task))
     }
 
     /// 这个窗口里同一个项目、同一个名字的那次（重跑要先停它，不然端口还占着）
     pub fn find_run(&self, owner: &str, root: &str, name: &str) -> Option<(u32, Arc<tasksvc::Task>)> {
-        let tab = self.runs.lock().expect("任务表锁被毒化");
-        tab.iter().find(|(_, r)| r.owner == owner && r.root == root && r.name == name).map(|(id, r)| (*id, Arc::clone(&r.task)))
+        self.runs.find(|o, id, r| (o == owner && r.root == root && r.name == name).then(|| (*id, Arc::clone(&r.task))))
     }
 
     /// 摘掉一条。**在锁外**处理它（同 kill_pty：别在表锁里做发信号、等收尸这类事）
     pub fn remove_run(&self, id: u32) -> Option<Run> {
-        self.runs.lock().expect("任务表锁被毒化").remove(&id)
+        self.runs.remove(&id)
     }
 
     /// 退出前：软停全部（SIGINT 整组），返回要等的 —— 连同已经在收尾的那些，调用方等它们一会儿
     pub fn stop_all_runs(&self) -> Vec<Arc<tasksvc::Task>> {
-        let all: Vec<Arc<tasksvc::Task>> = self.runs.lock().expect("任务表锁被毒化").values().map(|r| Arc::clone(&r.task)).collect();
+        let all: Vec<Arc<tasksvc::Task>> = self.runs.map(|r| Arc::clone(&r.task));
         for t in &all {
             if t.alive() {
                 t.stop(tasksvc::GRACE);
@@ -313,7 +292,7 @@ impl AppState {
     /// 进程真要结束了（`RunEvent::Exit`）：还活着的一律 SIGKILL，**包括正在收尾的**。`process::exit` 不跑析构，
     /// 不在这儿杀，`Task::drop` 那道兜底一次都轮不到 —— 任务在自己的进程组里，不会跟着应用死
     pub fn kill_all_runs(&self) {
-        let all: Vec<Arc<tasksvc::Task>> = self.runs.lock().expect("任务表锁被毒化").drain().map(|(_, r)| r.task).collect();
+        let all: Vec<Arc<tasksvc::Task>> = self.runs.drain().into_iter().map(|r| r.task).collect();
         let retiring = self.retiring.lock().expect("收尾表锁被毒化").clone();
         for t in all.iter().chain(&retiring) {
             if t.alive() {
@@ -351,7 +330,7 @@ impl AppState {
 
     /// 按进程组找我们自己还开着的任务：端口卡片上「结束它」要走那个 `Task` 停（不然它的退出被记成失败）
     pub fn task_by_group(&self, pgid: i32) -> Option<Arc<tasksvc::Task>> {
-        self.runs.lock().expect("任务表锁被毒化").values().find(|r| r.task.pgid() == pgid).map(|r| Arc::clone(&r.task))
+        self.runs.find(|_, _, r| (r.task.pgid() == pgid).then(|| Arc::clone(&r.task)))
     }
 
     /// 登记一个终端，返回它的 id 和背压闸。
@@ -362,26 +341,28 @@ impl AppState {
     ///
     /// 上限按**整个进程**算，不按窗口：它防的是跑飞，闸要装在总阀门上。
     pub fn insert_pty(&self, owner: &str, sess: Arc<Mutex<Session>>) -> Result<(u32, Arc<ptysvc::Flow>), String> {
-        let mut tab = self.ptys.lock().expect("pty 表锁被毒化");
-        if tab.len() >= MAX_PTYS {
-            return Err(format!(
-                "已经开着 {MAX_PTYS} 个终端了，先关掉一个再开。\
-                 （这不是产品限制，是一道防跑飞的闸 —— 每个终端都带着一个 zsh 和一条读线程）"
-            ));
-        }
-        let id = self.next_pty.fetch_add(1, Ordering::Relaxed);
-        let flow = Arc::new(ptysvc::Flow::new());
-        tab.insert(id, Pty { sess, flow: Arc::clone(&flow), owner: owner.to_string() });
-        Ok((id, flow))
+        // 查上限和登记在同一把锁里：分开的话两个窗口同时开第 16 个，都看见 15、都登记上
+        self.ptys.with_map(|tab| {
+            if tab.len() >= MAX_PTYS {
+                return Err(format!(
+                    "已经开着 {MAX_PTYS} 个终端了，先关掉一个再开。\
+                     （这不是产品限制，是一道防跑飞的闸 —— 每个终端都带着一个 zsh 和一条读线程）"
+                ));
+            }
+            let id = self.next_pty.fetch_add(1, Ordering::Relaxed);
+            let flow = Arc::new(ptysvc::Flow::new());
+            tab.insert(id, (owner.to_string(), Pty { sess, flow: Arc::clone(&flow) }));
+            Ok((id, flow))
+        })
     }
 
     pub fn pty(&self, id: u32) -> Option<Arc<Mutex<Session>>> {
-        self.ptys.lock().expect("pty 表锁被毒化").get(&id).map(|p| Arc::clone(&p.sess))
+        self.ptys.get(&id, |p| Arc::clone(&p.sess))
     }
 
     /// 这个终端的背压闸。`pty_ack` 拿它把已消费的字节数减掉。
     pub fn pty_flow(&self, id: u32) -> Option<Arc<ptysvc::Flow>> {
-        self.ptys.lock().expect("pty 表锁被毒化").get(&id).map(|p| Arc::clone(&p.flow))
+        self.ptys.get(&id, |p| Arc::clone(&p.flow))
     }
 
     pub fn kill_pty(&self, id: u32) -> bool {
@@ -394,7 +375,7 @@ impl AppState {
         //
         // kill() 现在自己保证有界返回了（见 ptysvc），但**没有理由把一个
         // 可能起线程、发信号、等收尸的操作放在全局锁里**。issue #2。
-        let got = self.ptys.lock().expect("pty 表锁被毒化").remove(&id);
+        let got = self.ptys.remove(&id);
         // 先关闸再让 Session 析构：读线程可能正卡在水位上等 ack，
         // 而它卡着就没人排空 pty master —— 退出中的 shell 会写满缓冲区
         // 卡在写上，`child.wait()` 永远等不到（issue #2 那条链路）
@@ -424,19 +405,20 @@ impl AppState {
     ///
     /// 「撞号」只在**同一个窗口**里算：别的窗口用同一个数是正常的（各数各的）。
     pub fn begin_remote(&self, owner: &str, id: u32) -> Option<gitsvc::remote::Cancel> {
-        let mut tab = self.remotes.lock().expect("远程操作表锁被毒化");
-        let key = (owner.to_string(), id);
-        if tab.contains_key(&key) {
-            return None;
-        }
-        let flag: gitsvc::remote::Cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        tab.insert(key, flag.clone());
-        Some(flag)
+        self.remotes.with_map(|tab| {
+            let key = (owner.to_string(), id);
+            if tab.contains_key(&key) {
+                return None;
+            }
+            let flag: gitsvc::remote::Cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            tab.insert(key, (owner.to_string(), flag.clone()));
+            Some(flag)
+        })
     }
 
     /// 操作结束（成功、失败、被取消都算）时把登记划掉。
     pub fn end_remote(&self, owner: &str, id: u32) {
-        self.remotes.lock().expect("远程操作表锁被毒化").remove(&(owner.to_string(), id));
+        self.remotes.remove(&(owner.to_string(), id));
     }
 
     /// 取消一个正在跑的远程操作。找不到就返回 false（多半是已经结束了）。
@@ -444,7 +426,7 @@ impl AppState {
     /// **只置位，不 kill。** 置位之后由那条操作自己的看门线程去 kill ——
     /// 这样这个函数永远是瞬间返回的，不会把表锁攥在手里等一个子进程死。
     pub fn cancel_remote(&self, owner: &str, id: u32) -> bool {
-        let flag = self.remotes.lock().expect("远程操作表锁被毒化").get(&(owner.to_string(), id)).cloned();
+        let flag = self.remotes.get(&(owner.to_string(), id), Arc::clone);
         match flag {
             Some(f) => {
                 f.store(true, Ordering::Relaxed);
@@ -456,12 +438,9 @@ impl AppState {
 
     /// 换上 `owner` 窗口的新监听（或 None = 停掉）。旧的在锁外析构
     pub fn set_watch(&self, owner: &str, w: Option<fsservice::watch::Watch>) {
-        let old = {
-            let mut tab = self.watch.lock().unwrap_or_else(|e| e.into_inner());
-            match w {
-                Some(w) => tab.insert(owner.to_string(), w),
-                None => tab.remove(owner),
-            }
+        let old = match w {
+            Some(w) => self.watch.insert(owner, owner.to_string(), w),
+            None => self.watch.remove(&owner.to_string()),
         };
         drop(old);
     }
@@ -479,39 +458,24 @@ impl AppState {
     /// ⌘Q **不走这里**：那条路上没有 `Destroyed`（多窗口第 0 步实测，docs/MULTIWINDOW.md 3.6），
     /// 进程直接结束，pty 由内核收掉 master 时给 shell 发 SIGHUP。
     pub fn release_window(&self, owner: &str) {
-        let ptys: Vec<Pty> = {
-            let mut tab = self.ptys.lock().expect("pty 表锁被毒化");
-            let ids: Vec<u32> = tab.iter().filter(|(_, p)| p.owner == owner).map(|(id, _)| *id).collect();
-            ids.iter().filter_map(|id| tab.remove(id)).collect()
-        };
+        // 每张 [`Owned`] 表都在这里 `take_owner` 一次 —— 测试 `每张按窗口登记的表_关窗口时都收` 读源码卡着，新加一张忘了收就红
+        let ptys = self.ptys.take_owner(owner);
         // 同 kill_pty：先把闸全关掉，再让它们析构
-        for p in &ptys {
+        for (_, p) in &ptys {
             p.flow.close();
         }
         drop(ptys);
 
-        let logs: Vec<u32> = self
-            .files
-            .lock()
-            .expect("会话表锁被毒化")
-            .iter()
-            .filter(|(_, (o, _))| o == owner)
-            .map(|(h, _)| *h)
-            .collect();
-        for h in logs {
-            self.close(h);
+        for (h, file) in self.files.take_owner(owner) {
+            self.clear_filter(h);
+            drop(file);
         }
 
-        self.set_watch(owner, None);
-        self.set_scan(owner, None);
+        drop(self.watch.take_owner(owner));
+        drop(self.scans.take_owner(owner));
 
         // 这个窗口的任务：先礼后兵地停（宽限期在后台线程里等，窗口关掉不用等它们）
-        let runs: Vec<Run> = {
-            let mut tab = self.runs.lock().expect("任务表锁被毒化");
-            let ids: Vec<u32> = tab.iter().filter(|(_, r)| r.owner == owner).map(|(id, _)| *id).collect();
-            ids.iter().filter_map(|id| tab.remove(id)).collect()
-        };
-        for r in runs {
+        for (_, r) in self.runs.take_owner(owner) {
             if r.task.alive() {
                 self.retire(r.task);
             }
@@ -519,12 +483,7 @@ impl AppState {
 
         // 只置位不 kill，理由同 cancel_remote。关掉的窗口没人看进度了，
         // 网络卡住的 fetch 不取消的话就再也没人能取消它
-        let flags: Vec<gitsvc::remote::Cancel> = {
-            let mut tab = self.remotes.lock().expect("远程操作表锁被毒化");
-            let keys: Vec<(String, u32)> = tab.keys().filter(|(o, _)| o == owner).cloned().collect();
-            keys.iter().filter_map(|k| tab.remove(k)).collect()
-        };
-        for f in flags {
+        for (_, f) in self.remotes.take_owner(owner) {
             f.store(true, Ordering::Relaxed);
         }
     }
@@ -533,7 +492,7 @@ impl AppState {
 #[cfg(test)]
 impl AppState {
     fn watched(&self, owner: &str) -> bool {
-        self.watch.lock().unwrap().contains_key(owner)
+        self.watch.get(&owner.to_string(), |_| ()).is_some()
     }
 }
 
@@ -705,7 +664,7 @@ mod tests {
                 cap: tasksvc::LOG_CAP,
             };
             let task = Arc::new(tasksvc::Task::start(&spec).unwrap());
-            st.insert_run(Run { owner: owner.into(), root: "/p".into(), name: "t".into(), task: Arc::clone(&task) });
+            st.insert_run(owner, Run { root: "/p".into(), name: "t".into(), task: Arc::clone(&task) });
             task
         };
         let (ta, tb) = (start("a"), start("b"));
@@ -849,7 +808,7 @@ mod tests {
         // 等它打出 armed 再停：zsh 起来要 0.3 秒，SIGINT 落在 trap 之前的话它照样被打死，这条就成了软停自己绿的空断言
         // （第一版就是这样，把「退出时强杀收尾中的」删掉都没红 —— 同 tasksvc 测试里 ARMED 那条的教训）
         let t = real_task(&d, "r", "trap '' INT; echo armed; sleep 300");
-        let id = st.insert_run(Run { owner: "a".into(), root: "/p".into(), name: "t".into(), task: Arc::clone(&t) });
+        let id = st.insert_run("a", Run { root: "/p".into(), name: "t".into(), task: Arc::clone(&t) });
         assert!(until(10.0, || std::fs::read_to_string(d.join("r.log")).is_ok_and(|x| x.contains("armed"))), "10 秒没等到 armed");
         let r = st.remove_run(id).unwrap();
         st.retire(r.task);
@@ -868,7 +827,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         let st = AppState::default();
         let old = real_task(&d, "o", "sleep 300");
-        st.insert_run(Run { owner: "a".into(), root: "/p".into(), name: "t".into(), task: Arc::clone(&old) });
+        st.insert_run("a", Run { root: "/p".into(), name: "t".into(), task: Arc::clone(&old) });
         assert!(until(5.0, || old.alive()));
 
         let claim = st.begin_run("a", "/p", "t").expect("第一次该认领到");
@@ -880,5 +839,26 @@ mod tests {
         drop(claim);
         assert!(st.begin_run("a", "/p", "t").is_ok(), "起完（认领丢掉）之后可以再起");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 每张按窗口登记的表（[`Owned`]）关窗口时都要收：读 `AppState` 的字段和 `release_window` 的函数体比对（同 dto_sync 的做法）。
+    /// rust.md 原来的说法是「再加一张表，记得在 release_window 里加一段」—— 靠记得；现在新加一张忘了收，这条红
+    #[test]
+    fn 每张按窗口登记的表_关窗口时都收() {
+        let src = include_str!("state.rs");
+        let st = &src[src.find("pub struct AppState {").unwrap()..];
+        let st = &st[..st.find("\n}\n").unwrap()];
+        let owned: Vec<&str> = st
+            .lines()
+            .filter_map(|l| {
+                let (name, ty) = l.trim().split_once(':')?;
+                ty.trim_start().starts_with("Owned<").then(|| name.trim())
+            })
+            .collect();
+        assert!(owned.len() >= 6, "一个 Owned 字段都没认出来？解析坏了：{owned:?}");
+        let body = &src[src.find("pub fn release_window(").unwrap()..];
+        let body = &body[..body.find("\n    }\n").unwrap()];
+        let missing: Vec<_> = owned.iter().filter(|f| !body.contains(&format!("self.{f}.take_owner(owner)"))).collect();
+        assert!(missing.is_empty(), "这些按窗口登记的表，release_window 里没收：{missing:?} —— 窗口关了它们还占着");
     }
 }

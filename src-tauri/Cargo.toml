@@ -9,6 +9,7 @@ members = [
     "crates/replacesvc",
     "crates/gitsvc",
     "crates/applog",
+    "crates/procutil",
 ]
 
 [package]

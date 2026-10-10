@@ -3,8 +3,9 @@
 # `pnpm dev`、`python main.py`。scripts/accept/tasks.sh 验的是机制（用一个 /usr/bin/python3 小服务），这份验的是「你机器上那几样真东西」。
 #
 # 和别的验收不一样的一处：**任务的登录 shell 读你真的 .zshrc**（LITE_USER_SHELL=1，见 bridge.sh 的 lite_launch）——
-# 应用经 `open` 起（LaunchServices，和 Finder 双击同一条路，PATH 只有 /usr/bin:/bin:/usr/sbin:/sbin），找得到 mvn / pnpm 全靠它，
-# 这就是 TASKS.md 第 7 节第 4 条。不开终端；任务是 `zsh -ilc`，命令不经行编辑器、不进历史（第 10 节实测），脚本前后比对你的历史文件。
+# 应用的 PATH 和 Finder 双击时一样只有 /usr/bin:/bin:/usr/sbin:/sbin（bridge.sh 的 lite_launch 设的 —— `open` 本身会把终端的环境整个带过去，
+# 第一版这里写成「经 open 起就和 Finder 一样」，是错的：那时应用的 PATH 里本来就有 mvn，这条验收是空的，2026-10-10 整体审核时发现）。
+# 找得到 mvn / pnpm 全靠任务的登录 shell，这就是 TASKS.md 第 7 节第 4 条；下面先断言应用自己的 PATH 里确实没有它们。不开终端；任务是 `zsh -ilc`，命令不经行编辑器、不进历史（第 10 节实测），脚本前后比对你的历史文件。
 #
 # 前提（缺哪样哪段就记「未验」，不算失败）：登录 shell 里有 mvn / pnpm / python；Maven 本地仓库里有 spring-boot 3.5.11
 # （`mvn -o` 离线跑：验收不该替你下载东西）；本仓库 `pnpm install` 过。
@@ -103,6 +104,11 @@ EOF
 lite_clean_data
 lite_launch "${P}" >/dev/null || exit 1
 lite_wait main "return __lite.project.root === '${P}'" 15
+
+echo "== 前提：应用自己的 PATH 和 Finder 双击时一样，找不到 mvn / pnpm"
+APP_PATH=$(ps -E -p "$(lite_pid)" -o command= | tr ' ' '\n' | sed -n 's/^PATH=//p')
+ok "$( [ -n "${APP_PATH}" ] && ! PATH="${APP_PATH}" command -v mvn >/dev/null && ! PATH="${APP_PATH}" command -v pnpm >/dev/null && echo 1)" \
+  "应用的 PATH 是「${APP_PATH}」，里面没有 mvn / pnpm —— 下面找得到就只能是任务的登录 shell 找的"
 
 # 读页面的几段 JS 放进变量（bash 3.2 会把 "$( … "{ a, b }" … )" 里的花括号按逗号展开，见 smoke ㉔）
 RED_JS=$(cat <<'JS'

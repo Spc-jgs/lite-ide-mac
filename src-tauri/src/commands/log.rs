@@ -1,22 +1,24 @@
 //! 日志引擎：打开、统计、按行取、过滤、按时间跳、刷新、关闭。
 
 use super::*;
+use tauri::Manager;
 
-/// 打开日志文件。mmap 是 O(1) 的，此调用不读盘，立即返回。
+/// 打开日志文件。mmap 是 O(1) 的、不读内容 —— 但 open / mmap 本身是系统调用，**日志在网络卷、外接盘上时能卡几秒**，
+/// 所以走阻塞池，不在主线程上（rust.md「同步命令跑在主线程上」；2026-10-10 整体审核时挪的，原来在主线程上）
 #[tauri::command]
-pub fn open_log(path: String, window: tauri::Window, state: State<'_, AppState>) -> Result<OpenResult, String> {
-    crate::diag!("open_log path={path}");
-    let file = LogFile::open(&path).map_err(|e| format!("打不开 {path}：{e}"))?;
-    let name = std::path::Path::new(&path)
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.clone());
-    let size = file.size();
-    Ok(OpenResult {
-        handle: state.insert(window.label(), file),
-        name,
-        size,
+pub async fn open_log(path: String, window: tauri::Window, app: tauri::AppHandle) -> Result<OpenResult, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        crate::diag!("open_log path={path}");
+        let file = LogFile::open(&path).map_err(|e| format!("打不开 {path}：{e}"))?;
+        let name = std::path::Path::new(&path)
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.clone());
+        let size = file.size();
+        Ok(OpenResult { handle: app.state::<AppState>().insert(&owner, file), name, size })
     })
+    .await
 }
 
 /// 索引与级别扫描的进度快照。两者是并行的后台任务，各自独立完成。
@@ -158,8 +160,16 @@ pub fn log_filter_map(handle: u32, start: u64, count: u32, state: State<'_, AppS
 ///
 /// 用轮询而非 notify：macOS 的 FSEvents 对单文件有秒级合并延迟，
 /// 500ms 轮询反而更快更可控，也少一个依赖。
+///
+/// **走阻塞池**：它不是内存操作 —— 每次 stat 一下文件，长了要重开、重映射、增量索引（还复制一份级别表，
+/// 1000 万行约 5MB），轮转了要按名重开。日志在网络卷上时 stat 就能卡几秒，而它每 500ms 来一次（2026-10-10 整体审核时挪的）。
+/// 多一次线程调度对一个 500ms 的轮询无所谓；前端那边保证同一个句柄一次只有一个在跑（LogPane 的 `refreshing`）
 #[tauri::command]
-pub fn log_refresh(handle: u32, state: State<'_, AppState>) -> Result<RefreshDto, String> {
+pub async fn log_refresh(handle: u32, app: tauri::AppHandle) -> Result<RefreshDto, String> {
+    blocking(move || refresh_now(handle, &app.state::<AppState>())).await
+}
+
+fn refresh_now(handle: u32, state: &AppState) -> Result<RefreshDto, String> {
     let file = state.get(handle).ok_or("句柄已失效")?;
     let r = file.refresh().map_err(|e| format!("刷新失败：{e}"))?;
     let (kind, new_lines) = match r {

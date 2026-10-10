@@ -1,0 +1,7 @@
+[package]
+name = "procutil"
+version = "0.1.0"
+edition = "2021"
+description = "起子进程的三条纪律收成一处：stdin 接空、两个管道并发读、输出有上限；丢掉就收尸（零依赖，2026-10-10 整体审核）"
+
+[dependencies]

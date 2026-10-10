@@ -1148,7 +1148,7 @@ fn status_被掐断时要标出来且不留半截路径() {
 
 /// **钩子话多，不能把提交挂住。**
 ///
-/// 这条是并发排空 stderr（`drain_stderr`）存在的全部理由，而且是**真的挂过**：
+/// 这条是并发排空 stderr（原来的 `drain_stderr`，2026-10-10 收进 `procutil`）存在的全部理由，而且是**真的挂过**：
 /// 第一版把 `run_drained`（现在的 `drain_both`）写成「先把 stdout 读完，再顺序读 stderr」，
 /// 跑这条测试时 `git commit` 和测试进程互相等着，最后是手动 kill 掉的。
 ///
@@ -1191,7 +1191,7 @@ fn 钩子话多不能把提交挂住() {
     });
     match rx.recv_timeout(std::time::Duration::from_secs(20)) {
         Ok(ok) => assert!(ok, "钩子退出码是 0，提交不该失败"),
-        Err(_) => panic!("提交挂住了 —— stderr 没有被并发排空（见 drain_stderr）"),
+        Err(_) => panic!("提交挂住了 —— stderr 没有被并发排空（见 procutil::spawn）"),
     }
     assert!(
         status_full(&dir).unwrap().entries.is_empty(),

@@ -573,36 +573,21 @@ fn pbpaste_cmd() -> Command {
 /// 跑一个命令、读它的 stdout 当 UTF-8 文本，最多 `cap` 字节；超了就杀掉并报错。
 /// 单拎出来是为了能用普通命令测上限那几条（剪贴板在 CI 上不一定有东西）。
 fn read_text_capped(mut cmd: Command, cap: usize) -> io::Result<String> {
-    use std::io::Read;
-    let mut child = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let mut out = Vec::new();
-    child
-        .stdout
-        .take()
-        .expect("stdout 已 piped")
-        .take(cap as u64 + 1)
-        .read_to_end(&mut out)?;
-    if out.len() > cap {
-        // 管道已经关了，它再写就会卡在写上 —— 杀掉，并且 wait 收尸，别留僵尸进程
-        let _ = child.kill();
-        let _ = child.wait();
+    // 超上限就杀掉、收尸（procutil：stdin 接空、stderr 并发排空 —— 原来 stderr 接的是 null，现在留一点给报错用不上也无妨）
+    let c = procutil::run_capped(&mut cmd, cap, procutil::ERR_CAP, procutil::Overflow::Kill)?;
+    if c.truncated {
         return Err(io::Error::other(format!(
             "剪贴板内容超过 {} MB，没有粘贴 —— 用 ⌘V",
             cap / 1024 / 1024
         )));
     }
-    let st = child.wait()?;
-    if !st.success() {
+    if !c.status.success() {
         return Err(io::Error::other(format!(
             "读不到剪贴板（退出码 {}）",
-            st.code().map_or_else(|| "被信号中断".to_string(), |c| c.to_string())
+            c.status.code().map_or_else(|| "被信号中断".to_string(), |c| c.to_string())
         )));
     }
-    String::from_utf8(out).map_err(|_| io::Error::other("剪贴板里的文字不是 UTF-8"))
+    String::from_utf8(c.stdout).map_err(|_| io::Error::other("剪贴板里的文字不是 UTF-8"))
 }
 
 // ─────────────────── 新建 / 重命名 / 移到废纸篓 ───────────────────

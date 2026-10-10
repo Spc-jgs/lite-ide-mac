@@ -640,6 +640,11 @@ fi
 ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.before2"
 menu new-scratch
 wait_for 4 '[ -n "$(ls "'"${SCRATCHES}"'" | sort | comm -13 "'"${WORK}"'/scratch.before2" -)" ]'
+NEW2=$(ls "${SCRATCHES}" 2>/dev/null | sort | comm -13 "${WORK}/scratch.before2" - | head -1)
+# **等它成了活动标签再关**（同上面第一份）：文件是 create_scratch 一建就在盘上，标签要等前端读完内容才加进来 ——
+# 这个空档里发 close-tab，关掉的是前一个标签（note.txt），草稿那个随后才出现、一直开着，文件当然还在。
+# 10-09、10-10 一共红过四次，机器忙的时候空档长、撞得多（#54）
+lite_wait "${W}" "return __lite.tabs.active?.path === $(q "${SCRATCHES}/${NEW2}")" 4
 menu close-tab
 sleep 1.5
 ls "${SCRATCHES}" 2>/dev/null | sort > "${WORK}/scratch.after2"

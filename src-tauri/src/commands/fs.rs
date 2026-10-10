@@ -90,8 +90,13 @@ pub async fn read_text(path: String, label: Option<String>) -> Result<TextDto, S
 /// 探测一个文件的编码，只读头部采样。日志模式用它决定 TextDecoder 的标签。
 ///
 /// 采样 256KB 而不是读全文：日志可能有 1GB，而编码特征在头部就足够明显。
+/// 读盘，走阻塞池（2026-10-10 整体审核时从主线程挪过来；新建 / 移动 / 改名同一天一起挪）
 #[tauri::command]
-pub fn detect_encoding(path: String) -> Result<String, String> {
+pub async fn detect_encoding(path: String) -> Result<String, String> {
+    blocking(move || detect_encoding_now(&path)).await
+}
+
+fn detect_encoding_now(path: &str) -> Result<String, String> {
     use std::io::Read;
     const SAMPLE: usize = 256 << 10;
     let mut f = std::fs::File::open(&path).map_err(|e| format!("读不到 {path}：{e}"))?;
@@ -144,23 +149,32 @@ pub async fn read_clipboard() -> Result<String, String> {
 /// 参数是「哪个目录、叫什么」而不是一条拼好的路径：**join 和名字校验都在
 /// Rust 侧**，前端少一个把文件写到别处去的机会。
 #[tauri::command]
-pub fn create_entry(dir: String, name: String, is_dir: bool) -> Result<String, String> {
-    let p = fsservice::create_entry(&dir, &name, is_dir).map_err(|e| format!("{e}"))?;
-    Ok(p.to_string_lossy().into_owned())
+pub async fn create_entry(dir: String, name: String, is_dir: bool) -> Result<String, String> {
+    blocking(move || {
+        let p = fsservice::create_entry(&dir, &name, is_dir).map_err(|e| format!("{e}"))?;
+        Ok(p.to_string_lossy().into_owned())
+    })
+    .await
 }
 
 /// 挪进另一个目录（文件树拖拽），返回新路径。
 #[tauri::command]
-pub fn move_entry(path: String, dest: String) -> Result<String, String> {
-    let p = fsservice::move_entry(&path, &dest).map_err(|e| format!("{e}"))?;
-    Ok(p.to_string_lossy().into_owned())
+pub async fn move_entry(path: String, dest: String) -> Result<String, String> {
+    blocking(move || {
+        let p = fsservice::move_entry(&path, &dest).map_err(|e| format!("{e}"))?;
+        Ok(p.to_string_lossy().into_owned())
+    })
+    .await
 }
 
 /// 原地改名，返回新路径。
 #[tauri::command]
-pub fn rename_entry(path: String, name: String) -> Result<String, String> {
-    let p = fsservice::rename_entry(&path, &name).map_err(|e| format!("{e}"))?;
-    Ok(p.to_string_lossy().into_owned())
+pub async fn rename_entry(path: String, name: String) -> Result<String, String> {
+    blocking(move || {
+        let p = fsservice::rename_entry(&path, &name).map_err(|e| format!("{e}"))?;
+        Ok(p.to_string_lossy().into_owned())
+    })
+    .await
 }
 
 /// 移到废纸篓。**删用户的文件没有第二条路径** —— 没有 remove_file（应用自己生成的数据另说，见 rust.md「删除只走废纸篓」）。

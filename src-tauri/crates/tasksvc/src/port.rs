@@ -5,7 +5,7 @@
 
 use crate::Task;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -79,22 +79,12 @@ pub struct Holder {
 /// 进程组也从 lsof 拿，不另调 `getpgid`：少一个「查的那一刻进程状态变了」的口子。
 /// 输出有上限吗（rust.md 起子进程第一问）：一个端口的监听者就一两个进程，几十字节；还是只读前 64KB，防一个不认识的 lsof 版本刷屏
 pub fn holders(port: u16) -> Vec<Holder> {
-    use std::io::Read;
-    let Ok(mut child) = Command::new("lsof")
-        .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fpgc"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return Vec::new();
-    };
-    let mut out = String::new();
-    if let Some(so) = child.stdout.take() {
-        let _ = so.take(64 * 1024).read_to_string(&mut out);
+    let mut cmd = Command::new("lsof");
+    cmd.args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fpgc"]);
+    match procutil::run_capped(&mut cmd, 64 * 1024, procutil::ERR_CAP, procutil::Overflow::Kill) {
+        Ok(c) => parse_lsof(&String::from_utf8_lossy(&c.stdout)),
+        Err(_) => Vec::new(),
     }
-    let _ = child.wait();
-    parse_lsof(&out)
 }
 
 fn parse_lsof(out: &str) -> Vec<Holder> {

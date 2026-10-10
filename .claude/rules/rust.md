@@ -14,10 +14,12 @@ paths:
 
 ## 进程级的资源要记着它属于哪个窗口（多窗口，2026-10-08）
 
-`AppState` 里的日志句柄、终端、文件监听、远程操作都登记了 `owner`（窗口 label），
-窗口 `Destroyed` 时 `release_window(label)` 只收那个窗口的。**以后再加一张「活的资源」表，
-照同一个形状：登记时记 owner、`release_window` 里加一段、`state.rs` 里那条
-「关掉一个窗口只收它自己的东西」加一组断言。**
+`AppState` 里的日志句柄、终端、文件监听、替换扫描、任务、远程操作都登记了 `owner`（窗口 label），
+窗口 `Destroyed` 时 `release_window(label)` 只收那个窗口的。**以后再加一张「活的资源」表，用 `Owned<K, V>`**
+（`src/owned.rs`：owner 由表自己存，`take_owner` 一次摘出这个窗口的全部、交回来在锁外析构），在 `release_window` 里
+`take_owner` 它、写它自己的收尾，`state.rs` 那条「关掉一个窗口只收它自己的东西」加一组断言。
+**忘了在 `release_window` 里收，测试 `每张按窗口登记的表_关窗口时都收` 会红**（读源码比对）——
+原来这条只写在这里、靠记得，六张表各手写一遍「过滤、收集、逐个删」（2026-10-10 整体审核时收成 `Owned`）。
 
 owner 从命令参数里的 `window: tauri::Window` 取（Tauri 注入，前端不用传、也传不错）。
 id 由前端发的表（远程操作）要按 `(owner, id)` 记 —— 每个窗口都从 1 数起。
@@ -54,6 +56,7 @@ Tauri 的 `#[tauri::command] fn`（不带 `async`）**跑在主线程上** —�
 |---|---|
 | 所有 `git_*` | 子进程；`status` 在大仓库上 80ms 且每次保存一次 |
 | `read_text` / `probe_path` / `list_dir` / `file_stamp` / `write_text` / `trash_entry` | 碰盘；网络卷是另一个数量级 |
+| `detect_encoding` / `create_entry` / `move_entry` / `rename_entry` / `open_log` / `log_refresh` | 同上（2026-10-10 整体审核时补挪的，原来漏在主线程上） |
 | `grep_project` / `list_project_files` | 仓库多大是用户说了算 |
 | `git_fetch` / `git_push` | 走网络，本来就是「几十秒」那一档 |
 
@@ -64,8 +67,11 @@ Tauri 的 `#[tauri::command] fn`（不带 `async`）**跑在主线程上** —�
   tracing 标签，不是 `spawn_blocking`）。而 worker 只有 2 个
   （`lib.rs::install_runtime` 把 Tauri 默认的 18 个换掉了），两条并发的 git
   就能把它占满。阻塞池才是这类活该待的地方 —— 它按需长、空闲自己收。
-- **`log_*` 和 `pty_write` 留在主线程上**，那是有意的：它们是常数时间的内存操作
-  （首屏 50 行 0.008ms），挪到 runtime 上只会多一次调度延迟。
+- **`log_stat` / `log_lines` 这类和 `pty_write` 留在主线程上**，那是有意的：它们是常数时间的内存操作
+  （首屏 50 行 0.008ms），挪到 runtime 上只会多一次调度延迟。**`open_log` 和 `log_refresh` 不算**：
+  一个 open + mmap，一个每 500ms stat 一次、长了重开重映射 —— 都是系统调用碰盘，网络卷上能卡几秒。
+  这条原来写成「`log_*` 留在主线程」，两个碰盘的也跟着留下了，2026-10-10 整体审核时挪走
+  （同一天挪的还有 `detect_encoding`、`create_entry` / `move_entry` / `rename_entry`）。
 
 `commands::blocking` 有一条断言线程 id 的测试卡着。退化成「原地调用一下」的话
 编译照过、返回值照对，而界面照样卡 —— 这种回归没有任何编译期信号。
@@ -103,6 +109,13 @@ Tauri 的 `#[tauri::command] fn`（不带 `async`）**跑在主线程上** —�
 线格式在 `crates/logengine/src/block.rs`。
 
 ## 起子进程时的三条硬纪律
+
+**起子进程、读它的输出，用 `crates/procutil`**（`spawn` / `run_capped`）：stdin 接空、stderr 一起来就在另一条线程里排空、
+stdout 有上限（超了「杀掉」还是「读完不存」由调用方选）、丢掉就杀掉并收尸。下面几节讲的「两个管道要并发读」「读 cap+1 判截断」
+「被掐掉的退出码没有意义」都在它里面、各有一条验过红的测试。**原来这些只写在这份文档里，四个模块各写一遍，
+searchsvc 那份把并发读写反了** —— 读完 stdout 才读 stderr，rg 往 stderr 写满 64KB 就和我们互相等住，搜索永远不回来
+（2026-10-10 整体审核时复现）。不走它的只有两种：任务（`tasksvc::Task`，长期跑、stdout + stderr 合进一根管道流式落盘）
+和 git fetch / push（`gitsvc::remote`，边读边解析进度、要能取消）。
 
 `gitsvc` 和 `searchsvc` 都起子进程（`git` / `rg`）：
 

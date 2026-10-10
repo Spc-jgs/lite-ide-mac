@@ -70,7 +70,7 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
             command: def.command.clone(),
             root: root.clone(),
         });
-        let id = st.insert_run(crate::state::Run { owner: owner.clone(), root, name: name.clone(), task: task.clone() });
+        let id = st.insert_run(&owner, crate::state::Run { root, name: name.clone(), task: task.clone() });
         let log = spec.log.clone();
         // 等它退出，退了告诉起它的那个窗口。一次运行一条线程，跟着任务的寿命走
         let app2 = app.clone();
