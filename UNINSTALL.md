@@ -98,9 +98,12 @@ rm -rf ~/Library/Logs/com.liteide.app                    # 运行日志，见下
 ~/playground/lite-ide/scripts/uninstall.sh --yes     # 真正执行（保留项目目录）
 ~/playground/lite-ide/scripts/uninstall.sh --yes --project   # 连项目目录一起删
 ~/playground/lite-ide/scripts/uninstall.sh --yes --delete-scratches   # 草稿也不留（默认是挪到桌面）
+~/playground/lite-ide/scripts/uninstall.sh --yes --rust               # 连 Rust 工具链一起卸（默认不动）
 ```
 
-脚本会依次清理第③②层并处理 `~/.zshrc`，每步打印做了什么。草稿默认先挪到桌面，预览里会说有几份、挪到哪。
+脚本会依次清理第③层，每步打印做了什么。草稿默认先挪到桌面，预览里会说有几份、挪到哪。
+**第②层（Rust 工具链）默认不动**：立项时它是为这个项目装的，现在机器上别的东西可能也在用 —— 确定只有这个项目在用，再加 `--rust`
+（它会 `rustup self uninstall`、删 `~/.rustup` `~/.cargo`、从 `~/.zshrc` 去掉 cargo 那行并留备份）。项目目录按脚本自己的位置算，不管你克隆在哪。
 
 ---
 
