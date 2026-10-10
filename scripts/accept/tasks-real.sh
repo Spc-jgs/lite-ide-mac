@@ -132,7 +132,8 @@ else
     ok 1 "从 Finder 那条路起的应用找到了 mvn，Spring Boot 监听上 ${BP}（端口经 tasks.json 的 env 传进去）"
     BG=$(pgid_of "${BP}"); GROUPS_SEEN+=("${BG}")
     ok "$( [ "$(pgrep -g "${BG}" -l | grep -c java)" -ge 2 ] && echo 1)" "组里有 Maven 的 JVM 和 fork 出来的应用 JVM：$(group_names "${BG}")"
-    ok "$( [ "$(lite_eval main "${RED_JS}" 2>/dev/null)" = red ] && echo 1)" "ERROR 行标红：$(lite_eval main "${RED_JS}" 2>/dev/null)"
+    # 等它画出来：READY 是从输出文件里看到的，日志视图跟上要再等一拍（跟随是轮询的）—— 只问一次的话间歇红（2026-10-10 撞见）
+    ok "$(wait_for 5 '[ "$(lite_eval main "${RED_JS}")" = red ]' && echo 1)" "ERROR 行标红：$(lite_eval main "${RED_JS}" 2>/dev/null)"
     lite_eval main "document.querySelector('.run .chip.error')?.click(); return true" >/dev/null
     ok "$(lite_wait main "${ONLY_ERR_JS}" 8 && echo 1)" "点 ERROR 那一级：只剩 ERROR 行（$(lite_eval main "return document.querySelector('.run .chip.error .num')?.innerText ?? ''" 2>/dev/null) 条）"
     lite_eval main "document.querySelector('.run .chip.error')?.click(); return true" >/dev/null

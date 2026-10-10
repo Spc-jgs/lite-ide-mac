@@ -74,21 +74,20 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
         let log = spec.log.clone();
         // 等它退出，退了告诉起它的那个窗口。一次运行一条线程，跟着任务的寿命走
         let app2 = app.clone();
-        let _ = std::thread::Builder::new().name(format!("task-watch-{id}")).spawn(move || loop {
-            if let Some(tasksvc::State::Exited { code, signal, stopped }) = task.wait_exit(std::time::Duration::from_secs(3600)) {
-                let failed = tasksvc::State::Exited { code, signal, stopped }.failed();
-                let st = app2.state::<AppState>();
-                st.live_remove(task.pgid());
-                // 自己失败退出的：看看是不是端口被占（只读输出的最后 64KB —— 报错就在结尾）
-                let port = if failed {
-                    tasksvc::port::from_log(&log)
-                        .map(|(port, h)| PortHolderDto { port, pid: h.pid, ours: st.task_named_by_group(h.pgid), command: h.command })
-                } else {
-                    None
-                };
-                let _ = app2.emit_to(owner.as_str(), "task-exit", TaskExitDto { id, code, signal, stopped, failed, port });
-                return;
-            }
+        let _ = std::thread::Builder::new().name(format!("task-watch-{id}")).spawn(move || {
+            let end = task.wait();
+            let tasksvc::State::Exited { code, signal, stopped } = end else { return };
+            let failed = end.failed();
+            let st = app2.state::<AppState>();
+            st.live_remove(task.pgid());
+            // 自己失败退出的：看看是不是端口被占（只读输出的最后 64KB —— 报错就在结尾）
+            let port = if failed {
+                tasksvc::port::from_log(&log)
+                    .map(|(port, h)| PortHolderDto { port, pid: h.pid, ours: st.task_named_by_group(h.pgid), command: h.command })
+            } else {
+                None
+            };
+            let _ = app2.emit_to(owner.as_str(), "task-exit", TaskExitDto { id, code, signal, stopped, failed, port });
         });
         Ok(TaskRunDto { id, name, command: def.command, log: spec.log.to_string_lossy().into_owned() })
     })

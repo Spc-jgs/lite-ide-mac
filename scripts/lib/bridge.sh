@@ -43,6 +43,20 @@ lite_clean_data() {
 
 lite_front_id() { osascript -e 'tell application "System Events" to get bundle identifier of first process whose frontmost is true' 2>/dev/null; }
 
+# ── 前台切换记录（#54）──
+# 采样「这一刻谁在最前」只能知道「到某一段开头时已经被抢了」；frontlog 订阅系统的激活通知，记下每一次切换的时间和应用，
+# 再和 lite_mark 打的段落标记对时间（frontlog-report.py）。**只读**：不发按键、不读 AX、不截图
+LITE_MARKS="${LITE_WORK}/marks.tsv"
+lite_now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
+lite_mark() { printf '%s\t%s\n' "$(lite_now_ms)" "$1" >> "${LITE_MARKS}"; }
+# 编一次（约 1 秒）、在后台起。起它的脚本退了，它一秒内自己退（看父进程是不是成了 launchd）
+lite_frontlog_start() {
+  xcrun swiftc -O -o "${LITE_WORK}/frontlog" "${LITE_ROOT}/scripts/lib/frontlog.swift" 2>/dev/null || { echo "  （frontlog 编不过，这一轮没有前台切换记录）" >&2; return 1; }
+  "${LITE_WORK}/frontlog" > "${LITE_WORK}/front.tsv" &
+  LITE_FRONTLOG_PID=$!
+}
+lite_frontlog_report() { python3 -I "${LITE_ROOT}/scripts/lib/frontlog-report.py" "${LITE_MARKS}" "${LITE_WORK}/front.tsv" "${LITE_ID}"; }
+
 # 比测试 .app 新的源文件，打印第一个（没有就什么都不打）。
 #
 # 测试 .app 要手动重打（约 3 分钟），忘了重打，验的就是旧代码 —— 而且照样全绿。这个仓库在「跑的是哪个构建」上栽过
@@ -74,6 +88,7 @@ lite_launch() {
   local zdot=(--env ZDOTDIR="${LITE_WORK}/zdot")
   [ "${LITE_USER_SHELL:-}" = 1 ] && zdot=()
   mkdir -p "${LITE_WORK}/zdot"
+  lite_mark "[启动测试应用]"
   open -g --env LITE_IDE_TEST_SOCK="${LITE_TEST_SOCK}" --env LITE_IDE_DEBUG=1 ${zdot[@]+"${zdot[@]}"} \
     --stderr "${LITE_LOG}" -a "${LITE_APP}" "$@"
   lite_wait main "return true" 20 || { echo "20 秒内 main 窗口没回话（日志 ${LITE_LOG}）" >&2; return 1; }
@@ -93,6 +108,7 @@ lite_quit() {
 }
 
 lite_teardown() {
+  [ -n "${LITE_FRONTLOG_PID:-}" ] && kill "${LITE_FRONTLOG_PID}" 2>/dev/null
   pkill -f "lite-ide-mwtest.app/Contents/MacOS" 2>/dev/null
   sleep 1
   lite_clean_data

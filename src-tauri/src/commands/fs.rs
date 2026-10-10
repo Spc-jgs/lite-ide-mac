@@ -163,7 +163,7 @@ pub fn rename_entry(path: String, name: String) -> Result<String, String> {
     Ok(p.to_string_lossy().into_owned())
 }
 
-/// 移到废纸篓。**整个应用里没有第二条删除路径** —— 没有 remove_file。
+/// 移到废纸篓。**删用户的文件没有第二条路径** —— 没有 remove_file（应用自己生成的数据另说，见 rust.md「删除只走废纸篓」）。
 ///
 /// 走阻塞池：外部卷/网络卷上的 `trashItemAtURL:` 是秒级的。
 #[tauri::command]

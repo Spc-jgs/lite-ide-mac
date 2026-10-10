@@ -211,11 +211,15 @@ libc 依赖 —— 没引，我们要的只是「数据先于 rename」这个次
 
 ## 删除只走废纸篓
 
-`fsservice::move_to_trash` 是应用里唯一的删除路径，**没有 `remove_file`**。
+`fsservice::move_to_trash` 是**删用户的文件**的唯一路径，**没有 `remove_file`**。
 它调系统 API（macOS 上 `NSFileManager` 的 `trashItemAtURL:`，由 `trash` crate 包装），
 不是自己往 `~/.Trash` 里 rename —— Finder 的「放回原处」靠一份系统维护的元数据，
 外部卷的废纸篓在卷自己的 `.Trashes` 里，同名冲突还要按 Finder 的规则改名。
 判据和「.gitignore 的规则以 git 为准，所以起 git 子进程」是同一条。
+
+应用自己生成、放在应用数据目录里的东西（替换的撤销日志 `replacesvc::journal::remove`、任务输出 `tasksvc::prune`）直接删 ——
+进了废纸篓照样占着那几个 GB；这时要把范围卡死在**自己生成的那几种文件名**上，别的一概不碰
+（这句原来写成「应用里没有 `remove_file`」，读起来是全盘禁止，2026-10-10 加任务输出清理时改准）。
 
 那条真去扔文件的测试标了 `#[ignore]`（它会往跑测试的人的废纸篓里扔东西）。
 **它必须被手动跑过**，否则 `trash::delete` 换成 `Ok(())` 剩下的测试照样全绿：

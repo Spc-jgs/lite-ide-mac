@@ -83,6 +83,7 @@ PASS=0; FAIL=0
 STOLEN=0
 STOLEN_AT=""
 say()  {
+  lite_mark "${1%%：*}"
   # 记下是哪一段开头发现的：数字只说「被抢了」，段名才指得出是谁抢的
   if [ "$(lite_front_id)" = "${LITE_ID}" ]; then
     STOLEN=$((STOLEN + 1))
@@ -253,6 +254,7 @@ printf 'v2 改过了\n' > note.txt
 echo "  大日志 $(du -h big.log | cut -f1)，钩子 3000 行"
 
 say "起 .app（后台，临时身份）"
+lite_frontlog_start   # 在第一次启动之前起：启动那一下也要记下来（报告里据此把它和「真的被抢」分开）
 lite_launch "${FIX}" || exit $?   # 2 = 测试 .app 比源码旧，见 bridge.sh 的 lite_stale
 if lite_wait main "return __lite.project.root === $(q "${FIX}")" 15; then
   ok "挂载成功，项目根是 fixture"
@@ -1099,6 +1101,8 @@ rm -rf "${FIX}/.lite-ide"
 
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
+# 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）
+lite_frontlog_report
 
 [ "${TRASHED:-0}" = 1 ] && echo "  （⑨ 往废纸篓里放了 ${TRASH_NAME}，脚本不动它 —— 自己清或者放回原处）"
 

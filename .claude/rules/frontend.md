@@ -622,6 +622,8 @@ AX 树读不全，两种都实测骗过人。按窗口 id `screencapture -l`（�
 - **测试终端不碰你的 shell 配置和历史**：`lite_launch` 带 `ZDOTDIR=<临时目录>`（smoke 曾把 `cd` 写进用户的 `~/.zsh_history`）。
   唯一的例外是 `scripts/accept/tasks-real.sh`（`LITE_USER_SHELL=1`）：它要验的就是「任务的登录 shell 读你的 `.zshrc`、找得到 mvn / pnpm」。
   它不开终端（任务是 `-ilc`，命令不进历史），并且前后比对历史文件
+- **焦点被抢查「谁、哪一刻」用前台切换记录器**（#54，2026-10-10）：`lite_frontlog_start` 起一个只读的 `frontlog.swift`（订阅系统的激活通知），
+  `lite_mark` 打段落标记，`lite_frontlog_report` 按时间对上。smoke 已经接上（⑳ 那里出报告）。它分不出「程序拉的」和「人点的」
 - **它验不到的**：走的是应用内部的路，`macOS 把按键交给谁`、`WebKit 在真右键时把焦点给谁`这一层验不到（#53、#50）——
   那要真输入，而真输入前必须断言测试应用在最前（下一节）。还有：测试构建里窗口不主动拿焦点，「焦点切换」相关的行为在这里测不到
 

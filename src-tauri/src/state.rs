@@ -96,6 +96,13 @@ pub struct Run {
     pub task: Arc<tasksvc::Task>,
 }
 
+/// 收尾的后半段：软停、等它停完（最多一个宽限期），从收尾表里划掉。**登记**由调用方在这之前同步做 ——
+/// 放进后台线程再登记的话，线程还没跑起来时 ⌘Q，退出流程看不见它
+fn finish_retire(list: &Mutex<Vec<Arc<tasksvc::Task>>>, task: &Arc<tasksvc::Task>) {
+    task.stop_wait(tasksvc::GRACE);
+    list.lock().expect("收尾表锁被毒化").retain(|t| !Arc::ptr_eq(t, task));
+}
+
 /// [`AppState::begin_run`] 的认领：丢掉时释放（起完、登记进运行表之后再丢）
 pub struct RunClaim<'a> {
     st: &'a AppState,
@@ -318,12 +325,9 @@ impl AppState {
     /// 软停一个已经摘出运行表的任务，**在后台线程里攥着它**直到停完：`Arc` 在这条线程里还活着，不会因为最后一份引用没了就当场
     /// SIGKILL（那样 Spring 的关闭钩子就没机会跑）。停完之前它在收尾表里，退出流程看得见它
     pub fn retire(&self, task: Arc<tasksvc::Task>) {
+        self.retiring.lock().expect("收尾表锁被毒化").push(Arc::clone(&task));
         let list = Arc::clone(&self.retiring);
-        list.lock().expect("收尾表锁被毒化").push(Arc::clone(&task));
-        let _ = std::thread::Builder::new().name("task-retire".into()).spawn(move || {
-            task.stop_wait(tasksvc::GRACE);
-            list.lock().expect("收尾表锁被毒化").retain(|t| !Arc::ptr_eq(t, &task));
-        });
+        let _ = std::thread::Builder::new().name("task-retire".into()).spawn(move || finish_retire(&list, &task));
     }
 
     /// 要起一个任务之前：认领（窗口, 项目, 名字），同名的上一次还在跑就**先停干净**（端口要先空出来，TASKS.md「重跑」）。
@@ -337,10 +341,9 @@ impl AppState {
         if let Some((old, task)) = self.find_run(owner, root, name) {
             self.remove_run(old);
             if task.alive() {
-                // 收尾表里登记着再停：这几秒里 ⌘Q，退出流程照样看得见它
+                // 同 retire，只是就在这条线程里等：收尾表里登记着再停，这几秒里 ⌘Q，退出流程照样看得见它
                 self.retiring.lock().expect("收尾表锁被毒化").push(Arc::clone(&task));
-                task.stop_wait(tasksvc::GRACE);
-                self.retiring.lock().expect("收尾表锁被毒化").retain(|t| !Arc::ptr_eq(t, &task));
+                finish_retire(&self.retiring, &task);
             }
         }
         Ok(claim)

@@ -11,6 +11,9 @@ use tasksvc::{live, rotated, Spec, State, Task};
 struct Dir(PathBuf);
 impl Drop for Dir {
     fn drop(&mut self) {
+        // 测试失败（断言 panic）时它起的进程还活着 —— `spawn_detached` 那几个不在任何 Task 里，没人收：按命令行里的这个目录找出来结束掉。
+        // 目录名带 pid + 纳秒时间戳，碰不到别的进程（2026-10-10：验红时两个监听者各多活了 300 秒）
+        let _ = std::process::Command::new("pkill").args(["-f", &self.0.to_string_lossy()]).status();
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
@@ -52,8 +55,34 @@ fn read(p: &Path) -> String {
     std::fs::read_to_string(p).unwrap_or_default()
 }
 
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+/// 起一个监听的命令：**它自己挑端口**（绑 0），把号写进 `file`。
+///
+/// 原来是测试先绑 0 拿个号、关掉、再让 `nc` 去绑那个号 —— 中间有个空档，而 macOS 的 `nc` 开 `SO_REUSEPORT`：
+/// 两条并行的测试拿到同一个号时，第二个 `nc` 照样绑上、不报错，`lsof` 查到的是另一条测试的进程。
+/// 「结束占端口的_组长整组停」在 workspace 全量跑时间歇红过一次（组号对不上），就是这个形状（2026-10-10 梳理时实测坐实）。
+/// Python 默认不开 `SO_REUSEPORT`，绑着 0 的时候内核给的号是唯一的；`reuse` 打开它，给「一个端口两个监听者」那条用
+fn listener(file: &Path, reuse: Option<u16>) -> String {
+    let (opt, port) = match reuse {
+        Some(p) => ("s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1); ", p),
+        None => ("", 0),
+    };
+    format!(
+        "/usr/bin/python3 -c 'import socket,sys,time; s=socket.socket(); {opt}s.bind((\"127.0.0.1\",{port})); s.listen(); \
+         open(sys.argv[1],\"w\").write(str(s.getsockname()[1])); time.sleep(300)' {}",
+        file.display()
+    )
+}
+
+/// 等 [`listener`] 把端口号写出来
+fn port_in(file: &Path) -> u16 {
+    assert!(until(10, || read(file).parse::<u16>().is_ok()), "10 秒没等到监听的端口号");
+    read(file).parse().unwrap()
+}
+
+/// 在后台起、**不当我们的子进程**（`sh -c '… &'`，sh 一退它就归 launchd 收尸）：留在测试进程的组里、不是组长。
+/// 当子进程的话，它被结束后是僵尸、要等我们 wait，`kill(pid, 0)` 一直说它还在
+fn spawn_detached(cmd: &str) {
+    assert!(std::process::Command::new("/bin/sh").args(["-c", &format!("{cmd} &")]).status().unwrap().success());
 }
 
 fn listening(port: u16) -> bool {
@@ -86,6 +115,7 @@ fn 自己非零退出是失败_我们停的不是() {
     let t = Task::start(&spec(&d.0, "exit 3")).unwrap();
     let st = t.wait_exit(Duration::from_secs(10)).unwrap();
     assert_eq!(st, State::Exited { code: Some(3), signal: None, stopped: false });
+    assert_eq!(t.wait(), st, "不限时的 wait 等到的是同一个结果（退出事件的 watcher 用它）");
     assert!(st.failed());
 
     let t = Task::start(&spec(&d.0, "sleep 300")).unwrap();
@@ -104,9 +134,10 @@ fn 自己非零退出是失败_我们停的不是() {
 #[test]
 fn 停的时候孙进程一起停_端口空了() {
     let d = dir("tree");
-    let port = free_port();
+    let pf = d.0.join("port");
     // 后台起一个监听的，再后台一个 sleep，前台 wait：组长是 zsh，底下两个孙子
-    let t = Task::start(&spec(&d.0, &format!("nc -lk 127.0.0.1 {port} & sleep 300 & wait"))).unwrap();
+    let t = Task::start(&spec(&d.0, &format!("{} & sleep 300 & wait", listener(&pf, None)))).unwrap();
+    let port = port_in(&pf);
     assert!(until(10, || listening(port)), "10 秒内没监听上 {port}，日志：{:?}", read(&d.0.join("runs/t.log")));
     t.stop(Duration::from_secs(1));
     assert!(until(5, || !t.alive()), "宽限期过了 4 秒，组里还有活的");
@@ -218,13 +249,12 @@ fn 收尸的记录_组号和启动时间都对上才算还活着() {
 #[test]
 fn 结束占端口的_组长整组停() {
     let d = dir("free-leader");
-    let port = free_port();
-    let t = Task::start(&spec(&d.0, &format!("nc -lk 127.0.0.1 {port}"))).unwrap();
+    let pf = d.0.join("port");
+    let t = Task::start(&spec(&d.0, &listener(&pf, None))).unwrap();
+    let port = port_in(&pf);
     assert!(until(10, || listening(port)));
-    let h = tasksvc::port::holder(port).expect("查不到谁在听");
-    // 间歇红过一次（workspace 全量跑时，单独跑复现不了）：对不上时把现场打出来，下次撞上不用再猜
-    let ps = |g: i32| String::from_utf8_lossy(&std::process::Command::new("ps").args(["-o", "pid,pgid,stat,command", "-g", &g.to_string()]).output().unwrap().stdout).into_owned();
-    assert_eq!(h.pgid, t.pgid(), "nc 应该在任务的进程组里。查到的：{h:?}\n任务组 {}：\n{}\n查到的组：\n{}", t.pgid(), ps(t.pgid()), ps(h.pgid));
+    let hs = tasksvc::port::holders(port);
+    assert!(hs.len() == 1 && hs[0].pgid == t.pgid(), "只有任务的那一个在听、在任务的进程组里：{hs:?}，任务组 {}", t.pgid());
     tasksvc::port::free_port(port, Duration::from_secs(2), |_| None).unwrap();
     assert!(!listening(port) && until(3, || !t.alive()), "端口空了、整组没了");
 }
@@ -233,14 +263,15 @@ fn 结束占端口的_组长整组停() {
 /// 这里它和跑测试的进程同组，整组杀的话测试进程自己就没了，这条测试当场失败
 #[test]
 fn 结束占端口的_不是组长只动它自己() {
-    let port = free_port();
-    let mut c = std::process::Command::new("nc").args(["-lk", "127.0.0.1", &port.to_string()]).spawn().unwrap();
+    let d = dir("free-member");
+    let pf = d.0.join("port");
+    spawn_detached(&listener(&pf, None));
+    let port = port_in(&pf);
     assert!(until(10, || listening(port)));
-    let h = tasksvc::port::holder(port).unwrap();
-    assert_ne!(h.pgid, h.pid, "它该和测试进程同组、不是组长");
+    let hs = tasksvc::port::holders(port);
+    assert!(hs.len() == 1 && hs[0].pgid != hs[0].pid, "它该和测试进程同组、不是组长：{hs:?}");
     tasksvc::port::free_port(port, Duration::from_secs(2), |_| None).unwrap();
     assert!(!listening(port));
-    let _ = c.wait();
 }
 
 /// 占着端口的是我们自己还开着的任务（卡片说「是你之前跑的」）：要走那个 `Task` 停 —— 它才记得是「我们停的」。
@@ -248,13 +279,29 @@ fn 结束占端口的_不是组长只动它自己() {
 #[test]
 fn 结束占端口的_是自己的任务记成我们停的() {
     let d = dir("free-ours");
-    let port = free_port();
-    let t = std::sync::Arc::new(Task::start(&spec(&d.0, &format!("nc -lk 127.0.0.1 {port}"))).unwrap());
+    let pf = d.0.join("port");
+    let t = std::sync::Arc::new(Task::start(&spec(&d.0, &listener(&pf, None))).unwrap());
+    let port = port_in(&pf);
     assert!(until(10, || listening(port)));
     let pgid = t.pgid();
     tasksvc::port::free_port(port, Duration::from_secs(2), |g| (g == pgid).then(|| t.clone())).unwrap();
     let st = t.wait_exit(Duration::from_secs(3)).expect("组长该退了");
     assert!(matches!(st, State::Exited { stopped: true, .. }) && !st.failed(), "是我们停的，不算失败：{st:?}");
+}
+
+/// 一个端口两个监听者（`SO_REUSEPORT`：macOS 的 nc、Node 的 cluster）：**都要结束**。原来只结束 lsof 列的第一个，
+/// 端口还被第二个占着，等满之后报「没结束掉」
+#[test]
+fn 一个端口两个监听者_都结束() {
+    let d = dir("free-two");
+    let (a, b) = (d.0.join("a"), d.0.join("b"));
+    spawn_detached(&listener(&a, Some(0)));
+    let port = port_in(&a);
+    spawn_detached(&listener(&b, Some(port)));
+    assert_eq!(port_in(&b), port);
+    assert!(until(10, || tasksvc::port::holders(port).len() == 2), "两个都该在听：{:?}", tasksvc::port::holders(port));
+    tasksvc::port::free_port(port, Duration::from_secs(2), |_| None).expect("两个都该结束掉");
+    assert!(tasksvc::port::holders(port).is_empty());
 }
 
 /// 日志文件名：同一个项目落同一个目录、名字里的 `/` 不变成子目录

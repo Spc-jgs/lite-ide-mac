@@ -176,7 +176,16 @@ pub fn run() {
             let st = app.state::<state::AppState>();
             // 任务的账本（#48 第 4 步）：上次崩了没停干净的任务在这儿找回来，等它们的项目窗口起来了出卡片
             if let Ok(dir) = app.path().app_data_dir() {
-                st.init_live(dir.join("runs").join("live.json"));
+                let runs = dir.join("runs");
+                st.init_live(runs.join("live.json"));
+                // 任务输出的清理：14 天没跑过的项目、总量超过 5GB 的最旧的（tasksvc::prune）。启动时自己的任务一个都没在跑，
+                // 正好；碰盘，放后台线程（rust.md「同步命令跑在主线程上」那条的判据，setup 也在主线程上）
+                let _ = std::thread::Builder::new().name("runs-prune".into()).spawn(move || {
+                    let r = tasksvc::prune::prune(&runs, tasksvc::prune::KEEP, tasksvc::prune::TOTAL_CAP, std::time::SystemTime::now());
+                    if r.files > 0 {
+                        applog::write(applog::Level::Info, "task", &format!("清掉了 {} 份旧的任务输出，{} MB", r.files, r.bytes >> 20));
+                    }
+                });
             }
             st.windows.register("main");
             winctl::start_saver(app.handle());

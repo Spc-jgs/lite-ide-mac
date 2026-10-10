@@ -71,42 +71,51 @@ pub struct Holder {
     pub command: String,
 }
 
-/// 谁在听 `port`（TCP LISTEN）。`lsof -F` 的机器格式：`p<pid>`、`g<进程组>`、`c<命令>` 各一行。
-/// 进程组也从 lsof 拿，不另调 `getpgid`：第一版是调的，workspace 全量跑时间歇地对不上任务的组号（单独跑 15 遍复现不了），
-/// 少一次系统调用就少一个「查的那一刻进程状态变了」的口子。
+/// 谁在听 `port`（TCP LISTEN），**全部**。`lsof -F` 的机器格式：`p<pid>`、`g<进程组>`、`c<命令>` 各一行（还有 `f<fd>`，不要）。
+///
+/// 一个端口可以有好几个监听者：开了 `SO_REUSEPORT` 的程序（macOS 自带的 `nc` 就开，实测两个 `nc -lk` 同时听一个端口都不报错）、
+/// Node 的 cluster。原来只取第一个，「结束它」只结束了一个、端口还占着，最后报「没结束掉」（2026-10-10 梳理时实测出来的）。
+///
+/// 进程组也从 lsof 拿，不另调 `getpgid`：少一个「查的那一刻进程状态变了」的口子。
 /// 输出有上限吗（rust.md 起子进程第一问）：一个端口的监听者就一两个进程，几十字节；还是只读前 64KB，防一个不认识的 lsof 版本刷屏
-pub fn holder(port: u16) -> Option<Holder> {
+pub fn holders(port: u16) -> Vec<Holder> {
     use std::io::Read;
-    let mut child = Command::new("lsof")
+    let Ok(mut child) = Command::new("lsof")
         .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fpgc"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .ok()?;
+    else {
+        return Vec::new();
+    };
     let mut out = String::new();
-    let _ = child.stdout.take()?.take(64 * 1024).read_to_string(&mut out);
-    let _ = child.wait();
-    let mut pid = None;
-    let mut pgid = None;
-    let mut command = String::new();
-    for line in out.lines() {
-        if let Some(p) = line.strip_prefix('p') {
-            if pid.is_some() {
-                break; // 只要第一个进程
-            }
-            pid = p.parse::<i32>().ok();
-        } else if let Some(g) = line.strip_prefix('g') {
-            pgid = g.parse::<i32>().ok();
-        } else if let Some(c) = line.strip_prefix('c') {
-            command = c.to_string();
-        }
+    if let Some(so) = child.stdout.take() {
+        let _ = so.take(64 * 1024).read_to_string(&mut out);
     }
-    let pid = pid?;
-    Some(Holder { pid, pgid: pgid.unwrap_or(pid), command })
+    let _ = child.wait();
+    parse_lsof(&out)
 }
 
-/// 任务失败了：输出结尾认得出「端口被占」，就查出现在是谁在听。只读最后 64KB —— 报错就在结尾，日志可能有 1GB
+fn parse_lsof(out: &str) -> Vec<Holder> {
+    let mut all: Vec<Holder> = Vec::new();
+    for line in out.lines() {
+        if let Some(p) = line.strip_prefix('p') {
+            if let Ok(pid) = p.parse::<i32>() {
+                all.push(Holder { pid, pgid: pid, command: String::new() });
+            }
+        } else if let Some(h) = all.last_mut() {
+            if let Some(g) = line.strip_prefix('g') {
+                h.pgid = g.parse().unwrap_or(h.pid);
+            } else if let Some(c) = line.strip_prefix('c') {
+                h.command = c.to_string();
+            }
+        }
+    }
+    all
+}
+
+/// 任务失败了：输出结尾认得出「端口被占」，就查出现在是谁在听（卡片上说第一个）。只读最后 64KB —— 报错就在结尾，日志可能有 1GB
 pub fn from_log(log: &Path) -> Option<(u16, Holder)> {
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(log).ok()?;
@@ -115,38 +124,60 @@ pub fn from_log(log: &Path) -> Option<(u16, Holder)> {
     let mut buf = Vec::new();
     f.take(64 * 1024).read_to_end(&mut buf).ok()?;
     let port = port_in_use(&String::from_utf8_lossy(&buf))?;
-    Some((port, holder(port)?))
+    Some((port, holders(port).into_iter().next()?))
 }
 
-/// 结束占着 `port` 的那个进程并等端口空出来（最多 `grace` 多一秒）。**会阻塞**，调用方放线程里。
+/// 结束占着 `port` 的**所有**进程并等端口空出来（最多 `grace` 多一秒）。**会阻塞**，调用方放线程里。
 ///
 /// 动手前**再查一次**是谁：卡片出来到人点按钮之间可能过了几分钟，原来那个进程早退了、号被别人复用了 —— 拿旧的 pid 去杀就杀错了人。
-/// 是我们自己还开着的任务（`ours` 按进程组认出来）→ 走那个 [`Task`] 停，它才记得是「我们停的」，不报成失败；
-/// 别的进程组的组长（大多数守护进程）→ 整组先软后硬；不是组长 → 只动它自己（它的组可能是你终端里的一整个作业，
-/// 一起停就殃及了别人）：SIGTERM，宽限期后 SIGKILL。
-pub fn free_port(port: u16, grace: Duration, ours: impl Fn(i32) -> Option<Arc<Task>>) -> Result<(), String> {
-    let Some(h) = holder(port) else { return Ok(()) };
+/// 每个监听者按 [`end`] 的三种情况处理，**并排进行**：好几个都不理软停的话，总共也只等一个宽限期。
+pub fn free_port(port: u16, grace: Duration, ours: impl Fn(i32) -> Option<Arc<Task>> + Sync) -> Result<(), String> {
+    let mut hs = holders(port);
+    if hs.is_empty() {
+        return Ok(());
+    }
+    // 同一组里的几个（一个任务的两个进程都在听）只处理一次：整组停一次就够了
+    let mut seen = std::collections::HashSet::new();
+    hs.retain(|h| h.pgid != h.pid && ours(h.pgid).is_none() || seen.insert(h.pgid));
+    std::thread::scope(|s| {
+        for h in &hs {
+            let ours = &ours;
+            s.spawn(move || end(h, grace, ours));
+        }
+    });
+    // 进程都退了，再确认端口真空了（只在这里调 lsof：原来等的时候每 100ms 起一个，最坏一次「结束它」起 70 个）
+    let t = Instant::now();
+    loop {
+        let left = holders(port);
+        let Some(h) = left.first() else { return Ok(()) };
+        if t.elapsed() >= Duration::from_secs(1) {
+            return Err(format!("{port} 还被 {}（PID {}）占着，没结束掉 —— 可能是别的用户的进程，没有权限", h.command, h.pid));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// 结束一个监听者：
+/// - 是我们自己还开着的任务（`ours` 按进程组认出来）→ 走那个 [`Task`] 停，它才记得是「我们停的」，不报成失败；
+/// - 别的进程组的组长（大多数守护进程）→ 整组先软后硬；
+/// - 不是组长 → 只动它自己（它的组可能是你终端里的一整个作业，一起停就殃及了别人）：SIGTERM，宽限期后还在就 SIGKILL。
+///   等它退用 `kill(pid, 0)`（一个系统调用），不再每 100ms 起一次 lsof
+fn end(h: &Holder, grace: Duration, ours: &impl Fn(i32) -> Option<Arc<Task>>) {
     if let Some(t) = ours(h.pgid) {
         t.stop_wait(grace);
     } else if h.pgid == h.pid {
         crate::stop_group(h.pgid, grace);
     } else {
-        // SAFETY: 发给 lsof 刚查出来的那个 pid
+        // SAFETY: 发给 lsof 刚查出来的那个 pid；信号 0 只问不发
         unsafe { libc::kill(h.pid, libc::SIGTERM) };
         let t = Instant::now();
-        while t.elapsed() < grace && holder(port).is_some_and(|x| x.pid == h.pid) {
-            std::thread::sleep(Duration::from_millis(100));
+        while t.elapsed() < grace && unsafe { libc::kill(h.pid, 0) } == 0 {
+            std::thread::sleep(Duration::from_millis(50));
         }
-        unsafe { libc::kill(h.pid, libc::SIGKILL) };
-    }
-    let t = Instant::now();
-    while t.elapsed() < Duration::from_secs(1) + grace {
-        if holder(port).is_none() {
-            return Ok(());
+        if unsafe { libc::kill(h.pid, 0) } == 0 {
+            unsafe { libc::kill(h.pid, libc::SIGKILL) };
         }
-        std::thread::sleep(Duration::from_millis(100));
     }
-    Err(format!("{port} 还被 {}（PID {}）占着，没结束掉 —— 可能是别的用户的进程，没有权限", h.command, h.pid))
 }
 
 #[cfg(test)]
@@ -187,10 +218,19 @@ mod tests {
     fn 查得出谁在听_查得出组号() {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
-        let h = holder(port).expect("lsof 没查到自己开的监听");
-        assert_eq!(h.pid, std::process::id() as i32);
-        assert_eq!(h.pgid, unsafe { libc::getpgid(0) });
+        let hs = holders(port);
+        assert_eq!(hs.len(), 1, "只有自己一个在听：{hs:?}");
+        assert_eq!(hs[0].pid, std::process::id() as i32);
+        assert_eq!(hs[0].pgid, unsafe { libc::getpgid(0) });
         drop(l);
-        assert!(holder(port).is_none(), "关了还查得到");
+        assert!(holders(port).is_empty(), "关了还查得到");
+    }
+
+    /// lsof 的机器格式里一个端口好几个监听者（`f` 行夹在中间）：一个不落、各自带上自己的组和名字
+    #[test]
+    fn 好几个监听者都认出来() {
+        let out = "p100\ng90\ncnc\nf3\np101\ng90\ncnc\nf3\np200\ng200\ncjava\nf12\n";
+        let hs = parse_lsof(out);
+        assert_eq!(hs.iter().map(|h| (h.pid, h.pgid, h.command.as_str())).collect::<Vec<_>>(), [(100, 90, "nc"), (101, 90, "nc"), (200, 200, "java")]);
     }
 }

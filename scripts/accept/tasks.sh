@@ -75,8 +75,16 @@ pick_srv() {
 listening2() { lsof -nP -iTCP:"${PORT2}" -sTCP:LISTEN -t >/dev/null 2>&1; }
 
 lite_clean_data
+# 任务输出的清理（tasksvc::prune）：启动前放一个 30 天没跑过的项目、一个昨天跑过的，起来之后旧的那个该没了、新的留着
+OLD="${LITE_DATA}/runs/00000000000000aa"; NEW="${LITE_DATA}/runs/00000000000000bb"
+mkdir -p "${OLD}" "${NEW}"
+printf 'old\n' > "${OLD}/后端.log"; printf 'new\n' > "${NEW}/dev.log"
+touch -t "$(date -v-30d +%Y%m%d%H%M)" "${OLD}/后端.log"; touch -t "$(date -v-1d +%Y%m%d%H%M)" "${NEW}/dev.log"
 lite_launch "${P}" >/dev/null || exit 1
 lite_wait main "return __lite.project.root === '${P}'" 15
+
+echo "== 启动时清掉很久没跑过的项目的输出"
+ok "$(wait_for 5 '[ ! -e "${OLD}" ]' && [ -e "${NEW}/dev.log" ] && echo 1)" "30 天没跑过的那个项目的输出没了，昨天跑过的还在"
 
 echo "== ⌃⌥R 开任务列表，tasks.json 里的 srv 在里面；点它跑起来"
 ok "$( [ "$(pick_srv)" = true ] && echo 1)" "任务列表里有 srv，点了"
@@ -104,7 +112,8 @@ const rows = [...document.querySelectorAll('.run .row:not(.pending)')];
 return rows.length > 0 && rows.every((r) => r.dataset.lvl === 'error') && rows.some((r) => r.innerText.includes('示范 ERROR'));
 JS
 )
-ok "$( [ "$(lite_eval main "${RED_JS}" 2>/dev/null)" = red ] && echo 1)" "ERROR 行标红：$(lite_eval main "${RED_JS}" 2>/dev/null)"
+# 等它画出来，不只问一次：日志视图的跟随是轮询的，比输出文件晚一拍（tasks-real.sh 同一句间歇红过）
+ok "$(wait_for 5 '[ "$(lite_eval main "${RED_JS}")" = red ]' && echo 1)" "ERROR 行标红：$(lite_eval main "${RED_JS}" 2>/dev/null)"
 lite_eval main "document.querySelector('.run .chip.error')?.click(); return true" >/dev/null
 # 第 3 步把运行窗的过滤写成了「全文 + 标命中」，点了级别一行不藏 —— 第 5 步拿真 Spring Boot 验收时才撞见，这条补在这里
 ok "$(lite_wait main "${ONLY_ERR_JS}" 8 && echo 1)" "点 ERROR：只剩 ERROR 行（tick 那几行藏起来了）"

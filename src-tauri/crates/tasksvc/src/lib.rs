@@ -13,6 +13,7 @@
 mod clean;
 pub mod live;
 pub mod port;
+pub mod prune;
 mod sink;
 
 pub use clean::Cleaner;
@@ -229,6 +230,13 @@ impl Task {
     pub fn kill(&self) {
         self.shared.stopped.store(true, Ordering::SeqCst);
         signal_group(self.pgid, libc::SIGKILL);
+    }
+
+    /// 等组长退出，不限时。返回最终状态（一定是 `Exited`）
+    pub fn wait(&self) -> State {
+        let g = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let g = self.shared.changed.wait_while(g, |s| !matches!(s, State::Exited { .. })).unwrap_or_else(|e| e.into_inner());
+        g.clone()
     }
 
     /// 等组长退出，最多 `timeout`。退了返回最终状态
