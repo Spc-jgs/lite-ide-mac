@@ -324,7 +324,7 @@ lite-ide/
 ├─ rust-toolchain.toml          # pin 住 stable-1.98.0，防止 rustup update 后行为漂移
 ├─ package.json / pnpm-workspace.yaml
 ├─ src/                          # 前端（Svelte 5）
-│  ├─ App.svelte                 # ⚠ 3500 行，见下面「已知的架构偏移」
+│  ├─ App.svelte                 # 壳：接线、菜单事件与键盘分派、启动那条 effect（约 1,300 行；原来 4,380 行，见下面「已知的架构偏移」）
 │  ├─ app.css                    # 材质分层：外壳透光 / 内容挡光 / 浮层不透
 │  └─ lib/
 │     ├─ ipc/                    # commands.ts（首屏要的 invoke 封装 + 全部手写 DTO，靠 dto_sync 测试卡住漂移）；git/log/pty/fs/search.ts 是只有懒模块用的封装
@@ -333,9 +333,10 @@ lite-ide/
 │     │                          # langs.ts（识别，入口包要）+ langs-load.ts（67 种，跟着编辑器懒加载）
 │     ├─ shell/                  # Rail / Sidebar / Panel / TitleBar / StatusBar / Confirms / Content / Overlays / FileTree / Tabs / Icon / FileGlyph / ContextMenu / Crash
 │     ├─ git/                    # GitPane / GitLog / DiffView / MergeView / BranchPicker / RemoteBars
+│     ├─ run/                    # 运行窗（任务）：RunView（套 LogPane）/ TaskPicker
 │     ├─ search/                 # 双击 Shift 随处搜索 + 大纲 + 键位速查
 │     ├─ terminal/               # xterm.js 封装
-│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / docs / tabflow / project / worktree / git / branches / remote / nav / persist / overlay / lang / notify）+ 纯类型/函数（tab / crumbs）
+│     ├─ state/                  # Svelte 5 runes（keymap / session / layout / terms / tabs / docs / tabflow / project / worktree / git / branches / remote / nav / persist / overlay / lang / notify / replace / runs …）+ 纯类型/函数（tab / crumbs）；`*-ops.ts` 是懒加载的动作那半
 │     ├─ lazy/                   # lazy() / lazyGroup()，按需加载的唯一出处
 │     └─ dev/                    # mock-ipc.ts + mock/（按领域，和 commands/ 对应），只在 DEV 构建里存在
 └─ src-tauri/
@@ -349,60 +350,31 @@ lite-ide/
    │  ├─ winctl.rs               # 建窗口、windows.json、Dock 重开、退出（动手的那一层）
    │  ├─ settings.rs             # 设置：解析、默认值、容错、界面状态（只做决定，裸单测）
    │  ├─ settingsctl.rs          # 设置：读盘、监听、存盘、广播（动手的那一层）
-   │  └─ state.rs                # 句柄表：日志会话 / 过滤任务 / pty / 远程操作，每样都记着属于哪个窗口
+   │  ├─ taskdefs.rs             # 任务从哪来：.lite-ide/tasks.json + 自动认出的 package.json scripts
+   │  ├─ terminate.rs            # Dock 右键退出 / 注销 / 关机也先存好现场（#52，给 tao 的应用代理加一个方法）
+   │  ├─ trust_store.rs          # 信任过的仓库（git config 白名单之外的，按内容记）
+   │  ├─ testbridge.rs           # 测试通道（只在 test-bridge feature 里，正式包没有）
+   │  ├─ owned.rs                # Owned<K, V>：按窗口登记的资源表，take_owner 一次收走一个窗口的
+   │  └─ state.rs                # 句柄表：日志会话 / 过滤 / pty / 远程操作 / 替换扫描 / 任务，每样都记着属于哪个窗口（Owned）
    └─ crates/
       ├─ logengine/   ★          # index / mmap / reader / filter / level + benches
       ├─ applog/                 # 应用自己的运行日志（只记异常，2 份 × 2MB 封顶）
       ├─ excludes/               # 哪些目录不进视野：两档名字（确定的 / 要问 git 的），树与搜索共用
       ├─ fsservice/
       ├─ searchsvc/
-      ├─ gitsvc/                 # 含 progress.rs / remote.rs（M7 的网络那半边）
+      ├─ gitsvc/                 # 含 progress.rs / remote.rs（M7 的网络那半边）、trust.rs（config 白名单）
+      ├─ replacesvc/             # 跨文件替换：两段提交 + 撤销日志（REPLACE.md）
+      ├─ tasksvc/                # 任务：登录 shell、进程组、输出落盘轮转、端口、崩溃后收尸、输出清理（TASKS.md）
+      ├─ procutil/               # 起子进程：两个管道并发读、输出设闸、丢掉就收尸（git / rg / lsof / pbpaste 都走它）
       └─ ptysvc/
 ```
 
-### 已知的架构偏移（2026-09-06 审查，2026-09-14 开拆）
+### 已知的架构偏移 —— ✅ 已拆完（2026-09-06 审查，09-14 开拆，09-24 收尾）
 
-**`App.svelte` 立项审查时 3526 行，开拆前 4380 行**（脚本 2930、标记 842、样式 607；
-86 个函数、28 个 `$effect`）。上面这张图说前端按 `lib/` 分模块，而实际上
-「顶层壳 + 所有跨组件状态」全挤在一个文件里：标签管理、会话恢复、Git 动作、
-面板与终端、菜单事件、快捷键分派、拖放。
-
-拆法和进度在 [issue #9](https://github.com/Spc-jgs/lite-ide-mac/issues/9)。
-原则是**按工具窗切，不按代码类型切** —— IDEA 的每个工具窗就是一个独立单元，
-拆成同样的形状，以后「改侧边栏」只开一个文件。
-
-已经出去的：
-
-| | 去了哪 | 带走 |
-|---|---|---|
-| 布局状态（侧边栏开合 / 宽 / 视图，面板开合 / 高 / 工具窗 / 标签） | `state/layout.svelte.ts` | 七个 `$state` + 快照读写 |
-| 导轨 | `shell/Rail.svelte` | 标记 + 样式 |
-| 侧边栏外壳（开合、拖宽、视图切换、崩溃边界） | `shell/Sidebar.svelte` | 标记 + 样式 + 拖拽 |
-| 终端列表（开了哪几个 shell、哪个在前） | `state/terms.svelte.ts` | 三个变量 + 开/关/关其他/全关 |
-| 底部工具窗（拖高、面板头、终端挂载、Git 控制台按需加载、两个下拉菜单） | `shell/Panel.svelte` | 标记 + 样式 + 两个 lazy + 四条 effect |
-| 标题栏（项目挂件 + 下拉、分支挂件、构建信息 tooltip） | `shell/TitleBar.svelte` | 标记 + 样式 + `devtools` 探测 |
-| 状态栏（面包屑 / 提示消息，模式 / 语言 / 编码 / 脏 / git） | `shell/StatusBar.svelte` | 标记 + 样式 |
-| 面包屑、项目名 | `state/crumbs.ts` | 纯函数，`tests/crumbs.test.ts` |
-| `TabState` 类型、`underPath` | `state/tab.ts` | 类型 + 一个纯函数，`tests/tabs-under.test.ts` |
-| 标签表：开了哪些、哪个在前，加 / 删 / 找 / 「某路径底下」 / 不变量自检 | `state/tabs.svelte.ts` | 打开 / 关闭 / 保存的流程还在 App，各自调这里的原语 |
-| 文档生命周期：保存、外部改动、冲突裁决、草稿回写、光标位置、编辑器的两个口子 | `state/docs.svelte.ts` | 判据在 `doc.ts`（纯函数）；往外两个钩子 `afterSave` / `afterPos` 由 App 装 |
-| 项目根、最近打开、草稿目录 | `state/project.svelte.ts` | `root` 是读得最多的值，搬它是为了让打开文件那条流程能搬。`recent` 只是 Rust 那份的副本（多窗口第 4 步） |
-| 打开 / 关闭（含「未保存怎么办」那一问）/ 切模式 | `state/tabflow.svelte.ts` | 三条确认横幅还在 App 的标记里，读这里的 `pendingClose` / `pendingSwitch` / `closeQueue`；第 5 步和 git 那几条一起合成一个组件 |
-| 盘上的东西被外部改了：`treeTick`、重读 + 重列、改名跟走、进废纸篓一并关 | `state/worktree.svelte.ts` | `afterFsChange` 还在 App（要刷 git，第 5 步） |
-| Git：仓库根 / 状态 / 忙、写操作的统一出口（占锁 · 进度 · 收口）、丢弃、提交、差异与合并标签 | `state/git.svelte.ts` | 三块互相调，放一个文件；`editorMarks` 那条 effect 还在 App |
-| 分支与工作树：切分支（含被本地改动挡住那一问）、开 / 建 / 移除工作树 | `state/branches.svelte.ts` | 分支浮层的开合与锚点还在 App（锚点是标题栏的元素） |
-| 拉取与推送：进度、取消、分岔决策、推送确认、失败提示 | `state/remote.svelte.ts` | 往外一个钩子 `warmUi`（先把 Git 那组懒组件拉起来，确认条在里面） |
-| 内容区顶上的全部确认横幅（七条 + 远程三条） | `shell/Confirms.svelte` | 读各自 store 的 `pending*`，按钮直接调 store；`RemoteBars` 以组件类型传进来 |
-| 跳转与跳转历史、给编辑器的「跳到某行」信号 | `state/nav.svelte.ts` | |
-| 会话快照的时机：启动恢复、防抖落盘、退出补写、脏标签定期落盘、升级迁移、清理 | `state/persist.svelte.ts` | 每个窗口写自己那份（`session.keyFor`）；首屏布局在模块初始化时从 `lite-ide.layout` 同步读；格式在 `session.ts` |
-| 五个浮层的开合 | `state/overlay.svelte.ts` | 开它们的人散在六处，所以是 store 不是组件状态 |
-| 语言识别表（懒拉） | `state/lang.svelte.ts` | 状态栏 / 内容区 / 大纲三处直接读 |
-| 内容区：四种视图 + 起点卡片 | `shell/Content.svelte` | `Merge` / `Diff` 以组件类型传进来 |
-| 五个浮层的懒加载与渲染 | `shell/Overlays.svelte` | |
-
-**App.svelte 剩下的**（约 970 行）是真正的壳：Git 那组 `lazyGroup`、偏好（缩略图）、
-`.gitignore` 缓存、拖放、菜单事件与键盘分派（`runMenu` / `onWindowKey`）、
-启动那条 effect、预算行、焦点 / 轮询那几条 effect，以及把各组件接起来的标记。
+`App.svelte` 立项审查时 3,526 行、开拆前 4,380 行：标签管理、会话恢复、Git 动作、面板与终端、菜单事件、快捷键分派、拖放全挤在一个文件里。
+**按工具窗切，不按代码类型切**（IDEA 的每个工具窗就是一个独立单元），二十多块搬进了 `state/*.svelte.ts` 和 `shell/*.svelte`，
+剩下的是真正的壳。逐块搬去了哪、各带走什么，见 [issue #9](https://github.com/Spc-jgs/lite-ide-mac/issues/9) 和 JOURNAL 同期
+（这里原来有一张二十多行的表，2026-10-10 整理文档时压成了这一段 —— 拆完之后它是历史，不是现状）。
 
 **共享状态走 `.svelte.ts` 里一个 class 的 `$state` 字段**（`layout` / `notify` 都是这个写法），
 组件直接读写，App 不当中转站。模块导出的绑定不能被外面重新赋值，
@@ -621,7 +593,7 @@ CSP 违规、Rust panic。保留策略与隐私边界写在 [UNINSTALL.md](../UN
 |---|---|
 | npm 依赖一律进项目 `node_modules`，禁 `-g` | 卸载 = 删目录，零残留 |
 | 不建 LaunchAgent / 登录项 / 后台常驻进程（关掉最后一个窗口应用留在 Dock 上是 macOS 常规，⌘Q 就退） | 删了就干净 |
-| pty 与 rg 子进程必须随它所属的窗口关闭一并 kill（`state.rs::release_window`）；⌘Q 不经过窗口销毁，进程退出时内核收掉 pty | 防孤儿进程 |
+| 窗口名下的子进程（pty、任务）随窗口关闭一并停（`state.rs::release_window`，每张 `Owned` 表都收，测试卡着）；⌘Q 不经过窗口销毁：任务先软停、`RunEvent::Exit` 里强杀剩下的（含正在收尾的），pty 由内核收掉 master 时发 SIGHUP；短命的子进程（git / rg / lsof）由 `procutil::Running` 丢掉即收 | 防孤儿进程 |
 | 配置缓存只写 `com.liteide.app` 标准目录（`Application Support/…/` 下：窗口列表和「最近打开」在 `windows.json`，设置在 `settings.json` / `ui-state.json`） | 卸载路径确定 |
 | bundle id 固定 `com.liteide.app`，永不改 | UNINSTALL.md 全部路径的前提 |
 | `rust-toolchain.toml` pin 版本 | 防 rustup update 后编译行为漂移 |
@@ -629,7 +601,9 @@ CSP 违规、Rust panic。保留策略与隐私边界写在 [UNINSTALL.md](../UN
 | 验证必须用 `pnpm app:build`，不用 `cargo build` | `cargo build` 产出的是 dev 模式二进制，会去连 devUrl，验证的其实是 dev server（详见 BENCHMARK.md 坑四） |
 | capabilities 只开实际用到的权限 | ACL 拒绝在前端表现为静默的 rejection，缺权限很难察觉 |
 | CSP 不能为 `null`，且 `tauri.conf.json` 与 `vite.config.ts` 两处保持一致 | WebView 里的 XSS 在 Tauri 下等于拿到全部 IPC（任意读写文件 + 起子进程）。`style-src` 必须带 `'unsafe-inline'`：CM6 与 xterm 都在运行时往 head 里插 `<style>`。CSP 挡下东西不报错，只表现为「某处不好使」，所以 `main.ts` 里挂了 `securitypolicyviolation` 回传 |
-| 任何可能无上限的子进程输出都要设闸 | `git diff` 会为一个 30MB 的新增文件原样吐 30MB。见 `gitsvc::MAX_DIFF_BYTES` |
+| 任何可能无上限的子进程输出都要设闸，两个管道并发读 | `git diff` 会为一个 30MB 的新增文件原样吐 30MB（`gitsvc::MAX_DIFF_BYTES`）；顺序读 stdout / stderr 会死锁（git commit 挂过、rg 复现过）。统一走 `crates/procutil` |
+| 应用自己写盘的东西都有上限 | 应用日志 2 × 2MB；替换的撤销日志一份、64MB；任务输出每个任务两份、1GB 轮转，启动时清掉 14 天没跑过的项目、总量超 5GB 从最旧的删（`tasksvc::prune`） |
+| 碰盘、碰子进程、碰网络的命令不许在主线程上 | 主线程一堵整个窗口不响应；`src-tauri/tests/main_thread.rs` 卡着同步命令的白名单 |
 
 ---
 

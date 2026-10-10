@@ -1,3 +1,5 @@
+> **历史文档**（2026-08-25 立项时写的）。之后被 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（七处修正）和 [docs/DIRECTION.md](docs/DIRECTION.md)（2026-09-24 改了定位：取代 Sublime 的位置）修正过 —— 现状以那两份为准，这份留着看出发时是怎么想的。
+
 # Lite IDE v2 —— 调研报告与产品方案（个人版）
 
 > **定位：给自己用的 macOS 轻量工作台。** 高频场景按优先级：

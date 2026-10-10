@@ -14,6 +14,8 @@ pnpm test           # 前端测试：纯函数 + 状态层（*.state.test.ts，r
 cd src-tauri && cargo test --workspace
 scripts/build-test-app.sh      # 带测试通道的临时身份 .app（验收用，碰不到真实数据；正式包永远不带）
 scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点
+scripts/accept/tasks.sh        # 任务运行的机制（36 条）；quit.sh 是 Dock 右键退出那条路（6 条）
+scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪样哪段记「未验」）
 scripts/smoke.sh               # 发版前的端到端清单（86 条，约 90 秒），同样走测试通道，先打测试 .app
 ```
 
@@ -42,17 +44,25 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 
 **一律要做：**
 
-- 起子进程前先问「它的输出有上限吗」，没有就设闸
+- 起子进程走 `crates/procutil`（`spawn` / `run_capped`）：stdin 接空、两个管道并发读、输出设闸、丢掉就收尸。
+  先问「它的输出有上限吗」—— 不走它的只有任务（`tasksvc`）和 git fetch / push，理由在 rust.md
+- 碰盘、碰子进程、碰网络的命令写成 `async` + `commands::blocking`；真要留在主线程的写进 `src-tauri/tests/main_thread.rs` 的白名单、写清理由
+- 按窗口登记的资源表用 `Owned<K, V>`（`src-tauri/src/owned.rs`），`release_window` 里收 —— `state.rs` 那条读源码的测试会卡住漏收
 - 改了过 IPC 的 DTO，两侧一起改 —— `src-tauri/tests/dto_sync.rs` 会卡住漂移
 - 改了键位或菜单，先改 `src/lib/state/keymap.ts` —— `menu_sync.rs` 会卡住漂移
 - 改了 Rust 侧 DTO / 命令，同步改桩 `src/lib/dev/mock/<领域>.ts`（和 `src-tauri/src/commands/<领域>.rs` 一一对应）。桩一分叉就开始骗人
+- 页面里的文字走 Svelte 的文本插值，不直接插 HTML —— `tests/no-html-sinks.test.ts` 卡着（一旦能跑别人的脚本就等于拿到这台机器）
 - 改完给出数字。「快了很多」没有信息量，「1112ms → 0.008ms」有
+- 交付前 `pnpm app:bundle`：人是双击 `.app` 验收的
 
 **先问再做：**
 
-- 加依赖（尤其是会进入口包的前端依赖 —— CI 卡 160 KB 红线，145 告警）
+- 加依赖（尤其是会进入口包的前端依赖 —— CI 卡 160 KB 红线，145 告警；同仓库里的新 crate 不算）
 - 改 `tauri.conf.json` 的 `bundle.identifier`、CSP、窗口透明相关的任何一项
 - 提交、推送、建分支
+- 下载东西（工具链、Gradle 发行包、图标）—— 说清是什么、从哪来、多大
+- 往 GitHub 上发 issue / 评论：**仓库是公开的**，不带个人路径和用户名
+- 会占用前台、打断正在用电脑的人的操作（真按键、拉起别的应用做实验）
 
 **不做：**
 
@@ -61,6 +71,8 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 - 拿 `cargo build --release` 当验证
 - 在 `src-tauri/src/commands/` 里写业务逻辑
 - 写错的注释。错的注释比没有注释更害人，这条是有过教训的
+- 验收碰真实数据、发全局按键：一律走测试身份 `.app` 和测试通道（`scripts/lib/bridge.sh`）——
+  System Events 的按键落在最前面的应用上，改过用户正在用的应用的缩放；smoke 往用户的 zsh 历史里写过十行
 
 ## 按你在改什么去读
 
@@ -68,11 +80,13 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 |---|---|
 | `src-tauri/**` | [.claude/rules/rust.md](.claude/rules/rust.md) —— 子进程纪律、std API 会吃掉已有文件、废纸篓、DTO |
 | `src/**/*.svelte` `src/**/*.ts` | [.claude/rules/frontend.md](.claude/rules/frontend.md) —— Svelte 5 runes 的坑、CM6、懒加载、会话恢复、桩 |
-| 界面长什么样 | [.claude/rules/ui.md](.claude/rules/ui.md) —— 十二条写死的界面规矩、键位与菜单栏 |
+| 界面长什么样 | [.claude/rules/ui.md](.claude/rules/ui.md) —— 十四条写死的界面规矩、键位与菜单栏 |
 | 架构与性能预算 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 窗口、事件发给谁、会话快照、退出 | [docs/MULTIWINDOW.md](docs/MULTIWINDOW.md) —— 一个项目一个窗口；进程级的资源要记 owner，跨窗口的东西只有 Rust 一个主人 |
 | 设置、偏好、`settings.json` | [docs/SETTINGS.md](docs/SETTINGS.md) —— 你写的文件应用只读不改，按钮改的另存一份；加设置项先改 `settings.rs` 的 `DEFS`，别的都从它来 |
-| 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位 |
+| 任务运行（⌃R / ⌃⌥R / ⌘F2） | [docs/TASKS.md](docs/TASKS.md) —— 登录 shell、管道不用 pty、整组先软后硬地停、端口卡片、崩溃后收尸 |
+| 跨文件替换 | [docs/REPLACE.md](docs/REPLACE.md) —— 两段提交、撤销日志、命中太多不许执行 |
+| 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位；第 7 节是优先级 |
 | 踩过的坑的全过程 | [docs/JOURNAL.md](docs/JOURNAL.md) |
 | 发版 / CI | [docs/RELEASE.md](docs/RELEASE.md) |
 

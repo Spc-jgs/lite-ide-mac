@@ -29,14 +29,16 @@ Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研（mmap + 稀疏索引）�
 Java 服务日志。Chromium 的字符串模型决定了大文件要么卡死要么爆内存。而我为了这件事
 装一个 IDE，代价是空载 300–500MB、冷启动几秒。
 
-所以 lite-ide 只做四件事，按优先级：
+定位（2026-09-24 定的，见 [docs/DIRECTION.md](docs/DIRECTION.md)）：**取代 Sublime 的那个位置** —— 随手开、秒开、什么文件都敢打开、占用小；
+Java、Python、前端都要用；看日志是它独有的强项；代码智能现阶段不加码。具体做的事：
 
-1. **看 GB 级日志** —— 秒开、按级别过滤、tail、堆栈折叠
-2. **读改代码** —— Java / JS / TS / Python 等 67 种语言，够用的高亮与符号大纲
-3. **Markdown 笔记** —— 所见即所得，光标所在行显示源码
-4. **偶尔敲命令** —— 真 pty，能跑 gradle / npm
+1. **看 GB 级日志** —— 秒开、按级别过滤、tail、堆栈折叠、堆栈帧跳源码
+2. **读改代码** —— 67 种语言的高亮与符号大纲，⌘P 里 `文件@符号` / `文件:行`，跨文件查找替换
+3. **随手记** —— 草稿：打开就能记、不用存，Markdown 所见即所得
+4. **跑命令** —— 真 pty 终端；一个键跑 `mvn spring-boot:run` / `pnpm dev` / `python main.py`，输出进日志视图（[docs/TASKS.md](docs/TASKS.md)）
 
-加上一套完整的 Git（改动、历史泳道图、分支、工作树、双栏差异、冲突解决）。
+加上一套完整的 Git（改动、历史泳道图、分支、工作树、推拉、双栏差异、冲突解决），一个项目一个窗口，
+以及把选中的代码以 `@文件#行` 送进终端里的 `claude`（⌥⌘K）。
 
 ## 实测数字
 
@@ -52,7 +54,7 @@ Java 服务日志。Chromium 的字符串模型决定了大文件要么卡死要
 | 常驻内存 | **152–158 MB** 起来时 · 开 12 个文件 207–259 MB | 4 个进程合计，我们自己那个只占 **32–38 MB**，其余是 WebKit。8 轮开关无泄漏 |
 | 每多一个窗口 | **+30–120 MB** | 一个项目一个窗口，每个窗口一个 WebKit 渲染进程；多少看开着什么（小文件 30–45 MB，大文件 105–122 MB），跟开了多久无关 |
 | 热启动 | **412–429 ms** | 进程起点到会话恢复完、画完；其中入口包只占 57ms |
-| 二进制 | 5.3 MB | `.dmg` 2.9 MB |
+| 二进制 | 7.8 MB | `.dmg` 4.1 MB（2026-10-10，v1.3.0） |
 
 细节与踩过的坑见 [docs/BENCHMARK.md](docs/BENCHMARK.md)。
 
@@ -114,10 +116,10 @@ pnpm dev             # 纯前端 + IPC 桩，改 UI 是毫秒级热更新
 **Git 和搜索都起子进程，不链库。** `.gitignore` 的优先级规则、`core.excludesfile`、
 worktree、submodule、rename 检测 —— 自己实现永远在追移动靶，而 git 本身就是这些规则的
 定义。代价是每次调用 5–15ms 的进程启动，对「焦点变化时刷新」这种频率完全够用。
-libgit2 静态链进来要多 2MB，整个 `.app` 现在才 4.9MB。
+libgit2 静态链进来要多 2MB。起子进程的那套纪律（两个管道并发读、输出设闸、丢掉就收尸）收在 `crates/procutil` 一处。
 
 **重的东西一律按需加载。** CM6 约 340KB、xterm 约 250KB、Git 那套约 60KB、67 个语言包 ——
-只看日志的人一个都不该付钱。入口包 145 KB（CI 卡 160 KB，超 145 KB 先告警）——
+只看日志的人一个都不该付钱。入口包 147 KB（CI 卡 160 KB，超 145 KB 先告警 —— 现在亮着告警，见 #55）——
 量过启动分段之后这条红线只防退化，不再继续压：它只管启动里 57ms 那一段。
 
 **快照发布，不用读写锁。** 索引在后台线程建，`Mutex<Arc<LineIndex>>` 每次发布一个新快照。
@@ -130,14 +132,15 @@ libgit2 静态链进来要多 2MB，整个 `.app` 现在才 4.9MB。
 
 | | 是什么 |
 |---|---|
+| [USAGE.md](docs/USAGE.md) | 怎么装、快捷键速查、每个功能怎么用 |
+| [DIRECTION.md](docs/DIRECTION.md) | 定位、边界、做到哪了、**接下来的优先级** |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构决策长什么样，以及对原方案的七处修正 |
 | [BENCHMARK.md](docs/BENCHMARK.md) | 性能数字与实现陷阱 |
 | [JOURNAL.md](docs/JOURNAL.md) | 时间线上每一步的经过与取舍，含每个踩过的坑 |
-| [USAGE.md](docs/USAGE.md) | 怎么装、快捷键速查、两种模式的区别 |
-| [MULTIWINDOW.md](docs/MULTIWINDOW.md) | 多窗口的设计，以及动工前那次「用完即删」的实测推翻了哪两条假设 |
 | [RELEASE.md](docs/RELEASE.md) | 打包、产物在哪、怎么发版、CI 在做什么 |
-| [PLAN.md](PLAN.md) | 立项时的调研与产品方案（历史文档，已被 ARCHITECTURE 修正过） |
-| [UNINSTALL.md](UNINSTALL.md) | 怎么卸干净 |
+| 各功能的设计稿 | [MULTIWINDOW](docs/MULTIWINDOW.md)（多窗口）· [SETTINGS](docs/SETTINGS.md)（设置）· [REPLACE](docs/REPLACE.md)（跨文件替换）· [TASKS](docs/TASKS.md)（任务运行）· [SPLIT](docs/SPLIT.md)（分屏）· [SCRATCH](docs/SCRATCH.md)（草稿）—— 每份都是「拍板的设计 + 第 0 步实测 + 每一步撞见的」 |
+| [PLAN.md](PLAN.md) | 立项时的调研与产品方案（历史文档，已被 ARCHITECTURE 和 DIRECTION 修正过） |
+| [UNINSTALL.md](UNINSTALL.md) | 怎么卸干净（**草稿在应用数据目录里，删之前先看那一节**） |
 
 ## 结构
 
@@ -146,32 +149,43 @@ src/                    前端（Svelte 5 + CM6）
   lib/logview/          日志视图：虚拟滚动、块解析、格式识别
   lib/editor/           编辑器：语言表、Markdown 实时预览、缩略图、符号大纲
   lib/git/              Git：改动面板、泳道日志、双栏差异、冲突解决、分支选择器
-  lib/shell/            文件树、标签栏
+  lib/shell/            外壳：导轨、侧边栏、文件树、标签栏、底部工具窗、确认卡片
+  lib/run/              运行窗（任务）
+  lib/state/            状态层（*.svelte.ts，裸 node 能测）
   lib/dev/mock*         浏览器里的 IPC 桩（按领域分在 mock/），生产构建里被 DEV 常量分支整段删掉
 
 src-tauri/
   src/commands/         命令层：只解包参数和转错误，不写业务（按领域分文件，DTO 在 dto.rs）
+  src/state.rs          进程级的资源表，按窗口登记（owned.rs），窗口关了只收它自己的
   crates/logengine/     日志引擎（零 Tauri 依赖，可单独 bench）
-  crates/fsservice/     文件读写 + 编码检测
-  crates/gitsvc/        Git（起 git 子进程）
-  crates/searchsvc/     文件索引与内容搜索（起 rg，没有则内置实现）
-  crates/ptysvc/        真 pty
+  crates/fsservice/     文件读写 + 编码检测 + 文件监听
+  crates/gitsvc/        Git（起 git 子进程，带加固参数和信任白名单）
+  crates/searchsvc/     文件索引与内容搜索（起 rg，找不到则内置实现）
+  crates/replacesvc/    跨文件替换（两段提交 + 撤销日志）
+  crates/tasksvc/       任务运行（登录 shell、进程组、先软后硬地停）
+  crates/ptysvc/        真 pty（带背压）
+  crates/procutil/      起子进程：两个管道并发读、输出设闸、丢掉就收尸
+  crates/applog/ excludes/   应用日志 · 哪些目录不进视野
 ```
 
-五个 crate 都**不依赖 Tauri**，可以脱离 GUI 单测和跑 bench。这是刻意的：
-日志引擎是这个项目唯一的技术未知数，它必须能独立验证。
+十个 crate 都**不依赖 Tauri**，可以脱离 GUI 单测和跑 bench。这是刻意的：
+日志引擎是这个项目唯一的技术未知数，它必须能独立验证；后来的子进程、替换、任务也都照这个办。
 
 ## 测试
 
 ```bash
-cd src-tauri && cargo test --workspace    # Rust 162 条
+cd src-tauri && cargo test --workspace    # Rust 408 条
 pnpm check                                # 类型检查
-pnpm test                                 # 前端纯函数 324 条断言
+pnpm test                                 # 前端 50 个文件、约 1,270 条断言
+scripts/smoke.sh                          # 真 .app 端到端 86 条（测试身份、不抢焦点、不碰真实数据）
 ```
 
-前端那 324 条不引测试框架：测的全是纯函数（diff 解析、双栏对照、泳道布局、
-冲突解析、改动行标记），输入输出都是普通数据结构，Node 22+ 能直接跑 `.ts`。
+前端测试不引测试框架：纯函数（diff 解析、双栏对照、泳道布局、冲突解析……）直接跑 `.ts`；
+状态层（`*.svelte.ts`）用 svelte 自己的编译器编一下就能在裸 node 里跑（`tests/runes/`），IPC 走浏览器里那份桩。
 为它们装一套 vitest 加一堆 transform 配置，维护成本比被测代码还高。
+
+有几条规矩是**测试卡着**的，不靠自觉：IPC 两侧的 DTO（`dto_sync`）、菜单和键位表（`menu_sync`）、
+哪些命令能留在主线程（`main_thread`）、按窗口登记的资源关窗口时都收（`state.rs`）、页面里不许直接插 HTML（`no-html-sinks`）。
 
 CI 每次 push 都跑这三样，外加一道**入口包体积门禁**（超过 160 KB 就失败）——
 「重的东西不进入口包」这条红线很容易在「顺手加个 import」时破掉，
@@ -179,7 +193,8 @@ CI 每次 push 都跑这三样，外加一道**入口包体积门禁**（超过 
 
 ## 状态
 
-M0–M16 全部完成，日常在用。不追求功能完备，够自己用就停。
+v1.3.0，日常在用。立项时的 M0–M16、之后的整理 / 多窗口 / 编辑器基本功 / 任务运行都已做完；
+接下来做什么、按什么顺序，见 [DIRECTION.md 第 7 节](docs/DIRECTION.md#7-接下来的优先级2026-10-10)。不追求功能完备，够自己用就停。
 
 ## 许可
 

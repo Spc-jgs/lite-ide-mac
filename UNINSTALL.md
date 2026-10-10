@@ -43,11 +43,22 @@ cp ~/.zshrc ~/.zshrc.bak && sed -i '' '/\.cargo\/env/d' ~/.zshrc   # 自动方�
 
 ## 第 ③ 层：应用与数据（bundle id 统一为 `com.liteide.app`）
 
+> ⚠ **你的草稿在应用数据目录里**：`~/Library/Application Support/com.liteide.app/scratches/`。
+> 下面那条 `rm -rf` 会连它一起删 —— 草稿是你随手记的笔记，不是缓存。要留的话先挪走：
+>
+> ```bash
+> mv ~/Library/"Application Support"/com.liteide.app/scratches ~/Desktop/lite-ide-草稿
+> ```
+>
+> 这个目录里还有：`settings.json` / `ui-state.json`（设置）、`windows.json`（开过哪些窗口、最近打开）、
+> `runs/`（任务的输出，可能有几个 GB）、`replace-journal/`（跨文件替换的撤销记录）。这些删了都不会丢你的东西。
+> 一键卸载脚本（下面）**现在还会连草稿一起删**，改它在 DIRECTION.md 第 7 节排在 P0。
+
 ```bash
 rm -rf ~/Applications/lite-ide.app            # 默认不装到这儿，但你自己拷过去的话删这里
 rm -rf /Applications/lite-ide.app             # 同上
 
-rm -rf ~/Library/"Application Support"/com.liteide.app   # 设置/工作区记录
+rm -rf ~/Library/"Application Support"/com.liteide.app   # 设置、窗口记录、任务输出、替换撤销记录 —— 还有草稿，见上面
 rm -rf ~/Library/Caches/com.liteide.app                  # 缓存
 rm -rf ~/Library/WebKit/com.liteide.app                  # WKWebView 本地存储
 rm -f  ~/Library/Preferences/com.liteide.app.plist       # 偏好设置
@@ -103,6 +114,6 @@ pnpm store prune        # 清 pnpm 全局下载缓存（不影响任何现有项
 |---|---|
 | 一切 npm 依赖装进项目 `node_modules`，禁止 `-g` | 卸载=删目录，零残留 |
 | 不创建 LaunchAgent/LaunchDaemon/登录项 | 无常驻进程，删了就干净 |
-| 终端/pty 子进程必须在主窗口退出时一并 kill | 防止孤儿 zsh 占资源 |
+| 终端 / 任务的子进程随它所属的窗口关闭一并停，⌘Q 时全部停（ARCHITECTURE.md 第 8 节） | 防止孤儿 zsh、占着端口的 java |
 | 配置与缓存只写 `com.liteide.app` 标准目录 | 卸载路径确定，一键清除 |
 | bundle id 固定为 `com.liteide.app`，不许中途改改 | 保证上面所有路径始终有效 |

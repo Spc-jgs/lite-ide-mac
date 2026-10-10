@@ -298,8 +298,9 @@ git 的 stdout 89 字节、stderr 2892 字节）。钩子一话多就写满 stde
 缓冲卡在写上，而我们在等 stdout 的 EOF，那个 EOF 要等它退出才来。
 界面上的表现是「点了提交，然后什么都不再发生」。
 
-`gitsvc::drain_stderr` 起一条线程排空 stderr，`run_capped_raw` / `drain_both`
-都走它。**线程里超过上限也要继续读**，只是不再存 —— 停下来就是同一个死锁。
+排空 stderr 的线程原来是 `gitsvc::drain_stderr`，2026-10-10 收进了 `procutil::spawn`（一起来就挂上），
+git 的 `run_capped_raw` / `drain_both`、搜索、剪贴板、lsof 都走它 —— 搜索那份原来把顺序写反了、复现过死锁。
+**线程里超过上限也要继续读**，只是不再存 —— 停下来就是同一个死锁。
 顺带一句：原来的 `.output()` 反而没这个问题，它内部就是并发读两个管道的；
 **手写顺序读的那一刻就得把这条一起写下来**。
 

@@ -711,6 +711,9 @@ pnpm app:bundle
 ./scripts/uninstall.sh --yes      # 确认后执行
 ```
 
+> ⚠ **草稿会被一起删掉**：它们在应用数据目录里（`~/Library/Application Support/com.liteide.app/scratches/`），
+> 脚本现在不区分。要留的话先挪走，命令在 UNINSTALL.md 第 ③ 层开头。
+
 本项目承诺零全局污染：不装全局 npm 包、无 LaunchAgent、无后台常驻进程
 （关掉最后一个窗口时应用留在 Dock 上是 macOS 的常规，`⌘Q` 就退；终端子进程随它所属的
 窗口关闭，有单测卡着），配置只写 `com.liteide.app` 标准目录。
