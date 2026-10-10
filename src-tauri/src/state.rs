@@ -56,9 +56,30 @@ pub struct AppState {
     pub settings: crate::settings::Store,
     /// 跑着（或跑完了、标签还开着）的任务（#48）。同终端：记 owner，窗口关了只收它自己的
     runs: Mutex<HashMap<u32, Run>>,
+    /// 「哪些任务还在跑」的账本（#48 第 4 步），落在 `<应用数据>/runs/live.json`：应用崩了之后收尸用（`tasksvc::live`）
+    live: Mutex<LiveBook>,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
     next_run: AtomicU32,
+}
+
+/// `live.json` 在内存里的那份。`stale` 是启动时发现的「上次没停干净」的那几个 —— 人点了「结束」或「留着」才从账上划掉，
+/// 没处理之前它们也留在文件里：处理之前应用又崩一次，下次还得找得到它们
+#[derive(Default)]
+struct LiveBook {
+    path: Option<std::path::PathBuf>,
+    list: Vec<tasksvc::live::Live>,
+    stale: Vec<tasksvc::live::Live>,
+}
+
+impl LiveBook {
+    fn save(&self) {
+        if let Some(p) = &self.path {
+            if let Err(e) = tasksvc::live::save(p, &self.list) {
+                applog::write(applog::Level::Warn, "task", &format!("live.json 写不进去：{e}（崩溃后就找不到这次的任务了）"));
+            }
+        }
+    }
 }
 
 /// 一次任务运行。`task` 是 `Arc`：停的时候要有一份活过宽限期（`Task` 被 drop 就是立刻 SIGKILL）
@@ -197,6 +218,49 @@ struct Pty {
 pub const MAX_PTYS: usize = 16;
 
 impl AppState {
+    /// 启动时读 `live.json`：还活着的（组长启动时间对得上）就是上次没停干净的，留着等人处理；已经没了的划掉
+    pub fn init_live(&self, path: std::path::PathBuf) {
+        let mut b = self.live.lock().expect("live 账本锁被毒化");
+        let stale: Vec<_> = tasksvc::live::load(&path).into_iter().filter(tasksvc::live::still_running).collect();
+        b.path = Some(path);
+        b.list = stale.clone();
+        b.stale = stale;
+        b.save();
+    }
+
+    pub fn live_add(&self, l: tasksvc::live::Live) {
+        let mut b = self.live.lock().expect("live 账本锁被毒化");
+        b.list.push(l);
+        b.save();
+    }
+
+    pub fn live_remove(&self, pgid: i32) {
+        let mut b = self.live.lock().expect("live 账本锁被毒化");
+        b.list.retain(|l| l.pgid != pgid);
+        b.save();
+    }
+
+    /// 这个项目上次没停干净的（还活着的才算：启动之后人可能已经在终端里自己 kill 掉了）
+    pub fn stale_for(&self, root: &str) -> Vec<tasksvc::live::Live> {
+        let b = self.live.lock().expect("live 账本锁被毒化");
+        b.stale.iter().filter(|l| l.root == root && tasksvc::live::still_running(l)).cloned().collect()
+    }
+
+    /// 从账上划掉这个项目上次没停干净的那几个，交给调用方处理（结束或者不管）
+    pub fn stale_take(&self, root: &str) -> Vec<tasksvc::live::Live> {
+        let mut b = self.live.lock().expect("live 账本锁被毒化");
+        let (mine, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut b.stale).into_iter().partition(|l| l.root == root);
+        b.stale = rest;
+        b.list.retain(|l| !mine.iter().any(|m| m.pgid == l.pgid));
+        b.save();
+        mine
+    }
+
+    /// 这个进程组是不是我们起过的任务（这次跑的，或者上次没停干净的）：端口卡片上说「是你上次跑的『后端』」
+    pub fn task_named_by_group(&self, pgid: i32) -> Option<String> {
+        self.live.lock().expect("live 账本锁被毒化").list.iter().find(|l| l.pgid == pgid).map(|l| l.name.clone())
+    }
+
     pub fn insert_run(&self, run: Run) -> u32 {
         let id = self.next_run.fetch_add(1, Ordering::Relaxed);
         self.runs.lock().expect("任务表锁被毒化").insert(id, run);
@@ -629,6 +693,43 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         assert!(!tb.alive(), "kill_all_runs 之后 b 也该没了（退出时那一下）");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 崩溃后收尸（#48 第 4 步）：账本里还活着的才算「上次没停干净」，死了的、号被复用的划掉；
+    /// 人处理之前它们要一直留在文件里（处理前又崩一次，下次还得找得到）
+    #[test]
+    fn 上次没停干净的_活着的才算_处理前一直在账上() {
+        let d = std::env::temp_dir().join(format!("lite-ide-live-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("zdot")).unwrap();
+        let spec = tasksvc::Spec {
+            shell: "/bin/zsh".into(),
+            command: "sleep 300".into(),
+            cwd: d.clone(),
+            env: vec![("ZDOTDIR".into(), d.join("zdot").to_string_lossy().into_owned())],
+            log: d.join("t.log"),
+            cap: tasksvc::LOG_CAP,
+        };
+        let t = tasksvc::Task::start(&spec).unwrap();
+        let alive = tasksvc::live::Live { pgid: t.pgid(), started_us: t.started_us().unwrap(), name: "后端".into(), command: "sleep 300".into(), root: "/p".into() };
+        // 组号对、启动时间不对：号被别人复用了，不能认成我们的
+        let reused = tasksvc::live::Live { started_us: alive.started_us + 7, name: "别人".into(), ..alive.clone() };
+        let path = d.join("live.json");
+        tasksvc::live::save(&path, &[alive.clone(), reused]).unwrap();
+
+        let st = AppState::default();
+        st.init_live(path.clone());
+        assert_eq!(st.stale_for("/p").iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["后端"], "只有真活着的那个算");
+        assert!(st.stale_for("/别的项目").is_empty(), "按项目分");
+        assert_eq!(tasksvc::live::load(&path), vec![alive.clone()], "复用了号的那条要从文件里划掉，活着的那条要留着");
+        assert_eq!(st.task_named_by_group(t.pgid()).as_deref(), Some("后端"), "端口卡片要认得出是谁的");
+
+        let took = st.stale_take("/p");
+        assert_eq!(took.len(), 1);
+        assert!(st.stale_for("/p").is_empty(), "处理过了就不再出卡片");
+        assert!(tasksvc::live::load(&path).is_empty(), "处理过了从文件里划掉");
+        t.kill();
         let _ = std::fs::remove_dir_all(&d);
     }
 

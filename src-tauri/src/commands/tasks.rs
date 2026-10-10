@@ -80,13 +80,25 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
         };
         let task = std::sync::Arc::new(tasksvc::Task::start(&spec).map_err(|e| format!("「{name}」起不来：{e}"))?);
         crate::diag!("task_run {name} pgid={} log={}", task.pgid(), spec.log.display());
+        st.live_add(tasksvc::live::Live {
+            pgid: task.pgid(),
+            started_us: task.started_us().unwrap_or(0),
+            name: name.clone(),
+            command: def.command.clone(),
+            root: root.clone(),
+        });
         let id = st.insert_run(crate::state::Run { owner: owner.clone(), root, name: name.clone(), task: task.clone() });
+        let log = spec.log.clone();
         // 等它退出，退了告诉起它的那个窗口。一次运行一条线程，跟着任务的寿命走
         let app2 = app.clone();
         let _ = std::thread::Builder::new().name(format!("task-watch-{id}")).spawn(move || loop {
             if let Some(tasksvc::State::Exited { code, signal, stopped }) = task.wait_exit(std::time::Duration::from_secs(3600)) {
                 let failed = tasksvc::State::Exited { code, signal, stopped }.failed();
-                let _ = app2.emit_to(owner.as_str(), "task-exit", TaskExitDto { id, code, signal, stopped, failed });
+                let st = app2.state::<AppState>();
+                st.live_remove(task.pgid());
+                // 自己失败退出的：看看是不是端口被占（只读输出的最后 64KB —— 报错就在结尾）
+                let port = if failed { port_holder(&st, &log) } else { None };
+                let _ = app2.emit_to(owner.as_str(), "task-exit", TaskExitDto { id, code, signal, stopped, failed, port });
                 return;
             }
         });
@@ -127,3 +139,44 @@ pub fn task_close(id: u32, state: State<'_, AppState>) {
         }
     }
 }
+
+/// 输出结尾认出「端口被占」→ 查出谁在听 → 是不是我们起过的
+fn port_holder(st: &AppState, log: &Path) -> Option<PortHolderDto> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(log).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(64 * 1024))).ok()?;
+    let mut buf = Vec::new();
+    f.take(64 * 1024).read_to_end(&mut buf).ok()?;
+    let port = tasksvc::port::port_in_use(&String::from_utf8_lossy(&buf))?;
+    let h = tasksvc::port::holder(port)?;
+    Some(PortHolderDto { port, pid: h.pid, ours: st.task_named_by_group(h.pgid), command: h.command })
+}
+
+/// 端口卡片上点「结束它」：结束现在占着 `port` 的那个（Rust 这边重新查一次是谁，不信前端带回来的 pid —— 中间可能已经换了人）
+#[tauri::command]
+pub async fn task_free_port(port: u16) -> Result<(), String> {
+    blocking(move || tasksvc::port::free_port(port, tasksvc::GRACE)).await
+}
+
+/// 这个项目上次没停干净的任务（启动后、项目根定了再问）
+#[tauri::command]
+pub fn task_stale(root: String, state: State<'_, AppState>) -> Vec<TaskStaleDto> {
+    state.stale_for(&root).into_iter().map(|l| TaskStaleDto { pgid: l.pgid, name: l.name, command: l.command }).collect()
+}
+
+/// 卡片上的两个按钮：`kill` = 结束它们（整组先软后硬，等它们退干净），否则从账上划掉、不管它们
+#[tauri::command]
+pub async fn task_stale_resolve(root: String, kill: bool, app: tauri::AppHandle) -> Result<(), String> {
+    blocking(move || {
+        let mine = app.state::<AppState>().stale_take(&root);
+        if kill {
+            for l in mine.iter().filter(|l| tasksvc::live::still_running(l)) {
+                tasksvc::stop_group(l.pgid, tasksvc::GRACE);
+            }
+        }
+        Ok(())
+    })
+    .await
+}
+

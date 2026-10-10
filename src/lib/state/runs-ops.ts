@@ -8,7 +8,7 @@ import { project } from "./project.svelte";
 import { notify } from "./notify.svelte";
 import { overlay } from "./overlay.svelte";
 import { listenHere, type TaskExit } from "../ipc/commands";
-import { taskClose, taskNewFile, taskRun, taskStop } from "../ipc/tasks";
+import { taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop } from "../ipc/tasks";
 
 let listening: Promise<unknown> | null = null;
 
@@ -30,7 +30,9 @@ export function exited(x: TaskExit) {
   if (!r) return;
   r.status = x.stopped ? "stopped" : x.failed ? "failed" : "done";
   r.code = x.code;
-  if (r.status === "failed") notify.fail(`「${r.name}」退出了${x.code !== null ? `（退出码 ${x.code}）` : ""}`);
+  r.holder = x.port;
+  // 端口被占有自己的卡片（说清是谁、给出路），不再另弹一句「退出了」
+  if (r.status === "failed" && !x.port) notify.fail(`「${r.name}」退出了${x.code !== null ? `（退出码 ${x.code}）` : ""}`);
 }
 
 /** 亮出运行窗 */
@@ -52,7 +54,7 @@ export async function runTask(name: string, root: string | null = project.root) 
   show();
   try {
     const r = await taskRun(root, name);
-    const tab: RunTab = { id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null };
+    const tab: RunTab = { id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null, holder: null };
     // 同名的那一格原地换掉（位置不跳），没有就加在最后
     const i = runs.list.findIndex((t) => t.root === root && t.name === name);
     if (i >= 0) runs.list[i] = tab;
@@ -109,6 +111,54 @@ export async function openTasksFile(root: string | null = project.root) {
     const p = await taskNewFile(root);
     const { tabflow } = await import("./tabflow.svelte");
     await tabflow.openPath(p, { preview: false });
+  } catch (e) {
+    notify.fail(e instanceof Error ? e.message : String(e));
+  }
+}
+
+/**
+ * 端口卡片上的「结束它并重跑」：结束现在占着那个端口的进程（Rust 那边重新查一次是谁，不信这里带过去的 pid），端口空了再重跑这个任务。
+ * 结束不掉（别的用户的进程、没有权限）就把原因说出来，卡片留着
+ */
+export async function freePortAndRerun(id: number) {
+  const r = runs.list.find((t) => t.id === id);
+  if (!r?.holder) return;
+  const { port } = r.holder;
+  try {
+    await taskFreePort(port);
+  } catch (e) {
+    notify.fail(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  const now = runs.list.find((t) => t.id === id);
+  if (now) now.holder = null;
+  await runTask(r.name, r.root);
+}
+
+/** 卡片上的「不管它」：只收起卡片，不动那个进程 */
+export function dismissHolder(id: number) {
+  const r = runs.list.find((t) => t.id === id);
+  if (r) r.holder = null;
+}
+
+/** 启动后、项目根定了：问一次这个项目有没有上次没停干净的任务 */
+export async function checkStale(root: string) {
+  try {
+    const list = await taskStale(root);
+    if (list.length && project.root === root) runs.stale = { root, list };
+  } catch {
+    /* 问不到就算了：不影响别的功能，下次启动再问（同替换的中断卡片） */
+  }
+}
+
+/** 卡片上的两个按钮：结束它们 / 留着（从账上划掉、不再提醒） */
+export async function resolveStale(kill: boolean) {
+  const s = runs.stale;
+  if (!s) return;
+  runs.stale = null;
+  try {
+    await taskStaleResolve(s.root, kill);
+    if (kill) notify.ok(`上次没停干净的 ${s.list.length} 个任务已经结束`);
   } catch (e) {
     notify.fail(e instanceof Error ? e.message : String(e));
   }

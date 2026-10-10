@@ -26,6 +26,7 @@
   import { overlay } from "../state/overlay.svelte";
   import { replace } from "../state/replace.svelte";
   import { project } from "../state/project.svelte";
+  import { runs } from "../state/runs.svelte";
 
   /** 替换的动作跟着替换浮层懒加载；卡片上点了才拉（启动时那一问已经拉过了，多半是现成的） */
   const replaceOps = () => import("../state/replace-ops");
@@ -107,6 +108,22 @@
     <span>上次的替换中途中断了：<b>已改 {p.changed} 个文件</b>，共 {p.files} 个</span>
     <button class="btn" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(false))}>保留现状</button>
     <button class="btn primary" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(true))}>全部退回改前</button>
+  </div>
+{/if}
+
+{#if runs.stale && runs.stale.root === project.root}
+  {@const s = runs.stale}
+  <!--
+    上次应用没正常退出（崩了、被强杀），它起的任务还在自己的进程组里跑（#48，TASKS.md 第 5 节）—— IDEA 论坛里「IDE 崩了 JVM 还占着 8080」。
+    琥珀：要你决定。默认动作（最右）是结束它们：它们是这个项目的任务、是我们起的，留着多半就是占着端口；「留着」= 从账上划掉、不再提醒
+  -->
+  <div class="confirm warn tall stale">
+    <div class="btext">
+      <span>上次 lite-ide 没正常退出，它起的 <b>{s.list.length} 个任务</b>还在跑（可能占着端口）</span>
+      <span class="rest">{s.list.map((l) => `${l.name}：${l.command}`).join("　·　")}</span>
+    </div>
+    <button class="btn" onclick={() => void import("../state/runs-ops").then((m) => m.resolveStale(false))}>留着</button>
+    <button class="btn primary" onclick={() => void import("../state/runs-ops").then((m) => m.resolveStale(true))}>结束它们</button>
   </div>
 {/if}
 
@@ -280,7 +297,7 @@
   .stack.below-tabs { top: 46px; }
   /* 卡片的面（底、边、投影、淡入、warn / bad 两档色）在 app.css 的 `.confirm`；这里只剩正文排版 */
   .confirm .rest { color: var(--text-faint); font-size: var(--fs-sm); }
-  .err-banner .btext, .trust .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .err-banner .btext, .trust .btext, .stale .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .confirm.trust, .confirm.err-banner { width: min(760px, calc(100% - 32px)); }
   .trust .bbody { white-space: pre-wrap; font-family: var(--code-font); font-size: var(--fs-sm); line-height: 1.55; color: var(--text); }
   .err-banner b { color: var(--lvl-error); }

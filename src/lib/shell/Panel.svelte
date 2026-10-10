@@ -317,6 +317,26 @@
       <!-- 运行窗：只挂当前那一格（卸载不碰进程，见 RunView 头上那段）。按 id 重建：重跑换了 id，句柄跟着换 -->
       {#if layout.panel && panelTool === "run" && activeRun}
         <div class="tool-slot">
+          {#if activeRun.holder}
+            {@const h = activeRun.holder}
+            {@const id = activeRun.id}
+            <!--
+              端口被占（#48，TASKS.md Q6）：把挡路的摆出来、给现成的出路（ui.md 第十三条第三档）。
+              是我们自己上次起的（账上对得上）→ 主按钮；是别的程序 → danger：结束一个不是你起的进程，撤不回来
+            -->
+            <div class="run-cards">
+              <div class="confirm warn">
+                <span>
+                  端口 <b>{h.port}</b> 被 <b>{h.command}</b>（PID {h.pid}）占着{h.ours ? ` —— 是你之前跑的「${h.ours}」，没停干净` : ""}
+                </span>
+                <button class="btn" onclick={() => void ops().then((m) => m.dismissHolder(id))}>不管它</button>
+                <button
+                  class="btn {h.ours ? 'primary' : 'danger'}"
+                  onclick={() => void ops().then((m) => m.freePortAndRerun(id))}
+                >结束它并重跑</button>
+              </div>
+            </div>
+          {/if}
           {#if runView.comp}
             {#key activeRun.id}
               <runView.comp log={activeRun.log} />
@@ -512,4 +532,15 @@
   .dot.running { background: var(--git-added); }
   .dot.stopping { background: var(--lvl-warn); }
   .dot.failed { background: var(--lvl-error); }
+  /* 端口卡片浮在运行输出顶上（同确认条：卡片不撑开内容，ui.md 二之二） */
+  .run-cards {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 8px;
+    z-index: 5;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+  }
 </style>

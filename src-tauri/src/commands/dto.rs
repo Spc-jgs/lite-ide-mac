@@ -584,4 +584,26 @@ pub struct TaskExitDto {
     /// 是我们停的（不算失败，见 tasksvc::State::Exited）
     pub stopped: bool,
     pub failed: bool,
+    /// 失败是因为端口被占、而且查得到是谁占着：卡片上摆出来（TASKS.md Q6）
+    pub port: Option<PortHolderDto>,
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PortHolderDto {
+    pub port: u16,
+    pub pid: i32,
+    /// 进程名（lsof 给的）
+    pub command: String,
+    /// 是我们起过的哪个任务（这次的或上次没停干净的）；不是就 None
+    pub ours: Option<String>,
+}
+
+/// 上次没停干净的任务（#48 第 4 步）：应用崩了，它还在自己的进程组里跑着
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskStaleDto {
+    pub pgid: i32,
+    pub name: String,
+    pub command: String,
 }

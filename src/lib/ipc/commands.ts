@@ -784,5 +784,23 @@ export interface TaskExit {
   /** 是我们停的：不算失败（pnpm 被停掉后退出码非零，TASKS.md 第 10 节） */
   stopped: boolean;
   failed: boolean;
+  /** 失败是因为端口被占、而且查得到是谁占着：卡片上摆出来（TASKS.md Q6） */
+  port: PortHolder | null;
+}
+
+export interface PortHolder {
+  port: number;
+  pid: number;
+  /** 进程名（lsof 给的：java / node / Python） */
+  command: string;
+  /** 是我们起过的哪个任务（这次的或上次没停干净的）；不是就 null */
+  ours: string | null;
+}
+
+/** 上次没停干净的任务：应用崩了，它还在自己的进程组里跑着 */
+export interface TaskStale {
+  pgid: number;
+  name: string;
+  command: string;
 }
 

@@ -148,7 +148,11 @@
   $effect(() => {
     const r = project.root;
     if (!r) return;
-    const id = setTimeout(() => void import("../state/replace-ops").then((m) => m.checkPending(r)), 1500);
+    const id = setTimeout(() => {
+      void import("../state/replace-ops").then((m) => m.checkPending(r));
+      // 上次没停干净的任务（#48）：同一个时机、同一个理由 —— 首屏之后再问，问的是这个项目的
+      void import("../state/runs-ops").then((m) => m.checkStale(r));
+    }, 1500);
     return () => clearTimeout(id);
   });
 

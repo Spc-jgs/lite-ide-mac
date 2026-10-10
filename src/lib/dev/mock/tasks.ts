@@ -93,12 +93,16 @@ let nextRun = 1;
 /** `task-exit` 的监听回调（`plugin:event|listen` 时记下的编号）。精确地发给它，不像 `__mockMenu` 那样广播 */
 const exitCbs = new Set<number>();
 
-function emitExit(id: number, x: { code: number | null; stopped: boolean }) {
+type Holder = { port: number; pid: number; command: string; ours: string | null };
+/** 端口被谁占着（桩里的假占用者）。8080 一开始就被占着；`task_free_port` 清掉它，之后带 fail 的任务就能正常起来（同真实现） */
+const HOLDERS = new Map<number, Holder>([[8080, { port: 8080, pid: 41237, command: "java", ours: null }]]);
+
+function emitExit(id: number, x: { code: number | null; stopped: boolean; port?: Holder | null }) {
   const r = RUNS.get(id);
   if (!r || r.status === "gone") return;
   r.status = "gone";
   clearTimeout(r.timer);
-  const payload = { id, code: x.code, signal: x.stopped ? 2 : null, stopped: x.stopped, failed: !x.stopped && x.code !== 0 };
+  const payload = { id, code: x.code, signal: x.stopped ? 2 : null, stopped: x.stopped, failed: !x.stopped && x.code !== 0, port: x.port ?? null };
   for (const cb of exitCbs) {
     const f = (window as unknown as Record<string, unknown>)[`_cb${cb}`];
     if (typeof f === "function") (f as (e: unknown) => void)({ event: "task-exit", id: 0, payload });
@@ -128,12 +132,17 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       for (const [id, r] of RUNS) if (r.root === root && r.name === name && r.status !== "gone") emitExit(id, { code: 130, stopped: true });
       const id = nextRun++;
       const log = `/mock-runs/${name.replace(/[^\w.-]/g, "_")}.log`;
-      const fail = name.includes("fail");
+      // 名字带 fail 的：8080 还被占着就 0.9 秒后失败退出（输出里那句 `Port 8080 was already in use`）。
+      // 带 ours 的，占着的算「你之前跑的」（主按钮）；不带的是别的程序（danger）—— 两种卡片在浏览器里都看得到
+      const fail = name.includes("fail") && HOLDERS.has(8080);
       FILES[log] = fakeOutput(name, def.command, fail);
       bump(log);
       const run: Run = { root, name, status: "running" };
       RUNS.set(id, run);
-      if (fail) run.timer = setTimeout(() => emitExit(id, { code: 1, stopped: false }), 900);
+      if (fail) {
+        const h = { ...HOLDERS.get(8080)!, ours: name.includes("ours") ? "后端" : null };
+        run.timer = setTimeout(() => emitExit(id, { code: 1, stopped: false, port: h }), 900);
+      }
       return { id, name, command: def.command, log };
     }
     case "task_stop": {
@@ -148,6 +157,20 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       r.timer = setTimeout(() => emitExit(id, { code: 130, stopped: true }), 600);
       return "stopping";
     }
+    case "task_free_port": {
+      // 真实现要等那个进程收尾、端口空出来 —— 等一会儿，「结束它并重跑」那一下的等待在浏览器里看得见
+      await new Promise((r) => setTimeout(r, 400));
+      HOLDERS.delete(Number(a.port));
+      return null;
+    }
+    case "task_stale": {
+      // 造一个「上次没停干净」：控制台里 `__mockStale = [{ pgid: 1, name: "后端", command: "mvn spring-boot:run" }]`，再刷新
+      const all = (globalThis as { __mockStale?: { pgid: number; name: string; command: string }[] }).__mockStale ?? [];
+      return String(a.root) === "/proj" ? all : [];
+    }
+    case "task_stale_resolve":
+      (globalThis as { __mockStale?: unknown[] }).__mockStale = [];
+      return null;
     case "task_close": {
       const id = Number(a.id);
       const r = RUNS.get(id);

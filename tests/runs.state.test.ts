@@ -75,6 +75,27 @@ await ops.stopRun(runs.list[0].id);
 await sleep(50);
 ok(runs.list[0].status === "stopped", `软停中再按一次应该立刻结束：${runs.list[0].status}`);
 
+// ── 端口被占（第 4 步）：fail-boot 失败时 8080 被别的程序占着 → 那格带上「谁占着」；「结束它并重跑」→ 端口空了、原地重跑起来 ──
+const fb2 = runs.list.find((r) => r.name === "fail-boot")!;
+ok(fb2.holder?.port === 8080 && fb2.holder.command === "java" && fb2.holder.ours === null, `失败那格带上占端口的：${JSON.stringify(fb2.holder)}`);
+await ops.freePortAndRerun(fb2.id);
+const fb3 = runs.list.find((r) => r.name === "fail-boot")!;
+ok(fb3.id !== fb2.id && fb3.holder === null && fb3.status === "running", `结束占用者后原地重跑、卡片收起：${JSON.stringify(fb3)}`);
+await sleep(1100);
+ok(runs.list.find((r) => r.name === "fail-boot")?.status === "running", "端口空了，这次没再失败");
+ops.dismissHolder(fb3.id);
+
+// ── 上次没停干净（第 4 步）：问到了出卡片；结束它们 → 卡片收起、账上划掉，再问就没了 ──
+(globalThis as { __mockStale?: unknown[] }).__mockStale = [{ pgid: 4242, name: "后端", command: "mvn spring-boot:run" }];
+await ops.checkStale("/proj");
+ok(runs.stale?.root === "/proj" && runs.stale.list.length === 1, `上次没停干净的出卡片：${JSON.stringify(runs.stale)}`);
+await ops.resolveStale(true);
+ok(runs.stale === null, "点了「结束它们」卡片收起");
+await ops.checkStale("/proj");
+ok(runs.stale === null, "处理过了，再问不该再出");
+await ops.checkStale("/别的项目");
+ok(runs.stale === null, "别的项目的不出");
+
 // ── 关：关掉一格，当前格挪到邻居；关掉最后一格，运行窗收起 ──
 const [a, b] = runs.list.map((r) => r.id);
 runs.activeId = a;

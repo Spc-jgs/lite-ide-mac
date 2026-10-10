@@ -213,3 +213,32 @@ fn 收尸的记录_组号和启动时间都对上才算还活着() {
     assert!(until(3, || !live::still_running(&rec)), "杀掉之后还认成活着");
     assert!(live::load(&d.0.join("没有这个文件.json")).is_empty());
 }
+
+/// 端口被占卡片上点「结束它」：占着的是我们起的那种任务（进程组组长）→ 整组停、端口空出来
+#[test]
+fn 结束占端口的_组长整组停() {
+    let d = dir("free-leader");
+    let port = free_port();
+    let t = Task::start(&spec(&d.0, &format!("nc -lk 127.0.0.1 {port}"))).unwrap();
+    assert!(until(10, || listening(port)));
+    let h = tasksvc::port::holder(port).expect("查不到谁在听");
+    // 间歇红过一次（workspace 全量跑时，单独跑复现不了）：对不上时把现场打出来，下次撞上不用再猜
+    let ps = |g: i32| String::from_utf8_lossy(&std::process::Command::new("ps").args(["-o", "pid,pgid,stat,command", "-g", &g.to_string()]).output().unwrap().stdout).into_owned();
+    assert_eq!(h.pgid, t.pgid(), "nc 应该在任务的进程组里。查到的：{h:?}\n任务组 {}：\n{}\n查到的组：\n{}", t.pgid(), ps(t.pgid()), ps(h.pgid));
+    tasksvc::port::free_port(port, Duration::from_secs(2)).unwrap();
+    assert!(!listening(port) && until(3, || !t.alive()), "端口空了、整组没了");
+}
+
+/// 不是组长的（比如你终端里一个作业里的某一个）：**只动它自己**。它的组里可能还有别人 ——
+/// 这里它和跑测试的进程同组，整组杀的话测试进程自己就没了，这条测试当场失败
+#[test]
+fn 结束占端口的_不是组长只动它自己() {
+    let port = free_port();
+    let mut c = std::process::Command::new("nc").args(["-lk", "127.0.0.1", &port.to_string()]).spawn().unwrap();
+    assert!(until(10, || listening(port)));
+    let h = tasksvc::port::holder(port).unwrap();
+    assert_ne!(h.pgid, h.pid, "它该和测试进程同组、不是组长");
+    tasksvc::port::free_port(port, Duration::from_secs(2)).unwrap();
+    assert!(!listening(port));
+    let _ = c.wait();
+}

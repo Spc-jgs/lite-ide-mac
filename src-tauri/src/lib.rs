@@ -174,6 +174,10 @@ pub fn run() {
              * 启动参数只属于启动时那一个窗口，在这儿送一次。
              */
             let st = app.state::<state::AppState>();
+            // 任务的账本（#48 第 4 步）：上次崩了没停干净的任务在这儿找回来，等它们的项目窗口起来了出卡片
+            if let Ok(dir) = app.path().app_data_dir() {
+                st.init_live(dir.join("runs").join("live.json"));
+            }
             st.windows.register("main");
             winctl::start_saver(app.handle());
             // 上次退出时开着的窗口开回来（多窗口第 3 步）。要在送 argv 之前：
@@ -294,6 +298,9 @@ pub fn run() {
             commands::task_run,
             commands::task_stop,
             commands::task_close,
+            commands::task_free_port,
+            commands::task_stale,
+            commands::task_stale_resolve,
             commands::pty_kill,
             commands::diag,
             commands::app_log,
