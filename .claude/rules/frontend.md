@@ -608,6 +608,9 @@ AX 树读不全，两种都实测骗过人。按窗口 id `screencapture -l`（�
   2026-10-09 在正式包的二进制里 `strings | grep LITE_IDE_TEST_SOCK` 是 0、测试包里是 1
 - **焦点**：启动那一下关不掉（tao 在「启动完成」里无条件 `activateIgnoringOtherApps`，Tauri 没开放那个开关），`lite_launch`
   起来之后立刻把焦点还给你原来的应用；之后应用自己的 `set_focus`、新窗口拿焦点在测试构建里都关了（`crate::may_take_focus`）
+- **读终端 / 画布这类「画出来」的东西，读数据不读 DOM**（2026-10-09）：测试应用的窗口被挡住时页面 `hidden`、帧回调停，
+  xterm 的 DOM 渲染层不画，读 `.xterm-rows` 是空白 —— smoke ㉔ 因此间歇红过好几轮，字其实早进了 shell。`__lite.termText` 读 xterm 缓冲区
+- **测试终端不碰你的 shell 配置和历史**：`lite_launch` 带 `ZDOTDIR=<临时目录>`（smoke 曾把 `cd` 写进用户的 `~/.zsh_history`）
 - **它验不到的**：走的是应用内部的路，`macOS 把按键交给谁`、`WebKit 在真右键时把焦点给谁`这一层验不到（#53、#50）——
   那要真输入，而真输入前必须断言测试应用在最前（下一节）。还有：测试构建里窗口不主动拿焦点，「焦点切换」相关的行为在这里测不到
 

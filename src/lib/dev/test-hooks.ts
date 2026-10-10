@@ -115,8 +115,20 @@ export function installTestHooks() {
       v.dispatch({ selection: { anchor: at(l1, c1), head: at(l2, c2) } });
       v.focus();
     },
-    /** 亮着的那个终端画出来的字（xterm 的 DOM 渲染层，一行一行） */
-    termText: () => document.querySelector<HTMLElement>(".term-slot:not(.hidden) .xterm-rows")?.innerText ?? "",
+    /**
+     * 当前那个终端里的字，读 xterm 解析好的缓冲区（Terminal.svelte 在测试构建里交出来的），一行一行。
+     * **不读 DOM**：测试应用的窗口被别的窗口挡住时页面是 hidden，帧回调停了，xterm 不往 DOM 上画 ——
+     * 读 DOM 的第一版在 smoke ㉔ 里间歇红，那时字其实早进了 shell（2026-10-09）
+     */
+    termText: () => {
+      const reg = (window as unknown as { __liteXterm?: Map<number, { buffer: { active: { length: number; getLine(i: number): { translateToString(trim: boolean): string } | undefined } } }> }).__liteXterm;
+      const t = terms.activeId === null ? undefined : reg?.get(terms.activeId);
+      if (!t) return "";
+      const b = t.buffer.active;
+      const out: string[] = [];
+      for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) ?? "");
+      return out.join("\n").trimEnd();
+    },
     /** 光标此刻在哪：`"行:列"`（都从 1 起）。跳转类的断言读它 */
     where: () => {
       const v = mustEditor();

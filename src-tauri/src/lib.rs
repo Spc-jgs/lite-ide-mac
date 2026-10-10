@@ -25,6 +25,8 @@ pub(crate) fn may_take_focus() -> bool {
     }
 }
 mod state;
+#[cfg(target_os = "macos")]
+mod terminate;
 mod trust_store;
 mod windows;
 mod winctl;
@@ -153,6 +155,10 @@ pub fn run() {
             let (m, handles) = menu::build(app.handle())?;
             app.set_menu(m)?;
             app.manage(handles);
+
+            // Dock 右键「退出」、注销、关机也先存好现场再退（#52）。代理是 tao 在事件循环建好时装的，这里已经在了
+            #[cfg(target_os = "macos")]
+            terminate::install(app.handle());
 
             // 设置在任何窗口的前端开口要它之前读好（前端挂载前就 await settings()，见 settingsctl::init）
             settingsctl::init(app.handle());

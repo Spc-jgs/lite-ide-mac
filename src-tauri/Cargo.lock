@@ -1864,6 +1864,8 @@ dependencies = [
  "fsservice",
  "gitsvc",
  "logengine",
+ "objc2",
+ "objc2-app-kit",
  "ptysvc",
  "replacesvc",
  "searchsvc",

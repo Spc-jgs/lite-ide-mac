@@ -987,7 +987,8 @@ esac
 
 say "㉔ 发送到终端：选中几行 → 终端里出现 @引用、没回车；路径带空格；跟着 cd 走（#45）"
 #
-# 真 shell（你的 $SHELL -l）、真 pty、真 bracketed paste —— 桩上的假 shell 这三样都没有。
+# 真 shell（$SHELL -l，但 ZDOTDIR 指到临时目录，不读你的 .zshrc、不写你的历史，见 bridge.sh）、真 pty、真 bracketed paste ——
+# 桩上的假 shell 这三样都没有。终端里的字读 xterm 的缓冲区，不读画面（__lite.termText 头上那段）。
 # 没装 / 没登录 claude 不影响：验的是写进终端的那串字，claude 认不认这个格式由 tests/claude-ref.test.ts 拿它自己的正则反解
 SND="${FIX}/sp dir"
 mkdir -p "${SND}"
@@ -999,10 +1000,10 @@ if lite_wait "${W}" "return (__lite.text() ?? '').startsWith('l1')" 8; then
   # 第 2 行开头选到第 4 行开头：终点在行首，第 4 行不算 → L2-3
   is "__lite.select(2, 1, 4, 1); return true"
   menu send-to-terminal
-  # 新开的终端要等登录 shell 起来：平时 0.6 秒，冷启动实测到过一分钟（ptysvc 的 PROMPT_BUDGET），给足。
-  # 2026-10-09 第一次跑红过一次：30 秒里终端一个字都没画出来，之后单独循环 6 次都是 0.6 秒，原因没查清 —— 失败信息里带上了现场
+  # 新开的终端要等 shell 起来（空 ZDOTDIR 下不到一秒）。2026-10-09 这里间歇红过好几次，查下来字每次都进了 shell：
+  # 第一版 termText 读的是 xterm 画出来的 DOM，测试窗口被你的窗口挡住时页面 hidden、xterm 不画，读到的是空白
   REF1='@"sp dir/a b.txt#L2-3"'
-  if lite_wait "${W}" "return __lite.termText().includes($(q "${REF1}"))" 70; then
+  if lite_wait "${W}" "return __lite.termText().includes($(q "${REF1}"))" 30; then
     ok "没开终端：开了一个，引用写进去了 ${REF1}"
     # 没回车：shell 要是执行了，下面会有一行报错（command not found / no such file）、引用不在最后一行
     sleep 1
@@ -1027,7 +1028,15 @@ if lite_wait "${W}" "return (__lite.text() ?? '').startsWith('l1')" 8; then
       bad "找不到这个终端的 pty id"
     fi
   else
-    bad "70 秒内终端里没出现 ${REF1}：$(lite eval "${W}" "return JSON.stringify({ terms: __lite.terms.list.length, active: __lite.terms.activeId, tab: __lite.tabs.active?.path ?? null, panel: !!document.querySelector('.panel:not(.hidden)'), text: __lite.termText().trimEnd().split('\\n').slice(-3) })" 2>/dev/null)"
+    # 读现场的 JS 放进变量：直接写在 bad "…$(lite eval … "{ a, b }")…" 里，bash 3.2 会把花括号按逗号展开成好几个词，
+    # 页面收到的是 `JSON.stringify( terms: …)` —— 2026-10-09 被它骗过一次：报的「页面不回话」其实是诊断自己语法错
+    DIAG_JS=$(cat <<'JS'
+return JSON.stringify({ terms: __lite.terms.list.map((t) => t.id), active: __lite.terms.activeId, tab: __lite.tabs.active?.path ?? null,
+  panel: !!document.querySelector('.panel:not(.hidden)'), slots: document.querySelectorAll('.term-slot').length,
+  hiddenTool: [...document.querySelectorAll('.tool-slot.hidden')].map((e) => e.className), text: __lite.termText().slice(-300) })
+JS
+)
+    bad "30 秒内终端里没出现 ${REF1}：$(lite eval "${W}" "${DIAG_JS}" 2>&1)"
   fi
   is "__lite.terms.closeAll(); return true"
 else

@@ -72,6 +72,11 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 # 在 Windows 上会拽进 windows-sys，而这个项目只发 macOS。
 [target.'cfg(target_os = "macos")'.dependencies]
 window-vibrancy = "0.6"
+# Dock 右键「退出」、注销、关机前先落盘（#52，`terminate.rs`）：给 tao 的应用代理补一个 `applicationShouldTerminate:`。
+# 不是新包 —— tao / wry 本来就依赖这两个（锁文件里早有，同版本），提成直接依赖不增加体积。
+# 不手写 objc_msgSend：arm64 上签名写错是运行时崩溃，objc2 的方法声明是带类型的
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder"] }
 
 # 发布构建：体积与速度并重（安装包目标 ~10MB）
 [profile.release]

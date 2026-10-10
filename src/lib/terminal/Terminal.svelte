@@ -358,6 +358,12 @@
      */
     let attached = false;
     let fallback: ReturnType<typeof setTimeout> | undefined;
+    // 测试构建里把 xterm 交给测试钩子读缓冲区（`__lite.termText`）。读 DOM 不行：窗口被挡住时页面是 hidden，
+    // 帧回调停了，xterm 不往 DOM 上画 —— smoke ㉔ 因此间歇红过（字其实已经进了 shell）。常量条件，正式包里整段消掉
+    if (import.meta.env.VITE_TEST_BRIDGE === "1") {
+      const reg = ((window as unknown as { __liteXterm?: Map<number, Terminal> }).__liteXterm ??= new Map());
+      reg.set(tabId, term);
+    }
     const attach = () => {
       if (attached || disposed || ptyId === null) return;
       attached = true;
@@ -405,6 +411,7 @@
       disposed = true;
       clearTimeout(fallback);
       if (attached) attachHook(tabId, null);
+      if (import.meta.env.VITE_TEST_BRIDGE === "1") (window as unknown as { __liteXterm?: Map<number, Terminal> }).__liteXterm?.delete(tabId);
       ro.disconnect();
       if (ptyId !== null) void ptyKill(ptyId);
       search = null;

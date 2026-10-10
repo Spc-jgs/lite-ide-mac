@@ -151,6 +151,8 @@ fn eval(app: &AppHandle, window: &str, body: &str) -> Result<Value, String> {
     }
     let reply = rx.recv_timeout(EVAL_WAIT).map_err(|_| {
         pending().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        // 没回话多半是页面里那段根本没跑起来（语法错、被别的东西截断）：把送进去的原文记下来，看页面收到的是什么
+        crate::diag!("eval#{id} 在 {window} 里 {} 秒没回话，送进去的是：{wrapped}", EVAL_WAIT.as_secs());
         format!("{window} 在 {} 秒内没回话", EVAL_WAIT.as_secs())
     })?;
     let text = reply.get("text").and_then(Value::as_str).unwrap_or("null");

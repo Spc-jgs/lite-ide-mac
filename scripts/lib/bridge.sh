@@ -64,8 +64,13 @@ lite_launch() {
   fi
   local prev
   prev=$(lite_front_id)
-  # -g：后台起。--env 只给这一个进程，不改你的环境
-  open -g --env LITE_IDE_TEST_SOCK="${LITE_TEST_SOCK}" --env LITE_IDE_DEBUG=1 --stderr "${LITE_LOG}" -a "${LITE_APP}" "$@"
+  # -g：后台起。--env 只给这一个进程，不改你的环境。
+  # ZDOTDIR 指到一个空目录：测试应用里开的终端是你的登录 zsh，不隔开的话它读你的 .zshrc、往你的 ~/.zsh_history 里写
+  # （2026-10-09 smoke ㉔ 的 `cd "sp dir"` 就这么写进去了十条）。zsh 的配置和历史都跟着 ZDOTDIR 走（/etc/zshrc 里
+  # HISTFILE=${ZDOTDIR:-$HOME}/.zsh_history），这一项让它们都落在临时目录里；顺带测试不再受你 rc 的快慢影响
+  mkdir -p "${LITE_WORK}/zdot"
+  open -g --env LITE_IDE_TEST_SOCK="${LITE_TEST_SOCK}" --env LITE_IDE_DEBUG=1 --env ZDOTDIR="${LITE_WORK}/zdot" \
+    --stderr "${LITE_LOG}" -a "${LITE_APP}" "$@"
   lite_wait main "return true" 20 || { echo "20 秒内 main 窗口没回话（日志 ${LITE_LOG}）" >&2; return 1; }
   # **启动时那一下抢焦点关不掉**：tao（Tauri 底下的窗口库）在「启动完成」里无条件 activateIgnoringOtherApps，
   # 盖过 `open -g`；tao 有开关，Tauri 没开放（2026-10-09 读源码确认）。应用自己的 set_focus、新窗口拿焦点在测试构建里

@@ -7,6 +7,7 @@
 use crate::state::AppState;
 use crate::windows::{Frame, Saved, SavedWin};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -336,7 +337,8 @@ pub fn menu_without_window(app: &AppHandle, id: &str) {
 /// 第 0 步实测 `pagehide` 里写的东西一条都没留下。所以先给每个窗口发 `flush`，各自存完现场
 /// （会话快照 + 自动保存）回一句 `quit_ready`，全部回齐或者等满 [`QUIT_WAIT`]，再退。
 ///
-/// Dock 右键「退出」、注销、关机不经过菜单项，仍然直接 `terminate:` —— 那几条路只有定时落盘兜底。
+/// Dock 右键「退出」、注销、关机不经过菜单项，AppKit 直接 `terminate:` —— 那几条路由 `terminate.rs` 的钩子
+/// 接住、转到这里（[`system_quit`]），收尾时回 AppKit 一句「可以退了」而不是自己 exit（#52）。
 pub fn quit(app: &AppHandle) {
     let st = app.state::<AppState>();
     let Some(wait) = st.windows.begin_quit() else { return };
@@ -356,8 +358,42 @@ pub fn quit(app: &AppHandle) {
         }
         crate::diag!("退出：等了 {}ms，没回话的 {left} 个", t.elapsed().as_millis());
         save_now(&app);
-        app.exit(0);
+        // 收尾放到主线程上做：系统那条路的钩子也跑在主线程上，「它在不在等回话」和「我们收没收尾」就不会抢
+        let a = app.clone();
+        if app.run_on_main_thread(move || finish_quit(&a)).is_err() {
+            app.exit(0);
+        }
     });
+}
+
+/// 系统那条退出路（Dock 右键 / 注销 / 关机，#52）在等我们回话：收尾时回它，不自己 exit
+static SYSTEM_WAITING: AtomicBool = AtomicBool::new(false);
+/// 收尾已经发出去了（exit 或者回话）。之后再来的 `terminate:` 直接放行，不再等一遍
+static FINISHED: AtomicBool = AtomicBool::new(false);
+
+/// `terminate.rs` 的钩子进来：系统要退出。返回 true = 让它等（收尾时会回话），false = 直接放行。
+///
+/// 只在主线程上调（AppKit 问代理就在主线程），和 [`finish_quit`] 同一个线程，所以不会出现
+/// 「收尾刚判完没人在等、钩子紧接着说我在等」—— 那样系统会永远等不到回话。
+pub fn system_quit(app: &AppHandle) -> bool {
+    if FINISHED.load(Ordering::SeqCst) {
+        return false;
+    }
+    SYSTEM_WAITING.store(true, Ordering::SeqCst);
+    // ⌘Q 的流程已经在跑（⌘Q 之后紧接着注销）就不会再开一遍；它收尾时照样看得到 SYSTEM_WAITING
+    quit(app);
+    true
+}
+
+fn finish_quit(app: &AppHandle) {
+    FINISHED.store(true, Ordering::SeqCst);
+    #[cfg(target_os = "macos")]
+    if SYSTEM_WAITING.load(Ordering::SeqCst) {
+        // AppKit 接着走它的退出：applicationWillTerminate → Tauri 的 RunEvent::Exit → 进程结束
+        crate::terminate::reply_now();
+        return;
+    }
+    app.exit(0);
 }
 
 #[cfg(test)]

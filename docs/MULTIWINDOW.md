@@ -194,8 +194,10 @@ struct Registry {
      按下后 Rust 给每个窗口发 `flush`，每个窗口 `persist.flush()` 之后回一句 `quit_ready`；全部回齐，或者等满 2 秒（实现时从 1 秒放宽：`flush` 里要等自动保存真的写完盘），再调 `app.exit(0)`。
      VS Code 的热退出也是这个顺序：先拦下退出，等各窗口把备份写完再走。
    - 这只接得住 ⌘Q 和菜单里的「退出」。Dock 右键「退出」、注销、关机按 AppKit 的机制会直接发 `terminate:`，
-     绕过菜单项（这一点是推断，没测）。这几条路仍然只靠定时落盘兜底。
-     要彻底接住，得实现 `applicationShouldTerminate:`，tao 没开放这个口子，这一轮不做。
+     绕过菜单项（10-08 实测 `quit` Apple Event 3 次全丢，#52）。
+     **2026-10-09 接住了**（`terminate.rs`）：tao 没开放 `applicationShouldTerminate:`，启动时在运行时给它的代理类补上，
+     答 `NSTerminateLater` → 走同一套 `flush` / `quit_ready` → 回 `replyToApplicationShouldTerminate:YES`。
+     用 Later 不用 Cancel：Cancel 会把注销 / 关机整个打断。验收 `scripts/accept/quit.sh`（修前 0/3、修后 3/3）。
 
 **第 3 条也是现在的单窗口版本就有的问题。** `App.svelte:478` 和 `persist.svelte.ts` 的注释都写着
 「退出前的 pagehide 补写能兜住正常退出」，实测兜不住。照这个推下去，现在按 ⌘Q 时：
