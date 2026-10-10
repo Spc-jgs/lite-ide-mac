@@ -4,14 +4,19 @@
 #   ./scripts/uninstall.sh                 # dry-run 预览，不删除任何东西
 #   ./scripts/uninstall.sh --yes           # 真正执行（保留项目目录）
 #   ./scripts/uninstall.sh --yes --project # 真正执行并删除项目目录本身
+#   ./scripts/uninstall.sh --yes --delete-scratches  # 连草稿一起删（默认先把草稿挪到桌面）
+#
+# 草稿（随手记的笔记）在应用数据目录里（Application Support/<id>/scratches/）。删那个目录之前**默认先把草稿挪到桌面**，
+# 原来是一起删、没有任何提醒（issue #61，2026-10-10 整理文档时发现）
 set -euo pipefail
 
-YES=0; PROJECT=0
+YES=0; PROJECT=0; DEL_SCRATCH=0
 for a in "$@"; do
   case "$a" in
     --yes) YES=1 ;;
     --project) PROJECT=1 ;;
-    *) echo "未知参数: $a (支持 --yes / --project)"; exit 1 ;;
+    --delete-scratches) DEL_SCRATCH=1 ;;
+    *) echo "未知参数: $a (支持 --yes / --project / --delete-scratches)"; exit 1 ;;
   esac
 done
 
@@ -29,11 +34,34 @@ del(){
   fi
 }
 
+# 草稿：有就先挪到桌面（不覆盖任何已有的东西），再让下面删整个应用数据目录。空的照常删，不在桌面上留空文件夹
+DATA="$HOME/Library/Application Support/$APP_ID"
+keep_scratches(){
+  local src="$DATA/scratches" n dest
+  [ -d "$src" ] || return 0
+  n=$(find "$src" -type f | wc -l | tr -d ' ')
+  [ "$n" -gt 0 ] || return 0
+  if [ "$DEL_SCRATCH" = "1" ]; then
+    say "  草稿 $n 份：加了 --delete-scratches，跟着应用数据一起删"
+    return 0
+  fi
+  dest="$HOME/Desktop/lite-ide 草稿（卸载时留下的 $(date +%Y%m%d-%H%M%S)）"
+  if [ "$YES" = "1" ]; then
+    if [ -e "$dest" ]; then say "  $dest 已经存在，不覆盖 —— 停下，什么都没删"; exit 1; fi
+    mkdir -p "$HOME/Desktop"
+    mv "$src" "$dest"
+    say "  草稿 $n 份挪到了：$dest"
+  else
+    say "  [dry] 草稿 $n 份将先挪到：$dest（不想留加 --delete-scratches）"
+  fi
+}
+
 [ "$YES" = "1" ] || say "== DRY-RUN 预览模式：确认无误后加 --yes 执行 =="
 
 say ""
 say "[1/4] 应用数据与缓存 ($APP_ID)"
-del "$HOME/Library/Application Support/$APP_ID"
+keep_scratches
+del "$DATA"
 del "$HOME/Library/Caches/$APP_ID"
 del "$HOME/Library/WebKit/$APP_ID"
 del "$HOME/Library/Preferences/$APP_ID.plist"

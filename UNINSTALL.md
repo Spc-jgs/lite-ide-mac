@@ -52,7 +52,8 @@ cp ~/.zshrc ~/.zshrc.bak && sed -i '' '/\.cargo\/env/d' ~/.zshrc   # 自动方�
 >
 > 这个目录里还有：`settings.json` / `ui-state.json`（设置）、`windows.json`（开过哪些窗口、最近打开）、
 > `runs/`（任务的输出，可能有几个 GB）、`replace-journal/`（跨文件替换的撤销记录）。这些删了都不会丢你的东西。
-> 一键卸载脚本（下面）**现在还会连草稿一起删**，改它在 DIRECTION.md 第 7 节排在 P0。
+> 一键卸载脚本（下面）**默认先把草稿挪到桌面**（`lite-ide 草稿（卸载时留下的 <时间>）`），再删其余的；真要一起删加 `--delete-scratches`。
+> 2026-10-10 之前的脚本是一起删、不提醒的（#61）。
 
 ```bash
 rm -rf ~/Applications/lite-ide.app            # 默认不装到这儿，但你自己拷过去的话删这里
@@ -96,9 +97,10 @@ rm -rf ~/Library/Logs/com.liteide.app                    # 运行日志，见下
 ~/playground/lite-ide/scripts/uninstall.sh           # 默认 dry-run，只预览不动手
 ~/playground/lite-ide/scripts/uninstall.sh --yes     # 真正执行（保留项目目录）
 ~/playground/lite-ide/scripts/uninstall.sh --yes --project   # 连项目目录一起删
+~/playground/lite-ide/scripts/uninstall.sh --yes --delete-scratches   # 草稿也不留（默认是挪到桌面）
 ```
 
-脚本会依次清理第③②层并处理 `~/.zshrc`，每步打印做了什么。
+脚本会依次清理第③②层并处理 `~/.zshrc`，每步打印做了什么。草稿默认先挪到桌面，预览里会说有几份、挪到哪。
 
 ---
 
