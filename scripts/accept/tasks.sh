@@ -154,6 +154,17 @@ lite_quit >/dev/null
 ok "$(wait_for 6 '! listening && [ "$(procs)" = 0 ]' && echo 1)" "⌘Q 之后端口空了、srv 一个不剩（退出流程先软停、RunEvent::Exit 再兜底强杀）"
 ok "$(grep -q 'T48-收尾' "$(logf)" && echo 1)" "退出时也给了它收尾的机会"
 
+echo "== 关掉在跑的格子马上 ⌘Q：正在收尾的（不理软停的）也要停掉（code review 2026-10-10）"
+# 关掉一格 = 软停、宽限期在后台线程里等；原来那个任务一摘出运行表，退出流程就看不见它，线程跟着进程没了，不理 SIGINT 的留成孤儿
+lite_launch "${P}" >/dev/null || exit 1
+lite_wait main "return __lite.project.root === '${P}'" 15
+pick_srv stub >/dev/null
+ok "$(wait_for 10 '[ "$(stubs)" -ge 1 ] && [ "$(dot)" = running ]' && sleep 1 && echo 1)" "stub 跑起来了"
+lite_eval main "return __lite.click('关闭 stub')" >/dev/null
+lite_quit >/dev/null
+ok "$(wait_for 3 '[ "$(stubs)" = 0 ]' && echo 1)" "⌘Q 之后 3 秒内 stub 没了（不用等满它自己 5 秒的宽限期，也不留孤儿）：还剩 $(stubs) 个"
+pkill -KILL -f "${MARK}-stub" 2>/dev/null
+
 echo "== 端口被占（第 4 步）：别的程序占着 ${PORT2}，跑 busy → 卡片说出是谁；点「结束它并重跑」→ 它没了、busy 起来了"
 lite_launch "${P}" >/dev/null || exit 1
 lite_wait main "return __lite.project.root === '${P}'" 15

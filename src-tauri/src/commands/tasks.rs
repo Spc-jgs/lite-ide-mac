@@ -41,22 +41,8 @@ pub async fn task_new_file(root: String) -> Result<String, String> {
     .await
 }
 
-/// 日志放哪：`<应用数据>/runs/<项目根的指纹>/<任务名>.log`（TASKS.md Q7：不往项目里写）。
-/// 指纹用 FNV-1a：要的是「同一个项目每次都落在同一个目录」，`DefaultHasher` 不保证跨版本稳定
-fn log_path(app: &tauri::AppHandle, root: &str, name: &str) -> Result<std::path::PathBuf, String> {
-    let base = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?;
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in root.as_bytes() {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    // 名字里的 `/`（`web/dev`）和别的怪字符换掉：它是文件名的一段，不能变成子目录
-    let safe: String = name.chars().map(|c| if c.is_alphanumeric() || "-_.".contains(c) { c } else { '_' }).collect();
-    Ok(base.join("runs").join(format!("{h:016x}")).join(format!("{safe}.log")))
-}
-
 /// 跑一个任务（按名字现找定义：tasks.json 可能刚改过）。同一个窗口里同名的还在跑 → 先停它、等它真没了再起
-/// （端口要先空出来，TASKS.md「重跑」）。返回这次运行的 id 和日志文件
+/// （`AppState::begin_run`）。返回这次运行的 id 和日志文件
 #[tauri::command]
 pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String, name: String) -> Result<TaskRunDto, String> {
     let owner = window.label().to_string();
@@ -64,18 +50,15 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
         let st = app.state::<AppState>();
         let found = crate::taskdefs::discover(Path::new(&root));
         let def = found.defs.into_iter().find(|d| d.name == name).ok_or_else(|| format!("没有叫「{name}」的任务了（tasks.json 改过？）"))?;
-        if let Some((old, task)) = st.find_run(&owner, &root, &name) {
-            st.remove_run(old);
-            if task.alive() {
-                tasksvc::stop_group(task.pgid(), tasksvc::GRACE);
-            }
-        }
+        let base = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("runs");
+        // 起完、登记进运行表之前一直攥着：同一个任务的第二次 ⌃R 在这儿被挡住
+        let _claim = st.begin_run(&owner, &root, &name)?;
         let spec = tasksvc::Spec {
             shell: crate::settingsctl::terminal_shell(&st),
             command: def.command.clone(),
             cwd: Path::new(&root).join(&def.cwd),
             env: def.env,
-            log: log_path(&app, &root, &name)?,
+            log: tasksvc::log_file(&base, &root, &name),
             cap: tasksvc::LOG_CAP,
         };
         let task = std::sync::Arc::new(tasksvc::Task::start(&spec).map_err(|e| format!("「{name}」起不来：{e}"))?);
@@ -97,7 +80,12 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
                 let st = app2.state::<AppState>();
                 st.live_remove(task.pgid());
                 // 自己失败退出的：看看是不是端口被占（只读输出的最后 64KB —— 报错就在结尾）
-                let port = if failed { port_holder(&st, &log) } else { None };
+                let port = if failed {
+                    tasksvc::port::from_log(&log)
+                        .map(|(port, h)| PortHolderDto { port, pid: h.pid, ours: st.task_named_by_group(h.pgid), command: h.command })
+                } else {
+                    None
+                };
                 let _ = app2.emit_to(owner.as_str(), "task-exit", TaskExitDto { id, code, signal, stopped, failed, port });
                 return;
             }
@@ -135,28 +123,19 @@ pub fn task_stop(id: u32, state: State<'_, AppState>) -> String {
 pub fn task_close(id: u32, state: State<'_, AppState>) {
     if let Some(r) = state.remove_run(id) {
         if r.task.alive() {
-            crate::state::stop_in_background(r.task);
+            state.retire(r.task);
         }
     }
 }
 
-/// 输出结尾认出「端口被占」→ 查出谁在听 → 是不是我们起过的
-fn port_holder(st: &AppState, log: &Path) -> Option<PortHolderDto> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(log).ok()?;
-    let len = f.metadata().ok()?.len();
-    f.seek(SeekFrom::Start(len.saturating_sub(64 * 1024))).ok()?;
-    let mut buf = Vec::new();
-    f.take(64 * 1024).read_to_end(&mut buf).ok()?;
-    let port = tasksvc::port::port_in_use(&String::from_utf8_lossy(&buf))?;
-    let h = tasksvc::port::holder(port)?;
-    Some(PortHolderDto { port, pid: h.pid, ours: st.task_named_by_group(h.pgid), command: h.command })
-}
-
 /// 端口卡片上点「结束它」：结束现在占着 `port` 的那个（Rust 这边重新查一次是谁，不信前端带回来的 pid —— 中间可能已经换了人）
 #[tauri::command]
-pub async fn task_free_port(port: u16) -> Result<(), String> {
-    blocking(move || tasksvc::port::free_port(port, tasksvc::GRACE)).await
+pub async fn task_free_port(port: u16, app: tauri::AppHandle) -> Result<(), String> {
+    blocking(move || {
+        let st = app.state::<AppState>();
+        tasksvc::port::free_port(port, tasksvc::GRACE, |pgid| st.task_by_group(pgid))
+    })
+    .await
 }
 
 /// 这个项目上次没停干净的任务（启动后、项目根定了再问）

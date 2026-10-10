@@ -47,6 +47,22 @@ function show() {
  */
 export async function runTask(name: string, root: string | null = project.root) {
   if (!root) return;
+  // 同一个正在起（重跑要等旧的软停，最多 5 秒，人看着没动静会再按一次 ⌃R）：第二下不再发。
+  // Rust 那边也挡（`begin_run` 的认领），这里先挡住是为了不弹那句「正在起」—— 人只是按急了（code review 2026-10-10）
+  const key = `${root}\n${name}`;
+  if (starting.has(key)) return;
+  starting.add(key);
+  try {
+    await start(name, root);
+  } finally {
+    starting.delete(key);
+  }
+}
+
+/** 正在起的（项目根 + 任务名）。不用响应式：没有界面画它 */
+const starting = new Set<string>();
+
+async function start(name: string, root: string) {
   await listen();
   last[root] = name;
   const old = runs.list.find((t) => t.root === root && t.name === name);

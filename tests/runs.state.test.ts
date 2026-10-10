@@ -53,6 +53,23 @@ ok(runs.list.length === 2, `重跑不该多出一格：${runs.list.map((r) => r.
 ok(runs.list[0].name === "后端" && runs.list[0].id !== first, "重跑的那格原地换成新的一次（新 id）");
 ok(runs.list[1].name === "fail-boot", "别的格子位置不动");
 
+// ── 连按两次 ⌃R：第二下不再发 task_run（重跑要等旧的软停，人会按急）—— code review 2026-10-10 ──
+{
+  const inner = (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+  const orig = inner.invoke;
+  let calls = 0;
+  inner.invoke = (c, a) => {
+    if (c === "task_run") calls++;
+    return orig(c, a);
+  };
+  await Promise.all([ops.runTask("后端"), ops.runTask("后端")]);
+  inner.invoke = orig;
+  ok(calls === 1, `连按两次只该发一次 task_run：发了 ${calls} 次`);
+  ok(runs.list.filter((r) => r.name === "后端").length === 1, "还是一格");
+  await ops.runTask("后端");
+  ok(runs.list.filter((r) => r.name === "后端").length === 1 && runs.list[0].status === "running", "起完之后再按照常能重跑");
+}
+
 // ── 退出事件：自己非零退出 → 失败；桩 0.9 秒后让 fail-boot 退出 ──
 await sleep(1100);
 const fb = runs.list.find((r) => r.name === "fail-boot");

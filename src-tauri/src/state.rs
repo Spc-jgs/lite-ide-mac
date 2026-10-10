@@ -19,7 +19,7 @@
 
 use logengine::{FilterTask, LogFile};
 use ptysvc::Session;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -58,6 +58,12 @@ pub struct AppState {
     runs: Mutex<HashMap<u32, Run>>,
     /// 「哪些任务还在跑」的账本（#48 第 4 步），落在 `<应用数据>/runs/live.json`：应用崩了之后收尸用（`tasksvc::live`）
     live: Mutex<LiveBook>,
+    /// 摘出了运行表、正在软停收尾的任务（关掉一格、关窗口、重跑时的旧那次）。退出时它们也要等、也要强杀 ——
+    /// 原来只活在收尾线程里：关掉一格 5 秒内 ⌘Q，线程跟着进程没了，SIGKILL 发不出去，不理 SIGINT 的就留成孤儿（code review 2026-10-10）。
+    /// `Arc` 包一层：收尾线程停完要把自己从这儿划掉
+    retiring: Arc<Mutex<Vec<Arc<tasksvc::Task>>>>,
+    /// 正在起的（窗口, 项目, 任务名）。连按两次 ⌃R：两条 `task_run` 都找到同一个旧的、各起一份，一份从界面上消失还占着端口（同上）
+    starting: Mutex<HashSet<(String, String, String)>>,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
     next_run: AtomicU32,
@@ -90,13 +96,16 @@ pub struct Run {
     pub task: Arc<tasksvc::Task>,
 }
 
-/// 软停一个任务并**在后台线程里攥着它**直到宽限期结束：表里摘掉了、`Arc` 在这条线程里还活着，
-/// 不会因为最后一份引用没了就当场 SIGKILL（那样 Spring 的关闭钩子就没机会跑）
-pub fn stop_in_background(task: Arc<tasksvc::Task>) {
-    let _ = std::thread::Builder::new().name("task-retire".into()).spawn(move || {
-        tasksvc::stop_group(task.pgid(), tasksvc::GRACE);
-        drop(task);
-    });
+/// [`AppState::begin_run`] 的认领：丢掉时释放（起完、登记进运行表之后再丢）
+pub struct RunClaim<'a> {
+    st: &'a AppState,
+    key: (String, String, String),
+}
+
+impl Drop for RunClaim<'_> {
+    fn drop(&mut self) {
+        self.st.starting.lock().expect("起任务的认领表锁被毒化").remove(&self.key);
+    }
 }
 
 impl AppState {
@@ -282,7 +291,7 @@ impl AppState {
         self.runs.lock().expect("任务表锁被毒化").remove(&id)
     }
 
-    /// 退出前：软停全部（SIGINT 整组），返回还活着的，调用方等它们一会儿
+    /// 退出前：软停全部（SIGINT 整组），返回要等的 —— 连同已经在收尾的那些，调用方等它们一会儿
     pub fn stop_all_runs(&self) -> Vec<Arc<tasksvc::Task>> {
         let all: Vec<Arc<tasksvc::Task>> = self.runs.lock().expect("任务表锁被毒化").values().map(|r| Arc::clone(&r.task)).collect();
         for t in &all {
@@ -290,18 +299,56 @@ impl AppState {
                 t.stop(tasksvc::GRACE);
             }
         }
-        all
+        let retiring = self.retiring.lock().expect("收尾表锁被毒化").clone();
+        all.into_iter().chain(retiring).collect()
     }
 
-    /// 进程真要结束了（`RunEvent::Exit`）：还活着的一律 SIGKILL。`process::exit` 不跑析构，
+    /// 进程真要结束了（`RunEvent::Exit`）：还活着的一律 SIGKILL，**包括正在收尾的**。`process::exit` 不跑析构，
     /// 不在这儿杀，`Task::drop` 那道兜底一次都轮不到 —— 任务在自己的进程组里，不会跟着应用死
     pub fn kill_all_runs(&self) {
-        let all: Vec<Run> = self.runs.lock().expect("任务表锁被毒化").drain().map(|(_, r)| r).collect();
-        for r in &all {
-            if r.task.alive() {
-                r.task.kill();
+        let all: Vec<Arc<tasksvc::Task>> = self.runs.lock().expect("任务表锁被毒化").drain().map(|(_, r)| r.task).collect();
+        let retiring = self.retiring.lock().expect("收尾表锁被毒化").clone();
+        for t in all.iter().chain(&retiring) {
+            if t.alive() {
+                t.kill();
             }
         }
+    }
+
+    /// 软停一个已经摘出运行表的任务，**在后台线程里攥着它**直到停完：`Arc` 在这条线程里还活着，不会因为最后一份引用没了就当场
+    /// SIGKILL（那样 Spring 的关闭钩子就没机会跑）。停完之前它在收尾表里，退出流程看得见它
+    pub fn retire(&self, task: Arc<tasksvc::Task>) {
+        let list = Arc::clone(&self.retiring);
+        list.lock().expect("收尾表锁被毒化").push(Arc::clone(&task));
+        let _ = std::thread::Builder::new().name("task-retire".into()).spawn(move || {
+            task.stop_wait(tasksvc::GRACE);
+            list.lock().expect("收尾表锁被毒化").retain(|t| !Arc::ptr_eq(t, &task));
+        });
+    }
+
+    /// 要起一个任务之前：认领（窗口, 项目, 名字），同名的上一次还在跑就**先停干净**（端口要先空出来，TASKS.md「重跑」）。
+    /// **会阻塞**（最多一个宽限期）。同一个正在起（连按两次 ⌃R）→ Err。认领在返回值丢掉时释放 —— 调用方起完、登记进运行表之后再丢
+    pub fn begin_run(&self, owner: &str, root: &str, name: &str) -> Result<RunClaim<'_>, String> {
+        let key = (owner.to_string(), root.to_string(), name.to_string());
+        if !self.starting.lock().expect("起任务的认领表锁被毒化").insert(key.clone()) {
+            return Err(format!("「{name}」正在起，等它起来再按"));
+        }
+        let claim = RunClaim { st: self, key };
+        if let Some((old, task)) = self.find_run(owner, root, name) {
+            self.remove_run(old);
+            if task.alive() {
+                // 收尾表里登记着再停：这几秒里 ⌘Q，退出流程照样看得见它
+                self.retiring.lock().expect("收尾表锁被毒化").push(Arc::clone(&task));
+                task.stop_wait(tasksvc::GRACE);
+                self.retiring.lock().expect("收尾表锁被毒化").retain(|t| !Arc::ptr_eq(t, &task));
+            }
+        }
+        Ok(claim)
+    }
+
+    /// 按进程组找我们自己还开着的任务：端口卡片上「结束它」要走那个 `Task` 停（不然它的退出被记成失败）
+    pub fn task_by_group(&self, pgid: i32) -> Option<Arc<tasksvc::Task>> {
+        self.runs.lock().expect("任务表锁被毒化").values().find(|r| r.task.pgid() == pgid).map(|r| Arc::clone(&r.task))
     }
 
     /// 登记一个终端，返回它的 id 和背压闸。
@@ -463,7 +510,7 @@ impl AppState {
         };
         for r in runs {
             if r.task.alive() {
-                stop_in_background(r.task);
+                self.retire(r.task);
             }
         }
 
@@ -761,6 +808,74 @@ mod tests {
         assert!(st.watched("a") && st.watched("b"), "b 开项目不能把 a 的监听顶掉");
         st.set_watch("a", None);
         assert!(!st.watched("a") && st.watched("b"), "停 a 不能停到 b");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 起一个真任务（`/bin/zsh -ilc`，空 ZDOTDIR），给下面几条用
+    fn real_task(d: &std::path::Path, tag: &str, command: &str) -> Arc<tasksvc::Task> {
+        std::fs::create_dir_all(d.join("zdot")).unwrap();
+        let spec = tasksvc::Spec {
+            shell: "/bin/zsh".into(),
+            command: command.into(),
+            cwd: d.to_path_buf(),
+            env: vec![("ZDOTDIR".into(), d.join("zdot").to_string_lossy().into_owned())],
+            log: d.join(format!("{tag}.log")),
+            cap: tasksvc::LOG_CAP,
+        };
+        Arc::new(tasksvc::Task::start(&spec).unwrap())
+    }
+
+    fn until(secs: f64, mut f: impl FnMut() -> bool) -> bool {
+        let t = std::time::Instant::now();
+        while t.elapsed().as_secs_f64() < secs {
+            if f() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        f()
+    }
+
+    /// 关掉一格（或关窗口、重跑）之后马上 ⌘Q：正在收尾的那个也要被退出流程看见、被强杀。
+    /// 原来它只活在收尾线程里，进程一结束线程就没了，不理 SIGINT 的任务留成孤儿（code review 2026-10-10）
+    #[test]
+    fn 收尾中的任务_退出时也等也强杀() {
+        let d = std::env::temp_dir().join(format!("lite-ide-retire-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let st = AppState::default();
+        // 等它打出 armed 再停：zsh 起来要 0.3 秒，SIGINT 落在 trap 之前的话它照样被打死，这条就成了软停自己绿的空断言
+        // （第一版就是这样，把「退出时强杀收尾中的」删掉都没红 —— 同 tasksvc 测试里 ARMED 那条的教训）
+        let t = real_task(&d, "r", "trap '' INT; echo armed; sleep 300");
+        let id = st.insert_run(Run { owner: "a".into(), root: "/p".into(), name: "t".into(), task: Arc::clone(&t) });
+        assert!(until(10.0, || std::fs::read_to_string(d.join("r.log")).is_ok_and(|x| x.contains("armed"))), "10 秒没等到 armed");
+        let r = st.remove_run(id).unwrap();
+        st.retire(r.task);
+        assert!(st.stop_all_runs().iter().any(|x| Arc::ptr_eq(x, &t)), "退出流程要等的里面得有它");
+        st.kill_all_runs();
+        // 不理 SIGINT：收尾线程自己要等满 5 秒才强杀；1.5 秒内没了只能是 kill_all_runs 杀的
+        assert!(until(1.5, || !t.alive()), "退出时收尾中的也要强杀");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 重跑：旧的那次要记成「我们停的」（不然 mvn 被停后的 130 报成失败、弹「退出了」）；
+    /// 同一个正在起的时候第二次被挡住（连按两次 ⌃R 不起两份）—— code review 2026-10-10
+    #[test]
+    fn 重跑_旧的记成我们停的_同一个正在起时挡住第二次() {
+        let d = std::env::temp_dir().join(format!("lite-ide-rerun-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let st = AppState::default();
+        let old = real_task(&d, "o", "sleep 300");
+        st.insert_run(Run { owner: "a".into(), root: "/p".into(), name: "t".into(), task: Arc::clone(&old) });
+        assert!(until(5.0, || old.alive()));
+
+        let claim = st.begin_run("a", "/p", "t").expect("第一次该认领到");
+        let s = old.state();
+        assert!(matches!(s, tasksvc::State::Exited { stopped: true, .. }) && !s.failed(), "旧的那次是我们停的，不算失败：{s:?}");
+        assert!(st.find_run("a", "/p", "t").is_none(), "旧的从表里摘掉了");
+        assert!(st.begin_run("a", "/p", "t").is_err(), "正在起的时候第二次要被挡住");
+        assert!(st.begin_run("b", "/p", "t").is_ok(), "别的窗口不受影响");
+        drop(claim);
+        assert!(st.begin_run("a", "/p", "t").is_ok(), "起完（认领丢掉）之后可以再起");
         let _ = std::fs::remove_dir_all(&d);
     }
 }

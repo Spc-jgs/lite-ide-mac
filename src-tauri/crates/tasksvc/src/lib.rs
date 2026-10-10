@@ -20,7 +20,7 @@ pub use sink::rotated;
 
 use std::io::{self, Read};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -101,6 +101,19 @@ pub fn stop_group(pgid: i32, grace: Duration) {
         std::thread::sleep(Duration::from_millis(50));
     }
     signal_group(pgid, libc::SIGKILL);
+}
+
+/// 任务的输出放哪：`<base>/<项目根的指纹>/<任务名>.log`（TASKS.md Q7：不往项目里写）。
+/// 指纹用 FNV-1a：要的是「同一个项目每次都落在同一个目录」，`DefaultHasher` 不保证跨版本稳定。
+/// 名字里的 `/`（`web/dev`）和别的怪字符换成 `_`：它是文件名的一段，不能变成子目录
+pub fn log_file(base: &Path, root: &str, name: &str) -> PathBuf {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in root.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    let safe: String = name.chars().map(|c| if c.is_alphanumeric() || "-_.".contains(c) { c } else { '_' }).collect();
+    base.join(format!("{h:016x}")).join(format!("{safe}.log"))
 }
 
 impl Task {
@@ -187,18 +200,29 @@ impl Task {
         group_alive(self.pgid)
     }
 
+    /// 记下「是我们停的」：组长退出时据此记成「已停止」而不是「失败」。**停一个有 `Task` 的任务，每条路都要先过这里** ——
+    /// 重跑、关格子、端口卡片原来各自直接 `stop_group(pgid)`，绕开了它，于是 `mvn` 被停后那个 130 报成了「失败」、
+    /// 还弹一句「退出了」（code review 2026-10-10）。[`stop_group`] 只留给没有 `Task` 的（崩溃后收尸）
+    fn mark_stopping(&self) {
+        self.shared.stopped.store(true, Ordering::SeqCst);
+        let mut st = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        if *st == State::Running {
+            *st = State::Stopping;
+            self.shared.changed.notify_all();
+        }
+    }
+
     /// 软停：SIGINT 整组，`grace` 后还有活的就 SIGKILL。立刻返回，等待在后台线程里
     pub fn stop(&self, grace: Duration) {
-        self.shared.stopped.store(true, Ordering::SeqCst);
-        {
-            let mut st = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
-            if *st == State::Running {
-                *st = State::Stopping;
-                self.shared.changed.notify_all();
-            }
-        }
+        self.mark_stopping();
         let pgid = self.pgid;
         let _ = std::thread::Builder::new().name(format!("task-stop-{pgid}")).spawn(move || stop_group(pgid, grace));
+    }
+
+    /// 同 [`Task::stop`]，但在当前线程里等到停完（最多 `grace` 多一点）。**会阻塞**，调用方自己在后台线程里
+    pub fn stop_wait(&self, grace: Duration) {
+        self.mark_stopping();
+        stop_group(self.pgid, grace);
     }
 
     /// 强杀：SIGKILL 整组，不等（软停宽限期里再按一次「停止」走这里，同 IDEA 按钮变成「强制结束」）

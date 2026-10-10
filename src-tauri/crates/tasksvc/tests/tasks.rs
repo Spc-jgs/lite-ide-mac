@@ -225,7 +225,7 @@ fn 结束占端口的_组长整组停() {
     // 间歇红过一次（workspace 全量跑时，单独跑复现不了）：对不上时把现场打出来，下次撞上不用再猜
     let ps = |g: i32| String::from_utf8_lossy(&std::process::Command::new("ps").args(["-o", "pid,pgid,stat,command", "-g", &g.to_string()]).output().unwrap().stdout).into_owned();
     assert_eq!(h.pgid, t.pgid(), "nc 应该在任务的进程组里。查到的：{h:?}\n任务组 {}：\n{}\n查到的组：\n{}", t.pgid(), ps(t.pgid()), ps(h.pgid));
-    tasksvc::port::free_port(port, Duration::from_secs(2)).unwrap();
+    tasksvc::port::free_port(port, Duration::from_secs(2), |_| None).unwrap();
     assert!(!listening(port) && until(3, || !t.alive()), "端口空了、整组没了");
 }
 
@@ -238,7 +238,33 @@ fn 结束占端口的_不是组长只动它自己() {
     assert!(until(10, || listening(port)));
     let h = tasksvc::port::holder(port).unwrap();
     assert_ne!(h.pgid, h.pid, "它该和测试进程同组、不是组长");
-    tasksvc::port::free_port(port, Duration::from_secs(2)).unwrap();
+    tasksvc::port::free_port(port, Duration::from_secs(2), |_| None).unwrap();
     assert!(!listening(port));
     let _ = c.wait();
 }
+
+/// 占着端口的是我们自己还开着的任务（卡片说「是你之前跑的」）：要走那个 `Task` 停 —— 它才记得是「我们停的」。
+/// 原来直接 `stop_group`，nc 被 SIGINT 带走，组长的退出记成了「失败」，界面上那一格变红、还弹一句「退出了」（code review 2026-10-10）
+#[test]
+fn 结束占端口的_是自己的任务记成我们停的() {
+    let d = dir("free-ours");
+    let port = free_port();
+    let t = std::sync::Arc::new(Task::start(&spec(&d.0, &format!("nc -lk 127.0.0.1 {port}"))).unwrap());
+    assert!(until(10, || listening(port)));
+    let pgid = t.pgid();
+    tasksvc::port::free_port(port, Duration::from_secs(2), |g| (g == pgid).then(|| t.clone())).unwrap();
+    let st = t.wait_exit(Duration::from_secs(3)).expect("组长该退了");
+    assert!(matches!(st, State::Exited { stopped: true, .. }) && !st.failed(), "是我们停的，不算失败：{st:?}");
+}
+
+/// 日志文件名：同一个项目落同一个目录、名字里的 `/` 不变成子目录
+#[test]
+fn 日志放哪() {
+    let base = Path::new("/r");
+    let a = tasksvc::log_file(base, "/p", "web/dev");
+    assert_eq!(a.parent(), tasksvc::log_file(base, "/p", "x").parent(), "同一个项目同一个目录");
+    assert_ne!(a.parent(), tasksvc::log_file(base, "/q", "x").parent(), "不同项目不同目录");
+    assert_eq!(a.file_name().unwrap(), "web_dev.log");
+    assert_eq!(a.parent().unwrap().parent(), Some(base));
+}
+

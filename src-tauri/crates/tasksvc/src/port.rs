@@ -3,7 +3,10 @@
 //! IDEA 论坛里被骂最多的那条：`Port 8080 was already in use`，上一次没停干净 / IDE 崩了 JVM 还活着，人只能自己 `lsof -i :8080`
 //! 再 `kill`。这里把这两步做了，但**结束谁要人点一下**：可能是别的程序，结束了撤不回来（ui.md 第十三条第三档）。
 
+use crate::Task;
+use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// 输出里认出「端口被占」，返回端口号。只看带 `in use` 的行（各家的说法都有这两个词）；认不出端口号的（Python 的
@@ -103,14 +106,29 @@ pub fn holder(port: u16) -> Option<Holder> {
     Some(Holder { pid, pgid: pgid.unwrap_or(pid), command })
 }
 
+/// 任务失败了：输出结尾认得出「端口被占」，就查出现在是谁在听。只读最后 64KB —— 报错就在结尾，日志可能有 1GB
+pub fn from_log(log: &Path) -> Option<(u16, Holder)> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(log).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(64 * 1024))).ok()?;
+    let mut buf = Vec::new();
+    f.take(64 * 1024).read_to_end(&mut buf).ok()?;
+    let port = port_in_use(&String::from_utf8_lossy(&buf))?;
+    Some((port, holder(port)?))
+}
+
 /// 结束占着 `port` 的那个进程并等端口空出来（最多 `grace` 多一秒）。**会阻塞**，调用方放线程里。
 ///
 /// 动手前**再查一次**是谁：卡片出来到人点按钮之间可能过了几分钟，原来那个进程早退了、号被别人复用了 —— 拿旧的 pid 去杀就杀错了人。
-/// 进程组的组长（我们起的任务、大多数守护进程都是）→ 整组先软后硬；不是组长 → 只动它自己（它的组可能是你终端里的一整个作业，
+/// 是我们自己还开着的任务（`ours` 按进程组认出来）→ 走那个 [`Task`] 停，它才记得是「我们停的」，不报成失败；
+/// 别的进程组的组长（大多数守护进程）→ 整组先软后硬；不是组长 → 只动它自己（它的组可能是你终端里的一整个作业，
 /// 一起停就殃及了别人）：SIGTERM，宽限期后 SIGKILL。
-pub fn free_port(port: u16, grace: Duration) -> Result<(), String> {
+pub fn free_port(port: u16, grace: Duration, ours: impl Fn(i32) -> Option<Arc<Task>>) -> Result<(), String> {
     let Some(h) = holder(port) else { return Ok(()) };
-    if h.pgid == h.pid {
+    if let Some(t) = ours(h.pgid) {
+        t.stop_wait(grace);
+    } else if h.pgid == h.pid {
         crate::stop_group(h.pgid, grace);
     } else {
         // SAFETY: 发给 lsof 刚查出来的那个 pid

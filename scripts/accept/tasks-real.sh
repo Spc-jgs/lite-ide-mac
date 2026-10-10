@@ -154,6 +154,21 @@ else
     ok 1 "找到了 pnpm，vite 监听上 ${VP}"
     VG=$(pgid_of "${VP}"); GROUPS_SEEN+=("${VG}")
     ok "$(curl -s "http://localhost:${VP}/" | grep -qi '<html' && echo 1)" "能打开页面（vite 默认只听 localhost，也就是 ::1，连 127.0.0.1 是连不上的）；组里：$(group_names "${VG}")"
+    # ⌃R 重跑：旧的那次是我们停的，不能报「退出了」。**要用 pnpm 验**：它被停后打 `Command failed`、退出码非零；
+    # mvn 被 SIGINT 后照样 BUILD SUCCESS、退出码 0（第 0 步实测），srv.py 也是 exit(0) —— 拿它们验不出来（code review 2026-10-10，
+    # 第一版放在后端那段，旧包上照样绿才发现）。报错几秒就消失，所以一边等新的起来一边看
+    lite_eval main "__lite.key('Ctrl-r'); return true" >/dev/null
+    SAW=0
+    for ((i = 0; i < 80; i++)); do
+      [ "$(lite_eval main "return __lite.has('退出了')" 2>/dev/null)" = true ] && SAW=1
+      listening "${VP}" && [ "$(pgid_of "${VP}")" != "${VG}" ] && break
+      sleep 0.5
+    done
+    ok "$( [ "$(pgid_of "${VP}")" != "${VG}" ] && listening "${VP}" && echo 1)" "⌃R 重跑起来了（新的进程组 $(pgid_of "${VP}")）"
+    sleep 2   # 报错要是有，也是旧的那次退出时弹的；新的起来之后再多看两秒
+    [ "$(lite_eval main "return __lite.has('退出了')" 2>/dev/null)" = true ] && SAW=1
+    ok "$( [ "${SAW}" = 0 ] && echo 1)" "重跑时旧的那次没报「退出了」—— 是我们停的，不是失败"
+    VG=$(pgid_of "${VP}"); GROUPS_SEEN+=("${VG}")
     stop_and_check "${VP}" "${VG}" "前端"
   else
     ok 0 "40 秒内 vite 没起来：$(logtext 前端 | tail -5 | tr '\n' ' ')"
