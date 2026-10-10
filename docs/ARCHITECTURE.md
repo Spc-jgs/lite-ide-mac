@@ -117,6 +117,7 @@ Java 专用的这些代码跟着 Java 语言包懒加载，经 CM6 的 `language
 │  │ crates/searchsvc   Matcher（唯一的匹配规则）+ rg 找候选 │  │
 │  │ crates/replacesvc  跨文件替换：两段提交 + 替换日志     │  │
 │  │ crates/ptysvc      portable-pty → zsh                 │  │
+│  │ crates/tasksvc     任务：登录 shell、进程组、先软后硬  │  │
 │  └──────────────────────────────────────────────────────┘  │
 └─────────────────────────┬───────────────────────────────────┘
                           │ 子进程

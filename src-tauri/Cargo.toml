@@ -4,6 +4,7 @@ members = [
     "crates/excludes",
     "crates/fsservice",
     "crates/ptysvc",
+    "crates/tasksvc",
     "crates/searchsvc",
     "crates/replacesvc",
     "crates/gitsvc",
