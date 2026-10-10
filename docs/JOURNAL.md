@@ -8795,3 +8795,19 @@ tao 退出用的是 `stop` 不是 `terminate:`，所以我们自己的 `app.exit
    `lite_launch` 现在带 `ZDOTDIR=<临时目录>` —— zsh 的 rc 和 HISTFILE 都跟着它走（`/etc/zshrc` 里 `HISTFILE=${ZDOTDIR:-$HOME}/.zsh_history`）。改完连跑三轮 smoke，历史文件里一条都没再多。
 
 修完连跑三轮：㉔ 9/9，焦点 0 次；其中一轮 ⑭「空草稿关掉就丢」红了一条，看代码是 smoke 自己的时序（新建草稿后没等它成为活动标签就 close-tab），记进 #54，这一轮没动。
+
+## 2026-10-10 · #48 第 0 步：三个真工具 × 管道 / pty，SIGINT 整组 —— 三个建议都成立
+
+设计稿里没把握的三处（管道下输出干不干净、`-ilc` 没有 TTY 时会不会出事、SIGINT 时 Maven 会不会抢先杀子 JVM）全部实测，结果都是「原建议成立」，
+数字在 TASKS.md 第 10 节。最有说服力的一组：每秒 `print` 一行的 Python 脚本，管道下 4 行在第 4.32 秒一起到 —— Sublime 论坛里骂了多年的那个现象原样复现；
+加 `PYTHONUNBUFFERED=1` 就和 pty 一样每秒一行。管道下 Spring Boot、vite 的颜色码都是 0，pty 下分别是 292、42 —— 选管道，日志视图不用学 ANSI。
+
+实测带出来两条进设计：pnpm 被 SIGINT 停掉后打 `[ELIFECYCLE] Command failed.`、退出码非零，所以「我们停的」一律记「已停止」不记「失败」；
+逃出进程组的（Gradle 守护进程、`nohup`、Docker）整组信号够不着，兜底靠按端口查的那张卡片。
+
+**两处弯路，都是实验搭台子时的：**
+- 离线搭 Spring Boot 应用，`mvn -o` 一直报「parent POM has not been downloaded from aliyunmaven before」，而 `~/.m2/repository` 里明明有、来源也写着 aliyunmaven。
+  试了 `-llr`（3.8.8 不认）、改 tracking 文件名（不管用），最后看 `settings.xml` 才发现**本地仓库根本不在 `~/.m2/repository`**（`<localRepository>` 指到了别处）。
+  真正那份里有 3.5.11，换过去就离线编过了（`maven-resources-plugin` 钉到缓存齐全的 3.4.0）。教训：**报错说「没有」时，先确认它找的是不是你看的那个地方。**
+- 实验脚本第一版没回收 zsh，它变成僵尸还挂在进程组里，「组里一个都不剩」永远不成立，15 秒后 `killpg` 只剩僵尸的组还返回 EPERM。
+  当时差点记成「SIGINT 停不掉 Spring」—— 看了一眼输出日志，关闭钩子早跑完了。数进程组成员要跳过 `Z` 状态，自己起的子进程要 `wait`。
