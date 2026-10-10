@@ -165,7 +165,19 @@ pub fn run() {
             // 设置在任何窗口的前端开口要它之前读好（前端挂载前就 await settings()，见 settingsctl::init）
             settingsctl::init(app.handle());
             #[cfg(feature = "test-bridge")]
-            testbridge::start(app.handle());
+            {
+                testbridge::start(app.handle());
+                /*
+                 * 测试应用不当「前台应用」的候选（#54，2026-10-10 实测）：你正在用的应用 ⌘H 隐藏、或者主动放弃激活
+                 * （iPhone 镜像断线重连、企业微信收起）时，macOS 挑一个应用接过前台 —— 实测 12 次里 11 次挑中了后台的测试应用，
+                 * 你接下来敲的字就落进了它。它自己什么都没做，是系统选的；应用退出时则不会（回到上一个前台应用，6/6）。
+                 * Accessory = 不进 Dock、不在 ⌘Tab 里；测试通道不经原生菜单栏和真按键，用不着它当前台。正式包不走这里
+                 */
+                #[cfg(target_os = "macos")]
+                if !may_take_focus() {
+                    let _ = app.handle().set_activation_policy(tauri::ActivationPolicy::Accessory);
+                }
+            }
 
             /*
              * 登记第一个窗口，再把命令行参数送进它的收件箱。

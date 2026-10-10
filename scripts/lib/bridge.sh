@@ -98,7 +98,8 @@ lite_launch() {
   lite_wait main "return true" 20 || { echo "20 秒内 main 窗口没回话（日志 ${LITE_LOG}）" >&2; return 1; }
   # **启动时那一下抢焦点关不掉**：tao（Tauri 底下的窗口库）在「启动完成」里无条件 activateIgnoringOtherApps，
   # 盖过 `open -g`；tao 有开关，Tauri 没开放（2026-10-09 读源码确认）。应用自己的 set_focus、新窗口拿焦点在测试构建里
-  # 都关了（may_take_focus），剩这一下：起来之后立刻把焦点还给你原来在用的应用
+  # 都关了（may_take_focus），剩这一下：起来之后立刻把焦点还给你原来在用的应用。
+  # 测试构建还设了 Accessory（不进 Dock、不在 ⌘Tab 里）：你的应用隐藏 / 放弃激活时，系统不会再把前台转交给它（#54）
   if [ -n "${prev}" ] && [ "$(lite_front_id)" != "${prev}" ]; then
     osascript -e "tell application id \"${prev}\" to activate" >/dev/null 2>&1
   fi
