@@ -9023,3 +9023,13 @@ trash crate 遇到以 `..` 结尾的路径扔的是父目录（读它的 `canoni
 三处读输出的 `.output()`（`rg --version`、`commit_hook_installed`、`repo_filter_drivers`）改走 procutil —— 最后那条原来没有上限。
 CI 只开这一条 lint（`-A clippy::all -D clippy::disallowed_methods`），带上 `test-bridge` 把测试通道的代码一起查（查出一处：启动时删上一轮的 socket 文件）。
 验红：往 fsservice 里加一行直接 `remove_file`，退出码 101、报错指到那一行。标 allow 时顺带看到 `install_cli` 会换掉任何一个叫 `lite` 的软链（P3）。
+
+## 2026-10-12 · 装 `lite` 命令：代码里的保护被我们自己给的命令绕过去了
+
+P3 原来只写了「`install_cli` 是软链就换，不看指向哪」。改的时候顺着看了「没装上」那条路：`link` 处是个真文件时代码不碰它、报 `linked=false` ——
+**然后界面把 `sudo ln -sf "<脚本>" /usr/local/bin/lite` 摆出来让人抄**。`-f` 是强制覆盖：代码小心避开的那个用户文件，用户照我们的提示亲手盖掉。
+保护写在一层、绕过它的路在另一层，单看哪一层都对。
+
+现在 `fsservice::CliLink` 三种：`Linked` / `NoPermission { ours }` / `Taken(是什么)`，补的命令由它给（`fix_cmd`）：被占着不给；没东西给 `ln -s`；
+是我们的旧软链才 `ln -sf`。「是我们的」认三种：指向现在的脚本、指向某个 `.app` 里的 lite-ide 二进制（2026-09-15 之前 USAGE 教的）、
+指向的文件头上有 `CLI_MARK`。测试里八种情形，三个错版本（是软链就换 / 一律 `-f` / 被占着也给命令）各自红在对应那条断言上。

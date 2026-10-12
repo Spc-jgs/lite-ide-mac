@@ -103,7 +103,8 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
         script: "/Users/you/Library/Application Support/com.liteide.app/bin/lite",
         linked: false,
         replaced: false,
-        linkCmd: 'sudo ln -sf "/Users/you/Library/Application Support/com.liteide.app/bin/lite" /usr/local/bin/lite',
+        linkCmd: 'sudo ln -s "/Users/you/Library/Application Support/com.liteide.app/bin/lite" /usr/local/bin/lite',
+        taken: null,
       };
     /*
      * 浏览器里没有原生面板，也没有菜单栏 —— 这三条**必须有桩**，

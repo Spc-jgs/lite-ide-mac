@@ -174,8 +174,10 @@ export interface CliInstall {
   /** `/usr/local/bin/lite` 装上了没 */
   linked: boolean;
   replaced: boolean;
-  /** 没装上时让人自己跑的那一句 `sudo ln -sf …` */
+  /** 没装上时让人自己跑的那一句 `sudo ln -s …`；被别人占着时是空串 */
   linkCmd: string;
+  /** `/usr/local/bin/lite` 已经是别人的东西：说它是什么（「一个文件」「一个指向 … 的软链」）。没被占是 null */
+  taken: string | null;
 }
 
 /** 草稿目录里有什么，最近的在前。目录还不存在就是空列表，不是错误 */

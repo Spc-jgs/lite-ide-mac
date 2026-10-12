@@ -42,6 +42,7 @@ export interface MenuCtx {
 /**
  * 「安装命令行工具…」（issue #40）。装上了说一句；软链没装上（/usr/local/bin 要 sudo）
  * 就把那一句命令摆在横幅里 —— 它不会自动消失，人要把它抄进终端。
+ * 那个位置已经是别人的 `lite`：说清是什么、**不给命令** —— 原来一律给 `ln -sf`，抄进去就把别人的盖了
  */
 async function installCliTool() {
   notify.clear();
@@ -49,6 +50,11 @@ async function installCliTool() {
     const r = await installCli();
     if (r.linked) {
       notify.ok(`${r.replaced ? "已重新安装" : "已安装"} lite 命令 —— 终端里 lite <路径> 就能开`, 5000);
+    } else if (r.taken) {
+      notify.block(
+        `/usr/local/bin/lite 已经是${r.taken}，不是 lite-ide 的，没动它。脚本已写好在下面这里，想用的话软链到 PATH 里另一个名字：`,
+        r.script,
+      );
     } else {
       notify.block(
         "脚本已写好，但 /usr/local/bin 写不进去 —— 在终端里跑这一句补上软链：",

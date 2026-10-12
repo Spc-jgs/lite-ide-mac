@@ -4,7 +4,7 @@ use super::*;
 
 /// 装 `lite` 命令：脚本写到应用数据目录，软链到 `/usr/local/bin/lite`。
 /// 业务在 fsservice；这里只算两个路径、转错误。不提权 —— 软链装不上就把
-/// 那句 `sudo ln -sf` 交给用户。
+/// 那句 `sudo ln -s` 交给用户；那个位置是别人的东西就说清是什么、不给命令（`fsservice::CliLink`）。
 #[tauri::command]
 pub fn install_cli(app: tauri::AppHandle) -> Result<CliInstallDto, String> {
     use tauri::Manager;
@@ -21,16 +21,16 @@ pub fn install_cli(app: tauri::AppHandle) -> Result<CliInstallDto, String> {
     let link = Path::new("/usr/local/bin/lite");
     let r = fsservice::install_cli(&script, &fsservice::cli_script(&bundle), link)
         .map_err(|e| format!("写不了 {}：{e}", script.display()))?;
-    applog::write(
-        applog::Level::Info,
-        "cli",
-        &format!("install_cli script={} linked={} replaced={}", r.script.display(), r.linked, r.replaced),
-    );
+    applog::write(applog::Level::Info, "cli", &format!("install_cli script={} replaced={} link={:?}", r.script.display(), r.replaced, r.link));
     Ok(CliInstallDto {
-        link_cmd: format!("sudo ln -sf \"{}\" {}", r.script.display(), link.display()),
+        link_cmd: r.link.fix_cmd(&r.script, link).unwrap_or_default(),
         script: r.script.to_string_lossy().into_owned(),
-        linked: r.linked,
+        linked: r.link == fsservice::CliLink::Linked,
         replaced: r.replaced,
+        taken: match r.link {
+            fsservice::CliLink::Taken(what) => Some(what),
+            _ => None,
+        },
     })
 }
 

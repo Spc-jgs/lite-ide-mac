@@ -140,8 +140,10 @@ pub struct CliInstallDto {
     /// `/usr/local/bin/lite` 装上了没。没装上时前端把 `link_cmd` 摆出来让人自己跑
     pub linked: bool,
     pub replaced: bool,
-    /// 手动补上软链的那一句
+    /// 手动补上软链的那一句；那个位置被别人占着时是空串（不给命令 —— 原来给的 `ln -sf` 会把它盖掉）
     pub link_cmd: String,
+    /// `/usr/local/bin/lite` 已经是别人的东西：说它是什么。没被占是 None
+    pub taken: Option<String>,
 }
 
 /// Git 控制台里的一条（issue #29）。

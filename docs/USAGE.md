@@ -108,7 +108,11 @@ Downloads 变成项目、进最近列表），落到项目包含它的窗口，�
 
 `/usr/local/bin` 在多数机器上要 sudo 才写得进去，那时脚本已经写好在
 `~/Library/Application Support/com.liteide.app/bin/lite`，界面会把补软链的那句
-`sudo ln -sf …` 摆出来，抄进终端跑一次就行。`.app` 挪过位置就再点一次菜单重装。
+`sudo ln -s …` 摆出来，抄进终端跑一次就行。`.app` 挪过位置就再点一次菜单重装。
+
+`/usr/local/bin/lite` 要是**已经有一个别的 `lite`**（你自己的文件、指向别的工具的软链），lite-ide 不碰它，
+界面说清那儿是什么、不给命令 —— 脚本照样写好了，想用就软链到 PATH 里另一个名字。只有它原来就是 lite-ide 的
+（指向这个脚本、或者按旧版说明指向 `.app` 里的二进制）才会被换掉。
 
 > 这一节到 2026-09-15 之前写的是「给二进制做个软链」—— **那是错的**。macOS 上
 > 双击、拖 Dock、`open -a` 送文件走的是 Apple Event，不走命令行参数；软链到

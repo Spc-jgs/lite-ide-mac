@@ -1205,6 +1205,9 @@ pub fn bundle_from_exe(exe: &Path) -> Option<PathBuf> {
     ok.then(|| app.to_path_buf())
 }
 
+/// 我们生成的 `lite` 脚本头上的那行。认「那个软链是不是我们的」时也靠它（以前装在别处的脚本）
+pub const CLI_MARK: &str = "# lite-ide 的命令行入口";
+
 /// `lite` 脚本的内容。
 ///
 /// **走 `open -a`，不软链到二进制。** macOS 上「打开文件」是 Apple Event
@@ -1220,7 +1223,7 @@ pub fn cli_script(app: &Path) -> String {
         .replace('$', "\\$");
     format!(
         "#!/bin/sh\n\
-         # lite-ide 的命令行入口，由「文件 → 安装命令行工具…」生成。\n\
+         {CLI_MARK}，由「文件 → 安装命令行工具…」生成。\n\
          # 走 open -a 而不是直接跑二进制：macOS 上「打开文件」是 Apple Event，\n\
          # 直接跑只在冷启动时有效，应用已经开着时会再起一个进程。\n\
          exec /usr/bin/open -a \"{quoted}\" \"$@\"\n"
@@ -1232,22 +1235,58 @@ pub fn cli_script(app: &Path) -> String {
 pub struct CliInstall {
     /// 脚本真身落在哪（应用自己的数据目录，永远可写）
     pub script: PathBuf,
-    /// `/usr/local/bin/lite` 那个软链装上了没。没装上时 `script` 仍然是好的，
-    /// 界面把「sudo ln -sf …」那一句摆出来让人自己跑
-    pub linked: bool,
-    /// 原来就有，这次是覆盖
+    /// 脚本原来就有，这次是覆盖
     pub replaced: bool,
+    /// `/usr/local/bin/lite` 那头怎么样了
+    pub link: CliLink,
+}
+
+/// `/usr/local/bin/lite` 那个位置的结果
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CliLink {
+    /// 软链装上了，指向我们的脚本
+    Linked,
+    /// 没装上：那个目录写不进去（多半要 sudo，也可能目录不在）。`ours` = 那儿原来是我们的旧软链 ——
+    /// 补的时候要 `-f` 换掉它；不是的话那儿什么都没有，`ln -s` 就够，**不给 `-f`**
+    NoPermission { ours: bool },
+    /// 那儿是别人的东西，没碰。说的是它是什么（给人看：「一个文件」「一个指向 /opt/x/lite 的软链」）
+    Taken(String),
+}
+
+impl CliLink {
+    /// 没装上时让人自己补的那一句。**被别人占着时没有** —— 原来这里一律给 `sudo ln -sf`，而 `-f` 会把
+    /// install_cli 刚刚小心避开的那个用户文件当场盖掉：代码里的保护被我们自己给的命令绕过去了（2026-10-12）
+    pub fn fix_cmd(&self, script: &Path, link: &Path) -> Option<String> {
+        match self {
+            CliLink::NoPermission { ours } => {
+                Some(format!("sudo ln -s{} \"{}\" {}", if *ours { "f" } else { "" }, script.display(), link.display()))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// `link` 处那个软链是不是我们放的：指向现在的脚本；指向某个 `.app` 里的 lite-ide 二进制（2026-09-15 之前 USAGE 教的装法）；
+/// 或者指向的文件头上有 [`CLI_MARK`]（以前装在别处的脚本）。都不是 → 别人的，不碰
+fn cli_link_is_ours(target: &Path, script: &Path) -> bool {
+    if target == script || target.to_string_lossy().ends_with(".app/Contents/MacOS/lite-ide") {
+        return true;
+    }
+    let mut head = [0u8; 512];
+    let n = fs::File::open(target).and_then(|mut f| io::Read::read(&mut f, &mut head)).unwrap_or(0);
+    String::from_utf8_lossy(&head[..n]).contains(CLI_MARK)
 }
 
 /// 把脚本写到 `script`（覆盖），再在 `link` 处做一个指向它的软链。
 ///
 /// 分两步而不是直接往 `/usr/local/bin` 里写文件：那个目录常常要 sudo，
 /// 而脚本真身放在应用自己的目录里**永远写得进去** —— 软链装不上时只差
-/// 一句 `sudo ln -sf`，比「装失败了，自己想办法」有用得多。
+/// 一句 `sudo ln -s`，比「装失败了，自己想办法」有用得多。
 ///
-/// 软链已经存在就换掉（`.app` 挪过位置之后要重装）；`link` 处是个**普通文件**
-/// 而不是软链时不动它 —— 那可能是用户自己放的别的 `lite`。
-#[allow(clippy::disallowed_methods)] // 脚本真身在应用自己的目录里，覆盖是要的；link 处只换软链，真文件不碰
+/// `link` 处已经有东西时：**是我们的软链才换**（`.app` 挪过位置之后要重装）；别的 —— 真文件、目录、
+/// 指向别的程序的软链 —— 一概不碰，报 [`CliLink::Taken`]。原来是「是软链就换」，不看它指向哪：
+/// 用户自己的 `lite` 要是一个指向别的工具的软链，会被盖掉（2026-10-12 标 clippy 的 allow 时看到的）
+#[allow(clippy::disallowed_methods)] // 脚本真身在应用自己的目录里，覆盖是要的；link 处只换我们自己的软链
 pub fn install_cli(script: &Path, content: &str, link: &Path) -> io::Result<CliInstall> {
     use std::os::unix::fs::PermissionsExt;
     if let Some(dir) = script.parent() {
@@ -1257,18 +1296,30 @@ pub fn install_cli(script: &Path, content: &str, link: &Path) -> io::Result<CliI
     fs::write(script, content)?;
     fs::set_permissions(script, fs::Permissions::from_mode(0o755))?;
 
-    let linked = match fs::symlink_metadata(link) {
-        Ok(m) if m.file_type().is_symlink() => {
-            fs::remove_file(link).and_then(|_| std::os::unix::fs::symlink(script, link)).is_ok()
-        }
-        Ok(_) => false, // 那儿有个真文件，不是我们放的，不碰
-        Err(_) => std::os::unix::fs::symlink(script, link).is_ok(),
+    let link_state = match fs::symlink_metadata(link) {
+        Ok(m) if m.file_type().is_symlink() => match fs::read_link(link) {
+            Ok(t) => {
+                // 相对的指向按软链所在的目录解
+                let t = if t.is_relative() { link.parent().map_or(t.clone(), |p| p.join(&t)) } else { t };
+                if cli_link_is_ours(&t, script) {
+                    match fs::remove_file(link).and_then(|_| std::os::unix::fs::symlink(script, link)) {
+                        Ok(()) => CliLink::Linked,
+                        Err(_) => CliLink::NoPermission { ours: true },
+                    }
+                } else {
+                    CliLink::Taken(format!("一个指向 {} 的软链", t.display()))
+                }
+            }
+            Err(_) => CliLink::Taken("一个读不出指向的软链".into()),
+        },
+        Ok(m) if m.is_dir() => CliLink::Taken("一个目录".into()),
+        Ok(_) => CliLink::Taken("一个文件".into()),
+        Err(_) => match std::os::unix::fs::symlink(script, link) {
+            Ok(()) => CliLink::Linked,
+            Err(_) => CliLink::NoPermission { ours: false },
+        },
     };
-    Ok(CliInstall {
-        script: script.to_path_buf(),
-        linked,
-        replaced,
-    })
+    Ok(CliInstall { script: script.to_path_buf(), replaced, link: link_state })
 }
 
 #[cfg(test)]
@@ -1974,34 +2025,72 @@ mod tests {
         assert!(odd.contains("\"/tmp/a\\\"b\\$c.app\""), "{odd}");
     }
 
+    /// 软链：是我们的才换（指向现在的脚本 / 旧 USAGE 教的 .app 里的二进制 / 头上有标记的旧脚本），别人的一概不碰；
+    /// 没装上时给的那句命令，那儿原来没东西就不带 `-f`，被别人占着就不给 —— 原来一律 `ln -sf`，抄进去就把别人的盖了
     #[test]
-    fn 安装命令行工具_脚本可执行_软链可换_真文件不碰() {
-        use std::os::unix::fs::PermissionsExt;
+    fn 安装命令行工具_只换我们的软链_别人的不碰_补的命令不盖别人() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
         let d = sandbox("cli");
         let script = d.join("bin").join("lite");
-        let link = d.join("usr-local-bin").join("lite");
-        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        let dir = d.join("usr-local-bin");
+        let link = dir.join("lite");
+        fs::create_dir_all(&dir).unwrap();
 
+        // 头一次：脚本可执行、软链指过去
         let r = install_cli(&script, "#!/bin/sh\necho 1\n", &link).unwrap();
-        assert!(r.linked && !r.replaced);
+        assert_eq!((r.link.clone(), r.replaced), (CliLink::Linked, false));
         assert_eq!(fs::metadata(&script).unwrap().permissions().mode() & 0o777, 0o755);
         assert_eq!(fs::read_link(&link).unwrap(), script);
 
-        // 再装一次：覆盖脚本、换掉软链，不报错
+        // 再装一次：覆盖脚本、换掉我们自己的软链
         let r = install_cli(&script, "#!/bin/sh\necho 2\n", &link).unwrap();
-        assert!(r.linked && r.replaced);
+        assert_eq!((r.link, r.replaced), (CliLink::Linked, true));
         assert_eq!(read_text(&script).unwrap(), "#!/bin/sh\necho 2\n");
 
-        // link 处是个真文件（用户自己放的）：不动它，报 linked=false
+        // 别人的软链（指向别的工具）：不碰，说清是什么，不给命令
+        let other = d.join("别的工具").join("lite");
+        fs::remove_file(&link).unwrap();
+        symlink(&other, &link).unwrap();
+        let r = install_cli(&script, "#!/bin/sh\n", &link).unwrap();
+        assert!(matches!(&r.link, CliLink::Taken(w) if w.contains("别的工具")), "{:?}", r.link);
+        assert_eq!(fs::read_link(&link).unwrap(), other, "别人的软链被换了");
+        assert_eq!(r.link.fix_cmd(&script, &link), None, "被别人占着时不该给命令（-f 会把它盖掉）");
+
+        // 旧 USAGE 教的：软链到 .app 里的二进制（指过去的东西不在也认）
+        fs::remove_file(&link).unwrap();
+        symlink(d.join("Old.app/Contents/MacOS/lite-ide"), &link).unwrap();
+        assert_eq!(install_cli(&script, "#!/bin/sh\n", &link).unwrap().link, CliLink::Linked);
+        assert_eq!(fs::read_link(&link).unwrap(), script);
+
+        // 以前装在别处、头上有标记的脚本
+        let old = d.join("旧位置").join("lite");
+        fs::create_dir_all(old.parent().unwrap()).unwrap();
+        fs::write(&old, cli_script(Path::new("/Applications/lite-ide.app"))).unwrap();
+        fs::remove_file(&link).unwrap();
+        symlink(&old, &link).unwrap();
+        assert_eq!(install_cli(&script, "#!/bin/sh\n", &link).unwrap().link, CliLink::Linked);
+
+        // 真文件（用户自己放的）：不碰
         fs::remove_file(&link).unwrap();
         fs::write(&link, "别的 lite").unwrap();
-        let r = install_cli(&script, "#!/bin/sh\necho 3\n", &link).unwrap();
-        assert!(!r.linked);
+        let r = install_cli(&script, "#!/bin/sh\n", &link).unwrap();
+        assert_eq!(r.link, CliLink::Taken("一个文件".into()));
         assert_eq!(read_text(&link).unwrap(), "别的 lite", "用户的文件被盖了");
 
-        // 软链目录不可写（不存在）：脚本照写，只是没链上
+        // 目录写不进去、那儿原来没东西：脚本照写，补的命令不带 -f
         let r = install_cli(&script, "#!/bin/sh\n", &d.join("nope").join("lite")).unwrap();
-        assert!(!r.linked);
+        assert_eq!(r.link, CliLink::NoPermission { ours: false });
+        let cmd = r.link.fix_cmd(&script, &d.join("nope").join("lite")).unwrap();
+        assert!(cmd.starts_with("sudo ln -s \""), "{cmd}");
+
+        // 目录写不进去、那儿是我们的旧软链：补的时候要 -f 换掉它
+        fs::remove_file(&link).unwrap();
+        symlink(&script, &link).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let r = install_cli(&script, "#!/bin/sh\n", &link).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(r.link, CliLink::NoPermission { ours: true });
+        assert!(r.link.fix_cmd(&script, &link).unwrap().starts_with("sudo ln -sf "));
 
         fs::remove_dir_all(&d).ok();
     }
