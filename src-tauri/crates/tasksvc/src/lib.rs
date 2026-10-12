@@ -158,6 +158,7 @@ impl Task {
             .env("PYTHONUNBUFFERED", "1")
             .envs(spec.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .process_group(0);
+        #[allow(clippy::disallowed_methods)] // 任务不走 procutil：长期跑、两路合进一根管道流式落盘（rust.md）
         let mut child = cmd.spawn()?;
         // `cmd` 手里攥着管道写端的两份拷贝。读线程要等**所有**写端都关了才读到 EOF，所以子进程起来之后我们这边一份都不该留。
         // 它到函数末尾本来也会被丢掉，这里显式放掉，免得以后有人把 `cmd` 挪进一个活得更久的地方、读线程从此等不到头

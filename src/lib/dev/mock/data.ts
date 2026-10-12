@@ -455,9 +455,20 @@ export interface LogSrc {
 
 export const lineAt = (n: number) => LINES[n % LINES.length];
 
+/**
+ * 第 5 行是一条约 200KB 的单行 JSON（接口把整个响应体打进了日志）：超过 64KB 的部分不传，
+ * 行尾要说「还有多少没显示」—— 浏览器里看得到那句话，靠的就是这一行（真实现在 logengine/src/block.rs）
+ */
+let longLine: string | null = null;
+const LONG_AT = 4;
+const long = () =>
+  (longLine ??=
+    "2026-08-24 10:00:04.120 INFO  [http-nio-8080-exec-3] c.d.api.OrderController - 响应体 " +
+    JSON.stringify({ orders: Array.from({ length: 2400 }, (_, i) => ({ id: 100000 + i, status: "PAID", amount: 99.5, note: "演示数据" })) }));
+
 /** 那个 1GB 的演示日志。没有对应真文件时一律用它 */
 export const BIG_LOG: LogSrc = {
-  at: lineAt,
+  at: (n) => (n === LONG_AT ? long() : lineAt(n)),
   total: TOTAL,
   levelAt: (n) => LINE_LEVEL[n % LINES.length],
   levels: [456_822, 914_684, 5_026_804, 2_742_487, 0, 910],

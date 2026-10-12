@@ -174,6 +174,7 @@ fn run_streaming(
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    #[allow(clippy::disallowed_methods)] // fetch / push 不走 procutil：边读边解析进度、要能按进程组取消（rust.md）
     let mut child = cmd.spawn().map_err(RemoteError::NoGit)?;
     let pid = child.id();
 

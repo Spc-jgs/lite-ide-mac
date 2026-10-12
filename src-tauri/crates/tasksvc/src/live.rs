@@ -51,6 +51,7 @@ pub fn load(path: &Path) -> Vec<Live> {
 }
 
 /// 整份写。先写临时文件再改名：写到一半崩了，留下的也是上一份完整的
+#[allow(clippy::disallowed_methods)] // 应用自己的 live.json：写临时文件再改名盖过去
 pub fn save(path: &Path, all: &[Live]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;

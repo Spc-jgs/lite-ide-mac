@@ -36,6 +36,8 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -50,6 +52,12 @@ jobs:
         # 也不要让它安静吃光整个 job 的额度
         timeout-minutes: 25
         run: cargo test --workspace --locked
+
+      - name: Rust 的规矩交给编译器（clippy 只查 disallowed-methods）
+        working-directory: src-tauri
+        # 只开这一条：全量 clippy 会冒出几百条和这件事无关的风格警告。清单和每条的理由在 src-tauri/clippy.toml；
+        # 带上 test-bridge，测试通道的代码一起查（features 是叠加的，正式代码照样在里面）
+        run: cargo clippy --workspace --locked --features lite-ide/test-bridge -- -A clippy::all -D clippy::disallowed_methods
 
       - name: 类型检查
         run: pnpm check

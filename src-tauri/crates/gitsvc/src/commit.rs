@@ -26,8 +26,8 @@ fn commit_hook_installed(root: &Path) -> bool {
         .iter()
         .any(|name| {
             let arg = format!("hooks/{name}");
-            let out = match git_cmd_hardened(root, &["rev-parse", "--git-path", &arg]).output() {
-                Ok(o) if o.status.success() => o,
+            let out = match procutil::run_capped(&mut git_cmd_hardened(root, &["rev-parse", "--git-path", &arg]), 4096, procutil::ERR_CAP, procutil::Overflow::Kill) {
+                Ok(o) if o.status.success() && !o.truncated => o,
                 _ => return false,
             };
             let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();

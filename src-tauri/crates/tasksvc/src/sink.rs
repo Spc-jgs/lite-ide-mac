@@ -27,6 +27,7 @@ pub fn rotated(path: &Path) -> PathBuf {
 
 impl Sink {
     /// 开一份新的。已经有上一次的就挪成 `.1`（再上一次的 `.1` 被覆盖：只留一份）
+    #[allow(clippy::disallowed_methods)] // 自己的任务输出：上一次的挪成 .1、新建一份
     pub fn open(path: &Path, cap: u64) -> io::Result<Sink> {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
@@ -64,6 +65,7 @@ impl Sink {
         Ok(())
     }
 
+    #[allow(clippy::disallowed_methods)] // 自己的任务输出轮转
     fn rotate(&mut self) -> io::Result<()> {
         self.file.flush()?;
         fs::rename(&self.path, rotated(&self.path))?;

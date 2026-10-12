@@ -384,15 +384,14 @@ fn repo_filter_drivers(cwd: &Path) -> std::sync::Arc<Vec<String>> {
         }
     }
 
-    // **用不带 filter 关闭的那条**，否则这里会无限递归回 git_cmd
-    let out = git_cmd_hardened(cwd, &[
-        "config",
-        "--local",
-        "--name-only",
-        "--get-regexp",
-        r"^filter\..*\.(smudge|clean|process)$",
-    ])
-    .output();
+    // **用不带 filter 关闭的那条**，否则这里会无限递归回 git_cmd。上限给 1MB：一份过滤器名单不可能这么长，
+    // 真超了宁可少关几个也不能卡住（截断的名单在下面照样逐个关）
+    let out = procutil::run_capped(
+        &mut git_cmd_hardened(cwd, &["config", "--local", "--name-only", "--get-regexp", r"^filter\..*\.(smudge|clean|process)$"]),
+        1 << 20,
+        procutil::ERR_CAP,
+        procutil::Overflow::Kill,
+    );
 
     let mut names: Vec<String> = Vec::new();
     if let Ok(o) = out {
@@ -641,6 +640,7 @@ pub fn discover(path: impl AsRef<Path>) -> Option<PathBuf> {
 }
 
 /// git 在不在。不在就整块功能隐身。
+#[allow(clippy::disallowed_methods)] // 只要退出码：三路都接空，procutil 防的几样都碰不上
 pub fn available() -> bool {
     Command::new("git")
         .arg("--version")

@@ -164,6 +164,7 @@ pub fn clear() {
         Err(p) => p.into_inner(),
     };
     let dir = sink.path.parent().unwrap_or(Path::new(".")).to_path_buf();
+    #[allow(clippy::disallowed_methods)] // 应用自己的日志 app.log.1
     let _ = fs::remove_file(rolled_path(&dir));
     sink.file = OpenOptions::new()
         .create(true)
@@ -224,6 +225,7 @@ impl Sink {
     /// 下面的赋值本来就会把旧句柄 drop 掉。那句话是错的，删了。
     /// 留个记录 —— 「顺手加的防御性代码」和「真的在防什么」得分开。）
     fn roll(&mut self) {
+        #[allow(clippy::disallowed_methods)] // 轮转自己的日志：app.log 挪成 app.log.1，覆盖上一份正是要的
         let _ = fs::rename(&self.path, rolled_path(self.path.parent().unwrap_or(Path::new("."))));
         self.file = OpenOptions::new()
             .create(true)

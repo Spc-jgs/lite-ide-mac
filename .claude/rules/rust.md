@@ -110,6 +110,12 @@ Tauri 的 `#[tauri::command] fn`（不带 `async`）**跑在主线程上** —�
 
 ## 起子进程时的三条硬纪律
 
+**这一节和「改盘的 std API」「删除只走废纸篓」三节的规矩，由 clippy 卡着**（2026-10-12，`src-tauri/clippy.toml` 的 `disallowed-methods`，
+CI 只查这一条）：`Command::output / spawn / status`、`File::create`、`fs::write`、`fs::rename`、`fs::remove_file`、`fs::remove_dir_all` 直接用就报错，
+报错里带着理由。有意要用的地方标 `#[allow(clippy::disallowed_methods)]`、同一行写为什么 —— 现在 34 处，都是写自己的文件、改名自己的临时文件、
+只要退出码不建管道的、或者 procutil / 任务 / fetch 本身。**原来这些只写在这份文档里**，第一次拿 clippy 量就抓到 `gitsvc::discard` 直接删未跟踪文件；
+三处读输出的 `.output()`（`rg --version`、两条 git 小查询）顺手改走了 procutil。
+
 **起子进程、读它的输出，用 `crates/procutil`**（`spawn` / `run_capped`）：stdin 接空、stderr 一起来就在另一条线程里排空、
 stdout 有上限（超了「杀掉」还是「读完不存」由调用方选）、丢掉就杀掉并收尸。下面几节讲的「两个管道要并发读」「读 cap+1 判截断」
 「被掐掉的退出码没有意义」都在它里面、各有一条验过红的测试。**原来这些只写在这份文档里，四个模块各写一遍，

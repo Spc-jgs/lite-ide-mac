@@ -3,7 +3,12 @@
  *
  * 布局（小端）：
  *   [u64 firstLine][u32 count][u32 len_0 .. len_{count-1}][payload UTF-8]
+ *
+ * 截过的行（Rust 侧 `MAX_LINE_BYTES`，64KB）：`len` 的最高位是 1，这段字节后面跟一个 `u64` = 这一行原本多少字节。
+ * 读出来放进 `more`（还有多少字节没显示），界面在行尾说出来 —— 原来只截不说（logengine/src/block.rs 头上有来龙去脉）
  */
+
+const CLIPPED = 0x8000_0000;
 
 /**
  * 解码器按编码标签缓存。
@@ -34,6 +39,16 @@ function decoderFor(label: string): TextDecoder {
 export interface Block {
   firstLine: number;
   lines: string[];
+  /** 第 i 行还有多少字节没显示；一行都没截过时是 null（绝大多数块，省一个千元素的数组） */
+  more: number[] | null;
+}
+
+/** 「还有多少没显示」的那句话。数字要真：KB 以下按字节说，往上一位小数 */
+export function cutNote(bytes: number): string {
+  // 中文单位后面直接接字，英文单位后面空一格（「500 字节没显示」「1.5 KB 没显示」）
+  const size =
+    bytes < 1024 ? `${bytes} 字节` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB ` : `${(bytes / 1024 / 1024).toFixed(1)} MB `;
+  return `…这一行还有 ${size}没显示`;
 }
 
 export function decodeBlock(buf: ArrayBuffer, encoding = "utf-8"): Block {
@@ -47,10 +62,19 @@ export function decodeBlock(buf: ArrayBuffer, encoding = "utf-8"): Block {
   const bytes = new Uint8Array(buf);
   let pos = 12 + count * 4;
 
+  let more: number[] | null = null;
+
   for (let i = 0; i < count; i++) {
-    const len = view.getUint32(12 + i * 4, true);
+    const raw = view.getUint32(12 + i * 4, true);
+    // `>>> 0`：位运算的结果是有符号 32 位，最高位一置上就成了负数
+    const len = (raw & ~CLIPPED) >>> 0;
     lines[i] = decoder.decode(bytes.subarray(pos, pos + len));
     pos += len;
+    if (raw & CLIPPED) {
+      const full = Number(view.getBigUint64(pos, true));
+      pos += 8;
+      (more ??= new Array(count).fill(0))[i] = full - len;
+    }
   }
-  return { firstLine, lines };
+  return { firstLine, lines, more };
 }

@@ -127,6 +127,7 @@ pub fn apply_worktree(root: impl AsRef<Path>, patch: &str, reverse: bool) -> R<(
 /// `apply_cached` / `apply_worktree` 共用的那一段：写临时文件、拼参数、用完删。
 /// 两个入口只差一个 `--cached` —— 抄第二份的话「临时文件删不掉不算错」「`--recount`」
 /// 这两条就要各记一遍。
+#[allow(clippy::disallowed_methods)] // 自己的临时 patch 文件，用完删掉
 fn apply_patch(root: &Path, patch: &str, cached: bool, reverse: bool) -> R<()> {
     let tmp = std::env::temp_dir().join(format!(
         "lite-ide-hunk-{}-{}.patch",

@@ -10,6 +10,11 @@
 //! ```
 //! payload 是 count 段**原始字节**，按 len 依次切分，不含行尾换行符。
 //!
+//! **截过的行**（超过 [`MAX_LINE_BYTES`]）：`len` 的最高位置 1（[`CLIPPED`]，低 31 位照旧是这段的字节数），
+//! 这段字节后面紧跟一个 `u64`：这一行**原本**有多少字节。界面拿它在行尾说「还有多少没显示」——
+//! 原来只截不说，50MB 的单行 JSON 只显示前 64KB、一个字的提示都没有（2026-10-12 核「大文件能不能只读打开」时发现；
+//! 修法照 Codex 截给模型的那套：截了要说、给真数字，docs/research/codex.md 主题 3）
+//!
 //! 注意「原始」二字：这里**不做任何编码转换**。文件是什么字节就传什么字节，
 //! 由前端拿探测出来的编码标签交给 `TextDecoder` 去解。
 //!
@@ -20,6 +25,9 @@
 /// 单行返回上限。超长行（例如一整行 100MB 的 JSON）截断到此长度，
 /// 否则一个块就能把 IPC 和渲染一起拖垮。
 pub const MAX_LINE_BYTES: usize = 64 * 1024;
+
+/// 长度表里「这一行截过」的标记位。截过的段最长 [`MAX_LINE_BYTES`]，远用不到这一位
+pub const CLIPPED: u32 = 1 << 31;
 
 /// 把若干行原始字节编码成线格式。
 ///
@@ -41,7 +49,11 @@ pub fn encode(first_line: u64, raw_lines: &[&[u8]]) -> Vec<u8> {
         let trimmed = trim_eol(raw);
         let clipped = &trimmed[..trimmed.len().min(MAX_LINE_BYTES)];
         out.extend_from_slice(clipped);
-        let len = clipped.len() as u32;
+        let mut len = clipped.len() as u32;
+        if clipped.len() < trimmed.len() {
+            len |= CLIPPED;
+            out.extend_from_slice(&(trimmed.len() as u64).to_le_bytes());
+        }
         let slot = 12 + i * 4;
         out[slot..slot + 4].copy_from_slice(&len.to_le_bytes());
     }
@@ -65,34 +77,38 @@ fn trim_eol(line: &[u8]) -> &[u8] {
 mod tests {
     use super::*;
 
-    /// 按线格式解回原始字节，供「字节必须原样透传」这类断言使用
-    fn decode_raw(buf: &[u8]) -> (u64, Vec<Vec<u8>>) {
+    /// 按线格式解回：原始字节 + 截过的行原本多长（没截是 None）。和前端 `block.ts` 的 `decodeBlock` 读法一致
+    fn decode_full(buf: &[u8]) -> (u64, Vec<(Vec<u8>, Option<u64>)>) {
         let first = u64::from_le_bytes(buf[0..8].try_into().unwrap());
         let count = u32::from_le_bytes(buf[8..12].try_into().unwrap()) as usize;
         let mut pos = 12 + count * 4;
         let mut lines = Vec::with_capacity(count);
         for i in 0..count {
-            let len = u32::from_le_bytes(buf[12 + i * 4..16 + i * 4].try_into().unwrap()) as usize;
-            lines.push(buf[pos..pos + len].to_vec());
+            let raw = u32::from_le_bytes(buf[12 + i * 4..16 + i * 4].try_into().unwrap());
+            let len = (raw & !CLIPPED) as usize;
+            let bytes = buf[pos..pos + len].to_vec();
             pos += len;
+            let full = (raw & CLIPPED != 0).then(|| {
+                let f = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap());
+                pos += 8;
+                f
+            });
+            lines.push((bytes, full));
         }
         assert_eq!(pos, buf.len(), "payload 长度与长度表对不上");
         (first, lines)
     }
 
+    /// 按线格式解回原始字节，供「字节必须原样透传」这类断言使用
+    fn decode_raw(buf: &[u8]) -> (u64, Vec<Vec<u8>>) {
+        let (first, lines) = decode_full(buf);
+        (first, lines.into_iter().map(|(b, _)| b).collect())
+    }
+
     /// 按线格式解回字符串（内容本来就是 UTF-8 时用）
     fn decode(buf: &[u8]) -> (u64, Vec<String>) {
-        let first = u64::from_le_bytes(buf[0..8].try_into().unwrap());
-        let count = u32::from_le_bytes(buf[8..12].try_into().unwrap()) as usize;
-        let mut pos = 12 + count * 4;
-        let mut lines = Vec::with_capacity(count);
-        for i in 0..count {
-            let len = u32::from_le_bytes(buf[12 + i * 4..16 + i * 4].try_into().unwrap()) as usize;
-            lines.push(String::from_utf8(buf[pos..pos + len].to_vec()).unwrap());
-            pos += len;
-        }
-        assert_eq!(pos, buf.len(), "payload 长度与长度表对不上");
-        (first, lines)
+        let (first, lines) = decode_raw(buf);
+        (first, lines.into_iter().map(|b| String::from_utf8(b).unwrap()).collect())
     }
 
     #[test]
@@ -138,10 +154,24 @@ mod tests {
         assert_eq!(raws[0], &gbk[..gbk.len() - 1], "GBK 字节在传输中被改了");
     }
 
+    /// 超长行截到上限，**并且带上原本多长** —— 界面靠它说「还有多少没显示」。前后两行不受影响（标记位和尾巴的 8 字节没把切分弄乱）
     #[test]
-    fn 超长行被截断() {
-        let huge = vec![b'x'; MAX_LINE_BYTES * 2];
-        let (_, lines) = decode(&encode(0, &[&huge]));
-        assert_eq!(lines[0].len(), MAX_LINE_BYTES);
+    fn 超长行被截断_带着原长() {
+        let huge = vec![b'x'; MAX_LINE_BYTES * 2 + 5];
+        let mut with_eol = huge.clone();
+        with_eol.extend_from_slice(b"\r\n");
+        let (_, lines) = decode_full(&encode(0, &[b"before", &with_eol, b"after"]));
+        assert_eq!(lines[0], (b"before".to_vec(), None));
+        assert_eq!(lines[1].0.len(), MAX_LINE_BYTES);
+        assert_eq!(lines[1].1, Some(huge.len() as u64), "原长要是去掉换行之后的整行长度");
+        assert_eq!(lines[2], (b"after".to_vec(), None));
+    }
+
+    /// 正好到上限不算截过：差一个字节就会给一行完整的内容误报「还有 0 字节没显示」
+    #[test]
+    fn 正好到上限不算截过() {
+        let exact = vec![b'y'; MAX_LINE_BYTES];
+        let (_, lines) = decode_full(&encode(0, &[&exact]));
+        assert_eq!(lines[0], (exact, None));
     }
 }

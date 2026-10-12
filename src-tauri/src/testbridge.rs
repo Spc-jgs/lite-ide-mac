@@ -50,6 +50,7 @@ fn pending() -> &'static Mutex<HashMap<u64, mpsc::Sender<Value>>> {
 /// `setup` 里调。没设 `LITE_IDE_TEST_SOCK` 就什么都不做
 pub fn start(app: &AppHandle) {
     let Ok(path) = std::env::var("LITE_IDE_TEST_SOCK") else { return };
+    #[allow(clippy::disallowed_methods)] // 测试构建才有：删掉上一轮留下的 socket 文件，路径是驱动脚本给的
     let _ = std::fs::remove_file(&path);
     let listener = match UnixListener::bind(&path) {
         Ok(l) => l,

@@ -105,6 +105,7 @@ pub fn read_before(dir: &Path, e: &Entry) -> io::Result<Vec<u8>> {
 }
 
 /// 整个日志目录删掉。目录不在不算错
+#[allow(clippy::disallowed_methods)] // 只删自己的撤销日志目录
 pub fn remove(dir: &Path) -> io::Result<()> {
     match fs::remove_dir_all(dir) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),

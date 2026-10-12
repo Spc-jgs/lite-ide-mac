@@ -313,10 +313,8 @@ fn hits_in_block(m: &Matcher, path: &str, first_line: u64, block: &str) -> Vec<H
 
 /// rg 是否可用，供界面显示当前走的哪条路
 pub fn ripgrep_available() -> bool {
-    Command::new("rg")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
+    procutil::run_capped(Command::new("rg").arg("--version"), 4096, procutil::ERR_CAP, procutil::Overflow::Kill)
+        .map(|c| c.status.success())
         .unwrap_or(false)
 }
 

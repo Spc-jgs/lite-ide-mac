@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ScrollMap } from "./scroll-map";
   import { LineCache, type Row } from "./line-cache";
+  import { cutNote } from "./block";
   import { parse, type LogFormat } from "./parse";
   import { parseQuery, highlightQuery } from "./query";
   import { withLink } from "./stack-frame";
@@ -253,6 +254,9 @@
                 >
               {/each}
             </span>
+            <!-- 截过的长行：说出来、给真数字（block.ts）。放在 .cells 外面、贴着右边：.cells 超出窗口就是省略号，放里面会跟着被省略掉。
+                 不可选中 —— 复制这一行时别把界面上的话带进去（复制正是这条最坑人的地方：以为拿到了整行，其实只有前 64KB） -->
+            {#if row?.more}<span class="cut">{cutNote(row.more)}</span>{/if}
           {:else}
             <span class="cells"></span>
           {/if}
@@ -315,6 +319,15 @@
   /* 分段渲染：解析器吐什么段，这里就按 cls 上什么色。
      加一种日志格式不必动这里 */
   .cells { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 截过的长行在行尾说一句（界面的话，不是日志内容：界面字体、最淡的字、不可选中） */
+  .cut {
+    flex: none;
+    padding: 0 6px 0 1ch;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    user-select: none;
+  }
   .p[data-cls="ts"] { color: var(--text-faint); }
   .p[data-cls="level"] { font-weight: 600; }
   .p[data-cls="thread"] { color: var(--text-faint); }

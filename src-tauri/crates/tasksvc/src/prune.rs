@@ -79,6 +79,7 @@ fn logs_in(dir: &Path) -> Vec<Log> {
         .collect()
 }
 
+#[allow(clippy::disallowed_methods)] // 只删自己生成的任务输出（<16 位十六进制>/*.log、*.log.1），范围在 prune 里卡死
 fn remove(l: &Log, out: &mut Pruned) {
     if fs::remove_file(&l.path).is_ok() {
         out.files += 1;

@@ -56,6 +56,7 @@ fn save_to(path: &std::path::Path, text: impl FnOnce() -> Option<String>) {
     }
 }
 
+#[allow(clippy::disallowed_methods)] // 应用自己的 windows.json：写临时文件再改名盖过去
 fn write_locked(path: &std::path::Path, text: &str) {
     use std::io::Write;
     if let Some(dir) = path.parent() {

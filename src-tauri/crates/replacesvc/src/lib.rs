@@ -796,6 +796,7 @@ pub fn recover(dir: &Path, rollback: bool) -> Result<Outcome, String> {
         let tmp = fsservice::tmp_path_for(Path::new(&e.target));
         // 只删真是普通文件的：同名的软链之类不碰（它不会是我们留下的）
         if fs::symlink_metadata(&tmp).is_ok_and(|x| x.is_file()) {
+            #[allow(clippy::disallowed_methods)] // 自己的临时文件（中断时留下的）
             let _ = fs::remove_file(&tmp);
         }
     }

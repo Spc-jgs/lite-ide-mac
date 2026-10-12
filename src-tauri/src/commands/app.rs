@@ -324,6 +324,7 @@ pub fn open_external(url: String) -> Result<(), String> {
         return Err(format!("只允许 http / https 链接，实得：{url}"));
     }
     crate::diag!("open_external {url}");
+    #[allow(clippy::disallowed_methods)] // 只要退出码：open 立刻返回、不读输出
     let st = std::process::Command::new("/usr/bin/open")
         .arg("--")
         .arg(&url)

@@ -12,6 +12,7 @@ pnpm app:bundle     # 打包 .app + .dmg，产物在 src-tauri/target/release/bu
 pnpm check          # svelte-check
 pnpm test           # 前端测试：纯函数 + 状态层（*.state.test.ts，runes 在裸 node 里跑，见 tests/runes/）
 cd src-tauri && cargo test --workspace
+cd src-tauri && cargo clippy --workspace --features lite-ide/test-bridge -- -A clippy::all -D clippy::disallowed_methods   # 规矩检查，CI 也跑
 scripts/build-test-app.sh      # 带测试通道的临时身份 .app（验收用，碰不到真实数据；正式包永远不带）
 scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点
 scripts/accept/tasks.sh        # 任务运行的机制（36 条）；quit.sh 是 Dock 右键退出那条路（6 条）
@@ -50,7 +51,9 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 **一律要做：**
 
 - 起子进程走 `crates/procutil`（`spawn` / `run_capped`）：stdin 接空、两个管道并发读、输出设闸、丢掉就收尸。
-  先问「它的输出有上限吗」—— 不走它的只有任务（`tasksvc`）和 git fetch / push，理由在 rust.md
+  先问「它的输出有上限吗」—— 不走它的只有任务（`tasksvc`）和 git fetch / push，理由在 rust.md。
+  **clippy 卡着**（`src-tauri/clippy.toml` 的 `disallowed-methods`，连同会吞文件的 `File::create` / `fs::write` / `fs::rename` 和直接删文件）：
+  有意要用的标 `#[allow(clippy::disallowed_methods)]`、同一行写为什么
 - 碰盘、碰子进程、碰网络的命令写成 `async` + `commands::blocking`；真要留在主线程的写进 `src-tauri/tests/main_thread.rs` 的白名单、写清理由
 - 按窗口登记的资源表用 `Owned<K, V>`（`src-tauri/src/owned.rs`），`release_window` 里收 —— `state.rs` 那条读源码的测试会卡住漏收
 - 改了过 IPC 的 DTO，两侧一起改 —— `src-tauri/tests/dto_sync.rs` 会卡住漂移
@@ -60,7 +63,7 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 - 文本框里处理回车 / Esc / 方向键，先问 `imeKey(e)` —— `tests/ime.test.ts` 卡着（拼音确认候选字的那一下回车也是 keydown：
   任务列表会把选中的跑起来、替换框会把半截拼音替换进正文）
 - 删用户的文件只走废纸篓（`fsservice::move_to_trash` / `move_all_to_trash`）。应用自己生成的东西才直接删，范围卡死在自己的那几种文件名上
-  （rust.md「删除只走废纸篓」；2026-10-12 还抓到过一处直接删未跟踪文件的）
+  （rust.md「删除只走废纸篓」；clippy 卡着 —— 第一次跑就抓到一处直接删未跟踪文件的）
 - 截断了要说出来、给真数字：一份看着完整、其实少了一截的东西，比一句「显示不下」危险（rust.md「子进程输出必须设闸」；以后拼给模型的同理）
 - 改完给出数字。「快了很多」没有信息量，「1112ms → 0.008ms」有
 - 改了代码的那一轮，交付前 `pnpm app:bundle`：人是双击 `.app` 验收的。只改文档的轮次打出来的 `.app` 和上一轮一样，不用打

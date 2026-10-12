@@ -99,6 +99,7 @@ pub struct Finished {
 }
 
 pub fn spawn(cmd: &mut Command, err_cap: usize) -> io::Result<Running> {
+    #[allow(clippy::disallowed_methods)] // 这里就是那个包装本身
     let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     // **先**把 stderr 挂到自己的线程上，再让调用方去读 stdout —— 次序反了就是死锁
     let err = child.stderr.take().map(|e| drain(e, err_cap));

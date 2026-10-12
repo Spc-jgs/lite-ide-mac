@@ -367,6 +367,7 @@ impl Prepared {
         matches!(self.how, How::InPlace { .. })
     }
 
+    #[allow(clippy::disallowed_methods)] // 保存的最后一步：自己的临时文件改名盖过目标（保存本来就是要覆盖它），失败收掉临时文件
     pub fn commit(mut self) -> io::Result<()> {
         match &mut self.how {
             How::InPlace { bytes } => write_in_place(&self.target, bytes),
@@ -396,6 +397,7 @@ impl Prepared {
 impl Drop for Prepared {
     fn drop(&mut self) {
         if let How::Rename { tmp: Some(t) } = &self.how {
+            #[allow(clippy::disallowed_methods)] // 自己的临时文件
             let _ = fs::remove_file(t);
         }
     }
@@ -428,6 +430,7 @@ pub fn prepare_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<Prepare
     let mut f = match fs::OpenOptions::new().write(true).create_new(true).open(&tmp) {
         Ok(f) => f,
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            #[allow(clippy::disallowed_methods)] // 自己的临时文件（上次崩在中间留下的）
             fs::remove_file(&tmp)?;
             fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?
         }
@@ -518,6 +521,7 @@ pub fn reveal_in_finder(path: impl AsRef<Path>) -> io::Result<()> {
 
     // 绝对路径而不是靠 PATH：`open` 在 macOS 上固定在这儿，
     // 而从终端启动 lite-ide 时 PATH 是用户的，不该让它决定我们调到哪个 open
+    #[allow(clippy::disallowed_methods)] // 只要退出码：stdin 接空、不读输出，procutil 防的几样都碰不上
     let st = Command::new("/usr/bin/open")
         .args(reveal_args(path))
         // 绝不让子进程卡住等输入（AGENTS.md）。open 本身不读 stdin，
@@ -717,6 +721,7 @@ pub fn create_scratch_with(dir: impl AsRef<Path>, stem: &str, anchor: Option<&An
             Ok(p) => {
                 if !head.is_empty() {
                     // 刚 create_new 出来的空文件，直接写；失败就把空壳收掉，别留一份没头的
+                    #[allow(clippy::disallowed_methods)] // 刚 create_new 出来的空文件，写失败把空壳收掉
                     if let Err(e) = fs::write(&p, head.as_bytes()) {
                         let _ = fs::remove_file(&p);
                         return Err(e);
@@ -774,6 +779,7 @@ pub fn create_entry(dir: impl AsRef<Path>, name: &str, is_dir: bool) -> io::Resu
 ///
 /// 换目录的移动**不在这里做** —— 那是拖拽的事，需要的判断完全不同
 /// （跨卷、目标是不是自己的子目录）。
+#[allow(clippy::disallowed_methods)] // 改名前查过目标不在（大小写改名按 inode 判，rust.md「改盘的 std API」）
 pub fn rename_entry(path: impl AsRef<Path>, new_name: &str) -> io::Result<PathBuf> {
     validate_name(new_name).map_err(|m| io::Error::new(io::ErrorKind::InvalidInput, m))?;
     let path = path.as_ref();
@@ -826,6 +832,7 @@ pub fn rename_entry(path: impl AsRef<Path>, new_name: &str) -> io::Result<PathBu
 ///
 /// 跨卷的 `rename` 会失败（EXDEV）—— 项目里拖来拖去都在同一个卷上，
 /// 真撞上了报 git 那句原话就够，不做复制 + 删除的兜底：那条路中途失败会留下两份。
+#[allow(clippy::disallowed_methods)] // 挪之前查过目标不在（rust.md「改盘的 std API」）
 pub fn move_entry(path: impl AsRef<Path>, dest_dir: impl AsRef<Path>) -> io::Result<PathBuf> {
     let path = path.as_ref();
     let dest = dest_dir.as_ref();
@@ -898,6 +905,7 @@ pub fn move_entry(path: impl AsRef<Path>, dest_dir: impl AsRef<Path>) -> io::Res
 ///
 /// 用户改了又删光再关闭的那种文件走不到这里 —— 那时 `dirty` 是真的，
 /// 界面会先弹「保存并关闭 / 丢弃改动」，根本不会静默走到这一步。
+#[allow(clippy::disallowed_methods)] // 唯一一条真删用户文件的窄路：只删 0 字节的草稿（上面那几道判断）
 pub fn discard_empty_scratch(dir: impl AsRef<Path>, path: impl AsRef<Path>) -> io::Result<()> {
     let path = path.as_ref();
     let meta = fs::symlink_metadata(path)?;
@@ -1239,6 +1247,7 @@ pub struct CliInstall {
 ///
 /// 软链已经存在就换掉（`.app` 挪过位置之后要重装）；`link` 处是个**普通文件**
 /// 而不是软链时不动它 —— 那可能是用户自己放的别的 `lite`。
+#[allow(clippy::disallowed_methods)] // 脚本真身在应用自己的目录里，覆盖是要的；link 处只换软链，真文件不碰
 pub fn install_cli(script: &Path, content: &str, link: &Path) -> io::Result<CliInstall> {
     use std::os::unix::fs::PermissionsExt;
     if let Some(dir) = script.parent() {

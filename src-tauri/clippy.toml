@@ -1,0 +1,14 @@
+# 规矩交给编译器（2026-10-12，照 Codex 的做法，docs/research/codex.md 主题 5）。
+# 这几条原来只写在 .claude/rules/rust.md 里，靠人记得 —— searchsvc 把两个管道的读法写反、死锁（2026-10-10），
+# 就是「规矩只在文档里」的代价；第一次拿这份清单量，就抓到 gitsvc::discard 直接删未跟踪的文件。
+# 有意要用的地方标 `#[allow(clippy::disallowed_methods)]`，同一行写为什么。CI 只查这一条（ci.yml）。
+disallowed-methods = [
+  { path = "std::process::Command::output", reason = "起子进程走 procutil（stdin 接空、两个管道并发读、输出设闸、子进程退了管道限时、丢掉就收尸）" },
+  { path = "std::process::Command::spawn", reason = "起子进程走 procutil；不走它的（任务、git fetch / push）标 allow 写理由" },
+  { path = "std::process::Command::status", reason = "起子进程走 procutil；只要退出码、不建管道的标 allow 写理由" },
+  { path = "std::fs::File::create", reason = "会把已有文件截断成 0 字节：新建用 OpenOptions::create_new；写自己的文件标 allow" },
+  { path = "std::fs::write", reason = "同 File::create，已有文件当场截断：写用户的文件走 fsservice::write_text；写自己的文件标 allow" },
+  { path = "std::fs::rename", reason = "会静默覆盖已有的目标（rename(2) 的语义）：先查目标不在，或者只改名到自己的文件，标 allow" },
+  { path = "std::fs::remove_file", reason = "删用户的文件只走 fsservice::move_to_trash；删自己生成的东西标 allow" },
+  { path = "std::fs::remove_dir_all", reason = "删用户的文件只走 fsservice::move_to_trash；删自己生成的东西标 allow" },
+]

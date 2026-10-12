@@ -8,6 +8,8 @@ export interface Row {
   text: string;
   /** 物理行号（未过滤时等于视图行号） */
   phys: number;
+  /** 这一行超过 64KB 被截过：还有多少字节没显示（`block.ts`） */
+  more?: number;
 }
 
 interface Block {
@@ -16,6 +18,8 @@ interface Block {
   phys: number[] | null;
   /** 这一块的文本字符数，用来算驱逐预算 —— 见 cache-budget.ts */
   chars: number;
+  /** 截过的行还有多少字节没显示；整块都没截过是 null */
+  more: number[] | null;
 }
 
 /**
@@ -54,7 +58,8 @@ export class LineCache {
     const i = line - id * BLOCK_LINES;
     const text = block.texts[i];
     if (text === undefined) return undefined;
-    return { text, phys: block.phys ? block.phys[i] : line };
+    const more = block.more?.[i];
+    return { text, phys: block.phys ? block.phys[i] : line, ...(more ? { more } : {}) };
   }
 
   /** 确保 [from, to] 所在的块都在路上 */
@@ -84,16 +89,16 @@ export class LineCache {
     const start = id * BLOCK_LINES;
     if (!this.filtered) {
       const buf = await logLines(this.handle, start, BLOCK_LINES);
-      const texts = decodeBlock(buf, this.encoding).lines;
-      return { texts, phys: null, chars: countChars(texts) };
+      const { lines: texts, more } = decodeBlock(buf, this.encoding);
+      return { texts, phys: null, chars: countChars(texts), more };
     }
     // 内容与行号映射并行取，省一个来回
     const [buf, phys] = await Promise.all([
       logLinesFiltered(this.handle, start, BLOCK_LINES),
       logFilterMap(this.handle, start, BLOCK_LINES),
     ]);
-    const texts = decodeBlock(buf, this.encoding).lines;
-    return { texts, phys, chars: countChars(texts) };
+    const { lines: texts, more } = decodeBlock(buf, this.encoding);
+    return { texts, phys, chars: countChars(texts), more };
   }
 
   /** 行数增长（索引还在跑 / tail 追加）时，末块可能不完整，丢掉让它重取 */

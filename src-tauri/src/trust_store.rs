@@ -50,6 +50,7 @@ pub fn is_trusted(path: &Path, root: &str, fingerprint: &str) -> bool {
 
 /// 记下信任。临时文件 + rename：写到一半掉电不能留下半个 JSON（那会被当成「没信任过」，
 /// 只是多问一次，但一份写坏的账本没理由留着）
+#[allow(clippy::disallowed_methods)] // 应用自己的 trust.json：写临时文件再改名盖过去
 pub fn grant(path: &Path, root: &str, fingerprint: &str) -> std::io::Result<()> {
     let mut f = load(path);
     f.v = VERSION;
