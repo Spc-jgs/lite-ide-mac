@@ -43,6 +43,8 @@ pub struct Skip {
     /// git 说被忽略的目录（相对 root，不带末尾 `/`）。
     /// `None` = **问不到 git**（不是仓库、git 不在、读不动）
     ignored: Option<std::collections::BTreeSet<String>>,
+    /// git 说被忽略的单个文件（相对 root）。只给内容搜索用，见 [`Skip::hides_in_search`]
+    ignored_files: std::collections::BTreeSet<String>,
 }
 
 impl Skip {
@@ -54,14 +56,27 @@ impl Skip {
     /// 目录里有 20 万个 `node_modules` 文件，索引撑爆了连搜都搜不了。
     /// 所以树宽松、搜索保守，两边的代价本来就不对称。
     pub fn by_name() -> Self {
-        Self { ignored: None }
+        Self { ignored: None, ignored_files: Default::default() }
     }
 
-    /// 拿到 git 的答案。有争议的名字按这份判，确定的仍然直接跳。
-    pub fn with_git(ignored: std::collections::BTreeSet<String>) -> Self {
-        Self {
-            ignored: Some(ignored),
+    /// 拿到 git 的答案：被忽略的目录、被忽略的文件。遍历时有争议的名字按目录这份判，确定的仍然直接跳；
+    /// 内容搜索另外按两份都判（[`Skip::hides_in_search`]）
+    pub fn with_git(ignored: std::collections::BTreeSet<String>, ignored_files: std::collections::BTreeSet<String>) -> Self {
+        Self { ignored: Some(ignored), ignored_files }
+    }
+
+    /// 内容搜索要不要跳过这个文件：它自己被 git 忽略，或者在一个被忽略的目录里（不管目录叫什么）。
+    ///
+    /// **只给内容搜索**，⌘P 的文件列表不用它：rg 搜内容时整套认 `.gitignore`，内置实现必须给同一个答案（这个模块的前提）；
+    /// 原来内置实现只在 `dist` / `build` / `vendor` 三个名字上问 git，`logs/` 这种被忽略的目录照搜 ——
+    /// 从 Dock 打开（找不到 rg）的应用里，搜异常名的结果被日志淹没（2026-10-12 走查）。
+    /// ⌘P 不跟：`.env`、`logs/app.log` 这种被忽略的文件常常正是人要打开的（VS Code 默认藏掉它们，被抱怨得很多）
+    pub fn hides_in_search(&self, rel: &str) -> bool {
+        let Some(dirs) = &self.ignored else { return false };
+        if self.ignored_files.contains(rel) {
+            return true;
         }
+        rel.match_indices('/').any(|(i, _)| dirs.contains(&rel[..i]))
     }
 
     /// 有争议的那几个名字里，**这一次真要跳的**那些 —— 传给 rg 的 `--glob`。
@@ -501,6 +516,9 @@ fn grep_builtin(root: &Path, m: &Matcher, limit: usize, skip: &Skip) -> io::Resu
         if hits.len() >= limit {
             break;
         }
+        if skip.hides_in_search(&rel_path) {
+            continue;
+        }
         let full = root.join(&rel_path);
         let Ok(meta) = std::fs::metadata(&full) else {
             continue;
@@ -924,8 +942,8 @@ mod tests {
             eprintln!("跳过：机器上没有可用的 git");
             return;
         };
-        let ignored = 假装问过git(&d);
-        let skip = Skip::with_git(ignored);
+        let (ignored, files) = 假装问过git(&d);
+        let skip = Skip::with_git(ignored, files);
 
         let paths = |hits: Vec<Hit>| {
             let mut v: Vec<String> = hits.into_iter().map(|h| h.path).collect();
@@ -965,16 +983,55 @@ mod tests {
 
     /// 真去问一次 git。放在这儿而不是引 gitsvc —— searchsvc 不认识 git，
     /// 那条依赖箭头是错的；测试里现起一次就够了。
-    fn 假装问过git(d: &Path) -> std::collections::BTreeSet<String> {
+    fn 假装问过git(d: &Path) -> (std::collections::BTreeSet<String>, std::collections::BTreeSet<String>) {
         let out = Command::new("git")
             .args(["ls-files", "--others", "--ignored", "--directory", "--exclude-standard", "-z"])
             .current_dir(d)
             .output()
             .expect("git 跑不起来");
-        String::from_utf8_lossy(&out.stdout)
-            .split('\0')
-            .filter_map(|p| p.strip_suffix('/').map(str::to_owned))
-            .collect()
+        let (mut dirs, mut files) = (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
+        for p in String::from_utf8_lossy(&out.stdout).split('\0').filter(|p| !p.is_empty()) {
+            match p.strip_suffix('/') {
+                Some(x) => dirs.insert(x.to_owned()),
+                None => files.insert(p.to_owned()),
+            };
+        }
+        (dirs, files)
+    }
+
+    /// 2026-10-12 走查：从 Dock 打开（找不到 rg、走内置实现）的应用里搜一个异常名，结果被 `logs/` 下的日志淹没 ——
+    /// `logs/` 写在 `.gitignore` 里，rg 不搜，内置实现原来只在 dist / build / vendor 三个名字上问 git。
+    /// 被忽略的**文件**（`*.secret` 这种文件规则）同理。⌘P 的文件列表不跟（`hides_in_search` 上面那段的理由）
+    #[test]
+    fn 内容搜索认整套gitignore_被忽略的目录和文件都不搜_找文件照列() {
+        let d = std::env::temp_dir().join(format!("searchsvc-git-logs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(d.join("logs")).unwrap();
+        fs::create_dir_all(d.join("src")).unwrap();
+        fs::write(d.join("src/Order.java"), "throw new NEEDLE();\n").unwrap();
+        fs::write(d.join("logs/app.log"), "NEEDLE at line 1\nNEEDLE at line 2\n").unwrap();
+        fs::write(d.join("local.secret"), "NEEDLE=1\n").unwrap();
+        fs::write(d.join(".gitignore"), "logs/\n*.secret\n").unwrap();
+        let ok = Command::new("git").args(["init", "-q"]).current_dir(&d).status().map(|s| s.success()).unwrap_or(false);
+        if !ok {
+            eprintln!("跳过：机器上没有可用的 git");
+            return;
+        }
+        let (dirs, files) = 假装问过git(&d);
+        let skip = Skip::with_git(dirs, files);
+        let mut 内置: Vec<String> = builtin_lit(&d, "NEEDLE", 50, &skip).unwrap().into_iter().map(|h| h.path).collect();
+        内置.sort();
+        内置.dedup();
+        assert_eq!(内置, vec!["src/Order.java".to_string()], "被忽略的 logs/ 和 *.secret 不该搜");
+        if ripgrep_available() {
+            let mut rg: Vec<String> = rg_lit(&d, "NEEDLE", 50, &skip).unwrap().into_iter().map(|h| h.path).collect();
+            rg.sort();
+            rg.dedup();
+            assert_eq!(rg, 内置, "装了 rg 和没装 rg 搜出来的结果不一样了");
+        }
+        let all = list_files(&d, &skip).unwrap();
+        assert!(all.iter().any(|f| f == "logs/app.log") && all.iter().any(|f| f == "local.secret"), "⌘P 照列被忽略的文件：{all:?}");
+        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]

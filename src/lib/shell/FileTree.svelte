@@ -185,6 +185,9 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
    * 树里压暗的东西搜得到、树里正常的东西搜不到，那比两边都错更难理解。
    */
   function dims(it: DirEntry): boolean {
+    // git 说忽略了的目录，叫什么都压暗（2026-10-12 走查：`.gitignore` 里写着的 `logs/` 和源码目录一个颜色）。
+    // 和内容搜索一致：被忽略的目录现在搜内容时整个跳过（`searchsvc::Skip::hides_in_search`）；⌘P 照列、树里照列，只是灰
+    if (it.isDir && ignored?.has(relTo(root, it.path))) return true;
     if (!it.generated) return false;
     if (!it.contested) return true;
     if (ignored === null) return true;

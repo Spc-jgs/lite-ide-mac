@@ -3,6 +3,7 @@
  * 第一次用到才拉（同 `replace-ops.ts`），入口包里只有 `runs.svelte.ts` 那几个字段。
  */
 import { runs, type RunTab } from "./runs.svelte";
+import { exitText } from "../run/exit-text";
 import { layout } from "./layout.svelte";
 import { project } from "./project.svelte";
 import { notify } from "./notify.svelte";
@@ -32,7 +33,7 @@ export function exited(x: TaskExit) {
   r.code = x.code;
   r.holder = x.port;
   // 端口被占有自己的卡片（说清是谁、给出路），不再另弹一句「退出了」
-  if (r.status === "failed" && !x.port) notify.fail(`「${r.name}」退出了${x.code !== null ? `（退出码 ${x.code}）` : ""}`);
+  if (r.status === "failed" && !x.port) notify.fail(exitText(r.name, x.code));
 }
 
 /** 亮出运行窗 */

@@ -1681,3 +1681,26 @@ fn 过滤器名单读不全_拒绝运行_不是少关几个() {
     assert!(String::from_utf8_lossy(&o.stderr).contains("过滤器配置读不全"), "报错里要带着原因：{}", String::from_utf8_lossy(&o.stderr));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// 内容搜索要的两份名单（2026-10-12 走查）：被忽略的目录折成一条 `logs`，被文件规则命中的单个文件单独列出；
+/// 被跟踪的、没被忽略的都不在里面。原来只交目录，文件那份在这里被丢掉
+#[test]
+fn 被忽略的目录和文件分开交出来() {
+    if !available() {
+        eprintln!("跳过：机器上没有 git");
+        return;
+    }
+    let dir = tmpdir("ignored-paths");
+    run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+    std::fs::create_dir_all(dir.join("logs/old")).unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("logs/app.log"), "x").unwrap();
+    std::fs::write(dir.join("logs/old/a.log"), "x").unwrap();
+    std::fs::write(dir.join("src/.env"), "x").unwrap();
+    std::fs::write(dir.join("src/Main.java"), "x").unwrap();
+    std::fs::write(dir.join(".gitignore"), "logs/\n.env\n").unwrap();
+    let (dirs, files) = ignored_paths(&dir).unwrap();
+    assert_eq!(dirs.into_iter().collect::<Vec<_>>(), vec!["logs".to_string()], "整个被忽略的目录折成一条");
+    assert_eq!(files.into_iter().collect::<Vec<_>>(), vec!["src/.env".to_string()], "文件规则命中的单个文件要交出来");
+    assert_eq!(ignored_dirs(&dir).unwrap().into_iter().collect::<Vec<_>>(), vec!["logs".to_string()], "老口子只交目录，行为不变");
+}

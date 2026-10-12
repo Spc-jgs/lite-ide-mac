@@ -138,8 +138,15 @@
     它原来挂在这儿那个 `lite-ide` 字样上，而那个字样现在只有空项目时才出现。
   -->
   <button class="twidget proj" onclick={(e) => openProjMenu(e)} title={projTip}>
-    <span class="sq" aria-hidden="true">{projInitial}</span>
-    <span class="wlabel">{projName}</span>
+    {#if root}
+      <span class="sq" aria-hidden="true">{projInitial}</span>
+      <span class="wlabel">{projName}</span>
+    {:else}
+      <!-- 没项目：原来显示应用名「lite-ide」配首字母方块，看着像一个叫 lite-ide 的项目（2026-10-12 走查）。
+           位置不动，说它是干什么的 —— 点开就是最近项目和打开文件夹 -->
+      <Icon name="folder" />
+      <span class="wlabel dim">打开项目</span>
+    {/if}
     <Icon name="chevron-down" />
   </button>
   {#if restricted}
@@ -241,6 +248,7 @@
     font-weight: 600;
   }
   .twidget:hover .sq { background: var(--pressed); }
+  .twidget .wlabel.dim { color: var(--text-dim); }
 
   /* 分支名是标识符，用等宽；ahead/behind 用 accent，它是「该做点什么」的信号 */
   .twidget .ab { color: var(--accent); font-family: var(--ui-font); font-variant-numeric: tabular-nums; flex: none; font-size: var(--fs-sm); }

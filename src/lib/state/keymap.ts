@@ -228,6 +228,7 @@ export const KEYS: KeyDef[] = [
   { id: "cm-next-occ", label: "再选中下一个相同的词", accel: "⌃G", group: "编辑", owner: "cm6" },
   { id: "cm-all-occ", label: "选中所有相同的词", accel: "⌃⌘G", group: "编辑", owner: "cm6" },
   { id: "cm-case", label: "切换大小写", accel: "⇧⌘U", group: "编辑", owner: "cm6" },
+  { id: "cm-format-json", label: "格式化 JSON（选中的、所在的代码块或这一行）", accel: "⌥⌘L", group: "编辑", owner: "cm6" },
   { id: "encoding", label: "文件编码…", group: "编辑", owner: "menu" },
   { id: "toggle-mode", label: "切换编辑 / 日志模式", group: "编辑", owner: "menu" },
 

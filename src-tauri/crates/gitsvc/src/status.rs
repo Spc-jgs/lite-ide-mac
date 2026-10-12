@@ -116,6 +116,15 @@ fn expand_untracked_dirs(root: &Path, st: &mut Status) {
 /// - 只留**目录**（末尾是 `/` 的那些）。被忽略的单个文件不归这里管：
 ///   跳过一个文件省不下什么，而漏跳一个目录才是那个「凭空少一块」的问题
 pub fn ignored_dirs(root: &Path) -> R<std::collections::BTreeSet<String>> {
+    Ok(ignored_paths(root)?.0)
+}
+
+/// 同 [`ignored_dirs`]，另外交出**被忽略的单个文件**（`.gitignore` 里 `*.log`、`.env` 这种文件规则命中的）。
+///
+/// 内容搜索要它（2026-10-12 走查发现）：rg 跳过被忽略的文件，内置实现原来只拿目录名单 —— 从 Dock 打开（找不到 rg）时
+/// 搜一个异常名，结果被 `.gitignore` 里写着的日志淹没，从终端打开（有 rg）就没有。同一条 git 命令本来就吐两种，原来把文件丢了。
+/// 被忽略的文件一般不多（整个被忽略的目录折叠成一条），输出照样设闸
+pub fn ignored_paths(root: &Path) -> R<(std::collections::BTreeSet<String>, std::collections::BTreeSet<String>)> {
     let args = [
         "ls-files",
         "--others",
@@ -125,10 +134,14 @@ pub fn ignored_dirs(root: &Path) -> R<std::collections::BTreeSet<String>> {
         "-z",
     ];
     let (raw, capped) = run_capped_raw(root, &args, MAX_IGNORED_BYTES, &[])?;
-    Ok(split_nul_records(&raw, capped)
-        .into_iter()
-        .filter_map(|p| p.strip_suffix('/').map(str::to_owned))
-        .collect())
+    let (mut dirs, mut files) = (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
+    for p in split_nul_records(&raw, capped) {
+        match p.strip_suffix('/') {
+            Some(d) => dirs.insert(d.to_owned()),
+            None => files.insert(p),
+        };
+    }
+    Ok((dirs, files))
 }
 
 /// 砍到最后一条**完整**记录为止（`-z` 的记录以 NUL 结尾）。

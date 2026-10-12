@@ -18,6 +18,7 @@ import { files } from "./files.svelte";
 import { git } from "./git.svelte";
 import { type TabState } from "./tab";
 import { scratchTitle, splitFrontmatter } from "./frontmatter";
+import { isLogName } from "../logview/is-log-name";
 
 /** 动作在 `tabflow-ops.ts`，按需加载 —— 理由见那边的文件头 */
 const ops = () => import("./tabflow-ops");
@@ -129,15 +130,24 @@ class TabFlow {
         return;
       }
 
+      /*
+       * **名字就是日志的，默认进日志视图，不管多大**（2026-10-12 走查）。`probe` 只按体积 / 行数判（32MB、30 万行以上才进），
+       * 于是从服务器拉下来的一段、本地服务跑出来的日志 —— 平常看的几乎都在线下 —— 一律是纯文本：没有级别颜色、过滤、按时间跳、
+       * 堆栈链接，lite-ide 最拿得出手的那件事在最常见的场合藏着。`probe` 那条判据不动（它答的是「能不能用编辑器开」），
+       * 这里答的是「人想怎么看」：`.log` / `.out` / 轮转后缀（`isLogName`，宁可漏判）。想改它，状态栏「编辑模式 ⇄」一下切回去。
+       * 草稿不算（草稿是 `.md`，这里只是防一手）
+       */
+      const byName = info.mode === "edit" && isLogName(info.path) && !project.isScratch(info.path);
+      const mode = byName ? "log" : info.mode;
       const tab: Omit<TabState, "id" | "group"> = {
         path: info.path,
         name: info.name,
-        mode: info.mode,
+        mode,
         dirty: false,
-        reason: info.reason,
+        reason: byName ? "日志文件" : info.reason,
         size: info.size,
       };
-      if (info.mode === "log") {
+      if (mode === "log") {
         tab.handle = (await openLog(info.path)).handle;
         // 日志模式在前端用 TextDecoder 解码，只需要标签
         tab.encoding = await detectEncoding(info.path).catch(() => "UTF-8");

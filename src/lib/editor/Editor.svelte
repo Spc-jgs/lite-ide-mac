@@ -6,6 +6,8 @@
            crosshairCursor, highlightSpecialChars } from "@codemirror/view";
   import { history, historyKeymap, indentWithTab } from "@codemirror/commands";
   import { ideaKeymap, editorDefaults, ideaKeysState } from "./idea-keys";
+  import { formatJson } from "./format-json";
+  import { notify } from "../state/notify.svelte";
   import { saveHistory, stateWithHistory } from "./undo-store";
   import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
   import { searchPanel } from "./search-panel";
@@ -453,6 +455,15 @@
            */
           ...closeBracketsKeymap,
           ...completionKeymap,
+          // ⌥⌘L 格式化 JSON（IDEA 的「重新格式化代码」键位；format-json.ts）。缩进跟这个文件走
+          {
+            key: "Alt-Mod-l",
+            preventDefault: true,
+            run: formatJson(
+              (s) => s.facet(indentUnit),
+              (ok, msg) => (ok ? notify.ok(msg) : notify.fail(msg)),
+            ),
+          },
           // IDEA 的键排在 CM6 默认键位前面：⌘D ⌥↑ ⌥⇧↓ ⌘⌫ 在两边含义不同，先到先得（idea-keys.ts）
           ...ideaKeymap,
           ...editorDefaults,

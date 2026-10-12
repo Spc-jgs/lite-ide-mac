@@ -552,5 +552,18 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   for (const t of [...tabs.list]) tabflow.doClose(t);
 }
 
+// 名字就是日志的，小文件也进日志视图（2026-10-12 走查：2 万行的 app.log 原来开成纯文本）；别的小文件照旧编辑器
+{
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  await tabflow.openPath("/proj/target/debug/build.log");
+  const log = tabs.active;
+  ok(log?.mode === "log" && log.handle !== undefined, `小 .log 进日志视图、拿到引擎句柄（${log?.mode}）`);
+  ok(log?.reason === "日志文件", `状态栏说为什么只读：${log?.reason}`);
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  await tabflow.openPath("/proj/README.md");
+  ok(tabs.active?.mode === "edit", `不是日志名字的小文件照旧编辑器（${tabs.active?.mode}）`);
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

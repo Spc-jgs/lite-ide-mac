@@ -397,9 +397,9 @@ say "⑱ 日志轮转：tail 不断、按名重开（2026-09-18）"
 # 三步：开 rot.log 打开 tail → 追加三行（行数 100 → 103，证明 tail 活着）
 # → mv + 新建 5 行的同名文件（行数变成 5、状态栏有「轮转过 1 次」，证明跟上了新文件）。
 if open_from_tree "rot.log"; then
-  # 4KB 的 .log 按大小判定走的是编辑模式（日志模式是给大文件的），状态栏那格点一下切过去
-  if click "编辑模式" button contains && wait_has "100 行" 8; then
-    ok "rot.log 切到日志模式（100 行）"
+  # 4KB 的 .log：按大小判是编辑模式，但名字就是日志 —— 2026-10-12 起直接进日志模式，不用点（原来要点状态栏那格切过去）
+  if wait_has "100 行" 8 && has "日志文件"; then
+    ok "rot.log 直接进了日志模式（100 行，状态栏说「日志文件」）"
     if click "跟随尾部" button contains; then
       printf '追加 1\n追加 2\n追加 3\n' >> "${FIX}/rot.log"
       wait_has "103 行" 6 && ok "tail 活着：追加三行后 103 行" || bad "tail 没跟上追加（还不是 103 行）"
@@ -416,7 +416,7 @@ if open_from_tree "rot.log"; then
       bad "点不到「跟随尾部」"
     fi
   else
-    bad "rot.log 没切到日志模式"
+    bad "rot.log 没直接进日志模式"
   fi
 fi
 click "关闭 rot.log" || true

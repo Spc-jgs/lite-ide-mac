@@ -97,6 +97,7 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
        * 走不到，而那正是 c16f12d 修的那个 bug 的现场。
        * 现在的判据是「桩手里有没有这个文件的真内容」：
        * 有就按真大小走真判据，没有的才是那个演示用的 1GB 日志。
+       * （这里照真实现只答体积。名字是日志的小文件照样进日志视图，那是前端 `tabflow.openPath` 按名字定的，2026-10-12）
        */
       const known = FILES[path] !== undefined;
       const isLog = path.endsWith(".log") && !known;

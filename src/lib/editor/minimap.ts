@@ -104,7 +104,7 @@ class MinimapPlugin implements PluginValue {
   /** 可见画布当前的设备像素尺寸，没变就不重设（重设 = 重新分配位图） */
   private cw = 0;
   private ch = 0;
-  /** 编辑器窄到放不下缩略图（见 MIN_EDITOR_W）。measure 里读，paint 前写 */
+  /** 这一刻藏着：编辑器窄到放不下（见 MIN_EDITOR_W），或者整份都在一屏里。measure 里读，paint 前写 */
   private narrow = false;
   private narrowDirty = false;
 
@@ -225,7 +225,13 @@ class MinimapPlugin implements PluginValue {
   private measure(): Measured | null {
     const h = this.view.dom.clientHeight;
     if (h <= 0) return null;
-    const narrow = this.view.dom.clientWidth < MIN_EDITOR_W;
+    /*
+     * 两种情况整块藏掉：编辑器太窄；**整份都在这一屏里**（没有滚动条）—— 那时缩略图画的就是眼前这一屏，只占地方
+     * （2026-10-12 走查：10 行的 yml、刚建的空草稿，右边都吊着一条 90px 的空栏）。不会来回闪：藏掉之后正文变宽、
+     * 同样的内容只会更容易放下；显示出来是因为放不下，正文变窄只会更放不下
+     */
+    const sc0 = this.view.scrollDOM;
+    const narrow = this.view.dom.clientWidth < MIN_EDITOR_W || sc0.scrollHeight <= sc0.clientHeight + 1;
     if (narrow !== this.narrow) {
       this.narrow = narrow;
       // 太窄：整块藏掉、正文的右留白也撤掉（写 DOM 放到 write 阶段，见 paint）
