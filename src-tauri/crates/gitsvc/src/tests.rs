@@ -1574,3 +1574,46 @@ fn cherry_pick_干净与冲突() {
     assert!(st.entries.iter().any(|e| e.path == "a.txt" && e.conflicted), "status 里该有冲突条目：{:?}", st.entries);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// 钩子留下一个没重定向输出的后台进程（`post-commit` 里 `… &`）：它攥着 git 的 stdout / stderr，git 退了管道还开着。
+/// 原来提交要等到那个后台进程退出才回来 —— 界面上「提交」一直转、之后 git 写操作全堵住。现在 git 一退、宽限期一到就回来
+/// （procutil::PIPE_GRACE，docs/research/codex.md 主题 1 第 1 条）
+#[test]
+fn 钩子留下后台进程不能把提交挂住() {
+    if !available() {
+        eprintln!("跳过：机器上没有 git");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tmpdir("bg-hook");
+    let mark = format!("gitsvc-bg-hook-{}", std::process::id());
+    struct Kill(String);
+    impl Drop for Kill {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("pkill").args(["-f", &self.0]).status();
+        }
+    }
+    let _k = Kill(mark.clone());
+    run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+    run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+    run(&dir, &["config", "user.name", "t"]).unwrap();
+    let hook = dir.join(".git/hooks/post-commit");
+    std::fs::write(&hook, format!("#!/bin/sh\nsh -c 'sleep 60' {mark} &\necho 钩子跑完了\n")).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+    run(&dir, &["add", "-A"]).unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let d = dir.clone();
+    let t = std::time::Instant::now();
+    std::thread::spawn(move || {
+        let _ = tx.send(commit(&d, "钩子留了个后台进程", false).is_ok());
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(15)) {
+        Ok(ok) => assert!(ok, "钩子退出码是 0，提交不该失败"),
+        Err(_) => panic!("提交挂住了 —— 在等钩子留下的后台进程"),
+    }
+    assert!(t.elapsed() < std::time::Duration::from_secs(6), "回来得太晚：{:?}", t.elapsed());
+    assert!(status_full(&dir).unwrap().entries.is_empty(), "提交应该真的发生了");
+    std::fs::remove_dir_all(&dir).ok();
+}
