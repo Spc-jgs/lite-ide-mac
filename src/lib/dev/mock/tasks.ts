@@ -131,7 +131,10 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       // 同真实现：同名的还在跑先停掉
       for (const [id, r] of RUNS) if (r.root === root && r.name === name && r.status !== "gone") emitExit(id, { code: 130, stopped: true });
       const id = nextRun++;
-      const log = `/mock-runs/${name.replace(/[^\w.-]/g, "_")}.log`;
+      // 形状同 `tasksvc::log_file`：换过字符的名字后面带一段原名的指纹（#56 第 2 条）。值不必和 Rust 算的一样，这里是 32 位 FNV-1a
+      let h = 0x811c9dc5;
+      for (const b of new TextEncoder().encode(name)) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+      const log = `/mock-runs/${name.replace(/[^\w.-]/g, "_")}-${h.toString(16).padStart(8, "0")}.log`;
       // 名字带 fail 的：8080 还被占着就 0.9 秒后失败退出（输出里那句 `Port 8080 was already in use`）。
       // 带 ours 的，占着的算「你之前跑的」（主按钮）；不带的是别的程序（danger）—— 两种卡片在浏览器里都看得到
       const fail = name.includes("fail") && HOLDERS.has(8080);

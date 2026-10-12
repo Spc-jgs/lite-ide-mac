@@ -47,10 +47,11 @@ pub struct Spec {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
+    /// 组里还有活的。组长退了、`&` 出去的后台进程还在，也算在跑（停的是整组，在跑的也是整组）
     Running,
     /// 发过 SIGINT，在等它收尾（宽限期内再叫一次 `kill` 就立刻强杀）
     Stopping,
-    /// 组长退了。`stopped` = 是我们停的：pnpm 被 SIGINT 后会报 `Command failed`、退出码非零，
+    /// 整组都没了。`code` / `signal` 是组长的。`stopped` = 是我们停的：pnpm 被 SIGINT 后会报 `Command failed`、退出码非零，
     /// 那不是失败（第 0 步实测）—— 只有没人停它、它自己非零退出才算失败
     Exited { code: Option<i32>, signal: Option<i32>, stopped: bool },
 }
@@ -64,7 +65,7 @@ impl State {
 struct Shared {
     state: Mutex<State>,
     changed: Condvar,
-    /// 叫过 stop / kill。组长退出时据此把状态记成「已停止」而不是「失败」
+    /// 叫过 stop / kill。整组没了时据此把状态记成「已停止」而不是「失败」
     stopped: AtomicBool,
 }
 
@@ -93,28 +94,46 @@ fn signal_group(pgid: i32, sig: libc::c_int) {
 /// 先软后硬地停一整组：SIGINT，`grace` 内全退了就完，否则 SIGKILL。**会阻塞到结束**（最多 `grace` 多一点），
 /// 调用方放线程里跑。崩溃后收尸（只有组号、没有 [`Task`]）也走它
 pub fn stop_group(pgid: i32, grace: Duration) {
-    signal_group(pgid, libc::SIGINT);
+    stop_groups(&[pgid], grace);
+}
+
+/// 同时停几组：每组先都发 SIGINT，再**一起**等一个宽限期，到点还有活的统一 SIGKILL。
+/// 挨个 [`stop_group`] 的话，N 组都不理软停就要等 N 个宽限期 —— 上次没停干净的卡片上点「结束它们」，三个就是 15 秒（#56 第 5 条）
+pub fn stop_groups(pgids: &[i32], grace: Duration) {
+    for &g in pgids {
+        signal_group(g, libc::SIGINT);
+    }
     let t = Instant::now();
     while t.elapsed() < grace {
-        if !group_alive(pgid) {
+        if !pgids.iter().any(|&g| group_alive(g)) {
             return;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    signal_group(pgid, libc::SIGKILL);
+    for &g in pgids {
+        signal_group(g, libc::SIGKILL);
+    }
 }
 
-/// 任务的输出放哪：`<base>/<项目根的指纹>/<任务名>.log`（TASKS.md Q7：不往项目里写）。
-/// 指纹用 FNV-1a：要的是「同一个项目每次都落在同一个目录」，`DefaultHasher` 不保证跨版本稳定。
-/// 名字里的 `/`（`web/dev`）和别的怪字符换成 `_`：它是文件名的一段，不能变成子目录
-pub fn log_file(base: &Path, root: &str, name: &str) -> PathBuf {
+/// FNV-1a 64 位。要的是「同样的输入每次都得到同样的值」，`DefaultHasher` 不保证跨版本稳定
+fn fnv(s: &str) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
-    for b in root.as_bytes() {
+    for b in s.as_bytes() {
         h ^= *b as u64;
         h = h.wrapping_mul(0x100000001b3);
     }
+    h
+}
+
+/// 任务的输出放哪：`<base>/<项目根的指纹>/<任务名>-<名字的指纹>.log`（TASKS.md Q7：不往项目里写）。
+///
+/// 名字里的 `/`（`web/dev`）和别的怪字符换成 `_`：它是文件名的一段，不能变成子目录。只这么换会撞 ——
+/// `web/dev`（package.json 子目录）和 `web_dev`、`a b` 和 `a_b` 落到同一个文件，APFS 默认还不分大小写（`Dev` 和 `dev`）。
+/// 两个同时跑时，后起的把先起的正在写的文件挪成 `.1`，先起那格看到的是后起那个的输出（#56 第 2 条）。
+/// 所以后面再带一段**原名**的指纹：换掉的字符、大小写都算进去，前半截照旧给人认
+pub fn log_file(base: &Path, root: &str, name: &str) -> PathBuf {
     let safe: String = name.chars().map(|c| if c.is_alphanumeric() || "-_.".contains(c) { c } else { '_' }).collect();
-    base.join(format!("{h:016x}")).join(format!("{safe}.log"))
+    base.join(format!("{:016x}", fnv(root))).join(format!("{safe}-{:08x}.log", fnv(name) as u32))
 }
 
 impl Task {
@@ -171,6 +190,13 @@ impl Task {
         std::thread::Builder::new().name(format!("task-wait-{pgid}")).spawn(move || {
             // 回收组长：不回收它就是僵尸，组号一直「还有人」
             let st = child.wait();
+            // 组长退了、组里还有活的（命令里 `&` 出去的后台进程，`java -jar a.jar & sleep 1` 这种）：任务**还没完**。
+            // 原来组长一退就记成「已结束」，界面上停止按钮跟着灰掉，而后台的 java 还占着端口、谁也停不了它；
+            // 账本（live.json）也在这时划掉了，这时崩溃下次没有收尸卡片（#56 第 1 条）。
+            // 轮询：组号没有「最后一个进程退出」的通知可等。一个系统调用、200ms 一次，只在这种少见的情形下才转起来
+            while group_alive(pgid) {
+                std::thread::sleep(Duration::from_millis(200));
+            }
             let stopped = sh.stopped.load(Ordering::SeqCst);
             let state = match st {
                 Ok(s) => State::Exited { code: s.code(), signal: s.signal(), stopped },
@@ -201,7 +227,7 @@ impl Task {
         group_alive(self.pgid)
     }
 
-    /// 记下「是我们停的」：组长退出时据此记成「已停止」而不是「失败」。**停一个有 `Task` 的任务，每条路都要先过这里** ——
+    /// 记下「是我们停的」：整组没了时据此记成「已停止」而不是「失败」。**停一个有 `Task` 的任务，每条路都要先过这里** ——
     /// 重跑、关格子、端口卡片原来各自直接 `stop_group(pgid)`，绕开了它，于是 `mvn` 被停后那个 130 报成了「失败」、
     /// 还弹一句「退出了」（code review 2026-10-10）。[`stop_group`] 只留给没有 `Task` 的（崩溃后收尸）
     fn mark_stopping(&self) {
@@ -220,10 +246,13 @@ impl Task {
         let _ = std::thread::Builder::new().name(format!("task-stop-{pgid}")).spawn(move || stop_group(pgid, grace));
     }
 
-    /// 同 [`Task::stop`]，但在当前线程里等到停完（最多 `grace` 多一点）。**会阻塞**，调用方自己在后台线程里
+    /// 同 [`Task::stop`]，但在当前线程里等到停完（最多 `grace` 多一点）。**会阻塞**，调用方自己在后台线程里。
+    /// 返回时状态已经是 `Exited`：组没了不等于等待线程已经记下了（它回收组长、再看一眼组，有几百毫秒的空档），
+    /// 调用方紧接着读状态的话会读到「正在停」
     pub fn stop_wait(&self, grace: Duration) {
         self.mark_stopping();
         stop_group(self.pgid, grace);
+        self.wait_exit(Duration::from_secs(2));
     }
 
     /// 强杀：SIGKILL 整组，不等（软停宽限期里再按一次「停止」走这里，同 IDEA 按钮变成「强制结束」）
@@ -232,14 +261,14 @@ impl Task {
         signal_group(self.pgid, libc::SIGKILL);
     }
 
-    /// 等组长退出，不限时。返回最终状态（一定是 `Exited`）
+    /// 等整组都没了，不限时。返回最终状态（一定是 `Exited`）
     pub fn wait(&self) -> State {
         let g = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
         let g = self.shared.changed.wait_while(g, |s| !matches!(s, State::Exited { .. })).unwrap_or_else(|e| e.into_inner());
         g.clone()
     }
 
-    /// 等组长退出，最多 `timeout`。退了返回最终状态
+    /// 等整组都没了，最多 `timeout`。没了返回最终状态
     pub fn wait_exit(&self, timeout: Duration) -> Option<State> {
         let g = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
         let (g, _) = self

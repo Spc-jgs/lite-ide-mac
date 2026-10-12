@@ -43,7 +43,7 @@ group_left() { pgrep -g "$1" 2>/dev/null | wc -l | tr -d ' '; }
 group_names() { pgrep -g "$1" -l 2>/dev/null | awk '{print $2}' | sort | uniq -c | tr -s ' ' | tr '\n' ',' ; }
 dot() { lite_eval main "return document.querySelector('.ptab.on .dot')?.className.split(' ')[1] ?? ''" 2>/dev/null; }
 # 看内容读输出文件，不读日志视图：视图只画屏幕上那几十行，Spring 停的时候后面还有一串，@PreDestroy 那行早滚出去了（第一次跑就这么红的）
-logtext() { cat "$(find "${LITE_DATA}/runs" -name "$1.log" 2>/dev/null | head -1)" 2>/dev/null; }
+logtext() { cat "$(find "${LITE_DATA}/runs" -name "$1-*.log" 2>/dev/null | head -1)" 2>/dev/null; }
 pick() {
   lite menu run-pick main >/dev/null
   lite_wait main "return !!document.querySelector('.picker .row')" 8 >/dev/null

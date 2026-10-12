@@ -95,6 +95,7 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
 }
 
 /// 停。第一次软停（SIGINT 整组，宽限期后 SIGKILL）；软停还没完再叫一次 → 立刻强杀（同 IDEA 按钮变「强制结束」）。
+/// 组长退了、`&` 出去的后台进程还在的，状态照样是 `Running`（`tasksvc::State`），走同一条路
 /// 返回 "stopping" / "killed" / "gone"（已经没了）
 #[tauri::command]
 pub fn task_stop(id: u32, state: State<'_, AppState>) -> String {
@@ -105,11 +106,6 @@ pub fn task_stop(id: u32, state: State<'_, AppState>) -> String {
             "stopping".into()
         }
         tasksvc::State::Stopping if task.alive() => {
-            task.kill();
-            "killed".into()
-        }
-        // 组长退了但组里还有活的（`&` 出去的后台进程）：直接强杀，没什么可等的
-        _ if task.alive() => {
             task.kill();
             "killed".into()
         }
@@ -149,9 +145,8 @@ pub async fn task_stale_resolve(root: String, kill: bool, app: tauri::AppHandle)
     blocking(move || {
         let mine = app.state::<AppState>().stale_take(&root);
         if kill {
-            for l in mine.iter().filter(|l| tasksvc::live::still_running(l)) {
-                tasksvc::stop_group(l.pgid, tasksvc::GRACE);
-            }
+            let pgids: Vec<i32> = mine.iter().filter(|l| tasksvc::live::still_running(l)).map(|l| l.pgid).collect();
+            tasksvc::stop_groups(&pgids, tasksvc::GRACE);
         }
         Ok(())
     })

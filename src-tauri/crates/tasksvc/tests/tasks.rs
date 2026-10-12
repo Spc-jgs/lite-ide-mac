@@ -176,6 +176,37 @@ fn 强杀不等宽限期() {
     assert!(until(2, || !t.alive()), "SIGKILL 之后 2 秒还活着");
 }
 
+/// `java -jar a.jar & sleep 1` 这种：组长先退了，`&` 出去的还在组里 —— 任务没完，状态要还是「在跑」、停得掉（#56 第 1 条）。
+/// 原来组长一退就记成已结束，界面上停止按钮灰掉，后台那个占着端口没人停得了
+#[test]
+fn 组长先退_后台的还在_任务还算在跑_停得掉() {
+    let d = dir("bg");
+    let t = Task::start(&spec(&d.0, "sleep 300 & echo leader-done")).unwrap();
+    // 组长（zsh）回收之后 `kill(pid, 0)` 就是 ESRCH
+    assert!(until(10, || unsafe { libc::kill(t.pgid(), 0) } != 0), "10 秒了组长还没退");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(t.alive(), "后台的 sleep 该还在组里");
+    assert_eq!(t.state(), State::Running, "组里还有活的，不能记成已结束");
+    t.stop(Duration::from_millis(500));
+    let st = t.wait_exit(Duration::from_secs(5)).expect("停了 5 秒还没完");
+    assert!(matches!(st, State::Exited { code: Some(0), stopped: true, .. }) && !st.failed(), "{st:?}");
+    assert!(!t.alive());
+}
+
+/// 「结束它们」：几组一起停，宽限期只等一次。挨个停的话三个不理软停的要等三个宽限期（#56 第 5 条）
+#[test]
+fn 几组一起停_宽限期只等一次() {
+    let ds: Vec<Dir> = (0..3).map(|i| dir(&format!("many{i}"))).collect();
+    let ts: Vec<Task> = ds.iter().map(|d| Task::start(&spec(&d.0, ARMED)).unwrap()).collect();
+    ds.iter().for_each(|d| wait_armed(&d.0));
+    let t0 = Instant::now();
+    tasksvc::stop_groups(&ts.iter().map(Task::pgid).collect::<Vec<_>>(), Duration::from_millis(600));
+    let took = t0.elapsed();
+    assert!(ts.iter().all(|t| until(2, || !t.alive())), "宽限期过了还有活的");
+    assert!(took >= Duration::from_millis(600), "没等宽限期就强杀了：{took:?}");
+    assert!(took < Duration::from_millis(1200), "等了不止一个宽限期（挨个停是 1800ms）：{took:?}");
+}
+
 /// 应用退出时 `Task` 被丢掉：组里不能留下孤儿（UNINSTALL.md 的承诺）
 #[test]
 fn 丢掉_task_不留孤儿() {
@@ -304,14 +335,21 @@ fn 一个端口两个监听者_都结束() {
     assert!(tasksvc::port::holders(port).is_empty());
 }
 
-/// 日志文件名：同一个项目落同一个目录、名字里的 `/` 不变成子目录
+/// 日志文件名：同一个项目落同一个目录、名字里的 `/` 不变成子目录、换掉字符之后不撞（#56 第 2 条）
 #[test]
 fn 日志放哪() {
     let base = Path::new("/r");
     let a = tasksvc::log_file(base, "/p", "web/dev");
+    assert_eq!(a, tasksvc::log_file(base, "/p", "web/dev"), "同一个任务每次落同一个文件");
     assert_eq!(a.parent(), tasksvc::log_file(base, "/p", "x").parent(), "同一个项目同一个目录");
     assert_ne!(a.parent(), tasksvc::log_file(base, "/q", "x").parent(), "不同项目不同目录");
-    assert_eq!(a.file_name().unwrap(), "web_dev.log");
-    assert_eq!(a.parent().unwrap().parent(), Some(base));
+    assert_eq!(a.parent().unwrap().parent(), Some(base), "`/` 没变成子目录");
+    let name = a.file_name().unwrap().to_str().unwrap();
+    assert!(name.starts_with("web_dev-") && name.ends_with(".log"), "前半截还给人认：{name}");
+    for (x, y) in [("web/dev", "web_dev"), ("a b", "a_b"), ("Dev", "dev")] {
+        let (fx, fy) = (tasksvc::log_file(base, "/p", x), tasksvc::log_file(base, "/p", y));
+        // APFS 默认不分大小写：比小写之后的，才是「会不会落到同一个文件」
+        assert_ne!(fx.to_string_lossy().to_lowercase(), fy.to_string_lossy().to_lowercase(), "「{x}」和「{y}」落到了同一个文件");
+    }
 }
 

@@ -64,7 +64,7 @@ EOF
 listening() { lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; }
 procs() { pgrep -f "${MARK}" | wc -l | tr -d ' '; }
 dot() { lite_eval main "return document.querySelector('.ptab.on .dot')?.className.split(' ')[1] ?? ''" 2>/dev/null; }
-logf() { find "${LITE_DATA}/runs" -name srv.log 2>/dev/null | head -1; }
+logf() { find "${LITE_DATA}/runs" -name "srv-*.log" 2>/dev/null | head -1; }
 # ⌃⌥R 开任务列表，点某一行（默认 srv）
 pick_srv() {
   local name="${1:-srv}"
