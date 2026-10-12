@@ -223,9 +223,18 @@ impl Task {
         self.shared.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// 组里还有活的（组长退了、后台的孙子还在，也算）
+    /// 组里还有活的（组长退了、后台的孙子还在，也算）。
+    ///
+    /// **已经是 `Exited` 就不再问组号**（code review 2026-10-12）：`Exited` 的意思是等待线程亲眼看到整组没了，
+    /// 之后这个号就不是我们的了 —— 运行窗的格子会一直留着，macOS 的 pid 到 99999 回绕，几天之后同一个号可能是别人的进程组长。
+    /// 原来只看 `group_alive(pgid)`：关掉那一格（`task_close` → `retire`）或者 ⌘Q（`kill_all_runs`、`Drop`）会把 SIGINT / SIGKILL
+    /// 发给那个不相干的进程组
     pub fn alive(&self) -> bool {
-        group_alive(self.pgid)
+        !self.exited() && group_alive(self.pgid)
+    }
+
+    fn exited(&self) -> bool {
+        matches!(*self.shared.state.lock().unwrap_or_else(|e| e.into_inner()), State::Exited { .. })
     }
 
     /// 记下「是我们停的」：整组没了时据此记成「已停止」而不是「失败」。**停一个有 `Task` 的任务，每条路都要先过这里** ——
@@ -242,6 +251,10 @@ impl Task {
 
     /// 软停：SIGINT 整组，`grace` 后还有活的就 SIGKILL。立刻返回，等待在后台线程里
     pub fn stop(&self, grace: Duration) {
+        // 已经整组没了：号可能已经是别人的（`alive` 上面那段），一个信号都不发
+        if self.exited() {
+            return;
+        }
         self.mark_stopping();
         let pgid = self.pgid;
         let _ = std::thread::Builder::new().name(format!("task-stop-{pgid}")).spawn(move || stop_group(pgid, grace));
@@ -251,6 +264,9 @@ impl Task {
     /// 返回时状态已经是 `Exited`：组没了不等于等待线程已经记下了（它回收组长、再看一眼组，有几百毫秒的空档），
     /// 调用方紧接着读状态的话会读到「正在停」
     pub fn stop_wait(&self, grace: Duration) {
+        if self.exited() {
+            return;
+        }
         self.mark_stopping();
         stop_group(self.pgid, grace);
         self.wait_exit(Duration::from_secs(2));
@@ -258,6 +274,9 @@ impl Task {
 
     /// 强杀：SIGKILL 整组，不等（软停宽限期里再按一次「停止」走这里，同 IDEA 按钮变成「强制结束」）
     pub fn kill(&self) {
+        if self.exited() {
+            return;
+        }
         self.shared.stopped.store(true, Ordering::SeqCst);
         signal_group(self.pgid, libc::SIGKILL);
     }
@@ -285,8 +304,39 @@ impl Task {
 /// 正常退出应用时先 [`Task::stop`] 给它收尾的机会（应用层的事）；这里兜的是忘了停的那些，不留孤儿（UNINSTALL.md 的承诺）
 impl Drop for Task {
     fn drop(&mut self) {
-        if group_alive(self.pgid) {
+        // 同 `alive`：整组早就没了的，号可能已经是别人的，不发
+        if self.alive() {
             signal_group(self.pgid, libc::SIGKILL);
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 组号复用造不出来，就反过来造：一个**活着的、不相干的**进程组，再造一个拿着同一个号、但早已 `Exited` 的任务 ——
+    /// 正是「格子留了几天、号被别人用了」的样子。对它 alive / kill / stop_wait / 丢掉，那个进程组都得毫发无损
+    #[test]
+    fn 已经结束的任务_号被别人复用了_一个信号都不发() {
+        #[allow(clippy::disallowed_methods)] // 测试里起一个「别人的」进程组
+        let mut other = Command::new("sleep").arg("30").process_group(0).spawn().unwrap();
+        let pgid = other.id() as i32;
+        let done = State::Exited { code: Some(0), signal: None, stopped: false };
+        let t = Task {
+            pgid,
+            started_us: None,
+            shared: Arc::new(Shared { state: Mutex::new(done), changed: Condvar::new(), stopped: AtomicBool::new(false) }),
+        };
+        assert!(!t.alive(), "整组早就没了的任务，不该按号去问 —— 那个号现在是别人的");
+        t.kill();
+        t.stop(Duration::from_millis(100));
+        t.stop_wait(Duration::from_millis(100));
+        drop(t);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(matches!(other.try_wait(), Ok(None)), "别人的进程组被我们的信号打死了");
+        let _ = other.kill();
+        let _ = other.wait();
+    }
+}
+

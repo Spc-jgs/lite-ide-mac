@@ -47,9 +47,9 @@ jobs:
 
       - name: Rust 测试
         working-directory: src-tauri
-        # 单独设步骤超时：ptysvc 的测试有已知的间歇性挂起（见 AGENTS.md），
-        # 测试体内已经有 25s 看门狗，这里是第二道保险 —— 宁可这一步红，
-        # 也不要让它安静吃光整个 job 的额度
+        # 单独设步骤超时：这里有一堆真起子进程的测试（pty、任务、git、文件监听），哪条一旦挂住，
+        # 宁可这一步红，也不要让它安静吃光整个 job 的额度。
+        # （这句原来写「ptysvc 有已知的间歇性挂起、测试体内有 25s 看门狗」—— #16 / #30 都修了、看门狗早不在了，2026-10-12 改正）
         timeout-minutes: 25
         run: cargo test --workspace --locked
 

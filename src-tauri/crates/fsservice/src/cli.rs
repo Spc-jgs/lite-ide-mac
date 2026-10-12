@@ -82,6 +82,10 @@ fn cli_link_is_ours(target: &Path, script: &Path) -> bool {
     if target == script || target.to_string_lossy().ends_with(".app/Contents/MacOS/lite-ide") {
         return true;
     }
+    // **先确认是普通文件再打开**（code review 2026-10-12）：指向命名管道（FIFO）的话，open 读端会一直等一个写端，永远不回来
+    if !fs::metadata(target).is_ok_and(|m| m.is_file()) {
+        return false;
+    }
     let mut head = [0u8; 512];
     let n = fs::File::open(target).and_then(|mut f| io::Read::read(&mut f, &mut head)).unwrap_or(0);
     String::from_utf8_lossy(&head[..n]).contains(CLI_MARK)

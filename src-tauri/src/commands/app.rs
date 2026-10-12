@@ -6,7 +6,13 @@ use super::*;
 /// 业务在 fsservice；这里只算两个路径、转错误。不提权 —— 软链装不上就把
 /// 那句 `sudo ln -s` 交给用户；那个位置是别人的东西就说清是什么、不给命令（`fsservice::CliLink`）。
 #[tauri::command]
-pub fn install_cli(app: tauri::AppHandle) -> Result<CliInstallDto, String> {
+pub async fn install_cli(app: tauri::AppHandle) -> Result<CliInstallDto, String> {
+    // 走阻塞池（code review 2026-10-12）：原来留在主线程，理由是「只建一个软链」；现在要读软链指向的文件认是不是我们的，
+    // 那个文件在哪是用户定的（断了线的网络卷上一个 stat 就能卡几秒），碰盘的一律不在主线程（rust.md）
+    blocking(move || install_cli_now(&app)).await
+}
+
+fn install_cli_now(app: &tauri::AppHandle) -> Result<CliInstallDto, String> {
     use tauri::Manager;
     let exe = std::env::current_exe().map_err(|e| format!("取不到可执行文件路径：{e}"))?;
     let bundle = fsservice::bundle_from_exe(&exe).ok_or_else(|| {

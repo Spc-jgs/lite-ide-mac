@@ -151,6 +151,9 @@ searchsvc 那份把并发读写反了** —— 读完 stdout 才读 stderr，rg 
    （检出时跑）由 `repo_filter_drivers` 查 `--local` 拿到名单再逐个 `-c` 关掉。
    只查 `--local` 是信任边界 —— 用户全局那份里躺着 `filter.lfs.*`，
    无差别关掉等于把 git-lfs 弄坏。
+   **名单读不全就拒绝跑，不是少关几个**（2026-10-12）：查名单的输出设了闸，被截断或者查不出来时，
+   `git_cmd` 加一个故意写错的 `-c` 键（`REFUSE_UNREADABLE_FILTERS`，错误信息就是原因），git 当场退 128。
+   加固类的东西出错时要往「不做」那边倒 —— 放行等于漏关的那几个过滤器照跑仓库里写的命令。
 
    `ext::` 那条要注意 **git 的默认防线是仓库自己能掀掉的**：默认 `ext` 不允许，
    但仓库在自己的 `.git/config` 里写一句 `protocol.ext.allow = always` 就放开了，

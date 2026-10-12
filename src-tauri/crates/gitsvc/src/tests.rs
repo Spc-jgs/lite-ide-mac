@@ -1654,3 +1654,30 @@ fn 丢弃未跟踪的_交给废纸篓_不直接删() {
     }
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// 过滤器名单读不全（输出超了上限）：返回「读不全」，git_cmd 让这条 git 当场失败、报错里带着原因 ——
+/// 原来截断了照样放行，漏关的过滤器在检出时照跑（code review 2026-10-12）。上限注入一个很小的，不用真造 4MB 的 config
+#[test]
+fn 过滤器名单读不全_拒绝运行_不是少关几个() {
+    if !available() {
+        eprintln!("跳过：机器上没有 git");
+        return;
+    }
+    let dir = tmpdir("filters-cap");
+    run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+    for i in 0..5 {
+        run(&dir, &["config", &format!("filter.f{i}.smudge"), "cat"]).unwrap();
+    }
+    assert_eq!(filter_drivers_capped(&dir, 1 << 20).map(|v| v.len()), Some(5), "读得全时五个都在");
+    assert_eq!(filter_drivers_capped(&dir, 40), None, "截断了要说读不全，不能拿半份名单");
+
+    #[allow(clippy::disallowed_methods)] // 测试里直接跑一条带着那个 -c 的 git，看它是不是真的拒绝
+    let o = std::process::Command::new("git")
+        .args(["-c", REFUSE_UNREADABLE_FILTERS, "status"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(!o.status.success(), "带着拒绝的 -c，git 该当场失败");
+    assert!(String::from_utf8_lossy(&o.stderr).contains("过滤器配置读不全"), "报错里要带着原因：{}", String::from_utf8_lossy(&o.stderr));
+    std::fs::remove_dir_all(&dir).ok();
+}

@@ -226,14 +226,18 @@ fn 写到上限在换行处轮转_一行不劈开_上一次的挪成点一() {
     std::fs::create_dir_all(s.log.parent().unwrap()).unwrap();
     std::fs::write(&s.log, "上一次的输出\n").unwrap();
 
-    s.command = "i=0; while [ $i -lt 400 ]; do echo \"line $i ................\"; i=$((i+1)); done".into();
+    // 输出要**远大于读线程一次读的那块**（64KB）：读到的一块跨过上限时整块留在当前那份里（sink 的规矩），所以轮转几次取决于
+    // 每次读到多大。原来 400 行约 10KB —— 本机读线程跟得上、一小块一小块地读，轮转好几次；CI 忙的时候读线程醒得晚，
+    // 10KB 一次读完，一次都不转，「上一次的输出」还在 .1 里，间歇红（e976da7 那次，一次只改文档的提交）。
+    // 12000 行约 330KB：就算每次都读满 64KB 也至少五块、每块都跨上限
+    s.command = "awk 'BEGIN { for (i = 0; i < 12000; i++) print \"line \" i \" ................\" }'".into();
     s.cap = 1000;
     let t = Task::start(&s).unwrap();
     t.wait_exit(Duration::from_secs(10)).unwrap();
-    assert!(until(5, || read(&s.log).contains("line 399")), "最后一行没写进当前那份");
+    assert!(until(5, || read(&s.log).contains("line 11999")), "最后一行没写进当前那份");
     let (cur, old) = (read(&s.log), read(&rotated(&s.log)));
     assert!(!old.is_empty(), "轮转过，.1 不该是空的");
-    assert!(!old.contains("上一次的输出"), "400 行早就轮转过好几次了，上一次的那份应该已经被顶掉");
+    assert!(!old.contains("上一次的输出"), "12000 行早就轮转过好几次了，上一次的那份应该已经被顶掉");
     for f in [&cur, &old] {
         for l in f.lines() {
             assert!(l.starts_with("line ") && l.ends_with('.'), "有一行被劈开了：{l:?}");

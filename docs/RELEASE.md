@@ -212,7 +212,7 @@ pnpm tauri build --target universal-apple-darwin
 
 | 步骤 | 为什么 |
 |---|---|
-| `cargo test --workspace` | 417 条 Rust 测试（2026-10-12；含读源码卡规矩的几条：IPC 两侧 DTO、菜单与键位表、哪些命令能留主线程、按窗口的资源关窗口时都收）。另有 4 条 `#[ignore]` 的，其中两条会往跑测试的人的废纸篓里扔文件，得手动跑 |
+| `cargo test --workspace` | 422 条 Rust 测试（2026-10-12；含读源码卡规矩的几条：IPC 两侧 DTO、菜单与键位表、哪些命令能留主线程、按窗口的资源关窗口时都收）。另有 4 条 `#[ignore]` 的，其中两条会往跑测试的人的废纸篓里扔文件，得手动跑 |
 | `cargo clippy` 只查 `disallowed-methods` | 起子进程走 procutil、不用会吞文件的 std API、删用户文件只走废纸篓 —— 这几条原来只写在 rust.md 里，第一次交给 clippy 就抓到一处违反（2026-10-12）。清单和理由在 `src-tauri/clippy.toml`；只开这一条，全量 clippy 的风格警告和这件事无关 |
 | `pnpm check` | Svelte + TS 类型检查 |
 | 前端测试 | 52 个文件、1,289 条断言（2026-10-12）：纯函数（diff 解析、双栏对照、泳道布局、冲突解析……）、状态层（`*.state.test.ts`，裸 node 跑 runes）、页面不许直接插 HTML |

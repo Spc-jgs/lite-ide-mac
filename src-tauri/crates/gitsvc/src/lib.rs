@@ -343,7 +343,8 @@ pub(crate) const DIFF_SAFE: &[&str] = &["--no-ext-diff", "--no-textconv"];
 ///
 /// 仓库 config 可以 `[include] path = 别处`，文本解析会漏掉引进来的那一份。
 /// 让 git 自己展开。
-fn repo_filter_drivers(cwd: &Path) -> std::sync::Arc<Vec<String>> {
+/// 返回 `None` = **名单读不全**（输出超了上限、或者这条查询起不来）。调用方必须拒绝运行，不能少关几个继续 —— 见 [`git_cmd`]
+fn repo_filter_drivers(cwd: &Path) -> Option<std::sync::Arc<Vec<String>>> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::SystemTime;
@@ -374,7 +375,7 @@ fn repo_filter_drivers(cwd: &Path) -> std::sync::Arc<Vec<String>> {
         std::fs::metadata(dot.join("config")).ok()?.modified().ok()
     }
 
-    static CACHE: OnceLock<Mutex<HashMap<(std::path::PathBuf, SystemTime), Arc<Vec<String>>>>> =
+    static CACHE: OnceLock<Mutex<HashMap<(std::path::PathBuf, SystemTime), Option<Arc<Vec<String>>>>>> =
         OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
 
@@ -385,32 +386,7 @@ fn repo_filter_drivers(cwd: &Path) -> std::sync::Arc<Vec<String>> {
         }
     }
 
-    // **用不带 filter 关闭的那条**，否则这里会无限递归回 git_cmd。上限给 1MB：一份过滤器名单不可能这么长，
-    // 真超了宁可少关几个也不能卡住（截断的名单在下面照样逐个关）
-    let out = procutil::run_capped(
-        &mut git_cmd_hardened(cwd, &["config", "--local", "--name-only", "--get-regexp", r"^filter\..*\.(smudge|clean|process)$"]),
-        1 << 20,
-        procutil::ERR_CAP,
-        procutil::Overflow::Kill,
-    );
-
-    let mut names: Vec<String> = Vec::new();
-    if let Ok(o) = out {
-        for line in String::from_utf8_lossy(&o.stdout).lines() {
-            // `filter.<名字>.smudge` → `<名字>`。名字里可以有点（`filter.a.b.smudge`），
-            // 所以从两头切，不是按点分割
-            if let Some(rest) = line.strip_prefix("filter.") {
-                if let Some(i) = rest.rfind('.') {
-                    let n = &rest[..i];
-                    if !n.is_empty() && !names.iter().any(|x| x == n) {
-                        names.push(n.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    let arc = Arc::new(names);
+    let arc = filter_drivers_capped(cwd, MAX_STDOUT_BYTES).map(Arc::new);
     if let Some(k) = key {
         if let Ok(mut c) = cache.lock() {
             c.insert(k, arc.clone());
@@ -418,6 +394,43 @@ fn repo_filter_drivers(cwd: &Path) -> std::sync::Arc<Vec<String>> {
     }
     arc
 }
+
+/// 查出仓库自己配的过滤器名。**用不带 filter 关闭的那条**，否则这里会无限递归回 git_cmd。
+///
+/// 上限和信任扫描（`trust::scan`，`run_raw` 的 [`MAX_STDOUT_BYTES`]）一样：这份名单是 `config --list` 的子集，
+/// config 大到扫描读不全时扫描直接报错、Git 整块不启用；所以过了扫描的仓库这里读得全。**读不全就返回 `None`，
+/// 不是「少关几个继续」**（code review 2026-10-12：原来上限 1MB、截断了照样放行 —— 这是安全加固的一环，读不全就该拒绝）。
+/// 上限做成参数是为了能测：真造一份 4MB 的 config 不现实
+fn filter_drivers_capped(cwd: &Path, cap: usize) -> Option<Vec<String>> {
+    let o = procutil::run_capped(
+        &mut git_cmd_hardened(cwd, &["config", "--local", "--name-only", "--get-regexp", r"^filter\..*\.(smudge|clean|process)$"]),
+        cap,
+        procutil::ERR_CAP,
+        procutil::Overflow::Kill,
+    )
+    .ok()?;
+    if o.truncated {
+        return None;
+    }
+    let mut names: Vec<String> = Vec::new();
+    for line in String::from_utf8_lossy(&o.stdout).lines() {
+        // `filter.<名字>.smudge` → `<名字>`。名字里可以有点（`filter.a.b.smudge`），
+        // 所以从两头切，不是按点分割
+        if let Some(rest) = line.strip_prefix("filter.") {
+            if let Some(i) = rest.rfind('.') {
+                let n = &rest[..i];
+                if !n.is_empty() && !names.iter().any(|x| x == n) {
+                    names.push(n.to_string());
+                }
+            }
+        }
+    }
+    Some(names)
+}
+
+/// 过滤器名单读不全时塞给 git 的那个 `-c`：一个**不合法的键**，git 解析命令行配置时就失败（退出码 128），
+/// 报错里原样印出这个键 —— 所以键名就写成给人看的原因。2026-10-12 实测：`error: invalid key: …`、`fatal: unable to parse command-line config`
+const REFUSE_UNREADABLE_FILTERS: &str = "lite-ide.过滤器配置读不全，为了不让仓库里的过滤器命令跑起来，拒绝执行这条 git=1";
 
 /// 只带 [`HARDENING`] 的版本。**给 [`repo_filter_drivers`] 用** ——
 /// 它自己要起一条 git 来查配置，走 [`git_cmd`] 就会转回来查它自己。
@@ -445,10 +458,18 @@ pub(crate) fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
     c.args(HARDENING);
     // 仓库自己带的 filter 驱动一律关掉（issue #17 的第一个口子）。
     // 三个键都要关：smudge 检出时跑、clean 暂存时跑、process 是长驻协议版
-    for name in repo_filter_drivers(cwd).iter() {
-        c.arg("-c").arg(format!("filter.{name}.smudge="));
-        c.arg("-c").arg(format!("filter.{name}.clean="));
-        c.arg("-c").arg(format!("filter.{name}.process="));
+    match repo_filter_drivers(cwd) {
+        Some(names) => {
+            for name in names.iter() {
+                c.arg("-c").arg(format!("filter.{name}.smudge="));
+                c.arg("-c").arg(format!("filter.{name}.clean="));
+                c.arg("-c").arg(format!("filter.{name}.process="));
+            }
+        }
+        // 名单读不全：漏关一个就是漏放一条命令。让这条 git 当场失败，比带着没关掉的过滤器跑下去安全
+        None => {
+            c.arg("-c").arg(REFUSE_UNREADABLE_FILTERS);
+        }
     }
     c.args(args)
         .current_dir(cwd)

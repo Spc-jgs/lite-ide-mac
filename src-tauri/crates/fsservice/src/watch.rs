@@ -154,26 +154,7 @@ pub fn watch(
     thread::Builder::new()
         .name("fs-watch-debounce".into())
         .spawn(move || {
-            let (lock, cv) = &*w3;
-            loop {
-                let mut pend = lock.lock().unwrap_or_else(|e| e.into_inner());
-                while !pend.git && !pend.files {
-                    if s3.load(Ordering::SeqCst) {
-                        return;
-                    }
-                    pend = cv.wait(pend).unwrap_or_else(|e| e.into_inner());
-                }
-                drop(pend);
-                thread::sleep(DEBOUNCE);
-                if s3.load(Ordering::SeqCst) {
-                    return;
-                }
-                let taken = {
-                    let mut pend = lock.lock().unwrap_or_else(|e| e.into_inner());
-                    std::mem::take(&mut *pend)
-                };
-                on_change(if taken.files { Change::Files } else { Change::Git });
-            }
+            debounce(&w3, &s3, |p| !p.git && !p.files, |taken| on_change(if taken.files { Change::Files } else { Change::Git }))
         })
         .map_err(|e| format!("起不了防抖线程：{e}"))?;
 
@@ -238,28 +219,36 @@ pub fn watch_file(path: impl AsRef<Path>, on_change: impl Fn() + Send + 'static)
     let s3 = Arc::clone(&stop);
     thread::Builder::new()
         .name("file-watch-debounce".into())
-        .spawn(move || {
-            let (lock, cv) = &*w3;
-            loop {
-                let mut hit = lock.lock().unwrap_or_else(|e| e.into_inner());
-                while !*hit {
-                    if s3.load(Ordering::SeqCst) {
-                        return;
-                    }
-                    hit = cv.wait(hit).unwrap_or_else(|e| e.into_inner());
-                }
-                drop(hit);
-                thread::sleep(DEBOUNCE);
-                if s3.load(Ordering::SeqCst) {
-                    return;
-                }
-                *lock.lock().unwrap_or_else(|e| e.into_inner()) = false;
-                on_change();
-            }
-        })
+        .spawn(move || debounce(&w3, &s3, |hit| !*hit, |_| on_change()))
         .map_err(|e| format!("起不了防抖线程：{e}"))?;
 
     Ok(FileWatch { _watcher: watcher, stop, wake })
+}
+
+/// 两个监听共用的防抖：等到有事（`idle` 说不空了），再睡 [`DEBOUNCE`]，把这段时间攒下的整个拿走交给 `fire`；`stop` 置位就退出。
+///
+/// **拎出来是为了不经过 FSEvents 测**（2026-10-12）。原来两份一模一样的循环各写在两个线程闭包里，只能「真写文件、看收到几条」地测 ——
+/// 而系统事件什么时候送到是 FSEvents 的事：CI 的慢机器上它会迟到、会把 20 次写拆成隔了 300ms 以上的两批，于是
+/// 「单文件_一阵写只合成一条」间歇红（`ac41149` 那次）。那条测试断言的其实是 FSEvents 的时机，不是我们的代码。
+/// 现在「一阵只发一条」在这里用人造的信号确定地测；真写文件的那几条只断言「收得到、合并过」
+fn debounce<T: Default>(wake: &(Mutex<T>, Condvar), stop: &AtomicBool, idle: impl Fn(&T) -> bool, mut fire: impl FnMut(T)) {
+    let (lock, cv) = wake;
+    loop {
+        let mut pend = lock.lock().unwrap_or_else(|e| e.into_inner());
+        while idle(&pend) {
+            if stop.load(Ordering::SeqCst) {
+                return;
+            }
+            pend = cv.wait(pend).unwrap_or_else(|e| e.into_inner());
+        }
+        drop(pend);
+        thread::sleep(DEBOUNCE);
+        if stop.load(Ordering::SeqCst) {
+            return;
+        }
+        let taken = std::mem::take(&mut *lock.lock().unwrap_or_else(|e| e.into_inner()));
+        fire(taken);
+    }
 }
 
 #[cfg(test)]
@@ -324,10 +313,13 @@ mod tests {
             std::fs::write(d.join(format!("f{i}.txt")), "x").unwrap();
         }
         let _first = rx.recv_timeout(Duration::from_secs(5)).expect("5 秒内没收到事件");
-        // 防抖窗口之内的 50 次写合成一条；再等一个窗口，不该有第二条
-        // （FSEvents 自己也会攒一小会儿，所以放宽到两个窗口）
-        let extra = rx.recv_timeout(DEBOUNCE * 2);
-        assert!(extra.is_err(), "50 次写发出了不止一条：{extra:?}");
+        // 同单文件那条：「恰好一条」是 FSEvents 的时机（v1.1.0、v1.2.0 打标签时都为它红过），这里只管收得到、合并过；
+        // 「一阵只发一条」由 `防抖_一阵信号只发一次` 确定地测
+        let mut more = 0;
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {
+            more += 1;
+        }
+        assert!(more <= 2, "50 次写发出了 {} 条：没合并", more + 1);
     }
 
     /// 模拟一次 build：往 `target/` 里连写两秒。改前这两秒是 7 条 `Files`
@@ -444,7 +436,47 @@ mod tests {
             std::fs::write(&f, format!("{{\"n\": {i}}}")).unwrap();
         }
         rx.recv_timeout(Duration::from_secs(5)).expect("没收到");
-        let extra = rx.recv_timeout(DEBOUNCE * 2);
-        assert!(extra.is_err(), "一阵写发出了不止一条");
+        // 「恰好一条」不在这里断言：FSEvents 在慢机器上会把这 20 次拆成两批送，那是它的时机，不是我们的代码（`debounce` 上面那段）。
+        // 这里只管「真写文件收得到、而且合并过」—— 「一阵只发一条」由 `防抖_一阵信号只发一次` 确定地测
+        let mut more = 0;
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {
+            more += 1;
+        }
+        assert!(more <= 2, "20 次写发出了 {} 条：没合并", more + 1);
     }
+
+    /// 防抖本身，不经过 FSEvents：防抖窗口里来的五下信号只发一条；之后再来一下，再发一条（没卡死）；`stop` 之后线程退出。
+    /// 信号隔 10ms 一下、一共 40ms，离 300ms 的窗口留足余量（CI 慢、测试并行跑）—— 去掉那一下 `sleep(DEBOUNCE)` 就是五条
+    #[test]
+    fn 防抖_一阵信号只发一次() {
+        use std::sync::atomic::AtomicUsize;
+        let wake = Arc::new((Mutex::new(false), Condvar::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let n = Arc::new(AtomicUsize::new(0));
+        let (w, s2, n2) = (Arc::clone(&wake), Arc::clone(&stop), Arc::clone(&n));
+        let t = thread::spawn(move || debounce(&w, &s2, |hit| !*hit, |_| {
+            n2.fetch_add(1, Ordering::SeqCst);
+        }));
+        let poke = || {
+            *wake.0.lock().unwrap() = true;
+            wake.1.notify_one();
+        };
+        for _ in 0..5 {
+            poke();
+            thread::sleep(Duration::from_millis(10));
+        }
+        thread::sleep(DEBOUNCE * 2);
+        assert_eq!(n.load(Ordering::SeqCst), 1, "防抖窗口里的五下该合成一条");
+        poke();
+        thread::sleep(DEBOUNCE * 2);
+        assert_eq!(n.load(Ordering::SeqCst), 2, "之后再来一下要再发一条");
+        stop.store(true, Ordering::SeqCst);
+        wake.1.notify_all();
+        let t0 = std::time::Instant::now();
+        while !t.is_finished() && t0.elapsed() < Duration::from_secs(2) {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(t.is_finished(), "stop 之后防抖线程没退出");
+    }
+
 }

@@ -24,7 +24,6 @@ const ALLOW: &[(&str, &str)] = &[
     ("diag_enabled", "内存：环境变量"),
     ("forget_recent", "内存：最近项目名单"),
     ("initial_paths", "内存：启动时送来的文件"),
-    ("install_cli", "例外：建一个软链（/usr/local/bin/lite），人点一次菜单才跑"),
     ("open_external", "例外：起 /usr/bin/open 交给浏览器，LaunchServices 毫秒级返回"),
     ("open_window", "窗口：建窗口要在主线程上"),
     ("quit_ready", "内存：退出流程的应答"),
