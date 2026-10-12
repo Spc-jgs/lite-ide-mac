@@ -945,11 +945,16 @@ pub fn discard_empty_scratch(dir: impl AsRef<Path>, path: impl AsRef<Path>) -> i
 /// 移到废纸篓。**不做真删除** —— 除了 [`discard_empty_scratch`]
 /// 那条只碰 0 字节草稿的窄路，应用里没有第二条 `remove_file`。
 ///
-/// 走系统 API（macOS 上是 `NSFileManager` 的 `trashItemAtURL:`，由 trash crate
-/// 包装）而不是自己往 `~/.Trash` 里 rename：Finder 的「放回原处」依赖一份
-/// 系统维护的元数据，外部卷的废纸篓在卷自己的 `.Trashes` 里，同名冲突还要
-/// 按 Finder 的规则改名。这几条规则的定义方是系统 —— 和「.gitignore 的
-/// 优先级规则以 git 为准，所以起 git 子进程」是同一条判据。
+/// 交给 Finder 去扔（trash crate 在 macOS 上的默认做法：起一个 `osascript`，
+/// `tell application "Finder" to delete …`），而不是自己往 `~/.Trash` 里 rename：
+/// Finder 的「放回原处」依赖一份它自己维护的元数据，外部卷的废纸篓在卷自己的
+/// `.Trashes` 里，同名冲突还要按 Finder 的规则改名。这几条规则的定义方是 Finder ——
+/// 和「.gitignore 的优先级规则以 git 为准，所以起 git 子进程」是同一条判据。
+///
+/// 代价（crate 自己的文档列的）：可能要用户给一次「控制 Finder」的权限、有 Finder 的音效、慢一点。
+/// 另一条路是 `DeleteMethod::NsFileManager`（`trashItemAtURL:`）：没有这三样，但 crate 说有的系统上
+/// 「放回原处」不出现。**留着 Finder 是有意的**（2026-10-12）—— 这里原来写的是「走 `NSFileManager`」，
+/// 和实际做的相反，读 crate 源码才发现
 pub fn move_to_trash(path: impl AsRef<Path>) -> io::Result<()> {
     let path = path.as_ref();
     // 自己判一次存在性，理由同 reveal_in_finder：「文件已经不在了」是最常见的

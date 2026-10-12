@@ -1549,6 +1549,8 @@ APFS 默认大小写不敏感：`readme.md` → `README.md` 时目标"已存在"
 ### 废纸篓：唯一的删除路径，而且它必须被手动跑过一次
 
 `trash` crate（macOS 上包装 `NSFileManager` 的 `trashItemAtURL:`）。
+（**2026-10-12 更正**：这句写错了。crate 在 macOS 上默认是起 `osascript` 让 Finder 去 `delete`，`trashItemAtURL:` 是要显式选的另一种做法。
+「放回原处」正是 Finder 那条路才保证有的，所以行为一直是对的，只是写错了机制 —— 照这句去排查「为什么弹了控制 Finder 的权限框」会找不到原因）
 自己往 `~/.Trash` 里 rename 做不对：「放回原处」靠一份系统维护的元数据，
 外部卷的废纸篓在卷自己的 `.Trashes` 里，同名冲突还要按 Finder 的规则改名。
 
