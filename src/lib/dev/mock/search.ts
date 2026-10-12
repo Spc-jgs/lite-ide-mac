@@ -33,8 +33,10 @@ export async function searchCmd(cmd: string, a: A): Promise<unknown> {
        */
       return [...GIT_IGNORED];
     case "list_project_files": {
+      // 只列项目根底下的（同 Rust 侧）。原来是 FILES 里的全部，连应用数据目录里的草稿也算进来，
+      // ⌘P 里于是冒出一串「…/Application Support/com.liteide.app/scratches/」—— 真实现里没有这回事（2026-10-12 打磨时被它骗了一次）
       const files = Object.keys(FILES)
-        .filter((f) => !searchSkips(f))
+        .filter((f) => f.startsWith("/proj/") && !searchSkips(f))
         .map((f) => f.replace(/^\/proj\//, ""));
       // localStorage 里 `lite-ide.mock-truncated` = "1" 就说索引截断了，看界面怎么说这件事
       let truncated = false;

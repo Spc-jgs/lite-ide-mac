@@ -103,6 +103,7 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 | 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位；第 7 节是优先级 |
 | 踩过的坑的全过程 | [docs/JOURNAL.md](docs/JOURNAL.md) |
 | 想照别的项目的做法改 | [docs/research/codex.md](docs/research/codex.md) —— 读 Codex 的五个主题：对照结论、学了什么、为什么不学 |
+| 体验好不好、该先补哪个缺口 | [docs/research/editor-standards.md](docs/research/editor-standards.md) —— 用「编辑器为什么被骂、为什么成名」的七条审过一遍，每条有证据 |
 | 发版 / CI | [docs/RELEASE.md](docs/RELEASE.md) |
 
 Claude Code 会在读到匹配文件时自动加载 `.claude/rules/*.md`（靠 frontmatter 里的

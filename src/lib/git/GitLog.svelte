@@ -234,7 +234,7 @@
       </label>
       <span class="gap"></span>
       <span class="cnt">
-        {#if loading}载入中…{:else}{shown.length}{q.trim() ? ` / ${commits.length}` : ""} 条{/if}
+        {#if loading}<span class="spinner sm"></span>{:else}{shown.length}{q.trim() ? ` / ${commits.length}` : ""} 条{/if}
       </span>
     </div>
 
@@ -321,7 +321,7 @@
       </div>
       <div class="dfiles">
         {#if filesLoading}
-          <div class="msg">载入中…</div>
+          <div class="msg"><span class="spinner sm"></span></div>
         {:else if files.length === 0}
           <div class="msg">这次提交没有文件变化</div>
         {:else}

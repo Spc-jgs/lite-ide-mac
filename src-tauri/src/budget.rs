@@ -162,10 +162,29 @@ pub struct Counts {
 /// 会话恢复慢不慢、WebView 起得快不快，全在这一个数里搅着。分段之后每一段归一个人管。
 static MARKS: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
 
+/// 记一个阶段。**同名的只记第一次**：多窗口之后每个窗口的前端都打 `page` / `js` / `mount`，原来全堆进同一行
+/// （恢复 3 个窗口时 `page:370,page:370,page:373,js:430,…`）。启动的意思是「第一个窗口什么时候好」，后到的不算
+/// （2026-10-12 打磨时从 app.log 里看到的）
 pub fn mark(name: &str) {
     if let Some(ms) = uptime_ms() {
-        MARKS.lock().unwrap_or_else(|e| e.into_inner()).push((name.to_string(), ms));
+        push_first(&mut MARKS.lock().unwrap_or_else(|e| e.into_inner()), name, ms);
     }
+}
+
+/// 拎出来是为了能测：`MARKS` 是全局的，测试里往它写会和读它的那条测试抢
+fn push_first(m: &mut Vec<(String, u64)>, name: &str, ms: u64) {
+    if !m.iter().any(|(n, _)| n == name) {
+        m.push((name.to_string(), ms));
+    }
+}
+
+static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 这一次上报是不是这个进程的第一次。**启动那一行每个进程只写一次**：关掉所有窗口、过几分钟从 Dock 再开一个，
+/// 新窗口的前端也会来报，而 `boot` 从进程起点算 —— 原来于是记出 `boot=310067ms`，把 `budget.sh` 的分组弄脏
+/// （2026-10-08 那几行）。后开的窗口不是启动
+pub fn first_report() -> bool {
+    !REPORTED.swap(true, std::sync::atomic::Ordering::SeqCst)
 }
 
 /// `window:120,page:380,js:400,mount:520` —— 顺序就是发生的顺序。没记到就是空串
@@ -269,4 +288,22 @@ mod tests {
         // 这里会是一个荒唐的大数（或者被 uptime_ms 自己兜成 None）
         assert!(ms < 600_000, "单测进程报自己活了 {ms}ms");
     }
+
+    /// 多窗口：三个窗口各打一遍 page / js，只留第一个窗口的（原来一行里 `page:370,page:370,page:373`）
+    #[test]
+    fn 同名阶段只记第一次() {
+        let mut m = Vec::new();
+        for (n, ms) in [("window", 290), ("page", 370), ("page", 371), ("js", 430), ("page", 373), ("js", 431)] {
+            push_first(&mut m, n, ms);
+        }
+        assert_eq!(m, vec![("window".to_string(), 290), ("page".to_string(), 370), ("js".to_string(), 430)]);
+    }
+
+    /// 启动那一行每个进程只写一次：后开的窗口来报，不算（原来记出 boot=310067ms）
+    #[test]
+    fn 启动那一行每个进程只报一次() {
+        assert!(first_report(), "第一次该报");
+        assert!(!first_report() && !first_report(), "之后都不报");
+    }
+
 }

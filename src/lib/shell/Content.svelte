@@ -74,19 +74,27 @@
    * 顺序即显示顺序（两列铺开）。**从 keymap.ts 取，不手抄**：
    * 原来手抄的那份把 ⌘⇧F / ⌘⇧O / ⌘⇧G 三处修饰键次序全写反了。
    *
-   * 键位表是懒的（issue #32，理由见 Overlays）：卡片先画，十条提示等那个
+   * 键位表是懒的（issue #32，理由见 Overlays）：卡片先画，那几条提示等那个
    * 几 KB 的本地 chunk 一到就补上 —— 一帧的事。
    */
-  const HINT_IDS = [
-    "quick-all", "save", "quick-file", "close-tab", "quick-content",
-    "toggle-sidebar", "outline", "toggle-panel", "git-changes", "log-next-hit",
-  ];
-  let keyHints = $state<KeyDef[]>([]);
+  /*
+   * **只列此刻按得出效果的**（2026-10-12 打磨）。原来一份表两种空态共用，里面有 ⌘S 保存、⌘W 关闭标签、
+   * ⇧⌘O 文件结构、F3 日志下一处 —— 卡片出现时恰恰一个标签都没有，这四个按下去什么都不发生；⌘P 又和上面
+   * 「找文件… ⌘P」那个按钮印了两遍（ui.md 第六条）。最近加的主流程「运行任务」反而不在。
+   * 分两份：开着项目的（找东西、看改动、跑任务、开工具窗）、没项目的（找文件、最近、终端）。⌘K 只在是 git 仓库时列
+   */
+  const HINT_IDS_PROJECT = ["quick-all", "quick-content", "recent-files", "git-changes", "run-pick", "toggle-sidebar", "toggle-panel"];
+  const HINT_IDS_LOOSE = ["quick-all", "quick-file", "recent-files", "toggle-panel"];
+  let byIdFn = $state<((id: string) => KeyDef | undefined) | null>(null);
   $effect(() => {
-    if (tab || keyHints.length) return;
-    void import("../state/keymap").then(({ byId }) => {
-      keyHints = HINT_IDS.map((id) => byId(id)).filter((k) => k !== undefined);
-    });
+    if (tab || byIdFn) return;
+    void import("../state/keymap").then(({ byId }) => (byIdFn = byId));
+  });
+  let keyHints = $derived.by<KeyDef[]>(() => {
+    const by = byIdFn;
+    if (!by) return [];
+    const ids = project.root ? HINT_IDS_PROJECT.filter((id) => id !== "git-changes" || git.repo) : HINT_IDS_LOOSE;
+    return ids.map((id) => by(id)).filter((k) => k !== undefined);
   });
 
   /**

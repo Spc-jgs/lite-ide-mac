@@ -132,6 +132,10 @@ pub fn app_log_path(app: tauri::AppHandle) -> Result<String, String> {
 /// 判据、量法和「哪个数有多可信」全在 `crate::budget` 的文件头，这里只是接线。
 #[tauri::command]
 pub fn report_budget(app: tauri::AppHandle, tabs: u32, terms: u32, editors: u32, nodes: u32) {
+    // 后开的窗口不是启动，不记（budget::first_report）
+    if !crate::budget::first_report() {
+        return;
+    }
     let c = crate::budget::Counts { tabs, terms, editors, nodes };
     let msg = crate::budget::line(
         crate::budget::uptime_ms(),

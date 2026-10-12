@@ -364,7 +364,7 @@ lite-ide/
       ├─ logengine/   ★          # index / mmap / reader / filter / level + benches
       ├─ applog/                 # 应用自己的运行日志（只记异常，2 份 × 2MB 封顶）
       ├─ excludes/               # 哪些目录不进视野：两档名字（确定的 / 要问 git 的），树与搜索共用
-      ├─ fsservice/
+      ├─ fsservice/              # dir / text（读写与原子保存）/ entries / scratch / trash / finder / clipboard / cli / encoding / eol / watch（2026-10-12 从一个 2,394 行的 lib.rs 按职责拆开）
       ├─ searchsvc/
       ├─ gitsvc/                 # 含 progress.rs / remote.rs（M7 的网络那半边）、trust.rs（config 白名单）
       ├─ replacesvc/             # 跨文件替换：两段提交 + 撤销日志（REPLACE.md）
