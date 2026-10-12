@@ -54,13 +54,11 @@ Spotlight 也搜得到它。
 > `lite-ide.app`。两份只要有一次「打包了没重装」就分叉 —— 而你不会知道
 > 自己点的是哪一个。盘上只留一份，就没有点错的可能。
 
-要当命令用的话，给二进制做个软链：
+要当命令用：菜单「文件 → 安装命令行工具…」，细节在 [USAGE.md](USAGE.md)「`lite` 命令」那段。
 
-```bash
-ln -sf "$PWD/src-tauri/target/release/bundle/macos/lite-ide.app/Contents/MacOS/lite-ide" /usr/local/bin/lite
-lite ~/some-project
-lite huge.log
-```
+> 这里原来教的是 `ln -sf` 直接链到 `.app` 里的二进制。两处不对：`-f` 会把 `/usr/local/bin` 里**别的程序的 `lite`** 盖掉
+> （2026-10-12 在 `install_cli` 里修的正是这个，见 JOURNAL）；而直接跑二进制，应用已经开着时会**再起一个进程**、
+> 两个 lite-ide —— macOS 上「打开文件」是 Apple Event，菜单装的脚本走 `open -a`，交给已经在跑的那个（`fsservice/src/cli.rs` 文件头）。
 
 ## 关于 Gatekeeper
 
