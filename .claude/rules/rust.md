@@ -231,6 +231,8 @@ libc 依赖 —— 没引，我们要的只是「数据先于 rename」这个次
 ## 删除只走废纸篓
 
 `fsservice::move_to_trash` 是**删用户的文件**的唯一路径，**没有 `remove_file`**。
+**例外（2026-10-12 用 clippy 的 `disallowed-methods` 量出来的，原来这句没写）**：`gitsvc::discard` 丢弃未跟踪的文件时直接 `remove_file` / `remove_dir_all`，
+确认框明说「直接删除、不可撤销」。改不改走废纸篓见 DIRECTION 第 7 节。
 它交给 Finder 去扔（`trash` crate 在 macOS 上的默认做法：起 `osascript` 让 Finder `delete`），
 不是自己往 `~/.Trash` 里 rename —— Finder 的「放回原处」靠一份系统维护的元数据，
 外部卷的废纸篓在卷自己的 `.Trashes` 里，同名冲突还要按 Finder 的规则改名。
