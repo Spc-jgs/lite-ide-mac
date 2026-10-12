@@ -411,6 +411,16 @@ IPC 能读写任意文件、能往终端里写命令 —— 页面里一旦能�
 卡着：`{@html}`、给 `innerHTML` / `outerHTML` 赋值（清空除外）、`insertAdjacentHTML`、`document.write` 出现就红。
 真要渲染富文本（Markdown 预览之类）：先过白名单清洗，再改那条测试认清洗函数，别直接放开。
 
+## 文本框里的键，先问是不是给输入法的（2026-10-12）
+
+用拼音打字时，**确认候选字的那一下回车也是一个 keydown**。不判的话：任务列表里会把选中的任务跑起来，文件树新建时会拿半截拼音建出文件，
+编辑器的替换框里会把半截拼音替换进正文 —— 全仓库 13 个文件里处理回车的 16 处，原来一处都没判过（#56 第 3 条起的头）。
+
+只看 `e.isComposing` 不够：WebKit 里那一下回车 `compositionend` 先到、`keydown` 后到，到 keydown 时 `isComposing` 已经是 false，
+要靠 `keyCode === 229`（「输入法处理过的键」）认。两样都在 `shell/ime.ts` 的 `imeKey()` 里。**处理回车 / Esc / 方向键的文本框，第一行先 `if (imeKey(e)) return`**
+（Esc 也要：组字时按 Esc 是取消组字，不是关掉浮层）。`tests/ime.test.ts` 扫源码：一个文件处理了回车却没提 `imeKey` 就红；没有文本框的（右键菜单）写进它的豁免表、写清理由。
+CM6 正文和 xterm 自己处理组字，不用管。
+
 ## 状态消息走 `notify`
 
 别直接写 `error = …` 再自己 `setTimeout` 清除。

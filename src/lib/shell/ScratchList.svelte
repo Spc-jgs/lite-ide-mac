@@ -13,6 +13,7 @@
    * 按需加载：它和文件树一样只在侧边栏露出来时才需要。
    */
   import Icon from "./Icon.svelte";
+  import { imeKey } from "./ime";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { scratches } from "../state/scratches.svelte";
   import { project } from "../state/project.svelte";
@@ -188,8 +189,10 @@
                     spellcheck="false"
                     aria-label="新名字"
                     onkeydown={(e) => {
-                      if (e.key === "Enter") { e.preventDefault(); void submitRename(); }
-                      else if (e.key === "Escape") { e.preventDefault(); renaming = null; }
+                      // 输入法在用这一下（中文起名时确认候选字的回车）：不提交、不取消，照样不往外冒（shell/ime.ts）
+                      const ime = imeKey(e);
+                      if (!ime && e.key === "Enter") { e.preventDefault(); void submitRename(); }
+                      else if (!ime && e.key === "Escape") { e.preventDefault(); renaming = null; }
                       e.stopPropagation();
                     }}
                     onblur={() => { if (renaming && !renaming.busy) renaming = null; }}

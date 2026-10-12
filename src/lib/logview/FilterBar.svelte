@@ -1,5 +1,6 @@
 <script lang="ts">
   import { parseQuery } from "./query";
+  import { imeKey } from "../shell/ime";
   import Icon from "../shell/Icon.svelte";
   import type { LevelCounts } from "../ipc/commands";
 
@@ -93,7 +94,7 @@
       autocomplete="off"
       onkeydown={(e) => {
         // 敲完关键字直接回车就跳到第一处，不用再摸鼠标
-        if (e.key !== "Enter") return;
+        if (e.key !== "Enter" || imeKey(e)) return;
         e.preventDefault();
         onJump?.(e.shiftKey ? -1 : 1);
       }}

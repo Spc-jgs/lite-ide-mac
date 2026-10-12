@@ -11,6 +11,7 @@
    * 红线边上数着（CI 卡 150 KiB），搭那组的车不多花一次往返。
    */
   import { nav } from "../state/nav.svelte";
+  import { imeKey } from "../shell/ime";
 
   let {
     open = $bindable(false),
@@ -89,6 +90,8 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    // 输入法在用这一下（确认候选字的回车、取消组字的 Esc）：不是给我们的（shell/ime.ts）
+    if (imeKey(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       open = false;

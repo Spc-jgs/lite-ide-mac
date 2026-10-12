@@ -12,6 +12,7 @@
    * 「人输入了什么、按了什么」，通过回调报过去；命中计数从那边灌回来。
    */
   import Icon from "../shell/Icon.svelte";
+  import { imeKey } from "../shell/ime";
 
   let {
     initial = "",
@@ -51,6 +52,11 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    // 输入法在用这一下：不是给我们的（shell/ime.ts）。照样不往外冒，理由同下
+    if (imeKey(e)) {
+      e.stopPropagation();
+      return;
+    }
     /*
      * 这三个键在框里就地消化，**不许冒到终端**：Esc 冒过去 vim 会收到一个多余的
      * Esc，↵ 冒过去等于在 shell 里回车 —— 两种都不报错，只是「怎么多了一行提示符」。

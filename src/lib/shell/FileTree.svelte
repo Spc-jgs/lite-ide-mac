@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
+  import { imeKey } from "./ime";
   import FileGlyph from "./FileGlyph.svelte";
   import { tick, untrack } from "svelte";
   import { trashEntry, type DirEntry, type GitStatus } from "../ipc/commands";
@@ -1047,6 +1048,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   });
 
   function onAskKey(e: KeyboardEvent) {
+    // 输入法在用这一下（确认候选字的回车、取消组字的 Esc）：不是给我们的（shell/ime.ts）
+    if (imeKey(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();

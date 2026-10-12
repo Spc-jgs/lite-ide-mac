@@ -27,6 +27,7 @@
    * 打开工作树），⇧F10 或单击开一行的菜单。单击不直接切的理由见 `openRowMenuAt`。
    */
   import type { GitBranch, GitWorktree } from "../ipc/commands";
+  import { imeKey } from "../shell/ime";
   import { gitBranches, gitWorktrees } from "../ipc/git";
   import Icon from "../shell/Icon.svelte";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
@@ -411,6 +412,8 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    // 输入法在用这一下（确认候选字的回车、取消组字的 Esc）：不是给我们的（shell/ime.ts）
+    if (imeKey(e)) return;
     /*
      * 行菜单开着的时候键盘归它。正常情况下这里轮不到（菜单拿着焦点、自己 stopPropagation），
      * 但焦点万一不在菜单上，直接 return 会让 Esc 变成死键 —— 兜底关掉它。
@@ -566,11 +569,11 @@
         <p class="fdesc">工作树是同一个仓库的第二个检出目录 —— 可以在不打断当前改动的前提下，把另一个分支同时摊开在磁盘上。</p>
         <label>
           <span>目录</span>
-          <input class="fi" bind:value={wtDir} placeholder="../lite-ide-hotfix 或绝对路径" spellcheck="false" onkeydown={(e) => e.key === "Enter" && submitWorktree()} />
+          <input class="fi" bind:value={wtDir} placeholder="../lite-ide-hotfix 或绝对路径" spellcheck="false" onkeydown={(e) => e.key === "Enter" && !imeKey(e) && submitWorktree()} />
         </label>
         <label>
           <span>分支</span>
-          <input class="fi" bind:value={wtBranch} placeholder="留空则用目录名，分支不存在就新建" spellcheck="false" onkeydown={(e) => e.key === "Enter" && submitWorktree()} />
+          <input class="fi" bind:value={wtBranch} placeholder="留空则用目录名，分支不存在就新建" spellcheck="false" onkeydown={(e) => e.key === "Enter" && !imeKey(e) && submitWorktree()} />
         </label>
         <div class="frow">
           <button class="btn" onclick={() => (mode = "list")}>返回</button>
@@ -594,7 +597,7 @@
         {/if}
         <label>
           <span>{mode === "checkoutRev" ? "引用" : "名字"}</span>
-          <input class="fi" bind:this={formInput} bind:value={formName} placeholder={mode === "checkoutRev" ? "v1.0.0 或 b6176f3" : "feature/xxx"} spellcheck="false" onkeydown={(e) => e.key === "Enter" && submitForm()} />
+          <input class="fi" bind:this={formInput} bind:value={formName} placeholder={mode === "checkoutRev" ? "v1.0.0 或 b6176f3" : "feature/xxx"} spellcheck="false" onkeydown={(e) => e.key === "Enter" && !imeKey(e) && submitForm()} />
         </label>
         <div class="frow">
           <button class="btn" onclick={() => (mode = "list")}>返回</button>

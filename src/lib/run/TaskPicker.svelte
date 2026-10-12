@@ -11,6 +11,7 @@
   import type { TaskDef } from "../ipc/commands";
   import { project } from "../state/project.svelte";
   import { runs, type RunStatus } from "../state/runs.svelte";
+  import { imeKey } from "../shell/ime";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -28,6 +29,9 @@
     q = "";
     sel = 0;
     problems = [];
+    // 列表本身也清掉：不清的话 `task_list` 回来之前显示的是上一次（可能是别的项目）的，这时按回车跑的是一个这里可能没有的名字（#56 第 4 条）
+    defs = [];
+    file = false;
     let dead = false;
     if (root) {
       loading = true;
@@ -71,6 +75,8 @@
   }
 
   function pick(i: number) {
+    // 还没读回来：这时列表里只有「新建 tasks.json」那一行，手快按下的回车不该落在它上面
+    if (loading) return;
     const r = rows[i];
     open = false;
     if (!r) return;
@@ -78,7 +84,8 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (!open) return;
+    // 输入法在用这一下（确认候选字的回车、翻候选的方向键、取消组字的 Esc）：不是给我们的
+    if (!open || imeKey(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       open = false;

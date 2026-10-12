@@ -9,6 +9,7 @@
    * 盘上的事全在 Rust（replacesvc），开着的标签怎么跟上在 `state/replace-ops.ts`。
    */
   import Icon from "../shell/Icon.svelte";
+  import { imeKey } from "../shell/ime";
   import FileGlyph from "../shell/FileGlyph.svelte";
   import { overlay } from "../state/overlay.svelte";
   import { replace } from "../state/replace.svelte";
@@ -69,6 +70,8 @@
   ];
 
   function onKey(e: KeyboardEvent) {
+    // 输入法在用这一下（确认候选字的回车、取消组字的 Esc）：不是给我们的（shell/ime.ts）
+    if (imeKey(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       // 「仍然替换？」那一问开着时，Esc 先收它

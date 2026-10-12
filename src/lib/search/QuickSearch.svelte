@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { imeKey } from "../shell/ime";
   import { readText, type Hit, type ScratchEntry } from "../ipc/commands";
   import { grepProject, grepScratches, type SearchOpts } from "../ipc/search";
   import { files } from "../state/files.svelte";
@@ -298,6 +299,8 @@
   const TOGGLE: Record<string, keyof SearchOpts> = { KeyC: "case", KeyW: "word", KeyX: "regex" };
 
   function onKey(e: KeyboardEvent) {
+    // 输入法在用这一下（确认候选字的回车、取消组字的 Esc）：不是给我们的（shell/ime.ts）
+    if (imeKey(e)) return;
     if (e.altKey && !e.metaKey && !e.ctrlKey && TOGGLE[e.code] && contentOn) {
       e.preventDefault();
       const k = TOGGLE[e.code];

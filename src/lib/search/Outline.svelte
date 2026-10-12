@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Sym } from "../editor/outline";
+  import { imeKey } from "../shell/ime";
   import { rank, segments } from "./fuzzy";
 
   let {
@@ -48,6 +49,8 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    // 输入法在用这一下（确认候选字的回车、取消组字的 Esc）：不是给我们的（shell/ime.ts）
+    if (imeKey(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       open = false;

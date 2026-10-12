@@ -1,5 +1,6 @@
 <script lang="ts">
   import { listEncodings } from "../ipc/fs";
+  import { imeKey } from "../shell/ime";
 
   let {
     open = $bindable(false),
@@ -61,7 +62,7 @@
   let bomApplies = $derived(/^utf-?(8|16)/i.test(list[sel]?.[0] ?? ""));
 
   function onKey(e: KeyboardEvent) {
-    if (!open) return;
+    if (!open || imeKey(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       open = false;

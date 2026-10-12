@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "../shell/Icon.svelte";
+  import { imeKey } from "../shell/ime";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
   import type { GitEntry, GitStatus } from "../ipc/commands";
   import { groupByDir } from "./group";
@@ -105,6 +106,8 @@
   };
 
   function onKey(e: KeyboardEvent) {
+    // 输入法在用这一下（确认候选字的回车、取消组字的 Esc）：不是给我们的（shell/ime.ts）
+    if (imeKey(e)) return;
     // ⌘↵ 提交，与大多数 Git 客户端一致
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canCommit) {
       e.preventDefault();

@@ -36,6 +36,7 @@
  * 另外整件事压后 90ms 做，连打时只算最后一次。
  */
 
+import { imeKey } from "../shell/ime";
 import {
   SearchQuery,
   closeSearchPanel,
@@ -216,6 +217,8 @@ function createPanel(view: EditorView): Panel {
   });
 
   root.addEventListener("keydown", (e) => {
+    // 输入法在用这一下：不是给我们的（shell/ime.ts）。替换框里打中文时，确认候选字的回车原来会把半截拼音替换进正文
+    if (imeKey(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       // 在替换框里按 ↵ 就是替换这一个 —— 手已经在那儿了
