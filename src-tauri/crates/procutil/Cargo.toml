@@ -2,6 +2,8 @@
 name = "procutil"
 version = "0.1.0"
 edition = "2021"
-description = "起子进程的三条纪律收成一处：stdin 接空、两个管道并发读、输出有上限；丢掉就收尸（零依赖，2026-10-10 整体审核）"
+description = "起子进程的三条纪律收成一处：stdin 接空、两个管道并发读、输出有上限；丢掉就收尸（2026-10-10 整体审核）"
 
 [dependencies]
+# 撒手不读的管道要在 app.log 里留一条（只依赖同仓库的 applog，它自己零依赖）
+applog = { path = "../applog" }

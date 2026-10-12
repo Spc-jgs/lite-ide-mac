@@ -11,8 +11,10 @@
 
 use std::io::{self, Read};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::sync::{Arc, Mutex};
+use std::os::unix::process::ExitStatusExt;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// stderr 默认留多少：够拼出一句能读的报错就行
@@ -24,12 +26,121 @@ pub const ERR_CAP: usize = 8 << 10;
 /// 原来就一直等到那个后台进程退出，不退就永远（`sleep 4 & echo hi` 实测 4.02 秒才回来）。真实的入口是 `git commit`：
 /// 它跑仓库带来的钩子，一个 `post-commit` 里没重定向输出的 `… &`，提交就一直转、之后 git 写操作全堵住。
 /// 照 Codex（`core/src/exec.rs` 的 `IO_DRAIN_TIMEOUT_MS`，docs/research/codex.md 主题 1 第 1 条）：退出之后宽限这么久，到点拿已经读到的、
-/// 读线程撒手不管（后台进程退了它自己会结束）。**不杀那个后台进程** —— 钩子留下的后台活可能是用户想要的。
+/// 读线程撒手不管（后台进程退了它自己会结束）。**不主动杀那个后台进程** —— 钩子留下的后台活可能是用户想要的。
+/// 但撒手之后两路都**不再替它读**：读线程拿到下一块就退出、关掉读端，后台进程之后再往这根管道写会收到 SIGPIPE（默认就退了）。
+/// 原来只有 stdout 是这样（通道没人收、send 失败就退），stderr 一直读到它退出 —— 2026-10-12 实测撒手后各写两次，写 stdout 的死了、写 stderr 的活着。
+/// 统一成「关掉」：一个不读输出、却一直往里写的后台进程，不该由我们的线程和 fd 养着；一直不出声的那种不受影响。
 /// 本机管道上，退出时已经写进去的东西几毫秒就读完了，2 秒是给「退出前最后一刻还在写」留的
 pub const PIPE_GRACE: Duration = Duration::from_secs(2);
 
 /// 子进程还没退时，多久问一次它退了没有（`try_wait`，一个系统调用）。只在管道上没东西来的时候才问
 const POLL: Duration = Duration::from_millis(50);
+
+/// 杀掉之后最多当场等多久。SIGKILL 平常几毫秒就生效；等不到的是**卡在不可中断的系统调用里**的进程
+/// （读一个断了线的网络卷）—— SIGKILL 要等那个调用返回才生效，可能是几分钟。到点就交给 [`reap_later`]，自己不等（#66）
+const KILL_WAIT: Duration = Duration::from_millis(200);
+
+/// 收尸线程多久问一遍手上的那些
+const REAP_POLL: Duration = Duration::from_millis(200);
+
+/// 杀了、当场没等到它退的子进程，交给一条全进程共用的收尸线程：它隔 [`REAP_POLL`] 对手上每一个 `try_wait` 一次，退了就收。
+/// 原来是丢掉的那一下「kill 之后阻塞 wait」—— 卡住的进程把调用它的那条线程（阻塞池里的一条）一起卡住，
+/// 卡几条池子就少几条。照 Codex `utils/pty/src/child_reaper.rs`（docs/research/codex.md 主题 1 第 5 条）。
+/// 一个卡住的不耽误别的：每一个都只 `try_wait`，从不阻塞在某一个上
+fn reap_later(child: Child) {
+    static REAPER: OnceLock<Mutex<Sender<Child>>> = OnceLock::new();
+    let tx = REAPER.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<Child>();
+        let _ = std::thread::Builder::new().name("procutil-reaper".into()).spawn(move || {
+            let mut held: Vec<Child> = Vec::new();
+            loop {
+                // 手上没有就一直睡到来活；有就隔一阵醒来问一遍
+                let got = if held.is_empty() { rx.recv().ok() } else { rx.recv_timeout(REAP_POLL).ok() };
+                held.extend(got);
+                // 收完了（`Some`）或者已经不是我们的孩子了（`Err`）都撒手；被信号打断的下一轮再问（同 Codex）
+                held.retain_mut(|c| match c.try_wait() {
+                    Ok(None) => true,
+                    Ok(Some(_)) => false,
+                    Err(e) => e.kind() == io::ErrorKind::Interrupted,
+                });
+            }
+        });
+        Mutex::new(tx)
+    });
+    let _ = tx.lock().unwrap_or_else(|e| e.into_inner()).send(child);
+}
+
+/// 被我们杀掉的那个退出状态（按 SIGKILL 记）。当场没等到真的状态时用 —— 它本来也没有意义（rust.md「被掐掉的子进程退出码没有意义」）
+fn killed_status() -> ExitStatus {
+    ExitStatus::from_raw(9)
+}
+
+/// 杀掉，最多当场等 [`KILL_WAIT`]：等到了返回真的退出状态，等不到就交给收尸线程、返回 [`killed_status`]。**不会无限期阻塞**。
+/// 怎么杀由参数给：产品里是 SIGKILL（`Child::kill`），测试里换成一个它能忽略的信号，造出「杀了也不退」—— 卡在网络卷上的进程造不出来
+fn abandon(mut child: Child, kill: impl FnOnce(&mut Child)) -> ExitStatus {
+    kill(&mut child);
+    let t = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(st)) => return st,
+            Err(_) => return killed_status(),
+            Ok(None) if t.elapsed() >= KILL_WAIT => {
+                reap_later(child);
+                return killed_status();
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+        }
+    }
+}
+
+/// 一条读线程的去向。撒手和读完可能同时发生，所以用一个原子量、两边各 `swap` 一次：谁后到谁知道对方做了什么
+#[derive(Clone)]
+struct Reader(Arc<AtomicU8>);
+
+const READING: u8 = 0;
+const DONE: u8 = 1;
+const STRANDED: u8 = 2;
+
+/// 撒手之后还卡在 `read()` 上的读线程有几条（全进程）。
+///
+/// 宽限期到点之后我们不再等管道，但读线程自己还阻塞在 `read()` 上，攥着一个线程、一个 fd，直到后台进程退出或者再写一次
+/// （[`PIPE_GRACE`] 末尾那段）。一个每次都留下**不出声**的常驻进程的钩子，提交几百次就是几百条（code review 2026-10-12）。
+/// 要它们一到点就退，得把读改成带超时的 `poll`（要 libc），没做；**记下来**：每撒手一条往 app.log 写一句，带当前总数；读线程退出时再减回去
+static STRANDED_NOW: AtomicUsize = AtomicUsize::new(0);
+
+pub fn stranded() -> usize {
+    STRANDED_NOW.load(Ordering::SeqCst)
+}
+
+impl Reader {
+    fn new() -> Reader {
+        Reader(Arc::new(AtomicU8::new(READING)))
+    }
+
+    /// 已经被撒手了：读线程拿到下一块时据此退出、关掉读端
+    fn stranded(&self) -> bool {
+        self.0.load(Ordering::SeqCst) == STRANDED
+    }
+
+    /// 读线程结束时调
+    fn done(&self) {
+        if self.0.swap(DONE, Ordering::SeqCst) == STRANDED {
+            STRANDED_NOW.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    /// 我们不等了。线程还在读就记一笔
+    fn strand(&self, what: &str) {
+        if self.0.compare_exchange(READING, STRANDED, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+            let n = STRANDED_NOW.fetch_add(1, Ordering::SeqCst) + 1;
+            applog::write(
+                applog::Level::Warn,
+                "procutil",
+                &format!("{what} 退出 {} 秒后管道还被它留下的后台进程攥着，不等了；现在共有 {n} 条读线程等着那些后台进程退出（各占一个线程、一个 fd）", PIPE_GRACE.as_secs()),
+            );
+        }
+    }
+}
 
 /// 在另一条线程里把一路输出读到 EOF，只留前 `cap` 字节。**超过 `cap` 也要接着读**（只是不再存）——
 /// 停下来不读，对方写满管道就卡在写上，正是要防的那个死锁。
@@ -39,12 +150,16 @@ pub fn drain(mut src: impl Read + Send + 'static, cap: usize) -> Drained {
     let buf = Arc::new(Mutex::new(Vec::new()));
     let (done_tx, done) = mpsc::channel::<()>();
     let kept = Arc::clone(&buf);
+    let reader = Reader::new();
+    let r = reader.clone();
     std::thread::spawn(move || {
         let _done = done_tx; // 线程结束时跟着丢掉：等的一方收到「断开」就知道读完了
         let mut chunk = [0u8; 8 << 10];
         loop {
             match src.read(&mut chunk) {
                 Ok(0) | Err(_) => break,
+                // 我们已经不等了（[`Drained::take`] 到点撒手）：不再替它读，关掉读端 —— 和 stdout 那一路一样（[`PIPE_GRACE`] 末尾那段）
+                Ok(_) if r.stranded() => break,
                 Ok(n) => {
                     let mut k = kept.lock().unwrap_or_else(|e| e.into_inner());
                     if k.len() < cap {
@@ -54,33 +169,41 @@ pub fn drain(mut src: impl Read + Send + 'static, cap: usize) -> Drained {
                 }
             }
         }
+        r.done();
     });
-    Drained { buf, done }
+    Drained { buf, done, reader }
 }
 
 /// [`drain`] 的那一路：读到 EOF 了，或者到点了，都能取走已经读到的
 pub struct Drained {
     buf: Arc<Mutex<Vec<u8>>>,
     done: Receiver<()>,
+    reader: Reader,
 }
 
 impl Drained {
-    /// 等它读到 EOF，最多等到 `by`。到点还没完（后台进程攥着管道）就拿已经读到的
-    pub fn take(self, by: Instant) -> Vec<u8> {
-        let _ = self.done.recv_timeout(by.saturating_duration_since(Instant::now()));
+    /// 等它读到 EOF，最多等到 `by`。到点还没完（后台进程攥着管道）就拿已经读到的。`what` 是哪条命令（撒手时记进 app.log）
+    pub fn take(self, by: Instant, what: &str) -> Vec<u8> {
+        if let Err(RecvTimeoutError::Timeout) = self.done.recv_timeout(by.saturating_duration_since(Instant::now())) {
+            self.reader.strand(what);
+        }
         std::mem::take(&mut *self.buf.lock().unwrap_or_else(|e| e.into_inner()))
     }
 }
 
 /// 起来了的子进程：stdin 接空（绝不让子进程卡住等输入）、stdout 由一条线程读进通道、**stderr 已经在另一条线程里排空**。
 ///
-/// **丢掉时还没收尸，就杀掉再 wait**：中途 `?` 提前返回、解析出错 panic，都不会留下一个还在跑、或者成了僵尸的子进程。
-/// 杀的是它自己，不是进程组 —— 要整组停的（git fetch 的孙进程）用 `process_group(0)` + `killpg`，那是调用方的事
+/// **丢掉时还没收尸，就杀掉、收尸**：中途 `?` 提前返回、解析出错 panic，都不会留下一个还在跑、或者成了僵尸的子进程。
+/// 收尸不当场死等（[`abandon`]）。杀的是它自己，不是进程组 —— 要整组停的（git fetch 的孙进程）用 `process_group(0)` + `killpg`，那是调用方的事
 pub struct Running {
-    child: Child,
+    /// 只在交给收尸线程之后（[`Running::finish`] / `Drop`）才是 `None`
+    child: Option<Child>,
     /// stdout 的读线程送过来的块。有界：调用方读得慢，读线程就停在 send 上，对方停在写上 —— 和直接读管道一样的背压。
     /// 丢掉它 = 不要了：读线程下一次 send 失败就退出、关掉读端，子进程再写收到 SIGPIPE 自己退
     out: Option<Receiver<Vec<u8>>>,
+    out_reader: Reader,
+    /// 程序名（`git`、`rg`）：撒手时记进 app.log，不带参数
+    what: String,
     pending: Vec<u8>,
     pos: usize,
     err: Option<Drained>,
@@ -90,6 +213,8 @@ pub struct Running {
     /// 上次 `try_wait` 是什么时候：有数据一直来的时候也要隔一阵问一次（见 [`Stdout`] 的 `read`）
     polled: Instant,
     reaped: bool,
+    /// 叫过 [`Running::kill`]：之后 [`Running::finish`] 不能死等它退出
+    killed: bool,
 }
 
 /// 收完尸：退出状态 + stderr 的前 `err_cap` 字节
@@ -103,6 +228,8 @@ pub fn spawn(cmd: &mut Command, err_cap: usize) -> io::Result<Running> {
     let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     // **先**把 stderr 挂到自己的线程上，再让调用方去读 stdout —— 次序反了就是死锁
     let err = child.stderr.take().map(|e| drain(e, err_cap));
+    let out_reader = Reader::new();
+    let r = out_reader.clone();
     let out = child.stdout.take().map(|mut o| {
         let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(4);
         std::thread::spawn(move || {
@@ -117,15 +244,30 @@ pub fn spawn(cmd: &mut Command, err_cap: usize) -> io::Result<Running> {
                     }
                 }
             }
+            r.done();
         });
         rx
     });
-    Ok(Running { child, out, pending: Vec::new(), pos: 0, err, status: None, exited_at: None, polled: Instant::now(), reaped: false })
+    let what = std::path::Path::new(cmd.get_program()).file_name().unwrap_or_default().to_string_lossy().into_owned();
+    Ok(Running {
+        child: Some(child),
+        out,
+        out_reader,
+        what,
+        pending: Vec::new(),
+        pos: 0,
+        err,
+        status: None,
+        exited_at: None,
+        polled: Instant::now(),
+        reaped: false,
+        killed: false,
+    })
 }
 
 impl Running {
     pub fn id(&self) -> u32 {
-        self.child.id()
+        self.child.as_ref().map_or(0, Child::id)
     }
 
     /// stdout。读到 EOF，或者子进程退出后 [`PIPE_GRACE`] 到点，都算读完（返回 0）。
@@ -136,24 +278,34 @@ impl Running {
 
     /// 不要它的输出了：杀掉。**之后它的退出码没有意义**，调用方不能拿来判失败（rust.md「被掐掉的子进程退出码没有意义」）
     pub fn kill(&mut self) {
-        let _ = self.child.kill();
+        if let Some(c) = &mut self.child {
+            let _ = c.kill();
+            self.killed = true;
+        }
     }
 
     /// 等它退出、收尸，拿回 stderr。stderr 被后台进程攥着的话，从退出那一刻起最多再等 [`PIPE_GRACE`]
     pub fn finish(mut self) -> io::Result<Finished> {
         // 不要 stdout 了：调用方没读完的话，读线程下一次 send 失败就关掉读端，子进程不会因为没人读卡在写上
         self.out = None;
-        let status = match self.status.take() {
-            Some(s) => s,
-            None => {
-                let s = self.child.wait()?;
+        let status = match (self.status.take(), self.child.take()) {
+            (Some(s), _) => s,
+            (None, Some(c)) if self.killed => {
+                // 杀过了：同 Drop，不当场死等（卡在网络卷上的话，wait 能等几分钟）
+                let s = abandon(c, |_| {});
                 self.exited_at = Some(Instant::now());
                 s
             }
+            (None, Some(mut c)) => {
+                let s = c.wait()?;
+                self.exited_at = Some(Instant::now());
+                s
+            }
+            (None, None) => killed_status(),
         };
         self.reaped = true;
         let by = self.exited_at.unwrap_or_else(Instant::now) + PIPE_GRACE;
-        let stderr = self.err.take().map(|d| d.take(by)).unwrap_or_default();
+        let stderr = self.err.take().map(|d| d.take(by, &self.what)).unwrap_or_default();
         Ok(Finished { status, stderr })
     }
 }
@@ -175,7 +327,7 @@ impl Read for Stdout<'_> {
             // 子进程早退了也发现不了，宽限期就永远不开始算
             if r.exited_at.is_none() && r.polled.elapsed() >= POLL {
                 r.polled = Instant::now();
-                if let Ok(Some(st)) = r.child.try_wait() {
+                if let Some(Ok(Some(st))) = r.child.as_mut().map(Child::try_wait) {
                     r.status = Some(st);
                     r.exited_at = Some(Instant::now());
                     r.reaped = true;
@@ -189,6 +341,7 @@ impl Read for Stdout<'_> {
                     // 退出之后宽限期过了，管道还没到头：后台进程攥着它。拿已经读到的，读线程撒手
                     None => {
                         r.out = None;
+                        r.out_reader.strand(&r.what);
                         return Ok(0);
                     }
                 },
@@ -210,9 +363,10 @@ impl Read for Stdout<'_> {
 
 impl Drop for Running {
     fn drop(&mut self) {
-        if !self.reaped {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+        if let (false, Some(c)) = (self.reaped, self.child.take()) {
+            abandon(c, |c| {
+                let _ = c.kill();
+            });
         }
     }
 }
@@ -375,4 +529,90 @@ mod tests {
         assert!(t.elapsed() < PIPE_GRACE + Duration::from_millis(1500), "{:?}", t.elapsed());
     }
 
+    /// `ps` 眼里这个 pid 现在是什么状态：空串 = 已经被收走了，`Z` 开头 = 僵尸（退了没人收）
+    fn ps_stat(pid: u32) -> String {
+        #[allow(clippy::disallowed_methods)] // 测试里查进程状态，输出就一个词
+        let o = Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]).output().unwrap();
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    }
+
+    /// #66：杀了也不退的（卡在网络卷上的不可中断调用里）不能把丢掉它的那条线程卡住；它后来退了，收尸线程要收走，不留僵尸。
+    /// 「杀了也不退」造不出来，就让「杀」什么都不做：子进程照跑 1 秒 —— 原来的「kill 之后 wait」在这里要等满 1 秒
+    #[test]
+    fn 杀了也不退的_不当场死等_后来退了有人收尸() {
+        #[allow(clippy::disallowed_methods)] // 测试里直接起一个子进程，交给 abandon
+        let child = Command::new("sleep").arg("1").spawn().unwrap();
+        let pid = child.id();
+        let t = Instant::now();
+        let st = abandon(child, |_| {});
+        let took = t.elapsed();
+        assert!(took < KILL_WAIT + Duration::from_millis(300), "当场等了 {took:?}：卡住的进程会把调用它的线程一起卡住");
+        assert_eq!(st.signal(), Some(9), "没等到真的状态，按被杀记");
+        assert!(!ps_stat(pid).is_empty(), "前提：交出去的时候它还在跑");
+        let t = Instant::now();
+        while !ps_stat(pid).is_empty() && t.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert_eq!(ps_stat(pid), "", "它退了之后没人收尸，留成了僵尸");
+    }
+
+    /// 撒手的读线程要有账（code review 2026-10-12）：写端还被攥着时到点撒手 → 记成「撒手」；写端后来关了、线程读到 EOF 退出 → 记成「读完」（总数减回去）。
+    /// 断言打在每条线程自己的标记上，不看全进程的 [`stranded`]：别的测试并行撒手，那个数会跟着动
+    #[test]
+    fn 撒手的读线程有账_后台进程退了销账() {
+        let (rd, wr) = io::pipe().unwrap();
+        let d = drain(rd, 100);
+        let st = d.reader.clone();
+        let got = d.take(Instant::now() + Duration::from_millis(50), "测试");
+        assert!(got.is_empty());
+        assert_eq!(st.0.load(Ordering::SeqCst), STRANDED, "写端还开着、线程还卡在 read 上：该记一笔");
+        drop(wr);
+        let t = Instant::now();
+        while st.0.load(Ordering::SeqCst) != DONE && t.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(st.0.load(Ordering::SeqCst), DONE, "写端关了线程就退出，账要销掉");
+    }
+
+    /// 撒手之后不再替后台进程读：它再写一块，读线程就退出、关掉读端；它接着写撞上的是关掉的管道
+    /// （真进程是 SIGPIPE；测试进程里 Rust 忽略了 SIGPIPE，表现为 BrokenPipe）。原来 stderr 这一路会一直读下去
+    #[test]
+    fn 撒手之后_后台进程再写_读端就关了() {
+        use std::io::Write;
+        let (rd, mut wr) = io::pipe().unwrap();
+        let d = drain(rd, 100);
+        let st = d.reader.clone();
+        let _ = d.take(Instant::now() + Duration::from_millis(50), "测试");
+        wr.write_all(b"late\n").unwrap();
+        let t = Instant::now();
+        while st.0.load(Ordering::SeqCst) != DONE && t.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(st.0.load(Ordering::SeqCst), DONE, "撒手后拿到下一块就该退出");
+        let again = wr.write_all(b"again\n");
+        assert_eq!(again.map_err(|e| e.kind()), Err(io::ErrorKind::BrokenPipe), "读端该关了");
+    }
+
+    #[test]
+    fn 正常读完的_不记账() {
+        let (rd, wr) = io::pipe().unwrap();
+        let d = drain(rd, 100);
+        let st = d.reader.clone();
+        drop(wr);
+        let _ = d.take(Instant::now() + Duration::from_secs(2), "测试");
+        assert_eq!(st.0.load(Ordering::SeqCst), DONE);
+    }
+
+    /// 平常的路：SIGKILL 当场生效，拿到的是真的状态，不经过收尸线程
+    #[test]
+    fn 杀得掉的_当场收尸() {
+        #[allow(clippy::disallowed_methods)] // 同上
+        let child = Command::new("sleep").arg("30").spawn().unwrap();
+        let pid = child.id();
+        let st = abandon(child, |c| {
+            let _ = c.kill();
+        });
+        assert_eq!(st.signal(), Some(9));
+        assert_eq!(ps_stat(pid), "", "当场就该收走");
+    }
 }

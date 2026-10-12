@@ -75,13 +75,88 @@ pub struct Task {
     shared: Arc<Shared>,
 }
 
-/// 组里还有没有活着的进程。`kill(-pgid, 0)` 只问不发：0 = 有，ESRCH = 一个都没了。
+/// 组里还有没有活着的进程。`kill(-pgid, 0)` 只问不发：0 = 有，ESRCH = 一个都没了，**EPERM 两种意思都有**，要列组员再判（[`judge`]）。
 ///
-/// 第 0 步撞见过：组里只剩**没被回收的僵尸**时 macOS 回 EPERM —— 这里不会出现，组长由 [`Task::start`] 起的线程立刻回收，
-/// 孙进程变孤儿后由 launchd 回收。所以 EPERM 也当「没有活的」。
+/// EPERM 的两个来源（第 0 步实测一个、2026-10-12 读 Codex 时补实测另一个，#65）：组里只剩**没被回收的僵尸**；
+/// 或者组里活着的都是**真实 uid 不是我们**的进程 —— 免密的 `sudo` 正以 root 跑命令。原来一律当「没有活的」，
+/// 后一种就是「界面说已停止、root 起的服务还占着端口」，账本也划掉了。
 pub fn group_alive(pgid: i32) -> bool {
     // SAFETY: 信号 0 不发任何东西，只做存在性检查
-    unsafe { libc::killpg(pgid, 0) == 0 }
+    let probe = match unsafe { libc::killpg(pgid, 0) } {
+        0 => None,
+        _ => io::Error::last_os_error().raw_os_error(),
+    };
+    judge(probe, || group_members(pgid).into_iter().map(member).collect())
+}
+
+/// 组里的一个进程，从我们这边看
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Member {
+    Live,
+    /// 僵尸（父进程还没回收）或者已经没了：两种都不算活的
+    Gone,
+    /// 在，但不归我们管（`proc_pidinfo` 回 EPERM：别的用户的，典型是 root）
+    NotOurs,
+}
+
+/// `killpg(组, 0)` 的结果（`None` = 成功，否则 errno）加上组员 → 组里还有没有活的。
+/// 拆出来是为了不用真造一个 root 进程就能测 EPERM 那条路（Codex `process_group.rs` 也是这么测的：把「发给组」「发给单个进程」当参数传，测试里注入 EPERM）
+fn judge(probe: Option<i32>, members: impl FnOnce() -> Vec<Member>) -> bool {
+    match probe {
+        None => true,
+        Some(libc::EPERM) => members().iter().any(|m| *m != Member::Gone),
+        Some(_) => false,
+    }
+}
+
+/// 组里的全部 pid（含僵尸：实测 `proc_listpgrppids` 会列出父进程还没回收的那个）
+#[cfg(target_os = "macos")]
+fn group_members(pgid: i32) -> Vec<i32> {
+    let mut buf = vec![0 as libc::pid_t; 256];
+    loop {
+        let bytes = (buf.len() * std::mem::size_of::<libc::pid_t>()) as libc::c_int;
+        // SAFETY: 缓冲区大小如实告诉内核；返回值是**个数**不是字节数（实测）
+        let n = unsafe { libc::proc_listpgrppids(pgid, buf.as_mut_ptr() as *mut libc::c_void, bytes) };
+        if n <= 0 {
+            return Vec::new();
+        }
+        // 正好填满：可能还有没装下的，放大再要一次
+        if (n as usize) < buf.len() {
+            buf.truncate(n as usize);
+            return buf;
+        }
+        buf.resize(buf.len() * 4, 0);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn group_members(_pgid: i32) -> Vec<i32> {
+    Vec::new()
+}
+
+/// 一个 pid 现在是什么。
+///
+/// **查不到不等于不在**（2026-10-12 实测）：对 root 的进程（launchd、logd）`proc_pidinfo` 自己也回 EPERM，而对僵尸回的是 ESRCH。
+/// 写成「查得到、又不是僵尸才算活着」（#65 原来记的修法就是这么转述的）的话，root 那个查不到 → 当成没了 —— 正好留着 #65 要修的那个误判
+#[cfg(target_os = "macos")]
+fn member(pid: i32) -> Member {
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: 缓冲区是一个完整的 proc_bsdinfo，大小如实告诉内核
+    let n = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size) };
+    if n == size {
+        return if info.pbi_status == libc::SZOMB { Member::Gone } else { Member::Live };
+    }
+    match io::Error::last_os_error().raw_os_error() {
+        Some(libc::EPERM) => Member::NotOurs,
+        // ESRCH：僵尸（实测）或者已经没了
+        _ => Member::Gone,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn member(_pid: i32) -> Member {
+    Member::Gone
 }
 
 fn signal_group(pgid: i32, sig: libc::c_int) {
@@ -337,6 +412,55 @@ mod tests {
         assert!(matches!(other.try_wait(), Ok(None)), "别人的进程组被我们的信号打死了");
         let _ = other.kill();
         let _ = other.wait();
+    }
+
+    /// #65：EPERM 时看组员。root 进程造不出来（免密 sudo 不能假设有），所以判断拆成 [`judge`]、注入组员
+    #[test]
+    fn 组里只剩别人的进程_还算活着_只剩僵尸才算没了() {
+        use Member::*;
+        assert!(judge(None, Vec::new), "killpg 成功 = 有活的");
+        assert!(!judge(Some(libc::ESRCH), Vec::new), "ESRCH = 一个都没了");
+        assert!(!judge(Some(libc::EPERM), || vec![Gone]), "只剩僵尸：没有活的（第 0 步实测的那种）");
+        assert!(judge(Some(libc::EPERM), || vec![Gone, NotOurs]), "root 起的还在：不能说停干净了");
+    }
+
+    /// 上面那条注入的「NotOurs」得是真的：root 的进程（launchd 永远在、永远是 root），`proc_pidinfo` 回 EPERM 要认成「在，不归我们」，
+    /// 不能当成没了；自己的僵尸要认成没了
+    #[test]
+    fn 组员认得出_自己的活的_自己的僵尸_root的() {
+        assert_eq!(member(1), Member::NotOurs, "launchd 查不到是因为不归我们，不是因为它不在");
+        assert_eq!(member(std::process::id() as i32), Member::Live);
+        // 组长 sh 起一个马上退的 sleep 0，然后 exec 成 sleep 5 —— 新的 sleep 不回收孩子，那个 sleep 0 成僵尸、父进程还活着
+        #[allow(clippy::disallowed_methods)] // 测试里造一个带僵尸的组
+        let mut g = Command::new("/bin/sh").args(["-c", "sleep 0 & exec sleep 5"]).process_group(0).spawn().unwrap();
+        let pgid = g.id() as i32;
+        let t = Instant::now();
+        let kinds = loop {
+            let k: Vec<Member> = group_members(pgid).into_iter().map(member).collect();
+            if k.len() == 2 || t.elapsed() > Duration::from_secs(2) {
+                break k;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let _ = g.kill();
+        let _ = g.wait();
+        assert!(kinds.contains(&Member::Live) && kinds.contains(&Member::Gone), "组长活着、孩子是僵尸：{kinds:?}");
+    }
+
+    /// 组里只剩一个没被回收的僵尸：killpg 回 EPERM（第 0 步实测的形状），但不能因为 EPERM 就当它还活着 —— 否则等待线程永远转、任务永远停不完
+    #[test]
+    fn 组里只剩僵尸_走的是eperm那条路_判成没了() {
+        #[allow(clippy::disallowed_methods)] // 测试里造一个只剩僵尸的组：起了不回收
+        let mut z = Command::new("/usr/bin/true").process_group(0).spawn().unwrap();
+        let pgid = z.id() as i32;
+        std::thread::sleep(Duration::from_millis(200));
+        // SAFETY: 信号 0 只问不发
+        let probe = unsafe { libc::killpg(pgid, 0) };
+        let errno = io::Error::last_os_error().raw_os_error();
+        let alive = group_alive(pgid);
+        let _ = z.wait();
+        assert_eq!((probe, errno), (-1, Some(libc::EPERM)), "前提：只剩僵尸的组 killpg 回 EPERM");
+        assert!(!alive, "只剩僵尸不算活着");
     }
 }
 

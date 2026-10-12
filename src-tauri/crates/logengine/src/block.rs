@@ -73,31 +73,34 @@ fn trim_eol(line: &[u8]) -> &[u8] {
     &line[..end]
 }
 
+/// 按线格式解回：原始字节 + 截过的行原本多长（没截是 None）。和前端 `block.ts` 的 `decodeBlock` 读法一致。
+/// **测试里解线格式只用这一份**：lib.rs 的测试原来自己手写了一份，不认 [`CLIPPED`] —— 格式加了截断标记之后，
+/// 谁在那边加一条长行的测试，长度带着最高位被当成 2GB、切片越界 panic，看着像引擎坏了（code review 2026-10-12）
+#[cfg(test)]
+pub(crate) fn decode_full(buf: &[u8]) -> (u64, Vec<(Vec<u8>, Option<u64>)>) {
+    let first = u64::from_le_bytes(buf[0..8].try_into().unwrap());
+    let count = u32::from_le_bytes(buf[8..12].try_into().unwrap()) as usize;
+    let mut pos = 12 + count * 4;
+    let mut lines = Vec::with_capacity(count);
+    for i in 0..count {
+        let raw = u32::from_le_bytes(buf[12 + i * 4..16 + i * 4].try_into().unwrap());
+        let len = (raw & !CLIPPED) as usize;
+        let bytes = buf[pos..pos + len].to_vec();
+        pos += len;
+        let full = (raw & CLIPPED != 0).then(|| {
+            let f = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap());
+            pos += 8;
+            f
+        });
+        lines.push((bytes, full));
+    }
+    assert_eq!(pos, buf.len(), "payload 长度与长度表对不上");
+    (first, lines)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// 按线格式解回：原始字节 + 截过的行原本多长（没截是 None）。和前端 `block.ts` 的 `decodeBlock` 读法一致
-    fn decode_full(buf: &[u8]) -> (u64, Vec<(Vec<u8>, Option<u64>)>) {
-        let first = u64::from_le_bytes(buf[0..8].try_into().unwrap());
-        let count = u32::from_le_bytes(buf[8..12].try_into().unwrap()) as usize;
-        let mut pos = 12 + count * 4;
-        let mut lines = Vec::with_capacity(count);
-        for i in 0..count {
-            let raw = u32::from_le_bytes(buf[12 + i * 4..16 + i * 4].try_into().unwrap());
-            let len = (raw & !CLIPPED) as usize;
-            let bytes = buf[pos..pos + len].to_vec();
-            pos += len;
-            let full = (raw & CLIPPED != 0).then(|| {
-                let f = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap());
-                pos += 8;
-                f
-            });
-            lines.push((bytes, full));
-        }
-        assert_eq!(pos, buf.len(), "payload 长度与长度表对不上");
-        (first, lines)
-    }
 
     /// 按线格式解回原始字节，供「字节必须原样透传」这类断言使用
     fn decode_raw(buf: &[u8]) -> (u64, Vec<Vec<u8>>) {

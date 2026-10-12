@@ -1,34 +1,15 @@
 /**
  * 日志块的线格式解码（`src/lib/logview/block.ts`）：截过的长行要带出「还有多少没显示」。
- * 编码照 Rust 侧 `logengine::block::encode` 手写一份 —— 两边的格式由这里和 block.rs 的测试各卡一头。
+ * 编码用桩的 `encodeBlock`（浏览器里 `pnpm dev` 喂给日志视图的就是它）：同一份编码器既喂界面又被测，桩漂了这里就红。
+ * 它和 Rust 侧 `logengine::block::encode` 的一致由两边的测试各卡一头。
  */
 import { decodeBlock, cutNote } from "../src/lib/logview/block.ts";
+import { encodeBlock as encode } from "../src/lib/dev/mock/block.ts";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
 
 const MAX = 64 * 1024;
-const enc = new TextEncoder();
-/** 照 Rust 编：超过 MAX 的截到 MAX，长度最高位置 1，后面跟 u64 原长 */
-function encode(first: number, texts: string[]): ArrayBuffer {
-  const full = texts.map((t) => enc.encode(t));
-  const parts = full.map((p) => p.subarray(0, MAX));
-  const size = 12 + 4 * parts.length + parts.reduce((a, p, i) => a + p.length + (full[i].length > p.length ? 8 : 0), 0);
-  const buf = new ArrayBuffer(size);
-  const dv = new DataView(buf);
-  const u8 = new Uint8Array(buf);
-  dv.setBigUint64(0, BigInt(first), true);
-  dv.setUint32(8, parts.length, true);
-  let pos = 12 + 4 * parts.length;
-  parts.forEach((p, i) => {
-    const cut = full[i].length > p.length;
-    dv.setUint32(12 + i * 4, (p.length | (cut ? 0x8000_0000 : 0)) >>> 0, true);
-    u8.set(p, pos);
-    pos += p.length;
-    if (cut) { dv.setBigUint64(pos, BigInt(full[i].length), true); pos += 8; }
-  });
-  return buf;
-}
 
 // 普通的块：没有截过的行，more 是 null（绝大多数块，别为它们白建一个数组）
 {

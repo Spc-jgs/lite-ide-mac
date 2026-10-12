@@ -1,33 +1,7 @@
 /** 桩：日志引擎：打开、统计、按行取、过滤、按时间跳、刷新、关闭。从 `mock-ipc.ts` 拆出来（2026-09-24，纯搬家）。 */
-import { type A, BIG_LOG, enc, existsInMock, FILES, LOG_SRC, type LogSrc, nameOf, NOT_MINE, src, TOTAL } from "./data";
+import { type A, BIG_LOG, existsInMock, FILES, LOG_SRC, type LogSrc, nameOf, NOT_MINE, src, TOTAL } from "./data";
 import { parseQuery, matchLine, isEmptyQuery } from "../../logview/query";
-
-/** 与 Rust 侧 `MAX_LINE_BYTES` 一致：一行最多传这么多字节 */
-const MAX_LINE_BYTES = 64 * 1024;
-
-/** 与 Rust 侧 block::encode 完全一致的线格式（含截过的行：长度最高位置 1、后面跟一个 u64 原长） */
-function encodeBlock(first: number, texts: string[]): ArrayBuffer {
-  const full = texts.map((t) => enc.encode(t));
-  const parts = full.map((p) => p.subarray(0, MAX_LINE_BYTES));
-  const total = 12 + 4 * parts.length + parts.reduce((a, b, i) => a + b.length + (full[i].length > b.length ? 8 : 0), 0);
-  const buf = new ArrayBuffer(total);
-  const dv = new DataView(buf);
-  const u8 = new Uint8Array(buf);
-  dv.setBigUint64(0, BigInt(first), true);
-  dv.setUint32(8, parts.length, true);
-  let pos = 12 + 4 * parts.length;
-  parts.forEach((p, i) => {
-    const clipped = full[i].length > p.length;
-    dv.setUint32(12 + i * 4, (p.length | (clipped ? 0x8000_0000 : 0)) >>> 0, true);
-    u8.set(p, pos);
-    pos += p.length;
-    if (clipped) {
-      dv.setBigUint64(pos, BigInt(full[i].length), true);
-      pos += 8;
-    }
-  });
-  return buf;
-}
+import { encodeBlock } from "./block";
 
 /** 认级别：和 Rust 侧 `logengine` 一样，按行里出现的那个词判 */
 const LEVEL_WORDS = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"];

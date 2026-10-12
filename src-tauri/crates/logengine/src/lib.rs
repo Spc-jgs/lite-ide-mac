@@ -517,18 +517,28 @@ mod tests {
         p
     }
 
+    /// 解线格式用 block.rs 那一份（认截断标记），见 [`block::decode_full`]
     fn decode(buf: &[u8]) -> Vec<String> {
-        let count = u32::from_le_bytes(buf[8..12].try_into().unwrap()) as usize;
-        let mut pos = 12 + count * 4;
-        (0..count)
-            .map(|i| {
-                let len =
-                    u32::from_le_bytes(buf[12 + i * 4..16 + i * 4].try_into().unwrap()) as usize;
-                let s = String::from_utf8(buf[pos..pos + len].to_vec()).unwrap();
-                pos += len;
-                s
-            })
-            .collect()
+        block::decode_full(buf).1.into_iter().map(|(b, _)| String::from_utf8(b).unwrap()).collect()
+    }
+
+    /// 真文件里一行超过 [`MAX_LINE_BYTES`]：`read_block` 出来的那一行截在上限上、带着原长，前后两行不受影响。
+    /// block.rs 只测了编码这一步，这条走「文件 → 索引 → 取块」整条路
+    #[test]
+    fn 文件里的长行_取块时截断并带原长() {
+        let long = "x".repeat(MAX_LINE_BYTES + 5000);
+        let p = temp_log("long-line", format!("前\n{long}\n后\n").as_bytes());
+        let f = LogFile::open(&p).unwrap();
+        f.wait_indexed();
+        let (_, lines) = block::decode_full(&f.read_block(0, 10));
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], (b"\xe5\x89\x8d".to_vec(), None));
+        assert_eq!(lines[1].0.len(), MAX_LINE_BYTES);
+        assert_eq!(lines[1].1, Some((MAX_LINE_BYTES + 5000) as u64), "截过的行要带原长");
+        assert_eq!(lines[2], (b"\xe5\x90\x8e".to_vec(), None));
+        // 本文件的 `decode` 也得认截断标记：原来手写的那份在这里把长度当成 2GB、切片越界
+        assert_eq!(decode(&f.read_block(0, 10))[2], "后");
+        std::fs::remove_file(p).ok();
     }
 
     #[test]

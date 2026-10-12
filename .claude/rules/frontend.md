@@ -113,13 +113,13 @@ CM6 把一帧切成读、写两个阶段，正是为了避免读写交替触发�
 CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.svelte.ts` 里的
 `lazy()` / `lazyGroup()`，别再手写一遍 then/catch/finally 样板。
 
-**CI 会卡这条线**：入口包超过 160 KB 直接失败，145 告警（2026-09-21 从 150/138 放宽，理由在 ci.yml 里）。本地想先看一眼：
+**CI 会卡这条线**：入口包超过 160 KB 直接失败，152 告警（2026-10-12 #55 归因之后从 145 放宽，理由在 ci.yml 里）。本地想先看一眼：
 
 ```bash
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 150,341 B → CI 取整 146（2026-10-10），过了「> 145」的告警线、红线 160；归因待做，#55**。09-24 晚是 142,813 B（139）；之后多窗口、#42–#45、#48 一路涨上来的，#48 第 3 步那 1.7 KB 归过因，前面那 5.6 KB 没有。09-24 换 IDEA 官方图标 −6.2 KB：自绘图标的 path 数据原来全在入口的 `Icon.svelte` 里，现在是 `public/icons/` 下的静态文件，JS 里只剩路径（FileGlyph 的扩展名表 +1 KB 已算在内）。09-24 合并单层目录 +180 B：入口里的 `Icon.svelte` 多了一个 `compact` 图标（`tree-rows.ts` 跟着 FileTree 走，不在入口）。09-23 晚剪贴板 / 焦点那两轮 +37 B。code review 修的那几条 +376 B。
+（**当前 150,578 B → CI 取整 147（2026-10-12），告警 152、红线 160**。09-24 晚是 142,813 B（139）。#55 把两版都开 sourcemap 构建、按源文件做差（+7.4 KB）：设置（#44）净 +3 KB —— `settings.svelte.ts` 3.3 + `settings-view.ts` 1.0，换掉了 `prefs.ts` 0.6、`layout` 少 0.7；运行任务的状态 +1.1；`Overlays` 的懒加载外壳 +1.0；`commands.ts` +0.65；svelte 运行时 +0.55；`overlay.svelte.ts` 反而 −1.5。逐个过了「窗口出现之前有没有用」，全是接线，所以动的是告警线不是代码。归因脚本按 mappings 逐段记字节，旧版本要用 `git archive` 解到别处、借现在的 `node_modules` 构建（依赖没变时才行）。09-24 换 IDEA 官方图标 −6.2 KB：自绘图标的 path 数据原来全在入口的 `Icon.svelte` 里，现在是 `public/icons/` 下的静态文件，JS 里只剩路径（FileGlyph 的扩展名表 +1 KB 已算在内）。09-24 合并单层目录 +180 B：入口里的 `Icon.svelte` 多了一个 `compact` 图标（`tree-rows.ts` 跟着 FileTree 走，不在入口）。09-23 晚剪贴板 / 焦点那两轮 +37 B。code review 修的那几条 +376 B。
 09-23 交互习惯那轮 +2.6 KB，归因：App 的全局按键（切标签 / Esc / 方括号）1.3 KB、Content 0.6、tabs 的最近使用 0.4 —— 都是窗口一出来就得能用的。
 **第一版 +9.7 KB，两处是不该进的**：导轨 tooltip 为了不写死 `⌘K` 引了 `byId`，**整张 keymap.ts 跟着进了入口（+6.8 KB）**；编辑器右键菜单写在 Content 里、连带 pathactions（+3 KB）—— 改成字面量、菜单挪进懒加载的 EditorMenu.svelte。**一个 `import { byId }` 就能把一整张表拽进来，每轮都要重量的理由就在这儿。**
 09-21 晚是 142,131：09-22 那几批交互打磨涨了 3.6 KB（没逐项归因，是在事后对比 HEAD 构建时才发现的），09-23 白天 Java 着色 / 成员跳转 / 堆栈链接只 +33 B —— 那些全在 Java 和日志的懒 chunk 里；CI 算的是 `size / 1024` 取整。这两条线是 2026-09-21 从 138/150 放宽的：清单上能搬去懒 chunk 的都搬完了（下面两段），剩下的是接线；入口包只占启动的 14%（JOURNAL 09-18）。**放宽不等于不数**：这个数字每轮照旧重量、照旧记在这儿，涨了要说得出是谁。
@@ -435,7 +435,7 @@ CM6 正文和 xterm 自己处理组字，不用管。
 
 ## 桩必须和真实现严格对齐
 
-`src/lib/dev/mock-ipc.ts`（按领域分在 `mock/` 下，和 `src-tauri/src/commands/` 一一对应；共享的假数据在 `mock/data.ts`）是浏览器里调 UI 用的（`pnpm dev`，热更新毫秒级，
+`src/lib/dev/mock-ipc.ts`（按领域分在 `mock/` 下，和 `src-tauri/src/commands/` 一一对应；共享的假数据在 `mock/data.ts`，日志块的线格式编码在 `mock/block.ts` —— 单独一个文件、不 import 别的，`tests/log-block.test.ts` 在裸 node 里直接测它）是浏览器里调 UI 用的（`pnpm dev`，热更新毫秒级，
 比等 Tauri 重编译快得多）。它喂的数据结构**必须**和 Rust 侧 DTO 一致 ——
 分叉之后它就失去了全部价值，还会骗人。改 DTO 记得同步改桩。
 
