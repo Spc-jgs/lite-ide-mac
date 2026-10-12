@@ -39,6 +39,11 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 **改回来之后要确认真的重编了**：`sed -i.bak` 改坏 → 跑红 → `mv` 备份回来，第二次照样红 ——
 `mv` 保留的是备份的旧 mtime，比刚编出来的产物还老，cargo 认为没变，跑的还是改坏那版。
 `touch` 一下再跑（2026-09-16 `分支删除和改名` 踩的）。
+**改坏的那一版要还原一个真会写出来的错**，不是随手改坏一处：2026-10-12 验 procutil 时第一次造的错版本把数据吞了，
+测试是因为丢了数据才红、不是因为卡住 —— 它什么也没证明。
+
+**写进注释的依赖行为，读过它的源码再写。** 废纸篓的注释写了很久「走 `NSFileManager`」，`trash` crate 默认其实是让 Finder 去删
+（2026-10-12 读源码才发现）—— 照着错的注释去查「为什么弹了控制 Finder 的权限框」，会找不到原因。
 
 ## 边界
 
@@ -52,8 +57,13 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 - 改了键位或菜单，先改 `src/lib/state/keymap.ts` —— `menu_sync.rs` 会卡住漂移
 - 改了 Rust 侧 DTO / 命令，同步改桩 `src/lib/dev/mock/<领域>.ts`（和 `src-tauri/src/commands/<领域>.rs` 一一对应）。桩一分叉就开始骗人
 - 页面里的文字走 Svelte 的文本插值，不直接插 HTML —— `tests/no-html-sinks.test.ts` 卡着（一旦能跑别人的脚本就等于拿到这台机器）
+- 文本框里处理回车 / Esc / 方向键，先问 `imeKey(e)` —— `tests/ime.test.ts` 卡着（拼音确认候选字的那一下回车也是 keydown：
+  任务列表会把选中的跑起来、替换框会把半截拼音替换进正文）
+- 删用户的文件只走废纸篓（`fsservice::move_to_trash` / `move_all_to_trash`）。应用自己生成的东西才直接删，范围卡死在自己的那几种文件名上
+  （rust.md「删除只走废纸篓」；2026-10-12 还抓到过一处直接删未跟踪文件的）
+- 截断了要说出来、给真数字：一份看着完整、其实少了一截的东西，比一句「显示不下」危险（rust.md「子进程输出必须设闸」；以后拼给模型的同理）
 - 改完给出数字。「快了很多」没有信息量，「1112ms → 0.008ms」有
-- 交付前 `pnpm app:bundle`：人是双击 `.app` 验收的
+- 改了代码的那一轮，交付前 `pnpm app:bundle`：人是双击 `.app` 验收的。只改文档的轮次打出来的 `.app` 和上一轮一样，不用打
 
 **先问再做：**
 
@@ -71,6 +81,7 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 - 拿 `cargo build --release` 当验证
 - 在 `src-tauri/src/commands/` 里写业务逻辑
 - 写错的注释。错的注释比没有注释更害人，这条是有过教训的
+- 在下载来的参考代码里跑构建、脚本、测试：只读。构建脚本和测试都能执行任意命令，读外来代码只用「读」这一种操作
 - 验收碰真实数据、发全局按键：一律走测试身份 `.app` 和测试通道（`scripts/lib/bridge.sh`）——
   System Events 的按键落在最前面的应用上，改过用户正在用的应用的缩放；smoke 往用户的 zsh 历史里写过十行
 
@@ -88,6 +99,7 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 | 跨文件替换 | [docs/REPLACE.md](docs/REPLACE.md) —— 两段提交、撤销日志、命中太多不许执行 |
 | 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位；第 7 节是优先级 |
 | 踩过的坑的全过程 | [docs/JOURNAL.md](docs/JOURNAL.md) |
+| 想照别的项目的做法改 | [docs/research/codex.md](docs/research/codex.md) —— 读 Codex 的五个主题：对照结论、学了什么、为什么不学 |
 | 发版 / CI | [docs/RELEASE.md](docs/RELEASE.md) |
 
 Claude Code 会在读到匹配文件时自动加载 `.claude/rules/*.md`（靠 frontmatter 里的

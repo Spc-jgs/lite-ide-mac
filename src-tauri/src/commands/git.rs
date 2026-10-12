@@ -107,7 +107,7 @@ pub async fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String>
     .await
 }
 
-/// 丢弃工作区改动。**不可撤销** —— 前端必须先让用户确认过才准调。
+/// 丢弃工作区改动。跟踪的**不可撤销** —— 前端必须先让用户确认过才准调；未跟踪的进废纸篓
 #[tauri::command]
 pub async fn git_discard(
     root: String,
@@ -115,7 +115,7 @@ pub async fn git_discard(
     untracked: Vec<String>,
 ) -> Result<(), String> {
     crate::diag!("git_discard {} 个跟踪 + {} 个未跟踪", paths.len(), untracked.len());
-    blocking(move || gitsvc::discard(&root, &paths, &untracked).map_err(|e| format!("丢弃失败：{e}"))).await
+    blocking(move || gitsvc::discard(&root, &paths, &untracked, fsservice::move_all_to_trash).map_err(|e| format!("丢弃失败：{e}"))).await
 }
 
 /// 提交。**这条是最该挪出主线程的一条** —— `pre-commit` 钩子跑什么

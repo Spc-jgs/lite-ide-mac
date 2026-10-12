@@ -67,28 +67,37 @@ pub fn unstage(root: impl AsRef<Path>, paths: &[String]) -> R<()> {
     run(root, &args).map(|_| ())
 }
 
-/// 丢弃工作区改动。**不可撤销**，调用方必须先让用户确认过。
+/// 丢弃工作区改动。跟踪的走 `git restore`（**不可撤销**，调用方必须先让用户确认过）；
+/// 未跟踪的不在 git 的管辖里，`restore` 对它们无效，交给 `trash`（产品里是 `fsservice::move_all_to_trash`）。
 ///
-/// 未跟踪文件不在 git 的管辖里，`restore` 对它们无效，得直接删。
-pub fn discard(root: impl AsRef<Path>, paths: &[String], untracked: &[String]) -> R<()> {
+/// **未跟踪的不直接删**（2026-10-12）：原来是 `remove_file` / `remove_dir_all`，错误还被 `let _ =` 吞掉 ——
+/// 未跟踪的文件 git 里没有任何历史，删了就彻底没了，而 rust.md 写的是「删用户文件只走废纸篓」。是用 clippy 的
+/// `disallowed-methods` 量那几条规矩时抓到的（docs/research/codex.md 主题 5）。gitsvc 不依赖 fsservice，所以废纸篓由调用方传进来 ——
+/// 测试里也就能换成一个不真扔的。扔失败了报出来，不再吞
+pub fn discard(
+    root: impl AsRef<Path>,
+    paths: &[String],
+    untracked: &[String],
+    trash: impl FnOnce(&[std::path::PathBuf]) -> Result<(), String>,
+) -> R<()> {
     let root = root.as_ref();
+    // 先把路径都核一遍再动手：只认 root 之下的相对路径，带 `..` 的不认。路径来自 git 自己的输出，理论上不会这样，
+    // 但这是删东西的路 —— 而且 trash crate 遇到以 `..` 结尾的路径，扔的是它的父目录
+    let mut full = Vec::with_capacity(untracked.len());
+    for p in untracked {
+        let rel = Path::new(p);
+        if rel.is_absolute() || !rel.components().all(|c| matches!(c, std::path::Component::Normal(_))) {
+            return Err(Error::Git(format!("不认这个路径：{p}")));
+        }
+        full.push(root.join(rel));
+    }
     if !paths.is_empty() {
         let mut args = vec!["restore", "--worktree", "--"];
         args.extend(paths.iter().map(String::as_str));
         run(root, &args)?;
     }
-    for p in untracked {
-        let full = root.join(p);
-        // 只删 root 之下的东西。路径来自 git 自己的输出，理论上安全，
-        // 但删除是不可逆操作，多一道校验不亏
-        if !full.starts_with(root) {
-            continue;
-        }
-        let _ = if full.is_dir() {
-            std::fs::remove_dir_all(&full)
-        } else {
-            std::fs::remove_file(&full)
-        };
+    if !full.is_empty() {
+        trash(&full).map_err(Error::Git)?;
     }
     Ok(())
 }

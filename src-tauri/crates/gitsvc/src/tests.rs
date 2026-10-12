@@ -237,7 +237,7 @@ fn 真仓库上的状态与暂存往返() {
     assert!(d.contains("-hello") && d.contains("+world"), "diff 不对：{d}");
 
     // 丢弃改动
-    discard(&dir, &["a.txt".into()], &[]).unwrap();
+    discard(&dir, &["a.txt".into()], &[], |_| unreachable!("没有未跟踪的，不该叫废纸篓")).unwrap();
     assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "hello\n");
 
     let l = log_entries(&dir, 10, false, "").unwrap();
@@ -1615,5 +1615,42 @@ fn 钩子留下后台进程不能把提交挂住() {
     }
     assert!(t.elapsed() < std::time::Duration::from_secs(6), "回来得太晚：{:?}", t.elapsed());
     assert!(status_full(&dir).unwrap().entries.is_empty(), "提交应该真的发生了");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// 丢弃未跟踪的文件：交给废纸篓，**不直接删**；扔失败要报出来；越界的路径不认。
+/// 废纸篓换成一个只记账、不真扔的 —— 所以「文件还在」恰好证明了我们没有自己去删（原来是 `remove_file`，那样这里文件就没了）
+#[test]
+fn 丢弃未跟踪的_交给废纸篓_不直接删() {
+    if !available() {
+        eprintln!("跳过：机器上没有 git");
+        return;
+    }
+    let dir = tmpdir("discard-untracked");
+    run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+    run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+    run(&dir, &["config", "user.name", "t"]).unwrap();
+    std::fs::write(dir.join("a.txt"), "hello\n").unwrap();
+    run(&dir, &["add", "-A"]).unwrap();
+    commit(&dir, "首次提交", false).unwrap();
+    std::fs::write(dir.join("a.txt"), "改过\n").unwrap();
+    std::fs::write(dir.join("新 文件.txt"), "从没提交过\n").unwrap();
+
+    let mut got = Vec::new();
+    discard(&dir, &["a.txt".into()], &["新 文件.txt".into()], |ps| {
+        got.extend_from_slice(ps);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "hello\n", "跟踪的照旧 restore");
+    assert_eq!(got, vec![dir.join("新 文件.txt")], "未跟踪的交给了废纸篓");
+    assert!(dir.join("新 文件.txt").exists(), "文件被我们自己删了 —— 该交给废纸篓，不是 remove_file");
+
+    let e = discard(&dir, &[], &["新 文件.txt".into()], |_| Err("Finder 不让".into())).unwrap_err();
+    assert!(e.to_string().contains("Finder 不让"), "扔失败要报出来，不能吞：{e}");
+
+    for bad in ["../外面.txt", "/etc/hosts", "a/../../b", "x/.."] {
+        assert!(discard(&dir, &[], &[bad.into()], |_| panic!("越界的路径不该交给废纸篓：{bad}")).is_err(), "{bad} 该被拒");
+    }
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -70,7 +70,7 @@ export async function discard(entries: GitEntry[]) {
   git.pendingDiscard = null;
   const repo = git.repo;
   if (!repo) return;
-  // 跟踪的走 git restore，未跟踪的只能直接删 —— gitsvc 里分了两条路
+  // 跟踪的走 git restore（不可撤销），未跟踪的进废纸篓（git 里没有它们的历史，直接删就彻底没了）—— gitsvc 里分了两条路
   const tracked = entries.filter((e) => !e.untracked).map((e) => e.path);
   const untracked = entries.filter((e) => e.untracked).map((e) => e.path);
   await run(

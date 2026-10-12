@@ -362,7 +362,7 @@ searchsvc 把两个管道的读法写反、造成死锁（2026-10-10），正是
 
 | | 做什么 | 排在哪 |
 |---|---|---|
-| ⑭ | `gitsvc::discard` 的未跟踪文件改走废纸篓、删除失败要报出来 | DIRECTION 第 7 节 P1（会丢数据，等你定） |
+| ⑭ | ~~`gitsvc::discard` 的未跟踪文件改走废纸篓~~ ✅ 2026-10-12 | 做完 |
 | ⑮ | `clippy.toml` 的 `disallowed-methods` + CI 只跑这一条 | DIRECTION 第 7 节 P2 |
 | ⑯ | #46：脚本化的假 ACP agent；「发给 agent 的东西」做快照 | #46 设计稿 |
 | ⑰ | 开源前加 cargo-deny（许可证、漏洞） | 并进 #47 |
@@ -382,7 +382,7 @@ searchsvc 把两个管道的读法写反、造成死锁（2026-10-10），正是
 | 档 | 事 | 状态 |
 |---|---|---|
 | P1 | procutil 等后台孙进程（主题 1） | ✅ 已修 |
-| P1 | `gitsvc::discard` 直接删未跟踪文件（主题 5） | 等你定 |
+| P1 | `gitsvc::discard` 直接删未跟踪文件（主题 5） | ✅ 已修 |
 | P1 | 日志视图 64KB 长行截了不说（主题 3 给了修法） | 待做 |
 | P2 | `disallowed-methods` 进 CI（主题 5） | 待做 |
 | #46 | 「问人」不超时、agent 靠 stdin EOF 退出、假 ACP agent、类型从官方 schema 来（主题 2、5） | 写进设计稿 |

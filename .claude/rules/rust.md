@@ -159,7 +159,8 @@ searchsvc 那份把并发读写反了** —— 读完 stdout 才读 stderr，rg 
    `git config --list --local --show-origin -z`，每个键对一张**白名单**——git 只拿它当
    数据的键放行，不在名单上的一律可疑；有可疑项就进「受限」（Git 整块隐身，挂件位置一条
    「Git 未启用」，点开列出那几条键，用户点信任才启用）。信任按 config 内容记
-   （`src-tauri/src/trust_store.rs`），内容一变作废。威胁模型写在 `trust.rs` 头上：
+   （`src-tauri/src/trust_store.rs`），内容一变作废。**按内容记是有意的**：Codex 对项目自带的配置按**路径**记信任，
+   信任之后 `git pull` 带进来的新钩子直接生效（docs/research/codex.md 主题 4）；会执行命令的配置，「当时看过的那份」和「现在这份」不是一回事。威胁模型写在 `trust.rs` 头上：
    **`git clone` 不传输 `.git/config` 和 hooks**，会带来别人的 config 的是「整个目录拿到手」
    和「本机工具往里写」两条路。黑名单照留：它挡的是「跑了之后 git 自己会不会去执行」，
    白名单挡的是「跑不跑」。新加白名单项前先问一句：git 会不会把这个值当命令。
@@ -231,8 +232,9 @@ libc 依赖 —— 没引，我们要的只是「数据先于 rename」这个次
 ## 删除只走废纸篓
 
 `fsservice::move_to_trash` 是**删用户的文件**的唯一路径，**没有 `remove_file`**。
-**例外（2026-10-12 用 clippy 的 `disallowed-methods` 量出来的，原来这句没写）**：`gitsvc::discard` 丢弃未跟踪的文件时直接 `remove_file` / `remove_dir_all`，
-确认框明说「直接删除、不可撤销」。改不改走废纸篓见 DIRECTION 第 7 节。
+（2026-10-12 用 clippy 的 `disallowed-methods` 量这条规矩时抓到过一处违反：`gitsvc::discard` 丢弃未跟踪的文件时直接 `remove_file` / `remove_dir_all`、
+错误被吞掉。已改成交给 `fsservice::move_all_to_trash`（批量，一次 AppleScript；整批失败逐个重试、报出哪几个没扔掉）。gitsvc 不依赖 fsservice，
+废纸篓由调用方传进去，测试里换成只记账的 —— 「文件还在」恰好证明我们没自己删。）
 它交给 Finder 去扔（`trash` crate 在 macOS 上的默认做法：起 `osascript` 让 Finder `delete`），
 不是自己往 `~/.Trash` 里 rename —— Finder 的「放回原处」靠一份系统维护的元数据，
 外部卷的废纸篓在卷自己的 `.Trashes` 里，同名冲突还要按 Finder 的规则改名。

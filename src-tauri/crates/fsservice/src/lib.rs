@@ -968,6 +968,28 @@ pub fn move_to_trash(path: impl AsRef<Path>) -> io::Result<()> {
     trash::delete(path).map_err(|e| io::Error::other(format!("移到废纸篓失败：{e}")))
 }
 
+/// 一次扔一批（丢弃一堆未跟踪的文件）。走 Finder 每次要起一个 `osascript`，实测和 Finder 往返一趟约 0.11 秒 ——
+/// 一个一个扔，50 个文件就是 5 秒多；`trash::delete_all` 一次 AppleScript 扔完。
+///
+/// 已经不在盘上的跳过（要的就是它不在了）。整批失败（Finder 不让、其中一个扔不动）时**逐个重试**，
+/// 把真没扔掉的那几个连同原因报出来 —— 只报一句「失败了」的话，用户不知道哪几个还在
+pub fn move_all_to_trash(paths: &[PathBuf]) -> Result<(), String> {
+    let present: Vec<&PathBuf> = paths.iter().filter(|p| fs::symlink_metadata(p).is_ok()).collect();
+    if present.is_empty() || trash::delete_all(&present).is_ok() {
+        return Ok(());
+    }
+    let failed: Vec<String> = present
+        .iter()
+        .filter(|p| fs::symlink_metadata(p).is_ok())
+        .filter_map(|p| move_to_trash(p).err().map(|e| format!("{}（{e}）", p.display())))
+        .collect();
+    match failed.len() {
+        0 => Ok(()),
+        n if n <= 5 => Err(format!("没扔进废纸篓：{}", failed.join("；"))),
+        n => Err(format!("{n} 个没扔进废纸篓，比如：{}", failed[..5].join("；"))),
+    }
+}
+
 /// 把用户给的路径统一成**盘上真正的那一条**，给前端当 key 用。
 ///
 /// 目录整条 canonicalize；文件只 canonicalize **父目录**，最后一段照原样留着。
@@ -2222,6 +2244,31 @@ mod tests {
         let e = move_to_trash("/这个路径/根本/不存在.txt").unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::NotFound);
         assert!(e.to_string().contains("不在盘上了"), "实得：{e}");
+    }
+
+    /// 都已经不在盘上：要的就是它们不在了，不报错、也不去叫 Finder
+    #[test]
+    fn 批量扔_都不在了就算成功() {
+        assert_eq!(move_all_to_trash(&[PathBuf::from("/这个路径/根本/不存在.txt")]), Ok(()));
+        assert_eq!(move_all_to_trash(&[]), Ok(()));
+    }
+
+    /// 同下面那条，**默认不跑**：批量那条路（`trash::delete_all`）也要有人真的跑过一次
+    ///
+    /// ```bash
+    /// cargo test -p fsservice -- --ignored 真的把一批文件移进废纸篓
+    /// ```
+    #[test]
+    #[ignore = "会往用户的废纸篓里扔文件"]
+    fn 真的把一批文件移进废纸篓() {
+        let d = sandbox("trash-batch");
+        let a = d.join("lite-ide-废纸篓测试-批量-a.txt");
+        let b = d.join("lite-ide-废纸篓测试-批量-b.txt");
+        write_text(&a, "a").unwrap();
+        write_text(&b, "b").unwrap();
+        move_all_to_trash(&[a.clone(), b.clone(), d.join("本来就没有.txt")]).unwrap();
+        assert!(fs::symlink_metadata(&a).is_err() && fs::symlink_metadata(&b).is_err(), "还在原处 —— delete_all 什么都没做");
+        fs::remove_dir_all(d).ok();
     }
 
     /// **默认不跑**：它会往跑测试的人的废纸篓里真的扔一个文件进去。

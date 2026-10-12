@@ -8995,3 +8995,17 @@ smoke 三轮 85、85、86 —— 红的两次都是 ⑭「空草稿留在盘上�
 
 数字：procutil 测试 8 条（+3）、gitsvc `钩子留下后台进程不能把提交挂住`；`cargo test --workspace` 414 条全过。
 正常命令没变慢：`true` 中位 845 → 738µs、1MB 输出 3.6 → 3.0ms（差别在噪声里，时间在起进程本身）。
+
+## 2026-10-12 · 丢弃未跟踪的文件改成进废纸篓：规矩交给工具，第一次跑就抓到一处
+
+读 Codex 的工程组织（docs/research/codex.md 主题 5）时看到 clippy 的 `disallowed-methods`：把「这个 API 别直接用」写成 lint。
+临时放了一个 `clippy.toml`，把 rust.md 里几条只写在文档里的规矩（起子进程走 procutil、`File::create` 会截断、`fs::rename` 会覆盖、删用户文件只走废纸篓）
+交给它量：产品代码 34 处命中，大部分是有意的，**`gitsvc::discard` 不是** —— 丢弃未跟踪的文件时直接 `remove_file` / `remove_dir_all`，错误被 `let _ =` 吞掉。
+确认框说了「不可撤销」，所以不是骗人；但未跟踪的文件 git 里没有历史，删了就彻底没了，而放进废纸篓几乎没有代价。
+
+改法：gitsvc 不依赖 fsservice，`discard` 收一个「扔进废纸篓」的函数，产品里传 `fsservice::move_all_to_trash`。走 Finder 每个文件一次 AppleScript
+（实测和 Finder 往返一趟约 0.11 秒），所以批量：`trash::delete_all` 一次扔完，整批失败再逐个重试、报出哪几个没扔掉。路径先全部核一遍再动手：带 `..` 的不认 ——
+trash crate 遇到以 `..` 结尾的路径扔的是父目录（读它的 `canonicalize_paths` 时看到的；它只 canonicalize 父目录，所以扔符号链接扔的是链接本身，不是目标）。
+
+测试里废纸篓换成只记账的：**「文件还在」恰好证明我们没自己删**。三个错版本（还原成直接删、扔失败吞掉、不查越界路径）各自红在对应那条断言上；
+真扔的两条 `--ignored` 测试手动跑过（往废纸篓里放了三个名字好认的测试文件）。

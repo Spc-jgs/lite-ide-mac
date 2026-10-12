@@ -224,7 +224,7 @@
       {:else}
         <b>{git.pendingDiscard.length} 个文件</b>
       {/if}
-      的改动吗？未跟踪的文件会被直接删除，<b>这一步不可撤销</b>
+      的改动吗？改过的文件回到上次提交的样子，<b>这一步不可撤销</b>；未跟踪的文件移进废纸篓
     </span>
     <button class="btn" data-dismiss onclick={() => (git.pendingDiscard = null)}>取消</button>
     <button class="btn danger" onclick={() => void git.discard(git.pendingDiscard!)}>丢弃</button>

@@ -308,6 +308,10 @@ fs:changed         { path, kind }
 把生成物提交进仓库，而全部 DTO 只有 15 个、且都集中在一个文件里（现在是 `commands/dto.rs`）。
 代价与收益不成比例。
 
+（2026-10-12 读 Codex 时对照过：它的协议类型同时派生 `TS` 和 `JsonSchema`，方法名、参数、返回类型写在一张宏表里，客户端类型全是生成的 ——
+几百个类型、多个客户端，生成才划算。我们一个客户端、几十个 DTO，「手写两遍 + 读源码的测试卡漂移」照旧够用。**例外是 #46**：ACP 的类型
+是别人定的标准，从官方 schema / 实现来，不手抄。见 [research/codex.md](research/codex.md) 主题 2。）
+
 真正落地的是 `src-tauri/tests/dto_sync.rs`：**一条只读源码的测试**，解析
 `commands/dto.rs` 里带 `#[derive(serde::Serialize)]` 的结构体和 `commands.ts` 里的
 `export interface`，逐字段比。漏改一侧就红，还会强制新 DTO 到 `PAIRS` 表里登记一行。
