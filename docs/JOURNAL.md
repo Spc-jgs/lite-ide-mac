@@ -9211,3 +9211,15 @@ README 不开、点「取消」能关；⌘P、⇧⇧、⌃Tab、菜单、草稿
 
 **顺带发现、没动的**：桩的 `__mockMenu` 把菜单 id 广播给所有监听器，`settings-changed` 也收到了，`settings.v` 变成一个字符串，
 状态栏读 `settings.v.problems.length` 抛错。只在浏览器里、只在用 `__mockMenu` 时发生，真应用里菜单事件只发给 `menu`。
+
+## 2026-10-13 · 桩的事件改成按名字发：一个「为桩打补丁」的防线顺手拆了
+
+验对话框时撞见：浏览器里调一次 `__mockMenu`，状态栏就抛 `settings.v.problems` 读不到。原因是桩把菜单事件广播给 `window._cb*` 的**全部**回调，
+注释的理由是「`@tauri-apps/api` 的事件负载自带 event 字段，每个监听器自己会对名字」—— 读了 2.11.1 的 `event.js`，`listen` 只是 `transformCallback(handler)`
+再 `invoke("plugin:event|listen")`，**页面这一侧不按名字过滤**，路由是 Rust 做的。于是 `settings-changed` 的监听拿到菜单 id 当设置用了；
+`_cb*` 里还有终端、日志数据通道的回调，同样被喂了一遍。App 里 open-paths 的监听早就为此加了一句「负载不是数组就不动」—— 那是**在产品代码里替桩的 bug 打补丁**，
+桩修好之后它防的东西不存在了，删掉（Rust 两处都发 `Vec<String>`）。
+
+改法：`mock/events.ts` 一张「监听编号 → 事件名」的表，`plugin:event|listen` 记、`unlisten` 删，`mockEmit` 按名字发；`scratchbook`、`task-exit`
+原来各自记一份编号、不认 `unlisten`，一起收进来。测试在 `settings.state.test.ts`：发一条菜单事件，设置不能被换掉、`menu` 的监听收到一次、unlisten 之后不再收；
+把 `mock-ipc.ts` 换回广播那版，「设置被换成 string」和 unlisten 那两条红了（实测报的正是 `settings.v 是 string`）。

@@ -9,6 +9,7 @@
  * 喂的数据与 Rust 侧格式严格一致（含 log_lines 的线格式二进制），
  * 否则桩就失去了验证价值。
  */
+import { eventsCmd, mockEmit } from "./mock/events";
 import { appCmd } from "./mock/app";
 import { fsCmd } from "./mock/fs";
 import { scratchCmd } from "./mock/scratch";
@@ -43,7 +44,7 @@ export function installMockIpc(): void {
       const a = args as unknown as A;
       // 按领域分文件（mock/）：挨个问，头一个认领的说了算 —— 命令名不重复，所以顺序无所谓。
       // 都不认就是 null，同原来 switch 的 default
-      for (const handle of [appCmd, fsCmd, scratchCmd, searchCmd, ptyCmd, logCmd, gitCmd, remoteCmd, replaceCmd, settingsCmd, tasksCmd]) {
+      for (const handle of [eventsCmd, appCmd, fsCmd, scratchCmd, searchCmd, ptyCmd, logCmd, gitCmd, remoteCmd, replaceCmd, settingsCmd, tasksCmd]) {
         const r = await handle(cmd, a);
         if (r !== NOT_MINE) return r;
       }
@@ -74,25 +75,10 @@ export function installMockIpc(): void {
    * （裸修饰键的 keydown 传不下去），于是「打开应用日志」这类功能
    * 在浏览器里**一次都验不到**，只能等打成 `.app` 再说，而那是 45 秒一轮。
    *
-   * 实现上不去猜哪个回调是菜单的：`@tauri-apps/api` 的事件负载自带
-   * `event` 字段，每个监听器自己会对名字。所以广播给全部回调，
-   * 认不认是它们自己的事。
+   * 只发给听 `menu` 的（`mock/events.ts`，同 Rust 按名字路由）。原来广播给 `window._cb*` 的全部回调，
+   * 设置、终端数据通道都收到了菜单 id —— 那张登记表的头上有全过程
    */
-  (window as unknown as Record<string, unknown>).__mockMenu = (id: string) => {
-    let n = 0;
-    for (const k of Object.keys(window)) {
-      if (!k.startsWith("_cb")) continue;
-      const cb = (window as unknown as Record<string, unknown>)[k];
-      if (typeof cb !== "function") continue;
-      try {
-        (cb as (e: unknown) => void)({ event: "menu", id: 0, payload: id });
-        n++;
-      } catch {
-        /* 不是菜单的那些回调收到这个形状会抛，正常 */
-      }
-    }
-    return `广播给 ${n} 个回调`;
-  };
+  (window as unknown as Record<string, unknown>).__mockMenu = (id: string) => `发给 ${mockEmit("menu", id)} 个回调`;
   // eslint-disable-next-line no-console
   console.info("[dev] Tauri IPC 桩已装载 —— 数据是假的，用于纯前端调试");
 }

@@ -11,6 +11,7 @@
  * 输出不会长（桩的日志源是打开那一刻的快照），跟随在桩上验不到 —— 要在真 .app 上看。
  */
 import { type A, bump, FILES, NOT_MINE } from "./data";
+import { mockEmit } from "./events";
 
 const FILE = ".lite-ide/tasks.json";
 const TEMPLATE = `// lite-ide 的任务（docs/USAGE.md「任务」）。⌃⌥R 选一个跑，⌃R 再跑上一个，⌘F2 停。
@@ -90,8 +91,6 @@ function list(root: string) {
 type Run = { root: string; name: string; status: "running" | "stopping" | "gone"; timer?: ReturnType<typeof setTimeout> };
 const RUNS = new Map<number, Run>();
 let nextRun = 1;
-/** `task-exit` 的监听回调（`plugin:event|listen` 时记下的编号）。精确地发给它，不像 `__mockMenu` 那样广播 */
-const exitCbs = new Set<number>();
 
 type Holder = { port: number; pid: number; command: string; ours: string | null };
 /** 端口被谁占着（桩里的假占用者）。8080 一开始就被占着；`task_free_port` 清掉它，之后带 fail 的任务就能正常起来（同真实现） */
@@ -103,10 +102,7 @@ function emitExit(id: number, x: { code: number | null; stopped: boolean; port?:
   r.status = "gone";
   clearTimeout(r.timer);
   const payload = { id, code: x.code, signal: x.stopped ? 2 : null, stopped: x.stopped, failed: !x.stopped && x.code !== 0, port: x.port ?? null };
-  for (const cb of exitCbs) {
-    const f = (window as unknown as Record<string, unknown>)[`_cb${cb}`];
-    if (typeof f === "function") (f as (e: unknown) => void)({ event: "task-exit", id: 0, payload });
-  }
+  mockEmit("task-exit", payload);
 }
 
 function fakeOutput(name: string, command: string, fail: boolean): string {
@@ -119,10 +115,6 @@ function fakeOutput(name: string, command: string, fail: boolean): string {
 
 export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
-    case "plugin:event|listen":
-      if ((a as unknown as { event: string }).event !== "task-exit") return NOT_MINE;
-      exitCbs.add(Number((a as unknown as { handler: number }).handler));
-      return Number((a as unknown as { handler: number }).handler);
     case "task_run": {
       const root = String(a.root);
       const name = String(a.name);

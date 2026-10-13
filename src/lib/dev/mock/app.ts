@@ -1,5 +1,6 @@
 /** 桩：应用自身：初始路径、调试与应用日志、预算、菜单栏（选文件夹 / 保存面板 / 最近 / 灰态）、外部链接、命令行工具。从 `mock-ipc.ts` 拆出来（2026-09-24，纯搬家）。 */
 import { type A, bump, FILES, NOT_MINE } from "./data";
+import { mockEmit } from "./events";
 
 /*
  * 应用自己的运行日志。桩里给它几行真的内容 —— 不给的话「打开应用日志」
@@ -14,8 +15,6 @@ const APP_LOG = "/Users/you/Library/Logs/com.liteide.app/app.log";
  */
 let mockRecent: string[] = ["/proj", "/Users/you/work/another-repo"];
 let mockRoot = "";
-/** `scratchbook` 事件的监听回调（`plugin:event|listen` 时记下的编号），同 tasks.ts 的 `exitCbs` */
-const scratchbookCbs = new Set<number>();
 /** 启动流程走完了没有（取过 `take_start_scratch`）、走完之前有没有人按过「在草稿本新建」—— 同 Rust 的 `Win::settled` / `start_scratch` */
 let scratchSettled = false;
 let scratchWanted = false;
@@ -66,19 +65,12 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
      * 在草稿本新建：浏览器里只有一个「窗口」，真实现要么切到没项目的窗口、要么开一个新的 —— 这里两样都做不到，
      * 就把 `scratchbook` 事件发给这一个窗口（它会复用空的那张或者开一张）。开着项目时和真实现不一样：真的会去另一个窗口
      */
-    case "plugin:event|listen":
-      if ((a as unknown as { event: string }).event !== "scratchbook") return NOT_MINE;
-      scratchbookCbs.add(Number((a as unknown as { handler: number }).handler));
-      return Number((a as unknown as { handler: number }).handler);
     case "open_scratchbook":
       if (!scratchSettled) {
         scratchWanted = true;
         return null;
       }
-      for (const cb of scratchbookCbs) {
-        const f = (window as unknown as Record<string, unknown>)[`_cb${cb}`];
-        if (typeof f === "function") (f as (e: unknown) => void)({ event: "scratchbook", id: 0, payload: null });
-      }
+      mockEmit("scratchbook", null);
       return null;
     // 浏览器里没有「退出」可言：两条都只是不报错
     case "quit_ready":

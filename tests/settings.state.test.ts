@@ -60,5 +60,19 @@ const settle = () => new Promise((r) => setTimeout(r, 10));
   ok(settings.v.editorFontSize === settings.v.editorFontBase, "⌘0 回到基础字号");
 }
 
+// ── 桩发事件要按名字（mock/events.ts）：菜单事件不能落到 settings-changed 的监听上 ──
+// 原来 __mockMenu 广播给所有回调，settings.v 被换成菜单 id 那个字符串，状态栏读 problems.length 抛错（2026-10-13）
+{
+  const { listen } = await import("@tauri-apps/api/event");
+  let menus = 0;
+  const un = await listen("menu", () => void menus++);
+  (window as unknown as { __mockMenu: (id: string) => string }).__mockMenu("noop-probe");
+  ok(typeof settings.v === "object" && Array.isArray(settings.v.problems), `菜单事件没落到设置上（settings.v 是 ${typeof settings.v}）`);
+  ok(menus === 1, `听 menu 的收到了一次，实际 ${menus}`);
+  await un();
+  (window as unknown as { __mockMenu: (id: string) => string }).__mockMenu("noop-probe");
+  ok(menus === 1, "unlisten 之后不再收到（原来桩不认 unlisten，热更新后旧回调照收）");
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 设置（状态层）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

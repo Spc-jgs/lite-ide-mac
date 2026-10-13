@@ -767,10 +767,9 @@
      * 监听挂晚了，界线之后、监听之前那一拍发来的就没人收（code review 2026-10-13）
      */
     const ready = Promise.all([
-      listenHere<string[]>(OPEN_PATHS_EVENT, (e) => {
-        // 负载不是数组就不动：桩的 `__mockMenu` 会把菜单事件广播给所有监听器
-        if (Array.isArray(e.payload)) void openIncoming(e.payload);
-      }).then(keep),
+      // 负载一定是数组（Rust 两处都发 `Vec<String>`）。原来这里判了 `Array.isArray`，防的是桩的 `__mockMenu` 广播给所有监听器 ——
+      // 桩改成按名字发之后（mock/events.ts）那条防线就是防一个不存在的东西
+      listenHere<string[]>(OPEN_PATHS_EVENT, (e) => void openIncoming(e.payload)).then(keep),
       // 对话框开着：先回答它（shell/modal.ts）。Dock 右键也走到这儿 —— 人在别的应用里点的，窗口切过来就看见那个问题
       listenHere<null>("scratchbook", () => {
         if (dialogUp()) nudgeDialog();
