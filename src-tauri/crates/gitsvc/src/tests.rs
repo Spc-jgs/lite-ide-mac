@@ -1257,6 +1257,38 @@ fn head_text_给的是提交里那份() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// 「展开 N 行未改动」要的三种新侧：暂存区（空 rev）、HEAD、一个提交号；不在那个版本里给 None；
+/// 版本号只认空 / HEAD / 十六进制 —— 以 `-` 开头的会成了 git 的开关、`HEAD~1` 这种表达式也不认（2026-10-13）
+#[test]
+fn file_at_暂存区_head_提交号_各给各的() {
+    if !available() {
+        eprintln!("跳过：机器上没有 git");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("gitsvc-fileat-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    run(&dir, &["init", "-q", "-b", "main"]).unwrap();
+    run(&dir, &["config", "user.email", "t@t.t"]).unwrap();
+    run(&dir, &["config", "user.name", "t"]).unwrap();
+    std::fs::write(dir.join("a.txt"), "第一版\n").unwrap();
+    run(&dir, &["add", "-A"]).unwrap();
+    commit(&dir, "首次提交", false).unwrap();
+    let sha = run(&dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+    std::fs::write(dir.join("a.txt"), "暂存的\n").unwrap();
+    run(&dir, &["add", "a.txt"]).unwrap();
+    std::fs::write(dir.join("a.txt"), "工作区的\n").unwrap();
+    assert_eq!(file_at(&dir, "", "a.txt").unwrap().expect("暂存区里有").text, "暂存的\n", "空 rev = 暂存区，不是工作区");
+    assert_eq!(file_at(&dir, "HEAD", "a.txt").unwrap().expect("HEAD 里有").text, "第一版\n");
+    assert_eq!(file_at(&dir, &sha, "a.txt").unwrap().expect("提交里有").text, "第一版\n");
+    assert!(matches!(file_at(&dir, &sha, "没有的.txt"), Ok(None)), "那个版本里没有的文件该是 None");
+    // 「以 - 开头」用一个无害的开关演示（真去试 `--output=…` 会往盘上写文件）；HEAD~1 / main 是 git 认、我们不认的表达式
+    for bad in ["--stat", "HEAD~1", "main", "a..b", "1a2"] {
+        assert!(matches!(file_at(&dir, bad, "a.txt"), Err(Error::Git(_))), "不认的版本号要拒绝：{bad}");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// push 收得进、list 看得见、pop 放得回；没改动时 push 要报错而不是假成功
 #[test]
 fn stash_一来一回() {

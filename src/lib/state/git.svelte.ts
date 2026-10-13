@@ -75,6 +75,22 @@ class Git {
   writing = $state<string | null>(null);
 
   /**
+   * `.git/` 底下有东西变了（文件监听的 `fs-changed: "git"`）。
+   * - 已经是仓库：先看 config 变没变（issue #24），再刷状态 —— 原来写在 App 里的就是这两步。
+   * - **还不是仓库**：那这一下就是仓库刚冒出来（终端里 `git init`、`git clone` 进这个目录）—— 重新找一次（照常过信任扫描）。
+   *   原来只在换项目根时找，`git init` 之后要关掉项目再打开，Git 栏的空态也只好照实写「重新打开这个项目」（2026-10-13）。
+   *   监听本来就看得见：任何带 `.git` 这一段的路径都算 git 那一类（fsservice::watch），新建的 `.git/` 也是
+   */
+  async onGitDirChanged(root: string | null) {
+    if (!this.repo && !this.restricted) {
+      await this.locate(root);
+      return;
+    }
+    await this.recheckTrust();
+    await this.refresh();
+  }
+
+  /**
    * 刚做完的那个写操作（「提交」），亮 1.4 秒：发起它的按钮原地换成「✓ 已提交」（2026-10-13 盘点 B1 方案 C）。
    * 胶囊离按钮远，而人点完提交眼睛还在按钮上；按钮自己说一声最近。只给有常驻按钮的动作用 ——
    * 推送是从浮层 / 确认框里发起的，点完那个面就关了，它的「原地」是标题栏挂件上的 ↑N 消失
@@ -298,6 +314,9 @@ class Git {
   }
   async openDiff(e: GitEntry, staged: boolean) {
     return (await ops()).openDiff(e, staged);
+  }
+  async diffNewText(id: number) {
+    return (await ops()).diffNewText(id);
   }
   async toggleDiffSide(id: number) {
     return (await ops()).toggleDiffSide(id);

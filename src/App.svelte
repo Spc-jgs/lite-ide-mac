@@ -923,8 +923,8 @@
     // 只收这个窗口自己那个监听发来的（Rust 那边是 emit_to）
     const reg = listenHere<string>("fs-changed", (e) => {
       if (e.payload === "git") {
-        // 先看 config 是不是变了（issue #24），再刷状态；受限时 refresh 本来就是空转
-        void git.recheckTrust().then(() => git.refresh());
+        // 还不是仓库时就是仓库刚冒出来（git init）、是仓库就复查信任再刷 —— 判断在 git.onGitDirChanged
+        void git.onGitDirChanged(project.root);
       } else {
         void worktree.changed();
         void git.refresh();

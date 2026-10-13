@@ -300,6 +300,21 @@ mod tests {
         assert_eq!(got, Change::Git);
     }
 
+    /// 不是仓库的目录里 `git init`：从没有 `.git` 到有，也得报成 `Git` —— 前端靠这一下重新找仓库（`git.onGitDirChanged`，2026-10-13）
+    #[test]
+    fn 原来没有_git_新建出来也是_git() {
+        let d = tmp();
+        let (tx, rx) = mpsc::channel();
+        let _w = watch(&d, move |c| tx.send(c).unwrap()).unwrap();
+        // 同上一条：先把建临时目录的陈事件排干净
+        thread::sleep(Duration::from_millis(200));
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {}
+        std::fs::create_dir_all(d.join(".git/refs/heads")).unwrap();
+        std::fs::write(d.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let got = rx.recv_timeout(Duration::from_secs(5)).expect("5 秒内没收到事件");
+        assert_eq!(got, Change::Git);
+    }
+
     #[test]
     fn 一阵写只合成一条() {
         let d = tmp();

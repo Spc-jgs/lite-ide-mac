@@ -148,7 +148,23 @@ pub fn commit_files(root: impl AsRef<Path>, sha: &str) -> R<Vec<Entry>> {
 /// 带了才是相对 cwd。这里 cwd 就是仓库根，两种写法同义，选不带的那种；
 /// 但 `path` 必须是仓库根下的相对路径（status 给的那种），和 [`diff`] 一致。
 pub fn head_text(root: impl AsRef<Path>, path: &str) -> R<Option<Diff>> {
-    let spec = format!("HEAD:{path}");
+    file_at(root, "HEAD", path)
+}
+
+/// 某个版本里一个文件的全文：`rev` 为空 = **暂存区**（`:path`），`HEAD`，或者一个提交号。不在那个版本里给 `None`。
+///
+/// 差异视图点「N 行未改动」展开时拿它补那几行（2026-10-13）：没改动的行两边一样，从新的那一侧取就行 ——
+/// 暂存区的差异新侧是暂存区、提交的差异新侧是那次提交（工作区那侧前端自己读盘）。不走「`git diff -U999999`
+/// 重拉一份全上下文的差异」：那样所有块合成一大块，「暂存这一块」就成了暂存整个文件。
+///
+/// `rev` 来自前端、拼进 `git show` 的参数：**只认空 / `HEAD` / 4–64 位十六进制**。以 `-` 开头的就成了 git 的开关，
+/// 带 `..`、`^`、`@{` 的是 revision 表达式 —— 这里只要「一个确定的版本」，别的一概拒绝
+pub fn file_at(root: impl AsRef<Path>, rev: &str, path: &str) -> R<Option<Diff>> {
+    let ok = rev.is_empty() || rev == "HEAD" || ((4..=64).contains(&rev.len()) && rev.bytes().all(|b| b.is_ascii_hexdigit()));
+    if !ok {
+        return Err(Error::Git(format!("不认这个版本：{rev}")));
+    }
+    let spec = format!("{rev}:{path}");
     let mut args = vec!["--no-pager", "-c", "core.pager=cat", "show"];
     args.extend_from_slice(DIFF_SAFE);
     args.push(&spec);

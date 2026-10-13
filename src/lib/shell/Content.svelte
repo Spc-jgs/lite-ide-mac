@@ -337,6 +337,7 @@
         onToggleStaged={() => void git.toggleDiffSide(tab.id)}
         onApplyHunk={(patch, unstage) => void git.applyHunk(patch, unstage)}
         onRevertHunk={(patch) => (git.pendingRevertHunk = patch)}
+        loadNew={() => git.diffNewText(tab.id)}
       />
     {/key}
   {:else if tab.mode === "diff"}

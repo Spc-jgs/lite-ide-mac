@@ -244,8 +244,8 @@
 
 <div class="git">
   {#if !status}
-    <!-- 空态要给下一步（ui.md 第六条）。仓库只在换项目根时找一次（git.locate），所以 init 之后要重新打开 —— 照实说，不许诺「自动出现」 -->
-    <div class="empty-msg">这个目录还不是 Git 仓库<br /><span class="sub">在终端里（⌘J）<code>git init</code> 之后重新打开这个项目，Git 就能用了</span></div>
+    <!-- 空态要给下一步（ui.md 第六条）。`.git` 一出现文件监听就报、git.onGitDirChanged 重新找仓库 —— 「自己出现」是真的（2026-10-13） -->
+    <div class="empty-msg">这个目录还不是 Git 仓库<br /><span class="sub">在终端里（⌘J）<code>git init</code>，这里会自己出现</span></div>
   {:else}
     <!--
       面板头（M9）：和文件树的头同一形状 —— 标题 + 计数 + 两个 24px 工具按钮，38 高。

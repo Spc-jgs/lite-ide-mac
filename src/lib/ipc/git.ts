@@ -55,6 +55,10 @@ export const gitCommitFiles = (root: string, sha: string) =>
 export const gitCommitDiff = (root: string, sha: string, path = "") =>
   invoke<DiffText>("git_commit_diff", { root, sha, path });
 
+/** 某个版本里一个文件的全文：`rev` 空 = 暂存区、`HEAD`、提交号（Rust 只认这三种）。差异视图展开未改动的行用 */
+export const gitFileAt = (root: string, rev: string, path: string) =>
+  invoke<DiffText | null>("git_file_at", { root, rev, path });
+
 /** 「和本地比较」（issue #39）：那次提交到现在的工作区，`git diff <sha> -- path` */
 export const gitCommitVsWorktree = (root: string, sha: string, path = "") =>
   invoke<DiffText>("git_commit_vs_worktree", { root, sha, path });

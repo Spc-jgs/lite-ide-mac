@@ -255,6 +255,18 @@ pub async fn git_head_text(root: String, path: String) -> Result<Option<DiffDto>
     .await
 }
 
+/// 某个版本里一个文件的全文（`rev` 空 = 暂存区 / `HEAD` / 提交号），差异视图「展开 N 行未改动」用（`gitsvc::file_at`）。
+/// `None` = 那个版本里没有这个文件
+#[tauri::command]
+pub async fn git_file_at(root: String, rev: String, path: String) -> Result<Option<DiffDto>, String> {
+    blocking(move || {
+        gitsvc::file_at(&root, &rev, &path)
+            .map(|d| d.map(DiffDto::from))
+            .map_err(|e| format!("{e}"))
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn git_commit_diff(root: String, sha: String, path: String) -> Result<DiffDto, String> {
     blocking(move || {

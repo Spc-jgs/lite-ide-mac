@@ -26,6 +26,8 @@ export interface DiffLine {
    * 块头上写「12 行未改动」，照 VS Code 的折叠条 —— 原来只印 git 猜的函数名，看不出中间跳过了多少（2026-10-13）
    */
   hidden?: number;
+  /** 只有块头有：`@@ -旧起点 +新起点 @@` 那两个数。展开折着的行时按它算行号（`gapLines`） */
+  at?: [number, number];
 }
 
 export interface DiffFile {
@@ -121,7 +123,7 @@ export function parseDiff(raw: string): DiffFile[] {
         oldNo = Number(m[1]);
         newNo = Number(m[2]);
         // @@ 后面那截是 git 猜的所属函数名，很有用，保留
-        push({ kind: "hunk", text: m[3].trim(), hidden: Math.max(0, newNo - from) });
+        push({ kind: "hunk", text: m[3].trim(), hidden: Math.max(0, newNo - from), at: [oldNo, newNo] });
       } else {
         push({ kind: "hunk", text: "" });
       }
@@ -254,6 +256,61 @@ export function segs(l: DiffLine): [string, string, string] {
  * 双栏对照里的一行。左右两侧各自可能为空 —— 纯新增的行左边没有对应，
  * 纯删除的行右边没有对应，用 `null` 表示那一格是空的（画成灰底占位）。
  */
+/**
+ * 展开第 `k` 个块头上面折着的那几行（`hidden`），从**新侧的全文**取（2026-10-13，照 IDEA 点开「N 行未改动」）。
+ * 没改动的行两边一样，所以只要新侧那份；旧行号 = 新行号 − 新起点 + 旧起点（这一段里两边一一对应）。
+ *
+ * 返回要插在块头前面的上下文行；**全文和差异对不上就返回 `null`**：差异拉下来之后文件又改了，按行号去取会插进别的行 ——
+ * 宁可不展开。对不对得上看这块里第一条上下文行和全文同一行一不一样（行尾的 `\r` 不算）
+ */
+export function gapLines(lines: DiffLine[], k: number, newText: string[]): DiffLine[] | null {
+  let seen = -1;
+  let h = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].kind === "hunk" && ++seen === k) {
+      h = i;
+      break;
+    }
+  }
+  if (h < 0 || !lines[h].at) return null;
+  const n = lines[h].hidden ?? 0;
+  if (n <= 0) return [];
+  const [oldStart, newStart] = lines[h].at!;
+  const norm = (s: string) => s.replace(/\r$/, "");
+  for (let i = h + 1; i < lines.length && lines[i].kind !== "hunk"; i++) {
+    const l = lines[i];
+    if (l.kind !== "ctx" || l.newNo === undefined) continue;
+    if (newText[l.newNo - 1] === undefined || norm(newText[l.newNo - 1]) !== norm(l.text)) return null;
+    break;
+  }
+  const out: DiffLine[] = [];
+  for (let j = 0; j < n; j++) {
+    const nn = newStart - n + j;
+    const t = newText[nn - 1];
+    if (t === undefined) return null;
+    out.push({ kind: "ctx", text: norm(t), oldNo: oldStart - n + j, newNo: nn });
+  }
+  return out;
+}
+
+/** 把展开了的那几段插回去：第 k 个块头前面插 `opened.get(k)`，那个块头的 `hidden` 归零（不再说「N 行未改动」） */
+export function withGaps(lines: DiffLine[], opened: ReadonlyMap<number, DiffLine[]>): DiffLine[] {
+  if (opened.size === 0) return lines;
+  const out: DiffLine[] = [];
+  let k = -1;
+  for (const l of lines) {
+    if (l.kind === "hunk") {
+      const g = opened.get(++k);
+      if (g) {
+        out.push(...g, { ...l, hidden: 0 });
+        continue;
+      }
+    }
+    out.push(l);
+  }
+  return out;
+}
+
 export interface SideRow {
   kind: "ctx" | "change" | "hunk" | "meta";
   left: DiffLine | null;

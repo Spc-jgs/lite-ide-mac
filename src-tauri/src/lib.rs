@@ -296,6 +296,7 @@ pub fn run() {
             commands::git_log_entries,
             commands::git_commit_files,
             commands::git_head_text,
+            commands::git_file_at,
             commands::git_blame,
             commands::git_apply_cached,
             commands::git_apply_worktree,

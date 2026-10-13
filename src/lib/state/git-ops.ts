@@ -1,5 +1,5 @@
 import { gitStage, readText, writeText, type GitEntry } from "../ipc/commands";
-import { gitDiff, gitCommitDiff, gitCommitVsWorktree, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached, gitApplyWorktree, gitCherryPick } from "../ipc/git";
+import { gitDiff, gitCommitDiff, gitCommitVsWorktree, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached, gitApplyWorktree, gitCherryPick, gitFileAt } from "../ipc/git";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { tabflow } from "./tabflow.svelte";
@@ -158,6 +158,23 @@ export async function revertHunk(patch: string): Promise<boolean> {
   }, "撤销这一块");
   await worktree.changed();
   return ok;
+}
+
+/**
+ * 差异标签**新侧**的全文（2026-10-13，差异视图「展开 N 行未改动」用）。没改动的行两边一样，从新侧取就行；新侧在哪按差异的种类：
+ * - 某次提交的差异：那次提交（`git show <sha>:path`）
+ * - 暂存区的差异（暂存区 ↔ HEAD）：暂存区（`git show :path`）
+ * - 工作区的差异、「和本地比较」：盘上那份
+ * `truncated` = 文件超过上限、只拿到前半截 —— 调用方据此说「太大」，而不是误报成「文件改过了」
+ */
+export async function diffNewText(id: number): Promise<{ text: string; truncated: boolean } | null> {
+  const tab = tabs.byId(id);
+  const root = git.repo;
+  if (!tab || !root || !tab.rel) return null;
+  if (tab.diffSha && !tab.diffToLocal) return gitFileAt(root, tab.diffSha, tab.rel);
+  if (tab.diffStaged && !tab.diffSha) return gitFileAt(root, "", tab.rel);
+  const f = await readText(`${root}/${tab.rel}`);
+  return { text: f.content, truncated: false };
 }
 
 /** 返回提交成没成 —— 「提交并推送」要据此决定推不推 */

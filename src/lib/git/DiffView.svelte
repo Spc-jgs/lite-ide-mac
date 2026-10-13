@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { splitHunks, hunkPatch, pickLines } from "./hunks";
   import Icon from "../shell/Icon.svelte";
+  import { notify } from "../state/notify.svelte";
   import { highlightDiff, type Tok } from "./diff-highlight";
   import {
     parseDiff,
@@ -9,6 +10,8 @@
     toSideBySide,
     changeBlocks,
     blankRuns,
+    gapLines,
+    withGaps,
     type DiffFile,
     type DiffLine,
   } from "./diff";
@@ -24,6 +27,7 @@
     onToggleStaged,
     onApplyHunk,
     onRevertHunk,
+    loadNew,
   }: {
     raw: string;
     path: string;
@@ -59,6 +63,11 @@
      * 这里只报「要撤哪块」，确认条在上层（不可逆，和「全部丢弃」同一档）。
      */
     onRevertHunk?: (patch: string) => void;
+    /**
+     * 新侧的全文（2026-10-13，「N 行未改动 · 展开」用；种类不同新侧在不同的地方，`git-ops.diffNewText` 定）。
+     * 不传就不给展开。`truncated` = 文件太大只拿到前半截
+     */
+    loadNew?: () => Promise<{ text: string; truncated: boolean } | null>;
   } = $props();
 
   /** 每个 hunk 的原文，给按块暂存拼 patch 用。从 `raw` 拆，不从解析后的行反拼 */
@@ -95,6 +104,8 @@
   // 差异重拉（暂存完 refresh）就清掉：那些对象已经不是屏幕上的行了
   $effect(() => {
     raw;
+    opened = new Map();
+    newText = null;
     sel = new Set();
     selHunk = -1;
     anchor = null;
@@ -191,6 +202,40 @@
 
   let files = $derived<DiffFile[]>(parseDiff(raw));
   /*
+   * 点开的「N 行未改动」（2026-10-13，照 IDEA）：第 k 个块头 → 补进来的那几行上下文。只给单文件的差异。
+   * 画出来的行、语法着色走 `view`（插了那几行的）；**按行暂存的下标（`bodyIdx`）照旧走 `files`** —— 补进来的行不在任何块的 patch 里，
+   * 算进去下标就错位、暂存进去的是选中行的邻居。原来那些行在 `view` 里是同一个对象，选中的不丢
+   */
+  let opened = $state(new Map<number, DiffLine[]>());
+  let newText: string[] | null = null;
+  let expanding = $state(-1);
+  let view = $derived<DiffFile[]>(
+    files.length === 1 && opened.size > 0 ? [{ ...files[0], lines: withGaps(files[0].lines, opened) }] : files,
+  );
+  let canExpand = $derived(!!loadNew && files.length === 1 && !capped);
+  async function expand(k: number) {
+    if (!loadNew || expanding >= 0) return;
+    expanding = k;
+    try {
+      if (!newText) {
+        const t = await loadNew();
+        if (!t) return notify.fail("拿不到这个文件的全文，展开不了");
+        if (t.truncated) return notify.fail("文件太大（超过 1MB），只拿到前半截，展开不了");
+        newText = t.text.split("\n");
+      }
+      const g = gapLines(files[0].lines, k, newText);
+      if (!g) {
+        newText = null;
+        return notify.fail("文件在这份差异之后又改过了 —— 刷新差异再展开");
+      }
+      opened = new Map(opened).set(k, g);
+    } catch (e) {
+      notify.fail(`展开不了：${e}`);
+    } finally {
+      expanding = -1;
+    }
+  }
+  /*
    * **单边差异**：新增或删除整个文件，只有一侧有内容。
    *
    * 这种 diff 用双栏对照是自找难看：左边整栏空着（一大片斜纹）、右边整片绿，中间那条
@@ -215,7 +260,7 @@
    */
   let hl = $state<Map<DiffLine, Tok[]> | null>(null);
   $effect(() => {
-    const fs = files;
+    const fs = view;
     hl = null;
     let dead = false;
     void (async () => {
@@ -238,8 +283,8 @@
   /** 双栏行；多文件时按顺序接起来，中间插一条文件名分隔 */
   let sideRows = $derived.by(() => {
     const out: ReturnType<typeof toSideBySide> = [];
-    for (const f of files) {
-      if (files.length > 1) out.push({ kind: "meta", left: null, right: null, text: f.path });
+    for (const f of view) {
+      if (view.length > 1) out.push({ kind: "meta", left: null, right: null, text: f.path });
       out.push(...toSideBySide(f.lines));
     }
     return out;
@@ -247,8 +292,8 @@
 
   let uniRows = $derived.by(() => {
     const out: DiffLine[] = [];
-    for (const f of files) {
-      if (files.length > 1) out.push({ kind: "meta", text: f.path });
+    for (const f of view) {
+      if (view.length > 1) out.push({ kind: "meta", text: f.path });
       out.push(...f.lines);
     }
     return out;
@@ -427,6 +472,15 @@
 <svelte:window onkeydown={onKey} />
 
 <!-- 一行代码：语法段 × 行内改动区间。平的段直接印文本，少一层 span -->
+<!-- 块头上的「N 行未改动」：能展开时是个按钮（点了从新侧全文补进来，照 IDEA），不能时就是一句话 -->
+{#snippet fold(n: number, k: number)}
+  {#if canExpand}
+    <button class="hcount act" disabled={expanding >= 0} onclick={() => void expand(k)} title="把这 {n} 行显示出来">{n} 行未改动 · 展开</button>
+  {:else}
+    <span class="hcount">{n} 行未改动</span>
+  {/if}
+{/snippet}
+
 {#snippet code(l: DiffLine)}
   {#each pieces(l) as p}
     {#if p.hit}<mark class={p.cls || undefined}>{p.t}</mark>{:else if p.cls}<span class={p.cls}>{p.t}</span>{:else}{p.t}{/if}
@@ -511,7 +565,7 @@
           {#if r.kind === "hunk" || r.kind === "meta"}
             <div class="span4 {r.kind}" data-row={i}>
               {#if r.kind === "hunk"}<span class="fold" aria-hidden="true"><Icon name="more-h" /></span>{/if}
-              {#if r.kind === "hunk" && r.hidden}<span class="hcount">{r.hidden} 行未改动</span>{/if}
+              {#if r.kind === "hunk" && r.hidden}{@render fold(r.hidden, sideHunk[i])}{/if}
               <span class="htxt">{r.text}</span>
               {#if r.kind === "hunk" && selHunk === sideHunk[i]}
                 <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
@@ -565,7 +619,7 @@
               {#if oneSided !== "add"}<span class="no"></span>{/if}
               {#if oneSided !== "del"}<span class="no"></span>{/if}
               <span class="sign fold" aria-hidden="true">{#if l.kind === "hunk"}<Icon name="more-h" />{/if}</span>
-              <span class="txt">{#if l.kind === "hunk" && l.hidden}<span class="hcount">{l.hidden} 行未改动</span>{/if}{l.text}</span>
+              <span class="txt">{#if l.kind === "hunk" && l.hidden}{@render fold(l.hidden, uniHunk[i])}{/if}{l.text}</span>
               {#if l.kind === "hunk" && selHunk === uniHunk[i]}
                 <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
                   {staged ? "取消暂存" : "暂存"}选中的 {sel.size} 行
@@ -838,6 +892,10 @@
   .span4.hunk .htxt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   /* 「12 行未改动」：照 VS Code 的折叠条说清这里跳过了多少；正体、亮一档，后面那截函数名照旧斜体、更淡 */
   .hcount { flex: none; font-style: normal; color: var(--text-muted); margin-right: 8px; }
+  /* 能展开的那个：没有底和框的文字按钮，悬停变强调色 —— 它在一条带子上，再画个按钮就太重了 */
+  .hcount.act { border: none; background: none; padding: 0; font: inherit; font-style: normal; cursor: pointer; }
+  .hcount.act:hover { color: var(--accent); }
+  .hcount.act:disabled { cursor: default; opacity: 0.6; }
   .uni .row.meta { color: var(--text-faint); font-size: var(--fs-sm); }
 
   /* 双栏底下的横向滚动条：吸在可视区底边（grid 的最后一行，sticky），只在有长行时出现；平时淡、悬停亮 */

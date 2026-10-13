@@ -145,7 +145,7 @@
     <h2>空态 <code>.empty-msg</code> / 刚做完 <code>.btn.done</code> <small>为什么空 + 下一步；<code>.sub</code> 补充、<code>.bad</code> 拿不到。按钮原地说「✓ 已提交」1.4 秒，主色不灰、宽度不变</small></h2>
     <div class="row" style="align-items: stretch">
       <div class="emptybox"><div class="empty-msg">没有找到 —— 换个词，或者看看上面三个开关</div></div>
-      <div class="emptybox"><div class="empty-msg">这个目录还不是 Git 仓库<br /><span class="sub">在终端里（⌘J）<code>git init</code> 之后重新打开这个项目，Git 就能用了</span></div></div>
+      <div class="emptybox"><div class="empty-msg">这个目录还不是 Git 仓库<br /><span class="sub">在终端里（⌘J）<code>git init</code>，这里会自己出现</span></div></div>
       <div class="emptybox"><div class="empty-msg bad">fatal: not a git repository</div></div>
     </div>
     <div class="row">

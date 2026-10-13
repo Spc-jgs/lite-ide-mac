@@ -124,6 +124,12 @@ const UPSTREAM: Record<string, string> = {
 
 /** 这一次会话里信任过的指纹（issue #24 的桩） */
 const TRUSTED = new Set<string>();
+/**
+ * 桩里「是 Git 仓库」的根：/proj 底下的都是（假数据都在那儿），别的不是 —— 同真实现「不是仓库返回 null」。
+ * 原来一律返回 "/proj"，「还不是仓库」那个状态在浏览器和状态测试里都造不出来。`__mockGitInit(root)` 模拟在终端里 git init
+ */
+const REPOS = new Set<string>(["/proj"]);
+(globalThis as { __mockGitInit?: (root: string) => void }).__mockGitInit = (root: string) => void REPOS.add(root);
 
 export async function gitCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
@@ -167,8 +173,11 @@ export async function gitCmd(cmd: string, a: A): Promise<unknown> {
     // ── Git ──
     // 造一份含所有状态位的假仓库：改动 / 新增 / 删除 / 改名 / 未跟踪目录 /
     // 冲突都占一条，浏览器里就能把染色和分组全看一遍。
-    case "git_root":
-      return "/proj";
+    case "git_root": {
+      const p = String(a.path);
+      for (const r of REPOS) if (p === r || p.startsWith(r + "/")) return r;
+      return null;
+    }
     case "git_status":
       return {
         root: "/proj",
@@ -380,6 +389,22 @@ index 1a2b3c4..5d6e7f8 100644
         g("src/App.svelte", "A", "."),
         g("docs/gone.md", "D", "."),
       ];
+    /*
+     * 某个版本里的全文（差异视图「展开 N 行未改动」）。桩里没有真的文件版本，就从**同一份差异**倒推：差异里出现过的行按新行号摆回去，
+     * 中间缺的用占位行填 —— 这样展开时「缺口后面那行要和全文对得上」的校验在浏览器里也走得通（同真实现：内容对不上就不展开）
+     */
+    case "git_file_at": {
+      const rev = String(a.rev);
+      const d = (rev && rev !== "HEAD"
+        ? await gitCmd("git_commit_diff", { root: a.root, sha: rev, path: a.path } as unknown as A)
+        : await gitCmd("git_diff", { root: a.root, path: a.path, staged: rev === "", untracked: false } as unknown as A)) as { text: string };
+      const { parseDiff } = await import("../../git/diff");
+      const lines: string[] = [];
+      for (const f of parseDiff(d.text)) for (const l of f.lines) if (l.newNo !== undefined && l.kind !== "del") lines[l.newNo - 1] = l.text;
+      const n = lines.length + 20; // 先定长度：边填边比 lines.length 会一直往后长、停不下来
+      for (let i = 0; i < n; i++) lines[i] ??= `// 第 ${i + 1} 行（桩里没有原文）`;
+      return { text: lines.join("\n") + "\n", truncated: false };
+    }
     case "git_commit_diff":
       return {
         truncated: false,
