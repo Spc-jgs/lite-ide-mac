@@ -636,5 +636,20 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   persist.restoring = false;
 }
 
+// 编辑器报「改了 / 没改」（docs.edited）：脏标记、预览转正式。原来写在 Content 的回调里直接改 prop（2026-10-13 挪进 docs）
+{
+  for (const t of [...tabs.list]) { t.dirty = false; tabflow.doClose(t); }
+  await tabflow.openPath("/proj/README.md", { preview: true });
+  const t = tabs.byPath("/proj/README.md")!;
+  ok(t.preview === true, "前提：开成了预览标签");
+  docs.edited(t.id, true);
+  ok(tabs.byId(t.id)!.dirty === true, "文本和盘上不一样：脏");
+  ok(!tabs.byId(t.id)!.preview, "动过手的预览标签：转成正式的（issue #33 ⑯）");
+  docs.edited(t.id, false);
+  ok(tabs.byId(t.id)!.dirty === false, "改回原样：不脏");
+  docs.edited(-1, true); // 标签已经关了：什么都不做、不抛
+  tabflow.doClose(tabs.byId(t.id)!);
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

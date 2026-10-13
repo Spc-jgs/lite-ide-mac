@@ -9223,3 +9223,8 @@ README 不开、点「取消」能关；⌘P、⇧⇧、⌃Tab、菜单、草稿
 改法：`mock/events.ts` 一张「监听编号 → 事件名」的表，`plugin:event|listen` 记、`unlisten` 删，`mockEmit` 按名字发；`scratchbook`、`task-exit`
 原来各自记一份编号、不认 `unlisten`，一起收进来。测试在 `settings.state.test.ts`：发一条菜单事件，设置不能被换掉、`menu` 的监听收到一次、unlisten 之后不再收；
 把 `mock-ipc.ts` 换回广播那版，「设置被换成 string」和 unlisten 那两条红了（实测报的正是 `settings.v 是 string`）。
+
+**同日补：控制台里每打一个字一条 `ownership_invalid_mutation`**（`Content.svelte` 的 `onChange` 回调直接 `tab.dirty = …`）。改得动 ——
+`tab` 就是标签表里那个代理 —— 所以不是功能 bug，但它在 `pnpm dev` 的控制台里刷屏，真报错淹在里面（上面那条状态栏报错就是在这堆警告里找出来的）。
+算脏、预览转正式、自动保存计时这三件本来就是流程，挪进 `docs.edited(id, 改了没有)`，按 id 从表里取再改；Content 只剩一句转发。
+状态测试一条（去掉「预览转正式」那行就红）；`pnpm dev` 里打标记、往编辑器里打三个字：标记之间 0 条警告（改之前同样的操作 2 条）。

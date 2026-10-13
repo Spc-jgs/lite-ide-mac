@@ -15,7 +15,6 @@
   import type { KeyDef } from "../state/keymap";
   import type { TabState } from "../state/tab";
   import { wrapsByDefault } from "../state/tab";
-  import { isDirty } from "../state/doc";
   import { lazy } from "../lazy/lazy.svelte";
   import { gitHeadText, gitBlame } from "../ipc/commands";
   import { files } from "../state/files.svelte";
@@ -387,14 +386,7 @@
         {focusTick}
         {blame}
         onBlamePick={(h) => void git.openCommitDiff(h.sha, h.short, tab.path.slice((git.status?.root.length ?? 0) + 1))}
-        onChange={(d) => {
-          // 编辑器只知道「文本和磁盘一不一样」；换过编码 / 换行符的标签内容没变也是脏的
-          tab.dirty = isDirty(tab, d);
-          // 动过手的预览标签就不再是「看一眼」了，保留下来（issue #33 ⑯）
-          if (d) tabs.keep(tab.id);
-          // 草稿的自动保存从这一下开始计时（issue #40）；是不是草稿由 docs 判
-          docs.noteEdit(tab.path);
-        }}
+        onChange={(d) => docs.edited(tab.id, d)}
         onSave={(c) => docs.save(c)}
         onStash={(p, t) => docs.stashDraft(p, t)}
         onLive={(p, g) => docs.onEditorLive(p, g)}

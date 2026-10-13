@@ -2,7 +2,7 @@ import { writeText, readText, fileStamp, type Stamp } from "../ipc/commands";
 import { notify } from "./notify.svelte";
 import { tabs } from "./tabs.svelte";
 import { project } from "./project.svelte";
-import { textToSave, settled, stashed } from "./doc";
+import { textToSave, settled, stashed, isDirty } from "./doc";
 import { scratchTitle } from "./frontmatter";
 import { autosaveDue, AUTOSAVE_IDLE_MS } from "./autosave";
 import type { TabState } from "./tab";
@@ -247,6 +247,22 @@ class Docs {
    * 编辑器报「文档变了」时叫一次。只记时刻并安排一次扫描 ——
    * 判据（草稿？脏？空闲够久？）在扫描里统一算，这里不判。
    */
+  /**
+   * 编辑器报「文本和盘上一不一样」（Editor 的 `onChange`）。按 id 从表里取标签再改 —— 原来写在 Content 的回调里、直接改
+   * 父组件传进来的 `tab` 对象：改得动（它就是表里那个代理），但 Svelte 开发期每打一个字报一条 `ownership_invalid_mutation`，
+   * 真报错淹在里面；而且这三件事本来就是流程，归这里（2026-10-13）
+   */
+  edited(id: number, textDiffers: boolean) {
+    const t = tabs.byId(id);
+    if (!t) return;
+    // 编辑器只知道「文本和磁盘一不一样」；换过编码 / 换行符的标签内容没变也是脏的
+    t.dirty = isDirty(t, textDiffers);
+    // 动过手的预览标签就不再是「看一眼」了，保留下来（issue #33 ⑯）
+    if (textDiffers) tabs.keep(id);
+    // 草稿的自动保存从这一下开始计时（issue #40）；是不是草稿在扫描里判
+    this.noteEdit(t.path);
+  }
+
   noteEdit(path: string) {
     this.#lastEdit.set(path, Date.now());
     if (this.#autosaveTimer) clearTimeout(this.#autosaveTimer);
