@@ -14,7 +14,7 @@
  * 它们是 `$state`，搬进普通模块就得改成另一套；通过 `MenuCtx` 回调过去。
  */
 import { probePath, diag, clearRecent } from "../ipc/commands";
-import { installCli, appLogPath, clearAppLog, openExternal, openSettings, requestQuit } from "../ipc/app";
+import { installCli, appLogPath, clearAppLog, openExternal, openSettings, openScratchbook, requestQuit } from "../ipc/app";
 import { notify } from "../state/notify.svelte";
 import { layout } from "../state/layout.svelte";
 import { tabs } from "../state/tabs.svelte";
@@ -138,6 +138,8 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "open-folder": return void tabflow.openFolder();
     case "close-project": return tabflow.closeProject();
     case "new-scratch": return void tabflow.newScratch();
+    // 原生菜单那条路 Rust 自己接了（winctl::menu_event），走到这儿的是 ⇧⇧ 的动作和浏览器里：一样交给 Rust 去挑窗口
+    case "scratchbook": return void openScratchbook();
     case "open-scratch-dir": return void tabflow.openScratchDir();
     case "install-cli": return void installCliTool();
     // 名单在 Rust（多窗口第 4 步）：清完它广播 recent-changed，每个窗口跟着更新

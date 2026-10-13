@@ -80,6 +80,12 @@ export const KEYS: KeyDef[] = [
    * 文件树右键已经有了；而草稿要的就是「想记就记」，中间不能隔一次找菜单。
    */
   { id: "new-scratch", label: "新建草稿", accel: "⌘N", group: "文件", owner: "menu" },
+  /**
+   * 草稿本（docs/SCRATCH.md 第七节）：没有项目的那个窗口，全应用一处。⌘N 是「这个窗口里多一张」，这个是「去草稿本开一张白纸」。
+   * ⇧⌘N：IDEA 里是「新建草稿文件」，Sublime / VS Code 里是「新建窗口」—— 两边的肌肉记忆都指向它。
+   * 去哪个窗口由 Rust 定（`winctl::open_scratchbook`），菜单之外还有 Dock 右键和草稿列表顶上那一行
+   */
+  { id: "scratchbook", label: "在草稿本新建", accel: "⇧⌘N", group: "文件", owner: "menu" },
   { id: "open-folder", label: "打开文件夹…", accel: "⌘O", group: "文件", owner: "menu" },
   /*
    * 回到「只有标签、没有项目」的轻窗口（issue #40 第三层）。开一个文件不再自动

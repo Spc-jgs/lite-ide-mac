@@ -965,6 +965,38 @@ else
   fi
 fi
 
+say "㉖ 草稿本：在项目窗口里「在草稿本新建」开一个没项目的窗口；再按切回它、空的那张不多开；写了字再按开新的（docs/SCRATCH.md 第七节）"
+#
+# 走的是菜单那条路（winctl::open_scratchbook）。Dock 右键是同一个函数，但测试应用是 Accessory（不进 Dock，#54），那条只能在正式包上点
+book() { lite windows | python3 -c 'import json,sys; w=[x["label"] for x in json.load(sys.stdin) if not x.get("root")]; print(w[0] if w else "")'; }
+W=main
+BEFORE=$(nwin)
+menu scratchbook
+wait_for 10 '[ -n "$(book)" ]'
+WB=$(book)
+check "$(nwin)" "$((BEFORE + 1))" "开了一个没项目的窗口"
+if [ -z "${WB}" ]; then
+  bad "找不到没项目的窗口，这一段后面的断言没法做"
+else
+  lite_wait "${WB}" "return __lite.tabs.list.length === 1" 10 >/dev/null
+  W="${WB}"
+  is "return __lite.tabs.active?.path?.includes('/scratches/') ?? false" && ok "落在一张草稿里" || bad "草稿本里当前不是草稿"
+  W=main
+  menu scratchbook; sleep 1.5
+  check "$(nwin)" "$((BEFORE + 1))" "再按一次：切回那个窗口，不开第二个"
+  W="${WB}"
+  is "return __lite.tabs.list.length === 1" && ok "当前那张还空着：就用它，不多开一张" || bad "空草稿也多开了一张"
+  is "__lite.focus(); __lite.type('记一句'); return true"
+  sleep 0.8
+  W=main
+  menu scratchbook; sleep 1.5
+  W="${WB}"
+  is "return __lite.tabs.list.length === 2" && ok "写了字再按：开一张新的" || bad "写了字的那张被复用了（$(lite eval "${WB}" 'return __lite.tabs.list.length') 张）"
+  lite close "${WB}" >/dev/null
+  wait_for 10 '[ "$(nwin)" = "'"${BEFORE}"'" ]'
+fi
+W=main
+
 say "⑪ 界面自己有没有报错"
 ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "${LOG}")
 check "${ERRS}" "0" "诊断通道里没有前端报错 / CSP 违规"

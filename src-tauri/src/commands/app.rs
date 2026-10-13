@@ -281,6 +281,12 @@ pub fn open_window(app: tauri::AppHandle, window: tauri::Window, path: String) -
     true
 }
 
+/// 在草稿本新建（⇧⇧ 的动作、草稿列表顶上那一行；菜单和 Dock 右键在 Rust 侧直接走 `winctl::open_scratchbook`）
+#[tauri::command]
+pub fn open_scratchbook(app: tauri::AppHandle) {
+    crate::winctl::open_scratchbook(&app);
+}
+
 /// 这个窗口起来之后要不要新建一份草稿（没有窗口时按了「新建草稿」，`Windows::want_scratch`）。
 /// 前端在启动流程里决定「落进哪份草稿」的那一刻问一次
 #[tauri::command]

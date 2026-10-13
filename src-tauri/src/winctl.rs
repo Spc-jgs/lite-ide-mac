@@ -135,10 +135,12 @@ fn on_screen(app: &AppHandle, f: &Frame) -> bool {
     })
 }
 
+/// 没有项目的窗口叫「草稿本」（docs/SCRATCH.md 第七节）：它就是草稿本，「窗口」菜单、⌘`、Mission Control 里得认得出来 ——
+/// 原来叫「lite-ide」，开着两个项目加一个它，第三个看着像应用本身
 fn title_for(root: Option<&str>) -> String {
     root.and_then(|r| std::path::Path::new(r).file_name())
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "lite-ide".into())
+        .unwrap_or_else(|| "草稿本".into())
 }
 
 /// 窗口标题 = 项目名。标题栏本身是隐藏的，但「窗口」菜单、Mission Control、⌘` 都用它 ——
@@ -289,6 +291,11 @@ pub fn menu_event(app: &AppHandle, id: &str) {
         quit(app);
         return;
     }
+    // 「在草稿本新建」也在 Rust 侧：它要去的是**草稿本那个窗口**，不一定是前台
+    if id == SCRATCHBOOK {
+        open_scratchbook(app);
+        return;
+    }
     // 只发给前台窗口（多窗口第 2 步）。原来是广播：两个窗口时在 A 里按 ⌘S，B 也保存。
     // 一个窗口都没有时（#41：关掉最后一个窗口应用还在）由 Rust 自己接能接的那几项
     match app.state::<AppState>().windows.front() {
@@ -298,6 +305,34 @@ pub fn menu_event(app: &AppHandle, id: &str) {
             let _ = app.emit_to(label.as_str(), "menu", id);
         }
         None => menu_without_window(app, id),
+    }
+}
+
+/// 「在草稿本新建」的菜单 id（键位表 `scratchbook`）。菜单、Dock 右键、前端（⇧⇧、草稿列表）都走 [`open_scratchbook`]
+pub const SCRATCHBOOK: &str = "scratchbook";
+
+/// 在草稿本新建（docs/SCRATCH.md 第七节）：草稿本 = 没项目的窗口里最近用过的那个（`windows::scratchbook`）。
+/// 有就切过去、发 `scratchbook` 给它的前端（当前那张空就复用、否则开一张）；没有就开一个，起来之后新建草稿（`want_scratch`，
+/// 同「一个窗口都没有时按新建草稿」那条路）
+pub fn open_scratchbook(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    match state.windows.scratchbook() {
+        Some(label) => {
+            crate::diag!("scratchbook → {label}");
+            if let Some(w) = app.get_webview_window(&label) {
+                let _ = w.unminimize();
+                if crate::may_take_focus() {
+                    let _ = w.set_focus();
+                }
+            }
+            let _ = app.emit_to(label.as_str(), "scratchbook", ());
+        }
+        None => {
+            if let Some(label) = create(app, None, None, Vec::new()) {
+                crate::diag!("scratchbook → 新开 {label}");
+                state.windows.want_scratch(&label);
+            }
+        }
     }
 }
 

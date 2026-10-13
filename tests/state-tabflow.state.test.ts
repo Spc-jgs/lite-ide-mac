@@ -565,5 +565,61 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   for (const t of [...tabs.list]) tabflow.doClose(t);
 }
 
+// ── 草稿本（docs/SCRATCH.md 第七节）──
+// ① 「在草稿本新建」到了这个窗口：当前那张空的就用它；不空、或者当前不是草稿，开一张新的
+{
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  if (project.root !== null) await tabflow.closeProject();
+  await tabflow.newScratch();
+  const blank = tabs.active;
+  ok(!!blank && project.isScratch(blank.path), "前提：当前是一张空草稿");
+  await tabflow.toScratchbook();
+  ok(tabs.list.length === 1 && tabs.active?.id === blank?.id, `当前那张是空的：就用它，不多开（${tabs.list.length} 张）`);
+  blank!.draft = "记了一句";
+  blank!.dirty = true;
+  await tabflow.toScratchbook();
+  ok(tabs.list.length === 2 && tabs.active?.id !== blank?.id && project.isScratch(tabs.active!.path), "当前那张有字了：开一张新的");
+  await tabflow.openPath("/proj/README.md");
+  const n = tabs.list.length;
+  await tabflow.toScratchbook();
+  ok(tabs.list.length === n + 1 && project.isScratch(tabs.active!.path), "当前不是草稿（草稿本里开着的散文件）：开一张新的");
+  for (const t of [...tabs.list]) { t.dirty = false; tabflow.doClose(t); }
+}
+
+// ② 草稿本恢复时，三天没改过的草稿不再摆回标签栏；没保存的、不是草稿的照旧回来（scratchbook.ts）
+{
+  const { VERSION, DEFAULT_LAYOUT } = await import("../src/lib/state/session");
+  const { createScratch } = await import("../src/lib/ipc/commands");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  if (project.root !== null) await tabflow.closeProject();
+  const old = await createScratch("2026-10-01 0900", { project: "", branch: "", head: "", at: "" });
+  const oldDraft = await createScratch("2026-10-01 0901", { project: "", branch: "", head: "", at: "" });
+  const fresh = await createScratch("2026-10-13 0900", { project: "", branch: "", head: "", at: "" });
+  // 「多久没改」看盘上的修改时间（草稿列表带的），不看快照：快照只给有没保存内容的标签存时间戳 —— 第一版照快照写，这条红了
+  const { STAMPS } = await import("../src/lib/dev/mock/data");
+  const day = 24 * 3600 * 1000;
+  STAMPS[old] = { mtimeMs: Date.now() - 5 * day, size: 1 };
+  STAMPS[oldDraft] = { mtimeMs: Date.now() - 5 * day, size: 1 };
+  STAMPS[fresh] = { mtimeMs: Date.now() - 1 * day, size: 1 };
+  localStorage.setItem(
+    "lite-ide.session:",
+    JSON.stringify({
+      v: VERSION, root: null, active: 0, layout: DEFAULT_LAYOUT, recent: [],
+      tabs: [{ path: old }, { path: oldDraft, draft: "没存的字" }, { path: fresh }, { path: "/proj/README.md" }],
+    }),
+  );
+  persist.restoring = true;
+  await persist.restoreEmpty();
+  const has = (p: string) => tabs.list.some((t) => t.path === p);
+  ok(!has(old), "五天没改的草稿：不摆回来");
+  ok(has(oldDraft), "五天没改、但有没保存的字：照样回来");
+  ok(has(fresh), "昨天改过的：回来");
+  ok(has("/proj/README.md"), "不是草稿的散文件：再旧也回来");
+  ok(tabs.active !== null && tabs.active.path !== old, "上次的活动标签被收起了：退到别的标签上");
+  for (const t of [...tabs.list]) { t.dirty = false; tabflow.doClose(t); }
+  localStorage.removeItem("lite-ide.session:");
+  persist.restoring = false;
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

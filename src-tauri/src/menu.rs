@@ -137,6 +137,9 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         // 草稿不需要有标签、也不需要先打开文件夹 —— 「想记就记」是它的全部意义，
         // 所以它**不进** needs_tab 那张变灰名单
         .item(&item(app, "new-scratch", "新建草稿", Some("CmdOrCtrl+N"))?)
+        // 紧挨「新建草稿」：一个是「这里多一张」、一个是「去草稿本」（docs/SCRATCH.md 7.3）。去哪个窗口由 Rust 定（winctl::open_scratchbook）
+        // id 写字面量不写 `winctl::SCRATCHBOOK`：menu_sync.rs 读源码比对 id，常量它读不出来
+        .item(&item(app, "scratchbook", "在草稿本新建", Some("Shift+CmdOrCtrl+N"))?)
         .item(&item(app, "open-folder", "打开文件夹…", Some("CmdOrCtrl+O"))?)
         .item(&recent)
         .item(&close_project)

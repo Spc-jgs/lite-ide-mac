@@ -23,6 +23,7 @@
   import { projectName } from "../state/crumbs";
   import { parseAt } from "../state/frontmatter";
   import { probePath, type ScratchEntry, type ScratchAnchor } from "../ipc/commands";
+  import { openScratchbook } from "../ipc/app";
 
   let {
     activePath,
@@ -162,6 +163,17 @@
     </button>
   </div>
   <div class="list">
+    {#if project.root}
+      <!--
+        项目窗口里才有这一行（docs/SCRATCH.md 7.3）：正在翻草稿的人，下一步多半是再写一张 —— 头上的 ＋ 是「这个窗口里多一张」（带锚点），
+        这一行是「去草稿本开一张白纸」。已经在草稿本里时两件事是同一件，只留 ＋（ui.md 第六条：同一个信息只印一遍）
+      -->
+      <button class="gobook" onclick={() => void openScratchbook()} title="去没有项目的那个窗口开一张白纸">
+        <span class="ic"><Icon name="note" /></span>
+        <span class="glabel">在草稿本新建</span>
+        <span class="gkey">⇧⌘N</span>
+      </button>
+    {/if}
     {#if scratches.loaded && scratches.list.length === 0}
       <!-- 空态要给下一步，不是给句号（ui.md 第六条） -->
       <div class="empty">还没有草稿 —— ⌘N 记第一条</div>
@@ -280,6 +292,29 @@
   /* 头上的工具按钮是 `.ibtn`（app.css） */
   .list { flex: 1; overflow: auto; padding: 4px 6px; }
   .empty { padding: 10px 6px; font-size: var(--fs-md); color: var(--text-faint); }
+  /* 「在草稿本新建」：和列表行同一个尺寸（28、r-sm），快捷键右对齐、灰一档 —— 它是一个动作，不是一条草稿，所以和下面隔一道线 */
+  .gobook {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: 28px;
+    padding: 0 8px;
+    margin-bottom: 6px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--r-sm) var(--r-sm) 0 0;
+    color: var(--text-dim);
+    font-family: var(--ui-font);
+    font-size: var(--fs-md);
+    text-align: left;
+    cursor: default;
+  }
+  .gobook:hover { background: var(--hover); color: var(--text); }
+  .gobook .ic { flex: none; display: inline-flex; }
+  .gobook .glabel { flex: 1; min-width: 0; }
+  .gobook .gkey { flex: none; color: var(--text-faint); font-size: var(--fs-sm); }
   /* 分组头：吸顶、底色跟外壳走（ui.md 第四条）；「其他」能折 */
   .sec {
     position: sticky;

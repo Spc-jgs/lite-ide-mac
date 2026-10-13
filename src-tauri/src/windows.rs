@@ -229,6 +229,14 @@ pub fn route(path: &str, is_dir: bool, wins: &[(&str, Option<&str>)], mru: &[&st
     }
 }
 
+/// 草稿本是哪个窗口（docs/SCRATCH.md 第七节）：**没有项目的窗口**里最近用过的那个；一个都没有 → `None`（开一个新的）。纯函数。
+///
+/// 草稿本不是一种新窗口 —— 冷启动、「关闭项目」、全关了再新建草稿，开出来的都是没项目的窗口，会话恢复、自动存都是现成的；
+/// 草稿本只是「随时够得着它」的那个入口。「关闭项目」可能变出第二个没项目的窗口，那时去最近用过的那个（不合并：少见，合并不值得）
+pub fn scratchbook(wins: &[(&str, Option<&str>)], mru: &[&str]) -> Option<String> {
+    mru.iter().find(|l| wins.iter().any(|(w, r)| w == *l && r.is_none())).map(|l| l.to_string())
+}
+
 impl Windows {
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
@@ -390,6 +398,14 @@ impl Windows {
     pub fn list(&self) -> Vec<(String, Option<String>)> {
         let g = self.lock();
         g.mru.iter().filter_map(|l| g.wins.get(l).map(|w| (l.clone(), w.root.clone()))).collect()
+    }
+
+    /// 草稿本是哪个窗口，没有就 `None`（见 [`scratchbook`]）
+    pub fn scratchbook(&self) -> Option<String> {
+        let g = self.lock();
+        let wins: Vec<(&str, Option<&str>)> = g.wins.iter().map(|(l, w)| (l.as_str(), w.root.as_deref())).collect();
+        let mru: Vec<&str> = g.mru.iter().map(String::as_str).collect();
+        scratchbook(&wins, &mru)
     }
 
     /// 前台窗口
@@ -894,6 +910,26 @@ mod tests {
         let back = Windows::default();
         back.load(&saved, &[]);
         assert_eq!(back.recent(), ["/p/a"], "存了能读回来");
+    }
+
+    /// 草稿本（docs/SCRATCH.md 第七节）：没项目的窗口里最近用过的那个；没有就开新的
+    #[test]
+    fn 草稿本是最近用过的没项目窗口_没有就开新的() {
+        let wins = [("main", Some("/p/a")), ("w-1", None), ("w-2", Some("/p/b")), ("w-3", None)];
+        assert_eq!(scratchbook(&wins, &["w-2", "w-3", "main", "w-1"]).as_deref(), Some("w-3"), "两个没项目的，取最近用过的");
+        assert_eq!(scratchbook(&wins, &["main", "w-1", "w-3"]).as_deref(), Some("w-1"));
+        assert_eq!(scratchbook(&[("main", Some("/p/a"))], &["main"]), None, "全是项目窗口 → 开一个新的");
+        assert_eq!(scratchbook(&[], &[]), None, "一个窗口都没有");
+        // 真实的表：开项目之后它就不是草稿本了，关掉项目又是
+        let w = Windows::default();
+        w.register("main");
+        w.register("w-1");
+        w.set_root("main", Some("/p/a".into()));
+        assert_eq!(w.scratchbook().as_deref(), Some("w-1"));
+        w.set_root("w-1", Some("/p/b".into()));
+        assert_eq!(w.scratchbook(), None, "两个都有项目了");
+        w.set_root("main", None);
+        assert_eq!(w.scratchbook().as_deref(), Some("main"), "关闭项目 = 变成草稿本");
     }
 
     // ── 审查之后补的 ──

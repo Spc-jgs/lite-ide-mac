@@ -22,6 +22,8 @@ export const clearAppLog = () => invoke<void>("clear_app_log");
 export const requestQuit = () => invoke<void>("request_quit");
 /** 「设置…」：settings.json 不存在就建模板（已有的一个字节都不碰），返回路径 */
 export const openSettings = () => invoke<string>("open_settings");
+/** 在草稿本新建（docs/SCRATCH.md 第七节）：去哪个窗口 Rust 定，那个窗口收到 `scratchbook` 事件 */
+export const openScratchbook = () => invoke<void>("open_scratchbook");
 /** 设置项的定义（补全用）。跟着用它的编辑器扩展一起懒加载 */
 export const settingsSchema = () => invoke<SettingDef[]>("settings_schema");
 

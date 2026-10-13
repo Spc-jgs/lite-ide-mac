@@ -893,6 +893,12 @@
     return () => void reg.then((f) => f?.()).catch(() => {});
   });
 
+  /** 「在草稿本新建」挑中了这个窗口（Rust 的 `winctl::open_scratchbook`）：当前那张空就用它，否则开一张（docs/SCRATCH.md 第七节） */
+  $effect(() => {
+    const reg = listenHere<null>("scratchbook", () => void tabflow.toScratchbook()).catch(() => null);
+    return () => void reg.then((f) => f?.()).catch(() => {});
+  });
+
   /**
    * 文件系统监听（issue #33 ⑳）。换项目根就重新挂；事件来了按种类刷：
    * 只有 `.git/` 变了（提交、切分支、暂存）刷 git 状态就够；工作区文件变了

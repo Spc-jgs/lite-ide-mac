@@ -33,6 +33,7 @@ const ALLOW: &[(&str, &str)] = &[
     ("set_window_root", "内存：窗口表"),
     ("sync_menu_state", "窗口：改原生菜单要在主线程上"),
     ("take_start_scratch", "内存：取走启动时的草稿"),
+    ("open_scratchbook", "窗口：切到 / 建草稿本那个窗口，同 open_window 要在主线程上"),
     // ── fs.rs ──
     ("list_encodings", "内存：常量表"),
     ("reveal_in_finder", "例外：起 /usr/bin/open -R，毫秒级返回"),

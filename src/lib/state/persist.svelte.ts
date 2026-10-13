@@ -8,6 +8,8 @@ import { files } from "./files.svelte";
 import { tabs } from "./tabs.svelte";
 import { docs, type ViewPos } from "./docs.svelte";
 import { tabflow } from "./tabflow.svelte";
+import { keepInScratchbook } from "./scratchbook";
+import { scratches } from "./scratches.svelte";
 
 /**
  * 会话快照的读写：启动时把上次的现场摆回来，之后有变化就防抖落盘。
@@ -220,9 +222,21 @@ class Persist {
      * 但标签条的顺序就跟上次不一样了，那是个更难受的毛病。
      */
     const wantPath = saved.tabs[saved.active]?.path;
+    /*
+     * 草稿本（没有项目的窗口）里三天没改过的草稿不再摆回标签栏（scratchbook.ts）—— 文件还在，草稿列表里找得到。
+     * 被挑掉的正好是上次的活动标签时，下面的兜底退到第一个恢复成功的
+     */
+    let open = saved.tabs;
+    if (saved.root === null) {
+      // 修改时间从草稿列表拿（盘上的真时间）；列不出来就全留着（keepInScratchbook 拿不准时留）
+      await scratches.refresh().catch(() => {});
+      const mtime = new Map(scratches.list.map((e) => [e.path, e.mtimeMs]));
+      const now = Date.now();
+      open = saved.tabs.filter((t) => keepInScratchbook(t, now, (p) => project.isScratch(p), (p) => mtime.get(p)));
+    }
     tabflow.restoringTabs = true;
     try {
-      for (const t of saved.tabs) {
+      for (const t of open) {
         await tabflow.openPath(t.path, { quiet: true, preview: t.preview });
         // 钉住的：快照里的顺序本来就是钉住的在前，这里只补标记，不再挪位
         if (t.pinned) {

@@ -230,6 +230,25 @@ class TabFlow {
   }
 
   /**
+   * 「在草稿本新建」到了这个窗口（docs/SCRATCH.md 第七节；去哪个窗口是 Rust 定的，`winctl::open_scratchbook`）。
+   * 当前那张是草稿、而且正文是空的 → 就用它，光标进去；否则开一张新的。
+   * 「空」看的是正文（去掉文件头）—— 一张只有锚点头、一个字没写的草稿也算空。
+   * 不复用就会每按一次多一张空纸；不看「当前那张」而是去找任意一张空的，人会被带到一个看不见的标签上
+   */
+  async toScratchbook() {
+    const t = tabs.active;
+    if (t && project.isScratch(t.path) && t.mode === "edit") {
+      const text = docs.liveText(t);
+      const [, bodyAt] = splitFrontmatter(text);
+      if (text.slice(bodyAt).trim() === "") {
+        docs.focusEditor();
+        return;
+      }
+    }
+    await this.newScratch();
+  }
+
+  /**
    * 启动时一个标签都没有 → 直接落在一份草稿里，光标在闪（Sublime 那样）。
    * 空态卡片自己写着「记点东西」，却要人先点一下 —— 定位和首屏不一致。
    *

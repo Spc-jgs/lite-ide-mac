@@ -28,6 +28,8 @@ pub(crate) fn may_take_focus() -> bool {
 }
 mod state;
 #[cfg(target_os = "macos")]
+mod dockmenu;
+#[cfg(target_os = "macos")]
 mod terminate;
 mod trust_store;
 mod windows;
@@ -161,6 +163,9 @@ pub fn run() {
             // Dock 右键「退出」、注销、关机也先存好现场再退（#52）。代理是 tao 在事件循环建好时装的，这里已经在了
             #[cfg(target_os = "macos")]
             terminate::install(app.handle());
+            // Dock 右键「在草稿本新建」（docs/SCRATCH.md 7.3），同一个办法给代理补方法
+            #[cfg(target_os = "macos")]
+            dockmenu::install(app.handle());
 
             // 设置在任何窗口的前端开口要它之前读好（前端挂载前就 await settings()，见 settingsctl::init）
             settingsctl::init(app.handle());
@@ -341,6 +346,7 @@ pub fn run() {
             commands::adopt_recent,
             commands::claim_empty_session,
             commands::take_start_scratch,
+            commands::open_scratchbook,
             commands::settings,
             commands::settings_schema,
             commands::set_ui_state,

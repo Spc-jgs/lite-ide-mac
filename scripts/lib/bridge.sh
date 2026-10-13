@@ -76,6 +76,19 @@ lite_launch() {
     echo "测试 .app 比源码旧（${stale} 在它打完之后改过）：先跑 scripts/build-test-app.sh。确实要测旧的那份就设 LITE_ALLOW_STALE=1" >&2
     return 2
   fi
+  # **上一轮没退干净的测试应用先收掉**（2026-10-12）：一轮验收被 `| head` 截断、没走到 lite_quit，测试应用就留着。
+  # 下一轮 `open` 发现它已经在跑，**新的环境变量一个都带不进去**（open 自己说 "was already running and so the additional
+  # environment variables ... could not be set"），测试通道的 socket 对不上，等满 20 秒只报一句「没回话」，看不出原因。
+  # 只认测试身份那个 .app 的路径，你的 lite-ide 不在这个路径下，碰不到
+  local left
+  left=$(pgrep -f "${LITE_APP}/Contents/MacOS" || true)
+  if [ -n "${left}" ]; then
+    echo "上一轮的测试应用还在跑（pid ${left//$'\n'/ }），先收掉" >&2
+    pkill -f "${LITE_APP}/Contents/MacOS" || true
+    local i=0
+    while pgrep -f "${LITE_APP}/Contents/MacOS" >/dev/null && [ $i -lt 20 ]; do sleep 0.25; i=$((i + 1)); done
+    pkill -9 -f "${LITE_APP}/Contents/MacOS" 2>/dev/null || true
+  fi
   local prev
   prev=$(lite_front_id)
   # -g：后台起。--env 只给这一个进程，不改你的环境。

@@ -104,7 +104,7 @@
    */
   let projTip = $derived(
     [
-      root ?? "还没打开文件夹",
+      root ?? "草稿本：不属于任何项目的草稿和散文件（点开可以打开项目）",
       `lite-ide · 构建于 ${__BUILD_TIME__}`,
       ...(devtools ? ["⚠︎ 调试版：带 Web Inspector，别拿它当正式版用"] : []),
     ].join("\n"),
@@ -137,15 +137,18 @@
     第一件事就是确认对方跑的是哪个构建（为此白查过一次代码）。
     它原来挂在这儿那个 `lite-ide` 字样上，而那个字样现在只有空项目时才出现。
   -->
-  <button class="twidget proj" onclick={(e) => openProjMenu(e)} title={projTip}>
+  <button class="twidget proj" onclick={(e) => openProjMenu(e)} title={projTip} aria-label={root ? undefined : "草稿本，打开项目的菜单"}>
     {#if root}
       <span class="sq" aria-hidden="true">{projInitial}</span>
       <span class="wlabel">{projName}</span>
     {:else}
-      <!-- 没项目：原来显示应用名「lite-ide」配首字母方块，看着像一个叫 lite-ide 的项目（2026-10-12 走查）。
-           位置不动，说它是干什么的 —— 点开就是最近项目和打开文件夹 -->
-      <Icon name="folder" />
-      <span class="wlabel dim">打开项目</span>
+      <!--
+        没项目的窗口就是**草稿本**（docs/SCRATCH.md 第七节）：五个入口把人带进来，进来得认得出「这是草稿本」。
+        和项目窗口的「首字母方块 + 项目名」同一个形状：便签图标 + 名字。点开照样是最近项目和打开文件夹。
+        2026-10-12 走查时写的是「打开项目」（原来是应用名「lite-ide」，看着像一个叫 lite-ide 的项目）—— 那时这个窗口还没有身份
+      -->
+      <Icon name="note" />
+      <span class="wlabel">草稿本</span>
     {/if}
     <Icon name="chevron-down" />
   </button>
@@ -248,7 +251,6 @@
     font-weight: 600;
   }
   .twidget:hover .sq { background: var(--pressed); }
-  .twidget .wlabel.dim { color: var(--text-dim); }
 
   /* 分支名是标识符，用等宽；ahead/behind 用 accent，它是「该做点什么」的信号 */
   .twidget .ab { color: var(--accent); font-family: var(--ui-font); font-variant-numeric: tabular-nums; flex: none; font-size: var(--fs-sm); }

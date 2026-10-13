@@ -14,6 +14,8 @@ const APP_LOG = "/Users/you/Library/Logs/com.liteide.app/app.log";
  */
 let mockRecent: string[] = ["/proj", "/Users/you/work/another-repo"];
 let mockRoot = "";
+/** `scratchbook` 事件的监听回调（`plugin:event|listen` 时记下的编号），同 tasks.ts 的 `exitCbs` */
+const scratchbookCbs = new Set<number>();
 const recentDto = () => ({ projects: [...mockRecent], keep: mockRoot ? [mockRoot] : [] });
 
 export async function appCmd(cmd: string, a: A): Promise<unknown> {
@@ -53,6 +55,20 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
     // 浏览器里没有「没有窗口时按新建草稿」这回事
     case "take_start_scratch":
       return false;
+    /*
+     * 在草稿本新建：浏览器里只有一个「窗口」，真实现要么切到没项目的窗口、要么开一个新的 —— 这里两样都做不到，
+     * 就把 `scratchbook` 事件发给这一个窗口（它会复用空的那张或者开一张）。开着项目时和真实现不一样：真的会去另一个窗口
+     */
+    case "plugin:event|listen":
+      if ((a as unknown as { event: string }).event !== "scratchbook") return NOT_MINE;
+      scratchbookCbs.add(Number((a as unknown as { handler: number }).handler));
+      return Number((a as unknown as { handler: number }).handler);
+    case "open_scratchbook":
+      for (const cb of scratchbookCbs) {
+        const f = (window as unknown as Record<string, unknown>)[`_cb${cb}`];
+        if (typeof f === "function") (f as (e: unknown) => void)({ event: "scratchbook", id: 0, payload: null });
+      }
+      return null;
     // 浏览器里没有「退出」可言：两条都只是不报错
     case "quit_ready":
     case "request_quit":
