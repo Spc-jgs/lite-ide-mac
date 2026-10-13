@@ -271,20 +271,25 @@ shot() {
 # ① 主画面：文件树 + Java 编辑器 + 底部 Git 工具窗（提交历史）
 [ "$(ax click AXButton "文件树")" = "OK" ] || true
 sleep 0.5
+# 文件树会把只有一个子目录的链合成一行（09-24「合并单层目录」），`src/main` 就是。`ax row` 按「包含」认名字 ——
+# 原来逐层点 src、main、java……，点 main 又命中了 `src/main` 那一行、把它收了回去，编辑器那张拍成了空态
+# （2026-10-13 发 v1.5.0 时才发现：合并之后一直没重拍过）。下面几层合不合、合成什么样不去猜：
+# 每点一层之前先看 OrderService.java 出来没有，出来就停 —— 已经展开的那一行不会被再点一下收回去
 ax row "" "src" >/dev/null; sleep 0.6
-ax row "" "main" >/dev/null; sleep 0.6
-ax row "" "java" >/dev/null; sleep 0.6
-ax row "" "com" >/dev/null; sleep 0.6
-ax row "" "acme" >/dev/null; sleep 0.6
-ax row "" "orderflow" >/dev/null; sleep 0.6
+for nm in java com acme orderflow; do
+  [ "$(ax has AXStaticText "OrderService.java")" = "OK" ] && break
+  ax row "" "${nm}" >/dev/null; sleep 0.6
+done
 ax row "" "OrderService.java" >/dev/null
 wait_has AXStaticText "MAX_ATTEMPTS" 6 || echo "  （编辑器没读到内容）"
 # 启动时自动落进来的那份空草稿，这张图不要它
 ax "click~" AXButton "关闭 2026" >/dev/null; sleep 0.5
-# 底部工具窗是懒加载的，第一次点要等 chunk；「提交历史」那个标签页按钮出来才算开了
-[ "$(ax click AXButton "Git")" = "OK" ] || true
-wait_has AXButton "提交历史" 10 || { ax click AXButton "Git" >/dev/null; wait_has AXButton "提交历史" 10 || echo "  （提交历史没出来）"; }
-sleep 2
+# 走菜单「Git → 提交历史」，不点导轨上的「Git」按钮：那个按钮要等读到仓库（`{#if repo}`）才画出来，点早了点不着（2026-10-13）。
+# 底部工具窗是懒加载的，给 chunk 和 git log 留够时间。**不用 wait_has 判「出来没有」**：试过等「提交历史」那个标签
+# （role="tab"，AX 角色不是 AXButton）和历史里的提交标题（不是能按 AXStaticText 找到的字），两样都等不到、而面板其实开着 ——
+# 一条每次都误报的警告比没有更糟。这一张出没出来，看图
+menu "Git" "提交历史"
+sleep 4.5
 shot editor
 
 # ② 日志：32 万行，只看 ERROR + 关键字
