@@ -16,6 +16,7 @@
 import { probePath, diag, clearRecent } from "../ipc/commands";
 import { installCli, appLogPath, clearAppLog, openExternal, openSettings, openScratchbook, requestQuit } from "../ipc/app";
 import { notify } from "../state/notify.svelte";
+import { dialogUp, nudgeDialog } from "./modal";
 import { layout } from "../state/layout.svelte";
 import { tabs } from "../state/tabs.svelte";
 import { tabflow } from "../state/tabflow.svelte";
@@ -130,6 +131,14 @@ async function openRepoPage() {
 }
 
 export async function runMenu(id: string, ctx: MenuCtx) {
+  /*
+   * 对话框开着：菜单动作（含快捷键，AppKit 先吃掉的那些也从这儿进来）一律不做、顶一下对话框（shell/modal.ts）。
+   * 只放过退出：表单开着时 macOS 的 ⌘Q 照样能退，退出流程自己会问没保存的（docs/MULTIWINDOW.md 3.6）
+   */
+  if (id !== "quit" && dialogUp()) {
+    nudgeDialog();
+    return;
+  }
   if (id.startsWith("recent:")) {
     await tabflow.openRecent(id.slice("recent:".length));
     return;

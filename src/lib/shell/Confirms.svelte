@@ -27,7 +27,8 @@
   import { replace } from "../state/replace.svelte";
   import { project } from "../state/project.svelte";
   import { runs } from "../state/runs.svelte";
-  import { takeFocus } from "./dialog-focus";
+  import { keyVerdict, nudgesFor, takeFocus } from "./dialog-focus";
+  import { nudgeDialog } from "./modal";
 
   /** 替换的动作跟着替换浮层懒加载；卡片上点了才拉（启动时那一问已经拉过了，多半是现成的） */
   const replaceOps = () => import("../state/replace-ops");
@@ -101,6 +102,57 @@
     btn.click();
   }
 
+  /*
+   * 对话框开着时，别处的输入不算数（`shell/modal.ts` 头上那段）。挂在 window 的**捕获**阶段：比 App 的全局按键、
+   * 组件自己的监听（Svelte 把 onclick / onkeydown 委托在根上，走冒泡）、CM6 都早 —— 在这儿 stopPropagation，它们就收不到。
+   * 菜单那条路不经过这里（AppKit → Rust → `menu` 事件），在 `menu-actions.ts` 的 runMenu 门口另外拦
+   */
+  const dialogEl = () => layerEl?.querySelector<HTMLElement>(".dialog") ?? null;
+
+  function guardKey(e: KeyboardEvent) {
+    const d = dialogEl();
+    if (!d) return;
+    const inDialog = d.contains(e.target as Node);
+    const v = keyVerdict(e, inDialog);
+    if (v === "pass") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type !== "keydown") return;
+    if (v === "cycle") cycleFocus(d, e.shiftKey);
+    else if (nudgesFor(e) || !inDialog) nudgeDialog(d);
+  }
+
+  /** 点在对话框外面：挡掉、顶一下。只放过标题栏上拖窗口的那几块（Tauri 认的是被点的元素自己带 `data-tauri-drag-region`） */
+  function guardPointer(e: MouseEvent) {
+    const d = dialogEl();
+    if (!d) return;
+    const t = e.target as Element | null;
+    if (t && (d.contains(t) || t.hasAttribute?.("data-tauri-drag-region"))) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "pointerdown") nudgeDialog(d);
+  }
+
+  /** Tab / ⇧Tab：在对话框里能拿焦点的东西之间转圈 */
+  function cycleFocus(d: HTMLElement, back: boolean) {
+    const all = [...d.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])")];
+    if (all.length === 0) return;
+    const i = all.indexOf(document.activeElement as HTMLElement);
+    const n = all.length;
+    all[i < 0 ? (back ? n - 1 : 0) : (i + (back ? -1 : 1) + n) % n].focus({ preventScroll: true });
+  }
+
+  $effect(() => {
+    const keys = ["keydown", "keyup"] as const;
+    const mice = ["pointerdown", "mousedown", "mouseup", "click", "dblclick", "auxclick", "contextmenu"] as const;
+    for (const k of keys) window.addEventListener(k, guardKey, true);
+    for (const m of mice) window.addEventListener(m, guardPointer, true);
+    return () => {
+      for (const k of keys) window.removeEventListener(k, guardKey, true);
+      for (const m of mice) window.removeEventListener(m, guardPointer, true);
+    };
+  });
+
 </script>
 
 <!--
@@ -122,7 +174,12 @@
 {#if asking}
   <div class="layer" bind:this={layerEl}>
     {#if tabflow.pendingClose}
-      <div class="dialog" role="alertdialog" aria-label="要保存改动吗" use:takeFocus>
+      <!--
+        「关闭全部」逐个问时，A 问完换 B 是同一拍里的事（doClose 置空、askNextClose 设下一个），这个块不重建、
+        `takeFocus` 不会再跑 —— 把 id 传进去，换了人它在 update 里把焦点放回「保存」（code review 2026-10-13：
+        原来焦点停在上一下按过的「不保存」上，接着按回车就把 B 也丢了）
+      -->
+      <div class="dialog" role="alertdialog" aria-label="要保存改动吗" use:takeFocus={tabflow.pendingClose.id}>
         <p class="title">要保存对 {tabflow.pendingClose.name} 的改动吗？</p>
         <p class="body">
           不保存的话，这次的改动会丢掉。

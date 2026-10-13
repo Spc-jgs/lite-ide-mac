@@ -17,6 +17,7 @@ ok(!imeKey({ isComposing: false, keyCode: 27 }), "真 Esc 不算");
 const EXEMPT: Record<string, string> = {
   "lib/shell/ime.ts": "就是它自己",
   "lib/shell/ContextMenu.svelte": "菜单里没有文本框，焦点在菜单上时输入法不组字",
+  "lib/shell/dialog-focus.ts": "对话框里没有文本框（只有按钮），焦点在按钮上时输入法不组字；对话框外面的键本来就全挡",
 };
 const root = join(import.meta.dirname, "..", "src");
 const miss: string[] = [];

@@ -107,13 +107,15 @@ export function jsonSpanAt(doc: string, pos: number): JsonSpan | null {
   const lines = doc.split("\n");
   let off = 0;
   let open: number | null = null; // 围栏正文的起点
+  let openLine = 0; // 开头那行 ```json 的行首：光标停在这一行的哪儿都算在围栏上（原来只认行尾，和收尾那行一整行都算不对称）
   for (const line of lines) {
     const end = off + line.length;
     const fence = /^\s*```/.test(line);
     if (open === null && fence && /^\s*```\s*json\s*$/i.test(line)) {
       open = end + 1;
+      openLine = off;
     } else if (open !== null && fence) {
-      if (pos >= open - 1 && pos <= end) {
+      if (pos >= openLine && pos <= end) {
         const body = doc.slice(open, Math.max(open, off - 1));
         if (isJsonBlock(body)) return trimmed(doc, open, Math.max(open, off - 1));
         return null;

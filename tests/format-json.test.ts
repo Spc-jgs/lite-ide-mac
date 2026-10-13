@@ -62,6 +62,14 @@ function run(marked: string, unit = "  "): string {
   ok(out === '笔记\n```json\n{\n  "a": 1,\n  "b": [\n    true\n  ]\n}\n```\n后面', `围栏里的：\n${out}`);
 }
 
+// 光标停在两条围栏线上也算：开头那行的行首、行中，收尾那行（review 2026-10-13：原来开头那行只认行尾）
+{
+  const want = '笔记\n```json\n{\n  "a": 1\n}\n```\n后面';
+  ok(run('笔记\n|```json\n{"a":1}\n```\n后面') === want, "光标在 ```json 行首");
+  ok(run('笔记\n```js|on\n{"a":1}\n```\n后面') === want, "光标在 ```json 行中");
+  ok(run('笔记\n```json\n{"a":1}\n``|`\n后面') === want, "光标在收尾那行");
+}
+
 // 整份就是 JSON（.json 文件），用文件自己的缩进单位
 {
   const out = run('|{"a":{"b":1}}\n', "    ");

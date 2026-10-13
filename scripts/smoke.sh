@@ -997,6 +997,41 @@ else
 fi
 W=main
 
+say "㉗ 对话框开着时别的输入不算数：页面接的键、⇧⇧、菜单都挡，对话框顶一下；关掉之后照常（code review 2026-10-13，shell/modal.ts）"
+#
+# 原来压暗只是样子：⇧⇧ 的随处搜索叠到压暗层上，⌃Tab 切走了而对话框问的还是原来那个。这里三条路各验一次 ——
+# 页面接的键（Confirms 在 window 捕获阶段挡）、⇧⇧（keyup）、归菜单的键（AppKit → `menu` 事件 → runMenu 门口挡）。
+# 最后一条对照：关掉对话框之后同一个菜单照常，证明挡住的是「对话框开着」而不是这条路本来就不通。
+# **验过红**（2026-10-13）：Confirms 里不挂那几个捕获监听、runMenu 门口不拦，前三条红、对照照绿
+MOD="${FIX}/modal.txt"
+printf 'm1\n' > "${MOD}"
+is "await __lite.tabflow.openPath($(q "${MOD}"), { preview: false }); return true"
+lite_wait "${W}" "return __lite.tabs.active?.path === $(q "${MOD}")" 6 >/dev/null
+is "__lite.caret(1, 1); __lite.type('X'); return true"
+lite_wait "${W}" "return __lite.tabs.byPath($(q "${MOD}"))?.dirty === true" 4 >/dev/null || bad "modal.txt 没变脏（这一段的前提没做成）"
+N0=$(lite eval "${W}" "return __lite.tabs.list.length" 2>/dev/null)
+menu close-tab
+if wait_has "要保存对 modal.txt 的改动吗" 5; then
+  is "const a = __lite.tabs.activeId; __lite.key('Ctrl-Tab'); await new Promise(r => setTimeout(r, 200)); return __lite.tabs.activeId === a && !!document.querySelector('.layer .dialog.nudge')" \
+    && ok "⌃Tab 被挡住、对话框顶了一下" || bad "对话框开着时 ⌃Tab 照样切了标签（或者没有「顶一下」）"
+  is "for (let i = 0; i < 2; i++) { document.activeElement.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', bubbles: true })); await new Promise(r => setTimeout(r, 80)); } await new Promise(r => setTimeout(r, 300)); return !document.querySelector('[aria-label=\"随处搜索\"]')" \
+    && ok "⇧⇧ 被挡住：随处搜索没叠到对话框上" || bad "对话框开着时 ⇧⇧ 打开了随处搜索"
+  menu new-scratch; sleep 0.8
+  check "$(lite eval "${W}" "return __lite.tabs.list.length" 2>/dev/null)" "${N0}" "菜单「新建草稿」被挡住：标签数没变"
+  click "取消" button exact
+  lite_wait "${W}" "return !document.querySelector('.layer .dialog')" 4 >/dev/null && ok "点「取消」：对话框关了" || bad "点「取消」对话框没关"
+  is "return __lite.tabs.byPath($(q "${MOD}"))?.dirty === true" && ok "取消之后改动还在" || bad "取消之后 modal.txt 不脏了"
+  sleep 0.3
+  # 对照比的是「这一下之前」的数，不是 N0：被挡那条红的时候已经多开了一张，拿 N0 比对照会跟着一起红，说明不了什么
+  N1=$(lite eval "${W}" "return __lite.tabs.list.length" 2>/dev/null)
+  menu new-scratch; sleep 0.8
+  check "$(lite eval "${W}" "return __lite.tabs.list.length" 2>/dev/null)" "$((N1 + 1))" "对照：对话框关掉之后同一个菜单照常"
+else
+  bad "关脏标签没弹对话框（这一段后面的断言没法做）"
+fi
+# 收拾：modal.txt 不存、直接关；后面 ⑫ 要全关标签数编辑器，留着脏的会被这个对话框拦住
+is "const t = __lite.tabs.byPath($(q "${MOD}")); if (t) { t.dirty = false; __lite.tabflow.doClose(t); } return true" >/dev/null
+
 say "⑪ 界面自己有没有报错"
 ERRS=$(grep -icE "\[diag/web\].*(error|fatal)|CSP 挡下" "${LOG}")
 check "${ERRS}" "0" "诊断通道里没有前端报错 / CSP 违规"

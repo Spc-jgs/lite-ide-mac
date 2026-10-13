@@ -479,25 +479,26 @@ html, body {
 .ibtn.lg { width: 26px; height: 26px; }
 
 /*
- * # 动效只有三种，而且全在这一段里
+ * # 动效只有四种，而且全在这一段里
  *
  * 2026-09-21 之前全应用只有两处动画（远程进度那条来回跑的条、日志跟随尾部的呼吸点），
  * 其余一律瞬切：按钮 hover 一帧变色，浮层一帧出现，确认卡片一帧压到编辑器上。
  * 瞬切不是错 —— macOS 原生菜单就是瞬出的 —— 但**浮层和卡片瞬出会让人找不到它是从哪儿来的**：
  * 眼睛还在触发它的那个控件上，一块 600px 的板子已经在屏幕中央了。
  *
- * 三种，各管一件事，时长都短到「感觉得到、数不出来」：
+ * 四种，各管一件事，时长都短到「感觉得到、数不出来」（第四种 `nudge` 是 2026-10-13 加的）：
  *
  * | 动效 | 给谁 | 时长 | 为什么是这个形状 |
  * |---|---|---|---|
  * | `transition` 底色 / 字色 | `.btn` `.ibtn` 的 hover | 70ms | 只做 hover，**按下瞬切** —— 按下去还要等 70ms 才变色，手感是「黏」 |
  * | `fade-in` 淡入 | 浮层 `.popup`、压暗的 `.scrim` | 90ms | **只动透明度，不动位移 / 缩放**：分支浮层和右键菜单打开后要量自己的矩形往视口里钳，动了 transform 量出来的就是动画中途的那一帧 |
  * | `drop-in` 淡入 + 下落 4px | 确认卡片 `.confirm` | 120ms | 卡片从内容岛顶边「落下来」，和它的位置（贴顶）是一回事；它不钳位，可以动位移 |
+ * | `nudge` 放大 1.5% 再回来 | 对话框 `.dialog`（被挡下的那一下，`shell/modal.ts`） | 160ms | 对话框开着时按了快捷键、点了别处：**没有反馈就和「快捷键坏了」一模一样**。只动缩放、不晃：左右晃是「错了」（登录框密码错），这里是「先回答我」 |
  *
  * 列表行的 hover **故意不加**：Finder / IDEA 的行都是瞬切，而且行是一屏几十个，
  * 滚过去一片渐变反而显得糊。
  *
- * `prefers-reduced-motion` 关掉上面三种；spinner **不关** —— 它是「还在等」这个信息本身，
+ * `prefers-reduced-motion` 关掉上面四种（`nudge` 换成描一圈 accent，反馈不能跟着没了）；spinner **不关** —— 它是「还在等」这个信息本身，
  * 停下来就成了一个断掉的圆环。
  */
 /*
@@ -528,6 +529,9 @@ html, body {
 }
 @keyframes drop-in {
   from { opacity: 0; translate: 0 -4px; }
+}
+@keyframes nudge {
+  50% { scale: 1.015; }
 }
 
 /*
@@ -699,7 +703,8 @@ html, body {
  * 删分支、切分支被挡住、信任仓库）改成对话框：编辑岛压暗、正中偏上、标题是问句、一句后果、按钮照 macOS 排。
  * 原来它们也是横条卡片：横在代码第一行上、像工具栏，一行里塞着文件名和三个按钮，看不出「要你先回答」。
  *
- * 压暗只盖编辑岛（`Confirms.svelte` 的 `.layer`），不盖侧边栏和状态栏：问的是这一块里的事。点暗处不关 —— 对话框不是浮层，
+ * 压暗只盖编辑岛（`Confirms.svelte` 的 `.layer`），不盖侧边栏和状态栏：问的是这一块里的事；**挡的是整个窗口**（键盘、鼠标、菜单，
+ * `shell/modal.ts`，ui.md 第二之二条）。点暗处不关 —— 对话框不是浮层，
  * 选择要按按钮做（Esc = 那个 `data-dismiss` 的「取消」）。打开时焦点给 `data-default` 那个按钮：回车 = 它，
  * 也让焦点离开编辑器（不然字照样打进被压暗的正文里）。有丢东西后果的对话框，`data-default` 给「取消」—— 不让回车顺手确认
  */
@@ -721,6 +726,8 @@ html, body {
 .dialog .body b { color: var(--text); font-weight: 600; }
 .dialog .actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .dialog .actions .gap { flex: 1; }
+/* 对话框开着时别处的输入被挡下：顶一下（`shell/modal.ts` 的 nudgeDialog）。和 drop-in 写在一条 animation 上会互相顶掉，所以单独一条 */
+.dialog.nudge { animation: nudge 160ms ease-out; }
 
 /*
  * # 进度条只有一种：3px 圆角细条
@@ -759,7 +766,8 @@ html, body {
 
 @media (prefers-reduced-motion: reduce) {
   .btn, .ibtn { transition: none; }
-  .popup, .scrim.dim, .confirm { animation: none; }
+  .popup, .scrim.dim, .confirm, .dialog { animation: none; }
+  .dialog.nudge { animation: none; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 0 2px var(--accent); }
   /* 不确定的条不跑了，但要留着「有东西在」：整条 40% 透明度 */
   .pbar.indet::after { animation: none; width: 100%; opacity: 0.4; }
   .pbar > .pfill { transition: none; }

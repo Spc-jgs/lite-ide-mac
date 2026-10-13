@@ -136,6 +136,8 @@ struct Win {
     menu: Option<MenuState>,
     /// 前端起来、恢复完之后要新建一份草稿（没有窗口时按了「新建草稿」，[`Windows::want_scratch`]）
     start_scratch: bool,
+    /// 前端的启动流程走完了（取过 [`Windows::take_start_scratch`]）：从此「在草稿本新建」直接发事件，见 [`Windows::scratch_now`]
+    settled: bool,
 }
 
 #[derive(Default)]
@@ -364,9 +366,28 @@ impl Windows {
         self.lock().wins.entry(label.to_string()).or_default().start_scratch = true;
     }
 
-    /// 取走「起来之后新建草稿」那一笔。只给一次
+    /// 取走「起来之后新建草稿」那一笔。只给一次；取过就算这个窗口启动流程走完了（[`Windows::scratch_now`]）
     pub fn take_start_scratch(&self, label: &str) -> bool {
-        self.lock().wins.get_mut(label).is_some_and(|w| std::mem::take(&mut w.start_scratch))
+        // entry 而不是 get_mut：登记表里万一还没有它，也得把「走完了」记上 —— 记不上的话 scratch_now 永远只记账、不发事件
+        let mut g = self.lock();
+        let w = g.wins.entry(label.to_string()).or_default();
+        w.settled = true;
+        std::mem::take(&mut w.start_scratch)
+    }
+
+    /// 「在草稿本新建」落到 `label` 上：它的启动流程走完了 → `true`，调用方发 `scratchbook` 事件；
+    /// 还没走完 → 记一笔「起来之后新建草稿」、返回 `false`，由它的启动流程在 `take_start_scratch` 那一刻取走。
+    ///
+    /// 原来一律发事件（code review 2026-10-13）：上一下刚新开的窗口，前端还没挂上监听（或者正在恢复会话），
+    /// 第二下的事件发给了空气 —— 表现是「按了没反应」。和 [`Windows::take_inbox`] 是同一个毛病：
+    /// **对面没在听的时候，东西要存在发的这一边**。查和记在同一把锁里，和 `take_start_scratch` 不会错过
+    pub fn scratch_now(&self, label: &str) -> bool {
+        let mut g = self.lock();
+        let w = g.wins.entry(label.to_string()).or_default();
+        if !w.settled {
+            w.start_scratch = true;
+        }
+        w.settled
     }
 
     /// 开始退出。返回要等哪几个窗口回话（前端起来了的那些）；已经在退出了返回 None
@@ -1008,5 +1029,16 @@ mod tests {
         w.want_scratch("w-1");
         assert!(w.take_start_scratch("w-1"));
         assert!(!w.take_start_scratch("w-1"), "取过就没了：刷新页面不该再新建一份");
+    }
+
+    #[test]
+    fn 草稿本还没起来时_在草稿本新建_记一笔不发事件() {
+        let w = Windows::default();
+        w.register("w-1");
+        assert!(!w.scratch_now("w-1"), "启动流程还没走完：不发（发了没人听）");
+        assert!(!w.scratch_now("w-1"), "连按两下：还是记着，不是两份");
+        assert!(w.take_start_scratch("w-1"), "启动流程取走，新建一份");
+        assert!(w.scratch_now("w-1"), "走完了：直接发事件");
+        assert!(!w.take_start_scratch("w-1"), "走完之后按的不再记账（不然刷新页面会多一份）");
     }
 }

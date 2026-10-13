@@ -1,4 +1,4 @@
-import { adoptRecent, claimEmptySession, probePath } from "../ipc/commands";
+import { adoptRecent, claimEmptySession, fileStamp, probePath } from "../ipc/commands";
 import * as session from "./session";
 import { stashed } from "./doc";
 import { notify } from "./notify.svelte";
@@ -8,8 +8,7 @@ import { files } from "./files.svelte";
 import { tabs } from "./tabs.svelte";
 import { docs, type ViewPos } from "./docs.svelte";
 import { tabflow } from "./tabflow.svelte";
-import { keepInScratchbook } from "./scratchbook";
-import { scratches } from "./scratches.svelte";
+import { keepInScratchbook, mayCollapse } from "./scratchbook";
 
 /**
  * 会话快照的读写：启动时把上次的现场摆回来，之后有变化就防抖落盘。
@@ -228,11 +227,13 @@ class Persist {
      */
     let open = saved.tabs;
     if (saved.root === null) {
-      // 修改时间从草稿列表拿（盘上的真时间）；列不出来就全留着（keepInScratchbook 拿不准时留）
-      await scratches.refresh().catch(() => {});
-      const mtime = new Map(scratches.list.map((e) => [e.path, e.mtimeMs]));
+      // 盘上的修改时间，只问可能收起的那几张、一起问（mayCollapse）；问不到的留着（keepInScratchbook 拿不准时留）
+      const isScratch = (p: string) => project.isScratch(p);
+      const ask = saved.tabs.filter((t) => mayCollapse(t, isScratch)).map((t) => t.path);
+      const got = await Promise.all(ask.map((p) => fileStamp(p).then((s) => s.mtimeMs, () => undefined)));
+      const mtime = new Map(ask.map((p, i) => [p, got[i]]));
       const now = Date.now();
-      open = saved.tabs.filter((t) => keepInScratchbook(t, now, (p) => project.isScratch(p), (p) => mtime.get(p)));
+      open = saved.tabs.filter((t) => keepInScratchbook(t, now, isScratch, (p) => mtime.get(p)));
     }
     tabflow.restoringTabs = true;
     try {
@@ -287,8 +288,9 @@ class Persist {
     if (tabs.activeId === null && tabs.list.length > 0) tabs.show(tabs.list[0].id);
     this.#regroup(saved);
     // 上次开着、这次已经不在的文件：位置记忆也删掉，不然它们
-    // 会一直躺在快照里，每次启动都白试一遍
-    for (const t of saved.tabs) {
+    // 会一直躺在快照里，每次启动都白试一遍。**只删试过没开成的**（`open`）：草稿本收起的那几张文件还在，
+    // 这次从草稿列表点开要回到上次那一行（code review 2026-10-13：原来按 `saved.tabs` 删，收起的连位置一起没了）
+    for (const t of open) {
       if (!tabs.list.some((x) => x.path === t.path)) docs.posByPath.delete(t.path);
     }
     tabs.audit("会话恢复");

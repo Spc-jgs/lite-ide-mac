@@ -325,7 +325,10 @@ pub fn open_scratchbook(app: &AppHandle) {
                     let _ = w.set_focus();
                 }
             }
-            let _ = app.emit_to(label.as_str(), "scratchbook", ());
+            // 它的前端还没走完启动流程（上一下刚开出来的）：不发事件、记一笔，见 Windows::scratch_now
+            if state.windows.scratch_now(&label) {
+                let _ = app.emit_to(label.as_str(), "scratchbook", ());
+            }
         }
         None => {
             if let Some(label) = create(app, None, None, Vec::new()) {

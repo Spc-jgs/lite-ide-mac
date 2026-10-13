@@ -177,7 +177,7 @@ src-tauri/
 cd src-tauri && cargo test --workspace    # Rust 408 条
 pnpm check                                # 类型检查
 pnpm test                                 # 前端 50 个文件、约 1,270 条断言
-scripts/smoke.sh                          # 真 .app 端到端 91 条（测试身份、不抢焦点、不碰真实数据）
+scripts/smoke.sh                          # 真 .app 端到端 97 条（测试身份、不抢焦点、不碰真实数据）
 ```
 
 前端测试不引测试框架：纯函数（diff 解析、双栏对照、泳道布局、冲突解析……）直接跑 `.ts`；

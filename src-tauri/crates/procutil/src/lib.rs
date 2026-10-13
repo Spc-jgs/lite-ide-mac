@@ -14,7 +14,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::os::unix::process::ExitStatusExt;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// stderr 默认留多少：够拼出一句能读的报错就行
@@ -45,29 +45,69 @@ const REAP_POLL: Duration = Duration::from_millis(200);
 
 /// 杀了、当场没等到它退的子进程，交给一条全进程共用的收尸线程：它隔 [`REAP_POLL`] 对手上每一个 `try_wait` 一次，退了就收。
 /// 原来是丢掉的那一下「kill 之后阻塞 wait」—— 卡住的进程把调用它的那条线程（阻塞池里的一条）一起卡住，
-/// 卡几条池子就少几条。照 Codex `utils/pty/src/child_reaper.rs`（docs/research/codex.md 主题 1 第 5 条）。
-/// 一个卡住的不耽误别的：每一个都只 `try_wait`，从不阻塞在某一个上
+/// 卡几条池子就少几条。照 Codex `utils/pty/src/child_reaper.rs`（docs/research/codex.md 主题 1 第 5 条）
 fn reap_later(child: Child) {
-    static REAPER: OnceLock<Mutex<Sender<Child>>> = OnceLock::new();
-    let tx = REAPER.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<Child>();
-        let _ = std::thread::Builder::new().name("procutil-reaper".into()).spawn(move || {
-            let mut held: Vec<Child> = Vec::new();
-            loop {
-                // 手上没有就一直睡到来活；有就隔一阵醒来问一遍
-                let got = if held.is_empty() { rx.recv().ok() } else { rx.recv_timeout(REAP_POLL).ok() };
-                held.extend(got);
-                // 收完了（`Some`）或者已经不是我们的孩子了（`Err`）都撒手；被信号打断的下一轮再问（同 Codex）
-                held.retain_mut(|c| match c.try_wait() {
-                    Ok(None) => true,
-                    Ok(Some(_)) => false,
-                    Err(e) => e.kind() == io::ErrorKind::Interrupted,
-                });
-            }
-        });
-        Mutex::new(tx)
-    });
-    let _ = tx.lock().unwrap_or_else(|e| e.into_inner()).send(child);
+    if let Err((child, e)) = hand_off(&REAPER, child, spawn_reaper) {
+        // 没人收：它退了之后留成僵尸，直到本进程退出。不当场 wait —— 那正是交出去要避开的（卡住的进程把这条线程一起卡住）
+        applog::write(
+            applog::Level::Warn,
+            "procutil",
+            &format!("收尸线程起不来（{e}）：pid {} 退出后会留成僵尸，直到应用退出；下一个要收尸的会再试着起一次", child.id()),
+        );
+    }
+}
+
+/// 收尸线程的信箱。`None` = 还没起，或者上次没起来 —— **下一次再试**：原来是 `OnceLock`，线程起不来那一次被记一辈子，
+/// 之后每个交过来的孩子都 `send` 失败、被悄悄 drop（drop 一个 `Child` 不收尸），app.log 里一个字都没有（code review 2026-10-13）
+static REAPER: Mutex<Option<Sender<Child>>> = Mutex::new(None);
+
+/// 把 `child` 交给 `slot` 里那条收尸线程；没有、或者它已经没了（send 失败 = 那头的接收端掉了），用 `spawn` 起一条新的再交。
+/// 交不出去就**把孩子还回来**，连同原因 —— 由调用方说出来，不在这里悄悄扔掉。`spawn` 是参数：「线程起不来」造不出来，测试传一个会失败的
+fn hand_off(
+    slot: &Mutex<Option<Sender<Child>>>,
+    child: Child,
+    spawn: impl FnOnce() -> io::Result<Sender<Child>>,
+) -> Result<(), (Child, io::Error)> {
+    let mut g = slot.lock().unwrap_or_else(|e| e.into_inner());
+    let child = match g.as_ref() {
+        Some(tx) => match tx.send(child) {
+            Ok(()) => return Ok(()),
+            Err(mpsc::SendError(c)) => c,
+        },
+        None => child,
+    };
+    *g = None;
+    let tx = match spawn() {
+        Ok(tx) => tx,
+        Err(e) => return Err((child, e)),
+    };
+    match tx.send(child) {
+        Ok(()) => {
+            *g = Some(tx);
+            Ok(())
+        }
+        Err(mpsc::SendError(c)) => Err((c, io::Error::other("收尸线程刚起来就没了"))),
+    }
+}
+
+/// 起一条收尸线程：手上没有就一直睡到来活；有就隔 [`REAP_POLL`] 醒来对每一个 `try_wait` 一遍。
+/// 一个卡住的不耽误别的：每一个都只 `try_wait`，从不阻塞在某一个上
+fn spawn_reaper() -> io::Result<Sender<Child>> {
+    let (tx, rx) = mpsc::channel::<Child>();
+    std::thread::Builder::new().name("procutil-reaper".into()).spawn(move || {
+        let mut held: Vec<Child> = Vec::new();
+        loop {
+            let got = if held.is_empty() { rx.recv().ok() } else { rx.recv_timeout(REAP_POLL).ok() };
+            held.extend(got);
+            // 收完了（`Some`）或者已经不是我们的孩子了（`Err`）都撒手；被信号打断的下一轮再问（同 Codex）
+            held.retain_mut(|c| match c.try_wait() {
+                Ok(None) => true,
+                Ok(Some(_)) => false,
+                Err(e) => e.kind() == io::ErrorKind::Interrupted,
+            });
+        }
+    })?;
+    Ok(tx)
 }
 
 /// 被我们杀掉的那个退出状态（按 SIGKILL 记）。当场没等到真的状态时用 —— 它本来也没有意义（rust.md「被掐掉的子进程退出码没有意义」）
@@ -554,6 +594,37 @@ mod tests {
             std::thread::sleep(Duration::from_millis(100));
         }
         assert_eq!(ps_stat(pid), "", "它退了之后没人收尸，留成了僵尸");
+    }
+
+    /// 收尸线程起不来时（线程数打满，`spawn` 报 EAGAIN）：孩子要**交回来**让调用方记 WARN，不能悄悄 drop；
+    /// 下一次再试着起，不把这一次失败记一辈子（原来是 `OnceLock`，code review 2026-10-13）
+    #[test]
+    fn 收尸线程起不来_孩子交回来_下次再起() {
+        let slot = Mutex::new(None);
+        #[allow(clippy::disallowed_methods)] // 测试里直接起一个子进程，交给 hand_off
+        let child = Command::new("true").spawn().unwrap();
+        let (child, e) = hand_off(&slot, child, || Err(io::Error::other("模拟起不来"))).expect_err("起不来：要把孩子交回来");
+        assert!(e.to_string().contains("模拟起不来"), "原因要带回来：{e}");
+        assert!(slot.lock().unwrap().is_none(), "失败不能占住信箱");
+        hand_off(&slot, child, spawn_reaper).expect("下一次起得来就用它");
+        assert!(slot.lock().unwrap().is_some());
+    }
+
+    /// 信箱里那条线程没了（接收端掉了，`send` 失败）：重起一条接着交，不是把孩子扔掉
+    #[test]
+    fn 收尸线程没了_重起一条() {
+        let (dead, rx) = mpsc::channel::<Child>();
+        drop(rx);
+        let slot = Mutex::new(Some(dead));
+        #[allow(clippy::disallowed_methods)] // 测试里直接起一个子进程，交给 hand_off
+        let child = Command::new("true").spawn().unwrap();
+        let mut spawned = 0;
+        hand_off(&slot, child, || {
+            spawned += 1;
+            spawn_reaper()
+        })
+        .expect("重起一条交给它");
+        assert_eq!(spawned, 1, "信箱里那条已经没了，要重起");
     }
 
     /// 撒手的读线程要有账（code review 2026-10-12）：写端还被攥着时到点撒手 → 记成「撒手」；写端后来关了、线程读到 EOF 退出 → 记成「读完」（总数减回去）。

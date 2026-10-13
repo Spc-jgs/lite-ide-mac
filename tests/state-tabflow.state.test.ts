@@ -608,8 +608,23 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
       tabs: [{ path: old }, { path: oldDraft, draft: "没存的字" }, { path: fresh }, { path: "/proj/README.md" }],
     }),
   );
+  // 收起的那张上次停在第 40 行：从草稿列表点开要回到那儿（review 2026-10-13：原来连位置一起删了）
+  const snap = JSON.parse(localStorage.getItem("lite-ide.session:")!);
+  snap.tabs[0].line = 40;
+  localStorage.setItem("lite-ide.session:", JSON.stringify(snap));
+  // 只问可能收起的那几张的修改时间，不列整个草稿目录（review 2026-10-13：草稿一多首屏要等它）
+  const ipc = (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+  const realInvoke = ipc.invoke;
+  const asked: string[] = [];
+  ipc.invoke = (c, a) => {
+    asked.push(c);
+    return realInvoke(c, a);
+  };
   persist.restoring = true;
   await persist.restoreEmpty();
+  ipc.invoke = realInvoke;
+  ok(!asked.includes("list_scratches"), `恢复时不列整个草稿目录，实际调了：${[...new Set(asked)].join(", ")}`);
+  ok(docs.posByPath.get(old)?.line === 40, `收起的草稿：位置记着，实际 ${JSON.stringify(docs.posByPath.get(old))}`);
   const has = (p: string) => tabs.list.some((t) => t.path === p);
   ok(!has(old), "五天没改的草稿：不摆回来");
   ok(has(oldDraft), "五天没改、但有没保存的字：照样回来");

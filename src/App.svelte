@@ -30,6 +30,7 @@
   import { docs } from "./lib/state/docs.svelte";
   import type { Group } from "./lib/state/tab";
   import { scratches } from "./lib/state/scratches.svelte";
+  import { dialogUp, nudgeDialog } from "./lib/shell/modal";
   import {
     probePath,
     ignoredDirs,
@@ -754,17 +755,28 @@
      * 监听挂在它后面的话，中间那一拍到的事件就发给了空气。
      * 只收发给这个窗口的（`listenHere`）：多窗口时 Rust 按项目把路径路由到某一个窗口。
      */
-    let unlisten: (() => void) | null = null;
+    const unlisten: (() => void)[] = [];
     let dead = false;
-    const ready = listenHere<string[]>(OPEN_PATHS_EVENT, (e) => {
-      // 负载不是数组就不动：桩的 `__mockMenu` 会把菜单事件广播给所有监听器
-      if (Array.isArray(e.payload)) void openIncoming(e.payload);
-    })
-      .then((f) => {
-        if (dead) f();
-        else unlisten = f;
-      })
-      .catch(() => null);
+    const keep = (f: () => void) => {
+      if (dead) f();
+      else unlisten.push(f);
+    };
+    /*
+     * 「在草稿本新建」挑中了这个窗口（Rust 的 `winctl::open_scratchbook`）：当前那张空就用它，否则开一张（docs/SCRATCH.md 第七节）。
+     * 也挂在这条链上、早于 `takeStartScratch`：Rust 以「取过那一笔」为界，之前按的记账、之后按的发事件（`Windows::scratch_now`）——
+     * 监听挂晚了，界线之后、监听之前那一拍发来的就没人收（code review 2026-10-13）
+     */
+    const ready = Promise.all([
+      listenHere<string[]>(OPEN_PATHS_EVENT, (e) => {
+        // 负载不是数组就不动：桩的 `__mockMenu` 会把菜单事件广播给所有监听器
+        if (Array.isArray(e.payload)) void openIncoming(e.payload);
+      }).then(keep),
+      // 对话框开着：先回答它（shell/modal.ts）。Dock 右键也走到这儿 —— 人在别的应用里点的，窗口切过来就看见那个问题
+      listenHere<null>("scratchbook", () => {
+        if (dialogUp()) nudgeDialog();
+        else void tabflow.toScratchbook();
+      }).then(keep),
+    ]).catch(() => null);
     ready
       .then(() => initialPaths())
       .then(async (paths) => {
@@ -807,7 +819,7 @@
       });
     return () => {
       dead = true;
-      unlisten?.();
+      for (const f of unlisten) f();
     };
   });
 
@@ -890,12 +902,6 @@
    */
   $effect(() => {
     const reg = listenHere<string>("menu", (e) => void runMenu(e.payload)).catch(() => null);
-    return () => void reg.then((f) => f?.()).catch(() => {});
-  });
-
-  /** 「在草稿本新建」挑中了这个窗口（Rust 的 `winctl::open_scratchbook`）：当前那张空就用它，否则开一张（docs/SCRATCH.md 第七节） */
-  $effect(() => {
-    const reg = listenHere<null>("scratchbook", () => void tabflow.toScratchbook()).catch(() => null);
     return () => void reg.then((f) => f?.()).catch(() => {});
   });
 

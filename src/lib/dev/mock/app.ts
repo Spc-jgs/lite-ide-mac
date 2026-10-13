@@ -16,6 +16,9 @@ let mockRecent: string[] = ["/proj", "/Users/you/work/another-repo"];
 let mockRoot = "";
 /** `scratchbook` 事件的监听回调（`plugin:event|listen` 时记下的编号），同 tasks.ts 的 `exitCbs` */
 const scratchbookCbs = new Set<number>();
+/** 启动流程走完了没有（取过 `take_start_scratch`）、走完之前有没有人按过「在草稿本新建」—— 同 Rust 的 `Win::settled` / `start_scratch` */
+let scratchSettled = false;
+let scratchWanted = false;
 const recentDto = () => ({ projects: [...mockRecent], keep: mockRoot ? [mockRoot] : [] });
 
 export async function appCmd(cmd: string, a: A): Promise<unknown> {
@@ -52,9 +55,13 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
       const hook = (globalThis as { __mockClaimEmpty?: () => boolean }).__mockClaimEmpty;
       return hook ? hook() : true;
     }
-    // 浏览器里没有「没有窗口时按新建草稿」这回事
-    case "take_start_scratch":
-      return false;
+    // 浏览器里没有「没有窗口时按新建草稿」这回事；但「启动流程走完之前按的在草稿本新建」要记账，同 Rust 的 `Windows::scratch_now`
+    case "take_start_scratch": {
+      const want = scratchWanted;
+      scratchSettled = true;
+      scratchWanted = false;
+      return want;
+    }
     /*
      * 在草稿本新建：浏览器里只有一个「窗口」，真实现要么切到没项目的窗口、要么开一个新的 —— 这里两样都做不到，
      * 就把 `scratchbook` 事件发给这一个窗口（它会复用空的那张或者开一张）。开着项目时和真实现不一样：真的会去另一个窗口
@@ -64,6 +71,10 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
       scratchbookCbs.add(Number((a as unknown as { handler: number }).handler));
       return Number((a as unknown as { handler: number }).handler);
     case "open_scratchbook":
+      if (!scratchSettled) {
+        scratchWanted = true;
+        return null;
+      }
       for (const cb of scratchbookCbs) {
         const f = (window as unknown as Record<string, unknown>)[`_cb${cb}`];
         if (typeof f === "function") (f as (e: unknown) => void)({ event: "scratchbook", id: 0, payload: null });

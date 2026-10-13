@@ -17,7 +17,7 @@ scripts/build-test-app.sh      # 带测试通道的临时身份 .app（验收用
 scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点
 scripts/accept/tasks.sh        # 任务运行的机制（36 条）；quit.sh 是 Dock 右键退出那条路（6 条）
 scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪样哪段记「未验」）
-scripts/smoke.sh               # 发版前的端到端清单（91 条，约 100 秒），同样走测试通道，先打测试 .app
+scripts/smoke.sh               # 发版前的端到端清单（97 条，约 100 秒），同样走测试通道，先打测试 .app
 ```
 
 ## 验证纪律
