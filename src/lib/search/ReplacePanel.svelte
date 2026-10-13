@@ -346,7 +346,6 @@
     padding: 7px 16px;
     font-size: var(--fs-xs);
     color: var(--text-faint);
-    background: var(--chrome-scrim);
   }
   .foot .gap { flex: 1; }
   .foot .ask { font-size: var(--fs-sm); color: var(--text); }

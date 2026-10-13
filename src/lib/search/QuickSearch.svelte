@@ -684,8 +684,7 @@
     align-items: center;
     gap: 12px;
     padding: 7px 14px;
-    border-top: 1px solid var(--border-soft);
-    background: var(--chrome-scrim);
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
     font-size: var(--fs-xs);
     color: var(--text-faint);
     user-select: none;

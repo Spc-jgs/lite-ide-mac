@@ -26,6 +26,12 @@
      * 否则打勾那一项的文字会比别的项靠右一格，像是另一种缩进。
      */
     checked?: boolean;
+    /**
+     * 这一项的快捷键，印在右边（2026-10-12 设计稿②）。原来菜单上一个都不印：文件树里 F2 改名、⌘⌫ 进废纸篓早就能按，
+     * 没人知道 —— 菜单是人「学键位」的地方（macOS 每个菜单都印）。**只印真按得出来的**：键位表里有的从 `byId` 取，
+     * 只在某个面板里有效的（文件树的 F2）照那个面板的 keydown 写
+     */
+    keys?: string;
   }
 
   import { tick } from "svelte";
@@ -258,7 +264,7 @@
         close(false, true);
       }}
     >
-      {#if checkable}<span class="tick" aria-hidden="true">{#if it.checked}<Icon name="check" />{/if}</span>{/if}{it.label}
+      {#if checkable}<span class="tick" aria-hidden="true">{#if it.checked}<Icon name="check" />{/if}</span>{/if}<span class="mlabel">{it.label}</span>{#if it.keys}<span class="mkeys">{it.keys}</span>{/if}
     </button>
   {/each}
 </div>
@@ -267,14 +273,14 @@
   .menu {
     position: fixed;
     z-index: 60;
-    min-width: 168px;
-    padding: 5px;
+    min-width: 200px;
+    padding: 6px;
     /* 面在 app.css 的 `.popup`。菜单**不淡入**：macOS 原生菜单是瞬出的，右键之后手已经在往条目上走了 */
     animation: none;
     outline: none;
   }
   .mhead {
-    padding: 3px 9px 5px;
+    padding: 4px 10px 6px;
     margin-bottom: 2px;
     /* 标题下面不画线（M8）：字色和间距已经把它和条目分开了 */
     color: var(--text-faint);
@@ -286,9 +292,11 @@
     max-width: 260px;
   }
   .mitem {
-    display: block;
+    display: flex;
+    align-items: center;
     width: 100%;
-    padding: 4px 9px;
+    height: 28px;
+    padding: 0 10px;
     background: transparent;
     border: none;
     border-radius: var(--r-sm);
@@ -299,22 +307,29 @@
     white-space: nowrap;
     cursor: default;
   }
+  .mlabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 快捷键：再灰一档、小一号，右对齐 —— 扫一眼找的是左边的字，键位是给想学的人的 */
+  .mkeys { flex: none; margin-left: 24px; color: var(--text-faint); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
   /* 鼠标和键盘共用一个高亮：菜单里同时有两个高亮是最容易看错的写法 */
-  /* 菜单里「键盘走到哪一项」是弱状态，中性白就够；强调色会让它比内容还抢眼 */
-  .mitem.on { background: var(--selected); }
+  /*
+   * 高亮用系统强调色、白字（2026-10-12 设计稿② 方案 B，用户选的）。原来是中性白 11%，理由是「强调色会比内容还抢眼」；
+   * 推翻它是因为 macOS 每个应用的菜单都是这样 —— 人一天看几百次的样子，在这里换一种反而要多想一下「选中的是哪一项」
+   */
+  .mitem.on { background: var(--accent); color: #fff; }
+  .mitem.on .mkeys, .mitem.on .tick { color: rgba(255, 255, 255, 0.85); }
   /* 分隔线两侧各内缩 6px（M8），macOS 原生菜单就是这么画的 —— 用伪元素画，条目本身的圆角不受影响 */
   .mitem.sep {
     position: relative;
-    margin-top: 9px;
+    margin-top: 11px;
   }
   .mitem.sep::before {
     content: "";
     position: absolute;
-    left: 6px;
-    right: 6px;
-    top: -5px;
+    left: 10px;
+    right: 10px;
+    top: -6px;
     height: 1px;
-    background: var(--border-soft);
+    background: rgba(255, 255, 255, 0.08);
   }
   /* ✓ 的格子：macOS 原生菜单把勾画在文字左边一格，没勾的项照样空出那一格 */
   .mitem.checkable { display: flex; align-items: center; padding-left: 4px; }
@@ -323,8 +338,9 @@
    * 危险项常驻红色，不是只在 hover 时才红：手滑点中的那一下发生在 hover 之后，
    * 而人是靠「扫一眼菜单」决定往哪儿点的
    */
-  .mitem.danger { color: var(--lvl-error); }
+  .mitem.danger { color: #ff6b6b; }
   .mitem:disabled { color: var(--text-faint); opacity: 0.55; }
-  .mitem:disabled.on { background: transparent; }
-  .mitem.danger.on { background: rgba(247, 84, 100, 0.16); }
+  .mitem:disabled.on { background: transparent; color: var(--text-faint); }
+  /* 危险项被选中：红底白字（和强调色高亮同一个形状，颜色说后果） */
+  .mitem.danger.on { background: var(--lvl-error); color: #fff; }
 </style>

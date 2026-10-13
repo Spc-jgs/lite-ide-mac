@@ -121,9 +121,8 @@
     gap: 5px;
     padding: 5px 6px;
     background: var(--elevated);
-    border: var(--island-border);
     border-radius: var(--r-md);
-    box-shadow: var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    box-shadow: var(--shadow-pop), var(--pop-ring);
     font-family: var(--ui-font);
   }
   .box {
@@ -135,11 +134,11 @@
     min-width: 120px;
     height: 26px;
     padding: 0 3px 0 8px;
-    background: var(--elevated-hi);
-    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--r-sm);
   }
-  .box:focus-within { border-color: var(--accent); }
+  .box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
   .in {
     flex: 1;
     min-width: 0;

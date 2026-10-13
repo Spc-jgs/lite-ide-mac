@@ -55,7 +55,7 @@
 
   ```yaml
   ---
-  project: /Users/shaopc/playground/lite-ide
+  project: /Users/you/code/order-service
   branch: main
   head: b6176f3
   at: src/lib/git/GitPane.svelte:347

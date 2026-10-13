@@ -84,27 +84,27 @@ export const ideaDarkTheme = EditorView.theme(
     },
     ".cm-panels": { backgroundColor: "var(--elevated)", color: TEXT, borderColor: "var(--border)" },
     ".cm-panels input, .cm-panels button": {
-      backgroundColor: "var(--elevated-hi)",
+      backgroundColor: "rgba(255, 255, 255, 0.06)",
       color: TEXT,
-      border: "1px solid var(--border)",
+      border: "1px solid rgba(255, 255, 255, 0.08)",
       borderRadius: "var(--r-sm)",
       padding: "2px 6px",
       fontFamily: "var(--code-font)",
     },
     ".cm-tooltip": {
       backgroundColor: "var(--elevated)",
-      border: "1px solid var(--border)",
+      border: "none",
+      borderRadius: "var(--r-sm)",
       color: TEXT,
-      boxShadow: "var(--shadow-pop)",
+      boxShadow: "var(--shadow-pop), var(--pop-ring)",
     },
     /*
-     * 补全弹层：照右键菜单的样子（ui.md 二之二：5% 描边 + 内高光，当前项内缩圆角块）。
+     * 补全弹层：照右键菜单的样子（ui.md 二之二：浮层的边 `--pop-ring`，当前项内缩圆角块）。
      * CM6 默认给的是白底蓝条，深壁纸上像另一个应用弹出来的东西。
      */
     ".cm-tooltip.cm-tooltip-autocomplete": {
-      border: "var(--island-border)",
       borderRadius: "var(--r-md)",
-      boxShadow: "var(--shadow-pop), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06)",
+      boxShadow: "var(--shadow-pop), var(--pop-ring)",
       padding: "4px",
     },
     ".cm-tooltip.cm-tooltip-autocomplete > ul": {
@@ -113,15 +113,19 @@ export const ideaDarkTheme = EditorView.theme(
       maxHeight: "240px",
     },
     ".cm-tooltip.cm-tooltip-autocomplete > ul > li": {
-      padding: "2px 8px",
+      padding: "3px 8px",
       borderRadius: "var(--r-sm)",
       color: "var(--text-dim)",
     },
+    // 选中项和右键菜单同一个样子：强调色底、白字（2026-10-12 设计稿②）—— 同一个应用里两种菜单高亮，人要多想一下哪个是选中的
     ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {
-      backgroundColor: "var(--selected)",
-      color: "var(--text)",
+      backgroundColor: "var(--accent)",
+      color: "#fff",
     },
     ".cm-completionMatchedText": { textDecoration: "none", color: "var(--accent)" },
+    // 选中项的底已经是强调色，匹配的那几个字再用强调色就看不见了：白字加粗
+    ".cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText": { color: "#fff", fontWeight: "600" },
+    ".cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail": { color: "rgba(255, 255, 255, 0.8)" },
     ".cm-completionIcon": { display: "none" },
     ".cm-completionDetail": { color: "var(--text-faint)", fontStyle: "normal", marginLeft: "8px" },
   },

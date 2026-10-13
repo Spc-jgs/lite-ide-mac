@@ -209,17 +209,17 @@
   .search input {
     width: 100%;
     min-width: 0;
-    height: 22px;
-    padding: 0 7px;
-    background: var(--elevated-hi);
-    border: 1px solid var(--border);
+    height: 24px;
+    padding: 0 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--code-font);
     font-size: var(--fs-sm);
     outline: none;
   }
-  .search input:focus { border-color: var(--accent); }
+  .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
   /* 正则写坏了：和编辑器查找面板同一个说法 —— 字变红，不弹任何东西；边打边写的正则大半时间是坏的 */
   .search input.bad { color: var(--lvl-error); }
   .search input::placeholder { color: var(--text-faint); }
@@ -256,38 +256,44 @@
     .chip .num { display: none; }
   }
 
+  /*
+   * 开关按钮（折叠堆栈、跟随尾部）：关着是和 `.btn` 一样的实心浅灰；开着是淡强调色底 —— 2026-10-12 之前是描边 + 开着描一圈蓝，
+   * 按钮改成实心之后同一排就成了两种按钮
+   */
   .fold {
-    padding: 3px 9px;
-    background: transparent;
-    border: 1px solid var(--border);
+    height: 24px;
+    padding: 0 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
     border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: var(--fs-sm);
     cursor: default;
     flex: none;
   }
-  .fold:hover { background: var(--hover); }
-  .fold.on { border-color: var(--accent); color: var(--text); background: var(--accent-sel); }
+  .fold:hover { background: rgba(255, 255, 255, 0.12); color: var(--text); }
+  .fold.on { color: var(--text); background: rgba(10, 132, 255, 0.28); }
 
   .tail {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 9px;
-    background: transparent;
-    border: 1px solid var(--border);
+    height: 24px;
+    padding: 0 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
     border-radius: var(--r-sm);
     color: var(--text-dim);
     font-size: var(--fs-sm);
     cursor: default;
     flex: none;
   }
-  .tail:hover { background: var(--hover); }
+  .tail:hover { background: rgba(255, 255, 255, 0.12); color: var(--text); }
   .tail .live {
     width: 6px; height: 6px; border-radius: 50%;
     background: var(--text-faint); flex: none;
   }
-  .tail.on { border-color: var(--accent); color: var(--text); }
+  .tail.on { color: var(--text); background: rgba(10, 132, 255, 0.28); }
   .tail.on .live { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.25; } }
   @media (prefers-reduced-motion: reduce) { .tail.on .live { animation: none; } }

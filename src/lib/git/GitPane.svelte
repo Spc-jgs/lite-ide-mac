@@ -473,12 +473,11 @@
     width: 100%;
     resize: vertical;
     /*
-     * 抬起面：底比面板亮，边是 15% 的白。这两样加上大圆角就是那个
-     * "一块摞上去的板"的观感 —— 输入框在 ChatGPT 里正是这么处理的
-     * （#212121 + #ffffff26 + 28px 圆角）。
+     * 和全应用的输入框一个样子（2026-10-12）：6% 白的底、8% 的细边，聚焦时一圈柔和的强调色光晕（macOS 文本框）。
+     * 提交框比别的输入框大一号圆角：它是多行的、是这一页的主角，大圆角让它读成「一块写字的地方」而不是一格表单。
      */
-    background: var(--elevated);
-    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--r-md);
     color: var(--text);
     font-family: var(--ui-font);
@@ -486,7 +485,7 @@
     line-height: 1.5;
     padding: 8px 10px;
   }
-  .commit textarea:focus { outline: none; border-color: var(--accent); }
+  .commit textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
   .commit textarea::placeholder { color: var(--text-faint); }
   .crow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
   .amend {

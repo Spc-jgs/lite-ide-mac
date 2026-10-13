@@ -149,7 +149,7 @@ src/                    前端（Svelte 5 + CM6）
   lib/logview/          日志视图：虚拟滚动、块解析、格式识别
   lib/editor/           编辑器：语言表、Markdown 实时预览、缩略图、符号大纲
   lib/git/              Git：改动面板、泳道日志、双栏差异、冲突解决、分支选择器
-  lib/shell/            外壳：导轨、侧边栏、文件树、标签栏、底部工具窗、确认卡片
+  lib/shell/            外壳：导轨、侧边栏、文件树、标签栏、底部工具窗、对话框与确认卡片
   lib/run/              运行窗（任务）
   lib/state/            状态层（*.svelte.ts，裸 node 能测）
   lib/dev/mock*         浏览器里的 IPC 桩（按领域分在 mock/），生产构建里被 DEV 常量分支整段删掉

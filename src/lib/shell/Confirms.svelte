@@ -27,11 +27,59 @@
   import { replace } from "../state/replace.svelte";
   import { project } from "../state/project.svelte";
   import { runs } from "../state/runs.svelte";
+  import { takeFocus } from "./dialog-focus";
 
   /** 替换的动作跟着替换浮层懒加载；卡片上点了才拉（启动时那一问已经拉过了，多半是现成的） */
   const replaceOps = () => import("../state/replace-ops");
 
+  let {
+    Bars,
+  }: {
+    /** `RemoteBars`，懒加载到了才有 */
+    Bars: typeof RemoteBars | undefined;
+  } = $props();
+
   let stackEl = $state<HTMLElement | null>(null);
+  let layerEl = $state<HTMLElement | null>(null);
+
+  /** RemoteBars 两处共用的参数：对话框层里放「问」的那两种，卡片区里放「报」的那一种 */
+  const barProps = $derived({
+    diverge: remote.pendingDiverge,
+    push: remote.pendingPush,
+    err: remote.err,
+    upstream: git.status?.upstream ?? "",
+    ahead: git.status?.ahead ?? 0,
+    onMerge: (mode: "merge" | "rebase", rem: boolean) => {
+      if (rem) remote.lastMergeMode = mode;
+      remote.pendingDiverge = null;
+      void remote.pull(mode);
+    },
+    onPush: () => void remote.push(),
+    onPull: () => {
+      remote.err = null;
+      void remote.pull();
+    },
+    onDismiss: (which: "diverge" | "push" | "err") => {
+      if (which === "diverge") remote.pendingDiverge = null;
+      else if (which === "push") remote.pendingPush = null;
+      else remote.err = null;
+    },
+  });
+
+  /** 此刻有没有要你先回答的对话框（有就压暗编辑岛） */
+  const asking = $derived(
+    !!(
+      tabflow.pendingClose ||
+      tabflow.pendingSwitch ||
+      branches.pendingWtRemove ||
+      branches.pendingBranchDelete ||
+      branches.pendingCheckout ||
+      git.pendingDiscard ||
+      git.pendingRevertHunk ||
+      (git.trustOpen && git.restricted) ||
+      (Bars && (remote.pendingDiverge || remote.pendingPush))
+    ),
+  );
 
   /*
    * Esc = 最上面那张卡片的「取消 / 知道了」。macOS 的对话框 Esc 就是 Cancel；卡片虽然不是
@@ -44,27 +92,167 @@
     if (e.key !== "Escape" || e.defaultPrevented) return;
     if (overlay.quickOpen || overlay.outlineOpen || overlay.keysOpen || overlay.encOpen || overlay.gotoOpen || overlay.branchOpen || overlay.replaceOpen) return;
     if (document.activeElement?.closest(".xterm")) return;
-    const btn = stackEl?.querySelector<HTMLButtonElement>(".confirm [data-dismiss]");
+    // 对话框优先：它压着编辑区，人看到的是它；没有对话框才轮到顶上的卡片
+    const btn =
+      layerEl?.querySelector<HTMLButtonElement>(".dialog [data-dismiss]") ??
+      stackEl?.querySelector<HTMLButtonElement>(".confirm [data-dismiss]");
     if (!btn) return;
     e.preventDefault();
     btn.click();
   }
 
-  let {
-    Bars,
-  }: {
-    /** `RemoteBars`，懒加载到了才有 */
-    Bars: typeof RemoteBars | undefined;
-  } = $props();
 </script>
 
 <!--
-  M8：确认条不再是撑开内容区的通栏横条，而是**浮在内容岛顶上的卡片**。
+  两种长相（2026-10-12 设计稿①）：**要你先回答的**（你刚做的那个动作引起的选择题）是压暗编辑岛的对话框，在下面 `.layer` 里；
+  **告诉你一件事的**和启动时冒出来的（替换做完能撤销、报错、外部改过、上次没停干净、替换中断）是顶上的卡片 ——
+  Apple HIG：别为了告诉人一件事弹对话框，别在启动时弹。
+
+  M8：卡片不是撑开内容区的通栏横条，而是**浮在内容岛顶上的卡片**。
   通栏横条有两个毛病：它把编辑器整体往下推一行（人正盯着的那行跳走了），
   贴着标签栏时两条 1px 边线叠在一起。卡片照浮层的规矩：不透明、投影抬起、不靠边线。
   `pointer-events: none` 的外层让卡片之外的编辑器照常可点。
 -->
 <svelte:window onkeydown={onKey} />
+
+<!--
+  要你先回答的那几种：对话框（app.css「对话框」那段）。标题是问句、一句后果、按钮照 macOS 排：
+  会丢东西的（不是你点的那个动作本身）在最左、红字；「取消」挨着主按钮；主按钮最右。
+-->
+{#if asking}
+  <div class="layer" bind:this={layerEl}>
+    {#if tabflow.pendingClose}
+      <div class="dialog" role="alertdialog" aria-label="要保存改动吗" use:takeFocus>
+        <p class="title">要保存对 {tabflow.pendingClose.name} 的改动吗？</p>
+        <p class="body">
+          不保存的话，这次的改动会丢掉。
+          <!-- 批量关闭时要说清后面还有几个，否则人不知道这个框还要弹几次 -->
+          {#if tabflow.closeQueue.length}后面还有 {tabflow.closeQueue.length} 个没保存的标签。{/if}
+        </p>
+        <div class="actions">
+          <button class="btn destructive" onclick={() => void tabflow.resolveClose("discard")}>不保存</button>
+          <span class="gap"></span>
+          <button class="btn" data-dismiss onclick={() => void tabflow.resolveClose("cancel")}>取消</button>
+          <button class="btn primary" data-default onclick={() => void tabflow.resolveClose("save")}>保存</button>
+        </div>
+      </div>
+    {:else if tabflow.pendingSwitch}
+      <div class="dialog" role="alertdialog" aria-label="用编辑模式打开吗" use:takeFocus>
+        <p class="title">用编辑模式打开 {tabflow.pendingSwitch.name}？</p>
+        <p class="body">它有 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)} MB，编辑模式会把全文读进内存，可能明显卡顿。</p>
+        <div class="actions">
+          <span class="gap"></span>
+          <button class="btn" data-dismiss onclick={() => (tabflow.pendingSwitch = null)}>取消</button>
+          <button class="btn primary" data-default onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
+        </div>
+      </div>
+    {:else if branches.pendingWtRemove}
+      {@const w = branches.pendingWtRemove}
+      <div class="dialog" role="alertdialog" aria-label="移除工作树吗" use:takeFocus>
+        <p class="title">移除工作树 {w.path.slice(w.path.lastIndexOf("/") + 1)}？</p>
+        <p class="body"><b>{w.path}</b> 这个目录会被删掉，里面没提交的改动会一起没了。</p>
+        <div class="actions">
+          <button class="btn destructive" onclick={() => branches.removeWorktree(w, true)}>强制移除</button>
+          <span class="gap"></span>
+          <button class="btn" data-dismiss data-default onclick={() => (branches.pendingWtRemove = null)}>取消</button>
+          <button class="btn danger" onclick={() => branches.removeWorktree(w, false)}>移除</button>
+        </div>
+      </div>
+    {:else if branches.pendingBranchDelete}
+      {@const d = branches.pendingBranchDelete}
+      <div class="dialog" role="alertdialog" aria-label="删除分支吗" use:takeFocus>
+        {#if d.notMerged}
+          <p class="title">仍然删除分支 {d.name}？</p>
+          <p class="body">它上面还有没合进别处的提交，git 拦下了。删了的话<b>那些提交会丢</b>。</p>
+        {:else}
+          <p class="title">删除分支 {d.name}？</p>
+          <p class="body">这一步不可撤销。</p>
+        {/if}
+        <div class="actions">
+          <span class="gap"></span>
+          <button class="btn" data-dismiss data-default onclick={() => (branches.pendingBranchDelete = null)}>取消</button>
+          <button class="btn danger" onclick={() => branches.deleteBranch(d.name, d.notMerged)}>{d.notMerged ? "仍然删除" : "删除"}</button>
+        </div>
+      </div>
+    {:else if branches.pendingCheckout}
+      {@const c = branches.pendingCheckout}
+      <!--
+        这不是错误，是一个选择题：git 拒绝切分支这件事本身没什么可报的，
+        真正要说的是「这几个文件挡着，你打算怎么办」（ui.md 第十三条第三档）
+      -->
+      <div class="dialog wide" role="alertdialog" aria-label="切分支会覆盖改动" use:takeFocus>
+        <p class="title">切到 {c.name} 会覆盖 {c.files.length} 个文件的改动</p>
+        <p class="body">{c.files.slice(0, 3).join("、")}{c.files.length > 3 ? ` 等 ${c.files.length} 个` : ""}</p>
+        <div class="actions">
+          <!-- 越不可逆越靠左：丢东西的排最左，IDEA 的 Smart Checkout（收进 stash、切过去、再放回来）在它右边 -->
+          <button class="btn destructive" onclick={() => void branches.discardThenCheckout()}>丢弃这些改动并切换</button>
+          <button
+            class="btn"
+            onclick={() => void branches.stashThenCheckout()}
+            title="改动收进 stash → 切过去 → 再取回来。取回时撞上冲突会留在改动列表里"
+          >stash 再切换</button>
+          <span class="gap"></span>
+          <button class="btn" data-dismiss onclick={() => (branches.pendingCheckout = null)}>取消</button>
+          <button
+            class="btn primary"
+            data-default
+            onclick={() => {
+              branches.pendingCheckout = null;
+              layout.showSide("git");
+            }}
+          >去提交</button>
+        </div>
+      </div>
+    {:else if git.pendingDiscard}
+      {@const ds = git.pendingDiscard}
+      <div class="dialog" role="alertdialog" aria-label="丢弃改动吗" use:takeFocus>
+        <p class="title">丢弃 {ds.length === 1 ? ds[0].path : `${ds.length} 个文件`} 的改动？</p>
+        <p class="body">改过的文件回到上次提交的样子，<b>这一步不可撤销</b>；未跟踪的文件移进废纸篓。</p>
+        <div class="actions">
+          <span class="gap"></span>
+          <button class="btn" data-dismiss data-default onclick={() => (git.pendingDiscard = null)}>取消</button>
+          <button class="btn danger" onclick={() => void git.discard(ds)}>丢弃</button>
+        </div>
+      </div>
+    {:else if git.pendingRevertHunk}
+      <!-- 撤销一块（issue #38）：和上面那条同一档 —— 动盘上的文件，不可撤销 -->
+      <div class="dialog" role="alertdialog" aria-label="撤销这一块吗" use:takeFocus>
+        <p class="title">撤销这一块改动？</p>
+        <p class="body">工作区里这几行的改动会被丢掉，<b>这一步不可撤销</b>。</p>
+        <div class="actions">
+          <span class="gap"></span>
+          <button class="btn" data-dismiss data-default onclick={() => (git.pendingRevertHunk = null)}>取消</button>
+          <button class="btn danger" onclick={() => void git.revertHunk(git.pendingRevertHunk!)}>撤销这一块</button>
+        </div>
+      </div>
+    {:else if git.trustOpen && git.restricted}
+      {@const r = git.restricted}
+      <!--
+        仓库信任（issue #24）。列的是白名单外的键 —— 人看的就是「它想跑什么」，所以值一定要露出来，
+        origin 只在被 include 进来时才显示（那时危险在另一个文件里）。默认按钮是「先不动 git」：回车不该替人信任
+      -->
+      <div class="dialog wide" role="alertdialog" aria-label="信任这个仓库吗" use:takeFocus>
+        <p class="title">这个仓库会让 git 执行命令，Git 功能先没启用</p>
+        <p class="body">它的 .git/config 里有 {r.suspects.length} 条这样的配置：</p>
+        <pre class="code">{r.suspects
+            .map((x) => `${x.key} = ${x.value}${x.origin && !x.origin.endsWith(".git/config") ? `   （${x.origin}）` : ""}`)
+            .join("\n")}</pre>
+        <p class="body">
+          {#if r.hooks.length}另外 .git/hooks 里有 {r.hooks.join("、")}，提交 / 检出时会执行。{/if}
+          信任 = 按这份内容记住这个仓库；config 再变会重新问。
+        </p>
+        <div class="actions">
+          <span class="gap"></span>
+          <button class="btn" data-dismiss data-default onclick={() => (git.trustOpen = false)}>先不动 git</button>
+          <button class="btn primary" onclick={() => void git.trust()}>信任这个仓库</button>
+        </div>
+      </div>
+    {:else if Bars}
+      <!-- 分岔要选合并方式、推送前确认：你点了拉取 / 推送才有的选择题 -->
+      <Bars part="ask" {...barProps} />
+    {/if}
+  </div>
+{/if}
 
 <div class="stack" class:below-tabs={tabs.list.length > 0} bind:this={stackEl}>
 {#if tabs.active?.conflict}
@@ -72,29 +260,6 @@
     <span><b>{tabs.active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
     <button class="btn" onclick={() => docs.resolveConflict(tabs.active!, "disk")}>用磁盘上的</button>
     <button class="btn primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留我的</button>
-  </div>
-{/if}
-
-{#if git.trustOpen && git.restricted}
-  {@const r = git.restricted}
-  <!--
-    仓库信任（issue #24）。琥珀色同「外部改过」那张：是要你决定，不是出错。
-    列的是白名单外的键 —— 人看的就是「它想跑什么」，所以值一定要露出来，
-    origin 只在被 include 进来时才显示（那时危险在另一个文件里）。
-  -->
-  <div class="confirm warn tall trust">
-    <span class="btext">
-      <b>这个仓库的 .git/config 里有 {r.suspects.length} 条会让 git 执行命令的配置，Git 功能先没启用</b>
-      <span class="bbody">{r.suspects
-          .map((x) => `${x.key} = ${x.value}${x.origin && !x.origin.endsWith(".git/config") ? `   （${x.origin}）` : ""}`)
-          .join("\n")}</span>
-      <span class="rest">
-        {#if r.hooks.length}另外 .git/hooks 里有 {r.hooks.join("、")}，提交 / 检出时会执行。{/if}
-        信任 = 按这份内容记住这个仓库；config 再变会重新问。
-      </span>
-    </span>
-    <button class="btn" data-dismiss onclick={() => (git.trustOpen = false)}>先不动 git</button>
-    <button class="btn primary" onclick={() => void git.trust()}>信任这个仓库</button>
   </div>
 {/if}
 
@@ -137,17 +302,6 @@
   </div>
 {/if}
 
-{#if tabflow.pendingSwitch}
-  <div class="confirm">
-    <span>
-      <b>{tabflow.pendingSwitch.name}</b> 有 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)}MB，
-      编辑模式会把全文读进内存，可能明显卡顿
-    </span>
-    <button class="btn" data-dismiss onclick={() => (tabflow.pendingSwitch = null)}>取消</button>
-    <button class="btn primary" onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
-  </div>
-{/if}
-
 {#if notify.banner}
   <div class="confirm bad tall err-banner">
     <span class="btext">
@@ -158,125 +312,11 @@
   </div>
 {/if}
 
-{#if branches.pendingWtRemove}
-  <div class="confirm bad">
-    <span>
-      要移除工作树 <b>{branches.pendingWtRemove.path}</b> 吗？
-      <b>那个目录会被删掉</b>，里面未提交的改动会一起没
-    </span>
-    <button class="btn danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, true)}>强制移除</button>
-    <button class="btn" data-dismiss onclick={() => (branches.pendingWtRemove = null)}>取消</button>
-    <button class="btn danger" onclick={() => branches.removeWorktree(branches.pendingWtRemove!, false)}>移除</button>
-  </div>
+{#if Bars && remote.err}
+  <!-- 远程操作失败：告诉你结果（带下一步），是卡片 -->
+  <Bars part="tell" {...barProps} />
 {/if}
 
-{#if branches.pendingBranchDelete}
-  {@const d = branches.pendingBranchDelete}
-  <div class="confirm bad">
-    <span>
-      {#if d.notMerged}
-        <b>{d.name}</b> 上还有没合进别处的提交，git 拦下了。仍然删除的话<b>那些提交会丢</b>
-      {:else}
-        要删除分支 <b>{d.name}</b> 吗？<b>这一步不可撤销</b>
-      {/if}
-    </span>
-    <button class="btn" data-dismiss onclick={() => (branches.pendingBranchDelete = null)}>取消</button>
-    <button class="btn danger" onclick={() => branches.deleteBranch(d.name, d.notMerged)}>{d.notMerged ? "仍然删除" : "删除"}</button>
-  </div>
-{/if}
-
-{#if branches.pendingCheckout}
-  <!--
-    这不是错误横幅，是一个选择题 —— 所以它长得和「丢弃改动」「关闭脏标签」
-    一样，不是 err-banner。git 拒绝切分支这件事本身没什么可报的，
-    真正要说的是「这几个文件挡着，你打算怎么办」。
-  -->
-  <div class="confirm">
-    <span>
-      切到 <b>{branches.pendingCheckout.name}</b> 会覆盖
-      <b>{branches.pendingCheckout.files.length} 个文件</b>的改动：
-      <span class="rest">{branches.pendingCheckout.files.slice(0, 3).join("、")}{branches.pendingCheckout.files.length > 3 ? " …" : ""}</span>
-    </span>
-    <!-- 越不可逆越靠左：丢东西的排最左，IDEA 的 Smart Checkout（收进 stash、切过去、再放回来）在它右边 -->
-    <button class="btn danger" onclick={() => void branches.discardThenCheckout()}>丢弃这些改动并切换</button>
-    <button
-      class="btn"
-      onclick={() => void branches.stashThenCheckout()}
-      title="改动收进 stash → 切过去 → 再取回来。取回时撞上冲突会留在改动列表里"
-    >stash 再切换</button>
-    <button class="btn" data-dismiss onclick={() => (branches.pendingCheckout = null)}>取消</button>
-    <button
-      class="btn primary"
-      onclick={() => {
-        branches.pendingCheckout = null;
-        layout.showSide("git");
-      }}
-    >去提交</button>
-  </div>
-{/if}
-
-{#if git.pendingDiscard}
-  <div class="confirm bad">
-    <span>
-      要丢弃
-      {#if git.pendingDiscard.length === 1}
-        <b>{git.pendingDiscard[0].path}</b>
-      {:else}
-        <b>{git.pendingDiscard.length} 个文件</b>
-      {/if}
-      的改动吗？改过的文件回到上次提交的样子，<b>这一步不可撤销</b>；未跟踪的文件移进废纸篓
-    </span>
-    <button class="btn" data-dismiss onclick={() => (git.pendingDiscard = null)}>取消</button>
-    <button class="btn danger" onclick={() => void git.discard(git.pendingDiscard!)}>丢弃</button>
-  </div>
-{/if}
-
-{#if git.pendingRevertHunk}
-  <!-- 撤销一块（issue #38）：和上面那条同一档 —— 动盘上的文件，不可撤销 -->
-  <div class="confirm bad">
-    <span>要撤销这一块吗？工作区里这几行的改动会被丢掉，<b>这一步不可撤销</b></span>
-    <button class="btn" data-dismiss onclick={() => (git.pendingRevertHunk = null)}>取消</button>
-    <button class="btn danger" onclick={() => void git.revertHunk(git.pendingRevertHunk!)}>撤销这一块</button>
-  </div>
-{/if}
-
-{#if Bars && (remote.pendingDiverge || remote.pendingPush || remote.err)}
-  <Bars
-    diverge={remote.pendingDiverge}
-    push={remote.pendingPush}
-    err={remote.err}
-    upstream={git.status?.upstream ?? ""}
-    ahead={git.status?.ahead ?? 0}
-    onMerge={(mode, rem) => {
-      if (rem) remote.lastMergeMode = mode;
-      remote.pendingDiverge = null;
-      void remote.pull(mode);
-    }}
-    onPush={() => void remote.push()}
-    onPull={() => {
-      remote.err = null;
-      void remote.pull();
-    }}
-    onDismiss={(which) => {
-      if (which === "diverge") remote.pendingDiverge = null;
-      else if (which === "push") remote.pendingPush = null;
-      else remote.err = null;
-    }}
-  />
-{/if}
-
-{#if tabflow.pendingClose}
-  <div class="confirm">
-    <span><b>{tabflow.pendingClose.name}</b> 有未保存的改动</span>
-    {#if tabflow.closeQueue.length}
-      <!-- 批量关闭时要说清后面还有几个，否则人不知道这个框还要弹几次 -->
-      <span class="rest">（后面还有 {tabflow.closeQueue.length} 个）</span>
-    {/if}
-    <button class="btn" onclick={() => void tabflow.resolveClose("discard")}>丢弃改动</button>
-    <button class="btn" data-dismiss onclick={() => void tabflow.resolveClose("cancel")}>取消</button>
-    <button class="btn primary" onclick={() => void tabflow.resolveClose("save")}>保存并关闭</button>
-  </div>
-{/if}
 </div>
 
 <style>
@@ -297,9 +337,39 @@
   .stack.below-tabs { top: 46px; }
   /* 卡片的面（底、边、投影、淡入、warn / bad 两档色）在 app.css 的 `.confirm`；这里只剩正文排版 */
   .confirm .rest { color: var(--text-faint); font-size: var(--fs-sm); }
-  .err-banner .btext, .trust .btext, .stale .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-  .confirm.trust, .confirm.err-banner { width: min(760px, calc(100% - 32px)); }
-  .trust .bbody { white-space: pre-wrap; font-family: var(--code-font); font-size: var(--fs-sm); line-height: 1.55; color: var(--text); }
+  .err-banner .btext, .stale .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .confirm.err-banner { width: min(760px, calc(100% - 32px)); }
+  /*
+   * 对话框那一层：盖住编辑岛、压暗，对话框在正中偏上（眼睛本来就在上半屏）。只盖编辑岛不盖侧边栏和状态栏：
+   * 问的是这一块里的事。点暗处不关 —— 选择要按按钮做
+   */
+  .layer {
+    position: absolute;
+    inset: 0;
+    z-index: 35;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: min(18vh, 160px);
+    background: rgba(0, 0, 0, 0.38);
+    border-radius: inherit;
+    animation: fade-in 90ms ease-out;
+  }
+  /* 信任仓库那张列配置的：值要原样露出来，等宽、保住换行，太多时可以滚 */
+  .dialog .code {
+    margin: 2px 0;
+    padding: 8px 10px;
+    max-height: 9em;
+    overflow: auto;
+    border-radius: var(--r-sm);
+    background: rgba(0, 0, 0, 0.22);
+    font-family: var(--code-font);
+    font-size: var(--fs-sm);
+    line-height: 1.55;
+    color: var(--text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
   .err-banner b { color: var(--lvl-error); }
   /* git 的说明本来就是分行排版的，保住换行；太长时可以滚 */
   .err-banner .bbody {

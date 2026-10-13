@@ -631,9 +631,10 @@ else
   # 关草稿标签不该弹「保存 / 丢弃」
   menu close-tab
   sleep 1
-  if exists "丢弃改动" button contains; then
-    bad "关草稿标签还在问「保存 / 丢弃」"
-    click "丢弃改动" button contains
+  # 按钮名跟着对话框改了（2026-10-12：「丢弃改动」→「不保存」）—— 名字不跟着改，这条就成了永远通过的空断言
+  if exists "不保存" button exact; then
+    bad "关草稿标签还在问「保存 / 不保存」"
+    click "不保存" button exact
   else
     ok "关草稿标签没有问"
   fi

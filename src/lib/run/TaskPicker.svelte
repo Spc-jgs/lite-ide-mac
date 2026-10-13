@@ -215,7 +215,7 @@
     align-items: center;
     gap: 10px;
     width: 100%;
-    height: 26px;
+    height: 28px;
     padding: 0 8px;
     border: none;
     border-radius: var(--r-sm);
@@ -248,7 +248,6 @@
     display: flex;
     gap: 14px;
     padding: 6px 14px;
-    background: var(--chrome-scrim);
     color: var(--text-faint);
     font-size: var(--fs-xs);
   }

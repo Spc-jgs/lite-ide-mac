@@ -471,16 +471,16 @@
     color: var(--text-dim);
   }
   .empty .card {
-    width: min(420px, 90%);
-    padding: 18px 20px 16px;
+    width: min(440px, 90%);
+    padding: 20px 22px 18px;
     /* 空态卡片是浮层：外壳层是透的，卡片跟着透就成了一圈没有底的框 */
     background: var(--elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
+    border-radius: var(--r-lg);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), var(--pop-ring);
     text-align: left;
   }
-  .empty .big { font-size: var(--fs-lg); color: var(--text); margin-bottom: 4px; }
-  .empty p { margin: 0; font-size: var(--fs-sm); line-height: 1.6; color: var(--text-faint); }
+  .empty .big { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  .empty p { margin: 0; font-size: var(--fs-sm); line-height: 1.6; color: var(--text-muted); }
   /* 懒加载的那几块在等 chunk：环 + 一句话（ui.md 十四）。150ms 内回来的看不到环，热缓存下就是一闪而过的字 */
   .empty .wait { display: inline-flex; align-items: center; gap: 8px; }
   /*
@@ -499,9 +499,8 @@
     font-family: var(--ui-font);
     font-size: var(--fs-xs);
     color: var(--text-faint);
-    background: var(--hover);
-    border-radius: var(--r-sm);
-    padding: 1px 5px;
+    background: transparent;
+    padding: 0 2px;
   }
   .empty .lastly { font-size: var(--fs-sm); color: var(--text-faint); }
   /* 空态是最需要「最近」的时刻 —— 那时侧边栏还没有任何内容 */
@@ -524,8 +523,10 @@
   .empty .keymap {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 5px 20px;
-    margin-top: 14px;
+    gap: 6px 20px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
     font-family: var(--ui-font);
     font-size: var(--fs-sm);
     color: var(--text-dim);

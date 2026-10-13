@@ -734,8 +734,9 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
       { label: "新建文件夹…", run: () => openAsk("newDir", dir) },
     ];
     if (row.path !== root) {
-      out.push({ label: "重命名…", sep: true, run: () => openAsk("rename", parentOf(row.path), row) });
-      out.push({ label: "移到废纸篓", danger: true, run: () => openTrashAsk([row]) });
+      // 键位是文件树自己的 keydown（上面 `case "F2"` 那段），焦点在树里时按得出来
+      out.push({ label: "重命名…", keys: "F2", sep: true, run: () => openAsk("rename", parentOf(row.path), row) });
+      out.push({ label: "移到废纸篓", keys: "⌘⌫", danger: true, run: () => openTrashAsk([row]) });
     }
     out.push({ label: "在 Finder 中显示", sep: true, run: () => void showInFinder(row.path) });
     out.push({ label: "复制路径", run: () => void copyText(row.path, "路径") });
@@ -1486,9 +1487,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     font-size: var(--fs-md);
     color: var(--text);
     background: var(--elevated);
-    border: 1px solid var(--border);
     border-radius: var(--r-sm);
-    box-shadow: var(--shadow-pop);
+    box-shadow: var(--shadow-pop), var(--pop-ring);
     pointer-events: none;
     white-space: nowrap;
   }
@@ -1538,9 +1538,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     font-size: var(--fs-md);
     color: var(--text);
     background: var(--elevated);
-    border: 1px solid var(--border);
     border-radius: var(--r-sm);
-    box-shadow: var(--shadow-pop);
+    box-shadow: var(--shadow-pop), var(--pop-ring);
     pointer-events: none;
   }
   .speed.none { color: var(--lvl-warn); }
@@ -1596,10 +1595,10 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     position: fixed;
     z-index: 60;
     width: 300px;
-    padding: 10px 12px 10px;
+    padding: 14px 14px 12px;
     outline: none;
   }
-  .ptitle { margin: 0 0 8px; color: var(--text); font-family: var(--ui-font); font-size: var(--fs-md); font-weight: 500; }
+  .ptitle { margin: 0 0 10px; color: var(--text); font-family: var(--ui-font); font-size: var(--fs-md); font-weight: 600; }
   .pobj {
     display: flex;
     align-items: center;
@@ -1622,15 +1621,16 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   .pinput {
     width: 100%;
     margin: 4px 0 0;
-    padding: 5px 8px;
-    background: var(--elevated-hi);
-    border: 1px solid var(--border);
+    height: 28px;
+    padding: 0 9px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font);
     font-size: var(--fs-md);
   }
-  .pinput:focus { outline: none; border-color: var(--accent); }
+  .pinput:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
   .perr {
     padding: 5px 0 1px;
     color: var(--lvl-error);

@@ -179,7 +179,7 @@
     align-items: center;
     gap: 10px;
     width: 100%;
-    height: 26px;
+    height: 28px;
     padding: 0 14px;
     background: transparent;
     border: none;

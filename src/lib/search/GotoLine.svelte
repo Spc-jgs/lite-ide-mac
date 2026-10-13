@@ -144,17 +144,18 @@
   input {
     flex: 1;
     min-width: 0;
-    height: 26px;
-    padding: 0 8px;
-    background: var(--content-solid);
-    border: 1px solid var(--border);
+    height: 28px;
+    padding: 0 9px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font); font-variant-numeric: tabular-nums;
     font-size: var(--fs-md);
     outline: none;
   }
-  input:focus { border-color: var(--accent); }
+  /* 聚焦：一圈柔和的强调色光晕（macOS 文本框的样子），不是把边描成实蓝 */
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
   .hint { font-size: var(--fs-sm); color: var(--text-faint); }
   .hint.bad { color: var(--lvl-warn); }
 </style>

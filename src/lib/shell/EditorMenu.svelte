@@ -17,6 +17,8 @@
   import { nav } from "../state/nav.svelte";
   import { notify } from "../state/notify.svelte";
   import { sendToTerminal } from "../terminal/send";
+  // 菜单上印的快捷键从键位表取（唯一出处）。这个组件是懒加载的，引它不进入口包（frontend.md「一个 import { byId }」那条）
+  import { byId } from "../state/keymap";
 
   let {
     x,
@@ -41,14 +43,16 @@
   let items = $derived.by((): MenuItem[] => {
     const inProject = !!project.root && path.startsWith(`${project.root}/`);
     const out: MenuItem[] = [
-      { label: "跳到声明", disabled: !api.hit, run: () => api.hit && void nav.jumpTo(api.hit) },
+      { label: "跳到声明", keys: byId("jump-decl")?.accel, disabled: !api.hit, run: () => api.hit && void nav.jumpTo(api.hit) },
       { label: "在项目里找这个名字", disabled: !project.root, run: () => onMenuAction("find-word") },
       // 发的是**右键的这个文件**（分屏时它不一定是活动的那组），所以直接调，不经 onMenuAction
-      { label: "发送到终端", run: () => void sendToTerminal(path) },
-      { label: "剪切", sep: true, disabled: !api.hasSelection, run: () => void api.cut() },
-      { label: "复制", disabled: !api.hasSelection, run: () => void api.copy() },
+      { label: "发送到终端", keys: byId("send-to-terminal")?.accel, run: () => void sendToTerminal(path) },
+      // 剪切 / 复制 / 粘贴走系统的「编辑」菜单（predefined，不在键位表里），键位是 macOS 定死的
+      { label: "剪切", keys: "⌘X", sep: true, disabled: !api.hasSelection, run: () => void api.cut() },
+      { label: "复制", keys: "⌘C", disabled: !api.hasSelection, run: () => void api.copy() },
       {
         label: "粘贴",
+        keys: "⌘V",
         // 读不到（超 8 MB、pbpaste 失败）就把原因说出来，不静默失败 —— ⌘V 那条路不受影响
         // 做完焦点回编辑器靠 ContextMenu 的 giveBack（右键编辑器时焦点就在编辑器上）
         run: () =>

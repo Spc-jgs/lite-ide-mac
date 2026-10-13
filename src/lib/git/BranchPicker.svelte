@@ -186,7 +186,7 @@
    * `depth` 决定缩进：分组 0，文件夹 1，文件夹里的分支 2，直接在分组里的分支 1。
    */
   type Row =
-    | { kind: "action"; id: string; label: string; icon: "pull" | "commit" | "push" | "plus" | "tag" | null; accel: string; run: () => void; depth: 0 }
+    | { kind: "action"; id: string; label: string; icon: "pull" | "commit" | "push" | "plus" | "tag" | "files" | null; accel: string; run: () => void; depth: 0 }
     | { kind: "divider" }
     | { kind: "sec"; id: string; label: string; open: boolean }
     | { kind: "folder"; id: string; label: string; open: boolean; depth: number }
@@ -221,7 +221,8 @@
       // 输入了名字但没有同名分支：直接把名字带进表单，省一次重打
       { kind: "action", id: "new", label: newLabel, icon: "plus", accel: "", run: () => { const typed = q.trim(); openForm("newBranch", cur); if (k) formName = typed; }, depth: 0 },
       { kind: "action", id: "rev", label: "检出标签或提交…", icon: "tag", accel: "", run: () => openForm("checkoutRev"), depth: 0 },
-      { kind: "action", id: "wt", label: "新建工作树…", icon: null, accel: "", run: () => { wtBranch = q.trim(); wtDir = ""; mode = "newWorktree"; }, depth: 0 },
+      // 同一组要么都有图标、要么都没有（Apple HIG · Menus）：原来这一项空着，三行里两行有图标
+      { kind: "action", id: "wt", label: "新建工作树…", icon: "files", accel: "", run: () => { wtBranch = q.trim(); wtDir = ""; mode = "newWorktree"; }, depth: 0 },
     ];
     for (const a of actions) {
       if (a.kind === "divider") {
@@ -268,7 +269,8 @@
     const recent = [cur, ...recentNames.filter((n) => n !== cur)]
       .map((n) => local.find((b) => b.name === n))
       .filter((b): b is GitBranch => !!b);
-    if (recent.length) section("recent", "最近", recent, "recent");
+    // 「最近」把本地分支全列了一遍时就不出现：只有一个本地分支的仓库里，同一条 main 在「最近」「本地」各印一遍（ui.md 第六条）
+    if (recent.length && recent.length < local.length) section("recent", "最近", recent, "recent");
     section("local", "本地", local, "local");
     section("remote", "远程", remote, "remote");
 
@@ -296,10 +298,16 @@
     listEl.querySelector<HTMLElement>(`[data-i="${i}"]`)?.scrollIntoView({ block: "nearest" });
   });
 
-  /** `/Users/shaopc/` 那一截缩成 `~/`：工作树都在同一个用户下 */
+  /**
+   * `/Users/<用户名>/` 那一截缩成 `~/`：工作树都在同一个用户下。缩完还长（不在家目录下、或者藏得深）就只留最后两段 ——
+   * 人认工作树靠的是末尾那个目录名，中间那串是噪音（走查时一个 /private/tmp/… 的路径占了半行）
+   */
   function shortPath(p: string) {
     const m = /^\/Users\/[^/]+\//.exec(p);
-    return m ? `~/${p.slice(m[0].length)}` : p;
+    const s = m ? `~/${p.slice(m[0].length)}` : p;
+    if (s.length <= 32) return s;
+    const parts = s.split("/").filter(Boolean);
+    return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : s;
   }
   /** 文件夹里的分支只显示文件夹后面那截 */
   function leaf(r: Extract<Row, { kind: "branch" }>): string {
@@ -628,24 +636,23 @@
     top: 0;
     left: 0;
     transform: none;
-    width: min(520px, calc(100vw - 16px));
+    width: min(440px, calc(100vw - 16px));
     max-height: min(72vh, calc(100vh - 60px));
   }
 
-  /* 搜索框：照 IDEA —— 圆角描边的一格，不是通栏输入行；右边挂一个 fetch */
+  /*
+   * 搜索：浮层顶上一整条、底下一道线（2026-10-12 设计稿③，和随处搜索同一个样子）。原来是照 IDEA 的圆角描边小格，
+   * 聚焦时描一圈强调色 —— 浮层一打开焦点就在这儿，那圈蓝永远亮着，等于没有信息；右边挂一个 fetch
+   */
   .search {
     flex: none;
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin: 10px 10px 4px;
-    height: 32px;
-    padding: 0 6px 0 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    background: var(--elevated-hi);
+    gap: 8px;
+    height: 42px;
+    padding: 0 8px 0 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   }
-  .search:focus-within { border-color: var(--accent); }
   .sic { flex: none; display: flex; color: var(--text-faint); }
   .search input {
     flex: 1;
@@ -654,15 +661,15 @@
     background: transparent;
     color: var(--text);
     font-family: var(--ui-font);
-    font-size: var(--fs-md);
+    font-size: var(--fs-lg);
     outline: none;
   }
   .search input::placeholder { color: var(--text-faint); }
-  .results { overflow-y: auto; padding: 4px 0 6px; }
+  .results { overflow-y: auto; padding: 6px 0; }
   .none { padding: 18px 14px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; }
   .none.err { color: var(--lvl-error); font-family: var(--code-font); text-align: left; }
   .none.wait { display: flex; align-items: center; justify-content: center; gap: 8px; }
-  .divider { height: 1px; background: var(--border-soft); margin: 5px 12px; }
+  .divider { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 6px 16px; }
 
   /* 分组头 / 文件夹：带折叠箭头的一行，照 IDEA 的树。分组头吸顶 */
   .hdr {
@@ -670,17 +677,18 @@
     align-items: center;
     gap: 5px;
     width: 100%;
-    height: 24px;
+    height: 26px;
     border: none;
     background: var(--elevated);
-    color: var(--text-dim);
+    color: var(--text-faint);
     font-family: var(--ui-font);
     font-size: var(--fs-md);
     text-align: left;
     cursor: default;
     user-select: none;
   }
-  .hdr:not(.folder) { position: sticky; top: 0; z-index: 1; font-weight: 600; }
+  /* 分组名小一号、灰、字距略开（设计稿④「字的层次」）：它是路标，不是内容 —— 原来 13 号加粗，比分支名还重 */
+  .hdr:not(.folder) { position: sticky; top: 0; z-index: 1; font-size: var(--fs-xs); letter-spacing: 0.04em; }
   .hdr:hover { color: var(--text); }
   .hdr .caret { display: inline-flex; color: var(--text-faint); transform: rotate(90deg); transition: transform 0.12s; }
   .hdr .caret.closed { transform: none; }
@@ -688,14 +696,14 @@
 
   /* 当前项是内缩圆角块，和随处搜索、文件树同一套 */
   .rowwrap { display: flex; align-items: center; margin: 0 6px; border-radius: var(--r-sm); }
-  .rowwrap.on { background: var(--selected); }
+  .rowwrap.on { background: rgba(255, 255, 255, 0.10); }
   .row {
     display: flex;
     align-items: center;
     gap: 7px;
     flex: 1;
     min-width: 0;
-    height: 26px;
+    height: 28px;
     padding: 0 6px 0 8px;
     background: transparent;
     border: none;
@@ -714,10 +722,14 @@
   /* 右边那列：上游 / 工作树路径。IDEA 就是这么把 origin/… 靠右放的 */
   .up { flex: none; max-width: 42%; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-sm); }
   .key { flex: none; color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-sm); }
-  .now { flex: none; font-size: var(--fs-xs); padding: 0 5px; border-radius: var(--r-sm); background: var(--elevated-hi); color: var(--accent); }
+  /* 「当前」：一句附注，不是徽章 —— 色块会比分支名还抢眼 */
+  .now { flex: none; font-size: var(--fs-sm); color: var(--text-faint); }
   .ab { flex: none; font-family: var(--ui-font); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--accent); }
-  /* 行尾的 ›：按下去还有一层。常驻但压暗，选中那行才提亮 */
-  .rm { flex: none; display: flex; color: var(--text-faint); opacity: 0.45; }
+  /*
+   * 行尾的 ›：按下去还有一层（⇧F10 / 右键那份菜单）。平时不画，悬停和选中那行才出来（ui.md 第三条：每一行上重复的东西 hover 才出）——
+   * 原来常驻压暗，一列 › 看着像每行都是子菜单（2026-10-12 设计稿③）
+   */
+  .rm { flex: none; display: flex; color: var(--text-faint); opacity: 0; }
   .rowwrap:hover .rm, .rowwrap.on .rm { opacity: 1; }
 
   .ic { flex: none; display: flex; width: 16px; justify-content: center; color: var(--git-modified); }
@@ -733,9 +745,8 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 7px 14px;
-    border-top: 1px solid var(--border-soft);
-    background: var(--chrome-scrim);
+    padding: 8px 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
     font-size: var(--fs-xs);
     color: var(--text-faint);
     user-select: none;
@@ -750,8 +761,8 @@
   .form label > span { flex: none; width: 34px; }
   .fi {
     flex: 1;
-    background: var(--elevated-hi);
-    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font);
@@ -759,7 +770,7 @@
     padding: 5px 8px;
     outline: none;
   }
-  .fi:focus { border-color: var(--accent); }
+  .fi:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
   .frow { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
   .frow .gap { flex: 1; }
 </style>

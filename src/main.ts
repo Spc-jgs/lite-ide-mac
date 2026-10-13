@@ -182,7 +182,7 @@ function fatal(e: unknown, phase: string) {
   const btn = document.createElement("button");
   btn.textContent = "重载窗口";
   btn.style.cssText =
-    "padding:4px 12px;background:#5b8def;border:1px solid #5b8def;border-radius:6px;" +
+    "padding:4px 12px;background:#0a84ff;border:1px solid #0a84ff;border-radius:7px;" +
     "color:#fff;font-size:12px";
   btn.onclick = () => location.reload();
   inner.append(h, pre, btn);
