@@ -73,7 +73,8 @@ export const ideaDarkTheme = EditorView.theme(
       border: "none",
       color: "var(--text-dim)",
       padding: "0 6px",
-      borderRadius: "var(--r-sm)",
+      // 折起来的那个「…」是行里的一小块，用小标签那档（r-xs 4），不是控件的 7（ui.md 第一之三条）
+      borderRadius: "var(--r-xs)",
     },
     ".cm-searchMatch": { backgroundColor: MATCH, outline: "none" },
     ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--accent)" },

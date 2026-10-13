@@ -484,7 +484,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <!-- scrim 不压暗：从挂件底下掉出来的浮层，不是要你先处理完的对话框；它只干一件事 —— 点外面关掉 -->
   <div class="scrim" onclick={() => (open = false)}></div>
-  <div class="popup" class:anchored={!!anchor} bind:this={popEl} role="dialog" aria-label="分支与工作树">
+  <div class="popup palette m" class:anchored={!!anchor} bind:this={popEl} role="dialog" aria-label="分支与工作树">
     {#if mode === "list"}
       <div class="search">
         <span class="sic"><Icon name="search" /></span>
@@ -496,11 +496,11 @@
       </div>
       <div class="results" bind:this={listEl}>
         {#if err}
-          <div class="none err">{err}</div>
+          <div class="empty-msg bad">{err}</div>
         {:else if loading && branches.length === 0}
-          <div class="none wait"><span class="spinner"></span>载入中…</div>
+          <div class="empty-msg wait"><span class="spinner"></span>载入中…</div>
         {:else if selectable.length === 0}
-          <div class="none">没有匹配</div>
+          <div class="empty-msg">没有匹配</div>
         {/if}
         {#each rows as r, i (rowKey(r, i))}
           {#if r.kind === "divider"}
@@ -619,16 +619,9 @@
 
 <style>
   .popup {
-    position: fixed;
-    top: 14vh;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(620px, 88vw);
-    max-height: 66vh;
+    /* 位置和宽度在 app.css 的 `.palette`（上沿一条线、宽度三档，ui.md 第十二条之二）；面在 `.popup`。这里只剩排版 */
     display: flex;
     flex-direction: column;
-    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
-    z-index: 41;
     overflow: hidden;
   }
   /* 挂在挂件底下时：不居中、窄一档。left/top 由 effect 写进 style，这里只关掉居中那套 */
@@ -666,9 +659,6 @@
   }
   .search input::placeholder { color: var(--text-faint); }
   .results { overflow-y: auto; padding: 6px 0; }
-  .none { padding: 18px 14px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; }
-  .none.err { color: var(--lvl-error); font-family: var(--code-font); text-align: left; }
-  .none.wait { display: flex; align-items: center; justify-content: center; gap: 8px; }
   .divider { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 6px 16px; }
 
   /* 分组头 / 文件夹：带折叠箭头的一行，照 IDEA 的树。分组头吸顶 */

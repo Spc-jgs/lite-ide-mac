@@ -314,7 +314,7 @@ class TabFlow {
     if (!tab) return;
     // 钉住的不跟着 ⌘W / ✕ 走（issue #33 ⑰）。右键「关闭」带 force
     if (tab.pinned && !force) {
-      notify.ok(`${tab.name} 已钉住 —— 点标签上的图钉取消钉住，或右键「关闭」`, 2800);
+      notify.hint(`${tab.name} 已钉住 —— 点标签上的图钉取消钉住，或右键「关闭」`);
       return;
     }
     if (tab.dirty) {

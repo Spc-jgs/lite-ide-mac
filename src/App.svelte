@@ -31,6 +31,7 @@
   import type { Group } from "./lib/state/tab";
   import { scratches } from "./lib/state/scratches.svelte";
   import { dialogUp, nudgeDialog } from "./lib/shell/modal";
+  import Toast from "./lib/shell/Toast.svelte";
   import {
     probePath,
     ignoredDirs,
@@ -1015,6 +1016,7 @@
             status={git.status}
             busy={git.busy}
             committing={git.writing === "提交"}
+            committed={git.justDone === "提交"}
             onOpenDiff={(e, staged) => void (e.conflicted ? git.openMerge(e) : git.openDiff(e, staged))}
             onStage={(paths) => void git.run("暂存失败", () => gitStage(git.repo!, paths), "暂存")}
             onUnstage={(paths) =>
@@ -1148,6 +1150,8 @@
 
       <!-- 内容区顶上的那几条确认横幅，全在 Confirms.svelte 里读各自的 store；浮在整个岛上，不按组 -->
       {#if confirms.comp}<confirms.comp Bars={gitUi.comps.bars} />{/if}
+      <!-- 做完 / 没做成 / 提示的那一句：岛的底边居中（Toast.svelte，2026-10-13 盘点 B1） -->
+      <Toast />
       </div>
 
       <!--

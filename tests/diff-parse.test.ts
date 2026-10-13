@@ -28,6 +28,35 @@ ok(adds[0].newNo === 11 && adds[1].newNo === 12, `新增行号 ${adds[0].newNo}/
 const last = d1[0].lines.filter(l => l.kind === "ctx").pop()!;
 ok(last.oldNo === 12 && last.newNo === 13, `尾行号 ${last.oldNo}/${last.newNo}（删1增2后新旧要错开）`);
 
+// 块头上面折着几行没改动的（照 VS Code 的「N 行未改动」）：第一块从第 1 行算，后面的从上一块末行算
+{
+  const d = parseDiff(`diff --git a/x.ts b/x.ts
+--- a/x.ts
++++ b/x.ts
+@@ -10,3 +10,3 @@ fn a() {
+ a
+-b
++B
+ c
+@@ -40,2 +40,3 @@ fn z() {
+ y
++Y
+ z
+`);
+  const hs = d[0].lines.filter((l) => l.kind === "hunk");
+  ok(hs[0].hidden === 9, `第一块从第 10 行开始：上面折着 9 行，实际 ${hs[0].hidden}`);
+  ok(hs[1].hidden === 27, `第一块新文件到第 12 行，第二块从 40 开始：中间 27 行，实际 ${hs[1].hidden}`);
+  const nf = parseDiff(`diff --git a/n.ts b/n.ts
+new file mode 100644
+--- /dev/null
++++ b/n.ts
+@@ -0,0 +1,2 @@
++a
++b
+`);
+  ok(nf[0].lines.find((l) => l.kind === "hunk")!.hidden === 0, "新文件：从第 1 行开始，没有折着的");
+}
+
 // 2. 行内高亮：1删1增，只标真正变的那截
 const d2 = parseDiff(`diff --git a/x b/x
 --- a/x

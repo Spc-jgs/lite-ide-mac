@@ -21,6 +21,11 @@ export interface DiffLine {
    * 只有配对成功的增删行才有 —— 没有就整行平铺，不猜。
    */
   span?: [number, number];
+  /**
+   * 只有块头（`hunk`）有：这一块上面折着几行没改动的（按新文件算：这块的起始行 − 上一块的末行 − 1）。
+   * 块头上写「12 行未改动」，照 VS Code 的折叠条 —— 原来只印 git 猜的函数名，看不出中间跳过了多少（2026-10-13）
+   */
+  hidden?: number;
 }
 
 export interface DiffFile {
@@ -111,10 +116,12 @@ export function parseDiff(raw: string): DiffFile[] {
       inHunk = true;
       const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(line);
       if (m) {
+        // 上一块走完时 newNo 停在「末行 + 1」；这个文件的第一块之前从第 1 行算
+        const from = cur?.lines.some((l) => l.kind !== "hunk" && l.kind !== "meta") ? newNo : 1;
         oldNo = Number(m[1]);
         newNo = Number(m[2]);
         // @@ 后面那截是 git 猜的所属函数名，很有用，保留
-        push({ kind: "hunk", text: m[3].trim() });
+        push({ kind: "hunk", text: m[3].trim(), hidden: Math.max(0, newNo - from) });
       } else {
         push({ kind: "hunk", text: "" });
       }
@@ -253,6 +260,8 @@ export interface SideRow {
   right: DiffLine | null;
   /** hunk / meta 行的文本 */
   text?: string;
+  /** 块头上面折着几行没改动的（`DiffLine.hidden`） */
+  hidden?: number;
 }
 
 /**
@@ -274,7 +283,7 @@ export function toSideBySide(lines: DiffLine[]): SideRow[] {
   while (i < lines.length) {
     const l = lines[i];
     if (l.kind === "hunk" || l.kind === "meta") {
-      out.push({ kind: l.kind, left: null, right: null, text: l.text });
+      out.push({ kind: l.kind, left: null, right: null, text: l.text, hidden: l.hidden });
       i++;
       continue;
     }

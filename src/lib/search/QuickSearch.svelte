@@ -384,7 +384,7 @@
 {#if open}
   <!-- 点遮罩关闭；键盘路径由输入框的 onKey 负责，这里不重复挂监听 -->
   <div class="scrim dim" onclick={() => (open = false)} role="presentation"></div>
-  <div class="popup" role="dialog" aria-modal="true" aria-label="随处搜索">
+  <div class="popup palette m" role="dialog" aria-modal="true" aria-label="随处搜索">
     <!--
       输入排第一。面板打开之后的下一个动作永远是打字，
       而范围十次里有九次不用改 —— 让它占第一行是把最常用的挤到了第二位。
@@ -429,7 +429,7 @@
 
     <div class="results">
       {#if rows.length === 0}
-        <div class="none">
+        <div class="empty-msg">
           {#if searchErr && (scope === "content" || scope === "all")}<span class="err">{searchErr}</span>
           {:else if goto.kind === "symbol" && !target}{#if goto.file}没有匹配的文件{:else}没有打开的文件 —— 在 <kbd>@</kbd> 前面写文件名{/if}
           {:else if goto.kind === "symbol" && (symsLoading || symsOf !== target)}<span class="wait"><span class="spinner"></span>解析中…</span>
@@ -531,16 +531,9 @@
 
 <style>
   .popup {
-    position: fixed;
-    top: 14vh;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(680px, 88vw);
-    max-height: 66vh;
+    /* 位置和宽度在 app.css 的 `.palette`（上沿一条线、宽度三档，ui.md 第十二条之二）；面在 `.popup`。这里只剩排版 */
     display: flex;
     flex-direction: column;
-    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
-    z-index: 41;
     overflow: hidden;
   }
 
@@ -589,8 +582,6 @@
   .tab.on { background: var(--selected); color: var(--text); }
 
   .results { overflow-y: auto; padding: 2px 0 4px; }
-  .none { padding: 18px 14px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; }
-  .none .wait { display: inline-flex; align-items: center; gap: 8px; }
 
   /* 分组头。列表一长，它一滚就看不见了 —— 吸顶 */
   .sec {

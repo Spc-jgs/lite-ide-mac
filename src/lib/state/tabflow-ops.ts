@@ -90,7 +90,7 @@ export async function openScratchDir() {
   try {
     const dir = await scratchDir();
     if (!(await probePath(dir).catch(() => null))) {
-      notify.ok("还没有草稿 —— ⌘N 记第一条", 2600);
+      notify.hint("还没有草稿 —— ⌘N 记第一条");
       return;
     }
     await revealInFinder(dir);

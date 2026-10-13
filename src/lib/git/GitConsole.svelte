@@ -124,7 +124,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
   </div>
 
   {#if shown.length === 0}
-    <div class="empty">
+    <div class="empty-msg">
       {#if rows.length === 0}
         还没跑过 git。打开一个仓库、刷新状态或者提交一次，这里就会有东西。
       {:else}
@@ -195,12 +195,6 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
   .chk { display: flex; align-items: center; gap: 4px; cursor: default; }
   .chk input { margin: 0; }
 
-  .empty {
-    padding: 18px;
-    color: var(--text-dim);
-    font-size: var(--fs-md);
-    line-height: 1.7;
-  }
 
   .list { flex: 1; overflow: auto; }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { splitHunks, hunkPatch, pickLines } from "./hunks";
   import Icon from "../shell/Icon.svelte";
   import { highlightDiff, type Tok } from "./diff-highlight";
@@ -260,6 +261,100 @@
   let uniShown = $derived(uniRows.slice(0, MAX_ROWS));
   let sideHunk = $derived(hunkOrdinals(sideShown));
   let uniHunk = $derived(hunkOrdinals(uniShown));
+
+  /*
+   * 双栏横向滚动（2026-10-13，照 IDEA / VS Code：两栏永远各占一半、左右一起滚）。
+   *
+   * 原来一个 4 列 grid、代码列 `minmax(max-content, 1fr)`，横向滚动的是整个 grid：左边有一行长的，左栏就按它撑宽，
+   * **右栏被挤出屏幕**（README 那张图右栏只剩半截 import）。现在两栏 `minmax(0, 1fr)` 平分、格子里裁掉，长行靠一个
+   * 两栏共用的横向偏移 `--sx` 平移（`transform`，不重排）。「一个 grid」的红利全留着：纵向滚动天然同步，
+   * 软换行时左右行高自动对齐。推它的是滚轮的横向分量（触控板左右划）/ ⇧ 滚轮，和底下两条可以拖的细条。
+   * 共用一个偏移是 IDEA 的做法：两边同一列对着同一列，看「这一行哪几个字变了」不用左右各找一遍。
+   */
+  let sx = $state(0);
+  let maxSx = $state(0);
+  /** 代码格子里可用的宽度（去掉内边距）—— 滚动条滑块的长度按它和内容宽的比例算 */
+  let colW = $state(0);
+  let gridEl = $state<HTMLElement | null>(null);
+  const clampSx = (v: number) => Math.max(0, Math.min(maxSx, v));
+
+  function measureSx() {
+    const g = gridEl;
+    if (!g || wrap || !sideOn) {
+      maxSx = 0;
+      sx = 0;
+      return;
+    }
+    const cell = g.querySelector<HTMLElement>(".tx");
+    if (!cell) return;
+    const cs = getComputedStyle(cell);
+    const inner = cell.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    let widest = 0;
+    for (const el of g.querySelectorAll<HTMLElement>(".tx > .in")) if (el.offsetWidth > widest) widest = el.offsetWidth;
+    colW = inner;
+    maxSx = Math.max(0, Math.ceil(widest - inner));
+    sx = clampSx(sx);
+  }
+  $effect(() => {
+    void sideShown;
+    void wrap;
+    void sideOn;
+    void hl;
+    const g = gridEl;
+    if (!g) return;
+    let dead = false;
+    void tick().then(() => {
+      if (!dead) measureSx();
+    });
+    const ro = new ResizeObserver(() => measureSx());
+    ro.observe(g);
+    return () => {
+      dead = true;
+      ro.disconnect();
+    };
+  });
+  // 滚轮：横向分量（触控板左右划）或 ⇧ + 竖向滚轮推偏移；纯竖向的照常滚。要 preventDefault，所以自己挂（不能是 passive）
+  $effect(() => {
+    const b = box;
+    if (!b) return;
+    const onWheel = (e: WheelEvent) => {
+      if (maxSx <= 0) return;
+      const dx = e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX;
+      if (dx === 0 || (!e.shiftKey && Math.abs(e.deltaX) < Math.abs(e.deltaY))) return;
+      e.preventDefault();
+      sx = clampSx(sx + dx);
+    };
+    b.addEventListener("wheel", onWheel, { passive: false });
+    return () => b.removeEventListener("wheel", onWheel);
+  });
+  /** 底下那条细条：滑块长度 = 可见宽 / 内容宽；点轨道跳过去，拖滑块跟着走 */
+  let thumbPct = $derived(maxSx > 0 && colW > 0 ? Math.max(8, (100 * colW) / (colW + maxSx)) : 100);
+  let thumbLeft = $derived(maxSx > 0 ? ((100 - thumbPct) * sx) / maxSx : 0);
+  function dragBar(e: PointerEvent) {
+    const track = e.currentTarget as HTMLElement;
+    const range = track.clientWidth * (1 - thumbPct / 100);
+    if (range <= 0) return;
+    if (!(e.target as HTMLElement).classList.contains("thumb")) {
+      const r = track.getBoundingClientRect();
+      sx = clampSx(((e.clientX - r.left - (track.clientWidth * thumbPct) / 200) / range) * maxSx);
+    }
+    const x0 = e.clientX;
+    const s0 = sx;
+    track.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => (sx = clampSx(s0 + ((m.clientX - x0) / range) * maxSx));
+    const up = () => {
+      track.removeEventListener("pointermove", move);
+      track.removeEventListener("pointerup", up);
+    };
+    track.addEventListener("pointermove", move);
+    track.addEventListener("pointerup", up);
+  }
+  /** 行号栏宽度跟着最大行号的位数走（原来写死 46px：四位数行号挤、两位数的又空一大截） */
+  let gw = $derived.by(() => {
+    let max = 0;
+    for (const r of sideShown) max = Math.max(max, r.left?.oldNo ?? 0, r.right?.newNo ?? 0);
+    return `calc(${Math.max(3, String(max).length)}ch + 18px)`;
+  });
   /**
    * 跳转目标只能取**渲染出来的**那些块。
    * 早先是在全部行上算的，于是超过 MAX_ROWS 的差异里，「下一处改动」会把
@@ -400,22 +495,23 @@
 
   <div class="body" bind:this={box}>
     {#if files.length === 0}
-      <div class="none">
+      <div class="empty-msg">
         {#if untracked}新增的文件，内容为空{:else}这一侧没有改动{/if}
       </div>
     {:else if files[0].binary}
-      <div class="none">二进制文件，不显示差异</div>
+      <div class="empty-msg">二进制文件，不显示差异</div>
     {:else if sideOn}
       <!--
         data-row 是跳转的锚点。双栏里一行是 4 个 grid 子元素拼出来的，
         没有「行」这个元素，所以标在每行的**第一个**子元素上 ——
         两个分支都要标，漏掉 span4 的话落在 hunk 行上的跳转会静默失败。
       -->
-      <div class="grid" class:wrap>
+      <div class="grid" class:wrap bind:this={gridEl} style:--sx="{sx}px" style:--gw={gw}>
         {#each sideShown as r, i (i)}
           {#if r.kind === "hunk" || r.kind === "meta"}
             <div class="span4 {r.kind}" data-row={i}>
               {#if r.kind === "hunk"}<span class="fold" aria-hidden="true"><Icon name="more-h" /></span>{/if}
+              {#if r.kind === "hunk" && r.hidden}<span class="hcount">{r.hidden} 行未改动</span>{/if}
               <span class="htxt">{r.text}</span>
               {#if r.kind === "hunk" && selHunk === sideHunk[i]}
                 <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
@@ -439,16 +535,25 @@
             <div class="no {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:sel={on} data-row={i} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>{L?.oldNo ?? ""}</div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:flat={flat.left[i]} class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>
-              {#if L}{@render code(L)}{/if}
+              {#if L}<span class="in">{@render code(L)}</span>{/if}
             </div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="no mid {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>{R?.newNo ?? ""}</div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="tx {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:flat={flat.right[i]} class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>
-              {#if R}{@render code(R)}{/if}
+              {#if R}<span class="in">{@render code(R)}</span>{/if}
             </div>
           {/if}
         {/each}
+        {#if maxSx > 0 && !wrap}
+          <!-- 两栏底下各一条横向滚动条，吸在可视区底边；两条推的是同一个偏移（上面「双栏横向滚动」那段） -->
+          <div class="hgap"></div>
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="hbar" onpointerdown={dragBar}><span class="thumb" style:width="{thumbPct}%" style:left="{thumbLeft}%"></span></div>
+          <div class="hgap"></div>
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="hbar" onpointerdown={dragBar}><span class="thumb" style:width="{thumbPct}%" style:left="{thumbLeft}%"></span></div>
+        {/if}
       </div>
     {:else}
       <div class="uni" class:wrap>
@@ -460,7 +565,7 @@
               {#if oneSided !== "add"}<span class="no"></span>{/if}
               {#if oneSided !== "del"}<span class="no"></span>{/if}
               <span class="sign fold" aria-hidden="true">{#if l.kind === "hunk"}<Icon name="more-h" />{/if}</span>
-              <span class="txt">{l.text}</span>
+              <span class="txt">{#if l.kind === "hunk" && l.hidden}<span class="hcount">{l.hidden} 行未改动</span>{/if}{l.text}</span>
               {#if l.kind === "hunk" && selHunk === uniHunk[i]}
                 <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
                   {staged ? "取消暂存" : "暂存"}选中的 {sel.size} 行
@@ -488,12 +593,12 @@
       </div>
     {/if}
     {#if capped}
-      <div class="none">
+      <div class="empty-msg">
         这份差异过大，只取了前 1MB{#if truncated}，其中显示了前 {MAX_ROWS} 行{/if}
         —— 完整内容请用 <code>git diff</code> 看
       </div>
     {:else if truncated}
-      <div class="none">差异太长，只显示了前 {MAX_ROWS} 行（共 {total} 行）</div>
+      <div class="empty-msg">差异太长，只显示了前 {MAX_ROWS} 行（共 {total} 行）</div>
     {/if}
   </div>
 </div>
@@ -567,18 +672,21 @@
   /*
    * 双栏用一个 grid 而不是两个并排的滚动容器：
    * 一个容器意味着纵向滚动天生同步，不用写一行同步代码，也不会有
-   * 「两边差一帧」的抖动。列宽取 max-content，横向滚动时两栏一起动。
+   * 「两边差一帧」的抖动。
+   *
+   * **两栏永远平分**（`minmax(0, 1fr)`，2026-10-13）。原来是 `minmax(max-content, 1fr)`、整个 grid 横向滚：
+   * 左边一行长，左栏就按它撑宽，右栏被挤出屏幕。现在格子里裁掉，长行靠 `--sx` 平移（脚本里「双栏横向滚动」那段）。
+   * 行号栏宽度 `--gw` 跟着最大行号的位数走
    */
   .grid {
     display: grid;
-    /* minmax(max-content, 1fr)：下限是最长那行的宽度（长行不被截断，
-       溢出时整个 grid 横向滚动），上限是 1fr（窗口宽时两栏平分、
-       背景色铺满，不会在右边留一条没上色的空白） */
-    grid-template-columns: 46px minmax(max-content, 1fr) 46px minmax(max-content, 1fr);
-    min-width: 100%;
+    grid-template-columns: var(--gw, 46px) minmax(0, 1fr) var(--gw, 46px) minmax(0, 1fr);
+    width: 100%;
     align-items: stretch;
   }
   .grid > div { white-space: pre; height: 20px; }
+  .grid .tx { overflow: hidden; }
+  .grid .tx > .in { display: inline-block; transform: translateX(calc(-1 * var(--sx, 0px))); }
   /*
    * 块头：一条 `--hover` 的带子，**不画上下边线**（岛里不用线分项）。左边一个 ⋯ 说「这里折着
    * 没显示的行」，后面跟 git 报的函数上下文（斜体，它是注释性质的）。
@@ -596,53 +704,42 @@
     color: var(--text);
     background: var(--selected);
   }
+  /*
+   * 行号栏：不随横向滚动动（双栏平移的是代码格子里那层 `.in`；统一视图整行一起滚，行号跟着走也没关系）。
+   * 增删行的行号格跟着上同一层底色（VS Code：行号栏是改动那一行的一部分），色值只有 --diff-*-bg 一份
+   */
   .no {
     padding-right: 10px;
     text-align: right;
     color: var(--gutter-fg);
     font-size: var(--fs-sm);
     user-select: none;
-    /* 行号列吸在左边：横向滚动时仍然知道自己在第几行 */
-    position: sticky;
-    left: 0;
     background: var(--content-solid);
     /* 同编辑器的行号栏：右边一条 soft 线把行号和正文分开 */
     box-shadow: inset -1px 0 0 var(--border-soft);
   }
-  /*
-   * 吸住的列**背景必须不透明**，否则横向滚动时正文会从行号底下透出来。
-   * 增删行的底色是半透明的（要让它叠在编辑器底色上才是对的颜色），
-   * 所以这里把它和一层不透明底色叠起来，而不是另写一组死色值 ——
-   * 色值只有一份，改 --diff-*-bg 时不会漏掉这里。
-   */
   .no.del { background: linear-gradient(var(--diff-del-bg), var(--diff-del-bg)), var(--content-solid); }
   .no.add { background: linear-gradient(var(--diff-add-bg), var(--diff-add-bg)), var(--content-solid); }
   .no.blank { background: var(--content-solid); }
-  /* 右栏的行号：也是分栏线 —— 左边一条 soft 线（左栏正文 → 右栏行号），不用 9% 的 */
-  .no.mid {
-    left: auto;
-    position: static;
-    box-shadow: inset 1px 0 0 var(--border-soft), inset -1px 0 0 var(--border-soft);
-  }
+  /* 右栏的行号：左边那条是两栏的分界 —— 用实一档的 --border（原来是 soft，两栏看着连成一片） */
+  .no.mid { box-shadow: inset 1px 0 0 var(--border), inset -1px 0 0 var(--border-soft); }
   .tx { padding: 0 14px 0 8px; }
   .tx.del { background: var(--diff-del-bg); }
   .tx.add { background: var(--diff-add-bg); }
-  /* 对面没有对应行：画成静音的斜纹底，一眼看出「这里本来就没东西」 */
+  /*
+   * 对面没有对应行：斜纹底，一眼看出「这里本来就没东西」（VS Code 双栏的做法）。
+   * 原来是 2.8% 白的粗斜纹，在深色底上几乎看不见，一片纯黑像是渲染坏了（2026-10-13）。现在 1px 细线、7px 间距、5.5% 白：
+   * 看得出是「留空」，又不抢旁边真正的代码
+   */
   .tx.blank {
-    background: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 5px,
-      rgba(255, 255, 255, 0.028) 5px,
-      rgba(255, 255, 255, 0.028) 10px
-    );
+    background: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.055) 0 1px, transparent 1px 7px);
   }
   /*
    * 连着好几行的空白块改成纯色。斜纹的视觉重量是按面积累加的：
    * 一两行合适，五行 import 那么一整块就盖过了旁边真正的代码。
    * 哪些行算「连着好几行」由 diff.ts 的 blankRuns 决定（那边有测试）。
    */
-  .tx.blank.flat { background: rgba(255, 255, 255, 0.022); }
+  .tx.blank.flat { background: rgba(255, 255, 255, 0.03); }
 
   /*
    * 软换行。两件事一起做才有意义：
@@ -656,7 +753,8 @@
    * 行高取两边的较大者，左边折成 3 行右边就跟着长到 3 行。
    * （这也是当初选「一个 grid」而不是「两个并排容器」的红利。）
    */
-  .grid.wrap { grid-template-columns: 46px 1fr 46px 1fr; }
+  .grid.wrap .tx { overflow: visible; }
+  .grid.wrap .tx > .in { display: inline; transform: none; }
   .grid.wrap > div {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -718,9 +816,9 @@
   /* 按行暂存的按钮：选中集非空时常驻（它是选中这个状态的唯一出口，藏起来人不知道下一步是什么） */
   .hsel { margin-left: auto; margin-right: 8px; align-self: center; font-style: normal; }
   /*
-   * 块头上的按钮吸在**可视区**右边。块头横跨整个网格，而长行会把网格撑得比可视区宽
-   * （实测 1152 > 736），`margin-left: auto` 把按钮推到网格最右 —— 在屏幕外。
-   * sticky 的参照是滚动容器，横向滚到哪儿按钮都贴着右边
+   * 块头上的按钮吸在**可视区**右边：统一视图里长行会把行撑得比可视区宽（实测 1152 > 736），
+   * `margin-left: auto` 把按钮推到最右 —— 在屏幕外。sticky 的参照是滚动容器，横向滚到哪儿按钮都贴着右边。
+   * （双栏 2026-10-13 起不再比可视区宽，这条对它无害）
    */
   .hbtn, .hsel { position: sticky; right: 8px; }
   .hsel ~ .hbtn { margin-left: 10px; }
@@ -738,18 +836,28 @@
   /* 折叠标记：⋯ 图标，说「这上面有没显示的行」 */
   .fold { display: inline-flex; align-items: center; justify-content: center; color: var(--text-faint); }
   .span4.hunk .htxt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 「12 行未改动」：照 VS Code 的折叠条说清这里跳过了多少；正体、亮一档，后面那截函数名照旧斜体、更淡 */
+  .hcount { flex: none; font-style: normal; color: var(--text-muted); margin-right: 8px; }
   .uni .row.meta { color: var(--text-faint); font-size: var(--fs-sm); }
 
-  /* 行内高亮：颜色更实，把真正改动的那几个字挑出来 */
-  mark { background: transparent; color: inherit; border-radius: var(--r-sm); padding: 0 1px; }
+  /* 双栏底下的横向滚动条：吸在可视区底边（grid 的最后一行，sticky），只在有长行时出现；平时淡、悬停亮 */
+  .grid > .hgap, .grid > .hbar { position: sticky; bottom: 0; height: 10px; z-index: 1; }
+  .hbar .thumb {
+    position: absolute;
+    top: 3px;
+    height: 4px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.18);
+    transition: background-color 70ms ease-out;
+  }
+  .hbar:hover .thumb { top: 2px; height: 6px; background: rgba(255, 255, 255, 0.32); }
+
+  /*
+   * 行内高亮：颜色更实，把真正改动的那几个字挑出来。**直角、不加内边距**（2026-10-13）：原来 7px 圆角 + 左右 1px，
+   * 一串改动的字像一颗颗胶囊，而且那 2px 把后面的字往右推、等宽字的列对不齐了。IDEA、VS Code 都是直角贴字
+   */
+  mark { background: transparent; color: inherit; border-radius: 0; padding: 0; }
   .tx.del mark, .uni .row.del mark { background: var(--diff-del-strong); color: var(--text); }
   .tx.add mark, .uni .row.add mark { background: var(--diff-add-strong); color: var(--text); }
 
-  .none {
-    padding: 20px;
-    text-align: center;
-    color: var(--text-faint);
-    font-family: var(--ui-font);
-    font-size: var(--fs-md);
-  }
 </style>

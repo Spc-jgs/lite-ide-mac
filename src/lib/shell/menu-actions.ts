@@ -232,7 +232,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "git-file-diff": {
       const en = git.activeEntry;
       if (en) void git.openDiff(en, false);
-      else notify.fail("当前文件没有未提交的改动", 2600);
+      else notify.hint("当前文件没有未提交的改动");
       return;
     }
     case "git-blame":

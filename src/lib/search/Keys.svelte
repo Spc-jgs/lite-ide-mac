@@ -85,7 +85,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="scrim dim" onclick={() => (open = false)} role="presentation"></div>
-  <div class="popup" role="dialog" aria-modal="true" aria-label="快捷键速查">
+  <div class="popup palette m" role="dialog" aria-modal="true" aria-label="快捷键速查">
     <div class="head">
       <span class="ic"><Icon name="search" /></span>
       <input
@@ -99,7 +99,7 @@
 
     <div class="list">
       {#if groups.length === 0}
-        <div class="none">没有匹配的键位 —— 按功能名（保存）或键名（⌘S）都能搜</div>
+        <div class="empty-msg">没有匹配的键位 —— 按功能名（保存）或键名（⌘S）都能搜</div>
       {/if}
       {#each groups as g (g.name)}
         <div class="sec">{g.name}</div>
@@ -130,16 +130,9 @@
 
 <style>
   .popup {
-    position: fixed;
-    top: 12vh;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(560px, 88vw);
-    max-height: 70vh;
+    /* 位置和宽度在 app.css 的 `.palette`（上沿一条线、宽度三档，ui.md 第十二条之二）；面在 `.popup`。这里只剩排版 */
     display: flex;
     flex-direction: column;
-    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
-    z-index: 41;
     overflow: hidden;
   }
 
@@ -159,7 +152,6 @@
   input::placeholder { color: var(--text-faint); }
 
   .list { overflow-y: auto; border-top: 1px solid var(--border-soft); padding-bottom: 4px; }
-  .none { padding: 18px 16px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; }
 
   /* 分组头吸顶：底色跟着所在层走，填死色会在滚动时拖出一条实心带 */
   .sec {

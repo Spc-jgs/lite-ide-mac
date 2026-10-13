@@ -10,6 +10,7 @@
     status,
     busy,
     committing = false,
+    committed = false,
     onOpenDiff,
     onStage,
     onUnstage,
@@ -30,6 +31,8 @@
      * 读的是 `git.writing`，不是 `notify.doing` —— 后者 300ms 之后才亮，按钮的 busy 由样式自己延迟
      */
     committing?: boolean;
+    /** 刚提交成功（1.4 秒）：按钮原地换成「✓ 已提交」 */
+    committed?: boolean;
     onOpenDiff: (e: GitEntry, staged: boolean) => void;
     onStage: (paths: string[]) => void;
     onUnstage: (paths: string[]) => void;
@@ -241,7 +244,8 @@
 
 <div class="git">
   {#if !status}
-    <div class="hint">不是 Git 仓库</div>
+    <!-- 空态要给下一步（ui.md 第六条）。仓库只在换项目根时找一次（git.locate），所以 init 之后要重新打开 —— 照实说，不许诺「自动出现」 -->
+    <div class="empty-msg">这个目录还不是 Git 仓库<br /><span class="sub">在终端里（⌘J）<code>git init</code> 之后重新打开这个项目，Git 就能用了</span></div>
   {:else}
     <!--
       面板头（M9）：和文件树的头同一形状 —— 标题 + 计数 + 两个 24px 工具按钮，38 高。
@@ -312,10 +316,15 @@
             class="btn primary"
             disabled={!canCommit || committing}
             class:busy={committing}
+            class:done={committed}
             aria-busy={committing}
             onclick={() => doCommit()}
           >
-            提交 {staged.length > 0 ? `(${staged.length})` : ""}
+            <!-- 两段叠在同一格里：按钮宽度取两段里宽的那个，换字时不跳宽、旁边的 ▾ 不挪（ui.md 第十四条：busy 不变宽，done 同理） -->
+            <span class="swap">
+              <span class="now" aria-hidden={committed}>提交 {staged.length > 0 ? `(${staged.length})` : ""}</span>
+              <span class="ack" aria-hidden={!committed}><Icon name="check" /> 已提交</span>
+            </span>
           </button>
           <button
             class="btn primary"
@@ -487,6 +496,12 @@
   }
   .commit textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
   .commit textarea::placeholder { color: var(--text-faint); }
+  /* 提交按钮的两段字叠在一格里（grid 同一区），宽度取宽的那段；做完那 1.4 秒换成「✓ 已提交」 */
+  .swap { display: inline-grid; }
+  .swap > span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+  .swap .ack { visibility: hidden; }
+  .done .swap .now { visibility: hidden; }
+  .done .swap .ack { visibility: visible; }
   .crow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
   .amend {
     display: flex;

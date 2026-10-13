@@ -227,7 +227,7 @@
       .then((b) => {
         if (dead) return;
         blame = b.hunks;
-        if (b.truncated) notify.ok("文件太大，后半段没有注解", 3000);
+        if (b.truncated) notify.hint("文件太大，后半段没有注解");
       })
       .catch((e) => {
         if (dead) return;
@@ -312,7 +312,6 @@
             <span><b>{k.gesture ?? k.accel}</b> {k.label}</span>
           {/each}
         </div>
-        {#if notify.error}<p class="err">{notify.error}</p>{/if}
       </div>
     </div>
   {:else if tab.mode === "merge" && Merge}
@@ -462,13 +461,14 @@
     text-align: center;
     color: var(--text-dim);
   }
+  /*
+   * 空着的编辑区：**直接印在岛上，不是一张浮起来的卡片**（2026-10-13）。原来是亮一档的底 + 投影 + 外描边 ——
+   * 和对话框、浮层同一副样子，人一眼以为「它在问我什么、要我先处理」，其实它只是「这里还没打开东西」。
+   * IDEA、VS Code 的空编辑区都是居中几行淡字 + 快捷键，没有卡片。编辑岛自己有底（`--content-bg` 叠在材质上），字照样读得清
+   *（原来那句「外壳层是透的、卡片跟着透就成了没底的框」说的是卡片画在外壳上那一版，空态早就搬进编辑岛里了）
+   */
   .empty .card {
     width: min(440px, 90%);
-    padding: 20px 22px 18px;
-    /* 空态卡片是浮层：外壳层是透的，卡片跟着透就成了一圈没有底的框 */
-    background: var(--elevated);
-    border-radius: var(--r-lg);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), var(--pop-ring);
     text-align: left;
   }
   .empty .big { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin-bottom: 6px; }
@@ -524,12 +524,4 @@
     color: var(--text-dim);
   }
   .empty .keymap b { color: var(--text-faint); font-weight: 400; margin-right: 4px; }
-  .empty .err {
-    margin-top: 14px;
-    padding-top: 11px;
-    border-top: 1px solid var(--border-soft);
-    color: var(--lvl-error);
-    font-family: var(--code-font);
-    font-size: var(--fs-sm);
-  }
 </style>

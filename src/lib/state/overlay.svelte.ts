@@ -102,7 +102,7 @@ class Overlay {
   findWordAtCursor() {
     const w = docs.wordUnderCursor();
     if (!w) {
-      notify.ok("把光标放到一个名字上再按", 2000);
+      notify.hint("把光标放到一个名字上再按");
       return;
     }
     this.openQuick("content", w);

@@ -369,7 +369,8 @@
   mark {
     background: var(--search-hit);
     color: var(--text);
-    border-radius: var(--r-sm);
+    /* 贴在一行字里的高亮：2px，不是控件的 7px —— 7px 在 20px 高的字上，一串命中像一颗颗胶囊（ui.md 第一之三条） */
+    border-radius: 2px;
   }
 
   /* 块还在路上：留白而不是跳动 */

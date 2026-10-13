@@ -164,7 +164,9 @@ export async function revertHunk(patch: string): Promise<boolean> {
 export function commit(message: string, amend: boolean): Promise<boolean> {
   return run("提交失败", async () => {
     const out = await gitCommit(git.repo!, message, amend);
-    notify.ok(out.split("\n")[0] || "已提交", 3000);
+    // 胶囊说 git 回的那一行（分支、短 sha、标题），按钮原地说「已提交」—— 两句不是同一个信息
+    notify.ok(out.split("\n")[0] || "已提交");
+    git.flashDone("提交");
   }, "提交");
 }
 

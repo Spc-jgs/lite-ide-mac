@@ -14,6 +14,8 @@
    * 不是 storybook：一个文件、零依赖、不带交互，够用就停。
    */
   import Icon, { ICON_NAMES } from "../shell/Icon.svelte";
+  import Toast from "../shell/Toast.svelte";
+  import { notify } from "../state/notify.svelte";
 
   const TONES = [
     ["--hover", "悬停"],
@@ -130,7 +132,30 @@
   </section>
 
   <section>
-    <h2>浮层的面 <code>.popup</code> / <code>.scrim</code> <small>比内容亮一档的实心底（--elevated）、r-md 12、投影 + <code>--pop-ring</code>（0.5px 外描边 + 顶边高光）、90ms 淡入；位置和尺寸各组件自己管。右键菜单用同一个面但不淡入，选中项强调色白字、快捷键右对齐</small></h2>
+    <h2>提示胶囊 <code>Toast</code> / <code>notify</code> <small>编辑区底部居中，一次一条（ui.md 第十五条）：<code>ok</code> 主色 ✓ = 做成了 / <code>fail</code> 红 ✕ = 没做成（不被随后的 ok 顶掉）/ <code>hint</code> 灰、无图标 = 什么都没发生。停多久按字数，鼠标停上去不走，点一下关</small></h2>
+    <div class="row">
+      <button class="btn sm" onclick={() => notify.ok("已复制路径：/proj/pom.xml")}>ok</button>
+      <button class="btn sm" onclick={() => notify.fail("推送失败：远程拒绝了这次推送")}>fail</button>
+      <button class="btn sm" onclick={() => notify.hint("剪贴板里没有文字")}>hint</button>
+    </div>
+    <div class="toastbox"><Toast /></div>
+  </section>
+
+  <section>
+    <h2>空态 <code>.empty-msg</code> / 刚做完 <code>.btn.done</code> <small>为什么空 + 下一步；<code>.sub</code> 补充、<code>.bad</code> 拿不到。按钮原地说「✓ 已提交」1.4 秒，主色不灰、宽度不变</small></h2>
+    <div class="row" style="align-items: stretch">
+      <div class="emptybox"><div class="empty-msg">没有找到 —— 换个词，或者看看上面三个开关</div></div>
+      <div class="emptybox"><div class="empty-msg">这个目录还不是 Git 仓库<br /><span class="sub">在终端里（⌘J）<code>git init</code> 之后重新打开这个项目，Git 就能用了</span></div></div>
+      <div class="emptybox"><div class="empty-msg bad">fatal: not a git repository</div></div>
+    </div>
+    <div class="row">
+      <button class="btn primary" disabled>提交 (0)</button>
+      <button class="btn primary done" disabled><Icon name="check" /> 已提交</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>浮层的面 <code>.popup</code> / <code>.scrim</code> <small>比内容亮一档的实心底（--elevated）、r-md 12、投影 + <code>--pop-ring</code>（0.5px 外描边 + 顶边高光）、90ms 淡入；居中的位置和宽度是 <code>.palette s/m/l</code>（上沿一条线、440 / 640 / 820），挂在控件下的组件自己按锚点放。右键菜单用同一个面但不淡入，选中项强调色白字、快捷键右对齐</small></h2>
     <div class="row">
       <div class="popup demo">浮层 / 菜单 / 弹窗</div>
     </div>
@@ -182,6 +207,9 @@
   .loading { display: inline-flex; align-items: center; gap: 8px; color: var(--text-faint); font-size: 12px; }
   .cards { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
   .pbar.w { width: 160px; }
+  /* 胶囊的定位父级：照编辑岛（position: relative），胶囊贴它的底边 */
+  .toastbox { position: relative; height: 72px; border-radius: var(--r-sm); background: var(--content-bg); }
+  .emptybox { flex: 1; min-width: 200px; border-radius: var(--r-sm); background: var(--elevated); }
   /* 状态栏那格的仿真：照 StatusBar.svelte 的 .task 抄尺寸，改那边记得改这边 */
   .sbdemo { display: inline-flex; align-items: center; gap: 16px; height: 24px; padding: 0 12px; background: var(--chrome-scrim); border-radius: var(--r-sm); font-size: 11.5px; }
   .sbdemo .task { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); }

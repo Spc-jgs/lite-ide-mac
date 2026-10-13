@@ -191,7 +191,8 @@
     min-width: 13px;
     height: 13px;
     padding: 0 3px;
-    border-radius: 7px;
+    /* 计数角标是胶囊：写成 99px，不靠「高 13 时 7px 刚好像胶囊」（数字变成两位、高度一改就不是了） */
+    border-radius: 99px;
     background: var(--git-modified);
     /*
       深色字压在 --git-modified（#6ba1e8，浅蓝）上，深浅两套主题里这个底色是同一个，

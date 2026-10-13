@@ -104,7 +104,7 @@
 
 {#if open}
   <div class="scrim" onclick={() => (open = false)} role="presentation"></div>
-  <div class="box popup" class:anchored={!!anchor} bind:this={popEl} role="dialog" aria-modal="true" aria-label={logMode ? "跳到行或时间" : "跳到行"}>
+  <div class="box popup palette s" class:anchored={!!anchor} bind:this={popEl} role="dialog" aria-modal="true" aria-label={logMode ? "跳到行或时间" : "跳到行"}>
     <label>
       <span class="lbl">{logMode ? "跳到" : "跳到行"}</span>
       <input
@@ -126,19 +126,14 @@
 
 <style>
   .box {
-    position: fixed;
-    top: 14vh;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 260px;
+    /* 位置和宽度在 app.css 的 `.palette`（上沿一条线、宽度三档，ui.md 第十二条之二）；面在 `.popup`。这里只剩排版 */
     display: flex;
     flex-direction: column;
     gap: 6px;
     padding: 10px 12px;
-    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
-    z-index: 41;
   }
-  .box.anchored { top: 0; left: 0; transform: none; }
+  /* 挂在状态栏「行:列」格子上时：不居中、只有一个输入框那么宽，left/top 由 effect 写进 style */
+  .box.anchored { top: 0; left: 0; transform: none; width: 260px; }
   label { display: flex; align-items: center; gap: 10px; }
   .lbl { flex: none; font-size: var(--fs-md); color: var(--text-dim); }
   input {

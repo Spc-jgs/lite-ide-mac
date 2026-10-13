@@ -119,7 +119,7 @@
       {/if}
     {/each}
     {#if conflicts.length === 0}
-      <div class="none">这个文件里没有冲突标记了 —— 可能已经解决过。直接保存即可标记为已解决。</div>
+      <div class="empty-msg">这个文件里没有冲突标记了 —— 可能已经解决过。直接保存即可标记为已解决。</div>
     {/if}
   </div>
 </div>
@@ -212,5 +212,4 @@
   .pick:hover .hint { opacity: 1; }
   .pick.on { color: var(--text); background: var(--accent-sel); }
   .pick.on .hint { opacity: 1; color: var(--diff-add-fg); }
-  .none { padding: 24px; text-align: center; color: var(--text-faint); font-family: var(--ui-font); font-size: var(--fs-md); }
 </style>

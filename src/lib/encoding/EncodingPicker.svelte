@@ -98,7 +98,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <!-- 从格子上开的不压暗：它是随手换一下的东西，不是要你先处理完的对话框（ui.md 十二） -->
   <div class="scrim" class:dim={!anchor} onclick={() => (open = false)}></div>
-  <div class="popup" class:anchored={!!anchor} bind:this={popEl} role="dialog" aria-label="文件编码">
+  <div class="popup palette s" class:anchored={!!anchor} bind:this={popEl} role="dialog" aria-label="文件编码">
     <div class="head">
       <span>文件编码</span>
       <span class="cur">当前：{current}{bom ? " + BOM" : ""}</span>
@@ -139,16 +139,9 @@
 
 <style>
   .popup {
-    position: fixed;
-    top: 16vh;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(500px, 88vw);
-    max-height: 62vh;
+    /* 位置和宽度在 app.css 的 `.palette`（上沿一条线、宽度三档，ui.md 第十二条之二）；面在 `.popup`。这里只剩排版 */
     display: flex;
     flex-direction: column;
-    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
-    z-index: 41;
     overflow: hidden;
   }
   /* 挂在状态栏格子上时：不居中，left/top 由 effect 写进 style */

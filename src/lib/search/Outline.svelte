@@ -69,7 +69,7 @@
 
 {#if open}
   <div class="scrim dim" onclick={() => (open = false)} role="presentation"></div>
-  <div class="popup" role="dialog" aria-modal="true" aria-label="文件结构">
+  <div class="popup palette m" role="dialog" aria-modal="true" aria-label="文件结构">
     <div class="head">
       <span class="t">文件结构</span>
       <span class="f">{fileName}</span>
@@ -88,11 +88,11 @@
 
     <div class="list">
       {#if !supported}
-        <div class="none">这门语言没有语法树，无法提取结构<br /><span class="sub">（走 legacy 高亮的语言暂不支持）</span></div>
+        <div class="empty-msg">这门语言没有语法树，无法提取结构<br /><span class="sub">（走 legacy 高亮的语言暂不支持）</span></div>
       {:else if symbols.length === 0}
-        <div class="none">没找到符号</div>
+        <div class="empty-msg">没找到符号</div>
       {:else if rows.length === 0}
-        <div class="none">没有叫这个名的符号 —— 清空输入看全部结构</div>
+        <div class="empty-msg">没有叫这个名的符号 —— 清空输入看全部结构</div>
       {/if}
       {#each rows as row, i (row.sym.kind + row.sym.name + row.sym.line)}
         <button
@@ -115,16 +115,9 @@
 
 <style>
   .popup {
-    position: fixed;
-    top: 12vh;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(560px, 86vw);
-    max-height: 70vh;
+    /* 位置和宽度在 app.css 的 `.palette`（上沿一条线、宽度三档，ui.md 第十二条之二）；面在 `.popup`。这里只剩排版 */
     display: flex;
     flex-direction: column;
-    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
-    z-index: 41;
     overflow: hidden;
   }
   .head {
@@ -154,8 +147,6 @@
   input::placeholder { color: var(--text-faint); }
 
   .list { overflow-y: auto; padding: 4px 0; }
-  .none { padding: 20px 14px; color: var(--text-faint); font-size: var(--fs-md); text-align: center; line-height: 1.8; }
-  .none .sub { font-size: var(--fs-sm); }
   .row {
     display: flex;
     align-items: baseline;

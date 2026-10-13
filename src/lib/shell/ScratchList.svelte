@@ -176,7 +176,7 @@
     {/if}
     {#if scratches.loaded && scratches.list.length === 0}
       <!-- 空态要给下一步，不是给句号（ui.md 第六条） -->
-      <div class="empty">还没有草稿 —— ⌘N 记第一条</div>
+      <div class="empty-msg">还没有草稿 —— ⌘N 记第一条</div>
     {/if}
     {#each groups as g (g.label)}
       {#if g.label}
@@ -291,7 +291,6 @@
   .head .gap { flex: 1; min-width: 6px; }
   /* 头上的工具按钮是 `.ibtn`（app.css） */
   .list { flex: 1; overflow: auto; padding: 4px 6px; }
-  .empty { padding: 10px 6px; font-size: var(--fs-md); color: var(--text-faint); }
   /* 「在草稿本新建」：和列表行同一个尺寸（28、r-sm），快捷键右对齐、灰一档 —— 它是一个动作，不是一条草稿，所以和下面隔一道线 */
   .gobook {
     display: flex;

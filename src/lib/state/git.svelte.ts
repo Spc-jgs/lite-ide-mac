@@ -75,6 +75,19 @@ class Git {
   writing = $state<string | null>(null);
 
   /**
+   * 刚做完的那个写操作（「提交」），亮 1.4 秒：发起它的按钮原地换成「✓ 已提交」（2026-10-13 盘点 B1 方案 C）。
+   * 胶囊离按钮远，而人点完提交眼睛还在按钮上；按钮自己说一声最近。只给有常驻按钮的动作用 ——
+   * 推送是从浮层 / 确认框里发起的，点完那个面就关了，它的「原地」是标题栏挂件上的 ↑N 消失
+   */
+  justDone = $state<string | null>(null);
+  #doneTimer: ReturnType<typeof setTimeout> | undefined;
+  flashDone(what: string) {
+    clearTimeout(this.#doneTimer);
+    this.justDone = what;
+    this.#doneTimer = setTimeout(() => (this.justDone = null), 1400);
+  }
+
+  /**
    * 换项目根就重新找仓库。找不到时把 Git 的一切都清干净。
    *
    * App 的 effect 调（`$effect` 只能在组件里）。返回找到的仓库根；**确定**不是仓库

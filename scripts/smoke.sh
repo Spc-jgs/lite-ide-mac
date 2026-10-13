@@ -795,7 +795,7 @@ if rp_open; then
   if wait_has "已替换 3 个文件 5 处" 15; then
     ok "执行了，撤销卡片出来了"
   else
-    bad "执行后没有撤销卡片（$(lite eval "${W}" "return document.querySelector('.statusbar')?.innerText" 2>/dev/null)）"
+    bad "执行后没有撤销卡片（$(lite eval "${W}" "return document.querySelector('.toast')?.innerText ?? ''" 2>/dev/null)）"
   fi
   check "$(cat "${REP}/b.txt")" "$(printf 'ZQXJ_RENAME b1\nZQXJ_GATEWAY b2')" "b.txt：取消勾的那处没动、另一处换了（软链没让它被换两次）"
   check "$(stat -f %Lp "${REP}/c.sh")" "755" "c.sh 的执行权限还在（验收 3）"
@@ -820,7 +820,7 @@ if rp_open; then
     rp_wait_info "6 处 · 3 个文件" || bad "第二次预览不是 6 处：$(rp_info)"
     printf 'echo extra\n' >> "${REP}/c.sh"
     click "替换 6 处" button prefix
-    wait_has "已替换 2 个文件" 15 || bad "第二次执行后没有卡片：$(lite eval "${W}" "return document.querySelector('.statusbar')?.innerText" 2>/dev/null)"
+    wait_has "已替换 2 个文件" 15 || bad "第二次执行后没有卡片：$(lite eval "${W}" "return document.querySelector('.toast')?.innerText ?? ''" 2>/dev/null)"
     check "$(tail -1 "${REP}/c.sh")" "echo extra" "预览之后被改过的 c.sh 没动（只有外面加的那一行）"
     grep -q ZQXJ_GATEWAY "${REP}/c.sh" && bad "c.sh 被替换了 —— 预览之后的改动没被发现" || ok "c.sh 跳过了，没在一份没给人看过的内容上动手"
     check "$(head -1 "${REP}/b.txt")" "ZQXJ_GATEWAY b1" "其余照常替换"
@@ -1019,7 +1019,9 @@ if wait_has "要保存对 modal.txt 的改动吗" 5; then
   menu new-scratch; sleep 0.8
   check "$(lite eval "${W}" "return __lite.tabs.list.length" 2>/dev/null)" "${N0}" "菜单「新建草稿」被挡住：标签数没变"
   click "取消" button exact
-  lite_wait "${W}" "return !document.querySelector('.layer .dialog')" 4 >/dev/null && ok "点「取消」：对话框关了" || bad "点「取消」对话框没关"
+  # 判「还在不在问」，不判 DOM 里还有没有：关掉之后有 120ms 淡出（shell/motion.ts），测试应用的窗口在后台时帧不走，
+  # 淡出停在半路、那层一直挂着 `leaving` —— 那时它已经不拦东西、不接鼠标了（2026-10-13 这条因此红过一次）
+  lite_wait "${W}" "return !document.querySelector('.layer:not(.leaving) .dialog')" 4 >/dev/null && ok "点「取消」：对话框关了" || bad "点「取消」对话框没关"
   is "return __lite.tabs.byPath($(q "${MOD}"))?.dirty === true" && ok "取消之后改动还在" || bad "取消之后 modal.txt 不脏了"
   sleep 0.3
   # 对照比的是「这一下之前」的数，不是 N0：被挡那条红的时候已经多开了一张，拿 N0 比对照会跟着一起红，说明不了什么

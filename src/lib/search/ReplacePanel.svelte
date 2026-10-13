@@ -126,7 +126,7 @@
 {#if open}
   <div class="scrim dim" onclick={() => (open = false)} role="presentation"></div>
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="popup" role="dialog" aria-modal="true" aria-label="在项目中替换" tabindex="-1" onkeydown={onKey}>
+  <div class="popup palette l" role="dialog" aria-modal="true" aria-label="在项目中替换" tabindex="-1" onkeydown={onKey}>
     <div class="q">
       <span class="qic"><Icon name="search" /></span>
       <input bind:this={qInput} bind:value={replace.query} placeholder="在项目中查找…" spellcheck="false" autocomplete="off" aria-label="查找" />
@@ -172,7 +172,7 @@
 
     <div class="list" bind:this={listEl} bind:clientHeight={viewH} onscroll={() => (scrollTop = listEl?.scrollTop ?? 0)}>
       {#if replace.scan && rows.length === 0 && !replace.scanning}
-        <div class="none">没有找到 —— 换个词，或者看看上面三个开关</div>
+        <div class="empty-msg">没有找到 —— 换个词，或者看看上面三个开关</div>
       {/if}
       <div class="inner" style:height="{rows.length * ROW}px">
         {#each rows.slice(range[0], range[1]) as row, k (row.kind === "file" ? `f${row.fi}` : row.kind === "hit" ? `h${row.fi}:${row.hi}` : `b${range[0] + k}`)}
@@ -243,16 +243,11 @@
 
 <style>
   .popup {
-    position: fixed;
-    top: 10vh;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(820px, 92vw);
-    height: min(640px, 78vh);
+    /* 位置和宽度在 app.css 的 `.palette`（上沿一条线、宽度三档，ui.md 第十二条之二）；面在 `.popup`。这里只剩排版 */
+    /* 高度固定（不随命中数伸缩）：预览列表在里面滚，按钮行不会在你要点的时候往下跑。上限照 .palette 的 max-height */
+    height: min(640px, 76vh);
     display: flex;
     flex-direction: column;
-    /* 面（底、边、圆角、投影、淡入）在 app.css 的 `.popup`，这里只管位置和尺寸 */
-    z-index: 41;
     overflow: hidden;
     outline: none;
   }
@@ -302,7 +297,6 @@
 
   .list { flex: 1; min-height: 0; overflow: auto; position: relative; }
   .inner { position: relative; }
-  .none { padding: 18px 16px; color: var(--text-faint); font-size: var(--fs-md); }
   .row {
     position: absolute;
     left: 6px;

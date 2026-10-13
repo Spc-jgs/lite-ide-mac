@@ -59,7 +59,7 @@
           void api
             .paste()
             .then((pasted) => {
-              if (!pasted) notify.ok("剪贴板里没有文字", 2600);
+              if (!pasted) notify.hint("剪贴板里没有文字");
             })
             .catch((e) => notify.fail(`粘贴失败：${String(e)}`, 3600)),
       },

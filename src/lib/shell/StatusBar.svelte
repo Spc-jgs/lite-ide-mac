@@ -1,16 +1,15 @@
 <script lang="ts">
   /**
-   * 状态栏：左边「我在哪个文件」（面包屑，或顶掉它的一条提示消息），
+   * 状态栏：左边「我在哪个文件」（面包屑），
    * 右边「这个文件什么状态」（模式 / 语言 / 编码 / 脏 / git），每一格点了都能改
    * （ui.md 第十一条）。
    *
-   * 消息直接读 `notify`；面包屑在这里算（`state/crumbs.ts`，纯函数）。
+   * 面包屑在这里算（`state/crumbs.ts`，纯函数）。做完 / 没做成的那句不在这儿了，在编辑区底部的胶囊（`Toast.svelte`）。
    * 剩下的都是当前标签的事实，由 App 传进来 —— 标签表还在 App 里（#9 第 4 步）。
    */
   import Icon from "./Icon.svelte";
   import type { MenuItem } from "./ContextMenu.svelte";
   import { cmenu } from "./context-menu.svelte";
-  import { notify } from "../state/notify.svelte";
   import { progress } from "../state/progress.svelte";
   import { crumbsOf, projectName } from "../state/crumbs";
   import { isLogName } from "../logview/is-log-name";
@@ -106,9 +105,8 @@
 <!--
   状态栏 = IDEA 的 status bar，**左右两半各管一件事**：
 
-  - 左：我在哪个文件（导航栏 / 面包屑）。IDEA 里不用导航栏时这块显示最近的
-    事件消息 —— 这里照抄：`notify` 一来就顶掉路径。以前提示消息挤在挂件中间，
-    窗口一窄它先被挤掉，而它恰恰是最该让人看见的。
+  - 左：我在哪个文件（导航栏 / 面包屑），**只干这一件**。原来照 IDEA 让 `notify` 一来就顶掉路径 2.6 秒 ——
+    提示落在视野最边上没人看见，路径还隔三岔五地没了。2026-10-13 起提示走编辑区底部的胶囊（`Toast.svelte`，盘点 B1）。
   - 右：这个文件什么状态，而且**点了都能改**（模式 / 编码 / 差异）。
 
   这里以前还挂着「搜索 ⇧⇧」「终端 ⌘J」「改动 N」「历史」四个 —— 全是**打开某个
@@ -120,13 +118,9 @@
   <!--
     左槽。「正在做」原来排在这儿最前面（issue #15：它是唯一一条「事情还没完」的消息，
     不能被「已保存」顶掉）—— 2026-09-22 起它和拉取推送、日志索引一起归右边的进度格
-    （`progress.svelte.ts`），左槽只剩做完的消息和面包屑，两边不再互相顶。
+    （`progress.svelte.ts`）；2026-10-13 做完的消息也搬去了胶囊，左槽只剩面包屑。
   -->
-  {#if notify.info}
-    <span class="cell ok navslot">{notify.info}</span>
-  {:else if notify.error}
-    <span class="cell err navslot">{notify.error}</span>
-  {:else if crumbs.length > 0}
+  {#if crumbs.length > 0}
     <nav class="crumbs navslot" aria-label="当前文件路径">
       {#each crumbs as c, i (c.path)}
         {#if i > 0}<span class="sep" aria-hidden="true">›</span>{/if}
@@ -398,8 +392,6 @@
     .statusbar .drop-2 { display: none; }
   }
   .statusbar .dim { color: var(--text-faint); }
-  .statusbar .ok { color: var(--accent); }
-  .statusbar .err { color: var(--lvl-error); }
   .statusbar .warn { color: var(--lvl-warn); }
   /* 进度格：文字最多 220px 省略；条 72px；百分比等宽字不抖 */
   .statusbar .task { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); animation: fade-in 90ms ease-out; }

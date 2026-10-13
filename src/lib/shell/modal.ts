@@ -9,9 +9,19 @@
  * 而「人眼前有没有一个对话框」本来就是这个问题的原意。这个文件在入口包里（App 和 menu-actions 用），只放这两个函数
  */
 
+/**
+ * 「此刻在问」以状态为准，DOM 只用来找到那个框：对话框关掉时有 120ms 淡出（`motion.ts`），那段时间它还在 DOM 里 ——
+ * 只看 DOM 的话，关掉之后马上按的键、点的菜单会被一个已经答完的框拦下来再顶一下。由 Confirms 在 `asking` 变化时报过来
+ * （它在状态变的那一拍就变；Svelte 的 `outrostart` 要等下一帧，试过，中间那一帧照样被拦）
+ */
+let asking = false;
+export function setAsking(v: boolean) {
+  asking = v;
+}
+
 /** 此刻在问的那个对话框；没有就 null */
 export function dialogUp(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(".layer .dialog");
+  return asking ? document.querySelector<HTMLElement>(".layer .dialog") : null;
 }
 
 /**

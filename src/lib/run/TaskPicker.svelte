@@ -110,7 +110,7 @@
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="scrim dim" onclick={() => (open = false)}></div>
-  <div class="popup picker" role="dialog" aria-label="运行任务">
+  <div class="popup palette m picker" role="dialog" aria-label="运行任务">
     <div class="input">
       <Icon name="run" />
       <input bind:this={input} bind:value={q} placeholder="运行哪个任务…" aria-label="搜任务" spellcheck="false" />
@@ -147,7 +147,7 @@
         </button>
       {/each}
       {#if !loading && defs.length === 0 && !q}
-        <div class="empty">
+        <div class="empty-msg">
           这个项目还没有任务。package.json 里的 scripts 会自动列在这儿；mvn、python 这类在 tasks.json 里写一行。
         </div>
       {/if}
@@ -162,15 +162,9 @@
 
 <style>
   .picker {
-    position: fixed;
-    top: 14vh;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(620px, 90vw);
-    max-height: 64vh;
+    /* 位置和宽度在 app.css 的 `.palette`（上沿一条线、宽度三档，ui.md 第十二条之二）；面在 `.popup`。这里只剩排版 */
     display: flex;
     flex-direction: column;
-    z-index: 41;
     overflow: hidden;
   }
   .input {
@@ -243,7 +237,6 @@
   .st { flex: none; font-size: var(--fs-xs); }
   .st.running { color: var(--git-added); }
   .st.stopping { color: var(--lvl-warn); }
-  .empty { padding: 10px 8px; color: var(--text-faint); font-size: var(--fs-sm); line-height: 1.6; }
   .foot {
     display: flex;
     gap: 14px;

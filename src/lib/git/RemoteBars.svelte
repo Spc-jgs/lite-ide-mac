@@ -19,6 +19,7 @@
    * - **失败**：转译 + git 的原话，两个都要 —— 转译错了的时候
    *   人得有办法绕过我们（同差异视图的 `truncated`）。
    */
+  import { cardOut } from "../shell/motion";
   import type { RemoteErr } from "../ipc/commands";
   import { takeFocus } from "../shell/dialog-focus";
 
@@ -95,7 +96,7 @@
 {/if}
 
 {#if part === "tell" && err}
-  <div class="confirm tall bad">
+  <div class="confirm tall bad" out:cardOut>
     <div class="info">
       <span><b>{err.message}</b></span>
       <!-- 给的是能直接粘的那条命令 —— 「去终端里认证一下」等于没说 -->

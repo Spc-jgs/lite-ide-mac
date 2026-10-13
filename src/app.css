@@ -238,6 +238,8 @@
   --r-sm: 7px;
   --r-md: 12px;
   --r-lg: 14px;
+  /* 居中浮层的上沿（`.palette`）。12vh：眼睛本来就在上半屏，又给标题栏和标签栏让出位置 */
+  --pal-top: 12vh;
 
   /* Git —— 与 IDEA 的取色一致：改动蓝、新增绿、删除红、未跟踪灰绿 */
   --git-modified: #6ba1e8;
@@ -479,26 +481,30 @@ html, body {
 .ibtn.lg { width: 26px; height: 26px; }
 
 /*
- * # 动效只有四种，而且全在这一段里
+ * # 动效只有这几种，而且全在这一段里
  *
  * 2026-09-21 之前全应用只有两处动画（远程进度那条来回跑的条、日志跟随尾部的呼吸点），
  * 其余一律瞬切：按钮 hover 一帧变色，浮层一帧出现，确认卡片一帧压到编辑器上。
  * 瞬切不是错 —— macOS 原生菜单就是瞬出的 —— 但**浮层和卡片瞬出会让人找不到它是从哪儿来的**：
  * 眼睛还在触发它的那个控件上，一块 600px 的板子已经在屏幕中央了。
  *
- * 四种，各管一件事，时长都短到「感觉得到、数不出来」（第四种 `nudge` 是 2026-10-13 加的）：
+ * 进场五种，各管一件事，时长都短到「感觉得到、数不出来」（`nudge`、`rise-in` 和下面的退场是 2026-10-13 加的）：
  *
  * | 动效 | 给谁 | 时长 | 为什么是这个形状 |
  * |---|---|---|---|
  * | `transition` 底色 / 字色 | `.btn` `.ibtn` 的 hover | 70ms | 只做 hover，**按下瞬切** —— 按下去还要等 70ms 才变色，手感是「黏」 |
  * | `fade-in` 淡入 | 浮层 `.popup`、压暗的 `.scrim` | 90ms | **只动透明度，不动位移 / 缩放**：分支浮层和右键菜单打开后要量自己的矩形往视口里钳，动了 transform 量出来的就是动画中途的那一帧 |
  * | `drop-in` 淡入 + 下落 4px | 确认卡片 `.confirm` | 120ms | 卡片从内容岛顶边「落下来」，和它的位置（贴顶）是一回事；它不钳位，可以动位移 |
+ * | `rise-in` 淡入 + 上浮 6px | 提示胶囊（`Toast.svelte`） | 140ms | 胶囊贴着编辑区底边，从下面「浮上来」和它的位置是一回事 |
  * | `nudge` 放大 1.5% 再回来 | 对话框 `.dialog`（被挡下的那一下，`shell/modal.ts`） | 160ms | 对话框开着时按了快捷键、点了别处：**没有反馈就和「快捷键坏了」一模一样**。只动缩放、不晃：左右晃是「错了」（登录框密码错），这里是「先回答我」 |
  *
  * 列表行的 hover **故意不加**：Finder / IDEA 的行都是瞬切，而且行是一屏几十个，
  * 滚过去一片渐变反而显得糊。
  *
- * `prefers-reduced-motion` 关掉上面四种（`nudge` 换成描一圈 accent，反馈不能跟着没了）；spinner **不关** —— 它是「还在等」这个信息本身，
+ * **退场**只给「压在内容上、一消失底下就跳」的三种（盘点 C1）：对话框的压暗层 120ms 淡出、卡片 140ms 收起高度 + 淡出（`shell/motion.ts`，
+ * 用 Svelte 的 `out:`，过渡的运行时本来就在入口里）、胶囊 140ms `fade-out`。菜单、浮层瞬没：一关人就要接着操作，等动画就是卡。
+ *
+ * `prefers-reduced-motion` 关掉上面这些（`nudge` 换成描一圈 accent，反馈不能跟着没了）；spinner **不关** —— 它是「还在等」这个信息本身，
  * 停下来就成了一个断掉的圆环。
  */
 /*
@@ -529,6 +535,12 @@ html, body {
 }
 @keyframes drop-in {
   from { opacity: 0; translate: 0 -4px; }
+}
+@keyframes rise-in {
+  from { opacity: 0; translate: 0 6px; }
+}
+@keyframes fade-out {
+  to { opacity: 0; }
 }
 @keyframes nudge {
   50% { scale: 1.015; }
@@ -588,6 +600,11 @@ html, body {
 .spinner.sm { width: 10px; height: 10px; }
 /* 调用方已经自己等过一段（状态栏的 doing 是 300ms 之后才出的）：环不必再等 */
 .spinner.now { animation-delay: 0s, 0s; }
+/*
+ * 「正在载入…」那一句（`.wait`，环 + 字）整句一起 150ms 后出。原来只有环等、字立刻出：编辑器 / 差异 / 日志 / 合并视图
+ * 第一次打开时那句字先闪一帧再被内容替掉，看着像抖了一下（2026-10-13 盘点 D2）。延迟只写在这儿，组件里不再各自判时机
+ */
+.wait { opacity: 0; animation: appear 0s linear 150ms forwards; }
 
 .btn.busy,
 .ibtn.busy {
@@ -609,6 +626,11 @@ html, body {
 .btn.busy:disabled,
 .ibtn.busy:disabled { opacity: 1; }
 .btn.primary.busy:disabled { background: var(--accent); border-color: var(--accent); color: #fff; }
+/*
+ * 刚做完的那 1.4 秒（`class:done`，按钮原地说「✓ 已提交」，2026-10-13 盘点 B1 方案 C）：和 busy 一样留着主按钮的颜色 ——
+ * 做完之后按钮多半跟着变灰（提交完暂存区空了），「✓ 已提交」印在灰按钮上读起来像没成
+ */
+.btn.primary.done:disabled { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.danger.busy:disabled { background: var(--lvl-error); border-color: var(--lvl-error); color: #fff; }
 /* 分裂按钮的主体在忙时，右半边的 ▾ 跟着保持实心 —— 它们是一个按钮的两半，一半蓝一半空心就成了两个按钮 */
 .btn-split > .btn.primary.busy + .btn.primary:disabled {
@@ -640,6 +662,23 @@ html, body {
   box-shadow: var(--shadow-pop), var(--pop-ring);
   animation: fade-in 90ms ease-out;
 }
+/*
+ * 居中浮层的位置只有这一处（2026-10-13 盘点：原来七个居中浮层各写各的，四种上沿、七种宽度，⌘P / ⌘E / ⇧⌘O 换着开框在屏幕上跳）。
+ * **上沿钉在一条线上**，往下长：结果列表随输入变长变短，上沿不动输入框才不跟着跳（Spotlight、Raycast、VS Code 命令面板都这样）。
+ * **宽度三档**：s 一个输入框加一列短结果（跳行、编码），m 列表类（随处搜索、文件结构、任务、分支、速查表），l 带预览的（替换）。
+ * 挂在控件底下的（`anchored`，ui.md 第十二条）在组件里把 top / left / transform 关掉、按锚点写 style
+ */
+.palette {
+  position: fixed;
+  top: var(--pal-top);
+  left: 50%;
+  transform: translateX(-50%);
+  max-height: min(68vh, calc(100vh - var(--pal-top) - 48px));
+  z-index: 41;
+}
+.palette.s { width: min(440px, calc(100vw - 32px)); }
+.palette.m { width: min(640px, calc(100vw - 32px)); }
+.palette.l { width: min(820px, calc(100vw - 32px)); }
 .scrim {
   position: fixed;
   inset: 0;
@@ -671,7 +710,11 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: min(760px, calc(100% - 32px));
+  /*
+   * **一个宽度**（2026-10-13 盘点 A2）：原来按内容撑开、报错那张单独 760，两张一起出现时左右不齐，像两套系统。
+   * 和居中浮层的 m 档同宽（`.palette.m`）；正文那一格撑满、按钮靠右
+   */
+  width: min(640px, calc(100% - 32px));
   padding: 10px 10px 10px 16px;
   background: var(--elevated);
   border-radius: var(--r-md);
@@ -680,6 +723,7 @@ html, body {
   color: var(--text-muted);
   animation: drop-in 120ms ease-out;
 }
+.confirm > :first-child { flex: 1; min-width: 0; }
 .confirm b { color: var(--text); font-weight: 600; }
 .confirm .btn { flex: none; }
 .confirm .gap { flex: 1; }
@@ -728,6 +772,22 @@ html, body {
 .dialog .actions .gap { flex: 1; }
 /* 对话框开着时别处的输入被挡下：顶一下（`shell/modal.ts` 的 nudgeDialog）。和 drop-in 写在一条 animation 上会互相顶掉，所以单独一条 */
 .dialog.nudge { animation: nudge 160ms ease-out; }
+
+/*
+ * # 「这里没东西」只有一种长相：`.empty-msg`（2026-10-13 盘点 D1）
+ *
+ * 原来三套写法（`.empty` / `.none` / `.hint`）、十来处各写一份：上下边距 10–24px、有的居中有的左对齐、有的 faint 有的 dim、
+ * 字号两档。现在一句**为什么空** + 一个**下一步**（ui.md 第六条：空态给下一步，不给句号）—— 「换个词」「⌘N 记第一条」「⌘J 里 git init」。
+ * 居中、faint、正文字号、行高 1.7。`.sub` 第二行补充（小一档）。`.bad`：拿不到（出错）—— 红、左对齐、等宽，原样的报错要能对着看。
+ * `.wait`：还在等（转圈 + 一句，整句 150ms 后才出，见上面「还在等」那段）。
+ * 列表里（搜索没结果）和占一块区域的（Git 栏、差异视图）都是它；要在一块区域里上下居中，外面那层自己管。
+ */
+.empty-msg { padding: 20px 16px; color: var(--text-faint); font-size: var(--fs-md); line-height: 1.7; text-align: center; overflow-wrap: anywhere; }
+.empty-msg .sub { font-size: var(--fs-sm); }
+.empty-msg code { font-family: var(--code-font); font-size: 0.95em; color: var(--text-muted); }
+.empty-msg.bad { color: var(--lvl-error); font-family: var(--code-font); text-align: left; }
+.empty-msg.wait, .empty-msg .wait { display: flex; justify-content: center; align-items: center; gap: 8px; }
+.empty-msg .wait { display: inline-flex; }
 
 /*
  * # 进度条只有一种：3px 圆角细条

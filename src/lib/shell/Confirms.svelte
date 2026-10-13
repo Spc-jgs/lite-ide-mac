@@ -28,7 +28,9 @@
   import { project } from "../state/project.svelte";
   import { runs } from "../state/runs.svelte";
   import { keyVerdict, nudgesFor, takeFocus } from "./dialog-focus";
-  import { nudgeDialog } from "./modal";
+  import { nudgeDialog, setAsking } from "./modal";
+  import Icon from "./Icon.svelte";
+  import { cardOut, layerOut } from "./motion";
 
   /** 替换的动作跟着替换浮层懒加载；卡片上点了才拉（启动时那一问已经拉过了，多半是现成的） */
   const replaceOps = () => import("../state/replace-ops");
@@ -42,6 +44,27 @@
 
   let stackEl = $state<HTMLElement | null>(null);
   let layerEl = $state<HTMLElement | null>(null);
+
+  /*
+   * 卡片的次序和上限（2026-10-13 盘点 A2）。原来没有上限：替换完成、上次任务没停干净、外部改过、报错可以同时出现，
+   * 四张能把编辑区上半截全挡住。次序按种类不按到达先后 —— 出错的（红）、要你决定的（琥珀）、做完了能撤销的（中性）
+   */
+  const CARD_MAX = 2;
+  const cards = $derived(
+    [
+      notify.banner && "banner",
+      Bars && remote.err && "remote",
+      tabs.active?.conflict && "conflict",
+      replace.interrupted && replace.interrupted.root === project.root && "interrupted",
+      runs.stale && runs.stale.root === project.root && "stale",
+      replace.done && replace.done.root === project.root && "done",
+    ].filter((x): x is string => !!x),
+  );
+  let moreOpen = $state(false);
+  $effect(() => {
+    if (cards.length <= CARD_MAX) moreOpen = false;
+  });
+  const showCard = (id: string) => moreOpen || cards.indexOf(id) < CARD_MAX;
 
   /** RemoteBars 两处共用的参数：对话框层里放「问」的那两种，卡片区里放「报」的那一种 */
   const barProps = $derived({
@@ -107,7 +130,18 @@
    * 组件自己的监听（Svelte 把 onclick / onkeydown 委托在根上，走冒泡）、CM6 都早 —— 在这儿 stopPropagation，它们就收不到。
    * 菜单那条路不经过这里（AppKit → Rust → `menu` 事件），在 `menu-actions.ts` 的 runMenu 门口另外拦
    */
-  const dialogEl = () => layerEl?.querySelector<HTMLElement>(".dialog") ?? null;
+  // 以 `asking` 为准，不看 DOM：答完那一拍起就不拦了，哪怕框还在淡出（modal.ts 的 setAsking 那段）
+  const dialogEl = () => (asking ? (layerEl?.querySelector<HTMLElement>(".dialog") ?? null) : null);
+  $effect.pre(() => setAsking(asking));
+  /*
+   * 淡出到一半又要问（关掉一个、120ms 内又弹一个）：Svelte 把正在退场的那层倒回来接着用，不新建 ——
+   * 它身上还挂着 `leaving`（motion.ts 退场时打的），于是新的对话框不接鼠标、点不了，界面卡住。又在问了就摘掉。
+   * 浏览器里复现过（2026-10-13）：点「取消」后 5ms 内再问一次，同一个元素被复用、`pointer-events: none`，框整个点不动；
+   * 摘掉之后同一串操作「取消」照常。真窗口里窗口期是那 120ms，后台页帧不走时会一直停在半路
+   */
+  $effect(() => {
+    if (asking) layerEl?.classList.remove("leaving");
+  });
 
   function guardKey(e: KeyboardEvent) {
     const d = dialogEl();
@@ -172,7 +206,7 @@
   会丢东西的（不是你点的那个动作本身）在最左、红字；「取消」挨着主按钮；主按钮最右。
 -->
 {#if asking}
-  <div class="layer" bind:this={layerEl}>
+  <div class="layer" bind:this={layerEl} out:layerOut>
     {#if tabflow.pendingClose}
       <!--
         「关闭全部」逐个问时，A 问完换 B 是同一拍里的事（doClose 置空、askNextClose 设下一个），这个块不重建、
@@ -312,34 +346,53 @@
 {/if}
 
 <div class="stack" class:below-tabs={tabs.list.length > 0} bind:this={stackEl}>
-{#if tabs.active?.conflict}
-  <div class="confirm warn">
+<!--
+  次序（2026-10-13 盘点 A2）：出错的（红）在上 → 要你决定的（琥珀）→ 做完了、能撤销的（中性）。新来的不会把正在读的那张挤走：
+  它按种类排进自己的位置，不是按到达先后。最多摆 CARD_MAX 张，其余折成「还有 N 条」
+-->
+{#if notify.banner && showCard("banner")}
+  <div class="confirm bad tall err-banner" out:cardOut>
+    <span class="btext">
+      <b>{notify.banner.title}</b>
+      <span class="bbody">{notify.banner.body}</span>
+    </span>
+    <button class="btn" data-dismiss onclick={() => notify.closeBanner()}>知道了</button>
+  </div>
+{/if}
+
+{#if Bars && remote.err && showCard("remote")}
+  <!-- 远程操作失败：告诉你结果（带下一步），是卡片 -->
+  <Bars part="tell" {...barProps} />
+{/if}
+
+{#if tabs.active?.conflict && showCard("conflict")}
+  <div class="confirm warn" out:cardOut>
     <span><b>{tabs.active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
     <button class="btn" onclick={() => docs.resolveConflict(tabs.active!, "disk")}>用磁盘上的</button>
     <button class="btn primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留我的</button>
   </div>
 {/if}
 
-{#if replace.interrupted && replace.interrupted.root === project.root}
+{#if replace.interrupted && replace.interrupted.root === project.root && showCard("interrupted")}
   {@const p = replace.interrupted}
   <!--
     上次替换提交到一半应用没了（#42，docs/REPLACE.md 12.2）。琥珀色：要你决定，不是出错。
     默认动作（最右、primary）是退回改前：一个「改了一半」的仓库比哪边都糟。没有「知道了」—— 两条路必须选一条
   -->
-  <div class="confirm warn">
+  <div class="confirm warn" out:cardOut>
     <span>上次的替换中途中断了：<b>已改 {p.changed} 个文件</b>，共 {p.files} 个</span>
     <button class="btn" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(false))}>保留现状</button>
     <button class="btn primary" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(true))}>全部退回改前</button>
   </div>
 {/if}
 
-{#if runs.stale && runs.stale.root === project.root}
+{#if runs.stale && runs.stale.root === project.root && showCard("stale")}
   {@const s = runs.stale}
   <!--
     上次应用没正常退出（崩了、被强杀），它起的任务还在自己的进程组里跑（#48，TASKS.md 第 5 节）—— IDEA 论坛里「IDE 崩了 JVM 还占着 8080」。
     琥珀：要你决定。默认动作（最右）是结束它们：它们是这个项目的任务、是我们起的，留着多半就是占着端口；「留着」= 从账上划掉、不再提醒
   -->
-  <div class="confirm warn tall stale">
+  <div class="confirm warn tall stale" out:cardOut>
     <div class="btext">
       <span>上次 lite-ide 没正常退出，它起的 <b>{s.list.length} 个任务</b>还在跑（可能占着端口）</span>
       <span class="rest">{s.list.map((l) => `${l.name}：${l.command}`).join("　·　")}</span>
@@ -349,29 +402,20 @@
   </div>
 {/if}
 
-{#if replace.done && replace.done.root === project.root}
+{#if replace.done && replace.done.root === project.root && showCard("done")}
   {@const d = replace.done}
   <!-- 撤销的退路（#42 第 6 节）：不加确认框，做完给这一张。下一次替换、或者点掉，它就没了；应用重启后还会再出一次 -->
-  <div class="confirm">
+  <div class="confirm" out:cardOut>
     <span>{d.hits ? `已替换 ${d.files} 个文件 ${d.hits} 处` : `上次的替换（${d.files} 个文件）还能撤销`}</span>
     <button class="btn" data-dismiss onclick={() => (replace.done = null)}>知道了</button>
     <button class="btn primary" onclick={() => void replaceOps().then((m) => m.undo())}>撤销</button>
   </div>
 {/if}
 
-{#if notify.banner}
-  <div class="confirm bad tall err-banner">
-    <span class="btext">
-      <b>{notify.banner.title}</b>
-      <span class="bbody">{notify.banner.body}</span>
-    </span>
-    <button class="btn" data-dismiss onclick={() => notify.closeBanner()}>知道了</button>
-  </div>
-{/if}
-
-{#if Bars && remote.err}
-  <!-- 远程操作失败：告诉你结果（带下一步），是卡片 -->
-  <Bars part="tell" {...barProps} />
+{#if cards.length > CARD_MAX}
+  <button class="more" onclick={() => (moreOpen = !moreOpen)} aria-expanded={moreOpen}>
+    {moreOpen ? "收起" : `还有 ${cards.length - CARD_MAX} 条`}<Icon name={moreOpen ? "chevron-up" : "chevron-down"} />
+  </button>
 {/if}
 
 </div>
@@ -387,15 +431,33 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
     pointer-events: none;
   }
+  /* 间距写在每张自己身上、不用 gap：一张退场收起高度时（motion.ts 的 cardOut）连同间距一起收，下面那张平滑补上，不在最后跳 8px */
+  .stack > :global(*) { margin-bottom: 8px; }
   /* 有标签栏时从它底下 8px 开始（标签栏 38px） */
   .stack.below-tabs { top: 46px; }
   /* 卡片的面（底、边、投影、淡入、warn / bad 两档色）在 app.css 的 `.confirm`；这里只剩正文排版 */
   .confirm .rest { color: var(--text-faint); font-size: var(--fs-sm); }
   .err-banner .btext, .stale .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-  .confirm.err-banner { width: min(760px, calc(100% - 32px)); }
+  /* 折起来的那几张：一颗小胶囊，不是又一张卡片（又一张就又挡一行代码） */
+  .more {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px 3px 11px;
+    border: none;
+    border-radius: 99px;
+    background: var(--elevated);
+    box-shadow: var(--shadow-pop), var(--pop-ring);
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    animation: drop-in 120ms ease-out;
+  }
+  .more:hover { background: var(--elevated-hi); color: var(--text); }
   /*
    * 对话框那一层：盖住编辑岛、压暗，对话框在正中偏上（眼睛本来就在上半屏）。只盖编辑岛不盖侧边栏和状态栏：
    * 问的是这一块里的事。点暗处不关 —— 选择要按按钮做
@@ -412,6 +474,8 @@
     border-radius: inherit;
     animation: fade-in 90ms ease-out;
   }
+  /* 淡出中的那层不再接鼠标：点穿它落到编辑区上（模态守卫那边也不再把它算成「在问」） */
+  .layer:global(.leaving), .layer:global(.leaving) .dialog { pointer-events: none; }
   /* 信任仓库那张列配置的：值要原样露出来，等宽、保住换行，太多时可以滚 */
   .dialog .code {
     margin: 2px 0;
