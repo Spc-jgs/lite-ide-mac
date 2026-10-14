@@ -295,3 +295,57 @@ pub async fn merge_set_offsets(handle: u32, offsets: Vec<i64>, app: tauri::AppHa
     })
     .await
 }
+
+/// 日志归类（`logengine::pattern`，docs/PATTERNS.md）：这个句柄第一次问时在后台起，之后返回它当前的快照（边归边看）。
+/// `restart` 是「重新归类」（日志长了）。只起一个线程、拷一份前 `limit` 类 —— 扫文件在那个线程里，所以可以留在主线程（同 `log_filter`）
+#[tauri::command]
+pub fn log_patterns(handle: u32, limit: u32, restart: bool, state: State<'_, AppState>) -> Result<PatternsDto, String> {
+    let maps = match state.merged(handle) {
+        Some(m) => m.maps(),
+        None => vec![state.get(handle).ok_or("句柄已失效")?.mapped()],
+    };
+    let task = state.patterns(handle, restart, || logengine::pattern::spawn(maps)).map_err(|e| format!("归类起不来：{e}"))?;
+    Ok(patterns_dto(&task, limit))
+}
+
+fn patterns_dto(task: &logengine::pattern::PatternTask, limit: u32) -> PatternsDto {
+    let s = task.stat();
+    PatternsDto {
+        patterns: s
+            .top
+            .iter()
+            .take(limit as usize)
+            .map(|p| PatternDto { template: p.template.clone(), count: p.count, base: p.base, levels: p.levels })
+            .collect(),
+        total: s.patterns,
+        lines: s.lines,
+        base_lines: s.base_lines,
+        overflow: s.overflow,
+        scanned_bytes: s.scanned_bytes,
+        total_bytes: s.total_bytes,
+        done: s.done,
+    }
+}
+
+/// 日志归类的对比（docs/PATTERNS.md）：这个句柄（今天的）和 `base` 那几份（昨天的、上线前的）放进同一棵树里一起归，
+/// 每一类两边各几次，按「新出现 / 没了 / 变化幅度」排。基准换了就重来，同一个基准再问就是边归边看的快照。
+/// 要打开基准那几份（open + mmap 碰盘），走阻塞池
+#[tauri::command]
+pub async fn log_patterns_compare(handle: u32, base: Vec<String>, limit: u32, restart: bool, app: tauri::AppHandle) -> Result<PatternsDto, String> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let cur = match state.merged(handle) {
+            Some(m) => m.maps(),
+            None => vec![state.get(handle).ok_or("句柄已失效")?.mapped()],
+        };
+        let task = state
+            .compare(handle, &base, restart, || {
+                // 用 LogFile 打开只为了拿它的 mmap（空文件、只读映射那几条规矩在它里面）；它一析构就叫停自己的索引线程，映射由归类任务攥着
+                let maps = base.iter().map(|p| LogFile::open(p).map(|f| f.mapped())).collect::<std::io::Result<Vec<_>>>()?;
+                logengine::pattern::spawn_compare(cur, maps)
+            })
+            .map_err(|e| format!("对比不了：{e}"))?;
+        Ok(patterns_dto(&task, limit))
+    })
+    .await
+}

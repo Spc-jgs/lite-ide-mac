@@ -76,6 +76,16 @@ export const FILES: Record<string, string> = {
     "2026-08-24 10:15:03.044 INFO  [reactor-http-nio-5] c.d.gw.AccessLog - ← 200 GET /api/orders/88231 34ms traceId=b21e04",
     "",
   ].join("\n"),
+  // 同一个网关的「昨天」：日志归类的对比（docs/PATTERNS.md）拿它当基准 —— 今天多出来的 500、少了的健康检查、涨了的慢响应
+  "/proj/logs/gateway-2026-08-23.log": [
+    "2026-08-23 10:15:01.101 INFO  [reactor-http-nio-3] c.d.gw.AccessLog - → POST /api/orders traceId=1a2b3c userId=1001",
+    "2026-08-23 10:15:01.202 INFO  [reactor-http-nio-3] c.d.gw.AccessLog - → POST /api/orders traceId=1a2b3d userId=1002",
+    "2026-08-23 10:15:01.303 INFO  [reactor-http-nio-4] c.d.gw.AccessLog - → GET /api/orders/88001 traceId=1a2b3e",
+    "2026-08-23 10:15:01.404 INFO  [reactor-http-nio-4] c.d.gw.AccessLog - ← 200 GET /api/orders/88001 21ms traceId=1a2b3e",
+    "2026-08-23 10:15:01.505 INFO  [scheduler-1] c.d.gw.Health - healthz ok upstream=3",
+    "2026-08-23 10:15:02.505 INFO  [scheduler-1] c.d.gw.Health - healthz ok upstream=3",
+    "",
+  ].join("\n"),
   "/proj/logs/order-service.log": [
     "  .   ____          _            __ _ _",
     " :: Spring Boot ::                (v3.3.2)",
@@ -449,6 +459,7 @@ export const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj/moduleB/src/main/java/com/demo/core": [["OrderClient.java", false]],
   "/proj/logs": [
     ["access-2026-08-24.log", false],
+    ["gateway-2026-08-23.log", false],
     ["gateway.log", false],
     ["inventory.log", false],
     ["order-service.log", false],

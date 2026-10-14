@@ -2,6 +2,8 @@
   import LogView from "./LogView.svelte";
   import FilterBar from "./FilterBar.svelte";
   import MergeBar from "./MergeBar.svelte";
+  import PatternPopup from "./PatternPopup.svelte";
+  import { templateQuery } from "./pattern-query";
   import { allSources, shortNames } from "./merge-path";
   import { decodeBlock } from "./block";
   import { detectFormat, FORMAT_LABEL, type LogFormat } from "./parse";
@@ -451,6 +453,21 @@
     epoch += 1;
   }
 
+  /** 归类浮层挂在哪（「归类」按钮的左下角）；null 是关着 */
+  let patternsAt = $state<{ x: number; y: number } | null>(null);
+
+  /** 点了一类：它的常量词进过滤框（`pattern-query.ts`），只看命中 */
+  function pickPattern(template: string) {
+    const q = templateQuery(template);
+    patternsAt = null;
+    if (!q) {
+      notify.hint("这一类全是变量，没有能筛的字");
+      return;
+    }
+    pattern = q;
+    onlyHits = true;
+  }
+
   /** 「合并…」（单文件）/「加一份…」（合并视图）：选别处的文件，按时间合进来 */
   async function mergeMore() {
     const ops = await import("../state/merge-ops");
@@ -486,7 +503,18 @@
     onJump={(d) => void jumpHit(d)}
     canTail={!merge}
     onMerge={!merge && path ? () => void mergeMore() : undefined}
+    onPatterns={(at) => (patternsAt = at)}
   />
+  {#if patternsAt}
+    <PatternPopup
+      {handle}
+      {encoding}
+      anchor={patternsAt}
+      dir={path && !merge ? path.slice(0, path.lastIndexOf("/")) || "/" : null}
+      onPick={pickPattern}
+      onClose={() => (patternsAt = null)}
+    />
+  {/if}
   <div class="body">
     <LogView
       {handle}

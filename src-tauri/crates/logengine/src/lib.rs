@@ -13,6 +13,7 @@ pub mod filter;
 pub mod index;
 pub mod level;
 pub mod merge;
+pub mod pattern;
 pub mod probe;
 pub mod query;
 pub mod seek;

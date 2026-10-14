@@ -142,6 +142,35 @@ function mergeInfo(h: number, m: Merged) {
   };
 }
 
+/*
+ * 日志归类（真实现在 logengine::pattern，Drain）。桩做简化版：按真实现同一套「带数字的那段换成 <*>」归一，**归一后整行一样的算一类**，
+ * 不做 Drain 的「过半就合并」—— 演示数据里够用。带时间戳的源只归有时间戳的行。前两次问说「还在归」（真实现大文件要跑几秒，
+ * 浮层的「还在归」和状态栏进度只在那段时间里有，同 log_filter_stat 那条）
+ */
+const patternCalls = new Map<number, number>();
+function normTok(t: string): string {
+  return t.replace(/[\p{L}\p{N}]+/gu, (m) => (/\d/.test(m) ? "<*>" : m));
+}
+function mockPatterns(s: LogSrc) {
+  const n = Math.min(s.total, 50_000);
+  const ts = /^(\[?\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}|\d{2}:\d{2}:\d{2})/;
+  let hasTs = false;
+  for (let l = 0; l < Math.min(n, 2000) && !hasTs; l++) hasTs = ts.test(s.at(l));
+  const groups = new Map<string, { count: number; levels: number[] }>();
+  let lines = 0;
+  for (let l = 0; l < n; l++) {
+    const line = s.at(l);
+    if (hasTs ? !ts.test(line) : !line.trim() || /^\s+at /.test(line)) continue;
+    lines++;
+    const key = line.split(/\s+/).filter(Boolean).slice(0, 40).map(normTok).join(" ");
+    const g = groups.get(key) ?? { count: 0, levels: [0, 0, 0, 0, 0, 0] };
+    g.count++;
+    g.levels[s.levelAt(l)]++;
+    groups.set(key, g);
+  }
+  return { groups: [...groups].sort((x, y) => y[1].count - x[1].count), lines };
+}
+
 export async function logCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
     case "open_log": {
@@ -301,7 +330,68 @@ export async function logCmd(cmd: string, a: A): Promise<unknown> {
       logStatCalls.delete(String(h));
       return mergeInfo(h, m);
     }
+    case "log_patterns": {
+      const h = Number(a.handle);
+      const calls = a.restart ? 1 : (patternCalls.get(h) ?? 0) + 1;
+      patternCalls.set(h, calls);
+      const done = calls >= 3;
+      const { groups, lines } = mockPatterns(src(h));
+      const shown = done ? groups : groups.slice(0, Math.ceil(groups.length / 2));
+      const enc = new TextEncoder();
+      const bytes = src(h).bytes;
+      return {
+        patterns: shown.slice(0, Number(a.limit)).map(([t, g]) => ({ template: [...enc.encode(t)], count: g.count, base: 0, levels: g.levels })),
+        total: shown.length,
+        lines: done ? lines : Math.floor(lines / 2),
+        baseLines: 0,
+        overflow: 0,
+        scannedBytes: done ? bytes : Math.floor(bytes / 2),
+        totalBytes: bytes,
+        done,
+      };
+    }
+    /*
+     * 对比（真实现：两边放进同一个 Drain 一起归，Rust 的 change_rank 排序）。桩：两边各按归一后的整行分组、按同一个模板认同一类，
+     * 排序照真实现的三档：新出现 → 没了 → 按频率的变化幅度。一次就 done（对比的「还在归」和上面那条是同一个界面状态，那边已经演过）
+     */
+    case "log_patterns_compare": {
+      const cur = mockPatterns(src(Number(a.handle)));
+      const base = (a.base as string[]).map((p) => mockPatterns(srcOf(String(p))));
+      const baseLines = base.reduce((x, b) => x + b.lines, 0);
+      const all = new Map<string, { count: number; base: number; levels: number[] }>();
+      for (const [t, g] of cur.groups) all.set(t, { count: g.count, base: 0, levels: [...g.levels] });
+      for (const b of base)
+        for (const [t, g] of b.groups) {
+          const e = all.get(t) ?? { count: 0, base: 0, levels: [0, 0, 0, 0, 0, 0] };
+          e.base += g.count;
+          g.levels.forEach((v, i) => (e.levels[i] += v));
+          all.set(t, e);
+        }
+      const rank = (e: { count: number; base: number }): [number, number] => {
+        if (e.base === 0) return [0, e.count];
+        if (e.count === 0) return [1, e.base];
+        const r = e.count / Math.max(1, cur.lines) / (e.base / Math.max(1, baseLines));
+        return [2, Math.max(r, 1 / r)];
+      };
+      const list = [...all].sort((x, y) => {
+        const [ka, va] = rank(x[1]);
+        const [kb, vb] = rank(y[1]);
+        return ka - kb || vb - va;
+      });
+      const enc = new TextEncoder();
+      return {
+        patterns: list.slice(0, Number(a.limit)).map(([t, e]) => ({ template: [...enc.encode(t)], count: e.count, base: e.base, levels: e.levels })),
+        total: list.length,
+        lines: cur.lines,
+        baseLines,
+        overflow: 0,
+        scannedBytes: 1,
+        totalBytes: 1,
+        done: true,
+      };
+    }
     case "close_log":
+      patternCalls.delete(Number(a.handle));
       delete MERGES[Number(a.handle)];
       delete LOG_PATHS[Number(a.handle)];
       filterHits = null;

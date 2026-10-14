@@ -27,6 +27,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("MergeSourceDto", "MergeSource"),
     ("MergeInfoDto", "MergeInfo"),
     ("MergeRowsDto", "MergeRows"),
+    ("PatternDto", "LogPattern"),
+    ("PatternsDto", "LogPatterns"),
     ("StatDto", "LogStat"),
     ("FilterStatDto", "FilterStat"),
     ("RefreshDto", "RefreshResult"),

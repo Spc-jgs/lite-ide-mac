@@ -34,6 +34,11 @@ pub struct AppState {
     merges: Owned<u32, Arc<MergedLog>>,
     /// 每个文件当前生效的过滤任务。换条件时旧任务会被取消并替换。
     filters: Mutex<HashMap<u32, Arc<FilterTask>>>,
+    /// 每个日志句柄的归类（`logengine::pattern`）：第一次问的时候起，之后一直留着 —— 再开归类面板不用重扫。
+    /// 同 `filters`：按句柄记，句柄关掉 / 文件轮转 / 窗口关掉时一起收（`clear_patterns`）
+    patterns: Mutex<HashMap<u32, Arc<logengine::pattern::PatternTask>>>,
+    /// 每个日志句柄最近一次的「和哪几份比」（docs/PATTERNS.md 对比）：基准换了才重来。收法同 `patterns`
+    compares: Mutex<HashMap<u32, (Vec<String>, Arc<logengine::pattern::PatternTask>)>>,
     /// 活着的终端会话。Session::drop 会 kill 掉 shell，
     /// 所以从这张表里移除 == 终止那个终端（UNINSTALL.md 的「不留孤儿进程」）。
     ptys: Owned<u32, Pty>,
@@ -169,6 +174,7 @@ impl AppState {
         let Some(old) = self.get(handle) else { return Ok(false) };
         let fresh = LogFile::open(old.path())?;
         self.clear_filter(handle);
+        self.clear_patterns(handle);
         // 原地换掉文件、owner 不动：轮转是同一个窗口里的同一个标签
         let old = self.files.get_mut(&handle, |f| std::mem::replace(f, Arc::new(fresh)));
         // 读和换之间这个句柄可能刚被关掉：那就什么都不换。原来是直接 `insert`，
@@ -178,6 +184,7 @@ impl AppState {
 
     pub fn close(&self, handle: u32) -> bool {
         self.clear_filter(handle);
+        self.clear_patterns(handle);
         // 摘出来的那份在这一句之后、锁外析构（原来是临时值，析构在锁里）
         let file = self.files.remove(&handle);
         let merged = self.merges.remove(&handle);
@@ -199,6 +206,59 @@ impl AppState {
             .expect("过滤表锁被毒化")
             .get(&handle)
             .cloned()
+    }
+
+    /// 这个句柄的归类，没有（或 `restart`）就用 `start` 起一个新的，旧的叫停
+    pub fn patterns(
+        &self,
+        handle: u32,
+        restart: bool,
+        start: impl FnOnce() -> std::io::Result<Arc<logengine::pattern::PatternTask>>,
+    ) -> std::io::Result<Arc<logengine::pattern::PatternTask>> {
+        let mut g = self.patterns.lock().expect("归类表锁被毒化");
+        if !restart {
+            if let Some(t) = g.get(&handle) {
+                return Ok(Arc::clone(t));
+            }
+        }
+        let t = start()?;
+        if let Some(old) = g.insert(handle, Arc::clone(&t)) {
+            old.cancel();
+        }
+        Ok(t)
+    }
+
+    /// 这个句柄和 `base` 那几份的对比，没有、基准换了、或者 `restart` 就用 `start` 起一个新的，旧的叫停
+    pub fn compare(
+        &self,
+        handle: u32,
+        base: &[String],
+        restart: bool,
+        start: impl FnOnce() -> std::io::Result<Arc<logengine::pattern::PatternTask>>,
+    ) -> std::io::Result<Arc<logengine::pattern::PatternTask>> {
+        let mut g = self.compares.lock().expect("对比表锁被毒化");
+        if !restart {
+            if let Some((b, t)) = g.get(&handle) {
+                if b == base {
+                    return Ok(Arc::clone(t));
+                }
+            }
+        }
+        let t = start()?;
+        if let Some((_, old)) = g.insert(handle, (base.to_vec(), Arc::clone(&t))) {
+            old.cancel();
+        }
+        Ok(t)
+    }
+
+    /// 归类和对比一起收（句柄关了、文件轮转了、窗口关了）
+    pub fn clear_patterns(&self, handle: u32) {
+        if let Some(old) = self.patterns.lock().expect("归类表锁被毒化").remove(&handle) {
+            old.cancel();
+        }
+        if let Some((_, old)) = self.compares.lock().expect("对比表锁被毒化").remove(&handle) {
+            old.cancel();
+        }
     }
 
     pub fn clear_filter(&self, handle: u32) {
@@ -485,10 +545,12 @@ impl AppState {
 
         for (h, file) in self.files.take_owner(owner) {
             self.clear_filter(h);
+            self.clear_patterns(h);
             drop(file);
         }
         for (h, m) in self.merges.take_owner(owner) {
             self.clear_filter(h);
+            self.clear_patterns(h);
             drop(m);
         }
 
@@ -664,6 +726,12 @@ mod tests {
         let lb = st.insert("b", LogFile::open(&log).unwrap());
         let ma = st.insert_merged("a", MergedLog::open(&[&log, &log]).unwrap());
         let mb = st.insert_merged("b", MergedLog::open(&[&log, &log]).unwrap());
+        let spawn = |h: u32| st.patterns(h, false, || logengine::pattern::spawn(vec![st.get(h).unwrap().mapped()])).unwrap();
+        let (pat_a, pat_b) = (spawn(la), spawn(lb));
+        let base = [log.to_string_lossy().into_owned()];
+        let cmp_a = st
+            .compare(la, &base, false, || logengine::pattern::spawn_compare(vec![st.get(la).unwrap().mapped()], vec![st.get(lb).unwrap().mapped()]))
+            .unwrap();
 
         st.set_watch("a", Some(fsservice::watch::watch(d.join("wa"), |_| {}).unwrap()));
         st.set_watch("b", Some(fsservice::watch::watch(d.join("wb"), |_| {}).unwrap()));
@@ -703,6 +771,9 @@ mod tests {
         assert!(st.get(lb).is_some(), "b 的日志句柄不能跟着关");
         assert!(st.merged(ma).is_none(), "a 的合并视图该关掉");
         assert!(st.merged(mb).is_some(), "b 的合并视图不能跟着关");
+        assert!(pat_a.is_cancelled(), "a 的日志归类该叫停（窗口没了，没人看它的结果）");
+        assert!(!pat_b.is_cancelled(), "b 的归类不能跟着停");
+        assert!(cmp_a.is_cancelled(), "a 的对比也该叫停");
 
         assert!(!st.watched("a"), "a 的监听该停");
         assert!(st.watched("b"), "b 的监听不能被顶掉");

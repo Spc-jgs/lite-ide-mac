@@ -32,7 +32,7 @@ Java 服务日志。Chromium 的字符串模型决定了大文件要么卡死要
 定位（2026-09-24 定的，见 [docs/DIRECTION.md](docs/DIRECTION.md)）：**取代 Sublime 的那个位置** —— 随手开、秒开、什么文件都敢打开、占用小；
 Java、Python、前端都要用；看日志是它独有的强项；代码智能现阶段不加码。具体做的事：
 
-1. **看 GB 级日志** —— 秒开、按级别过滤、tail、堆栈折叠、堆栈帧跳源码；几个服务的日志按时间合成一条时间线对着看（[docs/MERGE.md](docs/MERGE.md)）
+1. **看 GB 级日志** —— 秒开、按级别过滤、tail、堆栈折叠、堆栈帧跳源码；几个服务的日志按时间合成一条时间线对着看（[docs/MERGE.md](docs/MERGE.md)）；几百万行归成几十类模板，「这一类出现了 2,890 次」，和昨天比哪几类是新出现的（[docs/PATTERNS.md](docs/PATTERNS.md)）
 2. **读改代码** —— 67 种语言的高亮与符号大纲，⌘P 里 `文件@符号` / `文件:行`，跨文件查找替换
 3. **随手记** —— 草稿：打开就能记、不用存，Markdown 所见即所得
 4. **跑命令** —— 真 pty 终端；一个键跑 `mvn spring-boot:run` / `pnpm dev` / `python main.py`，输出进日志视图（[docs/TASKS.md](docs/TASKS.md)）

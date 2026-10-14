@@ -28,6 +28,7 @@
     onJump,
     canTail = true,
     onMerge,
+    onPatterns,
   }: {
     counts: LevelCounts;
     levelsReady: boolean;
@@ -52,6 +53,8 @@
     canTail?: boolean;
     /** 有它就给「合并…」：选几份别的日志，和这一份按时间合在一起看 */
     onMerge?: () => void;
+    /** 「归类」：把行归成几类模板（docs/PATTERNS.md）。给的是按钮左下角，浮层挂在它底下 */
+    onPatterns?: (at: { x: number; y: number }) => void;
   } = $props();
 
   const ALL = 0b111111;
@@ -147,6 +150,17 @@
 
   <span class="gap"></span>
 
+  {#if onPatterns}
+    <button
+      class="fold"
+      onclick={(e) => {
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        onPatterns({ x: r.left, y: r.bottom });
+      }}
+      title="把这份日志的记录归成几类模板：都发生了些什么、各多少。点一类就按它过滤"
+    >归类</button>
+  {/if}
+
   <button
     class="fold"
     class:on={collapseStacks}
@@ -161,8 +175,8 @@
   {/if}
 
   {#if canTail}
-    <button class="tail" class:on={tailing} onclick={() => (tailing = !tailing)}>
-      <i class="live"></i> 跟随尾部
+    <button class="tail" class:on={tailing} onclick={() => (tailing = !tailing)} title="跟随尾部：文件长了就贴到最新一行" aria-label="跟随尾部">
+      <i class="live"></i><span class="txt">跟随尾部</span>
     </button>
   {/if}
 </div>
@@ -217,7 +231,8 @@
   .chip.off .dot { background: var(--text-faint) !important; }
   .chip:focus-visible { outline: 1px solid var(--accent); }
 
-  .search { display: flex; align-items: center; gap: 2px; flex: 1 1 150px; min-width: 110px; }
+  /* 基准宽 120：换行容器按基准宽判「这一行放不放得下」，不按最窄；反正它会长满剩下的地方（2026-10-14 从 150 调下来，加「归类」那天差 10px 换行） */
+  .search { display: flex; align-items: center; gap: 2px; flex: 1 1 120px; min-width: 110px; }
   .search input {
     width: 100%;
     min-width: 0;
@@ -273,6 +288,14 @@
    */
   @container (max-width: 760px) {
     .merge { display: none; }
+  }
+  /*
+   * 再窄一档，「跟随尾部」只留那个圆点（开着时它在闪，悬停有全名）。加「归类」那天量的：日志面板 736 宽时，
+   * 级别胶囊 388 + 搜索框最窄 110 + 三个按钮 + 间距 = 760，正好挤掉一行。级别计数比这几个字值钱，先让它们
+   */
+  @container (max-width: 800px) {
+    .tail .txt { display: none; }
+    .tail { padding: 0 9px; }
   }
 
   /*

@@ -45,6 +45,38 @@ pub struct MergeRowsDto {
     pub line: Vec<u64>,
 }
 
+/// 日志归类里的一类
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatternDto {
+    /// 模板的原始字节（变量位置是 `<*>`）。不在 Rust 侧转码：文件可能是 GBK，前端拿标签的编码解（同日志行）
+    pub template: Vec<u8>,
+    pub count: u64,
+    /// 对比时基准那边出现了几次；不对比时是 0
+    pub base: u64,
+    /// 各级别各几行，顺序同 `LogStat.levels`
+    pub levels: [u64; 6],
+}
+
+/// 日志归类的进度和结果（`logengine::pattern`）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatternsDto {
+    /// 次数最多的前若干类
+    pub patterns: Vec<PatternDto>,
+    /// 一共分出几类（可能比 `patterns` 多）
+    pub total: u64,
+    /// 归了多少行（带时间戳的文件只算记录头）
+    pub lines: u64,
+    /// 对比时基准那边归了多少行；不对比时是 0
+    pub base_lines: u64,
+    /// 类数到了上限之后没归进去的行
+    pub overflow: u64,
+    pub scanned_bytes: u64,
+    pub total_bytes: u64,
+    pub done: bool,
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatDto {

@@ -253,9 +253,12 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     const row = rows[i];
     speed = "";
     if (e.metaKey) {
-      // 第一次 ⌘点：把此刻的游标行也算进去，不然选出来的是「B」而不是「A + B」
+      // 第一次 ⌘点：把上一次单击的那行也算进去，不然选出来的是「B」而不是「A + B」。
+      // 认 `anchor` 不认 `cursor`：Chromium 按下鼠标就给按钮焦点，`onfocus` 先把游标挪到了正在 ⌘点的这一行，再判「游标是不是别的行」永远不成立
+      // （2026-10-14 在浏览器面板里多选三份日志去合并，菜单说「2 份」）。WebKit 点按钮不给焦点所以碰不上，但两边都该对
       const next = new Set(selected);
-      if (next.size === 0 && cursor >= 0 && cursor < rows.length && cursor !== i) next.add(rows[cursor].path);
+      const prev = anchor >= 0 ? anchor : cursor;
+      if (next.size === 0 && prev >= 0 && prev < rows.length && prev !== i) next.add(rows[prev].path);
       if (next.has(row.path)) next.delete(row.path);
       else next.add(row.path);
       selected = next;

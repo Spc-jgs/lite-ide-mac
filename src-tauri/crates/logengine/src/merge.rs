@@ -176,7 +176,7 @@ fn decide_fill(firsts: &[Option<u64>]) -> (Fill, bool) {
 }
 
 /// 一份文件的第一条时间戳（前 [`LOOKAHEAD_LINES`] 行里）
-fn first_key(data: &[u8]) -> Option<u64> {
+pub(crate) fn first_key(data: &[u8]) -> Option<u64> {
     let mut pos = 0usize;
     for _ in 0..LOOKAHEAD_LINES {
         if pos >= data.len() {
@@ -564,6 +564,11 @@ impl MergedLog {
     /// 缺日期的文件借的是哪一天（年, 月, 日）。没有一份带年月日时是 None —— 那时借来的是个凑数的 1970，不值得说
     pub fn fill_date(&self) -> Option<(i64, u32, u32)> {
         self.fill_real.then(|| civil_from_days(self.fill.day))
+    }
+
+    /// 几份文件的映射（日志归类要把每份都扫一遍：归类和先后无关，不用走合并顺序）
+    pub fn maps(&self) -> Vec<Arc<Mmap>> {
+        self.maps.clone()
     }
 
     pub fn wait_merged(&self) {

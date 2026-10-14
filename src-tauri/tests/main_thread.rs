@@ -50,6 +50,7 @@ const ALLOW: &[(&str, &str)] = &[
     ("log_lines", "内存：mmap 上取行"),
     ("log_lines_filtered", "内存：mmap 上取行"),
     ("log_stat", "内存：索引进度"),
+    ("log_patterns", "内存：第一次起一个后台归类任务，之后拷一份快照；扫文件在那个任务里（同 log_filter）"),
     ("merge_rows", "内存：合并结果上走一段，同 log_lines"),
     // ── pty.rs ──
     ("pty_ack", "内存：背压计数"),

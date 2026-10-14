@@ -138,6 +138,8 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
       return "/proj";
     // 选文件面板（合并日志时加一份）：浏览器里没有原生面板，给演示里那份只有时分秒的库存日志 —— 「合并…」那条路走得通
     case "pick_files":
+      // 日志归类的对比在选基准：给「昨天」那份网关日志
+      if (String(a.title ?? "").includes("和哪份比")) return ["/proj/logs/gateway-2026-08-23.log"];
       return ["/proj/logs/inventory.log"];
     // 保存面板：浏览器里用 prompt 顶一下 —— 至少能把「另存为」那条路走通
     case "pick_save_path": {

@@ -151,7 +151,7 @@ impl LineMatcher {
 /// 折叠掉等于把最该看的东西藏了。被折叠的是几十行 `at com.foo.Bar(...)` 的噪声。
 ///
 /// 覆盖 Java / Python / Go 三种常见形态。
-fn is_stack_frame(line: &[u8]) -> bool {
+pub(crate) fn is_stack_frame(line: &[u8]) -> bool {
     // Java: "\tat com.foo.Bar(Bar.java:42)" / "    at ..." / "\t... 12 more"
     let trimmed = {
         let mut i = 0;

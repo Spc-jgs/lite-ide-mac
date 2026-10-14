@@ -35,6 +35,33 @@ export interface MergeInfo {
   size: number;
 }
 
+/** 日志归类里的一类（`logengine::pattern`，docs/PATTERNS.md） */
+export interface LogPattern {
+  /** 模板的原始字节，变量位置是 `<*>`；按标签的编码解（文件可能是 GBK） */
+  template: number[];
+  count: number;
+  /** 对比时基准那边出现了几次；不对比时是 0 */
+  base: number;
+  /** 各级别各几行（两边加起来），顺序同 `LogStat.levels` */
+  levels: LevelCounts;
+}
+
+/** 日志归类的进度和结果 */
+export interface LogPatterns {
+  patterns: LogPattern[];
+  /** 一共分出几类（可能比 `patterns` 多） */
+  total: number;
+  /** 归了多少行（带时间戳的文件只算记录头） */
+  lines: number;
+  /** 对比时基准那边归了多少行；不对比时是 0 */
+  baseLines: number;
+  /** 类数到上限之后没归进去的行 */
+  overflow: number;
+  scannedBytes: number;
+  totalBytes: number;
+  done: boolean;
+}
+
 /** 一段合并后的行各自来自哪份、是那份的第几行（0-based） */
 export interface MergeRows {
   src: number[];

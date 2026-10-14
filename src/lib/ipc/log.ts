@@ -1,6 +1,6 @@
 /** 日志引擎的命令包装（issue #32 瘦身）：`openLog` / `closeLog` 在 `commands.ts`（打开文件那条路要），其余只有 LogView 用 */
 import { invoke } from "@tauri-apps/api/core";
-import type { LogStat, FilterStat, RefreshResult, MergeInfo, MergeRows } from "./commands";
+import type { LogStat, FilterStat, RefreshResult, MergeInfo, MergeRows, LogPatterns } from "./commands";
 
 export const logStat = (handle: number) => invoke<LogStat>("log_stat", { handle });
 
@@ -63,3 +63,11 @@ export const mergeSetOffsets = (handle: number, offsets: number[]) =>
 
 /** 原生的「选择文件」面板，可多选；取消是空数组 */
 export const pickFiles = (title: string, dir?: string | null) => invoke<string[]>("pick_files", { title, dir: dir ?? null });
+
+/** 日志归类：第一次问时在后台起，之后返回当前快照（边归边看）；`restart` 是重新归类 */
+export const logPatterns = (handle: number, limit: number, restart = false) =>
+  invoke<LogPatterns>("log_patterns", { handle, limit, restart });
+
+/** 日志归类的对比：这个句柄和 `base` 那几份一起归、每类两边各几次（docs/PATTERNS.md）；基准换了 Rust 那边自己重来 */
+export const logPatternsCompare = (handle: number, base: string[], limit: number, restart = false) =>
+  invoke<LogPatterns>("log_patterns_compare", { handle, base, limit, restart });
