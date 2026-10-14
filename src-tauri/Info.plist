@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Tauri 打包时把这份合并进 .app 的 Info.plist（和 tauri.conf.json 同目录，自动认）。
+  CFBundleIconName：macOS 26 起先按这个名字去 Resources/Assets.car 里找图标（系统渲染的新格式）；
+  找不到、或者系统更老，才用 CFBundleIconFile 指的 icon.icns。
+  Assets.car 由 design/icon/make_icon.py 生成，tauri.conf.json 的 bundle.macOS.files 放进包里。
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+</dict>
+</plist>

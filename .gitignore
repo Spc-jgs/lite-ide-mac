@@ -22,7 +22,6 @@ src-tauri/gen/
 # 画板源文件 design/*.dc.html 和 canvas.json 是要提交的，重新打包见 design/README.md
 design/lite-ide-interface-polish.html
 
-# 图标生成的中间产物：make_icon.py 每次重建，产物在 src-tauri/icons/
-design/icon/lite-ide.iconset/
+# make_icon.py 的中间产物都在临时目录里，产物在 src-tauri/icons/ 和 design/icon/AppIcon.icon/
 design/icon/__pycache__/
 design/m8-chrome/lite-ide-chrome-dividers.html
