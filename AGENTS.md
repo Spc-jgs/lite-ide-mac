@@ -13,7 +13,8 @@ pnpm check          # svelte-check
 pnpm test           # 前端测试：纯函数 + 状态层（*.state.test.ts，runes 在裸 node 里跑，见 tests/runes/）
 cd src-tauri && cargo test --workspace
 cd src-tauri && cargo clippy --workspace --features lite-ide/test-bridge -- -A clippy::all -D clippy::disallowed_methods   # 规矩检查，CI 也跑
-scripts/build-test-app.sh      # 带测试通道的临时身份 .app（验收用，碰不到真实数据；正式包永远不带）
+scripts/build-test-app.sh      # 带测试通道的临时身份 .app（验收用，碰不到真实数据；正式包永远不带）。放在 target/test-app.noindex/，Spotlight 不收录
+scripts/ls-clean.sh            # 注销系统登记里已经不在盘上的 lite-ide（打 .dmg 挂载的临时卷每次留一条）；app:bundle 末尾自动跑
 scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点
 scripts/accept/tasks.sh        # 任务运行的机制（36 条）；quit.sh 是 Dock 右键退出那条路（6 条）
 scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪样哪段记「未验」）
@@ -33,6 +34,8 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 
 **盘上只留一份 `.app`。** 往 `~/Applications` 复制过一份，结果 Spotlight 里两个同名图标，
 只要有一次「打包了没重装」就分叉，点错的那次调的是几天前的构建。
+**系统的登记里也只留一份**（2026-10-13，用户问「app 的名你是不是改了」）：测试身份的 `lite-ide-mwtest` 原来挨着正式包放、被 Spotlight 收录，
+每次注销又被登记回来；打 `.dmg` 挂的临时卷每次留一条 `/Volumes/dmg.*/lite-ide.app`，攒了 114 条。测试包挪进 `*.noindex`、`app:bundle` 末尾跑 `ls-clean.sh`。
 
 **加完测试要把被测代码改回错误的样子跑一遍，确认它真的红。**
 不会失败的测试比没有测试更糟 —— 它给一个假的安全感。

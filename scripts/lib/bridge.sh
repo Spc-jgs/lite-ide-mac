@@ -12,7 +12,8 @@
 #   lite_front              此刻最前面的应用叫什么（证明测试没抢你的焦点）
 
 LITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LITE_APP="${LITE_ROOT}/src-tauri/target/release/bundle/macos/lite-ide-mwtest.app"
+# 在 `*.noindex` 里：Spotlight 不收录，不会在你的 Spotlight / 「打开方式」里冒出一个 lite-ide-mwtest（build-test-app.sh 头上那段）
+LITE_APP="${LITE_ROOT}/src-tauri/target/test-app.noindex/lite-ide-mwtest.app"
 LITE_ID="com.liteide.mwtest"
 LITE_DATA="${HOME}/Library/Application Support/${LITE_ID}"
 LITE_WORK="$(mktemp -d /tmp/lite-bridge.XXXXXX)"

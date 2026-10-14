@@ -9303,3 +9303,13 @@ frontend.md 早记过后台页的节流，这次是退场过渡也算一样。�
 「原来没有 .git、新建出来也是 Git」的测试（错版本「监听忽略 .git」红）。缺的在前端：那一类事件来了只「复查信任 + 刷状态」，没有仓库时两样都空转。
 挪进 `git.onGitDirChanged`：还不是仓库就重新找一次（照常过信任扫描）。桩的 `git_root` 原来对任何路径都说是 /proj，「还不是仓库」在浏览器和状态测试里造不出来 ——
 改成只有 /proj 底下算，`__mockGitInit` 模拟 init。Git 栏的空态从「init 之后重新打开这个项目」改成「init，这里会自己出现」：做到了才改字。
+
+## 2026-10-13 · 「app 的名你是不是改了」：没改，是系统的登记里攒了一堆 lite-ide
+
+先查实再答：`productName` / `CFBundleName` 从 M0 起就是 lite-ide，没动过。用户看到的「不一样」查出三处：
+1. **测试身份的 `lite-ide-mwtest.app` 被 Spotlight 收录了。** 它挨着正式包放在 `bundle/macos/`，`lite_teardown` 每次都从 LaunchServices 注销它 ——
+   可 Spotlight 照样索引那个目录、系统又把它登记回去。Spotlight 一搜、「打开方式」里就多一个。**注销治不了本，得让它待在不被扫描的地方**：
+   打完挪进 `target/test-app.noindex/`（名字以 `.noindex` 结尾的目录 Spotlight 不进）。跑一遍 smoke 之后：登记里没有它、`mdfind` 找不到。
+2. **打 .dmg 留下的 114 条失效登记**。`tauri build` 打 dmg 时挂一个 `/Volumes/dmg.XXXX`，系统顺手登记里面的 lite-ide.app，卸载了记录还在，一次一条。
+   `scripts/ls-clean.sh` 只注销「lite-ide(-mwtest).app 且路径已经不在盘上」的，接在 `app:bundle` 后面：116 条 → 1 条（你双击的那份），之后每次打包自己清掉新留的那条。
+3. **没项目的窗口标题今天从「lite-ide」改成了「草稿本」**（草稿本设计里用户点过头的）。菜单栏的应用名还是 lite-ide。这条不动。
