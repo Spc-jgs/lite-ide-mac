@@ -89,7 +89,7 @@ macOS 的 sed 不认 `\|`（`sed '/a\|b/d'` 什么都没删，跑的还是原代
 
 **不做：**
 
-- 插件系统、Windows 支持、LSP、遥测、自动更新器 —— 立项时就明确排除了，
+- 插件系统、Windows 支持、遥测、自动更新器 —— 立项时就明确排除了，
   理由在 [PLAN.md](PLAN.md) 和 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 拿 `cargo build --release` 当验证
 - 在 `src-tauri/src/commands/` 里写业务逻辑
@@ -112,6 +112,7 @@ macOS 的 sed 不认 `\|`（`sed '/a\|b/d'` 什么都没删，跑的还是原代
 | 跨文件替换 | [docs/REPLACE.md](docs/REPLACE.md) —— 两段提交、撤销日志、命中太多不许执行 |
 | 几份日志按时间合并 | [docs/MERGE.md](docs/MERGE.md) —— k 路归并、一行一字节的合并索引、没时间戳的行跟着上一行走、借日期要说出来 |
 | 日志归类 | [docs/PATTERNS.md](docs/PATTERNS.md) —— Drain 改了两处（按段换变量、相似度只数常量词）、只归记录头、点一类 = 常量词当过滤条件、对比时两边放进同一棵树 |
+| 接住 IDEA 的 Java 后端日常（语言服务器、Maven、Spring Boot、调试） | [docs/IDEA.md](docs/IDEA.md) —— 本心的硬约束（秒开不等、独立进程可关、不打断、正式包不变大），每一步都要过它的审 |
 | 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位；第 7 节是优先级 |
 | 踩过的坑的全过程 | [docs/JOURNAL.md](docs/JOURNAL.md) |
 | 想照别的项目的做法改 | [docs/research/codex.md](docs/research/codex.md) —— 读 Codex 的五个主题：对照结论、学了什么、为什么不学 |

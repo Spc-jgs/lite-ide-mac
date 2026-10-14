@@ -41,7 +41,7 @@
 | 4 | 日志模式"虚拟滚动列表" | 明确**不复用 CM6**，自研只读虚拟列表 | CM6 的 EditorState 是不可变全文档模型，塞不进流式数据。日志模式与编辑模式共享的只有主题 token |
 | 5 | M0 地基 → M1 日志引擎 | **反过来**，先做日志垂直切片 | 唯一技术风险点，早验证早止损。见第 6 节 |
 | 6 | 空闲内存 **<100MB** | 修正为 **<200MB** | macOS 上 WKWebView 自身就是多进程（WebContent + Networking + GPU），Tauri 空窗实测 80–150MB。<200MB 仍然吊打 VSCode 的 650MB，不必为一个够不到的数字设 KPI |
-| 7 | M4 上 LSP（含 Java） | **不上 LSP，也不上 tree-sitter**：跳转靠 CM6 已有的 Lezer 树 + import 解析 | jdtls 启动 5–10s、常驻 1GB+，与"轻量"直接冲突。而 tree-sitter 也不需要 —— CM6 为高亮本来就把文档解析好了，再挂一套 wasm parser 是同一份代码解析两遍，且每种语言几百 KB，撞入口包 160KB 的红线。2026-09-09 落地，见下方「跳转做到哪一层」 |
+| 7 | M4 上 LSP（含 Java） | **⚠ 2026-10-14 推翻「不上 LSP」那一半**（用户的 IDEA 订阅到期，见 DIRECTION D5、[IDEA.md](IDEA.md)：jdtls 按项目、独立进程、可关、不挡路地上）。原文：**不上 LSP，也不上 tree-sitter**：跳转靠 CM6 已有的 Lezer 树 + import 解析 | jdtls 启动 5–10s、常驻 1GB+，与"轻量"直接冲突。而 tree-sitter 也不需要 —— CM6 为高亮本来就把文档解析好了，再挂一套 wasm parser 是同一份代码解析两遍，且每种语言几百 KB，撞入口包 160KB 的红线。2026-09-09 落地，见下方「跳转做到哪一层」 |
 
 ### 跳转做到哪一层（修正 7 的落地形态）
 
