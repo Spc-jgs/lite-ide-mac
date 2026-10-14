@@ -1,5 +1,6 @@
 mod budget;
 mod commands;
+mod maven;
 pub mod diag;
 pub mod menu;
 mod open;

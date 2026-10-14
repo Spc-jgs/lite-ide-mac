@@ -19,6 +19,7 @@ pub async fn task_list(root: String) -> Result<TaskListDto, String> {
                     source: match d.source {
                         crate::taskdefs::Source::File => "file",
                         crate::taskdefs::Source::Package { .. } => "package",
+                        crate::taskdefs::Source::Spring { .. } => "spring",
                     }
                     .into(),
                 })

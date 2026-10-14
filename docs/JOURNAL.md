@@ -9418,3 +9418,25 @@ disallowed-methods 的 clippy 干净；真 `.app` `scripts/accept/merge.sh` 15/1
 
 验证：logengine 新 2 条对比测试 + `state` 那条加了「关窗口时对比也叫停」（验过红）；`pattern-query` 加了 6 条「变化怎么说」；
 浏览器里桩的「昨天的网关」：新出现的 500 和慢响应排前、健康检查「没了」、点「没了」那类说一句不筛；真 `.app` `patterns.sh` 8/8。入口包没变。
+
+## 2026-10-14 · IDEA 订阅到期：定 D5，先做「认出 Spring Boot、照 IDEA 那样起」
+
+用户的 IDEA 订阅到期，要 lite-ide「取代它，但不能丢失本心」，并且要好好设计。先问卷问清他在 IDEA 里实际做什么（Maven、Git、认出 Spring Boot 并启动、
+跳转查找、补全、重命名重构、实时报错、调试、单测、HTTP、jar 源码；多模块微服务），列出「大家为什么用 IDEA」十八条给他对照，写了 [IDEA.md](IDEA.md)。
+**拍板 D5**：推翻 D2（代码智能冻结）和 ARCHITECTURE 决策 7（不上 LSP）—— 那两条的前提是「深的交给 IDEA」，这条退路没了；冲突换成 IDEA.md 第 3 节的硬约束管着。
+jdtls 要 JDK 21 才能跑（README 原话，项目照旧 17），他机器上只有 17 —— 下载到第 0 步再问。
+
+**第 1 步前一半做完**：认出 Spring Boot 应用、⌃⌥R 一键起。用户说「先别碰我的项目」，验证用 Spring 官方的 petclinic-microservices（他点头可以下 GitHub 的代码；
+AGENTS.md 规定下载来的代码不跑构建 —— 这次是他选的例外，跑之前读过全部 pom，会执行东西的插件都在不自动启用的 profile 里）和一份自己写的三模块样例。
+
+**怎么起是这一步唯一的技术问题**：`mvn -pl x spring-boot:run` 实测 `Could not find artifact …:shop-common`（兄弟模块要从本地仓库找）；
+install 之后又是跑旧 jar。照 IDEA：编译 reactor（`-pl x -am`）、`dependency:build-classpath` 算出 classpath、`exec java -cp … 主类` ——
+兄弟模块在 classpath 里是 `target/classes`，改了公共模块再起就是新的。离线 1.67 s 编完算完、0.53 s 起来。真 .app 验收第一轮 7/8：
+红的那条是我的断言把列表最后那行「新建 tasks.json」也数进去了，不是功能的错。
+
+**两个顺带的事实**：这台机器的 Maven 本地仓库在 `~/repository`（settings.xml 设的）—— 任何地方都别写死 `~/.m2`，一律经 `mvn` 读；
+`exec java` 让 shell 换成 JVM 本身，⌘F2 的 SIGINT 直接到 Java，Spring 的关闭钩子跑得到，web 服务停完端口空、整组一个不剩。
+
+验证：maven.rs 5 条 + taskdefs 1 条，三种错版本（profile 里的模块也算、有注解没 main 也算、不带 -am）各自验过红；
+cargo test --workspace、pnpm test / check、clippy 全过；真 .app `scripts/accept/spring.sh` 8/8；petclinic 8 个服务全认出来。入口包没变。
+**还没做**：Maven 工具窗（模块树、生命周期、依赖树）—— 第 1 步的后一半。

@@ -101,7 +101,7 @@
     }
   }
 
-  const GROUP: Record<TaskDef["source"], string> = { file: "tasks.json", package: "package.json" };
+  const GROUP: Record<TaskDef["source"], string> = { file: "tasks.json", package: "package.json", spring: "Spring Boot" };
   const STATUS: Partial<Record<RunStatus, string>> = { running: "在跑", stopping: "正在停" };
 </script>
 

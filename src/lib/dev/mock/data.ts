@@ -268,6 +268,19 @@ public class SamePkgHelper {
 class AdminControllerTest {
 }
 `,
+  // Spring Boot 入口（docs/IDEA.md 第 1 步）：任务列表里自动出一个「OrderServiceApplication」
+  "/proj/moduleB/src/main/java/com/demo/core/OrderServiceApplication.java": `package com.demo.core;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class OrderServiceApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(OrderServiceApplication.class, args);
+    }
+}
+`,
   "/proj/moduleB/src/main/java/com/demo/core/OrderClient.java": `package com.demo.core;
 
 public class OrderClient {
@@ -456,7 +469,7 @@ export const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj/moduleB/src/main/java": [["com", true]],
   "/proj/moduleB/src/main/java/com": [["demo", true]],
   "/proj/moduleB/src/main/java/com/demo": [["core", true]],
-  "/proj/moduleB/src/main/java/com/demo/core": [["OrderClient.java", false]],
+  "/proj/moduleB/src/main/java/com/demo/core": [["OrderClient.java", false], ["OrderServiceApplication.java", false]],
   "/proj/logs": [
     ["access-2026-08-24.log", false],
     ["gateway-2026-08-23.log", false],

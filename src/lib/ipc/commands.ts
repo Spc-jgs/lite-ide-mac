@@ -809,8 +809,8 @@ export interface TaskDef {
   command: string;
   /** 相对项目根；"" = 根 */
   cwd: string;
-  /** "file" = `.lite-ide/tasks.json` 里写的；"package" = 自动认出来的 package.json scripts */
-  source: "file" | "package";
+  /** "file" = `.lite-ide/tasks.json` 里写的；"package" = 自动认出来的 package.json scripts；"spring" = 认出来的 Spring Boot 应用（docs/IDEA.md） */
+  source: "file" | "package" | "spring";
 }
 
 export interface TaskList {

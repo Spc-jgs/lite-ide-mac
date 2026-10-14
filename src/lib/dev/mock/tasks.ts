@@ -26,7 +26,7 @@ const TEMPLATE = `// lite-ide 的任务（docs/USAGE.md「任务」）。⌃⌥R
 `;
 const LIFECYCLE = new Set(["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare", "prepublishOnly", "prepack", "postpack", "publish", "postpublish", "preversion", "version", "postversion", "dependencies"]);
 
-type Def = { name: string; command: string; cwd: string; source: "file" | "package" };
+type Def = { name: string; command: string; cwd: string; source: "file" | "package" | "spring" };
 
 /** 和 Rust 的 settings::strip 同一件事的简化版：去掉 // 注释和末尾逗号（不管字符串里的 //，桩里的数据没有那种） */
 const jsonc = (t: string) => JSON.parse(t.replace(/\/\/[^\n]*/g, "").replace(/,(\s*[\]}])/g, "$1") || "[]");
@@ -83,6 +83,28 @@ function list(root: string) {
     for (const s of names.filter((k) => !LIFECYCLE.has(k) && !hook(k))) {
       const name = rel ? `${rel}/${s}` : s;
       if (!defs.some((d) => d.name === name)) defs.push({ name, command: `${pm} run ${word(s)}`, cwd: rel, source: "package" });
+    }
+  }
+  // Spring Boot 入口（真实现在 maven.rs）：项目根有 pom.xml 时，各模块 src/main/java 里带 @SpringBootApplication 又有 main 的类。
+  // 桩不读 <modules>，按「某个目录底下的 src/main/java」认模块 —— 演示数据里够用；命令的样子照真实现
+  if (FILES[`${root}/pom.xml`] !== undefined) {
+    const apps = Object.keys(FILES)
+      .filter((p) => p.startsWith(`${root}/`) && p.endsWith(".java") && p.includes("/src/main/java/"))
+      .filter((p) => FILES[p].includes("@SpringBootApplication") && FILES[p].includes("static void main"))
+      .sort();
+    for (const p of apps) {
+      const mod = p.slice(root.length + 1, p.indexOf("/src/main/java/"));
+      const pkg = /^package\s+([\w.]+);/m.exec(FILES[p])?.[1];
+      const cls = p.slice(p.lastIndexOf("/") + 1, -".java".length);
+      const main = pkg ? `${pkg}.${cls}` : cls;
+      if (defs.some((d) => d.name === cls)) continue;
+      const cp = "target/.lite-ide-cp.txt";
+      defs.push({
+        name: cls,
+        command: `mvn -B -ntp -pl ${mod} -am -DskipTests compile dependency:build-classpath -Dmdep.outputFile=${cp} && cd ${mod} && exec java -cp "target/classes:$(cat ${cp})" ${main}`,
+        cwd: "",
+        source: "spring",
+      });
     }
   }
   return { tasks: defs, file, problems };

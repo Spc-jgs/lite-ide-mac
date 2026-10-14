@@ -3,8 +3,10 @@
 //! 纯函数 + 读盘，不碰进程（起和停在 `tasksvc`）。放在主 crate 里、挨着 `settings.rs`：`tasks.json` 和 `settings.json` 是同一种 JSONC
 //! （注释、末尾逗号），用的是同一个 [`crate::settings::strip`] —— 一种格式一个解析器，不另写一份。
 //!
-//! **为什么不自动认 Maven / Gradle / Python**：`spring-boot:run` 要不要带 profile、Python 跑哪个入口，猜错比不猜糟（Q2）。
+//! **为什么不自动认 Gradle / Python**：Python 跑哪个入口，猜错比不猜糟（Q2）。
 //! package.json 不一样：`scripts` 就是作者自己写下的「这个项目能跑什么」，照着列出来不算猜。
+//! **Spring Boot 应用自动认**（2026-10-14，docs/IDEA.md 第 1 步）：`@SpringBootApplication` + `main` 同样是作者写下的声明，
+//! 不带 profile 起（IDEA 的默认）—— Q2 当初担心的「要不要带 profile」由 tasks.json 里同名的任务回答。怎么认、怎么起在 `maven.rs`
 
 use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
@@ -22,6 +24,8 @@ pub enum Source {
     File,
     /// 某个 `package.json` 的 scripts；`dir` 相对项目根（根目录是 ""）
     Package { dir: String },
+    /// Maven 项目里认出来的 Spring Boot 应用（`maven.rs`）；`module` 相对项目根
+    Spring { module: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -320,7 +324,49 @@ pub fn discover(root: &Path) -> Found {
             });
         }
     }
+    spring_apps(root, &mut found);
     found
+}
+
+/// Maven 项目里的 Spring Boot 应用。reactor 根是项目根，项目根没有 pom.xml 时找一层子目录（前后端放一个仓库：`backend/pom.xml`）。
+/// 名字是主类的简单名（同 IDEA）；两个模块里撞了名就带上模块路径；和 tasks.json 里同名的不列（以文件为准）
+fn spring_apps(root: &Path, found: &mut Found) {
+    let mut reactors: Vec<PathBuf> = Vec::new();
+    if root.join("pom.xml").is_file() {
+        reactors.push(root.to_path_buf());
+    } else if let Ok(rd) = std::fs::read_dir(root) {
+        let mut subs: Vec<PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.join("pom.xml").is_file() && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| !n.starts_with('.')))
+            .collect();
+        subs.sort();
+        reactors = subs;
+    }
+    let mut apps: Vec<(String, crate::maven::BootApp)> = Vec::new();
+    for r in reactors {
+        let rel = r.strip_prefix(root).map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
+        let mods = crate::maven::modules(&r);
+        let (found_apps, problems) = crate::maven::boot_apps(&r, &mods);
+        found.problems.extend(problems);
+        apps.extend(found_apps.into_iter().map(|a| (rel.clone(), a)));
+    }
+    for (rel, app) in &apps {
+        let short = app.name();
+        let dup = apps.iter().filter(|(_, a)| a.name() == short).count() > 1;
+        let module = [rel.as_str(), app.module.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("/");
+        let name = if dup { format!("{module}/{short}") } else { short.to_string() };
+        if found.defs.iter().any(|d| d.name == name) {
+            continue;
+        }
+        found.defs.push(Def {
+            name,
+            command: crate::maven::run_command(app),
+            cwd: rel.clone(),
+            env: Vec::new(),
+            source: Source::Spring { module },
+        });
+    }
 }
 
 fn shown(rel: &str, file: &str) -> String {
@@ -450,6 +496,43 @@ mod tests {
         assert_eq!(f.defs[1].command, r"npm run 'it'\''s'");
         assert!(!f.file);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Spring Boot 应用自动列出来：撞名的带模块路径、tasks.json 里同名的以文件为准、项目根没有 pom 时找一层子目录
+    #[test]
+    fn spring_boot_应用自动列出_撞名带模块_同名以文件为准() {
+        let d = tmp("spring");
+        let w = |p: &str, t: &str| {
+            let p = d.join(p);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            #[allow(clippy::disallowed_methods)] // 测试自己的临时文件
+            std::fs::write(p, t).unwrap();
+        };
+        w("backend/pom.xml", "<project><artifactId>shop</artifactId><modules><module>order</module><module>user</module><module>admin</module></modules></project>");
+        for m in ["order", "user", "admin"] {
+            w(&format!("backend/{m}/pom.xml"), &format!("<project><artifactId>{m}</artifactId></project>"));
+        }
+        let app = |pkg: &str, cls: &str| format!("package {pkg};\n@SpringBootApplication\npublic class {cls} {{ public static void main(String[] a) {{}} }}");
+        w("backend/order/src/main/java/o/OrderApplication.java", &app("o", "OrderApplication"));
+        w("backend/user/src/main/java/u/Application.java", &app("u", "Application"));
+        w("backend/admin/src/main/java/a/Application.java", &app("a", "Application"));
+        w(".lite-ide/tasks.json", r#"[{ "name": "OrderApplication", "command": "echo 带 profile 的那个", "cwd": "backend" }]"#);
+        let f = discover(&d);
+        let got: Vec<(&str, &Source)> = f.defs.iter().map(|x| (x.name.as_str(), &x.source)).collect();
+        assert_eq!(
+            got,
+            [
+                ("OrderApplication", &Source::File),
+                ("backend/user/Application", &Source::Spring { module: "backend/user".into() }),
+                ("backend/admin/Application", &Source::Spring { module: "backend/admin".into() }),
+            ],
+            "{:?}",
+            f.problems
+        );
+        let user = f.defs.iter().find(|x| x.name == "backend/user/Application").unwrap();
+        assert_eq!(user.cwd, "backend", "在 reactor 根上跑");
+        assert!(user.command.contains("-pl user -am") && user.command.ends_with(" u.Application"), "{}", user.command);
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

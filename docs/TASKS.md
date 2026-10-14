@@ -77,6 +77,8 @@
 - **自动认出的**：项目根和一层子目录里的 `package.json` 的 `scripts`，按锁文件猜包管理器（`pnpm-lock.yaml` → pnpm、`yarn.lock` → yarn，否则 npm）。
   零配置就能跑 `pnpm dev`；文件里同名的覆盖自动认出的。
 - **不自动认 Maven / Gradle / Python**：`spring-boot:run` 要不要加 profile、Python 跑哪个入口，猜错比不猜糟。
+  **2026-10-14 改了 Spring Boot 那一半**（docs/IDEA.md 第 1 步）：`@SpringBootApplication` + `main` 是作者写下的声明，照着列不算猜；
+  不带 profile 起（IDEA 的默认），要 profile 的在 tasks.json 写一个同名的顶掉。而且不走 `spring-boot:run`：照 IDEA 编译 reactor、算 classpath、直接起 java（理由和实测在 IDEA.md 第 8 节）。Gradle、Python 照旧不认。
   第一次 ⌃⌥R 列表里没有它们时，列表底部给一项「新建 tasks.json」，开出一份带这三行示例（注释掉）的模板。
 
 ### Q3 输出怎么接：管道，不用 pty —— **第 0 步要实测确认**
