@@ -10,6 +10,7 @@
 | `icons/commit.svg` | `platform/icons/src/expui/vcs/commit_dark.svg` |
 | `icons/folder.svg` | `platform/icons/src/expui/nodes/folder_dark.svg` |
 | `icons/tag.svg` | **lite-ide 自绘**：IDEA 新 UI 没有 git 标签的独立图标（提交历史里的标签是代码画的色块，`nodes/tag` 是 XML 标签 `<>`）。描边按新 UI 的 1px 画 |
+| `icons/maven.svg` | `plugins/maven/src/main/resources/images/expui/toolwindow/maven_dark.svg`（Maven 插件的工具窗图标，不在 platform/icons 里） |
 | `icons/sidebar.svg` | `platform/icons/src/expui/general/layout_dark.svg` |
 | `icons/files.svg` | `platform/icons/src/expui/toolwindows/project_dark.svg` |
 | `icons/git.svg` | `platform/icons/src/expui/toolwindows/vcs_dark.svg` |

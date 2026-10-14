@@ -1,6 +1,6 @@
 /** 任务（#48）的命令包装：只有任务列表 / 运行工具窗用，它们是懒的（同 ipc/pty.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { TaskList, TaskRun, TaskStale } from "./commands";
+import type { MavenProject, TaskList, TaskRun, TaskStale } from "./commands";
 
 /** 这个项目的全部任务：`.lite-ide/tasks.json` 里的 + 自动认出的 package.json scripts */
 export const taskList = (root: string) => invoke<TaskList>("task_list", { root });
@@ -25,3 +25,6 @@ export const taskStale = (root: string) => invoke<TaskStale[]>("task_stale", { r
 
 /** 上次没停干净的：`kill` = 结束它们，否则从账上划掉、不管 */
 export const taskStaleResolve = (root: string, kill: boolean) => invoke<void>("task_stale_resolve", { root, kill });
+
+/** Maven 工具窗：模块树和认出来的 Spring Boot 应用（docs/IDEA.md 第 1 步） */
+export const mavenProject = (root: string) => invoke<MavenProject>("maven_project", { root });

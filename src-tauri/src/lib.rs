@@ -285,6 +285,7 @@ pub fn run() {
             commands::merge_set_offsets,
             commands::log_patterns,
             commands::log_patterns_compare,
+            commands::maven_project,
             commands::pick_files,
             commands::close_log,
             commands::initial_paths,

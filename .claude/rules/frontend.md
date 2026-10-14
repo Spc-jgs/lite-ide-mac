@@ -119,7 +119,9 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 154,921 B → CI 取整 151（2026-10-14），告警 152、红线 160**。10-14 合并日志 +156 B：第一版 +670（Content 给 LogPane 一样样传 path / merge / 回调、App 转一道文件树的回调、`openPath` 里直接 `import("./merge-ops")`），
+（**当前 155,856 B → CI 取整 152（2026-10-14 晚），告警是「大于 152」、红线 160 —— 离告警只剩 816 B**。同晚 Maven 工具窗 +935 B：导轨上那个按钮的模板 380、
+App 里懒加载 + 恢复会话时自动拉 + snippet 约 400、Vite 预加载表多两项；都是窗口出来就得在的接线（按钮要能看见、恢复到 Maven 视图要能拉）。下一个往入口里加东西的，先想办法把导轨的按钮做成表驱动再加。
+之前是 154,921 B → CI 取整 151（2026-10-14），告警 152、红线 160。10-14 合并日志 +156 B：第一版 +670（Content 给 LogPane 一样样传 path / merge / 回调、App 转一道文件树的回调、`openPath` 里直接 `import("./merge-ops")`），
 挪进懒 chunk 之后剩 `openPath` 认 `merge:` 那一句、Content 传一个 `tabId`、状态栏藏模式按钮的条件。**每一处动态 `import()` 都在入口里留一张依赖 chunk 的文件名表**（这一句实测 157 B）：
 入口里要按需加载东西，走已有的那个 `ops()`，别另开一处。10-13 晚是 154,765 B（151）。同晚 +211 B：git store 的 `onGitDirChanged`（git init 之后自动认出仓库）和 `diffNewText` 转发；离告警线只剩 1 KB 出头了，下一次往入口里加东西先想想能不能放懒 chunk。之前 154,554 B（150）。同日弹出物规范 +1.5 KB：提示胶囊 `Toast.svelte` 在入口（启动时的失败也走它），notify 加了按字数算时长、悬停停住；卡片退场用的 Svelte `out:` 量过只 +50 B —— 过渡的运行时本来就在入口里。早些时候 153,061 B（149）。10-13 草稿本 +2.0 KB（150,578 → 152,573），对话框真模态 +488 B（`shell/modal.ts` 两个函数 + 启动链上挂草稿本监听；判哪个键放哪个键挡的那张表跟着 Confirms 懒加载）。09-24 晚是 142,813 B（139）。#55 把两版都开 sourcemap 构建、按源文件做差（+7.4 KB）：设置（#44）净 +3 KB —— `settings.svelte.ts` 3.3 + `settings-view.ts` 1.0，换掉了 `prefs.ts` 0.6、`layout` 少 0.7；运行任务的状态 +1.1；`Overlays` 的懒加载外壳 +1.0；`commands.ts` +0.65；svelte 运行时 +0.55；`overlay.svelte.ts` 反而 −1.5。逐个过了「窗口出现之前有没有用」，全是接线，所以动的是告警线不是代码。归因脚本按 mappings 逐段记字节，旧版本要用 `git archive` 解到别处、借现在的 `node_modules` 构建（依赖没变时才行）。09-24 换 IDEA 官方图标 −6.2 KB：自绘图标的 path 数据原来全在入口的 `Icon.svelte` 里，现在是 `public/icons/` 下的静态文件，JS 里只剩路径（FileGlyph 的扩展名表 +1 KB 已算在内）。09-24 合并单层目录 +180 B：入口里的 `Icon.svelte` 多了一个 `compact` 图标（`tree-rows.ts` 跟着 FileTree 走，不在入口）。09-23 晚剪贴板 / 焦点那两轮 +37 B。code review 修的那几条 +376 B。
 09-23 交互习惯那轮 +2.6 KB，归因：App 的全局按键（切标签 / Esc / 方括号）1.3 KB、Content 0.6、tabs 的最近使用 0.4 —— 都是窗口一出来就得能用的。

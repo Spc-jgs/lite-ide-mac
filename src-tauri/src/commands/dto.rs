@@ -13,6 +13,43 @@ pub struct OpenResult {
     pub size: u64,
 }
 
+/// Maven 工具窗（docs/IDEA.md 第 1 步）：项目里的 reactor 们
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenProjectDto {
+    pub reactors: Vec<MavenReactorDto>,
+    /// 能点的生命周期目标（白名单，`maven::GOALS`）
+    pub goals: Vec<String>,
+    pub problems: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenReactorDto {
+    /// 相对项目根（项目根就是 reactor 根时是 ""）
+    pub rel: String,
+    /// 模块，根模块在第一个，按 pom 里的先后
+    pub modules: Vec<MavenModuleDto>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenModuleDto {
+    /// 相对 reactor 根
+    pub rel: String,
+    pub artifact_id: String,
+    /// 这个模块里的 Spring Boot 应用
+    pub apps: Vec<MavenAppDto>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenAppDto {
+    /// 任务名（和任务列表里的一样）
+    pub task: String,
+    pub main_class: String,
+}
+
 /// 合并视图里的一份日志（图例上画一格）
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

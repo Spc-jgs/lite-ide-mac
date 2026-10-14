@@ -45,6 +45,8 @@
     "run",
     "stop",
     "rerun",
+    // Maven 工具窗（docs/IDEA.md 第 1 步）
+    "maven",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];

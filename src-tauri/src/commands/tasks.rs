@@ -49,8 +49,7 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
     let owner = window.label().to_string();
     blocking(move || {
         let st = app.state::<AppState>();
-        let found = crate::taskdefs::discover(Path::new(&root));
-        let def = found.defs.into_iter().find(|d| d.name == name).ok_or_else(|| format!("没有叫「{name}」的任务了（tasks.json 改过？）"))?;
+        let def = crate::taskdefs::resolve(Path::new(&root), &name).ok_or_else(|| format!("没有叫「{name}」的任务了（tasks.json 改过？）"))?;
         let base = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("runs");
         // 起完、登记进运行表之前一直攥着：同一个任务的第二次 ⌃R 在这儿被挡住
         let _claim = st.begin_run(&owner, &root, &name)?;
@@ -154,3 +153,32 @@ pub async fn task_stale_resolve(root: String, kill: bool, app: tauri::AppHandle)
     .await
 }
 
+
+/// Maven 工具窗：模块树、每个模块里认出来的 Spring Boot 应用（带任务名 —— 点运行和 ⌃⌥R 里选它是同一个任务）。读盘，走阻塞池
+#[tauri::command]
+pub async fn maven_project(root: String) -> Result<MavenProjectDto, String> {
+    blocking(move || {
+        let rootp = Path::new(&root);
+        let (tasks, problems) = crate::taskdefs::spring_tasks(rootp);
+        let reactors = crate::maven::reactors(rootp)
+            .into_iter()
+            .map(|rel| {
+                let modules = crate::maven::modules(&rootp.join(&rel))
+                    .into_iter()
+                    .map(|m| MavenModuleDto {
+                        apps: tasks
+                            .iter()
+                            .filter(|t| t.reactor == rel && t.app.module == m.rel)
+                            .map(|t| MavenAppDto { task: t.def.name.clone(), main_class: t.app.main_class.clone() })
+                            .collect(),
+                        rel: m.rel,
+                        artifact_id: m.artifact_id,
+                    })
+                    .collect();
+                MavenReactorDto { rel, modules }
+            })
+            .collect();
+        Ok(MavenProjectDto { reactors, goals: crate::maven::GOALS.iter().map(|g| g.to_string()).collect(), problems })
+    })
+    .await
+}

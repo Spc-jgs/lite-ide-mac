@@ -195,6 +195,11 @@
   $effect(() => {
     if (layout.sidebar && layout.sideView === "scratch") scratchUi.load();
   });
+  /** Maven 工具窗（docs/IDEA.md 第 1 步）：切到它才拉 */
+  const mavenUi = lazy(() => import("./lib/run/MavenView.svelte"), "Maven 工具窗");
+  $effect(() => {
+    if (layout.sidebar && layout.sideView === "maven") mavenUi.load();
+  });
 
   const gitUi = lazyGroup(
     {
@@ -374,7 +379,7 @@
    * 新加的 `overlays`。加新的 lazy() 时记得回来加一行。
    */
   $effect(() => {
-    const e = gitUi.error || tree.error || panelUi.error || confirms.error || scratchUi.error;
+    const e = gitUi.error || tree.error || panelUi.error || confirms.error || scratchUi.error || mavenUi.error;
     if (e) notify.fail(e);
   });
 
@@ -1035,6 +1040,9 @@
             ahead={git.status?.ahead ?? 0}
             behind={git.status?.behind ?? 0}
           />
+        {/snippet}
+        {#snippet mavenView()}
+          {#if mavenUi.comp && project.root}<mavenUi.comp root={project.root} />{/if}
         {/snippet}
         {#snippet scratchList()}
           {#if scratchUi.comp}

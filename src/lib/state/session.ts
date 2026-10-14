@@ -172,7 +172,7 @@ export interface Layout {
   sidebar: boolean;
   sidebarWidth: number;
   /** `scratch` 是草稿列表（issue #40）。老快照只有前两个值，`toLayout` 里认不出的一律回 `files` */
-  sideView: "files" | "git" | "scratch";
+  sideView: "files" | "git" | "scratch" | "maven";
   panel: boolean;
   panelHeight: number;
   /**
@@ -260,7 +260,7 @@ export function toLayout(v: unknown): Layout {
       typeof o.sidebarWidth === "number" && Number.isFinite(o.sidebarWidth)
         ? clamp(o.sidebarWidth, SIDEBAR_MIN, SIDEBAR_MAX)
         : DEFAULT_LAYOUT.sidebarWidth,
-    sideView: o.sideView === "git" || o.sideView === "scratch" ? o.sideView : "files",
+    sideView: o.sideView === "git" || o.sideView === "scratch" || o.sideView === "maven" ? o.sideView : "files",
     panel: typeof o.panel === "boolean" ? o.panel : DEFAULT_LAYOUT.panel,
     panelHeight:
       typeof o.panelHeight === "number" && Number.isFinite(o.panelHeight)

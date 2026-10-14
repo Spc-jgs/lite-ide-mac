@@ -10,6 +10,7 @@
   import Icon from "./Icon.svelte";
   import { layout, type PanelTool } from "../state/layout.svelte";
   import { runs } from "../state/runs.svelte";
+  import { files } from "../state/files.svelte";
 
   let {
     root,
@@ -31,6 +32,8 @@
 
   /** 侧边栏此刻在不在屏幕上（不是偏好，是判决）：按钮亮不亮、tooltip 说收起还是展开都看它 */
   let shown = $derived(layout.sideShown(root !== null));
+  /** Maven 项目：pom.xml 在项目根或第一层子目录（同 Rust 的 `maven::reactors`）。按 ⌘P 那份文件索引判，不为它多问一次盘 */
+  let maven = $derived(files.list.some((p) => p === "pom.xml" || /^[^/]+\/pom\.xml$/.test(p)));
 </script>
 
 <!--
@@ -85,6 +88,18 @@
         {#if changes > 0}
           <span class="badge">{changes > 99 ? "99+" : changes}</span>
         {/if}
+      </button>
+    {/if}
+    {#if maven}
+      <!-- Maven 工具窗（docs/IDEA.md 第 1 步）：模块、生命周期、认出来的 Spring Boot 应用。IDEA 里它是独立的工具窗，这里也是（抄层级） -->
+      <button
+        class="ibtn lg rbtn"
+        class:on={layout.sidebar && layout.sideView === "maven"}
+        onclick={() => layout.showSide("maven")}
+        title="Maven"
+        aria-label="Maven"
+      >
+        <Icon name="maven" />
       </button>
     {/if}
     <button class="ibtn lg rbtn" onclick={onSearch} title="在项目中搜内容 ⌘⇧F" aria-label="搜索">

@@ -328,45 +328,76 @@ pub fn discover(root: &Path) -> Found {
     found
 }
 
-/// Maven 项目里的 Spring Boot 应用。reactor 根是项目根，项目根没有 pom.xml 时找一层子目录（前后端放一个仓库：`backend/pom.xml`）。
-/// 名字是主类的简单名（同 IDEA）；两个模块里撞了名就带上模块路径；和 tasks.json 里同名的不列（以文件为准）
-fn spring_apps(root: &Path, found: &mut Found) {
-    let mut reactors: Vec<PathBuf> = Vec::new();
-    if root.join("pom.xml").is_file() {
-        reactors.push(root.to_path_buf());
-    } else if let Ok(rd) = std::fs::read_dir(root) {
-        let mut subs: Vec<PathBuf> = rd
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.join("pom.xml").is_file() && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| !n.starts_with('.')))
-            .collect();
-        subs.sort();
-        reactors = subs;
-    }
+/// 一个认出来的 Spring Boot 应用：它的任务定义，加上 Maven 工具窗要的那几样
+pub struct SpringTask {
+    pub def: Def,
+    /// reactor 根，相对项目根
+    pub reactor: String,
+    pub app: crate::maven::BootApp,
+}
+
+/// Maven 项目里的 Spring Boot 应用（`maven.rs`）。名字是主类的简单名（同 IDEA）；两个模块里撞了名就带上模块路径。
+/// 任务列表和 Maven 工具窗都从这一处拿，名字两边一样 —— 工具窗里点运行，和 ⌃⌥R 里选它是同一个任务（重跑会先停旧的）
+pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
     let mut apps: Vec<(String, crate::maven::BootApp)> = Vec::new();
-    for r in reactors {
-        let rel = r.strip_prefix(root).map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut problems = Vec::new();
+    for rel in crate::maven::reactors(root) {
+        let r = root.join(&rel);
         let mods = crate::maven::modules(&r);
-        let (found_apps, problems) = crate::maven::boot_apps(&r, &mods);
-        found.problems.extend(problems);
+        let (found_apps, ps) = crate::maven::boot_apps(&r, &mods);
+        problems.extend(ps);
         apps.extend(found_apps.into_iter().map(|a| (rel.clone(), a)));
     }
-    for (rel, app) in &apps {
-        let short = app.name();
-        let dup = apps.iter().filter(|(_, a)| a.name() == short).count() > 1;
-        let module = [rel.as_str(), app.module.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("/");
-        let name = if dup { format!("{module}/{short}") } else { short.to_string() };
-        if found.defs.iter().any(|d| d.name == name) {
-            continue;
+    let out = apps
+        .iter()
+        .map(|(rel, app)| {
+            let short = app.name();
+            let dup = apps.iter().filter(|(_, a)| a.name() == short).count() > 1;
+            let module = [rel.as_str(), app.module.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("/");
+            let name = if dup { format!("{module}/{short}") } else { short.to_string() };
+            SpringTask {
+                def: Def { name, command: crate::maven::run_command(app), cwd: rel.clone(), env: Vec::new(), source: Source::Spring { module } },
+                reactor: rel.clone(),
+                app: app.clone(),
+            }
+        })
+        .collect();
+    (out, problems)
+}
+
+fn spring_apps(root: &Path, found: &mut Found) {
+    let (tasks, problems) = spring_tasks(root);
+    found.problems.extend(problems);
+    for t in tasks {
+        // tasks.json 里同名的以文件为准
+        if !found.defs.iter().any(|d| d.name == t.def.name) {
+            found.defs.push(t.def);
         }
-        found.defs.push(Def {
-            name,
-            command: crate::maven::run_command(app),
-            cwd: rel.clone(),
-            env: Vec::new(),
-            source: Source::Spring { module },
-        });
     }
+}
+
+/// Maven 工具窗点的生命周期：任务名是「artifactId [目标]」（IDEA 运行窗标签的样子）。不进任务列表（七个目标 × 每个模块会把列表淹掉），
+/// 但 `task_run` 按名字认得它 —— 于是运行窗、⌃R 重跑、⌘F2 停、同名先停旧的全是现成的。目标只认 [`crate::maven::GOALS`]
+pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
+    let (artifact, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
+    for rel in crate::maven::reactors(root) {
+        let r = root.join(&rel);
+        if let Some(m) = crate::maven::modules(&r).into_iter().find(|m| m.artifact_id == artifact) {
+            return Some(Def {
+                name: name.to_string(),
+                command: crate::maven::goal_command(&m.rel, goal)?,
+                cwd: rel,
+                env: Vec::new(),
+                source: Source::Spring { module: m.rel },
+            });
+        }
+    }
+    None
+}
+
+/// 按名字找任务：先找列表里的（tasks.json、scripts、Spring Boot），再认 Maven 工具窗的「模块 [目标]」
+pub fn resolve(root: &Path, name: &str) -> Option<Def> {
+    discover(root).defs.into_iter().find(|d| d.name == name).or_else(|| maven_goal(root, name))
 }
 
 fn shown(rel: &str, file: &str) -> String {
@@ -532,6 +563,27 @@ mod tests {
         let user = f.defs.iter().find(|x| x.name == "backend/user/Application").unwrap();
         assert_eq!(user.cwd, "backend", "在 reactor 根上跑");
         assert!(user.command.contains("-pl user -am") && user.command.ends_with(" u.Application"), "{}", user.command);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Maven 工具窗的「模块 [目标]」：task_run 认得、任务列表里不列；不认识的模块、白名单外的目标都不给
+    #[test]
+    fn maven_目标按名字认得_不进列表() {
+        let d = tmp("goal");
+        #[allow(clippy::disallowed_methods)] // 测试自己的临时文件
+        let w = |p: &str, t: &str| {
+            let p = d.join(p);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, t).unwrap();
+        };
+        w("pom.xml", "<project><artifactId>shop</artifactId><modules><module>order</module></modules></project>");
+        w("order/pom.xml", "<project><artifactId>order-service</artifactId></project>");
+        let def = resolve(&d, "order-service [package]").expect("认得");
+        assert_eq!((def.command.as_str(), def.cwd.as_str()), ("mvn -B -ntp -pl order -am package", ""));
+        assert_eq!(resolve(&d, "shop [clean]").unwrap().command, "mvn -B -ntp clean", "根模块的目标对整个 reactor");
+        assert!(resolve(&d, "order-service [deploy]").is_none(), "白名单外");
+        assert!(resolve(&d, "nobody [package]").is_none(), "没有这个模块");
+        assert!(discover(&d).defs.is_empty(), "不进任务列表");
         let _ = std::fs::remove_dir_all(&d);
     }
 

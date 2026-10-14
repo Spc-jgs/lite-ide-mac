@@ -206,6 +206,45 @@ pub fn boot_apps(root: &Path, mods: &[Module]) -> (Vec<BootApp>, Vec<String>) {
     (apps, problems)
 }
 
+/// Maven 工具窗里能点的生命周期（IDEA 的 Lifecycle 那一组里天天用的）和依赖树。**白名单**：任务名「模块 [目标]」只认这几个，
+/// 前端拼不出任意命令
+pub const GOALS: &[&str] = &["clean", "compile", "test", "package", "verify", "install", "dependency:tree"];
+
+/// 跑一个模块的生命周期目标（在 reactor 根上跑）。根模块：整个 reactor。别的模块：`-pl 模块 -am`，连它依赖的兄弟模块一起 ——
+/// **不是** `-f 模块/pom.xml`：那样只构建这一个模块，兄弟模块要从本地仓库找，没 install 过就
+/// `Could not resolve dependencies … shop-common`（2026-10-14 在样例上实测；第一版就是这么写的，单元测试还把错的命令锁住了）。
+/// IDEA 的 Maven 工具窗能用 `-f`，是因为它的 runner 带「resolve workspace artifacts」—— 那是 IDEA 自己的扩展，普通的 mvn 没有。
+/// `clean` 例外只带 `-pl`：清这个模块，别把兄弟模块也清了。代价如实说：`test` 带 `-am` 会连兄弟模块的测试一起跑。
+/// 不在白名单里的目标给 None
+pub fn goal_command(module: &str, goal: &str) -> Option<String> {
+    if !GOALS.contains(&goal) {
+        return None;
+    }
+    Some(if module.is_empty() {
+        format!("mvn -B -ntp {goal}")
+    } else if goal == "clean" {
+        format!("mvn -B -ntp -pl {} clean", word(module))
+    } else {
+        format!("mvn -B -ntp -pl {} -am {goal}", word(module))
+    })
+}
+
+/// 项目里的 reactor 根：项目根有 pom.xml 就是它；没有就找一层子目录（前后端放一个仓库：`backend/pom.xml`）。相对项目根
+pub fn reactors(root: &Path) -> Vec<String> {
+    if root.join("pom.xml").is_file() {
+        return vec![String::new()];
+    }
+    let Ok(rd) = std::fs::read_dir(root) else { return Vec::new() };
+    let mut subs: Vec<String> = rd
+        .flatten()
+        .filter(|e| e.path().join("pom.xml").is_file())
+        .filter_map(|e| e.file_name().to_str().map(String::from))
+        .filter(|n| !n.starts_with('.'))
+        .collect();
+    subs.sort();
+    subs
+}
+
 /// 放进 shell 命令行的一个词（路径、类名）：普通的原样，带空格之类的套单引号
 fn word(s: &str) -> String {
     if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "_-./:@+=,%".contains(c)) {
@@ -311,6 +350,16 @@ mod tests {
     }
 
     /// 这一行在 docs/IDEA.md 第 8 节实测过：兄弟模块是 target/classes、application.yml 读得到。改它就要再测一遍
+    #[test]
+    fn 生命周期只认白名单_模块带兄弟一起_clean_只清自己() {
+        assert_eq!(goal_command("", "clean").as_deref(), Some("mvn -B -ntp clean"), "根模块：整个 reactor");
+        assert_eq!(goal_command("order", "package").as_deref(), Some("mvn -B -ntp -pl order -am package"), "-f 只构建这一个、兄弟要从本地仓库找（实测失败）");
+        assert_eq!(goal_command("order", "clean").as_deref(), Some("mvn -B -ntp -pl order clean"), "clean 不带 -am：别把兄弟模块也清了");
+        assert_eq!(goal_command("my svc", "install").as_deref(), Some("mvn -B -ntp -pl 'my svc' -am install"));
+        assert_eq!(goal_command("order", "deploy"), None, "白名单外的不给");
+        assert_eq!(goal_command("order", "clean; rm -rf /"), None, "拼进来的东西不给");
+    }
+
     #[test]
     fn 起的命令_多模块带_pl_am_单模块不带_怪路径套引号() {
         let multi = run_command(&BootApp { module: "services/order".into(), main_class: "o.OrderApplication".into() });

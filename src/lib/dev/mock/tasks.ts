@@ -27,6 +27,8 @@ const TEMPLATE = `// lite-ide 的任务（docs/USAGE.md「任务」）。⌃⌥R
 const LIFECYCLE = new Set(["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare", "prepublishOnly", "prepack", "postpack", "publish", "postpublish", "preversion", "version", "postversion", "dependencies"]);
 
 type Def = { name: string; command: string; cwd: string; source: "file" | "package" | "spring" };
+/** Maven 工具窗能点的目标（同 Rust 的 maven::GOALS） */
+const GOALS = ["clean", "compile", "test", "package", "verify", "install", "dependency:tree"];
 
 /** 和 Rust 的 settings::strip 同一件事的简化版：去掉 // 注释和末尾逗号（不管字符串里的 //，桩里的数据没有那种） */
 const jsonc = (t: string) => JSON.parse(t.replace(/\/\/[^\n]*/g, "").replace(/,(\s*[\]}])/g, "$1") || "[]");
@@ -137,10 +139,35 @@ function fakeOutput(name: string, command: string, fail: boolean): string {
 
 export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
+    /*
+     * Maven 工具窗（真实现：maven::modules 读 <modules>、taskdefs::spring_tasks）。桩：根模块 + 第一层带 pom.xml 的目录 + 认出入口的目录，
+     * 入口照上面 list() 里那套认。生命周期白名单同 maven::GOALS
+     */
+    case "maven_project": {
+      const root = String(a.root);
+      if (FILES[`${root}/pom.xml`] === undefined) return { reactors: [], goals: GOALS, problems: [] };
+      const artifact = (p: string) => /<artifactId>([^<]+)<\/artifactId>/.exec((FILES[p] ?? "").replace(/<parent>[\s\S]*?<\/parent>|<dependencies>[\s\S]*?<\/dependencies>/g, ""))?.[1] ?? "";
+      const springs = list(root).tasks.filter((t) => t.source === "spring");
+      const rels = new Set<string>();
+      for (const p of Object.keys(FILES)) {
+        const m = new RegExp(`^${root}/([^/]+)/pom\\.xml$`).exec(p);
+        if (m) rels.add(m[1]);
+      }
+      for (const t of springs) rels.add(/-pl (\S+)/.exec(t.command)?.[1] ?? "");
+      rels.delete("");
+      const appsOf = (rel: string) =>
+        springs.filter((t) => (/-pl (\S+)/.exec(t.command)?.[1] ?? "") === rel).map((t) => ({ task: t.name, mainClass: t.command.split(" ").pop() ?? "" }));
+      const modules = [{ rel: "", artifactId: artifact(`${root}/pom.xml`), apps: appsOf("") }, ...[...rels].sort().map((rel) => ({ rel, artifactId: artifact(`${root}/${rel}/pom.xml`) || rel, apps: appsOf(rel) }))];
+      return { reactors: [{ rel: "", modules }], goals: GOALS, problems: [] };
+    }
     case "task_run": {
       const root = String(a.root);
       const name = String(a.name);
-      const def = list(root).tasks.find((d) => d.name === name);
+      // Maven 工具窗的「artifactId [目标]」：不在列表里，按名字认（真实现在 taskdefs::maven_goal）
+      const goal = /^(.+) \[([^\]]+)\]$/.exec(name);
+      const def =
+        list(root).tasks.find((d) => d.name === name) ??
+        (goal && GOALS.includes(goal[2]) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "spring" as const } : undefined);
       if (!def) throw new Error(`没有叫「${name}」的任务了（tasks.json 改过？）`);
       // 同真实现：同名的还在跑先停掉
       for (const [id, r] of RUNS) if (r.root === root && r.name === name && r.status !== "gone") emitExit(id, { code: 130, stopped: true });

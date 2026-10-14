@@ -9440,3 +9440,24 @@ install 之后又是跑旧 jar。照 IDEA：编译 reactor（`-pl x -am`）、`d
 验证：maven.rs 5 条 + taskdefs 1 条，三种错版本（profile 里的模块也算、有注解没 main 也算、不带 -am）各自验过红；
 cargo test --workspace、pnpm test / check、clippy 全过；真 .app `scripts/accept/spring.sh` 8/8；petclinic 8 个服务全认出来。入口包没变。
 **还没做**：Maven 工具窗（模块树、生命周期、依赖树）—— 第 1 步的后一半。
+
+## 2026-10-14 · Maven 工具窗；抄 IDEA 的命令行之前先确认它离开 IDEA 还成立
+
+第 1 步后一半：导轨上的 Maven 工具窗（IDEA 新 UI 的 Maven 图标，从 intellij-community 的 Maven 插件里取，下下来先读过：一条 path、没脚本）。
+模块树、每个模块底下认出来的 Spring Boot 应用和七个生命周期目标，双击跑。**跑什么都是任务**：生命周期目标是「artifactId [目标]」这个名字，
+`task_run` 认得、任务列表不列（七个目标 × 每个模块会把 ⌃⌥R 淹掉）—— 运行窗、⌃R、⌘F2、同名先停旧的、输出进日志视图全是现成的，前端只多一个视图。
+目标是白名单（`maven::GOALS`），前端拼不出任意命令；去掉白名单验过红。
+
+**第一版的目标命令是错的，单元测试还把它锁住了**：照 IDEA 的 Maven 工具窗写成 `mvn -f 模块/pom.xml package`。写真机验收之前在样例上手动跑了一下 ——
+`Could not resolve dependencies … shop-common`：`-f` 只构建这一个模块，兄弟模块要从本地仓库找。IDEA 用得了 `-f` 是因为它的 runner 带「resolve workspace artifacts」，
+那是 IDEA 的扩展，普通 mvn 没有。改成 `-pl 模块 -am`（`clean` 只 `-pl`：别把兄弟也清了；代价是 `test` 会连兄弟模块的测试一起跑，USAGE 里说了）。
+**抄 IDEA 的界面行为可以照搬，抄它的命令行要先在 IDEA 外面跑一遍**：它的很多「理所当然」靠的是它自己往 Maven 里塞的东西。
+
+入口包 154,921 → 155,856 B（+935，CI 取整 152，告警是「大于 152」，离它 816 B）：导轨按钮的模板 380、App 的懒加载 + 会话恢复时自动拉 + snippet 约 400、
+Vite 预加载表两项。都是接线，记进 frontend.md；下一个往入口加东西的先把导轨按钮做成表驱动。
+
+smoke 第一轮 96/97：⑳ 焦点 —— ⑲ 那段测试应用从 Chrome 手里拿走前台 8.3 秒；重跑 97/97，但前台记录里又有一次（① 那段，从微信手里拿走 6.7 秒，采样没撞上）。
+两次的段落不一样、当时都在切应用，形状是 #54 那条「系统转交」，不是这次的改动（没碰窗口和焦点）。没修，如实记着。
+
+验证：maven 6 条 + taskdefs 2 条全绿（白名单、`-pl -am`、clean 只 `-pl`）；cargo test --workspace、pnpm test / check、clippy 全过；
+浏览器里桩：导轨 → Maven → 双击 package / 应用，运行窗出两格、应用那行「在跑」；真 .app `scripts/accept/spring.sh` 12/12。

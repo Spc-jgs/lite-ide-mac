@@ -748,6 +748,9 @@ pnpm app:bundle
 - **Spring Boot 应用自动列出来**（「Spring Boot」一组，名字是主类名，同 IDEA）：Maven 项目里带 `@SpringBootApplication` 的入口，一个服务一项。
   起的时候和 IDEA 一样：先编译它和它依赖的兄弟模块、再直接起 java —— 改了公共模块再起就是新的，不用 `mvn install`。
   不带 profile；要带的在 tasks.json 写一个同名任务（比如 `"command": "… --spring.profiles.active=dev"`），以文件为准
+- **Maven 工具窗**（导轨上的 Maven 图标，Maven 项目才有）：模块树；每个模块底下是认出来的 Spring Boot 应用和 clean / compile / test / package / verify / install / 依赖树，
+  **双击跑**（单击只是选中，免得 install 被顺手点起来），输出在运行工具窗。点哪个模块的目标就构建它和它依赖的兄弟模块（`-pl -am`），`clean` 只清它自己；
+  根模块上的目标对整个项目
 - Maven / Python 不自动猜（要不要带 profile、跑哪个入口，猜错比不猜糟），在 tasks.json 里写一行
 
 **跑的时候**：底部多一个「运行」工具窗（跑过才出现在左边导轨上，角标是还在跑的几个），一个任务一格，格子上的点：绿 = 在跑、琥珀 = 正在停、红 = 自己失败退出、灰 = 结束了 / 停了（我们停的不算失败）。

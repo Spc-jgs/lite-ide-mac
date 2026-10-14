@@ -16,6 +16,34 @@ export interface OpenResult {
   size: number;
 }
 
+/** Maven 工具窗（docs/IDEA.md 第 1 步）：项目里的 reactor 们 */
+export interface MavenProject {
+  reactors: MavenReactor[];
+  /** 能点的生命周期目标（白名单） */
+  goals: string[];
+  problems: string[];
+}
+
+export interface MavenReactor {
+  /** 相对项目根（项目根就是 reactor 根时是 ""） */
+  rel: string;
+  /** 根模块在第一个，按 pom 里的先后 */
+  modules: MavenModule[];
+}
+
+export interface MavenModule {
+  /** 相对 reactor 根 */
+  rel: string;
+  artifactId: string;
+  apps: MavenApp[];
+}
+
+export interface MavenApp {
+  /** 任务名（和任务列表里的一样：点运行和 ⌃⌥R 里选它是同一个任务） */
+  task: string;
+  mainClass: string;
+}
+
 /** 合并视图里的一份日志（`logengine::merge`，docs/MERGE.md） */
 export interface MergeSource {
   path: string;

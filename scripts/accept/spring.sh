@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 认出 Spring Boot 应用、照 IDEA 那样起（docs/IDEA.md 第 1 步）的真 .app 验收，走测试通道（scripts/lib/bridge.sh）。
+# 认出 Spring Boot 应用、照 IDEA 那样起、Maven 工具窗（docs/IDEA.md 第 1 步）的真 .app 验收，走测试通道（scripts/lib/bridge.sh）。
 # 用你机器上的真 mvn / java：任务的登录 shell 读你的 .zshrc（LITE_USER_SHELL=1，同 tasks-real.sh），不开终端、前后比对你的历史文件。
 #
 # 项目是脚本自己写的三模块样例（shop-common + order-service + user-service），不是下载来的代码。
@@ -138,6 +138,19 @@ if wait_for 120 "listening ${UP}"; then
 else
   ok 0 "120 秒没起来：$(logtext UserApplication | tail -5 | tr '\n' ' ')"
 fi
+
+echo "== Maven 工具窗：导轨上点 Maven，模块树对；双击 order-service 底下的 package → 运行窗里出一格、target 里出 jar"
+lite_eval main "document.querySelector('button[aria-label=\"Maven\"]')?.click(); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.maven .row.mod').length === 4" 15 >/dev/null
+MODS=$(lite_eval main "return [...document.querySelectorAll('.maven .row.mod .name')].map((n) => n.innerText).join(',')")
+ok "$([ "${MODS}" = "shopdemo,shop-common,order-service,user-service" ] && echo 1)" "模块树（根在前、按 pom 的先后）：${MODS}"
+lite_eval main "const m = [...document.querySelectorAll('.maven .row.mod')].find((r) => r.innerText.includes('order-service')); if (!m.getAttribute('aria-expanded') || m.getAttribute('aria-expanded') === 'false') m.click(); return true" >/dev/null
+sleep 0.5
+lite_eval main "const rows = [...document.querySelectorAll('.maven .row')]; const i = rows.findIndex((r) => r.classList.contains('mod') && r.innerText.includes('order-service')); const g = rows.slice(i + 1).find((r) => r.innerText.trim() === 'package'); g.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return true" >/dev/null
+ok "$(wait_for 120 "logtext 'order-service__package_' | grep -q 'BUILD SUCCESS'" && echo 1)" "运行窗那一格（order-service [package]）的输出里 BUILD SUCCESS：$(logtext 'order-service__package_' | grep -E 'BUILD|ERROR' | head -2 | tr '\n' ' ')"
+ok "$(ls "${P}"/order-service/target/order-service-*.jar >/dev/null 2>&1 && echo 1)" "target 里出了 jar：$(ls "${P}"/order-service/target/*.jar 2>/dev/null | xargs -n1 basename 2>/dev/null)"
+TAB=$(lite_eval main "return [...document.querySelectorAll('.ptab')].map((t) => t.innerText.trim()).join(',')")
+ok "$(echo "${TAB}" | grep -q 'order-service \[package\]' && echo 1)" "运行窗的标签（IDEA 的样子）：${TAB}"
 
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then

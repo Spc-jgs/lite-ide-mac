@@ -24,6 +24,10 @@ const TS: &str = include_str!("../../src/lib/ipc/commands.ts");
 /// 这正是我们要的那道提醒。
 const PAIRS: &[(&str, &str)] = &[
     ("OpenResult", "OpenResult"),
+    ("MavenProjectDto", "MavenProject"),
+    ("MavenReactorDto", "MavenReactor"),
+    ("MavenModuleDto", "MavenModule"),
+    ("MavenAppDto", "MavenApp"),
     ("MergeSourceDto", "MergeSource"),
     ("MergeInfoDto", "MergeInfo"),
     ("MergeRowsDto", "MergeRows"),

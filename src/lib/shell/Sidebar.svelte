@@ -20,6 +20,7 @@
     fileTree,
     gitPane,
     scratchList,
+    mavenView,
   }: {
     repo: string | null;
     /** Git 面板那个懒加载 chunk 到了没 */
@@ -27,6 +28,8 @@
     fileTree: Snippet;
     gitPane: Snippet;
     scratchList: Snippet;
+    /** Maven 工具窗（docs/IDEA.md 第 1 步） */
+    mavenView: Snippet;
   } = $props();
 
   /** 侧边栏横向拖拽。上限留出编辑区的活路，不让它被挤没 */
@@ -60,6 +63,8 @@
       {@render gitPane()}
     {:else if layout.sideView === "git" && repo}
       <div class="no-root"><span class="spinner sm"></span> 正在载入 Git 面板…</div>
+    {:else if layout.sideView === "maven"}
+      {@render mavenView()}
     {:else}
       {@render fileTree()}
     {/if}

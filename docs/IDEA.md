@@ -111,7 +111,14 @@ IntelliJ 的引擎不对外，用不了。
 
 > **第 1 步前一半做完了**（同日）：认出 Spring Boot 应用、在任务列表（⌃⌥R）的「Spring Boot」一组里一键起（`src-tauri/src/maven.rs`）。
 > 真 .app `scripts/accept/spring.sh` 8/8：改公共模块再起不用 install 就生效、web 服务 ⌘F2 停完端口空、整组一个不剩、本地仓库里没多东西；
-> petclinic 的 8 个服务按 pom 里的模块顺序全列出来。**后一半（Maven 工具窗：模块树、clean / package / install、依赖树）还没做。**
+> petclinic 的 8 个服务按 pom 里的模块顺序全列出来。
+> **后一半也做完了**（同日）：Maven 工具窗（导轨上的 Maven 图标，只有 Maven 项目才有）—— 模块树、每个模块底下认出来的 Spring Boot 应用和
+> clean / compile / test / package / verify / install / 依赖树，**双击跑**，输出进运行工具窗（标签是 IDEA 的样子 `order-service [package]`）。
+> spring.sh 加到 12/12：双击 package 出了 jar。
+>
+> **生命周期目标第一版写错了**：照 IDEA 用 `-f 模块/pom.xml`，实测 `Could not resolve dependencies … shop-common` —— 只构建这一个模块、兄弟模块要从本地仓库找。
+> IDEA 用得了 `-f`，是它的 runner 带「resolve workspace artifacts」（IDEA 自己的扩展，普通 mvn 没有）。改成 `-pl 模块 -am`（`clean` 只带 `-pl`）。
+> 单元测试当时把错的命令锁住了还是绿的 —— 抄 IDEA 的界面行为可以，抄它的命令行要先确认那条命令离开 IDEA 还成立。
 
 用户说「先别碰我的项目」，验证用两份：GitHub 上 Spring 官方的 spring-petclinic-microservices（8 个服务模块，浅克隆 4.5MB；
 AGENTS.md 规定下载来的代码不跑构建，这次是用户点头的例外 —— 跑之前读过全部 pom：会执行东西的 exec / libsass / unpack 都在不自动启用的 profile 里，
