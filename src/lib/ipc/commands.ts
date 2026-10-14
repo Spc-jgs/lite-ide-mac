@@ -16,6 +16,31 @@ export interface OpenResult {
   size: number;
 }
 
+/** 合并视图里的一份日志（`logengine::merge`，docs/MERGE.md） */
+export interface MergeSource {
+  path: string;
+  name: string;
+  /** 时间戳带不带日期：`full` / `noYear` / `timeOnly` / `none`。不带的借了别人的日期，图例上要说出来 */
+  clock: "full" | "noYear" | "timeOnly" | "none";
+  /** 手动的时钟偏移（毫秒） */
+  offsetMs: number;
+}
+
+/** 打开（或改了偏移之后）的合并视图 */
+export interface MergeInfo {
+  handle: number;
+  sources: MergeSource[];
+  /** 缺日期的那几份借的是哪一天（`2026-08-24`）；没有一份带年月日时为 null */
+  fillDate: string | null;
+  size: number;
+}
+
+/** 一段合并后的行各自来自哪份、是那份的第几行（0-based） */
+export interface MergeRows {
+  src: number[];
+  line: number[];
+}
+
 /** 顺序同 Rust 侧 Level：error / warn / info / debug / trace / other */
 export type LevelCounts = [number, number, number, number, number, number];
 

@@ -362,6 +362,7 @@
         onSeekDone={() => nav.seekDone()}
         onSeek={(l) => nav.goto(l)}
         onTop={(l) => docs.markPos(tab.path, l)}
+        tabId={id}
       />
     {/key}
   {:else if tab.mode === "log"}

@@ -215,6 +215,34 @@ impl FilterTask {
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
+
+    /// 一个空任务，结果由调用方自己算好再 [`FilterTask::publish`]。合并视图（`merge.rs`）用：
+    /// 它的命中是几份文件各自过滤之后再映射成合并后的行号，不是一次 [`spawn`] 能给的
+    pub(crate) fn fresh() -> Arc<Self> {
+        Arc::new(FilterTask {
+            hits: Arc::new(Mutex::new(Arc::new(Vec::new()))),
+            complete: Arc::new(AtomicBool::new(false)),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            scanned: Arc::new(AtomicU64::new(0)),
+            hit_count: Arc::new(AtomicU64::new(0)),
+        })
+    }
+
+    /// 交出最终结果。被取消的任务不交 —— 半份命中比没有更糟，同 [`spawn`]
+    pub(crate) fn publish(&self, hits: Vec<u64>) {
+        if self.is_cancelled() {
+            return;
+        }
+        self.hit_count.store(hits.len() as u64, Ordering::Relaxed);
+        *self.hits.lock().expect("hits 锁被毒化") = Arc::new(hits);
+        self.complete.store(true, Ordering::Release);
+    }
+
+    /// 合并视图里「这一份文件整份都算命中」时，进度和计数直接加上它的行数
+    pub(crate) fn add_progress(&self, lines: u64, hits: u64) {
+        self.scanned.fetch_add(lines, Ordering::Relaxed);
+        self.hit_count.fetch_add(hits, Ordering::Relaxed);
+    }
 }
 
 /// 在后台跑一次过滤。
@@ -239,7 +267,7 @@ pub fn spawn(
     std::thread::Builder::new()
         .name("logengine-filter".into())
         .spawn(move || {
-            let hits = run(&data, &index, &levels, &spec, &t);
+            let hits = run(&data, &index, &levels, &spec, &t, (0, 0));
             if !t.is_cancelled() {
                 *t.hits.lock().expect("hits 锁被毒化") = Arc::new(hits);
                 t.complete.store(true, Ordering::Release);
@@ -249,12 +277,16 @@ pub fn spawn(
 }
 
 /// 同步执行过滤，返回命中行号。
-fn run(
+///
+/// `base` 是（已扫行数，已命中条数）的起点：进度和计数按 `base + 本文件的` 报。单文件是 (0, 0)；
+/// 合并视图（`merge.rs`）一份接一份地跑，同一个任务上的进度要接着前几份往上涨，不能每份从零来
+pub(crate) fn run(
     data: &[u8],
     index: &LineIndex,
     levels: &LevelMap,
     spec: &FilterSpec,
     task: &FilterTask,
+    base: (u64, u64),
 ) -> Vec<u64> {
     let total = index.line_count();
     let mut matcher = if spec.text.is_empty() { None } else { Some(LineMatcher::new(spec)) };
@@ -292,7 +324,7 @@ fn run(
             };
             if ok {
                 hits.push(line);
-                task.hit_count.store(hits.len() as u64, Ordering::Relaxed);
+                task.hit_count.store(base.1 + hits.len() as u64, Ordering::Relaxed);
             }
         }
 
@@ -304,10 +336,10 @@ fn run(
             if task.is_cancelled() {
                 return Vec::new();
             }
-            task.scanned.store(line, Ordering::Relaxed);
+            task.scanned.store(base.0 + line, Ordering::Relaxed);
         }
     }
-    task.scanned.store(line, Ordering::Relaxed);
+    task.scanned.store(base.0 + line, Ordering::Relaxed);
     hits.shrink_to_fit();
     hits
 }
@@ -343,7 +375,7 @@ mod tests {
             scanned: Arc::new(AtomicU64::new(0)),
             hit_count: Arc::new(AtomicU64::new(0)),
         };
-        run(body, &ix, &lv, &spec, &task)
+        run(body, &ix, &lv, &spec, &task, (0, 0))
     }
 
     const BODY: &[u8] = b"2026-01-01 INFO  [main] a.B - started\n\

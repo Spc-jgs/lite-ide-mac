@@ -135,6 +135,13 @@ impl LevelStats {
     pub fn as_array(&self) -> [u64; Level::COUNT] {
         self.counts
     }
+
+    /// 把另一份的计数加进来（合并视图的级别计数 = 几份文件的和）
+    pub fn absorb(&mut self, other: &LevelStats) {
+        for (a, b) in self.counts.iter_mut().zip(other.counts.iter()) {
+            *a += b;
+        }
+    }
 }
 
 /// 级别过滤掩码：每个 bit 对应一个级别是否显示。

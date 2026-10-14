@@ -1,4 +1,4 @@
-import type { Stamp } from "../ipc/commands";
+import type { MergeInfo, Stamp } from "../ipc/commands";
 
 /**
  * 日志视图上「这次看着调的」那几样：级别、关键字、tail、折叠堆栈、只看命中。
@@ -15,6 +15,8 @@ export interface LogViewState {
   tailing: boolean;
   collapseStacks: boolean;
   onlyHits: boolean;
+  /** 合并视图：只看哪几份（第 i 位 = 第 i 份）；单文件没有 */
+  srcMask?: number;
 }
 
 /** 分屏的两组（issue #35，docs/SPLIT.md）：0 左、1 右。用字面量不用 number —— 不做三组，类型上把门关死 */
@@ -127,6 +129,11 @@ export interface TabState {
   wrap?: boolean;
   /** 日志视图的过滤 / tail 状态，切标签不丢；由 `LogPane` 每次变化时回写 */
   logView?: LogViewState;
+  /**
+   * 几份日志按时间合成的标签（docs/MERGE.md）：每份的名字、时间戳精度、偏移。有它的标签 `path` 是
+   * `merge:` 开头的一串（`merge-path.ts`），**不是盘上的文件** —— 定位、在 Finder 中显示、切编辑模式都不适用
+   */
+  merge?: MergeInfo;
   /**
    * 标签栏上显示的名字，没有就显示 `name`。草稿用它显示第一行（`2026-09-16 1103.md`
    * 在标签栏上什么都说明不了，「周会要点」才是人记得住的）—— Sublime 的 untitled

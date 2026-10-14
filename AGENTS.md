@@ -19,6 +19,7 @@ python3 design/icon/make_icon.py # 重新生成应用图标（Assets.car + icon.
 scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点
 scripts/accept/tasks.sh        # 任务运行的机制（36 条）；quit.sh 是 Dock 右键退出那条路（6 条）
 scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪样哪段记「未验」）
+scripts/accept/merge.sh        # 几份日志按时间合并（15 条）：顺序、堆栈不拆散、过滤、偏移、跨块、会话恢复
 scripts/smoke.sh               # 发版前的端到端清单（97 条，约 100 秒），同样走测试通道，先打测试 .app
 ```
 
@@ -108,6 +109,7 @@ macOS 的 sed 不认 `\|`（`sed '/a\|b/d'` 什么都没删，跑的还是原代
 | 设置、偏好、`settings.json` | [docs/SETTINGS.md](docs/SETTINGS.md) —— 你写的文件应用只读不改，按钮改的另存一份；加设置项先改 `settings.rs` 的 `DEFS`，别的都从它来 |
 | 任务运行（⌃R / ⌃⌥R / ⌘F2） | [docs/TASKS.md](docs/TASKS.md) —— 登录 shell、管道不用 pty、整组先软后硬地停、端口卡片、崩溃后收尸 |
 | 跨文件替换 | [docs/REPLACE.md](docs/REPLACE.md) —— 两段提交、撤销日志、命中太多不许执行 |
+| 几份日志按时间合并 | [docs/MERGE.md](docs/MERGE.md) —— k 路归并、一行一字节的合并索引、没时间戳的行跟着上一行走、借日期要说出来 |
 | 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位；第 7 节是优先级 |
 | 踩过的坑的全过程 | [docs/JOURNAL.md](docs/JOURNAL.md) |
 | 想照别的项目的做法改 | [docs/research/codex.md](docs/research/codex.md) —— 读 Codex 的五个主题：对照结论、学了什么、为什么不学 |

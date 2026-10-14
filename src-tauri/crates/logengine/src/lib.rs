@@ -12,6 +12,7 @@ pub mod block;
 pub mod filter;
 pub mod index;
 pub mod level;
+pub mod merge;
 pub mod probe;
 pub mod query;
 pub mod seek;
@@ -307,6 +308,26 @@ impl LogFile {
 
     pub fn size(&self) -> u64 {
         self.size.load(Ordering::Acquire)
+    }
+
+    /// 当前映射（合并视图按自己的游标直接在上面走，不经过行索引）
+    pub fn mapped(&self) -> Arc<Mmap> {
+        self.map()
+    }
+
+    /// 后台索引跑完了没有（合并视图的过滤要等每一份都跑完）
+    pub fn is_indexed(&self) -> bool {
+        self.complete.load(Ordering::Acquire)
+    }
+
+    /// 级别扫描跑完了没有
+    pub fn is_leveled(&self) -> bool {
+        self.levels_done.load(Ordering::Acquire)
+    }
+
+    /// 当前行索引的快照（合并视图的过滤要用）
+    pub fn index_snapshot(&self) -> Arc<LineIndex> {
+        self.snapshot()
     }
 
     /// 取一份当前映射。锁只在克隆 Arc 期间持有；tail 换映射时不影响已取走的引用。

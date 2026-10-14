@@ -1,16 +1,19 @@
 <script lang="ts">
   import LogView from "./LogView.svelte";
   import FilterBar from "./FilterBar.svelte";
+  import MergeBar from "./MergeBar.svelte";
+  import { allSources, shortNames } from "./merge-path";
   import { decodeBlock } from "./block";
   import { detectFormat, FORMAT_LABEL, type LogFormat } from "./parse";
   import { type LogStat, type LevelCounts } from "../ipc/commands";
   import type { LogViewState } from "../state/tab";
   import { progress, type TaskHandle } from "../state/progress.svelte";
-  import { logStat, logLines, logFilter, logFilterStat, logRefresh, logFilterMap, logSeekTime } from "../ipc/log";
+  import { logStat, logLines, logFilter, logFilterStat, logRefresh, logFilterMap, logSeekTime, mergeSetOffsets } from "../ipc/log";
   import { notify } from "../state/notify.svelte";
   import { files } from "../state/files.svelte";
   import { nav } from "../state/nav.svelte";
   import { stackFrame, frameResolver } from "./stack-frame";
+  import { tabs } from "../state/tabs.svelte";
 
   let {
     handle,
@@ -25,6 +28,7 @@
     onGotoDone,
     onStatus,
     onTop,
+    tabId,
   }: {
     handle: number;
     gotoLine?: { line: number; nonce: number } | null;
@@ -51,7 +55,18 @@
      * 就完全对不上了，拿它当位置恢复出来会落在一个毫不相干的地方。
      */
     onTop?: (line: number) => void;
+    /**
+     * 所在标签的 id。路径（「合并…」拿它和选来的几份一起合）和合并视图的图例（docs/MERGE.md）都按它从标签上取 ——
+     * 不由 Content 一样样传下来：那几行接线在入口包里，这里是懒加载的（2026-10-14，入口包离告警线只剩 200 来字节）。
+     * 没有（任务输出）就没有「合并…」
+     */
+    tabId?: number;
   } = $props();
+
+  const tab = $derived(tabId === undefined ? null : tabs.byId(tabId));
+  const path = $derived(tab?.path ?? "");
+  /** 几份日志合成的视图：图例、只看哪几份、偏移。挂载时定了就不会变（同一个标签不会从单文件变成合并） */
+  const merge = $derived(tab?.merge ?? null);
 
   const ALL_LEVELS = 0b111111;
 
@@ -75,6 +90,13 @@
    * 就只剩命中行，想看上下文只能把关键字删掉，然后自己找回刚才那个位置。
    */
   let onlyHits = $state(init?.onlyHits ?? true);
+  // svelte-ignore state_referenced_locally
+  const nSrc = (tabId === undefined ? null : tabs.byId(tabId))?.merge?.sources.length ?? 0;
+  /** 合并视图：只看哪几份。单文件恒为 0、不传给 Rust */
+  let srcMask = $state(init?.srcMask ?? allSources(nSrc));
+  const names = $derived(merge ? shortNames(merge.sources.map((s) => s.path)) : []);
+  const colors = $derived(merge ? merge.sources.map((_, i) => `var(--src-${i % 8})`) : []);
+  const viewSources = $derived(merge ? names.map((name, i) => ({ name, color: colors[i] })) : null);
   let filtered = $state(false);
   let filterHits = $state<number | null>(null);
   let filterRunning = $state(false);
@@ -88,7 +110,7 @@
   let epoch = $state(0);
 
   $effect(() => {
-    onFilter?.({ levelBits, pattern, caseSensitive, tailing, collapseStacks, onlyHits });
+    onFilter?.({ levelBits, pattern, caseSensitive, tailing, collapseStacks, onlyHits, ...(merge ? { srcMask } : {}) });
   });
   /** 当前停在第几条命中，1-based；0 表示还没跳过 */
   let hitIndex = $state(0);
@@ -233,7 +255,7 @@
       idxTask = null;
       return;
     }
-    const label = phase === "index" ? "索引日志" : "扫描级别";
+    const label = phase === "index" ? (merge ? "合并日志" : "索引日志") : "扫描级别";
     const percent = phase === "index" ? pct(s!.indexedBytes, s!.totalBytes) : pct(s!.levelsScanned, s!.totalBytes);
     if (idxTask) idxTask.set({ label, percent });
     else idxTask = progress.start(label, { percent });
@@ -269,6 +291,7 @@
     const pat = pattern;
     const cs = caseSensitive;
     const fold = collapseStacks;
+    const mask = merge ? srcMask : undefined;
     const h = handle;
     epoch;
     let tick: ReturnType<typeof setInterval> | null = null;
@@ -287,7 +310,7 @@
 
     const timer = setTimeout(async () => {
       try {
-        const active = await logFilter(h, bits, pat, cs, fold, encoding);
+        const active = await logFilter(h, bits, pat, cs, fold, encoding, mask);
         if (dead) return;
         filtered = active;
         if (!active) {
@@ -352,7 +375,8 @@
    */
   $effect(() => {
     const h = handle;
-    if (!tailing) return;
+    // 合并视图不跟 tail（v1，docs/MERGE.md「没做的」）：按钮也不给
+    if (!tailing || merge) return;
     // 上一次还没回来就跳过这一拍：log_refresh 在 Rust 的阻塞池上跑（2026-10-10 从主线程挪过去），日志在网络卷上时一次能慢过 500ms，
     // 不跳的话同一个句柄上两次刷新 / 两次轮转重开并排跑。原来在主线程上，天然一个接一个
     let refreshing = false;
@@ -392,6 +416,7 @@
       return;
     }
     const parts = [`${fmtNum(stat.lineCount)} 行`, FORMAT_LABEL[format]];
+    if (merge) parts.unshift(`${merge.sources.length} 份合并`);
     if (showFiltered) parts.push(`筛出 ${fmtNum(viewLines)}`);
     if (collapseStacks) parts.push("堆栈已折叠");
     if (rotations > 0) parts.push(`轮转过 ${rotations} 次，已跟上新文件`);
@@ -416,9 +441,36 @@
     // 走 jumpTo 而不是直接开：它先把「日志的这一行」压进导航栈，⌥⌘← 能回来接着看
     void nav.jumpTo({ from: f.from, to: f.to, text: text.slice(f.from, f.to), target: { rel, line: f.line, why: "堆栈" } });
   }
+
+  /** 改偏移：整份重新归并，行号全变 —— epoch 一加，行缓存、格式、进度、过滤全按原条件重来 */
+  async function setOffsets(offsets: number[]) {
+    const info = await mergeSetOffsets(handle, offsets);
+    // 按 id 重新取：await 回来手上那个引用可能已经不是响应式的那一份了（frontend.md 第一条）
+    const t = tabId === undefined ? null : tabs.byId(tabId);
+    if (t) t.merge = info;
+    epoch += 1;
+  }
+
+  /** 「合并…」（单文件）/「加一份…」（合并视图）：选别处的文件，按时间合进来 */
+  async function mergeMore() {
+    const ops = await import("../state/merge-ops");
+    if (merge) await ops.pickAndMerge(merge.sources.map((s) => s.path), tabId);
+    else if (path) await ops.pickAndMerge([path]);
+  }
 </script>
 
-<div class="pane">
+<div class="pane" class:merged={!!merge}>
+  {#if merge}
+    <MergeBar
+      info={merge}
+      {names}
+      {colors}
+      bind:mask={srcMask}
+      merging={!!stat && !stat.complete}
+      onOffsets={setOffsets}
+      onAdd={() => void mergeMore()}
+    />
+  {/if}
   <FilterBar
     {counts}
     levelsReady={stat?.levelsComplete ?? false}
@@ -432,6 +484,8 @@
     {hitIndex}
     bind:onlyHits
     onJump={(d) => void jumpHit(d)}
+    canTail={!merge}
+    onMerge={!merge && path ? () => void mergeMore() : undefined}
   />
   <div class="body">
     <LogView
@@ -458,6 +512,7 @@
       }}
       {frameAt}
       onFrame={openFrame}
+      sources={viewSources}
     />
   </div>
 </div>
@@ -472,5 +527,7 @@
     overflow: hidden;
     container-type: inline-size;
   }
+  /* 合并视图多一条图例在过滤条上面 */
+  .pane.merged { grid-template-rows: auto auto 1fr; }
   .body { overflow: hidden; }
 </style>

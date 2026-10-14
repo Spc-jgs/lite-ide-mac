@@ -22,6 +22,7 @@
     onGotoDone,
     frameAt,
     onFrame,
+    sources = null,
   }: {
     handle: number;
     lineCount: number;
@@ -62,6 +63,11 @@
     frameAt?: (text: string) => { from: number; to: number } | null;
     /** 点了那段链接。给的是整行原文，由上层再解析一次去开文件 */
     onFrame?: (text: string) => void;
+    /**
+     * 合并视图（docs/MERGE.md）：每份的短名和颜色。有它时每行行首多一格「来自哪份」，
+     * 行号栏显示的是那一份里的行号（对着原文件找得到），不是合并后的第几行
+     */
+    sources?: { name: string; color: string }[] | null;
   } = $props();
 
   /** 过滤框那串字切好的样子（语法见 `query.ts`）；每行画高亮时不重切 */
@@ -75,8 +81,10 @@
   // 缓存是 (handle, 是否过滤, 编码, 轮转代) 的派生物：任一变化都要重建
   let cache = $derived.by(() => {
     epoch;
-    return new LineCache(handle, filtered, encoding);
+    return new LineCache(handle, filtered, encoding, !!sources);
   });
+  /** 来源那一格多宽：按最长的短名，最多 14 个字宽（再长的省略，图例上有全名） */
+  const tagWidth = $derived(sources ? `${Math.min(14, Math.max(...sources.map((s) => s.name.length)))}ch` : "");
 
   /**
    * 撑开滚动区的高度，**必须**从 `lineCount` 派生，不能在模板里直接读 `map.scrollHeight`：
@@ -243,6 +251,11 @@
           class:current={currentLine > 0 && n === currentLine - 1}
           data-lvl={seg?.lvl}
         >
+          {#if sources}
+            {@const s = row?.src !== undefined ? sources[row.src] : undefined}
+            <!-- 来源：一道色条 + 短名。界面的字（不可选中）：复制一段合并后的日志时不该带上它 -->
+            <span class="src" style:width={tagWidth} style:--c={s?.color ?? "transparent"} title={s?.name}>{s?.name ?? ""}</span>
+          {/if}
           <span class="gutter" style:width={gutterWidth}>{row ? row.phys + 1 : ""}</span>
           {#if seg}
             <span class="cells">
@@ -304,6 +317,21 @@
     box-shadow: inset 2px 0 0 var(--accent);
   }
   .row.current .gutter { color: var(--accent); }
+
+  /* 合并视图的来源格：左边 2px 的色条，名字用同一个颜色、压暗一档 —— 一眼扫下去看得出「这一段是哪个服务的」，又不抢正文 */
+  .src {
+    flex: none;
+    box-sizing: content-box;
+    padding: 0 6px 0 7px;
+    box-shadow: inset 2px 0 0 var(--c);
+    color: var(--c);
+    opacity: 0.85;
+    font-family: var(--ui-font);
+    font-size: var(--fs-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+  }
 
   .gutter {
     flex: none;

@@ -213,6 +213,18 @@ pub async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
     picked.map(|p| p.to_string())
 }
 
+/// 原生的「选择文件」面板，可以多选；取消是空列表。合并日志时加别处的文件用（从服务器拉下来的日志多半在「下载」里，不在项目里）。
+/// 同 `pick_folder`：在命令线程上阻塞等，面板由插件调度到主线程
+#[tauri::command]
+pub async fn pick_files(app: tauri::AppHandle, title: String, dir: Option<String>) -> Vec<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut d = app.dialog().file().set_title(&title);
+    if let Some(dir) = dir {
+        d = d.set_directory(dir);
+    }
+    d.blocking_pick_files().unwrap_or_default().into_iter().map(|p| p.to_string()).collect()
+}
+
 /// 「另存为…」的原生保存面板。返回选中的完整路径；取消是 None。
 ///
 /// 覆盖确认由面板自己做（macOS 会问「x 已存在，要替换吗」），这里不再问第二遍。

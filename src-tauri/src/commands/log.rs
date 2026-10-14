@@ -24,8 +24,10 @@ pub async fn open_log(path: String, window: tauri::Window, app: tauri::AppHandle
 /// 索引与级别扫描的进度快照。两者是并行的后台任务，各自独立完成。
 #[tauri::command]
 pub fn log_stat(handle: u32, state: State<'_, AppState>) -> Result<StatDto, String> {
-    let file = state.get(handle).ok_or("句柄已失效")?;
-    let s = file.stat();
+    let s = match state.merged(handle) {
+        Some(m) => m.stat(),
+        None => state.get(handle).ok_or("句柄已失效")?.stat(),
+    };
     Ok(StatDto {
         line_count: s.line_count,
         indexed_bytes: s.indexed_bytes,
@@ -41,6 +43,9 @@ pub fn log_stat(handle: u32, state: State<'_, AppState>) -> Result<StatDto, Stri
 /// 读取一段行，返回二进制块而非 JSON —— 这是 60fps 的前提（ARCHITECTURE.md §3.4）。
 #[tauri::command]
 pub fn log_lines(handle: u32, start: u64, count: u32, state: State<'_, AppState>) -> Response {
+    if let Some(m) = state.merged(handle) {
+        return Response::new(m.read_block(start, count));
+    }
     match state.get(handle) {
         Some(file) => Response::new(file.read_block(start, count)),
         // 句柄失效时返回空块：滚动路径上不该因为一次竞态就抛异常
@@ -50,6 +55,7 @@ pub fn log_lines(handle: u32, start: u64, count: u32, state: State<'_, AppState>
 
 /// 启动过滤。传空 pattern + 全级别掩码等于清除过滤。
 ///
+/// `sources` 只对合并视图有意义：只看哪几份（第 i 位 = 第 i 份），不传就是全看。
 /// `pattern` 是过滤框里那一串原文，语法在 `logengine::query`（空格 AND、`-` 排除、`/re/`
 /// 正则，和前端 `logview/query.ts` 同一套）。这里切开之后：
 ///
@@ -68,9 +74,11 @@ pub fn log_filter(
     case_sensitive: bool,
     collapse_stacks: bool,
     label: Option<String>,
+    sources: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    let file = state.get(handle).ok_or("句柄已失效")?;
+    let merged = state.merged(handle);
+    let file = if merged.is_some() { None } else { Some(state.get(handle).ok_or("句柄已失效")?) };
     let label = label.unwrap_or_else(|| "UTF-8".into());
     let q = logengine::query::parse(&pattern);
     let utf8 = label.eq_ignore_ascii_case("utf-8") || label.eq_ignore_ascii_case("utf8");
@@ -93,13 +101,26 @@ pub fn log_filter(
         case_sensitive,
         collapse_stacks,
     };
-    if spec.is_noop() {
-        state.clear_filter(handle);
-        return Ok(false);
+    let task = match (&merged, &file) {
+        (Some(m), _) => {
+            let all = (1u32 << m.sources().len()) - 1;
+            let mask = sources.unwrap_or(u32::MAX) & all;
+            if spec.is_noop() && mask == all {
+                state.clear_filter(handle);
+                return Ok(false);
+            }
+            m.start_filter(spec, mask)
+        }
+        (None, Some(f)) => {
+            if spec.is_noop() {
+                state.clear_filter(handle);
+                return Ok(false);
+            }
+            f.start_filter(spec)
+        }
+        (None, None) => unreachable!("上面已经按句柄查过"),
     }
-    let task = file
-        .start_filter(spec)
-        .map_err(|e| format!("过滤启动失败：{e}"))?;
+    .map_err(|e| format!("过滤启动失败：{e}"))?;
     state.set_filter(handle, task);
     Ok(true)
 }
@@ -109,6 +130,9 @@ pub fn log_filter(
 /// 都可能在 mmap 上缺页 —— 碰盘的一律走阻塞池（rust.md）。
 #[tauri::command]
 pub async fn log_seek_time(handle: u32, query: String, near: u64, state: State<'_, AppState>) -> Result<Option<u64>, String> {
+    if let Some(m) = state.merged(handle) {
+        return blocking(move || Ok(m.seek_time(&query, near))).await;
+    }
     let file = state.get(handle).ok_or("句柄已失效")?;
     blocking(move || Ok(file.seek_time(&query, near))).await
 }
@@ -132,7 +156,7 @@ pub fn log_lines_filtered(
     state: State<'_, AppState>,
 ) -> Response {
     let empty = || Response::new(logengine::block::encode(start, &[]));
-    let (Some(file), Some(task)) = (state.get(handle), state.filter(handle)) else {
+    let Some(task) = state.filter(handle) else {
         return empty();
     };
     let hits = task.hits();
@@ -141,7 +165,13 @@ pub fn log_lines_filtered(
     if from >= to {
         return empty();
     }
-    Response::new(file.read_block_at(&hits[from..to]))
+    if let Some(m) = state.merged(handle) {
+        return Response::new(m.read_block_at(&hits[from..to]));
+    }
+    match state.get(handle) {
+        Some(file) => Response::new(file.read_block_at(&hits[from..to])),
+        None => empty(),
+    }
 }
 
 /// 视图行号 → 物理行号，供过滤态下显示真实行号。
@@ -170,6 +200,10 @@ pub async fn log_refresh(handle: u32, app: tauri::AppHandle) -> Result<RefreshDt
 }
 
 fn refresh_now(handle: u32, state: &AppState) -> Result<RefreshDto, String> {
+    // 合并视图不跟 tail（v1：从服务器拉下来的日志是静的；跟的话每份长了都要接着归并，见 docs/MERGE.md「没做的」）
+    if let Some(m) = state.merged(handle) {
+        return Ok(RefreshDto { kind: "none", new_lines: 0, line_count: m.stat().line_count });
+    }
     let file = state.get(handle).ok_or("句柄已失效")?;
     let r = file.refresh().map_err(|e| format!("刷新失败：{e}"))?;
     let (kind, new_lines) = match r {
@@ -195,4 +229,69 @@ fn refresh_now(handle: u32, state: &AppState) -> Result<RefreshDto, String> {
 #[tauri::command]
 pub fn close_log(handle: u32, state: State<'_, AppState>) -> bool {
     state.close(handle)
+}
+
+/// 合并视图的图例：每份的名字、时间戳精度、偏移
+fn merge_info(handle: u32, m: &logengine::merge::MergedLog) -> MergeInfoDto {
+    let sources: Vec<MergeSourceDto> = m
+        .sources()
+        .into_iter()
+        .map(|s| MergeSourceDto {
+            name: s.path.file_name().map_or_else(|| s.path.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned()),
+            path: s.path.to_string_lossy().into_owned(),
+            clock: s.clock.as_str(),
+            offset_ms: s.offset_ms,
+        })
+        .collect();
+    MergeInfoDto {
+        handle,
+        sources,
+        fill_date: m.fill_date().map(|(y, mo, d)| format!("{y:04}-{mo:02}-{d:02}")),
+        size: m.stat().total_bytes,
+    }
+}
+
+/// 几份日志按时间合成一条（`logengine::merge`，docs/MERGE.md）。每份都是 open + mmap —— 碰盘，走阻塞池（同 `open_log`）
+#[tauri::command]
+pub async fn open_merged(paths: Vec<String>, window: tauri::Window, app: tauri::AppHandle) -> Result<MergeInfoDto, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        crate::diag!("open_merged {} 份", paths.len());
+        let m = logengine::merge::MergedLog::open(&paths).map_err(|e| format!("合并不了：{e}"))?;
+        let st = app.state::<AppState>();
+        let handle = st.insert_merged(&owner, m);
+        let m = st.merged(handle).ok_or("句柄已失效")?;
+        Ok(merge_info(handle, &m))
+    })
+    .await
+}
+
+/// 一段行各自来自哪份、是那份的第几行。`filtered` 时 `[start, start + count)` 是第几条命中（同 `log_lines_filtered`）
+#[tauri::command]
+pub fn merge_rows(handle: u32, start: u64, count: u32, filtered: bool, state: State<'_, AppState>) -> MergeRowsDto {
+    let empty = || MergeRowsDto { src: Vec::new(), line: Vec::new() };
+    let Some(m) = state.merged(handle) else { return empty() };
+    let (src, line) = if filtered {
+        let Some(task) = state.filter(handle) else { return empty() };
+        let hits = task.hits();
+        let from = (start as usize).min(hits.len());
+        let to = (from + count as usize).min(hits.len());
+        m.rows_meta_at(&hits[from..to])
+    } else {
+        m.rows_meta(start, count)
+    };
+    MergeRowsDto { src, line }
+}
+
+/// 改时钟偏移（毫秒，每份一个），整份重新归并。行号全变了：过滤清掉，前端丢缓存、按原条件重跑
+#[tauri::command]
+pub async fn merge_set_offsets(handle: u32, offsets: Vec<i64>, app: tauri::AppHandle) -> Result<MergeInfoDto, String> {
+    blocking(move || {
+        let st = app.state::<AppState>();
+        let m = st.merged(handle).ok_or("句柄已失效")?;
+        st.clear_filter(handle);
+        m.set_offsets(offsets).map_err(|e| format!("改不了偏移：{e}"))?;
+        Ok(merge_info(handle, &m))
+    })
+    .await
 }

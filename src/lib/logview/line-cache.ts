@@ -1,5 +1,5 @@
 import { decodeBlock } from "./block";
-import { logLines, logLinesFiltered, logFilterMap } from "../ipc/log";
+import { logLines, logLinesFiltered, logFilterMap, mergeRows } from "../ipc/log";
 import { BLOCK_LINES, overBudget } from "./cache-budget";
 
 export { BLOCK_LINES };
@@ -10,6 +10,8 @@ export interface Row {
   phys: number;
   /** 这一行超过 64KB 被截过：还有多少字节没显示（`block.ts`） */
   more?: number;
+  /** 合并视图：来自第几份（`phys` 这时是那一份里的行号） */
+  src?: number;
 }
 
 interface Block {
@@ -20,6 +22,8 @@ interface Block {
   chars: number;
   /** 截过的行还有多少字节没显示；整块都没截过是 null */
   more: number[] | null;
+  /** 合并视图：每行来自第几份；单文件是 null */
+  src: number[] | null;
 }
 
 /**
@@ -36,15 +40,18 @@ export class LineCache {
   private filtered: boolean;
   /** 这个文件的编码标签，交给 TextDecoder 用 */
   private encoding: string;
+  /** 句柄背后是几份日志合成的（`logengine::merge`）：多取一份「每行来自哪份、是那份第几行」 */
+  private merged: boolean;
   private blocks = new Map<number, Block>();
   private inflight = new Set<number>();
   /** 缓存里所有块的文本字符数之和，增删块时同步维护 */
   private chars = 0;
 
-  constructor(handle: number, filtered: boolean, encoding = "utf-8") {
+  constructor(handle: number, filtered: boolean, encoding = "utf-8", merged = false) {
     this.handle = handle;
     this.filtered = filtered;
     this.encoding = encoding;
+    this.merged = merged;
   }
 
   /** 同步取一行；未命中返回 undefined，由调用方渲染占位并等待 onLoad */
@@ -59,7 +66,8 @@ export class LineCache {
     const text = block.texts[i];
     if (text === undefined) return undefined;
     const more = block.more?.[i];
-    return { text, phys: block.phys ? block.phys[i] : line, ...(more ? { more } : {}) };
+    const src = block.src?.[i];
+    return { text, phys: block.phys ? block.phys[i] : line, ...(more ? { more } : {}), ...(src !== undefined ? { src } : {}) };
   }
 
   /** 确保 [from, to] 所在的块都在路上 */
@@ -87,10 +95,19 @@ export class LineCache {
 
   private async load(id: number): Promise<Block> {
     const start = id * BLOCK_LINES;
+    if (this.merged) {
+      // 合并视图：行号栏显示的是「那一份里的第几行」（对着原文件找得到），过滤与否都从 merge_rows 来 —— 内容和来源并行取
+      const [buf, meta] = await Promise.all([
+        this.filtered ? logLinesFiltered(this.handle, start, BLOCK_LINES) : logLines(this.handle, start, BLOCK_LINES),
+        mergeRows(this.handle, start, BLOCK_LINES, this.filtered),
+      ]);
+      const { lines: texts, more } = decodeBlock(buf, this.encoding);
+      return { texts, phys: meta.line, chars: countChars(texts), more, src: meta.src };
+    }
     if (!this.filtered) {
       const buf = await logLines(this.handle, start, BLOCK_LINES);
       const { lines: texts, more } = decodeBlock(buf, this.encoding);
-      return { texts, phys: null, chars: countChars(texts), more };
+      return { texts, phys: null, chars: countChars(texts), more, src: null };
     }
     // 内容与行号映射并行取，省一个来回
     const [buf, phys] = await Promise.all([
@@ -98,7 +115,7 @@ export class LineCache {
       logFilterMap(this.handle, start, BLOCK_LINES),
     ]);
     const { lines: texts, more } = decodeBlock(buf, this.encoding);
-    return { texts, phys, chars: countChars(texts), more };
+    return { texts, phys, chars: countChars(texts), more, src: null };
   }
 
   /** 行数增长（索引还在跑 / tail 追加）时，末块可能不完整，丢掉让它重取 */

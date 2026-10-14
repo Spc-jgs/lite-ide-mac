@@ -65,6 +65,44 @@ export const FILES: Record<string, string> = {
   "/proj/target/debug/build.log": "NEEDLE 生成物里的噪声\n",
 
   /*
+   * 合并视图（docs/MERGE.md）的演示：同一次下单在三个服务里的日志。网关是 Java 风格、订单服务带 Spring 横幅和 Java 堆栈、
+   * 库存服务是 Python、**只有时分秒** —— 合并时要借日期（图例上说出来）。在文件树里多选这三份 → 右键「按时间合并查看」
+   */
+  "/proj/logs/gateway.log": [
+    "2026-08-24 10:15:02.101 INFO  [reactor-http-nio-3] c.d.gw.AccessLog - → POST /api/orders traceId=7f3a9c userId=1024",
+    "2026-08-24 10:15:02.388 WARN  [reactor-http-nio-3] c.d.gw.Upstream - order-service 慢响应 287ms traceId=7f3a9c",
+    "2026-08-24 10:15:02.902 ERROR [reactor-http-nio-3] c.d.gw.AccessLog - ← 500 POST /api/orders 801ms traceId=7f3a9c",
+    "2026-08-24 10:15:03.010 INFO  [reactor-http-nio-5] c.d.gw.AccessLog - → GET /api/orders/88231 traceId=b21e04",
+    "2026-08-24 10:15:03.044 INFO  [reactor-http-nio-5] c.d.gw.AccessLog - ← 200 GET /api/orders/88231 34ms traceId=b21e04",
+    "",
+  ].join("\n"),
+  "/proj/logs/order-service.log": [
+    "  .   ____          _            __ _ _",
+    " :: Spring Boot ::                (v3.3.2)",
+    "2026-08-24 10:14:58.000 INFO  [main] c.d.order.Application - Started OrderApplication in 3.2 seconds",
+    "2026-08-24 10:15:02.130 INFO  [http-nio-8080-exec-2] c.d.order.OrderController - 下单 userId=1024 sku=A-77 qty=2 traceId=7f3a9c",
+    "2026-08-24 10:15:02.155 DEBUG [http-nio-8080-exec-2] c.d.order.OrderService - 预占库存 → inventory sku=A-77 traceId=7f3a9c",
+    "2026-08-24 10:15:02.884 ERROR [http-nio-8080-exec-2] c.d.order.OrderService - 下单失败 orderId=88232 traceId=7f3a9c",
+    "com.demo.order.InventoryException: 预占库存失败: 库存行被锁 sku=A-77",
+    "\tat com.demo.order.InventoryClient.reserve(InventoryClient.java:58)",
+    "\tat com.demo.order.OrderService.place(OrderService.java:142)",
+    "\tat com.demo.order.OrderController.create(OrderController.java:37)",
+    "2026-08-24 10:15:03.020 INFO  [http-nio-8080-exec-4] c.d.order.OrderController - 查询 orderId=88231 traceId=b21e04",
+    "",
+  ].join("\n"),
+  "/proj/logs/inventory.log": [
+    "10:15:02.170 INFO  inventory.api: reserve sku=A-77 qty=2 trace=7f3a9c",
+    "10:15:02.671 WARN  inventory.db: 行锁等待 sku=A-77 waited=500ms trace=7f3a9c",
+    "10:15:02.860 ERROR inventory.db: lock wait timeout sku=A-77 trace=7f3a9c",
+    "Traceback (most recent call last):",
+    '  File "/srv/inventory/db.py", line 88, in reserve',
+    "    cur.execute(SQL_RESERVE, (sku, qty))",
+    'psycopg2.errors.LockNotAvailable: could not obtain lock on row in relation "stock"',
+    "10:15:03.500 INFO  inventory.api: healthz ok",
+    "",
+  ].join("\n"),
+
+  /*
    * 应用自己的运行日志。四种来源各给一条 —— 「打开应用日志」要验的正是
    * 「这几类事情落下来长什么样、级别过滤认不认得出」。
    */
@@ -409,7 +447,12 @@ export const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj/moduleB/src/main/java/com": [["demo", true]],
   "/proj/moduleB/src/main/java/com/demo": [["core", true]],
   "/proj/moduleB/src/main/java/com/demo/core": [["OrderClient.java", false]],
-  "/proj/logs": [["access-2026-08-24.log", false]],
+  "/proj/logs": [
+    ["access-2026-08-24.log", false],
+    ["gateway.log", false],
+    ["inventory.log", false],
+    ["order-service.log", false],
+  ],
   "/proj/docs": [["ARCHITECTURE.md", false]],
 };
 

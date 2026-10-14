@@ -50,6 +50,7 @@ const ALLOW: &[(&str, &str)] = &[
     ("log_lines", "内存：mmap 上取行"),
     ("log_lines_filtered", "内存：mmap 上取行"),
     ("log_stat", "内存：索引进度"),
+    ("merge_rows", "内存：合并结果上走一段，同 log_lines"),
     // ── pty.rs ──
     ("pty_ack", "内存：背压计数"),
     ("pty_cwd", "例外：proc_pidinfo 问前台进程的 cwd（系统调用，不碰盘）"),

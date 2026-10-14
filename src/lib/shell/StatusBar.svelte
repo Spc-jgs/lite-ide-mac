@@ -211,7 +211,7 @@
 
       藏起来不等于做不了 —— 菜单里的「切换编辑 / 日志模式」对任何文件都还在。
     -->
-    {#if active.mode === "log" || isLogName(active.path)}
+    {#if (active.mode === "log" || isLogName(active.path)) && !active.merge}
       <button
         class="cell cbtn mode"
         onclick={onSwitchMode}

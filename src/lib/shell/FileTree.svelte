@@ -714,8 +714,17 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     // 多选：只有批量能做的几项。新建 / 重命名说不清「对哪一个」，不给
     if (menu?.multi) {
       const many = selectedRows;
+      // 选的全是文件、2–32 份：给「按时间合并」。不看扩展名 —— `.out`、`catalina.2026-08-24`、没后缀的都可能是日志，
+      // 认不出时间戳的那份 Rust 会说（整份排最前），比在这儿猜「像不像日志」诚实
+      const files = many.filter((r) => !r.isDir);
+      // 直接按需拉 merge-ops，不经 App 转一道回调：那一道要进入口包，这里本来就是懒加载的（2026-10-14 入口包只剩 200 来字节）
+      const merge: MenuItem[] =
+        files.length === many.length && many.length <= 32
+          ? [{ label: `按时间合并查看（${many.length} 份）`, run: () => void import("../state/merge-ops").then((m) => m.openMerged(many.map((r) => r.path))) }]
+          : [];
       return [
-        { label: `移到废纸篓（${many.length} 个）`, danger: true, run: () => openTrashAsk(many) },
+        ...merge,
+        { label: `移到废纸篓（${many.length} 个）`, danger: true, sep: merge.length > 0, run: () => openTrashAsk(many) },
         {
           label: `复制路径（${many.length} 个）`,
           sep: true,

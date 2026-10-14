@@ -99,6 +99,9 @@ class TabFlow {
    * 而被预览地打开一次不改变它的状态。
    */
   async openPath(path: string, opts: { quiet?: boolean; preview?: boolean } = {}) {
+    // 合并标签（docs/MERGE.md）的「路径」是 `merge:` 开头的一串，不是盘上的文件 —— 会话恢复走到这儿。
+    // 字面量不 import：merge-path 不进入口包；也不在这儿直接 `import("./merge-ops")`：每一处动态 import 都在入口里留一张依赖表（实测这一句 157 B）
+    if (path.startsWith("merge:")) return (await ops()).openMergedPath(path, opts);
     const quiet = opts.quiet ?? false;
     if (this.#opening.has(path)) return;
     this.#opening.add(path);

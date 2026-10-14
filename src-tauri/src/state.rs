@@ -18,6 +18,7 @@
 //! `(owner, id)` 记。
 
 use crate::owned::Owned;
+use logengine::merge::MergedLog;
 use logengine::{FilterTask, LogFile};
 use ptysvc::Session;
 use std::collections::{HashMap, HashSet};
@@ -28,6 +29,9 @@ use std::sync::{Arc, Mutex};
 pub struct AppState {
     /// 句柄 → 日志文件（记在打开它的窗口名下）。按窗口登记的几张表都是 [`Owned`]：`release_window` 一张不落地收
     files: Owned<u32, Arc<LogFile>>,
+    /// 句柄 → 几份日志按时间合成的一条时间线（`logengine::merge`）。和 `files` 共用一个句柄计数器：
+    /// 日志的那几条命令按句柄先查这张、再查那张，前端的日志视图分不出、也不用分
+    merges: Owned<u32, Arc<MergedLog>>,
     /// 每个文件当前生效的过滤任务。换条件时旧任务会被取消并替换。
     filters: Mutex<HashMap<u32, Arc<FilterTask>>>,
     /// 活着的终端会话。Session::drop 会 kill 掉 shell，
@@ -140,6 +144,17 @@ impl AppState {
         self.files.get(&handle, Arc::clone)
     }
 
+    /// 登记一个合并视图，句柄和日志文件出自同一个计数器（两张表里不会撞号）
+    pub fn insert_merged(&self, owner: &str, m: MergedLog) -> u32 {
+        let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
+        self.merges.insert(owner, handle, Arc::new(m));
+        handle
+    }
+
+    pub fn merged(&self, handle: u32) -> Option<Arc<MergedLog>> {
+        self.merges.get(&handle, Arc::clone)
+    }
+
     /// 文件被轮转 / 截断了，**同一个句柄**换成按名重开的那份（`tail -F` 的语义）。
     ///
     /// 句柄不变是关键：前端标签上只记句柄，换句柄就得重开标签、过滤和 tail 全丢。
@@ -164,7 +179,9 @@ impl AppState {
     pub fn close(&self, handle: u32) -> bool {
         self.clear_filter(handle);
         // 摘出来的那份在这一句之后、锁外析构（原来是临时值，析构在锁里）
-        self.files.remove(&handle).is_some()
+        let file = self.files.remove(&handle);
+        let merged = self.merges.remove(&handle);
+        file.is_some() || merged.is_some()
     }
 
     /// 装上新的过滤任务，并取消上一个 —— 用户改关键字时旧扫描必须立刻停，
@@ -470,6 +487,10 @@ impl AppState {
             self.clear_filter(h);
             drop(file);
         }
+        for (h, m) in self.merges.take_owner(owner) {
+            self.clear_filter(h);
+            drop(m);
+        }
 
         drop(self.watch.take_owner(owner));
         drop(self.scans.take_owner(owner));
@@ -641,6 +662,8 @@ mod tests {
         std::fs::write(&log, "a\nb\n").unwrap();
         let la = st.insert("a", LogFile::open(&log).unwrap());
         let lb = st.insert("b", LogFile::open(&log).unwrap());
+        let ma = st.insert_merged("a", MergedLog::open(&[&log, &log]).unwrap());
+        let mb = st.insert_merged("b", MergedLog::open(&[&log, &log]).unwrap());
 
         st.set_watch("a", Some(fsservice::watch::watch(d.join("wa"), |_| {}).unwrap()));
         st.set_watch("b", Some(fsservice::watch::watch(d.join("wb"), |_| {}).unwrap()));
@@ -678,6 +701,8 @@ mod tests {
 
         assert!(st.get(la).is_none(), "a 的日志句柄该关掉");
         assert!(st.get(lb).is_some(), "b 的日志句柄不能跟着关");
+        assert!(st.merged(ma).is_none(), "a 的合并视图该关掉");
+        assert!(st.merged(mb).is_some(), "b 的合并视图不能跟着关");
 
         assert!(!st.watched("a"), "a 的监听该停");
         assert!(st.watched("b"), "b 的监听不能被顶掉");

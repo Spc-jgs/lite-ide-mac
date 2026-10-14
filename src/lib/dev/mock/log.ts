@@ -48,6 +48,100 @@ function runFilter(s: LogSrc, levelBits: number, pattern: string, caseSensitive:
   return hits;
 }
 
+/*
+ * 合并视图（真实现在 logengine::merge）。桩照同一套语义真合一遍：认行首的 `YYYY-MM-DD HH:MM:SS(.mmm)` 和裸的 `HH:MM:SS(.mmm)`，
+ * 没时间戳的行沿用上一条（堆栈不被拆散），开头的横幅用这份第一条的时间，同一毫秒按第几份定先后，只有时分秒的借第一份带日期的那天。
+ * 每份只取前 5 万行（同过滤那条），够验交互
+ */
+interface Merged {
+  paths: string[];
+  offsets: number[];
+  srcs: LogSrc[];
+  clocks: ("full" | "timeOnly" | "none")[];
+  fillDay: number | null;
+  src: number[];
+  line: number[];
+}
+const MERGES: Record<number, Merged> = {};
+const DAY = 86_400_000;
+
+function tsOfLine(line: string, fillDay: number | null): { ms: number; full: boolean } | null {
+  let m = /^\[?(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:[.,](\d{1,3}))?/.exec(line);
+  if (m) return { ms: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +(m[7] ?? "0").padEnd(3, "0")), full: true };
+  m = /^(\d{2}):(\d{2}):(\d{2})(?:[.,](\d{1,3}))?/.exec(line);
+  if (m) return { ms: (fillDay ?? 0) + ((+m[1] * 60 + +m[2]) * 60 + +m[3]) * 1000 + +(m[4] ?? "0").padEnd(3, "0"), full: false };
+  return null;
+}
+
+function buildMerge(paths: string[], offsets: number[]): Merged {
+  const srcs = paths.map(srcOf);
+  const n = srcs.map((s) => Math.min(s.total, 50_000));
+  const firsts = srcs.map((s, i) => {
+    for (let l = 0; l < Math.min(n[i], 2000); l++) {
+      const t = tsOfLine(s.at(l), 0);
+      if (t) return t;
+    }
+    return null;
+  });
+  const full = firsts.filter((t) => t?.full).map((t) => t!.ms);
+  const fillDay = full.length ? Math.floor(Math.min(...full) / DAY) * DAY : null;
+  const clocks = firsts.map((t) => (!t ? "none" : t.full ? "full" : "timeOnly") as Merged["clocks"][number]);
+  // 每份每行的键：有时间戳用它（加偏移），没有就沿用上一条；开头的用第一条
+  const keys = srcs.map((s, i) => {
+    const out: number[] = [];
+    let c = -Infinity;
+    for (let l = 0; l < Math.min(n[i], 2000); l++) {
+      const t = tsOfLine(s.at(l), fillDay);
+      if (t) {
+        c = t.ms;
+        break;
+      }
+    }
+    for (let l = 0; l < n[i]; l++) {
+      const t = tsOfLine(s.at(l), fillDay);
+      if (t) c = t.ms;
+      out.push(c + offsets[i]);
+    }
+    return out;
+  });
+  const ptr = n.map(() => 0);
+  const src: number[] = [];
+  const line: number[] = [];
+  for (;;) {
+    let best = -1;
+    for (let i = 0; i < n.length; i++) {
+      if (ptr[i] >= n[i]) continue;
+      if (best < 0 || keys[i][ptr[i]] < keys[best][ptr[best]]) best = i;
+    }
+    if (best < 0) break;
+    src.push(best);
+    line.push(ptr[best]++);
+  }
+  return { paths, offsets, srcs, clocks, fillDay, src, line };
+}
+
+function mergedSrc(m: Merged): LogSrc {
+  const levels = [0, 0, 0, 0, 0, 0];
+  for (const s of m.srcs) s.levels.forEach((v, i) => (levels[i] += v));
+  return {
+    at: (r) => m.srcs[m.src[r]]?.at(m.line[r]) ?? "",
+    total: m.src.length,
+    levelAt: (r) => m.srcs[m.src[r]]?.levelAt(m.line[r]) ?? 5,
+    levels,
+    bytes: m.srcs.reduce((a, s) => a + s.bytes, 0),
+  };
+}
+
+function mergeInfo(h: number, m: Merged) {
+  const fill = m.fillDay === null ? null : new Date(m.fillDay).toISOString().slice(0, 10);
+  return {
+    handle: h,
+    sources: m.paths.map((p, i) => ({ path: p, name: nameOf(p), clock: m.clocks[i], offsetMs: m.offsets[i] })),
+    fillDate: fill,
+    size: m.srcs.reduce((a, s) => a + s.bytes, 0),
+  };
+}
+
 export async function logCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
     case "open_log": {
@@ -95,12 +189,17 @@ export async function logCmd(cmd: string, a: A): Promise<unknown> {
     case "log_filter": {
       const bits = Number(a.levelBits);
       const pat = String(a.pattern ?? "");
+      // 合并视图：只看哪几份（真实现在 MergedLog::start_filter）。全看 = 没有这一条
+      const m = MERGES[Number(a.handle)];
+      const all = m ? (1 << m.paths.length) - 1 : 0;
+      const mask = m && a.sources != null ? Number(a.sources) & all : all;
       // 真实现按 `is_noop` 判：全级别 + 切完没有条件 = 清除过滤（`"  "`、`//` 都算空）
-      if (bits === 0b111111 && isEmptyQuery(parseQuery(pat))) {
+      if (bits === 0b111111 && isEmptyQuery(parseQuery(pat)) && mask === all) {
         filterHits = null;
         return false;
       }
       filterHits = runFilter(src(a.handle), bits, pat, Boolean(a.caseSensitive));
+      if (m && mask !== all) filterHits = filterHits.filter((r) => (mask & (1 << m.src[r])) !== 0);
       filterStatCalls = 0;
       return true;
     }
@@ -149,6 +248,8 @@ export async function logCmd(cmd: string, a: A): Promise<unknown> {
         ? filterHits.slice(Number(a.start), Number(a.start) + Number(a.count))
         : [];
     case "log_refresh": {
+      // 合并视图不跟 tail（真实现同）
+      if (MERGES[Number(a.handle)]) return { kind: "none", newLines: 0, lineCount: src(a.handle).total };
       const p = LOG_PATHS[Number(a.handle)];
       if (p === undefined) throw new Error("句柄已失效");
       // 真实现在这里会 metadata(&self.path) 失败 —— 文件改了名，
@@ -170,7 +271,38 @@ export async function logCmd(cmd: string, a: A): Promise<unknown> {
       }
       return { kind: "none", newLines: 0, lineCount: TOTAL };
     }
+    case "open_merged": {
+      const paths = (a.paths as string[]).map(String);
+      if (paths.length < 2) throw new Error(`合并不了：合并要 2 到 32 份日志，给了 ${paths.length} 份`);
+      const h = nextLogHandle++;
+      const m = buildMerge(paths, paths.map(() => 0));
+      MERGES[h] = m;
+      LOG_SRC[h] = mergedSrc(m);
+      return mergeInfo(h, m);
+    }
+    case "merge_rows": {
+      const m = MERGES[Number(a.handle)];
+      if (!m) return { src: [], line: [] };
+      const start = Number(a.start);
+      const rows = a.filtered
+        ? (filterHits ?? []).slice(start, start + Number(a.count))
+        : Array.from({ length: Math.max(0, Math.min(Number(a.count), m.src.length - start)) }, (_, i) => start + i);
+      return { src: rows.map((r) => m.src[r]), line: rows.map((r) => m.line[r]) };
+    }
+    case "merge_set_offsets": {
+      const h = Number(a.handle);
+      const old = MERGES[h];
+      if (!old) throw new Error("句柄已失效");
+      const m = buildMerge(old.paths, (a.offsets as number[]).map(Number));
+      MERGES[h] = m;
+      LOG_SRC[h] = mergedSrc(m);
+      // 真实现：重新归并 + 清掉过滤；log_stat 从「合并中」重新走一遍
+      filterHits = null;
+      logStatCalls.delete(String(h));
+      return mergeInfo(h, m);
+    }
     case "close_log":
+      delete MERGES[Number(a.handle)];
       delete LOG_PATHS[Number(a.handle)];
       filterHits = null;
       return true;

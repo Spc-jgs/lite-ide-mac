@@ -129,7 +129,17 @@ export async function trashScratch(path: string) {
   }
 }
 
+/** 会话恢复时遇到合并标签（`merge:` 开头的路径）：转给 `merge-ops.ts`。经这里转一道是为了入口包，见 `tabflow.openPath` 那句 */
+export async function openMergedPath(path: string, opts: { quiet?: boolean } = {}) {
+  return (await import("./merge-ops")).openMergedPath(path, opts);
+}
+
 export function requestSwitchMode(tab: TabState) {
+  // 合并标签背后是几份文件，没有「一份文本」可编辑
+  if (tab.merge) {
+    notify.hint("合并视图只有日志模式。要改哪一份，单独打开它", 2600);
+    return;
+  }
   if (tab.dirty) {
     notify.fail("有未保存的改动，请先保存（⌘S）再切换模式", 2600);
     return;

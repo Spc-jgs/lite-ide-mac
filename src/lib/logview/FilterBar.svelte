@@ -26,6 +26,8 @@
     hitIndex = 0,
     onlyHits = $bindable(true),
     onJump,
+    canTail = true,
+    onMerge,
   }: {
     counts: LevelCounts;
     levelsReady: boolean;
@@ -46,6 +48,10 @@
      */
     onlyHits?: boolean;
     onJump?: (dir: 1 | -1) => void;
+    /** 合并视图不跟 tail（docs/MERGE.md），不给这个按钮 */
+    canTail?: boolean;
+    /** 有它就给「合并…」：选几份别的日志，和这一份按时间合在一起看 */
+    onMerge?: () => void;
   } = $props();
 
   const ALL = 0b111111;
@@ -150,9 +156,15 @@
     折叠堆栈
   </button>
 
-  <button class="tail" class:on={tailing} onclick={() => (tailing = !tailing)}>
-    <i class="live"></i> 跟随尾部
-  </button>
+  {#if onMerge}
+    <button class="fold merge" onclick={onMerge} title="再选几份日志，和这一份按时间交织成一条时间线（网关、服务、数据库的日志对着看）">合并…</button>
+  {/if}
+
+  {#if canTail}
+    <button class="tail" class:on={tailing} onclick={() => (tailing = !tailing)}>
+      <i class="live"></i> 跟随尾部
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -254,6 +266,13 @@
   /* 极窄时先牺牲级别计数 —— 它是参考信息，而按钮是操作入口 */
   @container (max-width: 640px) {
     .chip .num { display: none; }
+  }
+  /*
+   * 「合并…」是这条栏上最不常按的：窄了先让它走，别把「跟随尾部」挤到第二行（2026-10-14 在 800 宽的窗口里撞上的）。
+   * 合并还有文件树多选那条入口，不会因此做不了
+   */
+  @container (max-width: 760px) {
+    .merge { display: none; }
   }
 
   /*

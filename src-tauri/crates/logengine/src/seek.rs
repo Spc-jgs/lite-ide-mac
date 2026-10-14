@@ -26,7 +26,7 @@
 use crate::index::LineIndex;
 
 /// 打包成一个可比较的整数：((((y*13+mo)*32+d)*24+h)*60+m)*60+s)*1000+ms
-fn pack(y: u32, mo: u32, d: u32, h: u32, m: u32, s: u32, ms: u32) -> u64 {
+pub(crate) fn pack(y: u32, mo: u32, d: u32, h: u32, m: u32, s: u32, ms: u32) -> u64 {
     (((((y as u64 * 13 + mo as u64) * 32 + d as u64) * 24 + h as u64) * 60 + m as u64) * 60 + s as u64) * 1000 + ms as u64
 }
 

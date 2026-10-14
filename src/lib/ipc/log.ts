@@ -1,6 +1,6 @@
 /** 日志引擎的命令包装（issue #32 瘦身）：`openLog` / `closeLog` 在 `commands.ts`（打开文件那条路要），其余只有 LogView 用 */
 import { invoke } from "@tauri-apps/api/core";
-import type { LogStat, FilterStat, RefreshResult } from "./commands";
+import type { LogStat, FilterStat, RefreshResult, MergeInfo, MergeRows } from "./commands";
 
 export const logStat = (handle: number) => invoke<LogStat>("log_stat", { handle });
 
@@ -21,6 +21,8 @@ export const logFilter = (
   caseSensitive: boolean,
   collapseStacks: boolean,
   label = "UTF-8",
+  /** 合并视图：只看哪几份（第 i 位 = 第 i 份）；单文件不传 */
+  sources?: number,
 ) =>
   invoke<boolean>("log_filter", {
     handle,
@@ -29,6 +31,7 @@ export const logFilter = (
     caseSensitive,
     collapseStacks,
     label,
+    sources,
   });
 
 export const logFilterStat = (handle: number) =>
@@ -46,3 +49,17 @@ export const logRefresh = (handle: number) => invoke<RefreshResult>("log_refresh
 /** 跳到时间：第一条时间 ≥ `query`（`14:32` / `14:32:05` / `2026-08-24 14:32`）的行号；认不出时间戳就 null */
 export const logSeekTime = (handle: number, query: string, near: number) =>
   invoke<number | null>("log_seek_time", { handle, query, near });
+
+/** 几份日志按时间合成一条（docs/MERGE.md）。句柄和 `openLog` 的同一种，上面这些命令都认 */
+export const openMerged = (paths: string[]) => invoke<MergeInfo>("open_merged", { paths });
+
+/** 一段行各自来自哪份、是那份的第几行。`filtered` 时 start / count 数的是第几条命中 */
+export const mergeRows = (handle: number, start: number, count: number, filtered: boolean) =>
+  invoke<MergeRows>("merge_rows", { handle, start, count, filtered });
+
+/** 改时钟偏移（毫秒，每份一个），整份重新归并 —— 行号全变，调用方要丢缓存、重跑过滤 */
+export const mergeSetOffsets = (handle: number, offsets: number[]) =>
+  invoke<MergeInfo>("merge_set_offsets", { handle, offsets });
+
+/** 原生的「选择文件」面板，可多选；取消是空数组 */
+export const pickFiles = (title: string, dir?: string | null) => invoke<string[]>("pick_files", { title, dir: dir ?? null });

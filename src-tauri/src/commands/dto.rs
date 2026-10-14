@@ -13,6 +13,38 @@ pub struct OpenResult {
     pub size: u64,
 }
 
+/// 合并视图里的一份日志（图例上画一格）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeSourceDto {
+    pub path: String,
+    pub name: String,
+    /// `full` / `noYear` / `timeOnly` / `none`：这份的时间戳带不带日期 —— 不带的借了别人的，界面要说出来
+    pub clock: &'static str,
+    /// 手动的时钟偏移（毫秒）
+    pub offset_ms: i64,
+}
+
+/// 打开（或改了偏移之后）的合并视图
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeInfoDto {
+    pub handle: u32,
+    pub sources: Vec<MergeSourceDto>,
+    /// 缺日期的那几份借的是哪一天（`2026-08-24`）；没有一份带年月日时为空
+    pub fill_date: Option<String>,
+    /// 几份加起来的字节数
+    pub size: u64,
+}
+
+/// 一段合并后的行各自来自哪份、是那份的第几行（0-based）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeRowsDto {
+    pub src: Vec<u8>,
+    pub line: Vec<u64>,
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatDto {
