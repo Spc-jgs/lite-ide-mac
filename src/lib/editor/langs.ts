@@ -341,6 +341,8 @@ const LABELS: Record<string, string> = {
 
 /** 认出文件用什么语言。认不出来就纯文本，不猜。 */
 export function langOf(filename: string): LangId {
+  // jar 里的类（`jdt://…`，jdtls 给的源码或反编译）：地址的尾巴是 jdtls 自己的参数，按扩展名认不出
+  if (filename.startsWith("jdt:")) return "java";
   const base = filename.slice(filename.lastIndexOf("/") + 1);
   const lower = base.toLowerCase();
 

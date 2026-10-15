@@ -378,6 +378,7 @@
         gotoLine={focused ? nav.gotoLine : null}
         onGotoDone={() => nav.done()}
         placeholder={project.isScratch(tab.path) ? scratchHint : null}
+        readOnly={tab.mode === "class"}
         {outlineTick}
         {headText}
         {showMinimap}

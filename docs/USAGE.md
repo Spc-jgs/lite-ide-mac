@@ -770,7 +770,29 @@ pnpm app:bundle
   Python 自己的报错不带端口号，那种认不出来，不会去猜
 - **lite-ide 崩了 / 被强杀**：它起的任务还在自己的进程组里跑。下次打开那个项目，顶上出一张卡片列出它们：「结束它们」或者「留着」
 
-## 十四、卸载
+## 十四、Java 智能（跳转、实时报错、查找用法）
+
+Maven / Gradle 项目里打开 `.java`，后台起一个 Java 语言服务器（jdtls，VS Code 的 Java 支持用的同一个），**编辑器不等它**：
+文件照常秒开，Lezer 那套跳转照常能用；它起好之后（第一次几秒到几十秒，状态栏中间那格说「Java：导入中 · 32% …」）换上下面这些。
+
+- **实时报错**：写错的地方红波浪线（警告黄），鼠标停上去看原因。改完不到一秒更新。Lombok 生成的 getter / setter 不报假错
+- **⌘B / ⌘点击**跳到声明：项目里的类、兄弟模块的源码、**jar 里的类**（有源码 jar 打开 `X.java`，没有就是反编译的 `X.class`，只读标签、标签上写「只读」）。
+  ⌘ 按着划过一个词，有下划线才是「点了一定跳得过去」
+- **⌥F7 查找用法**：光标底下的类 / 方法 / 字段被哪些地方用了，挂在光标底下一张列表，↑↓ 选、↵ 跳。（IDEA 的 ⌥F7 开的是一个工具窗，这里先是列表；⌥⌘F7 同）
+
+**要两样东西**（缺哪样，打开 Java 文件时编辑区底下会说一次缺什么）：
+
+- **JDK 21 或更新的**：jdtls 自己要 21 才能跑（你的项目可以是 8–25，用哪个 JDK 编译还是项目自己说了算）。`brew install --cask temurin@21`，装在 `/Library/Java/JavaVirtualMachines`；IDEA 下载到 `~/Library/Java/JavaVirtualMachines` 的也认
+- **jdtls**：解开的发行包（[download.eclipse.org/jdtls/milestones](https://download.eclipse.org/jdtls/milestones/)，约 50MB），放在应用数据目录的 `jdtls/` 下，或者在 `settings.json` 里写 `"java.jdtlsHome": "<它的目录>"`。应用里一键下载还没做
+
+**它不会做的**：
+
+- **不往你的项目里写东西**：jdtls 默认会在每个模块里写 `.project` / `.classpath` / `.settings`（Eclipse 的文件），这里关掉了，全放在应用数据目录里。`target/classes` 它照样写（和 mvn、IDEA 是同一个目录）
+- **不帮你下载源码 jar**：本地仓库里已经有的 `-sources.jar` 会用上，没有的看反编译的
+- **不常驻**：这个项目一个 Java 标签都没开着 10 分钟就收掉（再开 1 秒左右回来）；关窗口、退出都会收。内存上限 1G（实测 9 个 Maven 模块的项目常驻 1.1–1.5 GB）
+- 不是 Maven / Gradle 项目（根上和第一层子目录里都没有构建文件）就不起
+
+## 十五、卸载
 
 见 [UNINSTALL.md](../UNINSTALL.md)。一句话版本：
 

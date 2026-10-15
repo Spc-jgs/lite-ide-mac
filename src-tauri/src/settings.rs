@@ -78,6 +78,12 @@ pub const DEFS: &[Def] = &[
         default: "\"\"",
         doc: "终端用的 shell，写完整路径（如 \"/opt/homebrew/bin/fish\"）。空 = 用系统的 $SHELL。只对新开的终端生效",
     },
+    Def {
+        key: "java.jdtlsHome",
+        kind: Kind::Str { empty_ok: true },
+        default: "\"\"",
+        doc: "Java 智能用的 jdtls（解开的发行包，里面有 plugins/ 和 config_mac_arm/）。空 = 应用数据目录里的 jdtls/。下次打开 Java 文件时生效",
+    },
 ];
 
 fn def(key: &str) -> Option<&'static Def> {
@@ -94,6 +100,8 @@ pub struct Settings {
     pub terminal_font_size: i64,
     /// 空 = `$SHELL`
     pub terminal_shell: String,
+    /// 空 = `<应用数据>/jdtls`（docs/IDEA.md 第 2 步）
+    pub java_jdtls_home: String,
 }
 
 impl Default for Settings {
@@ -104,6 +112,7 @@ impl Default for Settings {
             terminal_font_family: String::new(),
             terminal_font_size: FONT_DEFAULT,
             terminal_shell: String::new(),
+            java_jdtls_home: String::new(),
         }
     }
 }
@@ -119,6 +128,7 @@ impl Settings {
             "terminal.fontFamily" => self.terminal_font_family = s(),
             "terminal.fontSize" => self.terminal_font_size = n(),
             "terminal.shell" => self.terminal_shell = s(),
+            "java.jdtlsHome" => self.java_jdtls_home = s(),
             _ => {}
         }
     }
@@ -555,6 +565,8 @@ pub struct Effective {
     pub terminal_font_size: i64,
     /// 空 = `$SHELL`
     pub terminal_shell: String,
+    /// 空 = `<应用数据>/jdtls`。只在 Rust 侧用（起 jdtls），不进 SettingsDto
+    pub java_jdtls_home: String,
     pub minimap: bool,
     pub tree_compact: bool,
     pub tree_follow: bool,
@@ -573,6 +585,7 @@ pub fn effective(s: &Settings, u: &UiState) -> Effective {
         },
         terminal_font_size: s.terminal_font_size,
         terminal_shell: s.terminal_shell.clone(),
+        java_jdtls_home: s.java_jdtls_home.clone(),
         minimap: u.minimap,
         tree_compact: u.tree_compact,
         tree_follow: u.tree_follow,

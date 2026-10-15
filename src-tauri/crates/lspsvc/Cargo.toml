@@ -1,0 +1,11 @@
+[package]
+name = "lspsvc"
+version = "0.1.0"
+edition = "2021"
+description = "语言服务器客户端（LSP over stdio）+ jdtls 怎么起（零 Tauri 依赖，docs/IDEA.md 第 2 步）"
+
+[dependencies]
+# 消息是 JSON。已经在依赖树里
+serde_json = "1"
+# killpg（停整组）。不是新包：ptysvc、tasksvc 已经直接依赖它
+libc = "0.2"

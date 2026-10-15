@@ -129,12 +129,57 @@ export async function trashScratch(path: string) {
   }
 }
 
+/**
+ * jar 里的类（docs/IDEA.md 第 2 步）：jdtls 给的内容（依赖带源码 jar 就是源码，没有就是反编译的），开成只读标签。
+ * 预览标签（同 ⌘B 跳进项目里的文件）：沿着 ⌘B 追进好几个 jar 不该留下一排标签。返回开没开成
+ */
+/** 百分号解码；编码坏了（半截的 `%E5`）就原样用，不抛 */
+const decoded = (s: string) => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+};
+
+export async function openClass(uri: string, label: string): Promise<boolean> {
+  const exist = tabs.byPath(uri);
+  if (exist) {
+    tabs.show(exist.id);
+    return true;
+  }
+  const root = project.root;
+  if (!root) return false;
+  let content: string;
+  try {
+    content = await (await import("../ipc/java")).javaClassContents(root, uri);
+  } catch (e) {
+    notify.fail(`打不开 ${label}：${e}`);
+    return false;
+  }
+  // 标签名用地址里的文件名：有源码 jar 是 `X.java`，反编译的是 `X.class` —— 一眼看得出在看的是哪一种（同 IDEA）
+  const file = uri.split("?")[0].split("/").pop() || `${label.slice(label.lastIndexOf(".") + 1)}.class`;
+  const prev = tabs.previewIn(tabs.activeGroup);
+  const id = tabs.add(
+    { path: uri, name: decoded(file), mode: "class", dirty: false, content, size: content.length, preview: true },
+    prev ? tabs.list.indexOf(prev) : undefined,
+  );
+  if (prev) tabflow.doClose(prev);
+  tabs.show(id);
+  return true;
+}
+
 /** 会话恢复时遇到合并标签（`merge:` 开头的路径）：转给 `merge-ops.ts`。经这里转一道是为了入口包，见 `tabflow.openPath` 那句 */
 export async function openMergedPath(path: string, opts: { quiet?: boolean } = {}) {
   return (await import("./merge-ops")).openMergedPath(path, opts);
 }
 
 export function requestSwitchMode(tab: TabState) {
+  // jar 里的类不是盘上的文件：没有日志模式可切，也没有「编辑」可言
+  if (tab.mode === "class") {
+    notify.hint("jar 里的类只读，没有别的模式", 2200);
+    return;
+  }
   // 合并标签背后是几份文件，没有「一份文本」可编辑
   if (tab.merge) {
     notify.hint("合并视图只有日志模式。要改哪一份，单独打开它", 2600);

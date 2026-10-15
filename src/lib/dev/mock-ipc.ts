@@ -21,6 +21,7 @@ import { remoteCmd } from "./mock/remote";
 import { replaceCmd } from "./mock/replace";
 import { settingsCmd } from "./mock/settings";
 import { tasksCmd } from "./mock/tasks";
+import { javaCmd } from "./mock/java";
 import { type A, bump, FILES, NOT_MINE } from "./mock/data";
 
 export function installMockIpc(): void {
@@ -44,7 +45,7 @@ export function installMockIpc(): void {
       const a = args as unknown as A;
       // 按领域分文件（mock/）：挨个问，头一个认领的说了算 —— 命令名不重复，所以顺序无所谓。
       // 都不认就是 null，同原来 switch 的 default
-      for (const handle of [eventsCmd, appCmd, fsCmd, scratchCmd, searchCmd, ptyCmd, logCmd, gitCmd, remoteCmd, replaceCmd, settingsCmd, tasksCmd]) {
+      for (const handle of [eventsCmd, appCmd, fsCmd, scratchCmd, searchCmd, ptyCmd, logCmd, gitCmd, remoteCmd, replaceCmd, settingsCmd, tasksCmd, javaCmd]) {
         const r = await handle(cmd, a);
         if (r !== NOT_MINE) return r;
       }

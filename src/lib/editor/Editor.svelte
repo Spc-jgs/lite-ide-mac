@@ -33,6 +33,9 @@
   import { bodyPlaceholder } from "./body-placeholder";
   import type { ViewPos } from "../state/docs.svelte";
   import { lineSpan, type LineSpan } from "../terminal/claude-ref";
+  import { project } from "../state/project.svelte";
+  // 只拿类型：实现跟着 Java 语言包懒加载（applyLang），别的语言不背它
+  import type * as JavaLsp from "./java-lsp";
 
   let {
     path,
@@ -42,6 +45,7 @@
     selfSaveTick = 0,
     gotoLine = null,
     placeholder = null,
+    readOnly = false,
     onGotoDone,
     outlineTick = 0,
     headText = null,
@@ -91,6 +95,8 @@
     onGotoDone?: () => void;
     /** 正文（文件头之后）为空时显示的一行灰字，空草稿用它放快捷键提示；敲第一个字就没了 */
     placeholder?: string | null;
+    /** 只读（jar 里的类，docs/IDEA.md 第 2 步）：能选、能复制、能 ⌘F，打不进字 */
+    readOnly?: boolean;
     /** 自增即重新提取大纲。放在 Editor 里算是因为语法树在它手上 */
     outlineTick?: number;
     /**
@@ -303,6 +309,10 @@
    */
   const symbolsOf = symbolCache();
 
+  /** Java 语言服务器那一层（docs/IDEA.md 第 2 步）。打开 .java 时才加载；其余时候是 null，跳转只走 Lezer 那几层 */
+  let lsp: typeof JavaLsp | null = null;
+  const recheck = () => view?.dispatch({ effects: recheckJump.of(null) });
+
   const jumpHooks = {
     /*
      * **读的是 prop 的当前值。** 这个闭包在 `build()` 里被创建（那时套着
@@ -310,18 +320,27 @@
      * 是最新的 `jumpFiles` / `jumpRel`。所以文件索引晚一点才到位也不影响：
      * 到位之前第二层查不到东西，到位之后自动就能跳了。
      */
+    /*
+     * 语言服务器先说：它答得出 Lezer 那几层够不着的（jar 里的类、继承来的方法、重载）。它还在问（undefined）
+     * 或者这一层不管（null）就退回 Lezer —— Lezer 只在「确定」时给下划线，两层都守同一个承诺（jump.ts 头上）
+     */
     resolve: (pos: number) =>
       view
-        ? resolveJump(view.state, pos, {
+        ? ((lsp && view ? lsp.lspResolve(view, pos, recheck) : null) ??
+          resolveJump(view.state, pos, {
             symbols: symbolsOf(view.state),
             files: jumpFiles,
             rel: jumpRel,
             lang: jumpLang,
-            recheck: () => view?.dispatch({ effects: recheckJump.of(null) }),
-          })
+            recheck,
+          }))
         : null,
     jump: (hit: JumpHit) => onJump?.(hit),
-    settle: () => (view ? (javaToolsOf(view.state, 0)?.settle() ?? null) : null),
+    settle: () => {
+      if (!view) return null;
+      const waits = [javaToolsOf(view.state, 0)?.settle() ?? null, lsp?.lspSettle(view) ?? null].filter((w) => w !== null);
+      return waits.length ? Promise.all(waits).then(() => undefined) : null;
+    },
   };
 
   /**
@@ -398,6 +417,12 @@
          * 这类 bug 不报错、不崩溃，只是「按了没反应」。
          */
         EditorState.allowMultipleSelections.of(true),
+        /*
+         * 只读要两样：`readOnly` 挡键盘 / 输入法那条路；`changeFilter` 挡**程序发的事务** —— 右键菜单的粘贴、剪切走的是
+         * `dispatch(replaceSelection)`，`readOnly` 管不着（2026-10-15 验收：测试通道的 `type` 也是事务，照样写进了 jar 里的类）
+         */
+        EditorState.readOnly.of(readOnly),
+        readOnly ? EditorState.changeFilter.of(() => false) : [],
         rectangularSelection(),
         crosshairCursor(),
         history(),
@@ -669,9 +694,11 @@
       return;
     }
     const lang = langOf(p);
-    const ext = await loadLang(lang);
+    const [ext, javaLsp] = await Promise.all([loadLang(lang), lang === "java" ? import("./java-lsp") : null]);
     if (!view) return;
-    view.dispatch({ effects: [langSlot.reconfigure(ext ?? []), completeSlot.reconfigure(completionFor(lang))] });
+    lsp = javaLsp;
+    const extra = javaLsp ? javaLsp.javaLsp(project.root, p) : [];
+    view.dispatch({ effects: [langSlot.reconfigure([ext ?? [], extra]), completeSlot.reconfigure(completionFor(lang))] });
   }
 
   // 跳到指定行并居中。nonce 变化即触发，所以连点同一条搜索结果也能重新定位。

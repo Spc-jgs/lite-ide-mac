@@ -74,6 +74,8 @@ pub struct AppState {
     retiring: Arc<Mutex<Vec<Arc<tasksvc::Task>>>>,
     /// 正在起的（窗口, 项目, 任务名）。连按两次 ⌃R：两条 `task_run` 都找到同一个旧的、各起一份，一份从界面上消失还占着端口（同上）
     starting: Mutex<HashSet<(String, String, String)>>,
+    /// 每个项目一个 jdtls（docs/IDEA.md 第 2 步）。里面是一张 `Owned`（按窗口登记），`release_window` 里 `java.release` 收
+    pub java: crate::java::Java,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
     next_run: AtomicU32,
@@ -556,6 +558,8 @@ impl AppState {
 
         drop(self.watch.take_owner(owner));
         drop(self.scans.take_owner(owner));
+        // 这个窗口的 jdtls：后台按协议收尾，关窗口不用等
+        self.java.release(owner);
 
         // 这个窗口的任务：先礼后兵地停（宽限期在后台线程里等，窗口关掉不用等它们）
         for (_, r) in self.runs.take_owner(owner) {

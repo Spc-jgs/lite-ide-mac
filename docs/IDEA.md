@@ -80,7 +80,7 @@ IntelliJ 的引擎不对外，用不了。
 
 ## 5. 说清楚：和 IDEA 比会差在哪
 
-- **第一次打开一个多模块项目要等 jdtls 导入**（几十秒到几分钟，第 0 步量）—— 但等的只是 Java 智能，编辑器、日志、Git、启动服务不等。IDEA 是整个界面都在等。
+- **第一次打开一个多模块项目要等 jdtls 导入**（petclinic 实测：本地仓库齐 3.5 s，要上网核对 Maven 元数据的那次 127 s；之后 1.2 s，第 7 节）—— 但等的只是 Java 智能，编辑器、日志、Git、启动服务不等。IDEA 是整个界面都在等。
 - **重构的种类少**：改名、抽方法 / 变量 / 常量、内联、移动类、改签名、整理 import 有；IDEA 那上百种 intention、结构化替换没有。
 - **Spring 智能弱**：Bean 导航、yml 补全要另一个语言服务器（Spring Tools），先不上。
 - **代码检查是编译器级别的**：IDEA 那几百条 inspection 没有。
@@ -93,19 +93,70 @@ IntelliJ 的引擎不对外，用不了。
 | **D5** | 定位从「取代 Sublime」扩成「取代 Sublime + 接住 IDEA 的 Java 后端日常」；D2（代码智能冻结）和 ARCHITECTURE 决策 7（不上 LSP）推翻，改成第 3 节的约束 | 同意。理由在第 1 节 |
 | 下载 | jdtls（约 50MB，download.eclipse.org）+ java-debug / java-test 插件（各几 MB）；**你机器上只有 JDK 17，jdtls 要 JDK 21 才能跑**（它编译的项目可以是 8–25），要再装一个 JDK 21（约 200MB，Adoptium）当「工具 JDK」，你的项目照旧用 17 | 第 0 步实测时下载，下载前再问一次具体的文件 |
 | 顺序 | 第 1 步 Maven + Spring Boot（不需要语言服务器，几天就能用上）→ 第 2 步只读智能（跳转、用法、报错、jar 源码）→ 第 3 步写的智能（补全、改名、重构、修复、格式化）→ 第 4 步单测 → 第 5 步调试 → 第 6 步 HTTP 请求；本地历史穿插 | 按这个顺序：先拿到不用等的，再上要等的 |
-| 内存 | 编辑器本体 <200MB 不变；jdtls 另算，上限按第 0 步实测（多模块大概 1–2GB；你有 48GB） | 第 0 步量完再定 |
+| 内存 | 编辑器本体 <200MB 不变；jdtls 另算，上限按第 0 步实测（多模块大概 1–2GB；你有 48GB） | 第 0 步量了：`-Xmx1G`、RSS 1.1–1.5 GB（第 7 节），第 2 步开工前定 |
 | 不做 | 数据库 / Redis 客户端、几百条 inspection、Spring Bean 图 | 不做（偶尔用的交给专门工具） |
 
-## 7. 第 0 步（拍板之后、写代码之前）
+## 7. 第 0 步的实测：jdtls 在 petclinic 上（2026-10-14）
 
-在**你的一个真实多模块项目**上量（不是造的项目）：
+原计划在用户的真实项目上量，用户说「先别碰我的项目」，换成 spring-petclinic-microservices（9 个 Maven 项目：根 + 8 个服务）
+和自己写的 shoplombok（shopdemo 三模块 + shop-common 里一个 `@Data` 类、order-service 调它的 getter / setter —— 验 Lombok 和兄弟模块）。
+jdtls 1.61.0（2026-09-03，sha256 核过），跑在 Temurin 21.0.12.1 上（Homebrew cask，`/Library/Java/JavaVirtualMachines`；
+用户的 `.zshrc` 把 `JAVA_HOME` 钉在 17，终端里的 mvn / java 不受影响）。`-Xmx1G`，M 系列 48GB。
+量具是两个 Python LSP 客户端（量延迟的 190 行、验 Lombok 的 120 行；不进仓库：第 2 步的 Rust 客户端才是产品），每个请求连发 7 次，第一次单列。
 
-1. jdtls 第一次导入多久、第二次（有缓存）多久
-2. 常驻内存（RSS），空闲和刚导入完各多少
-3. 跳转定义、查找用法、补全的延迟 p50 / p95
-4. Lombok、多模块之间的跳转、jar 里的类能不能跳
+| 量什么 | 冷（数据目录空、本地仓库缺元数据） | 冷（数据目录空、本地仓库齐） | 热（数据目录有缓存） |
+|---|---|---|---|
+| ServiceReady（导入完、能答语义问题） | **127.1 s** | 3.3–3.6 s | **1.2 s** |
+| 刚 ready 的常驻内存（RSS） | 468 MB | 476–493 MB | 376 MB |
+| 跳到定义（项目里的类）第一次 / 之后 p50 | 981 / 10.0 ms | 849–857 / 9.9–10.7 ms | 1055 / 12.8 ms |
+| 跳到定义（jar 里：`findById` → `CrudRepository.class`） | 3099 / 11.6 ms | 17–23 / 10.4–11.8 ms | 31 / 11.7 ms |
+| 查找用法（`Owner`，19 处） | 3904 / 54 ms | 5343–6016 / 70–76 ms | 788 / 65 ms |
+| 补全（`ownerRepository.` 后面，40 项） | 59 / 7.7 ms | 44–53 / 7.9–8.1 ms | 42 / 9.1 ms |
+| 实时报错（改错一个方法名 → 那条 error 回来） | 439 ms | 431–496 ms | 435 ms |
+| 做完这些之后的常驻内存 | 1395 MB | 1462–1494 MB | 1143 MB |
 
-量完决定：`-Xmx` 设多少、空闲多久收掉、哪些能力值得上。数字写进这份文档。
+**这些数字说明什么**：
+
+- **127 秒全花在网上**。状态消息里一串 `https://maven.aliyun.com/repository/public/...`：m2e 导入时去镜像核对元数据（版本区间、`maven-metadata.xml`），
+  本地仓库 `~/repository` 里多了 787 个文件、**全是元数据**（`.sha1`、`_remote.repositories`、几个 xml，共 3 MB，一个 jar 都没有；313 个在 `org/webjars/npm`，版本区间最多的那片）。
+  第二、三次数据目录照样是空的，3.5 秒 —— 区别只在本地仓库已经核对过。**风险**：Maven 的更新策略默认按天，「每天第一次导入」可能又要上网一趟；
+  jdtls 有 `java.import.maven.offline.enabled`，第 2 步实测再定要不要默认开（开了的代价：pom 加了新依赖要手动刷新一次）。
+- **「第一次」慢、之后快，是 JVM 预热 + 索引懒加载**：跳转第一次 ~1 s、之后 10 ms；查找用法第一次 0.8–6 s（要搜全部 9 个项目的索引）、之后 ~65 ms。
+  补全和实时报错从第一次起就快（< 60 ms、~0.45 s）。界面上的意思：**第一次跳转 / 查用法要给「正在找」的状态**，不能让人以为没按到。
+- **实时报错 0.43–0.5 秒**：改完到波浪线出来不到半秒，IDEA 的手感量级。
+- **内存**：`-Xmx1G` 下 RSS 到 1.1–1.5 GB（RSS 比堆大：元空间、JIT 代码缓存、线程栈都不在 `-Xmx` 里）；三次日志里没有 OutOfMemory / GC overhead。
+  缓存（数据目录）petclinic 198 MB，三模块小项目 55 MB；jdtls 本体 52 MB。
+- **正确性都对**：项目内跳转、跳进 jar 里的类（`jdt://` 的 class 文件）、跨 9 个项目查用法、补全里有 `findAll` 系列。
+
+**Lombok 和兄弟模块**（shoplombok，冷启 2.0–2.1 s）：
+
+| | 不挂 Lombok | `-javaagent:lombok-1.18.42.jar` |
+|---|---|---|
+| order-service 里调 `c.setName` / `c.getName()` | **2 条 error**：「The method setName(String) is undefined」 | 0 条 |
+| 跳到定义 `getName`（Lombok 生成的） | 空 | `Customer.java` 第 8 行（那个字段） |
+| 悬停 `getName` | 空 | `String com.demo.common.Customer.getName()` |
+| 跳到定义 `Customer`（兄弟模块 shop-common 的类） | `Customer.java` 源码 | 同左 |
+
+不挂 agent，用 Lombok 的项目**满屏假报错** —— 用户的本地仓库里有 Lombok 1.18.38–1.18.46 四个版本，他公司的项目几乎肯定用。
+所以 Lombok 不是可选项：jdtls 起的时候必须带 `-javaagent`。jar 从哪来：用项目自己依赖的那个版本（本地仓库里就有、不用下载、版本和编译时一致）——
+第 2 步定怎么找（读 m2e 解析出的 classpath，或者先扫 pom）。兄弟模块跳的是**源码**，不是 `target/classes` 或本地仓库里的 jar：m2e 把 reactor 里的模块当工作区项目互相引用。
+
+**jdtls 往项目里写什么**（`git status --ignored`）：
+
+- **默认会写** `.project` / `.classpath` / `.settings/` / `.factorypath`（Eclipse 的元数据），每个模块一套。petclinic 的 `.gitignore` 刚好忽略了它们；
+  用户的项目不一定 —— 那样一开 jdtls，`git status` 里就多出几十个陌生文件。**这违反第 3 节「不打断」**。
+  开关是 `-Djava.import.generatesMetadataFilesAtProjectRoot=false`，**只认 JVM 系统属性**：放进 initialize 的 settings 里实测没用，
+  反汇编 `JLSFsUtils.generatesMetadataFilesAtProjectRoot()` 看到它只读 `System.getProperty`、**没设就当 true**。加上之后项目里一个都不多，全进了数据目录的 `.metadata/.plugins/org.eclipse.core.resources/.projects/`。
+- **`target/classes`、`target/test-classes` 照写**：jdtls 的增量编译（Eclipse 编译器 ecj）输出到和 mvn（javac）同一个目录 —— IDEA 也是这样，`target/` 本来就被忽略。
+  **待定的风险**：两个编译器写同一个目录。第 1 步起 Spring Boot 前先跑 `mvn compile`，maven-compiler-plugin 看到 class 比源码新可能说「Nothing to compile」，
+  跑的就是 ecj 编出来的 class。一般没差别；`-parameters` 这类编译参数 m2e 会映射过去。第 2 步接上之后用 spring.sh 实测一遍再下结论，不提前改。
+
+**第 2 步的参数（实测给出的建议，第 2 步开工前和用户定）**：
+
+- `-Xmx1G` 起步：petclinic 9 个项目没压到，RSS 在 1.1–1.5 GB。真实项目更大的话看状态栏里的内存再调，设置里能改。
+- 空闲收掉：热启 1.2 s 能答，收掉的代价很小 —— 第 3 节的「十分钟没有 Java 标签就收」站得住。
+- 必须带的启动参数：`-Djava.import.generatesMetadataFilesAtProjectRoot=false`、Lombok 的 `-javaagent`、`-data` 指到应用数据目录下按项目分的目录。
+- 第一次导入要上网核对元数据：状态栏那格要说「Java：导入中（在核对 Maven 依赖）」，不能只给一个转圈。
 
 ## 8. 第 1 步的实测：Spring Boot 怎么「照 IDEA 那样」起（2026-10-14）
 
@@ -147,3 +198,52 @@ mvn -q -B -pl <模块> -am -DskipTests compile dependency:build-classpath -Dmdep
 没 install 过就没有；install 过的话跑的是旧 jar（改了公共模块不生效，而且不报错）。直接起 java 还有一个好处：调试（第 5 步）就是多加一个 JDWP 参数。
 
 **顺带的事实**：这台机器的本地仓库在 `~/repository`（settings.xml 里设的），不是默认的 `~/.m2/repository` —— 一律经 `mvn` 自己读 settings，别在代码里写死路径。
+
+## 9. 第 2 步：只读智能（2026-10-15）
+
+> 做完：**实时报错、⌘B / ⌘点击跳到声明（含 jar 里的类）、⌥F7 查找用法**。真 .app + 真 jdtls `scripts/accept/java.sh` 17/17。
+> 参数按第 7 节的建议定了（用户说「按你的思路来」）：`-Xmx1G`、闲 10 分钟收、三样必带参数。都是常量，量出不对再改。
+
+**分层**（第 4 节那张图落地后的样子）：
+
+| 层 | 在哪 | 管什么 |
+|---|---|---|
+| 线 | `crates/lspsvc/src/conn.rs` | JSON-RPC、分帧、请求配回话、超时发 `$/cancelRequest`、单条消息上限（超了读掉、把「太大」和真字节数交给等它的请求） |
+| 进程 | `crates/lspsvc/src/server.rs` | 自己的进程组、stderr 只留尾巴、等待线程收尸并报崩溃、先按协议说再见再杀整组 |
+| jdtls 怎么起 | `crates/lspsvc/src/jdtls.rs` | 找 JDK 21（读 `release` 文件，不起 `java -version`）、找 Lombok（本地仓库里最高的正式版）、拼参数 |
+| 应用里的一份 | `src-tauri/src/java.rs` | 一个项目一个、状态转给前端、文档同步、闲了收、窗口关了收、退出时收 |
+| 编辑器 | `src/lib/editor/java-lsp.ts`（跟着 Java 语言包懒加载） | 波浪线 + 悬停看原因、跳转的缓存、⌥F7 的列表 |
+
+**几个决定和为什么**：
+
+- **服务器问我们的，在另一条线程上答**：答在读线程上的话，读线程卡在写回话时没人排空 jdtls 的 stdout，两边互相等 —— rust.md「两个管道要并发读」那个死锁的同一个形状。测试里让答话卡 400ms，通知照样 200ms 内收到。
+- **文档同步用全文**：一个 Java 文件几十 KB，本机管道上全发也就几十 KB；增量要自己把 CM6 的改动换成 UTF-16 的行列，错一个字符服务器那份就和编辑器分叉，那种错不报错、只是报错位置越来越偏。
+- **initialize 之前开的文档存全文、回了再补发，不重读盘**：编辑器里没保存的才是真相（第 4 节），读盘补发的话 jdtls 分析的和屏幕上的不是同一份。
+- **打开跟着编辑器、关闭跟着标签**：编辑器切标签就销毁重建（frontend.md），在销毁时 didClose 会让 jdtls 每切一次标签就丢一次这个文件的状态。
+- **跳转照 java-peek 的「先缓存、回头补下划线」**：⌘hover 每动一格同步问一次，问 jdtls 是异步的。没答案时不画（「有下划线 = 一定跳得过去」是 jump.ts 唯一的承诺），答回来调 `recheck`、鼠标还停着就补上。浏览器里验过：动一次鼠标，第一刻没有、800ms 后有，期间鼠标没动。
+- **jar 里的类是单独的模式 `class`**，不是只读的 `edit`：存盘、外部改动检查、换编码那几条碰盘的路都只认 `edit`，新模式天然碰不到，不用一处处加判断。只读要两样：`readOnly` 挡打字，`changeFilter` 挡程序发的事务（右键菜单的粘贴走 `replaceSelection`，`readOnly` 管不着 —— 验收第一轮就这么红的）。
+- **不是 Maven / Gradle 项目不起**：随手看一眼别处的 Java 文件，不该起一个 1GB 的 JVM。
+- **不下源码 jar**（`maven.downloadSources: false`）：开着的话 m2e 给每个依赖下 sources + javadoc，往用户的本地仓库里下东西没问过他；而且收尾时卡在这个任务上（实测 20 秒不退）。
+
+**数字**（真 .app，三模块 + Lombok 的样例项目，本地仓库齐、jdtls 缓存冷）：
+
+| | |
+|---|---|
+| 打开 Java 文件到编辑器出来 | 336 ms（不等语言服务器） |
+| 到 jdtls 能答 | 3.07 s |
+| 改错一个方法名到波浪线出来 | 912–935 ms（含 250 ms 去抖；jdtls 自己 0.43–0.5 s，第 7 节） |
+| 入口包 | 155,856 → 156,117 B（+261，CI 取整 152，没到告警）：`tabflow.openClass` 一行转发、nav 认 `uri`、标签的「只读」徽章、快照滤掉 class 标签、`langOf` 认 `jdt:` |
+
+**踩到的**（JOURNAL 同日有全过程）：
+
+- **有源码 jar 时 jdtls 给的地址末尾是 `.java`**：`jdt://contents/spring-boot-4.0.1.jar/org.springframework.boot/SpringApplication.java?=…`。只认 `.class` 时标签名成了 `class.class`。标签名现在用地址里的文件名：有源码是 `X.java`，反编译的是 `X.class`，同 IDEA。
+- **冷缓存时收尾卡在 JDT 的索引线程上**：jstack 看到 `JavaCore.stop → JobManager.shutdown` 在 join 一条收尾时新起的「Java indexing」线程。等索引建完再收（30 秒后）1.0 秒干净退出、27 个索引文件落盘。所以收尾等 3 秒、到点杀整组；只有「刚打开几秒就退出」会碰上，代价是那一次的索引没存下、下次重建。
+
+**还没做的**（下一步再定顺序）：
+
+- **应用里一键下载 jdtls**（第 3 节第 4 条：先问、说清多大、校验 sha256、放应用数据目录）。现在要自己解开放到 `<应用数据>/jdtls`，或者 `settings.json` 写 `java.jdtlsHome`
+- 状态栏那格的「重起」按钮（命令 `java_restart` 有了，界面没接）、问题列表（整个项目的错误）、滚动条上的错误点
+- IDEA 的「Find」工具窗（⌥F7 现在开的是 Show Usages 那张列表）；跳到项目外的源码（另一个项目）
+- 跳进 jar 里的类之后，在那个类里再 ⌘B
+- Gradle 项目没验过（判据认 build.gradle，jdtls 的导入也开着，但没有样例跑过）
+- `target/classes` 两个编译器同写（第 7 节）：还没用 spring.sh 在 jdtls 开着时验

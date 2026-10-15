@@ -101,12 +101,17 @@ class Nav {
       this.fwd = [];
     }
     const target = hit.target;
-    if (target.rel === "") {
-      // 本文件：不重新打开，直接跳行
-      if (target.line !== undefined) this.goto(target.line);
+    if (target.uri && target.label) {
+      // jar 里的类（语言服务器给的）：开成只读标签再跳行
+      if (await tabflow.openClass(target.uri, target.label)) this.goto(target.line ?? 1, target.col);
       return;
     }
-    await this.openAt(target.rel, target.line);
+    if (target.rel === "") {
+      // 本文件：不重新打开，直接跳行
+      if (target.line !== undefined) this.goto(target.line, target.col);
+      return;
+    }
+    await this.openAt(target.rel, target.line, true, target.col);
   }
 
   /** ⌥⌘← / ⌥⌘→。两条对称，合成一个函数免得两边漏改 */

@@ -46,8 +46,14 @@ export interface JumpTarget {
   rel: string;
   /** 1-based 行号；没有就是跳到文件开头 */
   line?: number;
+  /** 1-based 列（语言服务器给得出来；Lezer 那几层只给到行） */
+  col?: number;
+  /** jar 里的类（语言服务器给的 `jdt://…`）：`rel` 为空，内容另外要（java-lsp.ts） */
+  uri?: string;
+  /** 和 `uri` 一起：类的全名，标签上显示它 */
+  label?: string;
   /** 凭什么敢跳 —— 进 tooltip，让人知道这一下的依据 */
-  why: "本文件" | "import" | "同包" | "成员" | "堆栈" | "终端";
+  why: "本文件" | "import" | "同包" | "成员" | "堆栈" | "终端" | "语言服务器";
 }
 
 export interface JumpHit {

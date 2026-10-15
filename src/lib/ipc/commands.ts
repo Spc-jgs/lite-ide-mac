@@ -38,6 +38,54 @@ export interface MavenModule {
   apps: MavenApp[];
 }
 
+/** Java 智能的状态（docs/IDEA.md 第 2 步，状态栏那格）。同 Rust 的 JavaStatusDto */
+export interface JavaStatus {
+  root: string;
+  phase: "starting" | "importing" | "ready" | "failed" | "stopped";
+  /** 导入中：jdtls 说的进度那句；出错：原因 */
+  message: string;
+  /** 用的哪个 JDK、Lombok 挂没挂上 */
+  detail: string;
+}
+
+/** 一个文件的诊断（`java-diagnostics` 事件）。`total` 是真条数，超过上限时 `items` 只有前一截 */
+export interface JavaDiagnostics {
+  root: string;
+  path: string;
+  total: number;
+  items: JavaDiagnostic[];
+}
+
+/** 行、列从 0 数，列按 UTF-16（和 CM6 的字符串下标一致） */
+export interface JavaDiagnostic {
+  line: number;
+  character: number;
+  endLine: number;
+  endCharacter: number;
+  /** 1 错 2 警告 3 信息 4 提示 */
+  severity: number;
+  message: string;
+}
+
+/** 跳转 / 查用法的一处。`path` 为 null = jar 里的类：`uri` 是 `jdt://…`，`label` 是类的全名 */
+export interface JavaLocation {
+  uri: string;
+  path: string | null;
+  label: string;
+  line: number;
+  character: number;
+  endLine: number;
+  endCharacter: number;
+  /** 那一行的文字（查用法的列表；跳转是空串） */
+  text: string;
+}
+
+/** 查用法的结果。`total` 是真条数；比 `items` 多就是截断了，界面要说出来 */
+export interface JavaRefs {
+  items: JavaLocation[];
+  total: number;
+}
+
 export interface MavenApp {
   /** 任务名（和任务列表里的一样：点运行和 ⌃⌥R 里选它是同一个任务） */
   task: string;

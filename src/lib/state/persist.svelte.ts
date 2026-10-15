@@ -328,7 +328,8 @@ class Persist {
   snapshot(): session.Session {
     return {
       root: project.root,
-      tabs: tabs.list.map((t) => {
+      // jar 里的类不进快照：内容要 jdtls 起好了才拿得到，恢复时它还没起 —— 恢复出一个空标签不如不恢复
+      tabs: tabs.list.filter((t) => t.mode !== "class").map((t) => {
         const pos = docs.viewOf(t);
         const snap: session.TabSnap = { path: t.path };
         if (pos !== undefined) {

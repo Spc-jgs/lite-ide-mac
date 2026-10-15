@@ -9461,3 +9461,56 @@ smoke 第一轮 96/97：⑳ 焦点 —— ⑲ 那段测试应用从 Chrome 手�
 
 验证：maven 6 条 + taskdefs 2 条全绿（白名单、`-pl -am`、clean 只 `-pl`）；cargo test --workspace、pnpm test / check、clippy 全过；
 浏览器里桩：导轨 → Maven → 双击 package / 应用，运行窗出两格、应用那行「在跑」；真 .app `scripts/accept/spring.sh` 12/12。
+
+## 2026-10-14 · 第 0 步：jdtls 在 petclinic 上量了；它默认往项目里写 Eclipse 文件，开关只认 JVM 系统属性
+
+装 JDK 21（jdtls 自己要 21 才能跑）：Homebrew 下到 169.6 / 200.6 MB 断了，`curl: (18) Transferred a partial file`。
+`brew fetch --cask temurin@21` 接着 `.incomplete` 续上、核过 sha256，用户再 `brew install` 只输一次密码 —— 下载不要权限，装 pkg 才要，拆开两步，断网不会卡在装了一半。
+
+数字都在 IDEA.md 第 7 节。三条值得记的：
+
+**冷启 127 秒全花在网上，不是 jdtls 慢**。状态消息里一串阿里云镜像的地址：m2e 导入时去核对元数据，本地仓库多了 787 个文件、3 MB、一个 jar 都没有。
+数据目录照样清空再起，只要本地仓库核对过，3.5 秒。所以「第一次导入多久」这个问题本身问错了一半 —— 要分「jdtls 的缓存冷不冷」和「Maven 元数据冷不冷」，两个独立。
+
+**jdtls 默认往每个模块写 `.project` / `.classpath` / `.settings/` / `.factorypath`**。petclinic 的 `.gitignore` 刚好盖住，用户的项目不一定。
+关掉它的开关 `generatesMetadataFilesAtProjectRoot` 先放进 initialize 的 settings —— 实测照写不误。读源码：jar 里 `JLSFsUtils.generatesMetadataFilesAtProjectRoot()`
+只读 `System.getProperty`、没设就是 true，所以只能 `-D`。改成 `-D` 之后项目里一个都不多。**一个设置项走哪条路进去，读它的代码再说**，名字对了不等于生效。
+读 class 文件的时候 macOS 的 `strings` 报「fat file truncated」：Java class 和 Mach-O 的多架构文件开头都是 `CAFEBABE`，它当成后者去解析了。用 JDK 的 `javap -v` 读常量池、`javap -c` 读字节码。
+
+**Lombok 不挂 agent 就满屏假报错**：自己写的 shoplombok 上，`getName()` / `setName()` 两条「undefined」，跳转、悬停都是空；挂上 `-javaagent:lombok-1.18.42.jar` 全对。
+用户本地仓库里有四个 Lombok 版本，他的项目几乎肯定用 —— 这条是第 2 步的必选项，不是增强。
+
+还有一件当时的事：量的过程中对话里出现过一段「结果」，和量具实际写到文件里的对不上（那时冷启还没跑完、Python 的输出是块缓冲的，文件里只有三行）。
+数字只认量具写进文件的那份。
+
+验证：量具（`bench.py` / `lombok.py`）放 scratchpad，没进仓库；前两次（冷 / 热）在 petclinic 原件上跑，原件里多了被 `.gitignore` 盖住的 Eclipse 文件和 `target/`，没清；之后的几次都在副本上（`git ls-files` 拷出来，`git status --ignored` 看多了什么）；
+三次日志里没有 OutOfMemory。只改文档，没改代码。
+
+## 2026-10-15 · 第 2 步：语言服务器接进来（实时报错、⌘B 进 jar、⌥F7）；三处「看着对、其实错」
+
+用户上一轮说「按你的思路来」，第 2 步的参数按第 0 步的建议定（`-Xmx1G`、闲 10 分钟收）。分了五层，每层单独验（IDEA.md 第 9 节那张表）：
+`lspsvc` 的线 / 进程 / jdtls 三个模块 21 条测试，每条都拿「真会写出来的错」改坏验过红（共 15 种）；接进应用之后先在浏览器桩上走一遍，再上真 .app + 真 jdtls。
+
+**一、自己加的一个参数，让 jdtls 退不掉、还往用户的本地仓库里下东西。** 第 0 步量的时候没有 `maven.downloadSources`，写 `init_options` 时顺手加了 `true`
+（「看 jar 源码」是用户要的）。拿 Rust 写的探针连真 jdtls 一跑：热缓存收尾 0.5–1 秒，冷缓存 shutdown + exit 之后 **20 秒不退**。jdtls 日志最后一句
+`An internal error occurred during: "Download sources and javadoc"` —— m2e 导入完在后台给每个依赖下源码和 javadoc。关掉它之后冷缓存照样 20 秒不退，
+jstack 一看是另一件事：`JavaCore.stop → JobManager.shutdown` 在 join 一条收尾时新起的「Java indexing」线程（JDT 自己的毛病）。等索引建完（30 秒后）再收是 1.0 秒、
+27 个索引文件落盘。结论：收尾等 3 秒、到点杀整组；只有「刚打开几秒就退出」会撞上。**往别人的仓库里下东西的参数，要和「下载先问」那条规矩一起审** —— 它不在第 0 步的实测里，就不该进来。
+
+**二、只认 `.class`，标签名成了 `class.class`。** 桩里 jar 地址是我按印象写的 `…/SpringApplication.class?=…`，单元测试也照着它写。真 .app 第一轮：标签名 `class.class`。
+探针打出原样：**依赖有源码 jar 时 jdtls 给的是 `SpringApplication.java`**。解析失败退回整串地址，前端取最后一个点后面那段 —— 就是 `class`。
+测试现在用真 jdtls 回的那一串（路径换成假的）。**桩和单元测试的数据要从真东西那里抄，不是从印象里写**：两边按同一个印象写，就会一起绿。
+
+**三、只读没挡住「程序发的改动」。** jar 里的类用 CM6 的 `readOnly`。浏览器里真敲字敲不进去，验收第一轮测试通道的 `type`（发一个事务）却写进去了 ——
+`readOnly` 只管键盘和输入法那条路。顺着这个去看：编辑器右键菜单的粘贴、剪切也是 `dispatch(replaceSelection)`，同样拦不住（存盘那条只认 `edit` 模式，不会写盘，但屏幕上的内容就错了）。
+加 `changeFilter` 拒掉所有改动；验收把两条路分开验，浏览器里把两样都去掉、`execCommand('insertText')` 打进去了（红），还回来打不进（绿）。
+
+还有两个是验收脚本自己的错，没算进功能：`set -o pipefail` 下 `ls` 碰到不存在的目录退 1，整条「找 JDK 21」的管道判成失败，装好的 JDK 被说成没有；
+`lite_eval` 回的是 `true`，`ok` 只认 `1`，五条明明对的判成了错。**先看失败那行打出来的值** —— 五条的值都是对的，一眼就知道是判据错了。
+
+**数字**：打开 Java 文件到编辑器出来 336 ms（不等语言服务器），到能答 3.07 s（本地仓库齐、缓存冷），改错方法名到波浪线 912–935 ms（含 250 ms 去抖）。
+入口包 155,856 → 156,117 B（+261，取整 152，离告警 555 B）。
+
+验证：`cargo test --workspace` 全过、clippy 规矩检查过、`pnpm test` 62 个文件全过、`pnpm check` 0 错；浏览器桩上走了波浪线 / 悬停 / 改回去消失 / ⌘B 进 jar / 只读 / ⌥⌘← 回来 / ⌥F7 列表 ↵ 跳到 9:31；
+真 .app `JDTLS_HOME=… scripts/accept/java.sh` 17/17（Lombok 不报假错、⌘B 进兄弟模块的源码和 jar、⌥F7、项目里没有 Eclipse 文件、退出后没有 jdtls 进程）。
+**还没做**：应用里一键下载 jdtls（现在要自己放到应用数据目录或者写 `java.jdtlsHome`）、「重起」按钮、问题列表、Find 工具窗（IDEA.md 第 9 节末尾）。

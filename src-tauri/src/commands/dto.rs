@@ -710,3 +710,96 @@ pub struct TaskStaleDto {
     pub name: String,
     pub command: String,
 }
+
+/// Java 智能的状态（docs/IDEA.md 第 2 步）：状态栏那格。`phase`：starting / importing / ready / failed / stopped
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaStatusDto {
+    pub root: String,
+    pub phase: String,
+    /// 导入中：jdtls 说的进度那句；出错：原因（缺 JDK 21 / 缺 jdtls / 崩了带 stderr 最后一句）
+    pub message: String,
+    /// 用的哪个 JDK、Lombok 挂没挂上
+    pub detail: String,
+}
+
+impl From<&crate::java::Status> for JavaStatusDto {
+    fn from(s: &crate::java::Status) -> Self {
+        use crate::java::Phase;
+        let (phase, message) = match &s.phase {
+            Phase::Starting => ("starting", String::new()),
+            Phase::Importing(m) => ("importing", m.clone()),
+            Phase::Ready => ("ready", String::new()),
+            Phase::Failed(m) => ("failed", m.clone()),
+            Phase::Stopped => ("stopped", String::new()),
+        };
+        JavaStatusDto { root: s.root.clone(), phase: phase.into(), message, detail: s.detail.clone() }
+    }
+}
+
+/// 一个文件的诊断（`java-diagnostics` 事件）。`total` 是真条数，超过上限时 `items` 只有前一截（先错误后警告）
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaDiagnosticsDto {
+    pub root: String,
+    pub path: String,
+    pub total: u32,
+    pub items: Vec<JavaDiagnosticDto>,
+}
+
+/// 行、列都从 0 数，列按 UTF-16 数（LSP 的默认，和 CM6 的字符串下标一致）
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaDiagnosticDto {
+    pub line: u32,
+    pub character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+    /// 1 错 2 警告 3 信息 4 提示
+    pub severity: u8,
+    pub message: String,
+}
+
+impl From<crate::java::Diagnostic> for JavaDiagnosticDto {
+    fn from(d: crate::java::Diagnostic) -> Self {
+        JavaDiagnosticDto { line: d.line, character: d.character, end_line: d.end_line, end_character: d.end_character, severity: d.severity, message: d.message }
+    }
+}
+
+/// 跳转 / 查用法的一处。`path` 为空 = jar 里的类：`uri` 是 `jdt://…`，内容用 `java_class_contents` 要，`label` 是类的全名
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaLocationDto {
+    pub uri: String,
+    pub path: Option<String>,
+    pub label: String,
+    pub line: u32,
+    pub character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+    /// 那一行的文字（查用法的列表里给人看；跳转不带，空串）
+    pub text: String,
+}
+
+impl From<crate::java::Location> for JavaLocationDto {
+    fn from(l: crate::java::Location) -> Self {
+        JavaLocationDto {
+            uri: l.uri,
+            path: l.path,
+            label: l.label,
+            line: l.line,
+            character: l.character,
+            end_line: l.end_line,
+            end_character: l.end_character,
+            text: String::new(),
+        }
+    }
+}
+
+/// 查用法的结果。`total` 是真条数；超过 `java::REFS_MAX` 时 `items` 只有前一截，界面要说出来
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaRefsDto {
+    pub items: Vec<JavaLocationDto>,
+    pub total: u32,
+}

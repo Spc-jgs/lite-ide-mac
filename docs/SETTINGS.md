@@ -116,6 +116,7 @@ issue 原来的想法是把 5 个偏好都迁进 `settings.json`。问题在于�
 | `terminal.fontFamily` | 字符串 | 跟 `editor.fontFamily` | 终端（xterm 要具体字体名，见 `TERM_FONT` 那段注释） | 立刻（开着的终端也换） |
 | `terminal.fontSize` | 整数 9–28 | 13 | 终端 | 立刻 |
 | `terminal.shell` | 路径 | 空 = 用 `$SHELL` | 新开的终端 | **只对新开的终端**；开着的不动（换 shell 等于杀掉重开，会丢你正在跑的东西） |
+| `java.jdtlsHome` | 路径 | 空 = 应用数据目录里的 `jdtls/` | Java 智能用的 jdtls（docs/IDEA.md 第 2 步） | 下次起 jdtls 时（这个项目的 jdtls 没在跑、又打开了 Java 文件；闲了 10 分钟会自己收掉） |
 
 `ui-state.json` 里：`editor.minimap`、`tree.compact`、`tree.follow`、`git.grouped`、`editor.fontSizeOffset`。
 

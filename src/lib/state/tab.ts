@@ -35,7 +35,8 @@ export interface TabState {
   /** 在哪一组。单栏时全是 0 */
   group: Group;
   name: string;
-  mode: "edit" | "log" | "diff" | "merge";
+  /** `class`：jar 里的类（docs/IDEA.md 第 2 步），只读，`path` 是 `jdt://…` —— 存盘、外部改动那几条路都只认 `edit`，碰不到它 */
+  mode: "edit" | "log" | "diff" | "merge" | "class";
   dirty: boolean;
   /** log 模式的引擎句柄 */
   handle?: number;

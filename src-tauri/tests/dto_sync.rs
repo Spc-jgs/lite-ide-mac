@@ -81,6 +81,11 @@ const PAIRS: &[(&str, &str)] = &[
     ("ReplaceOutcomeDto", "ReplaceOutcome"),
     ("ReplaceErrorDto", "ReplaceError"),
     ("ReplacePendingDto", "ReplacePending"),
+    ("JavaStatusDto", "JavaStatus"),
+    ("JavaDiagnosticsDto", "JavaDiagnostics"),
+    ("JavaDiagnosticDto", "JavaDiagnostic"),
+    ("JavaLocationDto", "JavaLocation"),
+    ("JavaRefsDto", "JavaRefs"),
 ];
 
 struct RustStruct {

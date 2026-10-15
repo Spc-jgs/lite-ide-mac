@@ -12,7 +12,7 @@
     id: number;
     path: string;
     name: string;
-    mode: "edit" | "log" | "diff" | "merge";
+    mode: "edit" | "log" | "diff" | "merge" | "class";
     dirty: boolean;
     /** 预览标签：名字斜体，双击保留（issue #33 ⑯） */
     preview?: boolean;
@@ -151,6 +151,8 @@
     log: "日志",
     diff: "差异",
     merge: "冲突",
+    // jar 里的类（docs/IDEA.md 第 2 步）：jdtls 给的源码或反编译，打不进字
+    class: "只读",
   };
 
   let menu = $state<{ x: number; y: number; tab: Tab; i: number } | null>(null);

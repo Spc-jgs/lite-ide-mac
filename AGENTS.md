@@ -22,6 +22,7 @@ scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪
 scripts/accept/merge.sh        # 几份日志按时间合并（15 条）：顺序、堆栈不拆散、过滤、偏移、跨块、会话恢复
 scripts/accept/patterns.sh     # 日志归类（8 条）：次数对得上、点一类筛出来正好那么多、和昨天比、合并视图、关标签收句柄
 scripts/accept/spring.sh       # 认出 Spring Boot 并照 IDEA 那样起 + Maven 工具窗（12 条，真 mvn / java）：兄弟模块不用 install、web 服务停干净、双击 package 出 jar
+JDTLS_HOME=<jdtls 目录> scripts/accept/java.sh  # Java 智能（17 条，真 jdtls + JDK 21）：Lombok 不报假错、实时报错、⌘B 进兄弟模块和 jar、⌥F7、不往项目里写、退出不留
 scripts/smoke.sh               # 发版前的端到端清单（97 条，约 100 秒），同样走测试通道，先打测试 .app
 ```
 
@@ -62,7 +63,7 @@ macOS 的 sed 不认 `\|`（`sed '/a\|b/d'` 什么都没删，跑的还是原代
 **一律要做：**
 
 - 起子进程走 `crates/procutil`（`spawn` / `run_capped`）：stdin 接空、两个管道并发读、输出设闸、丢掉就收尸。
-  先问「它的输出有上限吗」—— 不走它的只有任务（`tasksvc`）和 git fetch / push，理由在 rust.md。
+  先问「它的输出有上限吗」—— 不走它的只有任务（`tasksvc`）、git fetch / push、语言服务器（`lspsvc`），理由在 rust.md。
   **clippy 卡着**（`src-tauri/clippy.toml` 的 `disallowed-methods`，连同会吞文件的 `File::create` / `fs::write` / `fs::rename` 和直接删文件）：
   有意要用的标 `#[allow(clippy::disallowed_methods)]`、同一行写为什么
 - 碰盘、碰子进程、碰网络的命令写成 `async` + `commands::blocking`；真要留在主线程的写进 `src-tauri/tests/main_thread.rs` 的白名单、写清理由
@@ -113,7 +114,7 @@ macOS 的 sed 不认 `\|`（`sed '/a\|b/d'` 什么都没删，跑的还是原代
 | 跨文件替换 | [docs/REPLACE.md](docs/REPLACE.md) —— 两段提交、撤销日志、命中太多不许执行 |
 | 几份日志按时间合并 | [docs/MERGE.md](docs/MERGE.md) —— k 路归并、一行一字节的合并索引、没时间戳的行跟着上一行走、借日期要说出来 |
 | 日志归类 | [docs/PATTERNS.md](docs/PATTERNS.md) —— Drain 改了两处（按段换变量、相似度只数常量词）、只归记录头、点一类 = 常量词当过滤条件、对比时两边放进同一棵树 |
-| 接住 IDEA 的 Java 后端日常（语言服务器、Maven、Spring Boot、调试） | [docs/IDEA.md](docs/IDEA.md) —— 本心的硬约束（秒开不等、独立进程可关、不打断、正式包不变大），每一步都要过它的审 |
+| 接住 IDEA 的 Java 后端日常（语言服务器、Maven、Spring Boot、调试） | [docs/IDEA.md](docs/IDEA.md) —— 本心的硬约束（秒开不等、独立进程可关、不打断、正式包不变大），每一步都要过它的审；第 7 节 jdtls 实测、第 9 节语言服务器怎么接的 |
 | 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位；第 7 节是优先级 |
 | 踩过的坑的全过程 | [docs/JOURNAL.md](docs/JOURNAL.md) |
 | 想照别的项目的做法改 | [docs/research/codex.md](docs/research/codex.md) —— 读 Codex 的五个主题：对照结论、学了什么、为什么不学 |

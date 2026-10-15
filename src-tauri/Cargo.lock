@@ -1866,6 +1866,7 @@ dependencies = [
  "fsservice",
  "gitsvc",
  "logengine",
+ "lspsvc",
  "objc2",
  "objc2-app-kit",
  "ptysvc",
@@ -1910,6 +1911,14 @@ dependencies = [
  "memchr",
  "memmap2",
  "regex",
+]
+
+[[package]]
+name = "lspsvc"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
 ]
 
 [[package]]

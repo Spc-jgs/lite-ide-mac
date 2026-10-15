@@ -10,6 +10,7 @@ members = [
     "crates/gitsvc",
     "crates/applog",
     "crates/procutil",
+    "crates/lspsvc",
 ]
 
 [package]
@@ -56,6 +57,8 @@ searchsvc = { path = "crates/searchsvc" }
 replacesvc = { path = "crates/replacesvc" }
 gitsvc = { path = "crates/gitsvc" }
 tasksvc = { path = "crates/tasksvc" }
+# 语言服务器客户端 + jdtls 怎么起（docs/IDEA.md 第 2 步）。同仓库的 crate
+lspsvc = { path = "crates/lspsvc" }
 
 # 「打开文件夹…」的原生选择框。
 #

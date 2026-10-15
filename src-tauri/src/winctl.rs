@@ -386,6 +386,8 @@ pub fn quit(app: &AppHandle) {
     crate::diag!("退出：等 {wait:?} 回话");
     // 跑着的任务（#48）先软停：和前端落盘同时进行，Spring 的关闭钩子趁这段时间跑（第 0 步实测 0.25 秒）
     let runs = st.stop_all_runs();
+    // jdtls 也同时按协议收尾（并行，各自最多两个 java::GRACE）；没走完的在 RunEvent::Exit 里强杀
+    let java = st.java.stop_all();
     for l in &wait {
         let _ = app.emit_to(l.as_str(), "flush", ());
     }
@@ -401,7 +403,7 @@ pub fn quit(app: &AppHandle) {
         }
         crate::diag!("退出：等了 {}ms，没回话的 {left} 个", t.elapsed().as_millis());
         // 任务再多给一会儿收尾，从开始退出算总共不超过 RUNS_WAIT；还没走完的在 RunEvent::Exit 里强杀
-        while runs.iter().any(|r| r.alive()) && t.elapsed() < RUNS_WAIT {
+        while (runs.iter().any(|r| r.alive()) || java.iter().any(|j| !j.is_finished())) && t.elapsed() < RUNS_WAIT {
             std::thread::sleep(Duration::from_millis(50));
         }
         save_now(&app);

@@ -1,5 +1,6 @@
 mod budget;
 mod commands;
+pub mod java;
 mod maven;
 pub mod diag;
 pub mod menu;
@@ -286,6 +287,15 @@ pub fn run() {
             commands::log_patterns,
             commands::log_patterns_compare,
             commands::maven_project,
+            commands::java_open,
+            commands::java_change,
+            commands::java_save,
+            commands::java_close,
+            commands::java_definition,
+            commands::java_references,
+            commands::java_class_contents,
+            commands::java_status,
+            commands::java_restart,
             commands::pick_files,
             commands::close_log,
             commands::initial_paths,
@@ -401,6 +411,8 @@ pub fn run() {
                 winctl::save_now(app);
                 // 退出流程里已经软停过（winctl::quit），这里把宽限期里没走完的强杀掉 —— 进程一结束就没人管它们了
                 tauri::Manager::state::<state::AppState>(app).kill_all_runs();
+                // jdtls 同理：退出流程里按协议说过再见了（winctl::quit），还没走的强杀
+                tauri::Manager::state::<state::AppState>(app).java.kill_all();
             }
             _ => {}
         });
