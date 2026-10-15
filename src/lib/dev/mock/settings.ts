@@ -55,7 +55,7 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
         { key: "terminal.fontFamily", kind: "string", default: '""', doc: "终端字体，空 = 跟编辑器", min: null, max: null },
         { key: "terminal.fontSize", kind: "integer", default: "13", doc: "终端字号", min: MIN, max: MAX },
         { key: "terminal.shell", kind: "string", default: '""', doc: "终端用的 shell，空 = $SHELL", min: null, max: null },
-        { key: "java.jdtlsHome", kind: "string", default: '""', doc: "Java 智能用的 jdtls，空 = 应用自己下的那份", min: null, max: null },
+        { key: "java.jdtlsHome", kind: "string", default: '""', doc: "Java 智能用的 jdtls，空 = 内置的那份", min: null, max: null },
       ];
     case "set_ui_state": {
       const k = KEYS[String(a.key)];

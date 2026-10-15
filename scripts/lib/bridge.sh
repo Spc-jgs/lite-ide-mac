@@ -101,8 +101,6 @@ lite_launch() {
   # 那份脚本不开终端（任务是 `-ilc`，命令不经行编辑器、不进历史 —— TASKS.md 第 10 节实测），并且前后比对你的历史文件
   local zdot=(--env ZDOTDIR="${LITE_WORK}/zdot")
   [ "${LITE_USER_SHELL:-}" = 1 ] && zdot=()
-  # 下 jdtls 的地址换成本机文件（scripts/accept/java.sh：验收不上网下 50 MB；只有测试构建认它，java.rs 的 install_url）
-  [ -n "${LITE_IDE_JDTLS_URL:-}" ] && zdot+=(--env LITE_IDE_JDTLS_URL="${LITE_IDE_JDTLS_URL}")
   mkdir -p "${LITE_WORK}/zdot"
   lite_mark "[启动测试应用]"
   # PATH 设成 Finder 双击时那样（launchd 的默认值）：**`open` 会把调用它的终端的环境整个带给应用**（2026-10-10 整体审核实测：

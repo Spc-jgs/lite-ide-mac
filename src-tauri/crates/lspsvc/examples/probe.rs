@@ -58,7 +58,12 @@ fn main() {
     )
     .unwrap();
     let uri = |p: &Path| format!("file://{}", p.display());
-    s.initialize(&uri(root), "root", jdtls::capabilities(), jdtls::init_options(), Duration::from_secs(120)).unwrap();
+    let mut opts = jdtls::init_options();
+    // GUESS=off|insertParameterNames|insertBestGuessedArguments：试 jdtls 的方法补全插什么
+    if let Ok(g) = std::env::var("GUESS") {
+        opts["settings"]["java"]["completion"] = json!({ "guessMethodArguments": g });
+    }
+    s.initialize(&uri(root), "root", jdtls::capabilities(), opts, Duration::from_secs(120)).unwrap();
     println!("initialize {:.0} ms", t0.elapsed().as_secs_f64() * 1000.0);
     ready_rx.recv_timeout(Duration::from_secs(300)).expect("300 秒没等到 ServiceReady");
     println!("ServiceReady {:.0} ms", t0.elapsed().as_secs_f64() * 1000.0);
@@ -81,6 +86,23 @@ fn main() {
         Ok(v) => v.get(0).map_or("空".into(), |l| format!("{} 第 {} 行", l["uri"].as_str().unwrap_or("?").rsplit('/').next().unwrap_or(""), l["range"]["start"]["line"].as_u64().unwrap_or(0) + 1)),
         Err(e) => format!("错：{e}"),
     });
+    // COMPL=<一段文字>：在第一处出现它的末尾问一次补全，打出前几项原样、再 resolve 第一项（第 3 步看 jdtls 的补全长什么样）
+    if let Ok(after) = std::env::var("COMPL") {
+        let (l, c) = text.lines().enumerate().find_map(|(i, l)| l.find(after.as_str()).map(|c| (i, c + after.len()))).expect("没有那段文字");
+        let t = Instant::now();
+        let r = s.request("textDocument/completion", json!({ "textDocument": { "uri": uri(path) }, "position": { "line": l, "character": c } }), Duration::from_secs(30)).unwrap();
+        let items = r.get("items").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        println!("补全 {:.0} ms，{} 项，isIncomplete={}", t.elapsed().as_secs_f64() * 1000.0, items.len(), r["isIncomplete"]);
+        let pick = std::env::var("PICK").ok();
+        for it in items.iter().filter(|i| pick.as_deref().is_none_or(|p| i["label"].as_str().unwrap_or("").starts_with(p))).take(3) {
+            println!("  项：{}", it);
+        }
+        if let Some(first) = items.iter().find(|i| pick.as_deref().is_none_or(|p| i["label"].as_str().unwrap_or("").starts_with(p))) {
+            let t = Instant::now();
+            let res = s.request("completionItem/resolve", first.clone(), Duration::from_secs(30)).unwrap();
+            println!("  resolve {:.0} ms：{}", t.elapsed().as_secs_f64() * 1000.0, res);
+        }
+    }
     if std::env::var("RAW").is_ok() {
         println!("原样：{}", r.as_ref().map(|v| v.to_string()).unwrap_or_default());
     }

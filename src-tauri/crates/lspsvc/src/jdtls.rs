@@ -221,12 +221,25 @@ pub fn capabilities() -> Value {
             "definition": { "linkSupport": false },
             "references": {},
             "hover": { "contentFormat": ["plaintext", "markdown"] },
+            "completion": {
+                "completionItem": {
+                    "snippetSupport": true,
+                    "documentationFormat": ["plaintext", "markdown"],
+                    "labelDetailsSupport": true,
+                    "resolveSupport": { "properties": ["documentation", "detail", "additionalTextEdits"] },
+                },
+                "contextSupport": true,
+            },
         },
     })
 }
 
 /// jdtls 自己的 initializationOptions。`classFileContentsSupport`：跳进 jar 里的类时给 `jdt://` 的地址，内容另外用
 /// `java/classFileContents` 要（有源码 jar 就是源码，没有就反编译）
+///
+/// 不配 `java.configuration.runtimes`：jdtls 自己会认机器上的 JDK —— Eclipse 的 `MacInstalledJREs` 跑 `/usr/libexec/java_home -X`，
+/// 项目按声明的版本挑对应的那个当类库（⌘B 进 `String` 是 JDK 17 带的源码）。2026-10-15 配过一份，验红时把它清空、照样是 JDK 17 的源码，
+/// 反汇编才找到这个原因 —— 配了等于重复
 pub fn init_options() -> Value {
     json!({
         "extendedClientCapabilities": { "classFileContentsSupport": true, "progressReportProvider": false },

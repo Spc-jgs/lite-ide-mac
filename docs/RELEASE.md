@@ -153,6 +153,17 @@ scripts/smoke.sh
 它不会拦住发版（没有红线，也不该有：单次读数噪声太大）。
 它回答的是「发出去之后要不要盯着」。
 
+### 1.7 内置的 Java 智能（2026-10-15 起）
+
+`app:bundle` 和 release.yml 都先跑 `scripts/java-bundle.sh`：jdtls（钉死版本 + sha256）+ jlink 裁出来的 Java 21 运行时，一个架构一份，
+打包时由 `src-tauri/tauri.java.json` 放进 `.app/Contents/Resources/java/`（docs/IDEA.md 第 10 节）。release.yml 用 setup-java 装两个架构的 JDK 21，
+**两个要同一个版本**（jlink 只认同版本的 jmods，脚本会核）。
+
+**第一次带它发版要真装一遍验两件事**（2026-10-15 写这段时还没验过）：
+- universal 包里两个运行时都在、x86_64 那份在 Intel 机器（或 Rosetta 下）能起 jdtls
+- 从 `.dmg` 装、带隔离标记的 `.app`：按「关于 Gatekeeper」那节放行之后，打开一个 Maven 项目里的 Java 文件，状态栏走到「Java：导入中」、能跳转。
+  卡住的话多半是 Gatekeeper 拦了包里没签名的 `java`，看 app.log
+
 ### 2. 打标签推上去
 
 ```bash

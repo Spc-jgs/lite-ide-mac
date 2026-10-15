@@ -3,6 +3,9 @@ node_modules/
 dist/
 build/
 src-tauri/target/
+# 内置的 jdtls + Java 运行时（scripts/java-bundle.sh 生成，约 110 MB，打包时才放进 .app）
+src-tauri/java-bundle/
+src-tauri/java-bundle.partial/
 src-tauri/gen/
 
 # macOS

@@ -119,7 +119,7 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 156,192 B → CI 取整 152（2026-10-15），告警是「大于 152」、红线 160 —— 离告警只剩 480 B**。同日 jdtls 下载卡片 +75 B（新的共享块 `java-offer` 在 Vite 预加载表里的一项；卡片在懒加载的 Confirms 里）。10-15 Java 智能（docs/IDEA.md 第 2 步）+261 B：实现全在跟着 Java 语言包走的懒 chunk（`java-lsp`、`UsagesPopup`），入口里只剩接线 —— `tabflow.openClass` 一行转发（走已有的 `ops()`，不另开 `import()`）、nav 认 `uri`、标签的「只读」徽章、快照滤掉 class 标签、`langOf` 认 `jdt:`。
+（**当前 156,117 B → CI 取整 152（2026-10-15），告警是「大于 152」、红线 160 —— 离告警只剩 555 B**。同日 jdtls 下载卡片 +75 B（新的共享块在 Vite 预加载表里的一项），改成内置之后卡片删了、回到 156,117。10-15 Java 智能（docs/IDEA.md 第 2 步）+261 B：实现全在跟着 Java 语言包走的懒 chunk（`java-lsp`、`UsagesPopup`），入口里只剩接线 —— `tabflow.openClass` 一行转发（走已有的 `ops()`，不另开 `import()`）、nav 认 `uri`、标签的「只读」徽章、快照滤掉 class 标签、`langOf` 认 `jdt:`。
 之前是 155,856 B（2026-10-14 晚，离告警 816 B）。同晚 Maven 工具窗 +935 B：导轨上那个按钮的模板 380、
 App 里懒加载 + 恢复会话时自动拉 + snippet 约 400、Vite 预加载表多两项；都是窗口出来就得在的接线（按钮要能看见、恢复到 Maven 视图要能拉）。下一个往入口里加东西的，先想办法把导轨的按钮做成表驱动再加。
 之前是 154,921 B → CI 取整 151（2026-10-14），告警 152、红线 160。10-14 合并日志 +156 B：第一版 +670（Content 给 LogPane 一样样传 path / merge / 回调、App 转一道文件树的回调、`openPath` 里直接 `import("./merge-ops")`），

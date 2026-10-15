@@ -9,5 +9,3 @@ description = "语言服务器客户端（LSP over stdio）+ jdtls 怎么起（�
 serde_json = "1"
 # killpg（停整组）。不是新包：ptysvc、tasksvc 已经直接依赖它
 libc = "0.2"
-# 下 jdtls 的 curl / shasum / tar（install.rs）：输出设闸、丢掉就收尸。同仓库的 crate
-procutil = { path = "../procutil" }

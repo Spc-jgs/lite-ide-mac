@@ -711,7 +711,7 @@ pub struct TaskStaleDto {
     pub command: String,
 }
 
-/// Java 智能的状态（docs/IDEA.md 第 2 步）：状态栏那格。`phase`：starting / importing / ready / failed / stopped / missing（还没装 jdtls，问要不要下）
+/// Java 智能的状态（docs/IDEA.md 第 2 步）：状态栏那格。`phase`：starting / importing / ready / failed / stopped
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct JavaStatusDto {
@@ -731,7 +731,6 @@ impl From<&crate::java::Status> for JavaStatusDto {
             Phase::Importing(m) => ("importing", m.clone()),
             Phase::Ready => ("ready", String::new()),
             Phase::Failed(m) => ("failed", m.clone()),
-            Phase::Missing(m) => ("missing", m.clone()),
             Phase::Stopped => ("stopped", String::new()),
         };
         JavaStatusDto { root: s.root.clone(), phase: phase.into(), message, detail: s.detail.clone() }
@@ -795,14 +794,6 @@ impl From<crate::java::Location> for JavaLocationDto {
             text: String::new(),
         }
     }
-}
-
-/// 下 jdtls 的进度（`java-install` 事件）：已下、总共，字节
-#[derive(serde::Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct JavaInstallDto {
-    pub received: u64,
-    pub total: u64,
 }
 
 /// 查用法的结果。`total` 是真条数；超过 `java::REFS_MAX` 时 `items` 只有前一截，界面要说出来

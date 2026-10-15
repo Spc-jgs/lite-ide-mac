@@ -27,7 +27,6 @@
   import { replace } from "../state/replace.svelte";
   import { project } from "../state/project.svelte";
   import { runs } from "../state/runs.svelte";
-  import { declined, javaOffer } from "../state/java-offer.svelte";
   import { keyVerdict, nudgesFor, takeFocus } from "./dialog-focus";
   import { nudgeDialog, setAsking } from "./modal";
   import Icon from "./Icon.svelte";
@@ -58,7 +57,6 @@
       tabs.active?.conflict && "conflict",
       replace.interrupted && replace.interrupted.root === project.root && "interrupted",
       runs.stale && runs.stale.root === project.root && "stale",
-      javaOffer.card && javaOffer.card.root === project.root && "java",
       replace.done && replace.done.root === project.root && "done",
     ].filter((x): x is string => !!x),
   );
@@ -401,25 +399,6 @@
     </div>
     <button class="btn" onclick={() => void import("../state/runs-ops").then((m) => m.resolveStale(false))}>留着</button>
     <button class="btn primary" onclick={() => void import("../state/runs-ops").then((m) => m.resolveStale(true))}>结束它们</button>
-  </div>
-{/if}
-
-{#if javaOffer.card && javaOffer.card.root === project.root && showCard("java")}
-  {@const o = javaOffer.card}
-  <!--
-    还没装 jdtls（docs/IDEA.md 第 10 节）：第一次打开 Java 文件时问一次。琥珀：要你决定。卡片不是对话框 ——
-    是打开文件「顺带」冒出来的，不该挡着人看代码（ui.md 第二之二条）。说清多大、从哪来（第 3 节第 4 条）；「以后再说」这次运行里不再问
-  -->
-  <div class="confirm warn tall" out:cardOut>
-    <div class="btext">
-      <span>Java 智能（实时报错、⌘B 跳进 jar、⌥F7）要先下载一个语言服务器</span>
-      <span class="rest">{o.text}</span>
-    </div>
-    <button class="btn" data-dismiss onclick={() => {
-      declined.add(o.root);
-      javaOffer.card = null;
-    }}>以后再说</button>
-    <button class="btn primary" onclick={() => void import("../editor/java-lsp").then((m) => m.installJdtls(o.root))}>下载</button>
   </div>
 {/if}
 

@@ -780,12 +780,8 @@ Maven / Gradle 项目里打开 `.java`，后台起一个 Java 语言服务器（
   ⌘ 按着划过一个词，有下划线才是「点了一定跳得过去」
 - **⌥F7 查找用法**：光标底下的类 / 方法 / 字段被哪些地方用了，挂在光标底下一张列表，↑↓ 选、↵ 跳。（IDEA 的 ⌥F7 开的是一个工具窗，这里先是列表；⌥⌘F7 同）
 
-**要两样东西**（缺哪样，打开 Java 文件时编辑区底下会说一次缺什么）：
-
-- **JDK 21 或更新的**：jdtls 自己要 21 才能跑（你的项目可以是 8–25，用哪个 JDK 编译还是项目自己说了算）。`brew install --cask temurin@21`，装在 `/Library/Java/JavaVirtualMachines`；IDEA 下载到 `~/Library/Java/JavaVirtualMachines` 的也认
-- **jdtls**：第一次打开 Java 文件时编辑区顶上出一张卡片，说清多大（49 MB）、从哪来（download.eclipse.org），点「下载」才下。
-  进度在状态栏中间那格（能取消），下完核对 sha256，对不上就不装；装在应用数据目录的 `jdtls/1.61.0/`，之后不再问。点「以后再说」这次运行里不再问。
-  想用自己的 jdtls：`settings.json` 里写 `"java.jdtlsHome": "<解开的目录>"`，就不走下载
+**不用装任何东西**：jdtls 和跑它的 Java 21 都在 lite-ide 里面。你的项目用哪个 JDK 编译，还是项目自己说了算（`<java.version>17` 就用你机器上的 JDK 17，
+⌘B 进 `String` 看的是它带的源码）。想用自己的 jdtls：`settings.json` 里写 `"java.jdtlsHome": "<解开的目录>"`
 
 **它不会做的**：
 

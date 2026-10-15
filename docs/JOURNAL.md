@@ -9534,3 +9534,25 @@ jstack 一看是另一件事：`JavaCore.stop → JobManager.shutdown` 在 join 
 验证：install.rs 六条测试（真 curl / shasum / tar 跑 `file://`），六种改坏的五种红、「取消」那种分不出（IDEA.md 第 10 节说了为什么）；cargo test --workspace、pnpm test / check 全过；
 浏览器桩上走了卡片 → 下载 → 进度 → 装好自己起来、下到 39% 取消；真 .app `JDTLS_TGZ=… scripts/accept/java.sh` 21/21、`JDTLS_HOME=…` 17/17。
 入口包 156,117 → 156,192 B（+75：新共享块在预加载表里的那一项；卡片和下载都在懒块里）。
+
+## 2026-10-15 · jdtls 和 Java 21 改成内置；用户不认可「第一次用时下载」
+
+上一轮做的「第一次打开 Java 文件时卡片问要不要下」，用户截了图：「这个我不认可，这个应该是内置的功能」。他还选了连 Java 21 运行时一起内置。
+我当时把 IDEA.md 第 3 节「正式包不变大」当硬约束 —— 那条是我立的，理由是看日志、记笔记的人用不到 Java；可这个应用的主要用户天天写 Java，
+为包小让他多点一次下载，优先级排反了。**我立的约束，也要随用户的真实用法重审**，不是写进文档就不动了。下载那一版的代码整个删了。
+
+做法和数字在 IDEA.md 第 10 节。这里记三件当时的事：
+
+**一、第二次打包就挂。** 验收新加的一条（项目声明 Java 17，⌘B 进 String 要是 JDK 17 带的源码）要验红，改坏 `java.rs` 重打测试包 —— 构建失败，只有一句
+`Permission denied (os error 13)`。原因：jlink 产出的不少文件是只读的，tauri-build 每次把资源拷进 `target/`，第二次要覆盖上一次的、盖不了。
+第一次打包永远是好的，所以一般的验法撞不上；是「为了验红要再打一次」撞上的。脚本补 `chmod -R u+w`，连打两次都过。
+**验红的时候「没输出」先看构建是不是成功了**（AGENTS.md 那条），这次第一眼就是构建失败、不是测试绿。
+
+**二、验红没红，查出来那段配置是多余的。** 我给 jdtls 配了 `java.configuration.runtimes`（列出机器上的 JDK，让项目按版本挑）。改坏成空列表、重打、跑 ——
+照样是 JDK 17 的源码。翻 jdtls 的 jar：Eclipse 的 `MacInstalledJREs` 自己跑 `/usr/libexec/java_home -X` 认 JDK。我那份配置和它重复，删了。
+**验不红的测试先问「是不是我以为起作用的那段根本没起作用」**，别急着把测试改到能红。验收那条留着：它守的是行为（进 String 有源码），行为是真的。
+
+**三、jlink 的 `legal/` 里 102 个软链。** 每个模块的许可证都指向 `java.base` 那份。许可证要留，软链换成实体（`cp -RL`）。
+
+**数字**：裁过的运行时 35 个模块、57 MB（全量 69 个、91 MB）；本机架构 `.dmg` 7 → 98 MB；真 .app `scripts/accept/java.sh` 20/20，跑 jdtls 的是 `.app` 里那份 Java。
+**没验到的**：universal 发版那条路、带隔离标记的 `.app` 里 Gatekeeper 放不放行包里的 `java` —— 下次打标签时真装一遍（RELEASE.md 1.7）。

@@ -5,26 +5,13 @@
  * 状态 starting → importing（带「32% …」那种进度）→ ready，**故意走一阵**（0.4 秒、1.6 秒）—— 围着「导入中」做的状态栏那格
  * 在 0ms 的桩上看不见（frontend.md「桩要能停在中间一会儿」）。诊断在改动后 450ms 回来（第 0 步实测 0.43–0.5 秒）。
  *
- * jdtls 装没装（docs/IDEA.md 第 10 节）：默认没装，`java_open` 给 `missing`（卡片问要不要下）；`java_install` 用 2 秒发一串进度、装好，
- * 记在 localStorage 里（刷新页面不用再点一次；清掉 `mock.jdtls` 再看一次卡片）。下到一半 `java_install_cancel` 就以「取消了」失败。
- *
  * 不模拟的：真的语义。报错只认一种 —— 调了名字以 `lll` 结尾的方法（第 0 步实测用的就是 `findAll` → `findAlll`）；
  * 跳转只认「类名 → 声明这个类的文件」和「方法名 → 某个文件里 `名字(` 开头的声明」，`SpringApplication` 跳进一个假 jar。
  */
 import { type A, FILES, NOT_MINE } from "./data";
 import { mockEmit } from "./events";
 
-type Phase = "starting" | "importing" | "ready" | "failed" | "stopped" | "missing";
-const SIZE = 51_037_522;
-const installed = () => {
-  try {
-    return localStorage.getItem("mock.jdtls") === "1";
-  } catch {
-    return false;
-  }
-};
-let cancelled = false;
-const OFFER = "jdtls 1.61.0（Eclipse 的 Java 语言服务器，49 MB，来自 download.eclipse.org，下完核对 sha256）";
+type Phase = "starting" | "importing" | "ready" | "failed" | "stopped";
 const phaseOf = new Map<string, Phase>();
 const docs = new Map<string, string>(); // path → 最新全文
 
@@ -39,7 +26,7 @@ function isBuildRoot(root: string): boolean {
 
 function status(root: string) {
   const phase = phaseOf.get(root) ?? "stopped";
-  return { root, phase, message: phase === "importing" ? "32% Project 'proj'" : "", detail: "JDK 21（桩）· Lombok lombok-1.18.46.jar" };
+  return { root, phase, message: phase === "importing" ? "32% Project 'proj'" : "", detail: "Java 21（内置，桩）· Lombok lombok-1.18.46.jar" };
 }
 
 function setPhase(root: string, phase: Phase) {
@@ -157,11 +144,6 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
     case "java_open":
       if (!phaseOf.has(root) && !isBuildRoot(root)) return null;
       docs.set(path, String(a.text ?? ""));
-      if (!installed()) {
-        const s = { root, phase: "missing", message: OFFER, detail: "" };
-        mockEmit("java-status", s);
-        return s;
-      }
       start(root);
       later(root, path);
       return status(root);
@@ -187,25 +169,6 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       return CLASS;
     case "java_status":
       return phaseOf.has(root) ? status(root) : null;
-    case "java_install": {
-      cancelled = false;
-      for (let i = 1; i <= 10; i++) {
-        await wait(200);
-        if (cancelled) throw new Error("取消了");
-        mockEmit("java-install", { received: Math.floor((SIZE * i) / 10), total: SIZE });
-      }
-      try {
-        localStorage.setItem("mock.jdtls", "1");
-      } catch {
-        // 存不了就是这次运行里装好了，刷新再问一次
-      }
-      phaseOf.delete(root);
-      start(root);
-      return null;
-    }
-    case "java_install_cancel":
-      cancelled = true;
-      return null;
     case "java_restart":
       phaseOf.delete(root);
       start(root);

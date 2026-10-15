@@ -13,8 +13,8 @@
     "tauri": "tauri",
     "app": "tauri dev",
     "app:build": "tauri build --no-bundle",
-    "app:bundle": "tauri build && scripts/ls-clean.sh",
-    "app:bundle:devtools": "tauri build --features devtools",
+    "app:bundle": "scripts/java-bundle.sh && tauri build --config src-tauri/tauri.java.json && scripts/ls-clean.sh",
+    "app:bundle:devtools": "scripts/java-bundle.sh && tauri build --features devtools --config src-tauri/tauri.java.json",
     "test": "node tests/run.mjs"
   },
   "dependencies": {

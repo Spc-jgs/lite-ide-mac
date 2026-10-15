@@ -60,8 +60,28 @@ jobs:
         working-directory: src-tauri
         run: cargo test --workspace --locked
 
+      # 内置的 Java 智能（docs/IDEA.md 第 10 节）：universal 包两个架构各要一份 Java 21 运行时。jlink 只认同版本的 jmods ——
+      # 两个 JDK 都写 21、同一次运行里解析成同一个版本（java-bundle.sh 会核，对不上就停）；跑 jlink 的是 runner 本机（arm64）那个
+      - uses: actions/setup-java@v4
+        id: jdk-arm
+        with:
+          distribution: temurin
+          java-version: '21'
+          architecture: aarch64
+      - uses: actions/setup-java@v4
+        id: jdk-x64
+        with:
+          distribution: temurin
+          java-version: '21'
+          architecture: x64
+      - name: 准备内置的 jdtls 和 Java 运行时
+        env:
+          LITE_JDK21: ${{ steps.jdk-arm.outputs.path }}
+          LITE_JDK21_X86_64: ${{ steps.jdk-x64.outputs.path }}
+        run: scripts/java-bundle.sh aarch64 x86_64
+
       - name: 打 universal 包
-        run: pnpm tauri build --target universal-apple-darwin
+        run: pnpm tauri build --target universal-apple-darwin --config src-tauri/tauri.java.json
 
       - name: 建草稿 Release
         env:

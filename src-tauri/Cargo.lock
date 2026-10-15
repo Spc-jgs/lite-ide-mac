@@ -1918,7 +1918,6 @@ name = "lspsvc"
 version = "0.1.0"
 dependencies = [
  "libc",
- "procutil",
  "serde_json",
 ]
 

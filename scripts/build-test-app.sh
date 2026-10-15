@@ -13,11 +13,14 @@ cd "$(dirname "$0")/.."
 # 覆盖配置：换身份；主窗口不拿焦点（`focus: false`）—— 测试在后台跑（open -g），默认拿焦点的主窗口一出来就会把
 # 用户正在用的应用顶下去（2026-10-09 实测）。`--config` 是 JSON Merge Patch，数组整个替换，所以从 tauri.conf.json
 # 读出完整的窗口配置、只改 focus 这一项，不在这儿手抄一份（手抄的迟早和正式配置分叉）
+scripts/java-bundle.sh
 CONFIG=$(python3 - <<'PY'
 import json
 c = json.load(open("src-tauri/tauri.conf.json"))
 wins = [dict(w, focus=False) for w in c["app"]["windows"]]
-print(json.dumps({"identifier": "com.liteide.mwtest", "productName": "lite-ide-mwtest", "app": {"windows": wins}}))
+# 内置的 Java 智能（scripts/java-bundle.sh、src-tauri/tauri.java.json）：验收要的就是正式包里那一份
+java = json.load(open("src-tauri/tauri.java.json"))
+print(json.dumps({"identifier": "com.liteide.mwtest", "productName": "lite-ide-mwtest", "app": {"windows": wins}, "bundle": java["bundle"]}))
 PY
 )
 VITE_TEST_BRIDGE=1 pnpm tauri build --features test-bridge --bundles app --config "${CONFIG}"

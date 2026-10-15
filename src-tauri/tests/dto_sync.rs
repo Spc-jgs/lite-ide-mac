@@ -86,7 +86,6 @@ const PAIRS: &[(&str, &str)] = &[
     ("JavaDiagnosticDto", "JavaDiagnostic"),
     ("JavaLocationDto", "JavaLocation"),
     ("JavaRefsDto", "JavaRefs"),
-    ("JavaInstallDto", "JavaInstall"),
 ];
 
 struct RustStruct {
