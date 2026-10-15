@@ -82,7 +82,7 @@ pub const DEFS: &[Def] = &[
         key: "java.jdtlsHome",
         kind: Kind::Str { empty_ok: true },
         default: "\"\"",
-        doc: "Java 智能用的 jdtls（解开的发行包，里面有 plugins/ 和 config_mac_arm/）。空 = 应用数据目录里的 jdtls/。下次打开 Java 文件时生效",
+        doc: "Java 智能用的 jdtls（解开的发行包，里面有 plugins/ 和 config_mac_arm/）。空 = 应用自己下的那份（第一次打开 Java 文件时问要不要下）。下次起 jdtls 时生效",
     },
 ];
 

@@ -20,3 +20,6 @@ export const javaReferences = (root: string, path: string, line: number, charact
 export const javaClassContents = (root: string, uri: string) => invoke<string>("java_class_contents", { root, uri });
 export const javaStatus = (root: string) => invoke<JavaStatus | null>("java_status", { root });
 export const javaRestart = (root: string) => invoke<void>("java_restart", { root });
+/** 下 jdtls、下完起这个项目的 jdtls。会等到下完；进度走 `java-install` 事件 */
+export const javaInstall = (root: string) => invoke<void>("java_install", { root });
+export const javaInstallCancel = () => invoke<void>("java_install_cancel");

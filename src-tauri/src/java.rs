@@ -12,7 +12,8 @@
 //! 把 CM6 的改动换算成 UTF-16 的行列，错一个字符服务器那份就和编辑器分叉 —— 那种错不报错、只是报错位置越来越偏。先用全文，量出慢再换。
 
 use crate::owned::Owned;
-use lspsvc::{jdtls, uri, Error, Server};
+use lspsvc::{install, jdtls, uri, Error, Server};
+use std::sync::atomic::{AtomicBool, Ordering};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -45,6 +46,8 @@ pub enum Phase {
     Ready,
     /// 起不来 / 崩了。带原因（崩了的话带 stderr 最后几行）
     Failed(String),
+    /// 应用数据目录里还没有 jdtls（也没在设置里指一个）：前端问要不要下（`Java::install`）。带一句「多大、从哪来」
+    Missing(String),
     /// 我们收掉的（闲了、窗口关了）
     Stopped,
 }
@@ -183,7 +186,7 @@ impl Instance {
         loop {
             match &*p {
                 Phase::Importing(_) | Phase::Ready => return Ok(()),
-                Phase::Failed(why) => return Err(why.clone()),
+                Phase::Failed(why) | Phase::Missing(why) => return Err(why.clone()),
                 Phase::Stopped => return Err("Java 语言服务器已经收掉了".into()),
                 Phase::Starting => {}
             }
@@ -390,18 +393,40 @@ struct Found {
     workspace: PathBuf,
 }
 
-fn find(app: &AppHandle, root: &Path) -> Result<Found, String> {
-    let user = std::env::var_os("HOME").map(PathBuf::from).ok_or("找不到用户目录（没有 HOME）")?;
+/// 找不齐的两种：缺的是「应用自己会装的那份 jdtls」（问人要不要下），还是别的（缺 JDK 21、设置里指的目录不对 —— 照实说）
+enum Lack {
+    Jdtls,
+    Other(String),
+}
+
+/// 应用自己装的 jdtls 放在哪：`<应用数据>/jdtls/<版本>/`（install.rs 头上：一个版本一个目录）
+fn jdtls_base(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("jdtls"))
+}
+
+/// 「要下多大、从哪来」那一句（第 3 节第 4 条：先问，说清楚）
+pub fn offer_text() -> String {
+    format!("jdtls {}（Eclipse 的 Java 语言服务器，{} MB，来自 download.eclipse.org，下完核对 sha256）", install::DIST.version, (install::DIST.size + (1 << 19)) >> 20)
+}
+
+fn find(app: &AppHandle, root: &Path) -> Result<Found, Lack> {
+    let user = std::env::var_os("HOME").map(PathBuf::from).ok_or(Lack::Other("找不到用户目录（没有 HOME）".into()))?;
+    // 先查 JDK：没有 JDK 21 的话下了 jdtls 也起不来，不该先问人要不要下 50 MB
     let (java_version, java) = jdtls::find_jdk(&jdtls::default_jdk_dirs(&user), jdtls::MIN_JAVA)
-        .ok_or("没有 JDK 21 或更新的：jdtls 自己要 21 才能跑（你的项目可以是 8–25）。装一个：brew install --cask temurin@21")?;
-    let data = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?;
+        .ok_or(Lack::Other("没有 JDK 21 或更新的：jdtls 自己要 21 才能跑（你的项目可以是 8–25）。装一个：brew install --cask temurin@21".into()))?;
+    let data = app.path().app_data_dir().map_err(|e| Lack::Other(format!("找不到应用数据目录：{e}")))?;
     let set = app.state::<crate::state::AppState>().settings.view().0.java_jdtls_home;
-    let home = if set.trim().is_empty() { data.join("jdtls") } else { PathBuf::from(set.trim()) };
-    let layout = jdtls::layout(&home).map_err(|e| format!("没有 jdtls（{e}）。在 settings.json 的 java.jdtlsHome 写上它解开后的目录"))?;
+    let layout = if set.trim().is_empty() {
+        let base = data.join("jdtls");
+        let dir = install::installed(&base, &install::DIST).ok_or(Lack::Jdtls)?;
+        jdtls::layout(&dir).map_err(|e| Lack::Other(e))?
+    } else {
+        jdtls::layout(Path::new(set.trim())).map_err(|e| Lack::Other(format!("settings.json 的 java.jdtlsHome 指的不是 jdtls（{e}）")))?
+    };
     let settings = std::fs::read_to_string(user.join(".m2/settings.xml")).ok();
     let lombok = jdtls::lombok_jar(&jdtls::local_repo(&user, settings.as_deref()));
     let workspace = jdtls::workspace_dir(&data.join("jdtls-ws"), root);
-    jdtls::prepare_config(&layout, &workspace).map_err(|e| format!("建不了 jdtls 的缓存目录 {}：{e}", workspace.display()))?;
+    jdtls::prepare_config(&layout, &workspace).map_err(|e| Lack::Other(format!("建不了 jdtls 的缓存目录 {}：{e}", workspace.display())))?;
     Ok(Found { java, java_version, layout, lombok, workspace })
 }
 
@@ -410,6 +435,13 @@ fn find(app: &AppHandle, root: &Path) -> Result<Found, String> {
 pub struct Java {
     all: Owned<String, Arc<Instance>>,
     janitor: OnceLock<()>,
+    /// 正在下 jdtls：同一时间只下一份（两个窗口各点一次「下载」不该下两遍）。置位 = 在下
+    installing: AtomicBool,
+    /// 下到一半要停（进度格上的取消）
+    cancel: AtomicBool,
+    /// 没起起来的项目最近一次的状态（还没装 jdtls、缺 JDK 21…）：它们在 `all` 里没有实例，`status` 要从这儿答 ——
+    /// 不然晚挂上的前端问一句「现在什么状态」拿到的是「什么都没有」，看不出是要下载（验收撞上的）
+    last: std::sync::Mutex<HashMap<String, Status>>,
 }
 
 impl Java {
@@ -418,21 +450,30 @@ impl Java {
     }
 
     pub fn status(&self, root: &str) -> Option<Status> {
-        self.all.get(&root.to_string(), |i| i.status())
+        self.all
+            .get(&root.to_string(), |i| i.status())
+            .or_else(|| self.last.lock().unwrap_or_else(|e| e.into_inner()).get(root).cloned())
     }
 
     /// 这个项目的 jdtls，没有（或者上一个崩了 / 收掉了）就起一个。**不等它起好**：进程起来、登记、后台 initialize，立刻返回。
-    /// 起不来（缺 JDK 21、缺 jdtls）给 `Err`，原因同时作为状态发给前端
-    pub fn ensure(&self, app: &AppHandle, owner: &str, root: &str) -> Result<Arc<Instance>, String> {
+    /// 起不来给 `Err(状态)`：`Missing`（还没装 jdtls，问人要不要下 —— 不是错）或者 `Failed`（缺 JDK 21、设置指错了…），同时发给前端
+    pub fn ensure(&self, app: &AppHandle, owner: &str, root: &str) -> Result<Arc<Instance>, Status> {
         self.janitor.get_or_init(|| spawn_janitor(app.clone()));
         if let Some(i) = self.get(root) {
             return Ok(i);
         }
-        let fail = |why: String| {
-            emit_status(app, owner, &Status { root: root.to_string(), phase: Phase::Failed(why.clone()), detail: String::new() });
-            why
+        let say = |phase: Phase| {
+            let s = Status { root: root.to_string(), phase, detail: String::new() };
+            emit_status(app, owner, &s);
+            self.last.lock().unwrap_or_else(|e| e.into_inner()).insert(root.to_string(), s.clone());
+            s
         };
-        let f = find(app, Path::new(root)).map_err(fail)?;
+        let fail = |why: String| say(Phase::Failed(why));
+        let f = match find(app, Path::new(root)) {
+            Ok(f) => f,
+            Err(Lack::Other(why)) => return Err(fail(why)),
+            Err(Lack::Jdtls) => return Err(say(Phase::Missing(offer_text()))),
+        };
         let detail = format!(
             "JDK {}（{}）· {}",
             f.java_version,
@@ -477,6 +518,7 @@ impl Java {
         )
         .map_err(|e| fail(format!("起不了 jdtls：{e}")))?;
         let inst = Arc::new(Instance { shared: Arc::clone(&shared), srv });
+        self.last.lock().unwrap_or_else(|e| e.into_inner()).remove(root);
         if let Some(old) = self.all.insert(owner, root.to_string(), Arc::clone(&inst)) {
             std::thread::spawn(move || old.stop());
         }
@@ -504,8 +546,43 @@ impl Java {
                     Err(e) => init.shared.set(Phase::Failed(format!("jdtls 没有完成初始化：{e}"))),
                 }
             })
-            .map_err(|e| format!("起不了线程：{e}"))?;
+            .map_err(|e| fail(format!("起不了线程：{e}")))?;
         Ok(inst)
+    }
+
+    /// 把钉死的那一版 jdtls 下进应用数据目录（前端那张「要下载吗」的卡片点了「下载」才走到这儿）。进度走 `java-install` 事件发给 `owner`。
+    /// **会阻塞到下完**（约 50 MB）。同时只下一份：另一个在下就直接说
+    pub fn install(&self, app: &AppHandle, owner: &str) -> Result<(), String> {
+        if self.installing.swap(true, Ordering::SeqCst) {
+            return Err("jdtls 已经在下了".into());
+        }
+        self.cancel.store(false, Ordering::SeqCst);
+        let r = (|| {
+            let base = jdtls_base(app)?;
+            let url = install_url();
+            let last = std::sync::Mutex::new(u64::MAX);
+            install::install(
+                &install::DIST,
+                &url,
+                &base,
+                |got, total| {
+                    // 一样的数不重发（curl 刚起、还没写出东西时那几次）
+                    let mut l = last.lock().unwrap_or_else(|e| e.into_inner());
+                    if *l != got {
+                        *l = got;
+                        let _ = app.emit_to(owner, "java-install", crate::commands::JavaInstallDto { received: got, total });
+                    }
+                },
+                &self.cancel,
+            )
+            .map(|dir| applog::write(applog::Level::Info, "java", &format!("装好了 jdtls：{}", dir.display())))
+        })();
+        self.installing.store(false, Ordering::SeqCst);
+        r
+    }
+
+    pub fn cancel_install(&self) {
+        self.cancel.store(true, Ordering::SeqCst);
     }
 
     /// 重起（状态栏「重起」按钮）：停掉旧的、起新的。开着的文档由前端重新 `open` 一遍（它手上的才是没保存的那份，这里不读盘）
@@ -513,7 +590,10 @@ impl Java {
         if let Some(old) = self.all.remove(&root.to_string()) {
             old.stop();
         }
-        self.ensure(app, owner, root).map(|_| ())
+        self.ensure(app, owner, root).map(|_| ()).map_err(|s| match s.phase {
+            Phase::Failed(m) | Phase::Missing(m) => m,
+            _ => String::new(),
+        })
     }
 
     /// 窗口关了：它名下的在后台按协议收尾（关窗口不用等它们）
@@ -562,6 +642,15 @@ pub fn line_texts(locs: &[Location]) -> Vec<String> {
             line.chars().take(240).collect()
         })
         .collect()
+}
+
+/// 从哪下。正式包永远是钉死的那个地址；测试构建能用 `LITE_IDE_JDTLS_URL` 换成本机的 `file://`（验收不上网下 50 MB）
+fn install_url() -> String {
+    #[cfg(feature = "test-bridge")]
+    if let Ok(u) = std::env::var("LITE_IDE_JDTLS_URL") {
+        return u;
+    }
+    install::DIST.url.to_string()
 }
 
 /// 一分钟看一次谁闲够了。整个进程一条，第一次起 jdtls 时才起

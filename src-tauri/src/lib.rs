@@ -296,6 +296,8 @@ pub fn run() {
             commands::java_class_contents,
             commands::java_status,
             commands::java_restart,
+            commands::java_install,
+            commands::java_install_cancel,
             commands::pick_files,
             commands::close_log,
             commands::initial_paths,

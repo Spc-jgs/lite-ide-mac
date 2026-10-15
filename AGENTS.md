@@ -22,7 +22,7 @@ scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪
 scripts/accept/merge.sh        # 几份日志按时间合并（15 条）：顺序、堆栈不拆散、过滤、偏移、跨块、会话恢复
 scripts/accept/patterns.sh     # 日志归类（8 条）：次数对得上、点一类筛出来正好那么多、和昨天比、合并视图、关标签收句柄
 scripts/accept/spring.sh       # 认出 Spring Boot 并照 IDEA 那样起 + Maven 工具窗（12 条，真 mvn / java）：兄弟模块不用 install、web 服务停干净、双击 package 出 jar
-JDTLS_HOME=<jdtls 目录> scripts/accept/java.sh  # Java 智能（17 条，真 jdtls + JDK 21）：Lombok 不报假错、实时报错、⌘B 进兄弟模块和 jar、⌥F7、不往项目里写、退出不留
+JDTLS_TGZ=<jdtls 的 .tar.gz> scripts/accept/java.sh  # Java 智能（21 条，真 jdtls + JDK 21）：卡片问下载 → 校验 → 装好自己起（本机文件不上网）、Lombok 不报假错、实时报错、⌘B 进兄弟模块和 jar、⌥F7、不往项目里写、退出不留。给 JDTLS_HOME 就跳过下载走设置（17 条）
 scripts/smoke.sh               # 发版前的端到端清单（97 条，约 100 秒），同样走测试通道，先打测试 .app
 ```
 

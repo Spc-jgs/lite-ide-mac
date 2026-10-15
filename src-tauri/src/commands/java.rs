@@ -14,9 +14,15 @@ pub async fn java_open(window: tauri::Window, app: tauri::AppHandle, root: Strin
         if st.java.get(&root).is_none() && !crate::java::is_build_root(Path::new(&root)) {
             return Ok(None);
         }
-        let i = st.java.ensure(&app, &owner, &root)?;
-        i.open(&path, &text);
-        Ok(Some(JavaStatusDto::from(&i.status())))
+        match st.java.ensure(&app, &owner, &root) {
+            Ok(i) => {
+                i.open(&path, &text);
+                Ok(Some(JavaStatusDto::from(&i.status())))
+            }
+            // 还没装 jdtls 不是错：把状态原样交回去，前端问要不要下
+            Err(s) if matches!(s.phase, crate::java::Phase::Missing(_)) => Ok(Some(JavaStatusDto::from(&s))),
+            Err(s) => Err(JavaStatusDto::from(&s).message),
+        }
     })
     .await
 }
@@ -91,6 +97,28 @@ pub async fn java_class_contents(app: tauri::AppHandle, root: String, uri: Strin
 #[tauri::command]
 pub async fn java_status(app: tauri::AppHandle, root: String) -> Result<Option<JavaStatusDto>, String> {
     blocking(move || Ok(app.state::<AppState>().java.status(&root).as_ref().map(JavaStatusDto::from))).await
+}
+
+/// 下 jdtls（「要下载吗」那张卡片点了「下载」），下完起这个项目的 jdtls。**会等到下完**（约 50 MB）。开着的 Java 文档由前端接着重新 `java_open`
+#[tauri::command]
+pub async fn java_install(window: tauri::Window, app: tauri::AppHandle, root: String) -> Result<(), String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        let st = app.state::<AppState>();
+        st.java.install(&app, &owner)?;
+        st.java.restart(&app, &owner, &root)
+    })
+    .await
+}
+
+/// 下到一半停下（进度格上的取消）
+#[tauri::command]
+pub async fn java_install_cancel(app: tauri::AppHandle) -> Result<(), String> {
+    blocking(move || {
+        app.state::<AppState>().java.cancel_install();
+        Ok(())
+    })
+    .await
 }
 
 /// 重起这个项目的 jdtls（状态栏的按钮）。开着的 Java 文档由前端接着重新 `java_open`

@@ -41,8 +41,8 @@ export interface MavenModule {
 /** Java 智能的状态（docs/IDEA.md 第 2 步，状态栏那格）。同 Rust 的 JavaStatusDto */
 export interface JavaStatus {
   root: string;
-  phase: "starting" | "importing" | "ready" | "failed" | "stopped";
-  /** 导入中：jdtls 说的进度那句；出错：原因 */
+  phase: "starting" | "importing" | "ready" | "failed" | "stopped" | "missing";
+  /** 导入中：jdtls 说的进度那句；出错：原因；missing：要下的那份多大、从哪来 */
   message: string;
   /** 用的哪个 JDK、Lombok 挂没挂上 */
   detail: string;
@@ -78,6 +78,12 @@ export interface JavaLocation {
   endCharacter: number;
   /** 那一行的文字（查用法的列表；跳转是空串） */
   text: string;
+}
+
+/** 下 jdtls 的进度（`java-install` 事件），字节 */
+export interface JavaInstall {
+  received: number;
+  total: number;
 }
 
 /** 查用法的结果。`total` 是真条数；比 `items` 多就是截断了，界面要说出来 */

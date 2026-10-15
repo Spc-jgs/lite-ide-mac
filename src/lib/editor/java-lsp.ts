@@ -18,8 +18,9 @@
 import { Decoration, EditorView, ViewPlugin, hoverTooltip, keymap, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { Prec, StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
 import { mount, unmount } from "svelte";
-import { listenHere, type JavaDiagnostic, type JavaDiagnostics, type JavaLocation, type JavaStatus } from "../ipc/commands";
-import { javaChange, javaClose, javaDefinition, javaOpen, javaReferences } from "../ipc/java";
+import { listenHere, type JavaDiagnostic, type JavaDiagnostics, type JavaInstall, type JavaLocation, type JavaStatus } from "../ipc/commands";
+import { javaChange, javaClose, javaDefinition, javaInstall, javaInstallCancel, javaOpen, javaReferences } from "../ipc/java";
+import { declined, javaOffer } from "../state/java-offer.svelte";
 import { nav } from "../state/nav.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
 import { notify } from "../state/notify.svelte";
@@ -55,6 +56,11 @@ export function onStatus(s: JavaStatus) {
   }
   t?.end();
   tasks.delete(s.root);
+  // 还没装 jdtls：不报错，问一句要不要下（卡片在 Confirms 里）。点过「以后再说」的这次运行里不再问
+  if (s.phase === "missing") {
+    if (!declined.has(s.root) && !installing) javaOffer.card = { root: s.root, text: s.message };
+    return;
+  }
   if (s.phase === "failed" && !told.has(`${s.root}\n${s.message}`)) {
     told.add(`${s.root}\n${s.message}`);
     notify.fail(`Java 智能没起来：${s.message}`);
@@ -179,9 +185,40 @@ const diagHover = hoverTooltip((view, pos) => {
   };
 });
 
+// ── 下 jdtls（卡片上点了「下载」） ──
+
+let installing = false;
+
+/** 下 jdtls、装好、起这个项目的 jdtls，再把开着的 Java 文档重新登记一遍（它们手上的才是没保存的那份） */
+export async function installJdtls(root: string) {
+  if (installing) return;
+  installing = true;
+  javaOffer.card = null;
+  const t = progress.start("正在下载 jdtls", { percent: 0, cancel: () => void javaInstallCancel() });
+  const un = await listenHere<JavaInstall>("java-install", (e) => {
+    const { received, total } = e.payload;
+    t.set({ label: `正在下载 jdtls · ${(received / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB`, percent: total ? Math.floor((received / total) * 100) : null });
+  });
+  try {
+    await javaInstall(root);
+    notify.ok("jdtls 装好了，Java 智能起来了");
+    for (const s of live) if (s.root === root) s.reopen();
+  } catch (e) {
+    const why = String(e);
+    if (why.includes("取消了")) notify.hint("没下 jdtls（取消了）。再打开 Java 文件时会再问");
+    else notify.fail(`jdtls 没装上：${why}`);
+  } finally {
+    un();
+    t.end();
+    installing = false;
+  }
+}
+
 // ── 文档同步 ──
 
 const syncs = new WeakMap<EditorView, Sync>();
+/** 活着的编辑器：装好 jdtls 之后要逐个重新登记（WeakMap 遍历不了） */
+const live = new Set<Sync>();
 
 class Sync {
   #timer: ReturnType<typeof setTimeout> | null = null;
@@ -191,12 +228,19 @@ class Sync {
     readonly path: string,
   ) {
     syncs.set(view, this);
+    live.add(this);
     const vs = viewsOf.get(path) ?? new Set();
     vs.add(view);
     viewsOf.set(path, vs);
     const have = diagsOf.get(path);
     // 先画已知的（切走再切回来不用等下一轮），在构造函数里 dispatch 会抛（update 进行中），推到下一拍
     if (have) queueMicrotask(() => syncs.get(view) === this && view.dispatch({ effects: setDiags.of(have) }));
+    this.reopen();
+  }
+
+  /** 登记这份文档（重登记也一样：Rust 那边已经开着就当一次改动） */
+  reopen() {
+    const { root, path, view } = this;
     void javaOpen(root, path, view.state.doc.toString())
       .then((s) => {
         if (!s) return; // 不是 Maven / Gradle 项目：不起，也不说
@@ -224,6 +268,7 @@ class Sync {
     this.flush();
     viewsOf.get(this.path)?.delete(this.view);
     syncs.delete(this.view);
+    live.delete(this);
   }
 }
 

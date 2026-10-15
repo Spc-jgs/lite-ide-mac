@@ -783,7 +783,9 @@ Maven / Gradle 项目里打开 `.java`，后台起一个 Java 语言服务器（
 **要两样东西**（缺哪样，打开 Java 文件时编辑区底下会说一次缺什么）：
 
 - **JDK 21 或更新的**：jdtls 自己要 21 才能跑（你的项目可以是 8–25，用哪个 JDK 编译还是项目自己说了算）。`brew install --cask temurin@21`，装在 `/Library/Java/JavaVirtualMachines`；IDEA 下载到 `~/Library/Java/JavaVirtualMachines` 的也认
-- **jdtls**：解开的发行包（[download.eclipse.org/jdtls/milestones](https://download.eclipse.org/jdtls/milestones/)，约 50MB），放在应用数据目录的 `jdtls/` 下，或者在 `settings.json` 里写 `"java.jdtlsHome": "<它的目录>"`。应用里一键下载还没做
+- **jdtls**：第一次打开 Java 文件时编辑区顶上出一张卡片，说清多大（49 MB）、从哪来（download.eclipse.org），点「下载」才下。
+  进度在状态栏中间那格（能取消），下完核对 sha256，对不上就不装；装在应用数据目录的 `jdtls/1.61.0/`，之后不再问。点「以后再说」这次运行里不再问。
+  想用自己的 jdtls：`settings.json` 里写 `"java.jdtlsHome": "<解开的目录>"`，就不走下载
 
 **它不会做的**：
 

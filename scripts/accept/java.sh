@@ -2,12 +2,16 @@
 # Java 智能（docs/IDEA.md 第 2 步）在真 .app + 真 jdtls 上验：起、Lombok 不报假错、实时报错、⌘B（Lombok 生成的、兄弟模块、jar 里的类）、
 # ⌥F7、不往项目里写东西、退出不留 jdtls。走测试通道：不发全局按键、不抢焦点（scripts/lib/bridge.sh）。
 #
-# 要两样你机器上的东西，缺哪样那一段记「未验」：
-#   JDTLS_HOME  解开的 jdtls 发行包（里面有 plugins/ 和 config_mac_arm/），写进测试应用的 settings.json 的 java.jdtlsHome
+# 要你机器上的两样东西，缺哪样那一段记「未验」：
+#   jdtls       二选一 ——
+#               JDTLS_TGZ   官方发行包本身（jdt-language-server-1.61.0-….tar.gz，sha256 要对得上 lspsvc::install::DIST）：
+#                           走「第一次打开 Java 文件 → 卡片问要不要下 → 点下载 → 装进应用数据目录 → 自己起来」整条路，
+#                           下载地址换成这个本机文件（测试构建才认 LITE_IDE_JDTLS_URL），不上网
+#               JDTLS_HOME  解开的发行包：写进测试应用的 settings.json 的 java.jdtlsHome，跳过下载那一段
 #   JDK 21+     装在 /Library/Java/JavaVirtualMachines 或 ~/Library/Java/JavaVirtualMachines（jdtls 自己要 21 才能跑）
 # Maven 本地仓库里要有 Spring Boot 4.0.1 的依赖和 Lombok（m2e 导入时从本地仓库解析；缺的会去你 settings.xml 里的镜像下）。
 #
-#   JDTLS_HOME=<jdtls 目录> scripts/accept/java.sh
+#   JDTLS_TGZ=<jdtls 的 .tar.gz> scripts/accept/java.sh      （或 JDTLS_HOME=<解开的目录>）
 set -uo pipefail
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 source "$(dirname "$0")/../lib/bridge.sh"
@@ -16,7 +20,14 @@ ok() { if [ "$1" = 1 ]; then PASS=$((PASS + 1)); printf '  ✓ %s\n' "$2"; else 
 skip() { SKIP=$((SKIP + 1)); printf '  - 未验：%s\n' "$1"; }
 done_() { printf '\n通过 %s 条，失败 %s 条，未验 %s 条\n' "${PASS}" "${FAIL}" "${SKIP}"; [ "${FAIL}" = 0 ]; exit $?; }
 
-if [ -z "${JDTLS_HOME:-}" ] || [ ! -d "${JDTLS_HOME}/plugins" ]; then skip "没给 JDTLS_HOME（或者它底下没有 plugins/）"; done_; fi
+if [ -n "${JDTLS_TGZ:-}" ] && [ -f "${JDTLS_TGZ}" ]; then
+  MODE=download
+  export LITE_IDE_JDTLS_URL="file://$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${JDTLS_TGZ}")"
+elif [ -n "${JDTLS_HOME:-}" ] && [ -d "${JDTLS_HOME}/plugins" ]; then
+  MODE=home
+else
+  skip "没给 JDTLS_TGZ（发行包）也没给 JDTLS_HOME（解开的目录）"; done_
+fi
 # 不用管道：pipefail 下 `ls` 碰到不存在的那个目录退 1，整条管道就算失败（第一版就这么把装好的 JDK 21 判成了没有）
 has_jdk21() {
   local h
@@ -102,8 +113,10 @@ public class OrderApplication {
 }
 EOF
 
-mkdir -p "${LITE_DATA}"
-python3 -c 'import json,sys; open(sys.argv[1], "w").write(json.dumps({"java.jdtlsHome": sys.argv[2]}, ensure_ascii=False))' "${LITE_DATA}/settings.json" "${JDTLS_HOME}"
+if [ "${MODE}" = home ]; then
+  mkdir -p "${LITE_DATA}"
+  python3 -c 'import json,sys; open(sys.argv[1], "w").write(json.dumps({"java.jdtlsHome": sys.argv[2]}, ensure_ascii=False))' "${LITE_DATA}/settings.json" "${JDTLS_HOME}"
+fi
 
 lite_launch "${P}" || exit 1
 ROOT="${P}"
@@ -117,6 +130,19 @@ echo "== 打开一个 Java 文件：jdtls 在后台起，不挡编辑器"
 T0=$(lite_now_ms)
 open_file "${APP}"
 ok "$([ -n "$(lite_eval main "return __lite.text()?.length > 0")" ] && echo 1)" "编辑器先开出来（不等语言服务器）：$(( $(lite_now_ms) - T0 )) ms"
+if [ "${MODE}" = download ]; then
+  echo "== 还没装 jdtls：卡片问要不要下（说清多大、从哪来），点下载 → 校验、装进应用数据目录、自己起来"
+  lite_wait main "return [...document.querySelectorAll('.confirm')].some((c) => c.textContent.includes('要先下载'))" 15
+  CARD=$(lite_eval main "return [...document.querySelectorAll('.confirm')].find((c) => c.textContent.includes('要先下载'))?.innerText.replace(/\\s+/g, ' ')")
+  ok "$(echo "${CARD}" | grep -q 'MB，来自 download.eclipse.org' && echo 1)" "卡片：${CARD}"
+  ok "$([ "$(status)" = missing ] && echo 1)" "状态是「还没装」，不是出错：$(status)"
+  T2=$(lite_now_ms)
+  lite_eval main "[...document.querySelectorAll('.confirm button')].find((b) => b.textContent.trim() === '下载').click(); return true" >/dev/null
+  lite_wait main "return ['starting','importing','ready'].includes((await window.__TAURI_INTERNALS__.invoke('java_status', { root: '${ROOT}' }))?.phase)" 120
+  ok "$([ -d "${LITE_DATA}/jdtls/1.61.0/plugins" ] && echo 1)" "装进了应用数据目录的 jdtls/1.61.0：$(( $(lite_now_ms) - T2 )) ms（本机文件，不上网）"
+  LEFT=$(ls "${LITE_DATA}/jdtls" 2>/dev/null | tr '\n' ' ')
+  ok "$([ "${LEFT}" = "1.61.0 " ] && echo 1)" "没留下临时文件（.download / .partial）：${LEFT}"
+fi
 lite_wait main "return ['starting','importing','ready'].includes((await window.__TAURI_INTERNALS__.invoke('java_status', { root: '${ROOT}' }))?.phase)" 15
 ok "$([ "$(status)" != none ] && echo 1)" "jdtls 起了：$(status)"
 if lite_wait main "return (await window.__TAURI_INTERNALS__.invoke('java_status', { root: '${ROOT}' }))?.phase === 'ready'" 180; then

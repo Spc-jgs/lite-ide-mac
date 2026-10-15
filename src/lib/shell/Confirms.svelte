@@ -27,6 +27,7 @@
   import { replace } from "../state/replace.svelte";
   import { project } from "../state/project.svelte";
   import { runs } from "../state/runs.svelte";
+  import { declined, javaOffer } from "../state/java-offer.svelte";
   import { keyVerdict, nudgesFor, takeFocus } from "./dialog-focus";
   import { nudgeDialog, setAsking } from "./modal";
   import Icon from "./Icon.svelte";
@@ -57,6 +58,7 @@
       tabs.active?.conflict && "conflict",
       replace.interrupted && replace.interrupted.root === project.root && "interrupted",
       runs.stale && runs.stale.root === project.root && "stale",
+      javaOffer.card && javaOffer.card.root === project.root && "java",
       replace.done && replace.done.root === project.root && "done",
     ].filter((x): x is string => !!x),
   );
@@ -402,6 +404,25 @@
   </div>
 {/if}
 
+{#if javaOffer.card && javaOffer.card.root === project.root && showCard("java")}
+  {@const o = javaOffer.card}
+  <!--
+    还没装 jdtls（docs/IDEA.md 第 10 节）：第一次打开 Java 文件时问一次。琥珀：要你决定。卡片不是对话框 ——
+    是打开文件「顺带」冒出来的，不该挡着人看代码（ui.md 第二之二条）。说清多大、从哪来（第 3 节第 4 条）；「以后再说」这次运行里不再问
+  -->
+  <div class="confirm warn tall" out:cardOut>
+    <div class="btext">
+      <span>Java 智能（实时报错、⌘B 跳进 jar、⌥F7）要先下载一个语言服务器</span>
+      <span class="rest">{o.text}</span>
+    </div>
+    <button class="btn" data-dismiss onclick={() => {
+      declined.add(o.root);
+      javaOffer.card = null;
+    }}>以后再说</button>
+    <button class="btn primary" onclick={() => void import("../editor/java-lsp").then((m) => m.installJdtls(o.root))}>下载</button>
+  </div>
+{/if}
+
 {#if replace.done && replace.done.root === project.root && showCard("done")}
   {@const d = replace.done}
   <!-- 撤销的退路（#42 第 6 节）：不加确认框，做完给这一张。下一次替换、或者点掉，它就没了；应用重启后还会再出一次 -->
@@ -439,7 +460,8 @@
   .stack.below-tabs { top: 46px; }
   /* 卡片的面（底、边、投影、淡入、warn / bad 两档色）在 app.css 的 `.confirm`；这里只剩正文排版 */
   .confirm .rest { color: var(--text-faint); font-size: var(--fs-sm); }
-  .err-banner .btext, .stale .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  /* 高卡片（`tall`）的正文是两行：一句话 + 一行灰的细节。原来按卡片名各列一遍（报错、上次的任务），第三张就漏了 */
+  .confirm.tall .btext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   /* 折起来的那几张：一颗小胶囊，不是又一张卡片（又一张就又挡一行代码） */
   .more {
     pointer-events: auto;

@@ -9514,3 +9514,23 @@ jstack 一看是另一件事：`JavaCore.stop → JobManager.shutdown` 在 join 
 验证：`cargo test --workspace` 全过、clippy 规矩检查过、`pnpm test` 62 个文件全过、`pnpm check` 0 错；浏览器桩上走了波浪线 / 悬停 / 改回去消失 / ⌘B 进 jar / 只读 / ⌥⌘← 回来 / ⌥F7 列表 ↵ 跳到 9:31；
 真 .app `JDTLS_HOME=… scripts/accept/java.sh` 17/17（Lombok 不报假错、⌘B 进兄弟模块的源码和 jar、⌥F7、项目里没有 Eclipse 文件、退出后没有 jdtls 进程）。
 **还没做**：应用里一键下载 jdtls（现在要自己放到应用数据目录或者写 `java.jdtlsHome`）、「重起」按钮、问题列表、Find 工具窗（IDEA.md 第 9 节末尾）。
+
+## 2026-10-15 · jdtls 应用自己管：第一次打开 Java 文件时问要不要下
+
+用户问「jdtls 怎么接最合理」。比了三条（打进包 / 只靠设置 / 应用自己管），选第三条，理由和做法在 IDEA.md 第 10 节。这里记三件当时的事：
+
+**一、「还没装」被当成了「出错」。** 第一版 Rust 在 jdtls 不在时发一个 `missing` 状态、同时 `java_open` 返回 Err；前端的 `catch` 把 Err 一律当 `failed`，
+于是卡片问「要下载吗」的同时，底下还冒一个红胶囊「Java 智能没起来」。改成 `ensure` 返回结构化的状态，`java_open` 把 `missing` 当正常值交回去。
+**一件事有「不是错的失败」，就别用 Err 表达它** —— 调用方的 catch 分不出来。
+
+**二、同一个文件，卡片说 48 MB、进度说 49 MB。** 51,037,522 字节：Rust 那边右移 20 位（截断，48），前端 `toFixed(0)`（四舍五入，49）。统一四舍五入。
+
+**三、验收撞出一个真缺口：没起起来的项目问不到状态。** `java_status` 只查「在跑的实例」那张表，还没装 jdtls 的项目没有实例，问回来是 null ——
+晚挂上的前端看不出要下载。加一张「最近一次没起起来的状态」，起起来了就划掉。这条是验收脚本先红、改完绿的。
+
+还有一个是浏览器里的假象，没改代码：取消下载之后 DOM 里那张卡片一直在。直接读状态是 null —— 自动化浏览器的面板里动画不走（frontend.md 那张表），
+卡片的退场动画走不完，Svelte 就一直不摘它；截图那次（真画了）卡片是没了的。**DOM 和状态对不上时先读状态**，别照着 DOM 改代码。
+
+验证：install.rs 六条测试（真 curl / shasum / tar 跑 `file://`），六种改坏的五种红、「取消」那种分不出（IDEA.md 第 10 节说了为什么）；cargo test --workspace、pnpm test / check 全过；
+浏览器桩上走了卡片 → 下载 → 进度 → 装好自己起来、下到 39% 取消；真 .app `JDTLS_TGZ=… scripts/accept/java.sh` 21/21、`JDTLS_HOME=…` 17/17。
+入口包 156,117 → 156,192 B（+75：新共享块在预加载表里的那一项；卡片和下载都在懒块里）。
