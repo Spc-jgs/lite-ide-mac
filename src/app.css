@@ -131,12 +131,25 @@
    * 抬起靠投影。玻璃上的浮层不给投影就分不清「摞上去」和「挖下去」，
    * 而这个区别正是整套材质的地基。
    */
-  --shadow-pop: 0 18px 48px rgba(0, 0, 0, 0.5);
+  /*
+   * 两层（2026-10-19）：贴近的一层小而实（2px / 6px，35%）勾出边缘落在底面上的那一圈，远处一层大而淡（16px / 40px）说「抬得多高」。
+   * 原来只有远处那一层，浮层的边缘是糊的 —— 现实里离物体近的地方影子最实。Claude 桌面端、macOS 的菜单都是这两层的组合
+   */
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45);
   /*
    * 浮层的边：0.5px 的外描边 + 顶边一道内高光，替代原来的 1px 5% 描边。深壁纸上卡片的轮廓靠它读出来；
    * 顶边那道是「光从上面来」—— macOS 的菜单和弹出框都是这么画的
    */
   --pop-ring: 0 0 0 0.5px rgba(255, 255, 255, 0.10), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+  /* 焦点外面那圈光晕：按钮的键盘焦点、输入框聚焦都是它（原来输入框 3px 25%、按钮 1px 线，两样） */
+  --focus-glow: 0 0 0 3.5px rgba(10, 132, 255, 0.3);
+  /*
+   * 输入框（2026-10-19）：静止时只有 6% 的底、边是透明的；聚焦时边变强调色 + 外面一圈 --focus-glow。
+   * 原来静止时还有一圈 8% 的边 —— 输入框都在岛或者浮层里，外面已经有一层边了，框里再套框读起来是「格子」（Claude 桌面端的「一层闭合边框」规矩，
+   * macOS 工具栏里的搜索框也不描边）。边留 1px 透明的宽度：聚焦时变色不撑动布局。八个组件原来各抄一份这三个值，收成令牌
+   */
+  --field-bg: rgba(255, 255, 255, 0.06);
+  --field-border: transparent;
 
   /*
    * 这里原来还有个 `--panel-bg-2`（#212121），它同时干着两件不该由一个
@@ -414,7 +427,7 @@ html, body {
 }
 .btn:hover { background: rgba(255, 255, 255, 0.12); color: var(--text); }
 .btn:active { background: rgba(255, 255, 255, 0.16); }
-.btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.btn:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; box-shadow: var(--focus-glow); }
 .btn:disabled { opacity: 0.45; pointer-events: none; }
 .btn.sm { height: 24px; padding: 0 9px; font-size: var(--fs-sm); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
@@ -535,14 +548,34 @@ html, body {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
-
-.btn,
-.ibtn {
-  transition: background-color 70ms ease-out, color 70ms ease-out, border-color 70ms ease-out;
+/*
+ * 独立的按钮（2026-10-19）：1.5px 的环往外让 1px，外面一圈淡光晕 —— macOS 系统控件的键盘焦点就是这个样子（Claude 桌面端同一个做法）。
+ * 原来 1px 的线在 24px 的图标按钮上几乎看不出来，键盘走到哪儿得找。列表行（treeitem / option / menuitem / tab）还是内缩的 1px：
+ * 它们一行挨一行，往外的光晕会压到上下两行上
+ */
+:where(button, [role="button"]):focus-visible {
+  outline-width: 1.5px;
+  outline-offset: 1px;
+  box-shadow: var(--focus-glow);
 }
+
 .btn:active,
 .ibtn:active {
   transition: none;
+}
+/*
+ * 按下去缩一点（2026-10-19）：只变底色的话，按下和悬停差一档灰，手指（触控板）感觉不到「按到了」。
+ * 图标按钮小（24px），0.98 只缩半个像素看不出来，给 0.92。松手时照下面那条过渡 70ms 弹回；按下那一刻不过渡（上面那条 `:active` 的 `none`）：要当场有反馈
+ */
+.btn,
+.ibtn {
+  transition: background-color 70ms ease-out, color 70ms ease-out, border-color 70ms ease-out, transform 70ms ease-out;
+}
+.btn:active { transform: scale(0.98); }
+.ibtn:active { transform: scale(0.92); }
+@media (prefers-reduced-motion: reduce) {
+  .btn:active,
+  .ibtn:active { transform: none; }
 }
 
 @keyframes spin {

@@ -238,15 +238,15 @@
     min-width: 0;
     height: 24px;
     padding: 0 8px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--field-bg);
+    border: 1px solid var(--field-border);
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--code-font);
     font-size: var(--fs-sm);
     outline: none;
   }
-  .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
+  .search input:focus { border-color: var(--accent); box-shadow: var(--focus-glow); }
   /* 正则写坏了：和编辑器查找面板同一个说法 —— 字变红，不弹任何东西；边打边写的正则大半时间是坏的 */
   .search input.bad { color: var(--lvl-error); }
   .search input::placeholder { color: var(--text-faint); }

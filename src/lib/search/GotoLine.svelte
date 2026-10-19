@@ -141,8 +141,8 @@
     min-width: 0;
     height: 28px;
     padding: 0 9px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--field-bg);
+    border: 1px solid var(--field-border);
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font); font-variant-numeric: tabular-nums;
@@ -150,7 +150,7 @@
     outline: none;
   }
   /* 聚焦：一圈柔和的强调色光晕（macOS 文本框的样子），不是把边描成实蓝 */
-  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
+  input:focus { border-color: var(--accent); box-shadow: var(--focus-glow); }
   .hint { font-size: var(--fs-sm); color: var(--text-faint); }
   .hint.bad { color: var(--lvl-warn); }
 </style>

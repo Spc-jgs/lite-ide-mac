@@ -162,6 +162,15 @@
   </section>
 
   <section>
+    <h2>输入框 <small><code>--field-bg</code> 的底、静止时不描边（<code>--field-border</code> 透明：外面的岛 / 浮层已经有一层边，ui.md 第十七条），聚焦时强调色的边 + <code>--focus-glow</code>。九个组件各自写选择器、值都引这三个令牌</small></h2>
+    <div class="row">
+      <input class="field" placeholder="静止" aria-label="输入框样品" />
+      <input class="field" placeholder="点进来看聚焦" aria-label="输入框样品（聚焦）" />
+      <div class="popup demo"><input class="field" placeholder="浮层里的" aria-label="浮层里的输入框样品" /></div>
+    </div>
+  </section>
+
+  <section>
     <h2>图标 <code>Icon</code> <small>{ICON_NAMES.length} 个 · JetBrains 新 UI 官方图标（来源见 public/icons/SOURCES.md）；一律 16，组件里不传尺寸；单色走 mask 跟着 color 变，彩色的画原色</small></h2>
     <div class="icons">
       {#each ICON_NAMES as n (n)}
@@ -207,6 +216,8 @@
   .loading { display: inline-flex; align-items: center; gap: 8px; color: var(--text-faint); font-size: 12px; }
   .cards { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
   .pbar.w { width: 160px; }
+  .field { height: 26px; width: 180px; padding: 0 8px; background: var(--field-bg); border: 1px solid var(--field-border); border-radius: var(--r-sm); color: var(--text); font: inherit; outline: none; }
+  .field:focus { border-color: var(--accent); box-shadow: var(--focus-glow); }
   /* 胶囊的定位父级：照编辑岛（position: relative），胶囊贴它的底边 */
   .toastbox { position: relative; height: 72px; border-radius: var(--r-sm); background: var(--content-bg); }
   .emptybox { flex: 1; min-width: 200px; border-radius: var(--r-sm); background: var(--elevated); }

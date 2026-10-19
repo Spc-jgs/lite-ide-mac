@@ -356,12 +356,12 @@ const panelTheme = EditorView.theme({
     gap: "2px",
     height: "26px",
     padding: "0 3px 0 8px",
-    background: "rgba(255, 255, 255, 0.06)",
-    border: "1px solid rgba(255, 255, 255, 0.08)",
+    background: "var(--field-bg)",
+    border: "1px solid var(--field-border)",
     borderRadius: "var(--r-sm)",
   },
   // 和全应用的输入框一个样子（2026-10-12）：聚焦时一圈柔和的强调色光晕，不是把边描成实蓝
-  ".cm-lite-search .ls-box:focus-within": { borderColor: "var(--accent)", boxShadow: "0 0 0 3px rgba(10, 132, 255, 0.25)" },
+  ".cm-lite-search .ls-box:focus-within": { borderColor: "var(--accent)", boxShadow: "var(--focus-glow)" },
   ".cm-lite-search .ls-in": {
     flex: "1",
     minWidth: "0",

@@ -49,6 +49,8 @@ while True:
     i += 1
     time.sleep(0.5)
 EOF
+# 一直说话的：每 0.05 秒一行（日志跟随不抢滚动那条要一直有新行来）
+printf 'import itertools, time\nfor i in itertools.count():\n    print(f"chatty {i}")\n    time.sleep(0.05)\n' > "${P}/chatty.py"
 mkdir -p "${P}/.lite-ide"
 # 命令行里带上 MARK：按它数进程（${MARK} 只是一个不影响运行的参数）
 # stub：软停不理的（`trap '' INT` 之后起的子进程继承「忽略 SIGINT」，Python 启动时见它被忽略就不装自己的处理）—— TASKS.md 第 7 节第 5 条。
@@ -57,7 +59,8 @@ cat > "${P}/.lite-ide/tasks.json" <<EOF
 [
   { "name": "srv", "command": "/usr/bin/python3 srv.py ${MARK}" },
   { "name": "busy", "command": "/usr/bin/python3 srv.py ${MARK} ${PORT2}" },
-  { "name": "stub", "command": "trap '' INT; /usr/bin/python3 -c 'import time; time.sleep(999)' ${MARK}-stub" }
+  { "name": "stub", "command": "trap '' INT; /usr/bin/python3 -c 'import time; time.sleep(999)' ${MARK}-stub" },
+  { "name": "chatty", "command": "/usr/bin/python3 -u chatty.py ${MARK}-chatty" }
 ]
 EOF
 
@@ -191,6 +194,25 @@ ok "$(wait_for 15 'listening2 && [ "$(lsof -nP -iTCP:${PORT2} -sTCP:LISTEN -Fc |
 ok 1 "脚本自己还活着（没被「整组结束」波及 —— 走到这一行就是证据）"
 lite_eval main "return __lite.click('关闭并停止 busy') || __lite.click('关闭 busy')" >/dev/null
 wait_for 6 '! listening2'
+
+echo "== 跟随尾部时往上翻：不被新行拽回底部；翻回底部附近又跟上（src/lib/logview/pin.ts）"
+# 原来行数一变就贴底：服务一直在打日志，往上看堆栈每来一行就被拽回最底下。srv 说 8 句就安静了（理由见 srv.py），这里起一个一直说话的 chatty，
+# 先等内容比视口高出一截才有地方往上翻。放在最后：⌃R 重跑的是「最近跑过的」，放中间会把后面重跑 srv 的几条带偏
+# 往上翻照人的做法：先来一个往上的滚轮事件（意图），再把 scrollTop 往上挪 —— 只挪 scrollTop 不发滚轮，走的是「拖滚动条」那条路
+pick_srv chatty >/dev/null
+VP="const v = document.querySelector('.run .viewport'); const dist = () => v.scrollHeight - v.scrollTop - v.clientHeight;"
+lite_wait main "${VP} return v && v.scrollHeight > v.clientHeight + 240" 40 >/dev/null
+GEO=$(lite_eval main "${VP} return v ? v.scrollHeight + '/' + v.clientHeight + '，' + document.querySelectorAll('.run .row').length + ' 行' : '没有 .run .viewport'")
+ok "$([ "$(lite_eval main "${VP} return !!v && v.scrollHeight > v.clientHeight + 240")" = true ] && echo 1)" "前提：输出比视口高出一截，有地方往上翻（scrollHeight/clientHeight ${GEO}）"
+UP=$(lite_eval main "${VP} v.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true })); v.scrollTop = Math.max(0, v.scrollTop - 200); await new Promise((r) => setTimeout(r, 150)); return Math.round(v.scrollTop)")
+sleep 2   # 至少来 3 行新的
+AFTER=$(lite_eval main "${VP} return Math.round(v.scrollTop) + ' ' + Math.round(dist())")
+ok "$([ "${AFTER%% *}" = "${UP}" ] && [ "${AFTER##* }" -gt 40 ] && echo 1)" "往上翻了之后来了新行，视图没被拽回去：scrollTop ${UP} → ${AFTER%% *}，离底部 ${AFTER##* }px"
+lite_eval main "${VP} v.scrollTop = v.scrollHeight; return true" >/dev/null
+sleep 2
+ok "$([ "$(lite_eval main "${VP} return dist() <= 40")" = true ] && echo 1)" "翻回底部之后又跟上了：新行来了还贴着底（离底部 $(lite_eval main "${VP} return Math.round(dist())")px）"
+lite_eval main "return __lite.click('关闭并停止 chatty') || __lite.click('关闭 chatty')" >/dev/null
+wait_for 6 '! pgrep -f "${MARK}-chatty" >/dev/null'   # 下一段按标记数进程，chatty 得先没了
 
 echo "== 应用崩了（kill -9），任务还在跑 → 重开出卡片 → 结束它们，端口空了"
 pick_srv >/dev/null

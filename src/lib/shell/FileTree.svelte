@@ -1635,14 +1635,14 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     margin: 4px 0 0;
     height: 28px;
     padding: 0 9px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--field-bg);
+    border: 1px solid var(--field-border);
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font);
     font-size: var(--fs-md);
   }
-  .pinput:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
+  .pinput:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-glow); }
   .perr {
     padding: 5px 0 1px;
     color: var(--lvl-error);

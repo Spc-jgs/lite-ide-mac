@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { pinAfterScroll, wantsUp } from "./pin";
   import { ScrollMap } from "./scroll-map";
   import { LineCache, type Row } from "./line-cache";
   import { cutNote } from "./block";
@@ -114,12 +115,25 @@
     cache.invalidateTail(lineCount);
   });
 
-  // tail 吸底：行数一变就贴到最新
+  /**
+   * 跟随尾部时这一刻跟不跟：人往上翻就松开、翻回底部附近再跟上（判法在 pin.ts）。不用 `$state`：
+   * 它变了不该触发任何东西 —— 松开时不用动，跟上时人自己已经滚到底了
+   */
+  let pinned = true;
+  let prevScroll = 0;
+  // 跟随刚打开（点了按钮、新开一个运行）：先跟上
+  $effect(() => {
+    if (stickBottom) pinned = true;
+  });
+  // tail 吸底：行数一变就贴到最新 —— 人往上翻着的时候不贴
   $effect(() => {
     if (!stickBottom || !viewport) return;
     lineCount;
-    viewport.scrollTop = map.scrollHeight;
+    if (pinned) viewport.scrollTop = map.scrollHeight;
   });
+  function noteIntent(e: WheelEvent | KeyboardEvent) {
+    if (stickBottom && wantsUp(e)) pinned = false;
+  }
 
   /**
    * 同一条跳转指令已经落到过目标行就不再重放。这个 effect 读 `lineCount`
@@ -177,6 +191,11 @@
   function onScroll() {
     if (!viewport) return;
     scrollTop = viewport.scrollTop;
+    if (stickBottom) {
+      const top = viewport.scrollTop;
+      pinned = pinAfterScroll(pinned, { prevTop: prevScroll, top, distance: viewport.scrollHeight - top - viewport.clientHeight });
+      prevScroll = top;
+    }
     if (!onTop) return;
     const line = map.topLineAt(scrollTop, viewportHeight) + 1;
     if (line !== lastTop) {
@@ -198,6 +217,7 @@
 
   function onKeydown(e: KeyboardEvent) {
     if (!viewport) return;
+    noteIntent(e);
     const page = viewportHeight - LINE_HEIGHT;
     const step: Record<string, number> = {
       ArrowDown: LINE_HEIGHT,
@@ -233,6 +253,7 @@
   bind:clientHeight={viewportHeight}
   onscroll={onScroll}
   onkeydown={onKeydown}
+  onwheel={noteIntent}
   onclick={onClick}
   tabindex="0"
   role="log"

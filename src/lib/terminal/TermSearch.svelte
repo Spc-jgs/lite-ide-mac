@@ -134,11 +134,11 @@
     min-width: 120px;
     height: 26px;
     padding: 0 3px 0 8px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--field-bg);
+    border: 1px solid var(--field-border);
     border-radius: var(--r-sm);
   }
-  .box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
+  .box:focus-within { border-color: var(--accent); box-shadow: var(--focus-glow); }
   .in {
     flex: 1;
     min-width: 0;

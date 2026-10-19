@@ -485,8 +485,8 @@
      * 和全应用的输入框一个样子（2026-10-12）：6% 白的底、8% 的细边，聚焦时一圈柔和的强调色光晕（macOS 文本框）。
      * 提交框比别的输入框大一号圆角：它是多行的、是这一页的主角，大圆角让它读成「一块写字的地方」而不是一格表单。
      */
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--field-bg);
+    border: 1px solid var(--field-border);
     border-radius: var(--r-md);
     color: var(--text);
     font-family: var(--ui-font);
@@ -494,7 +494,7 @@
     line-height: 1.5;
     padding: 8px 10px;
   }
-  .commit textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
+  .commit textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-glow); }
   .commit textarea::placeholder { color: var(--text-faint); }
   /* 提交按钮的两段字叠在一格里（grid 同一区），宽度取宽的那段；做完那 1.4 秒换成「✓ 已提交」 */
   .swap { display: inline-grid; }

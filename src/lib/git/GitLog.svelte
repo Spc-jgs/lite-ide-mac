@@ -436,15 +436,15 @@
     min-width: 80px;
     width: 200px;
     height: 24px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--field-bg);
+    border: 1px solid var(--field-border);
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font);
     font-size: var(--fs-sm);
     padding: 0 8px;
   }
-  .q:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
+  .q:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-glow); }
   .chk { display: flex; align-items: center; gap: 4px; }
   .chk.off { opacity: 0.4; }
   .chk input { margin: 0; accent-color: var(--accent); }

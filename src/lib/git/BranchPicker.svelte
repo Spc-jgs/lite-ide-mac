@@ -751,8 +751,8 @@
   .form label > span { flex: none; width: 34px; }
   .fi {
     flex: 1;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--field-bg);
+    border: 1px solid var(--field-border);
     border-radius: var(--r-sm);
     color: var(--text);
     font-family: var(--ui-font);
@@ -760,7 +760,7 @@
     padding: 5px 8px;
     outline: none;
   }
-  .fi:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25); }
+  .fi:focus { border-color: var(--accent); box-shadow: var(--focus-glow); }
   .frow { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
   .frow .gap { flex: 1; }
 </style>
