@@ -27,6 +27,7 @@ import { nav } from "../state/nav.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
 import RenamePopup from "./RenamePopup.svelte";
 import QuickFixPopup from "./QuickFixPopup.svelte";
+import { javaTestGutter } from "./java-test-gutter";
 import { notify } from "../state/notify.svelte";
 import { progress, type TaskHandle } from "../state/progress.svelte";
 import { tabs } from "../state/tabs.svelte";
@@ -732,6 +733,8 @@ export function javaLsp(root: string | null, path: string): Extension {
     genField,
     diagField,
     diagHover,
+    // 测试文件行号旁的 ▶（第 17 节）：不靠语言服务器，只是和它同一个入口挂进来
+    javaTestGutter(root, path),
     // 换掉通用的「文档里的词」：Java 文件里由 javaSource 说了算（它自己会在 jdtls 没起好时退回去）。和 Editor 里那份 autocompletion() 的配置合并
     autocompletion({ override: [javaSource], addToOptions: [descriptionColumn] }),
     ViewPlugin.define((view) => new Sync(view, root, path)),

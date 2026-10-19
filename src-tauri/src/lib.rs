@@ -3,6 +3,7 @@ mod commands;
 pub mod java;
 mod maven;
 mod maven_run;
+mod junit;
 pub mod diag;
 pub mod menu;
 mod open;
@@ -294,6 +295,7 @@ pub fn run() {
             commands::maven_prefs_set,
             commands::services_list,
             commands::task_ports,
+            commands::test_results,
             commands::java_open,
             commands::java_change,
             commands::java_save,

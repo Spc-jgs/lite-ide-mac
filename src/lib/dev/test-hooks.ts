@@ -67,10 +67,14 @@ function keyEvent(combo: string): KeyboardEvent {
   const has = (m: string) => parts.includes(m);
   if (key.length === 1 && has("Shift")) key = key.toUpperCase();
   const code = key.length === 1 && /[a-z]/i.test(key) ? `Key${key.toUpperCase()}` : key;
-  return new KeyboardEvent("keydown", {
+  const ev = new KeyboardEvent("keydown", {
     key, code, bubbles: true, cancelable: true,
     metaKey: has("Mod") || has("Meta"), shiftKey: has("Shift"), altKey: has("Alt"), ctrlKey: has("Ctrl"),
   });
+  // 字母、数字带上真按键时的 keyCode：按着 Shift 时 e.key 是大写的「R」，CM6 靠 keyCode（82）把它还原成「Shift + r」去配键位 ——
+  // 构造出来的事件 keyCode 是 0（初始化参数里给了也不认），⌃⇧R 这类就配不上（2026-10-19 跑单测的验收撞见：按了没反应，测试一个都没跑）
+  if (key.length === 1 && /[a-z0-9]/i.test(key)) Object.defineProperty(ev, "keyCode", { get: () => key.toUpperCase().charCodeAt(0) });
+  return ev;
 }
 
 export function installTestHooks() {

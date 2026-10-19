@@ -301,6 +301,23 @@ pub fn goal_command(module: &str, goals: &str, prefs: &Prefs) -> Option<String> 
     })
 }
 
+/// 跑单测的选择器能不能放进命令行：`com.demo.OrderTest`、`com.demo.OrderTest#adds`、几个用 `,` / `+` 连起来（重跑失败的：`A#x+y,B#z`）、
+/// 内部类的 `$`（放进命令时加引号）、通配的 `*`。别的字符一律不认
+fn safe_selector(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "_.#$*+,".contains(c))
+}
+
+/// 跑单测（docs/IDEA.md 第 17 节）：`-Dtest=类#方法`，在 reactor 根上跑 `-pl 模块 -am test`（兄弟模块不用 install，同 [`goal_command`]）。
+/// `-am` 会把上游模块也跑一遍 test 阶段 —— 它们里面没有这个类，surefire 默认「指定了测试却一个都没跑」就失败，
+/// 所以带 `-Dsurefire.failIfNoSpecifiedTests=false`。带 profile 和离线（同跑目标），**不带跳过测试**（就是来跑测试的）。选择器不安全给 None
+pub fn test_command(module: &str, selector: &str, prefs: &Prefs) -> Option<String> {
+    if !safe_selector(selector) {
+        return None;
+    }
+    let base = format!("mvn -B -ntp{} -Dtest={} -Dsurefire.failIfNoSpecifiedTests=false", prefs.flags(), word(selector));
+    Some(if module.is_empty() { format!("{base} test") } else { format!("{base} -pl {} -am test", word(module)) })
+}
+
 /// 算插件和依赖的那一条（`maven_run.rs`）：有效 POM 写到 `scratch`（绝对路径），依赖树写进各模块的 `deps_file`（相对模块）。
 /// 带离线和 profile（profile 会改插件和依赖），不带跳过测试（这两个目标不跑测试）
 pub fn resolve_command(prefs: &Prefs, scratch: &Path, deps_file: &str) -> String {
@@ -498,6 +515,21 @@ pub fn run_command(app: &BootApp, prefs: &Prefs) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 跑单测_带选择器和放过上游模块的开关_不带跳过测试_内部类加引号_不安全的不拼() {
+        let p = Prefs { offline: true, skip_tests: true, profiles: vec!["dev".into()] };
+        let c = test_command("order-service", "com.demo.OrderTest#adds", &p).unwrap();
+        // `#` 也加了引号（word 的白名单里没有它）：shell 里词中间的 # 本来不是注释，加上同样对
+        assert!(c.contains("-Dtest='com.demo.OrderTest#adds'") && c.contains("-pl order-service -am test") && c.contains("-Dsurefire.failIfNoSpecifiedTests=false"), "{c}");
+        assert!(c.contains(" -o") && c.contains("-P dev") && !c.contains("skipTests"), "带离线和 profile、不带跳过测试：{c}");
+        assert!(test_command("", "com.demo.OrderTest", &p).unwrap().ends_with("-Dsurefire.failIfNoSpecifiedTests=false test"), "根模块不带 -pl");
+        assert!(test_command("m", "com.demo.Outer$Inner", &p).unwrap().contains("-Dtest='com.demo.Outer$Inner'"), "$ 在 shell 里会展开，要加引号");
+        assert!(test_command("m", "A#x+y,B#z", &p).is_some(), "重跑失败的：几个方法几个类");
+        for bad in ["A; rm -rf ~", "A`id`", "A#x y", ""] {
+            assert!(test_command("m", bad, &p).is_none(), "{bad:?} 不该拼进命令");
+        }
+    }
 
     fn tmp(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lite-ide-maven-{tag}-{}", std::process::id()));

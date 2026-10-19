@@ -902,6 +902,26 @@ pub struct JavaRenameTargetDto {
     pub placeholder: Option<String>,
 }
 
+/// 一条单测的结果（surefire 报告里的一个 testcase）。`outcome`：passed / failed / error / skipped
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestCaseDto {
+    pub class: String,
+    pub name: String,
+    pub ms: u64,
+    pub outcome: String,
+    pub message: String,
+    pub detail: String,
+}
+
+/// 一次跑单测的结果。`total` 是真条数（比 `cases` 多就是截了）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestResultsDto {
+    pub cases: Vec<TestCaseDto>,
+    pub total: u32,
+}
+
 /// 一条修复（⌥↵）。`raw` 原样交回 `java_apply_action`
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

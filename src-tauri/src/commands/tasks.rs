@@ -115,6 +115,36 @@ pub fn task_stop(id: u32, state: State<'_, AppState>) -> String {
     }
 }
 
+/// 跑单测那次（「模块 [test 选择器]」）的结果：读那个模块 `target/surefire-reports` 里 `since_ms`（这次运行开始的时刻，毫秒）之后写的报告。
+/// 不是测试任务、模块找不到给空的
+#[tauri::command]
+pub async fn test_results(root: String, name: String, since_ms: u64) -> Result<TestResultsDto, String> {
+    blocking(move || {
+        let Some(dir) = crate::taskdefs::test_module_dir(Path::new(&root), &name) else { return Ok(TestResultsDto { cases: Vec::new(), total: 0 }) };
+        let since = std::time::UNIX_EPOCH + std::time::Duration::from_millis(since_ms);
+        let (cases, total) = crate::junit::results(&dir, since);
+        let cases = cases
+            .into_iter()
+            .map(|c| TestCaseDto {
+                class: c.class,
+                name: c.name,
+                ms: c.ms,
+                outcome: match c.outcome {
+                    crate::junit::Outcome::Passed => "passed",
+                    crate::junit::Outcome::Failed => "failed",
+                    crate::junit::Outcome::Error => "error",
+                    crate::junit::Outcome::Skipped => "skipped",
+                }
+                .into(),
+                message: c.message,
+                detail: c.detail,
+            })
+            .collect();
+        Ok(TestResultsDto { cases, total: total as u32 })
+    })
+    .await
+}
+
 /// 一次运行此刻在听的 TCP 端口（Services 里服务名后面那个 `:8080`）。Spring Boot 起来要几秒，前端在「跑着、还没端口」时隔一会儿问一次 ——
 /// 不走 `services_list`：那条要重新翻一遍所有模块的 Java 源码认入口，这条只是一次 `lsof`
 #[tauri::command]

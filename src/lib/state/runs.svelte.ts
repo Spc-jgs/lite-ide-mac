@@ -6,7 +6,7 @@
  *
  * **不进会话快照**：任务是活的子进程，跨进程恢复不了（同终端，`terms.svelte.ts` 头上那条）。
  */
-import type { PortHolder, TaskStale } from "../ipc/commands";
+import type { PortHolder, TaskStale, TestResults } from "../ipc/commands";
 
 export type RunStatus = "running" | "stopping" | "stopped" | "done" | "failed";
 
@@ -23,6 +23,10 @@ export interface RunTab {
   holder: PortHolder | null;
   /** Spring Boot 服务：在 Services 工具窗里，不进运行窗的标签（同 IDEA） */
   service: boolean;
+  /** 什么时候起的（毫秒）：跑单测的只认这之后写的报告 */
+  startedAt: number;
+  /** 跑单测那次（「模块 [test …]」）的结果：跑完读 surefire 报告；还在跑、或者不是测试是 null */
+  tests: TestResults | null;
 }
 
 class Runs {

@@ -381,19 +381,38 @@ fn spring_apps(root: &Path, found: &mut Found) {
 /// 但 `task_run` 按名字认得它 —— 于是运行窗、⌃R 重跑、⌘F2 停、同名先停旧的全是现成的。目标里每个词都要过 `maven::goal_command` 的字符检查
 pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
     let (artifact, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
+    let (rel, m) = find_module(root, artifact)?;
+    let prefs = crate::maven::prefs(root);
+    // 单测（docs/IDEA.md 第 17 节）：「模块 [test 选择器]」—— 和跑目标同一个名字形状，运行窗、⌃R 重跑、⌘F2 停、同名先停旧的都是现成的
+    let command = match goal.strip_prefix("test ") {
+        Some(sel) => crate::maven::test_command(&m.rel, sel.trim(), &prefs)?,
+        None => crate::maven::goal_command(&m.rel, goal, &prefs)?,
+    };
+    Some(Def { name: name.to_string(), command, cwd: rel, env: Vec::new(), source: Source::Goal { module: m.rel } })
+}
+
+/// 任务名里的模块那一段 → （它所在的 reactor 相对项目根的路径, 模块）。认 artifactId（Maven 工具窗起的），也认模块目录相对项目根的路径
+/// （测试文件旁边的 ▶ 起的：前端从文件路径就算得出目录，不用先问 Rust 这个模块叫什么）；根模块写 `.`
+fn find_module(root: &Path, token: &str) -> Option<(String, crate::maven::Module)> {
     for rel in crate::maven::reactors(root) {
         let r = root.join(&rel);
-        if let Some(m) = crate::maven::modules(&r).into_iter().find(|m| m.artifact_id == artifact) {
-            return Some(Def {
-                name: name.to_string(),
-                command: crate::maven::goal_command(&m.rel, goal, &crate::maven::prefs(root))?,
-                cwd: rel,
-                env: Vec::new(),
-                source: Source::Goal { module: m.rel },
-            });
+        let hit = crate::maven::modules(&r).into_iter().find(|m| {
+            let dir = [rel.as_str(), m.rel.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("/");
+            m.artifact_id == token || (!dir.is_empty() && dir == token) || (dir.is_empty() && token == ".")
+        });
+        if let Some(m) = hit {
+            return Some((rel, m));
         }
     }
     None
+}
+
+/// 跑单测那次（「模块 [test 选择器]」）的模块目录（绝对路径）：读它 `target/surefire-reports` 里的结果。不是测试任务给 None
+pub fn test_module_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
+    let (token, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
+    goal.strip_prefix("test ")?;
+    let (rel, m) = find_module(root, token)?;
+    Some(root.join(rel).join(m.rel))
 }
 
 /// 按名字找任务：先找列表里的（tasks.json、scripts、Spring Boot），再认 Maven 工具窗的「模块 [目标]」
@@ -586,6 +605,29 @@ mod tests {
         assert!(resolve(&d, "order-service [package; rm -rf ~]").is_none(), "拼得进第二条命令的不给");
         assert!(resolve(&d, "nobody [package]").is_none(), "没有这个模块");
         assert!(discover(&d).defs.is_empty(), "不进任务列表");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 单测（docs/IDEA.md 第 17 节）：「模块 [test 选择器]」—— 模块那一段认 artifactId、认目录、根模块认 `.`；找得回模块目录读报告
+    #[test]
+    fn 单测按名字认得_模块认_artifactid_目录和根() {
+        let d = tmp("tests");
+        #[allow(clippy::disallowed_methods)] // 测试自己的临时文件
+        let w = |p: &str, t: &str| {
+            let p = d.join(p);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, t).unwrap();
+        };
+        w("pom.xml", "<project><artifactId>shop</artifactId><modules><module>order</module></modules></project>");
+        w("order/pom.xml", "<project><artifactId>order-service</artifactId></project>");
+        let by_dir = resolve(&d, "order [test com.demo.OrderTest#adds]").expect("按目录认得");
+        assert!(by_dir.command.contains("-Dtest='com.demo.OrderTest#adds'") && by_dir.command.contains("-pl order -am test"), "{}", by_dir.command);
+        let by_id = resolve(&d, "order-service [test com.demo.OrderTest]").unwrap().command;
+        assert!(by_id.contains("-Dtest=com.demo.OrderTest ") && by_id.contains("-pl order -am test"), "按 artifactId 也认得：{by_id}");
+        assert!(resolve(&d, ". [test com.demo.RootTest]").unwrap().command.ends_with(" test") && !resolve(&d, ". [test com.demo.RootTest]").unwrap().command.contains("-pl"), "根模块写 .");
+        assert!(resolve(&d, "order [test A; rm -rf ~]").is_none(), "选择器拼得进第二条命令的不给");
+        assert_eq!(test_module_dir(&d, "order [test com.demo.OrderTest]"), Some(d.join("order")));
+        assert_eq!(test_module_dir(&d, "order [package]"), None, "不是测试任务");
         let _ = std::fs::remove_dir_all(&d);
     }
 

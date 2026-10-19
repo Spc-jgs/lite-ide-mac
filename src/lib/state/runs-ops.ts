@@ -9,7 +9,7 @@ import { project } from "./project.svelte";
 import { notify } from "./notify.svelte";
 import { overlay } from "./overlay.svelte";
 import { listenHere, type TaskExit } from "../ipc/commands";
-import { servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop } from "../ipc/tasks";
+import { servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, testResults } from "../ipc/tasks";
 
 let listening: Promise<unknown> | null = null;
 
@@ -32,8 +32,39 @@ export function exited(x: TaskExit) {
   r.status = x.stopped ? "stopped" : x.failed ? "failed" : "done";
   r.code = x.code;
   r.holder = x.port;
-  // 端口被占有自己的卡片（说清是谁、给出路），不再另弹一句「退出了」
-  if (r.status === "failed" && !x.port) notify.fail(exitText(r.name, x.code));
+  // 端口被占有自己的卡片（说清是谁、给出路），不再另弹一句「退出了」。跑单测的失败由结果那句说（「3 通过 · 1 没过」比「退出码 1」有用）
+  if (isTestRun(r.name)) void loadTests(r.id);
+  else if (r.status === "failed" && !x.port) notify.fail(exitText(r.name, x.code));
+}
+
+/**
+ * 「模块 [test …]」：同 java-tests.ts 的 parseTestTask，这里只要判断。**不引那个模块**：入口里那句 import("runs-ops") 要列出它静态依赖的每个块的文件名，
+ * 多引一个就多一个（2026-10-19 量的：+41 B、越过入口包的告警线）
+ */
+const isTestRun = (name: string) => /^.+ \[test .+\]$/.test(name);
+
+/**
+ * 跑单测那次结束了：读这次写的 surefire 报告（docs/IDEA.md 第 17 节），交给运行窗的结果树和编辑器行号旁的 ✓ / ✗，说一句结果。
+ * 一条都没读到 —— 多半是编译没过、测试一个都没跑起来：照实说，原因在输出里
+ */
+async function loadTests(id: number) {
+  const r = runs.list.find((t) => t.id === id);
+  if (!r) return;
+  try {
+    const res = await testResults(r.root, r.name, r.startedAt - 1000);
+    const now = runs.list.find((t) => t.id === id);
+    if (!now) return;
+    now.tests = res;
+    const { noteOutcomes } = await import("../run/test-outcomes");
+    noteOutcomes(res.cases);
+    const bad = res.cases.filter((c) => c.outcome === "failed" || c.outcome === "error").length;
+    const good = res.cases.filter((c) => c.outcome === "passed").length;
+    if (!res.cases.length) notify.fail(`「${r.name}」一个测试结果都没有（编译没过、或者没找到这个测试），看输出`, 8000);
+    else if (bad) notify.fail(`${good} 个通过 · ${bad} 个没过`);
+    else notify.ok(`${good} 个测试全部通过`);
+  } catch (e) {
+    notify.fail(`读不到测试结果：${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 /** 跑起来之后亮出它所在的那个工具窗：Spring Boot 服务在 Services，别的在运行窗 */
@@ -68,12 +99,13 @@ async function start(name: string, root: string) {
   last[root] = name;
   const old = runs.list.find((t) => t.root === root && t.name === name);
   if (old && old.status === "running") old.status = "stopping";
+  const startedAt = Date.now();
   // 先亮工具窗再等 Rust：同名的上一次要先软停（最多 5 秒），这段时间里人要看得见「在处理」。是不是服务认得出来的话先按它亮
   if (old) show(old.service);
   try {
     const r = await taskRun(root, name);
     show(r.service);
-    const tab: RunTab = { id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null, holder: null, service: r.service };
+    const tab: RunTab = { id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null, holder: null, service: r.service, startedAt, tests: null };
     // 同名的那一格原地换掉（位置不跳），没有就加在最后
     const i = runs.list.findIndex((t) => t.root === root && t.name === name);
     if (i >= 0) runs.list[i] = tab;

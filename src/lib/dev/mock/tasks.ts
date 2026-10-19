@@ -132,6 +132,32 @@ function mockPorts(id: number): number[] {
   return [8080 + Math.max(0, services.findIndex((d) => d.name === r.name))];
 }
 
+/** 跑过的单测：任务名 → 选择器（test_results 按它造结果） */
+const TESTS = new Map<string, string>();
+
+/** 桩的测试结果：选择器里的类（`A#x+y,B`）到 FILES 里找源码，认 @Test 方法（同 java-tests.ts 的认法，粗一点）；名字带 fail 的算没过 */
+function testCases(root: string, selector: string) {
+  const out: { class: string; name: string; ms: number; outcome: string; message: string; detail: string }[] = [];
+  for (const part of selector.split(",")) {
+    const [cls, ms] = part.split("#");
+    const file = Object.keys(FILES).find((p) => p.startsWith(`${root}/`) && p.endsWith(`/src/test/java/${cls.replace(/\./g, "/")}.java`));
+    if (!file) continue;
+    const methods = [...FILES[file].matchAll(/@Test\s+(?:public\s+)?void\s+(\w+)\s*\(/g)].map((m) => m[1]).filter((m) => !ms || ms.split("+").includes(m));
+    for (const m of methods) {
+      const bad = /fail/i.test(m);
+      out.push({
+        class: cls,
+        name: m,
+        ms: bad ? 3 : 11,
+        outcome: bad ? "failed" : "passed",
+        message: bad ? "expected: <3> but was: <2>" : "",
+        detail: bad ? `org.opentest4j.AssertionFailedError: expected: <3> but was: <2>\n\tat ${cls}.${m}(${cls.slice(cls.lastIndexOf(".") + 1)}.java:16)` : "",
+      });
+    }
+  }
+  return out;
+}
+
 function emitExit(id: number, x: { code: number | null; stopped: boolean; port?: Holder | null }) {
   const r = RUNS.get(id);
   if (!r || r.status === "gone") return;
@@ -213,11 +239,14 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
     case "task_run": {
       const root = String(a.root);
       const name = String(a.name);
-      // Maven 工具窗的「artifactId [目标]」：不在列表里，按名字认（真实现在 taskdefs::maven_goal）
-      const goal = /^(.+) \[([^\]]+)\]$/.exec(name);
+      // Maven 工具窗的「artifactId [目标]」：不在列表里，按名字认（真实现在 taskdefs::maven_goal）。
+      // 跑单测的「模块 [test 选择器]」同一个形状（第 17 节），选择器按 maven::safe_selector 的字符卡
+      const test = /^(.+) \[test ([\w.#$*+,]+)\]$/.exec(name);
+      const goal = test ? null : /^(.+) \[([^\]]+)\]$/.exec(name);
       const def =
         list(root).tasks.find((d) => d.name === name) ??
-        (goal && goal[2].split(/\s+/).every((t) => SAFE.test(t)) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "goal" as const } : undefined);
+        (goal && goal[2].split(/\s+/).every((t) => SAFE.test(t)) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "goal" as const } : undefined) ??
+        (test ? { name, command: `mvn -B -ntp -Dtest=${test[2]} -Dsurefire.failIfNoSpecifiedTests=false -pl ${test[1]} -am test`, cwd: "", source: "goal" as const } : undefined);
       if (!def) throw new Error(`没有叫「${name}」的任务了（tasks.json 改过？）`);
       // 同真实现：同名的还在跑先停掉
       for (const [id, r] of RUNS) if (r.root === root && r.name === name && r.status !== "gone") emitExit(id, { code: 130, stopped: true });
@@ -228,7 +257,7 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       const log = `/mock-runs/${name.replace(/[^\w.-]/g, "_")}-${h.toString(16).padStart(8, "0")}.log`;
       // 名字带 fail 的：8080 还被占着就 0.9 秒后失败退出（输出里那句 `Port 8080 was already in use`）。
       // 带 ours 的，占着的算「你之前跑的」（主按钮）；不带的是别的程序（danger）—— 两种卡片在浏览器里都看得到
-      const fail = name.includes("fail") && HOLDERS.has(8080);
+      const fail = !test && name.includes("fail") && HOLDERS.has(8080);
       FILES[log] = fakeOutput(name, def.command, fail);
       bump(log);
       const run: Run = { root, name, status: "running", service: def.source === "spring", at: Date.now() };
@@ -236,6 +265,11 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       if (fail) {
         const h = { ...HOLDERS.get(8080)!, ours: name.includes("ours") ? "后端" : null };
         run.timer = setTimeout(() => emitExit(id, { code: 1, stopped: false, port: h }), 900);
+      }
+      // 跑单测：1.2 秒后结束（真的 mvn 要编译再跑，几秒到几十秒；结果树的「正在跑」要看得见）；有名字带 fail 的方法就是没过（退出码 1）
+      if (test) {
+        TESTS.set(name, test[2]);
+        run.timer = setTimeout(() => emitExit(id, { code: testCases(root, test[2]).some((c) => c.outcome === "failed") ? 1 : 0, stopped: false }), 1200);
       }
       return { id, name, command: def.command, log, service: def.source === "spring" };
     }
@@ -254,6 +288,12 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
     }
     case "task_ports":
       return mockPorts(Number(a.id));
+    case "test_results": {
+      // 真实现读 surefire 报告；桩按选择器从 FILES 里的测试类造（testCases）
+      const sel = TESTS.get(String(a.name));
+      const cases = sel ? testCases(String(a.root), sel) : [];
+      return { cases, total: cases.length };
+    }
     case "task_stop": {
       const id = Number(a.id);
       const r = RUNS.get(id);

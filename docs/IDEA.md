@@ -445,3 +445,26 @@ IDEA 的 Show Context Actions：光标那儿（或选中的几行）能做的修
 **真 .app `java.sh` 38/38**（新加 3 条）：缺 import 的 `List` 按 ⌥↵，第一条是 `Import 'List' (java.util)`、不列生成 getter；回车补上 import、波浪线消失；⌘Z 一下撤回。
 
 还没做：IDEA 那个灯泡图标（光标停在有修复的地方时行首亮一下）、新建类的修复、生成 getter / 构造器的交互框、参数提示。
+
+## 17. 第 4 步：跑单测（2026-10-19）
+
+照第 2 节第 10 条定的：**不靠语言服务器**。测试就是 `mvn -Dtest=类#方法 test`，跑在任务里；结果是 surefire 自己写的报告。
+
+| IDEA 的 | 我们 |
+|---|---|
+| 测试类、测试方法旁的绿三角 | 同：`src/test/java/` 底下的文件，按注解认（`@Test` / `@ParameterizedTest` / `@RepeatedTest` / `@TestFactory` / `@TestTemplate`，JUnit 4 和 5 都是这些名字；`java-tests.ts`）。jdtls 没起好也能跑。认不出自己写的元注解（IDEA 认得：它有完整的语义模型） |
+| 跑完绿三角换成 ✓ / ✗ | 同（`run/test-outcomes.ts`：运行那边写、编辑器那边读，两边都是懒加载的块，这张表单独一个小文件） |
+| ⌃⇧R 跑光标所在的 | 同：光标往上最近的测试方法；在第一个测试方法上面就是整个类 |
+| Run 窗口的测试视图：左边结果树、右边输出 | 同：运行窗里测试那一格左边是结果树（类 → 方法，耗时），右边是日志视图那套输出；点没过的那条展开原因和堆栈，双击跳到方法 |
+| 重跑没过的 | 同：surefire 的选择器 `A#x+y,B#z` |
+
+- **任务名用 Maven 自己的写法**：`order-service [test com.demo.OrderTest#adds]`，和 Maven 工具窗跑目标的「模块 [目标]」同一个形状 —— 运行窗、⌃R 重跑、⌘F2 停、同名先停旧的全是现成的。模块那一段认 artifactId、认目录（行号旁的 ▶ 从文件路径就算得出，不用先问 Rust），根模块写 `.`。
+- **命令**：`mvn -Dtest=… -Dsurefire.failIfNoSpecifiedTests=false -pl 模块 -am test`。`-am` 让兄弟模块不用 install（同跑目标）；它也会在上游模块里跑 test 阶段，那里没有这个类，surefire 默认当失败、整个构建停下 —— 所以要那个开关（**去掉它的错版本在验收里红**）。带 Maven 窗里勾的 profile 和离线，**不带跳过测试**（就是来跑测试的）。选择器按字符卡（`[A-Za-z0-9_.#$*+,]`），`$` 和 `#` 进命令时加引号。
+- **结果只认这次的**：`target/surefire-reports/TEST-*.xml` 里改动时间不早于这次开始的那些。上次跑过、这次没跑到的类的报告还躺在那儿，算进来就是一份混着上次结果的东西。
+- 报告不为它加 XML 依赖：只认 `testcase` 和底下的 `failure` / `error` / `skipped`，属性按「前面是空白」认名字（不然 `classname` 会被当成 `name`）、正文按实体解码、CDATA 原样。堆栈最多 1.6 万字、一次最多 5000 条，截了照实说。
+
+**真 .app `scripts/accept/spring.sh` 29/29**（新加 5 条，真 mvn）：测试类和两个方法旁各一个 ▶；⌃⇧R 跑整个类，用到兄弟模块的那个过了（shop-common 没 install）、故意的那个没过；
+命令带 profile、不带跳过测试；行号旁换成 ✓ / ✗；重跑没过的只跑那一个。
+样例的根 pom 把 `junit-jupiter.version` 钉在 5.12.2：Spring Boot 4.0.1 管的是 JUnit 6.0.1，本地仓库里配套的 `junit-platform-launcher` 只有 1.x，用 6 的话 mvn 要去下载。
+
+还没做：Gradle 项目（`gradle test --tests`，报告在 `build/test-results/`）、`@Nested` 内部类、跑的时候一条条地亮（现在是跑完一起出 —— 要接 surefire 的事件流）、按覆盖率着色。

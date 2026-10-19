@@ -99,6 +99,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("JavaResolvedDto", "JavaResolved"),
     ("JavaRenameTargetDto", "JavaRenameTarget"),
     ("JavaActionDto", "JavaAction"),
+    ("TestCaseDto", "TestCase"),
+    ("TestResultsDto", "TestResults"),
     ("JavaActionResultDto", "JavaActionResult"),
 ];
 

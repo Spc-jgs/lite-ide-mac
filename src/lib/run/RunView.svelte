@@ -9,9 +9,15 @@
    * 日志视图是 `tail -F` 的语义（按名字重开、句柄不变，LogPane 里 `rotated` 那段），这里不用管。
    */
   import LogPane from "../logview/LogPane.svelte";
+  import TestTree from "./TestTree.svelte";
   import { openLog, closeLog } from "../ipc/commands";
+  import { parseTestTask } from "../editor/java-tests";
+  import { runs } from "../state/runs.svelte";
 
   let { log }: { log: string } = $props();
+  /** 这是哪一次运行：按输出文件找（每次运行一份，Rust 发的路径），调用方只传 `log` 就够。跑单测那一格（「模块 [test …]」）左边加结果树（docs/IDEA.md 第 17 节） */
+  let run = $derived(runs.list.find((r) => r.log === log) ?? null);
+  let isTest = $derived(!!run && !!parseTestTask(run.name));
 
   let handle = $state<number | null>(null);
   let err = $state("");
@@ -43,13 +49,18 @@
 </script>
 
 {#if handle !== null}
-  <div class="run">
-    <div class="body">
-      {#key handle}
-        <LogPane {handle} initialFilter={FOLLOW} onStatus={(s) => (status = s)} />
-      {/key}
+  <div class="split" class:tests={isTest}>
+    {#if isTest && run}
+      <div class="tests-pane"><TestTree {run} /></div>
+    {/if}
+    <div class="run">
+      <div class="body">
+        {#key handle}
+          <LogPane {handle} initialFilter={FOLLOW} onStatus={(s) => (status = s)} />
+        {/key}
+      </div>
+      {#if status}<div class="status">{status}</div>{/if}
     </div>
-    {#if status}<div class="status">{status}</div>{/if}
   </div>
 {:else if err}
   <div class="msg">打不开输出：{err}</div>
@@ -58,7 +69,10 @@
 {/if}
 
 <style>
-  .run { display: flex; flex-direction: column; height: 100%; }
+  .split { display: flex; height: 100%; min-height: 0; }
+  /* 结果树在左、输出在右（同 IDEA 的测试视图）。树那一栏定宽：要看的是失败原因和输出 */
+  .tests-pane { flex: none; width: 320px; min-height: 0; border-right: 1px solid var(--border-soft); }
+  .run { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; }
   .body { flex: 1; min-height: 0; }
   .status {
     flex: none;

@@ -267,9 +267,23 @@ public class SamePkgHelper {
     public String tag() { return "同包，不写 import"; }
 }
 `,
+  // 跑单测（docs/IDEA.md 第 17 节）：行号旁的 ▶；名字带 fail 的那个桩里算没过（mock/tasks.ts 的 test_results）
   "/proj/moduleA/src/test/java/com/demo/api/AdminControllerTest.java": `package com.demo.api;
 
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 class AdminControllerTest {
+    @Test
+    void listsAdmins() {
+        assertEquals(2, 1 + 1);
+    }
+
+    @Test
+    void failsOnPurpose() {
+        assertEquals(3, 1 + 1);
+    }
 }
 `,
   // Spring Boot 入口（docs/IDEA.md 第 1 步）：任务列表里自动出一个「OrderServiceApplication」

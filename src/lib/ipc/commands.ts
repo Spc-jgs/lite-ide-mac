@@ -155,6 +155,24 @@ export interface JavaRenameTarget {
   placeholder: string | null;
 }
 
+/** 一条单测的结果（surefire 报告里的一个 testcase） */
+export interface TestCase {
+  class: string;
+  name: string;
+  ms: number;
+  outcome: "passed" | "failed" | "error" | "skipped";
+  /** 一句话的原因 */
+  message: string;
+  /** 堆栈（截过的话末尾说截了多少） */
+  detail: string;
+}
+
+/** 一次跑单测的结果。`total` 比 `cases` 多 = 截了 */
+export interface TestResults {
+  cases: TestCase[];
+  total: number;
+}
+
 /** 一条修复（⌥↵）。`raw` 原样交回 `javaApplyAction` */
 export interface JavaAction {
   title: string;

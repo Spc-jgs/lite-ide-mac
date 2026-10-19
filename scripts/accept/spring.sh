@@ -55,7 +55,8 @@ cat > "${P}/pom.xml" <<'EOF'
   <modelVersion>4.0.0</modelVersion>
   <parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>4.0.1</version><relativePath/></parent>
   <groupId>com.demo</groupId><artifactId>shopdemo</artifactId><version>0.0.1-SNAPSHOT</version><packaging>pom</packaging>
-  <properties><java.version>17</java.version></properties>
+  <!-- junit-jupiter 钉在 5.12.2：Spring Boot 4.0.1 管的是 6.0.1，可本地仓库里配套的 junit-platform-launcher 只有 1.x —— 用 6 的话 mvn 要去下载（验收不替你下载东西） -->
+  <properties><java.version>17</java.version><junit-jupiter.version>5.12.2</junit-jupiter.version></properties>
   <modules><module>shop-common</module><module>order-service</module><module>user-service</module></modules>
   <profiles><profile><id>probe</id></profile></profiles>
 </project>
@@ -69,6 +70,7 @@ money() { printf 'package com.demo.common;\npublic record Money(long cents) {\n 
 money "¥"
 for m in order user; do
   starter=spring-boot-starter; [ "${m}" = user ] && starter=spring-boot-starter-webmvc
+  testdep=""; [ "${m}" = order ] && testdep='<dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>'
   cat > "${P}/${m}-service/pom.xml" <<EOF
 <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
   <parent><groupId>com.demo</groupId><artifactId>shopdemo</artifactId><version>0.0.1-SNAPSHOT</version></parent>
@@ -76,6 +78,7 @@ for m in order user; do
   <dependencies>
     <dependency><groupId>com.demo</groupId><artifactId>shop-common</artifactId><version>\${project.version}</version></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>${starter}</artifactId></dependency>
+    ${testdep}
   </dependencies></project>
 EOF
 done
@@ -93,6 +96,28 @@ public class OrderApplication implements CommandLineRunner {
     @Value("${demo.greeting}") String greeting;
     public static void main(String[] args) { SpringApplication.run(OrderApplication.class, args); }
     @Override public void run(String... args) { System.out.println("LITE-IDE-PROBE " + greeting + " " + new Money(12345).show()); }
+}
+EOF
+# 单测（docs/IDEA.md 第 17 节）：一个用到兄弟模块的类（不用 install 就能跑）、一个故意没过
+mkdir -p "${P}/order-service/src/test/java/com/demo/order"
+cat > "${P}/order-service/src/test/java/com/demo/order/OrderMathTest.java" <<'EOF'
+package com.demo.order;
+
+import com.demo.common.Money;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class OrderMathTest {
+    @Test
+    void usesSiblingModule() {
+        assertEquals(12345, new Money(12345).cents());
+    }
+
+    @Test
+    void failsOnPurpose() {
+        assertEquals(3, 1 + 1, "故意没过");
+    }
 }
 EOF
 printf 'demo:\n  greeting: hello-from-yml\nspring:\n  main:\n    banner-mode: off\n' > "${P}/order-service/src/main/resources/application.yml"
@@ -195,6 +220,25 @@ ok "$(wait_for 120 "logtext 'order-service__package_' | grep -q 'BUILD SUCCESS'"
 ok "$(ls "${P}"/order-service/target/order-service-*.jar >/dev/null 2>&1 && echo 1)" "target 里出了 jar：$(ls "${P}"/order-service/target/*.jar 2>/dev/null | xargs -n1 basename 2>/dev/null)"
 TAB=$(lite_eval main "return [...document.querySelectorAll('.ptab')].map((t) => t.innerText.trim()).join(',')")
 ok "$(echo "${TAB}" | grep -q 'order-service \[package\]' && echo 1)" "运行窗的标签（IDEA 的样子）：${TAB}"
+
+echo "== 单测（docs/IDEA.md 第 17 节）：⌃⇧R 跑整个类 → 结果树 1 过 1 没过、行号旁换成 ✓ / ✗；命令带 profile 不带跳过测试；重跑没过的只跑那一个"
+TEST="${P}/order-service/src/test/java/com/demo/order/OrderMathTest.java"
+lite_eval main "await __lite.tabflow.openPath('${TEST}', { preview: false }); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-test-run').length === 3" 15 >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-test-run').length")" = 3 ] && echo 1)" "测试类和两个测试方法旁边各一个 ▶"
+lite_eval main "const t = __lite.text().split('\\n'); __lite.caret(t.findIndex((x) => x.includes('class OrderMathTest')) + 1, 1); __lite.key('Ctrl-Shift-r'); return true" >/dev/null
+RUN="order-service [test com.demo.order.OrderMathTest]"
+lite_wait main "return __lite.runs.list.some((r) => r.name === '${RUN}' && r.tests)" 240 >/dev/null
+SUM=$(lite_eval main "return document.querySelector('.tt .sum')?.textContent.trim() ?? ''")
+ok "$([ "$(lite_eval main "const r = __lite.runs.list.find((x) => x.name === '${RUN}'); return !!r?.tests && r.tests.cases.map((c) => c.name + ':' + c.outcome).sort().join(',') === 'failsOnPurpose:failed,usesSiblingModule:passed'")" = true ] && echo 1)" "结果树：用到兄弟模块的那个过了（shop-common 没 install）、故意的那个没过：${SUM}"
+CMD=$(lite_eval main "return __lite.runs.list.find((x) => x.name === '${RUN}')?.command ?? ''")
+ok "$(echo "${CMD}" | grep -q -- '-P probe' && ! echo "${CMD}" | grep -q -- 'skipTests' && echo "${CMD}" | grep -q -- '-pl order-service -am' && echo 1)" "命令带上了 profile、没带跳过测试（Maven 窗里那个开着）：${CMD}"
+lite_wait main "return document.querySelectorAll('.cm-test-run.failed').length === 2 && document.querySelectorAll('.cm-test-run.passed').length === 1" 10 >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-test-run.failed').length === 2 && document.querySelectorAll('.cm-test-run.passed').length === 1")" = true ] && echo 1)" "行号旁换成结果：类和没过的那个是 ✗、过了的那个是 ✓"
+lite_eval main "document.querySelector('.tt .bar button[aria-label=\"重跑没过的\"]').click(); return true" >/dev/null
+RERUN="order-service [test com.demo.order.OrderMathTest#failsOnPurpose]"
+lite_wait main "return __lite.runs.list.some((r) => r.name === '${RERUN}' && r.tests)" 240 >/dev/null
+ok "$([ "$(lite_eval main "const r = __lite.runs.list.find((x) => x.name === '${RERUN}'); return !!r?.tests && r.tests.cases.map((c) => c.name + ':' + c.outcome).join(',') === 'failsOnPurpose:failed'")" = true ] && echo 1)" "重跑没过的：任务名是「${RERUN}」，只跑了那一个"
 
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then
