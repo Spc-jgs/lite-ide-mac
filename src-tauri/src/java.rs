@@ -132,6 +132,18 @@ pub struct RenameTarget {
     pub placeholder: Option<String>,
 }
 
+/// 一条修复（⌥↵）。`raw` 原样交回 `apply_action`（选中了再 resolve 要改动）
+#[derive(Clone, Debug)]
+pub struct Action {
+    pub title: String,
+    /// `quickfix`（修报错）/ `quickassist`（顺手的改法）/ `source…`（整理 import 这类整个文件的）
+    pub kind: String,
+    pub raw: String,
+}
+
+/// 一次最多列多少条修复：jdtls 对一个找不到的类名会列二三十条「改成某某」，列表再长没人看
+pub const ACTIONS_MAX: usize = 40;
+
 /// resolve 回来的：要一起做的改动（自动 import 就在这里，**只在 resolve 时才给**，补全列表里没有）+ 说明文字
 #[derive(Clone, Debug, Default)]
 pub struct Resolved {
@@ -149,6 +161,9 @@ struct Shared {
     /// 开着的 Java 文档：路径 → 版本号。`synced` = initialize 回过了、开着的都 didOpen 过了；在这之前开的先记着，回了一起补发
     docs: Mutex<Docs>,
     last_used: Mutex<Instant>,
+    /// 每个文件最近一轮的报错，**原样**（带 `code`）：⌥↵ 问修复时要把光标那儿的报错交回去，jdtls 按 `code` 里的问题编号找修复。
+    /// 前端画波浪线那份没带 `code`。上限同 `DIAG_MAX`
+    raw_diags: Mutex<HashMap<String, Vec<Value>>>,
 }
 
 struct Docs {
@@ -335,6 +350,39 @@ impl Instance {
         Ok(r.as_array().map(|a| a.iter().filter_map(|e| e["newText"].as_str().map(|t| edit_of(&e["range"], t))).collect()).unwrap_or_default())
     }
 
+    /// 光标那儿（或选中的那几行）能做的修复（⌥↵）。带着全文；把和这几行重叠的报错原样带上（[`Shared::raw_diags`]）
+    pub fn code_actions(&self, path: &str, text: &str, range: Edit) -> Result<Vec<Action>, String> {
+        self.change(path, text);
+        let diags: Vec<Value> = self
+            .shared
+            .raw_diags
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(path)
+            .map(|v| v.iter().filter(|d| overlaps(d, &range)).cloned().collect())
+            .unwrap_or_default();
+        let r = self.ask(
+            "textDocument/codeAction",
+            json!({
+                "textDocument": { "uri": uri::from_path(path) },
+                "range": { "start": { "line": range.line, "character": range.character }, "end": { "line": range.end_line, "character": range.end_character } },
+                "context": { "diagnostics": diags, "triggerKind": 1 },
+            }),
+        )?;
+        Ok(actions_of(&r))
+    }
+
+    /// 选中的那条修复要改什么（没带改动的先 `codeAction/resolve`）。没有改动、只有命令的（要弹交互框的那种）这一版不做，说清楚
+    pub fn resolve_action(&self, raw: &str) -> Result<RenamePlan, String> {
+        let item: Value = serde_json::from_str(raw).map_err(|e| format!("修复不是 JSON：{e}"))?;
+        let resolved = if item.get("edit").is_some() { item } else { self.ask("codeAction/resolve", item)? };
+        if resolved.get("edit").is_none() {
+            let cmd = resolved["command"]["command"].as_str().unwrap_or("");
+            return Err(format!("这条修复要执行命令{}，这一版还不支持", if cmd.is_empty() { String::new() } else { format!("（{cmd}）") }));
+        }
+        workspace_edit(&resolved["edit"])
+    }
+
     /// 光标底下能不能改名。带着此刻的全文（同 `complete`）。null / 不认 = 这里不能改名（关键字、注释里）
     pub fn prepare_rename(&self, path: &str, text: &str, line: u32, character: u32) -> Result<Option<RenameTarget>, String> {
         self.change(path, text);
@@ -431,6 +479,8 @@ impl Shared {
             },
             "textDocument/publishDiagnostics" => {
                 let Some(path) = p["uri"].as_str().and_then(uri::to_path) else { return };
+                let raw: Vec<Value> = p["diagnostics"].as_array().map(|a| a.iter().take(DIAG_MAX).cloned().collect()).unwrap_or_default();
+                self.raw_diags.lock().unwrap_or_else(|e| e.into_inner()).insert(path.clone(), raw);
                 let (items, total) = diagnostics(&p["diagnostics"]);
                 let _ = self.app.emit_to(
                     self.owner.as_str(),
@@ -571,6 +621,49 @@ pub fn resolved(r: &Value) -> Resolved {
     Resolved { edits, doc }
 }
 
+/// 一条报错和这一段（按行）有没有重叠。按行不按列：工作区构建出来的那批报错只有行号、列是 0（探针实测），按列判会漏
+fn overlaps(d: &Value, r: &Edit) -> bool {
+    let (a, b) = (num(&d["range"]["start"]["line"]), num(&d["range"]["end"]["line"]));
+    a <= r.end_line && b >= r.line
+}
+
+/// import 候选的包排在第几（越小越前）：`java.*` / `javax.*` 先，项目和第三方居中，最后是 JDK 内部的（`com.sun.*`、`sun.*`、`jdk.*`）和
+/// 桌面图形界面的（`java.awt*`、`javax.swing*`）。jdtls 按字母排：`List` 的候选是 `com.sun.tools.javac.util`、`java.awt`、`java.util`（探针实测），
+/// 真 .app 验收里第一条是 `java.awt.List` —— 写后端的人几乎不会要它。IDEA 靠使用统计把它们压下去，我们没有统计，按包分三档
+fn import_rank(title: &str) -> u8 {
+    let Some(pkg) = title.strip_prefix("Import '").and_then(|t| t.split_once("' (")).map(|(_, p)| p.trim_end_matches(')')) else { return 1 };
+    if ["com.sun.", "sun.", "jdk.", "java.awt", "javax.swing", "java.applet"].iter().any(|p| pkg.starts_with(p)) {
+        2
+    } else if pkg.starts_with("java.") || pkg.starts_with("javax.") {
+        0
+    } else {
+        1
+    }
+}
+
+/// codeAction 的回包 → 列给人看的那些。去掉要弹交互框的（`source.generate.*`：VS Code 里是让人勾字段的对话框，这一版没有）；
+/// 修报错的（quickfix）排前面，其中 import 按 [`import_rank`] 排；最多 [`ACTIONS_MAX`] 条
+pub fn actions_of(r: &Value) -> Vec<Action> {
+    let mut out: Vec<(u8, u8, usize, Action)> = r
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .enumerate()
+        .filter_map(|(i, x)| {
+            let title = x["title"].as_str()?.to_string();
+            let kind = x["kind"].as_str().unwrap_or("").to_string();
+            if kind.starts_with("source.generate") {
+                return None;
+            }
+            let group = if kind == "quickfix" { 0 } else if kind.starts_with("source") { 2 } else { 1 };
+            Some((group, import_rank(&title), i, Action { title, kind, raw: x.to_string() }))
+        })
+        .collect();
+    out.sort_by_key(|(g, r, i, _)| (*g, *r, *i));
+    out.into_iter().take(ACTIONS_MAX).map(|(_, _, _, a)| a).collect()
+}
+
 /// prepareRename 的回包：`Range | { range, placeholder } | { defaultBehavior } | null`。
 /// `defaultBehavior`（让客户端自己按光标底下的词算）这里当「不能改」：jdtls 不回这种，回了也说明它没把握
 pub fn rename_target(r: &Value) -> Option<RenameTarget> {
@@ -621,7 +714,7 @@ pub fn workspace_edit(r: &Value) -> Result<RenamePlan, String> {
                 new_to_old.insert(to.clone(), from.clone());
                 plan.renames.push((from, to));
             }
-            Some(k) => return Err(format!("这次改动要{}文件，这一版只做改名", if k == "create" { "新建" } else if k == "delete" { "删除" } else { k })),
+            Some(k) => return Err(format!("这次改动要{}文件，这一版还不支持（只改已有文件的内容、给文件改名）", if k == "create" { "新建" } else if k == "delete" { "删除" } else { k })),
         }
     }
     plan.files.retain(|(_, e)| !e.is_empty());
@@ -821,6 +914,7 @@ impl Java {
             detail,
             docs: Mutex::new(Docs { open: HashMap::new(), pending: HashMap::new(), synced: false }),
             last_used: Mutex::new(Instant::now()),
+            raw_diags: Mutex::new(HashMap::new()),
         });
         let on_notify = Arc::clone(&shared);
         let on_exit = Arc::clone(&shared);
@@ -1011,6 +1105,46 @@ mod tests {
     fn 改名_jdtls_拒绝的英文原话换成中文_别的原样() {
         assert_eq!(Instance::rename_refusal("Compilation unit 'Customer.java' already exists".into()), "Customer.java 已经有了，不覆盖");
         assert_eq!(Instance::rename_refusal("别的错".into()), "别的错");
+    }
+
+    #[test]
+    fn 修复_去掉要弹框的_修报错的在前_import_java_包排前面_jdk内部的最后() {
+        // jdtls 实测的形状（按字母排：com.sun 在 java.util 前面）
+        let r = json!([
+            { "kind": "quickassist", "title": "Add Javadoc comment", "data": {} },
+            { "kind": "quickfix", "title": "Import 'List' (com.sun.tools.javac.util)", "data": {} },
+            { "kind": "quickfix", "title": "Import 'List' (java.awt)", "data": {} },
+            { "kind": "quickfix", "title": "Import 'List' (java.util)", "data": {} },
+            { "kind": "quickfix", "title": "Import 'List' (org.example.util)", "data": {} },
+            { "kind": "quickfix", "title": "Create class 'List<T>'", "data": {} },
+            { "kind": "source.organizeImports", "title": "Organize imports", "data": {} },
+            { "kind": "source.generate.accessors", "title": "Generate Getters and Setters", "data": {} }
+        ]);
+        let t: Vec<String> = actions_of(&r).into_iter().map(|a| a.title).collect();
+        assert_eq!(
+            t,
+            vec![
+                "Import 'List' (java.util)",
+                "Import 'List' (org.example.util)",
+                "Create class 'List<T>'",
+                "Import 'List' (com.sun.tools.javac.util)",
+                "Import 'List' (java.awt)",
+                "Add Javadoc comment",
+                "Organize imports",
+            ],
+            "java.* 在前、项目和第三方居中、JDK 内部的和桌面图形界面的（java.awt）最后；同一档里照 jdtls 原来的次序；要弹框的生成 getter 不列"
+        );
+        let many: Vec<Value> = (0..ACTIONS_MAX + 5).map(|i| json!({ "kind": "quickfix", "title": format!("Change to 'X{i}'") })).collect();
+        assert_eq!(actions_of(&Value::Array(many)).len(), ACTIONS_MAX);
+    }
+
+    #[test]
+    fn 修复_报错按行判重叠_构建出来的那批列是0也算() {
+        let d = json!({ "range": { "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 0 } } });
+        let on = |l: u32, c: u32| Edit { line: l, character: c, end_line: l, end_character: c, text: String::new() };
+        assert!(overlaps(&d, &on(3, 6)), "光标在第 3 行第 6 列，报错只有行号：算重叠");
+        assert!(!overlaps(&d, &on(4, 0)));
+        assert!(overlaps(&d, &Edit { line: 1, character: 0, end_line: 5, end_character: 0, text: String::new() }), "选中好几行");
     }
 
     #[test]

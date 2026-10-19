@@ -427,3 +427,21 @@ Java 文件里 ⌥⌘L 交给 jdtls（IDEA 的 Reformat Code）：有选区就�
 **真 .app `java.sh` 35/35**（新加 3 条）：整份排成 4 个空格缩进、`=` 两边有空格、一个 Tab 都没有；⌘Z 一下全回去；选中一行只排那一行。
 
 还没做：存盘时自动格式化、整理 import（IDEA 的 ⌃⌥O）、项目自己的格式化配置（`.editorconfig` 之外的 Eclipse 格式化 XML）。
+
+## 16. 第 3 步之四：快速修复（⌥↵，2026-10-19）
+
+IDEA 的 Show Context Actions：光标那儿（或选中的几行）能做的修复挂一张列表，↑↓ 选、↵ 做。探针摸清了三件事：
+
+| | 实测 | 决定了什么 |
+|---|---|---|
+| 不声明支持「字面量形式的修复」 | jdtls 一项都不回 | 声明 `codeActionLiteralSupport` + `resolveSupport`（先给标题、选中了再要改动，resolve 3 ms） |
+| 按工作区构建出的第一批报错问 | 那批报错**只有行号、列是 0**，jdtls 按它的位置找要修的东西，找不到 `List` —— 只给「加 Javadoc」「整理 import」，没有「Import 'List'」 | 报错要用打开文件之后实时校验那一轮的（位置准）。Rust 按文件存 jdtls 最近发来的**原样**报错（带 `code`，jdtls 按它找修复；前端画波浪线那份没带），问的时候挑出和那几行重叠的交回去。**去掉报错的错版本在验收里红：只剩加 Javadoc 那几条** |
+| 候选的次序 | jdtls 按字母：`com.sun.tools.javac.util`、`java.awt`、`java.util`（真 .app 验收第一次第一条是 `java.awt.List`） | 修报错的在前；import 候选按包分三档：`java.*` / `javax.*` → 项目和第三方 → JDK 内部的和桌面图形界面的（`com.sun`、`sun`、`jdk`、`java.awt`、`javax.swing`）。IDEA 靠使用统计，我们没有统计 |
+
+- **只改当前文件的修复**（补 import、改名字、加修饰符）放进编辑器、一笔事务：⌘Z 能撤，不写盘。**改到别的文件的**照改名那套落盘（第 14 节），带撤销卡片。
+- **不列要弹交互框的**（`source.generate.*`：VS Code 里是让人勾字段的对话框）；**要新建 / 删除文件的**（Create class）选了说「这一版还不支持」，一处都不改。
+- 问的时候带着全文；改动回来时文件又改过了就不放，说一句。
+
+**真 .app `java.sh` 38/38**（新加 3 条）：缺 import 的 `List` 按 ⌥↵，第一条是 `Import 'List' (java.util)`、不列生成 getter；回车补上 import、波浪线消失；⌘Z 一下撤回。
+
+还没做：IDEA 那个灯泡图标（光标停在有修复的地方时行首亮一下）、新建类的修复、生成 getter / 构造器的交互框、参数提示。

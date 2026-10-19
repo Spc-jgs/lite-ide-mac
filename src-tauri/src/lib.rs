@@ -304,6 +304,8 @@ pub fn run() {
             commands::java_prepare_rename,
             commands::java_rename,
             commands::java_format,
+            commands::java_code_actions,
+            commands::java_apply_action,
             commands::java_references,
             commands::java_class_contents,
             commands::java_status,

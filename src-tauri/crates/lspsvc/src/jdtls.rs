@@ -222,6 +222,13 @@ pub fn capabilities() -> Value {
             "definition": { "linkSupport": false },
             "references": {},
             "rename": { "prepareSupport": true },
+            // 快速修复（⌥↵）：要声明认「字面量形式」，不然 jdtls 一项都不回（探针实测 0 项）；resolve 先给标题、选中了再要改动
+            "codeAction": {
+                "codeActionLiteralSupport": { "codeActionKind": { "valueSet": ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports"] } },
+                "isPreferredSupport": true,
+                "dataSupport": true,
+                "resolveSupport": { "properties": ["edit"] },
+            },
             "formatting": {},
             "rangeFormatting": {},
             "hover": { "contentFormat": ["plaintext", "markdown"] },

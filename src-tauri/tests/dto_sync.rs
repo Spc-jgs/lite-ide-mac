@@ -98,6 +98,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("JavaCompletionDto", "JavaCompletion"),
     ("JavaResolvedDto", "JavaResolved"),
     ("JavaRenameTargetDto", "JavaRenameTarget"),
+    ("JavaActionDto", "JavaAction"),
+    ("JavaActionResultDto", "JavaActionResult"),
 ];
 
 struct RustStruct {

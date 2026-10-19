@@ -902,6 +902,23 @@ pub struct JavaRenameTargetDto {
     pub placeholder: Option<String>,
 }
 
+/// 一条修复（⌥↵）。`raw` 原样交回 `java_apply_action`
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaActionDto {
+    pub title: String,
+    pub kind: String,
+    pub raw: String,
+}
+
+/// 做一条修复的结果：只改当前文件的 → `edits`（前端在编辑器里一笔做完，⌘Z 能撤）；改到别的文件的 → `outcome`（照改名那套落盘，带撤销卡片）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaActionResultDto {
+    pub edits: Vec<JavaEditDto>,
+    pub outcome: Option<ReplaceOutcomeDto>,
+}
+
 /// 一个补全项。插什么看 `edit`（null = 按光标前那个词插 `label`）；`raw` 原样交回 `java_resolve`
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

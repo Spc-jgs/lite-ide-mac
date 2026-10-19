@@ -21,11 +21,12 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaChange, javaClose, javaComplete, javaDefinition, javaFormat, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve } from "../ipc/java";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { nav } from "../state/nav.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
 import RenamePopup from "./RenamePopup.svelte";
+import QuickFixPopup from "./QuickFixPopup.svelte";
 import { notify } from "../state/notify.svelte";
 import { progress, type TaskHandle } from "../state/progress.svelte";
 import { tabs } from "../state/tabs.svelte";
@@ -437,6 +438,96 @@ async function formatJava(view: EditorView): Promise<void> {
   notify.ok(`已格式化${range ? "选中的几行" : ""}：${changes.length} 处`);
 }
 
+// ── 快速修复（⌥↵，docs/IDEA.md 第 16 节） ──
+
+/**
+ * 问 jdtls 光标那儿（或选中的那几行）能做什么修复，挂一张列表；选中一条再要它的改动（resolve）。
+ * 只改这个文件的放进编辑器、一笔事务（⌘Z 能撤，不写盘）；改到别的文件的照改名那套落盘、带撤销卡片。
+ * 问的时候带着全文；改动回来时文件又改过了就不放 —— 位置是在旧文本上算的
+ */
+async function quickFix(view: EditorView): Promise<void> {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) {
+    notify.hint("Java 语言服务器还没起好，快速修复要等它");
+    return;
+  }
+  const st = view.state;
+  const sel = st.selection.main;
+  const a = st.doc.lineAt(sel.from);
+  const b = st.doc.lineAt(sel.to);
+  const range = { line: a.number - 1, character: sel.from - a.from, endLine: b.number - 1, endCharacter: sel.to - b.from };
+  let items: Awaited<ReturnType<typeof javaCodeActions>>;
+  try {
+    items = await javaCodeActions(s.root, s.path, st.doc.toString(), range);
+  } catch (e) {
+    notify.fail(`问不到修复：${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  if (!view.dom.isConnected) return;
+  if (!items.length) {
+    notify.hint("这里没有可用的修复");
+    return;
+  }
+  const gen = view.state.field(genField, false) ?? 0;
+  const c = view.coordsAtPos(sel.head);
+  closePopup();
+  popup = mount(QuickFixPopup, {
+    target: document.body,
+    props: {
+      items,
+      x: c?.left ?? 200,
+      y: c?.bottom ?? 200,
+      onclose: () => {
+        closePopup();
+        view.focus();
+      },
+      onpick: (it: (typeof items)[number]) => {
+        closePopup();
+        view.focus();
+        void applyAction(view, s, it.title, it.raw, gen);
+      },
+    },
+  });
+}
+
+async function applyAction(view: EditorView, s: Sync, title: string, raw: string, gen: number) {
+  const t = progress.start(`正在做：${title}`);
+  try {
+    const ops = await import("../state/replace-ops");
+    const r = await javaApplyAction(s.root, s.path, raw, ops.openDocs());
+    if (r.outcome) {
+      await ops.landInTabs(r.outcome);
+      const { replace } = await import("../state/replace.svelte");
+      const hits = r.outcome.changed.reduce((n, c) => n + c.count, 0);
+      const label = `${title}：改了 ${r.outcome.changed.length} 个文件 ${hits} 处`;
+      replace.done = r.outcome.undo ? { root: s.root, files: r.outcome.changed.length, hits, label } : null;
+      if (!r.outcome.undo) notify.ok(label);
+      return;
+    }
+    if (!view.dom.isConnected) return;
+    if ((view.state.field(genField, false) ?? 0) !== gen) {
+      notify.hint("修复回来时文件又改过了，没动它 —— 再按一次 ⌥↵");
+      return;
+    }
+    const doc = view.state.doc;
+    const changes = r.edits
+      .map((e) => ({ from: offset(doc, e.line, e.character), to: offset(doc, e.endLine, e.endCharacter), insert: e.text }))
+      .filter((c) => c.insert !== doc.sliceString(c.from, c.to))
+      .sort((x, y) => x.from - y.from || x.to - y.to);
+    if (!changes.length) {
+      notify.hint(`「${title}」什么都没改`);
+      return;
+    }
+    view.dispatch({ changes, userEvent: "input.fix", scrollIntoView: true });
+    notify.ok(title);
+  } catch (e) {
+    notify.fail(`没做成「${title}」：${e instanceof Error ? e.message : String(e)}`, 8000);
+  } finally {
+    t.end();
+  }
+}
+
 // ── 改名（⇧F6，docs/IDEA.md 第 14 节） ──
 
 /**
@@ -651,6 +742,8 @@ export function javaLsp(root: string | null, path: string): Extension {
         { key: "Mod-Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
         // IDEA 的 Refactor → Rename（keymap.ts 登记成 cm6）
         { key: "Shift-F6", preventDefault: true, run: (v) => (void renameAt(v), true) },
+        // IDEA 的 Show Context Actions（keymap.ts 登记成 cm6）
+        { key: "Alt-Enter", preventDefault: true, run: (v) => (void quickFix(v), true) },
         // IDEA 的 Reformat Code。Prec.high 排在 Editor 里那条「格式化 JSON」前面：Java 文件里先到这儿（keymap.ts 里是同一行，说明写了两种）
         { key: "Alt-Mod-l", preventDefault: true, run: (v) => (void formatJava(v), true) },
       ]),

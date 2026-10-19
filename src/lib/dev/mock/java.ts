@@ -302,6 +302,30 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       });
       return edits;
     }
+    case "java_code_actions": {
+      // 桩：光标那行有一个文件里没 import 过的 JDK 类名（List / Map / Optional）就给几条 import 候选（排序照真实现：java.* 在前、JDK 内部的最后），
+      // 外加一条只改这一行的「Add final modifier」。真的修复是 jdtls 算的。故意等 250 ms（实测 190–280）
+      await wait(250);
+      const text = String(a.text ?? "");
+      docs.set(path, text);
+      const line = Number((a.range as unknown as { line: number }).line);
+      const l = text.split("\n")[line] ?? "";
+      const out = [];
+      for (const [cls, pkgs] of [["List", ["java.util", "java.awt", "com.sun.tools.javac.util"]], ["Map", ["java.util"]], ["Optional", ["java.util"]]] as const) {
+        if (!new RegExp(`\\b${cls}\\b`).test(l) || text.includes(`.${cls};`)) continue;
+        for (const p of pkgs) out.push({ title: `Import '${cls}' (${p})`, kind: "quickfix", raw: JSON.stringify({ path, import: `${p}.${cls}` }) });
+      }
+      if (/^\s+\w/.test(l) && !l.includes("final")) out.push({ title: "Add final modifier", kind: "quickassist", raw: JSON.stringify({ path, finalAt: line }) });
+      return out;
+    }
+    case "java_apply_action": {
+      await wait(40);
+      const it = JSON.parse(String(a.raw)) as { path: string; import?: string; finalAt?: number };
+      if (it.import) return { edits: resolve(JSON.stringify({ label: "", path: it.path, import: it.import })).edits, outcome: null };
+      const l = (docs.get(it.path) ?? FILES[it.path] ?? "").split("\n")[it.finalAt!] ?? "";
+      const at = l.length - l.trimStart().length;
+      return { edits: [{ line: it.finalAt!, character: at, endLine: it.finalAt!, endCharacter: at, text: "final " }], outcome: null };
+    }
     case "java_class_contents":
       await wait(30);
       if (String(a.uri) !== JAR) throw new Error("这个类拿不到内容（jdtls 没有回源码，也没有反编译）");

@@ -133,6 +133,32 @@ pub async fn java_format(
     .await
 }
 
+/// 光标那儿（或选中的那几行）能做的修复（⌥↵）
+#[tauri::command]
+pub async fn java_code_actions(app: tauri::AppHandle, root: String, path: String, text: String, range: JavaRangeArg) -> Result<Vec<JavaActionDto>, String> {
+    blocking(move || {
+        let r = crate::java::Edit { line: range.line, character: range.character, end_line: range.end_line, end_character: range.end_character, text: String::new() };
+        Ok(instance(&app, &root)?.code_actions(&path, &text, r)?.into_iter().map(|a| JavaActionDto { title: a.title, kind: a.kind, raw: a.raw }).collect())
+    })
+    .await
+}
+
+/// 做选中的那条修复。只改 `path` 这一个文件的：把改动交回编辑器（不写盘，⌘Z 能撤）；改到别的文件、或者要改文件名的：照改名那套落盘（`java::apply_rename`）
+#[tauri::command]
+pub async fn java_apply_action(app: tauri::AppHandle, root: String, path: String, raw: String, open: Vec<super::replace::OpenDocArg>) -> Result<JavaActionResultDto, String> {
+    let journal = super::replace::journal_dir(&app)?;
+    blocking(move || {
+        let plan = instance(&app, &root)?.resolve_action(&raw)?;
+        if plan.renames.is_empty() && plan.files.iter().all(|(p, _)| *p == path) {
+            let edits = plan.files.into_iter().flat_map(|(_, e)| e).map(Into::into).collect();
+            return Ok(JavaActionResultDto { edits, outcome: None });
+        }
+        let out = crate::java::apply_rename(&plan, Path::new(&root), &journal, &super::replace::dirty_map(open))?;
+        Ok(JavaActionResultDto { edits: Vec::new(), outcome: Some(super::replace::outcome_dto(out)) })
+    })
+    .await
+}
+
 /// 一段范围（前端传）：行列从 0 数、列按 UTF-16
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

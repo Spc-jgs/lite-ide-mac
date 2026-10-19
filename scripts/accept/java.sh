@@ -218,6 +218,22 @@ lite_wait main "return /^    int x = 1;$/m.test(__lite.text())" 15 >/dev/null
 ok "$([ "$(lite_eval main "return /^    int x = 1;$/m.test(__lite.text()) && __lite.text().includes('\\n  int y=2;')")" = true ] && echo 1)" "选中 x 那一行：只排了它，y 那行原样"
 lite_eval main "__lite.setText($(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()[:-1]))' <<< "${FMT0}")); return true" >/dev/null
 
+echo "== 快速修复（⌥↵，docs/IDEA.md 第 16 节）：缺 import 的 List —— 第一条是 java.util（jdtls 按字母会把 com.sun 排前面）；回车补上 import、波浪线消失；⌘Z 一下撤回"
+QF0=$(lite_eval main "return __lite.text()")
+lite_eval main "__lite.setText(__lite.text().replace('SpringApplication.run(OrderApplication.class, args);', 'SpringApplication.run(OrderApplication.class, args);\\n        List<String> names = null;')); return true" >/dev/null
+lite_wait main "return [...document.querySelectorAll('.cm-diag-err')].some((e) => e.textContent === 'List')" 20 >/dev/null
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('List<String> names')); __lite.caret(l + 1, t[l].indexOf('List') + 2); __lite.key('Alt-Enter'); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.fixes .row').length > 0" 20 >/dev/null
+ROWS=$(lite_eval main "return [...document.querySelectorAll('.fixes .row')].slice(0, 4).map((r) => r.textContent).join(' / ')")
+ok "$([ "$(lite_eval main "return document.querySelector('.fixes .row')?.textContent === \"Import 'List' (java.util)\" && ![...document.querySelectorAll('.fixes .row')].some((r) => r.textContent.startsWith('Generate Getters'))")" = true ] && echo 1)" "⌥↵ 第一条是 Import 'List' (java.util)，要弹框的「生成 getter」不列：${ROWS} …"
+lite_eval main "document.querySelector('.fixes').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); return true" >/dev/null
+lite_wait main "return __lite.text().includes('import java.util.List;')" 15 >/dev/null
+lite_wait main "return ![...document.querySelectorAll('.cm-diag-err')].some((e) => e.textContent === 'List')" 15 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.text().includes('import java.util.List;') && ![...document.querySelectorAll('.cm-diag-err')].some((e) => e.textContent === 'List')")" = true ] && echo 1)" "回车：补上 import java.util.List;、List 底下的波浪线没了"
+lite_eval main "__lite.key('Mod-z'); return true" >/dev/null
+ok "$([ "$(lite_eval main "return !__lite.text().includes('import java.util.List;') && __lite.text().includes('List<String> names')")" = true ] && echo 1)" "⌘Z 一下撤回（改在编辑器里，没写盘）"
+lite_eval main "__lite.setText($(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()[:-1]))' <<< "${QF0}")); return true" >/dev/null
+
 echo "== ⌘B：Lombok 生成的方法、兄弟模块的类、jar 里的类"
 caret_on 'getName()' >/dev/null
 lite_eval main "__lite.key('Mod-b'); return true" >/dev/null

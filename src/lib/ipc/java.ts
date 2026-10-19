@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, ReplaceOutcome } from "./commands";
+import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, ReplaceOutcome } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -37,6 +37,11 @@ export const javaFormat = (
   tabSize: number,
   insertSpaces: boolean,
 ) => invoke<JavaEdit[]>("java_format", { root, path, text, range, tabSize, insertSpaces });
+type Range = { line: number; character: number; endLine: number; endCharacter: number };
+/** 光标那儿（或选中的那几行）能做的修复（⌥↵） */
+export const javaCodeActions = (root: string, path: string, text: string, range: Range) => invoke<JavaAction[]>("java_code_actions", { root, path, text, range });
+/** 做选中的那条修复 */
+export const javaApplyAction = (root: string, path: string, raw: string, open: OpenDoc[]) => invoke<JavaActionResult>("java_apply_action", { root, path, raw, open });
 /** jar 里一个类的内容（`jdt://…`）：有源码 jar 就是源码，没有就是反编译的 */
 export const javaClassContents = (root: string, uri: string) => invoke<string>("java_class_contents", { root, uri });
 export const javaStatus = (root: string) => invoke<JavaStatus | null>("java_status", { root });

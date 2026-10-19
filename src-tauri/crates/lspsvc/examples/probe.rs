@@ -135,6 +135,43 @@ fn main() {
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     while let Ok((u, d)) = diag_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        // CODEACTION=1：对这个文件的第一个报错问一次修复（第 3 步看快速修复长什么样），原样打出前几项
+        if u == uri(path) && std::env::var("CODEACTION").is_ok() {
+            if let Some(mut first) = d.as_array().and_then(|a| a.iter().find(|x| x["severity"] == 1)).cloned() {
+                if let Some((l, a, b)) = std::env::var("CA_AT").ok().and_then(|w| text.lines().enumerate().find_map(|(i, l)| l.find(w.as_str()).map(|c| (i, c, c + w.len())))) {
+                    first["range"] = json!({ "start": { "line": l, "character": a }, "end": { "line": l, "character": b } });
+                }
+                if let Some(w) = std::env::var("CA_WAIT").ok().and_then(|g| g.parse().ok()) {
+                    std::thread::sleep(Duration::from_secs(w));
+                }
+                let t = Instant::now();
+                let r = s.request(
+                    "textDocument/codeAction",
+                    json!({ "textDocument": { "uri": uri(path) }, "range": match std::env::var("CA_AT").ok().and_then(|w| text.lines().enumerate().find_map(|(i, l)| l.find(w.as_str()).map(|c| (i, c, c + w.len())))) {
+                        // CA_AT=<词>：按这个词的位置问（工作区构建出的第一批报错只有行号、列是 0 —— 按它问，jdtls 找不到要修的东西）
+                        Some((l, a, b)) => json!({ "start": { "line": l, "character": a }, "end": { "line": l, "character": b } }),
+                        None => first["range"].clone(),
+                    }, "context": { "diagnostics": [first], "triggerKind": 1 } }),
+                    Duration::from_secs(30),
+                );
+                match r {
+                    Ok(v) => {
+                        let a = v.as_array().cloned().unwrap_or_default();
+                        println!("修复 {:.0} ms，{} 项（对「{}」）", t.elapsed().as_secs_f64() * 1000.0, a.len(), first["message"].as_str().unwrap_or(""));
+                        println!("  那条报错原样：{first}");
+                        for x in &a {
+                            println!("  项：[{}] {}{}", x["kind"].as_str().unwrap_or(""), x["title"].as_str().unwrap_or(""), if x.get("edit").is_some() { "（自带改动）" } else if x.get("command").is_some() { "（命令）" } else { "" });
+                        }
+                        if let Some(q) = a.iter().find(|x| x["kind"] == "quickfix") {
+                            let t = Instant::now();
+                            let r = s.request("codeAction/resolve", q.clone(), Duration::from_secs(30));
+                            println!("  resolve {:.0} ms：{}", t.elapsed().as_secs_f64() * 1000.0, r.map(|v| v.to_string().chars().take(900).collect::<String>()).unwrap_or_else(|e| format!("错：{e}")));
+                        }
+                    }
+                    Err(e) => println!("修复 错：{e}"),
+                }
+            }
+        }
         if u == uri(path) {
             let errs: Vec<_> = d.as_array().unwrap().iter().filter(|x| x["severity"] == 1).map(|x| x["message"].as_str().unwrap_or("").to_owned()).collect();
             println!("这个文件的报错 {} 条 {:?}", errs.len(), errs);

@@ -155,6 +155,20 @@ export interface JavaRenameTarget {
   placeholder: string | null;
 }
 
+/** 一条修复（⌥↵）。`raw` 原样交回 `javaApplyAction` */
+export interface JavaAction {
+  title: string;
+  /** quickfix（修报错）/ quickassist（顺手的改法）/ source…（整个文件的） */
+  kind: string;
+  raw: string;
+}
+
+/** 做一条修复的结果：只改当前文件的给 `edits`（编辑器里一笔做完）；改到别的文件的给 `outcome`（同改名，带撤销卡片） */
+export interface JavaActionResult {
+  edits: JavaEdit[];
+  outcome: ReplaceOutcome | null;
+}
+
 /** 一个补全项（docs/IDEA.md 第 3 步）。插什么看 `edit`（null = 按光标前那个词插 `label`）；`raw` 原样交回 `javaResolve` */
 export interface JavaCompletionItem {
   label: string;
