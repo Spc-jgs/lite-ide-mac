@@ -13,6 +13,8 @@ export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 source "$(dirname "$0")/../lib/bridge.sh"
 PASS=0; FAIL=0; SKIP=0
 ok() { if [ "$1" = 1 ]; then PASS=$((PASS + 1)); printf '  ✓ %s\n' "$2"; else FAIL=$((FAIL + 1)); printf '  ✗ %s\n' "$2"; fi; }
+# 等一个 shell 条件成立（盘上的文件）。原来没有这个函数：改名那两条写了 wait_for，bash 报「找不到命令」当场返回，检查在改名做完之前就跑了（2026-10-19）
+wait_for() { local s=$1 i; shift; for ((i = 0; i < s * 10; i++)); do eval "$@" >/dev/null 2>&1 && return 0; sleep 0.1; done; return 1; }
 skip() { SKIP=$((SKIP + 1)); printf '  - 未验：%s\n' "$1"; }
 done_() { printf '\n通过 %s 条，失败 %s 条，未验 %s 条\n' "${PASS}" "${FAIL}" "${SKIP}"; [ "${FAIL}" = 0 ]; exit $?; }
 
@@ -154,6 +156,8 @@ T1=$(lite_now_ms)
 lite_wait main "return __lite.completions().labels.includes('ArrayList')" 15 >/dev/null
 TC=$(( $(lite_now_ms) - T1 ))
 ok "$([ "$(lite_eval main "return __lite.completions().labels.includes('ArrayList')")" = true ] && echo 1)" "敲 ArrayLi 出了 ArrayList：${TC} ms（含 CM6 敲字后等 100ms 再问）；前几项 $(lite_eval main "return __lite.completions().labels.slice(0, 4).join(' / ')")"
+# 红了把应用日志里 Java 那几行打出来：补全失败时前端是悄悄退回空列表的，原因只在日志里（2026-10-19 撞见过一次 22 秒没候选）
+[ "$(lite_eval main "return __lite.completions().labels.includes('ArrayList')")" = true ] || grep '\[java\]' "${HOME}/Library/Logs/${LITE_ID}/app.log" 2>/dev/null | tail -8 | sed 's/^/    日志：/'
 sleep 0.3   # CM6 刚弹出 75ms 内不认接受
 lite_eval main "return __lite.acceptCompletion()" >/dev/null
 lite_wait main "return __lite.text().includes('import java.util.ArrayList;')" 5 >/dev/null
@@ -165,6 +169,40 @@ sleep 0.3
 lite_eval main "const c = __lite.completions(); if (c.labels[0] !== 'getName') return c.labels.join(','); return __lite.acceptCompletion()" >/dev/null
 ok "$([ "$(lite_eval main "return __lite.text().includes('c.getName()')")" = true ] && echo 1)" "插的是 getName()（带括号 —— jdtls 的 textEdit，不是只有名字的 insertText）：$(lite_eval main "return __lite.text().split('\\n').find((x) => x.includes('c.getNa')) ?? ''" | sed 's/^ *//')"
 lite_eval main "__lite.setText($(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' <<< "${ORIG}")); return true" >/dev/null
+
+echo "== 改名（⇧F6，docs/IDEA.md 第 14 节）：record 跨模块改名，文件跟着改名；jdtls 不报错（它从文件监听知道了新文件）；撤销名字和内容都回来"
+COMMON="${P}/shop-common/src/main/java/com/demo/common"
+MONEY0=$(cat "${COMMON}/Money.java")
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('new Money')); __lite.caret(l + 1, t[l].indexOf('new Money') + 6); __lite.key('Shift-F6'); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.rename input')" 15 >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelector('.rename .title')?.textContent.includes('Money') && document.querySelector('.rename input')?.value === 'Money'")" = true ] && echo 1)" "⇧F6 弹出改名框，预填 Money（jdtls 的 prepareRename 说这里能改）"
+T1=$(lite_now_ms)
+lite_eval main "__lite.fill('Cash', '.rename input'); document.querySelector('.rename input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); return true" >/dev/null
+wait_for 60 "[ -f '${COMMON}/Cash.java' ]"
+TR=$(( $(lite_now_ms) - T1 ))
+ok "$([ -f "${COMMON}/Cash.java" ] && [ ! -e "${COMMON}/Money.java" ] && grep -q 'record Cash(' "${COMMON}/Cash.java" && echo 1)" "shop-common 里 Money.java 改名成 Cash.java、里面是 record Cash：${TR} ms（第一次改名 jdtls 要搜全部索引）；目录里此刻是 $(ls "${COMMON}" | tr '\n' ' ')"
+lite_wait main "return __lite.text().includes('new Cash(12345)')" 10 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.text().includes('new Cash(12345)') && __lite.text().includes('import com.demo.common.Cash;') && !/\\bMoney\\b/.test(__lite.text())")" = true ] && echo 1)" "order-service 里的引用和 import 都改了，一个 Money 都不剩"
+sleep 3
+lite_wait main "return document.querySelectorAll('.cm-diag-err').length === 0" 20 >/dev/null
+ok "$([ -z "$(errs)" ] && echo 1)" "jdtls 不报错：新文件 Cash.java 它认得（文件监听告诉了它）（有的话是：$(errs)）"
+lite_eval main "return __lite.click('撤销')" >/dev/null
+# 撤销是先改回名字、再写回内容：只等「Money.java 出现」会落在名字回来了、内容还没写的那几毫秒里（2026-10-19 间歇红过一次），要等两样都对
+money_back() { [ -f "${COMMON}/Money.java" ] && [ ! -e "${COMMON}/Cash.java" ] && [ "$(cat "${COMMON}/Money.java")" = "${MONEY0}" ]; }
+wait_for 15 money_back
+ok "$(money_back && echo 1)" "点撤销：文件名改回 Money.java、内容一字不差；目录里此刻是 $(ls "${COMMON}" | tr '\n' ' ')"
+lite_wait main "return __lite.text().includes('new Money(12345)')" 10 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.text().includes('new Money(12345)') && !__lite.text().includes('Cash')")" = true ] && echo 1)" "撤销：order-service 里也回到 Money"
+sleep 3
+lite_wait main "return document.querySelectorAll('.cm-diag-err').length === 0" 20 >/dev/null
+ok "$([ -z "$(errs)" ] && echo 1)" "撤销之后 jdtls 也不报错（有的话是：$(errs)）—— 这条证明不了监听：不告诉 jdtls 的错版本下它也绿，jdtls 眼里一直是改名前的样子，撤销正好回到那儿"
+# 撞名：Money → Customer（同一个目录里已经有 Customer.java）：一个字都不改，说原因
+CUST0=$(cat "${COMMON}/Customer.java")
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('new Money')); __lite.caret(l + 1, t[l].indexOf('new Money') + 6); __lite.key('Shift-F6'); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.rename input')" 15 >/dev/null
+lite_eval main "__lite.fill('Customer', '.rename input'); document.querySelector('.rename input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); return true" >/dev/null
+lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('没改名')" 30 >/dev/null
+ok "$([ "$(lite_eval main "return (document.querySelector('.toast')?.textContent ?? '').includes('Customer.java 已经有了')")" = true ] && [ "$(cat "${COMMON}/Money.java")" = "${MONEY0}" ] && [ "$(cat "${COMMON}/Customer.java")" = "${CUST0}" ] && echo 1)" "撞名（改成已有的 Customer）：一个字都没改，胶囊说「Customer.java 已经有了」：$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")"
 
 echo "== ⌘B：Lombok 生成的方法、兄弟模块的类、jar 里的类"
 caret_on 'getName()' >/dev/null

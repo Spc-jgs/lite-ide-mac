@@ -146,6 +146,15 @@ export interface JavaEdit {
   text: string;
 }
 
+/** 光标底下能改名的那一段（prepareRename）。`placeholder` 为空就取这一段的原文 */
+export interface JavaRenameTarget {
+  line: number;
+  character: number;
+  endLine: number;
+  endCharacter: number;
+  placeholder: string | null;
+}
+
 /** 一个补全项（docs/IDEA.md 第 3 步）。插什么看 `edit`（null = 按光标前那个词插 `label`）；`raw` 原样交回 `javaResolve` */
 export interface JavaCompletionItem {
   label: string;
@@ -942,6 +951,13 @@ export interface ReplaceOutcome {
   changed: ReplaceChanged[];
   skipped: ReplaceSkip[];
   undo: boolean;
+  /** 改了名的文件（Java 改名改过去的、撤销改回来的）：开着它的标签跟着挪到新路径 */
+  renamed: ReplaceRenamed[];
+}
+
+export interface ReplaceRenamed {
+  from: string;
+  to: string;
 }
 
 /** 执行失败：truncated / pending / too-big（`bytes` 是改前全文多大，要用户点头）/ failed */

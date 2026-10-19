@@ -71,5 +71,30 @@ ok(FILES[A] === "ZZOLD in a\n" && ta.content === "ZZOLD in a\n" && !ta.dirty, "�
 ok(tb.draft === "ZZOLD in b\n我还没存的一行\n" && tb.dirty, `撤销：b 回到替换前，没存的那行还在，实得 ${JSON.stringify(tb.draft)}`);
 ok(replace.done === null, "撤销卡片收掉了");
 
+// ── Java 改名（docs/IDEA.md 第 14 节）走同一套：改类名连文件一起改名，开着的标签挪到新路径；撤销时名字和内容都回来 ──
+// 浏览器里撞见过：撤销后标签回到了原名，内容却还是新名字 —— 桩报回的是改名前的路径，前端按它找不到还在新路径上的标签
+// （真实现按文件身份认出开着的标签、报的是标签此刻的路径，桩改成同样的）
+{
+  const { javaRename } = await import("../src/lib/ipc/java");
+  const SHOP = "/proj/r/ZzShop.java";
+  const STORE = "/proj/r/ZzStore.java";
+  const USE = "/proj/r/ZzUse.java";
+  FILES[SHOP] = "public class ZzShop {}\n";
+  FILES[USE] = "class ZzUse { ZzShop s = new ZzShop(); }\n";
+  await tabflow.openPath(SHOP, { preview: false });
+  await tabflow.openPath(USE, { preview: false });
+  const o = await javaRename("/proj", SHOP, FILES[SHOP], 0, 15, "ZzStore", ops.openDocs());
+  await ops.landInTabs(o);
+  const shopTab = () => tabs.list.find((t) => t.path === STORE || t.path === SHOP);
+  ok(FILES[STORE] === "public class ZzStore {}\n" && FILES[SHOP] === undefined, "类名改了、文件跟着改名");
+  ok(shopTab()?.path === STORE && shopTab()?.content === "public class ZzStore {}\n" && !shopTab()?.dirty, `开着的标签挪到新路径、内容跟上：${JSON.stringify(shopTab() && { p: shopTab()!.path, c: shopTab()!.content })}`);
+  ok(tabs.list.find((t) => t.path === USE)?.content === "class ZzUse { ZzStore s = new ZzStore(); }\n", "用到它的文件（开着的）内容跟上");
+  replace.done = { root: "/proj", files: o.changed.length, hits: 3, label: "已改名" };
+  await ops.undo();
+  ok(FILES[SHOP] === "public class ZzShop {}\n" && FILES[STORE] === undefined, "撤销：文件名改回来、内容回来");
+  ok(shopTab()?.path === SHOP && shopTab()?.content === "public class ZzShop {}\n" && !shopTab()?.dirty, `撤销：标签回到原路径、内容回到原样、不是「未保存」：${JSON.stringify(shopTab() && { p: shopTab()!.path, c: shopTab()!.content, d: shopTab()!.dirty })}`);
+  ok(tabs.list.find((t) => t.path === USE)?.content === "class ZzUse { ZzShop s = new ZzShop(); }\n", "撤销：用到它的文件也回去了");
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 跨文件替换的状态层：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

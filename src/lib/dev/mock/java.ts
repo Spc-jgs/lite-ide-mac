@@ -8,8 +8,9 @@
  * 不模拟的：真的语义。报错只认一种 —— 调了名字以 `lll` 结尾的方法（第 0 步实测用的就是 `findAll` → `findAlll`）；
  * 跳转只认「类名 → 声明这个类的文件」和「方法名 → 某个文件里 `名字(` 开头的声明」，`SpringApplication` 跳进一个假 jar。
  */
-import { type A, FILES, NOT_MINE } from "./data";
+import { type A, bump, FILES, NOT_MINE } from "./data";
 import { mockEmit } from "./events";
+import { recordRename } from "./replace";
 
 type Phase = "starting" | "importing" | "ready" | "failed" | "stopped";
 const phaseOf = new Map<string, Phase>();
@@ -176,6 +177,62 @@ function complete(path: string, text: string, line: number, ch: number) {
   return { items, incomplete: false, total: items.length };
 }
 
+/*
+ * 改名（第 3 步，docs/IDEA.md 第 14 节）：按词边界把项目里所有 .java 的同名词换掉（真的语义不模拟：同名的局部变量也会被换）；
+ * 改的是类名、又有同名的 .java，连文件一起改名。**新名字被占时在改任何内容之前就报错**（同 `replacesvc::check_renames`）。
+ * 写进替换的那份日志（mock/replace.ts），撤销卡片照样能撤、名字一起改回去。故意等 0.9 秒：真实现第一次改名要 4 秒，状态栏那格要看得见
+ */
+const KEYWORDS = new Set("abstract boolean break byte case catch char class continue default do double else enum extends final finally float for if implements import instanceof int interface long native new package private protected public return short static super switch synchronized this throw throws try void volatile while var record null true false".split(" "));
+
+function renameTarget(path: string, line: number, ch: number) {
+  const text = docs.get(path) ?? FILES[path] ?? "";
+  const l = text.split("\n")[line] ?? "";
+  let a = ch;
+  let b = ch;
+  while (a > 0 && /[\w$]/.test(l[a - 1])) a--;
+  while (b < l.length && /[\w$]/.test(l[b])) b++;
+  const w = l.slice(a, b);
+  if (!w || /^\d/.test(w) || KEYWORDS.has(w)) return null;
+  return { word: w, target: { line, character: a, endLine: line, endCharacter: b, placeholder: null } };
+}
+
+function rename(root: string, path: string, line: number, ch: number, to: string, open: { path: string; text: string; dirty: boolean }[]) {
+  const t = renameTarget(path, line, ch);
+  if (!t) throw new Error("光标底下不是能改名的东西");
+  const w = t.word;
+  const dirty = new Map(open.filter((d) => d.dirty).map((d) => [d.path, d.text]));
+  const java = Object.keys(FILES).filter((p) => p.startsWith(`${root}/`) && p.endsWith(".java"));
+  // 类改名：声明它的那个 W.java 跟着改名。先查新名字有没有被占
+  const decl = java.find((p) => p.endsWith(`/${w}.java`) && new RegExp(`(class|interface|record|enum)\\s+${w}\\b`).test(dirty.get(p) ?? FILES[p]));
+  const moveTo = decl ? `${decl.slice(0, decl.lastIndexOf("/"))}/${to}.java` : null;
+  if (moveTo && FILES[moveTo] !== undefined) throw new Error(`${moveTo.slice(moveTo.lastIndexOf("/") + 1)} 已经有了，不覆盖`);
+  const re = new RegExp(`\\b${w.replace(/\$/g, "\\$")}\\b`, "g");
+  const entries = [];
+  const changed = [];
+  for (const p of java) {
+    const text = dirty.get(p) ?? FILES[p];
+    const hits = [...text.matchAll(re)];
+    if (!hits.length) continue;
+    const edits = hits.map((m) => ({ from: m.index!, to: m.index! + w.length, insert: to }));
+    const out = text.replace(re, to);
+    if (!dirty.has(p)) {
+      FILES[p] = out;
+      bump(p);
+    }
+    entries.push({ path: p, rel: p.slice(root.length + 1), before: text, after: out });
+    changed.push({ rel: p.slice(root.length + 1), path: p, count: hits.length, edits, onDisk: !dirty.has(p) });
+  }
+  const renamed = [];
+  if (decl && moveTo) {
+    FILES[moveTo] = FILES[decl];
+    delete FILES[decl];
+    bump(moveTo);
+    renamed.push({ from: decl, to: moveTo });
+  }
+  recordRename(entries, renamed);
+  return { changed, skipped: [], undo: true, renamed };
+}
+
 /** 要 import 的：插在 package 那一行后面（文件里已经 import 过就不加，同 jdtls） */
 function resolve(raw: string) {
   const it = JSON.parse(raw) as { label: string; path: string; import?: string };
@@ -222,6 +279,14 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
     case "java_resolve":
       await wait(250); // 实测 137–254 ms：所以选中时就在后台问，不等回车
       return resolve(String(a.raw));
+    case "java_prepare_rename":
+      await wait(40);
+      docs.set(path, String(a.text ?? ""));
+      return renameTarget(path, Number(a.line), Number(a.character))?.target ?? null;
+    case "java_rename":
+      await wait(900);
+      docs.set(path, String(a.text ?? ""));
+      return rename(root, path, Number(a.line), Number(a.character), String(a.newName), (a.open as unknown as { path: string; text: string; dirty: boolean }[]) ?? []);
     case "java_class_contents":
       await wait(30);
       if (String(a.uri) !== JAR) throw new Error("这个类拿不到内容（jdtls 没有回源码，也没有反编译）");

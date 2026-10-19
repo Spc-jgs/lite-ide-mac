@@ -3,7 +3,8 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaCompletion, JavaLocation, JavaRefs, JavaResolved, JavaStatus } from "./commands";
+import type { JavaCompletion, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, ReplaceOutcome } from "./commands";
+import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
 /** 不是 Maven / Gradle 项目给 null：不起 jdtls，也不算错 */
@@ -21,6 +22,12 @@ export const javaComplete = (root: string, path: string, text: string, line: num
   invoke<JavaCompletion>("java_complete", { root, path, text, line, character });
 /** 选中的那一项：自动 import + 说明文字 */
 export const javaResolve = (root: string, raw: string) => invoke<JavaResolved>("java_resolve", { root, raw });
+/** 光标底下能不能改名：null = 这里不能改（关键字、注释里） */
+export const javaPrepareRename = (root: string, path: string, text: string, line: number, character: number) =>
+  invoke<JavaRenameTarget | null>("java_prepare_rename", { root, path, text, line, character });
+/** 改名（docs/IDEA.md 第 14 节）：照跨文件替换落盘，结果的形状同替换（开着的标签走同一条路跟上，撤销卡片照样能撤） */
+export const javaRename = (root: string, path: string, text: string, line: number, character: number, newName: string, open: OpenDoc[]) =>
+  invoke<ReplaceOutcome>("java_rename", { root, path, text, line, character, newName, open });
 /** jar 里一个类的内容（`jdt://…`）：有源码 jar 就是源码，没有就是反编译的 */
 export const javaClassContents = (root: string, uri: string) => invoke<string>("java_class_contents", { root, uri });
 export const javaStatus = (root: string) => invoke<JavaStatus | null>("java_status", { root });

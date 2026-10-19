@@ -23,12 +23,12 @@ pub struct PickArg {
     pub hits: Vec<usize>,
 }
 
-fn journal_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(super) fn journal_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("replace-journal"))
 }
 
 /// 有未保存改动的那几个：路径 → 编辑器里的文本
-fn dirty_map(docs: Vec<OpenDocArg>) -> HashMap<PathBuf, String> {
+pub(super) fn dirty_map(docs: Vec<OpenDocArg>) -> HashMap<PathBuf, String> {
     docs.into_iter().filter(|d| d.dirty).map(|d| (PathBuf::from(d.path), d.text)).collect()
 }
 
@@ -36,7 +36,7 @@ fn skip_dto(s: replacesvc::Skipped) -> ReplaceSkipDto {
     ReplaceSkipDto { rel: s.rel, why: s.why.code().into(), text: s.why.text() }
 }
 
-fn outcome_dto(o: replacesvc::Outcome) -> ReplaceOutcomeDto {
+pub(super) fn outcome_dto(o: replacesvc::Outcome) -> ReplaceOutcomeDto {
     ReplaceOutcomeDto {
         changed: o
             .changed
@@ -51,6 +51,11 @@ fn outcome_dto(o: replacesvc::Outcome) -> ReplaceOutcomeDto {
             .collect(),
         skipped: o.skipped.into_iter().map(skip_dto).collect(),
         undo: o.undo,
+        renamed: o
+            .renamed
+            .into_iter()
+            .map(|(f, t)| ReplaceRenamedDto { from: f.to_string_lossy().into_owned(), to: t.to_string_lossy().into_owned() })
+            .collect(),
     }
 }
 

@@ -406,7 +406,8 @@
   {@const d = replace.done}
   <!-- 撤销的退路（#42 第 6 节）：不加确认框，做完给这一张。下一次替换、或者点掉，它就没了；应用重启后还会再出一次 -->
   <div class="confirm" out:cardOut>
-    <span>{d.hits ? `已替换 ${d.files} 个文件 ${d.hits} 处` : `上次的替换（${d.files} 个文件）还能撤销`}</span>
+    <!-- `label`：Java 改名也走这套落盘和撤销（docs/IDEA.md 第 14 节），卡片上说「已改名」而不是「已替换」 -->
+    <span>{d.label ?? (d.hits ? `已替换 ${d.files} 个文件 ${d.hits} 处` : `上次的替换（${d.files} 个文件）还能撤销`)}</span>
     <button class="btn" data-dismiss onclick={() => (replace.done = null)}>知道了</button>
     <button class="btn primary" onclick={() => void replaceOps().then((m) => m.undo())}>撤销</button>
   </div>

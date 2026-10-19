@@ -16,7 +16,7 @@ pub use journal::State;
 pub use searchsvc::Query;
 
 use fsservice::eol::Eol;
-use journal::{Entry, Kind, Manifest};
+use journal::{Entry, Kind, Manifest, Renamed};
 use searchsvc::Matcher;
 use std::collections::HashMap;
 use std::fs;
@@ -59,6 +59,9 @@ pub struct Hit {
     pub lines: u32,
     /// 跨行时：改前那几行（整行，超过 200 行中间折叠），点开「跨 N 行」看的就是它
     pub block: Option<String>,
+    /// 这一处换成什么由调用方给定（语言服务器的改名：每处的新文字是它算的，见 [`scan_edits`]）。
+    /// None = 照查找替换的老路，问正则（带 `$1` 那种分组引用）
+    pub repl: Option<String>,
 }
 
 /// 跨行命中的预览片段：超过 [`FOLD_OVER`] 行只留头尾各 [`FOLD_KEEP`] 行 —— 一个几千行的命中把列表撑满没人看得完，
@@ -113,6 +116,8 @@ pub enum Why {
     EditedSince,
     /// 撤销时：替换只进了编辑器、没存就关了标签 —— 盘上那份本来就没被替换过
     NeverSaved,
+    /// 撤销时：改过名的文件已经不在新名字上了，或者原来的名字被别的文件占了 —— 没改回去
+    NotRenamedBack,
     Unreadable(String),
 }
 
@@ -127,6 +132,7 @@ impl Why {
             Why::Changed => "changed",
             Why::EditedSince => "edited-since",
             Why::NeverSaved => "never-saved",
+            Why::NotRenamedBack => "not-renamed-back",
             Why::Unreadable(_) => "unreadable",
         }
     }
@@ -141,6 +147,7 @@ impl Why {
             Why::Changed => "预览之后被改过，没动它".into(),
             Why::EditedSince => "替换之后又改过，没动它".into(),
             Why::NeverSaved => "替换只进了编辑器、没存就关了，盘上那份本来就没被替换".into(),
+            Why::NotRenamedBack => "改过名的文件不在新名字上了、或者原来的名字被占了，没改回去".into(),
             Why::Unreadable(e) => format!("读不了：{e}"),
         }
     }
@@ -163,7 +170,17 @@ pub struct Scan {
     pub truncated: bool,
     /// 文件索引本身被截断（项目超过 5 万个文件）：之后的文件没看
     pub index_truncated: bool,
-    matcher: Matcher,
+    /// 按正则找出来的才有；按给定改动建的（[`scan_edits`]）没有，每处自带新文字
+    matcher: Option<Matcher>,
+}
+
+/// 这一处换成什么：自带的优先，没有就问正则
+fn repl_of(m: Option<&Matcher>, text: &str, h: &Hit, repl: &str) -> String {
+    match (&h.repl, m) {
+        (Some(r), _) => r.clone(),
+        (None, Some(m)) => m.replacement(text, (h.start, h.end), repl),
+        (None, None) => repl.to_string(),
+    }
 }
 
 /// 文件身份：`dev + ino`。软链和它指向的文件、硬链接的几份，身份都一样（跟随软链）
@@ -212,6 +229,7 @@ fn hits_of(m: &Matcher, text: &str) -> Vec<Hit> {
             spans: searchsvc::utf16_spans(lt, &[(s - ls, e.min(le) - ls)], LINE_CLIP),
             lines,
             block: (lines > 1).then(|| fold(&text[ls..be])),
+            repl: None,
         });
     }
     out
@@ -346,7 +364,113 @@ pub fn scan(
     }
     files_out.truncate(cut);
 
-    Ok(Scan { root: root.to_path_buf(), files: files_out, skipped, binary, total, truncated, index_truncated, matcher: m })
+    Ok(Scan { root: root.to_path_buf(), files: files_out, skipped, binary, total, truncated, index_truncated, matcher: Some(m) })
+}
+
+/// 一处给定的改动（语言服务器的改名）：`[line:character, end_line:end_character)` 换成 `text`。
+/// 行从 0 数，列按 UTF-16（LSP 的默认）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineEdit {
+    pub line: u32,
+    pub character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+    pub text: String,
+}
+
+/// 第 `line` 行（从 0 数）第 `ch` 个 UTF-16 单位 → `text` 里的字节下标。行越界、列越界都是 None ——
+/// 位置是语言服务器在它那份文本上算的，对不上就说明两边的文本不一样了，不能硬改
+fn byte_at(text: &str, line: u32, ch: u32) -> Option<usize> {
+    let mut ls = 0usize;
+    for _ in 0..line {
+        ls += text[ls..].find('\n')? + 1;
+    }
+    let le = text[ls..].find('\n').map_or(text.len(), |i| ls + i);
+    let mut n = 0u32;
+    for (i, c) in text[ls..le].char_indices() {
+        if n == ch {
+            return Some(ls + i);
+        }
+        n += c.len_utf16() as u32;
+    }
+    (n == ch).then_some(le)
+}
+
+/// 按给定的改动建一份扫描结果（语言服务器的改名），之后照查找替换的老路执行：重读核对指纹、写日志、两段提交、开着的改编辑器。
+/// `files`：绝对路径 → 这个文件里的改动。读法同 [`scan`]（有未保存改动的用编辑器里那份；有损编码、混用换行符、超过 8MB 的跳过）。
+///
+/// **跳过的照实放进 `skipped`，不在这里决定要不要整个放弃** —— 查找替换跳过一个文件是常态，改名跳过一个就是编译错误，这由调用方判断。
+/// 位置对不上、两处改动重叠：整个报错（那说明服务器那份文本和这里读到的不是同一份）
+pub fn scan_edits(root: &Path, files: Vec<(PathBuf, Vec<LineEdit>)>, dirty: &HashMap<PathBuf, String>) -> Result<Scan, String> {
+    let mut out = Vec::new();
+    let mut skipped = Vec::new();
+    for (abs, edits) in files {
+        let rel = abs.strip_prefix(root).map_err(|_| format!("{} 不在项目里，这一版不改项目外的文件", abs.display()))?.to_string_lossy().into_owned();
+        let (source, text, raw_fp) = if let Some(t) = dirty.get(&abs) {
+            (Source::Editor, t.clone(), None)
+        } else {
+            let bytes = match read_capped(&abs) {
+                Ok(Some(b)) => b,
+                Ok(None) => {
+                    skipped.push(Skipped { rel, why: Why::TooBig });
+                    continue;
+                }
+                Err(e) => {
+                    skipped.push(Skipped { rel, why: Why::Unreadable(e.to_string()) });
+                    continue;
+                }
+            };
+            let d = fsservice::decode_bytes(&bytes, "");
+            if d.lossy {
+                skipped.push(Skipped { rel, why: Why::Lossy });
+                continue;
+            }
+            if d.eol == Eol::Mixed {
+                skipped.push(Skipped { rel, why: Why::MixedEol });
+                continue;
+            }
+            (Source::Disk { encoding: d.encoding, bom: d.bom, eol: d.eol }, d.content, Some(fp::of(&bytes)))
+        };
+        let mut ranges = Vec::with_capacity(edits.len());
+        for e in &edits {
+            let (Some(a), Some(b)) = (byte_at(&text, e.line, e.character), byte_at(&text, e.end_line, e.end_character)) else {
+                return Err(format!("{rel}：第 {} 行第 {} 列对不上（语言服务器那份和盘上的不一样了），没改", e.line + 1, e.character + 1));
+            };
+            if b < a {
+                return Err(format!("{rel}：第 {} 行的改动起点在终点后面，没改", e.line + 1));
+            }
+            ranges.push((a, b, e.text.clone()));
+        }
+        ranges.sort_by_key(|r| (r.0, r.1));
+        if ranges.windows(2).any(|w| w[1].0 < w[0].1) {
+            return Err(format!("{rel}：两处改动重叠，没改"));
+        }
+        let mut hits = Vec::with_capacity(ranges.len());
+        let mut line = 1u64;
+        let mut last = 0usize;
+        for (s, e, r) in ranges {
+            line += text[last..s].bytes().filter(|&b| b == b'\n').count() as u64;
+            last = s;
+            let (ls, le) = line_bounds(&text, s);
+            let lt = &text[ls..le];
+            hits.push(Hit {
+                start: s,
+                end: e,
+                line,
+                col: text[ls..s].encode_utf16().count() as u32 + 1,
+                text: lt.chars().take(LINE_CLIP).collect(),
+                spans: searchsvc::utf16_spans(lt, &[(s - ls, e.min(le) - ls)], LINE_CLIP),
+                lines: text[s..e].matches('\n').count() as u32 + 1,
+                block: None,
+                repl: Some(r),
+            });
+        }
+        let text_fp = fp::of(text.as_bytes());
+        out.push(ScanFile { rel, abs, source, hits, text, text_fp, raw_fp });
+    }
+    out.sort_by(|a, b| a.rel.cmp(&b.rel));
+    let total = out.iter().map(|f| f.hits.len()).sum();
+    Ok(Scan { root: root.to_path_buf(), files: out, skipped, binary: 0, total, truncated: false, index_truncated: false, matcher: None })
 }
 
 /// 预览里「改后」那一行
@@ -370,7 +494,7 @@ impl Scan {
                     .iter()
                     .map(|h| {
                         let (ls, be) = block_bounds(&f.text, h.start, h.end);
-                        let r = self.matcher.replacement(&f.text, (h.start, h.end), repl);
+                        let r = repl_of(self.matcher.as_ref(), &f.text, h, repl);
                         let whole = format!("{}{}{}", &f.text[ls..h.start], r, &f.text[h.end..be]);
                         let first = whole.split('\n').next().unwrap_or_default();
                         let at = h.start - ls;
@@ -419,6 +543,8 @@ pub struct Outcome {
     pub skipped: Vec<Skipped>,
     /// 有替换日志、撤销得了
     pub undo: bool,
+    /// 改了名的文件：（原路径, 新路径）。改名时是改过去的，撤销时是改回来的 —— 开着它的标签要跟着挪
+    pub renamed: Vec<(PathBuf, PathBuf)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -452,12 +578,12 @@ pub struct ApplyOpts<'a> {
 }
 
 /// 按位置把选中的几处换掉，同时算出编辑器要做的改动（UTF-16）
-fn splice(m: &Matcher, text: &str, hits: &[&Hit], repl: &str) -> (String, Vec<Edit>) {
+fn splice(m: Option<&Matcher>, text: &str, hits: &[&Hit], repl: &str) -> (String, Vec<Edit>) {
     let mut out = String::with_capacity(text.len());
     let mut edits = Vec::with_capacity(hits.len());
     let (mut at, mut at16) = (0usize, 0u32);
     for h in hits {
-        let r = m.replacement(text, (h.start, h.end), repl);
+        let r = repl_of(m, text, h, repl);
         out.push_str(&text[at..h.start]);
         let from = at16 + text[at..h.start].encode_utf16().count() as u32;
         let to = from + text[h.start..h.end].encode_utf16().count() as u32;
@@ -522,7 +648,7 @@ pub fn apply(scan: &Scan, o: &ApplyOpts) -> Result<Outcome, ApplyError> {
                     skipped.push(changed(Why::Changed));
                     continue;
                 }
-                let (new_text, edits) = splice(&scan.matcher, &f.text, &hits, o.replacement);
+                let (new_text, edits) = splice(scan.matcher.as_ref(), &f.text, &hits, o.replacement);
                 plans.push(Plan { f, count: hits.len(), edits, new_text, before: now.clone().into_bytes(), after: None });
             }
             Source::Disk { encoding, bom, eol } => {
@@ -542,7 +668,7 @@ pub fn apply(scan: &Scan, o: &ApplyOpts) -> Result<Outcome, ApplyError> {
                     skipped.push(changed(Why::Changed));
                     continue;
                 }
-                let (new_text, edits) = splice(&scan.matcher, &f.text, &hits, o.replacement);
+                let (new_text, edits) = splice(scan.matcher.as_ref(), &f.text, &hits, o.replacement);
                 let after = fsservice::encode_text(&new_text, encoding, *bom, *eol);
                 plans.push(Plan { f, count: hits.len(), edits, new_text, before: bytes, after: Some(after) });
             }
@@ -567,6 +693,7 @@ pub fn apply(scan: &Scan, o: &ApplyOpts) -> Result<Outcome, ApplyError> {
         root: scan.root.to_string_lossy().into_owned(),
         at_ms: now_ms(),
         entries: Vec::new(),
+        renames: Vec::new(),
     };
     let mut befores = Vec::new();
     for (i, p) in plans.iter().enumerate() {
@@ -662,7 +789,53 @@ pub fn apply(scan: &Scan, o: &ApplyOpts) -> Result<Outcome, ApplyError> {
             on_disk: p.after.is_some(),
         })
         .collect();
-    Ok(Outcome { changed, skipped, undo: journaled })
+    Ok(Outcome { changed, skipped, undo: journaled, renamed: Vec::new() })
+}
+
+/// 改名之前先查一遍（**在改任何内容之前**调）：原文件在、新名字没被占、在同一个目录里、同一个文件不改两次。
+/// 先查是因为内容已经改了、名字却改不了，留下的就是「类名和文件名对不上」—— 编译不过
+pub fn check_renames(renames: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    let mut seen = std::collections::HashSet::new();
+    // 报错只说文件名：这几句原样进提示胶囊，一长串绝对路径读不完
+    let name = |p: &Path| p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned());
+    for (from, to) in renames {
+        if !fs::symlink_metadata(from).is_ok_and(|m| m.is_file()) {
+            return Err(format!("{} 不在盘上了", name(from)));
+        }
+        if fs::symlink_metadata(to).is_ok() {
+            return Err(format!("{} 已经有了，不覆盖", name(to)));
+        }
+        if from.parent() != to.parent() {
+            return Err(format!("{} → {}：这一版只做同一个目录里的改名", name(from), name(to)));
+        }
+        if !seen.insert(from.clone()) || !seen.insert(to.clone()) {
+            return Err(format!("{} 被改了两次名", name(from)));
+        }
+    }
+    Ok(())
+}
+
+/// 改名（内容改完之后）。一个失败就把已经改了的改回去、报错；全成了，记进替换日志（日志在、而且是「完成」的话），撤销时一起改回去。
+/// 不覆盖：走 `fsservice::rename_entry`（新名字被占就报错，同 rust.md「改盘的 std API 默认都会吃掉已有文件」）
+pub fn rename_files(dir: &Path, renames: &[(PathBuf, PathBuf)]) -> Result<Vec<(PathBuf, PathBuf)>, String> {
+    check_renames(renames)?;
+    let mut done: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for (from, to) in renames {
+        let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if let Err(e) = fsservice::rename_entry(from, &name) {
+            for (f, t) in done.iter().rev() {
+                let back = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let _ = fsservice::rename_entry(t, &back);
+            }
+            return Err(format!("{} 改名失败：{e}（已经改了名的 {} 个改回去了）", from.display(), done.len()));
+        }
+        done.push((from.clone(), to.clone()));
+    }
+    if let Some(mut m) = journal::load(dir).filter(|m| m.state == State::Done) {
+        m.renames.extend(done.iter().map(|(f, t)| Renamed { from: f.to_string_lossy().into_owned(), to: t.to_string_lossy().into_owned() }));
+        journal::save(dir, &m).map_err(|e| format!("改名成功了，但记进替换日志失败（撤销时改不回名字）：{e}"))?;
+    }
+    Ok(done)
 }
 
 /// 此刻开着的标签（撤销时用）：编辑器里的文本、有没有未保存改动
@@ -699,6 +872,21 @@ pub fn undo(dir: &Path, open: &HashMap<PathBuf, OpenNow>) -> Result<Outcome, Str
     let mut changed = Vec::new();
     let mut skipped = Vec::new();
     let mut writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    // 先把改过的名字改回去（倒着来），内容那几条记的是改名前的路径。开着的标签上面已经按身份认过了，改名不换身份
+    let mut renamed = Vec::new();
+    for r in m.renames.iter().rev() {
+        let (from, to) = (PathBuf::from(&r.from), PathBuf::from(&r.to));
+        let rel = from.strip_prefix(&m.root).unwrap_or(&from).to_string_lossy().into_owned();
+        let name = from.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if fs::symlink_metadata(&to).is_err() || fs::symlink_metadata(&from).is_ok() {
+            skipped.push(Skipped { rel, why: Why::NotRenamedBack });
+            continue;
+        }
+        match fsservice::rename_entry(&to, &name) {
+            Ok(_) => renamed.push((to, from)),
+            Err(x) => skipped.push(Skipped { rel, why: Why::Unreadable(format!("改不回原来的名字：{x}")) }),
+        }
+    }
     for e in &m.entries {
         let target = PathBuf::from(&e.target);
         let before = journal::read_before(dir, e).map_err(|x| format!("读替换日志失败：{x}"))?;
@@ -760,7 +948,7 @@ pub fn undo(dir: &Path, open: &HashMap<PathBuf, OpenNow>) -> Result<Outcome, Str
         x.commit().map_err(|x| format!("撤销到一半失败：{}：{x}（再点一次撤销会接着退剩下的）", t.display()))?;
     }
     journal::remove(dir).map_err(|x| x.to_string())?;
-    Ok(Outcome { changed, skipped, undo: false })
+    Ok(Outcome { changed, skipped, undo: false, renamed })
 }
 
 /// 启动时看一眼：有没有上次留下的替换日志
@@ -788,9 +976,9 @@ pub fn pending(dir: &Path) -> Option<Pending> {
 /// - 准备中断的：原文件一个没动，收掉临时文件、丢掉日志
 /// - 提交中断的：收掉临时文件；退回 = 把此刻是「改后」的那些写回改前，然后丢掉日志；保留 = 日志改成完成
 pub fn recover(dir: &Path, rollback: bool) -> Result<Outcome, String> {
-    let Some(mut m) = journal::load(dir) else { return Ok(Outcome { changed: vec![], skipped: vec![], undo: false }) };
+    let Some(mut m) = journal::load(dir) else { return Ok(Outcome { changed: vec![], skipped: vec![], undo: false, renamed: vec![] }) };
     if m.state == State::Done {
-        return Ok(Outcome { changed: vec![], skipped: vec![], undo: true });
+        return Ok(Outcome { changed: vec![], skipped: vec![], undo: true, renamed: vec![] });
     }
     for e in m.entries.iter().filter(|e| e.kind == Kind::Disk) {
         let tmp = fsservice::tmp_path_for(Path::new(&e.target));
@@ -802,12 +990,12 @@ pub fn recover(dir: &Path, rollback: bool) -> Result<Outcome, String> {
     }
     if m.state == State::Preparing {
         journal::remove(dir).map_err(|x| x.to_string())?;
-        return Ok(Outcome { changed: vec![], skipped: vec![], undo: false });
+        return Ok(Outcome { changed: vec![], skipped: vec![], undo: false, renamed: vec![] });
     }
     if !rollback {
         m.state = State::Done;
         journal::save(dir, &m).map_err(|x| x.to_string())?;
-        return Ok(Outcome { changed: vec![], skipped: vec![], undo: true });
+        return Ok(Outcome { changed: vec![], skipped: vec![], undo: true, renamed: vec![] });
     }
     let mut changed = Vec::new();
     for e in m.entries.iter().filter(|e| e.kind == Kind::Disk) {
@@ -819,5 +1007,5 @@ pub fn recover(dir: &Path, rollback: bool) -> Result<Outcome, String> {
         }
     }
     journal::remove(dir).map_err(|x| x.to_string())?;
-    Ok(Outcome { changed, skipped: vec![], undo: false })
+    Ok(Outcome { changed, skipped: vec![], undo: false, renamed: vec![] })
 }

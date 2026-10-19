@@ -28,7 +28,7 @@ class ReplaceState {
    * 刚做完的那次，卡片上「已替换 3 个文件 12 处 · 撤销」。`root` 是哪个项目的：
    * 替换日志整个应用一份，在别的窗口里也看得见 —— 卡片只在那个项目的窗口里出（Q5 的补充）
    */
-  done = $state<{ root: string; files: number; hits: number } | null>(null);
+  done = $state<{ root: string; files: number; hits: number; label?: string } | null>(null);
   /** 启动时查到上次中断（提交到一半崩了）：卡片上「退回 / 保留现状」 */
   interrupted = $state<ReplacePending | null>(null);
 }

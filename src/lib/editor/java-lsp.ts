@@ -20,10 +20,11 @@ import { Prec, StateEffect, StateField, type Extension, type Text } from "@codem
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaChange, javaClose, javaComplete, javaDefinition, javaOpen, javaReferences, javaResolve } from "../ipc/java";
+import { javaChange, javaClose, javaComplete, javaDefinition, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve } from "../ipc/java";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { nav } from "../state/nav.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
+import RenamePopup from "./RenamePopup.svelte";
 import { notify } from "../state/notify.svelte";
 import { progress, type TaskHandle } from "../state/progress.svelte";
 import { tabs } from "../state/tabs.svelte";
@@ -385,6 +386,80 @@ async function findUsages(view: EditorView): Promise<void> {
   });
 }
 
+// ── 改名（⇧F6，docs/IDEA.md 第 14 节） ──
+
+/**
+ * 先问 jdtls 光标底下能不能改（关键字、注释、jar 里的类不能），能改才弹框；↵ 之后框立刻关、进度去状态栏。
+ * 落盘全在 Rust（`java::apply_rename`，照跨文件替换那套），回来的结果和替换同一个形状 —— 开着的标签走替换那条路跟上（`landInTabs`，
+ * 改了名的文件标签挪到新路径），撤销用替换的那张卡片
+ */
+async function renameAt(view: EditorView): Promise<void> {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) {
+    notify.hint("Java 语言服务器还没起好，改名要等它");
+    return;
+  }
+  const head = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(head);
+  const at = { line: line.number - 1, character: head - line.from };
+  let target: Awaited<ReturnType<typeof javaPrepareRename>>;
+  try {
+    target = await javaPrepareRename(s.root, s.path, view.state.doc.toString(), at.line, at.character);
+  } catch (e) {
+    notify.fail(`改不了名：${e}`);
+    return;
+  }
+  if (!target) {
+    notify.hint("光标底下不是能改名的东西（类、方法、字段、变量才行）");
+    return;
+  }
+  if (!view.dom.isConnected) return;
+  const from = offset(view.state.doc, target.line, target.character);
+  const name = target.placeholder ?? view.state.doc.sliceString(from, offset(view.state.doc, target.endLine, target.endCharacter));
+  const c = view.coordsAtPos(from);
+  closePopup();
+  popup = mount(RenamePopup, {
+    target: document.body,
+    props: {
+      name,
+      x: c?.left ?? 200,
+      y: c?.bottom ?? 200,
+      onclose: () => {
+        closePopup();
+        view.focus();
+      },
+      onrename: (to: string) => {
+        closePopup();
+        view.focus();
+        void doRename(view, s, at, name, to);
+      },
+    },
+  });
+}
+
+async function doRename(view: EditorView, s: Sync, at: { line: number; character: number }, name: string, to: string) {
+  // 第一次改名要搜全部索引（探针实测 4.3 秒）：进度格得说在干什么（150ms 之内回来的它自己不出现，ui.md 第八条）
+  const t = progress.start(`正在把 ${name} 改名为 ${to}`);
+  try {
+    const ops = await import("../state/replace-ops");
+    const o = await javaRename(s.root, s.path, view.state.doc.toString(), at.line, at.character, to, ops.openDocs());
+    await ops.landInTabs(o);
+    const { replace } = await import("../state/replace.svelte");
+    const hits = o.changed.reduce((n, c) => n + c.count, 0);
+    const files = o.renamed.length ? `，文件 ${o.renamed.map((r) => `${base(r.from)} → ${base(r.to)}`).join("、")}` : "";
+    const label = `已把 ${name} 改名为 ${to}：${o.changed.length} 个文件 ${hits} 处${files}`;
+    replace.done = o.undo ? { root: s.root, files: o.changed.length, hits, label } : null;
+    if (!o.undo) notify.ok(label);
+  } catch (e) {
+    notify.fail(`没改名：${e instanceof Error ? e.message : String(e)}`, 8000);
+  } finally {
+    t.end();
+  }
+}
+
+const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+
 // ── 补全（docs/IDEA.md 第 3 步、第 13 节） ──
 
 /**
@@ -523,6 +598,8 @@ export function javaLsp(root: string | null, path: string): Extension {
       keymap.of([
         { key: "Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
         { key: "Mod-Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
+        // IDEA 的 Refactor → Rename（keymap.ts 登记成 cm6）
+        { key: "Shift-F6", preventDefault: true, run: (v) => (void renameAt(v), true) },
       ]),
     ),
     EditorView.theme({

@@ -53,7 +53,8 @@
 //! 真正慢的（刷新）在前端，而前端收到的已经是防抖之后每 300ms 最多一条。
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher as _};
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -225,6 +226,116 @@ pub fn watch_file(path: impl AsRef<Path>, on_change: impl Fn() + Send + 'static)
     Ok(FileWatch { _watcher: watcher, stop, wake })
 }
 
+/// 一个文件此刻的样子（[`watch_paths`] 报的）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathChange {
+    /// 这段时间里出现过「新建 / 改名到这儿」，现在在 —— 新文件，或者被换掉的（保存是写临时文件再改名过来）
+    Created,
+    /// 一直在，内容变了
+    Changed,
+    /// 现在不在了
+    Removed,
+}
+
+/// 防抖之后的一批。`overflow`：这段时间里变的文件超过了上限，`changes` 只有前一截 —— 调用方要当成「收不全」处理（比如整个重来）
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PathBatch {
+    pub changes: Vec<(PathBuf, PathChange)>,
+    pub overflow: bool,
+}
+
+#[derive(Default)]
+struct PathPending {
+    /// 路径 → 这段时间里有没有「新建 / 改名」过
+    seen: BTreeMap<PathBuf, bool>,
+    overflow: bool,
+}
+
+/// 一个活着的按路径的监听（[`watch_paths`]）。**drop 即停**，同 [`Watch`]
+pub struct PathWatch {
+    _watcher: RecommendedWatcher,
+    stop: Arc<AtomicBool>,
+    wake: Arc<(Mutex<PathPending>, Condvar)>,
+}
+
+impl Drop for PathWatch {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        self.wake.1.notify_all();
+    }
+}
+
+/// 攒下的这一批 → 每个文件此刻的样子。**按此刻盘上在不在判，不信事件类型**：FSEvents 会把同一个路径过去的标记一起带上
+/// （[`watch_file`] 头上那段：原地覆写报的是「改名」），单看事件说「改名」的文件可能早就在、说「改了」的可能已经删了
+fn classify(p: PathPending, exists: impl Fn(&Path) -> bool) -> PathBatch {
+    let changes = p
+        .seen
+        .into_iter()
+        .map(|(path, born)| {
+            let c = if !exists(&path) {
+                PathChange::Removed
+            } else if born {
+                PathChange::Created
+            } else {
+                PathChange::Changed
+            };
+            (path, c)
+        })
+        .collect();
+    PathBatch { changes, overflow: p.overflow }
+}
+
+/// 同 [`watch`]，但**说出变了哪些文件**：给要知道具体路径的（语言服务器的索引，docs/IDEA.md 第 14 节）。
+/// 只收 `keep` 认的（`.java`、`pom.xml` 这类），`.git/` 和生成物目录里的照旧不算；一批最多 `cap` 个，超了标 `overflow`、后面的不收 ——
+/// 一次切分支能动几万个文件，全攒着是无界的内存。防抖同 [`watch`]
+pub fn watch_paths(
+    root: impl AsRef<Path>,
+    keep: impl Fn(&Path) -> bool + Send + 'static,
+    cap: usize,
+    on_batch: impl Fn(PathBatch) + Send + 'static,
+) -> Result<PathWatch, String> {
+    let wake: Arc<(Mutex<PathPending>, Condvar)> = Arc::new((Mutex::new(PathPending::default()), Condvar::new()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let w2 = Arc::clone(&wake);
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
+        let Ok(ev) = res else { return };
+        if matches!(ev.kind, notify::EventKind::Access(_)) {
+            return;
+        }
+        let born = matches!(ev.kind, notify::EventKind::Create(_) | notify::EventKind::Modify(notify::event::ModifyKind::Name(_)));
+        let mut hit = false;
+        let (lock, cv) = &*w2;
+        let mut pend = lock.lock().unwrap_or_else(|e| e.into_inner());
+        for p in &ev.paths {
+            if touches_git(p) || touches_generated(p) || !keep(p) {
+                continue;
+            }
+            hit = true;
+            if let Some(b) = pend.seen.get_mut(p) {
+                *b |= born;
+            } else if pend.seen.len() < cap {
+                pend.seen.insert(p.clone(), born);
+            } else {
+                pend.overflow = true;
+            }
+        }
+        if hit {
+            cv.notify_one();
+        }
+    })
+    .map_err(|e| format!("起不了文件监听：{e}"))?;
+    watcher
+        .watch(root.as_ref(), RecursiveMode::Recursive)
+        .map_err(|e| format!("监听不了 {}：{e}", root.as_ref().display()))?;
+    let w3 = Arc::clone(&wake);
+    let s3 = Arc::clone(&stop);
+    thread::Builder::new()
+        .name("path-watch-debounce".into())
+        .spawn(move || debounce(&w3, &s3, |p: &PathPending| p.seen.is_empty() && !p.overflow, |taken| on_batch(classify(taken, |p| p.symlink_metadata().is_ok()))))
+        .map_err(|e| format!("起不了防抖线程：{e}"))?;
+    Ok(PathWatch { _watcher: watcher, stop, wake })
+}
+
 /// 两个监听共用的防抖：等到有事（`idle` 说不空了），再睡 [`DEBOUNCE`]，把这段时间攒下的整个拿走交给 `fire`；`stop` 置位就退出。
 ///
 /// **拎出来是为了不经过 FSEvents 测**（2026-10-12）。原来两份一模一样的循环各写在两个线程闭包里，只能「真写文件、看收到几条」地测 ——
@@ -255,6 +366,52 @@ fn debounce<T: Default>(wake: &(Mutex<T>, Condvar), stop: &AtomicBool, idle: imp
 mod tests {
     use super::*;
     use std::sync::mpsc;
+
+    #[test]
+    fn 按路径_此刻在不在决定类型_不信事件说的() {
+        let mut p = PathPending::default();
+        p.seen.insert("/p/New.java".into(), true);
+        p.seen.insert("/p/Old.java".into(), false);
+        p.seen.insert("/p/Gone.java".into(), true);
+        p.overflow = true;
+        let got = classify(p, |q| q != Path::new("/p/Gone.java"));
+        assert_eq!(
+            got.changes,
+            vec![
+                ("/p/Gone.java".into(), PathChange::Removed),
+                ("/p/New.java".into(), PathChange::Created),
+                ("/p/Old.java".into(), PathChange::Changed),
+            ],
+            "出现过新建、现在不在了的算删了（事件说的是「新建」）"
+        );
+        assert!(got.overflow, "收不全要传出去");
+    }
+
+    #[test]
+    fn 按路径_只收认的文件_删了的报删除() {
+        let d = tmp();
+        std::fs::write(d.join("A.java"), "class A {}").unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _w = watch_paths(&d, |p| p.extension().is_some_and(|e| e == "java"), 100, move |b| tx.send(b).unwrap()).unwrap();
+        thread::sleep(Duration::from_millis(200));
+        while rx.recv_timeout(DEBOUNCE * 2).is_ok() {}
+        std::fs::write(d.join("B.java"), "class B {}").unwrap();
+        std::fs::write(d.join("notes.txt"), "不认").unwrap();
+        std::fs::remove_file(d.join("A.java")).unwrap();
+        // FSEvents 可能拆成几批送：收 5 秒，合起来看
+        let mut all: BTreeMap<PathBuf, PathChange> = BTreeMap::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while all.len() < 2 && std::time::Instant::now() < deadline {
+            if let Ok(b) = rx.recv_timeout(Duration::from_millis(500)) {
+                for (p, c) in b.changes {
+                    all.insert(p.file_name().map(PathBuf::from).unwrap_or(p), c);
+                }
+            }
+        }
+        assert_eq!(all.get(Path::new("B.java")), Some(&PathChange::Created), "{all:?}");
+        assert_eq!(all.get(Path::new("A.java")), Some(&PathChange::Removed), "{all:?}");
+        assert!(!all.contains_key(Path::new("notes.txt")), "不认的文件不收：{all:?}");
+    }
 
     /// 每个测试一个独立目录。**用计数器不用时间**：第一版用的
     /// `Instant::now().elapsed()`，那永远是 0 —— 五个测试挤进同一个目录，

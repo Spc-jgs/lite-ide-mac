@@ -114,6 +114,46 @@ pub async fn java_resolve(app: tauri::AppHandle, root: String, raw: String) -> R
     .await
 }
 
+/// 光标底下能不能改名（⇧F6 先问这个：不能改的地方不弹输入框）。null = 这里不能改名
+#[tauri::command]
+pub async fn java_prepare_rename(app: tauri::AppHandle, root: String, path: String, text: String, line: u32, character: u32) -> Result<Option<JavaRenameTargetDto>, String> {
+    blocking(move || {
+        Ok(instance(&app, &root)?.prepare_rename(&path, &text, line, character)?.map(|t| JavaRenameTargetDto {
+            line: t.range.line,
+            character: t.range.character,
+            end_line: t.range.end_line,
+            end_character: t.range.end_character,
+            placeholder: t.placeholder,
+        }))
+    })
+    .await
+}
+
+/// 改名：问 jdtls 要改哪些，照跨文件替换那套落盘（`java::apply_rename`）。
+/// `open`：开着的标签（同 `replace_apply`）。结果的形状同替换，前端走同一条路让开着的标签跟上
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn java_rename(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    text: String,
+    line: u32,
+    character: u32,
+    new_name: String,
+    open: Vec<super::replace::OpenDocArg>,
+) -> Result<ReplaceOutcomeDto, String> {
+    let journal = super::replace::journal_dir(&app)?;
+    blocking(move || {
+        let i = instance(&app, &root)?;
+        let plan = i.rename(&path, &text, line, character, &new_name)?;
+        // 盘上改了哪些不用在这儿告诉 jdtls：它的文件监听会看到（`java::Instance::on_disk_changes`），撤销时也一样
+        let out = crate::java::apply_rename(&plan, Path::new(&root), &journal, &super::replace::dirty_map(open))?;
+        Ok(super::replace::outcome_dto(out))
+    })
+    .await
+}
+
 /// jar 里一个类的内容（`jdt://…`）：有源码 jar 就是源码，没有就是反编译的
 #[tauri::command]
 pub async fn java_class_contents(app: tauri::AppHandle, root: String, uri: String) -> Result<String, String> {

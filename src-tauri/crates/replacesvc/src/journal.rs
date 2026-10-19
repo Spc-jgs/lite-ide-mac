@@ -56,6 +56,13 @@ pub struct Entry {
     pub eol: String,
 }
 
+/// 改过名的一个文件（语言服务器的改名：改 public 类名时连 `.java` 一起改名）。绝对路径
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Renamed {
+    pub from: String,
+    pub to: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub version: u32,
@@ -64,6 +71,10 @@ pub struct Manifest {
     /// 毫秒时间戳，卡片上显示「几分钟前」
     pub at_ms: u64,
     pub entries: Vec<Entry>,
+    /// 内容改完之后改过名的文件。撤销时**先改回去、再还原内容**：`entries` 记的是改名前的路径。
+    /// 老日志里没有这一栏，按空的读 —— 格式只是多了一栏，不用升版本
+    #[serde(default)]
+    pub renames: Vec<Renamed>,
 }
 
 fn manifest_path(dir: &Path) -> PathBuf {

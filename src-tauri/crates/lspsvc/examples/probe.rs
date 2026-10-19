@@ -106,6 +106,20 @@ fn main() {
             println!("  resolve {:.0} ms：{}", t.elapsed().as_secs_f64() * 1000.0, res);
         }
     }
+    // RENAME=<词>=<新名字>：在文件里第一处出现那个词的地方问 prepareRename + rename，打出原样的 WorkspaceEdit（第 3 步看改名长什么样）
+    if let Ok(spec) = std::env::var("RENAME") {
+        let (from, to) = spec.split_once('=').expect("RENAME=旧=新");
+        let (l, c) = text.lines().enumerate().find_map(|(i, l)| l.find(from).map(|c| (i, c + 1))).expect("没有那个词");
+        let pos = json!({ "textDocument": { "uri": uri(path) }, "position": { "line": l, "character": c } });
+        let t = Instant::now();
+        let p = s.request("textDocument/prepareRename", pos.clone(), Duration::from_secs(30));
+        println!("prepareRename {:.0} ms：{:?}", t.elapsed().as_secs_f64() * 1000.0, p.map(|v| v.to_string()));
+        let mut req = pos;
+        req["newName"] = json!(to);
+        let t = Instant::now();
+        let r = s.request("textDocument/rename", req, Duration::from_secs(60));
+        println!("rename {:.0} ms：{}", t.elapsed().as_secs_f64() * 1000.0, r.map(|v| v.to_string()).unwrap_or_else(|e| format!("错：{e}")));
+    }
     if std::env::var("RAW").is_ok() {
         println!("原样：{}", r.as_ref().map(|v| v.to_string()).unwrap_or_default());
     }

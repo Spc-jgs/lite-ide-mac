@@ -16,6 +16,14 @@ type File = { rel: string; path: string; editor: boolean; text: string; hits: Hi
 let last: { files: File[]; regex: boolean; matcher: (t: string) => [number, number][]; re: RegExp | null } | null = null;
 /** 「替换日志」：只在内存里，刷新页面就没了（真实现在盘上） */
 let journal: { path: string; rel: string; before: string; after: string }[] | null = null;
+/** 改过名的文件（Java 改名，同真实现的 `Manifest.renames`）：撤销时先改回去、再还原内容 */
+let renames: { from: string; to: string }[] = [];
+
+/** Java 改名（mock/java.ts）记进同一份日志：真实现里改名就是一次替换，撤销卡片照样能撤 */
+export function recordRename(entries: { path: string; rel: string; before: string; after: string }[], renamed: { from: string; to: string }[]) {
+  journal = entries;
+  renames = renamed;
+}
 
 const ROOT = "/proj/";
 
@@ -94,6 +102,7 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
       const changed = [];
       const skipped = [];
       journal = [];
+      renames = [];
       for (const p of picks) {
         const f = last.files.find((x) => x.rel === p.rel);
         if (!f) continue;
@@ -122,13 +131,32 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
         changed.push({ rel: f.rel, path: f.path, count: idx.length, edits, onDisk: !f.editor });
       }
       last = null;
-      return { changed, skipped, undo: true };
+      return { changed, skipped, undo: true, renamed: [] };
     }
     case "replace_undo": {
       if (!journal) throw new Error("没有可以撤销的替换");
       const open = new Map((a.open as unknown as { path: string; text: string; dirty: boolean }[]).map((d) => [d.path, d]));
       const changed = [];
       const skipped = [];
+      // 先把名字改回去（同真实现：日志里记的是改名前的路径），开着的标签按新路径找
+      const renamed = [];
+      /** 开着的标签此刻在新名字上：真实现按文件身份（inode）认出它、报回标签此刻的路径 —— 前端按这个路径找标签放改动，再把标签挪回原名 */
+      const tabAt = new Map<string, string>();
+      for (const r of [...renames].reverse()) {
+        if (FILES[r.to] === undefined || FILES[r.from] !== undefined) {
+          skipped.push({ rel: r.from.slice(ROOT.length), why: "not-renamed-back", text: "改过名的文件不在新名字上了、或者原来的名字被占了，没改回去" });
+          continue;
+        }
+        FILES[r.from] = FILES[r.to];
+        delete FILES[r.to];
+        bump(r.from);
+        renamed.push({ from: r.to, to: r.from });
+        const o = open.get(r.to);
+        if (o) {
+          open.set(r.from, o);
+          tabAt.set(r.from, r.to);
+        }
+      }
       for (const e of journal) {
         const o = open.get(e.path);
         const now = o ? o.text : FILES[e.path];
@@ -141,15 +169,16 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
           FILES[e.path] = e.before;
           bump(e.path);
         }
-        changed.push({ rel: e.rel, path: e.path, count: 1, edits: o ? [{ from: 0, to: o.text.length, insert: e.before }] : [], onDisk });
+        changed.push({ rel: e.rel, path: tabAt.get(e.path) ?? e.path, count: 1, edits: o ? [{ from: 0, to: o.text.length, insert: e.before }] : [], onDisk });
       }
       journal = null;
-      return { changed, skipped, undo: false };
+      renames = [];
+      return { changed, skipped, undo: false, renamed };
     }
     case "replace_pending":
       return journal ? { state: "done", root: "/proj", atMs: Date.now(), files: journal.length, changed: journal.length } : null;
     case "replace_recover":
-      return { changed: [], skipped: [], undo: !!journal };
+      return { changed: [], skipped: [], undo: !!journal, renamed: [] };
     default:
       return NOT_MINE;
   }

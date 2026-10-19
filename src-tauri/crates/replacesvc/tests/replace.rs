@@ -458,3 +458,112 @@ fn 超长的跨行命中_预览中间折叠() {
     assert!(b.contains("中间 262 行没显示"), "{b}");
     fs::remove_dir_all(d).ok();
 }
+
+// ── 按给定改动执行（语言服务器的改名，docs/IDEA.md 第 14 节）──
+
+fn le(line: u32, character: u32, end_line: u32, end_character: u32, text: &str) -> LineEdit {
+    LineEdit { line, character, end_line, end_character, text: text.into() }
+}
+
+#[test]
+fn 给定改动_每处新文字自带_中文按utf16数列_crlf原样写回() {
+    let d = sandbox("edits");
+    let root = d.join("proj");
+    // 第 1 行（从 0 数）：「甲乙 Shop s」—— 两个中文各占 1 个 UTF-16 单位、3 个字节；按字节数列的话位置全歪
+    fs::write(root.join("A.java"), "class A {\r\n甲乙 Shop s = new Shop();\r\n}\r\n").unwrap();
+    let s = scan_edits(&root, vec![(root.join("A.java"), vec![le(1, 3, 1, 7, "Store"), le(1, 16, 1, 20, "Store")])], &HashMap::new()).unwrap();
+    assert_eq!(s.files.len(), 1);
+    assert_eq!(s.files[0].hits.len(), 2);
+    let j = d.join("journal");
+    let none = HashMap::new();
+    let picks = all(&s);
+    let out = apply(&s, &opts(&j, "", &picks, &none)).unwrap();
+    assert_eq!(read(&root.join("A.java")), "class A {\r\n甲乙 Store s = new Store();\r\n}\r\n", "CRLF 原样、两处各换成自带的文字");
+    assert!(out.undo);
+    fs::remove_dir_all(d).ok();
+}
+
+#[test]
+fn 给定改动_位置对不上或者重叠_整个报错() {
+    let d = sandbox("edits-bad");
+    let root = d.join("proj");
+    fs::write(root.join("A.java"), "class A {}\n").unwrap();
+    let none = HashMap::new();
+    let e = scan_edits(&root, vec![(root.join("A.java"), vec![le(5, 0, 5, 1, "x")])], &none).err().unwrap();
+    assert!(e.contains("对不上"), "{e}");
+    let e = scan_edits(&root, vec![(root.join("A.java"), vec![le(0, 0, 0, 30, "x")])], &none).err().unwrap();
+    assert!(e.contains("对不上"), "列越过行尾也算对不上：{e}");
+    let e = scan_edits(&root, vec![(root.join("A.java"), vec![le(0, 0, 0, 5, "x"), le(0, 3, 0, 7, "y")])], &none).err().unwrap();
+    assert!(e.contains("重叠"), "{e}");
+    let e = scan_edits(&root, vec![(d.join("外面.java"), vec![le(0, 0, 0, 1, "x")])], &none).err().unwrap();
+    assert!(e.contains("不在项目里"), "{e}");
+    fs::remove_dir_all(d).ok();
+}
+
+#[test]
+fn 改名_内容改完再改文件名_撤销先改回名字再还原内容() {
+    let d = sandbox("rename");
+    let root = d.join("proj");
+    let (shop, store, usef) = (root.join("Shop.java"), root.join("Store.java"), root.join("Use.java"));
+    fs::write(&shop, "public class Shop {}\n").unwrap();
+    fs::write(&usef, "class Use { Shop s = new Shop(); }\n").unwrap();
+    // jdtls 实测的形状：两个文件的文字改动 + 一条 Shop.java → Store.java
+    let s = scan_edits(
+        &root,
+        vec![(shop.clone(), vec![le(0, 13, 0, 17, "Store")]), (usef.clone(), vec![le(0, 12, 0, 29, "Store s = new Store")])],
+        &HashMap::new(),
+    )
+    .unwrap();
+    let renames = vec![(shop.clone(), store.clone())];
+    check_renames(&renames).unwrap();
+    let j = d.join("journal");
+    let none = HashMap::new();
+    let picks = all(&s);
+    apply(&s, &opts(&j, "", &picks, &none)).unwrap();
+    assert_eq!(rename_files(&j, &renames).unwrap(), renames);
+    assert!(fs::symlink_metadata(&shop).is_err());
+    assert_eq!(read(&store), "public class Store {}\n");
+    assert_eq!(read(&usef), "class Use { Store s = new Store(); }\n");
+    assert_eq!(journal::load(&j).unwrap().renames.len(), 1, "改名记进了替换日志");
+
+    let out = undo(&j, &HashMap::new()).unwrap();
+    assert_eq!(out.renamed, vec![(store.clone(), shop.clone())], "撤销把名字改回来，前端靠它挪标签");
+    assert!(fs::symlink_metadata(&store).is_err(), "新名字没了");
+    assert_eq!(read(&shop), "public class Shop {}\n", "名字先回来，内容才对得上号（日志里记的是改名前的路径）");
+    assert_eq!(read(&usef), "class Use { Shop s = new Shop(); }\n");
+    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
+    fs::remove_dir_all(d).ok();
+}
+
+#[test]
+fn 改名_新名字被占或者跨目录_先查出来一个字都不动() {
+    let d = sandbox("rename-bad");
+    let root = d.join("proj");
+    fs::create_dir_all(root.join("sub")).unwrap();
+    fs::write(root.join("Shop.java"), "x\n").unwrap();
+    fs::write(root.join("Store.java"), "别人的文件\n").unwrap();
+    let e = check_renames(&[(root.join("Shop.java"), root.join("Store.java"))]).err().unwrap();
+    assert!(e.contains("已经有了"), "{e}");
+    let e = rename_files(&d.join("journal"), &[(root.join("Shop.java"), root.join("Store.java"))]).err().unwrap();
+    assert!(e.contains("已经有了"), "{e}");
+    assert_eq!(read(&root.join("Store.java")), "别人的文件\n", "不覆盖");
+    assert_eq!(read(&root.join("Shop.java")), "x\n");
+    let e = check_renames(&[(root.join("Shop.java"), root.join("sub/Shop.java"))]).err().unwrap();
+    assert!(e.contains("同一个目录"), "{e}");
+    fs::remove_dir_all(d).ok();
+}
+
+#[test]
+fn 老格式的替换日志没有改名那一栏_照样读得出来() {
+    let d = sandbox("old-journal");
+    let j = d.join("journal");
+    fs::create_dir_all(&j).unwrap();
+    fs::write(
+        j.join("manifest.json"),
+        r#"{"version":1,"state":"Done","root":"/x","at_ms":1,"entries":[]}"#,
+    )
+    .unwrap();
+    let m = journal::load(&j).expect("老日志要读得出来：撤销卡片还靠它");
+    assert!(m.renames.is_empty());
+    fs::remove_dir_all(d).ok();
+}

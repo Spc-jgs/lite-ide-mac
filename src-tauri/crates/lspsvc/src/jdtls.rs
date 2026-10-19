@@ -214,12 +214,14 @@ pub fn prepare_config(layout: &Layout, workspace: &Path) -> std::io::Result<()> 
 /// 我们声明支持什么。只声明真用得上的：声明了 `workDoneProgress`，jdtls 就会先发 `window/workDoneProgress/create` 来问
 pub fn capabilities() -> Value {
     json!({
-        "workspace": { "configuration": true, "workspaceFolders": true },
+        // 改名（第 3 步）：documentChanges + 改文件名 —— 改 public 类名时 jdtls 要连 .java 文件一起改名，不声明的话它只改类名、文件名对不上就是编译错误
+        "workspace": { "configuration": true, "workspaceFolders": true, "workspaceEdit": { "documentChanges": true, "resourceOperations": ["create", "rename", "delete"] } },
         "textDocument": {
             "synchronization": { "didSave": true },
             "publishDiagnostics": { "relatedInformation": false, "tagSupport": { "valueSet": [1, 2] } },
             "definition": { "linkSupport": false },
             "references": {},
+            "rename": { "prepareSupport": true },
             "hover": { "contentFormat": ["plaintext", "markdown"] },
             "completion": {
                 "completionItem": {

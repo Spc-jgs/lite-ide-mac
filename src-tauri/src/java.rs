@@ -115,6 +115,23 @@ pub struct CompletionItem {
     pub raw: String,
 }
 
+/// 改名要做的事（jdtls 的 WorkspaceEdit 拆开）：哪些文件改哪几处、哪些文件改名。**先改全部内容、最后改名**（[`workspace_edit`]）
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RenamePlan {
+    /// 工作区里的文件（绝对路径）→ 这个文件里的改动，按服务器给的次序
+    pub files: Vec<(String, Vec<Edit>)>,
+    /// （原路径, 新路径）
+    pub renames: Vec<(String, String)>,
+}
+
+/// 光标底下能不能改名、改的是哪一段（prepareRename）
+#[derive(Clone, Debug, PartialEq)]
+pub struct RenameTarget {
+    pub range: Edit,
+    /// 输入框里预填的：服务器给了就用它的，没给就是那一段的原文（前端取）
+    pub placeholder: Option<String>,
+}
+
 /// resolve 回来的：要一起做的改动（自动 import 就在这里，**只在 resolve 时才给**，补全列表里没有）+ 说明文字
 #[derive(Clone, Debug, Default)]
 pub struct Resolved {
@@ -145,6 +162,17 @@ struct Docs {
 pub struct Instance {
     shared: Arc<Shared>,
     srv: Server,
+    /// 项目里的 `.java` / 构建文件在盘上变了（改名、查找替换、撤销、切分支、别的编辑器）→ 告诉 jdtls。随实例 drop 停
+    watch: Mutex<Option<fsservice::watch::PathWatch>>,
+}
+
+/// 一批里最多告诉 jdtls 多少个文件变了。切一次大分支能动几万个文件：超了只说前这么多、记一句 WARN（jdtls 的索引那时可能不全，重起它就好）
+const WATCH_CAP: usize = 2000;
+
+/// jdtls 关心哪些文件在盘上的变化：Java 源码和构建文件（改了 pom 要重新导入）
+fn java_relevant(p: &Path) -> bool {
+    p.extension().is_some_and(|e| e == "java")
+        || p.file_name().is_some_and(|n| matches!(n.to_str(), Some("pom.xml" | "build.gradle" | "build.gradle.kts" | "settings.gradle" | "settings.gradle.kts")))
 }
 
 impl Instance {
@@ -239,10 +267,15 @@ impl Instance {
     fn ask(&self, method: &str, params: Value) -> Result<Value, String> {
         self.touch();
         self.wait_usable()?;
-        self.srv.request(method, params, ASK).map_err(|e| match e {
+        let r = self.srv.request(method, params, ASK).map_err(|e| match e {
             Error::Timeout => format!("Java 语言服务器 {} 秒没回答（可能还在导入）", ASK.as_secs()),
             e => e.to_string(),
-        })
+        });
+        // 记下来：补全失败时前端是悄悄退回空列表的（不为一次补全弹红字），不记的话「补全怎么没东西」查无可查（2026-10-19 验收撞见）
+        if let Err(e) = &r {
+            applog::write(applog::Level::Warn, "java", &format!("{method} 失败：{e}"));
+        }
+        r
     }
 
     pub fn definition(&self, path: &str, line: u32, character: u32) -> Result<Vec<Location>, String> {
@@ -284,6 +317,62 @@ impl Instance {
         let item: Value = serde_json::from_str(raw).map_err(|e| format!("补全项不是 JSON：{e}"))?;
         let r = self.ask("completionItem/resolve", item)?;
         Ok(resolved(&r))
+    }
+
+    /// 光标底下能不能改名。带着此刻的全文（同 `complete`）。null / 不认 = 这里不能改名（关键字、注释里）
+    pub fn prepare_rename(&self, path: &str, text: &str, line: u32, character: u32) -> Result<Option<RenameTarget>, String> {
+        self.change(path, text);
+        let r = self.ask("textDocument/prepareRename", json!({ "textDocument": { "uri": uri::from_path(path) }, "position": { "line": line, "character": character } }))?;
+        Ok(rename_target(&r))
+    }
+
+    /// 改名：问 jdtls 要改哪些（第一次要搜全部索引，探针实测 4.3 秒，之后一两百毫秒），拆成 [`RenamePlan`]。只问不改
+    pub fn rename(&self, path: &str, text: &str, line: u32, character: u32, new_name: &str) -> Result<RenamePlan, String> {
+        self.change(path, text);
+        let r = self
+            .ask(
+                "textDocument/rename",
+                json!({ "textDocument": { "uri": uri::from_path(path) }, "position": { "line": line, "character": character }, "newName": new_name }),
+            )
+            .map_err(Self::rename_refusal)?;
+        workspace_edit(&r)
+    }
+
+    /// jdtls 自己拒绝改名时的原话是英文的（`Compilation unit 'Customer.java' already exists`），常见的换成中文，别的原样
+    fn rename_refusal(e: String) -> String {
+        match e.split_once("Compilation unit '").and_then(|(_, rest)| rest.split_once("' already exists")) {
+            Some((name, _)) => format!("{name} 已经有了，不覆盖"),
+            None => e,
+        }
+    }
+
+    /// 盘上的文件变了（[`java_relevant`] 那些）：`workspace/didChangeWatchedFiles`。**不分是谁改的** —— 改名、查找替换、撤销、切分支、
+    /// 别的编辑器写的都从文件监听这一处来，不在每条写盘的路上各补一句通知（改名第一版就是只在改名里补了一句，撤销之后 jdtls 还以为类叫新名字）。
+    /// 开着的文件 jdtls 以编辑器里那份为准（didChange），这里说了也不会盖掉它。initialize 之前不说（说了它也不认）
+    fn on_disk_changes(&self, b: fsservice::watch::PathBatch) {
+        if !self.shared.docs.lock().unwrap_or_else(|e| e.into_inner()).synced {
+            return;
+        }
+        if b.overflow {
+            applog::write(applog::Level::Warn, "java", &format!("一次变了超过 {WATCH_CAP} 个文件，只告诉了 jdtls 前 {WATCH_CAP} 个：索引可能不全，状态栏「重起」可以补"));
+        }
+        let changes: Vec<Value> = b
+            .changes
+            .iter()
+            .map(|(p, c)| {
+                let t = match c {
+                    fsservice::watch::PathChange::Created => 1,
+                    fsservice::watch::PathChange::Changed => 2,
+                    fsservice::watch::PathChange::Removed => 3,
+                };
+                json!({ "uri": uri::from_path(&p.to_string_lossy()), "type": t })
+            })
+            .collect();
+        if !changes.is_empty() {
+            let head: Vec<String> = b.changes.iter().take(3).map(|(p, c)| format!("{c:?} {}", p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default())).collect();
+            applog::write(applog::Level::Info, "java", &format!("盘上变了 {} 个文件，告诉 jdtls：{}{}", changes.len(), head.join("、"), if changes.len() > 3 { " …" } else { "" }));
+            let _ = self.srv.notify("workspace/didChangeWatchedFiles", json!({ "changes": changes }));
+        }
     }
 
     fn stop(&self) {
@@ -466,6 +555,114 @@ pub fn resolved(r: &Value) -> Resolved {
     Resolved { edits, doc }
 }
 
+/// prepareRename 的回包：`Range | { range, placeholder } | { defaultBehavior } | null`。
+/// `defaultBehavior`（让客户端自己按光标底下的词算）这里当「不能改」：jdtls 不回这种，回了也说明它没把握
+pub fn rename_target(r: &Value) -> Option<RenameTarget> {
+    let (range, placeholder) = if r["start"].is_object() {
+        (r, None)
+    } else if r["range"].is_object() {
+        (&r["range"], r["placeholder"].as_str().map(str::to_owned))
+    } else {
+        return None;
+    };
+    Some(RenameTarget { range: edit_of(range, ""), placeholder })
+}
+
+/// jdtls 的 WorkspaceEdit → [`RenamePlan`]。认 `changes`（uri → 改动）和 `documentChanges`（按次序的改动 + 改名），两种可能同时给（实测 `changes` 是空的）。
+/// 拒绝的（整个报错，一处都不改）：新建 / 删除文件（这一版不做；我们向它声明了支持，是因为不声明它连改名都不给）、改到 jar 里、不是 file:// 的地址。
+/// **先改名后又改它**的（改动指向改名后的新路径）换回原路径：执行时是先改全部内容、最后改名
+pub fn workspace_edit(r: &Value) -> Result<RenamePlan, String> {
+    let mut plan = RenamePlan::default();
+    let path_of = |u: &str| -> Result<String, String> {
+        uri::to_path(u).ok_or_else(|| format!("改动落在 {u}（不在工作区的文件里，比如 jar），这一版不做"))
+    };
+    let mut new_to_old: HashMap<String, String> = HashMap::new();
+    let add = |plan: &mut RenamePlan, path: String, edits: Vec<Edit>| {
+        match plan.files.iter_mut().find(|(p, _)| *p == path) {
+            Some((_, v)) => v.extend(edits),
+            None => plan.files.push((path, edits)),
+        }
+    };
+    let edits_of = |a: &Value| -> Vec<Edit> {
+        a.as_array().map(|a| a.iter().filter_map(|e| e["newText"].as_str().map(|t| edit_of(&e["range"], t))).collect()).unwrap_or_default()
+    };
+    if let Some(m) = r["changes"].as_object() {
+        for (u, es) in m {
+            let p = path_of(u)?;
+            add(&mut plan, p, edits_of(es));
+        }
+    }
+    for c in r["documentChanges"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
+        match c["kind"].as_str() {
+            None => {
+                let p = path_of(c["textDocument"]["uri"].as_str().unwrap_or(""))?;
+                let p = new_to_old.get(&p).cloned().unwrap_or(p);
+                add(&mut plan, p, edits_of(&c["edits"]));
+            }
+            Some("rename") => {
+                let from = path_of(c["oldUri"].as_str().unwrap_or(""))?;
+                let to = path_of(c["newUri"].as_str().unwrap_or(""))?;
+                new_to_old.insert(to.clone(), from.clone());
+                plan.renames.push((from, to));
+            }
+            Some(k) => return Err(format!("这次改动要{}文件，这一版只做改名", if k == "create" { "新建" } else if k == "delete" { "删除" } else { k })),
+        }
+    }
+    plan.files.retain(|(_, e)| !e.is_empty());
+    Ok(plan)
+}
+
+/// 改名的执行（docs/IDEA.md 第 14 节）。复用跨文件替换的落盘（重读核对指纹、写撤销日志、两段提交、开着的改编辑器），次序是这个函数存在的理由：
+/// 1. 先查改名做不做得了（新名字被占、跨目录）—— 内容改完了名字却改不了，类名和文件名对不上就编译不过
+/// 2. 按 jdtls 给的位置建扫描结果。**有一个文件改不了就整个不做**：查找替换跳过一个文件是常态，改名少改一处就是编译错误
+/// 3. 两段提交改内容；执行时被跳过的（建完扫描到执行之间被改了）→ 撤回去、报错
+/// 4. 最后改名；改名失败 → 内容也撤回去
+///
+/// `dirty`：开着、有未保存改动的标签（它们只改编辑器，同查找替换）。成了的话这一次就是「最近一次替换」，撤销卡片照样能撤（名字一起改回去）
+pub fn apply_rename(plan: &RenamePlan, root: &Path, journal: &Path, dirty: &HashMap<PathBuf, String>) -> Result<replacesvc::Outcome, String> {
+    if plan.files.is_empty() && plan.renames.is_empty() {
+        return Err("语言服务器说这里没有要改的".into());
+    }
+    let renames: Vec<(PathBuf, PathBuf)> = plan.renames.iter().map(|(f, t)| (PathBuf::from(f), PathBuf::from(t))).collect();
+    replacesvc::check_renames(&renames)?;
+    let files = plan
+        .files
+        .iter()
+        .map(|(p, es)| {
+            let es = es
+                .iter()
+                .map(|e| replacesvc::LineEdit { line: e.line, character: e.character, end_line: e.end_line, end_character: e.end_character, text: e.text.clone() })
+                .collect();
+            (PathBuf::from(p), es)
+        })
+        .collect();
+    let scan = replacesvc::scan_edits(root, files, dirty)?;
+    if !scan.skipped.is_empty() {
+        let head: Vec<String> = scan.skipped.iter().take(3).map(|k| format!("{}：{}", k.rel, k.why.text())).collect();
+        return Err(format!("有 {} 个文件改不了，整个没改（少改一处就编译不过）—— {}", scan.skipped.len(), head.join("；")));
+    }
+    let picks: Vec<replacesvc::Pick> = scan.files.iter().map(|f| replacesvc::Pick { rel: f.rel.clone(), hits: (0..f.hits.len()).collect() }).collect();
+    let o = replacesvc::ApplyOpts { journal, replacement: "", picks: &picks, dirty_now: dirty, allow_no_undo: false, crash_after: None, journal_cap: None };
+    let mut out = replacesvc::apply(&scan, &o).map_err(|e| match e {
+        replacesvc::ApplyError::Pending => "上一次替换中断了还没处理：先在启动时的卡片上处理它".to_string(),
+        replacesvc::ApplyError::TooBigForUndo { bytes } => format!("这次改名要改的文件太大（{} MB），撤销不了，没改", bytes >> 20),
+        replacesvc::ApplyError::Truncated => "要改的地方太多，没改".to_string(),
+        replacesvc::ApplyError::Failed { rel, msg } => if rel.is_empty() { msg } else { format!("{rel}：{msg}") },
+    })?;
+    // 撤回去只碰盘上的：只改在编辑器里的那些，改动还没交给前端（这里报错就不交），本来就没生效
+    let roll_back = |why: String| -> String {
+        match replacesvc::undo(journal, &HashMap::new()) {
+            Ok(_) => format!("{why}，改了的已经撤回去了"),
+            Err(e) => format!("{why}；撤回去也失败了：{e}（替换卡片上还能再撤一次）"),
+        }
+    };
+    if !out.skipped.is_empty() {
+        return Err(roll_back(format!("{} 刚刚被改过", out.skipped[0].rel)));
+    }
+    out.renamed = replacesvc::rename_files(journal, &renames).map_err(roll_back)?;
+    Ok(out)
+}
+
 /// 服务器问我们的。只答真问得到的几种；`workspace/applyEdit` 第 2 步不接（只读智能），答「没改」
 fn answer(method: &str, p: &Value) -> Result<Value, (i64, String)> {
     match method {
@@ -625,7 +822,17 @@ impl Java {
             }),
         )
         .map_err(|e| fail(format!("起不了 jdtls：{e}")))?;
-        let inst = Arc::new(Instance { shared: Arc::clone(&shared), srv });
+        let inst = Arc::new(Instance { shared: Arc::clone(&shared), srv, watch: Mutex::new(None) });
+        // 盘上的变化告诉 jdtls（`on_disk_changes`）。拿弱引用：监听活在实例里，强引用就是互相攥着、谁也收不掉。起不来只记一句，Java 智能照常
+        let weak = Arc::downgrade(&inst);
+        match fsservice::watch::watch_paths(root, java_relevant, WATCH_CAP, move |b| {
+            if let Some(i) = weak.upgrade() {
+                i.on_disk_changes(b);
+            }
+        }) {
+            Ok(w) => *inst.watch.lock().unwrap_or_else(|e| e.into_inner()) = Some(w),
+            Err(e) => applog::write(applog::Level::Warn, "java", &format!("起不了文件监听（盘上的改动 jdtls 不会知道）：{e}")),
+        }
         self.last.lock().unwrap_or_else(|e| e.into_inner()).remove(root);
         if let Some(old) = self.all.insert(owner, root.to_string(), Arc::clone(&inst)) {
             std::thread::spawn(move || old.stop());
@@ -758,6 +965,46 @@ mod tests {
         // 数组形式（不是 CompletionList）也认
         assert_eq!(completion_items(&json!([{ "label": "x" }])).0.len(), 1);
         assert_eq!(completion_items(&Value::Null).0.len(), 0);
+    }
+
+    #[test]
+    fn 改名_两种回包都认_先改名后改的换回原路径_新建删除和jar拒绝() {
+        // jdtls 实测的类改名（声明了 documentChanges + 三种文件操作之后）：changes 空、documentChanges 里先改两个文件、最后一条改名
+        let r = json!({ "changes": {}, "documentChanges": [
+            { "textDocument": { "uri": "file:///p/Shop.java", "version": null }, "edits": [{ "newText": "Store", "range": { "start": { "line": 2, "character": 13 }, "end": { "line": 2, "character": 17 } } }] },
+            { "textDocument": { "uri": "file:///p/Use.java", "version": null }, "edits": [{ "newText": "Store s = new Store", "range": { "start": { "line": 4, "character": 8 }, "end": { "line": 4, "character": 25 } } }] },
+            { "kind": "rename", "oldUri": "file:///p/Shop.java", "newUri": "file:///p/Store.java" },
+            // 别的服务器可能这样：改名之后再改新路径上的文件 —— 我们先改内容后改名，要换回原路径
+            { "textDocument": { "uri": "file:///p/Store.java", "version": null }, "edits": [{ "newText": "x", "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } } }] }
+        ]});
+        let p = workspace_edit(&r).unwrap();
+        assert_eq!(p.renames, vec![("/p/Shop.java".to_string(), "/p/Store.java".to_string())]);
+        assert_eq!(p.files.iter().map(|(f, e)| (f.as_str(), e.len())).collect::<Vec<_>>(), vec![("/p/Shop.java", 2), ("/p/Use.java", 1)]);
+        // 方法改名（没声明 documentChanges 时的形状）：只有 changes
+        let r = json!({ "changes": { "file:///p/A.java": [{ "newText": "put", "range": { "start": { "line": 5, "character": 16 }, "end": { "line": 5, "character": 19 } } }] } });
+        let p = workspace_edit(&r).unwrap();
+        assert_eq!(p.files.len(), 1);
+        assert_eq!(p.files[0].1[0], Edit { line: 5, character: 16, end_line: 5, end_character: 19, text: "put".into() });
+        assert!(workspace_edit(&json!({ "documentChanges": [{ "kind": "create", "uri": "file:///p/N.java" }] })).unwrap_err().contains("新建"));
+        assert!(workspace_edit(&json!({ "documentChanges": [{ "kind": "delete", "uri": "file:///p/N.java" }] })).unwrap_err().contains("删除"));
+        assert!(workspace_edit(&json!({ "changes": { "jdt://contents/x.jar/A.class": [] } })).unwrap_err().contains("jar"));
+        assert_eq!(workspace_edit(&Value::Null).unwrap(), RenamePlan::default());
+    }
+
+    #[test]
+    fn 改名_jdtls_拒绝的英文原话换成中文_别的原样() {
+        assert_eq!(Instance::rename_refusal("Compilation unit 'Customer.java' already exists".into()), "Customer.java 已经有了，不覆盖");
+        assert_eq!(Instance::rename_refusal("别的错".into()), "别的错");
+    }
+
+    #[test]
+    fn 改名_prepare_回包三种形状() {
+        let range = json!({ "start": { "line": 2, "character": 13 }, "end": { "line": 2, "character": 17 } });
+        assert_eq!(rename_target(&range).map(|t| (t.range.character, t.range.end_character, t.placeholder)), Some((13, 17, None)));
+        let with = json!({ "range": range, "placeholder": "Shop" });
+        assert_eq!(rename_target(&with).and_then(|t| t.placeholder), Some("Shop".into()));
+        assert!(rename_target(&json!({ "defaultBehavior": true })).is_none());
+        assert!(rename_target(&Value::Null).is_none());
     }
 
     #[test]

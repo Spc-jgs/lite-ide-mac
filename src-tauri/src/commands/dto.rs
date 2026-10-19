@@ -674,6 +674,15 @@ pub struct ReplaceOutcomeDto {
     pub changed: Vec<ReplaceChangedDto>,
     pub skipped: Vec<ReplaceSkipDto>,
     pub undo: bool,
+    /// 改了名的文件（语言服务器的改名改过去的、撤销改回来的）：开着它的标签要跟着挪到新路径
+    pub renamed: Vec<ReplaceRenamedDto>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceRenamedDto {
+    pub from: String,
+    pub to: String,
 }
 
 /// 执行失败。`code`：`truncated`（命中太多）/ `pending`（上次中断还没收拾）/ `too-big`（要点头才做，`bytes` 是多大）/ `failed`
@@ -880,6 +889,17 @@ impl From<crate::java::Edit> for JavaEditDto {
     fn from(e: crate::java::Edit) -> Self {
         JavaEditDto { line: e.line, character: e.character, end_line: e.end_line, end_character: e.end_character, text: e.text }
     }
+}
+
+/// 光标底下能改名的那一段（prepareRename）。`placeholder` 为空就取这一段的原文
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaRenameTargetDto {
+    pub line: u32,
+    pub character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+    pub placeholder: Option<String>,
 }
 
 /// 一个补全项。插什么看 `edit`（null = 按光标前那个词插 `label`）；`raw` 原样交回 `java_resolve`
