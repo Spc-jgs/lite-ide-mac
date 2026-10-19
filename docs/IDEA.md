@@ -293,3 +293,29 @@ mvn -q -B -pl <模块> -am -DskipTests compile dependency:build-classpath -Dmdep
 
 **没验到的**：universal 发版那条路（`release.yml` 装两个架构的 JDK 21、x86_64 那份 jmods 交给 arm64 的 jlink）要到下一次打标签才跑；
 从 `.dmg` 装、带隔离标记（quarantine）的 `.app` 里，Gatekeeper 对包里没签名的 `java` 可执行文件放不放行，也要那次真装一遍才知道。
+
+## 11. Maven 工具窗照 IDEA 重做（2026-10-19）
+
+用户：「maven 这个我们做的不好，idea 的 maven 啥样我们也啥样，必要的功能和展示」。第 1 步那版只有「模块摊平 + 7 个目标 + 认出来的应用」。
+这次结构直接抄 intellij-community 的源码（`plugins/maven/.../navigator/structure`，不凭印象）：
+
+| IDEA 的 | 我们 |
+|---|---|
+| `RootNode`：Profiles 在最前，然后是项目 | 同 |
+| `ProjectNode`：Lifecycle、Plugins、Run Configurations、Dependencies，然后是子模块（**嵌着**） | Lifecycle、Plugins、Dependencies、子模块。Run Configurations 没做（我们的「运行配置」就是任务列表） |
+| `LifecycleNode`：默认显示 9 个基本阶段 | 同（`maven::PHASES`） |
+| `PluginsNode`：有效 POM 里的插件，展开是插件描述里的目标 | 同：`help:effective-pom` 拿插件（**不算 `pluginManagement`**），目标读本地仓库里那个插件 jar 的 `META-INF/maven/plugin.xml` |
+| `DependenciesNode`：依赖树 | 同：`dependency:tree` 的输出，直接依赖在最上层、展开一层露一层 |
+| 工具栏 `Maven.NavigatorActionsToolbar` | 重新加载、执行 Maven 目标、运行选中的、离线、跳过测试、全部展开、全部收起。下载源码、依赖分析图、设置没做 |
+
+几个决定：
+
+- **插件和依赖一次 mvn 算两样**：JVM 起来、读 pom、解析 reactor 是大头，分两次就付两次。`-q`、两样都写文件不走 stdout。打开工具窗时在后台跑（三模块 2.4 秒），别的节点不等它；结果按项目根记在模块里，切走再回来不重跑。
+- **目标的白名单换成「按字符卡」**：插件目标、自己敲的命令都要能跑，7 个词的白名单不够了。每个词只许 `[A-Za-z0-9_-.:=,@/+%]` —— 没有空格、引号、`;` `$` `|` `&`，拼不出第二条命令（Rust、桩、前端三处都卡）。
+- **开关按项目记在应用数据目录**（`maven-prefs.json`），**跑目标和起 Spring Boot 服务都带上**：勾了 profile、起服务却没带，是最难查的那种「怎么跟 IDEA 里跑的不一样」。
+- **Spring Boot 应用挪出 Maven 窗**（IDEA 的 Maven 窗里没有）—— 下一步 Services 工具窗接住它们。
+- 图标 12 个从 intellij-community 取（`public/icons/SOURCES.md` 逐个记了上游路径；节点用的是 IDEA 新 UI 映射过去的那一套）。
+
+**真 .app `scripts/accept/spring.sh` 19/19**：子模块嵌在 shopdemo 底下、Profiles 里有 probe、9 个阶段、Plugins 有 compiler / surefire **没有 spring-boot**
+（父 pom 只在 pluginManagement 里给了默认值，模块没声明就不用 —— IDEA 也不列）、插件目标是读 jar 的、依赖里有兄弟模块；勾 probe + 开跳过测试之后双击 package，
+命令是 `mvn -B -ntp -P probe -DskipTests -pl order-service -am package`、出了 jar。

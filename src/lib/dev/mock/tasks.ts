@@ -27,8 +27,11 @@ const TEMPLATE = `// lite-ide 的任务（docs/USAGE.md「任务」）。⌃⌥R
 const LIFECYCLE = new Set(["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare", "prepublishOnly", "prepack", "postpack", "publish", "postpublish", "preversion", "version", "postversion", "dependencies"]);
 
 type Def = { name: string; command: string; cwd: string; source: "file" | "package" | "spring" };
-/** Maven 工具窗能点的目标（同 Rust 的 maven::GOALS） */
-const GOALS = ["clean", "compile", "test", "package", "verify", "install", "dependency:tree"];
+/** Lifecycle 底下的阶段（同 Rust 的 maven::PHASES） */
+const PHASES = ["clean", "validate", "compile", "test", "package", "verify", "install", "site", "deploy"];
+/** 能放进 mvn 命令行的词（同 Rust 的 maven::safe_token） */
+const SAFE = /^[A-Za-z0-9_\-.:=,@/+%]+$/;
+const MVN_PREFS = new Map<string, { offline: boolean; skipTests: boolean; profiles: string[] }>();
 
 /** 和 Rust 的 settings::strip 同一件事的简化版：去掉 // 注释和末尾逗号（不管字符串里的 //，桩里的数据没有那种） */
 const jsonc = (t: string) => JSON.parse(t.replace(/\/\/[^\n]*/g, "").replace(/,(\s*[\]}])/g, "$1") || "[]");
@@ -140,25 +143,63 @@ function fakeOutput(name: string, command: string, fail: boolean): string {
 export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
     /*
-     * Maven 工具窗（真实现：maven::modules 读 <modules>、taskdefs::spring_tasks）。桩：根模块 + 第一层带 pom.xml 的目录 + 认出入口的目录，
-     * 入口照上面 list() 里那套认。生命周期白名单同 maven::GOALS
+     * Maven 工具窗（真实现：commands/tasks.rs 的 maven_project / maven_resolve / maven_prefs_set，规则在 maven.rs / maven_run.rs）。
+     * 桩：根模块 + 第一层带 pom.xml 的目录（parent 都是根）；profile 读各 pom 的 <profiles>（同 maven::pom_profiles 的简化版）。
+     * 解析插件和依赖**故意等 1.5 秒**：真实现要跑一次 mvn（几秒到几十秒），围着「正在解析」做的那两个节点在 0ms 的桩上看不见
+     * （frontend.md「桩要能停在中间一会儿」）。开关存在内存里（真实现在 maven-prefs.json），刷新页面就没了
      */
     case "maven_project": {
       const root = String(a.root);
-      if (FILES[`${root}/pom.xml`] === undefined) return { reactors: [], goals: GOALS, problems: [] };
+      const prefs = MVN_PREFS.get(root) ?? { offline: false, skipTests: false, profiles: [] as string[] };
+      const base = { phases: PHASES, offline: prefs.offline, skipTests: prefs.skipTests };
+      if (FILES[`${root}/pom.xml`] === undefined) return { reactors: [], profiles: [], ...base };
       const artifact = (p: string) => /<artifactId>([^<]+)<\/artifactId>/.exec((FILES[p] ?? "").replace(/<parent>[\s\S]*?<\/parent>|<dependencies>[\s\S]*?<\/dependencies>/g, ""))?.[1] ?? "";
-      const springs = list(root).tasks.filter((t) => t.source === "spring");
-      const rels = new Set<string>();
+      const rels: string[] = [];
       for (const p of Object.keys(FILES)) {
         const m = new RegExp(`^${root}/([^/]+)/pom\\.xml$`).exec(p);
-        if (m) rels.add(m[1]);
+        if (m) rels.push(m[1]);
       }
-      for (const t of springs) rels.add(/-pl (\S+)/.exec(t.command)?.[1] ?? "");
-      rels.delete("");
-      const appsOf = (rel: string) =>
-        springs.filter((t) => (/-pl (\S+)/.exec(t.command)?.[1] ?? "") === rel).map((t) => ({ task: t.name, mainClass: t.command.split(" ").pop() ?? "" }));
-      const modules = [{ rel: "", artifactId: artifact(`${root}/pom.xml`), apps: appsOf("") }, ...[...rels].sort().map((rel) => ({ rel, artifactId: artifact(`${root}/${rel}/pom.xml`) || rel, apps: appsOf(rel) }))];
-      return { reactors: [{ rel: "", modules }], goals: GOALS, problems: [] };
+      const modules = [
+        { rel: "", artifactId: artifact(`${root}/pom.xml`), parent: null },
+        ...rels.sort().map((rel) => ({ rel, artifactId: artifact(`${root}/${rel}/pom.xml`) || rel, parent: "" })),
+      ];
+      const profiles: { id: string; activeByDefault: boolean; on: boolean }[] = [];
+      for (const m of modules) {
+        const text = FILES[`${root}/${m.rel ? `${m.rel}/` : ""}pom.xml`] ?? "";
+        for (const p of text.matchAll(/<profile>([\s\S]*?)<\/profile>/g)) {
+          const id = /<id>([^<]+)<\/id>/.exec(p[1])?.[1];
+          if (id && !profiles.some((x) => x.id === id)) profiles.push({ id, activeByDefault: p[1].includes("<activeByDefault>true"), on: prefs.profiles.includes(id) });
+        }
+      }
+      return { reactors: [{ rel: "", modules }], profiles, ...base };
+    }
+    case "maven_resolve": {
+      const root = String(a.root);
+      await new Promise((r) => setTimeout(r, 1500));
+      if (FILES[`${root}/pom.xml`] === undefined) return { reactors: [] };
+      const plugins = [
+        { groupId: "org.apache.maven.plugins", artifactId: "maven-compiler-plugin", version: "3.14.0", prefix: "compiler", goals: ["compile", "testCompile", "help"] },
+        { groupId: "org.apache.maven.plugins", artifactId: "maven-surefire-plugin", version: "3.5.2", prefix: "surefire", goals: ["test", "help"] },
+        { groupId: "org.springframework.boot", artifactId: "spring-boot-maven-plugin", version: "4.0.1", prefix: "spring-boot", goals: ["run", "repackage", "start", "stop", "build-image", "build-info"] },
+      ];
+      const deps = [
+        { depth: 0, groupId: "org.springframework.boot", artifactId: "spring-boot-starter-web", version: "4.0.1", scope: "compile", optional: false },
+        { depth: 1, groupId: "org.springframework.boot", artifactId: "spring-boot-starter", version: "4.0.1", scope: "compile", optional: false },
+        { depth: 2, groupId: "org.springframework", artifactId: "spring-core", version: "7.0.1", scope: "compile", optional: false },
+        { depth: 1, groupId: "org.springframework", artifactId: "spring-webmvc", version: "7.0.1", scope: "compile", optional: false },
+        { depth: 0, groupId: "org.projectlombok", artifactId: "lombok", version: "1.18.42", scope: "provided", optional: true },
+        { depth: 0, groupId: "org.springframework.boot", artifactId: "spring-boot-starter-test", version: "4.0.1", scope: "test", optional: false },
+      ];
+      const proj = (await tasksCmd("maven_project", { root } as unknown as A)) as { reactors: { rel: string; modules: { artifactId: string }[] }[] };
+      return { reactors: proj.reactors.map((r) => ({ rel: r.rel, error: "", modules: r.modules.map((m, i) => {
+            // 多模块时根模块（打包方式 pom）只有一两个插件、没有依赖，同真项目；只有根模块的项目给全套
+            const full = i > 0 || r.modules.length === 1;
+            return { artifactId: m.artifactId, plugins: full ? plugins : plugins.slice(0, 1), deps: full ? deps : [] };
+          }) })) };
+    }
+    case "maven_prefs_set": {
+      MVN_PREFS.set(String(a.root), { offline: !!a.offline, skipTests: !!a.skipTests, profiles: (a.profiles as unknown as string[]) ?? [] });
+      return null;
     }
     case "task_run": {
       const root = String(a.root);
@@ -167,7 +208,7 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       const goal = /^(.+) \[([^\]]+)\]$/.exec(name);
       const def =
         list(root).tasks.find((d) => d.name === name) ??
-        (goal && GOALS.includes(goal[2]) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "spring" as const } : undefined);
+        (goal && goal[2].split(/\s+/).every((t) => SAFE.test(t)) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "spring" as const } : undefined);
       if (!def) throw new Error(`没有叫「${name}」的任务了（tasks.json 改过？）`);
       // 同真实现：同名的还在跑先停掉
       for (const [id, r] of RUNS) if (r.root === root && r.name === name && r.status !== "gone") emitExit(id, { code: 130, stopped: true });

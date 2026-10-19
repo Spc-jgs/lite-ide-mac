@@ -159,26 +159,90 @@ pub async fn task_stale_resolve(root: String, kill: bool, app: tauri::AppHandle)
 pub async fn maven_project(root: String) -> Result<MavenProjectDto, String> {
     blocking(move || {
         let rootp = Path::new(&root);
-        let (tasks, problems) = crate::taskdefs::spring_tasks(rootp);
+        let prefs = crate::maven::prefs(rootp);
+        let mut profiles: Vec<MavenProfileDto> = Vec::new();
         let reactors = crate::maven::reactors(rootp)
             .into_iter()
             .map(|rel| {
-                let modules = crate::maven::modules(&rootp.join(&rel))
-                    .into_iter()
-                    .map(|m| MavenModuleDto {
-                        apps: tasks
-                            .iter()
-                            .filter(|t| t.reactor == rel && t.app.module == m.rel)
-                            .map(|t| MavenAppDto { task: t.def.name.clone(), main_class: t.app.main_class.clone() })
-                            .collect(),
-                        rel: m.rel,
-                        artifact_id: m.artifact_id,
-                    })
-                    .collect();
+                let r = rootp.join(&rel);
+                let mods = crate::maven::modules(&r);
+                for m in &mods {
+                    let text = std::fs::read_to_string(r.join(&m.rel).join("pom.xml")).unwrap_or_default();
+                    for (id, on_default) in crate::maven::pom_profiles(&text) {
+                        match profiles.iter_mut().find(|p| p.id == id) {
+                            Some(p) => p.active_by_default |= on_default,
+                            None => profiles.push(MavenProfileDto { on: prefs.profiles.contains(&id), id, active_by_default: on_default }),
+                        }
+                    }
+                }
+                let modules = mods.into_iter().map(|m| MavenModuleDto { rel: m.rel, artifact_id: m.artifact_id, parent: m.parent }).collect();
                 MavenReactorDto { rel, modules }
             })
             .collect();
-        Ok(MavenProjectDto { reactors, goals: crate::maven::GOALS.iter().map(|g| g.to_string()).collect(), problems })
+        Ok(MavenProjectDto {
+            reactors,
+            phases: crate::maven::PHASES.iter().map(|g| g.to_string()).collect(),
+            profiles,
+            offline: prefs.offline,
+            skip_tests: prefs.skip_tests,
+        })
+    })
+    .await
+}
+
+/// 插件和依赖：每个 reactor 跑一次 mvn（`maven_run.rs`）。**会等到跑完**（几秒到几十秒，要上网解析依赖时更久），前端先画别的、这两个节点转圈
+#[tauri::command]
+pub async fn maven_resolve(app: tauri::AppHandle, root: String) -> Result<MavenResolvedDto, String> {
+    blocking(move || {
+        let st = app.state::<AppState>();
+        let rootp = Path::new(&root);
+        let prefs = crate::maven::prefs(rootp);
+        let shell = crate::settingsctl::terminal_shell(&st);
+        let user = std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or("找不到用户目录（没有 HOME）")?;
+        let settings = std::fs::read_to_string(user.join(".m2/settings.xml")).ok();
+        let repo = lspsvc::jdtls::local_repo(&user, settings.as_deref());
+        let data = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("maven");
+        let reactors = crate::maven::reactors(rootp)
+            .into_iter()
+            .map(|rel| {
+                let r = rootp.join(&rel);
+                let scratch = lspsvc::jdtls::workspace_dir(&data, &r).with_extension("effective-pom.xml");
+                match crate::maven_run::resolve(&r, &prefs, &shell, &repo, &scratch) {
+                    Ok(mods) => MavenResolvedReactorDto {
+                        rel,
+                        error: String::new(),
+                        modules: mods
+                            .into_iter()
+                            .map(|m| MavenResolvedModuleDto {
+                                artifact_id: m.artifact_id,
+                                plugins: m
+                                    .plugins
+                                    .into_iter()
+                                    .map(|p| MavenPluginDto { group_id: p.group_id, artifact_id: p.artifact_id, version: p.version, prefix: p.prefix, goals: p.goals })
+                                    .collect(),
+                                deps: m
+                                    .deps
+                                    .into_iter()
+                                    .map(|d| MavenDepDto { depth: d.depth, group_id: d.group_id, artifact_id: d.artifact_id, version: d.version, scope: d.scope, optional: d.optional })
+                                    .collect(),
+                            })
+                            .collect(),
+                    },
+                    Err(error) => MavenResolvedReactorDto { rel, modules: Vec::new(), error },
+                }
+            })
+            .collect();
+        Ok(MavenResolvedDto { reactors })
+    })
+    .await
+}
+
+/// 工具栏的开关、勾的 profile（按项目记，跑目标和起服务都带上）
+#[tauri::command]
+pub async fn maven_prefs_set(root: String, offline: bool, skip_tests: bool, profiles: Vec<String>) -> Result<(), String> {
+    blocking(move || {
+        let p = crate::maven::Prefs { offline, skip_tests, profiles };
+        crate::maven::set_prefs(Path::new(&root), &p).map_err(|e| format!("记不下 Maven 的开关：{e}"))
     })
     .await
 }

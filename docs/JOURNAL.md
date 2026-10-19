@@ -9556,3 +9556,27 @@ jstack 一看是另一件事：`JavaCore.stop → JobManager.shutdown` 在 join 
 
 **数字**：裁过的运行时 35 个模块、57 MB（全量 69 个、91 MB）；本机架构 `.dmg` 7 → 98 MB；真 .app `scripts/accept/java.sh` 20/20，跑 jdtls 的是 `.app` 里那份 Java。
 **没验到的**：universal 发版那条路、带隔离标记的 `.app` 里 Gatekeeper 放不放行包里的 `java` —— 下次打标签时真装一遍（RELEASE.md 1.7）。
+
+## 2026-10-19 · Maven 工具窗照 IDEA 重做；结构从 IDEA 源码抄，不凭印象
+
+用户：「maven 这个我们做的不好，idea 的 maven 啥样我们也啥样」。这次先去读 intellij-community 的 `MavenProjectsStructure` 和节点类，
+节点的顺序、Lifecycle 那 9 个阶段、工具栏那一排、每个节点用的图标都照源码来（IDEA.md 第 11 节那张对照表）。
+
+**踩到的三个，全在验收脚本这一侧，功能本身是对的：**
+
+**一、Svelte 把 DOM 更新攒到下一拍。** 验收第一轮 7 条红：脚本在同一段 JS 里「点开 order-service → 马上找它底下的 Lifecycle」，找到的还是没展开的旧 DOM，
+`dep(null)` 抛了。浏览器里手动验的时候每点一下都等了 100ms，所以没撞上。展开的辅助函数点完等 150ms。
+
+**二、我以为该有的插件，本来就不该有。** 等「Plugins 里有 spring-boot」等满了 260 秒。不是没算出来：测试项目的 order-service 没在自己的 `<build><plugins>` 里声明
+spring-boot-maven-plugin，父 pom（spring-boot-starter-parent）只在 `pluginManagement` 里给了默认值 —— 这个模块根本不用它，IDEA 也不列。
+反倒说明「不算 pluginManagement」那条做对了。断言改成「compiler 有、surefire 有、spring-boot 没有」，一条守两件事。
+
+**三、zsh 里 `path` 是 `PATH`。** 下图标的循环写成 `while read name path`，`path` 一被赋值 `PATH` 就没了，`gh`、`wc` 全找不到。
+同一个循环之前还栽过一次：`gh api` 读了喂给 `while read` 的 stdin，把剩下的名单吃掉了 —— 要 `< /dev/null`。
+
+另外一条测试数据的教训：profile 那条测试第一版把 `<id>dev</id>` 写在 `<build>` 前面，于是「不挖掉 profile 里的 build 段」的错版本照样绿 ——
+第一个 `<id>` 碰巧就是对的。顺序换过来（Maven 不管元素顺序）才红。**测试数据要让错的实现有机会出错。**
+
+验证：maven.rs 新加 6 条测试，7 种改坏的版本都红（profile 那条改了测试数据之后）；cargo test --workspace、clippy、pnpm test / check 全过；
+浏览器桩上走了树、双击跑、离线、勾 profile、执行目标、拒掉 `package; rm -rf ~`；真 .app `scripts/accept/spring.sh` 19/19。
+入口包 156,117 → 156,333 B（+216，全是入口里 Icon.svelte 的 12 个图标名，离告警 339 B）。

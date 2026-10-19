@@ -57,6 +57,7 @@ cat > "${P}/pom.xml" <<'EOF'
   <groupId>com.demo</groupId><artifactId>shopdemo</artifactId><version>0.0.1-SNAPSHOT</version><packaging>pom</packaging>
   <properties><java.version>17</java.version></properties>
   <modules><module>shop-common</module><module>order-service</module><module>user-service</module></modules>
+  <profiles><profile><id>probe</id></profile></profiles>
 </project>
 EOF
 cat > "${P}/shop-common/pom.xml" <<'EOF'
@@ -139,14 +140,40 @@ else
   ok 0 "120 秒没起来：$(logtext UserApplication | tail -5 | tr '\n' ' ')"
 fi
 
-echo "== Maven 工具窗：导轨上点 Maven，模块树对；双击 order-service 底下的 package → 运行窗里出一格、target 里出 jar"
+echo "== Maven 工具窗（照 IDEA）：Profiles、子模块嵌在父项目底下、Lifecycle 9 个阶段；Plugins / Dependencies 是真 mvn 算的"
+# 树是摊平的一行行（MavenView.svelte 的 rows），深度看左边距；`under(父, 名)` 在父那一行之后、深度更深的那几行里找。
+# 展开之后要等一拍再找孩子：Svelte 把 DOM 更新攒到下一拍，同一段代码里点完马上找，找到的还是旧的 DOM（第一版就这么全红的）
+TREE='const rows = () => [...document.querySelectorAll(".maven .row")]; const nm = (r) => r.querySelector(".name")?.textContent; const dep = (r) => parseInt(r.style.paddingLeft); const under = (p, n) => { const rs = rows(); const i = rs.findIndex((r) => r === p); for (let j = i + 1; j < rs.length && dep(rs[j]) > dep(p); j++) if (nm(rs[j]) === n) return rs[j]; return null; }; const top = (n) => rows().find((r) => nm(r) === n); const open = async (r) => { if (r && r.getAttribute("aria-expanded") === "false") { r.querySelector(".chev").click(); await new Promise((res) => setTimeout(res, 150)); } return r; };'
+TM=$(lite_now_ms)
 lite_eval main "document.querySelector('button[aria-label=\"Maven\"]')?.click(); return true" >/dev/null
-lite_wait main "return document.querySelectorAll('.maven .row.mod').length === 4" 15 >/dev/null
-MODS=$(lite_eval main "return [...document.querySelectorAll('.maven .row.mod .name')].map((n) => n.innerText).join(',')")
-ok "$([ "${MODS}" = "shopdemo,shop-common,order-service,user-service" ] && echo 1)" "模块树（根在前、按 pom 的先后）：${MODS}"
-lite_eval main "const m = [...document.querySelectorAll('.maven .row.mod')].find((r) => r.innerText.includes('order-service')); if (!m.getAttribute('aria-expanded') || m.getAttribute('aria-expanded') === 'false') m.click(); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.maven .row').length > 3" 15 >/dev/null
+NEST=$(lite_eval main "${TREE} const root = top('shopdemo'); return ['shop-common','order-service','user-service'].map((n) => { const r = under(root, n); return r ? n + (dep(r) > dep(root) ? '↳' : '=') : n + '?'; }).join(',')")
+ok "$([ "${NEST}" = "shop-common↳,order-service↳,user-service↳" ] && echo 1)" "三个子模块都嵌在 shopdemo 底下：${NEST}"
+ok "$([ "$(lite_eval main "${TREE} return !!under(top('Profiles'), 'probe')")" = true ] && echo 1)" "Profiles 里有根 pom 声明的 probe"
+PH=$(lite_eval main "${TREE} const m = await open(top('order-service')); const l = await open(under(m, 'Lifecycle')); const rs = rows(); const i = rs.indexOf(l); return rs.slice(i + 1).filter((r) => dep(r) > dep(l)).slice(0, 9).map(nm).join(',')")
+ok "$([ "${PH}" = "clean,validate,compile,test,package,verify,install,site,deploy" ] && echo 1)" "Lifecycle 是 IDEA 那 9 个阶段：${PH}"
+lite_eval main "${TREE} const m = top('order-service'); await open(under(m, 'Plugins')); await open(under(m, 'Dependencies')); return true" >/dev/null
+lite_wait main "${TREE} return !!under(under(top('order-service'), 'Plugins'), 'compiler')" 180 >/dev/null
+TP=$(( $(lite_now_ms) - TM ))
+# order-service 没在自己的 <build><plugins> 里声明 spring-boot-maven-plugin：父 pom 只在 pluginManagement 里给了默认值，这个模块不用它 ——
+# 所以 Plugins 里**不该有** spring-boot（IDEA 也没有）。有的话就是把 pluginManagement 算进来了
+PL=$(lite_eval main "${TREE} const p = under(top('order-service'), 'Plugins'); return ['compiler','surefire','spring-boot'].map((n) => n + (under(p, n) ? '有' : '无')).join(',')")
+ok "$([ "${PL}" = "compiler有,surefire有,spring-boot无" ] && echo 1)" "Plugins 是有效 POM 里真用的（不算 pluginManagement）：${PL}；从打开工具窗到插件出来 ${TP} ms（这段时间里别的节点照常能用）"
+GOALS=$(lite_eval main "${TREE} const p = await open(under(under(top('order-service'), 'Plugins'), 'compiler')); return ['compiler:compile','compiler:testCompile'].filter((g) => under(p, g)).join(',')")
+ok "$([ "${GOALS}" = "compiler:compile,compiler:testCompile" ] && echo 1)" "插件的目标是从本地仓库里那个插件 jar 的描述读的：${GOALS}"
+DEPS=$(lite_eval main "${TREE} const d = under(top('order-service'), 'Dependencies'); return ['com.demo:shop-common:0.0.1-SNAPSHOT'].filter((n) => under(d, n)).concat(rows().filter((r) => nm(r)?.startsWith('org.springframework.boot:spring-boot-starter:')).length ? ['spring-boot-starter'] : []).join(',')")
+ok "$([ "${DEPS}" = "com.demo:shop-common:0.0.1-SNAPSHOT,spring-boot-starter" ] && echo 1)" "Dependencies 里有兄弟模块和 starter：${DEPS}"
+
+echo "== 勾 profile、开跳过测试 → 双击 order-service 的 package：命令里都带上；target 里出 jar"
+lite_eval main "${TREE} under(top('Profiles'), 'probe').querySelector('input').click(); return true" >/dev/null
 sleep 0.5
-lite_eval main "const rows = [...document.querySelectorAll('.maven .row')]; const i = rows.findIndex((r) => r.classList.contains('mod') && r.innerText.includes('order-service')); const g = rows.slice(i + 1).find((r) => r.innerText.trim() === 'package'); g.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return true" >/dev/null
+lite_eval main "document.querySelector('button[aria-label=\"跳过测试\"]').click(); return true" >/dev/null
+sleep 0.5
+ok "$(grep -q '"probe"' "${LITE_DATA}/maven-prefs.json" 2>/dev/null && grep -q '"skip_tests": true' "${LITE_DATA}/maven-prefs.json" && echo 1)" "开关按项目记在应用数据目录的 maven-prefs.json（不写进你的项目）"
+lite_eval main "${TREE} const l = under(top('order-service'), 'Lifecycle'); under(l, 'package').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return true" >/dev/null
+lite_wait main "return __lite.runs.list.some((r) => r.name === 'order-service [package]')" 10 >/dev/null
+CMD=$(lite_eval main "return __lite.runs.list.find((r) => r.name === 'order-service [package]')?.command ?? ''")
+ok "$(echo "${CMD}" | grep -q -- '-P probe' && echo "${CMD}" | grep -q -- '-DskipTests' && echo 1)" "命令带上了 profile 和跳过测试：${CMD}"
 ok "$(wait_for 120 "logtext 'order-service__package_' | grep -q 'BUILD SUCCESS'" && echo 1)" "运行窗那一格（order-service [package]）的输出里 BUILD SUCCESS：$(logtext 'order-service__package_' | grep -E 'BUILD|ERROR' | head -2 | tr '\n' ' ')"
 ok "$(ls "${P}"/order-service/target/order-service-*.jar >/dev/null 2>&1 && echo 1)" "target 里出了 jar：$(ls "${P}"/order-service/target/*.jar 2>/dev/null | xargs -n1 basename 2>/dev/null)"
 TAB=$(lite_eval main "return [...document.querySelectorAll('.ptab')].map((t) => t.innerText.trim()).join(',')")

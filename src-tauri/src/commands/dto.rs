@@ -13,14 +13,18 @@ pub struct OpenResult {
     pub size: u64,
 }
 
-/// Maven 工具窗（docs/IDEA.md 第 1 步）：项目里的 reactor 们
+/// Maven 工具窗（照 IDEA 的，2026-10-15 重做）：读 pom 就有的那部分，打开工具窗立刻给。插件和依赖要跑 mvn，另外要（`MavenResolvedDto`）
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MavenProjectDto {
     pub reactors: Vec<MavenReactorDto>,
-    /// 能点的生命周期目标（白名单，`maven::GOALS`）
-    pub goals: Vec<String>,
-    pub problems: Vec<String>,
+    /// Lifecycle 底下的阶段（IDEA 默认显示的 9 个）
+    pub phases: Vec<String>,
+    /// 所有模块里声明的 profile（同名的合成一个），Profiles 节点
+    pub profiles: Vec<MavenProfileDto>,
+    /// 工具栏的两个开关
+    pub offline: bool,
+    pub skip_tests: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -38,16 +42,66 @@ pub struct MavenModuleDto {
     /// 相对 reactor 根
     pub rel: String,
     pub artifact_id: String,
-    /// 这个模块里的 Spring Boot 应用
-    pub apps: Vec<MavenAppDto>,
+    /// 把它列进 `<modules>` 的那个模块（相对 reactor 根）；根模块是 null。工具窗照 IDEA 把子模块挂在它底下
+    pub parent: Option<String>,
 }
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MavenAppDto {
-    /// 任务名（和任务列表里的一样）
-    pub task: String,
-    pub main_class: String,
+pub struct MavenProfileDto {
+    pub id: String,
+    /// pom 里写了 `<activeByDefault>true`
+    pub active_by_default: bool,
+    /// 勾上了（跑目标、起服务都带 `-P`）
+    pub on: bool,
+}
+
+/// 跑一次 mvn 算出来的：每个模块真用的插件和依赖树（`maven_run.rs`）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenResolvedDto {
+    pub reactors: Vec<MavenResolvedReactorDto>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenResolvedReactorDto {
+    pub rel: String,
+    pub modules: Vec<MavenResolvedModuleDto>,
+    /// mvn 失败了：报错那几行（空 = 成功）
+    pub error: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenResolvedModuleDto {
+    pub artifact_id: String,
+    pub plugins: Vec<MavenPluginDto>,
+    pub deps: Vec<MavenDepDto>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenPluginDto {
+    pub group_id: String,
+    pub artifact_id: String,
+    pub version: String,
+    /// `spring-boot`：目标写成 `spring-boot:run`
+    pub prefix: String,
+    /// 插件 jar 里描述的目标；本地仓库里没有 jar 时是空的
+    pub goals: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenDepDto {
+    /// 0 = 直接依赖
+    pub depth: u32,
+    pub group_id: String,
+    pub artifact_id: String,
+    pub version: String,
+    pub scope: String,
+    pub optional: bool,
 }
 
 /// 合并视图里的一份日志（图例上画一格）

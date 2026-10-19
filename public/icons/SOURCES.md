@@ -11,6 +11,18 @@
 | `icons/folder.svg` | `platform/icons/src/expui/nodes/folder_dark.svg` |
 | `icons/tag.svg` | **lite-ide 自绘**：IDEA 新 UI 没有 git 标签的独立图标（提交历史里的标签是代码画的色块，`nodes/tag` 是 XML 标签 `<>`）。描边按新 UI 的 1px 画 |
 | `icons/maven.svg` | `plugins/maven/src/main/resources/images/expui/toolwindow/maven_dark.svg`（Maven 插件的工具窗图标，不在 platform/icons 里） |
+| `icons/maven-project.svg` | `plugins/maven/src/main/resources/images/expui/build/mavenProject_dark.svg`（Maven 工具窗里的项目 / 模块节点（IDEA 的 `MavenIcons.MavenProject`）） |
+| `icons/maven-plugin.svg` | `plugins/maven/src/main/resources/images/expui/build/mavenPlugin_dark.svg`（Plugins 底下的一个插件） |
+| `icons/maven-goal.svg` | `plugins/maven/src/main/resources/images/expui/build/mavenPluginGoal_dark.svg`（插件的目标） |
+| `icons/maven-profiles.svg` | `plugins/maven/src/main/resources/images/expui/build/mavenProfiles_dark.svg`（Profiles 节点） |
+| `icons/lifecycle.svg` | `platform/icons/src/expui/build/taskGroup_dark.svg`（Lifecycle / Plugins 节点（IDEA 的 `AllIcons.Nodes.ConfigFolder`，新 UI 映射到这个）） |
+| `icons/phase.svg` | `platform/external-system-impl/resources/icons/newui/task_dark.svg`（生命周期阶段（IDEA 的 `ExternalSystemIcons.Task`）） |
+| `icons/library-folder.svg` | `platform/icons/src/expui/nodes/libraryFolder_dark.svg`（Dependencies 节点（`AllIcons.Nodes.PpLibFolder`）） |
+| `icons/library.svg` | `platform/icons/src/expui/nodes/library_dark.svg`（一个依赖（`AllIcons.Nodes.PpLib`）） |
+| `icons/run-anything.svg` | `platform/icons/src/expui/general/runAnything_dark.svg`（执行 Maven 目标（`Maven.ExecuteGoal`）） |
+| `icons/offline.svg` | `platform/icons/src/expui/build/toggleOfflineMode_dark.svg`（离线模式开关（`Maven.ToggleOffline`）） |
+| `icons/skip-tests.svg` | `platform/icons/src/expui/run/showIgnored_dark.svg`（跳过测试开关（`Maven.ToggleSkipTests`）） |
+| `icons/expand.svg` | `platform/icons/src/expui/general/expandAll_dark.svg`（全部展开） |
 | `icons/sidebar.svg` | `platform/icons/src/expui/general/layout_dark.svg` |
 | `icons/files.svg` | `platform/icons/src/expui/toolwindows/project_dark.svg` |
 | `icons/git.svg` | `platform/icons/src/expui/toolwindows/vcs_dark.svg` |

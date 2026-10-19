@@ -13,6 +13,7 @@ import { tabflow } from "../state/tabflow.svelte";
 import { docs } from "../state/docs.svelte";
 import { nav } from "../state/nav.svelte";
 import { terms } from "../state/terms.svelte";
+import { runs } from "../state/runs.svelte";
 
 /*
  * **模块级的副作用，给 CI 当哨兵**（ci.yml「开发桩不许进产物」）：正式产物里出现这个串 = 测试钩子漏进去了。
@@ -86,6 +87,8 @@ export function installTestHooks() {
     docs,
     nav,
     terms,
+    /** 运行窗的那些任务（带 `command`：验 Maven 工具窗的开关真带进了命令行） */
+    runs,
     /** 活动编辑器里的全文；没有编辑器是 null */
     text: () => editor()?.state.doc.toString() ?? null,
     /**

@@ -1,6 +1,6 @@
 /** 任务（#48）的命令包装：只有任务列表 / 运行工具窗用，它们是懒的（同 ipc/pty.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { MavenProject, TaskList, TaskRun, TaskStale } from "./commands";
+import type { MavenProject, MavenResolved, TaskList, TaskRun, TaskStale } from "./commands";
 
 /** 这个项目的全部任务：`.lite-ide/tasks.json` 里的 + 自动认出的 package.json scripts */
 export const taskList = (root: string) => invoke<TaskList>("task_list", { root });
@@ -26,5 +26,10 @@ export const taskStale = (root: string) => invoke<TaskStale[]>("task_stale", { r
 /** 上次没停干净的：`kill` = 结束它们，否则从账上划掉、不管 */
 export const taskStaleResolve = (root: string, kill: boolean) => invoke<void>("task_stale_resolve", { root, kill });
 
-/** Maven 工具窗：模块树和认出来的 Spring Boot 应用（docs/IDEA.md 第 1 步） */
+/** Maven 工具窗：读 pom 就有的（模块树、阶段、profile、工具栏开关） */
 export const mavenProject = (root: string) => invoke<MavenProject>("maven_project", { root });
+/** 插件和依赖：每个 reactor 跑一次 mvn，会等到跑完 */
+export const mavenResolve = (root: string) => invoke<MavenResolved>("maven_resolve", { root });
+/** 工具栏的开关、勾的 profile（按项目记，跑目标和起服务都带上） */
+export const mavenPrefsSet = (root: string, offline: boolean, skipTests: boolean, profiles: string[]) =>
+  invoke<void>("maven_prefs_set", { root, offline, skipTests, profiles });

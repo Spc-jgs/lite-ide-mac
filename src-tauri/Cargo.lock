@@ -1869,6 +1869,7 @@ dependencies = [
  "lspsvc",
  "objc2",
  "objc2-app-kit",
+ "procutil",
  "ptysvc",
  "replacesvc",
  "searchsvc",

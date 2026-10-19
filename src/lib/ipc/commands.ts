@@ -16,12 +16,62 @@ export interface OpenResult {
   size: number;
 }
 
-/** Maven 工具窗（docs/IDEA.md 第 1 步）：项目里的 reactor 们 */
+/** Maven 工具窗（照 IDEA 的）：读 pom 就有的那部分。插件和依赖要跑 mvn，另外要（`MavenResolved`） */
 export interface MavenProject {
   reactors: MavenReactor[];
-  /** 能点的生命周期目标（白名单） */
+  /** Lifecycle 底下的阶段（IDEA 默认显示的 9 个） */
+  phases: string[];
+  /** 所有模块里声明的 profile（同名合成一个） */
+  profiles: MavenProfile[];
+  /** 工具栏的两个开关 */
+  offline: boolean;
+  skipTests: boolean;
+}
+
+export interface MavenProfile {
+  id: string;
+  /** pom 里写了 activeByDefault */
+  activeByDefault: boolean;
+  /** 勾上了（跑目标、起服务都带 -P） */
+  on: boolean;
+}
+
+/** 跑一次 mvn 算出来的：每个模块真用的插件和依赖树 */
+export interface MavenResolved {
+  reactors: MavenResolvedReactor[];
+}
+
+export interface MavenResolvedReactor {
+  rel: string;
+  modules: MavenResolvedModule[];
+  /** mvn 失败了：报错那几行（空 = 成功） */
+  error: string;
+}
+
+export interface MavenResolvedModule {
+  artifactId: string;
+  plugins: MavenPlugin[];
+  deps: MavenDep[];
+}
+
+export interface MavenPlugin {
+  groupId: string;
+  artifactId: string;
+  version: string;
+  /** `spring-boot`：目标写成 `spring-boot:run` */
+  prefix: string;
+  /** 插件 jar 里描述的目标；本地仓库里没有 jar 时是空的 */
   goals: string[];
-  problems: string[];
+}
+
+export interface MavenDep {
+  /** 0 = 直接依赖 */
+  depth: number;
+  groupId: string;
+  artifactId: string;
+  version: string;
+  scope: string;
+  optional: boolean;
 }
 
 export interface MavenReactor {
@@ -35,7 +85,8 @@ export interface MavenModule {
   /** 相对 reactor 根 */
   rel: string;
   artifactId: string;
-  apps: MavenApp[];
+  /** 把它列进 <modules> 的那个模块（相对 reactor 根）；根模块是 null */
+  parent: string | null;
 }
 
 /** Java 智能的状态（docs/IDEA.md 第 2 步，状态栏那格）。同 Rust 的 JavaStatusDto */
@@ -84,12 +135,6 @@ export interface JavaLocation {
 export interface JavaRefs {
   items: JavaLocation[];
   total: number;
-}
-
-export interface MavenApp {
-  /** 任务名（和任务列表里的一样：点运行和 ⌃⌥R 里选它是同一个任务） */
-  task: string;
-  mainClass: string;
 }
 
 /** 合并视图里的一份日志（`logengine::merge`，docs/MERGE.md） */

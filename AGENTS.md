@@ -21,7 +21,7 @@ scripts/accept/tasks.sh        # 任务运行的机制（36 条）；quit.sh 是
 scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪样哪段记「未验」）
 scripts/accept/merge.sh        # 几份日志按时间合并（15 条）：顺序、堆栈不拆散、过滤、偏移、跨块、会话恢复
 scripts/accept/patterns.sh     # 日志归类（8 条）：次数对得上、点一类筛出来正好那么多、和昨天比、合并视图、关标签收句柄
-scripts/accept/spring.sh       # 认出 Spring Boot 并照 IDEA 那样起 + Maven 工具窗（12 条，真 mvn / java）：兄弟模块不用 install、web 服务停干净、双击 package 出 jar
+scripts/accept/spring.sh       # 认出 Spring Boot 并照 IDEA 那样起 + Maven 工具窗（19 条，真 mvn / java）：兄弟模块不用 install、web 服务停干净；工具窗的嵌套 / Profiles / 9 个阶段 / 真插件和依赖、勾的 profile 和跳过测试带进命令、双击 package 出 jar
 scripts/accept/java.sh         # Java 智能（20 条，内置的 jdtls + Java 21）：跑的是 .app 里那份、Lombok 不报假错、实时报错、⌘B 进兄弟模块 / jar / JDK 源码、⌥F7、不往项目里写、退出不留。JDTLS_HOME=… 验「用自己那份」
 scripts/smoke.sh               # 发版前的端到端清单（97 条，约 100 秒），同样走测试通道，先打测试 .app
 ```

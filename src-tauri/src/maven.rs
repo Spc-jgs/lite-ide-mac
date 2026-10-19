@@ -40,6 +40,8 @@ pub struct Module {
     /// 相对 reactor 根（根模块是 ""）
     pub rel: String,
     pub artifact_id: String,
+    /// 在哪个模块的 `<modules>` 里（相对 reactor 根）；根模块是 None。Maven 工具窗照 IDEA 把子模块挂在它底下
+    pub parent: Option<String>,
 }
 
 /// 一个 Spring Boot 入口
@@ -127,11 +129,11 @@ fn read_pom(p: &Path) -> Option<String> {
 pub fn modules(root: &Path) -> Vec<Module> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    walk(root, root, &mut out, &mut seen);
+    walk(root, root, None, &mut out, &mut seen);
     out
 }
 
-fn walk(root: &Path, dir: &Path, out: &mut Vec<Module>, seen: &mut std::collections::HashSet<PathBuf>) {
+fn walk(root: &Path, dir: &Path, parent: Option<String>, out: &mut Vec<Module>, seen: &mut std::collections::HashSet<PathBuf>) {
     let Ok(canon) = dir.canonicalize() else { return };
     if !seen.insert(canon) {
         return;
@@ -139,11 +141,11 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<Module>, seen: &mut std::collecti
     let Some(text) = read_pom(&dir.join("pom.xml")) else { return };
     let (artifact, subs) = parse_pom(&text);
     let rel = dir.strip_prefix(root).map(|r| r.to_string_lossy().into_owned()).unwrap_or_default();
-    out.push(Module { rel, artifact_id: artifact.unwrap_or_default() });
+    out.push(Module { rel: rel.clone(), artifact_id: artifact.unwrap_or_default(), parent });
     for m in subs {
         // `<module>` 也可以直接写成 `x/pom.xml`
         let d = dir.join(m.trim_end_matches("/pom.xml"));
-        walk(root, &d, out, seen);
+        walk(root, &d, Some(rel.clone()), out, seen);
     }
 }
 
@@ -206,27 +208,253 @@ pub fn boot_apps(root: &Path, mods: &[Module]) -> (Vec<BootApp>, Vec<String>) {
     (apps, problems)
 }
 
-/// Maven 工具窗里能点的生命周期（IDEA 的 Lifecycle 那一组里天天用的）和依赖树。**白名单**：任务名「模块 [目标]」只认这几个，
-/// 前端拼不出任意命令
-pub const GOALS: &[&str] = &["clean", "compile", "test", "package", "verify", "install", "dependency:tree"];
+/// Maven 工具窗 Lifecycle 底下的阶段：IDEA 默认显示的那 9 个（它的「只显示基本阶段」）
+pub const PHASES: &[&str] = &["clean", "validate", "compile", "test", "package", "verify", "install", "site", "deploy"];
 
-/// 跑一个模块的生命周期目标（在 reactor 根上跑）。根模块：整个 reactor。别的模块：`-pl 模块 -am`，连它依赖的兄弟模块一起 ——
+/// Maven 工具窗工具栏上的那几个开关（IDEA 的离线、跳过测试）和勾上的 profile。按项目记在应用数据目录（`maven_run.rs`），
+/// **跑目标和起 Spring Boot 服务都带上** —— 勾了 dev profile、起服务却没带，是最难查的那种「怎么跟 IDEA 里跑的不一样」
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Prefs {
+    pub offline: bool,
+    pub skip_tests: bool,
+    pub profiles: Vec<String>,
+}
+
+impl Prefs {
+    /// 开在每条 mvn 后面的那几个：`-o`、`-P a,b`（profile 名不安全的丢掉 —— 它们要进 shell 命令行）
+    fn flags(&self) -> String {
+        let mut f = String::new();
+        if self.offline {
+            f.push_str(" -o");
+        }
+        let ps: Vec<&str> = self.profiles.iter().map(String::as_str).filter(|p| safe_token(p)).collect();
+        if !ps.is_empty() {
+            f.push_str(&format!(" -P {}", ps.join(",")));
+        }
+        f
+    }
+}
+
+/// `maven-prefs.json` 在哪（启动时设一次）。没设（单元测试、还没起完）就当全是默认：不离线、不跳过测试、不带 profile
+static PREFS_FILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub fn set_prefs_file(p: PathBuf) {
+    let _ = PREFS_FILE.set(p);
+}
+
+fn load_all() -> std::collections::BTreeMap<String, Prefs> {
+    PREFS_FILE.get().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+/// 这个项目（项目根）的开关。每次现读：几十字节的文件，和「两个窗口各改一个开关」比，不值得缓存
+pub fn prefs(root: &Path) -> Prefs {
+    load_all().remove(&root.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// 记下这个项目的开关。全默认的那条删掉，不留一堆空记录
+#[allow(clippy::disallowed_methods)] // 应用自己的 maven-prefs.json：写临时文件再改名盖过去（同 trust_store）
+pub fn set_prefs(root: &Path, p: &Prefs) -> std::io::Result<()> {
+    let Some(file) = PREFS_FILE.get() else { return Ok(()) };
+    let mut all = load_all();
+    let key = root.to_string_lossy().into_owned();
+    if *p == Prefs::default() {
+        all.remove(&key);
+    } else {
+        all.insert(key, p.clone());
+    }
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = file.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(&all).map_err(std::io::Error::other)?)?;
+    std::fs::rename(&tmp, file)
+}
+
+/// 能原样放进 mvn 命令行的一个词：阶段、插件目标（`spring-boot:run`、`g:a:v:goal`）、`-Dx=y`、profile 名。
+/// 只许这些字符 —— 没有空格、引号、`;` `$` `|` `&` 这类 shell 认的东西，拼不出第二条命令。原来是 7 个目标的白名单，
+/// 工具窗照 IDEA 做了插件目标和「执行 Maven 目标」（自己敲）之后白名单不够用，换成按字符卡
+fn safe_token(t: &str) -> bool {
+    !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || "_-.:=,@/+%".contains(c))
+}
+
+/// 跑一个模块的目标（在 reactor 根上跑）。`goals` 可以是几个词（「执行 Maven 目标」里敲的 `clean install -DskipTests`），每个词都要过 [`safe_token`]。
+/// 根模块：整个 reactor。别的模块：`-pl 模块 -am`，连它依赖的兄弟模块一起 ——
 /// **不是** `-f 模块/pom.xml`：那样只构建这一个模块，兄弟模块要从本地仓库找，没 install 过就
 /// `Could not resolve dependencies … shop-common`（2026-10-14 在样例上实测；第一版就是这么写的，单元测试还把错的命令锁住了）。
 /// IDEA 的 Maven 工具窗能用 `-f`，是因为它的 runner 带「resolve workspace artifacts」—— 那是 IDEA 自己的扩展，普通的 mvn 没有。
-/// `clean` 例外只带 `-pl`：清这个模块，别把兄弟模块也清了。代价如实说：`test` 带 `-am` 会连兄弟模块的测试一起跑。
-/// 不在白名单里的目标给 None
-pub fn goal_command(module: &str, goal: &str) -> Option<String> {
-    if !GOALS.contains(&goal) {
+/// 只有 `clean` 的时候例外只带 `-pl`：清这个模块，别把兄弟模块也清了。代价如实说：`test` 带 `-am` 会连兄弟模块的测试一起跑。
+/// 有不安全的词给 None
+pub fn goal_command(module: &str, goals: &str, prefs: &Prefs) -> Option<String> {
+    let toks: Vec<&str> = goals.split_whitespace().collect();
+    if toks.is_empty() || !toks.iter().all(|t| safe_token(t)) {
         return None;
     }
+    let g = toks.join(" ");
+    let skip = if prefs.skip_tests { " -DskipTests" } else { "" };
+    let base = format!("mvn -B -ntp{}{skip}", prefs.flags());
     Some(if module.is_empty() {
-        format!("mvn -B -ntp {goal}")
-    } else if goal == "clean" {
-        format!("mvn -B -ntp -pl {} clean", word(module))
+        format!("{base} {g}")
+    } else if toks == ["clean"] {
+        format!("{base} -pl {} clean", word(module))
     } else {
-        format!("mvn -B -ntp -pl {} -am {goal}", word(module))
+        format!("{base} -pl {} -am {g}", word(module))
     })
+}
+
+/// 算插件和依赖的那一条（`maven_run.rs`）：有效 POM 写到 `scratch`（绝对路径），依赖树写进各模块的 `deps_file`（相对模块）。
+/// 带离线和 profile（profile 会改插件和依赖），不带跳过测试（这两个目标不跑测试）
+pub fn resolve_command(prefs: &Prefs, scratch: &Path, deps_file: &str) -> String {
+    format!(
+        "mvn -B -ntp -q{} help:effective-pom -Doutput={} dependency:tree -DoutputFile={}",
+        prefs.flags(),
+        word(&scratch.to_string_lossy()),
+        word(deps_file)
+    )
+}
+
+/// 插件 jar 不在本地仓库、读不到描述时，按 Maven 的命名约定猜前缀：`xxx-maven-plugin` → `xxx`，`maven-xxx-plugin` → `xxx`
+pub fn default_prefix(artifact_id: &str) -> String {
+    if let Some(x) = artifact_id.strip_suffix("-maven-plugin") {
+        return x.to_string();
+    }
+    if let Some(x) = artifact_id.strip_prefix("maven-").and_then(|x| x.strip_suffix("-plugin")) {
+        return x.to_string();
+    }
+    artifact_id.to_string()
+}
+
+/// 一份 pom 里声明的 profile：`(id, activeByDefault)`。只看这一层的 `<profiles>`
+pub fn pom_profiles(text: &str) -> Vec<(String, bool)> {
+    let s = strip_comments(text);
+    let mut out = Vec::new();
+    let Some(a) = s.find("<profiles>") else { return out };
+    let Some(b) = s[a..].find("</profiles>") else { return out };
+    let block = &s[a..a + b];
+    let mut rest = block;
+    while let Some(i) = rest.find("<profile>") {
+        let after = &rest[i + "<profile>".len()..];
+        let Some(j) = after.find("</profile>") else { break };
+        let p = &after[..j];
+        // profile 里还能有 build / dependencies，id 只取这一层的
+        let mut own = p.to_string();
+        for tag in ["build", "dependencies", "dependencyManagement", "modules", "properties", "repositories", "pluginRepositories", "reporting"] {
+            own = drop_sections(&own, tag);
+        }
+        if let Some(id) = values(&own, "id").first() {
+            let on = values(&own, "activeByDefault").first().is_some_and(|v| *v == "true");
+            out.push((id.to_string(), on));
+        }
+        rest = &after[j + "</profile>".len()..];
+    }
+    out
+}
+
+/// 有效 POM（`help:effective-pom` 的输出）里一个项目用到的插件
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginRef {
+    pub group_id: String,
+    pub artifact_id: String,
+    pub version: String,
+}
+
+/// `help:effective-pom` 的输出 → 每个项目（按 artifactId）的 `<build><plugins>`。多模块时外面套一层 `<projects>`。
+/// 不算 `<pluginManagement>`（那是给子模块的默认值，不是这个模块真用的插件）
+pub fn parse_effective(text: &str) -> Vec<(String, Vec<PluginRef>)> {
+    let s = strip_comments(text);
+    let mut out = Vec::new();
+    let mut rest = s.as_str();
+    loop {
+        // `<project ` / `<project>`，不是 `<projects>`
+        let Some(i) = rest.find("<project") else { break };
+        let tail = &rest[i + "<project".len()..];
+        if !(tail.starts_with(' ') || tail.starts_with('>') || tail.starts_with('\n')) {
+            rest = tail;
+            continue;
+        }
+        let Some(j) = tail.find("</project>") else { break };
+        let body = &tail[..j];
+        rest = &tail[j + "</project>".len()..];
+        let build = body.find("<build>").and_then(|a| body[a..].find("</build>").map(|b| &body[a..a + b])).unwrap_or("");
+        let build = drop_sections(build, "pluginManagement");
+        let mut plugins = Vec::new();
+        let mut r = build.as_str();
+        while let Some(a) = r.find("<plugin>") {
+            let after = &r[a + "<plugin>".len()..];
+            let Some(b) = after.find("</plugin>") else { break };
+            let mut own = after[..b].to_string();
+            for tag in ["dependencies", "executions", "configuration"] {
+                own = drop_sections(&own, tag);
+            }
+            let first = |t: &str| values(&own, t).first().map(|v| v.to_string());
+            if let Some(artifact_id) = first("artifactId") {
+                plugins.push(PluginRef {
+                    group_id: first("groupId").unwrap_or_else(|| "org.apache.maven.plugins".into()),
+                    artifact_id,
+                    version: first("version").unwrap_or_default(),
+                });
+            }
+            r = &after[b + "</plugin>".len()..];
+        }
+        let mut own = body.to_string();
+        for tag in ["parent", "dependencies", "dependencyManagement", "build", "profiles", "reporting", "repositories", "pluginRepositories", "distributionManagement", "licenses", "developers", "scm"] {
+            own = drop_sections(&own, tag);
+        }
+        if let Some(a) = values(&own, "artifactId").first() {
+            out.push((a.to_string(), plugins));
+        }
+    }
+    out
+}
+
+/// 插件 jar 里的 `META-INF/maven/plugin.xml` → `(goalPrefix, 目标)`。IDEA 的 Plugins 节点就是这么列目标的
+pub fn parse_plugin_xml(text: &str) -> (String, Vec<String>) {
+    let s = strip_comments(text);
+    let prefix = values(&s, "goalPrefix").first().map(|v| v.to_string()).unwrap_or_default();
+    let mut goals: Vec<String> = Vec::new();
+    for g in values(&s, "goal") {
+        if !g.is_empty() && !goals.iter().any(|x| x == g) {
+            goals.push(g.to_string());
+        }
+    }
+    (prefix, goals)
+}
+
+/// 依赖树里的一项
+#[derive(Debug, Clone, PartialEq)]
+pub struct Dep {
+    /// 0 = 直接依赖
+    pub depth: u32,
+    pub group_id: String,
+    pub artifact_id: String,
+    pub version: String,
+    pub scope: String,
+    pub optional: bool,
+}
+
+/// `dependency:tree` 的文本输出（`-DoutputFile` 写出来的那份）→ 依赖列表，带深度。第一行是模块自己，跳过。
+/// 一行长这样：`|  +- org.springframework:spring-core:jar:7.0.1:compile`；带 classifier 的多一段（6 段）；可选依赖后面跟 ` (optional)`
+pub fn parse_dep_tree(text: &str) -> Vec<Dep> {
+    let mut out = Vec::new();
+    for line in text.lines().skip(1) {
+        let start = line.find(|c: char| !"|+\\- ".contains(c)).unwrap_or(line.len());
+        if start == line.len() {
+            continue;
+        }
+        let depth = (start / 3).saturating_sub(1) as u32;
+        let rest = &line[start..];
+        let (coord, note) = match rest.find(" (") {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, ""),
+        };
+        let parts: Vec<&str> = coord.split(':').collect();
+        let (g, a, version, scope) = match parts.len() {
+            5 => (parts[0], parts[1], parts[3], parts[4]),
+            6 => (parts[0], parts[1], parts[4], parts[5]),
+            _ => continue,
+        };
+        out.push(Dep { depth, group_id: g.into(), artifact_id: a.into(), version: version.into(), scope: scope.into(), optional: note.contains("optional") });
+    }
+    out
 }
 
 /// 项目里的 reactor 根：项目根有 pom.xml 就是它；没有就找一层子目录（前后端放一个仓库：`backend/pom.xml`）。相对项目根
@@ -254,12 +482,14 @@ fn word(s: &str) -> String {
     }
 }
 
-/// 起这个入口的那一行（在 reactor 根上跑）。单模块项目（入口就在根模块）不用 `-pl -am`
-pub fn run_command(app: &BootApp) -> String {
+/// 起这个入口的那一行（在 reactor 根上跑）。单模块项目（入口就在根模块）不用 `-pl -am`。
+/// Maven 工具窗勾的 profile、离线开关一起带上（`prefs`）：profile 会改依赖，起服务时不带就和工具窗里看到的不是一回事
+pub fn run_command(app: &BootApp, prefs: &Prefs) -> String {
+    let f = prefs.flags();
     let build = if app.module.is_empty() {
-        format!("mvn -B -ntp -DskipTests compile dependency:build-classpath -Dmdep.outputFile={CP_FILE}")
+        format!("mvn -B -ntp{f} -DskipTests compile dependency:build-classpath -Dmdep.outputFile={CP_FILE}")
     } else {
-        format!("mvn -B -ntp -pl {} -am -DskipTests compile dependency:build-classpath -Dmdep.outputFile={CP_FILE}", word(&app.module))
+        format!("mvn -B -ntp{f} -pl {} -am -DskipTests compile dependency:build-classpath -Dmdep.outputFile={CP_FILE}", word(&app.module))
     };
     let cd = if app.module.is_empty() { String::new() } else { format!("cd {} && ", word(&app.module)) };
     format!(r#"{build} && {cd}exec java -cp "target/classes:$(cat {CP_FILE})" {}"#, word(&app.main_class))
@@ -308,15 +538,16 @@ mod tests {
         put(d.join("common/pom.xml"), "<project><artifactId>common</artifactId></project>");
         put(d.join("services/pom.xml"), "<project><artifactId>services</artifactId><modules><module>order</module><module>..</module></modules></project>");
         put(d.join("services/order/pom.xml"), "<project><artifactId>order-service</artifactId></project>");
-        let got: Vec<(String, String)> = modules(&d).into_iter().map(|m| (m.rel, m.artifact_id)).collect();
+        let got: Vec<(String, String, Option<String>)> = modules(&d).into_iter().map(|m| (m.rel, m.artifact_id, m.parent)).collect();
         assert_eq!(
             got,
             [
-                ("".into(), "root".into()),
-                ("common".into(), "common".into()),
-                ("services".into(), "services".into()),
-                ("services/order".into(), "order-service".into()),
-            ]
+                ("".into(), "root".into(), None),
+                ("common".into(), "common".into(), Some("".into())),
+                ("services".into(), "services".into(), Some("".into())),
+                ("services/order".into(), "order-service".into(), Some("services".into())),
+            ],
+            "父模块是把它列进 <modules> 的那个（工具窗照 IDEA 嵌着画）"
         );
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -351,24 +582,117 @@ mod tests {
 
     /// 这一行在 docs/IDEA.md 第 8 节实测过：兄弟模块是 target/classes、application.yml 读得到。改它就要再测一遍
     #[test]
-    fn 生命周期只认白名单_模块带兄弟一起_clean_只清自己() {
-        assert_eq!(goal_command("", "clean").as_deref(), Some("mvn -B -ntp clean"), "根模块：整个 reactor");
-        assert_eq!(goal_command("order", "package").as_deref(), Some("mvn -B -ntp -pl order -am package"), "-f 只构建这一个、兄弟要从本地仓库找（实测失败）");
-        assert_eq!(goal_command("order", "clean").as_deref(), Some("mvn -B -ntp -pl order clean"), "clean 不带 -am：别把兄弟模块也清了");
-        assert_eq!(goal_command("my svc", "install").as_deref(), Some("mvn -B -ntp -pl 'my svc' -am install"));
-        assert_eq!(goal_command("order", "deploy"), None, "白名单外的不给");
-        assert_eq!(goal_command("order", "clean; rm -rf /"), None, "拼进来的东西不给");
+    fn 目标_模块带兄弟一起_clean_只清自己_拼不进别的命令() {
+        let p = Prefs::default();
+        assert_eq!(goal_command("", "clean", &p).as_deref(), Some("mvn -B -ntp clean"), "根模块：整个 reactor");
+        assert_eq!(goal_command("order", "package", &p).as_deref(), Some("mvn -B -ntp -pl order -am package"), "-f 只构建这一个、兄弟要从本地仓库找（实测失败）");
+        assert_eq!(goal_command("order", "clean", &p).as_deref(), Some("mvn -B -ntp -pl order clean"), "clean 不带 -am：别把兄弟模块也清了");
+        assert_eq!(goal_command("my svc", "install", &p).as_deref(), Some("mvn -B -ntp -pl 'my svc' -am install"));
+        assert_eq!(goal_command("order", "spring-boot:run", &p).as_deref(), Some("mvn -B -ntp -pl order -am spring-boot:run"), "插件目标");
+        assert_eq!(goal_command("", "clean install -DskipTests", &p).as_deref(), Some("mvn -B -ntp clean install -DskipTests"), "自己敲的几个词");
+        for bad in ["clean; rm -rf /", "package && curl x", "$(id)", "a|b", "'x'", ""] {
+            assert_eq!(goal_command("order", bad, &p), None, "{bad:?} 拼得进第二条命令");
+        }
+    }
+
+    #[test]
+    fn 工具栏的开关和勾的_profile_带进每条命令_起服务也带() {
+        let p = Prefs { offline: true, skip_tests: true, profiles: vec!["dev".into(), "local-db".into(), "bad;x".into()] };
+        assert_eq!(goal_command("order", "package", &p).as_deref(), Some("mvn -B -ntp -o -P dev,local-db -DskipTests -pl order -am package"), "不安全的 profile 名丢掉");
+        let run = run_command(&BootApp { module: "order".into(), main_class: "o.App".into() }, &p);
+        assert!(run.starts_with("mvn -B -ntp -o -P dev,local-db -pl order -am -DskipTests compile"), "{run}");
+    }
+
+    #[test]
+    fn profile_只认这一层_带默认开的() {
+        let ps = pom_profiles(
+            r#"<project><artifactId>x</artifactId>
+  <!-- <profiles><profile><id>old</id></profile></profiles> -->
+  <profiles>
+    <profile><build><plugins><plugin><executions><execution><id>not-a-profile</id></execution></executions></plugin></plugins></build>
+      <id>dev</id><activation><activeByDefault>true</activeByDefault></activation></profile>
+    <profile><id>prod</id></profile>
+  </profiles></project>"#,
+        );
+        assert_eq!(ps, [("dev".to_string(), true), ("prod".to_string(), false)]);
+        assert!(pom_profiles("<project/>").is_empty());
+    }
+
+    #[test]
+    fn 有效_pom_每个项目的插件_不算_pluginManagement_和插件自己的依赖() {
+        let text = r#"<?xml version="1.0"?>
+<projects>
+  <project xmlns="http://maven.apache.org/POM/4.0.0">
+    <parent><artifactId>spring-boot-starter-parent</artifactId></parent>
+    <artifactId>order-service</artifactId>
+    <dependencies><dependency><artifactId>lombok</artifactId></dependency></dependencies>
+    <build>
+      <pluginManagement><plugins><plugin><artifactId>managed-only</artifactId></plugin></plugins></pluginManagement>
+      <plugins>
+        <plugin><artifactId>maven-compiler-plugin</artifactId><version>3.14.0</version>
+          <dependencies><dependency><artifactId>not-a-plugin</artifactId></dependency></dependencies></plugin>
+        <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><version>4.0.1</version>
+          <executions><execution><id>repackage</id></execution></executions></plugin>
+      </plugins>
+    </build>
+  </project>
+  <project><artifactId>shop-common</artifactId><build><plugins/></build></project>
+</projects>"#;
+        let got = parse_effective(text);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].0, "order-service", "自己的 artifactId，不是 parent 的");
+        let names: Vec<(&str, &str, &str)> = got[0].1.iter().map(|p| (p.group_id.as_str(), p.artifact_id.as_str(), p.version.as_str())).collect();
+        assert_eq!(names, [("org.apache.maven.plugins", "maven-compiler-plugin", "3.14.0"), ("org.springframework.boot", "spring-boot-maven-plugin", "4.0.1")]);
+        assert_eq!(got[1], ("shop-common".to_string(), vec![]));
+    }
+
+    #[test]
+    fn 算插件和依赖的命令_带离线和_profile_不带跳过测试_路径套引号() {
+        let p = Prefs { offline: true, skip_tests: true, profiles: vec!["dev".into()] };
+        assert_eq!(
+            resolve_command(&p, Path::new("/data/my app/eff.xml"), "target/.lite-ide-deps.txt"),
+            "mvn -B -ntp -q -o -P dev help:effective-pom -Doutput='/data/my app/eff.xml' dependency:tree -DoutputFile=target/.lite-ide-deps.txt"
+        );
+        assert_eq!(default_prefix("spring-boot-maven-plugin"), "spring-boot");
+        assert_eq!(default_prefix("maven-surefire-plugin"), "surefire");
+        assert_eq!(default_prefix("exec"), "exec");
+    }
+
+    #[test]
+    fn 插件描述_前缀和目标() {
+        let (prefix, goals) = parse_plugin_xml("<plugin><goalPrefix>spring-boot</goalPrefix><mojos><mojo><goal>run</goal></mojo><mojo><goal>repackage</goal></mojo><mojo><goal>run</goal></mojo></mojos></plugin>");
+        assert_eq!(prefix, "spring-boot");
+        assert_eq!(goals, ["run", "repackage"]);
+    }
+
+    #[test]
+    fn 依赖树_深度_带_classifier_的_可选的() {
+        let deps = parse_dep_tree(
+            "com.demo:order-service:jar:0.0.1-SNAPSHOT\n\
++- com.demo:shop-common:jar:0.0.1-SNAPSHOT:compile\n\
+|  \\- org.projectlombok:lombok:jar:1.18.42:compile (optional)\n\
+\\- io.netty:netty-resolver-dns-native-macos:jar:osx-aarch_64:4.2.7.Final:runtime\n",
+        );
+        let got: Vec<(u32, &str, &str, &str, bool)> = deps.iter().map(|d| (d.depth, d.artifact_id.as_str(), d.version.as_str(), d.scope.as_str(), d.optional)).collect();
+        assert_eq!(
+            got,
+            [
+                (0, "shop-common", "0.0.1-SNAPSHOT", "compile", false),
+                (1, "lombok", "1.18.42", "compile", true),
+                (0, "netty-resolver-dns-native-macos", "4.2.7.Final", "runtime", false),
+            ]
+        );
     }
 
     #[test]
     fn 起的命令_多模块带_pl_am_单模块不带_怪路径套引号() {
-        let multi = run_command(&BootApp { module: "services/order".into(), main_class: "o.OrderApplication".into() });
+        let multi = run_command(&BootApp { module: "services/order".into(), main_class: "o.OrderApplication".into() }, &Prefs::default());
         assert_eq!(
             multi,
             r#"mvn -B -ntp -pl services/order -am -DskipTests compile dependency:build-classpath -Dmdep.outputFile=target/.lite-ide-cp.txt && cd services/order && exec java -cp "target/classes:$(cat target/.lite-ide-cp.txt)" o.OrderApplication"#
         );
-        let single = run_command(&BootApp { module: "".into(), main_class: "a.App".into() });
+        let single = run_command(&BootApp { module: "".into(), main_class: "a.App".into() }, &Prefs::default());
         assert!(!single.contains("-pl") && !single.contains("cd ") && single.ends_with(" a.App"));
-        assert!(run_command(&BootApp { module: "my service".into(), main_class: "a.App".into() }).contains("cd 'my service'"));
+        assert!(run_command(&BootApp { module: "my service".into(), main_class: "a.App".into() }, &Prefs::default()).contains("cd 'my service'"));
     }
 }

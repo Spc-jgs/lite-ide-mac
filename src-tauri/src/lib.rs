@@ -2,6 +2,7 @@ mod budget;
 mod commands;
 pub mod java;
 mod maven;
+mod maven_run;
 pub mod diag;
 pub mod menu;
 mod open;
@@ -196,6 +197,8 @@ pub fn run() {
             let st = app.state::<state::AppState>();
             // 任务的账本（#48 第 4 步）：上次崩了没停干净的任务在这儿找回来，等它们的项目窗口起来了出卡片
             if let Ok(dir) = app.path().app_data_dir() {
+                // Maven 工具窗的开关（离线、跳过测试、勾的 profile），按项目记（maven.rs 的 Prefs）
+                maven::set_prefs_file(dir.join("maven-prefs.json"));
                 let runs = dir.join("runs");
                 st.init_live(runs.join("live.json"));
                 // 任务输出的清理：14 天没跑过的项目、总量超过 5GB 的最旧的（tasksvc::prune）。启动时自己的任务一个都没在跑，
@@ -287,6 +290,8 @@ pub fn run() {
             commands::log_patterns,
             commands::log_patterns_compare,
             commands::maven_project,
+            commands::maven_resolve,
+            commands::maven_prefs_set,
             commands::java_open,
             commands::java_change,
             commands::java_save,

@@ -328,7 +328,10 @@ pub fn discover(root: &Path) -> Found {
     found
 }
 
-/// 一个认出来的 Spring Boot 应用：它的任务定义，加上 Maven 工具窗要的那几样
+/// 一个认出来的 Spring Boot 应用：它的任务定义，加上它在哪个 reactor、哪个模块。
+/// Maven 工具窗照 IDEA 重做之后不列应用了（IDEA 的 Maven 窗里也没有）；`reactor` / `app` 留给下一步的 Services 工具窗 ——
+/// 那一步接上之前先放着，别为了消一个 dead_code 警告删掉再加回来
+#[allow(dead_code)]
 pub struct SpringTask {
     pub def: Def,
     /// reactor 根，相对项目根
@@ -339,6 +342,7 @@ pub struct SpringTask {
 /// Maven 项目里的 Spring Boot 应用（`maven.rs`）。名字是主类的简单名（同 IDEA）；两个模块里撞了名就带上模块路径。
 /// 任务列表和 Maven 工具窗都从这一处拿，名字两边一样 —— 工具窗里点运行，和 ⌃⌥R 里选它是同一个任务（重跑会先停旧的）
 pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
+    let prefs = crate::maven::prefs(root);
     let mut apps: Vec<(String, crate::maven::BootApp)> = Vec::new();
     let mut problems = Vec::new();
     for rel in crate::maven::reactors(root) {
@@ -356,7 +360,7 @@ pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
             let module = [rel.as_str(), app.module.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("/");
             let name = if dup { format!("{module}/{short}") } else { short.to_string() };
             SpringTask {
-                def: Def { name, command: crate::maven::run_command(app), cwd: rel.clone(), env: Vec::new(), source: Source::Spring { module } },
+                def: Def { name, command: crate::maven::run_command(app, &prefs), cwd: rel.clone(), env: Vec::new(), source: Source::Spring { module } },
                 reactor: rel.clone(),
                 app: app.clone(),
             }
@@ -376,8 +380,8 @@ fn spring_apps(root: &Path, found: &mut Found) {
     }
 }
 
-/// Maven 工具窗点的生命周期：任务名是「artifactId [目标]」（IDEA 运行窗标签的样子）。不进任务列表（七个目标 × 每个模块会把列表淹掉），
-/// 但 `task_run` 按名字认得它 —— 于是运行窗、⌃R 重跑、⌘F2 停、同名先停旧的全是现成的。目标只认 [`crate::maven::GOALS`]
+/// Maven 工具窗点的目标：任务名是「artifactId [目标]」（IDEA 运行窗标签的样子）。不进任务列表（9 个阶段 × 每个模块会把列表淹掉），
+/// 但 `task_run` 按名字认得它 —— 于是运行窗、⌃R 重跑、⌘F2 停、同名先停旧的全是现成的。目标里每个词都要过 `maven::goal_command` 的字符检查
 pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
     let (artifact, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
     for rel in crate::maven::reactors(root) {
@@ -385,7 +389,7 @@ pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
         if let Some(m) = crate::maven::modules(&r).into_iter().find(|m| m.artifact_id == artifact) {
             return Some(Def {
                 name: name.to_string(),
-                command: crate::maven::goal_command(&m.rel, goal)?,
+                command: crate::maven::goal_command(&m.rel, goal, &crate::maven::prefs(root))?,
                 cwd: rel,
                 env: Vec::new(),
                 source: Source::Spring { module: m.rel },
@@ -566,7 +570,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
-    /// Maven 工具窗的「模块 [目标]」：task_run 认得、任务列表里不列；不认识的模块、白名单外的目标都不给
+    /// Maven 工具窗的「模块 [目标]」：task_run 认得、任务列表里不列；不认识的模块、带 shell 特殊字符的目标都不给
     #[test]
     fn maven_目标按名字认得_不进列表() {
         let d = tmp("goal");
@@ -581,7 +585,8 @@ mod tests {
         let def = resolve(&d, "order-service [package]").expect("认得");
         assert_eq!((def.command.as_str(), def.cwd.as_str()), ("mvn -B -ntp -pl order -am package", ""));
         assert_eq!(resolve(&d, "shop [clean]").unwrap().command, "mvn -B -ntp clean", "根模块的目标对整个 reactor");
-        assert!(resolve(&d, "order-service [deploy]").is_none(), "白名单外");
+        assert!(resolve(&d, "order-service [deploy]").is_some(), "deploy 是 IDEA 那 9 个阶段之一");
+        assert!(resolve(&d, "order-service [package; rm -rf ~]").is_none(), "拼得进第二条命令的不给");
         assert!(resolve(&d, "nobody [package]").is_none(), "没有这个模块");
         assert!(discover(&d).defs.is_empty(), "不进任务列表");
         let _ = std::fs::remove_dir_all(&d);

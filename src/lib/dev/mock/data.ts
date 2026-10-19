@@ -192,6 +192,10 @@ public class NewController {
       <scope>compile</scope>
     </dependency>
   </dependencies>
+  <profiles>
+    <profile><id>dev</id><activation><activeByDefault>true</activeByDefault></activation></profile>
+    <profile><id>prod</id></profile>
+  </profiles>
 </project>
 `,
   "/proj/src/OrderService.java": `package com.liteide.order;
