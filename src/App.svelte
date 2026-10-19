@@ -286,8 +286,8 @@
    * 下次真打开仓库时提交历史还在。
    */
   let panelTool = $derived<PanelTool>(
-    // 运行窗（#48）同一条判据：偏好是 run 但一次运行都没有（全关了），亮的是终端
-    layout.panelView === "git" && git.repo ? "git" : layout.panelView === "run" && runs.list.length > 0 ? "run" : "term",
+    // 运行窗（#48）同一条判据：偏好是 run 但一次运行都没有（全关了），亮的是终端。Services 的按钮有服务才出，点得到就有东西
+    layout.panelView === "git" ? (git.repo ? "git" : "term") : layout.panelView === "run" && !runs.plain().length ? "term" : layout.panelView,
   );
 
   let hovering = $state(false);

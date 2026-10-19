@@ -87,6 +87,31 @@ pub fn holders(port: u16) -> Vec<Holder> {
     }
 }
 
+/// 这个进程组在听哪些 TCP 端口（Services 工具窗里服务名后面那个 `:8080`）。`-a` 把「进程组是它」和「在听 TCP」**取交集**
+/// （lsof 默认是并集）；`-Fn` 只要名字那一列：`n*:8080`、`n127.0.0.1:53195`、`n[::1]:8080`。
+/// 输出有上限吗：一个服务听几个端口，几十字节；照样只读前 64KB
+pub fn listening(pgid: i32) -> Vec<u16> {
+    let mut cmd = Command::new("lsof");
+    cmd.args(["-nP", "-a", "-g", &pgid.to_string(), "-iTCP", "-sTCP:LISTEN", "-Fn"]);
+    match procutil::run_capped(&mut cmd, 64 * 1024, procutil::ERR_CAP, procutil::Overflow::Kill) {
+        Ok(c) => parse_listen(&String::from_utf8_lossy(&c.stdout)),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// `lsof -Fn` 的输出 → 端口，去重、排好（IPv4 和 IPv6 各听一遍同一个端口是常态）
+fn parse_listen(out: &str) -> Vec<u16> {
+    let mut ports: Vec<u16> = out
+        .lines()
+        .filter_map(|l| l.strip_prefix('n'))
+        .filter_map(|n| n.rsplit(':').next()?.parse::<u16>().ok())
+        .filter(|&p| p > 0)
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
 fn parse_lsof(out: &str) -> Vec<Holder> {
     let mut all: Vec<Holder> = Vec::new();
     for line in out.lines() {
@@ -172,6 +197,14 @@ fn end(h: &Holder, grace: Duration, ours: &impl Fn(i32) -> Option<Arc<Task>>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn 听的端口_ipv4_ipv6_同一个只算一次_排好() {
+        // 9090 只在 IPv6 上听：地址里自己带冒号，端口要从最后一个冒号后面取（只有 8080 那种 v4 / v6 都有的，切错了也看不出来）
+        let out = "p4242\nf12\nn*:8080\nf13\nn[::1]:8080\nf14\nn127.0.0.1:53195\nf15\nn*:*\nf16\nn[::1]:9090\n";
+        assert_eq!(parse_listen(out), vec![8080, 9090, 53195]);
+        assert!(parse_listen("").is_empty());
+    }
+
     use super::*;
 
     #[test]

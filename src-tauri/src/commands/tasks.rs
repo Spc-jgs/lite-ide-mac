@@ -20,6 +20,7 @@ pub async fn task_list(root: String) -> Result<TaskListDto, String> {
                         crate::taskdefs::Source::File => "file",
                         crate::taskdefs::Source::Package { .. } => "package",
                         crate::taskdefs::Source::Spring { .. } => "spring",
+                        crate::taskdefs::Source::Goal { .. } => "goal",
                     }
                     .into(),
                 })
@@ -89,7 +90,8 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
             };
             let _ = app2.emit_to(owner.as_str(), "task-exit", TaskExitDto { id, code, signal, stopped, failed, port });
         });
-        Ok(TaskRunDto { id, name, command: def.command, log: spec.log.to_string_lossy().into_owned() })
+        let service = matches!(def.source, crate::taskdefs::Source::Spring { .. });
+        Ok(TaskRunDto { id, name, command: def.command, log: spec.log.to_string_lossy().into_owned(), service })
     })
     .await
 }
@@ -111,6 +113,20 @@ pub fn task_stop(id: u32, state: State<'_, AppState>) -> String {
         }
         _ => "gone".into(),
     }
+}
+
+/// 一次运行此刻在听的 TCP 端口（Services 里服务名后面那个 `:8080`）。Spring Boot 起来要几秒，前端在「跑着、还没端口」时隔一会儿问一次 ——
+/// 不走 `services_list`：那条要重新翻一遍所有模块的 Java 源码认入口，这条只是一次 `lsof`
+#[tauri::command]
+pub async fn task_ports(id: u32, app: tauri::AppHandle) -> Result<Vec<u16>, String> {
+    blocking(move || {
+        let st = app.state::<AppState>();
+        Ok(match st.run_task(id) {
+            Some(task) if task.alive() => tasksvc::port::listening(task.pgid()),
+            _ => Vec::new(),
+        })
+    })
+    .await
 }
 
 /// 关掉一个任务的标签：从表里摘掉；还在跑就软停（宽限期在后台线程里等）
@@ -186,6 +202,29 @@ pub async fn maven_project(root: String) -> Result<MavenProjectDto, String> {
             offline: prefs.offline,
             skip_tests: prefs.skip_tests,
         })
+    })
+    .await
+}
+
+/// Services 工具窗（照 IDEA）：认出来的 Spring Boot 服务，在跑的带上它在听的端口（`lsof -g 进程组`）。
+/// 跑没跑、退出码这些前端的运行记录里有；端口只有这里查得到 —— Spring 起来要几秒，前端在「在跑但还没端口」时隔几秒再问一次
+#[tauri::command]
+pub async fn services_list(window: tauri::Window, app: tauri::AppHandle, root: String) -> Result<Vec<ServiceDto>, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        let st = app.state::<AppState>();
+        let (tasks, _) = crate::taskdefs::spring_tasks(Path::new(&root));
+        Ok(tasks
+            .into_iter()
+            .map(|t| {
+                let ports = match st.find_run(&owner, &root, &t.def.name) {
+                    Some((_, task)) if task.alive() => tasksvc::port::listening(task.pgid()),
+                    _ => Vec::new(),
+                };
+                let module = if let crate::taskdefs::Source::Spring { module } = &t.def.source { module.clone() } else { String::new() };
+                ServiceDto { task: t.def.name, main_class: t.app.main_class, module, ports }
+            })
+            .collect())
     })
     .await
 }

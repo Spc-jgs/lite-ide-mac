@@ -319,3 +319,43 @@ mvn -q -B -pl <模块> -am -DskipTests compile dependency:build-classpath -Dmdep
 **真 .app `scripts/accept/spring.sh` 19/19**：子模块嵌在 shopdemo 底下、Profiles 里有 probe、9 个阶段、Plugins 有 compiler / surefire **没有 spring-boot**
 （父 pom 只在 pluginManagement 里给了默认值，模块没声明就不用 —— IDEA 也不列）、插件目标是读 jar 的、依赖里有兄弟模块；勾 probe + 开跳过测试之后双击 package，
 命令是 `mvn -B -ntp -P probe -DskipTests -pl order-service -am package`、出了 jar。
+
+## 12. Services 工具窗（2026-10-19）
+
+用户：「服务启动这块，应该有个 service 的 tab 在侧边栏的下边，当识别到服务的时候」。第 11 节把 Spring Boot 应用挪出了 Maven 窗，这里接住。
+分组照 intellij-community 的 `RunDashboardRunConfigurationStatus`（不凭印象）：
+
+```
+Spring Boot                     ┃ 选中那个服务的输出（就是运行窗那一格：级别着色、过滤、跟随、堆栈跳源码）
+  Running                       ┃
+    ● UserApplication   :8081   ┃
+  Finished                      ┃
+    ● OrderApplication          ┃
+  Not Started                   ┃
+    ○ AdminApplication          ┃
+```
+
+| IDEA 的 | 我们 |
+|---|---|
+| 底部工具窗，Spring Boot 配置自动进来 | 同：导轨下面那组（终端 / Git / 运行旁边）一个按钮，**认出了服务才出现**（ui.md 第十条「有内容才出现」） |
+| 状态分组 Running(10) → Failed(20) → Finished(30) → Not Started(40)，空组不画 | 同 |
+| 服务后面印端口 | 同：`lsof -a -g <进程组> -iTCP -sTCP:LISTEN`，查的是这次运行那一组进程在听的，不是「8080 上有没有人」 |
+| 工具栏 Run / Debug / Stop 作用在选中的节点上，选中分组 = 整组 | Run / Stop 同；Debug 等第 5 步 |
+| Spring Boot 的运行不进 Run 工具窗 | 同：服务的运行记录带 `service`，运行窗的标签、导轨角标、⌃R 的当前格都不算它 |
+| Ultimate 的 Actuator 页（Beans、Mappings、Health） | 没做：要应用带 actuator，第 6 步 HTTP 请求之后再看 |
+
+几个决定：
+
+- **认服务和查端口分成两条命令。** `services_list` 要把每个模块的 `src/main/java` 翻一遍找 `@SpringBootApplication`（`maven::boot_apps`），
+  开项目时问一次、Services 开着时有服务换了状态再问；端口是 `task_ports`（只跑一次 lsof），只在「跑着、还没端口」时隔 1.5 秒问一次、最多一分钟 ——
+  Spring Boot 起来要几秒；一分钟还没端口的多半不是 web 服务或者起不来，那时候看日志比看端口有用。第一版拿 `services_list` 轮询，一秒翻一遍源码，改掉了。
+- **⌘F2 停哪个**：Services 开着就是那边选中的服务，否则运行窗的当前格；那一个没在跑、而整个窗口只有一个在跑的，就停那一个。
+  不这么做的话，服务不进运行窗的标签，Services 收起时 ⌘F2 永远停不到它（IDEA 只有一个在跑时也是直接停）。
+- **刚起来的服务自动选中**（从任务列表、⌃R、Services 里起的都算）：起它就是要看它在说什么。
+- **入口包 +330 B**（156,333 → 156,663，离告警线 8 B）：Services 本体、端口轮询、⌘F2 的取舍全在懒块里；入口里是导轨按钮、面板头的名字、懒加载壳。
+  第一版 +848 B 越过告警线，挪了三处：认服务并进已有的 `checkStale`（首屏之后那次 `import()`，不另开一处）、导轨上「运行」「Services」两个按钮一个模板（−284 B）、
+  面板里五处一样的「正在载入…」收成一个 snippet。
+
+没做的：Debug（第 5 步）、Spring Boot 以外的服务类型（Docker、数据库）、Actuator 页、左右两栏之间拖宽度。
+
+**真 .app `scripts/accept/spring.sh` 24/24**（新加 5 条）：起 UserApplication 亮的是 Services 不是运行窗；它在 Running、端口是 lsof 从它那个进程组查到的 `:58567`；⌘F2 停的是 Services 里选中的它（端口空了、组里一个不剩）、停完挪进 Finished；在 Services 里双击再起、点工具栏的停止，同样停干净。运行窗的标签里只有 `order-service [package]`，服务没混进去。状态层 `runs.state.test.ts` 新加 10 条，6 种改坏的版本都红。

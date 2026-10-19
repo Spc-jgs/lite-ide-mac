@@ -24,8 +24,10 @@ pub enum Source {
     File,
     /// 某个 `package.json` 的 scripts；`dir` 相对项目根（根目录是 ""）
     Package { dir: String },
-    /// Maven 项目里认出来的 Spring Boot 应用（`maven.rs`）；`module` 相对项目根
+    /// Maven 项目里认出来的 Spring Boot 应用（`maven.rs`）；`module` 相对项目根。在 Services 工具窗里跑（同 IDEA），不进运行窗
     Spring { module: String },
+    /// Maven 工具窗里点的目标（「artifactId [目标]」）：在运行窗里跑。和 `Spring` 分开，是因为两种跑起来去的工具窗不一样
+    Goal { module: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -329,13 +331,9 @@ pub fn discover(root: &Path) -> Found {
 }
 
 /// 一个认出来的 Spring Boot 应用：它的任务定义，加上它在哪个 reactor、哪个模块。
-/// Maven 工具窗照 IDEA 重做之后不列应用了（IDEA 的 Maven 窗里也没有）；`reactor` / `app` 留给下一步的 Services 工具窗 ——
-/// 那一步接上之前先放着，别为了消一个 dead_code 警告删掉再加回来
-#[allow(dead_code)]
+/// Maven 工具窗照 IDEA 重做之后不列应用了（IDEA 的 Maven 窗里也没有），Services 工具窗列它们（`services_list`）
 pub struct SpringTask {
     pub def: Def,
-    /// reactor 根，相对项目根
-    pub reactor: String,
     pub app: crate::maven::BootApp,
 }
 
@@ -361,7 +359,6 @@ pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
             let name = if dup { format!("{module}/{short}") } else { short.to_string() };
             SpringTask {
                 def: Def { name, command: crate::maven::run_command(app, &prefs), cwd: rel.clone(), env: Vec::new(), source: Source::Spring { module } },
-                reactor: rel.clone(),
                 app: app.clone(),
             }
         })
@@ -392,7 +389,7 @@ pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
                 command: crate::maven::goal_command(&m.rel, goal, &crate::maven::prefs(root))?,
                 cwd: rel,
                 env: Vec::new(),
-                source: Source::Spring { module: m.rel },
+                source: Source::Goal { module: m.rel },
             });
         }
     }

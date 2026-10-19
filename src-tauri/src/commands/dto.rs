@@ -729,6 +729,21 @@ pub struct TaskRunDto {
     pub command: String,
     /// 输出写在哪个文件：前端拿去开日志句柄
     pub log: String,
+    /// Spring Boot 服务（Services 工具窗里跑，不进运行窗；同 IDEA）
+    pub service: bool,
+}
+
+/// Services 工具窗里的一个 Spring Boot 服务（认出来的入口；跑没跑、跑成什么样前端从运行记录里看）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceDto {
+    /// 任务名（和任务列表、运行记录里的一样）
+    pub task: String,
+    pub main_class: String,
+    /// 所在模块，相对项目根
+    pub module: String,
+    /// 在跑的话它（整个进程组）在听哪几个 TCP 端口；没跑或者还没起来是空的
+    pub ports: Vec<u16>,
 }
 
 /// 「任务退出了」事件（`task-exit`，只发给起它的窗口）

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 认出 Spring Boot 应用、照 IDEA 那样起、Maven 工具窗（docs/IDEA.md 第 1 步）的真 .app 验收，走测试通道（scripts/lib/bridge.sh）。
+# 认出 Spring Boot 应用、照 IDEA 那样起、Services 工具窗（第 12 节）、Maven 工具窗（docs/IDEA.md 第 1 步）的真 .app 验收，走测试通道（scripts/lib/bridge.sh）。
 # 用你机器上的真 mvn / java：任务的登录 shell 读你的 .zshrc（LITE_USER_SHELL=1，同 tasks-real.sh），不开终端、前后比对你的历史文件。
 #
 # 项目是脚本自己写的三模块样例（shop-common + order-service + user-service），不是下载来的代码。
@@ -129,13 +129,30 @@ sleep 1
 pick OrderApplication >/dev/null
 ok "$(wait_for 120 "logtext OrderApplication | grep -q 'LITE-IDE-PROBE hello-from-yml CNY 123.45'" && echo 1)" "第二次起是新的格式：$(logtext OrderApplication | grep LITE-IDE-PROBE | tail -1)"
 
-echo "== 起 UserApplication（web）：端口起来；⌘F2 停：端口空了、那一组一个不剩"
+echo "== 起 UserApplication（web）：端口起来；Services 工具窗里在 Running、带端口；⌘F2 停：端口空了、那一组一个不剩"
+# Services 的树（ServicesView.svelte）：`grp(名字)` 是这个服务那一行往上最近的分组名，`port(名字)` 是那一行的端口
+SVC='const rows = () => [...document.querySelectorAll(".svc .tree .row")]; const nm = (r) => r.querySelector(".name")?.textContent; const row = (n) => rows().find((r) => nm(r) === n); const grp = (n) => { const rs = rows(); for (let i = rs.indexOf(row(n)); i >= 0; i--) if (["Running", "Failed", "Finished", "Not Started"].includes(nm(rs[i]))) return nm(rs[i]); return "?"; }; const port = (n) => row(n)?.querySelector(".port")?.textContent ?? "";'
 pick UserApplication >/dev/null
 if wait_for 120 "listening ${UP}"; then
   G=$(pgid_of "${UP}"); GROUPS_SEEN+=("${G}")
   ok 1 "监听 ${UP}（进程组 ${G}）"
+  ok "$([ "$(lite_eval main "return document.querySelector('.panel-head .tw-name')?.textContent === 'Services' && !!document.querySelector('.rail button[aria-label=\"Services\"]')")" = true ] && echo 1)" "服务跑起来亮的是 Services 工具窗（导轨上有它的按钮），不是运行窗"
+  lite_wait main "${SVC} return port('UserApplication') === ':${UP}'" 15 >/dev/null
+  ok "$([ "$(lite_eval main "${SVC} return grp('UserApplication') + ' ' + port('UserApplication')")" = "Running :${UP}" ] && echo 1)" "Services 里 UserApplication 在 Running、端口 :${UP}（lsof 查的是它那个进程组）：$(lite_eval main "${SVC} return rows().map((r) => r.innerText.replace(/\n/g, ' ')).join(' / ')")"
   lite menu run-stop main >/dev/null
-  ok "$(wait_for 15 "! listening ${UP} && [ \"\$(group_left ${G})\" = 0 ]" && echo 1)" "停了：端口空了、组里剩 $(group_left "${G}") 个"
+  ok "$(wait_for 15 "! listening ${UP} && [ \"\$(group_left ${G})\" = 0 ]" && echo 1)" "⌘F2 停的是 Services 里选中的它：端口空了、组里剩 $(group_left "${G}") 个"
+  lite_wait main "${SVC} return grp('UserApplication') === 'Finished'" 10 >/dev/null
+  ok "$([ "$(lite_eval main "${SVC} return grp('UserApplication')")" = Finished ] && echo 1)" "停了之后挪到 Finished"
+  echo "== 在 Services 里双击它再起、点工具栏的停止"
+  lite_eval main "${SVC} row('UserApplication').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return true" >/dev/null
+  if wait_for 120 "listening ${UP}"; then
+    G=$(pgid_of "${UP}"); GROUPS_SEEN+=("${G}")
+    ok 1 "双击起来了：监听 ${UP}"
+    lite_eval main "${SVC} row('UserApplication').click(); document.querySelector('.svc .bar button[aria-label=\"停止\"]').click(); return true" >/dev/null
+    ok "$(wait_for 15 "! listening ${UP} && [ \"\$(group_left ${G})\" = 0 ]" && echo 1)" "工具栏的停止：端口空了、组里剩 $(group_left "${G}") 个"
+  else
+    ok 0 "双击之后 120 秒没起来：$(logtext UserApplication | tail -5 | tr '\n' ' ')"
+  fi
 else
   ok 0 "120 秒没起来：$(logtext UserApplication | tail -5 | tr '\n' ' ')"
 fi

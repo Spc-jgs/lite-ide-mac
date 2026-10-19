@@ -285,6 +285,19 @@ public class OrderServiceApplication {
     }
 }
 `,
+  // 第二个服务：Services 工具窗里两个服务才看得出分组（一个跑着、一个没起）
+  "/proj/moduleA/src/main/java/com/demo/api/AdminApplication.java": `package com.demo.api;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class AdminApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(AdminApplication.class, args);
+    }
+}
+`,
   "/proj/moduleB/src/main/java/com/demo/core/OrderClient.java": `package com.demo.core;
 
 public class OrderClient {

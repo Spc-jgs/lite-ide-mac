@@ -748,6 +748,11 @@ pnpm app:bundle
 - **Spring Boot 应用自动列出来**（「Spring Boot」一组，名字是主类名，同 IDEA）：Maven 项目里带 `@SpringBootApplication` 的入口，一个服务一项。
   起的时候和 IDEA 一样：先编译它和它依赖的兄弟模块、再直接起 java —— 改了公共模块再起就是新的，不用 `mvn install`。
   不带 profile；要带的在 tasks.json 写一个同名任务（比如 `"command": "… --spring.profiles.active=dev"`），以文件为准
+- **Services 工具窗**（导轨下面那组的六边形图标，认出了 Spring Boot 服务才有），照 IDEA 的那个：
+  - 左边按状态分组：Running / Failed / Finished / Not Started（空的组不画），在跑的服务后面是它在听的端口（`:8080`，起来之后几秒出现）；右边是选中那个服务的输出
+  - **双击起**，工具栏的 ▶ / ■ 作用在选中的那一行上：选中一个服务是起（在跑就是重跑）/ 停，选中分组或「Spring Boot」是整组起 / 停
+  - 右键：起 / 停、跳到入口类、在编辑区打开这份输出、重新识别服务（改了 pom、加了入口类之后）
+  - 服务的输出不进「运行」工具窗（同 IDEA）。⌘F2：Services 开着停选中的服务，否则停运行窗当前那一格；只有一个在跑的时候就停它
 - **Maven 工具窗**（导轨上的 Maven 图标，Maven 项目才有），照 IDEA 的那个：
   - **Profiles**：所有 pom 里声明的 profile，勾上的**跑目标和起服务都带 `-P`**（pom 里 `activeByDefault` 的标「默认开」）
   - 每个项目底下 **Lifecycle**（clean validate compile test package verify install site deploy）、**Plugins**（这个模块真用的插件，展开是它的目标，比如 `spring-boot:run`）、
@@ -756,7 +761,7 @@ pnpm app:bundle
   - 工具栏：重新加载（重读 pom、重算插件和依赖）、执行 Maven 目标（自己敲，比如 `clean install -DskipTests`，在选中的模块上跑）、运行选中的目标、
     **离线**（`-o`）、**跳过测试**（`-DskipTests`）、全部展开 / 收起。开关和勾的 profile 按项目记在应用数据目录，不写进你的项目
   - **双击跑**（单击只是选中，免得 install 被顺手点起来），输出在运行工具窗。点哪个模块的目标就构建它和它依赖的兄弟模块（`-pl -am`），`clean` 只清它自己；根模块上的目标对整个项目
-  - Spring Boot 应用不在这里（IDEA 的 Maven 窗里也没有），在任务列表（⌃⌥R）的「Spring Boot」一组
+  - Spring Boot 应用不在这里（IDEA 的 Maven 窗里也没有），在 Services 工具窗和任务列表（⌃⌥R）的「Spring Boot」一组
 - Maven / Python 不自动猜（要不要带 profile、跑哪个入口，猜错比不猜糟），在 tasks.json 里写一行
 
 **跑的时候**：底部多一个「运行」工具窗（跑过才出现在左边导轨上，角标是还在跑的几个），一个任务一格，格子上的点：绿 = 在跑、琥珀 = 正在停、红 = 自己失败退出、灰 = 结束了 / 停了（我们停的不算失败）。

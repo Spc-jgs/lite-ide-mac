@@ -931,7 +931,7 @@ export interface TaskDef {
   /** 相对项目根；"" = 根 */
   cwd: string;
   /** "file" = `.lite-ide/tasks.json` 里写的；"package" = 自动认出来的 package.json scripts；"spring" = 认出来的 Spring Boot 应用（docs/IDEA.md） */
-  source: "file" | "package" | "spring";
+  source: "file" | "package" | "spring" | "goal";
 }
 
 export interface TaskList {
@@ -949,6 +949,18 @@ export interface TaskRun {
   command: string;
   /** 输出写在哪个文件：开日志句柄用 */
   log: string;
+  /** Spring Boot 服务：在 Services 工具窗里跑，不进运行窗（同 IDEA） */
+  service: boolean;
+}
+
+/** Services 工具窗里的一个 Spring Boot 服务。跑没跑看运行记录；端口只有 Rust 查得到 */
+export interface Service {
+  task: string;
+  mainClass: string;
+  /** 所在模块，相对项目根 */
+  module: string;
+  /** 在跑的话它在听哪几个 TCP 端口；没跑或者还没起来是空的 */
+  ports: number[];
 }
 
 /** `task-exit` 事件：一次运行结束了（只发给起它的窗口） */

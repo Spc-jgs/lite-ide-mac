@@ -26,7 +26,7 @@ const TEMPLATE = `// lite-ide 的任务（docs/USAGE.md「任务」）。⌃⌥R
 `;
 const LIFECYCLE = new Set(["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare", "prepublishOnly", "prepack", "postpack", "publish", "postpublish", "preversion", "version", "postversion", "dependencies"]);
 
-type Def = { name: string; command: string; cwd: string; source: "file" | "package" | "spring" };
+type Def = { name: string; command: string; cwd: string; source: "file" | "package" | "spring" | "goal"; module?: string };
 /** Lifecycle 底下的阶段（同 Rust 的 maven::PHASES） */
 const PHASES = ["clean", "validate", "compile", "test", "package", "verify", "install", "site", "deploy"];
 /** 能放进 mvn 命令行的词（同 Rust 的 maven::safe_token） */
@@ -109,19 +109,28 @@ function list(root: string) {
         command: `mvn -B -ntp -pl ${mod} -am -DskipTests compile dependency:build-classpath -Dmdep.outputFile=${cp} && cd ${mod} && exec java -cp "target/classes:$(cat ${cp})" ${main}`,
         cwd: "",
         source: "spring",
+        module: mod,
       });
     }
   }
   return { tasks: defs, file, problems };
 }
 
-type Run = { root: string; name: string; status: "running" | "stopping" | "gone"; timer?: ReturnType<typeof setTimeout> };
+type Run = { root: string; name: string; status: "running" | "stopping" | "gone"; timer?: ReturnType<typeof setTimeout>; service?: boolean; at?: number };
 const RUNS = new Map<number, Run>();
 let nextRun = 1;
 
 type Holder = { port: number; pid: number; command: string; ours: string | null };
 /** 端口被谁占着（桩里的假占用者）。8080 一开始就被占着；`task_free_port` 清掉它，之后带 fail 的任务就能正常起来（同真实现） */
 const HOLDERS = new Map<number, Holder>([[8080, { port: 8080, pid: 41237, command: "java", ours: null }]]);
+
+/** 桩里一个服务在听的端口：跑起来 2.5 秒之后才有（见 services_list） */
+function mockPorts(id: number): number[] {
+  const r = RUNS.get(id);
+  if (!r?.service || r.status === "gone" || Date.now() - (r.at ?? 0) < 2500) return [];
+  const services = list(r.root).tasks.filter((d) => d.source === "spring");
+  return [8080 + Math.max(0, services.findIndex((d) => d.name === r.name))];
+}
 
 function emitExit(id: number, x: { code: number | null; stopped: boolean; port?: Holder | null }) {
   const r = RUNS.get(id);
@@ -208,7 +217,7 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       const goal = /^(.+) \[([^\]]+)\]$/.exec(name);
       const def =
         list(root).tasks.find((d) => d.name === name) ??
-        (goal && goal[2].split(/\s+/).every((t) => SAFE.test(t)) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "spring" as const } : undefined);
+        (goal && goal[2].split(/\s+/).every((t) => SAFE.test(t)) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "goal" as const } : undefined);
       if (!def) throw new Error(`没有叫「${name}」的任务了（tasks.json 改过？）`);
       // 同真实现：同名的还在跑先停掉
       for (const [id, r] of RUNS) if (r.root === root && r.name === name && r.status !== "gone") emitExit(id, { code: 130, stopped: true });
@@ -222,14 +231,29 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       const fail = name.includes("fail") && HOLDERS.has(8080);
       FILES[log] = fakeOutput(name, def.command, fail);
       bump(log);
-      const run: Run = { root, name, status: "running" };
+      const run: Run = { root, name, status: "running", service: def.source === "spring", at: Date.now() };
       RUNS.set(id, run);
       if (fail) {
         const h = { ...HOLDERS.get(8080)!, ours: name.includes("ours") ? "后端" : null };
         run.timer = setTimeout(() => emitExit(id, { code: 1, stopped: false, port: h }), 900);
       }
-      return { id, name, command: def.command, log };
+      return { id, name, command: def.command, log, service: def.source === "spring" };
     }
+    /*
+     * Services（真实现：commands/tasks.rs 的 services_list / task_ports）。端口**故意 2.5 秒后才有**：Spring Boot 起来要几秒，
+     * 「跑着、还没端口」那段在 0ms 的桩上看不见（frontend.md「桩要能停在中间一会儿」）。第几个服务听 8080 + 几
+     */
+    case "services_list": {
+      const root = String(a.root);
+      return list(root)
+        .tasks.filter((d) => d.source === "spring")
+        .map((d) => {
+          const id = [...RUNS].find(([, r]) => r.root === root && r.name === d.name && r.status !== "gone")?.[0];
+          return { task: d.name, mainClass: /(\S+)$/.exec(d.command)?.[1] ?? d.name, module: d.module ?? "", ports: id === undefined ? [] : mockPorts(id) };
+        });
+    }
+    case "task_ports":
+      return mockPorts(Number(a.id));
     case "task_stop": {
       const id = Number(a.id);
       const r = RUNS.get(id);

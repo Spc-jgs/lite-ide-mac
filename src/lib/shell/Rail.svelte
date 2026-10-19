@@ -159,23 +159,26 @@
     </button>
   {/if}
   <!--
-    运行窗（#48）。**跑过任务才出现**（ui.md 第十条「工具窗有内容才出现」）：没跑过的时候它是空的，
-    一个永远空着的按钮只是噪音。角标是还活着的几个（跑着 / 正在停），全停了就不画 —— 同 Git 改动那个角标的判据
+    Services（docs/IDEA.md 第 12 节）认出了 Spring Boot 服务才出现；运行窗（#48）跑过任务才出现（ui.md 第十条「工具窗有内容才出现」）：
+    一个永远空着的按钮只是噪音。角标是还活着的几个（跑着 / 正在停），各数各的，全停了就不画 —— 同 Git 改动那个角标的判据。
+    两个按钮一个模板：入口包离告警线只剩几百字节，同样的一段写两遍要多付一份（2026-10-19 量的，-284 B）
   -->
-  {#if runs.list.length > 0}
-    <button
-      class="ibtn lg rbtn"
-      class:on={layout.panel && panelTool === "run"}
-      onclick={() => onTogglePanel("run")}
-      title="运行 ⌃⌥R"
-      aria-label="运行"
-    >
-      <Icon name="run" />
-      {#if runs.alive() > 0}
-        <span class="badge">{runs.alive()}</span>
-      {/if}
-    </button>
-  {/if}
+  {#each [{ v: "services", on: runs.services > 0, n: runs.alive(true), l: "Services", k: "" }, { v: "run", on: runs.plain().length > 0, n: runs.alive(), l: "运行", k: " ⌃⌥R" }] as const as b}
+    {#if b.on}
+      <button
+        class="ibtn lg rbtn"
+        class:on={layout.panel && panelTool === b.v}
+        onclick={() => onTogglePanel(b.v)}
+        title={b.l + b.k}
+        aria-label={b.l}
+      >
+        <Icon name={b.v} />
+        {#if b.n > 0}
+          <span class="badge">{b.n}</span>
+        {/if}
+      </button>
+    {/if}
+  {/each}
 </nav>
 
 <style>

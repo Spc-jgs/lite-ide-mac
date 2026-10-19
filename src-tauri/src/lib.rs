@@ -292,6 +292,8 @@ pub fn run() {
             commands::maven_project,
             commands::maven_resolve,
             commands::maven_prefs_set,
+            commands::services_list,
+            commands::task_ports,
             commands::java_open,
             commands::java_change,
             commands::java_save,

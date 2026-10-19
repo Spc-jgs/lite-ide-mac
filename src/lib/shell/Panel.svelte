@@ -43,11 +43,14 @@
   const gitcon = lazy(() => import("../git/GitConsole.svelte"), "Git 控制台");
   /** 运行窗（#48）的一格：日志视图那一整套，跑过任务才拉 */
   const runView = lazy(() => import("../run/RunView.svelte"), "运行输出");
+  /** Services 工具窗（docs/IDEA.md 第 12 节）：认出 Spring Boot 服务才有入口，点开才拉 */
+  const servicesView = lazy(() => import("../run/ServicesView.svelte"), "Services");
   /** 运行窗的动作（停、关、重跑）在懒加载的 runs-ops 里，按一下才拉 */
   const ops = () => import("../state/runs-ops");
 
   $effect(() => {
     if (layout.panel && panelTool === "run") runView.load();
+    if (layout.panel && panelTool === "services") servicesView.load();
   });
 
   /** 状态点说什么（悬停时）。颜色在样式里：跑着绿、停止中琥珀、失败红、结束了灰 */
@@ -73,7 +76,7 @@
    * 两个 lazy 和用它们的地方在同一个文件里，漏不掉。
    */
   $effect(() => {
-    const e = terminal.error || gitcon.error || runView.error;
+    const e = terminal.error || gitcon.error || runView.error || servicesView.error;
     if (e) notify.fail(e);
   });
 
@@ -174,11 +177,11 @@
       面板收起再展开时，第一眼要能认出这是哪个工具窗。
     -->
     <div class="panel-head">
-      <span class="tw-name">{panelTool === "term" ? "终端" : panelTool === "run" ? "运行" : "Git"}</span>
+      <span class="tw-name">{({ term: "终端", run: "运行", services: "Services", git: "Git" })[panelTool]}</span>
       {#if panelTool === "run"}
         <!-- 运行窗（#48）：一次运行一格，格子上一个状态点；关掉一格 = 还在跑就软停（同 IDEA 的 Run 工具窗） -->
         <div class="ptabs">
-          {#each runs.list as r (r.id)}
+          {#each runs.plain() as r (r.id)}
             <div class="ptab" class:on={r.id === runs.activeId}>
               <button class="pt-label" onclick={() => (runs.activeId = r.id)} title="{r.command}（{STATUS_TEXT[r.status]}）">
                 <span class="dot {r.status}" aria-label={STATUS_TEXT[r.status]}></span>{r.name}
@@ -216,7 +219,7 @@
             >控制台</button>
           </div>
         </div>
-      {:else}
+      {:else if panelTool === "term"}
         <div class="ptabs">
           {#each terms.list as t (t.id)}
             <div class="ptab" class:on={t.id === terms.activeId}>
@@ -298,6 +301,10 @@
         <Icon name="minus" />
       </button>
     </div>
+    <!-- 「还在载入」的占位，五处一个样子（ui.md 第十四条）；写成 snippet 是为了入口包：一样的模板写五遍要付五份 -->
+    {#snippet loading(text: string)}
+      <div class="loading"><span class="spinner"></span>{text}</div>
+    {/snippet}
     <div class="panel-body">
       <!--
         终端整块只藏不卸载：组件一销毁 Session 就 drop，shell 直接被 kill。
@@ -311,7 +318,7 @@
             </div>
           {/each}
         {:else}
-          <div class="loading"><span class="spinner"></span>正在载入终端…</div>
+          {@render loading("正在载入终端…")}
         {/if}
       </div>
       <!-- 运行窗：只挂当前那一格（卸载不碰进程，见 RunView 头上那段）。按 id 重建：重跑换了 id，句柄跟着换 -->
@@ -342,7 +349,16 @@
               <runView.comp log={activeRun.log} />
             {/key}
           {:else}
-            <div class="loading"><span class="spinner"></span>正在载入…</div>
+            {@render loading("正在载入…")}
+          {/if}
+        </div>
+      {/if}
+      {#if layout.panel && panelTool === "services" && root}
+        <div class="tool-slot">
+          {#if servicesView.comp}
+            <servicesView.comp {root} />
+          {:else}
+            {@render loading("正在载入…")}
           {/if}
         </div>
       {/if}
@@ -353,7 +369,7 @@
           {#if gitcon.comp}
             <gitcon.comp />
           {:else}
-            <div class="loading"><span class="spinner"></span>正在载入 Git 控制台…</div>
+            {@render loading("正在载入 Git 控制台…")}
           {/if}
         </div>
       {/if}
@@ -362,7 +378,7 @@
           {#if gitLogReady}
             {@render gitLog()}
           {:else}
-            <div class="loading"><span class="spinner"></span>正在载入 Git 日志…</div>
+            {@render loading("正在载入 Git 日志…")}
           {/if}
         </div>
       {/if}

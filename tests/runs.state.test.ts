@@ -123,6 +123,42 @@ ok(runs.stale === null, "处理过了，再问不该再出");
 await ops.checkStale("/别的项目");
 ok(runs.stale === null, "别的项目的不出");
 
+// ── Services（docs/IDEA.md 第 12 节）：认出服务；服务跑起来进 Services、不进运行窗；⌘F2 的目标；关格子时当前格不落到服务上 ──
+await ops.detectServices("/proj");
+ok(runs.services === 2, `认出桩里的两个 Spring Boot 服务：${runs.services}`);
+await ops.detectServices("/别的项目");
+ok(runs.services === 0, `不是当前项目的回包不算数（问之前先清零）：${runs.services}`);
+await ops.detectServices("/proj");
+{
+  const before = runs.activeId;
+  await ops.runTask("OrderServiceApplication");
+  const svc = runs.list.find((r) => r.name === "OrderServiceApplication")!;
+  ok(svc?.service === true && layout.panelView === "services" && layout.panel, `服务跑起来亮的是 Services：${JSON.stringify(svc)} ${layout.panelView}`);
+  ok(runs.activeId === before && !runs.plain().some((r) => r.id === svc.id), "服务不进运行窗的标签、不抢运行窗的当前格");
+  ok(runs.alive(true) === 1 && runs.alive() === runs.plain().filter((r) => r.status === "running" || r.status === "stopping").length, "角标各数各的");
+  ok(layout.snapshot().panelView === "term", "Services 不进快照（同运行窗）");
+
+  // 当前格是运行窗最后一格、它右边紧挨着一个服务：关掉它，当前格要挪到运行窗里的邻居，不能挪到服务上（按整张表的下标挑就会）
+  await ops.runTask("quick-web");
+  const qw2 = runs.list.find((r) => r.name === "quick-web")!;
+  ok(runs.list[runs.list.length - 1].id === qw2.id && runs.list[runs.list.length - 2].id === svc.id, `摆成「…, 服务, quick-web」：${runs.list.map((r) => r.name)}`);
+  ops.closeRun(qw2.id);
+  ok(runs.activeId !== svc.id && runs.plain().some((r) => r.id === runs.activeId), `关掉之后当前格还在运行窗里：${runs.activeId}（服务是 ${svc.id}）`);
+
+  // ⌘F2（不带 id）：Services 开着 → 停那边选中的服务，不是运行窗的当前格
+  layout.panelView = "services";
+  layout.panel = true;
+  ops.focusService(svc.id);
+  const plainBefore = runs.list.find((r) => r.id === runs.activeId)!.status;
+  await ops.stopRun();
+  ok(runs.list.find((r) => r.id === svc.id)?.status === "stopping", `⌘F2 停的是选中的服务：${runs.list.find((r) => r.id === svc.id)?.status}`);
+  ok(runs.list.find((r) => r.id === runs.activeId)?.status === plainBefore, "运行窗的当前格没被动");
+  await sleep(800);
+  ops.focusService(null);
+  ops.closeRun(svc.id);
+  layout.panelView = "run";
+}
+
 // ── 关：关掉一格，当前格挪到邻居；关掉最后一格，运行窗收起 ──
 const [a, b] = runs.list.map((r) => r.id);
 runs.activeId = a;

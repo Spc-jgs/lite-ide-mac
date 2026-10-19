@@ -1,6 +1,6 @@
 /** 任务（#48）的命令包装：只有任务列表 / 运行工具窗用，它们是懒的（同 ipc/pty.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { MavenProject, MavenResolved, TaskList, TaskRun, TaskStale } from "./commands";
+import type { MavenProject, MavenResolved, Service, TaskList, TaskRun, TaskStale } from "./commands";
 
 /** 这个项目的全部任务：`.lite-ide/tasks.json` 里的 + 自动认出的 package.json scripts */
 export const taskList = (root: string) => invoke<TaskList>("task_list", { root });
@@ -25,6 +25,12 @@ export const taskStale = (root: string) => invoke<TaskStale[]>("task_stale", { r
 
 /** 上次没停干净的：`kill` = 结束它们，否则从账上划掉、不管 */
 export const taskStaleResolve = (root: string, kill: boolean) => invoke<void>("task_stale_resolve", { root, kill });
+
+/** Services 工具窗：认出来的 Spring Boot 服务，在跑的带上它在听的端口 */
+export const servicesList = (root: string) => invoke<Service[]>("services_list", { root });
+
+/** 一次运行此刻在听的端口：Services 里「跑着、还没端口」时隔一会儿问一次（只是一次 lsof，不重新认服务） */
+export const taskPorts = (id: number) => invoke<number[]>("task_ports", { id });
 
 /** Maven 工具窗：读 pom 就有的（模块树、阶段、profile、工具栏开关） */
 export const mavenProject = (root: string) => invoke<MavenProject>("maven_project", { root });

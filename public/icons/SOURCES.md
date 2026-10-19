@@ -23,6 +23,8 @@
 | `icons/offline.svg` | `platform/icons/src/expui/build/toggleOfflineMode_dark.svg`（离线模式开关（`Maven.ToggleOffline`）） |
 | `icons/skip-tests.svg` | `platform/icons/src/expui/run/showIgnored_dark.svg`（跳过测试开关（`Maven.ToggleSkipTests`）） |
 | `icons/expand.svg` | `platform/icons/src/expui/general/expandAll_dark.svg`（全部展开） |
+| `icons/services.svg` | `platform/icons/src/expui/toolwindows/services_dark.svg`（Services 工具窗，2026-10-19） |
+| `icons/error.svg` | `platform/icons/src/expui/status/error_dark.svg`（Services 里的 Failed 分组） |
 | `icons/sidebar.svg` | `platform/icons/src/expui/general/layout_dark.svg` |
 | `icons/files.svg` | `platform/icons/src/expui/toolwindows/project_dark.svg` |
 | `icons/git.svg` | `platform/icons/src/expui/toolwindows/vcs_dark.svg` |

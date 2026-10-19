@@ -9,7 +9,7 @@ import { project } from "./project.svelte";
 import { notify } from "./notify.svelte";
 import { overlay } from "./overlay.svelte";
 import { listenHere, type TaskExit } from "../ipc/commands";
-import { taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop } from "../ipc/tasks";
+import { servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop } from "../ipc/tasks";
 
 let listening: Promise<unknown> | null = null;
 
@@ -36,9 +36,9 @@ export function exited(x: TaskExit) {
   if (r.status === "failed" && !x.port) notify.fail(exitText(r.name, x.code));
 }
 
-/** 亮出运行窗 */
-function show() {
-  layout.panelView = "run";
+/** 跑起来之后亮出它所在的那个工具窗：Spring Boot 服务在 Services，别的在运行窗 */
+function show(service: boolean) {
+  layout.panelView = service ? "services" : "run";
   layout.panel = true;
 }
 
@@ -68,15 +68,18 @@ async function start(name: string, root: string) {
   last[root] = name;
   const old = runs.list.find((t) => t.root === root && t.name === name);
   if (old && old.status === "running") old.status = "stopping";
-  show();
+  // 先亮工具窗再等 Rust：同名的上一次要先软停（最多 5 秒），这段时间里人要看得见「在处理」。是不是服务认得出来的话先按它亮
+  if (old) show(old.service);
   try {
     const r = await taskRun(root, name);
-    const tab: RunTab = { id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null, holder: null };
+    show(r.service);
+    const tab: RunTab = { id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null, holder: null, service: r.service };
     // 同名的那一格原地换掉（位置不跳），没有就加在最后
     const i = runs.list.findIndex((t) => t.root === root && t.name === name);
     if (i >= 0) runs.list[i] = tab;
     else runs.list = [...runs.list, tab];
-    runs.activeId = r.id;
+    // 运行窗的「当前格」只指运行窗里的；服务的选中在 Services 工具窗自己那儿
+    if (!r.service) runs.activeId = r.id;
   } catch (e) {
     notify.fail(e instanceof Error ? e.message : String(e));
   }
@@ -91,8 +94,28 @@ export function rerunLast() {
   else overlay.taskPicker = true;
 }
 
+/** Services 工具窗里选中的那个服务的这次运行（ServicesView 报上来）：⌘F2 在 Services 开着时停它 */
+let serviceFocus: number | null = null;
+export function focusService(id: number | null) {
+  serviceFocus = id;
+}
+
+const isAlive = (t: RunTab) => t.status === "running" || t.status === "stopping";
+
+/**
+ * ⌘F2 停哪个：Services 开着就是那边选中的服务，否则运行窗的当前格。那一个没在跑、而整个窗口只有一个在跑的，就停那一个 ——
+ * 服务不进运行窗的标签，不这样的话 Services 收起时 ⌘F2 永远停不到它（IDEA 也是：只有一个在跑时直接停）
+ */
+function stopTarget(): number | null {
+  const id = layout.panel && layout.panelView === "services" ? serviceFocus : runs.activeId;
+  const r = runs.list.find((t) => t.id === id);
+  if (r && isAlive(r)) return id;
+  const alive = runs.list.filter(isAlive);
+  return alive.length === 1 ? alive[0].id : id;
+}
+
 /** ⌘F2 / 停止按钮：第一下软停，正在软停时再按一下立刻强杀（Rust 那边按状态判） */
-export async function stopRun(id: number | null = runs.activeId) {
+export async function stopRun(id: number | null = stopTarget()) {
   const r = runs.list.find((t) => t.id === id);
   if (!r || (r.status !== "running" && r.status !== "stopping")) return;
   const got = await taskStop(r.id);
@@ -104,12 +127,14 @@ export async function stopRun(id: number | null = runs.activeId) {
 
 /** 关掉一格：还在跑就软停（Rust 那边在后台等宽限期）。关掉最后一格，运行窗跟着收起（同终端，`terms.close`） */
 export function closeRun(id: number) {
-  const i = runs.list.findIndex((t) => t.id === id);
-  if (i < 0) return;
+  if (!runs.list.some((t) => t.id === id)) return;
+  // 下标按运行窗里的那几格数：运行窗的当前格只在它们里挑（服务不在运行窗的标签上）
+  const i = runs.plain().findIndex((t) => t.id === id);
   void taskClose(id);
   runs.list = runs.list.filter((t) => t.id !== id);
-  if (runs.activeId === id) runs.activeId = runs.list[Math.min(i, runs.list.length - 1)]?.id ?? null;
-  if (runs.list.length === 0 && layout.panelView === "run") {
+  const plain = runs.plain();
+  if (runs.activeId === id) runs.activeId = plain[Math.min(i, plain.length - 1)]?.id ?? null;
+  if (plain.length === 0 && layout.panelView === "run") {
     layout.panelView = "term";
     layout.panel = false;
   }
@@ -160,13 +185,28 @@ export function dismissHolder(id: number) {
   if (r) r.holder = null;
 }
 
-/** 启动后、项目根定了：问一次这个项目有没有上次没停干净的任务 */
+/** 启动后、项目根定了：问一次这个项目有没有上次没停干净的任务，顺带认一次有没有 Spring Boot 服务（同一个时机，入口里少一处调用） */
 export async function checkStale(root: string) {
+  void detectServices(root);
   try {
     const list = await taskStale(root);
     if (list.length && project.root === root) runs.stale = { root, list };
   } catch {
     /* 问不到就算了：不影响别的功能，下次启动再问（同替换的中断卡片） */
+  }
+}
+
+/**
+ * 这个项目有没有 Spring Boot 服务：导轨上的 Services 按钮有服务才出现（ui.md 第十条）。不是 Maven 项目 Rust 那边读一眼项目根就回空的；
+ * 认入口要翻 Java 源码，所以只在开项目时问一次 —— Services 工具窗开着时它自己会再认
+ */
+export async function detectServices(root: string) {
+  runs.services = 0;
+  try {
+    const list = await servicesList(root);
+    if (project.root === root) runs.services = list.length;
+  } catch {
+    /* 问不到就当没有：按钮不出，别的不受影响 */
   }
 }
 

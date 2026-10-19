@@ -60,6 +60,9 @@
     "offline",
     "skip-tests",
     "expand",
+    // Services 工具窗（docs/IDEA.md 第 12 节）
+    "services",
+    "error",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];
@@ -70,7 +73,7 @@
    * `warn` 是黄的、`note`（草稿）带一个蓝色时钟 —— 颜色本身就是意思。`folder`、`compact` 是**深灰填充 + 浅灰描边**
    * 的双色图标：走 mask 的话只剩透明度，填充和描边糊成一整块实心。其余全是单一灰色，走 mask。
    */
-  const COLORED: ReadonlySet<IconName> = new Set<IconName>(["warn", "note", "folder", "compact", "run", "stop", "rerun", "maven-project", "maven-plugin", "maven-goal", "maven-profiles", "lifecycle", "library-folder", "library"]);
+  const COLORED: ReadonlySet<IconName> = new Set<IconName>(["warn", "note", "folder", "compact", "run", "stop", "rerun", "maven-project", "maven-plugin", "maven-goal", "maven-profiles", "lifecycle", "library-folder", "library", "error"]);
 </script>
 
 <script lang="ts">
