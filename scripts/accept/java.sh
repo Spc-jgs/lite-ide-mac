@@ -204,6 +204,20 @@ lite_eval main "__lite.fill('Customer', '.rename input'); document.querySelector
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('没改名')" 30 >/dev/null
 ok "$([ "$(lite_eval main "return (document.querySelector('.toast')?.textContent ?? '').includes('Customer.java 已经有了')")" = true ] && [ "$(cat "${COMMON}/Money.java")" = "${MONEY0}" ] && [ "$(cat "${COMMON}/Customer.java")" = "${CUST0}" ] && echo 1)" "撞名（改成已有的 Customer）：一个字都没改，胶囊说「Customer.java 已经有了」：$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")"
 
+echo "== 格式化（⌥⌘L，docs/IDEA.md 第 15 节）：jdtls 排，照编辑器的缩进（4 个空格，不是 Eclipse 默认的 Tab）；⌘Z 一下全回去；选中几行只排那几行"
+FMT0=$(lite_eval main "return __lite.text()")
+lite_eval main "__lite.setText(__lite.text().replace('public class OrderApplication {', 'public class OrderApplication {\\nint   x=1;\\n  int y=2;')); return true" >/dev/null
+lite_eval main "__lite.caret(1, 1); __lite.key('Alt-Mod-l'); return true" >/dev/null
+lite_wait main "return /^    int x = 1;$/m.test(__lite.text())" 15 >/dev/null
+ok "$([ "$(lite_eval main "return /^    int x = 1;$/m.test(__lite.text()) && /^    int y = 2;$/m.test(__lite.text()) && !/\\t/.test(__lite.text())")" = true ] && echo 1)" "整份排好了：两行都是 4 个空格缩进、= 两边有空格、一个 Tab 都没有：$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")"
+lite_eval main "__lite.key('Mod-z'); return true" >/dev/null
+ok "$([ "$(lite_eval main "return __lite.text().includes('int   x=1;') && __lite.text().includes('  int y=2;')")" = true ] && echo 1)" "⌘Z 一下全回去（一笔事务）"
+# 只选中 x 那一行：y 那行不动
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('int   x=1;')) + 1; __lite.select(l, 1, l, t[l - 1].length + 1); __lite.key('Alt-Mod-l'); return true" >/dev/null
+lite_wait main "return /^    int x = 1;$/m.test(__lite.text())" 15 >/dev/null
+ok "$([ "$(lite_eval main "return /^    int x = 1;$/m.test(__lite.text()) && __lite.text().includes('\\n  int y=2;')")" = true ] && echo 1)" "选中 x 那一行：只排了它，y 那行原样"
+lite_eval main "__lite.setText($(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()[:-1]))' <<< "${FMT0}")); return true" >/dev/null
+
 echo "== ⌘B：Lombok 生成的方法、兄弟模块的类、jar 里的类"
 caret_on 'getName()' >/dev/null
 lite_eval main "__lite.key('Mod-b'); return true" >/dev/null

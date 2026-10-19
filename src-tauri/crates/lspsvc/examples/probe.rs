@@ -120,6 +120,16 @@ fn main() {
         let r = s.request("textDocument/rename", req, Duration::from_secs(60));
         println!("rename {:.0} ms：{}", t.elapsed().as_secs_f64() * 1000.0, r.map(|v| v.to_string()).unwrap_or_else(|e| format!("错：{e}")));
     }
+    // FORMAT=1：整份格式化（带「4 个空格」的选项），打出改动；看 jdtls 认不认我们给的缩进（Eclipse 默认是 Tab）
+    if std::env::var("FORMAT").is_ok() {
+        let t = Instant::now();
+        let r = s.request(
+            "textDocument/formatting",
+            json!({ "textDocument": { "uri": uri(path) }, "options": { "tabSize": 4, "insertSpaces": true } }),
+            Duration::from_secs(30),
+        );
+        println!("格式化 {:.0} ms：{}", t.elapsed().as_secs_f64() * 1000.0, r.map(|v| v.to_string()).unwrap_or_else(|e| format!("错：{e}")));
+    }
     if std::env::var("RAW").is_ok() {
         println!("原样：{}", r.as_ref().map(|v| v.to_string()).unwrap_or_default());
     }

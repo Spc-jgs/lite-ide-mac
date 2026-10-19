@@ -17,10 +17,11 @@
  */
 import { Decoration, EditorView, ViewPlugin, hoverTooltip, keymap, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { Prec, StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
+import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaChange, javaClose, javaComplete, javaDefinition, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve } from "../ipc/java";
+import { javaChange, javaClose, javaComplete, javaDefinition, javaFormat, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve } from "../ipc/java";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { nav } from "../state/nav.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
@@ -386,6 +387,56 @@ async function findUsages(view: EditorView): Promise<void> {
   });
 }
 
+// ── 格式化（⌥⌘L，docs/IDEA.md 第 15 节） ──
+
+/**
+ * Java 文件里 ⌥⌘L 交给 jdtls（IDEA 的 Reformat Code）：有选区就只排选中的那几行，没有就整份。缩进照编辑器此刻的设置（状态栏能改）给它 ——
+ * 不给的话 jdtls 用 Eclipse 的默认 Tab。回来的是几十处很小的改动，**一笔事务**放进去：⌘Z 一下全撤、光标跟着改动挪。
+ * 问的时候带着全文；回来时文件又被改过（人在等的时候接着敲了）就不放，说一句 —— 那些位置是在旧文本上算的
+ */
+async function formatJava(view: EditorView): Promise<void> {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) {
+    notify.hint("Java 语言服务器还没起好，格式化要等它");
+    return;
+  }
+  const st = view.state;
+  const unit = st.facet(indentUnit);
+  const tabs = unit.includes("\t");
+  const sel = st.selection.main;
+  let range = null;
+  if (!sel.empty) {
+    const a = st.doc.lineAt(sel.from);
+    const b = st.doc.lineAt(sel.to);
+    range = { line: a.number - 1, character: 0, endLine: b.number - 1, endCharacter: b.length };
+  }
+  const gen = st.field(genField, false) ?? 0;
+  let edits: Awaited<ReturnType<typeof javaFormat>>;
+  try {
+    edits = await javaFormat(s.root, s.path, st.doc.toString(), range, tabs ? st.tabSize : unit.length, !tabs);
+  } catch (e) {
+    notify.fail(`没格式化：${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  if (!view.dom.isConnected) return;
+  if ((view.state.field(genField, false) ?? 0) !== gen) {
+    notify.hint("格式化回来时文件又改过了，没动它 —— 再按一次 ⌥⌘L");
+    return;
+  }
+  const doc = view.state.doc;
+  const changes = edits
+    .map((e) => ({ from: offset(doc, e.line, e.character), to: offset(doc, e.endLine, e.endCharacter), insert: e.text }))
+    .filter((c) => c.insert !== doc.sliceString(c.from, c.to))
+    .sort((a, b) => a.from - b.from || a.to - b.to);
+  if (!changes.length) {
+    notify.hint(range ? "选中的这几行已经是这个格式了" : "已经是这个格式了");
+    return;
+  }
+  view.dispatch({ changes, userEvent: "input.format" });
+  notify.ok(`已格式化${range ? "选中的几行" : ""}：${changes.length} 处`);
+}
+
 // ── 改名（⇧F6，docs/IDEA.md 第 14 节） ──
 
 /**
@@ -600,6 +651,8 @@ export function javaLsp(root: string | null, path: string): Extension {
         { key: "Mod-Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
         // IDEA 的 Refactor → Rename（keymap.ts 登记成 cm6）
         { key: "Shift-F6", preventDefault: true, run: (v) => (void renameAt(v), true) },
+        // IDEA 的 Reformat Code。Prec.high 排在 Editor 里那条「格式化 JSON」前面：Java 文件里先到这儿（keymap.ts 里是同一行，说明写了两种）
+        { key: "Alt-Mod-l", preventDefault: true, run: (v) => (void formatJava(v), true) },
       ]),
     ),
     EditorView.theme({

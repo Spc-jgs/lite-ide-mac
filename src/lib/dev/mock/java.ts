@@ -287,6 +287,21 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       await wait(900);
       docs.set(path, String(a.text ?? ""));
       return rename(root, path, Number(a.line), Number(a.character), String(a.newName), (a.open as unknown as { path: string; text: string; dirty: boolean }[]) ?? []);
+    case "java_format": {
+      // 桩：只去掉行尾空白、把 `=` 两边补上空格（真的排版是 jdtls 的 Eclipse 格式化器）；位置照真实现是 UTF-16 行列。故意等 120 ms（实测）
+      await wait(120);
+      const text = String(a.text ?? "");
+      docs.set(path, text);
+      const r = a.range as unknown as { line: number; endLine: number } | null;
+      const edits: { line: number; character: number; endLine: number; endCharacter: number; text: string }[] = [];
+      text.split("\n").forEach((l, i) => {
+        if (r && (i < r.line || i > r.endLine)) return;
+        const t = l.replace(/\s+$/, "");
+        if (t.length < l.length) edits.push({ line: i, character: t.length, endLine: i, endCharacter: l.length, text: "" });
+        for (const m of t.matchAll(/(\w)=(\w)/g)) edits.push({ line: i, character: m.index! + 1, endLine: i, endCharacter: m.index! + 2, text: " = " });
+      });
+      return edits;
+    }
     case "java_class_contents":
       await wait(30);
       if (String(a.uri) !== JAR) throw new Error("这个类拿不到内容（jdtls 没有回源码，也没有反编译）");

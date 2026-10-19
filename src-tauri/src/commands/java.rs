@@ -114,6 +114,35 @@ pub async fn java_resolve(app: tauri::AppHandle, root: String, raw: String) -> R
     .await
 }
 
+/// 格式化（⌥⌘L）：返回要做的改动（行列从 0 数、列按 UTF-16），前端在编辑器里一笔做完。`range` 为空 = 整份
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn java_format(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    text: String,
+    range: Option<JavaRangeArg>,
+    tab_size: u32,
+    insert_spaces: bool,
+) -> Result<Vec<JavaEditDto>, String> {
+    blocking(move || {
+        let range = range.map(|r| crate::java::Edit { line: r.line, character: r.character, end_line: r.end_line, end_character: r.end_character, text: String::new() });
+        Ok(instance(&app, &root)?.format(&path, &text, range, tab_size, insert_spaces)?.into_iter().map(Into::into).collect())
+    })
+    .await
+}
+
+/// 一段范围（前端传）：行列从 0 数、列按 UTF-16
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaRangeArg {
+    pub line: u32,
+    pub character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+}
+
 /// 光标底下能不能改名（⇧F6 先问这个：不能改的地方不弹输入框）。null = 这里不能改名
 #[tauri::command]
 pub async fn java_prepare_rename(app: tauri::AppHandle, root: String, path: String, text: String, line: u32, character: u32) -> Result<Option<JavaRenameTargetDto>, String> {

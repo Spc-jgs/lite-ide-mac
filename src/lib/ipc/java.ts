@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaCompletion, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, ReplaceOutcome } from "./commands";
+import type { JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, ReplaceOutcome } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -28,6 +28,15 @@ export const javaPrepareRename = (root: string, path: string, text: string, line
 /** 改名（docs/IDEA.md 第 14 节）：照跨文件替换落盘，结果的形状同替换（开着的标签走同一条路跟上，撤销卡片照样能撤） */
 export const javaRename = (root: string, path: string, text: string, line: number, character: number, newName: string, open: OpenDoc[]) =>
   invoke<ReplaceOutcome>("java_rename", { root, path, text, line, character, newName, open });
+/** 格式化（⌥⌘L）：要做的改动。`range` 为空 = 整份；缩进照编辑器此刻的设置 */
+export const javaFormat = (
+  root: string,
+  path: string,
+  text: string,
+  range: { line: number; character: number; endLine: number; endCharacter: number } | null,
+  tabSize: number,
+  insertSpaces: boolean,
+) => invoke<JavaEdit[]>("java_format", { root, path, text, range, tabSize, insertSpaces });
 /** jar 里一个类的内容（`jdt://…`）：有源码 jar 就是源码，没有就是反编译的 */
 export const javaClassContents = (root: string, uri: string) => invoke<string>("java_class_contents", { root, uri });
 export const javaStatus = (root: string) => invoke<JavaStatus | null>("java_status", { root });

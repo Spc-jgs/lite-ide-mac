@@ -222,6 +222,8 @@ pub fn capabilities() -> Value {
             "definition": { "linkSupport": false },
             "references": {},
             "rename": { "prepareSupport": true },
+            "formatting": {},
+            "rangeFormatting": {},
             "hover": { "contentFormat": ["plaintext", "markdown"] },
             "completion": {
                 "completionItem": {

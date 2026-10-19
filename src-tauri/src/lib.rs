@@ -303,6 +303,7 @@ pub fn run() {
             commands::java_resolve,
             commands::java_prepare_rename,
             commands::java_rename,
+            commands::java_format,
             commands::java_references,
             commands::java_class_contents,
             commands::java_status,

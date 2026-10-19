@@ -319,6 +319,22 @@ impl Instance {
         Ok(resolved(&r))
     }
 
+    /// 格式化（⌥⌘L）：整份，或者 `range` 那几行。带着此刻的全文（同 `complete`）。缩进照编辑器此刻的设置给（`tab_size` 个空格 / Tab）——
+    /// 不给的话 jdtls 用 Eclipse 的默认（Tab 缩进），和文件现在的缩进对不上就是满屏改动（探针实测：给了它就照着排）
+    pub fn format(&self, path: &str, text: &str, range: Option<Edit>, tab_size: u32, spaces: bool) -> Result<Vec<Edit>, String> {
+        self.change(path, text);
+        let doc = json!({ "uri": uri::from_path(path) });
+        let options = json!({ "tabSize": tab_size, "insertSpaces": spaces });
+        let r = match range {
+            Some(r) => self.ask(
+                "textDocument/rangeFormatting",
+                json!({ "textDocument": doc, "options": options, "range": { "start": { "line": r.line, "character": r.character }, "end": { "line": r.end_line, "character": r.end_character } } }),
+            )?,
+            None => self.ask("textDocument/formatting", json!({ "textDocument": doc, "options": options }))?,
+        };
+        Ok(r.as_array().map(|a| a.iter().filter_map(|e| e["newText"].as_str().map(|t| edit_of(&e["range"], t))).collect()).unwrap_or_default())
+    }
+
     /// 光标底下能不能改名。带着此刻的全文（同 `complete`）。null / 不认 = 这里不能改名（关键字、注释里）
     pub fn prepare_rename(&self, path: &str, text: &str, line: u32, character: u32) -> Result<Option<RenameTarget>, String> {
         self.change(path, text);
