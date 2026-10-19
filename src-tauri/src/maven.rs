@@ -619,7 +619,7 @@ mod tests {
     }
 
     #[test]
-    fn 有效_pom_每个项目的插件_不算_pluginManagement_和插件自己的依赖() {
+    fn 有效_pom_每个项目的插件_不算_plugin_management_和插件自己的依赖() {
         let text = r#"<?xml version="1.0"?>
 <projects>
   <project xmlns="http://maven.apache.org/POM/4.0.0">

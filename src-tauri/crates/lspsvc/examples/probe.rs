@@ -63,7 +63,10 @@ fn main() {
     if let Ok(g) = std::env::var("GUESS") {
         opts["settings"]["java"]["completion"] = json!({ "guessMethodArguments": g });
     }
-    s.initialize(&uri(root), "root", jdtls::capabilities(), opts, Duration::from_secs(120)).unwrap();
+    if let Err(e) = s.initialize(&uri(root), "root", jdtls::capabilities(), opts, Duration::from_secs(120)) {
+        let x = exit_rx.recv_timeout(Duration::from_secs(5));
+        panic!("initialize 失败：{e:?}；退出：{:?}", x.map(|x| (x.status, x.stderr_tail)));
+    }
     println!("initialize {:.0} ms", t0.elapsed().as_secs_f64() * 1000.0);
     ready_rx.recv_timeout(Duration::from_secs(300)).expect("300 秒没等到 ServiceReady");
     println!("ServiceReady {:.0} ms", t0.elapsed().as_secs_f64() * 1000.0);

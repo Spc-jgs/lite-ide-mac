@@ -34,6 +34,10 @@ const GRACE: Duration = Duration::from_secs(3);
 pub const REFS_MAX: usize = 2000;
 /// 一个文件最多报多少条诊断（导入时整个项目的警告一起来，一个生成的文件可能几千条）
 const DIAG_MAX: usize = 500;
+/// 一次补全最多回多少项（jdtls 默认自己就截在 50 左右、标 isIncomplete；这里是防别的服务器 / 设置改大了一次回几千项）
+pub const COMPL_MAX: usize = 200;
+/// 补全项的说明文字最多留多少字（JDK 类的 Javadoc 动辄几千字，框里只看得下开头几段）
+const DOC_MAX: usize = 3000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Phase {
@@ -79,6 +83,43 @@ pub struct Diagnostic {
     /// 1 错 2 警告 3 信息 4 提示（LSP 的 DiagnosticSeverity）
     pub severity: u8,
     pub message: String,
+}
+
+/// 一处改动：`[line:character, end_line:end_character)` 换成 `text`。行列从 0 数、列按 UTF-16（LSP 的默认，正好是 JS 字符串下标）
+#[derive(Clone, Debug, PartialEq)]
+pub struct Edit {
+    pub line: u32,
+    pub character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+    pub text: String,
+}
+
+/// 一个补全项。**插什么看 `edit`，不看 `insertText`**：jdtls 的 `insertText` 是给不认 textEdit 的客户端的退路（方法只有名字），
+/// 真要插的在 `textEdit.newText`（`add(${0});`、带括号和光标位置）—— 第 3 步第一次用探针看的时候看错了字段，以为要自己补括号
+#[derive(Clone, Debug)]
+pub struct CompletionItem {
+    pub label: String,
+    /// LSP 的 CompletionItemKind（2 方法、5 字段、7 类……），界面上换成图标
+    pub kind: u32,
+    /// 跟在名字后面的灰字：方法的参数表 `(String name, int count)`
+    pub detail: String,
+    /// 靠右的灰字：返回类型 / 包名
+    pub description: String,
+    /// 没有 textEdit 的（别的服务器）：`edit` 为空，前端拿光标前那个词的范围、插 `label`
+    pub edit: Option<Edit>,
+    /// `newText` 是 snippet（`${1:name}`、`$0` 这种占位）
+    pub snippet: bool,
+    pub sort: String,
+    /// 原样的这一项（JSON）：选中时整个交回去 resolve —— jdtls 认 `data` 里它自己记的编号，别的字段也可能要
+    pub raw: String,
+}
+
+/// resolve 回来的：要一起做的改动（自动 import 就在这里，**只在 resolve 时才给**，补全列表里没有）+ 说明文字
+#[derive(Clone, Debug, Default)]
+pub struct Resolved {
+    pub edits: Vec<Edit>,
+    pub doc: String,
 }
 
 struct Shared {
@@ -227,6 +268,24 @@ impl Instance {
         r.as_str().map(str::to_owned).ok_or_else(|| "这个类拿不到内容（jdtls 没有回源码，也没有反编译）".into())
     }
 
+    /// 补全。带着编辑器里**此刻**的全文：前端改动是去抖 250ms 才发的，刚敲的那个点 jdtls 还没看到 ——
+    /// 先把这份文本作为一次改动发过去，再在同一根管道上问（jdtls 按顺序处理，问的时候已经是新文本）
+    pub fn complete(&self, path: &str, text: &str, line: u32, character: u32) -> Result<(Vec<CompletionItem>, bool, usize), String> {
+        self.change(path, text);
+        let r = self.ask(
+            "textDocument/completion",
+            json!({ "textDocument": { "uri": uri::from_path(path) }, "position": { "line": line, "character": character }, "context": { "triggerKind": 1 } }),
+        )?;
+        Ok(completion_items(&r))
+    }
+
+    /// 选中一项之后要的：自动 import（`additionalTextEdits`）和说明文字。`raw` 是补全时那一项的原样
+    pub fn resolve(&self, raw: &str) -> Result<Resolved, String> {
+        let item: Value = serde_json::from_str(raw).map_err(|e| format!("补全项不是 JSON：{e}"))?;
+        let r = self.ask("completionItem/resolve", item)?;
+        Ok(resolved(&r))
+    }
+
     fn stop(&self) {
         self.shared.set(Phase::Stopped);
         self.srv.shutdown(GRACE);
@@ -351,6 +410,60 @@ fn diagnostics(v: &Value) -> (Vec<Diagnostic>, usize) {
     all.sort_by_key(|d| (d.severity, d.line, d.character));
     all.truncate(DIAG_MAX);
     (all, total)
+}
+
+fn edit_of(range: &Value, text: &str) -> Edit {
+    Edit {
+        line: num(&range["start"]["line"]),
+        character: num(&range["start"]["character"]),
+        end_line: num(&range["end"]["line"]),
+        end_character: num(&range["end"]["character"]),
+        text: text.to_string(),
+    }
+}
+
+/// `CompletionItem[] | CompletionList | null` → `(前 COMPL_MAX 项, 是不是不完整, 真项数)`。不完整 = 服务器自己截了，接着敲要重新问
+pub fn completion_items(r: &Value) -> (Vec<CompletionItem>, bool, usize) {
+    let (arr, incomplete) = match r {
+        Value::Array(a) => (a.as_slice(), false),
+        Value::Object(_) => (r["items"].as_array().map(Vec::as_slice).unwrap_or(&[]), r["isIncomplete"].as_bool().unwrap_or(false)),
+        _ => (&[][..], false),
+    };
+    let total = arr.len();
+    let items = arr
+        .iter()
+        .take(COMPL_MAX)
+        .map(|it| {
+            let te = &it["textEdit"];
+            // InsertReplaceEdit（`insert` / `replace` 两个范围）：取 `replace` —— 光标在词中间时把后半截也换掉，IDEA 回车补全就是这样
+            let edit = te["newText"].as_str().map(|t| edit_of(if te["range"].is_object() { &te["range"] } else { &te["replace"] }, t));
+            CompletionItem {
+                label: it["label"].as_str().unwrap_or("").to_string(),
+                kind: it["kind"].as_u64().unwrap_or(1) as u32,
+                detail: it["labelDetails"]["detail"].as_str().unwrap_or("").to_string(),
+                description: it["labelDetails"]["description"].as_str().or(it["detail"].as_str()).unwrap_or("").to_string(),
+                snippet: it["insertTextFormat"].as_u64() == Some(2),
+                edit,
+                sort: it["sortText"].as_str().unwrap_or("").to_string(),
+                raw: it.to_string(),
+            }
+        })
+        .collect();
+    (items, incomplete || total > COMPL_MAX, total)
+}
+
+/// resolve 的回包 → 要一起做的改动 + 说明文字（`string | MarkupContent`，截在 [`DOC_MAX`] 字、切在字符边界上）
+pub fn resolved(r: &Value) -> Resolved {
+    let edits = r["additionalTextEdits"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|e| e["newText"].as_str().map(|t| edit_of(&e["range"], t))).collect())
+        .unwrap_or_default();
+    let doc = r["documentation"].as_str().or(r["documentation"]["value"].as_str()).unwrap_or("");
+    let doc = match doc.char_indices().nth(DOC_MAX) {
+        Some((i, _)) => format!("{}…", &doc[..i]),
+        None => doc.to_string(),
+    };
+    Resolved { edits, doc }
 }
 
 /// 服务器问我们的。只答真问得到的几种；`workspace/applyEdit` 第 2 步不接（只读智能），答「没改」
@@ -615,6 +728,58 @@ fn spawn_janitor(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 补全_插的是_textedit_不是_inserttext_带范围_认_snippet() {
+        // jdtls 实测的一项（guessMethodArguments 关着）：insertText 只有名字，真要插的在 textEdit
+        let r = json!({ "isIncomplete": false, "items": [
+            { "label": "add", "kind": 2, "insertText": "add", "insertTextFormat": 2, "sortText": "999999035",
+              "labelDetails": { "detail": "(String name, int count)", "description": "void" },
+              "textEdit": { "newText": "add(${0});", "range": { "start": { "line": 10, "character": 13 }, "end": { "line": 10, "character": 15 } } },
+              "data": { "pid": "0", "rid": "0" } },
+            { "label": "ArrayList", "kind": 7, "detail": "java.util.ArrayList", "insertTextFormat": 1,
+              "textEdit": { "newText": "ArrayList", "insert": { "start": { "line": 4, "character": 8 }, "end": { "line": 4, "character": 15 } },
+                            "replace": { "start": { "line": 4, "character": 8 }, "end": { "line": 4, "character": 20 } } } },
+            { "label": "foo" }
+        ]});
+        let (items, incomplete, total) = completion_items(&r);
+        assert_eq!((items.len(), incomplete, total), (3, false, 3));
+        let add = &items[0];
+        assert_eq!(add.edit, Some(Edit { line: 10, character: 13, end_line: 10, end_character: 15, text: "add(${0});".into() }));
+        assert!(add.snippet);
+        assert_eq!((add.detail.as_str(), add.description.as_str(), add.kind), ("(String name, int count)", "void", 2));
+        assert!(add.raw.contains("\"pid\""), "原样带着 data，resolve 要用：{}", add.raw);
+        // InsertReplaceEdit 取 replace；没有 labelDetails 的说明退回 detail
+        let al = &items[1];
+        assert_eq!(al.edit.as_ref().map(|e| e.end_character), Some(20));
+        assert!(!al.snippet);
+        assert_eq!(al.description, "java.util.ArrayList");
+        assert!(items[2].edit.is_none(), "没有 textEdit 的交给前端按光标前的词插 label");
+        // 数组形式（不是 CompletionList）也认
+        assert_eq!(completion_items(&json!([{ "label": "x" }])).0.len(), 1);
+        assert_eq!(completion_items(&Value::Null).0.len(), 0);
+    }
+
+    #[test]
+    fn 补全_超过上限截断_报不完整和真项数() {
+        let many: Vec<Value> = (0..COMPL_MAX + 7).map(|i| json!({ "label": format!("x{i}") })).collect();
+        let (items, incomplete, total) = completion_items(&json!({ "isIncomplete": false, "items": many }));
+        assert_eq!((items.len(), incomplete, total), (COMPL_MAX, true, COMPL_MAX + 7));
+    }
+
+    #[test]
+    fn resolve_自动_import_在_additionaltextedits_说明截断在字符边界() {
+        let r = json!({
+            "additionalTextEdits": [{ "newText": "\n\nimport java.util.ArrayList;\n\n", "range": { "start": { "line": 0, "character": 13 }, "end": { "line": 2, "character": 0 } } }],
+            "documentation": { "kind": "markdown", "value": "数".repeat(DOC_MAX + 5) }
+        });
+        let got = resolved(&r);
+        assert_eq!(got.edits, vec![Edit { line: 0, character: 13, end_line: 2, end_character: 0, text: "\n\nimport java.util.ArrayList;\n\n".into() }]);
+        assert_eq!(got.doc.chars().count(), DOC_MAX + 1, "截到 DOC_MAX 个字再加一个省略号");
+        assert!(got.doc.ends_with('…'));
+        assert_eq!(resolved(&json!({ "documentation": "纯文本" })).doc, "纯文本");
+        assert!(resolved(&json!({})).edits.is_empty());
+    }
 
     #[test]
     fn 位置_几种回法都认_jar_里的类给全名() {

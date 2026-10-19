@@ -14,6 +14,8 @@ import { docs } from "../state/docs.svelte";
 import { nav } from "../state/nav.svelte";
 import { terms } from "../state/terms.svelte";
 import { runs } from "../state/runs.svelte";
+import { acceptCompletion, completionStatus, currentCompletions } from "@codemirror/autocomplete";
+import type { EditorView } from "@codemirror/view";
 
 /*
  * **模块级的副作用，给 CI 当哨兵**（ci.yml「开发桩不许进产物」）：正式产物里出现这个串 = 测试钩子漏进去了。
@@ -132,6 +134,16 @@ export function installTestHooks() {
       for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) ?? "");
       return out.join("\n").trimEnd();
     },
+    /**
+     * 补全此刻的状态和候选（读 CM6 的状态，不读补全框的 DOM：测试应用的窗口在后台时动画帧不走，框不一定画得出来）。
+     * `status` 是 "active" / "pending" / null；`selected` 是选中的那一项
+     */
+    completions: () => {
+      const v = mustEditor() as unknown as EditorView;
+      return { status: completionStatus(v.state), labels: currentCompletions(v.state).map((c) => c.label), detail: currentCompletions(v.state).map((c) => c.detail ?? "") };
+    },
+    /** 接受选中的补全项（回车的效果）。CM6 补全框刚出来 75ms 内不认接受（interactionDelay，防手快误选），调之前先等一会儿 */
+    acceptCompletion: () => acceptCompletion(mustEditor() as unknown as EditorView),
     /** 光标此刻在哪：`"行:列"`（都从 1 起）。跳转类的断言读它 */
     where: () => {
       const v = mustEditor();

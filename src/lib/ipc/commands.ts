@@ -137,6 +137,44 @@ export interface JavaRefs {
   total: number;
 }
 
+/** 一处改动：`[line:character, endLine:endCharacter)` 换成 `text`。行列从 0 数、列按 UTF-16 */
+export interface JavaEdit {
+  line: number;
+  character: number;
+  endLine: number;
+  endCharacter: number;
+  text: string;
+}
+
+/** 一个补全项（docs/IDEA.md 第 3 步）。插什么看 `edit`（null = 按光标前那个词插 `label`）；`raw` 原样交回 `javaResolve` */
+export interface JavaCompletionItem {
+  label: string;
+  /** LSP 的 CompletionItemKind：2 方法、3 函数、4 构造器、5 字段、6 变量、7 类、8 接口、9 模块、10 属性、13 枚举、14 关键字、20 枚举值、21 常量、25 类型参数 */
+  kind: number;
+  /** 名字后面的灰字（方法的参数表） */
+  detail: string;
+  /** 靠右的灰字（返回类型 / 包名） */
+  description: string;
+  edit: JavaEdit | null;
+  /** `edit.text` 是 snippet（`${1:name}` 这种占位） */
+  snippet: boolean;
+  sort: string;
+  raw: string;
+}
+
+export interface JavaCompletion {
+  items: JavaCompletionItem[];
+  /** 服务器自己截了：接着敲要重新问，不能只在已有的里面筛 */
+  incomplete: boolean;
+  total: number;
+}
+
+/** 选中一项之后要的：自动 import（只在这里给）+ 说明文字 */
+export interface JavaResolved {
+  edits: JavaEdit[];
+  doc: string;
+}
+
 /** 合并视图里的一份日志（`logengine::merge`，docs/MERGE.md） */
 export interface MergeSource {
   path: string;

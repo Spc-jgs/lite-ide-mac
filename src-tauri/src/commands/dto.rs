@@ -865,6 +865,54 @@ impl From<crate::java::Location> for JavaLocationDto {
     }
 }
 
+/// 一处改动（补全要插的、自动 import 要加的）。行列从 0 数、列按 UTF-16
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaEditDto {
+    pub line: u32,
+    pub character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+    pub text: String,
+}
+
+impl From<crate::java::Edit> for JavaEditDto {
+    fn from(e: crate::java::Edit) -> Self {
+        JavaEditDto { line: e.line, character: e.character, end_line: e.end_line, end_character: e.end_character, text: e.text }
+    }
+}
+
+/// 一个补全项。插什么看 `edit`（null = 按光标前那个词插 `label`）；`raw` 原样交回 `java_resolve`
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaCompletionItemDto {
+    pub label: String,
+    pub kind: u32,
+    pub detail: String,
+    pub description: String,
+    pub edit: Option<JavaEditDto>,
+    pub snippet: bool,
+    pub sort: String,
+    pub raw: String,
+}
+
+/// 一次补全。`incomplete`：服务器自己截了（或者超过 `java::COMPL_MAX`），接着敲要重新问；`total` 是真项数
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaCompletionDto {
+    pub items: Vec<JavaCompletionItemDto>,
+    pub incomplete: bool,
+    pub total: u32,
+}
+
+/// resolve 回来的：要一起做的改动（自动 import）+ 说明文字（纯文本，可能是 markdown 原文）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaResolvedDto {
+    pub edits: Vec<JavaEditDto>,
+    pub doc: String,
+}
+
 /// 查用法的结果。`total` 是真条数；超过 `java::REFS_MAX` 时 `items` 只有前一截，界面要说出来
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

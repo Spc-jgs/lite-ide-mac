@@ -137,6 +137,58 @@ ${Array.from({ length: 148 }, (_, i) => `    // ……第 ${i + 4} 行`).join("\
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/*
+ * 补全（第 3 步）：形状照 jdtls 实测（docs/IDEA.md 第 13 节）—— 方法插 `name(${0})`（snippet），要 import 的类**只在 resolve 时**给 import。
+ * `.` 后面：一小张 List 的成员表；裸词：几个 JDK 类 + 本文件里声明的方法。真的语义不模拟
+ */
+const MEMBERS = [
+  { label: "add", detail: "(E e)", description: "boolean" },
+  { label: "addAll", detail: "(Collection<? extends E> c)", description: "boolean" },
+  { label: "get", detail: "(int index)", description: "E" },
+  { label: "isEmpty", detail: "()", description: "boolean" },
+  { label: "size", detail: "()", description: "int" },
+  { label: "stream", detail: "()", description: "Stream<E>" },
+];
+const CLASSES = [
+  { label: "ArrayList", pkg: "java.util" },
+  { label: "HashMap", pkg: "java.util" },
+  { label: "List", pkg: "java.util" },
+  { label: "Optional", pkg: "java.util" },
+  { label: "String", pkg: "java.lang" },
+  { label: "StringBuilder", pkg: "java.lang" },
+];
+
+function complete(path: string, text: string, line: number, ch: number) {
+  const l = text.split("\n")[line] ?? "";
+  let a = ch;
+  while (a > 0 && /[\w$]/.test(l[a - 1])) a--;
+  const word = l.slice(a, ch);
+  const range = { line, character: a, endLine: line, endCharacter: ch };
+  const item = (label: string, kind: number, newText: string, detail: string, description: string, extra: object = {}) => ({
+    label, kind, detail, description, snippet: newText.includes("${"), sort: "", edit: { ...range, text: newText },
+    raw: JSON.stringify({ label, path, ...extra }),
+  });
+  if (l[a - 1] === ".") return { items: MEMBERS.map((m) => item(m.label, 2, `${m.label}(\${0})`, m.detail, m.description)), incomplete: false, total: MEMBERS.length };
+  if (!word) return { items: [], incomplete: false, total: 0 };
+  const own = [...text.matchAll(/^\s*(?:public|private|protected|static|\s)*[\w<>\[\]]+\s+(\w+)\s*\(([^)]*)\)/gm)].map((m) => item(m[1], 2, `${m[1]}(\${0})`, `(${m[2]})`, ""));
+  const cls = CLASSES.map((c) => item(c.label, 7, c.label, "", c.pkg, c.pkg === "java.lang" ? {} : { import: `${c.pkg}.${c.label}` }));
+  const items = [...own, ...cls].filter((i) => i.label.toLowerCase().startsWith(word.toLowerCase()));
+  return { items, incomplete: false, total: items.length };
+}
+
+/** 要 import 的：插在 package 那一行后面（文件里已经 import 过就不加，同 jdtls） */
+function resolve(raw: string) {
+  const it = JSON.parse(raw) as { label: string; path: string; import?: string };
+  const doc = `${it.label}（桩里的说明文字：真实现是 Javadoc，markdown 原文）`;
+  if (!it.import) return { edits: [], doc };
+  const text = docs.get(it.path) ?? FILES[it.path] ?? "";
+  if (text.includes(`import ${it.import};`)) return { edits: [], doc };
+  const lines = text.split("\n");
+  const pk = lines.findIndex((l) => l.startsWith("package "));
+  const at = pk >= 0 ? { line: pk, character: lines[pk].length } : { line: 0, character: 0 };
+  return { edits: [{ ...at, endLine: at.line, endCharacter: at.character, text: pk >= 0 ? `\n\nimport ${it.import};` : `import ${it.import};\n\n` }], doc };
+}
+
 export async function javaCmd(cmd: string, a: A): Promise<unknown> {
   const root = String(a.root ?? "");
   const path = String(a.path ?? "");
@@ -163,6 +215,13 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
     case "java_references":
       await wait(70); // 之后 p50 65 ms
       return references(root, path, Number(a.line), Number(a.character));
+    case "java_complete":
+      await wait(60); // 实测 59–66 ms（第 3 步的探针）
+      docs.set(path, String(a.text ?? ""));
+      return complete(path, String(a.text ?? ""), Number(a.line), Number(a.character));
+    case "java_resolve":
+      await wait(250); // 实测 137–254 ms：所以选中时就在后台问，不等回车
+      return resolve(String(a.raw));
     case "java_class_contents":
       await wait(30);
       if (String(a.uri) !== JAR) throw new Error("这个类拿不到内容（jdtls 没有回源码，也没有反编译）");

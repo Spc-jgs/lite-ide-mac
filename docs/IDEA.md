@@ -359,3 +359,27 @@ Spring Boot                     ┃ 选中那个服务的输出（就是运行�
 没做的：Debug（第 5 步）、Spring Boot 以外的服务类型（Docker、数据库）、Actuator 页、左右两栏之间拖宽度。
 
 **真 .app `scripts/accept/spring.sh` 24/24**（新加 5 条）：起 UserApplication 亮的是 Services 不是运行窗；它在 Running、端口是 lsof 从它那个进程组查到的 `:58567`；⌘F2 停的是 Services 里选中的它（端口空了、组里一个不剩）、停完挪进 Finished；在 Services 里双击再起、点工具栏的停止，同样停干净。运行窗的标签里只有 `order-service [package]`，服务没混进去。状态层 `runs.state.test.ts` 新加 10 条，6 种改坏的版本都红。
+
+## 13. 第 3 步之一：补全（2026-10-19）
+
+先用探针（`lspsvc/examples/probe.rs`，自造的小项目，不碰你的项目）看 jdtls 的原样回包，再定怎么接。三件量出来的事：
+
+| | 实测 | 决定了什么 |
+|---|---|---|
+| 方法项插什么 | `insertText` 只有名字 `add`；**真要插的在 `textEdit.newText`**：`add(${0});`（`guessMethodArguments` 开着是 `add(${1:name}, ${2:count});`） | 插 `textEdit`，按 snippet 走（光标停在括号里）。默认不猜参数 —— 光标落在空括号里，和 IDEA 一样。之前记的「要客户端自己补括号」是看错了字段 |
+| 自动 import 在哪 | 补全列表里**没有**；只在 `completionItem/resolve` 的 `additionalTextEdits` 里给 | 要 resolve，而 resolve 慢（下一行） |
+| 多快 | 补全 59–66 ms（`.` 后面 47 项 232 ms）；resolve 137–254 ms | 回车时不能等 resolve：选中项高亮时就在后台问（CM6 要说明框的时候本来就会来要），回车时手上有就一次做完；没有就先插正文、import 回来再补到上面 |
+
+几个决定：
+
+- **问的时候带着全文。** 前端改动去抖 250ms 才发，刚敲的那个字 jdtls 还没看到。`java_complete` 先把这份文本作为一次改动发过去、再在同一根管道上问 —— jdtls 按顺序处理，问到的是新文本。
+- **只在第一个字、`.`、`@` 后面问**，之后接着敲在已有的里面筛（CM6 的 `validFor`）；jdtls 说它截了（`isIncomplete`）才每个字都问。
+- **jdtls 的排序要保住**：CM6 先按「和敲的字的匹配度」排，jdtls 按「类型对不对、离得近不近」排。按名次给 ±20 的加分，只够在匹配度相近时排出先后。
+- **import 只收补全那一行上面的**：它们是在补全前那份文本上算的行列，回来之前人可能接着敲了 —— 敲在光标处，上面的行没动。
+- jdtls 没起好、或者不是 Maven / Gradle 项目：退回「文档里出现过的词」（原来的行为），补全框不会在 Java 文件里整个没了。
+- 一次最多 200 项（`java::COMPL_MAX`）、说明文字最多 3000 字（JDK 的 Javadoc 动辄几千字），截了照实标。
+
+**真 .app `scripts/accept/java.sh` 24/24**（新加 4 条）：敲 `ArrayLi` 到候选出来 450–472 ms（含 CM6 敲字后等的 100 ms）；选中后那一行是 `ArrayList`、文件顶上多了
+`import java.util.ArrayList;`；`c.getNa` 补出 Lombok 生成的 `getName`，插的是 `getName()`。去掉「接受时去 resolve」的错版本，import 那条红。
+
+还没做（第 3 步剩下的）：参数提示（敲 `(` 之后浮出参数表）、改名、重构、快速修复、格式化。

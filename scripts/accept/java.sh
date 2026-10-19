@@ -145,6 +145,27 @@ lite_eval main "__lite.setText(__lite.text().replace('c.getNamee()', 'c.getName(
 lite_wait main "return document.querySelectorAll('.cm-diag-err').length === 0" 15
 ok "$([ -z "$(errs)" ] && echo 1)" "改回去，波浪线没了"
 
+echo "== 补全（docs/IDEA.md 第 3 步）：要 import 的类选中后自动加 import；Lombok 生成的方法带上括号"
+# 读 CM6 的补全状态（__lite.completions），不读补全框 —— 测试应用的窗口在后台时帧不走，框不一定画得出来。
+# 敲字走 __lite.type（userEvent input.type，和真打字一样触发补全），不发系统按键
+ORIG=$(lite_eval main "return __lite.text()")
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('c.setName(')); __lite.caret(l + 1, t[l].length + 1); __lite.type('\\n        ArrayLi'); return true" >/dev/null
+T1=$(lite_now_ms)
+lite_wait main "return __lite.completions().labels.includes('ArrayList')" 15 >/dev/null
+TC=$(( $(lite_now_ms) - T1 ))
+ok "$([ "$(lite_eval main "return __lite.completions().labels.includes('ArrayList')")" = true ] && echo 1)" "敲 ArrayLi 出了 ArrayList：${TC} ms（含 CM6 敲字后等 100ms 再问）；前几项 $(lite_eval main "return __lite.completions().labels.slice(0, 4).join(' / ')")"
+sleep 0.3   # CM6 刚弹出 75ms 内不认接受
+lite_eval main "return __lite.acceptCompletion()" >/dev/null
+lite_wait main "return __lite.text().includes('import java.util.ArrayList;')" 5 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.text().includes('import java.util.ArrayList;') && /^\\s+ArrayList$/m.test(__lite.text())")" = true ] && echo 1)" "选中之后：那一行是 ArrayList、文件顶上加了 import java.util.ArrayList;（自动 import 只在 resolve 时才给）"
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => /^\\s+ArrayList$/.test(x)); __lite.caret(l + 1, t[l].length + 1); __lite.type('; c.getNa'); return true" >/dev/null
+lite_wait main "return __lite.completions().labels.includes('getName')" 15 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.completions().labels.includes('getName')")" = true ] && echo 1)" "c.getNa 出了 getName（Lombok 生成的，jdtls 带着 Lombok 跑才认得）"
+sleep 0.3
+lite_eval main "const c = __lite.completions(); if (c.labels[0] !== 'getName') return c.labels.join(','); return __lite.acceptCompletion()" >/dev/null
+ok "$([ "$(lite_eval main "return __lite.text().includes('c.getName()')")" = true ] && echo 1)" "插的是 getName()（带括号 —— jdtls 的 textEdit，不是只有名字的 insertText）：$(lite_eval main "return __lite.text().split('\\n').find((x) => x.includes('c.getNa')) ?? ''" | sed 's/^ *//')"
+lite_eval main "__lite.setText($(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' <<< "${ORIG}")); return true" >/dev/null
+
 echo "== ⌘B：Lombok 生成的方法、兄弟模块的类、jar 里的类"
 caret_on 'getName()' >/dev/null
 lite_eval main "__lite.key('Mod-b'); return true" >/dev/null

@@ -17,9 +17,11 @@
  */
 import { Decoration, EditorView, ViewPlugin, hoverTooltip, keymap, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { Prec, StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
+import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
-import { listenHere, type JavaDiagnostic, type JavaDiagnostics, type JavaLocation, type JavaStatus } from "../ipc/commands";
-import { javaChange, javaClose, javaDefinition, javaOpen, javaReferences } from "../ipc/java";
+import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
+import { javaChange, javaClose, javaComplete, javaDefinition, javaOpen, javaReferences, javaResolve } from "../ipc/java";
+import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { nav } from "../state/nav.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
 import { notify } from "../state/notify.svelte";
@@ -383,6 +385,128 @@ async function findUsages(view: EditorView): Promise<void> {
   });
 }
 
+// ── 补全（docs/IDEA.md 第 3 步、第 13 节） ──
+
+/**
+ * resolve 的结果按这一项的原样记住（同一次补全里上下移动选中项会反复问到同一项）。只留最近这一批：换一次补全列表就清
+ */
+let resolving = new Map<string, Promise<JavaResolved | null>>();
+
+function resolveOf(root: string, raw: string): Promise<JavaResolved | null> {
+  let p = resolving.get(raw);
+  if (!p) {
+    p = javaResolve(root, raw).catch(() => null);
+    resolving.set(raw, p);
+  }
+  return p;
+}
+
+/** 已经回来了的 resolve（同步取）：回车时手上有就和正文一起做，没有就先插正文 */
+const settled = new Map<string, JavaResolved | null>();
+
+/**
+ * 自动 import（和别的 additionalTextEdits）→ CM6 的改动。**只收补全那一行上面的**：它们是在补全前那份文本上算的行列，
+ * 回来之前人可能已经接着敲了 —— 敲在光标处，上面的行没动，行列照样对；落在补全那一行或者下面的就不敢做了（没见 jdtls 给过）
+ */
+function importChanges(doc: Text, edits: JavaEdit[], line: number) {
+  return edits
+    .filter((e) => e.endLine < line)
+    .map((e) => ({ from: offsetOf(doc, e.line, e.character), to: offsetOf(doc, e.endLine, e.endCharacter), insert: e.text }));
+}
+
+type JavaOption = Completion & { description: string };
+
+function toCompletion(root: string, it: JavaCompletionItem, index: number, total: number): JavaOption {
+  const text = it.edit?.text ?? it.label;
+  return {
+    label: it.label,
+    detail: it.detail || undefined,
+    type: kindType(it.kind),
+    boost: boostOf(index, total),
+    // 右边那一格（返回类型 / 包名）在 addToOptions 里画
+    description: it.description,
+    // 说明文字：选中时 CM6 来要，顺手把 resolve 先问了 —— 回车时自动 import 多半已经在手上（resolve 实测 140–250 ms）
+    info: async () => {
+      const r = await resolveOf(root, it.raw);
+      settled.set(it.raw, r);
+      if (!r?.doc) return null;
+      const dom = document.createElement("div");
+      dom.className = "cm-java-doc";
+      dom.textContent = r.doc; // 不插 HTML（tests/no-html-sinks.test.ts）；markdown 原文也读得懂
+      return dom;
+    },
+    apply: (view, c, from, to) => {
+      const line = view.state.doc.lineAt(from).number - 1;
+      const ready = settled.get(it.raw);
+      const pending = ready === undefined ? resolveOf(root, it.raw) : null;
+      // 手上已有 import：先加 import（在上面），再把补全的范围挪一下、插正文 —— 撤销时两样分两步，但都在这一下里发生
+      if (ready?.edits.length) {
+        const changes = importChanges(view.state.doc, ready.edits, line);
+        if (changes.length) {
+          const tr = view.state.update({ changes, userEvent: "input.complete" });
+          view.dispatch(tr);
+          from = tr.changes.mapPos(from, -1);
+          to = tr.changes.mapPos(to, 1);
+        }
+      }
+      if (it.snippet) snippet(lspSnippet(text))(view, c, from, to);
+      else view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length }, userEvent: "input.complete", scrollIntoView: true });
+      // 还没回来：先插了正文，import 回来再补到上面（第 13 节「两段」）
+      void pending?.then((r) => {
+        if (!r?.edits.length || !view.dom.isConnected) return;
+        const changes = importChanges(view.state.doc, r.edits, view.state.doc.lineAt(view.state.selection.main.head).number - 1);
+        if (changes.length) view.dispatch({ changes, userEvent: "input.complete" });
+      });
+    },
+  };
+}
+
+/**
+ * 补全源。jdtls 没起好、或者不是 Maven / Gradle 项目：退回「文档里出现过的词」（原来的行为），不让补全框在 Java 文件里整个没了。
+ * **只在第一个字、`.` 和 `@` 后面问**：之后接着敲在已有的里面筛（`validFor`）—— 除非 jdtls 说它截了（incomplete），那就每个字都问
+ */
+async function javaSource(ctx: CompletionContext): Promise<CompletionResult | null> {
+  const view = ctx.view;
+  const s = view && syncs.get(view);
+  if (!s || !usable(s.root)) return completeAnyWord(ctx);
+  const word = ctx.matchBefore(/[\p{L}\p{N}_$]*/u);
+  const from = word?.from ?? ctx.pos;
+  const before = ctx.state.sliceDoc(from - 1, from);
+  if (!ctx.explicit && from === ctx.pos && before !== "." && before !== "@") return null;
+  const doc = ctx.state.doc;
+  const line = doc.lineAt(ctx.pos);
+  let r: Awaited<ReturnType<typeof javaComplete>>;
+  try {
+    r = await javaComplete(s.root, s.path, doc.toString(), line.number - 1, ctx.pos - line.from);
+  } catch {
+    return null;
+  }
+  if (ctx.aborted || !r.items.length) return null;
+  resolving = new Map();
+  settled.clear();
+  // 替换从哪儿起：jdtls 给的范围的起点（一般就是光标前那个词的开头）；各项不一样的取最靠前的
+  const starts = r.items.filter((i) => i.edit).map((i) => offsetOf(doc, i.edit!.line, i.edit!.character));
+  const start = starts.length ? Math.min(from, ...starts) : from;
+  return {
+    from: start,
+    options: r.items.map((it, i) => toCompletion(s.root, it, i, r.items.length)),
+    validFor: r.incomplete ? undefined : /^[\p{L}\p{N}_$]*$/u,
+  };
+}
+
+/** 补全框每行右边那一格：返回类型 / 包名（IDEA 的补全也是这么摆的） */
+const descriptionColumn = {
+  position: 90,
+  render(c: Completion) {
+    const d = (c as Partial<JavaOption>).description;
+    if (!d) return null;
+    const el = document.createElement("span");
+    el.className = "cm-java-desc";
+    el.textContent = d;
+    return el;
+  },
+};
+
 /** 装进 Java 编辑器的那一份。`root` 为空（没项目）或者文件不在项目里：只是空数组 */
 export function javaLsp(root: string | null, path: string): Extension {
   if (!root || !path.startsWith(`${root}/`)) return [];
@@ -391,6 +515,8 @@ export function javaLsp(root: string | null, path: string): Extension {
     genField,
     diagField,
     diagHover,
+    // 换掉通用的「文档里的词」：Java 文件里由 javaSource 说了算（它自己会在 jdtls 没起好时退回去）。和 Editor 里那份 autocompletion() 的配置合并
+    autocompletion({ override: [javaSource], addToOptions: [descriptionColumn] }),
     ViewPlugin.define((view) => new Sync(view, root, path)),
     // IDEA 的键位：⌥F7 查找用法、⌥⌘F7 Show Usages。两个都开同一张列表（UsagesPopup.svelte 头上说了为什么）
     Prec.high(
@@ -406,6 +532,10 @@ export function javaLsp(root: string | null, path: string): Extension {
       ".cm-diag-info": { textDecoration: "underline dotted var(--lvl-info) 1px", textUnderlineOffset: "3px" },
       ".cm-diag-tip": { padding: "6px 10px", maxWidth: "560px", fontFamily: "var(--ui-font)", fontSize: "var(--fs-sm)", lineHeight: "1.45" },
       ".cm-diag-tip > div + div": { marginTop: "4px" },
+      ".cm-java-desc": { marginLeft: "auto", paddingLeft: "16px", color: "var(--text-faint)", fontSize: "var(--fs-xs)" },
+      // 选中行是强调色底（theme-idea-dark.ts）：灰字在蓝底上读不清，同 .cm-completionDetail 换成 80% 白
+      ".cm-tooltip-autocomplete > ul > li[aria-selected] .cm-java-desc": { color: "rgba(255, 255, 255, 0.8)" },
+      ".cm-java-doc": { padding: "6px 10px", maxWidth: "480px", maxHeight: "260px", overflow: "auto", whiteSpace: "pre-wrap", fontFamily: "var(--ui-font)", fontSize: "var(--fs-sm)", lineHeight: "1.45", color: "var(--text-muted)" },
       ".cm-diag-tip > .err::before": { content: '"✕ "', color: "var(--lvl-error)" },
       ".cm-diag-tip > .warn::before": { content: '"! "', color: "var(--lvl-warn)" },
     }),

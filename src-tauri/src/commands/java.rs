@@ -81,6 +81,39 @@ pub async fn java_references(app: tauri::AppHandle, root: String, path: String, 
     .await
 }
 
+/// 补全。带着编辑器此刻的全文（先同步再问，见 `java::Instance::complete`）。位置行列从 0 数、列按 UTF-16
+#[tauri::command]
+pub async fn java_complete(app: tauri::AppHandle, root: String, path: String, text: String, line: u32, character: u32) -> Result<JavaCompletionDto, String> {
+    blocking(move || {
+        let (items, incomplete, total) = instance(&app, &root)?.complete(&path, &text, line, character)?;
+        let items = items
+            .into_iter()
+            .map(|i| JavaCompletionItemDto {
+                label: i.label,
+                kind: i.kind,
+                detail: i.detail,
+                description: i.description,
+                edit: i.edit.map(Into::into),
+                snippet: i.snippet,
+                sort: i.sort,
+                raw: i.raw,
+            })
+            .collect();
+        Ok(JavaCompletionDto { items, incomplete, total: total as u32 })
+    })
+    .await
+}
+
+/// 选中的那一项要的自动 import 和说明文字
+#[tauri::command]
+pub async fn java_resolve(app: tauri::AppHandle, root: String, raw: String) -> Result<JavaResolvedDto, String> {
+    blocking(move || {
+        let r = instance(&app, &root)?.resolve(&raw)?;
+        Ok(JavaResolvedDto { edits: r.edits.into_iter().map(Into::into).collect(), doc: r.doc })
+    })
+    .await
+}
+
 /// jar 里一个类的内容（`jdt://…`）：有源码 jar 就是源码，没有就是反编译的
 #[tauri::command]
 pub async fn java_class_contents(app: tauri::AppHandle, root: String, uri: String) -> Result<String, String> {

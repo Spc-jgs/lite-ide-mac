@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaLocation, JavaRefs, JavaStatus } from "./commands";
+import type { JavaCompletion, JavaLocation, JavaRefs, JavaResolved, JavaStatus } from "./commands";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
 /** 不是 Maven / Gradle 项目给 null：不起 jdtls，也不算错 */
@@ -16,6 +16,11 @@ export const javaDefinition = (root: string, path: string, line: number, charact
   invoke<JavaLocation[]>("java_definition", { root, path, line, character });
 export const javaReferences = (root: string, path: string, line: number, character: number) =>
   invoke<JavaRefs>("java_references", { root, path, line, character });
+/** 补全：带着编辑器此刻的全文（Rust 那边先同步再问 —— 去抖还没发出去的那几个字 jdtls 也要看到） */
+export const javaComplete = (root: string, path: string, text: string, line: number, character: number) =>
+  invoke<JavaCompletion>("java_complete", { root, path, text, line, character });
+/** 选中的那一项：自动 import + 说明文字 */
+export const javaResolve = (root: string, raw: string) => invoke<JavaResolved>("java_resolve", { root, raw });
 /** jar 里一个类的内容（`jdt://…`）：有源码 jar 就是源码，没有就是反编译的 */
 export const javaClassContents = (root: string, uri: string) => invoke<string>("java_class_contents", { root, uri });
 export const javaStatus = (root: string) => invoke<JavaStatus | null>("java_status", { root });

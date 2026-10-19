@@ -92,6 +92,10 @@ const PAIRS: &[(&str, &str)] = &[
     ("JavaDiagnosticDto", "JavaDiagnostic"),
     ("JavaLocationDto", "JavaLocation"),
     ("JavaRefsDto", "JavaRefs"),
+    ("JavaEditDto", "JavaEdit"),
+    ("JavaCompletionItemDto", "JavaCompletionItem"),
+    ("JavaCompletionDto", "JavaCompletion"),
+    ("JavaResolvedDto", "JavaResolved"),
 ];
 
 struct RustStruct {
