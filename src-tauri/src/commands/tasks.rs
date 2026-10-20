@@ -46,11 +46,20 @@ pub async fn task_new_file(root: String) -> Result<String, String> {
 /// 跑一个任务（按名字现找定义：tasks.json 可能刚改过）。同一个窗口里同名的还在跑 → 先停它、等它真没了再起
 /// （`AppState::begin_run`）。返回这次运行的 id 和日志文件
 #[tauri::command]
-pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String, name: String) -> Result<TaskRunDto, String> {
+pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String, name: String, debug: Option<bool>) -> Result<TaskRunDto, String> {
     let owner = window.label().to_string();
     blocking(move || {
         let st = app.state::<AppState>();
-        let def = crate::taskdefs::resolve(Path::new(&root), &name).ok_or_else(|| format!("没有叫「{name}」的任务了（tasks.json 改过？）"))?;
+        let mut def = crate::taskdefs::resolve(Path::new(&root), &name).ok_or_else(|| format!("没有叫「{name}」的任务了（tasks.json 改过？）"))?;
+        // 调试（docs/IDEA.md 第 18 节）：只有认出来的 Spring Boot 应用 —— 命令是我们拼的，知道 `java` 在哪、主类是谁
+        let debug = match debug.unwrap_or(false) {
+            false => None,
+            true => {
+                let main = crate::taskdefs::spring_main(Path::new(&root), &name).ok_or_else(|| format!("「{name}」不是认出来的 Spring Boot 应用，调试不了"))?;
+                def.command = crate::debug::with_jdwp(&def.command).ok_or_else(|| format!("「{name}」的命令不是 java 起的，调试不了"))?;
+                Some(main)
+            }
+        };
         let base = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("runs");
         // 起完、登记进运行表之前一直攥着：同一个任务的第二次 ⌃R 在这儿被挡住
         let _claim = st.begin_run(&owner, &root, &name)?;
@@ -71,8 +80,11 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
             command: def.command.clone(),
             root: root.clone(),
         });
-        let id = st.insert_run(&owner, crate::state::Run { root, name: name.clone(), task: task.clone() });
+        let id = st.insert_run(&owner, crate::state::Run { root: root.clone(), name: name.clone(), task: task.clone() });
         let log = spec.log.clone();
+        if let Some(main) = debug {
+            crate::debug::start(&app, &owner, id, &root, log.clone(), main, task.clone());
+        }
         // 等它退出，退了告诉起它的那个窗口。一次运行一条线程，跟着任务的寿命走
         let app2 = app.clone();
         let _ = std::thread::Builder::new().name(format!("task-watch-{id}")).spawn(move || {

@@ -8,8 +8,8 @@ export const taskList = (root: string) => invoke<TaskList>("task_list", { root }
 /** 新建 `.lite-ide/tasks.json`（带注释掉的例子），已经有了就不动；返回路径 */
 export const taskNewFile = (root: string) => invoke<string>("task_new_file", { root });
 
-/** 跑一个任务（按名字，Rust 那边现找定义）。同名的还在跑会先停掉、等端口空了再起 */
-export const taskRun = (root: string, name: string) => invoke<TaskRun>("task_run", { root, name });
+/** 跑一个任务（按名字，Rust 那边现找定义）。同名的还在跑会先停掉、等端口空了再起。`debug`：带 JDWP 起、挂上调试器（只有 Spring Boot 应用，docs/IDEA.md 第 18 节） */
+export const taskRun = (root: string, name: string, debug = false) => invoke<TaskRun>("task_run", { root, name, debug });
 
 /** 停：第一次软停（SIGINT 整组，5 秒后强杀），软停没完再叫一次立刻强杀。"stopping" / "killed" / "gone" */
 export const taskStop = (id: number) => invoke<"stopping" | "killed" | "gone">("task_stop", { id });

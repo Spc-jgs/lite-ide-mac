@@ -182,6 +182,12 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "run-pick": overlay.taskPicker = true; return;
     case "run-stop": return void import("../state/runs-ops").then((m) => m.stopRun());
     case "tasks-file": return void import("../state/runs-ops").then((m) => m.openTasksFile());
+    case "debug-last": return void import("../state/runs-ops").then((m) => m.rerunLast(true));
+    case "debug-resume": return void import("../debug/debug-ops").then((m) => m.step("continue"));
+    case "debug-over": return void import("../debug/debug-ops").then((m) => m.step("next"));
+    case "debug-into": return void import("../debug/debug-ops").then((m) => m.step("stepIn"));
+    case "debug-out": return void import("../debug/debug-ops").then((m) => m.step("stepOut"));
+    case "debug-pause": return void import("../debug/debug-ops").then((m) => m.step("pause"));
     case "goto-line":
       // 编辑器跳行:列；日志视图跳行或时间（2026-09-21）。差异 / 合并没有「行」
       if (tabs.active?.mode === "edit" || tabs.active?.mode === "log") overlay.openGoto();

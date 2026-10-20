@@ -95,6 +95,14 @@ export function installTestHooks() {
     terms,
     /** 运行窗的那些任务（带 `command`：验 Maven 工具窗的开关真带进了命令行） */
     runs,
+    /**
+     * 断点调试（docs/IDEA.md 第 18 节）。下断点走的是行号上点一下的同一条路（`breakpoints.ts` 的表 → 编辑器照表画、告诉 Rust）；
+     * 点行号本身要真鼠标落在那一行上，测试通道不发真输入。都是动态引：调试那几块是懒的，测试构建也别把它们拽进入口
+     */
+    debug: {
+      breakpoints: async (root: string, path: string, lines: number[]) => (await import("../debug/breakpoints")).setLines(root, path, lines),
+      exec: async () => (await import("../debug/exec-point")).execPoint(),
+    },
     /** 活动编辑器里的全文；没有编辑器是 null */
     text: () => editor()?.state.doc.toString() ?? null,
     /**

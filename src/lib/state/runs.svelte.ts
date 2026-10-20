@@ -6,7 +6,7 @@
  *
  * **不进会话快照**：任务是活的子进程，跨进程恢复不了（同终端，`terms.svelte.ts` 头上那条）。
  */
-import type { PortHolder, TaskStale, TestResults } from "../ipc/commands";
+import type { DebugState, PortHolder, TaskStale, TestResults } from "../ipc/commands";
 
 export type RunStatus = "running" | "stopping" | "stopped" | "done" | "failed";
 
@@ -27,6 +27,8 @@ export interface RunTab {
   startedAt: number;
   /** 跑单测那次（「模块 [test …]」）的结果：跑完读 surefire 报告；还在跑、或者不是测试是 null */
   tests: TestResults | null;
+  /** 调试着起的（docs/IDEA.md 第 18 节）：调试会话此刻的样子，"debug-state" 事件来一次换一次（`debug/debug-ops.ts`）；不是调试是 null */
+  debug: DebugState | null;
 }
 
 class Runs {

@@ -1,5 +1,6 @@
 mod budget;
 mod commands;
+mod debug;
 pub mod java;
 mod maven;
 mod maven_run;
@@ -296,6 +297,12 @@ pub fn run() {
             commands::services_list,
             commands::task_ports,
             commands::test_results,
+            commands::debug_state,
+            commands::debug_breakpoints,
+            commands::debug_step,
+            commands::debug_thread,
+            commands::debug_vars,
+            commands::debug_eval,
             commands::java_open,
             commands::java_change,
             commands::java_save,

@@ -366,6 +366,15 @@ pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
     (out, problems)
 }
 
+/// 这个任务名是不是认出来的 Spring Boot 应用；是的话它的主类（调试要：问 jdtls 这个类在哪个项目）。tasks.json 里同名的以文件为准 —— 那就不是我们拼的命令，不算
+pub fn spring_main(root: &Path, name: &str) -> Option<String> {
+    // resolve 也是这个次序：discover 里同名的以文件为准，那就不是我们拼的命令
+    if !matches!(discover(root).defs.into_iter().find(|d| d.name == name)?.source, Source::Spring { .. }) {
+        return None;
+    }
+    spring_tasks(root).0.into_iter().find(|t| t.def.name == name).map(|t| t.app.main_class)
+}
+
 fn spring_apps(root: &Path, found: &mut Found) {
     let (tasks, problems) = spring_tasks(root);
     found.problems.extend(problems);

@@ -173,6 +173,48 @@ export interface TestResults {
   total: number;
 }
 
+/** 调试会话的一帧（docs/IDEA.md 第 18 节）。`path`：源文件，或者 jar 里的类的 `jdt://` 地址（`label` 是类的全名），没有源码是空串 */
+export interface DebugFrame {
+  id: number;
+  name: string;
+  path: string;
+  label: string;
+  line: number;
+}
+
+export interface DebugThread {
+  id: number;
+  name: string;
+}
+
+/** 调试会话此刻的样子（"debug-state" 事件 / `debug_state`）。`note`：waiting 时在等什么、ended 时为什么结束 */
+export interface DebugState {
+  run: number;
+  phase: "waiting" | "running" | "paused" | "ended";
+  note: string;
+  thread: number | null;
+  reason: string;
+  frames: DebugFrame[];
+  totalFrames: number;
+  threads: DebugThread[];
+}
+
+/** 一个变量 / 一次求值。`reference` 大于 0 能展开；`indexed` 是数组 / 集合的元素个数 */
+export interface DebugVar {
+  name: string;
+  value: string;
+  /** 类型名（`ty` 不叫 `type`：dto_sync 按字段名逐个比，不认 serde 的改名） */
+  ty: string;
+  reference: number;
+  indexed: number;
+}
+
+/** 一层变量；`more` 是超过上限没列出来的个数 */
+export interface DebugVars {
+  vars: DebugVar[];
+  more: number;
+}
+
 /** 一条修复（⌥↵）。`raw` 原样交回 `javaApplyAction` */
 export interface JavaAction {
   title: string;

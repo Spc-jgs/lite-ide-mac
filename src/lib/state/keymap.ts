@@ -318,6 +318,22 @@ export const KEYS: KeyDef[] = [
   /** 第一下软停（SIGINT 整组，5 秒后强杀），正在软停时再按一下立刻强杀 —— 同 IDEA 的停止按钮 */
   { id: "run-stop", label: "停止任务", accel: "⌘F2", group: "运行", owner: "menu" },
   { id: "tasks-file", label: "打开 tasks.json", group: "运行", owner: "menu" },
+  /*
+   * 调试（docs/IDEA.md 第 18 节），照 IDEA 的 macOS 键位。⌃D 归 key、不进菜单，理由同 ⌃R：终端里的 ⌃D 是「输入结束」。
+   * 编辑器里 CM6 原来拿 ⌃D 删后一个字（macOS 的 Emacs 键位），已经从默认键位里摘掉（`idea-keys.ts` 的 `editorDefaults`）
+   */
+  { id: "debug-last", label: "调试上一个任务", accel: "⌃D", group: "运行", owner: "key" },
+  /*
+   * 单步和继续进菜单：F 键在编辑器里没别的用处。**没在调试 / 没停着时菜单项是灰的**（Rust 的调试会话设，`menu::sync_debug`）——
+   * 灰掉的菜单项不吃键，终端里的 htop / mc 照样收得到 F7 F8 F9
+   */
+  { id: "debug-resume", label: "继续", accel: "F9", group: "运行", owner: "menu" },
+  { id: "debug-over", label: "单步跳过", accel: "F8", group: "运行", owner: "menu" },
+  { id: "debug-into", label: "单步进入", accel: "F7", group: "运行", owner: "menu" },
+  { id: "debug-out", label: "单步跳出", accel: "⇧F8", group: "运行", owner: "menu" },
+  { id: "debug-pause", label: "暂停程序", group: "运行", owner: "menu" },
+  /** 在光标那行下 / 取消断点（Java 文件）。归 cm6：要读光标在哪一行；点行号是同一件事（java-debug-gutter.ts） */
+  { id: "toggle-breakpoint", label: "切换断点（Java）", accel: "⌘F8", group: "运行", owner: "cm6" },
 
   /*
    * 日志模式里跳过滤命中。挂在 window 上（`LogPane.svelte`），

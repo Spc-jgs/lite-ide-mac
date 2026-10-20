@@ -24,6 +24,7 @@
   import { servicesList, taskPorts } from "../ipc/tasks";
   import type { Service } from "../ipc/commands";
   import { runTask, stopRun, openRunLog, freePortAndRerun, dismissHolder, focusService } from "../state/runs-ops";
+  import { debugTask } from "../debug/debug-ops";
   import { runs, type RunTab } from "../state/runs.svelte";
   import { nav } from "../state/nav.svelte";
   import type { MenuItem } from "../shell/ContextMenu.svelte";
@@ -164,6 +165,10 @@
     const go = all.length === 1 ? all : all.filter((s) => !alive(runOf(s)));
     for (const s of go) void runTask(s.task, root);
   }
+  /** 调试（docs/IDEA.md 第 18 节）：一次只调一个服务（IDEA 也是选中一个才能 Debug）；跑着的先停掉再调试着起（Rust 那边同名先停） */
+  function debug(s: Service) {
+    void debugTask(s.task, root);
+  }
   function stop(all: Service[]) {
     for (const s of all) {
       const r = runOf(s);
@@ -219,6 +224,7 @@
     ];
     if (row.svc) {
       const s = row.svc;
+      items.splice(1, 0, { label: "调试", run: () => debug(s) });
       items.push({ label: "跳到入口类", sep: true, run: () => void nav.openAt(sourceOf(s), 1, false) });
       if (r) items.push({ label: "在编辑区打开这份输出", run: () => void openRunLog(r.id) });
     }
@@ -233,6 +239,9 @@
     <div class="bar">
       <button class="ibtn" disabled={!canStart} onclick={() => start(targets)} title={selSvc ? (alive(selRun) ? `重跑「${short(selSvc)}」` : `启动「${short(selSvc)}」`) : "启动这一组里没在跑的"} aria-label="启动">
         <Icon name={selSvc && alive(selRun) ? "rerun" : "run"} />
+      </button>
+      <button class="ibtn" disabled={!selSvc} onclick={() => selSvc && debug(selSvc)} title={selSvc ? `调试「${short(selSvc)}」（⌃D 再调试一次）` : "选一个服务调试"} aria-label="调试">
+        <Icon name="debug" />
       </button>
       <button class="ibtn" disabled={!canStop} onclick={() => stop(targets)} title={selSvc ? `停止「${short(selSvc)}」` : "停止这一组里在跑的"} aria-label="停止">
         <Icon name="stop" />
@@ -292,6 +301,7 @@
               <span class="ic"><Icon name={row.icon} /></span>
             {/if}
             <span class="name">{row.label}</span>
+            {#if r?.debug && alive(r) && (r.debug.phase === "paused" || r.debug.phase === "running")}<span class="dbg-note" class:paused={r.debug.phase === "paused"}>{r.debug.phase === "paused" ? "停在断点" : "调试中"}</span>{/if}
             {#if row.port}<span class="port">{row.port}</span>{:else if r?.status === "running"}<span class="note">正在起…</span>{:else if r?.status === "stopping"}<span class="note">正在停</span>{/if}
             {#if row.note && !row.port && r?.status !== "running" && r?.status !== "stopping"}<span class="note">{row.note}</span>{/if}
             {#if row.members && row.depth === 1}<span class="count">{row.members.length}</span>{/if}
@@ -372,6 +382,9 @@
   .note { flex: 0 1 auto; min-width: 0; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); font-size: var(--fs-xs); }
   /* 端口是「它能用了」的信号，人要一眼找到它：强调色、等宽数字 */
   .port { flex: none; margin-left: 6px; color: var(--accent); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+  /* 调试着的：停着的那个要一眼找到（琥珀，同「要你处理」的颜色），在跑的灰字 */
+  .dbg-note { flex: none; margin-left: 6px; color: var(--text-faint); font-size: var(--fs-xs); }
+  .dbg-note.paused { color: var(--lvl-warn); }
   .count { flex: none; margin-left: auto; color: var(--text-faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
   .cards { flex: none !important; padding: 6px 8px 0; }
 </style>

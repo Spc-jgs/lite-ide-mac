@@ -1,0 +1,13 @@
+[package]
+name = "dapsvc"
+version = "0.1.0"
+edition = "2021"
+description = "调试适配器协议（DAP over TCP）的客户端（零 Tauri 依赖，docs/IDEA.md 第 18 节）"
+
+[dependencies]
+# 消息是 JSON。已经在依赖树里
+serde_json = "1"
+
+[dev-dependencies]
+# 只给 examples/probe.rs：起真 jdtls 拿调试端口
+lspsvc = { path = "../lspsvc" }

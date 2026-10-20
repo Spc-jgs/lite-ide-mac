@@ -60,6 +60,10 @@ fn main() {
     let uri = |p: &Path| format!("file://{}", p.display());
     let mut opts = jdtls::init_options();
     // GUESS=off|insertParameterNames|insertBestGuessedArguments：试 jdtls 的方法补全插什么
+    // DEBUG_JAR=<java-debug 插件的 jar>：作为 bundle 带上（第 5 步看它和这版 jdtls 兼不兼容）
+    if let Ok(j) = std::env::var("DEBUG_JAR") {
+        opts["bundles"] = json!([j]);
+    }
     if let Ok(g) = std::env::var("GUESS") {
         opts["settings"]["java"]["completion"] = json!({ "guessMethodArguments": g });
     }
@@ -129,6 +133,31 @@ fn main() {
             Duration::from_secs(30),
         );
         println!("格式化 {:.0} ms：{}", t.elapsed().as_secs_f64() * 1000.0, r.map(|v| v.to_string()).unwrap_or_else(|e| format!("错：{e}")));
+    }
+    // DEBUG_JAR 带了的话：起一个调试会话，连上它的端口发 DAP 的 initialize，看答不答
+    if std::env::var("DEBUG_JAR").is_ok() {
+        let t = Instant::now();
+        let r = s.request("workspace/executeCommand", json!({ "command": "vscode.java.startDebugSession", "arguments": [] }), Duration::from_secs(30));
+        println!("startDebugSession {:.0} ms：{:?}", t.elapsed().as_secs_f64() * 1000.0, r.as_ref().map(|v| v.to_string()));
+        if let Some(port) = r.ok().and_then(|v| v.as_u64()) {
+            use std::io::{BufRead, BufReader, Read, Write};
+            let mut sock = std::net::TcpStream::connect(("127.0.0.1", port as u16)).expect("连不上调试端口");
+            sock.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            let body = json!({ "seq": 1, "type": "request", "command": "initialize", "arguments": { "adapterID": "java", "linesStartAt1": true, "columnsStartAt1": true, "pathFormat": "path" } }).to_string();
+            write!(sock, "Content-Length: {}\r\n\r\n{}", body.len(), body).unwrap();
+            let mut rd = BufReader::new(sock.try_clone().unwrap());
+            let mut len = 0usize;
+            loop {
+                let mut line = String::new();
+                if rd.read_line(&mut line).unwrap_or(0) == 0 { break; }
+                let l = line.trim();
+                if l.is_empty() { break; }
+                if let Some(v) = l.strip_prefix("Content-Length:") { len = v.trim().parse().unwrap_or(0); }
+            }
+            let mut buf = vec![0u8; len];
+            let _ = rd.read_exact(&mut buf);
+            println!("DAP initialize 回了：{}", String::from_utf8_lossy(&buf).chars().take(600).collect::<String>());
+        }
     }
     if std::env::var("RAW").is_ok() {
         println!("原样：{}", r.as_ref().map(|v| v.to_string()).unwrap_or_default());

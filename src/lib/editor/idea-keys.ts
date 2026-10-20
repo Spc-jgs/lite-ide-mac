@@ -168,7 +168,10 @@ export const ideaKeymap: readonly KeyBinding[] = [
  * 只摘不留：CM6 先跑、`preventDefault` 之后事件照样冒泡到 window，两边都在的话按一下
  * 既减缩进又回退。
  */
-export const editorDefaults: readonly KeyBinding[] = defaultKeymap.filter((b) => b.key !== "Mod-[" && b.key !== "Mod-]");
+export const editorDefaults: readonly KeyBinding[] = defaultKeymap.filter(
+  // ⌃D 也摘掉：CM6 在 macOS 上把 Emacs 那套（⌃D 删后一个字）带进了默认键位，IDEA 里它是「调试」（docs/IDEA.md 第 18 节，App.svelte 接）
+  (b) => b.key !== "Mod-[" && b.key !== "Mod-]" && b.mac !== "Ctrl-d",
+);
 
 /** 扩大 / 缩小选区要的那个栈 */
 export const ideaKeysState: Extension = selStack;

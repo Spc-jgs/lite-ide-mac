@@ -77,7 +77,7 @@ function show(service: boolean) {
  * 跑一个任务。同名的还在跑：Rust 那边先停它、等进程组真没了再起（端口要先空出来）——
  * 这段可能要几秒（软停的宽限期），所以先把旧的那一格标成「停止中」，人看得见在等什么
  */
-export async function runTask(name: string, root: string | null = project.root) {
+export async function runTask(name: string, root: string | null = project.root, debug = false) {
   if (!root) return;
   // 同一个正在起（重跑要等旧的软停，最多 5 秒，人看着没动静会再按一次 ⌃R）：第二下不再发。
   // Rust 那边也挡（`begin_run` 的认领），这里先挡住是为了不弹那句「正在起」—— 人只是按急了（code review 2026-10-10）
@@ -85,7 +85,7 @@ export async function runTask(name: string, root: string | null = project.root) 
   if (starting.has(key)) return;
   starting.add(key);
   try {
-    await start(name, root);
+    await start(name, root, debug);
   } finally {
     starting.delete(key);
   }
@@ -94,35 +94,50 @@ export async function runTask(name: string, root: string | null = project.root) 
 /** 正在起的（项目根 + 任务名）。不用响应式：没有界面画它 */
 const starting = new Set<string>();
 
-async function start(name: string, root: string) {
+async function start(name: string, root: string, debug: boolean) {
   await listen();
   last[root] = name;
+  lastDebug[root] = debug;
   const old = runs.list.find((t) => t.root === root && t.name === name);
   if (old && old.status === "running") old.status = "stopping";
   const startedAt = Date.now();
   // 先亮工具窗再等 Rust：同名的上一次要先软停（最多 5 秒），这段时间里人要看得见「在处理」。是不是服务认得出来的话先按它亮
   if (old) show(old.service);
   try {
-    const r = await taskRun(root, name);
+    const r = await taskRun(root, name, debug);
     show(r.service);
-    const tab: RunTab = { id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null, holder: null, service: r.service, startedAt, tests: null };
+    const tab: RunTab = {
+      id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null, holder: null, service: r.service, startedAt, tests: null,
+      debug: debug ? { run: r.id, phase: "waiting", note: "", thread: null, reason: "", frames: [], totalFrames: 0, threads: [] } : null,
+    };
     // 同名的那一格原地换掉（位置不跳），没有就加在最后
     const i = runs.list.findIndex((t) => t.root === root && t.name === name);
     if (i >= 0) runs.list[i] = tab;
     else runs.list = [...runs.list, tab];
     // 运行窗的「当前格」只指运行窗里的；服务的选中在 Services 工具窗自己那儿
     if (!r.service) runs.activeId = r.id;
+    // 调试的状态事件可能比这一格先到（Rust 那边一起来就发）：交给调试那边补上（动态引：静态引会把它的块名带进入口，见 isTestRun 那条）
+    if (debug) void import("../debug/debug-ops").then((m) => m.adopt(r.id));
   } catch (e) {
     notify.fail(e instanceof Error ? e.message : String(e));
   }
 }
 
-/** ⌃R：再跑这个项目最近跑过的那个；一个都没跑过 → 打开任务列表让人选 */
-export function rerunLast() {
+/** 最近那次是不是调试着起的：⌃R 照原样再来一次（IDEA 的 Rerun 也是：调试起的重跑还是调试） */
+const lastDebug: Record<string, boolean> = {};
+
+/**
+ * ⌃R：再跑这个项目最近跑过的那个（调试起的还是调试）；一个都没跑过 → 打开任务列表让人选。
+ * ⌃D（`debug`）：调试最近跑过的那个（IDEA 的 Debug）。没跑过就说一句 —— 任务列表里的大多不是 Java 程序，调不了
+ */
+export function rerunLast(debug = false) {
   const root = project.root;
   if (!root) return;
   const name = last[root];
-  if (name) void runTask(name, root);
+  if (debug) {
+    if (name) void import("../debug/debug-ops").then((m) => m.debugTask(name, root));
+    else notify.hint("先在 Services 里调试一个 Spring Boot 服务（工具栏上的虫子），之后 ⌃D 调试同一个");
+  } else if (name) void runTask(name, root, lastDebug[root] ?? false);
   else overlay.taskPicker = true;
 }
 

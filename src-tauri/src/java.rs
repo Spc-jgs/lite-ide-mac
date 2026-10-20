@@ -164,6 +164,8 @@ struct Shared {
     /// 每个文件最近一轮的报错，**原样**（带 `code`）：⌥↵ 问修复时要把光标那儿的报错交回去，jdtls 按 `code` 里的问题编号找修复。
     /// 前端画波浪线那份没带 `code`。上限同 `DIAG_MAX`
     raw_diags: Mutex<HashMap<String, Vec<Value>>>,
+    /// 起的时候带没带调试插件（开发构建没有）
+    debuggable: bool,
 }
 
 struct Docs {
@@ -177,8 +179,24 @@ struct Docs {
 pub struct Instance {
     shared: Arc<Shared>,
     srv: Server,
+    /// 有几个调试会话挂在它上面（`debug.rs`）：java-debug 跑在 jdtls 进程里，调试的时候不能因为「没开着的 Java 文件、闲了十分钟」被收掉
+    holds: std::sync::atomic::AtomicUsize,
     /// 项目里的 `.java` / 构建文件在盘上变了（改名、查找替换、撤销、切分支、别的编辑器）→ 告诉 jdtls。随实例 drop 停
     watch: Mutex<Option<fsservice::watch::PathWatch>>,
+}
+
+/// 一个调试会话攥着的 jdtls（[`Instance::hold`]）
+pub struct Hold(Arc<Instance>);
+
+impl Drop for Hold {
+    fn drop(&mut self) {
+        self.0.holds.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// `resolveMainClass` 的回答里，这个主类在哪个项目（m2e 的项目名，一般是 artifactId）
+fn project_of(mains: &Value, main_class: &str) -> Option<String> {
+    mains.as_array()?.iter().find(|m| m["mainClass"] == main_class)?["projectName"].as_str().map(str::to_owned)
 }
 
 /// 一批里最多告诉 jdtls 多少个文件变了。切一次大分支能动几万个文件：超了只说前这么多、记一句 WARN（jdtls 的索引那时可能不全，重起它就好）
@@ -205,7 +223,8 @@ impl Instance {
 
     /// 开着的文档没了、又闲了够久
     fn idle(&self) -> bool {
-        self.shared.docs.lock().unwrap_or_else(|e| e.into_inner()).open.is_empty()
+        self.holds.load(std::sync::atomic::Ordering::SeqCst) == 0
+            && self.shared.docs.lock().unwrap_or_else(|e| e.into_inner()).open.is_empty()
             && self.shared.last_used.lock().unwrap_or_else(|e| e.into_inner()).elapsed() >= IDLE
     }
 
@@ -277,6 +296,52 @@ impl Instance {
             }
             p = self.shared.changed.wait_timeout(p, left).unwrap_or_else(|e| e.into_inner()).0;
         }
+    }
+
+    /// 调试要等到 ServiceReady：下断点要按源文件算出类名，导入没完的模块算不出来（断点会一直是「没对上」）。
+    /// 第一次导入一个大项目要下依赖，几分钟也正常 —— 被调试的 JVM 这时停在入口等着，等得起
+    fn wait_ready(&self, limit: Duration) -> Result<(), String> {
+        let deadline = Instant::now() + limit;
+        let mut p = self.shared.phase.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            match &*p {
+                Phase::Ready => return Ok(()),
+                Phase::Failed(why) => return Err(why.clone()),
+                Phase::Stopped => return Err("Java 语言服务器已经收掉了".into()),
+                Phase::Starting | Phase::Importing(_) => {}
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(format!("Java 语言服务器 {} 分钟还没导入完", limit.as_secs() / 60));
+            }
+            p = self.shared.changed.wait_timeout(p, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+    }
+
+    /// 起一个调试会话（docs/IDEA.md 第 18 节）：java-debug 插件在 jdtls 进程里开一个端口说 DAP，回给我们。
+    /// 顺带问这个主类属于哪个 jdtls 项目 —— attach 时不带 `projectName` 的话求值报「please specify projectName」（探针实测）；问不到不算错，只是求值用不了
+    pub fn debug_session(&self, main_class: &str, limit: Duration) -> Result<(u16, Option<String>), String> {
+        if !self.shared.debuggable {
+            return Err("这个构建没带调试插件（开发构建）：用 pnpm app:bundle 打的包".into());
+        }
+        self.touch();
+        self.wait_ready(limit)?;
+        let r = self
+            .srv
+            .request("workspace/executeCommand", json!({ "command": "vscode.java.startDebugSession", "arguments": [] }), ASK)
+            .map_err(|e| format!("调试插件没答（{e}）"))?;
+        let port = r.as_u64().and_then(|p| u16::try_from(p).ok()).ok_or_else(|| format!("调试插件回的不是端口：{r}"))?;
+        let mains = self
+            .srv
+            .request("workspace/executeCommand", json!({ "command": "vscode.java.resolveMainClass", "arguments": [uri::from_path(&self.shared.root)] }), ASK)
+            .unwrap_or(Value::Null);
+        Ok((port, project_of(&mains, main_class)))
+    }
+
+    /// 调试期间攥着它（见 `holds`）。guard 丢了就放开
+    pub fn hold(self: &Arc<Self>) -> Hold {
+        self.holds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Hold(Arc::clone(self))
     }
 
     fn ask(&self, method: &str, params: Value) -> Result<Value, String> {
@@ -808,6 +873,8 @@ struct Found {
     layout: jdtls::Layout,
     lombok: Option<PathBuf>,
     workspace: PathBuf,
+    /// 调试插件（java-debug，内置在 `java/java-debug/`）：作为 bundle 交给 jdtls。开发构建没有 —— 那时调试照实说「没带」，别的照常
+    debug_jar: Option<PathBuf>,
 }
 
 /// 内置的那份在哪：`.app/Contents/Resources/java/`（scripts/java-bundle.sh 准备、src-tauri/tauri.java.json 打进包）。
@@ -820,6 +887,11 @@ fn bundled(app: &AppHandle) -> Option<PathBuf> {
 /// 内置运行时的目录名：一个架构一份（universal 包里两份都有，起的时候挑这台机器的）
 fn runtime_dir_name() -> String {
     format!("runtime-{}", std::env::consts::ARCH)
+}
+
+/// 目录里那一个 java-debug 的 jar（scripts/java-bundle.sh 钉的版本，文件名带版本号，不写死）
+fn debug_jar(dir: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "jar"))
 }
 
 fn find(app: &AppHandle, root: &Path) -> Result<Found, String> {
@@ -850,7 +922,8 @@ fn find(app: &AppHandle, root: &Path) -> Result<Found, String> {
     let lombok = jdtls::lombok_jar(&jdtls::local_repo(&user, settings.as_deref()));
     let workspace = jdtls::workspace_dir(&data.join("jdtls-ws"), root);
     jdtls::prepare_config(&layout, &workspace).map_err(|e| format!("建不了 jdtls 的缓存目录 {}：{e}", workspace.display()))?;
-    Ok(Found { java, java_label, layout, lombok, workspace })
+    let debug_jar = inside.as_ref().and_then(|d| debug_jar(&d.join("java-debug")));
+    Ok(Found { java, java_label, layout, lombok, workspace, debug_jar })
 }
 
 /// 应用里全部的 jdtls：项目根 → 实例，记在打开它的窗口名下
@@ -915,6 +988,7 @@ impl Java {
             docs: Mutex::new(Docs { open: HashMap::new(), pending: HashMap::new(), synced: false }),
             last_used: Mutex::new(Instant::now()),
             raw_diags: Mutex::new(HashMap::new()),
+            debuggable: f.debug_jar.is_some(),
         });
         let on_notify = Arc::clone(&shared);
         let on_exit = Arc::clone(&shared);
@@ -932,7 +1006,7 @@ impl Java {
             }),
         )
         .map_err(|e| fail(format!("起不了 jdtls：{e}")))?;
-        let inst = Arc::new(Instance { shared: Arc::clone(&shared), srv, watch: Mutex::new(None) });
+        let inst = Arc::new(Instance { shared: Arc::clone(&shared), srv, watch: Mutex::new(None), holds: Default::default() });
         // 盘上的变化告诉 jdtls（`on_disk_changes`）。拿弱引用：监听活在实例里，强引用就是互相攥着、谁也收不掉。起不来只记一句，Java 智能照常
         let weak = Arc::downgrade(&inst);
         match fsservice::watch::watch_paths(root, java_relevant, WATCH_CAP, move |b| {
@@ -949,12 +1023,16 @@ impl Java {
         }
         emit_status(app, owner, &shared.status());
         let init = Arc::clone(&inst);
+        let mut opts = jdtls::init_options();
+        if let Some(j) = &f.debug_jar {
+            opts["bundles"] = json!([j]);
+        }
         std::thread::Builder::new()
             .name("jdtls-init".into())
             .spawn(move || {
                 let root_uri = uri::from_path(&init.shared.root);
                 let name = Path::new(&init.shared.root).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                match init.srv.initialize(&root_uri, &name, jdtls::capabilities(), jdtls::init_options(), INIT) {
+                match init.srv.initialize(&root_uri, &name, jdtls::capabilities(), opts, INIT) {
                     Ok(_) => {
                         init.shared.set(Phase::Importing(String::new()));
                         // initialize 之前开的那些现在补发。在 docs 锁里补、补完置 synced：这期间来的 open / change 要么在补之前登记（会被补到），

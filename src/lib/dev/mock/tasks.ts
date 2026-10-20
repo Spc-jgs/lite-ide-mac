@@ -12,6 +12,7 @@
  */
 import { type A, bump, FILES, NOT_MINE } from "./data";
 import { mockEmit } from "./events";
+import { mockDebugEnd, mockDebugStart } from "./debug";
 
 const FILE = ".lite-ide/tasks.json";
 const TEMPLATE = `// lite-ide 的任务（docs/USAGE.md「任务」）。⌃⌥R 选一个跑，⌃R 再跑上一个，⌘F2 停。
@@ -163,6 +164,7 @@ function emitExit(id: number, x: { code: number | null; stopped: boolean; port?:
   if (!r || r.status === "gone") return;
   r.status = "gone";
   clearTimeout(r.timer);
+  mockDebugEnd(id);
   const payload = { id, code: x.code, signal: x.stopped ? 2 : null, stopped: x.stopped, failed: !x.stopped && x.code !== 0, port: x.port ?? null };
   mockEmit("task-exit", payload);
 }
@@ -248,6 +250,10 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
         (goal && goal[2].split(/\s+/).every((t) => SAFE.test(t)) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "goal" as const } : undefined) ??
         (test ? { name, command: `mvn -B -ntp -Dtest=${test[2]} -Dsurefire.failIfNoSpecifiedTests=false -pl ${test[1]} -am test`, cwd: "", source: "goal" as const } : undefined);
       if (!def) throw new Error(`没有叫「${name}」的任务了（tasks.json 改过？）`);
+      // 调试（第 18 节）：同真实现，只有认出来的 Spring Boot 应用
+      if (a.debug && def.source !== "spring") throw new Error(`「${name}」不是认出来的 Spring Boot 应用，调试不了`);
+      // 同 debug.rs 的 with_jdwp：在 `exec java` 后面插上调试代理（运行窗的命令那一行照实显示）
+      const command = a.debug ? def.command.replace("exec java ", "exec java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0 ") : def.command;
       // 同真实现：同名的还在跑先停掉
       for (const [id, r] of RUNS) if (r.root === root && r.name === name && r.status !== "gone") emitExit(id, { code: 130, stopped: true });
       const id = nextRun++;
@@ -258,7 +264,7 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       // 名字带 fail 的：8080 还被占着就 0.9 秒后失败退出（输出里那句 `Port 8080 was already in use`）。
       // 带 ours 的，占着的算「你之前跑的」（主按钮）；不带的是别的程序（danger）—— 两种卡片在浏览器里都看得到
       const fail = !test && name.includes("fail") && HOLDERS.has(8080);
-      FILES[log] = fakeOutput(name, def.command, fail);
+      FILES[log] = fakeOutput(name, command, fail);
       bump(log);
       const run: Run = { root, name, status: "running", service: def.source === "spring", at: Date.now() };
       RUNS.set(id, run);
@@ -271,7 +277,8 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
         TESTS.set(name, test[2]);
         run.timer = setTimeout(() => emitExit(id, { code: testCases(root, test[2]).some((c) => c.outcome === "failed") ? 1 : 0, stopped: false }), 1200);
       }
-      return { id, name, command: def.command, log, service: def.source === "spring" };
+      if (a.debug) mockDebugStart(id, root, /(\S+)$/.exec(def.command)?.[1] ?? name);
+      return { id, name, command, log, service: def.source === "spring" };
     }
     /*
      * Services（真实现：commands/tasks.rs 的 services_list / task_ports）。端口**故意 2.5 秒后才有**：Spring Boot 起来要几秒，

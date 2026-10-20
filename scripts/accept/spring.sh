@@ -66,7 +66,8 @@ cat > "${P}/shop-common/pom.xml" <<'EOF'
   <parent><groupId>com.demo</groupId><artifactId>shopdemo</artifactId><version>0.0.1-SNAPSHOT</version></parent>
   <artifactId>shop-common</artifactId></project>
 EOF
-money() { printf 'package com.demo.common;\npublic record Money(long cents) {\n    public String show() { return String.format("%s%%d.%%02d", cents / 100, cents %% 100); }\n}\n' "$1" > "${P}/shop-common/src/main/java/com/demo/common/Money.java"; }
+# show() 写成两行（第 4 行算、第 5 行回）：调试那段要在第 4 行停下、单步到第 5 行看到 s（输出和一行的写法一样）
+money() { printf 'package com.demo.common;\npublic record Money(long cents) {\n    public String show() {\n        String s = String.format("%s%%d.%%02d", cents / 100, cents %% 100);\n        return s;\n    }\n}\n' "$1" > "${P}/shop-common/src/main/java/com/demo/common/Money.java"; }
 money "¥"
 for m in order user; do
   starter=spring-boot-starter; [ "${m}" = user ] && starter=spring-boot-starter-webmvc
@@ -239,6 +240,46 @@ lite_eval main "document.querySelector('.tt .bar button[aria-label=\"重跑没�
 RERUN="order-service [test com.demo.order.OrderMathTest#failsOnPurpose]"
 lite_wait main "return __lite.runs.list.some((r) => r.name === '${RERUN}' && r.tests)" 240 >/dev/null
 ok "$([ "$(lite_eval main "const r = __lite.runs.list.find((x) => x.name === '${RERUN}'); return !!r?.tests && r.tests.cases.map((c) => c.name + ':' + c.outcome).join(',') === 'failsOnPurpose:failed'")" = true ] && echo 1)" "重跑没过的：任务名是「${RERUN}」，只跑了那一个"
+
+echo "== 调试（docs/IDEA.md 第 18 节）：Services 里点虫子 → JVM 停在入口等调试器 → jdtls 里的 java-debug 挂上去 → 停在兄弟模块的断点上；变量带 toString、求值、单步、继续之后照常跑完"
+MONEY="${P}/shop-common/src/main/java/com/demo/common/Money.java"
+lite_eval main "await __lite.tabflow.openPath('${MONEY}', { preview: false }); await __lite.debug.breakpoints('${P}', '${MONEY}', [4]); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-bp').length === 1" 10 >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-bp').length")" = 1 ] && echo 1)" "断点画在第 4 行的行号上"
+lite_eval main "document.querySelector('.rail button[aria-label=\"Services\"]')?.click(); return true" >/dev/null
+lite_wait main "${SVC} return !!row('OrderApplication')" 15 >/dev/null
+lite_eval main "${SVC} row('OrderApplication').click(); return true" >/dev/null
+sleep 0.3
+lite_eval main "document.querySelector('.svc .bar button[aria-label=\"调试\"]').click(); return true" >/dev/null
+# JS 里别写带逗号的花括号（`{ a: 1, b: 2 }`）：放进双引号里的 $(…) 时，macOS 自带的 bash 3.2 照样做花括号展开，
+# 拆成两段残缺的 JS、页面里语法错误一句不跑，每段等满 15 秒（2026-10-20 第一次跑这段时撞见的）
+DBG="const r = __lite.runs.list.find((x) => x.name === 'OrderApplication'); const d = r?.debug;"
+T0=$(date +%s)
+lite_wait main "${DBG} return d?.phase === 'paused' || d?.phase === 'ended'" 300 >/dev/null
+ok "$([ "$(lite_eval main "${DBG} return d?.phase")" = paused ] && echo 1)" "停下了（从点虫子到停在断点 $(( $(date +%s) - T0 )) 秒，含编译和 jdtls 导入）：$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.note ?? '')")"
+ok "$(lite_eval main "${DBG} return r?.command ?? ''" | grep -q -- 'exec java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0 -cp' && echo 1)" "命令里 java 带上了调试代理（端口 0、先停在入口等调试器）"
+FR=$(lite_eval main "${DBG} return (d?.frames ?? []).slice(0, 2).map((f) => f.name + '@' + f.path.split('/').pop() + ':' + f.line).join(' | ')")
+ok "$(echo "${FR}" | grep -q '^Money.show()@Money.java:4 | OrderApplication.run(String\[\])@OrderApplication.java:' && echo 1)" "停在兄弟模块（shop-common 没 install）的第 4 行，调用者是入口类：${FR}"
+ok "$([ "$(lite_eval main "${SVC} return row('OrderApplication')?.querySelector('.dbg-note')?.textContent ?? ''")" = 停在断点 ] && echo 1)" "Services 那一行写着「停在断点」"
+EP=$(lite_eval main "const e = await __lite.debug.exec(); return e ? e.path.split('/').pop() + ':' + e.line : 'null'")
+ok "$([ "${EP}" = "Money.java:4" ] && [ "$(lite_eval main "return __lite.tabs.active?.path === '${MONEY}' && document.querySelectorAll('.cm-exec-line').length === 1")" = true ] && echo 1)" "编辑区开着 Money.java、第 4 行标成执行点：${EP}"
+VARS='const vs = () => [...document.querySelectorAll(".dbg .vrow")].map((v) => v.innerText.replace(/\s+/g, " ").trim());'
+lite_wait main "${VARS} return vs().some((v) => v.startsWith('this = '))" 20 >/dev/null
+ok "$(lite_eval main "${VARS} return vs().join(' / ')" | grep -q 'this = Money@[0-9]* "Money\[cents=12345\]"' && echo 1)" "变量里 this 直接带着 toString（IDEA 的样子，不用再点一层）：$(lite_eval main "${VARS} return vs().join(' / ')")"
+lite_eval main "const i = document.querySelector('.dbg .expr'); i.value = 'cents / 100 + 1'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true" >/dev/null
+lite_wait main "${VARS} return vs().some((v) => v.startsWith('cents / 100 + 1 = '))" 20 >/dev/null
+ok "$(lite_eval main "${VARS} return vs().find((v) => v.startsWith('cents / 100 + 1 = ')) ?? ''" | grep -q '^cents / 100 + 1 = 124' && echo 1)" "求值：$(lite_eval main "${VARS} return vs().find((v) => v.startsWith('cents / 100')) ?? '没有'")"
+lite menu debug-over main >/dev/null
+lite_wait main "${DBG} return d?.phase === 'paused' && d.frames[0]?.line === 5" 20 >/dev/null
+ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + d?.frames[0]?.line + ':' + d?.reason")" = "paused:5:step" ] && echo 1)" "F8 单步跳过：停在第 5 行（reason=step）"
+lite_wait main "${VARS} return vs().some((v) => v.startsWith('s = '))" 20 >/dev/null
+ok "$(lite_eval main "${VARS} return vs().find((v) => v.startsWith('s = ')) ?? ''" | grep -q '^s = "CNY 123.45"' && echo 1)" "单步之后第 4 行算出来的 s 出现在变量里：$(lite_eval main "${VARS} return vs().find((v) => v.startsWith('s = ')) ?? '没有'")"
+lite menu debug-resume main >/dev/null
+ok "$(wait_for 60 "logtext OrderApplication | grep -q 'LITE-IDE-PROBE hello-from-yml CNY 123.45'" && echo 1)" "F9 继续：程序照常跑完，输出里有探针那行"
+lite_wait main "${DBG} return d?.phase === 'ended'" 30 >/dev/null
+ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + (d?.note ?? '') + ':' + r?.status")" = "ended::done" ] && echo 1)" "程序退了、调试会话跟着结束，不带报错：$(lite_eval main "${DBG} return d?.phase + ':' + (d?.note ?? '') + ':' + r?.status")"
+ok "$([ "$(lite_eval main "const e = await __lite.debug.exec(); return e === null && document.querySelectorAll('.cm-exec-line').length === 0")" = true ] && echo 1)" "执行点清掉了（编辑器里不再标那一行）"
+lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
 
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then

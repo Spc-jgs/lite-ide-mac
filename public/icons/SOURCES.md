@@ -25,6 +25,13 @@
 | `icons/expand.svg` | `platform/icons/src/expui/general/expandAll_dark.svg`（全部展开） |
 | `icons/services.svg` | `platform/icons/src/expui/toolwindows/services_dark.svg`（Services 工具窗，2026-10-19） |
 | `icons/error.svg` | `platform/icons/src/expui/status/error_dark.svg`（Services 里的 Failed 分组） |
+| `icons/debug.svg` | `platform/icons/src/expui/run/debug_dark.svg`（调试启动，docs/IDEA.md 第 18 节，2026-10-20） |
+| `icons/resume.svg` | `platform/icons/src/expui/run/resume_dark.svg`（继续 F9） |
+| `icons/pause.svg` | `platform/icons/src/expui/run/pause_dark.svg`（暂停） |
+| `icons/step-over.svg` | `platform/icons/src/expui/run/stepOver_dark.svg`（单步跳过 F8） |
+| `icons/step-into.svg` | `platform/icons/src/expui/run/stepInto_dark.svg`（单步进入 F7） |
+| `icons/step-out.svg` | `platform/icons/src/expui/run/stepOut_dark.svg`（单步跳出 ⇧F8） |
+| `icons/breakpoint.svg` | `platform/icons/src/expui/breakpoints/breakpoint_dark.svg`（行号上的断点；14×14，编辑器行号栏用 CSS 背景画，不走 `Icon`） |
 | `icons/sidebar.svg` | `platform/icons/src/expui/general/layout_dark.svg` |
 | `icons/files.svg` | `platform/icons/src/expui/toolwindows/project_dark.svg` |
 | `icons/git.svg` | `platform/icons/src/expui/toolwindows/vcs_dark.svg` |

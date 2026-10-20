@@ -63,17 +63,17 @@
     // Services 工具窗（docs/IDEA.md 第 12 节）
     "services",
     "error",
+    // 调试（docs/IDEA.md 第 18 节）：调试启动、继续、暂停、三种单步
+    "debug",
+    "resume",
+    "pause",
+    "step-over",
+    "step-into",
+    "step-out",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];
 
-  /**
-   * 带颜色的那几个：画原色（`<img>`），不跟着 hover / 选中变色。
-   *
-   * `warn` 是黄的、`note`（草稿）带一个蓝色时钟 —— 颜色本身就是意思。`folder`、`compact` 是**深灰填充 + 浅灰描边**
-   * 的双色图标：走 mask 的话只剩透明度，填充和描边糊成一整块实心。其余全是单一灰色，走 mask。
-   */
-  const COLORED: ReadonlySet<IconName> = new Set<IconName>(["warn", "note", "folder", "compact", "run", "stop", "rerun", "maven-project", "maven-plugin", "maven-goal", "maven-profiles", "lifecycle", "library-folder", "library", "error"]);
 </script>
 
 <script lang="ts">
@@ -97,7 +97,7 @@
    * 改不了。mask 只取 SVG 的**形状**（透明度），颜色是 `background-color: currentColor`，
    * 于是和原来的描边图标一样跟着 `color` 变。顺带文件一个字都不用改（改了按 Apache 2.0 要逐个注明）。
    *
-   * CSP 的 `img-src 'self'` 管 mask 图片和 `<img>`，本来就放行。
+   * CSP 的 `img-src 'self'` 管 mask 和背景图片，本来就放行。彩色的那几个画原色（背景图），名单在下面的 CSS 里。
    */
   /**
    * `size` 默认 16，**组件里别再传** —— JetBrains 的图标是按 16 的网格画的，缩到 10–12 线条落在半像素上。
@@ -106,17 +106,7 @@
   let { name, size = 16 }: { name: IconName; size?: number } = $props();
 </script>
 
-{#if COLORED.has(name)}
-  <img class="icon" src="/icons/{name}.svg" width={size} height={size} alt="" aria-hidden="true" draggable="false" />
-{:else}
-  <span
-    class="icon mono"
-    style:width="{size}px"
-    style:height="{size}px"
-    style:--src="url(/icons/{name}.svg)"
-    aria-hidden="true"
-  ></span>
-{/if}
+<span class="icon" data-n={name} style:width="{size}px" style:height="{size}px" style:--src="url(/icons/{name}.svg)" aria-hidden="true"></span>
 
 <style>
   .icon {
@@ -124,9 +114,41 @@
     flex: none;
     vertical-align: middle;
   }
-  .mono {
+  /* 单色的：只取形状，颜色是 currentColor（跟着 hover / 选中变） */
+  .icon {
     background-color: currentColor;
     -webkit-mask: var(--src) center / contain no-repeat;
     mask: var(--src) center / contain no-repeat;
+  }
+  /*
+   * 带颜色的那几个：画原色，不跟着 hover / 选中变色。`warn` 是黄的、`note`（草稿）带一个蓝色时钟 —— 颜色本身就是意思。
+   * `folder`、`compact` 是**深灰填充 + 浅灰描边**的双色图标：走 mask 的话只剩透明度，填充和描边糊成一整块实心。
+   *
+   * **这张名单写在 CSS 里，不在 JS 里**（2026-10-20）：原来是 `<script>` 里一个 Set、彩色的走 `<img>` —— 这个组件在入口包里，
+   * 名单每长一个名字入口 JS 就涨十几字节，而入口离告警线只剩个位数（frontend.md 入口包那段）。CSS 不算进入口 JS 的预算，
+   * 两条渲染路也合成了一条（少一个 `{#if}`）。加彩色图标在这儿加一个名字
+   */
+  .icon:is(
+      [data-n="warn"],
+      [data-n="note"],
+      [data-n="folder"],
+      [data-n="compact"],
+      [data-n="run"],
+      [data-n="stop"],
+      [data-n="rerun"],
+      [data-n="maven-project"],
+      [data-n="maven-plugin"],
+      [data-n="maven-goal"],
+      [data-n="maven-profiles"],
+      [data-n="lifecycle"],
+      [data-n="library-folder"],
+      [data-n="library"],
+      [data-n="error"],
+      [data-n="debug"],
+      [data-n="resume"]
+    ) {
+    background: var(--src) center / contain no-repeat;
+    -webkit-mask: none;
+    mask: none;
   }
 </style>

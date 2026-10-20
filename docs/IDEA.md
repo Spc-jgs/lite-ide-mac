@@ -85,7 +85,7 @@ IntelliJ 的引擎不对外，用不了。
 - **重构的种类少**：改名、抽方法 / 变量 / 常量、内联、移动类、改签名、整理 import 有；IDEA 那上百种 intention、结构化替换没有。
 - **Spring 智能弱**：Bean 导航、yml 补全要另一个语言服务器（Spring Tools），先不上。
 - **代码检查是编译器级别的**：IDEA 那几百条 inspection 没有。
-- **调试是最后做的一块**：第 5 步之前，调试还得靠在终端里 `mvn spring-boot:run -Dspring-boot.run.jvmArguments=...` 配合远程调试，或者另一个工具。
+- **调试只有基本的那一套**（第 5 步，第 18 节）：Spring Boot 服务调试着起、断点、调用栈、变量、求值、单步 / 继续 / 暂停有；条件断点、日志断点、异常断点、热替换、调试单测、挂到远程 JVM 还没有。
 
 ## 6. 要你拍板的
 
@@ -468,3 +468,50 @@ IDEA 的 Show Context Actions：光标那儿（或选中的几行）能做的修
 样例的根 pom 把 `junit-jupiter.version` 钉在 5.12.2：Spring Boot 4.0.1 管的是 JUnit 6.0.1，本地仓库里配套的 `junit-platform-launcher` 只有 1.x，用 6 的话 mvn 要去下载。
 
 还没做：Gradle 项目（`gradle test --tests`，报告在 `build/test-results/`）、`@Nested` 内部类、跑的时候一条条地亮（现在是跑完一起出 —— 要接 surefire 的事件流）、按覆盖率着色。
+
+## 18. 第 5 步：断点调试（2026-10-20）
+
+照第 4 节搭的：`crates/dapsvc` 说调试适配器协议（DAP），适配器是 jdtls 的 java-debug 插件（VS Code 的 Java 调试用的同一个）。
+插件 0.53.1 从 Maven Central 下（用户点头的，sha256 钉在 `scripts/java-bundle.sh`），作为 bundle 在 jdtls 起来时交给它 —— 不另起进程。
+
+```text
+Services 的虫子 / ⌃D
+  → task_run(debug) 命令里 `exec java` 后面插 -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0
+  → JVM 起来先停在入口等调试器，输出里打 "Listening for transport dt_socket at address: 56050"
+  → debug.rs 盯着任务的输出文件认出端口 → 等 jdtls 导入完 → vscode.java.startDebugSession（插件开一个 DAP 端口）
+  → initialize / attach 56050 / setBreakpoints / configurationDone（JVM 接着跑）
+  → stopped 事件：拿调用栈，整份推给前端（"debug-state"）；变量、单步、求值走命令
+```
+
+| IDEA 的 | 我们 |
+|---|---|
+| Debug 起一个运行配置 | Services 工具栏 / 右键的「调试」，⌃D 调试最近跑过的那个（终端里的 ⌃D 是输入结束，让给 shell，同 ⌃R）。只有认出来的 Spring Boot 应用：命令是我们拼的，知道 `java` 在哪 |
+| 断点画在行号上（新 UI 的默认） | 同：点行号下 / 取消，⌘F8。跟着行走（上面插三行，断点跟着下移）、存进 localStorage（重启还在） |
+| 停下来：执行点整行标蓝、编辑区跳过去、Debug 窗跳到前面 | 同。jar 里的帧开成只读标签（⌘B 进 jar 用的同一条路），lambda 生成的类没有源码，灰着、点了说一句 |
+| Debug 窗：Threads & Variables + Console 两页 | 同：运行那一格变成「调试器 / 控制台」两页，撞上断点自动切到调试器；控制台就是原来那份输出。两页只藏不卸（输出滚到哪、变量展开到哪都还在） |
+| 变量的值后面直接是 `toString()` | 同：java-debug 对重写了 `toString` 的对象回「懒的」（值要再问一次），Rust 那边替前端先问好（一层最多 50 个） |
+| 单步之后展开着的照样展开 | 同：按名字路径记，最多往下四层 |
+| F7 / F8 / ⇧F8 / F9、Evaluate | 同键位；求值是变量那一栏顶上的输入框。多个线程停着可以换着看 |
+
+几条为什么：
+
+- **`suspend=y`**：不等调试器就跑的话，`main` 里、`@PostConstruct`、`CommandLineRunner` 的断点永远停不住 —— 挂上去之前它们早跑过了。IDEA 的 Debug 也是这么起的。
+  代价是调试器挂不上的话 JVM 一直停在入口，所以**挂不上就把任务停掉、照实说为什么**（jdtls 起不来、开发构建没带插件、导入 10 分钟没完）。
+- **端口 0**：系统挑一个空的，JVM 把真端口打在输出里（JDK 17 实测）。自己先找一个空端口再交给它，找到和用上之间会被别人占。JDK 8 没试过。
+- **attach 时带 `projectName`**：不带的话求值报「please specify projectName」（探针实测）。项目名问 jdtls（`resolveMainClass`，m2e 的项目名，一般是 artifactId）。
+- **事件不在 DAP 的读线程里处理**：`stopped` 之后要问调用栈，在读线程里问的话，等的那个回答要读线程自己去读，永远等不到。事件进通道，会话自己的线程一条条处理。
+  适配器反过来问我们的（`runInTerminal`），另起一条线程答「不支持」—— 同 lspsvc 的理由。
+- **调试期间攥着 jdtls**：插件跑在 jdtls 进程里，「没开着的 Java 文件、闲了十分钟」的回收不能把它收掉。
+- **菜单里单步那几项没在调试时是灰的**：灰的菜单项不吃键，终端里的 htop、mc 照样收得到 F7 F8 F9。灰不灰由 Rust 的会话直接设，前端入口包一个字节不多。
+
+实测（探针 `crates/dapsvc/examples/probe.rs`，三模块样例，热缓存）：jdtls 就绪之后起会话 21 ms、挂上 16 ms、下断点 170 ms，从 configurationDone 到停在兄弟模块的断点上 360 ms（Spring 启动那段）；
+调用栈 14 ms（24 帧）、求值 31 ms。真 .app 上从点虫子到停在断点 3–6 秒，其中大头是 `mvn compile`。
+带上插件之后 jdtls 起来要多久：热缓存三次里不带 1262 / 1326 ms、带 1293 / 1468 / 1399 ms —— 差在 0.1 秒上下，和同一种配置两次之间的抖动一个量级（插件在 jdtls 启动时登记、真调试时才激活）。
+正式包多 2.8 MB（那个 jar）。被调试的 JVM 和 jdtls 的 JVM 版本不一样时（17 和 21）插件会说一句「source mapping 可能不对」，记进 app.log，不打扰人。
+
+**真 .app `scripts/accept/spring.sh` 42/42**（新加 13 条，真 mvn / java / jdtls / java-debug）：断点画在行号上；点虫子之后停在 shop-common 的 `Money.java:4`（没 install），调用者是入口类；
+Services 那一行写着「停在断点」、编辑区第 4 行标成执行点；`this = Money@21 "Money[cents=12345]"`（带着 toString）；求值 `cents / 100 + 1 = 124`；F8 停在第 5 行、`s = "CNY 123.45"` 出现；
+F9 之后程序照常跑完、会话结束、执行点清掉。
+
+还没做：条件断点和日志断点（插件都支持，缺的是界面）、异常断点、热替换（改了代码不重启）、断点列表（⌘⇧F8）、「这一行停不住」的断点画成另一个样子、调试单测、挂到别处起的 JVM（远程调试）、Gradle 项目。
+多窗口时菜单的灰态是全应用一份：哪个窗口的会话停着都亮，按下去前台窗口找它自己的会话，别的窗口的不动。

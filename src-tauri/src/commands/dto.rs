@@ -977,3 +977,83 @@ pub struct JavaRefsDto {
     pub items: Vec<JavaLocationDto>,
     pub total: u32,
 }
+
+/// 调试会话的一帧（docs/IDEA.md 第 18 节）。`path` 是源文件、或者 jar 里的类的 `jdt://` 地址，没有源码是空的
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugFrameDto {
+    pub id: i64,
+    pub name: String,
+    pub path: String,
+    pub label: String,
+    pub line: u32,
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugThreadDto {
+    pub id: i64,
+    pub name: String,
+}
+
+/// 调试会话此刻的样子（"debug-state" 事件和 `debug_state` 命令都是它）。`phase`：waiting / running / paused / ended；
+/// `note`：waiting 时在等什么、ended 时为什么结束（正常结束是空的）
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugStateDto {
+    pub run: u32,
+    pub phase: String,
+    pub note: String,
+    pub thread: Option<i64>,
+    pub reason: String,
+    pub frames: Vec<DebugFrameDto>,
+    pub total_frames: u32,
+    pub threads: Vec<DebugThreadDto>,
+}
+
+impl DebugStateDto {
+    pub fn of(run: u32, s: &crate::debug::Snapshot) -> Self {
+        use crate::debug::Phase;
+        let (phase, note) = match &s.phase {
+            Phase::Waiting(w) => ("waiting", w.clone()),
+            Phase::Running => ("running", String::new()),
+            Phase::Paused => ("paused", String::new()),
+            Phase::Ended(w) => ("ended", w.clone()),
+        };
+        DebugStateDto {
+            run,
+            phase: phase.into(),
+            note,
+            thread: s.thread,
+            reason: s.reason.clone(),
+            frames: s.frames.iter().map(|f| DebugFrameDto { id: f.id, name: f.name.clone(), path: f.path.clone(), label: f.label.clone(), line: f.line }).collect(),
+            total_frames: s.total_frames as u32,
+            threads: s.threads.iter().map(|t| DebugThreadDto { id: t.id, name: t.name.clone() }).collect(),
+        }
+    }
+}
+
+/// 一个变量（或者一次求值的结果）。`reference` 正数 = 能展开；`indexed` = 数组 / 集合有几个元素
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugVarDto {
+    pub name: String,
+    pub value: String,
+    pub ty: String,
+    pub reference: i64,
+    pub indexed: u32,
+}
+
+impl From<crate::debug::Var> for DebugVarDto {
+    fn from(v: crate::debug::Var) -> Self {
+        DebugVarDto { name: v.name, value: v.value, ty: v.ty, reference: v.reference, indexed: v.indexed }
+    }
+}
+
+/// 一层变量。`more`：超过上限没列出来的个数（照实说，不悄悄少一截）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugVarsDto {
+    pub vars: Vec<DebugVarDto>,
+    pub more: u32,
+}

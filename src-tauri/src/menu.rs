@@ -77,6 +77,10 @@ pub struct MenuHandles {
     pub needs_two: Vec<MenuItem<Wry>>,
     /// 已经分屏才有意义的（切到另一组、合并）
     pub needs_split: Vec<MenuItem<Wry>>,
+    /// 调试停着才有意义的（继续、三种单步）
+    pub debug_paused: Vec<MenuItem<Wry>>,
+    /// 调试着、在跑才有意义的（暂停）
+    pub debug_running: Vec<MenuItem<Wry>>,
 }
 
 /// 一个普通菜单项。`accel` 为 `None` 就只有标签 —— 那正是 ⌘P 那一类的处理。
@@ -118,6 +122,17 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let run_pick = item(app, "run-pick", "运行任务…", Some("Ctrl+Alt+R"))?;
     let run_stop = item(app, "run-stop", "停止任务", Some("CmdOrCtrl+F2"))?;
     let tasks_file = item(app, "tasks-file", "打开 tasks.json", None)?;
+    // 调试（docs/IDEA.md 第 18 节）。「调试上一个」归 key（终端里的 ⌃D 是输入结束），同「再跑上一个」不挂键位。
+    // 单步那几个起来就是灰的：调试会话停着才亮（`sync_debug`）—— 灰的菜单项不吃键，终端里的程序照样收到 F7 F8 F9
+    let debug_last = item(app, "debug-last", "调试上一个任务", None)?;
+    let debug_resume = item(app, "debug-resume", "继续", Some("F9"))?;
+    let debug_over = item(app, "debug-over", "单步跳过", Some("F8"))?;
+    let debug_into = item(app, "debug-into", "单步进入", Some("F7"))?;
+    let debug_out = item(app, "debug-out", "单步跳出", Some("Shift+F8"))?;
+    let debug_pause = item(app, "debug-pause", "暂停程序", None)?;
+    for it in [&debug_resume, &debug_over, &debug_into, &debug_out, &debug_pause] {
+        it.set_enabled(false)?;
+    }
     // #45：要有一个打开的文件才有东西可发
     let send_to_terminal = item(app, "send-to-terminal", "发送到终端", Some("Alt+CmdOrCtrl+K"))?;
     // 分屏（issue #35）。键位的取舍见 keymap.ts 那段
@@ -251,6 +266,13 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&run_pick)
         .item(&run_stop)
         .separator()
+        .item(&debug_last)
+        .item(&debug_resume)
+        .item(&debug_pause)
+        .item(&debug_over)
+        .item(&debug_into)
+        .item(&debug_out)
+        .separator()
         .item(&tasks_file)
         .build()?;
 
@@ -326,9 +348,11 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
             git_fetch,
         ],
         needs_term: vec![close_terminal],
-        needs_root: vec![close_project, run_last, run_pick, run_stop, tasks_file],
+        needs_root: vec![close_project, run_last, run_pick, run_stop, tasks_file, debug_last],
         needs_two: vec![split_right, move_other],
         needs_split: vec![focus_other, unsplit],
+        debug_paused: vec![debug_resume, debug_over, debug_into, debug_out],
+        debug_running: vec![debug_pause],
     };
     Ok((menu, handles))
 }
@@ -355,6 +379,20 @@ pub fn refresh_recent(app: &AppHandle<Wry>, paths: &[String]) -> tauri::Result<(
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItemBuilder::with_id(RECENT_CLEAR, "清除最近记录").build(app)?)?;
     Ok(())
+}
+
+/// 调试那几个菜单项亮不亮（`debug.rs` 每次会话状态变了叫）。整个应用一份：哪个窗口里的会话停着都亮 ——
+/// 按下去由前台窗口的前端找它自己的会话，别的窗口的不动（那时按了什么都不发生，同灰着）
+pub fn sync_debug(app: &AppHandle<Wry>, paused: bool, running: bool) {
+    let Some(h) = app.try_state::<MenuHandles>() else {
+        return;
+    };
+    for it in &h.debug_paused {
+        let _ = it.set_enabled(paused);
+    }
+    for it in &h.debug_running {
+        let _ = it.set_enabled(running);
+    }
 }
 
 /// 把某个窗口存着的那份状态套到原生菜单上（窗口到前台时，见 `lib.rs`）

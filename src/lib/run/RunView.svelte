@@ -10,6 +10,7 @@
    */
   import LogPane from "../logview/LogPane.svelte";
   import TestTree from "./TestTree.svelte";
+  import DebugPane from "./DebugPane.svelte";
   import { openLog, closeLog } from "../ipc/commands";
   import { parseTestTask } from "../editor/java-tests";
   import { runs } from "../state/runs.svelte";
@@ -48,20 +49,32 @@
   const FOLLOW = { levelBits: 0b111111, pattern: "", caseSensitive: false, tailing: true, collapseStacks: false, onlyHits: true };
 </script>
 
-{#if handle !== null}
-  <div class="split" class:tests={isTest}>
-    {#if isTest && run}
-      <div class="tests-pane"><TestTree {run} /></div>
-    {/if}
-    <div class="run">
-      <div class="body">
-        {#key handle}
-          <LogPane {handle} initialFilter={FOLLOW} onStatus={(s) => (status = s)} />
-        {/key}
-      </div>
-      {#if status}<div class="status">{status}</div>{/if}
+{#snippet output(h: number)}
+  <div class="run">
+    <div class="body">
+      {#key h}
+        <LogPane handle={h} initialFilter={FOLLOW} onStatus={(s) => (status = s)} />
+      {/key}
     </div>
+    {#if status}<div class="status">{status}</div>{/if}
   </div>
+{/snippet}
+
+{#if handle !== null}
+  {@const h = handle}
+  {#if run?.debug}
+    <!-- 调试着起的（docs/IDEA.md 第 18 节）：调试器 / 控制台两页，输出是控制台那页 -->
+    <DebugPane {run}>
+      {#snippet console()}{@render output(h)}{/snippet}
+    </DebugPane>
+  {:else}
+    <div class="split" class:tests={isTest}>
+      {#if isTest && run}
+        <div class="tests-pane"><TestTree {run} /></div>
+      {/if}
+      {@render output(h)}
+    </div>
+  {/if}
 {:else if err}
   <div class="msg">打不开输出：{err}</div>
 {:else}

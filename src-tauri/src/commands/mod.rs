@@ -14,6 +14,7 @@ use tauri::ipc::Response;
 use tauri::State;
 
 mod app;
+mod debug;
 mod dto;
 mod fs;
 mod git;
@@ -28,6 +29,7 @@ mod settings;
 mod tasks;
 
 pub use app::*;
+pub use debug::*;
 pub use dto::*;
 pub use fs::*;
 pub use git::*;

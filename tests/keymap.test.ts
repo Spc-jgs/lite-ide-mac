@@ -74,6 +74,7 @@ ok(toTauriAccel("⌥⌘F") === "Alt+CmdOrCtrl+F", `⌥⌘F，实得 ${toTauriAcc
 // muda 不认裸的反引号，得给它 Backquote
 ok(toTauriAccel("⌃⇧`") === "Ctrl+Shift+Backquote", `⌃⇧\`，实得 ${toTauriAccel("⌃⇧`")}`);
 ok(toTauriAccel("⌘/") === "CmdOrCtrl+/", `⌘/，实得 ${toTauriAccel("⌘/")}`);
+ok(toTauriAccel("F9") === "F9" && toTauriAccel("⇧F8") === "Shift+F8", `功能键：F9 → ${toTauriAccel("F9")}，⇧F8 → ${toTauriAccel("⇧F8")}`);
 ok(toTauriAccel(undefined) === undefined, "没有键位就是 undefined，不能给空串");
 // 只有修饰键、没有主键：这种输入不该产出一个 muda 解析不了的串
 ok(toTauriAccel("⌘") === undefined, "只有修饰键时返回 undefined");
@@ -85,7 +86,8 @@ ok(toTauriAccel("⌘") === undefined, "只有修饰键时返回 undefined");
 for (const k of KEYS) {
   if (k.owner !== "menu" || !k.accel) continue;
   const t = toTauriAccel(k.accel);
-  ok(!!t && t.includes("+"), `${k.id} 的 ${k.accel} 推不出 Tauri accelerator（实得 ${t}）`);
+  // 裸的功能键也算（调试的 F7 / F8 / F9，同 IDEA）：muda 认 `F9` 这种不带修饰键的写法；别的裸键（一个字母）进菜单就是把打字吃掉
+  ok(!!t && (t.includes("+") || /^F\d{1,2}$/.test(t)), `${k.id} 的 ${k.accel} 推不出 Tauri accelerator（实得 ${t}）`);
 }
 
 // ── byId ──────────────────────────────────────────────────────────

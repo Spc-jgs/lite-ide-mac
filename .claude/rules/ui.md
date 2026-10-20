@@ -254,8 +254,9 @@ Apache 2.0），文件在 `public/icons/`，许可和逐个来源在 `public/ico
   上游一个图标 = `public/icons/<名字>.svg` 放一个文件 + `ICON_NAMES` 加一行 + `SOURCES.md` 记一行。
   **看清图标的本意再对名字**：`nodes/tag` 是 XML 标签 `<>` 不是 git 标签，`fileTypes/scratch` 是叠加用的角标 ——
   两个都是第一版对错了、在画廊里才看出来的。
-- **单色的走 CSS mask，彩色的走 `<img>`**：mask 只取形状，颜色是 `currentColor`，所以跟着 hover / 选中变；
-  `<img>` 画文件里写死的颜色。深灰填充 + 浅灰描边的双色图标（文件夹）也得走 `<img>`，mask 会把它糊成实心。
+- **单色的走 CSS mask，彩色的画背景图**：mask 只取形状，颜色是 `currentColor`，所以跟着 hover / 选中变；
+  背景图画文件里写死的颜色。深灰填充 + 浅灰描边的双色图标（文件夹）也得画背景图，mask 会把它糊成实心。
+  **彩色名单写在 `Icon.svelte` 的 CSS 里**（`[data-n=…]` 属性选择器），不在 JS 里：这个组件在入口包，名单写在 JS 里每加一个名字入口就涨十几字节（2026-10-20 挪的，原来是 `<img>` + 一个 Set）。
 - **不内联进 JS**：`Icon.svelte` 在入口包里，六十多个 SVG 内联就是 60 KB。也别 `import x from "./x.svg"` ——
   小于 4 KB 的 Vite 会内联成 data URL 塞回 JS。
 - **图标颜色说类型，文件名颜色说 git 状态**。原来文件图标是单色的，理由是「颜色通道被 git 占了」——

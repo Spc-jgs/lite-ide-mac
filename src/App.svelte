@@ -661,10 +661,11 @@
      * ⌃R：再跑上一个任务（#48，IDEA macOS 键位的 Run）。**归 key 不归菜单**（keymap.ts）：终端里的 ⌃R 是 shell 的
      * 「搜历史」，天天用；挂进菜单 AppKit 会先把键吃掉，终端里就再也搜不了历史。所以焦点在终端里时不接、让给 shell
      */
-    if (k === "r" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+    // ⌃D（调试，docs/IDEA.md 第 18 节）同一条路、同一个理由：终端里的 ⌃D 是「输入结束」，让给 shell
+    if ((k === "r" || k === "d") && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
       if ((e.target as HTMLElement | null)?.closest?.(".xterm")) return;
       e.preventDefault();
-      void import("./lib/state/runs-ops").then((m) => m.rerunLast());
+      void import("./lib/state/runs-ops").then((m) => m.rerunLast(k === "d"));
       return;
     }
     if (!e.metaKey) return;
