@@ -12,7 +12,8 @@ import { fade, slide, type TransitionConfig } from "svelte/transition";
 const reduced = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export function layerOut(node: Element): TransitionConfig {
-  // 淡出中的那层不再接鼠标（Confirms 里 `.layer.leaving`）：点穿它落到编辑区上
+  // 淡出中的那层不再接鼠标（Confirms 里 `.layer.leaving`）：点穿它落到编辑区上。**只有第一次退场会走到这儿** ——
+  // Svelte 缓存过渡配置，复用过的那一层再退场不调它；Confirms 按状态再打一次（那边的注释）
   node.classList.add("leaving");
   return fade(node, { duration: reduced() ? 0 : 120 });
 }

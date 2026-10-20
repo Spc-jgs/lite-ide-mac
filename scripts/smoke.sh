@@ -1018,11 +1018,21 @@ if wait_has "要保存对 modal.txt 的改动吗" 5; then
     && ok "⇧⇧ 被挡住：随处搜索没叠到对话框上" || bad "对话框开着时 ⇧⇧ 打开了随处搜索"
   menu new-scratch; sleep 0.8
   check "$(lite eval "${W}" "return __lite.tabs.list.length" 2>/dev/null)" "${N0}" "菜单「新建草稿」被挡住：标签数没变"
+  # 时间线：点之前在那一层上挂一个观察者，记 class / inert 每次怎么变、什么时候被移出 DOM（间歇红时看是哪一步没发生）
+  is "const l = document.querySelector('.layer'); const t0 = performance.now(); window.__layerLog = ['起点 ' + l?.className + ' inert=' + l?.inert]; const mo = new MutationObserver((ms) => { for (const m of ms) window.__layerLog.push(Math.round(performance.now() - t0) + 'ms ' + (m.type === 'attributes' ? m.attributeName + '=' + (m.target.getAttribute(m.attributeName) ?? '') : 'childList -' + m.removedNodes.length + ' +' + m.addedNodes.length)); }); if (l) { mo.observe(l, { attributes: true }); mo.observe(l.parentNode, { childList: true }); } return true" >/dev/null
   click "取消" button exact
   # 判「还在不在问」，不判 DOM 里还有没有：关掉之后有 120ms 淡出（shell/motion.ts），测试应用的窗口在后台时帧不走，
   # 淡出停在半路、那层一直挂着 `leaving` —— 那时它已经不拦东西、不接鼠标了（2026-10-13 这条因此红过一次）
-  lite_wait "${W}" "return !document.querySelector('.layer:not(.leaving) .dialog')" 4 >/dev/null && ok "点「取消」：对话框关了" || bad "点「取消」对话框没关"
+  if lite_wait "${W}" "return !document.querySelector('.layer:not(.leaving) .dialog')" 4 >/dev/null; then ok "点「取消」：对话框关了"; else
+    bad "点「取消」对话框没关"
+    # 间歇红了很多轮、一直没查到原因：撞上时把现场打出来（对话框、页面上所有叫「取消」的按钮在哪、状态层还在不在问、焦点在哪）
+    lite eval "${W}" "return JSON.stringify({ dialogs: [...document.querySelectorAll('.layer .dialog')].map((d) => d.closest('.layer').className + ' | ' + d.className + ' | ' + d.innerText.replace(/\\s+/g, ' ').slice(0, 60)), cancels: [...document.querySelectorAll('button')].filter((b) => b.textContent.trim() === '取消').map((b) => (b.parentElement?.className ?? '') + (b.offsetParent ? ' 可见' : ' 不可见')), pending: __lite.tabflow.pendingClose?.path ?? null, inert: document.querySelector('.layer')?.inert, anims: document.querySelector('.layer')?.getAnimations({ subtree: true }).map((a) => a.playState + '@' + Math.round(a.currentTime ?? -1)), hidden: document.hidden, log: window.__layerLog })" 2>&1 | sed 's/^/      现场：/'
+  fi
   is "return __lite.tabs.byPath($(q "${MOD}"))?.dirty === true" && ok "取消之后改动还在" || bad "取消之后 modal.txt 不脏了"
+  # 退场到一半又问、再关（2026-10-20）：那一层是 Svelte 倒回来复用的，它缓存了过渡配置、第二次退场不再调 layerOut ——
+  # `leaving` 要照样打上，不然淡出那段还接鼠标（后台窗口里帧不走就一直挂着：上面那条间歇红了一周多就是这个）。确定的次序，不靠运气撞
+  is "const id = __lite.tabs.byPath($(q "${MOD}")).id; const w = (ms) => new Promise((r) => setTimeout(r, ms)); const cancel = () => [...document.querySelectorAll('.layer .dialog button')].find((b) => b.textContent.trim() === '取消').click(); __lite.tabflow.requestClose(id); await w(600); const first = document.querySelector('.layer'); cancel(); await w(30); __lite.tabflow.requestClose(id); await w(60); const reused = document.querySelector('.layer') === first; cancel(); await w(30); return reused && document.querySelector('.layer')?.classList.contains('leaving') === true" \
+    && ok "退场到一半又问、再关：复用的那一层照样打上 leaving" || bad "复用的那一层第二次关掉时没有 leaving（淡出时还接鼠标）"
   sleep 0.3
   # 对照比的是「这一下之前」的数，不是 N0：被挡那条红的时候已经多开了一张，拿 N0 比对照会跟着一起红，说明不了什么
   N1=$(lite eval "${W}" "return __lite.tabs.list.length" 2>/dev/null)

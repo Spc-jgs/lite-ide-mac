@@ -139,8 +139,15 @@
    * 浏览器里复现过（2026-10-13）：点「取消」后 5ms 内再问一次，同一个元素被复用、`pointer-events: none`，框整个点不动；
    * 摘掉之后同一串操作「取消」照常。真窗口里窗口期是那 120ms，后台页帧不走时会一直停在半路
    */
+  /*
+   * **`leaving` 跟着状态走，不靠 `layerOut` 去打**（2026-10-20，smoke ㉗「点取消对话框没关」间歇红了一周多才查到）：
+   * Svelte 把一个元素的过渡配置缓存起来（`current_options ??= fn(...)`），只在**进场**结束时清 —— 这一层只有退场、没有进场，
+   * 所以只有第一次退场会调 `layerOut`。退场到一半被倒回来复用（上面那段）之后再关，Svelte 用缓存的配置、不再调它，`leaving` 就没了：
+   * 那一层淡出时照样接鼠标；后台窗口里帧不走、淡出停在半路，它一直挂着。挂个观察者记下来的时间线：点「取消」之后只有 `inert` 变了，class 没变。
+   * 这条 effect 不在 `{#if}` 里面，退场时不会被一起暂停
+   */
   $effect(() => {
-    if (asking) layerEl?.classList.remove("leaving");
+    layerEl?.classList.toggle("leaving", !asking);
   });
 
   function guardKey(e: KeyboardEvent) {
