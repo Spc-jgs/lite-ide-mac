@@ -618,7 +618,11 @@ mod tests {
     }
 
     /// 防抖本身，不经过 FSEvents：防抖窗口里来的五下信号只发一条；之后再来一下，再发一条（没卡死）；`stop` 之后线程退出。
-    /// 信号隔 10ms 一下、一共 40ms，离 300ms 的窗口留足余量（CI 慢、测试并行跑）—— 去掉那一下 `sleep(DEBOUNCE)` 就是五条
+    /// 信号隔 10ms 一下、本该一共 40ms —— 去掉那一下 `sleep(DEBOUNCE)` 就是五条。
+    ///
+    /// **「恰好一条」只在五下真落在窗口里时才判**（2026-10-20，CI 上数到过 2）：窗口从防抖线程被第一下叫醒算起、至少 300ms，
+    /// 五下从头到尾不到 300ms 就一定合成一条，结果是确定的；可 CI 的 macOS 机器并行跑着几十条测试，测试线程自己的 4 次 10ms 能被拖过 300ms，
+    /// 那时第五下本来就在窗口外，两条才是对的。所以先量五下实际拖了多久，超了就只说一句、不判。等「发出来」也改成有上限的轮询，不赌固定的 600ms
     #[test]
     fn 防抖_一阵信号只发一次() {
         use std::sync::atomic::AtomicUsize;
@@ -633,15 +637,32 @@ mod tests {
             *wake.0.lock().unwrap() = true;
             wake.1.notify_one();
         };
-        for _ in 0..5 {
+        let until = |want: usize| {
+            let t0 = std::time::Instant::now();
+            while n.load(Ordering::SeqCst) < want && t0.elapsed() < Duration::from_secs(5) {
+                thread::sleep(Duration::from_millis(10));
+            }
+        };
+        let t0 = std::time::Instant::now();
+        for i in 0..5 {
             poke();
-            thread::sleep(Duration::from_millis(10));
+            if i < 4 {
+                thread::sleep(Duration::from_millis(10));
+            }
         }
+        let spread = t0.elapsed();
+        until(1);
+        // 再等两个窗口：多发的那一条要是有，这时候也该出来了
         thread::sleep(DEBOUNCE * 2);
-        assert_eq!(n.load(Ordering::SeqCst), 1, "防抖窗口里的五下该合成一条");
+        if spread < DEBOUNCE {
+            assert_eq!(n.load(Ordering::SeqCst), 1, "防抖窗口里的五下该合成一条（五下一共 {spread:?}）");
+        } else {
+            eprintln!("机器太忙：五下信号拖了 {spread:?}，超过 {DEBOUNCE:?} 的窗口，这一次不判「合成一条」");
+        }
+        let before = n.load(Ordering::SeqCst);
         poke();
-        thread::sleep(DEBOUNCE * 2);
-        assert_eq!(n.load(Ordering::SeqCst), 2, "之后再来一下要再发一条");
+        until(before + 1);
+        assert_eq!(n.load(Ordering::SeqCst), before + 1, "之后再来一下要再发一条");
         stop.store(true, Ordering::SeqCst);
         wake.1.notify_all();
         let t0 = std::time::Instant::now();
