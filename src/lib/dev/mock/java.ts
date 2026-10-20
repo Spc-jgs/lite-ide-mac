@@ -276,6 +276,11 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       await wait(60); // 实测 59–66 ms（第 3 步的探针）
       docs.set(path, String(a.text ?? ""));
       return complete(path, String(a.text ?? ""), Number(a.line), Number(a.character));
+    case "java_signature": {
+      // 实测第一次 168 ms、之后几十 ms（docs/IDEA.md 第 13 节那个探针）：给 80，「敲了括号、过一会儿才出」在桩上看得见
+      await wait(80);
+      return signature(String(a.text ?? ""), Number(a.line), Number(a.character));
+    }
     case "java_resolve":
       await wait(250); // 实测 137–254 ms：所以选中时就在后台问，不等回车
       return resolve(String(a.raw));
@@ -339,4 +344,38 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
     default:
       return NOT_MINE;
   }
+}
+
+/**
+ * 参数提示（桩）：光标往回找到还没合上的那个 `(`，前面的名字就是方法；数它后面同一层的逗号就是第几个参数。
+ * 名字带 `format` 的给 String.format 的两个重载，别的给一个「名字(String a, int b)」—— 真的语义在 jdtls 里，这里只演形状
+ */
+function signature(text: string, line: number, character: number) {
+  const lines = text.split("\n");
+  const before = lines.slice(0, line).join("\n") + (line > 0 ? "\n" : "") + (lines[line] ?? "").slice(0, character);
+  let depth = 0;
+  let commas = 0;
+  let open = -1;
+  for (let i = before.length - 1; i >= 0; i--) {
+    const c = before[i];
+    if (c === ")") depth++;
+    else if (c === "(") {
+      if (depth === 0) {
+        open = i;
+        break;
+      }
+      depth--;
+    } else if (c === "," && depth === 0) commas++;
+    else if (c === ";" || c === "{" || c === "}") break;
+  }
+  if (open < 0) return { signatures: [], active: 0, param: 0, total: 0 };
+  const name = /([A-Za-z_$][\w$]*)\s*$/.exec(before.slice(0, open))?.[1] ?? "";
+  const sig = (label: string, ps: string[]) => {
+    let from = label.indexOf("(") + 1;
+    return { label, doc: "", params: ps.map((p) => { const s = label.indexOf(p, from); from = s + p.length; return { start: s, end: s + p.length }; }) };
+  };
+  const list = name === "format"
+    ? [sig("format(String format, Object... args) : String", ["String format", "Object... args"]), sig("format(Locale l, String format, Object... args) : String", ["Locale l", "String format", "Object... args"])]
+    : [sig(`${name}(String a, int b) : void`, ["String a", "int b"])];
+  return { signatures: list, active: 0, param: commas, total: list.length };
 }

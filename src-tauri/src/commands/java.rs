@@ -227,3 +227,23 @@ pub async fn java_restart(window: tauri::Window, app: tauri::AppHandle, root: St
     let owner = window.label().to_string();
     blocking(move || app.state::<AppState>().java.restart(&app, &owner, &root)).await
 }
+
+/// 参数提示：光标此刻在哪个调用的第几个参数上（带着编辑器此刻的全文，同补全）
+#[tauri::command]
+pub async fn java_signature(app: tauri::AppHandle, root: String, path: String, text: String, line: u32, character: u32) -> Result<JavaSignaturesDto, String> {
+    blocking(move || {
+        let s = instance(&app, &root)?.signature_help(&path, &text, line, character)?;
+        Ok(JavaSignaturesDto {
+            signatures: s
+                .list
+                .into_iter()
+                .map(|x| JavaSignatureDto { label: x.label, params: x.params.into_iter().map(|(start, end)| JavaParamDto { start, end }).collect(), doc: x.doc })
+                .collect(),
+            active: s.active,
+            param: s.param,
+            total: s.total,
+        })
+    })
+    .await
+}
+

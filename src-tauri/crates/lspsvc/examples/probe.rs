@@ -64,6 +64,9 @@ fn main() {
     if let Ok(j) = std::env::var("DEBUG_JAR") {
         opts["bundles"] = json!([j]);
     }
+    if std::env::var("SIGON").is_ok() {
+        opts["settings"]["java"]["signatureHelp"] = json!({ "enabled": true });
+    }
     if let Ok(g) = std::env::var("GUESS") {
         opts["settings"]["java"]["completion"] = json!({ "guessMethodArguments": g });
     }
@@ -123,6 +126,13 @@ fn main() {
         let t = Instant::now();
         let r = s.request("textDocument/rename", req, Duration::from_secs(60));
         println!("rename {:.0} ms：{}", t.elapsed().as_secs_f64() * 1000.0, r.map(|v| v.to_string()).unwrap_or_else(|e| format!("错：{e}")));
+    }
+    // SIG=<一段文字>：在第一处出现它的末尾问参数提示（SIGON=1 时 initialize 带 java.signatureHelp.enabled，看要不要它）
+    if let Ok(after) = std::env::var("SIG") {
+        let (l, c) = text.lines().enumerate().find_map(|(i, l)| l.find(after.as_str()).map(|c| (i, c + after.len()))).expect("没有那段文字");
+        let t = Instant::now();
+        let r = s.request("textDocument/signatureHelp", json!({ "textDocument": { "uri": uri(path) }, "position": { "line": l, "character": c } }), Duration::from_secs(30));
+        println!("参数提示 {:.0} ms：{}", t.elapsed().as_secs_f64() * 1000.0, r.map(|v| v.to_string()).unwrap_or_else(|e| format!("错：{e}")));
     }
     // FORMAT=1：整份格式化（带「4 个空格」的选项），打出改动；看 jdtls 认不认我们给的缩进（Eclipse 默认是 Tab）
     if std::env::var("FORMAT").is_ok() {

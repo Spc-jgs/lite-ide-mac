@@ -180,6 +180,8 @@ export const KEYS: KeyDef[] = [
   { id: "quick-fix", label: "快速修复（Java）", accel: "⌥↵", group: "编辑", owner: "cm6" },
   /** 跑光标所在的测试方法 / 类（docs/IDEA.md 第 17 节）：IDEA 的 Run context configuration。归 cm6：要读光标在哪 */
   /** `.http` 文件里是发光标所在的请求（docs/IDEA.md 第 19 节）：IDEA 里每个请求是一个临时运行配置，⌃⇧R 就是通用的「运行光标这儿的」 */
+  /** 参数提示（Java）。IDEA 是 ⌘P，但这个应用的 ⌘P 是按文件名打开 —— 用 VS Code 的键；敲 ( 或 , 时自己会弹 */
+  { id: "param-info", label: "参数提示（Java）", accel: "⇧⌘Space", group: "导航", owner: "cm6" },
   { id: "run-test", label: "运行光标所在的测试（Java）/ 请求（.http）", accel: "⌃⇧R", group: "运行", owner: "cm6" },
   /*
    * IDEA 的 ⌘L。归菜单：它跳的是活动编辑器，但判「有没有编辑器」在 App 里

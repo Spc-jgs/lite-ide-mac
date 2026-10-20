@@ -392,6 +392,13 @@ impl Instance {
         Ok(completion_items(&r))
     }
 
+    /// 参数提示（敲 `(` / `,` 时）。同补全：先把编辑器此刻的全文发过去再问
+    pub fn signature_help(&self, path: &str, text: &str, line: u32, character: u32) -> Result<Signatures, String> {
+        self.change(path, text);
+        let r = self.ask("textDocument/signatureHelp", json!({ "textDocument": { "uri": uri::from_path(path) }, "position": { "line": line, "character": character } }))?;
+        Ok(signatures(&r))
+    }
+
     /// 选中一项之后要的：自动 import（`additionalTextEdits`）和说明文字。`raw` 是补全时那一项的原样
     pub fn resolve(&self, raw: &str) -> Result<Resolved, String> {
         let item: Value = serde_json::from_str(raw).map_err(|e| format!("补全项不是 JSON：{e}"))?;
@@ -670,6 +677,74 @@ pub fn completion_items(r: &Value) -> (Vec<CompletionItem>, bool, usize) {
         })
         .collect();
     (items, incomplete || total > COMPL_MAX, total)
+}
+
+/// 参数提示的一个重载：整句签名，每个参数在签名里的位置（字符下标，从 0 数、左闭右开）
+#[derive(Debug, PartialEq)]
+pub struct Signature {
+    pub label: String,
+    pub params: Vec<(u32, u32)>,
+    pub doc: String,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Signatures {
+    pub list: Vec<Signature>,
+    /// jdtls 认为最可能是哪个重载
+    pub active: u32,
+    /// 光标在第几个参数上
+    pub param: u32,
+    /// 真有几个重载（`list` 最多 [`SIG_MAX`] 个）
+    pub total: u32,
+}
+
+/// 一次最多给几个重载：`StringBuilder.insert` 有 13 个，再多就该接着敲字让它筛了
+pub const SIG_MAX: usize = 20;
+
+/// `SignatureHelp | null` → 前端要的。参数位置：给了 `[开始, 结束]` 就用（UTF-16 下标，换成字符下标），
+/// 给的是文字就**从括号后面按顺序往后找** —— 声明了 `labelOffsetSupport` 它照样给文字（探针实测）；不按顺序找的话，
+/// `copy(int from, int to)` 里两个 `int` 会都亮第一个
+pub fn signatures(r: &Value) -> Signatures {
+    let all = r["signatures"].as_array().cloned().unwrap_or_default();
+    let list = all
+        .iter()
+        .take(SIG_MAX)
+        .map(|s| {
+            let label = s["label"].as_str().unwrap_or("").to_string();
+            let chars: Vec<char> = label.chars().collect();
+            let mut from = label.find('(').map_or(0, |b| label[..b].chars().count() + 1);
+            let params = s["parameters"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|p| match &p["label"] {
+                    Value::Array(se) => {
+                        let u = |i: usize| se.get(i).and_then(Value::as_u64).unwrap_or(0) as usize;
+                        let to_char = |n: usize| String::from_utf16_lossy(&label.encode_utf16().take(n).collect::<Vec<_>>()).chars().count() as u32;
+                        Some((to_char(u(0)), to_char(u(1))))
+                    }
+                    Value::String(t) => {
+                        let needle: Vec<char> = t.chars().collect();
+                        let at = (from..chars.len().saturating_sub(needle.len()) + 1).find(|&i| chars[i..].starts_with(&needle))?;
+                        from = at + needle.len();
+                        Some((at as u32, from as u32))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let doc = s["documentation"].as_str().or(s["documentation"]["value"].as_str()).unwrap_or("");
+            let doc = match doc.char_indices().nth(DOC_MAX) {
+                Some((i, _)) => format!("{}…", &doc[..i]),
+                None => doc.to_string(),
+            };
+            Signature { label, params, doc }
+        })
+        .collect::<Vec<_>>();
+    let active = r["activeSignature"].as_u64().unwrap_or(0) as usize;
+    let active = if active < list.len() { active } else { 0 };
+    // 每个重载自己可以带 activeParameter（LSP 3.16），没带用整体的
+    let param = all.get(active).and_then(|s| s["activeParameter"].as_u64()).or(r["activeParameter"].as_u64()).unwrap_or(0) as u32;
+    Signatures { list, active: active as u32, param, total: all.len() as u32 }
 }
 
 /// resolve 的回包 → 要一起做的改动 + 说明文字（`string | MarkupContent`，截在 [`DOC_MAX`] 字、切在字符边界上）
@@ -1122,6 +1197,27 @@ fn spawn_janitor(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn 参数提示_同类型的参数按顺序找_给偏移的按_utf16_换算_重载的当前参数优先() {
+        // 探针实测的形状：参数给的是文字
+        let r = serde_json::json!({ "activeSignature": 1, "activeParameter": 0, "signatures": [
+            { "label": "copy(int from, int to) : void", "parameters": [{ "label": "int from" }, { "label": "int to" }] },
+            { "label": "copy(int a, int b, int c) : void", "parameters": [{ "label": "int a" }, { "label": "int b" }, { "label": "int c" }], "activeParameter": 2 },
+        ] });
+        let s = super::signatures(&r);
+        assert_eq!(s.list[0].params, vec![(5, 13), (15, 21)], "两个 int 各亮各的");
+        assert_eq!((s.active, s.param, s.total), (1, 2, 2), "重载自己带的 activeParameter 优先");
+        // 给偏移的（UTF-16 下标）：前面有一个占两个 UTF-16 单位的字（emoji）也不错位。中文在 UTF-16 里也是一个单位，拿它测的话不换算照样过
+        let r = serde_json::json!({ "signatures": [{ "label": "f(String 😀, int n)", "parameters": [{ "label": [2, 11] }, { "label": [13, 18] }] }] });
+        let s = super::signatures(&r);
+        let l: Vec<char> = s.list[0].label.chars().collect();
+        let p = |i: usize| l[s.list[0].params[i].0 as usize..s.list[0].params[i].1 as usize].iter().collect::<String>();
+        assert_eq!((p(0), p(1)), ("String 😀".to_string(), "int n".to_string()));
+        // 越界的 activeSignature 回 0，不让前端去取一个不存在的
+        assert_eq!(super::signatures(&serde_json::json!({ "activeSignature": 9, "signatures": [{ "label": "g()" }] })).active, 0);
+        assert_eq!(super::signatures(&serde_json::Value::Null).list.len(), 0);
+    }
+
     use super::*;
 
     #[test]

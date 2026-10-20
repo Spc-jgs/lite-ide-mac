@@ -313,6 +313,7 @@ pub fn run() {
             commands::java_definition,
             commands::java_complete,
             commands::java_resolve,
+            commands::java_signature,
             commands::java_prepare_rename,
             commands::java_rename,
             commands::java_format,

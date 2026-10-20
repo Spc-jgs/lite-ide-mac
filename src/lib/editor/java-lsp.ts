@@ -21,7 +21,7 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature } from "../ipc/java";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { nav } from "../state/nav.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
@@ -29,6 +29,7 @@ import RenamePopup from "./RenamePopup.svelte";
 import QuickFixPopup from "./QuickFixPopup.svelte";
 import { javaTestGutter } from "./java-test-gutter";
 import { javaDebugGutter } from "./java-debug-gutter";
+import { signatureHelp } from "./java-signature";
 import { notify } from "../state/notify.svelte";
 import { progress, type TaskHandle } from "../state/progress.svelte";
 import { tabs } from "../state/tabs.svelte";
@@ -738,6 +739,8 @@ export function javaLsp(root: string | null, path: string): Extension {
     javaTestGutter(root, path),
     // 断点和执行点（第 18 节）：同样不靠语言服务器
     javaDebugGutter(root, path),
+    // 参数提示：敲 ( 或 , 时弹，⇧⌘Space 手动弹
+    signatureHelp((text, line, character) => javaSignature(root, path, text, line, character)),
     // 换掉通用的「文档里的词」：Java 文件里由 javaSource 说了算（它自己会在 jdtls 没起好时退回去）。和 Editor 里那份 autocompletion() 的配置合并
     autocompletion({ override: [javaSource], addToOptions: [descriptionColumn] }),
     ViewPlugin.define((view) => new Sync(view, root, path)),

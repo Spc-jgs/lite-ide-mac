@@ -209,6 +209,26 @@ export interface DebugVar {
   indexed: number;
 }
 
+/** 参数提示里一个参数在签名里的位置（字符下标，左闭右开） */
+export interface JavaParam {
+  start: number;
+  end: number;
+}
+
+export interface JavaSignature {
+  label: string;
+  params: JavaParam[];
+  doc: string;
+}
+
+/** 参数提示：几个重载、jdtls 认为是哪个（`active`）、光标在第几个参数（`param`）；`total` 是真有几个 */
+export interface JavaSignatures {
+  signatures: JavaSignature[];
+  active: number;
+  param: number;
+  total: number;
+}
+
 /** 一个响应头（docs/IDEA.md 第 19 节） */
 export interface HttpHeader {
   name: string;

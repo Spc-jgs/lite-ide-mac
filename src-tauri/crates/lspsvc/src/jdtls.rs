@@ -229,6 +229,8 @@ pub fn capabilities() -> Value {
                 "dataSupport": true,
                 "resolveSupport": { "properties": ["edit"] },
             },
+            // 参数提示：参数在签名里的位置给偏移（不给的话只给参数的文字，同名的两个参数分不清亮哪个）
+            "signatureHelp": { "signatureInformation": { "documentationFormat": ["plaintext"], "parameterInformation": { "labelOffsetSupport": true }, "activeParameterSupport": true }, "contextSupport": true },
             "formatting": {},
             "rangeFormatting": {},
             "hover": { "contentFormat": ["plaintext", "markdown"] },
@@ -262,6 +264,8 @@ pub fn init_options() -> Value {
             // `An internal error occurred during: "Download sources and javadoc"`）。本地仓库里已经有的 sources jar m2e 照样自动挂上；
             // 没有的反编译（IDEA 也是先给反编译、点「Download Sources」才下）
             "maven": { "downloadSources": false },
+            // 参数提示：jdtls 默认关着，不开的话 signatureHelp 一个签名都不回（探针实测 `{"signatures":[]}`）
+            "signatureHelp": { "enabled": true },
         } },
     })
 }

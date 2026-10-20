@@ -550,3 +550,15 @@ F9 之后程序照常跑完、会话结束、执行点清掉。
 
 还没做：Cookie 罐（IDEA 跨请求记 Cookie）、multipart、响应处理脚本、请求历史（IDEA 的 `http-requests-log.http`）、按 traceId 联到日志视图（第 2 节表里写的，需要先约定 traceId 在哪个头）、响应体的 JSON 着色（现在是日志视图那套，有搜索和过滤，没有语法颜色；「在编辑区打开」有）。
 
+## 20. 第 3 步补上的：参数提示（2026-10-20）
+
+敲 `(` 或 `,` 时在光标上方列出这个方法的几个重载、当前参数加粗（IDEA 的 Parameter Info），出了括号收起；⇧⌘Space 手动弹。
+
+- **jdtls 默认关着**：`java.signatureHelp.enabled` 不开，`signatureHelp` 一个签名都不回（探针实测 `{"signatures":[]}`），开了第一次 168 ms。
+- **参数的位置自己找**：声明了 `labelOffsetSupport` 它照样给参数的文字，在签名里**从括号后面按顺序往后找** —— 不按顺序的话 `copy(int from, int to)` 两个 `int` 都亮第一个（错版本验红）；
+  给偏移的服务器按 UTF-16 下标换成字符下标（前面有 emoji 时不换算会错位，错版本验红；拿中文测不出来，中文在 UTF-16 里也是一个单位）。
+- **不自己数括号**判断「还在不在调用里」：开着时每次改动 / 挪光标都重新问（去抖 150ms），jdtls 回空就收 —— 字符串、注释、泛型的尖括号它本来就认得。
+- **⌘P 不是它**：IDEA 在 macOS 上的 Parameter Info 是 ⌘P，这个应用的 ⌘P 是按文件名打开（Sublime / VS Code 的习惯）。要不要让出来是用户定的事，先用 VS Code 的 ⇧⌘Space。
+
+真 .app `scripts/accept/java.sh` 41/41（新加 3 条）：敲 `String.format(` 弹出两个重载、当前参数 `String format`；打完 `"%d", ` 挪到 `Object... args`；打完 `1);` 收起。
+

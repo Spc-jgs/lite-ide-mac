@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, ReplaceOutcome } from "./commands";
+import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, ReplaceOutcome, JavaSignatures } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -20,6 +20,9 @@ export const javaReferences = (root: string, path: string, line: number, charact
 /** 补全：带着编辑器此刻的全文（Rust 那边先同步再问 —— 去抖还没发出去的那几个字 jdtls 也要看到） */
 export const javaComplete = (root: string, path: string, text: string, line: number, character: number) =>
   invoke<JavaCompletion>("java_complete", { root, path, text, line, character });
+/** 参数提示：光标此刻在哪个调用的第几个参数上（带着编辑器此刻的全文，同补全） */
+export const javaSignature = (root: string, path: string, text: string, line: number, character: number) =>
+  invoke<JavaSignatures>("java_signature", { root, path, text, line, character });
 /** 选中的那一项：自动 import + 说明文字 */
 export const javaResolve = (root: string, raw: string) => invoke<JavaResolved>("java_resolve", { root, raw });
 /** 光标底下能不能改名：null = 这里不能改（关键字、注释里） */

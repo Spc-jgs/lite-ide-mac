@@ -1112,3 +1112,29 @@ pub struct HttpEnvsDto {
     pub problems: Vec<String>,
 }
 
+/// 参数提示里一个参数在签名里的位置（字符下标，左闭右开）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaParamDto {
+    pub start: u32,
+    pub end: u32,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaSignatureDto {
+    pub label: String,
+    pub params: Vec<JavaParamDto>,
+    pub doc: String,
+}
+
+/// 参数提示（敲 `(` / `,` 时）：几个重载、jdtls 认为是哪个、光标在第几个参数；`total` 是真有几个（比 `signatures` 多就是截了）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaSignaturesDto {
+    pub signatures: Vec<JavaSignatureDto>,
+    pub active: u32,
+    pub param: u32,
+    pub total: u32,
+}
+

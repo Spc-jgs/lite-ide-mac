@@ -168,6 +168,18 @@ ok "$([ "$(lite_eval main "return __lite.completions().labels.includes('getName'
 sleep 0.3
 lite_eval main "const c = __lite.completions(); if (c.labels[0] !== 'getName') return c.labels.join(','); return __lite.acceptCompletion()" >/dev/null
 ok "$([ "$(lite_eval main "return __lite.text().includes('c.getName()')")" = true ] && echo 1)" "插的是 getName()（带括号 —— jdtls 的 textEdit，不是只有名字的 insertText）：$(lite_eval main "return __lite.text().split('\\n').find((x) => x.includes('c.getNa')) ?? ''" | sed 's/^ *//')"
+
+echo "== 参数提示：敲 String.format( 弹出重载、当前参数是 format；打完第一个参数和逗号挪到 args；出了括号收起"
+SIG='const on = () => [...document.querySelectorAll(".cm-java-sig .row.on b")].map((b) => b.textContent).join();'
+lite_eval main "const t = __lite.text().split('\n'); const l = t.findIndex((x) => x.includes('c.setName(')); __lite.caret(l + 1, t[l].length + 1); __lite.type('\n        String.format('); return true" >/dev/null
+lite_wait main "${SIG} return on() === 'String format'" 15 >/dev/null
+ok "$([ "$(lite_eval main "${SIG} return on()")" = "String format" ] && echo 1)" "敲 ( 弹出参数提示，当前参数 String format：$(lite_eval main "return document.querySelector('.cm-java-sig')?.innerText.split('\n').slice(0, 2).join(' / ') ?? '没弹'")"
+lite_eval main "__lite.type('\"%d\", '); return true" >/dev/null
+lite_wait main "${SIG} return on() === 'Object... args'" 10 >/dev/null
+ok "$([ "$(lite_eval main "${SIG} return on()")" = "Object... args" ] && echo 1)" "打完第一个参数和逗号：当前参数挪到 Object... args"
+lite_eval main "__lite.type('1);'); return true" >/dev/null
+lite_wait main "return !document.querySelector('.cm-java-sig')" 10 >/dev/null
+ok "$([ "$(lite_eval main "return !document.querySelector('.cm-java-sig')")" = true ] && echo 1)" "出了括号就收起"
 lite_eval main "__lite.setText($(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' <<< "${ORIG}")); return true" >/dev/null
 
 echo "== 改名（⇧F6，docs/IDEA.md 第 14 节）：record 跨模块改名，文件跟着改名；jdtls 不报错（它从文件监听知道了新文件）；撤销名字和内容都回来"

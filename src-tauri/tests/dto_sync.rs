@@ -109,6 +109,9 @@ const PAIRS: &[(&str, &str)] = &[
     ("HttpHeaderDto", "HttpHeader"),
     ("HttpResponseDto", "HttpResponse"),
     ("HttpEnvsDto", "HttpEnvs"),
+    ("JavaParamDto", "JavaParam"),
+    ("JavaSignatureDto", "JavaSignature"),
+    ("JavaSignaturesDto", "JavaSignatures"),
     ("JavaActionResultDto", "JavaActionResult"),
 ];
 
