@@ -107,6 +107,8 @@ export function installTestHooks() {
     },
     debug: {
       breakpoints: async (root: string, path: string, lines: number[]) => (await import("../debug/breakpoints")).setLines(root, path, lines),
+      /** 条件断点：和右键行号、填条件、回车走同一个函数（右键那个小框本身在浏览器里验） */
+      cond: async (root: string, path: string, line: number, cond: string) => (await import("../debug/breakpoints")).setCond(root, path, line, cond),
       exec: async () => (await import("../debug/exec-point")).execPoint(),
     },
     /** 活动编辑器里的全文；没有编辑器是 null */

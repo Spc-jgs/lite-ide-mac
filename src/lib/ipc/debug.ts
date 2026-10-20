@@ -5,8 +5,9 @@ import type { DebugState, DebugVar, DebugVars } from "./commands";
 /** 这次运行的调试会话此刻什么样；不在调试是 null */
 export const debugState = (run: number) => invoke<DebugState | null>("debug_state", { run });
 
-/** 这个文件的断点换成 `lines`（整份，从 1 数）。正在调试的话当场下到 JVM 里，回「对上了」的那些行 */
-export const debugBreakpoints = (root: string, path: string, lines: number[]) => invoke<number[]>("debug_breakpoints", { root, path, lines });
+/** 这个文件的断点换成 `lines`（整份，从 1 数），`conds` 一一对应（条件断点的条件，空串是普通断点）。正在调试的话当场下到 JVM 里，回「对上了」的那些行 */
+export const debugBreakpoints = (root: string, path: string, lines: number[], conds: string[] = []) =>
+  invoke<number[]>("debug_breakpoints", { root, path, lines, conds });
 
 export type DebugAction = "continue" | "next" | "stepIn" | "stepOut" | "pause";
 export const debugStep = (run: number, action: DebugAction) => invoke<void>("debug_step", { run, action });

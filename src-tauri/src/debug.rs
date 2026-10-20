@@ -96,11 +96,13 @@ pub struct Snapshot {
     pub total_frames: usize,
     /// 停着的线程（不止一个线程撞上断点时可以切）
     pub threads: Vec<Thread>,
+    /// 这一次停下时插件说的话（条件断点的条件算不了：它照样停下，不说的话看着和「条件成立」一模一样）
+    pub warn: String,
 }
 
 impl Snapshot {
     fn waiting(why: &str) -> Snapshot {
-        Snapshot { phase: Phase::Waiting(why.into()), thread: None, reason: String::new(), frames: Vec::new(), total_frames: 0, threads: Vec::new() }
+        Snapshot { phase: Phase::Waiting(why.into()), thread: None, reason: String::new(), frames: Vec::new(), total_frames: 0, threads: Vec::new(), warn: String::new() }
     }
 }
 
@@ -115,14 +117,16 @@ pub struct Dbg {
     /// 停着的线程，最近停的在最后
     stopped: Mutex<Vec<i64>>,
     hold: Mutex<Option<crate::java::Hold>>,
+    /// 插件刚说过的提醒，等紧跟着的 `stopped` 一起推（见 [`cond_warning`]）
+    warn: Mutex<Option<String>>,
 }
 
 /// 应用里全部的调试会话（按窗口登记）+ 每个项目的断点
 #[derive(Default)]
 pub struct Debugs {
     all: Owned<u32, Arc<Dbg>>,
-    /// 项目根 → 文件 → 行（从 1 数）。前端每次改了就整份报一个文件；会话挂上时照这张表下断点
-    bps: Mutex<HashMap<String, BTreeMap<String, Vec<u32>>>>,
+    /// 项目根 → 文件 → 断点（行从 1 数，带条件的是条件断点）。前端每次改了就整份报一个文件；会话挂上时照这张表下断点
+    bps: Mutex<HashMap<String, BTreeMap<String, Vec<Bp>>>>,
 }
 
 impl Debugs {
@@ -130,28 +134,28 @@ impl Debugs {
         self.all.get(&run, Arc::clone)
     }
 
-    /// 这个文件的断点换成这些行；这个项目正在调试的会话当场跟着改。回会话说「对上了」的那些行（没有会话就原样回）
-    pub fn set_breakpoints(&self, root: &str, path: &str, lines: Vec<u32>) -> Vec<u32> {
+    /// 这个文件的断点换成这些；这个项目正在调试的会话当场跟着改。回会话说「对上了」的那些行（没有会话就原样回）
+    pub fn set_breakpoints(&self, root: &str, path: &str, bps: Vec<Bp>) -> Vec<u32> {
         {
             let mut b = self.bps.lock().unwrap_or_else(|e| e.into_inner());
             let files = b.entry(root.to_string()).or_default();
-            if lines.is_empty() {
+            if bps.is_empty() {
                 files.remove(path);
             } else {
-                files.insert(path.to_string(), lines.clone());
+                files.insert(path.to_string(), bps.clone());
             }
         }
         let live: Vec<Arc<Dbg>> = self.all.map(Arc::clone).into_iter().filter(|d| d.root == root).collect();
-        let mut verified = lines.clone();
+        let mut verified = bps.iter().map(|b| b.line).collect();
         for d in live {
-            if let Some(v) = d.send_breakpoints(path, &lines) {
+            if let Some(v) = d.send_breakpoints(path, &bps) {
                 verified = v;
             }
         }
         verified
     }
 
-    fn breakpoints(&self, root: &str) -> Vec<(String, Vec<u32>)> {
+    fn breakpoints(&self, root: &str) -> Vec<(String, Vec<Bp>)> {
         self.bps.lock().unwrap_or_else(|e| e.into_inner()).get(root).map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default()
     }
 
@@ -161,6 +165,22 @@ impl Debugs {
             d.disconnect();
         }
     }
+}
+
+/// 一个断点：行（从 1 数）和条件（Java 表达式，为真才停；空的是普通断点）。条件由 java-debug 在目标 JVM 里算 —— IDEA 的条件断点同一个意思
+#[derive(Clone, Debug, PartialEq)]
+pub struct Bp {
+    pub line: u32,
+    pub condition: String,
+}
+
+/// DAP 的 setBreakpoints 参数。条件是空串的不带 `condition` 字段（带一个空的，java-debug 会拿它去编译、报「表达式不对」）
+fn breakpoints_args(path: &str, bps: &[Bp]) -> Value {
+    let list: Vec<Value> = bps
+        .iter()
+        .map(|b| if b.condition.trim().is_empty() { json!({ "line": b.line }) } else { json!({ "line": b.line, "condition": b.condition.trim() }) })
+        .collect();
+    json!({ "source": { "path": path }, "breakpoints": list, "lines": bps.iter().map(|b| b.line).collect::<Vec<_>>() })
 }
 
 /// 起任务时用的命令：在 `exec java` 后面插上 JDWP。只认 `maven::run_command` 那个形状 —— 别的命令里插哪儿说不准，不猜
@@ -292,15 +312,9 @@ impl Dbg {
         self.hold.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 
-    fn send_breakpoints(&self, path: &str, lines: &[u32]) -> Option<Vec<u32>> {
+    fn send_breakpoints(&self, path: &str, bps: &[Bp]) -> Option<Vec<u32>> {
         let sess = self.session().ok()?;
-        let body = sess
-            .request(
-                "setBreakpoints",
-                json!({ "source": { "path": path }, "breakpoints": lines.iter().map(|l| json!({ "line": l })).collect::<Vec<_>>(), "lines": lines }),
-                REQ,
-            )
-            .ok()?;
+        let body = sess.request("setBreakpoints", breakpoints_args(path, bps), REQ).ok()?;
         Some(body["breakpoints"].as_array().into_iter().flatten().filter(|b| b["verified"] == true).filter_map(|b| b["line"].as_u64().map(|l| l as u32)).collect())
     }
 
@@ -325,8 +339,10 @@ impl Dbg {
             .collect();
         let threads = stopped.iter().map(|id| Thread { id: *id, name: names.get(id).cloned().unwrap_or_else(|| format!("线程 {id}")) }).collect();
         let reason = reason.to_string();
+        let warn = self.warn.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
         self.set(|s| {
             s.phase = Phase::Paused;
+            s.warn = warn;
             s.thread = Some(thread);
             s.reason = reason;
             s.frames = frames;
@@ -351,6 +367,7 @@ impl Dbg {
                 s.phase = Phase::Running;
                 s.thread = None;
                 s.threads.clear();
+                s.warn.clear();
             }),
         }
     }
@@ -452,6 +469,7 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, m
         snap: Mutex::new(Snapshot::waiting("等它编译完、开调试端口…")),
         stopped: Mutex::new(Vec::new()),
         hold: Mutex::new(None),
+        warn: Mutex::new(None),
     });
     let st = app.state::<crate::state::AppState>();
     if let Some(old) = st.debug.all.insert(owner, run, Arc::clone(&d)) {
@@ -529,8 +547,8 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, log: &Path, main_class: &str, task: &Ar
         note_output(&e);
     }
     *d.dap.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(&sess));
-    for (path, lines) in st.debug.breakpoints(&d.root) {
-        d.send_breakpoints(&path, &lines);
+    for (path, bps) in st.debug.breakpoints(&d.root) {
+        d.send_breakpoints(&path, &bps);
     }
     sess.request("configurationDone", json!({}), REQ).map_err(|e| format!("configurationDone 失败：{e}"))?;
     d.set(|s| s.phase = Phase::Running);
@@ -545,6 +563,28 @@ fn note_output(e: &Value) {
             applog::write(applog::Level::Info, "debug", text.trim());
         }
     }
+}
+
+/// 插件的原话翻成人话。它的两种（0.53.1 的字符串，读字节码拿到的）：
+/// `Breakpoint condition '<条件>' error: <原因>`（变量名打错、编译不过）、`Result of breakpoint condition '<条件>' is not a boolean, …`。
+/// 原因那半是 JDT 编译器的英文，照原样留着（翻错了比不翻糟），只把它固定的那句开头换成「编译不过」；认不出的整句原样给。
+/// 真 JVM 上的原话（spring.sh 撞出来的）：`… error: Cannot evaluate because of compilation error(s): nosuch cannot be resolved to a variable.`
+fn cond_warning(msg: &str) -> String {
+    if let Some(rest) = msg.strip_prefix("Breakpoint condition '") {
+        if let Some((cond, why)) = rest.split_once("' error: ") {
+            let why = match why.strip_prefix("Cannot evaluate because of compilation error(s): ") {
+                Some(w) => format!("编译不过：{}", w.trim_end_matches('.')),
+                None => why.to_string(),
+            };
+            return format!("条件 {cond} 算不了，照样停下了：{why}");
+        }
+    }
+    if let Some(rest) = msg.strip_prefix("Result of breakpoint condition '") {
+        if let Some((cond, _)) = rest.split_once("' is not a boolean") {
+            return format!("条件 {cond} 的结果不是 true / false，照样停下了");
+        }
+    }
+    msg.to_string()
 }
 
 fn run_events(d: &Dbg, rx: mpsc::Receiver<Value>) {
@@ -562,6 +602,12 @@ fn run_events(d: &Dbg, rx: mpsc::Receiver<Value>) {
                 d.show_paused(t, body["reason"].as_str().unwrap_or("breakpoint"));
             }
             "continued" => d.resumed(if body["allThreadsContinued"] == true { None } else { body["threadId"].as_i64() }),
+            // java-debug 自己的事件（不在 DAP 标准里）：条件算不了时先发它、紧跟着照样发 stopped（读 0.53.1 的 SetBreakpointsRequestHandler 确认的）
+            "usernotification" => {
+                let msg = s(&body["message"]);
+                applog::write(applog::Level::Warn, "debug", &msg);
+                *d.warn.lock().unwrap_or_else(|e| e.into_inner()) = Some(cond_warning(&msg));
+            }
             "terminated" | "exited" => break,
             _ => note_output(&e),
         }
@@ -572,6 +618,24 @@ fn run_events(d: &Dbg, rx: mpsc::Receiver<Value>) {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn 条件断点_有条件的带_condition_空的不带() {
+        let v = breakpoints_args("/p/A.java", &[Bp { line: 4, condition: " cents == 1 ".into() }, Bp { line: 7, condition: "  ".into() }]);
+        assert_eq!(v["breakpoints"], json!([{ "line": 4, "condition": "cents == 1" }, { "line": 7 }]));
+        assert_eq!(v["lines"], json!([4, 7]));
+    }
+
+    #[test]
+    fn 条件算不了_插件的原话翻成人话_认不出的原样给() {
+        assert_eq!(
+            cond_warning("Breakpoint condition 'nosuch == 1' error: Cannot evaluate because of compilation error(s): nosuch cannot be resolved to a variable."),
+            "条件 nosuch == 1 算不了，照样停下了：编译不过：nosuch cannot be resolved to a variable"
+        );
+        assert_eq!(cond_warning("Breakpoint condition 'a.b()' error: java.lang.NullPointerException"), "条件 a.b() 算不了，照样停下了：java.lang.NullPointerException");
+        assert_eq!(cond_warning("Result of breakpoint condition 'cents' is not a boolean, please correct your expression."), "条件 cents 的结果不是 true / false，照样停下了");
+        assert_eq!(cond_warning("[Logpoint] Log message 'x' error: y"), "[Logpoint] Log message 'x' error: y");
+    }
 
     #[test]
     fn jdwp_插在_exec_java_后面_别的命令不猜() {

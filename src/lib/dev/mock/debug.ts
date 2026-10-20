@@ -23,6 +23,8 @@ interface Sess {
 const SESS = new Map<number, Sess>();
 /** 项目根 → 文件 → 行 */
 const BPS = new Map<string, Map<string, number[]>>();
+/** 条件算不了的断点（`路径:行` → 停下时那句提醒），同 Rust 的 `cond_warning` */
+const WARN = new Map<string, string>();
 
 const JAR = "jdt://contents/spring-boot-4.0.1.jar/org.springframework.boot/SpringApplication.class?=mock";
 
@@ -84,7 +86,8 @@ export function mockDebugStart(run: number, root: string, mainClass: string) {
 function pauseAt(s: Sess, at: { path: string; line: number }) {
   if (s.phase === "ended") return;
   s.at = at;
-  set(s, "paused");
+  // 真插件条件算不了时照样停、先发一句提醒，Rust 把它挂在这次停下的 note 上
+  set(s, "paused", WARN.get(`${at.path}:${at.line}`) ?? "");
 }
 
 /** 任务退了（停了 / 自己退了）：会话跟着结束 */
@@ -124,8 +127,17 @@ export function debugCmd(cmd: string, a: A): unknown {
     case "debug_breakpoints": {
       const root = String(a.root);
       const lines = (a.lines as unknown as number[]) ?? [];
+      const conds = (a.conds as unknown as string[]) ?? [];
+      // 桩不会算 Java 表达式：条件写成 `false` 的那个永远不停（浏览器里看得出条件真的带下去了）；
+      // 带 `nosuch` 的当成变量名打错 —— 照样停、带一句提醒（真插件就是这样）；别的条件当成真
+      const live = lines.filter((_, i) => (conds[i] ?? "").trim() !== "false");
+      lines.forEach((l, i) => {
+        const c = (conds[i] ?? "").trim();
+        if (c.includes("nosuch")) WARN.set(`${String(a.path)}:${l}`, `条件 ${c} 算不了，照样停下了：编译不过：nosuch cannot be resolved to a variable`);
+        else WARN.delete(`${String(a.path)}:${l}`);
+      });
       const m = BPS.get(root) ?? new Map<string, number[]>();
-      if (lines.length) m.set(String(a.path), lines);
+      if (live.length) m.set(String(a.path), live);
       else m.delete(String(a.path));
       BPS.set(root, m);
       return lines;

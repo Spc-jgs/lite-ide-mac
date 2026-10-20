@@ -50,7 +50,8 @@
     const file = f ? (f.path ? f.path.slice(f.path.lastIndexOf("/") + 1).replace(/\?.*$/, "").replace(/\.class$/, ".java") : f.name) : "";
     const why = d.reason === "breakpoint" ? "断点" : d.reason === "step" ? "单步" : d.reason === "exception" ? "异常" : d.reason === "pause" ? "暂停" : d.reason;
     const th = d.threads.length > 1 ? ` · ${d.threads.find((t) => t.id === d.thread)?.name ?? ""}` : "";
-    return `停在 ${file}${f?.line ? `:${f.line}` : ""}（${why}）${th}`;
+    // note 是插件的提醒（条件算不了，照样停下了）：不说的话看着和「条件成立」一模一样
+    return `停在 ${file}${f?.line ? `:${f.line}` : ""}（${why}）${th}${d.note ? ` · ${d.note}` : ""}`;
   });
 
   // 每停一次（帧那张表换了）：回到最顶上那一帧、切到调试器那一页
@@ -229,7 +230,7 @@
     <button class="ibtn" disabled={!paused} onclick={() => void step("next", run.id)} title="单步跳过（F8）" aria-label="单步跳过"><Icon name="step-over" /></button>
     <button class="ibtn" disabled={!paused} onclick={() => void step("stepIn", run.id)} title="单步进入（F7）" aria-label="单步进入"><Icon name="step-into" /></button>
     <button class="ibtn" disabled={!paused} onclick={() => void step("stepOut", run.id)} title="单步跳出（⇧F8）" aria-label="单步跳出"><Icon name="step-out" /></button>
-    <span class="where" class:paused class:ended={d?.phase === "ended" && !!d.note}>
+    <span class="where" class:paused class:ended={d?.phase === "ended" && !!d.note} class:warn={paused && !!d?.note} title={paused && d?.note ? d.note : undefined}>
       {#if d?.phase === "waiting"}<span class="wait-ring"><span class="spinner sm"></span></span>{/if}
       {where}
     </span>
@@ -294,6 +295,8 @@
   .where { display: inline-flex; align-items: center; gap: 6px; min-width: 0; margin-left: 8px; color: var(--text-dim); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .where.paused { color: var(--text); }
   .where.ended { color: var(--lvl-error); }
+  /* 条件算不了、照样停下了：琥珀色（要你看一眼，不是出错） */
+  .where.warn { color: var(--lvl-warn); }
   /* 环 150ms 之内不出现：同 .spinner 的延迟（ui.md 第十四条） */
   .wait-ring { display: inline-flex; }
   .threads { margin-left: 8px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }

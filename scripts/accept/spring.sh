@@ -281,6 +281,34 @@ ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + (d?.note ?? '') + ':' 
 ok "$([ "$(lite_eval main "const e = await __lite.debug.exec(); return e === null && document.querySelectorAll('.cm-exec-line').length === 0")" = true ] && echo 1)" "执行点清掉了（编辑器里不再标那一行）"
 lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
 
+echo "== 条件断点：条件由 java-debug 在目标 JVM 里算 —— 为假跑过去不停，为真照停"
+# 再点一次虫子：同名的那一格换成新的一次运行，按 id 认出是新的（不然读到的是上一次已经结束的会话）
+debug_again() {
+  local before; before=$(lite_eval main "${DBG} return r?.id ?? 0")
+  lite_eval main "${SVC} row('OrderApplication').click(); return true" >/dev/null
+  sleep 0.3
+  lite_eval main "document.querySelector('.svc .bar button[aria-label=\"调试\"]').click(); return true" >/dev/null
+  lite_wait main "${DBG} return !!r && r.id !== ${before} && (d?.phase === 'paused' || d?.phase === 'ended')" 300 >/dev/null
+}
+lite_eval main "await __lite.debug.cond('${P}', '${MONEY}', 4, 'cents == 1'); return true" >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-bp.cond').length")" = 1 ] && echo 1)" "带条件的断点画成另一个样子（红点里一个「?」）"
+debug_again
+ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + r?.status")" = "ended:done" ] && echo 1)" "条件 cents == 1 不成立（cents 是 12345）：跑过第 4 行没停、照常跑完：$(lite_eval main "${DBG} return d?.phase + ':' + r?.status + ':' + (d?.note ?? '')")"
+lite_eval main "await __lite.debug.cond('${P}', '${MONEY}', 4, 'cents == 12345'); return true" >/dev/null
+debug_again
+FR=$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('')")
+ok "$([ "${FR}" = "paused Money.java:4" ] && echo 1)" "条件 cents == 12345 成立：停在 Money.java:4：${FR}"
+lite menu debug-resume main >/dev/null
+lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
+# 条件写错了（变量名打错）：java-debug 照样停下 —— 不说一句的话，看着和「条件成立」一模一样（2026-10-20 第一次探测时就是这样）
+lite_eval main "await __lite.debug.cond('${P}', '${MONEY}', 4, 'nosuch == 1'); return true" >/dev/null
+debug_again
+ok "$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('') + ' ' + d?.note" | grep -q '^paused Money.java:4 条件 nosuch == 1 算不了，照样停下了：编译不过：nosuch cannot be resolved to a variable$' && echo 1)" "条件写错了：照样停在第 4 行，停下时说清条件算不了、为什么：$(lite_eval main "${DBG} return d?.note")"
+ok "$(lite_eval main "return document.querySelector('.dbg .where.warn')?.textContent ?? ''" | grep -q '算不了' && echo 1)" "调试器那一行用琥珀色写着这句"
+lite menu debug-resume main >/dev/null
+lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
+lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
+
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then
   ok "$([ ! -e "${REPO}/com/demo" ] && echo 1)" "本地仓库（${REPO/#$HOME/~}）里没有 com/demo：没 install"

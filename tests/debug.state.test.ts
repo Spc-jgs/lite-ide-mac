@@ -64,6 +64,30 @@ const FILE = "/proj/moduleB/src/main/java/com/demo/core/OrderServiceApplication.
   ok(!JSON.parse(localStorage.getItem("lite-ide.breakpoints") ?? "{}")[ROOT]?.[FILE], "一个都没有了就从表里摘掉，不留空数组");
 }
 
+// ── 条件断点：条件挂在标记上跟着行走；清空就变回普通断点（存回数字，第一版读得懂）；只给行号时条件不丢 ──
+{
+  bp.setLines(ROOT, FILE, [4]);
+  bp.setCond(ROOT, FILE, 8, "  cents == 1 ");
+  ok(JSON.stringify(bp.bpsOf(ROOT, FILE)) === '[{"line":4},{"line":8,"cond":"cents == 1"}]', `右键填了条件、顺手下了断点、两头空白去掉：${JSON.stringify(bp.bpsOf(ROOT, FILE))}`);
+  const stored = () => JSON.stringify(JSON.parse(localStorage.getItem("lite-ide.breakpoints") ?? "{}")[ROOT]?.[FILE]);
+  ok(stored() === '[4,{"line":8,"cond":"cents == 1"}]', `普通的存数字、带条件的存对象：${stored()}`);
+  let st = EditorState.create({ doc: FILES[FILE], extensions: [javaDebugGutter(ROOT, FILE)] });
+  const marks = (s: typeof st) => {
+    const out: string[] = [];
+    for (const set of s.facet(lineNumberMarkers))
+      for (let it = set.iter(); it.value; it.next()) out.push(`${s.doc.lineAt(it.from).number}${(it.value as unknown as { cond: string }).cond ? ":" + (it.value as unknown as { cond: string }).cond : ""}`);
+    return out.join();
+  };
+  ok(marks(st) === "4,8:cents == 1", `编辑器里的标记带着条件：${marks(st)}`);
+  st = st.update({ changes: { from: 0, insert: "// a\n// b\n" } }).state;
+  ok(marks(st) === "6,10:cents == 1", `上面插两行，条件跟着那个断点走：${marks(st)}`);
+  bp.setLines(ROOT, FILE, [8, 9]);
+  ok(JSON.stringify(bp.bpsOf(ROOT, FILE)) === '[{"line":8,"cond":"cents == 1"},{"line":9}]', `只给行号（测试通道、点行号）：还在的那行条件照旧：${JSON.stringify(bp.bpsOf(ROOT, FILE))}`);
+  bp.setCond(ROOT, FILE, 8, " ");
+  ok(stored() === "[8,9]", `条件清空就是普通断点，存回数字：${stored()}`);
+  bp.setLines(ROOT, FILE, []);
+}
+
 // ── 调试着起：状态比那一格先到也不丢、停在断点上标出执行点、单步、继续、停 ──
 {
   bp.setLines(ROOT, FILE, [9]);
@@ -100,6 +124,33 @@ const FILE = "/proj/moduleB/src/main/java/com/demo/core/OrderServiceApplication.
   ok(await until(() => r()?.status === "running" && !!r()?.debug), `⌃R 重跑调试起的还是调试：${JSON.stringify(r()?.debug?.phase)}`);
   await ops.stopRun(r()!.id);
   await until(() => r()?.debug?.phase === "ended");
+}
+
+// ── 调试开着时改条件，当场下到「JVM」里：条件为假的不停（桩：条件写 `false` 的不下进去 —— 验的是条件一路带到了 debug_breakpoints）。
+// 条件在调试起来**之后**才填：之前填的话调试开始前的 syncAll 自己会带上，「改了条件没告诉正在跑的会话」那条路就验不到（验红时撞见的）
+{
+  bp.setLines(ROOT, FILE, [9]);
+  await dbg.debugTask("OrderServiceApplication", ROOT);
+  bp.setCond(ROOT, FILE, 9, "false");
+  const r = () => runs.list.find((t) => t.name === "OrderServiceApplication");
+  ok(await until(() => r()?.debug?.phase === "running"), `挂上了：${r()?.debug?.phase}`);
+  await sleep(1500);
+  ok(r()?.debug?.phase === "running" && execPoint() === null, `条件为假，跑过那一行不停：${r()?.debug?.phase}`);
+  await ops.stopRun(r()!.id);
+  await until(() => r()?.debug?.phase === "ended");
+  bp.setLines(ROOT, FILE, []);
+}
+
+// ── 条件算不了（变量名打错）：照样停下，那一次停下带着一句提醒（桩：带 nosuch 的；真插件的原话在 debug.rs 的 cond_warning） ──
+{
+  bp.setCond(ROOT, FILE, 9, "nosuch == 1");
+  await dbg.debugTask("OrderServiceApplication", ROOT);
+  const r = () => runs.list.find((t) => t.name === "OrderServiceApplication");
+  ok(await until(() => r()?.debug?.phase === "paused"), `照样停下：${r()?.debug?.phase}`);
+  ok(r()?.debug?.note.startsWith("条件 nosuch == 1 算不了，照样停下了"), `停下时带着提醒：${r()?.debug?.note}`);
+  await ops.stopRun(r()!.id);
+  await until(() => r()?.debug?.phase === "ended");
+  bp.setLines(ROOT, FILE, []);
 }
 
 // ── 不是 Spring Boot 应用的调试不了：照实说，不起一个不带调试的 ──

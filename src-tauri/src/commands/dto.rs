@@ -1017,7 +1017,8 @@ impl DebugStateDto {
         let (phase, note) = match &s.phase {
             Phase::Waiting(w) => ("waiting", w.clone()),
             Phase::Running => ("running", String::new()),
-            Phase::Paused => ("paused", String::new()),
+            // 停着时 note 是插件的提醒（条件算不了照样停下了），平时是空的
+            Phase::Paused => ("paused", s.warn.clone()),
             Phase::Ended(w) => ("ended", w.clone()),
         };
         DebugStateDto {

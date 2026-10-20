@@ -14,10 +14,16 @@ pub async fn debug_state(app: tauri::AppHandle, run: u32) -> Result<Option<Debug
     blocking(move || Ok(app.state::<AppState>().debug.get(run).map(|d| DebugStateDto::of(run, &d.snapshot())))).await
 }
 
-/// 这个文件的断点换成 `lines`（整份，从 1 数）。正在调试的话当场下到 JVM 里，回「对上了」的那些行
+/// 这个文件的断点换成 `lines`（整份，从 1 数）；`conds` 和 `lines` 一一对应（条件断点的条件，空串是普通断点；不给就都是普通的）。
+/// 正在调试的话当场下到 JVM 里，回「对上了」的那些行
 #[tauri::command]
-pub async fn debug_breakpoints(app: tauri::AppHandle, root: String, path: String, lines: Vec<u32>) -> Result<Vec<u32>, String> {
-    blocking(move || Ok(app.state::<AppState>().debug.set_breakpoints(&root, &path, lines))).await
+pub async fn debug_breakpoints(app: tauri::AppHandle, root: String, path: String, lines: Vec<u32>, conds: Option<Vec<String>>) -> Result<Vec<u32>, String> {
+    blocking(move || {
+        let conds = conds.unwrap_or_default();
+        let bps = lines.into_iter().enumerate().map(|(i, line)| crate::debug::Bp { line, condition: conds.get(i).cloned().unwrap_or_default() }).collect();
+        Ok(app.state::<AppState>().debug.set_breakpoints(&root, &path, bps))
+    })
+    .await
 }
 
 /// continue / next / stepIn / stepOut / pause
