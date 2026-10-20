@@ -309,7 +309,7 @@ say "② ⌘P 唤得出来（它是懒加载的，首屏之后才预拉）"
 # 认浮层用输入框的占位符：别认「随处搜索」—— 那是空态卡片上的字，浮层不出来它也在，那条断言会**永远绿**。
 # （走 AX 时这条一直只能观察不计成败：占位符落在 AXPlaceholderValue 上，读不稳。现在读的是 DOM，转正）
 show_tree
-key "Mod-p"
+menu quick-file
 if wait_has "输入文件名" 5; then
   ok "⌘P 唤出来了"
 else
@@ -674,7 +674,7 @@ jump_at() {
 }
 # **用 ⌘P 开，不用文件树**：这几个文件在六层目录底下，文件树要一层层展开
 open_by_quick() {
-  key "Mod-p"
+  menu quick-file
   wait_has "输入文件名" 5 || { bad "⌘P 浮层没出来"; return 1; }
   fill "$1" || { bad "⌘P 的焦点不在输入框上"; return 1; }
   wait_results "$1" 8 || { bad "⌘P 里搜不到 $1"; return 1; }
@@ -722,7 +722,7 @@ say "㉑ ⌘P 一个框走到底：文件@符号、文件:行:列、单独的 @ 
 # Sublime 的 Goto Anything。符号来自 Lezer 语法树（和 ⇧⌘O 的大纲同一套），没打开的文件现读现解析。
 # 断言认「活动标签 + 光标落在哪一行哪一列」，不认浮层上印了什么 —— 列表对了而回车跳歪了，用户看到的是后者
 goto_by_quick() {
-  key "Mod-p"
+  menu quick-file
   wait_has "输入文件名" 5 || { bad "⌘P 浮层没出来"; return 1; }
   fill "$1" || { bad "⌘P 的焦点不在输入框上"; return 1; }
   wait_results "$2" 8 || { bad "「$1」的结果里没有「$2」"; key "Escape"; return 1; }

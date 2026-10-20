@@ -1,9 +1,6 @@
 /**
  * 参数提示（Java，jdtls 的 signatureHelp）：敲 `(` 或 `,` 时在光标上方列出这个方法的几个重载，当前那个参数加粗 —— 同 IDEA 的 Parameter Info
- * （IDEA 敲括号后自动弹、⌘P 手动弹）。
- *
- * **⌘P 不是它**：这个应用的 ⌘P 是「按文件名打开」（Sublime / VS Code 的习惯，keymap.ts），手动弹用 ⇧⌘Space（VS Code 的键）；
- * 要不要把 ⌘P 让给它是用户的事，没擅自改。
+ * （IDEA 敲括号后自动弹、⌘P 手动弹）。⌘P 原来是按文件名打开，2026-10-20 用户定了照 IDEA 换（找文件挪到 ⇧⌘O，keymap.ts）。
  *
  * 开着的时候每次改动 / 挪光标都重新问一次（去抖 150ms，jdtls 热的时候几十毫秒）：出了括号、换了一个调用，它回空的，就收起 ——
  * 不自己去数括号判断「还在不在调用里」，那要认字符串、注释、泛型的尖括号，jdtls 本来就知道。
@@ -110,8 +107,8 @@ export function signatureHelp(ask: Ask): Extension {
     p,
     Prec.high(
       keymap.of([
-        // 手动弹：⇧⌘Space（VS Code 的键；IDEA 的 ⌘P 在这个应用里是按文件名打开）
-        { key: "Mod-Shift-Space", preventDefault: true, run: (v) => (v.plugin(p)?.schedule(0), true) },
+        // 手动弹：⌘P（IDEA 的 Parameter Info）
+        { key: "Mod-p", preventDefault: true, run: (v) => (v.plugin(p)?.schedule(0), true) },
         // 开着时 Esc 只收起它（不然 Esc 往外冒，关掉的是别的东西）
         { key: "Escape", run: (v) => (v.state.field(sigField) ? (v.dispatch({ effects: setSig.of(null) }), true) : false) },
       ]),

@@ -181,11 +181,13 @@ fn 解析器本身不是空转() {
     let keymap = parse_keymap();
     assert_eq!(keymap.get("save").map(|(e, _)| e.accel.as_deref()), Some(Some("⌘S")));
     assert_eq!(keymap.get("cm-find").map(|(_, o)| o.as_str()), Some("cm6"));
-    assert_eq!(keymap.get("quick-file").map(|(_, o)| o.as_str()), Some("key"));
+    // 样本原来是 quick-file（⌘P），2026-10-20 照 IDEA 换成 ⇧⌘O 挂进了菜单；换成同样「归 keydown、菜单不挂键」的 ⌃R
+    assert_eq!(keymap.get("run-last").map(|(_, o)| o.as_str()), Some("key"));
 
     let menu = parse_menu();
     assert_eq!(menu.get("save").map(|e| e.accel.as_deref()), Some(Some("CmdOrCtrl+S")));
-    assert_eq!(menu.get("quick-file").map(|e| e.accel.as_deref()), Some(None), "⌘P 不该挂 accelerator");
+    assert_eq!(menu.get("run-last").map(|e| e.accel.as_deref()), Some(None), "⌃R 不该挂 accelerator（终端里是 shell 的搜历史）");
+    assert_eq!(menu.get("quick-file").map(|e| e.accel.as_deref()), Some(Some("Shift+CmdOrCtrl+O")));
     assert!(!menu.contains_key("cm-find"), "⌘F 不许出现在菜单里");
 }
 

@@ -134,13 +134,12 @@ export const KEYS: KeyDef[] = [
    */
   { id: "quick-all", label: "随处搜索", gesture: "连按两下 ⇧", group: "导航", owner: "key" },
   /*
-   * ⌘P **故意留在 keydown**。
-   *
-   * 进菜单的话，焦点在终端里按 ⌘P 会被菜单抢走 —— 而终端里的 ⌘P
-   * 更可能是想给 shell 的（zsh 的历史上一条）。菜单项只写标签、不挂 accelerator。
+   * 按文件名找：IDEA 的 Go to File 是 ⇧⌘O（2026-10-20 用户定的「照 IDEA 换」）。原来是 ⌘P（Sublime / VS Code 的习惯），
+   * ⌘P 让给了 IDEA 的参数提示（`param-info`）。归菜单：⇧⌘O 在终端里没人用，挂进菜单不会抢走 shell 的键 ——
+   * 原来 ⌘P 留在 keydown 就是因为终端里的 ⌘P 是 zsh 的「历史上一条」
    */
-  { id: "quick-file", label: "找文件…", accel: "⌘P", group: "导航", owner: "key" },
-  /** IDEA 的 ⌘E：⌘P 空着的时候列的就是最近打开的，这条只是那个手势的名字。留 keydown 的理由同 ⌘P */
+  { id: "quick-file", label: "找文件…", accel: "⇧⌘O", group: "导航", owner: "menu" },
+  /** IDEA 的 ⌘E：找文件那个面板空着的时候列的就是最近打开的，这条只是那个手势的名字。留 keydown：终端里的 ⌘E 是 shell 的「行尾」 */
   { id: "recent-files", label: "最近文件…", accel: "⌘E", group: "导航", owner: "key" },
   /*
    * 切标签（2026-09-23 之前一个键都没有）。归 keydown 不归菜单：⌃Tab 要「松开 ⌃ 才选定」，
@@ -158,7 +157,8 @@ export const KEYS: KeyDef[] = [
   },
   /* 跨文件替换（#42）：IDEA 的 Replace in Path 就是 ⇧⌘R；编辑器里 ⌘R 是文件内替换（cm-replace），不冲突 */
   { id: "replace-content", label: "在项目中替换…", accel: "⇧⌘R", group: "导航", owner: "menu" },
-  { id: "outline", label: "文件结构…", accel: "⇧⌘O", group: "导航", owner: "menu" },
+  /** IDEA 的 File Structure 是 ⌘F12（⇧⌘O 让给了找文件，2026-10-20） */
+  { id: "outline", label: "文件结构…", accel: "⌘F12", group: "导航", owner: "menu" },
   /*
    * 跳到声明。**只做「敢跳的」那两层**（本文件的符号表、import 推出来的文件），
    * 拿不准的一律不给下划线 —— 详见 `lib/editor/jump.ts` 的说明。
@@ -180,8 +180,8 @@ export const KEYS: KeyDef[] = [
   { id: "quick-fix", label: "快速修复（Java）", accel: "⌥↵", group: "编辑", owner: "cm6" },
   /** 跑光标所在的测试方法 / 类（docs/IDEA.md 第 17 节）：IDEA 的 Run context configuration。归 cm6：要读光标在哪 */
   /** `.http` 文件里是发光标所在的请求（docs/IDEA.md 第 19 节）：IDEA 里每个请求是一个临时运行配置，⌃⇧R 就是通用的「运行光标这儿的」 */
-  /** 参数提示（Java）。IDEA 是 ⌘P，但这个应用的 ⌘P 是按文件名打开 —— 用 VS Code 的键；敲 ( 或 , 时自己会弹 */
-  { id: "param-info", label: "参数提示（Java）", accel: "⇧⌘Space", group: "导航", owner: "cm6" },
+  /** 参数提示（Java），照 IDEA 是 ⌘P；敲 ( 或 , 时自己会弹。归 cm6：终端里的 ⌘P 照样交给 shell */
+  { id: "param-info", label: "参数提示（Java）", accel: "⌘P", group: "导航", owner: "cm6" },
   { id: "run-test", label: "运行光标所在的测试（Java）/ 请求（.http）", accel: "⌃⇧R", group: "运行", owner: "cm6" },
   /*
    * IDEA 的 ⌘L。归菜单：它跳的是活动编辑器，但判「有没有编辑器」在 App 里

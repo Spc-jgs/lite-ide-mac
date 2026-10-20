@@ -707,17 +707,9 @@
      */
 
     /*
-     * ⌘P 故意留在这儿（keymap.ts 里 owner = "key"）。
-     *
-     * 进菜单的话，焦点在终端里按 ⌘P 会被菜单抢走 —— 而终端里的 ⌘P
-     * 更可能是想给 shell 的（zsh 的历史上一条）。菜单项只写标签、不挂键位。
+     * ⌘E 最近文件：和找文件（⇧⌘O，归菜单）是同一个面板，空着就列最近打开的。
+     * 原来 ⌘P 也在这儿接（找文件），2026-10-20 照 IDEA 换了：⌘P 归编辑器的参数提示，找文件进了菜单
      */
-    if (k === "p") {
-      e.preventDefault();
-      overlay.openQuick("file");
-      return;
-    }
-    // ⌘E 最近文件：和 ⌘P 是同一个面板，空着就列最近打开的
     if (k === "e") {
       e.preventDefault();
       overlay.openQuick("file");

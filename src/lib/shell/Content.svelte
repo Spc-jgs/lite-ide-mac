@@ -281,7 +281,7 @@
           <p>单击文件树里的文件是预览（再点别的会顶掉），双击才保留；也可以把文件拖进来</p>
           <div class="go">
             <button class="btn primary" onclick={() => overlay.openQuick("file")}>找文件…</button>
-            <kbd>⌘P</kbd>
+            <kbd>⇧⌘O</kbd>
             <button class="btn" onclick={() => void tabflow.newScratch()}>新建草稿</button>
             <kbd>⌘N</kbd>
           </div>

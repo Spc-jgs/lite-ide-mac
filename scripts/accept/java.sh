@@ -180,6 +180,11 @@ ok "$([ "$(lite_eval main "${SIG} return on()")" = "Object... args" ] && echo 1)
 lite_eval main "__lite.type('1);'); return true" >/dev/null
 lite_wait main "return !document.querySelector('.cm-java-sig')" 10 >/dev/null
 ok "$([ "$(lite_eval main "return !document.querySelector('.cm-java-sig')")" = true ] && echo 1)" "出了括号就收起"
+# ⌘P 手动弹（照 IDEA 的 Parameter Info；2026-10-20 起找文件是 ⇧⌘O）：光标放回括号里第二个参数上
+lite_eval main "const t = __lite.text().split('\n'); const l = t.findIndex((x) => x.includes('String.format(')); __lite.caret(l + 1, t[l].indexOf('1);') + 1); __lite.key('Mod-p'); return true" >/dev/null
+lite_wait main "${SIG} return on() === 'Object... args'" 10 >/dev/null
+ok "$([ "$(lite_eval main "${SIG} return on()")" = "Object... args" ] && echo 1)" "光标放回括号里按 ⌘P：手动弹出来，当前参数是第二个"
+lite_eval main "__lite.key('Escape'); return true" >/dev/null
 lite_eval main "__lite.setText($(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' <<< "${ORIG}")); return true" >/dev/null
 
 echo "== 改名（⇧F6，docs/IDEA.md 第 14 节）：record 跨模块改名，文件跟着改名；jdtls 不报错（它从文件监听知道了新文件）；撤销名字和内容都回来"

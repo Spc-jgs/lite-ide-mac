@@ -100,7 +100,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let close_all = item(app, "close-all-tabs", "关闭所有标签", None)?;
     let encoding = item(app, "encoding", "文件编码…", None)?;
     let toggle_mode = item(app, "toggle-mode", "切换编辑 / 日志模式", None)?;
-    let outline = item(app, "outline", "文件结构…", Some("Shift+CmdOrCtrl+O"))?;
+    let outline = item(app, "outline", "文件结构…", Some("CmdOrCtrl+F12"))?;
     // 三条都要跟着「有没有打开的标签」变灰：没有标签时既没有位置可回，
     // 也没有光标可取词
     let goto_line = item(app, "goto-line", "跳到行…", Some("CmdOrCtrl+L"))?;
@@ -215,7 +215,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         // 手势写进标签 —— 没有别的地方会告诉你它存在
         .item(&item(app, "quick-all", "随处搜索（连按两下 ⇧）", None)?)
         // ⌘P 只放标签：挂了 accelerator，终端里的 ⌘P 就被菜单抢走了
-        .item(&item(app, "quick-file", "找文件…", None)?)
+        .item(&item(app, "quick-file", "找文件…", Some("Shift+CmdOrCtrl+O"))?)
         .item(&item(app, "recent-files", "最近文件…", None)?)
         .item(&item(app, "quick-content", "在项目中搜索…", Some("Shift+CmdOrCtrl+F"))?)
         .item(&item(app, "replace-content", "在项目中替换…", Some("Shift+CmdOrCtrl+R"))?)

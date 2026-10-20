@@ -99,7 +99,7 @@ ok(byId("并不存在的") === undefined, "找不到给 undefined，不抛");
 
 ok(byId("cm-find")?.owner === "cm6", "⌘F 必须归 CM6 —— 进菜单等于把编辑器的查找抢没了");
 ok(byId("term-find")?.owner === "xterm", "终端的 ⌘F 归 xterm —— 同一个理由");
-ok(byId("quick-file")?.owner === "key", "⌘P 故意留在 keydown：进菜单会在终端里被抢走");
+ok(byId("quick-file")?.accel === "⇧⌘O" && byId("param-info")?.accel === "⌘P" && byId("param-info")?.owner === "cm6", "照 IDEA：找文件 ⇧⌘O、参数提示 ⌘P（归编辑器，终端里的 ⌘P 照样给 shell）");
 ok(byId("quick-all")?.gesture === "连按两下 ⇧", "随处搜索是手势，菜单里只能写进标签");
 /*
  * **⌘B 归跳转，不再是侧边栏的别名**（2026-09-09 换的）。
