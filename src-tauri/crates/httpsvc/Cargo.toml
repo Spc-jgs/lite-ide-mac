@@ -1,0 +1,13 @@
+[package]
+name = "httpsvc"
+version = "0.1.0"
+edition = "2021"
+description = "发 .http 文件里的请求：交给系统的 curl（零 Tauri 依赖，docs/IDEA.md 第 19 节）"
+
+[dependencies]
+# 起 curl 走仓库里的子进程纪律（stdin 接空、两个管道并发读、输出设闸）
+procutil = { path = "../procutil" }
+# 计时统计和环境文件是 JSON。已经在依赖树里
+serde_json = "1"
+# 取消：给 curl 发 SIGKILL。已经在依赖树里（procutil、lspsvc 都用）
+libc = "0.2"

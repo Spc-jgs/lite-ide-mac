@@ -1057,3 +1057,58 @@ pub struct DebugVarsDto {
     pub vars: Vec<DebugVarDto>,
     pub more: u32,
 }
+
+/// 一个响应头（docs/IDEA.md 第 19 节）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpHeaderDto {
+    pub name: String,
+    pub value: String,
+}
+
+/// 一次 HTTP 请求的响应。`body` 是响应体存在哪（应用数据目录里；JSON 的话是排好的那份），`bytes` 是收到的真字节数（`truncated` 时比存下的多）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpResponseDto {
+    pub version: String,
+    pub status: u16,
+    pub reason: String,
+    pub headers: Vec<HttpHeaderDto>,
+    pub ms: u64,
+    pub bytes: u64,
+    pub body: String,
+    pub truncated: bool,
+    pub pretty: bool,
+    pub redirects: u32,
+    pub final_url: String,
+}
+
+impl From<httpsvc::Response> for HttpResponseDto {
+    fn from(r: httpsvc::Response) -> Self {
+        HttpResponseDto {
+            version: r.version,
+            status: r.status,
+            reason: r.reason,
+            headers: r.headers.into_iter().map(|(name, value)| HttpHeaderDto { name, value }).collect(),
+            ms: r.ms,
+            bytes: r.bytes,
+            body: r.body.display().to_string(),
+            truncated: r.truncated,
+            pretty: r.pretty,
+            redirects: r.redirects,
+            final_url: r.final_url,
+        }
+    }
+}
+
+/// `.http` 文件能用的环境。`json`：环境名 → 变量（合并好的，值可能是对象），原样的 JSON 文本 —— 取值（`{{a.b}}` 按路径）在前端做；
+/// `files`：读了哪几个环境文件；`problems`：读坏了的（照实说）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpEnvsDto {
+    pub names: Vec<String>,
+    pub json: String,
+    pub files: Vec<String>,
+    pub problems: Vec<String>,
+}
+

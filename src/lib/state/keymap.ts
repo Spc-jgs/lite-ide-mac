@@ -179,7 +179,8 @@ export const KEYS: KeyDef[] = [
   /** 快速修复（docs/IDEA.md 第 16 节）：IDEA 的 Show Context Actions。归 cm6：要读光标在哪 */
   { id: "quick-fix", label: "快速修复（Java）", accel: "⌥↵", group: "编辑", owner: "cm6" },
   /** 跑光标所在的测试方法 / 类（docs/IDEA.md 第 17 节）：IDEA 的 Run context configuration。归 cm6：要读光标在哪 */
-  { id: "run-test", label: "跑光标所在的测试（Java）", accel: "⌃⇧R", group: "运行", owner: "cm6" },
+  /** `.http` 文件里是发光标所在的请求（docs/IDEA.md 第 19 节）：IDEA 里每个请求是一个临时运行配置，⌃⇧R 就是通用的「运行光标这儿的」 */
+  { id: "run-test", label: "运行光标所在的测试（Java）/ 请求（.http）", accel: "⌃⇧R", group: "运行", owner: "cm6" },
   /*
    * IDEA 的 ⌘L。归菜单：它跳的是活动编辑器，但判「有没有编辑器」在 App 里
    * （没有就什么都不做），不需要读编辑器内部状态，和 ⌘B 那种 cm6 的不一样。

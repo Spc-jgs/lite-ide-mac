@@ -109,6 +109,7 @@ async function start(name: string, root: string, debug: boolean) {
     const tab: RunTab = {
       id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null, holder: null, service: r.service, startedAt, tests: null,
       debug: debug ? { run: r.id, phase: "waiting", note: "", thread: null, reason: "", frames: [], totalFrames: 0, threads: [] } : null,
+      http: null,
     };
     // 同名的那一格原地换掉（位置不跳），没有就加在最后
     const i = runs.list.findIndex((t) => t.root === root && t.name === name);
@@ -165,6 +166,8 @@ function stopTarget(): number | null {
 export async function stopRun(id: number | null = stopTarget()) {
   const r = runs.list.find((t) => t.id === id);
   if (!r || (r.status !== "running" && r.status !== "stopping")) return;
+  // HTTP 请求不是任务：停 = 取消（docs/IDEA.md 第 19 节）
+  if (r.http) return void import("../http/http-ops").then((m) => m.cancel(r.id));
   const got = await taskStop(r.id);
   const now = runs.list.find((t) => t.id === id);
   // 只在它还「在跑」时标：退得快的（vite 几毫秒）退出事件比这一条的回包先到，已经是「已停止」了，
@@ -177,7 +180,9 @@ export function closeRun(id: number) {
   if (!runs.list.some((t) => t.id === id)) return;
   // 下标按运行窗里的那几格数：运行窗的当前格只在它们里挑（服务不在运行窗的标签上）
   const i = runs.plain().findIndex((t) => t.id === id);
-  void taskClose(id);
+  const r = runs.list.find((t) => t.id === id);
+  if (r?.http) void import("../http/http-ops").then((m) => m.cancel(id));
+  else void taskClose(id);
   runs.list = runs.list.filter((t) => t.id !== id);
   const plain = runs.plain();
   if (runs.activeId === id) runs.activeId = plain[Math.min(i, plain.length - 1)]?.id ?? null;
@@ -187,10 +192,19 @@ export function closeRun(id: number) {
   }
 }
 
+/** 运行窗的重跑按钮：任务照名字再跑（调试起的还是调试），HTTP 请求照文件此刻的样子重发 */
+export function rerun(id: number) {
+  const r = runs.list.find((t) => t.id === id);
+  if (!r) return;
+  if (r.http) void import("../http/http-ops").then((m) => m.resend(id));
+  else void runTask(r.name, r.root, !!r.debug);
+}
+
 /** 这一格的输出在编辑区开成一个日志标签（大屏看、和别的日志并排） */
 export async function openRunLog(id: number | null = runs.activeId) {
   const r = runs.list.find((t) => t.id === id);
-  if (!r) return;
+  // HTTP 请求还在发 / 没发成：还没有响应体可开
+  if (!r?.log) return;
   const { tabflow } = await import("./tabflow.svelte");
   await tabflow.openPath(r.log, { preview: false });
 }

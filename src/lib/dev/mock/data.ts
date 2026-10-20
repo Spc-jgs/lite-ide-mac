@@ -286,6 +286,40 @@ class AdminControllerTest {
     }
 }
 `,
+  // HTTP 请求（docs/IDEA.md 第 19 节）：一份 .http、一份环境文件（dev / test，$shared 是底子）、一个从文件读的请求体
+  "/proj/api/orders.http": `@base = http://{{host}}/api
+
+### 查订单
+GET {{base}}/orders?status=PAID
+Accept: application/json
+
+### 下单
+POST {{base}}/orders
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{ "sku": "A-1", "qty": 2, "trace": "{{$uuid}}" }
+
+### 从文件读请求体
+PUT {{base}}/orders/1
+Content-Type: application/json
+
+< ./body.json
+
+### 连不上
+GET http://localhost:8080/refused
+
+### 500
+GET {{base}}/fail
+`,
+  "/proj/api/body.json": `{ "sku": "B-2", "qty": 1 }
+`,
+  "/proj/http-client.env.json": `{
+  "$shared": { "token": "shared-token" },
+  "dev": { "host": "localhost:8080" },
+  "test": { "host": "test.example.com", "token": "test-token" }
+}
+`,
   // Spring Boot 入口（docs/IDEA.md 第 1 步）：任务列表里自动出一个「OrderServiceApplication」
   "/proj/moduleB/src/main/java/com/demo/core/OrderServiceApplication.java": `package com.demo.core;
 

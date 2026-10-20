@@ -12,6 +12,7 @@ members = [
     "crates/procutil",
     "crates/lspsvc",
     "crates/dapsvc",
+    "crates/httpsvc",
 ]
 
 [package]
@@ -61,6 +62,7 @@ tasksvc = { path = "crates/tasksvc" }
 # 语言服务器客户端 + jdtls 怎么起（docs/IDEA.md 第 2 步）。同仓库的 crate
 lspsvc = { path = "crates/lspsvc" }
 dapsvc = { path = "crates/dapsvc" }
+httpsvc = { path = "crates/httpsvc" }
 # Maven 工具窗算插件和依赖时起 mvn、读插件 jar（maven_run.rs）：输出设闸、丢掉就收尸。同仓库的 crate
 procutil = { path = "crates/procutil" }
 

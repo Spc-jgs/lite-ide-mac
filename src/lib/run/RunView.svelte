@@ -11,13 +11,15 @@
   import LogPane from "../logview/LogPane.svelte";
   import TestTree from "./TestTree.svelte";
   import DebugPane from "./DebugPane.svelte";
+  import HttpPane from "./HttpPane.svelte";
   import { openLog, closeLog } from "../ipc/commands";
   import { parseTestTask } from "../editor/java-tests";
   import { runs } from "../state/runs.svelte";
 
-  let { log }: { log: string } = $props();
+  let { log, id }: { log: string; id?: number } = $props();
   /** 这是哪一次运行：按输出文件找（每次运行一份，Rust 发的路径），调用方只传 `log` 就够。跑单测那一格（「模块 [test …]」）左边加结果树（docs/IDEA.md 第 17 节） */
-  let run = $derived(runs.list.find((r) => r.log === log) ?? null);
+  // 给了 id 按 id 找：HTTP 请求还在发的时候 `log` 是空串，按它找会认到别的格子上（运行窗传 id，Services 只有任务、按 log 就够）
+  let run = $derived(runs.list.find((r) => (id !== undefined ? r.id === id : r.log === log)) ?? null);
   let isTest = $derived(!!run && !!parseTestTask(run.name));
 
   let handle = $state<number | null>(null);
@@ -27,6 +29,8 @@
 
   $effect(() => {
     const path = log;
+    // HTTP 请求还在发 / 没发成：还没有响应体（docs/IDEA.md 第 19 节）
+    if (!path) return;
     let dead = false;
     let h: number | null = null;
     openLog(path)
@@ -47,20 +51,29 @@
   // onlyHits 和日志标签页的默认一样是 true：点 ERROR 就只剩 ERROR 行（issue #48 验收 1「能过滤」）。第 3 步写成了 false（全文 + 标命中），
   // 点了级别一行都不藏、看着像过滤坏了 —— 第 5 步拿真 Spring Boot 验收时撞见的。想看上下文，过滤条上「全文」一点就回去
   const FOLLOW = { levelBits: 0b111111, pattern: "", caseSensitive: false, tailing: true, collapseStacks: false, onlyHits: true };
+  // HTTP 的响应体（docs/IDEA.md 第 19 节）：一次写完的东西，从头看 —— 跟随尾部的话一打开就在最底下（浏览器里看出来的）
+  const STILL = { ...FOLLOW, tailing: false };
 </script>
 
 {#snippet output(h: number)}
   <div class="run">
     <div class="body">
       {#key h}
-        <LogPane handle={h} initialFilter={FOLLOW} onStatus={(s) => (status = s)} />
+        <LogPane handle={h} initialFilter={run?.http ? STILL : FOLLOW} onStatus={(s) => (status = s)} />
       {/key}
     </div>
     {#if status}<div class="status">{status}</div>{/if}
   </div>
 {/snippet}
 
-{#if handle !== null}
+{#if run?.http}
+  <!-- `.http` 里发的请求（docs/IDEA.md 第 19 节）：状态、耗时、响应头；响应体是这份输出（日志视图那套） -->
+  <HttpPane {run}>
+    {#snippet body()}
+      {#if handle !== null}{@render output(handle)}{:else if err}<div class="msg">打不开响应体：{err}</div>{/if}
+    {/snippet}
+  </HttpPane>
+{:else if handle !== null}
   {@const h = handle}
   {#if run?.debug}
     <!-- 调试着起的（docs/IDEA.md 第 18 节）：调试器 / 控制台两页，输出是控制台那页 -->

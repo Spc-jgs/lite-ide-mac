@@ -453,11 +453,9 @@ export async function loadLang(id: LangId): Promise<Extension | null> {
       break;
     }
     case "http": {
-      const [{ StreamLanguage }, m] = await Promise.all([
-        import("@codemirror/language"),
-        import("@codemirror/legacy-modes/mode/http"),
-      ]);
-      ext = StreamLanguage.define(m.http);
+      // IDEA 的 `.http` 格式（http-lang.ts 头上说了为什么不用 legacy-modes 的 http：那个认的是一条原样的报文，`@变量`、`###` 全标红）
+      const [{ StreamLanguage }, m] = await Promise.all([import("@codemirror/language"), import("./http-lang")]);
+      ext = StreamLanguage.define(m.httpFile);
       break;
     }
     case "gherkin": {

@@ -263,8 +263,8 @@
         {@const r = activeRun}
         <button
           class="ibtn"
-          onclick={() => void ops().then((m) => m.runTask(r.name, r.root))}
-          title="重跑「{r.name}」⌃R"
+          onclick={() => void ops().then((m) => m.rerun(r.id))}
+          title={r.http ? `重发「${r.name}」` : `重跑「${r.name}」⌃R`}
           aria-label="重跑"
         ><Icon name="rerun" /></button>
         <button
@@ -346,7 +346,7 @@
           {/if}
           {#if runView.comp}
             {#key activeRun.id}
-              <runView.comp log={activeRun.log} />
+              <runView.comp log={activeRun.log} id={activeRun.id} />
             {/key}
           {:else}
             {@render loading("正在载入…")}

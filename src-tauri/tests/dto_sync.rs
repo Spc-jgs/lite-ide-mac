@@ -106,6 +106,9 @@ const PAIRS: &[(&str, &str)] = &[
     ("DebugStateDto", "DebugState"),
     ("DebugVarDto", "DebugVar"),
     ("DebugVarsDto", "DebugVars"),
+    ("HttpHeaderDto", "HttpHeader"),
+    ("HttpResponseDto", "HttpResponse"),
+    ("HttpEnvsDto", "HttpEnvs"),
     ("JavaActionResultDto", "JavaActionResult"),
 ];
 

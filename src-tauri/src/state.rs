@@ -51,6 +51,8 @@ pub struct AppState {
     /// 键是 `(owner, op_id)`：op_id 由前端发、每个窗口各数各的，两个窗口同时
     /// fetch 都会用 1 号 —— 只按 id 记的话，后来的那个会被当成撞号拒绝。
     remotes: Owned<(String, u32), gitsvc::remote::Cancel>,
+    /// 正在发的 HTTP 请求（docs/IDEA.md 第 19 节）：(窗口, 前端给的操作号) → 取消开关。号由前端发，理由同 `remotes`（rust.md「操作 id 由谁发」）
+    http: Owned<(String, u32), Arc<httpsvc::Handle>>,
     /// 项目根上的文件系统监听（issue #33 ⑳），**每个窗口最多一个**：换项目根就换掉，
     /// 旧的 drop 即停。原来整个进程只有一个槽位，第二个窗口打开项目会把第一个的顶掉。
     /// **先摘出来再在锁外 drop**，同 pty 那条 —— drop 要等防抖线程退出，
@@ -506,6 +508,34 @@ impl AppState {
     ///
     /// **只置位，不 kill。** 置位之后由那条操作自己的看门线程去 kill ——
     /// 这样这个函数永远是瞬间返回的，不会把表锁攥在手里等一个子进程死。
+    /// 登记一个要发的 HTTP 请求，拿到它的取消开关。撞号拒绝（同 `begin_remote`：覆盖的话先来的那个再也取消不掉）
+    pub fn begin_http(&self, owner: &str, id: u32) -> Option<Arc<httpsvc::Handle>> {
+        self.http.with_map(|tab| {
+            let key = (owner.to_string(), id);
+            if tab.contains_key(&key) {
+                return None;
+            }
+            let h = Arc::new(httpsvc::Handle::default());
+            tab.insert(key, (owner.to_string(), Arc::clone(&h)));
+            Some(h)
+        })
+    }
+
+    pub fn end_http(&self, owner: &str, id: u32) {
+        self.http.remove(&(owner.to_string(), id));
+    }
+
+    /// 取消一个正在发的请求：给 curl 发 SIGKILL（瞬间返回）。找不到 = 已经结束了
+    pub fn cancel_http(&self, owner: &str, id: u32) -> bool {
+        match self.http.get(&(owner.to_string(), id), Arc::clone) {
+            Some(h) => {
+                h.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn cancel_remote(&self, owner: &str, id: u32) -> bool {
         let flag = self.remotes.get(&(owner.to_string(), id), Arc::clone);
         match flag {
@@ -575,6 +605,10 @@ impl AppState {
         // 网络卡住的 fetch 不取消的话就再也没人能取消它
         for (_, f) in self.remotes.take_owner(owner) {
             f.store(true, Ordering::Relaxed);
+        }
+        // 关掉的窗口没人看响应了：正在等的请求（可能停在断点上的服务那儿）当场取消
+        for (_, h) in self.http.take_owner(owner) {
+            h.cancel();
         }
     }
 }

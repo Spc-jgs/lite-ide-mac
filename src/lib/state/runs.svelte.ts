@@ -6,7 +6,8 @@
  *
  * **不进会话快照**：任务是活的子进程，跨进程恢复不了（同终端，`terms.svelte.ts` 头上那条）。
  */
-import type { DebugState, PortHolder, TaskStale, TestResults } from "../ipc/commands";
+import type { DebugState, HttpResponse, PortHolder, TaskStale, TestResults } from "../ipc/commands";
+import type { HttpReq } from "../http/http-file";
 
 export type RunStatus = "running" | "stopping" | "stopped" | "done" | "failed";
 
@@ -29,6 +30,25 @@ export interface RunTab {
   tests: TestResults | null;
   /** 调试着起的（docs/IDEA.md 第 18 节）：调试会话此刻的样子，"debug-state" 事件来一次换一次（`debug/debug-ops.ts`）；不是调试是 null */
   debug: DebugState | null;
+  /** `.http` 里发的一个请求（docs/IDEA.md 第 19 节，`http/http-ops.ts`）：不是任务，id 从二十亿起；关、停、重跑按它分开走。不是请求是 null */
+  http: HttpRun | null;
+}
+
+export interface HttpRun {
+  /** 发给 Rust 的操作号（取消用） */
+  op: number;
+  /** 哪个 `.http` 文件 */
+  path: string;
+  /** 文件里写的那个请求（重发时按名字找回它） */
+  req: HttpReq;
+  /** 用的哪个环境 */
+  env: string | null;
+  /** 变量替换好之后发出去的 */
+  method: string;
+  url: string;
+  resp: HttpResponse | null;
+  /** 没发成（连不上、超时、取消）的原因 */
+  error: string;
 }
 
 class Runs {

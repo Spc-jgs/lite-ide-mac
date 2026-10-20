@@ -694,10 +694,11 @@
       return;
     }
     const lang = langOf(p);
-    const [ext, javaLsp] = await Promise.all([loadLang(lang), lang === "java" ? import("./java-lsp") : null]);
+    const [ext, javaLsp, http] = await Promise.all([loadLang(lang), lang === "java" ? import("./java-lsp") : null, lang === "http" ? import("./http-run") : null]);
     if (!view) return;
     lsp = javaLsp;
-    const extra = javaLsp ? javaLsp.javaLsp(project.root, p) : [];
+    // `.http`：行号旁的 ▶、⌃⇧R 发请求、顶上的运行环境（docs/IDEA.md 第 19 节）
+    const extra = javaLsp ? javaLsp.javaLsp(project.root, p) : http ? http.httpRun(project.root, p) : [];
     view.dispatch({ effects: [langSlot.reconfigure([ext ?? [], extra]), completeSlot.reconfigure(completionFor(lang))] });
   }
 

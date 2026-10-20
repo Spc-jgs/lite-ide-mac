@@ -209,6 +209,35 @@ export interface DebugVar {
   indexed: number;
 }
 
+/** 一个响应头（docs/IDEA.md 第 19 节） */
+export interface HttpHeader {
+  name: string;
+  value: string;
+}
+
+/** 一次 HTTP 请求的响应。`body`：响应体存在哪（JSON 的话是排好的那份）；`bytes`：收到的真字节数（`truncated` 时比存下的多） */
+export interface HttpResponse {
+  version: string;
+  status: number;
+  reason: string;
+  headers: HttpHeader[];
+  ms: number;
+  bytes: number;
+  body: string;
+  truncated: boolean;
+  pretty: boolean;
+  redirects: number;
+  finalUrl: string;
+}
+
+/** `.http` 文件能用的环境。`json`：环境名 → 变量（合并好的）的 JSON 文本；`problems`：读坏了的环境文件 */
+export interface HttpEnvs {
+  names: string[];
+  json: string;
+  files: string[];
+  problems: string[];
+}
+
 /** 一层变量；`more` 是超过上限没列出来的个数 */
 export interface DebugVars {
   vars: DebugVar[];

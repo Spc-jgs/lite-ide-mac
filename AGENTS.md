@@ -22,6 +22,7 @@ scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪
 scripts/accept/merge.sh        # 几份日志按时间合并（15 条）：顺序、堆栈不拆散、过滤、偏移、跨块、会话恢复
 scripts/accept/patterns.sh     # 日志归类（8 条）：次数对得上、点一类筛出来正好那么多、和昨天比、合并视图、关标签收句柄
 scripts/accept/spring.sh       # 认出 Spring Boot 并照 IDEA 那样起 + Services 工具窗 + Maven 工具窗 + 跑单测 + 断点调试（42 条，真 mvn / java / jdtls / java-debug）：兄弟模块不用 install、web 服务停干净；Services 里分组、端口、⌘F2 / 双击 / 工具栏起停；工具窗的嵌套 / Profiles / 9 个阶段 / 真插件和依赖、勾的 profile 和跳过测试带进命令、双击 package 出 jar；单测的 ▶ / ⌃⇧R、结果树、行号旁 ✓✗、重跑没过的；调试停在兄弟模块的断点上、变量带 toString、求值、F8 单步、F9 继续之后照常跑完
+scripts/accept/http.sh         # `.http` 发请求（16 条，真 curl + 脚本自己的回显服务）：没选环境不发、私有环境盖公开的、头和体逐字对、按原样次序排 JSON、< 文件、重定向、4xx 标红、3 MB、取消后 curl 没了、不往项目里写
 scripts/accept/java.sh         # Java 智能（38 条，内置的 jdtls + Java 21）：跑的是 .app 里那份、Lombok 不报假错、实时报错、补全（自动 import、方法带括号）、改名（文件跟着改名、jdtls 从文件监听知道、撤销、撞名不动）、格式化（照编辑器的缩进、一笔撤销、只排选中的）、快速修复（import 候选的次序、补上后波浪线消失）、⌘B 进兄弟模块 / jar / JDK 源码、⌥F7、不往项目里写、退出不留。JDTLS_HOME=… 验「用自己那份」
 scripts/smoke.sh               # 发版前的端到端清单（97 条，约 100 秒），同样走测试通道，先打测试 .app
 ```
@@ -52,7 +53,8 @@ tooltip 第二行是构建时间。已经发生过一次「照着现象查了半
 测试是因为丢了数据才红、不是因为卡住 —— 它什么也没证明。
 **错版本「没输出」不等于没红，先确认它真的跑了、真的改坏了**（2026-10-12 / 13 各栽一次，三种形状）：
 zsh 不按空格拆变量（`T="node a.ts"; $T` 是去找一个叫 `node a.ts` 的文件，报错被 `grep ✗` 滤掉）；
-macOS 的 sed 不认 `\|`（`sed '/a\|b/d'` 什么都没删，跑的还是原代码）；验收脚本接 `| head` 会被截断、走不到退出
+macOS 的 sed 不认 `\|`（`sed '/a\|b/d'` 什么都没删，跑的还是原代码）；
+macOS 自带的 bash 3.2 在双引号里的 `$(…)` 里照样做花括号展开（`"$(f "{ a: 1, b: 2 }")"` 拆成两段）、`$(case … in x) …)` 的 `)` 会提前结束 `$(`（2026-10-20 一天撞两次，验收报的「没回话」「不成立」全是脚本自己）；验收脚本接 `| head` 会被截断、走不到退出
 （测试应用留着，下一轮 `lite_launch` 现在会先收掉它，见 bridge.sh）。改坏用 python 改、打印改了几处；命令写全，不存进变量。
 
 **写进注释的依赖行为，读过它的源码再写。** 废纸篓的注释写了很久「走 `NSFileManager`」，`trash` crate 默认其实是让 Finder 去删
