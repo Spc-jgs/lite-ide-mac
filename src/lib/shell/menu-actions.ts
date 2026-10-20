@@ -155,6 +155,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "recent-clear": project.recent = []; void clearRecent().catch(() => {}); return;
     case "save": return docs.saveActive();
     case "save-as": return void worktree.saveAs();
+    case "local-history": return void import("../history/history-ops").then((m) => m.openHistory());
     case "encoding":
       if (tabs.active) overlay.openEncoding();
       return;

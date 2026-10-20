@@ -115,6 +115,8 @@ export const KEYS: KeyDef[] = [
   { id: "save-as", label: "另存为…", accel: "⇧⌘S", group: "文件", owner: "menu" },
   { id: "close-tab", label: "关闭标签", accel: "⌘W", group: "文件", owner: "menu" },
   { id: "close-all-tabs", label: "关闭所有标签", group: "文件", owner: "menu" },
+  /** 本地历史（docs/IDEA.md 第 21 节，IDEA 的 Local History → Show History）。IDEA 默认没给它键位，这里也不给；编辑器右键里也有 */
+  { id: "local-history", label: "本地历史…", group: "文件", owner: "menu" },
   /*
    * 「退出」原来是 predefined 的，不在这张表里。多窗口第 3 步换成了自己的一项：
    * predefined 那个走 AppKit 的 `terminate:`，前端来不及存现场（docs/MULTIWINDOW.md 3.6）。

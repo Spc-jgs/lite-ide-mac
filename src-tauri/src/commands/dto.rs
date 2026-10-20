@@ -1138,3 +1138,13 @@ pub struct JavaSignaturesDto {
     pub total: u32,
 }
 
+/// 本地历史的一版（docs/IDEA.md 第 21 节）。`hash` 是十六进制字符串（64 位整数过不了 JS 的 number）；`kind`：saved = 在这儿保存的，before = 保存前盘上那份（外面改过 / 改之前的样子）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntryDto {
+    pub ms: u64,
+    pub hash: String,
+    pub size: u64,
+    pub kind: String,
+}
+

@@ -112,6 +112,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("JavaParamDto", "JavaParam"),
     ("JavaSignatureDto", "JavaSignature"),
     ("JavaSignaturesDto", "JavaSignatures"),
+    ("HistoryEntryDto", "HistoryEntry"),
     ("JavaActionResultDto", "JavaActionResult"),
 ];
 

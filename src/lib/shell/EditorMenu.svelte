@@ -67,6 +67,8 @@
       { label: "复制相对路径", disabled: !inProject, run: () => void copyText(relTo(project.root!, path), "相对路径") },
       { label: "在文件树中定位", disabled: !inProject, run: () => onReveal(path) },
       { label: "在 Finder 中显示", run: () => void showInFinder(path) },
+      // 本地历史（docs/IDEA.md 第 21 节）：IDEA 也是右键 → Local History → Show History
+      { label: "本地历史…", sep: true, run: () => void import("../history/history-ops").then((m) => m.openHistory(path)) },
     ];
     if (git.repo && inProject) {
       out.push(

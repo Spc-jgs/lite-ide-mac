@@ -140,3 +140,64 @@ function backtrack(trace: Int32Array[], n: number, m: number, off: number): numb
   ops.reverse();
   return ops;
 }
+
+/**
+ * 两份文本 → 一段 git 格式的 unified diff（本地历史用，docs/IDEA.md 第 21 节）：交给差异视图（`parseDiff` / `DiffView`）画，
+ * 双栏、着色、「N 行未改动」折叠都是现成的，不为本地历史另写一个渲染。一样给 ""；太大（同 `diffLines` 的两条上限）给 null。
+ * 每块前后带 `ctx` 行上下文，两块挨得比 2×ctx 近就并成一块（同 git）
+ */
+export function unifiedDiff(oldText: string, newText: string, path: string, ctx = 3): string | null {
+  if (oldText === newText) return "";
+  // 空文件是 0 行（git 的 `-0,0`），不是「一个空行」：`"".split` 会给 [""]
+  const a = oldText === "" ? [] : oldText.split("\n");
+  const b = newText === "" ? [] : newText.split("\n");
+  if (a.length + b.length > MAX_LINES) return null;
+  let p = 0;
+  const maxP = Math.min(a.length, b.length);
+  while (p < maxP && a[p] === b[p]) p++;
+  let q = 0;
+  const maxQ = maxP - p;
+  while (q < maxQ && a[a.length - 1 - q] === b[b.length - 1 - q]) q++;
+  const mid = myers(a, b, p, a.length - p - q, b.length - p - q);
+  if (!mid) return null;
+  const ops = [...Array<number>(p).fill(EQ), ...mid, ...Array<number>(q).fill(EQ)];
+  // 每个操作对应的旧行 / 新行下标（从 0 数）
+  const rows: { op: number; ai: number; bi: number }[] = [];
+  let ai = 0, bi = 0;
+  for (const op of ops) {
+    rows.push({ op, ai, bi });
+    if (op !== ADD) ai++;
+    if (op !== DEL) bi++;
+  }
+  const out = [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`];
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].op === EQ) {
+      i++;
+      continue;
+    }
+    // 一块：从这处改动往前 ctx 行起，往后吃到「连着 2×ctx 行没改」为止
+    const start = Math.max(0, i - ctx);
+    let end = i;
+    let quiet = 0;
+    for (let j = i; j < rows.length; j++) {
+      if (rows[j].op === EQ) quiet++;
+      else {
+        quiet = 0;
+        end = j;
+      }
+      if (quiet > 2 * ctx) break;
+    }
+    const stop = Math.min(rows.length, end + 1 + ctx);
+    const block = rows.slice(start, stop);
+    const oldN = block.filter((r) => r.op !== ADD).length;
+    const newN = block.filter((r) => r.op !== DEL).length;
+    // 行数是 0 时起始行写成「前一行」（git 的约定：-0,0 表示这一侧什么都没有）
+    const oldS = oldN ? block[0].ai + 1 : block[0].ai;
+    const newS = newN ? block[0].bi + 1 : block[0].bi;
+    out.push(`@@ -${oldS},${oldN} +${newS},${newN} @@`);
+    for (const r of block) out.push(r.op === EQ ? ` ${a[r.ai]}` : r.op === DEL ? `-${a[r.ai]}` : `+${b[r.bi]}`);
+    i = stop;
+  }
+  return out.join("\n") + "\n";
+}

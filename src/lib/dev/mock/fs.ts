@@ -1,5 +1,6 @@
 /** 桩：文件系统：探路径、列目录（含单层目录链）、读写文本、编码、剪贴板、新建 / 改名 / 移动 / 废纸篓、监听。从 `mock-ipc.ts` 拆出来（2026-09-24，纯搬家）。 */
 import { type A, bump, CONTESTED, DIRS, existsInMock, FILES, GENERATED, nameOf, NOT_MINE, parentOf, sleep, stampOf } from "./data";
+import { mockHistoryRecord } from "./history";
 
 /** 桩里按文件名猜编码，用来在浏览器里把编码相关的界面路径走一遍 */
 function encOf(path: string): string {
@@ -184,6 +185,8 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
         if (!DIRS[parent]) throw new Error(`${parent} 不是目录`);
         DIRS[parent] = [...DIRS[parent], [nameOf(path), false]];
       }
+      // 本地历史（同真实现：保存前盘上那份 + 存下去的那份）
+      mockHistoryRecord(path, FILES[path], String(a.content));
       FILES[path] = String(a.content);
       // 真实现（`fsservice::eol`）：混用的统一成 LF 存，下次读出来就是 LF
       if (a.eol != null) EOLS[path] = a.eol === "mixed" ? "LF" : String(a.eol);

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { registerView, unregisterView } from "./live-views";
   import { EditorState, Compartment } from "@codemirror/state";
   import { EditorView, keymap, lineNumbers, highlightActiveLine,
            highlightActiveLineGutter, drawSelection, rectangularSelection,
@@ -578,6 +579,7 @@
       seenTick = savedTick;
       seenSelfSave = selfSaveTick; // 同上：挂载不是一次「刚存的落盘了」
       onLive?.(curPath, () => view?.state.doc.toString() ?? "");
+      registerView(curPath, view);
       onView?.(curPath, () => viewNow());
       view.scrollDOM.addEventListener("scroll", onScroll, { passive: true });
       onWordProbe?.(curPath, () =>
@@ -596,6 +598,7 @@
         }
         onView?.(curPath, null);
         onLive?.(curPath, null);
+        unregisterView(curPath, view);
         onWordProbe?.(curPath, null);
         onLinesProbe?.(curPath, null);
       });
@@ -629,6 +632,7 @@
       stash();
       untrack(() => {
         onLive?.(curPath, null);
+        unregisterView(curPath, view);
         onWordProbe?.(curPath, null);
         onLinesProbe?.(curPath, null);
       });
@@ -677,6 +681,7 @@
     onChange(view.state.doc.toString() !== baseText);
     untrack(() => {
       onLive?.(p, () => view?.state.doc.toString() ?? "");
+      if (view) registerView(p, view);
       onLinesProbe?.(p, linesNow);
     });
   });

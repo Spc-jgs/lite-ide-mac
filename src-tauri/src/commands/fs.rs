@@ -200,6 +200,7 @@ pub async fn trash_entry(path: String) -> Result<(), String> {
 /// 会在下一次检查时被当成"外部修改"。
 #[tauri::command]
 pub async fn write_text(
+    app: tauri::AppHandle,
     path: String,
     content: String,
     label: Option<String>,
@@ -209,8 +210,11 @@ pub async fn write_text(
     blocking(move || {
         let label = label.unwrap_or_else(|| "UTF-8".into());
         let line_ending = fsservice::eol::Eol::from_label(eol.as_deref().unwrap_or("LF"));
+        // 本地历史（docs/IDEA.md 第 21 节）：保存前那份先读下来，保存后一起记
+        let old = crate::history::read_disk(Path::new(&path));
         fsservice::write_text_as(&path, &content, &label, bom.unwrap_or(false), line_ending)
             .map_err(|e| format!("保存失败：{e}"))?;
+        crate::history::after_save(&app, &path, old);
         let s = fsservice::stamp(&path).map_err(|e| format!("{e}"))?;
         Ok(StampDto {
             mtime_ms: s.mtime_ms,

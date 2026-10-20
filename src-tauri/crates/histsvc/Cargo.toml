@@ -1,0 +1,7 @@
+[package]
+name = "histsvc"
+version = "0.1.0"
+edition = "2021"
+description = "本地历史：每次保存留一份快照，能和旧版比、能恢复（零依赖，docs/IDEA.md 第 21 节）"
+
+[dependencies]

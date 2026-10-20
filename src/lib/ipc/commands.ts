@@ -209,6 +209,14 @@ export interface DebugVar {
   indexed: number;
 }
 
+/** 本地历史的一版（docs/IDEA.md 第 21 节）。`hash` 是十六进制字符串（64 位过不了 number）；`kind`：saved = 在这儿保存的，before = 保存前盘上那份（外面改过 / 改之前的样子） */
+export interface HistoryEntry {
+  ms: number;
+  hash: string;
+  size: number;
+  kind: "saved" | "before";
+}
+
 /** 参数提示里一个参数在签名里的位置（字符下标，左闭右开） */
 export interface JavaParam {
   start: number;

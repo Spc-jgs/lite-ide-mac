@@ -700,6 +700,9 @@
   .bar .tag.add { background: var(--diff-add-strong); color: var(--text); }
   .bar .tag.del { background: var(--diff-del-strong); color: var(--text); }
   .bar .sha {
+    /* 栏窄的时候别折成两行（本地历史的面板里那一格只有一半宽，「本地历史」四个字被拆成两行，2026-10-20） */
+    flex: none;
+    white-space: nowrap;
     font-family: var(--code-font);
     font-size: var(--fs-sm);
     color: var(--accent);

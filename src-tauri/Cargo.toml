@@ -13,6 +13,7 @@ members = [
     "crates/lspsvc",
     "crates/dapsvc",
     "crates/httpsvc",
+    "crates/histsvc",
 ]
 
 [package]
@@ -63,6 +64,7 @@ tasksvc = { path = "crates/tasksvc" }
 lspsvc = { path = "crates/lspsvc" }
 dapsvc = { path = "crates/dapsvc" }
 httpsvc = { path = "crates/httpsvc" }
+histsvc = { path = "crates/histsvc" }
 # Maven 工具窗算插件和依赖时起 mvn、读插件 jar（maven_run.rs）：输出设闸、丢掉就收尸。同仓库的 crate
 procutil = { path = "crates/procutil" }
 

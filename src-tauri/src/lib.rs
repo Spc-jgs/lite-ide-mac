@@ -1,6 +1,7 @@
 mod budget;
 mod commands;
 mod debug;
+mod history;
 pub mod java;
 mod maven;
 mod maven_run;
@@ -306,6 +307,8 @@ pub fn run() {
             commands::http_envs,
             commands::http_send,
             commands::http_cancel,
+            commands::history_list,
+            commands::history_read,
             commands::java_open,
             commands::java_change,
             commands::java_save,
