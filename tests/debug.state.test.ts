@@ -153,6 +153,26 @@ const FILE = "/proj/moduleB/src/main/java/com/demo/core/OrderServiceApplication.
   bp.setLines(ROOT, FILE, []);
 }
 
+// ── 调试单测（⌃⇧D / ▶ 菜单里的「调试」）：JDWP 交给 surefire；停在测试里的断点上时任务不退，继续之后跑完、结果树照常出来、会话正常结束 ──
+{
+  const T = "/proj/moduleA/src/test/java/com/demo/api/AdminControllerTest.java";
+  const NAME = "moduleA [test com.demo.api.AdminControllerTest#listsAdmins]";
+  bp.setLines(ROOT, T, [9]);
+  await dbg.debugTask(NAME, ROOT);
+  const r = () => runs.list.find((t) => t.name === NAME);
+  ok(r()?.command.startsWith("mvn '-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0' "), `JDWP 交给 surefire fork 的 JVM：${r()?.command}`);
+  ok(await until(() => r()?.debug?.phase === "paused"), `停在测试里的断点上：${r()?.debug?.phase}`);
+  ok(execPoint()?.path === T && execPoint()?.line === 9, `执行点在测试文件第 9 行：${JSON.stringify(execPoint())}`);
+  await sleep(1500);
+  ok(r()?.status === "running", `停着的时候任务不退（被调试的 JVM 停着）：${r()?.status}`);
+  await dbg.step("continue");
+  ok(await until(() => r()?.status !== "running"), `继续之后跑完：${r()?.status}`);
+  ok(await until(() => !!r()?.tests), "结果树照常出来");
+  ok(r()?.tests?.cases.map((c) => c.name + ":" + c.outcome).join() === "listsAdmins:passed", `只跑了那一个、过了：${JSON.stringify(r()?.tests?.cases)}`);
+  ok(await until(() => r()?.debug?.phase === "ended" && !r()?.debug?.note), `会话正常结束、不带报错：${JSON.stringify(r()?.debug)}`);
+  bp.setLines(ROOT, T, []);
+}
+
 // ── 不是 Spring Boot 应用的调试不了：照实说，不起一个不带调试的 ──
 {
   FILES["/proj/.lite-ide/tasks.json"] = `[{ "name": "前端", "command": "pnpm dev" }]`;

@@ -66,6 +66,14 @@
     }
   });
 
+  // 调试结束：回到控制台那页 —— 跑完要看的是输出（单测是结果树），停着的帧和变量已经没了
+  let wasEnded = false;
+  $effect(() => {
+    const ended = d?.phase === "ended";
+    if (ended && !wasEnded) page = "console";
+    wasEnded = ended;
+  });
+
   // 选中的帧变了 → 拉它的局部变量。等回来时已经不是这一帧了就丢掉（frontend.md「异步 effect 里 await 之后要检查」）
   $effect(() => {
     const f = frame;

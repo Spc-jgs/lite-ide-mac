@@ -189,16 +189,53 @@ pub fn with_jdwp(command: &str) -> Option<String> {
     Some(format!("{}{JDWP} {}", &command[..at], &command[at..]))
 }
 
-/// 一段输出里有没有「端口开好了」那一行
+/// 调试单测（`maven::test_command` 那个形状）：跑测试的是 surefire **另外 fork 的 JVM**，`mvn` 自己不是 —— JDWP 要交给 surefire 的
+/// `maven.surefire.debug`（值原样加在 fork 出来的 JVM 的参数后面，不盖掉 pom 里的 `argLine`）。不是 `mvn ` 开头的不猜
+pub fn with_surefire_debug(command: &str) -> Option<String> {
+    let rest = command.strip_prefix("mvn ")?;
+    Some(format!("mvn '-Dmaven.surefire.debug={JDWP}' {rest}"))
+}
+
+/// 一段输出里有没有「端口开好了」那一行（JVM 自己打的，没有前缀）
 fn port_in(line: &str) -> Option<u16> {
     line.trim_end().strip_prefix(LISTEN)?.trim().parse().ok()
 }
 
-/// 盯着任务的输出文件，等那一行出来。`alive` 说任务还在不在 —— 先退了（编译没过）就不等了。
-/// 只往后读新写的；一行超过 [`LINE_MAX`] 的丢掉开头（那一行不会是我们要的）
-fn wait_port(log: &Path, alive: impl Fn() -> bool, poll: Duration) -> Result<u16, String> {
+/// 命令行里有没有一个参数**本身**是调试代理。mvn 自己的命令行里也带着这串（`-Dmaven.surefire.debug=-agentlib:jdwp=…`），不能只看包不包含
+fn jdwp_in(command: &str) -> bool {
+    command.split_whitespace().any(|w| w.starts_with("-agentlib:jdwp="))
+}
+
+/// 调试单测：在任务的进程组里等一个**还没挂过的**、带调试代理的 JVM 开好端口。
+///
+/// **为什么不读输出**（2026-10-20 真 JVM 上卡死过）：surefire fork 的 JVM 确实打了「Listening for transport…」，
+/// 可 surefire 要等那个 JVM 跑起来才把它的输出转给 mvn —— 而 `suspend=y` 的 JVM 在等调试器，调试器在等那一行，两边互相等。
+/// 先前的实验用的是 `suspend=n`，正好绕开了这一步（那时看到的 `[INFO] Listening…` 是 JVM 已经跑起来之后才转出来的）。
+/// fork 的 JVM 和 mvn 在同一个进程组里，问系统谁在听，不等它转话
+fn wait_jdwp(pgid: i32, seen: &mut std::collections::HashSet<i32>, alive: impl Fn() -> bool, poll: Duration) -> Result<u16, String> {
+    loop {
+        let running = alive();
+        for (pid, ports) in tasksvc::port::listening_by_pid(pgid) {
+            if seen.contains(&pid) {
+                continue;
+            }
+            if tasksvc::port::command_of(pid).is_some_and(|c| jdwp_in(&c)) {
+                seen.insert(pid);
+                return Ok(ports[0]);
+            }
+        }
+        if !running {
+            return Err("还没开调试端口就退出了（多半是编译没过，原因在输出里）".into());
+        }
+        std::thread::sleep(poll);
+    }
+}
+
+/// 盯着任务的输出文件，从 `from` 往后等那一行出来；认出来时 `from` 停在那一行的末尾（同一个任务里下一个 JVM 从这儿接着等）。
+/// `alive` 说任务还在不在 —— 先退了（编译没过）就不等了。一行超过 [`LINE_MAX`] 的丢掉开头（那一行不会是我们要的）
+fn wait_port(log: &Path, from: &mut u64, alive: impl Fn() -> bool, poll: Duration) -> Result<u16, String> {
     let mut f: Option<std::fs::File> = None;
-    let mut pos = 0u64;
+    let mut pos = *from;
     let mut line = Vec::<u8>::new();
     loop {
         let running = alive();
@@ -208,10 +245,13 @@ fn wait_port(log: &Path, alive: impl Fn() -> bool, poll: Duration) -> Result<u16
         if let Some(file) = f.as_mut() {
             let mut buf = Vec::new();
             if file.seek(SeekFrom::Start(pos)).is_ok() && file.read_to_end(&mut buf).is_ok() {
+                let start = pos;
                 pos += buf.len() as u64;
-                for &b in &buf {
+                for (i, &b) in buf.iter().enumerate() {
                     if b == b'\n' {
                         if let Some(p) = port_in(&String::from_utf8_lossy(&line)) {
+                            // 同一块里后面可能紧跟着下一个 JVM 的那一行：只算到这一行为止
+                            *from = start + i as u64 + 1;
                             return Ok(p);
                         }
                         line.clear();
@@ -304,6 +344,11 @@ impl Dbg {
         };
         let _ = self.app.emit_to(&self.owner, "debug-state", crate::commands::DebugStateDto::of(self.run, &snap));
         sync_menu(&self.app);
+    }
+
+    /// 只丢这一个 JVM 的连接，jdtls 照旧攥着（同一个任务里还会有下一个 JVM 要挂）
+    fn disconnect_dap(&self) {
+        self.dap.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 
     fn disconnect(&self) {
@@ -458,8 +503,18 @@ fn sync_menu(app: &AppHandle) {
     let _ = app.run_on_main_thread(move || crate::menu::sync_debug(&a, paused, running));
 }
 
-/// 起了一个带 JDWP 的任务之后：登记会话、后台去挂。立刻返回
-pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, main_class: String, task: Arc<tasksvc::Task>) {
+/// 被调试的是什么：求值要告诉插件「按哪个项目编译这个表达式」（attach 的 `projectName`）
+pub enum Who {
+    /// Spring Boot 应用：项目名问 jdtls（`resolveMainClass`）
+    Main(String),
+    /// 单测：测试类没有 main，问不出来 —— 直接用模块的 artifactId（m2e 默认拿它当项目名）
+    Project(String),
+}
+
+/// 起了一个带 JDWP 的任务之后：登记会话、后台去挂。立刻返回。
+/// **一个任务里可能不止一个 JVM**（surefire `forkCount > 1`、重跑没过的跨了几个类）：每个都停在入口等调试器，
+/// 没人挂上去就永远卡着。所以一个 JVM 结束、任务还在，就从输出里接着等下一个端口、再挂上去；挂上过一次之后任务退了算正常结束
+pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, who: Who, task: Arc<tasksvc::Task>) {
     let d = Arc::new(Dbg {
         run,
         root: root.to_string(),
@@ -478,12 +533,37 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, m
     d.set(|_| {});
     let app = app.clone();
     let _ = std::thread::Builder::new().name(format!("debug-{run}")).spawn(move || {
-        let why = match attach(&app, &d, &log, &main_class, &task) {
-            Ok(rx) => {
-                run_events(&d, rx);
-                String::new()
+        let mut from = 0u64;
+        let mut seen = std::collections::HashSet::new();
+        let pgid = task.pgid();
+        let t2 = Arc::clone(&task);
+        // 下一个 JVM 的调试端口：Spring 是 `exec java`，任务自己就是那个 JVM，那一行当场写进输出；单测的 JVM 是 surefire fork 的，问系统（见 `wait_jdwp`）
+        let mut next_port = || match &who {
+            Who::Main(_) => wait_port(&log, &mut from, || t2.alive(), Duration::from_millis(150)),
+            Who::Project(_) => wait_jdwp(pgid, &mut seen, || t2.alive(), Duration::from_millis(300)),
+        };
+        let mut attached = 0;
+        let why = loop {
+            match attach(&app, &d, &mut next_port, &who) {
+                Ok(rx) => {
+                    attached += 1;
+                    run_events(&d, rx);
+                    d.disconnect_dap();
+                    d.stopped.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                    if !task.alive() {
+                        break String::new();
+                    }
+                    d.set(|s| {
+                        s.phase = Phase::Waiting("这个 JVM 跑完了，等下一个（surefire 可能还要再起一个）…".into());
+                        s.thread = None;
+                        s.frames.clear();
+                        s.threads.clear();
+                    });
+                }
+                // 挂上过之后再等不到端口：任务正常跑完了（mvn 写完报告退出），不是出错
+                Err(_) if attached > 0 && !task.alive() => break String::new(),
+                Err(e) => break fail(&d, &task, e),
             }
-            Err(e) => fail(&d, &task, e),
         };
         d.disconnect();
         d.stopped.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -512,9 +592,8 @@ fn fail(d: &Dbg, task: &tasksvc::Task, why: String) -> String {
     why
 }
 
-fn attach(app: &AppHandle, d: &Arc<Dbg>, log: &Path, main_class: &str, task: &Arc<tasksvc::Task>) -> Result<mpsc::Receiver<Value>, String> {
-    let t2 = Arc::clone(task);
-    let jvm_port = wait_port(log, move || t2.alive(), Duration::from_millis(150))?;
+fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u16, String>, who: &Who) -> Result<mpsc::Receiver<Value>, String> {
+    let jvm_port = next_port()?;
     d.set(|s| s.phase = Phase::Waiting("等 Java 语言服务器导入完…".into()));
     let st = app.state::<crate::state::AppState>();
     let java = st.java.ensure(app, &d.owner, &d.root).map_err(|s| match s.phase {
@@ -522,7 +601,10 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, log: &Path, main_class: &str, task: &Ar
         _ => "Java 语言服务器起不来".into(),
     })?;
     *d.hold.lock().unwrap_or_else(|e| e.into_inner()) = Some(java.hold());
-    let (dap_port, project) = java.debug_session(main_class, READY_WAIT)?;
+    let (dap_port, project) = match who {
+        Who::Main(c) => java.debug_session(Some(c), READY_WAIT)?,
+        Who::Project(p) => (java.debug_session(None, READY_WAIT)?.0, Some(p.clone())),
+    };
     d.set(|s| s.phase = Phase::Waiting("正在挂上调试器…".into()));
     let (tx, rx) = mpsc::channel::<Value>();
     let sess = Arc::new(
@@ -655,7 +737,7 @@ mod tests {
         write!(f, "Listening for transport dt_").unwrap();
         f.flush().unwrap();
         let log2 = log.clone();
-        let t = std::thread::spawn(move || wait_port(&log2, || true, Duration::from_millis(20)));
+        let t = std::thread::spawn(move || wait_port(&log2, &mut 0, || true, Duration::from_millis(20)));
         std::thread::sleep(Duration::from_millis(120));
         writeln!(f, "socket at address: 56050").unwrap();
         f.flush().unwrap();
@@ -666,14 +748,73 @@ mod tests {
         #[allow(clippy::disallowed_methods)] // 测试自己的临时文件
         std::fs::write(&bad, "[ERROR] COMPILATION ERROR\n").unwrap();
         let t0 = std::time::Instant::now();
-        assert!(wait_port(&bad, || false, Duration::from_millis(20)).is_err());
+        assert!(wait_port(&bad, &mut 0, || false, Duration::from_millis(20)).is_err());
         assert!(t0.elapsed() < Duration::from_secs(1));
         // 退出前最后写的那一行也要读到（先判活、再读）
         let last = dir.join("last.log");
         #[allow(clippy::disallowed_methods)] // 测试自己的临时文件
         std::fs::write(&last, "Listening for transport dt_socket at address: 1234\n").unwrap();
-        assert_eq!(wait_port(&last, || false, Duration::from_millis(20)), Ok(1234));
+        assert_eq!(wait_port(&last, &mut 0, || false, Duration::from_millis(20)), Ok(1234));
+
+        // 一个任务里两个 JVM 的那两行挨在同一块里：第二次从第一次停下的地方接着认出第二个
+        let two = dir.join("two.log");
+        #[allow(clippy::disallowed_methods)] // 测试自己的临时文件
+        std::fs::write(&two, "Listening for transport dt_socket at address: 52450\n[INFO] Tests run: 1\nListening for transport dt_socket at address: 52451\n").unwrap();
+        let mut from = 0;
+        assert_eq!(wait_port(&two, &mut from, || false, Duration::from_millis(20)), Ok(52450));
+        assert_eq!(wait_port(&two, &mut from, || false, Duration::from_millis(20)), Ok(52451));
+        assert!(wait_port(&two, &mut from, || false, Duration::from_millis(20)).is_err(), "两个都认过了、任务退了：不再有");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn 带调试代理的是参数本身_mvn_命令行里转交的那串不算() {
+        assert!(jdwp_in(&format!("/usr/bin/java {JDWP} -jar surefirebooter.jar /tmp/x")));
+        assert!(!jdwp_in(&format!("java -classpath plexus.jar org.codehaus.plexus.classworlds.launcher.Launcher -Dmaven.surefire.debug={JDWP} -pl order-service -am test")));
+    }
+
+    /// 真起一个带调试代理的 JVM 太重；这里起一个**命令行里带着那个参数**、在听端口的进程（python 的一行服务器，参数照抄），
+    /// 和一个命令行里只是转交那串（像 mvn）、也在听的进程：认出来的必须是前一个。两个都在本测试自己的进程组里
+    #[test]
+    fn 单测的调试端口_在进程组里认带调试代理的那个_不认转交的() {
+        use std::os::unix::process::CommandExt;
+        let py = |arg: &str| {
+            let mut c = std::process::Command::new("python3");
+            c.args(["-c", "import socket,time,sys; s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(); print(s.getsockname()[1], flush=True); time.sleep(30)", arg])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .process_group(0);
+            c
+        };
+        #[allow(clippy::disallowed_methods)] // 测试里起的探针进程，下面一定收
+        let mut fake_mvn = py(&format!("-Dmaven.surefire.debug={JDWP}")).spawn().unwrap();
+        let pgid = fake_mvn.id() as i32;
+        let mut jvm_cmd = py(JDWP);
+        jvm_cmd.process_group(pgid);
+        #[allow(clippy::disallowed_methods)] // 同上
+        let mut jvm = jvm_cmd.spawn().unwrap();
+        let read_port = |c: &mut std::process::Child| {
+            let mut line = String::new();
+            std::io::BufRead::read_line(&mut std::io::BufReader::new(c.stdout.as_mut().unwrap()), &mut line).unwrap();
+            line.trim().parse::<u16>().unwrap()
+        };
+        let (_, want) = (read_port(&mut fake_mvn), read_port(&mut jvm));
+        let mut seen = std::collections::HashSet::new();
+        let got = wait_jdwp(pgid, &mut seen, || true, Duration::from_millis(50));
+        // 挂过的那个不再认：任务还在、又没有新的 JVM —— 等着（这里让它「任务退了」就返回）
+        let again = wait_jdwp(pgid, &mut seen, || false, Duration::from_millis(50));
+        let _ = jvm.kill();
+        let _ = fake_mvn.kill();
+        let _ = (jvm.wait(), fake_mvn.wait());
+        assert_eq!(got, Ok(want));
+        assert!(again.is_err(), "挂过的 JVM 不再认第二次：{again:?}");
+    }
+
+    #[test]
+    fn 单测的调试参数交给_surefire_不是_mvn_自己() {
+        let c = "mvn -B -ntp -Dtest='com.demo.OrderTest' -Dsurefire.failIfNoSpecifiedTests=false -pl order-service -am test";
+        assert_eq!(with_surefire_debug(c).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP}' -B -ntp -Dtest='com.demo.OrderTest' -Dsurefire.failIfNoSpecifiedTests=false -pl order-service -am test"));
+        assert_eq!(with_surefire_debug("./mvnw test"), None);
     }
 
     #[test]

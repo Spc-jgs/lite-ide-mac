@@ -1,12 +1,14 @@
 /**
- * 测试文件行号旁的 ▶（docs/IDEA.md 第 17 节）：顶层的测试类一个、每个测试方法一个，点了跑它（`模块 [test 类#方法]`，走任务那套）。
- * 跑完换成 ✓ / ✗（`run/test-outcomes.ts`），同 IDEA。⌃⇧R 跑光标所在的那个方法（光标在第一个测试方法上面就跑整个类）。
+ * 测试文件行号旁的 ▶（docs/IDEA.md 第 17 节）：顶层的测试类一个、每个测试方法一个（`模块 [test 类#方法]`，走任务那套）。
+ * 跑完换成 ✓ / ✗（`run/test-outcomes.ts`），同 IDEA。⌃⇧R 跑光标所在的那个方法（光标在第一个测试方法上面就跑整个类），⌃⇧D 调试着跑。
+ * **点 ▶ 出一个小菜单「运行 / 调试」**（同 IDEA：点了不直接跑，菜单里两项各带键位 —— 菜单是人学键位的地方）。
  * 只认 `src/test/java/` 底下的文件；认测试按注解（`java-tests.ts`），不靠语言服务器 —— jdtls 没起好也能跑
  */
 import { EditorView, GutterMarker, ViewPlugin, gutter, keymap } from "@codemirror/view";
 import { Prec, RangeSet, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { moduleOf, testTargets, testTaskName, type TestTarget } from "./java-tests";
 import { onOutcomes, outcomeOf } from "../run/test-outcomes";
+import { mount, unmount } from "svelte";
 
 const refresh = StateEffect.define<null>();
 
@@ -29,7 +31,7 @@ class RunMarker extends GutterMarker {
     const el = document.createElement("span");
     el.className = `cm-test-run ${this.outcome ?? "idle"}`;
     const what = this.t.method ? `${this.t.cls.slice(this.t.cls.lastIndexOf(".") + 1)}.${this.t.method}` : this.t.cls.slice(this.t.cls.lastIndexOf(".") + 1);
-    el.title = `${this.outcome === "passed" ? "上次通过 · " : this.outcome === "failed" ? "上次没过 · " : ""}运行 ${what}（⌃⇧R）`;
+    el.title = `${this.outcome === "passed" ? "上次通过 · " : this.outcome === "failed" ? "上次没过 · " : ""}运行（⌃⇧R）/ 调试（⌃⇧D）${what}`;
     return el;
   }
 }
@@ -41,9 +43,46 @@ function markers(view: EditorView) {
   );
 }
 
-async function run(root: string, module: string, t: TestTarget) {
+async function run(root: string, module: string, t: TestTarget, debug = false) {
+  if (debug) {
+    // 调试走 debug-ops：先把断点全交给 Rust、没断点时说一句（同 Services 里点虫子）
+    const { debugTask } = await import("../debug/debug-ops");
+    await debugTask(testTaskName(module, t), root);
+    return;
+  }
   const { runTask } = await import("../state/runs-ops");
   await runTask(testTaskName(module, t), root);
+}
+
+const short = (t: TestTarget) => (t.method ? `${t.cls.slice(t.cls.lastIndexOf(".") + 1)}.${t.method}` : t.cls.slice(t.cls.lastIndexOf(".") + 1));
+
+/** ▶ 的小菜单：右键菜单那个壳（定位、键盘、点外面关、钳进视口都在它里面），挂在 body 上 —— 编辑器在 container-type 的岛里，fixed 不以窗口为参照 */
+async function menu(view: EditorView, x: number, y: number, root: string, module: string, t: TestTarget) {
+  const { default: ContextMenu } = await import("../shell/ContextMenu.svelte");
+  const host = document.createElement("div");
+  document.body.append(host);
+  let m: ReturnType<typeof mount> | null = null;
+  const close = () => {
+    if (!m) return;
+    void unmount(m);
+    m = null;
+    host.remove();
+    view.focus();
+  };
+  m = mount(ContextMenu, {
+    target: host,
+    props: {
+      x,
+      y,
+      // 不印顶上那行名字：两项里都写着了（ui.md 第六条「同一个信息只印一遍」）
+      label: "测试",
+      items: [
+        { label: `运行 '${short(t)}'`, keys: "⌃⇧R", run: () => void run(root, module, t) },
+        { label: `调试 '${short(t)}'`, keys: "⌃⇧D", run: () => void run(root, module, t, true) },
+      ],
+      onclose: close,
+    },
+  });
 }
 
 /** 光标所在的那个：往上找最近的测试方法；在第一个测试方法上面（类声明那儿）就是整个类 */
@@ -65,11 +104,13 @@ export function javaTestGutter(root: string, path: string): Extension {
       markers,
       lineMarkerChange: (u) => u.docChanged || u.transactions.some((tr) => tr.effects.some((e) => e.is(refresh))),
       domEventHandlers: {
-        mousedown(view, line) {
+        mousedown(view, line, ev) {
           const n = view.state.doc.lineAt(line.from).number;
           const t = view.state.field(targetsField).find((x) => x.line === n);
           if (!t) return false;
-          void run(root, module, t);
+          const r = (ev.target as HTMLElement).getBoundingClientRect();
+          ev.preventDefault();
+          void menu(view, r.left, r.bottom + 2, root, module, t);
           return true;
         },
       },
@@ -87,6 +128,15 @@ export function javaTestGutter(root: string, path: string): Extension {
           run: (view) => {
             const t = targetAt(view);
             if (t) void run(root, module, t);
+            return !!t;
+          },
+        },
+        {
+          key: "Ctrl-Shift-d",
+          preventDefault: true,
+          run: (view) => {
+            const t = targetAt(view);
+            if (t) void run(root, module, t, true);
             return !!t;
           },
         },

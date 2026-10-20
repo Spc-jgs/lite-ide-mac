@@ -55,6 +55,15 @@
   const STILL = { ...FOLLOW, tailing: false };
 </script>
 
+{#snippet plain(h: number)}
+  <div class="split" class:tests={isTest}>
+    {#if isTest && run}
+      <div class="tests-pane"><TestTree {run} /></div>
+    {/if}
+    {@render output(h)}
+  </div>
+{/snippet}
+
 {#snippet output(h: number)}
   <div class="run">
     <div class="body">
@@ -76,17 +85,12 @@
 {:else if handle !== null}
   {@const h = handle}
   {#if run?.debug}
-    <!-- 调试着起的（docs/IDEA.md 第 18 节）：调试器 / 控制台两页，输出是控制台那页 -->
+    <!-- 调试着起的（docs/IDEA.md 第 18 节）：调试器 / 控制台两页，控制台那页就是不调试时的样子（单测带结果树，同 IDEA 的 Debug 窗） -->
     <DebugPane {run}>
-      {#snippet console()}{@render output(h)}{/snippet}
+      {#snippet console()}{@render plain(h)}{/snippet}
     </DebugPane>
   {:else}
-    <div class="split" class:tests={isTest}>
-      {#if isTest && run}
-        <div class="tests-pane"><TestTree {run} /></div>
-      {/if}
-      {@render output(h)}
-    </div>
+    {@render plain(h)}
   {/if}
 {:else if err}
   <div class="msg">打不开输出：{err}</div>

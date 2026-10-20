@@ -99,6 +99,38 @@ pub fn listening(pgid: i32) -> Vec<u16> {
     }
 }
 
+/// 同 [`listening`]，按进程分开：调试单测时要从组里认出「带调试代理的那个 JVM」听的端口（surefire fork 的 JVM 和 mvn 在同一个组里）
+pub fn listening_by_pid(pgid: i32) -> Vec<(i32, Vec<u16>)> {
+    let mut cmd = Command::new("lsof");
+    cmd.args(["-nP", "-a", "-g", &pgid.to_string(), "-iTCP", "-sTCP:LISTEN", "-Fpn"]);
+    match procutil::run_capped(&mut cmd, 64 * 1024, procutil::ERR_CAP, procutil::Overflow::Kill) {
+        Ok(c) => parse_listen_by_pid(&String::from_utf8_lossy(&c.stdout)),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// `lsof -Fpn`：`p<pid>` 起一段，后面的 `n` 行是它听的（`f` 行夹在中间，不要）
+fn parse_listen_by_pid(out: &str) -> Vec<(i32, Vec<u16>)> {
+    let mut all: Vec<(i32, String)> = Vec::new();
+    for l in out.lines() {
+        if let Some(p) = l.strip_prefix('p').and_then(|p| p.parse().ok()) {
+            all.push((p, String::new()));
+        } else if let (Some(n), Some(last)) = (l.strip_prefix('n'), all.last_mut()) {
+            last.1.push_str(&format!("n{n}\n"));
+        }
+    }
+    all.into_iter().map(|(p, ns)| (p, parse_listen(&ns))).filter(|(_, ps)| !ps.is_empty()).collect()
+}
+
+/// 一个进程的命令行（`ps -o command=`，参数用空格连着）。查不到（已经退了）给 None。输出有上限吗：一行命令行，classpath 长的几十 KB，读 256KB
+pub fn command_of(pid: i32) -> Option<String> {
+    let mut cmd = Command::new("ps");
+    cmd.args(["-o", "command=", "-p", &pid.to_string()]);
+    let c = procutil::run_capped(&mut cmd, 256 * 1024, procutil::ERR_CAP, procutil::Overflow::Kill).ok()?;
+    let s = String::from_utf8_lossy(&c.stdout).trim().to_string();
+    (!s.is_empty()).then_some(s)
+}
+
 /// `lsof -Fn` 的输出 → 端口，去重、排好（IPv4 和 IPv6 各听一遍同一个端口是常态）
 fn parse_listen(out: &str) -> Vec<u16> {
     let mut ports: Vec<u16> = out
@@ -203,6 +235,14 @@ mod tests {
         let out = "p4242\nf12\nn*:8080\nf13\nn[::1]:8080\nf14\nn127.0.0.1:53195\nf15\nn*:*\nf16\nn[::1]:9090\n";
         assert_eq!(parse_listen(out), vec![8080, 9090, 53195]);
         assert!(parse_listen("").is_empty());
+    }
+
+    #[test]
+    fn 按进程分开_每个进程只算自己的端口_不听的不列() {
+        // mvn（4242）不听；fork 的 JVM（4300）听调试端口；另一个（4400）v4 v6 各听一遍同一个
+        let out = "p4242\np4300\nf9\nn127.0.0.1:52450\np4400\nf3\nn*:8080\nf4\nn[::1]:8080\n";
+        assert_eq!(parse_listen_by_pid(out), vec![(4300, vec![52450]), (4400, vec![8080])]);
+        assert!(parse_listen_by_pid("").is_empty());
     }
 
     use super::*;

@@ -250,10 +250,11 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
         (goal && goal[2].split(/\s+/).every((t) => SAFE.test(t)) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "goal" as const } : undefined) ??
         (test ? { name, command: `mvn -B -ntp -Dtest=${test[2]} -Dsurefire.failIfNoSpecifiedTests=false -pl ${test[1]} -am test`, cwd: "", source: "goal" as const } : undefined);
       if (!def) throw new Error(`没有叫「${name}」的任务了（tasks.json 改过？）`);
-      // 调试（第 18 节）：同真实现，只有认出来的 Spring Boot 应用
-      if (a.debug && def.source !== "spring") throw new Error(`「${name}」不是认出来的 Spring Boot 应用，调试不了`);
-      // 同 debug.rs 的 with_jdwp：在 `exec java` 后面插上调试代理（运行窗的命令那一行照实显示）
-      const command = a.debug ? def.command.replace("exec java ", "exec java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0 ") : def.command;
+      // 调试（第 18 节）：同真实现，只有认出来的 Spring Boot 应用和单测
+      if (a.debug && def.source !== "spring" && !test) throw new Error(`「${name}」不是认出来的 Spring Boot 应用或单测，调试不了`);
+      // 同 debug.rs 的 with_jdwp / with_surefire_debug：Spring 在 `exec java` 后面插调试代理，单测交给 surefire（运行窗的命令那一行照实显示）
+      const JDWP = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0";
+      const command = !a.debug ? def.command : test ? def.command.replace(/^mvn /, `mvn '-Dmaven.surefire.debug=${JDWP}' `) : def.command.replace("exec java ", `exec java ${JDWP} `);
       // 同真实现：同名的还在跑先停掉
       for (const [id, r] of RUNS) if (r.root === root && r.name === name && r.status !== "gone") emitExit(id, { code: 130, stopped: true });
       const id = nextRun++;
@@ -273,11 +274,14 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
         run.timer = setTimeout(() => emitExit(id, { code: 1, stopped: false, port: h }), 900);
       }
       // 跑单测：1.2 秒后结束（真的 mvn 要编译再跑，几秒到几十秒；结果树的「正在跑」要看得见）；有名字带 fail 的方法就是没过（退出码 1）
+      const testExit = () => emitExit(id, { code: test && testCases(root, test[2]).some((c) => c.outcome === "failed") ? 1 : 0, stopped: false });
       if (test) {
         TESTS.set(name, test[2]);
-        run.timer = setTimeout(() => emitExit(id, { code: testCases(root, test[2]).some((c) => c.outcome === "failed") ? 1 : 0, stopped: false }), 1200);
+        // 调试着跑的：停在断点上那段时间不退（被调试的 JVM 停着），跑完由调试那边说
+        if (!a.debug) run.timer = setTimeout(testExit, 1200);
       }
-      if (a.debug) mockDebugStart(id, root, /(\S+)$/.exec(def.command)?.[1] ?? name);
+      if (a.debug && test) mockDebugStart(id, root, test[2].split(/[#+,]/)[0], testExit);
+      else if (a.debug) mockDebugStart(id, root, /(\S+)$/.exec(def.command)?.[1] ?? name);
       return { id, name, command, log, service: def.source === "spring" };
     }
     /*

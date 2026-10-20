@@ -309,6 +309,28 @@ lite menu debug-resume main >/dev/null
 lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
 lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
 
+echo "== 调试单测：⌃⇧D 调试光标所在的那个方法 → JDWP 交给 surefire fork 的 JVM → 停在测试里的断点上；求值用得到兄弟模块的类；F9 之后测试照常跑完、结果树出来"
+# 第 11 行是 usesSiblingModule 里那句 assertEquals
+lite_eval main "await __lite.tabflow.openPath('${TEST}', { preview: false }); await __lite.debug.breakpoints('${P}', '${TEST}', [11]); return true" >/dev/null
+lite_wait main "return __lite.tabs.active?.path === '${TEST}' && document.querySelectorAll('.cm-bp').length === 1" 10 >/dev/null
+lite_eval main "__lite.caret(11, 9); __lite.key('Ctrl-Shift-d'); return true" >/dev/null
+TRUN="order-service [test com.demo.order.OrderMathTest#usesSiblingModule]"
+TDBG="const r = __lite.runs.list.find((x) => x.name === '${TRUN}'); const d = r?.debug;"
+T0=$(date +%s)
+lite_wait main "${TDBG} return d?.phase === 'paused' || d?.phase === 'ended'" 300 >/dev/null
+ok "$(lite_eval main "${TDBG} return r?.command ?? ''" | grep -q -- "^mvn '-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0' .*-Dtest='com.demo.order.OrderMathTest#usesSiblingModule'" && echo 1)" "⌃⇧D 起的是那一个方法、调试代理交给 surefire：$(lite_eval main "${TDBG} return (r?.command ?? '没有').slice(0, 90)")"
+FR=$(lite_eval main "${TDBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.name + '@' + f.path.split('/').pop() + ':' + f.line).join('')")
+ok "$(echo "${FR}" | grep -q '^paused OrderMathTest.usesSiblingModule()@OrderMathTest.java:11$' && echo 1)" "停在测试里的断点上（从按键到停下 $(( $(date +%s) - T0 )) 秒）：${FR}"
+lite_wait main "${VARS} return !!document.querySelector('.dbg .expr')" 10 >/dev/null
+lite_eval main "const i = document.querySelector('.dbg .expr'); i.value = 'new Money(7).cents() + 1'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true" >/dev/null
+lite_wait main "${VARS} return vs().some((v) => v.startsWith('new Money(7).cents() + 1 = '))" 20 >/dev/null
+ok "$(lite_eval main "${VARS} return vs().find((v) => v.startsWith('new Money(7).cents() + 1 = ')) ?? ''" | grep -q '^new Money(7).cents() + 1 = 8' && echo 1)" "求值用得到兄弟模块的 Money（项目名用模块的 artifactId 是对的）：$(lite_eval main "${VARS} return vs().find((v) => v.startsWith('new Money')) ?? document.querySelector('.dbg .eval-err')?.textContent ?? '没有'")"
+lite menu debug-resume main >/dev/null
+lite_wait main "${TDBG} return r?.status !== 'running' && !!r?.tests && d?.phase === 'ended'" 120 >/dev/null
+ok "$([ "$(lite_eval main "${TDBG} return r?.tests?.cases.map((c) => c.name + ':' + c.outcome).join(',') + ' ' + d?.phase + ':' + (d?.note ?? '')")" = "usesSiblingModule:passed ended:" ] && echo 1)" "F9 之后跑完：只跑了那一个、过了，会话正常结束：$(lite_eval main "${TDBG} return (r?.tests?.cases.map((c) => c.name + ':' + c.outcome).join(',') ?? '没有结果') + ' ' + d?.phase + ':' + (d?.note ?? '')")"
+ok "$([ "$(lite_eval main "return [...document.querySelectorAll('.dbg .segs button')].find((b) => b.getAttribute('aria-selected') === 'true')?.textContent + ':' + !!document.querySelector('.tt')?.offsetParent")" = "控制台:true" ] && echo 1)" "结束后回到控制台那页、结果树看得见"
+lite_eval main "await __lite.debug.breakpoints('${P}', '${TEST}', []); return true" >/dev/null
+
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then
   ok "$([ ! -e "${REPO}/com/demo" ] && echo 1)" "本地仓库（${REPO/#$HOME/~}）里没有 com/demo：没 install"

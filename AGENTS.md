@@ -21,7 +21,7 @@ scripts/accept/tasks.sh        # 任务运行的机制（39 条，含日志跟�
 scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪样哪段记「未验」）
 scripts/accept/merge.sh        # 几份日志按时间合并（15 条）：顺序、堆栈不拆散、过滤、偏移、跨块、会话恢复
 scripts/accept/patterns.sh     # 日志归类（8 条）：次数对得上、点一类筛出来正好那么多、和昨天比、合并视图、关标签收句柄
-scripts/accept/spring.sh       # 认出 Spring Boot 并照 IDEA 那样起 + Services 工具窗 + Maven 工具窗 + 跑单测 + 断点调试（47 条，真 mvn / java / jdtls / java-debug）：兄弟模块不用 install、web 服务停干净；Services 里分组、端口、⌘F2 / 双击 / 工具栏起停；工具窗的嵌套 / Profiles / 9 个阶段 / 真插件和依赖、勾的 profile 和跳过测试带进命令、双击 package 出 jar；单测的 ▶ / ⌃⇧R、结果树、行号旁 ✓✗、重跑没过的；调试停在兄弟模块的断点上、变量带 toString、求值、F8 单步、F9 继续之后照常跑完；条件断点为假不停、为真照停、写错了照样停并说清为什么
+scripts/accept/spring.sh       # 认出 Spring Boot 并照 IDEA 那样起 + Services 工具窗 + Maven 工具窗 + 跑单测 + 断点调试（52 条，真 mvn / java / jdtls / java-debug）：兄弟模块不用 install、web 服务停干净；Services 里分组、端口、⌘F2 / 双击 / 工具栏起停；工具窗的嵌套 / Profiles / 9 个阶段 / 真插件和依赖、勾的 profile 和跳过测试带进命令、双击 package 出 jar；单测的 ▶ / ⌃⇧R、结果树、行号旁 ✓✗、重跑没过的；调试停在兄弟模块的断点上、变量带 toString、求值、F8 单步、F9 继续之后照常跑完；条件断点为假不停、为真照停、写错了照样停并说清为什么；调试单测（⌃⇧D）停在测试里、求值用得到兄弟模块、跑完结果树照常出来
 scripts/accept/http.sh         # `.http` 发请求（16 条，真 curl + 脚本自己的回显服务）：没选环境不发、私有环境盖公开的、头和体逐字对、按原样次序排 JSON、< 文件、重定向、4xx 标红、3 MB、取消后 curl 没了、不往项目里写
 scripts/accept/history.sh      # 本地历史（9 条）：GBK + CRLF 存的是原始字节、读回来解得对；外面改过补记一版；面板里恢复是编辑器里的一笔修改（不写盘）；不往项目里写
 scripts/accept/java.sh         # Java 智能（42 条，内置的 jdtls + Java 21）：跑的是 .app 里那份、Lombok 不报假错、实时报错、补全（自动 import、方法带括号）、参数提示（换参数、出了括号收起、⌘P 手动弹）、改名（文件跟着改名、jdtls 从文件监听知道、撤销、撞名不动）、格式化（照编辑器的缩进、一笔撤销、只排选中的）、快速修复（import 候选的次序、补上后波浪线消失）、⌘B 进兄弟模块 / jar / JDK 源码、⌥F7、不往项目里写、退出不留。JDTLS_HOME=… 验「用自己那份」

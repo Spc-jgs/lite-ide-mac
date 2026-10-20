@@ -320,7 +320,8 @@ impl Instance {
 
     /// 起一个调试会话（docs/IDEA.md 第 18 节）：java-debug 插件在 jdtls 进程里开一个端口说 DAP，回给我们。
     /// 顺带问这个主类属于哪个 jdtls 项目 —— attach 时不带 `projectName` 的话求值报「please specify projectName」（探针实测）；问不到不算错，只是求值用不了
-    pub fn debug_session(&self, main_class: &str, limit: Duration) -> Result<(u16, Option<String>), String> {
+    /// 起一个调试会话（插件开一个 DAP 端口）。给了主类就顺便问出它属于哪个项目（attach 的 `projectName`，求值要）；没给（单测）由调用方自己定
+    pub fn debug_session(&self, main_class: Option<&str>, limit: Duration) -> Result<(u16, Option<String>), String> {
         if !self.shared.debuggable {
             return Err("这个构建没带调试插件（开发构建）：用 pnpm app:bundle 打的包".into());
         }
@@ -331,6 +332,7 @@ impl Instance {
             .request("workspace/executeCommand", json!({ "command": "vscode.java.startDebugSession", "arguments": [] }), ASK)
             .map_err(|e| format!("调试插件没答（{e}）"))?;
         let port = r.as_u64().and_then(|p| u16::try_from(p).ok()).ok_or_else(|| format!("调试插件回的不是端口：{r}"))?;
+        let Some(main_class) = main_class else { return Ok((port, None)) };
         let mains = self
             .srv
             .request("workspace/executeCommand", json!({ "command": "vscode.java.resolveMainClass", "arguments": [uri::from_path(&self.shared.root)] }), ASK)

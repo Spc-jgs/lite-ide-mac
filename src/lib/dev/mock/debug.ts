@@ -19,6 +19,8 @@ interface Sess {
   note: string;
   at: { path: string; line: number } | null;
   timers: ReturnType<typeof setTimeout>[];
+  /** 程序跑完了（单测：没撞上断点、或者停过之后按了继续）—— 任务那边报退出。Spring 应用不给：它一直跑到你停 */
+  done?: () => void;
 }
 const SESS = new Map<number, Sess>();
 /** 项目根 → 文件 → 行 */
@@ -69,10 +71,10 @@ function firstBp(root: string): { path: string; line: number } | null {
   return path ? { path, line: Math.min(...lines!) } : null;
 }
 
-/** task_run 带了 debug、而且是 Spring Boot 应用：起会话 */
-export function mockDebugStart(run: number, root: string, mainClass: string) {
+/** task_run 带了 debug（Spring Boot 应用，或者单测 —— 单测给 `done`：跑完了任务那边报退出）：起会话 */
+export function mockDebugStart(run: number, root: string, mainClass: string, done?: () => void) {
   const main = Object.keys(FILES).find((p) => p.startsWith(`${root}/`) && p.endsWith(`/${mainClass.replace(/\./g, "/")}.java`)) ?? `${root}/${mainClass}.java`;
-  const s: Sess = { run, root, main, phase: "waiting", note: "等它编译完、开调试端口…", at: null, timers: [] };
+  const s: Sess = { run, root, main, phase: "waiting", note: "等它编译完、开调试端口…", at: null, timers: [], done };
   SESS.set(run, s);
   set(s, "waiting", s.note);
   later(s, 800, () => set(s, "waiting", "等 Java 语言服务器导入完…"));
@@ -80,6 +82,7 @@ export function mockDebugStart(run: number, root: string, mainClass: string) {
     set(s, "running");
     const bp = firstBp(root);
     if (bp) later(s, 1000, () => pauseAt(s, bp));
+    else if (s.done) later(s, 1000, s.done);
   });
 }
 
@@ -154,6 +157,7 @@ export function debugCmd(cmd: string, a: A): unknown {
       const at = s.at;
       set(s, "running");
       if (action !== "continue") later(s, 150, () => pauseAt(s, { path: at.path, line: at.line + (action === "stepOut" ? 3 : 1) }));
+      else if (s.done) later(s, 300, s.done);
       return null;
     }
     case "debug_thread": {

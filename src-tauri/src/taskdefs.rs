@@ -400,6 +400,13 @@ pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
     Some(Def { name: name.to_string(), command, cwd: rel, env: Vec::new(), source: Source::Goal { module: m.rel } })
 }
 
+/// 单测任务（「模块 [test 选择器]」）调试时用的项目名：模块的 artifactId（m2e 默认拿它当项目名，求值要）。不是单测任务给 None
+pub fn test_project(root: &Path, name: &str) -> Option<String> {
+    let (artifact, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
+    goal.strip_prefix("test ")?;
+    Some(find_module(root, artifact)?.1.artifact_id)
+}
+
 /// 任务名里的模块那一段 → （它所在的 reactor 相对项目根的路径, 模块）。认 artifactId（Maven 工具窗起的），也认模块目录相对项目根的路径
 /// （测试文件旁边的 ▶ 起的：前端从文件路径就算得出目录，不用先问 Rust 这个模块叫什么）；根模块写 `.`
 fn find_module(root: &Path, token: &str) -> Option<(String, crate::maven::Module)> {
@@ -637,6 +644,9 @@ mod tests {
         assert!(resolve(&d, "order [test A; rm -rf ~]").is_none(), "选择器拼得进第二条命令的不给");
         assert_eq!(test_module_dir(&d, "order [test com.demo.OrderTest]"), Some(d.join("order")));
         assert_eq!(test_module_dir(&d, "order [package]"), None, "不是测试任务");
+        // 调试单测时的项目名：按目录起的也给 artifactId（m2e 的项目名是它，不是目录名）
+        assert_eq!(test_project(&d, "order [test com.demo.OrderTest#adds]").as_deref(), Some("order-service"));
+        assert_eq!(test_project(&d, "order [package]"), None, "不是测试任务");
         let _ = std::fs::remove_dir_all(&d);
     }
 

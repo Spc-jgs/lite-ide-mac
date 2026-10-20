@@ -185,6 +185,8 @@ export const KEYS: KeyDef[] = [
   /** 参数提示（Java），照 IDEA 是 ⌘P；敲 ( 或 , 时自己会弹。归 cm6：终端里的 ⌘P 照样交给 shell */
   { id: "param-info", label: "参数提示（Java）", accel: "⌘P", group: "导航", owner: "cm6" },
   { id: "run-test", label: "运行光标所在的测试（Java）/ 请求（.http）", accel: "⌃⇧R", group: "运行", owner: "cm6" },
+  /** 调试光标所在的测试（docs/IDEA.md 第 18 节）：IDEA 的 Debug context configuration。归 cm6，理由同上 */
+  { id: "debug-test", label: "调试光标所在的测试（Java）", accel: "⌃⇧D", group: "运行", owner: "cm6" },
   /*
    * IDEA 的 ⌘L。归菜单：它跳的是活动编辑器，但判「有没有编辑器」在 App 里
    * （没有就什么都不做），不需要读编辑器内部状态，和 ⌘B 那种 cm6 的不一样。
