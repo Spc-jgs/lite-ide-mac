@@ -187,6 +187,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let edit = SubmenuBuilder::new(app, "编辑")
         .undo_with_text("撤销")
         .redo_with_text("重做")
+        .item(&item(app, "undo-replace", "撤销上次的替换 / 改名", None)?)
         .separator()
         .cut_with_text("剪切")
         .copy_with_text("复制")

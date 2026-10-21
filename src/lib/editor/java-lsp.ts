@@ -561,7 +561,7 @@ async function applyAction(view: EditorView, s: Sync, title: string, raw: string
       const hits = r.outcome.changed.reduce((n, c) => n + c.count, 0);
       const label = `${title}：改了 ${r.outcome.changed.length} 个文件 ${hits} 处`;
       replace.done = r.outcome.undo ? { root: s.root, files: r.outcome.changed.length, hits, label } : null;
-      if (!r.outcome.undo) notify.ok(label);
+      notify.ok(label, undefined, r.outcome.undo ? ops.UNDO : undefined);
       return;
     }
     if (!view.dom.isConnected) return;
@@ -651,7 +651,7 @@ async function doRename(view: EditorView, s: Sync, at: { line: number; character
     const files = o.renamed.length ? `，文件 ${o.renamed.map((r) => `${base(r.from)} → ${base(r.to)}`).join("、")}` : "";
     const label = `已把 ${name} 改名为 ${to}：${o.changed.length} 个文件 ${hits} 处${files}`;
     replace.done = o.undo ? { root: s.root, files: o.changed.length, hits, label } : null;
-    if (!o.undo) notify.ok(label);
+    notify.ok(label, undefined, o.undo ? ops.UNDO : undefined);
   } catch (e) {
     notify.fail(`没改名：${e instanceof Error ? e.message : String(e)}`, 8000);
   } finally {

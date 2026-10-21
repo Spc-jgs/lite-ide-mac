@@ -123,9 +123,8 @@
   </section>
 
   <section>
-    <h2>卡片 <code>.confirm</code> <small>告诉你一件事、或启动时冒出来的（不压暗）。无色 = 普通；<code>warn</code> = 要你决定；<code>bad</code> = 出错 / 没做成</small></h2>
+    <h2>卡片 <code>.confirm</code> <small>要读几行、或者要你选的（不压暗）。<code>warn</code> = 要你决定；<code>bad</code> = 出错 / 没做成。做完了附一条退路的不是卡片，是胶囊上的动作（见下）</small></h2>
     <div class="cards">
-      <div class="confirm"><span>已替换 12 个文件 48 处</span><span class="gap"></span><button class="btn">知道了</button><button class="btn primary">撤销</button></div>
       <div class="confirm warn"><span><b>README.md</b> 在编辑器外被改过，而你这边也有未保存的改动</span><span class="gap"></span><button class="btn">用磁盘上的</button><button class="btn primary">保留我的</button></div>
       <div class="confirm bad"><span><b>推送被拒了：远程有你本地没有的提交</b></span><span class="gap"></span><button class="btn">知道了</button><button class="btn primary">先拉取</button></div>
     </div>
@@ -137,6 +136,8 @@
       <button class="btn sm" onclick={() => notify.ok("已复制路径：/proj/pom.xml")}>ok</button>
       <button class="btn sm" onclick={() => notify.fail("推送失败：远程拒绝了这次推送")}>fail</button>
       <button class="btn sm" onclick={() => notify.hint("剪贴板里没有文字")}>hint</button>
+      <!-- 带一个动作（2026-10-21，原来是一张「已替换… · 知道了 · 撤销」卡片）：至少停 10 秒 -->
+      <button class="btn sm" onclick={() => notify.ok("已替换 12 个文件 48 处", undefined, { label: "撤销", run: () => notify.hint("（画廊里不真撤）") })}>ok + 撤销</button>
     </div>
     <div class="toastbox"><Toast /></div>
   </section>

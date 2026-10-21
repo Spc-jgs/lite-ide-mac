@@ -1,6 +1,7 @@
 import { gitStage, readText, writeText, type GitEntry } from "../ipc/commands";
 import { gitDiff, gitCommitDiff, gitCommitVsWorktree, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached, gitApplyWorktree, gitCherryPick, gitFileAt } from "../ipc/git";
 import { notify } from "./notify.svelte";
+import { errText } from "./err-text";
 import { tabs } from "./tabs.svelte";
 import { tabflow } from "./tabflow.svelte";
 import { worktree } from "./worktree.svelte";
@@ -24,6 +25,14 @@ import type { TabState } from "./tab";
  *
  * 逻辑从 `git.svelte.ts` 搬过来，一个字不改；`this.` 换成 `git.`。
  */
+
+/** git 的原话能不能接在「做什么：」后面放进胶囊：一行、合起来 90 字以内（胶囊最多三行，再长就是说明，该走卡片） */
+export function fitsToast(what: string, raw: string): boolean {
+  return !raw.includes("\n") && [...what, ...raw].length <= 90;
+}
+
+/** 上一次失败时 git 的原话（`run` 记，`conflictOrRaw` 读） */
+let lastRaw = "";
 
 /**
  * git 写操作的统一出口：做完刷新状态，失败统一收口（issue #15）。
@@ -54,7 +63,12 @@ export async function run(what: string, fn: () => Promise<unknown>, doing: strin
     await git.refresh();
     return true;
   } catch (e) {
-    notify.block(what, e);
+    // git 的原话一行说得清（`fatal: invalid reference: x`）就走胶囊，不挡编辑区；多行的（涉及哪些文件）照旧卡片 ——
+    // ui.md 第十五条的判据本来就是「一句话说得清 → 胶囊」。原来一律卡片（2026-10-21 用户：提示是不是都可以换成胶囊）。
+    // 原话另记一份：冲突时 conflictOrRaw 要把它接在冲突说明后面，不能指望它在卡片上
+    lastRaw = errText(e);
+    if (fitsToast(what, lastRaw)) notify.fail(`${what}：${lastRaw}`);
+    else notify.block(what, e);
     return false;
   } finally {
     // **三件事都必须在 finally 里。** 失败路径上漏掉定时器，300ms 后
@@ -124,7 +138,9 @@ async function conflictOrRaw(what: string) {
   await git.refresh();
   const files = git.status?.entries.filter((e) => e.conflicted).map((e) => e.path) ?? [];
   if (files.length === 0) return;
-  const raw = notify.banner?.body ?? "";
+  const raw = lastRaw;
+  // run 那里可能已经弹了一句一行的胶囊：冲突的说明更完整，收掉它
+  notify.dismiss();
   notify.block(
     `${what} 撞上冲突，没有回滚`,
     `${files.length} 个文件冲突中：${files.join("、")}\n` +

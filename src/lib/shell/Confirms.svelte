@@ -47,7 +47,7 @@
 
   /*
    * 卡片的次序和上限（2026-10-13 盘点 A2）。原来没有上限：替换完成、上次任务没停干净、外部改过、报错可以同时出现，
-   * 四张能把编辑区上半截全挡住。次序按种类不按到达先后 —— 出错的（红）、要你决定的（琥珀）、做完了能撤销的（中性）
+   * 四张能把编辑区上半截全挡住。次序按种类不按到达先后 —— 出错的（红）、要你决定的（琥珀）。做完了能撤销的原来也是一张（中性），2026-10-21 换成了胶囊上的「撤销」
    */
   const CARD_MAX = 2;
   const cards = $derived(
@@ -57,7 +57,6 @@
       tabs.active?.conflict && "conflict",
       replace.interrupted && replace.interrupted.root === project.root && "interrupted",
       runs.stale && runs.stale.root === project.root && "stale",
-      replace.done && replace.done.root === project.root && "done",
     ].filter((x): x is string => !!x),
   );
   let moreOpen = $state(false);
@@ -354,7 +353,7 @@
 
 <div class="stack" class:below-tabs={tabs.list.length > 0} bind:this={stackEl}>
 <!--
-  次序（2026-10-13 盘点 A2）：出错的（红）在上 → 要你决定的（琥珀）→ 做完了、能撤销的（中性）。新来的不会把正在读的那张挤走：
+  次序（2026-10-13 盘点 A2）：出错的（红）在上 → 要你决定的（琥珀）。（做完了能撤销的原来排最后，2026-10-21 换成胶囊上的「撤销」了。）新来的不会把正在读的那张挤走：
   它按种类排进自己的位置，不是按到达先后。最多摆 CARD_MAX 张，其余折成「还有 N 条」
 -->
 {#if notify.banner && showCard("banner")}
@@ -409,16 +408,6 @@
   </div>
 {/if}
 
-{#if replace.done && replace.done.root === project.root && showCard("done")}
-  {@const d = replace.done}
-  <!-- 撤销的退路（#42 第 6 节）：不加确认框，做完给这一张。下一次替换、或者点掉，它就没了；应用重启后还会再出一次 -->
-  <div class="confirm" out:cardOut>
-    <!-- `label`：Java 改名也走这套落盘和撤销（docs/IDEA.md 第 14 节），卡片上说「已改名」而不是「已替换」 -->
-    <span>{d.label ?? (d.hits ? `已替换 ${d.files} 个文件 ${d.hits} 处` : `上次的替换（${d.files} 个文件）还能撤销`)}</span>
-    <button class="btn" data-dismiss onclick={() => (replace.done = null)}>知道了</button>
-    <button class="btn primary" onclick={() => void replaceOps().then((m) => m.undo())}>撤销</button>
-  </div>
-{/if}
 
 {#if cards.length > CARD_MAX}
   <button class="more" onclick={() => (moreOpen = !moreOpen)} aria-expanded={moreOpen}>

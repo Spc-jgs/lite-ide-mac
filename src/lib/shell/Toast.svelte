@@ -53,6 +53,11 @@
         {#if shown.kind === "ok"}<span class="ic"><Icon name="check" /></span>
         {:else if shown.kind === "fail"}<span class="ic"><Icon name="x" /></span>{/if}
         <span class="tx">{shown.text}</span>
+        {#if shown.act}
+          {@const act = shown.act}
+          <!-- 附的那条退路（「撤销」）：先关胶囊再做，点它不算「点掉」 -->
+          <button class="act" onclick={(e) => (e.stopPropagation(), notify.dismiss(), act.run())}>{act.label}</button>
+        {/if}
       </div>
     {/key}
   {/if}
@@ -89,6 +94,9 @@
   .toast.leaving { animation: fade-out 140ms ease-in forwards; }
   .toast.hint { color: var(--text-muted); }
   .ic { flex: none; display: inline-flex; }
+  /* 胶囊里的动作：一个字按钮，强调色、不画底（ui.md 第十七条：浮层里的按钮不再套框） */
+  .act { flex: none; margin: -3px -6px -3px 2px; padding: 3px 6px; border: none; border-radius: var(--r-sm); background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .act:hover { background: var(--hover); }
   .ok .ic { color: var(--accent); }
   .fail .ic { color: var(--lvl-error); }
   @media (prefers-reduced-motion: reduce) {

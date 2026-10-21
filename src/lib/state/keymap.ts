@@ -256,6 +256,11 @@ export const KEYS: KeyDef[] = [
   /** Java 文件（语言服务器起好之后）交给 jdtls 格式化整份 / 选中的几行（java-lsp.ts，docs/IDEA.md 第 15 节）；别的文件照旧只认 JSON */
   { id: "cm-format-json", label: "重新格式化（Java：整份或选中的；别的文件：JSON）", accel: "⌥⌘L", group: "编辑", owner: "cm6" },
   { id: "encoding", label: "文件编码…", group: "编辑", owner: "menu" },
+  /**
+   * 跨文件替换、Java 改名、快速修复做完，胶囊上带一个「撤销」（2026-10-21 起，原来是一张卡片）；胶囊几秒就走，这里是常驻的那条路，
+   * 应用重启过也撤得了（替换日志在盘上）。一直亮着：灰不灰要把替换的状态拽进入口包，没东西可撤时说一句为什么
+   */
+  { id: "undo-replace", label: "撤销上次的替换 / 改名", group: "编辑", owner: "menu" },
   { id: "toggle-mode", label: "切换编辑 / 日志模式", group: "编辑", owner: "menu" },
 
   // ── 视图 ──

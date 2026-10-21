@@ -23,6 +23,10 @@ import { errText } from "./err-text";
  *   原来这几条走 `ok`，画成了「做成了」的颜色 —— 一扫过去人以为做成了（2026-10-13 盘点 B2）。灰字、没有图标。
  * - `block` —— 没做成，而且说明是多行的（git 拒绝切分支时会列出涉及的文件）。走卡片，**不自动消失**。
  *
+ * `ok` / `fail` 可以带**一个动作**（`act`，胶囊右边一个字按钮）：做成了、附一条退路 —— 「已替换 3 个文件 12 处 · 撤销」。
+ * 原来这种是一张顶在编辑区上的卡片，和胶囊里同一句话说两遍（2026-10-21 用户：「撤销那个是不是可以换成这样」）。
+ * 带动作的至少停 10 秒（够人看完再伸手），悬停照旧不走。胶囊走了这条退路也不能没了：撤销替换在「编辑」菜单里常驻一项。
+ *
  * # 画在哪：编辑区底部居中的胶囊（`shell/Toast.svelte`）
  *
  * 原来 `ok` / `fail` 画在状态栏最左那一格，顶掉面包屑 2.6 秒。眼睛这时候在编辑区或者刚点的那块，左下角是视野最边上，
@@ -39,9 +43,15 @@ export function readMs(text: string, floor = 1600): number {
 const FAIL_FLOOR = 4000;
 
 export type ToastKind = "ok" | "fail" | "hint";
+/** 胶囊上的那一个动作（「撤销」） */
+export interface ToastAct {
+  label: string;
+  run: () => void;
+}
 export interface Toast {
   kind: ToastKind;
   text: string;
+  act?: ToastAct;
   /** 每条一个号：同样的字再来一次也算新的一条（胶囊要重新进场、重新计时） */
   id: number;
 }
@@ -71,14 +81,14 @@ class Notify {
   #left = 0;
   #seq = 0;
 
-  /** 做成了 */
-  ok(text: string, ms?: number) {
-    this.#show("ok", text, ms ?? readMs(text));
+  /** 做成了。`act`：附一条退路（「撤销」） */
+  ok(text: string, ms?: number, act?: ToastAct) {
+    this.#show("ok", text, ms ?? readMs(text), act);
   }
 
   /** 没做成，一句话说得清 */
-  fail(text: string, ms?: number) {
-    this.#show("fail", text, Math.max(ms ?? 0, readMs(text, FAIL_FLOOR)));
+  fail(text: string, ms?: number, act?: ToastAct) {
+    this.#show("fail", text, Math.max(ms ?? 0, readMs(text, FAIL_FLOOR)), act);
   }
 
   /** 什么都没发生，说一句为什么 */
@@ -86,13 +96,14 @@ class Notify {
     this.#show("hint", text, ms ?? readMs(text));
   }
 
-  #show(kind: ToastKind, text: string, ms: number) {
+  #show(kind: ToastKind, text: string, ms: number, act?: ToastAct) {
     const cur = this.toast;
-    // 没做成的那条还没读完：做成了 / 提示不顶掉它（新的失败照样顶 —— 那是更新的坏消息）
-    if (cur?.kind === "fail" && kind !== "fail" && Date.now() < this.#until) return;
+    // 没做成的那条还没读完：做成了 / 提示不顶掉它（新的失败照样顶 —— 那是更新的坏消息）。
+    // 带动作的例外：它是人刚做的那一下的结果、上面有人要按的按钮 —— 「没改名：X 已经有了」之后马上换个名字再改，「撤销」不能被吞掉
+    if (cur?.kind === "fail" && kind !== "fail" && !act && Date.now() < this.#until) return;
     clearTimeout(this.#timer);
-    this.toast = { kind, text, id: ++this.#seq };
-    this.#arm(ms);
+    this.toast = { kind, text, act, id: ++this.#seq };
+    this.#arm(act ? Math.max(ms, 10000) : ms);
   }
 
   #arm(ms: number) {

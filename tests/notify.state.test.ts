@@ -56,6 +56,26 @@ ok(notify.toast === null, "点掉");
 notify.ok("已保存");
 ok(notify.toast?.text === "已保存", "失败被点掉之后，新的做成了照常显示");
 
+// 附一个动作（「撤销」）：带着它，而且至少停 10 秒 —— 1.6 秒来不及把手挪过去点（2026-10-21 撤销卡片改成胶囊）
+let ran = 0;
+notify.ok("已替换 2 个文件", undefined, { label: "撤销", run: () => ran++ });
+ok(notify.toast?.act?.label === "撤销", "动作跟着这一条");
+notify.toast?.act?.run();
+ok(ran === 1, "点它就做");
+notify.dismiss();
+notify.ok("短", undefined, { label: "撤销", run: () => {} });
+await sleep(readMs("短") + 300);
+ok(notify.toast?.text === "短", "带动作的不按字数走（1.6 秒后还在）");
+notify.dismiss();
+notify.fail("撤销没做完", 8000, { label: "撤销", run: () => {} });
+ok(notify.toast?.kind === "fail" && notify.toast.act?.label === "撤销", "没做成的也能带动作");
+notify.dismiss();
+notify.ok("已保存");
+ok(notify.toast?.act === undefined, "不带的就没有：上一条的动作不残留");
+notify.fail("没改名：Customer.java 已经有了，不覆盖");
+notify.ok("已把 Client 改名为 Buyer：2 个文件 3 处", undefined, { label: "撤销", run: () => {} });
+ok(notify.toast?.act?.label === "撤销", "失败没读完时紧跟一条带「撤销」的：它顶掉失败 —— 那是人刚做的那一下，按钮不能被吞");
+
 notify.dismiss();
 console.log(`${fail === 0 ? "✅" : "❌"} 提示胶囊（状态层）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

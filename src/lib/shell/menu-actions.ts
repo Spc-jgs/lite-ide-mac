@@ -183,6 +183,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "run-pick": overlay.taskPicker = true; return;
     case "run-stop": return void import("../state/runs-ops").then((m) => m.stopRun());
     case "tasks-file": return void import("../state/runs-ops").then((m) => m.openTasksFile());
+    case "undo-replace": return void import("../state/replace-ops").then((m) => m.undoFromMenu());
     case "build-project": return void import("../state/runs-ops").then((m) => m.buildProject(false));
     case "rebuild-project": return void import("../state/runs-ops").then((m) => m.buildProject(true));
     case "debug-last": return void import("../state/runs-ops").then((m) => m.rerunLast(true));

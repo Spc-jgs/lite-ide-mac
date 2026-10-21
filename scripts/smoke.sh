@@ -793,9 +793,9 @@ if rp_open; then
   lite_wait "${W}" "return !!document.querySelector($(q "${RP} ins"))?.textContent.includes('ZQXJ_GATEWAY')" 5 || bad "预览里没有改后的那一段"
   click "替换 5 处" button prefix
   if wait_has "已替换 3 个文件 5 处" 15; then
-    ok "执行了，撤销卡片出来了"
+    ok "执行了，胶囊上带着「撤销」"
   else
-    bad "执行后没有撤销卡片（$(lite eval "${W}" "return document.querySelector('.toast')?.innerText ?? ''" 2>/dev/null)）"
+    bad "执行后没有那句「已替换」（$(lite eval "${W}" "return document.querySelector('.toast')?.innerText ?? ''" 2>/dev/null)）"
   fi
   check "$(cat "${REP}/b.txt")" "$(printf 'ZQXJ_RENAME b1\nZQXJ_GATEWAY b2')" "b.txt：取消勾的那处没动、另一处换了（软链没让它被换两次）"
   check "$(stat -f %Lp "${REP}/c.sh")" "755" "c.sh 的执行权限还在（验收 3）"
@@ -805,7 +805,7 @@ if rp_open; then
   check "$(tab_text "${REP}/a.txt" | head -1)" "UNSAVED ZQXJ_GATEWAY a1" "a.txt 的替换进了编辑器，没存的那几个字还在"
   is "return __lite.tabs.byPath($(q "${REP}/a.txt")).dirty === true" && ok "a.txt 的圆点还在（替换不替你存）" || bad "a.txt 变成不脏了 —— 替换替用户存了盘？"
 
-  # 验收 4：撤销
+  # 验收 4：撤销 —— 点胶囊上那个（带动作的胶囊至少停 10 秒）
   click "撤销"
   if wait_for 10 '[ "$(cat "'"${REP}"'/b.txt")" = "$(printf "ZQXJ_RENAME b1\nZQXJ_RENAME b2")" ]'; then
     ok "撤销：b.txt 回到原样"
@@ -820,7 +820,7 @@ if rp_open; then
     rp_wait_info "6 处 · 3 个文件" || bad "第二次预览不是 6 处：$(rp_info)"
     printf 'echo extra\n' >> "${REP}/c.sh"
     click "替换 6 处" button prefix
-    wait_has "已替换 2 个文件" 15 || bad "第二次执行后没有卡片：$(lite eval "${W}" "return document.querySelector('.toast')?.innerText ?? ''" 2>/dev/null)"
+    wait_has "已替换 2 个文件" 15 || bad "第二次执行后没有那句「已替换」：$(lite eval "${W}" "return document.querySelector('.toast')?.innerText ?? ''" 2>/dev/null)"
     check "$(tail -1 "${REP}/c.sh")" "echo extra" "预览之后被改过的 c.sh 没动（只有外面加的那一行）"
     grep -q ZQXJ_GATEWAY "${REP}/c.sh" && bad "c.sh 被替换了 —— 预览之后的改动没被发现" || ok "c.sh 跳过了，没在一份没给人看过的内容上动手"
     check "$(head -1 "${REP}/b.txt")" "ZQXJ_GATEWAY b1" "其余照常替换"
@@ -1133,7 +1133,7 @@ else
   bad "a b.txt 没打开"
 fi
 
-say "㉓ 替换完退出再打开：撤销卡片还在，点了能撤（#42，docs/REPLACE.md 12.1）"
+say "㉓ 替换完退出再打开：不弹卡片，「编辑 › 撤销上次的替换 / 改名」照样撤得了（#42，docs/REPLACE.md 12.1）"
 #
 # 替换日志落在盘上：应用退出、内存里的东西全丢了，撤销还在。放在最后是因为要退出再起一次应用，
 # 前面几段（尤其 ⑪ 读的 stderr、⑫ 数的编辑器实例）都要在同一个进程里看
@@ -1147,12 +1147,13 @@ if rp_open; then
     lite_quit || bad "退出不了"
     lite_launch "${FIX}" || exit 1
     lite_wait main "return __lite.project.root === $(q "${FIX}")" 15
-    if wait_has "还能撤销" 12; then
-      ok "退出再打开：撤销卡片还在"
-      click "撤销"
-      wait_for 10 '[ "$(cat "'"${REP}"'/r.txt")" = "ZQXJ_RESTART x" ]' && ok "点了撤销，r.txt 回到原样（应用重启过也撤得了）" || bad "重启后撤销没撤回去：$(cat "${REP}/r.txt")"
+    # 启动时读回替换日志要一会儿（checkPending）：等 replace.done 回来再点菜单，不然点早了只得一句「没有能撤销的」
+    if lite_wait main "return !!(await __lite.replaceDone())" 12; then
+      is "return ![...document.querySelectorAll('.confirm')].some((c) => c.innerText.includes('撤销'))" && ok "退出再打开：没弹「还能撤销」的卡片（启动时不要你选的不冒出来）" || bad "启动时还是弹了撤销卡片：$(lite eval "${W}" "return document.querySelector('.confirm')?.innerText ?? ''" 2>/dev/null)"
+      menu undo-replace
+      wait_for 10 '[ "$(cat "'"${REP}"'/r.txt")" = "ZQXJ_RESTART x" ]' && ok "编辑 › 撤销上次的替换：r.txt 回到原样（应用重启过也撤得了）" || bad "重启后撤销没撤回去：$(cat "${REP}/r.txt")"
     else
-      bad "退出再打开之后没有撤销卡片"
+      bad "退出再打开之后替换日志没读回来（撤不了了）"
     fi
   else
     bad "重启那段的替换没执行"

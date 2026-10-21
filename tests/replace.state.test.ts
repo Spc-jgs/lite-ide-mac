@@ -12,6 +12,7 @@ const { docs } = await import("../src/lib/state/docs.svelte");
 const { project } = await import("../src/lib/state/project.svelte");
 const { replace } = await import("../src/lib/state/replace.svelte");
 const ops = await import("../src/lib/state/replace-ops");
+const { notify } = await import("../src/lib/state/notify.svelte");
 const { hitKey } = await import("../src/lib/search/replace-model");
 
 let pass = 0;
@@ -61,15 +62,16 @@ ok(docs.savedTick > tickBefore, "savedTick 加了：已挂载的编辑器会换�
 ok(FILES[B] === "ZZOLD in b\n", "b 有没存的改动：盘上那份没动");
 ok(tb.draft === "ZZNEW in b\n我还没存的一行\n" && tb.dirty, `b 的替换进了草稿，没存的那行还在、圆点还在，实得 ${JSON.stringify(tb.draft)}`);
 ok(FILES[C] === "ZZOLD in c\n", "c 取消勾了：没动");
-ok(replace.done?.files === 2 && replace.done?.hits === 2, `撤销卡片：2 个文件 2 处，实得 ${JSON.stringify(replace.done)}`);
+ok(replace.done?.files === 2 && replace.done?.hits === 2, `撤销记账：2 个文件 2 处，实得 ${JSON.stringify(replace.done)}`);
 ok(replace.scan === null && replace.unchecked.size === 0, "这份扫描作废了，勾选清掉");
+ok(notify.toast?.act?.label === "撤销" && notify.toast.act.run === ops.UNDO.run, `胶囊带着「撤销」，实得 ${JSON.stringify(notify.toast)}`);
 
 // 编辑器替身照真编辑器那样把草稿换进去（Editor.svelte：initial 变了就换内容）
 bLive = tb.draft!;
 await ops.undo();
 ok(FILES[A] === "ZZOLD in a\n" && ta.content === "ZZOLD in a\n" && !ta.dirty, "撤销：a 盘上和标签都回去了");
 ok(tb.draft === "ZZOLD in b\n我还没存的一行\n" && tb.dirty, `撤销：b 回到替换前，没存的那行还在，实得 ${JSON.stringify(tb.draft)}`);
-ok(replace.done === null, "撤销卡片收掉了");
+ok(replace.done === null, "撤销过了：菜单里的「撤销上次的替换」不再有东西可撤");
 
 // ── Java 改名（docs/IDEA.md 第 14 节）走同一套：改类名连文件一起改名，开着的标签挪到新路径；撤销时名字和内容都回来 ──
 // 浏览器里撞见过：撤销后标签回到了原名，内容却还是新名字 —— 桩报回的是改名前的路径，前端按它找不到还在新路径上的标签
