@@ -173,6 +173,25 @@ export interface TestResults {
   total: number;
 }
 
+/** Spring 的一个接口（docs/IDEA.md 第 25 节）。`methods`：GET / POST / …，`@RequestMapping` 没写 method 的是 ANY；`line` 是方法名那一行 */
+export interface SpringEndpoint {
+  methods: string[];
+  path: string;
+  controller: string;
+  method: string;
+  file: string;
+  line: number;
+}
+
+/** 一个配置键在哪：哪份配置文件（`name` 看 profile 用）、第几行 */
+export interface SpringConfigHit {
+  path: string;
+  name: string;
+  line: number;
+  /** 那一行的文字（好几处时列表里给人看） */
+  text: string;
+}
+
 /** MyBatis 跳转（docs/IDEA.md 第 24 节）的一个点：接口的方法，或者 XML 里的一段语句。`path` 是它在哪个文件（这个文件里的是空串） */
 export interface MybatisSpot {
   name: string;

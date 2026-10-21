@@ -346,6 +346,36 @@ public class AdminApplication {
     }
 }
 `,
+  // Spring（docs/IDEA.md 第 25 节）：随处搜索的「接口」、@Value 上 ⌘B 去配置文件（两个 profile 各配了一份 greeting）
+  "/proj/moduleB/src/main/java/com/demo/core/OrderController.java": `package com.demo.core;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/orders")
+public class OrderController {
+    @Value("\${demo.greeting:hi}")
+    private String greeting;
+
+    @GetMapping("/{id}")
+    public String get(@PathVariable Long id) { return greeting + id; }
+
+    @PostMapping
+    public String create(@RequestBody String body) { return body; }
+
+    @GetMapping("/search")
+    public String search(@RequestParam String q) { return q; }
+}
+`,
+  "/proj/moduleB/src/main/resources/application.yml": `server:
+  port: 8080
+demo:
+  greeting: hello
+`,
+  "/proj/moduleB/src/main/resources/application-dev.yml": `demo:
+  greeting: 你好（dev）
+`,
   // MyBatis（docs/IDEA.md 第 24 节）：接口和它的 XML。count 在 XML 里没有（MyBatis-Plus 那种通用方法）：不画图标
   "/proj/moduleB/src/main/java/com/demo/core/OrderMapper.java": `package com.demo.core;
 
@@ -556,12 +586,12 @@ export const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj/moduleB": [["src", true], ["pom.xml", false]],
   "/proj/moduleB/src": [["main", true]],
   "/proj/moduleB/src/main": [["java", true], ["resources", true]],
-  "/proj/moduleB/src/main/resources": [["mapper", true]],
+  "/proj/moduleB/src/main/resources": [["mapper", true], ["application-dev.yml", false], ["application.yml", false]],
   "/proj/moduleB/src/main/resources/mapper": [["OrderMapper.xml", false]],
   "/proj/moduleB/src/main/java": [["com", true]],
   "/proj/moduleB/src/main/java/com": [["demo", true]],
   "/proj/moduleB/src/main/java/com/demo": [["core", true]],
-  "/proj/moduleB/src/main/java/com/demo/core": [["OrderClient.java", false], ["OrderMapper.java", false], ["OrderServiceApplication.java", false]],
+  "/proj/moduleB/src/main/java/com/demo/core": [["OrderClient.java", false], ["OrderController.java", false], ["OrderMapper.java", false], ["OrderServiceApplication.java", false]],
   "/proj/logs": [
     ["access-2026-08-24.log", false],
     ["gateway-2026-08-23.log", false],

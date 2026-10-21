@@ -298,3 +298,51 @@ fn read_small(p: &Path) -> Option<String> {
     }
     std::fs::read_to_string(p).ok()
 }
+
+/// Spring 的接口（docs/IDEA.md 第 25 节，随处搜索里的「接口」）：先用项目搜索找出带 `@RestController` / `@Controller` 的文件，只解析这些。
+/// 不靠 jdtls。按路径排
+#[tauri::command]
+pub async fn spring_endpoints(root: String) -> Result<Vec<SpringEndpointDto>, String> {
+    blocking(move || {
+        let q = searchsvc::Query { pattern: r"@(Rest)?Controller\b".into(), case: true, word: false, regex: true };
+        let mut files: Vec<String> = searchsvc::grep(&root, &q, 5000, &super::search::skip_for(&root)).unwrap_or_default().into_iter().map(|h| h.path).filter(|p| p.ends_with(".java")).collect();
+        files.sort();
+        files.dedup();
+        let mut out = Vec::new();
+        for rel in files {
+            let abs = Path::new(&root).join(&rel);
+            let Some(text) = read_small(&abs) else { continue };
+            let file = abs.display().to_string();
+            out.extend(crate::spring::endpoints(&text).into_iter().map(|e| SpringEndpointDto { methods: e.methods, path: e.path, controller: e.controller, method: e.method, file: file.clone(), line: e.line }));
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path).then(a.methods.cmp(&b.methods)));
+        Ok(out)
+    })
+    .await
+}
+
+/// Spring 的配置键在哪（`@Value("${demo.greeting}")` 上 ⌘B，docs/IDEA.md 第 25 节）：项目里的 `application*` / `bootstrap*` 配置文件，
+/// 按宽松绑定比（`greetingText` = `greeting-text`）。每个 profile 的文件都列；不带 profile 的排前面
+#[tauri::command]
+pub async fn spring_config(root: String, key: String) -> Result<Vec<SpringConfigHitDto>, String> {
+    blocking(move || {
+        let files = searchsvc::list_files(&root, &super::search::skip_for(&root)).unwrap_or_default();
+        let mut out = Vec::new();
+        for rel in files {
+            let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+            if !crate::spring::is_config_file(&name) {
+                continue;
+            }
+            let abs = Path::new(&root).join(&rel);
+            let Some(text) = read_small(&abs) else { continue };
+            for line in crate::spring::find_key(&name, &text, &key) {
+                let at = text.lines().nth(line as usize - 1).unwrap_or("").trim().chars().take(200).collect();
+                out.push(SpringConfigHitDto { path: abs.display().to_string(), name: name.clone(), line, text: at });
+            }
+        }
+        // application.yml 在 application-dev.yml 前面：不带 profile 的是底子
+        out.sort_by_key(|h| (h.name.contains('-'), h.path.clone(), h.line));
+        Ok(out)
+    })
+    .await
+}

@@ -45,7 +45,7 @@ PLAN 立项时其实就留了这个口子：「语言智能走外置 LSP 子进�
 | 14 | **本地历史**（Local History：不提交也能回到十分钟前那版） | 没有 | 每次保存存一份快照（按内容哈希去重、设上限），能和旧版比、能回退 | 小 | **建议要**：「从不丢东西」那条的下一层，IDEA 用户常被它救命 |
 | 15 | 格式化 / 整理 import | 没有 | jdtls 的 formatting / organizeImports | 跟着第 3 步 | **要**（第 3 步） |
 | 16 | 代码生成（⌘N：getter / setter / 构造器）、Lombok | 没有 | jdtls 的 source action；Lombok 靠给 jdtls 挂 lombok.jar 的 javaagent | 跟着第 3 步 | 要（第 3 步） |
-| 17 | Spring 专属：Bean 之间跳、所有 `@RequestMapping` 的接口列表、application.yml 补全 | 没有 | 接口列表可以自己扫注解（不用语言服务器）；Bean 图、yml 补全要 Spring Tools 的语言服务器（又一个 JVM） | 中到大 | 接口列表**可以考虑**；其余**后做** |
+| 17 | Spring 专属：Bean 之间跳、所有 `@RequestMapping` 的接口列表、application.yml 补全 | 接口列表和 `@Value` → yml 跳转有了（第 25 节）；Bean 跳转、yml 补全没有 | 接口列表可以自己扫注解（不用语言服务器）；Bean 图、yml 补全要 Spring Tools 的语言服务器（又一个 JVM） | 中到大 | 接口列表**可以考虑**；其余**后做** |
 | 18 | 代码检查（几百条 inspection）、结构化搜索 | 没有 | jdtls 的警告是编译器级别的，没有 IDEA 那么多 | —— | 不追 |
 
 ## 3. 本心的硬约束（每一步都要过这几条，过不了就不做）
@@ -662,3 +662,22 @@ IDEA 的 Local History：不提交也能回到十分钟前那一版。菜单「�
 - 图标是 IDEA 的 `gutter/implementingMethod`（往实现跳）/ `implementedMethod`（往声明跳），深色版，用户同意后下的
 
 **真 .app `scripts/accept/mybatis.sh` 7/7**：三个图标、行号对（注释里的、`count`、匿名类的 `run` 不算）；点了进 src 的 XML（不是 target 的）；从 XML 回到 main 的接口（不是 test 的）；XML 里加一段不保存，一秒后图标多一个。
+
+## 25. Spring：接口搜索、配置跳转（2026-10-21，用户选的「日常会用」）
+
+IDEA Ultimate 的 Endpoints 和配置跳转，Lithe 也做了（它还做了 Bean 索引、yml 补全 —— 我们没做，第 2 节第 17 行「后做」那几样）。
+
+**接口**：随处搜索（⇧⇧ / ⇧⌘O）多一个「接口」范围（同 IDEA Ultimate 的 Endpoints 分页），「全部」里输入像地址的也排最前。
+- Rust（`spring.rs`）先用项目搜索找出带 `@RestController` / `@Controller` 的文件，只解析这些：类上 `@RequestMapping` 是前缀，第一层方法上的 `@Get/Post/Put/Delete/PatchMapping`、`@RequestMapping(method = …)` 各是一个。
+  认 `"/x"`、`value =`、`path = {"/a", "/b"}`、什么都不写；**路径写成常量的显示 `{常量名}`，不猜它的值**。自定义组合注解、继承来的映射不认（Lithe 也不认）
+- **粘一个日志里的真 URL**（`http://localhost:8080/api/orders/42?x=1`）：去掉协议、主机、查询串，按模板对，`{id}` 对任意一段。整个对上的在前、只对上开头的在后；
+  同一档里**写死的比 `{id}` 先**：两个都对得上 `/api/orders/search` 时，Spring 选的就是写死的那个（越具体越优先）。第一版按长短排、`{id}` 短，排反了 —— 测试抓的
+- 列表打开搜索时问一次（动态引 `ipc/java`，入口包不涨）
+
+**配置**：`@Value("${demo.greeting:hi}")` 上 ⌘B → 项目里的 `application*` / `bootstrap*`（yml / yaml / properties）。
+- YAML 按缩进拼出完整的键（`demo:` 下面的 `greeting:` 是 `demo.greeting`），`a.b: x` 一行写的也认，`---` 分开的几份各自从头，列表项下面的不算键；properties 认 `=` / `:` / 空格，续行跳过
+- **宽松绑定**：`greetingText` = `greeting-text` = `greeting_text`（Spring 自己的规矩）；`${key:默认值}` 去掉默认值；嵌套的取光标所在的最里面那个
+- 一处直接跳；好几处（每个 profile 一份）列出来挑（查用法那张列表，标题是「X 配在这几处」），不带 profile 的在前；一处都没有说一句，留在原地
+- ⌘B 的这一层挂在 Java 的扩展里，不在 `${…}` 里就放过，原来的跳转照旧（浏览器里验过：字段名上 ⌘B 照旧跳到声明）
+
+**真 .app `scripts/accept/spring-nav.sh` 8/8**（见 AGENTS.md）。

@@ -11,6 +11,7 @@
 
   let {
     name,
+    title = `${name} 的用法`,
     items,
     total,
     x,
@@ -20,6 +21,8 @@
   }: {
     /** 查的是谁（光标底下那个名字） */
     name: string;
+    /** 顶上那句。默认「X 的用法」；配置键（`${…}` 上 ⌘B，java-lsp 的 configJump）说的是「配在哪」，不是用法 */
+    title?: string;
     items: JavaLocation[];
     /** 真条数。比 `items` 多 = 截断了，要说出来（AGENTS.md「截断了要说出来」） */
     total: number;
@@ -78,9 +81,9 @@
 </script>
 
 <div class="scrim" onclick={onclose} role="presentation"></div>
-<div class="popup palette m usages" bind:this={el} tabindex="-1" role="dialog" aria-label="{name} 的用法" onkeydown={onKey}>
+<div class="popup palette m usages" bind:this={el} tabindex="-1" role="dialog" aria-label={title} onkeydown={onKey}>
   <div class="head">
-    <span class="title">{name} 的用法</span>
+    <span class="title">{title}</span>
     <span class="count">{total} 处{total > items.length ? `，只列前 ${items.length}` : ""}</span>
   </div>
   {#if items.length === 0}

@@ -765,6 +765,8 @@ pnpm app:bundle
 - **本地历史**（照 IDEA 的 Local History）：菜单「文件 › 本地历史…」或者编辑器右键。每次保存都留一份（30 天、每个文件 200 版，超过 4 MB 的不存），第一次保存时连改之前的样子一起留；
   左边选一版、右边看它和现在的差异，「恢复成这一版」是编辑器里的一笔修改（⌘Z 撤得回、还没保存）。存在应用数据目录，不往项目里写
 - **参数提示**（Java）：敲 `(` 或 `,` 时光标上方列出这个方法的几个重载，当前参数加粗；出了括号自己收起，⌘P 手动弹（照 IDEA）
+- **找接口**（Spring）：⇧⇧ 或 ⇧⌘O 打开搜索，Tab 到「接口」—— 列出项目里所有的 `@GetMapping` 这些；**粘一个日志里的 URL**（`http://localhost:8080/api/orders/42`）就能找到是哪个方法处理的，回车跳过去
+- **配置跳转**（Spring）：`@Value("${demo.greeting}")` 的键上 ⌘B，跳到 `application.yml` 里那一行；每个 profile 都配了的话列出来挑。`greetingText` 和 `greeting-text` 算同一个
 - **MyBatis**：Mapper 接口的方法旁边有个小图标，点了跳到 XML 里那段 SQL；XML 里每段语句旁边也有，点了跳回接口。不用等 Java 语言服务器
 - **JDK 按项目选**：运行、单测、调试、构建用 pom 里写的那个 Java 版本（`java.version` / `maven.compiler.release`），你机器上装了的话自动用它，运行窗那行命令看得出用的是哪个
 - **构建**（Maven 项目，照 IDEA 的 Build）：⌘F9 构建项目（每个模块 `mvn test-compile`，连测试一起编），菜单「构建」里还有「重新构建项目」（先 clean）。结果在运行窗：左边按文件列出编译错误，双击跳过去；成功了说用了几秒。

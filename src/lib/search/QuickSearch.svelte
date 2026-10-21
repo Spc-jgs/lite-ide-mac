@@ -7,6 +7,8 @@
   import { project } from "../state/project.svelte";
   import { rank, segments, snippet } from "./fuzzy";
   import { parseGoto, type Goto } from "./goto";
+  import { looksLikeUrl, rankEndpoints } from "./endpoints";
+  import type { SpringEndpoint } from "../ipc/commands";
   import type { Sym } from "../editor/outline";
   import { tabs } from "../state/tabs.svelte";
   import { docs } from "../state/docs.svelte";
@@ -21,7 +23,7 @@
     run: () => void;
   }
 
-  type Scope = "all" | "file" | "content" | "action";
+  type Scope = "all" | "file" | "content" | "action" | "endpoint";
 
   let {
     open = $bindable(),
@@ -67,7 +69,31 @@
     { id: "file", label: "文件" },
     { id: "content", label: "内容" },
     { id: "action", label: "操作" },
+    // Spring 的接口（docs/IDEA.md 第 25 节，IDEA Ultimate 的 Endpoints 分页）：粘一个日志里的 URL 就能找到是哪个方法处理的
+    { id: "endpoint", label: "接口" },
   ];
+
+  /**
+   * 接口列表：浮层打开时问 Rust 一次（扫带 @RestController / @Controller 的文件，几十毫秒）。动态引 ipc/java：
+   * 静态引的话入口里 `import("QuickSearch")` 那张预加载表要多列一个块（frontend.md「懒模块静态引的东西也会把文件名带进入口」）
+   */
+  let eps = $state<SpringEndpoint[] | null>(null);
+  $effect(() => {
+    const r = root;
+    if (!open || !r) return;
+    let dead = false;
+    void import("../ipc/java")
+      .then((m) => m.springEndpoints(r))
+      .then((list) => {
+        if (!dead) eps = list;
+      })
+      .catch(() => {
+        if (!dead) eps = [];
+      });
+    return () => {
+      dead = true;
+    };
+  });
 
   let query = $state("");
   let hits = $state<Hit[]>([]);
@@ -219,7 +245,8 @@
     | { kind: "content"; path: string; line: number; text: string; spans: [number, number][] }
     /** 草稿里的内容命中：单独一组「草稿」，右边那列是那条草稿的标题 */
     | { kind: "scratch"; path: string; line: number; text: string; spans: [number, number][]; title: string }
-    | { kind: "action"; action: Action; seg: { t: string; hit: boolean }[] };
+    | { kind: "action"; action: Action; seg: { t: string; hit: boolean }[] }
+    | { kind: "endpoint"; ep: SpringEndpoint; seg: { t: string; hit: boolean }[] };
 
   let rows = $derived.by(() => {
     const out: Row[] = [];
@@ -240,6 +267,12 @@
     if (query.length === 0 && (scope === "all" || scope === "file")) {
       for (const p of files.recent.slice(0, 10)) out.push({ kind: "recent", path: p });
       return out;
+    }
+    // 接口：「接口」范围里全列；「全部」里输入像一个地址（`/api/…`、`http://…`）时排最前，否则只给几条
+    if ((scope === "all" && goto.kind === "plain") || scope === "endpoint") {
+      const n = scope === "endpoint" ? 200 : looksLikeUrl(query) ? 8 : 3;
+      if (scope === "endpoint" || query.length > 0) for (const h of rankEndpoints(eps ?? [], query, n)) out.push({ kind: "endpoint", ep: h.item, seg: h.seg });
+      if (scope === "endpoint") return out;
     }
     if ((scope === "all" && goto.kind === "plain") || scope === "action") {
       for (const r of rank(actions, query, (a) => a.label, scope === "action" ? 20 : 4)) {
@@ -284,6 +317,7 @@
   function choose(row: Row) {
     open = false;
     if (row.kind === "action") row.action.run();
+    else if (row.kind === "endpoint") onOpenFile(row.ep.file, row.ep.line, false);
     else if (row.kind === "file") onOpenFile(row.path, row.line, false, row.col);
     else if (row.kind === "recent") onOpenFile(row.path, undefined, false);
     else if (row.kind === "symbol") onOpenFile(row.path, row.sym.line, false);
@@ -345,7 +379,7 @@
     { key: "regex", icon: "regex", title: "正则（⌥X）" },
   ];
 
-  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开", symbol: "符号", line: "跳到行" } as const;
+  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开", symbol: "符号", line: "跳到行", endpoint: "接口" } as const;
 
   /** 最近文件右边那列：项目里的显示相对目录，草稿标「草稿」，别处的显示整条目录 */
   const recentSide = (p: string) => {
@@ -395,7 +429,7 @@
         bind:this={input}
         bind:value={query}
         onkeydown={onKey}
-        placeholder={scope === "content" ? "在项目中搜索内容…" : "输入文件名、内容或操作…"}
+        placeholder={scope === "content" ? "在项目中搜索内容…" : scope === "endpoint" ? "输入 URL（/api/orders/42 也行）或方法名…" : "输入文件名、内容或操作…"}
         spellcheck="false"
         autocomplete="off"
       />
@@ -444,10 +478,13 @@
           {:else if scope === "file"}没有匹配的文件 —— <kbd>Tab</kbd> 换到「内容」搜正文
           {:else if scope === "content"}正文里没有这个词 —— <kbd>Tab</kbd> 换到「文件」按名找
           {:else if scope === "action"}没有这个操作 —— <kbd>Tab</kbd> 换到「全部」
+          {:else if scope === "endpoint" && eps === null}<span class="wait"><span class="spinner"></span>找接口…</span>
+          {:else if scope === "endpoint" && eps?.length === 0}这个项目里没认出 Spring 的接口 —— 认的是 @RestController / @Controller 类上的 @GetMapping 这些
+          {:else if scope === "endpoint"}没有对得上的接口
           {:else}没有匹配 —— 换个词，或 <kbd>Tab</kbd> 缩小范围{/if}
         </div>
       {/if}
-      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" || row.kind === "line" ? `${row.path}:${row.line}` : row.kind === "symbol" ? `${row.sym.line}:${row.sym.name}` : row.kind === "file" || row.kind === "recent" ? row.path : row.action.id))}
+      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" || row.kind === "line" ? `${row.path}:${row.line}` : row.kind === "symbol" ? `${row.sym.line}:${row.sym.name}` : row.kind === "file" || row.kind === "recent" ? row.path : row.kind === "endpoint" ? `${row.ep.methods.join()} ${row.ep.path} ${row.ep.file}:${row.ep.line}` : row.action.id))}
         <!--
           分组头代替每行的类型胶囊。结果本来就是按类型排好的，
           每行再印一遍「文件」「操作」等于把分组信息摊到了每一行上 ——
@@ -457,7 +494,12 @@
           <div class="sec">{KIND_LABEL[row.kind]}</div>
         {/if}
         <button class="row" class:sel={i === cursor} onclick={() => choose(row)} onmouseenter={() => (cursor = i)}>
-          {#if row.kind === "action"}
+          {#if row.kind === "endpoint"}
+            <!-- HTTP 方法是个小标签（同 IDEA Endpoints 窗）；路径用代码字体（ui.md 八之二：它是要原样认的东西）、命中处高亮 -->
+            <span class="verb">{row.ep.methods.join(" ")}</span>
+            <span class="main mono">{#each row.seg as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
+            <span class="side plain">{row.ep.controller}.{row.ep.method}</span>
+          {:else if row.kind === "action"}
             <span class="ic act"><Icon name="chevron-right" /></span>
             <span class="main">
               {#each row.seg as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}
@@ -691,4 +733,6 @@
   }
 
   mark { background: transparent; color: var(--accent); font-weight: 600; }
+  /* 接口那一行的 HTTP 方法：小号、等宽、淡底的块，宽度按内容（`GET,POST` 两个也放得下） */
+  .verb { flex: none; min-width: 40px; padding: 0 5px; border-radius: var(--r-xs); background: var(--hover); color: var(--text-dim); font-family: var(--code-font); font-size: var(--fs-xs); text-align: center; line-height: 18px; }
 </style>

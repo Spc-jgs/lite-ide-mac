@@ -12,7 +12,7 @@ import { docs } from "./docs.svelte";
  */
 class Overlay {
   quickOpen = $state(false);
-  quickScope = $state<"all" | "file" | "content" | "action">("all");
+  quickScope = $state<"all" | "file" | "content" | "action" | "endpoint">("all");
   /**
    * 打开随处搜索时预填的词。只有「在项目里找这个名字」会设它，
    * **每条打开浮层的路都要把它清掉** —— 不清的话，上次找过的名字
@@ -71,7 +71,7 @@ class Overlay {
   }
 
   /** 开随处搜索。`seed` 不传就是清空 —— 见 `quickSeed` 的注释 */
-  openQuick(scope: "all" | "file" | "content" | "action", seed = "") {
+  openQuick(scope: "all" | "file" | "content" | "action" | "endpoint", seed = "") {
     this.quickScope = scope;
     this.quickSeed = seed;
     this.quickOpen = true;

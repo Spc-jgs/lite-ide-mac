@@ -21,7 +21,8 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, springConfig } from "../ipc/java";
+import { configKeyAt } from "./spring-key";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { nav } from "../state/nav.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
@@ -392,6 +393,60 @@ async function findUsages(view: EditorView): Promise<void> {
   });
 }
 
+// ── Spring 配置（docs/IDEA.md 第 25 节）：`@Value("${demo.greeting}")` 上 ⌘B → application.yml 里那个键 ──
+
+/**
+ * 光标在字符串里的 `${…}` 上：去项目的配置文件里找这个键。一处直接跳；好几处（每个 profile 一份）列出来挑（查用法那张列表，同 IDEA 的选择框）；
+ * 一处都没有说一句（不让 ⌘B 按了没反应）。不在 `${…}` 里返回 false，⌘B 交回原来的跳转（jump-ext.ts）——
+ * 这条键位挂在 Java 的扩展里，扩展的次序在 jumpExtension 前面，同是 Prec.highest 时先到这儿。不靠 jdtls：读文本
+ */
+function configJump(view: EditorView, root: string): boolean {
+  const head = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(head);
+  const key = configKeyAt(line.text, head - line.from);
+  if (!key) return false;
+  void (async () => {
+    let hits: Awaited<ReturnType<typeof springConfig>>;
+    try {
+      hits = await springConfig(root, key);
+    } catch (e) {
+      notify.fail(`找不了配置 ${key}：${e}`);
+      return;
+    }
+    if (!view.dom.isConnected) return;
+    if (!hits.length) {
+      notify.hint(`配置文件里没有 ${key}（application* / bootstrap* 的 yml、properties 里找过，宽松绑定也算了）`);
+      return;
+    }
+    if (hits.length === 1) {
+      void nav.openAt(hits[0].path, hits[0].line, false);
+      return;
+    }
+    const c = view.coordsAtPos(head);
+    closePopup();
+    popup = mount(UsagesPopup, {
+      target: document.body,
+      props: {
+        name: key,
+        title: `${key} 配在这几处`,
+        items: hits.map((h) => ({ uri: "", path: h.path, label: h.name, line: h.line - 1, character: 0, endLine: h.line - 1, endCharacter: 0, text: h.text })),
+        total: hits.length,
+        x: c?.left ?? 200,
+        y: c?.bottom ?? 200,
+        onclose: () => {
+          closePopup();
+          view.focus();
+        },
+        onpick: (loc: JavaLocation) => {
+          closePopup();
+          if (loc.path) void nav.openAt(loc.path, loc.line + 1, false);
+        },
+      },
+    });
+  })();
+  return true;
+}
+
 // ── 格式化（⌥⌘L，docs/IDEA.md 第 15 节） ──
 
 /**
@@ -747,6 +802,8 @@ export function javaLsp(root: string | null, path: string): Extension {
     // 换掉通用的「文档里的词」：Java 文件里由 javaSource 说了算（它自己会在 jdtls 没起好时退回去）。和 Editor 里那份 autocompletion() 的配置合并
     autocompletion({ override: [javaSource], addToOptions: [descriptionColumn] }),
     ViewPlugin.define((view) => new Sync(view, root, path)),
+    // `${demo.greeting}` 上 ⌘B 去配置文件（第 25 节）；不在 `${…}` 里放过，交给原来的跳转
+    Prec.highest(keymap.of([{ key: "Mod-b", run: (v) => configJump(v, root) }])),
     // IDEA 的键位：⌥F7 查找用法、⌥⌘F7 Show Usages。两个都开同一张列表（UsagesPopup.svelte 头上说了为什么）
     Prec.high(
       keymap.of([

@@ -105,6 +105,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("BuildProblemsDto", "BuildProblems"),
     ("MybatisSpotDto", "MybatisSpot"),
     ("MybatisLinksDto", "MybatisLinks"),
+    ("SpringEndpointDto", "SpringEndpoint"),
+    ("SpringConfigHitDto", "SpringConfigHit"),
     ("DebugFrameDto", "DebugFrame"),
     ("DebugThreadDto", "DebugThread"),
     ("DebugStateDto", "DebugState"),

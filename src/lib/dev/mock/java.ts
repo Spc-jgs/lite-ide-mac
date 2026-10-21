@@ -267,10 +267,56 @@ const mbMethods = (java: string) =>
     return m ? [{ name: m[1], kind: "", path: "", line: i + 1 }] : [];
   });
 
+/**
+ * Spring（docs/IDEA.md 第 25 节）：同 spring.rs 的规则，桩用正则做个简化版（规则本身在 Rust 的测试里）——
+ * 接口：@RestController 类上的 @RequestMapping("前缀") + 方法上的 @XxxMapping("段")；配置：YAML 按缩进拼键
+ */
+function springEndpoints(root: string) {
+  const out: { methods: string[]; path: string; controller: string; method: string; file: string; line: number }[] = [];
+  for (const [file, text] of Object.entries(FILES)) {
+    if (!file.startsWith(`${root}/`) || !file.endsWith(".java") || typeof text !== "string" || !/@(Rest)?Controller\b/.test(text)) continue;
+    const prefix = /@RequestMapping\("([^"]*)"\)\s*(?:public\s+)?class/.exec(text)?.[1] ?? "";
+    const controller = /class\s+(\w+)/.exec(text)?.[1] ?? "";
+    const lines = text.split("\n");
+    lines.forEach((l, i) => {
+      const m = /@(Get|Post|Put|Delete|Patch)Mapping(?:\("([^"]*)"\))?/.exec(l);
+      if (!m) return;
+      const decl = lines.slice(i + 1).findIndex((x) => /\w+\s*\(/.test(x) && !x.trim().startsWith("@"));
+      const name = decl >= 0 ? /(\w+)\s*\(/.exec(lines[i + 1 + decl])?.[1] ?? "" : "";
+      const path = `/${prefix}/${m[2] ?? ""}`.replace(/\/+/g, "/").replace(/(.)\/$/, "$1");
+      out.push({ methods: [m[1].toUpperCase()], path, controller, method: name, file, line: i + 2 + Math.max(0, decl) });
+    });
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function springConfig(root: string, key: string) {
+  const norm = (k: string) => k.replace(/[-_]/g, "").toLowerCase();
+  const out: { path: string; name: string; line: number; text: string }[] = [];
+  for (const [path, text] of Object.entries(FILES)) {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    if (!path.startsWith(`${root}/`) || !/^(application|bootstrap).*\.ya?ml$/.test(name) || typeof text !== "string") continue;
+    const stack: [number, string][] = [];
+    text.split("\n").forEach((l, i) => {
+      const m = /^(\s*)([\w.-]+):/.exec(l);
+      if (!m) return;
+      while (stack.length && stack[stack.length - 1][0] >= m[1].length) stack.pop();
+      const full = [...stack.map((s) => s[1]), m[2]].join(".");
+      stack.push([m[1].length, m[2]]);
+      if (norm(full) === norm(key)) out.push({ path, name, line: i + 1, text: l.trim() });
+    });
+  }
+  return out.sort((a, b) => Number(a.name.includes("-")) - Number(b.name.includes("-")));
+}
+
 export async function javaCmd(cmd: string, a: A): Promise<unknown> {
   const root = String(a.root ?? "");
   const path = String(a.path ?? "");
   switch (cmd) {
+    case "spring_endpoints":
+      return springEndpoints(root);
+    case "spring_config":
+      return springConfig(root, String(a.key));
     case "mybatis_for_java": {
       const text = String(a.text);
       const fqn = mbInterface(text);

@@ -922,6 +922,29 @@ pub struct TestResultsDto {
     pub total: u32,
 }
 
+/// Spring 的一个接口（docs/IDEA.md 第 25 节）。`methods` 是 GET / POST / …（`@RequestMapping` 没写 method 的是 ANY）；`file` 绝对路径，`line` 是方法名那一行
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpringEndpointDto {
+    pub methods: Vec<String>,
+    pub path: String,
+    pub controller: String,
+    pub method: String,
+    pub file: String,
+    pub line: u32,
+}
+
+/// 一个配置键在哪：哪份配置文件（`name` 是文件名，看 profile 用）、第几行、那一行写的什么
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpringConfigHitDto {
+    pub path: String,
+    pub name: String,
+    pub line: u32,
+    /// 那一行的文字（好几处时列表里给人看：`greeting: hello`）
+    pub text: String,
+}
+
 /// MyBatis 跳转（docs/IDEA.md 第 24 节）的一个点：接口的方法，或者 XML 里的一段语句。`kind` 是 select / insert / update / delete（方法是空的）；
 /// `path` 是它在哪个文件（「这个文件里的」那些是空的）；`line` 从 1 数
 #[derive(serde::Serialize)]
