@@ -10,6 +10,7 @@
 //!   两道是重复的，留着是多一道防线：验红时只去掉其中一个测试照样绿，两个都去掉才红（重定向去 `ftp://` 那条）
 //! - 方法、头名按 token 的字符卡，头的值不许带换行（不然一行能拆成两个头），全部走 `Command::arg`、不拼 shell
 //! - 请求体先写进我们自己的临时文件再 `--data-binary @文件` —— 不让文件内容被 curl 当成参数解释
+//! - `< 文件` 只许读项目里的（[`body_file_inside`]）：`.http` 是项目带来的，一句 `< ../../.ssh/id_rsa` 加一个外面的地址，点一下 ▶ 私钥就发出去了
 //!
 //! 响应体走 procutil 的上限（[`BODY_MAX`]），超了照实说截断；头和统计写进两个小临时文件（`-D`、`%output{}`），用完删。
 //! 取消：另一条线程按 pid 发 SIGKILL（[`Handle::cancel`]）。pid 在收尸之前摘掉 —— 没收尸之前它还是我们的僵尸，不会被系统分给别人。
@@ -39,8 +40,10 @@ pub struct Request {
     pub headers: Vec<(String, String)>,
     /// 写在 `.http` 里的请求体
     pub body: Option<Vec<u8>>,
-    /// `< ./file.json`：从文件读请求体（绝对路径，前端按 `.http` 所在目录解析好了）
+    /// `< ./file.json`：从文件读请求体（绝对路径，前端按 `.http` 所在目录解析好了）。必须在 `root` 底下（[`body_file_inside`]）
     pub body_file: Option<PathBuf>,
+    /// 项目根：`body_file` 只许在它底下
+    pub root: PathBuf,
     /// 跟着重定向走（IDEA 默认跟；`# @no-redirect` 不跟）
     pub follow: bool,
 }
@@ -136,6 +139,21 @@ pub fn validate(r: &Request) -> Result<(), Error> {
         return Err(Error::Invalid("请求体写了一份、又从文件读一份".into()));
     }
     Ok(())
+}
+
+/// `< 文件` 只许是项目里的文件（解开软链之后）。IDEA 不拦这个；我们拦，理由见文件头：`.http` 和它旁边的软链都是项目带来的，
+/// 别人仓库里的一个请求不该能把你机器上项目外面的文件发出去。文件不存在不在这儿拦 —— 交给 curl 报「读不了请求体的文件」（退出码 26）
+/// 项目根解析不出来就不发（加固出错往「不做」那边倒，rust.md）
+pub fn body_file_inside(root: &Path, file: &Path) -> Result<(), Error> {
+    let Ok(f) = file.canonicalize() else { return Ok(()) };
+    let r = root.canonicalize().map_err(|e| Error::Invalid(format!("找不到项目根（{}：{e}），没发带文件的请求", root.display())))?;
+    if f.starts_with(&r) {
+        return Ok(());
+    }
+    Err(Error::Invalid(format!(
+        "请求体的文件在项目外面（{}），没发：.http 是项目带来的文件，从项目外面读文件发出去可能把你的私钥、配置发给别人。要发就把文件放进项目里",
+        f.display()
+    )))
 }
 
 /// 这次请求用到的几个临时文件（都在调用方给的目录里，名字带序号，用完删）
@@ -254,6 +272,9 @@ pub fn send(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle) -> Resul
 /// 同 [`send`]，上限可以注入：测「截断了照实说」不用真造一个 32 MB 的响应
 pub fn send_capped(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, cap: usize) -> Result<Response, Error> {
     validate(r)?;
+    if let Some(f) = &r.body_file {
+        body_file_inside(&r.root, f)?;
+    }
     // 统计写进 `%output{路径}`：curl 读到第一个 `}` 就当路径结束了，带 `}` 的目录会让统计悄悄写丢（测试的临时目录名撞上过）
     if dir.to_string_lossy().contains('}') {
         return Err(Error::Io(format!("放响应的目录名里有「}}」，curl 的统计写不进去：{}", dir.display())));

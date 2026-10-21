@@ -126,7 +126,7 @@ async function send(root: string, path: string, f: HttpFile, req: HttpReq) {
   layout.panelView = "run";
   layout.panel = true;
   try {
-    const resp = await httpSend(op, {
+    const resp = await httpSend(op, root, {
       method: r.req.method,
       url: r.req.url,
       headers: r.req.headers,

@@ -24,6 +24,8 @@ use std::time::Duration;
 pub const MAX_MESSAGE: usize = 16 << 20;
 /// 一行头最多多长（只有 `Content-Length` 一种，几十字节）
 const MAX_HEADER_LINE: usize = 1024;
+/// 写一条最多等多久。适配器卡住不读、socket 缓冲满了，`write` 会一直阻塞 —— 还攥着写锁，后面所有请求跟着卡死（2026-10-20 code review：读那头有超时，写这头原来没有）
+const WRITE_WAIT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -101,10 +103,11 @@ impl Session {
     pub fn connect(port: u16, on_event: Box<dyn Fn(Value) + Send>, on_close: Box<dyn FnOnce() + Send>) -> io::Result<Session> {
         let sock = TcpStream::connect(("127.0.0.1", port))?;
         sock.set_nodelay(true).ok();
-        Self::start(sock, on_event, on_close)
+        Self::start(sock, WRITE_WAIT, on_event, on_close)
     }
 
-    fn start(sock: TcpStream, on_event: Box<dyn Fn(Value) + Send>, on_close: Box<dyn FnOnce() + Send>) -> io::Result<Session> {
+    fn start(sock: TcpStream, write_wait: Duration, on_event: Box<dyn Fn(Value) + Send>, on_close: Box<dyn FnOnce() + Send>) -> io::Result<Session> {
+        sock.set_write_timeout(Some(write_wait))?;
         let out = Arc::new(Mutex::new(sock.try_clone()?));
         let waiters: Waiters = Arc::default();
         let closed = Arc::new(AtomicBool::new(false));
@@ -177,10 +180,22 @@ impl Session {
         let seq = self.seq.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
         self.waiters.lock().unwrap_or_else(|e| e.into_inner()).insert(seq, tx);
-        let msg = json!({ "seq": seq, "type": "request", "command": command, "arguments": arguments });
-        if write_msg(&mut *self.out.lock().unwrap_or_else(|e| e.into_inner()), &msg).is_err() {
+        // 登记之后再看一眼：读线程要是恰好在上面那次检查和登记之间读到断线、清空了等待表，这个请求就收不到 Closed、会干等到超时
+        if self.closed.load(Ordering::SeqCst) {
             self.waiters.lock().unwrap_or_else(|e| e.into_inner()).remove(&seq);
             return Err(Error::Closed);
+        }
+        let msg = json!({ "seq": seq, "type": "request", "command": command, "arguments": arguments });
+        {
+            let mut out = self.out.lock().unwrap_or_else(|e| e.into_inner());
+            if write_msg(&mut *out, &msg).is_err() {
+                // 写到一半断了（或者超时）：线上可能留着半条消息，之后再写的都会接在它后面、分帧全乱 —— 这条连接不能再用了，整个断开
+                self.closed.store(true, Ordering::SeqCst);
+                let _ = out.shutdown(Shutdown::Both);
+                drop(out);
+                self.waiters.lock().unwrap_or_else(|e| e.into_inner()).remove(&seq);
+                return Err(Error::Closed);
+            }
         }
         match rx.recv_timeout(timeout) {
             Ok(r) => r,
@@ -278,6 +293,28 @@ mod tests {
         let s = Session::connect(port, Box::new(|_| {}), Box::new(|| {})).unwrap();
         std::thread::sleep(Duration::from_millis(100));
         assert_eq!(s.request("threads", json!({}), Duration::from_secs(5)), Ok(Value::Null), "答完反向请求之后照常能问");
+    }
+
+    #[test]
+    fn 适配器卡住不读_写不进去也不干等() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        // 只连不读：socket 缓冲满了之后 write 就阻塞
+        let keep = std::thread::spawn(move || {
+            let (s, _) = l.accept().unwrap();
+            std::thread::sleep(Duration::from_secs(5));
+            drop(s);
+        });
+        let sock = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let s = Session::start(sock, Duration::from_millis(300), Box::new(|_| {}), Box::new(|| {})).unwrap();
+        let t = Instant::now();
+        let big = "x".repeat(8 << 20);
+        assert_eq!(s.request("evaluate", json!({ "expression": big }), Duration::from_secs(20)), Err(Error::Closed));
+        assert!(t.elapsed() < Duration::from_secs(3), "写不进去要放手：{:?}", t.elapsed());
+        assert!(s.is_closed(), "写了半条：这条连接不能再用了");
+        assert_eq!(s.request("threads", json!({}), Duration::from_secs(1)), Err(Error::Closed));
+        drop(s);
+        let _ = keep.join();
     }
 
     #[test]

@@ -32,6 +32,7 @@ pub async fn http_send(
     window: tauri::Window,
     app: tauri::AppHandle,
     op: u32,
+    root: String,
     method: String,
     url: String,
     headers: Vec<(String, String)>,
@@ -44,7 +45,7 @@ pub async fn http_send(
         let st = app.state::<AppState>();
         let dir = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("http");
         let h = st.begin_http(&owner, op).ok_or("这个请求已经在发了")?;
-        let req = httpsvc::Request { method, url, headers, body: body.map(String::into_bytes), body_file: body_file.map(Into::into), follow };
+        let req = httpsvc::Request { method, url, headers, body: body.map(String::into_bytes), body_file: body_file.map(Into::into), root: root.into(), follow };
         let r = httpsvc::send(Path::new(CURL), &req, &dir, httpsvc::next_seq(), &h);
         st.end_http(&owner, op);
         httpsvc::prune(&dir, KEEP);

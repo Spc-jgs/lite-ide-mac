@@ -56,6 +56,8 @@ export function httpCmd(cmd: string, a: A): unknown {
       const op = Number(a.op);
       const url = String(a.url);
       if (!/^https?:\/\//i.test(url)) throw new Error(`只发 http:// 和 https:// 的请求：${url}`);
+      // 同 httpsvc::body_file_inside：`< 文件` 只许在项目里（桩不解软链，只比路径）
+      if (a.bodyFile && !String(a.bodyFile).startsWith(`${String(a.root)}/`)) throw new Error(`请求体的文件在项目外面（${String(a.bodyFile)}），没发：.http 是项目带来的文件，从项目外面读文件发出去可能把你的私钥、配置发给别人。要发就把文件放进项目里`);
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           PENDING.delete(op);

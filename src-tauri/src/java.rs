@@ -195,6 +195,34 @@ impl Drop for Hold {
 }
 
 /// `resolveMainClass` 的回答里，这个主类在哪个项目（m2e 的项目名，一般是 artifactId）
+/// 调试要等到 ServiceReady：下断点要按源文件算出类名，导入没完的模块算不出来（断点会一直是「没对上」）。
+/// 第一次导入一个大项目要下依赖，几分钟也正常 —— 被调试的 JVM 这时停在入口等着，等得起。
+/// **但人可能等不及、把程序停了**：原来只认截止时间（10 分钟），停了之后调试窗还转着「等 Java 语言服务器导入完…」最多 10 分钟（2026-10-20 code review）。
+/// 现在最多隔 [`ALIVE_POLL`] 问一次 `alive`
+fn wait_ready(phase: &Mutex<Phase>, changed: &Condvar, limit: Duration, alive: &dyn Fn() -> bool) -> Result<(), String> {
+    let deadline = Instant::now() + limit;
+    let mut p = phase.lock().unwrap_or_else(|e| e.into_inner());
+    loop {
+        match &*p {
+            Phase::Ready => return Ok(()),
+            Phase::Failed(why) => return Err(why.clone()),
+            Phase::Stopped => return Err("Java 语言服务器已经收掉了".into()),
+            Phase::Starting | Phase::Importing(_) => {}
+        }
+        if !alive() {
+            return Err("程序已经停了，不再等 Java 语言服务器".into());
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(format!("Java 语言服务器 {} 分钟还没导入完", limit.as_secs() / 60));
+        }
+        p = changed.wait_timeout(p, left.min(ALIVE_POLL)).unwrap_or_else(|e| e.into_inner()).0;
+    }
+}
+
+/// 等导入完时隔多久问一次「被调试的程序还在不在」
+const ALIVE_POLL: Duration = Duration::from_millis(500);
+
 fn project_of(mains: &Value, main_class: &str) -> Option<String> {
     mains.as_array()?.iter().find(|m| m["mainClass"] == main_class)?["projectName"].as_str().map(str::to_owned)
 }
@@ -298,35 +326,16 @@ impl Instance {
         }
     }
 
-    /// 调试要等到 ServiceReady：下断点要按源文件算出类名，导入没完的模块算不出来（断点会一直是「没对上」）。
-    /// 第一次导入一个大项目要下依赖，几分钟也正常 —— 被调试的 JVM 这时停在入口等着，等得起
-    fn wait_ready(&self, limit: Duration) -> Result<(), String> {
-        let deadline = Instant::now() + limit;
-        let mut p = self.shared.phase.lock().unwrap_or_else(|e| e.into_inner());
-        loop {
-            match &*p {
-                Phase::Ready => return Ok(()),
-                Phase::Failed(why) => return Err(why.clone()),
-                Phase::Stopped => return Err("Java 语言服务器已经收掉了".into()),
-                Phase::Starting | Phase::Importing(_) => {}
-            }
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return Err(format!("Java 语言服务器 {} 分钟还没导入完", limit.as_secs() / 60));
-            }
-            p = self.shared.changed.wait_timeout(p, left).unwrap_or_else(|e| e.into_inner()).0;
-        }
-    }
-
     /// 起一个调试会话（docs/IDEA.md 第 18 节）：java-debug 插件在 jdtls 进程里开一个端口说 DAP，回给我们。
-    /// 顺带问这个主类属于哪个 jdtls 项目 —— attach 时不带 `projectName` 的话求值报「please specify projectName」（探针实测）；问不到不算错，只是求值用不了
-    /// 起一个调试会话（插件开一个 DAP 端口）。给了主类就顺便问出它属于哪个项目（attach 的 `projectName`，求值要）；没给（单测）由调用方自己定
-    pub fn debug_session(&self, main_class: Option<&str>, limit: Duration) -> Result<(u16, Option<String>), String> {
+    /// 给了主类就顺带问它属于哪个 jdtls 项目 —— attach 时不带 `projectName` 的话求值报「please specify projectName」（探针实测）；
+    /// 问不到不算错，只是求值用不了。没给（单测：测试类没有 main）由调用方自己定。
+    /// 等导入完的时候 `alive` 说被调试的程序还在不在：人在等的时候把它停了，就不再等（见 [`wait_ready`]）
+    pub fn debug_session(&self, main_class: Option<&str>, limit: Duration, alive: &dyn Fn() -> bool) -> Result<(u16, Option<String>), String> {
         if !self.shared.debuggable {
             return Err("这个构建没带调试插件（开发构建）：用 pnpm app:bundle 打的包".into());
         }
         self.touch();
-        self.wait_ready(limit)?;
+        wait_ready(&self.shared.phase, &self.shared.changed, limit, alive)?;
         let r = self
             .srv
             .request("workspace/executeCommand", json!({ "command": "vscode.java.startDebugSession", "arguments": [] }), ASK)
@@ -1221,6 +1230,26 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn 等导入完时程序被停了_不等满截止时间() {
+        let phase = Mutex::new(Phase::Importing("导入中".into()));
+        let changed = Condvar::new();
+        let alive = std::sync::atomic::AtomicBool::new(true);
+        let t0 = Instant::now();
+        std::thread::scope(|sc| {
+            sc.spawn(|| {
+                std::thread::sleep(Duration::from_millis(300));
+                alive.store(false, std::sync::atomic::Ordering::SeqCst);
+            });
+            let r = wait_ready(&phase, &changed, Duration::from_secs(30), &|| alive.load(std::sync::atomic::Ordering::SeqCst));
+            assert!(r.unwrap_err().contains("程序已经停了"));
+        });
+        assert!(t0.elapsed() < Duration::from_secs(2), "停了之后最多再等一个 ALIVE_POLL：{:?}", t0.elapsed());
+        // 导入完了照常回
+        *phase.lock().unwrap() = Phase::Ready;
+        assert!(wait_ready(&phase, &changed, Duration::from_secs(1), &|| true).is_ok());
+    }
 
     #[test]
     fn 补全_插的是_textedit_不是_inserttext_带范围_认_snippet() {

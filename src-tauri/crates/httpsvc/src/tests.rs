@@ -250,3 +250,29 @@ fn 只清自己的响应体_留最近几个() {
     assert_eq!(left, vec!["notes.txt", "resp-10.json", "resp-2.txt", "resp-x.json"], "按序号留最近两个（10 比 2 新，不是按字母），别的名字一个不碰");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn 请求体的文件只许在项目里_软链出去的也不行() {
+    let base = tmp("bodyfile");
+    let root = base.join("proj");
+    std::fs::create_dir_all(root.join("api")).unwrap();
+    #[allow(clippy::disallowed_methods)] // 测试自己的临时文件
+    {
+        std::fs::write(root.join("api/body.json"), "{}").unwrap();
+        std::fs::write(base.join("secret.txt"), "私钥").unwrap();
+    }
+    std::os::unix::fs::symlink(base.join("secret.txt"), root.join("api/link.txt")).unwrap();
+    assert_eq!(body_file_inside(&root, &root.join("api/body.json")), Ok(()), "项目里的");
+    assert!(matches!(body_file_inside(&root, &root.join("api/../../secret.txt")), Err(Error::Invalid(m)) if m.contains("项目外面")), "../ 出去的");
+    assert!(matches!(body_file_inside(&root, &base.join("secret.txt")), Err(Error::Invalid(_))), "绝对路径指到外面的");
+    assert!(matches!(body_file_inside(&root, &root.join("api/link.txt")), Err(Error::Invalid(_))), "项目里一个软链指到外面：按解开之后的路径算");
+    assert_eq!(body_file_inside(&root, &root.join("api/nope.json")), Ok(()), "不存在的交给 curl 报「读不了」");
+    assert!(matches!(body_file_inside(&base.join("gone"), &root.join("api/body.json")), Err(Error::Invalid(_))), "项目根找不到：不发（往「不做」那边倒）");
+    // 接在发送路径上：项目外面的文件，curl 都不起
+    let mut r = req("POST", "http://127.0.0.1:9/x".into());
+    r.root = root.clone();
+    r.body_file = Some(root.join("api/link.txt"));
+    let out = send(Path::new(CURL), &r, &base.join("out"), next_seq(), &Handle::default());
+    assert!(matches!(out, Err(Error::Invalid(ref m)) if m.contains("项目外面")), "{out:?}");
+    let _ = std::fs::remove_dir_all(&base);
+}

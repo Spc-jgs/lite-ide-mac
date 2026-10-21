@@ -1,9 +1,11 @@
-//! 断点调试（docs/IDEA.md 第 18 节）：Spring Boot 服务照 IDEA 的「Debug」起 —— 同一条命令，`java` 多带一个 JDWP 代理参数；
-//! 从输出里认出「调试端口开好了」，让 jdtls 里的 java-debug 插件挂上去，我们和插件之间说 DAP（`crates/dapsvc`）。
+//! 断点调试（docs/IDEA.md 第 18 节）：Spring Boot 服务和单测照 IDEA 的「Debug」起 —— 同一条命令，`java` 多带一个 JDWP 代理参数
+//! （单测的 JVM 是 surefire fork 的，参数交给 `-Dmaven.surefire.debug`）；认出「调试端口开好了」，让 jdtls 里的 java-debug 插件挂上去，
+//! 我们和插件之间说 DAP（`crates/dapsvc`）。
 //!
 //! ```text
 //! 任务（tasksvc）  java -agentlib:jdwp=…suspend=y,address=127.0.0.1:0 …   ← 起来先停在入口等调试器
-//!      │ 输出里一行 "Listening for transport dt_socket at address: 56050"
+//!      │ Spring：输出里一行 "Listening for transport dt_socket at address: 56050"（[`wait_port`]）
+//!      │ 单测：  surefire 不转这一行（JVM 停着它就不转），问系统进程组里谁在听（[`wait_jdwp`]）
 //!      ▼
 //! 这里  等 jdtls 导入完 → startDebugSession（插件开一个 DAP 端口）→ attach 56050 → 断点 → configurationDone（JVM 接着跑）
 //!      │ stopped / continued / terminated 事件 → 推给前端（"debug-state"）；前端要变量、单步、求值走命令
@@ -14,7 +16,7 @@
 //!   IDEA 的 Debug 也是这么起的。代价：调试器挂不上的话 JVM 一直停在入口，所以挂不上就把任务停掉、照实说为什么（[`fail`]）
 //! - **端口 0**：系统挑一个空的，JVM 把真端口打在输出里（JDK 17 实测）。自己先找一个空端口再交给它，找到和用上之间会被别人占
 //! - **事件不在读线程里处理**：`stopped` 之后要问调用栈 —— 在 dapsvc 的读线程里问的话，等的那个回答要读线程自己去读，永远等不到。
-//!   事件进一个通道，会话自己的线程（[`run`]）一条一条处理
+//!   事件进一个通道，会话自己的线程（[`run_events`]）一条一条处理
 //! - **调试期间攥着 jdtls**（`java::Hold`）：插件跑在 jdtls 进程里，「没开着的 Java 文件、闲了十分钟」的回收不能把它收掉
 
 use crate::owned::Owned;
@@ -433,9 +435,9 @@ impl Dbg {
             _ => return Err(format!("不认识的动作 {action}")),
         };
         let Some(t) = snap.thread.filter(|_| snap.phase == Phase::Paused) else { return Ok(()) };
-        sess.request(cmd, json!({ "threadId": t }), REQ).map_err(|e| e.to_string())?;
+        let body = sess.request(cmd, json!({ "threadId": t }), REQ).map_err(|e| e.to_string())?;
         // 回了就是走了：DAP 不保证还会发 continued 事件。单步的话紧接着会来一个 stopped（reason=step）
-        self.resumed(Some(t));
+        self.resumed(if all_continued(cmd, &body) { None } else { Some(t) });
         Ok(())
     }
 
@@ -493,6 +495,18 @@ impl Dbg {
     }
 }
 
+/// 这一下放走的是不是整个 JVM。java-debug 的 `continue` 默认放走全部线程，回答里 `allThreadsContinued` 说清楚（DAP 规定不写就当是 true）；
+/// 单步只走那一个线程。原来一律只标那一个：两个请求同时撞上断点时按 F9，另一个线程在界面上还「停着」，其实早跑了（2026-10-20 code review）
+fn all_continued(cmd: &str, body: &Value) -> bool {
+    cmd == "continue" && body["allThreadsContinued"] != false
+}
+
+/// 等端口 / 挂上的时候出了错，任务已经不在了：要不要当成正常结束（不报错）。
+/// 人点了停止（`stopped`）不是错 —— 原来编译到一半点停止会报「还没开调试端口就退出了（多半是编译没过）」；挂上过之后任务退了是跑完了
+fn quiet_end(attached: usize, st: &tasksvc::State) -> bool {
+    matches!(st, tasksvc::State::Exited { stopped: true, .. }) || (attached > 0 && matches!(st, tasksvc::State::Exited { .. }))
+}
+
 /// 菜单里单步那几项亮不亮：有会话停着 / 有会话在跑（`menu::sync_debug`）。原生菜单要在主线程上改
 fn sync_menu(app: &AppHandle) {
     let st = app.state::<crate::state::AppState>();
@@ -513,7 +527,7 @@ pub enum Who {
 
 /// 起了一个带 JDWP 的任务之后：登记会话、后台去挂。立刻返回。
 /// **一个任务里可能不止一个 JVM**（surefire `forkCount > 1`、重跑没过的跨了几个类）：每个都停在入口等调试器，
-/// 没人挂上去就永远卡着。所以一个 JVM 结束、任务还在，就从输出里接着等下一个端口、再挂上去；挂上过一次之后任务退了算正常结束
+/// 没人挂上去就永远卡着。所以一个 JVM 结束、任务还在，就接着等下一个（还没挂过的）端口、再挂上去；挂上过一次之后任务退了算正常结束
 pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, who: Who, task: Arc<tasksvc::Task>) {
     let d = Arc::new(Dbg {
         run,
@@ -544,7 +558,7 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
         };
         let mut attached = 0;
         let why = loop {
-            match attach(&app, &d, &mut next_port, &who) {
+            match attach(&app, &d, &mut next_port, &who, &|| task.alive()) {
                 Ok(rx) => {
                     attached += 1;
                     run_events(&d, rx);
@@ -560,8 +574,8 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
                         s.threads.clear();
                     });
                 }
-                // 挂上过之后再等不到端口：任务正常跑完了（mvn 写完报告退出），不是出错
-                Err(_) if attached > 0 && !task.alive() => break String::new(),
+                // 人停的、或者挂上过之后任务跑完了（mvn 写完报告退出）：不是出错
+                Err(_) if quiet_end(attached, &task.state()) => break String::new(),
                 Err(e) => break fail(&d, &task, e),
             }
         };
@@ -592,7 +606,7 @@ fn fail(d: &Dbg, task: &tasksvc::Task, why: String) -> String {
     why
 }
 
-fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u16, String>, who: &Who) -> Result<mpsc::Receiver<Value>, String> {
+fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u16, String>, who: &Who, alive: &dyn Fn() -> bool) -> Result<mpsc::Receiver<Value>, String> {
     let jvm_port = next_port()?;
     d.set(|s| s.phase = Phase::Waiting("等 Java 语言服务器导入完…".into()));
     let st = app.state::<crate::state::AppState>();
@@ -602,8 +616,8 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u
     })?;
     *d.hold.lock().unwrap_or_else(|e| e.into_inner()) = Some(java.hold());
     let (dap_port, project) = match who {
-        Who::Main(c) => java.debug_session(Some(c), READY_WAIT)?,
-        Who::Project(p) => (java.debug_session(None, READY_WAIT)?.0, Some(p.clone())),
+        Who::Main(c) => java.debug_session(Some(c), READY_WAIT, alive)?,
+        Who::Project(p) => (java.debug_session(None, READY_WAIT, alive)?.0, Some(p.clone())),
     };
     d.set(|s| s.phase = Phase::Waiting("正在挂上调试器…".into()));
     let (tx, rx) = mpsc::channel::<Value>();
@@ -765,6 +779,22 @@ mod tests {
         assert_eq!(wait_port(&two, &mut from, || false, Duration::from_millis(20)), Ok(52451));
         assert!(wait_port(&two, &mut from, || false, Duration::from_millis(20)).is_err(), "两个都认过了、任务退了：不再有");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn 继续放走的是整个_jvm_单步只走那一个线程() {
+        assert!(all_continued("continue", &json!({})), "不写就当是全部（DAP 规定）");
+        assert!(all_continued("continue", &json!({ "allThreadsContinued": true })));
+        assert!(!all_continued("continue", &json!({ "allThreadsContinued": false })));
+        assert!(!all_continued("next", &json!({})), "单步只走那一个");
+    }
+
+    #[test]
+    fn 人停的和挂过之后跑完的_不算出错_没挂上就退了的才算() {
+        let st = |stopped| tasksvc::State::Exited { code: Some(1), signal: None, stopped };
+        assert!(quiet_end(0, &st(true)), "编译到一半人点了停止");
+        assert!(quiet_end(1, &st(false)), "挂上过、跑完了");
+        assert!(!quiet_end(0, &st(false)), "没挂上就自己退了（编译没过）：要说出来");
     }
 
     #[test]

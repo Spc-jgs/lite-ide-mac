@@ -85,6 +85,9 @@ GET {{base}}/slow
 ### 没定义
 GET {{base}}/echo?x={{nope}}
 EOF
+# 项目外面的一个文件：`< 它` 的那条请求不该发出去（.http 是项目带来的，一句 `< ~/.ssh/id_rsa` 加一个外面的地址就能把私钥发走）
+printf '外面的秘密\n' > "${SRV}/secret.txt"
+printf '\n### 项目外的文件\nPOST {{base}}/leak\n\n< %s/secret.txt\n' "${SRV}" >> "${P}/api/orders.http"
 printf '{ "sku": "B-2", "qty": 1 }\n' > "${P}/api/body.json"
 printf '{ "$shared": { "client": { "id": 7 } }, "local": { "host": "127.0.0.1:%s", "token": "public-token" } }\n' "${PORT}" > "${P}/http-client.env.json"
 printf '{ "local": { "token": "secret-private" } }\n' > "${P}/http-client.private.env.json"
@@ -94,7 +97,7 @@ F="${P}/api/orders.http"
 lite_clean_data
 lite_launch "${P}" || exit 1
 lite_eval main "await __lite.tabflow.openPath('${F}', { preview: false }); return true" >/dev/null
-lite_wait main "return document.querySelectorAll('.cm-http-send').length === 9" 15 >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-http-send').length === 10" 15 >/dev/null
 
 # 发光标所在的那个：光标放到第 N 行，⌃⇧R（测试通道造的按键事件，发给编辑器）
 send() { lite_eval main "__lite.caret($1, 1); __lite.key('Ctrl-Shift-r'); return true" >/dev/null; }
@@ -103,7 +106,7 @@ done_() { lite_wait main "${R} return !!r('$1') && r('$1').status !== 'running'"
 body() { lite_eval main "${R} return r('$1')?.log ?? ''"; }
 
 echo "== 行号旁的 ▶、顶上的运行环境"
-ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-http-send').length")" = 9 ] && echo 1)" "9 个请求各一个 ▶（「没定义」那个也有）"
+ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-http-send').length")" = 10 ] && echo 1)" "10 个请求各一个 ▶（「没定义」那个也有）"
 ENVS=$(lite_eval main "return [...document.querySelectorAll('.cm-http-env .btn')].map((b) => b.textContent).join(',')")
 ok "$([ "${ENVS}" = "无,local" ] && echo 1)" "环境条：${ENVS}（\$shared 不算一个环境）"
 
@@ -159,6 +162,11 @@ N0=$(hits)
 send 37
 sleep 1.5
 ok "$([ "$(hits)" = "${N0}" ] && [ -z "$(lite_eval main "${R} return r('没定义')?.status ?? ''")" ] && echo 1)" "{{nope}} 没定义：服务端没收到、没开格子"
+
+echo "== < 项目外面的文件：不发，说清为什么"
+N0=$(hits)
+send 40; done_ 项目外的文件
+ok "$([ "$(hits)" = "${N0}" ] && lite_eval main "${R} return r('项目外的文件')?.status + ':' + r('项目外的文件')?.http?.error" | grep -q '^failed:请求体的文件在项目外面' && echo 1)" "服务端一个请求都没收到，那一格写着：$(lite_eval main "${R} return (r('项目外的文件')?.http?.error ?? '').slice(0, 40)")"
 
 echo "== 没有副作用"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（响应体在应用数据目录里，不像 IDEA 那样写进 .idea/httpRequests）"
