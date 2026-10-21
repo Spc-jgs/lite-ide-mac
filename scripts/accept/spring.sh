@@ -257,7 +257,7 @@ DBG="const r = __lite.runs.list.find((x) => x.name === 'OrderApplication'); cons
 T0=$(date +%s)
 lite_wait main "${DBG} return d?.phase === 'paused' || d?.phase === 'ended'" 300 >/dev/null
 ok "$([ "$(lite_eval main "${DBG} return d?.phase")" = paused ] && echo 1)" "停下了（从点虫子到停在断点 $(( $(date +%s) - T0 )) 秒，含编译和 jdtls 导入）：$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.note ?? '')")"
-ok "$(lite_eval main "${DBG} return r?.command ?? ''" | grep -q -- 'exec java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0 -cp' && echo 1)" "命令里 java 带上了调试代理（端口 0、先停在入口等调试器）"
+ok "$(lite_eval main "${DBG} return r?.command ?? ''" | grep -qE -- 'exec java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0 (-javaagent:[^ ]* )?-cp' && echo 1)" "命令里 java 带上了调试代理（端口 0、先停在入口等调试器）"
 FR=$(lite_eval main "${DBG} return (d?.frames ?? []).slice(0, 2).map((f) => f.name + '@' + f.path.split('/').pop() + ':' + f.line).join(' | ')")
 ok "$(echo "${FR}" | grep -q '^Money.show()@Money.java:4 | OrderApplication.run(String\[\])@OrderApplication.java:' && echo 1)" "停在兄弟模块（shop-common 没 install）的第 4 行，调用者是入口类：${FR}"
 ok "$([ "$(lite_eval main "${SVC} return row('OrderApplication')?.querySelector('.dbg-note')?.textContent ?? ''")" = 停在断点 ] && echo 1)" "Services 那一行写着「停在断点」"
@@ -285,6 +285,9 @@ echo "== 条件断点：条件由 java-debug 在目标 JVM 里算 —— 为假�
 # 再点一次虫子：同名的那一格换成新的一次运行，按 id 认出是新的（不然读到的是上一次已经结束的会话）
 debug_again() {
   local before; before=$(lite_eval main "${DBG} return r?.id ?? 0")
+  # 构建（⌘F9）会把底部切到运行窗那一格：先把 Services 调回来（导轨上点当前那个是收起，所以只在不是它的时候点）
+  lite_eval main "if (document.querySelector('.panel-head .tw-name')?.textContent !== 'Services') document.querySelector('.rail button[aria-label=\"Services\"]')?.click(); return true" >/dev/null
+  lite_wait main "return document.querySelector('.panel-head .tw-name')?.textContent === 'Services'" 5 >/dev/null
   lite_eval main "${SVC} row('OrderApplication').click(); return true" >/dev/null
   sleep 0.3
   lite_eval main "document.querySelector('.svc .bar button[aria-label=\"调试\"]').click(); return true" >/dev/null
@@ -309,6 +312,70 @@ lite menu debug-resume main >/dev/null
 lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
 lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
 
+echo "== 热替换（docs/IDEA.md 第 26 节）：停在断点时改方法体 → ⌘S → ⌘F9 → 换进 JVM；停着那一帧跑完旧的、下一次调用是新的、断点还在；行号变了的断点这次不停；加了方法的换不了"
+# 入口类临时改成调三次 show()（12345、7、7），这一节完了改回去：前面「F9 之后照常跑完」那几条只认一次调用
+ORDER="${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
+cp "${ORDER}" "${ORDER}.orig"
+python3 - "${ORDER}" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+a = 'new Money(12345).show()); }'
+print("改了", s.count(a), "处")
+s = s.replace(a, 'new Money(12345).show()); System.out.println("LITE-IDE-AGAIN " + new Money(7).show()); System.out.println("LITE-IDE-THIRD " + new Money(7).show()); }')
+open(p, "w").write(s)
+PY
+# Money.java 在编辑器里改（人就是这么改的）：在外面写文件的话，编辑器重读是整份替换、断点被挪到第 1 行（单独的问题，不在这一节）
+save_money() { lite menu save main >/dev/null; lite_wait main "return __lite.tabs.byPath('${MONEY}')?.dirty === false" 10 >/dev/null; }
+# 条件 cents == 7：第一次（12345）不停，停在第二次
+lite_eval main "await __lite.debug.cond('${P}', '${MONEY}', 4, 'cents == 7'); return true" >/dev/null
+debug_again
+ok "$(lite_eval main "${DBG} return r?.command ?? ''" | grep -q -- "-javaagent:[^ ]*lite-hotswap.jar=" && echo 1)" "调试的命令里 java 带着热替换的代理（.app 里那份 jar）"
+FR=$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('')")
+ok "$([ "${FR}" = "paused Money.java:4" ] && logtext OrderApplication | grep -q 'LITE-IDE-PROBE' && ! logtext OrderApplication | grep -q 'LITE-IDE-AGAIN' && echo 1)" "停在第二次调用（cents == 7）：${FR}"
+lite_eval main "__lite.editLine(4, 'CNY ', 'HOT '); return true" >/dev/null
+save_money
+lite menu build-project main >/dev/null
+lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 240 >/dev/null
+TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? ''")
+ok "$(echo "${TOAST}" | grep -q '构建完成.*已热替换 Money（停着的那一帧跑完旧的' && echo 1)" "构建完了自动换上、一句话说完（只有 Money：入口类重编出来一字不差，不算）：${TOAST}"
+lite menu debug-resume main >/dev/null
+wait_for 30 "logtext OrderApplication | grep -q 'LITE-IDE-AGAIN'" >/dev/null
+lite_wait main "${DBG} return d?.phase === 'paused' || d?.phase === 'ended'" 30 >/dev/null
+ok "$(logtext OrderApplication | grep -q 'LITE-IDE-AGAIN CNY 0.07' && echo 1)" "停着的那一帧跑完的是旧代码（JVM 的规矩）：$(logtext OrderApplication | grep LITE-IDE-AGAIN | tail -1)"
+FR=$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('')")
+ok "$([ "${FR}" = "paused Money.java:4" ] && echo 1)" "第三次调用又停在断点上：换之前删干净、换完行号表没变就重下（不这样的话这里直接跑过去）：${FR}"
+lite menu debug-resume main >/dev/null
+lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
+ok "$(logtext OrderApplication | grep -q 'LITE-IDE-THIRD HOT 0.07' && echo 1)" "下一次调用跑的是新代码，没重启：$(logtext OrderApplication | grep LITE-IDE-THIRD | tail -1)"
+# 行号变了的改动（第 4 行后面插一行）：照样换上，但 Money.java 的断点这次调试不再停 —— 调试器缓存的是旧的行号表，照它下会下错地方
+debug_again
+FR=$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('')")
+ok "$([ "${FR}" = "paused Money.java:4" ] && echo 1)" "（行号变了那次）又停在第二次调用：${FR}"
+lite_eval main "__lite.editLine(5, '', '        s = s.replace(\"HOT\", \"SHIFT\");\n'); return true" >/dev/null
+save_money
+lite menu build-project main >/dev/null
+lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 240 >/dev/null
+TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? ''")
+ok "$(echo "${TOAST}" | grep -q '已热替换 Money。Money.java 的行号变了，里面的断点这次调试不再停，重新调试就回来' && echo 1)" "行号变了：换上了，说清断点这次不停、为什么：${TOAST}"
+lite menu debug-resume main >/dev/null
+lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
+ok "$(logtext OrderApplication | grep -q 'LITE-IDE-THIRD SHIFT 0.07' && [ "$(lite_eval main "${DBG} return d?.phase + ':' + r?.status")" = "ended:done" ] && echo 1)" "第三次调用没停（断点没往错的地方下）、跑的是新代码、程序正常结束：$(logtext OrderApplication | grep LITE-IDE-THIRD | tail -1) $(lite_eval main "${DBG} return d?.phase + ':' + r?.status")"
+# 换不了的：加了一个方法。JVM 一个都不换，照实说为什么、程序照跑原来的
+debug_again
+FR=$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('')")
+ok "$([ "${FR}" = "paused Money.java:4" ] && echo 1)" "新的一次调试，断点照停（上一次「不再停」只管那一次）：${FR}"
+lite_eval main "__lite.editLine(5, 'SHIFT', 'NEW'); __lite.editLine(8, '', '    public String extra() { return \"x\"; }\n'); return true" >/dev/null
+save_money
+lite menu build-project main >/dev/null
+lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 240 >/dev/null
+TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? ''")
+ok "$(echo "${TOAST}" | grep -q '没热替换：加了方法 —— 运行中的 JVM 只能换方法体（Money）。要生效得重新调试' && echo 1)" "加了方法：换不了，说清为什么、要怎么办：${TOAST}"
+for _ in 1 2 3; do lite menu debug-resume main >/dev/null; lite_wait main "${DBG} return d?.phase === 'ended'" 10 >/dev/null && break; done
+ok "$(logtext OrderApplication | grep -q 'LITE-IDE-THIRD SHIFT 0.07' && ! logtext OrderApplication | grep -q 'NEW 0.07' && echo 1)" "程序照跑原来的（一个类都没换，不是换了一半）：$(logtext OrderApplication | grep LITE-IDE-THIRD | tail -1)"
+lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
+mv "${ORDER}.orig" "${ORDER}"
+money "CNY "
+
 echo "== 调试单测：⌃⇧D 调试光标所在的那个方法 → JDWP 交给 surefire fork 的 JVM → 停在测试里的断点上；求值用得到兄弟模块的类；F9 之后测试照常跑完、结果树出来"
 # 第 11 行是 usesSiblingModule 里那句 assertEquals
 lite_eval main "await __lite.tabflow.openPath('${TEST}', { preview: false }); await __lite.debug.breakpoints('${P}', '${TEST}', [11]); return true" >/dev/null
@@ -318,7 +385,7 @@ TRUN="order-service [test com.demo.order.OrderMathTest#usesSiblingModule]"
 TDBG="const r = __lite.runs.list.find((x) => x.name === '${TRUN}'); const d = r?.debug;"
 T0=$(date +%s)
 lite_wait main "${TDBG} return d?.phase === 'paused' || d?.phase === 'ended'" 300 >/dev/null
-ok "$(lite_eval main "${TDBG} return r?.command ?? ''" | grep -q -- "^export JAVA_HOME=[^;]*temurin-17[^;]*; mvn '-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0' .*-Dtest='com.demo.order.OrderMathTest#usesSiblingModule'" && echo 1)" "⌃⇧D 起的是那一个方法、调试代理交给 surefire：$(lite_eval main "${TDBG} return (r?.command ?? '没有').slice(0, 90)")"
+ok "$(lite_eval main "${TDBG} return r?.command ?? ''" | grep -qE -- "^export JAVA_HOME=[^;]*temurin-17[^;]*; mvn '-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0( -javaagent:[^ ']*)?' .*-Dtest='com.demo.order.OrderMathTest#usesSiblingModule'" && echo 1)" "⌃⇧D 起的是那一个方法、调试代理交给 surefire：$(lite_eval main "${TDBG} return (r?.command ?? '没有').slice(0, 90)")"
 FR=$(lite_eval main "${TDBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.name + '@' + f.path.split('/').pop() + ':' + f.line).join('')")
 ok "$(echo "${FR}" | grep -q '^paused OrderMathTest.usesSiblingModule()@OrderMathTest.java:11$' && echo 1)" "停在测试里的断点上（从按键到停下 $(( $(date +%s) - T0 )) 秒）：${FR}"
 lite_wait main "${VARS} return !!document.querySelector('.dbg .expr')" 10 >/dev/null

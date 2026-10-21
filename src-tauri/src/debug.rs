@@ -30,6 +30,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
+/// 这个源文件是不是这个类的：`com.demo.Money$1` 在 `…/com/demo/Money.java` 里（顶层类和文件同名；一个文件里的第二个非 public 类认不出，那种少见，认不出只是断点没删没重下）
+fn source_of(path: &str, class: &str) -> bool {
+    let outer = class.split('$').next().unwrap_or(class);
+    path.ends_with(&format!("/{}.java", outer.replace('.', "/")))
+}
+
+/// 热替换等代理回话最多多久：它每 200ms 看一眼，换几十个类几十毫秒（实测换一个 77 ms）。等不到多半是 JVM 整个暂停着
+const HOT_WAIT: Duration = Duration::from_secs(5);
+/// 热替换请求的号（回话要对得上，上一次超时没取走的那份不算）
+static HOT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// 加在 `java` 后面的那一段。`server=y`：JVM 开端口等我们连；`suspend=y` / 端口 0 见文件头
 pub const JDWP: &str = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0";
 /// JVM 开好端口时打的那句（JDK 9+ 都是这个样子）
@@ -121,6 +132,35 @@ pub struct Dbg {
     hold: Mutex<Option<crate::java::Hold>>,
     /// 插件刚说过的提醒，等紧跟着的 `stopped` 一起推（见 [`cond_warning`]）
     warn: Mutex<Option<String>>,
+    /// 热替换（docs/IDEA.md 第 26 节）：JVM 带着代理起的才有（开发构建没带 agent 的 jar）
+    hot: Option<Hot>,
+    /// 热替换之后这个 JVM 里断点下不了的源文件：换进去的类行号表变了，调试器缓存的还是旧表（`hotswap` 文件头「断点」）。
+    /// 换一个 JVM（新的连接、新的缓存）清空
+    lost: Mutex<std::collections::HashSet<String>>,
+}
+
+/// 一个调试会话的热替换：和代理说话的控制目录 + JVM 起来那一刻盘上 class 的指纹
+pub struct Hot {
+    dir: PathBuf,
+    base: Mutex<hotswap::Baseline>,
+}
+
+/// 「重新加载改过的类」的结果（几个会话合起来说一句）
+#[derive(Debug, PartialEq)]
+pub enum HotOutcome {
+    /// 这个项目没有在调试的会话
+    NoSession,
+    /// 在调试，但 JVM 没带代理（开发构建）
+    NoAgent,
+    /// 和 JVM 起来时比，一个 class 都没变
+    Unchanged,
+    /// 换上了。真换了的类（已经加载的；还没加载的不算 —— 它第一次被用到时读的就是新的）；
+    /// 断点这次调试不再停的源文件（换进去的类行号表变了，见 `hotswap` 文件头「断点」）
+    Done(Vec<String>, Vec<String>),
+    /// 没换成。JVM 的原话（已经翻成人话）、涉及哪些类
+    Failed(String, Vec<String>),
+    /// 等不到回话：调试器把整个 JVM 暂停着时代理那条线程也停着
+    NoReply,
 }
 
 /// 应用里全部的调试会话（按窗口登记）+ 每个项目的断点
@@ -150,6 +190,11 @@ impl Debugs {
         let live: Vec<Arc<Dbg>> = self.all.map(Arc::clone).into_iter().filter(|d| d.root == root).collect();
         let mut verified = bps.iter().map(|b| b.line).collect();
         for d in live {
+            // 热替换之后行号表变了的文件：照旧表下会下错地方，这个 JVM 里不下（重新调试就回来）
+            if d.lost.lock().unwrap_or_else(|e| e.into_inner()).contains(path) {
+                verified = Vec::new();
+                continue;
+            }
             if let Some(v) = d.send_breakpoints(path, &bps) {
                 verified = v;
             }
@@ -159,6 +204,93 @@ impl Debugs {
 
     fn breakpoints(&self, root: &str) -> Vec<(String, Vec<Bp>)> {
         self.bps.lock().unwrap_or_else(|e| e.into_inner()).get(root).map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default()
+    }
+
+    /// 「重新加载改过的类」（docs/IDEA.md 第 26 节）：这个窗口里、这个项目正在调试的会话，把和 JVM 起来时比变了的 class 换进去。
+    /// 构建（⌘F9）成功之后前端自动调一次，菜单里也能手动点。
+    ///
+    /// 断点怎么办见 `hotswap` 文件头「断点」：换之前删干净，换完只给行号表没变的重下
+    pub fn hotswap(&self, owner: &str, root: &str) -> HotOutcome {
+        let live: Vec<Arc<Dbg>> = self
+            .all
+            .map(Arc::clone)
+            .into_iter()
+            .filter(|d| d.owner == owner && d.root == root && matches!(d.snapshot().phase, Phase::Running | Phase::Paused))
+            .collect();
+        if live.is_empty() {
+            return HotOutcome::NoSession;
+        }
+        let mut done = std::collections::BTreeSet::new();
+        let mut lost_all = std::collections::BTreeSet::new();
+        let mut any_hot = false;
+        let bps = self.breakpoints(root);
+        for d in &live {
+            let Some(h) = &d.hot else { continue };
+            any_hot = true;
+            let changes = h.base.lock().unwrap_or_else(|e| e.into_inner()).changes(Path::new(root));
+            if changes.is_empty() {
+                continue;
+            }
+            // 换之前先把这些类所在文件的断点删干净：这会儿类还是旧的，删的对象和调试器记的对得上。换完再删在 HotSpot 21 上实测也行
+            // （变异验证），先删是不去依赖 JDWP 怎么处理「已经被 JVM 清掉的断点」—— 那一段没读到底
+            //（docs/IDEA.md 第 26 节；第一版断点不停的真原因是验收从外面改文件、编辑器把断点挪到了第 1 行）
+            let lost_now = d.lost.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let touched: Vec<(String, Vec<Bp>, Vec<&hotswap::Change>)> = bps
+                .iter()
+                .filter(|(p, _)| !lost_now.contains(p))
+                .filter_map(|(p, b)| {
+                    let mine: Vec<&hotswap::Change> = changes.iter().filter(|c| source_of(p, &c.class)).collect();
+                    (!mine.is_empty()).then(|| (p.clone(), b.clone(), mine))
+                })
+                .collect();
+            for (p, _, _) in &touched {
+                d.send_breakpoints(p, &[]);
+            }
+            let id = HOT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let t = std::time::Instant::now();
+            let replies = hotswap::send(&h.dir, id, &changes, HOT_WAIT);
+            applog::write(applog::Level::Info, "hotswap", &format!("运行 {}：{} 个 class 变了，{} 个 JVM 回话，{:?}", d.run, changes.len(), replies.len(), t.elapsed()));
+            let mut redefined = std::collections::HashSet::new();
+            let mut failed = None;
+            let mut answered = !replies.is_empty();
+            for (_, r) in &replies {
+                match r {
+                    Some(hotswap::Reply::Done { redefined: r, .. }) => redefined.extend(r.iter().cloned()),
+                    Some(hotswap::Reply::Failed(msg)) => failed = Some(msg.clone()),
+                    None => answered = false,
+                }
+            }
+            if let Some(msg) = failed {
+                // 一个类都没换（JVM 保证）：删掉的断点原样下回去
+                applog::write(applog::Level::Warn, "hotswap", &format!("运行 {}：{msg}", d.run));
+                for (p, b, _) in &touched {
+                    d.send_breakpoints(p, b);
+                }
+                return HotOutcome::Failed(hotswap::humanize(&msg), changes.iter().map(|c| c.class.clone()).collect());
+            }
+            if !answered {
+                // 不知道换没换（代理可能正好在超时那一刻读走了请求）：当成换了、行号表也变了 —— 宁可这次不停，也不能下错地方
+                let mut l = d.lost.lock().unwrap_or_else(|e| e.into_inner());
+                l.extend(touched.iter().map(|(p, _, _)| p.clone()));
+                return HotOutcome::NoReply;
+            }
+            for (p, b, mine) in &touched {
+                let swapped: Vec<&&hotswap::Change> = mine.iter().filter(|c| redefined.contains(&c.class)).collect();
+                if swapped.iter().all(|c| c.same_lines) {
+                    d.send_breakpoints(p, b);
+                } else {
+                    d.lost.lock().unwrap_or_else(|e| e.into_inner()).insert(p.clone());
+                    lost_all.insert(p.clone());
+                }
+            }
+            done.extend(redefined);
+            h.base.lock().unwrap_or_else(|e| e.into_inner()).accept(&changes);
+        }
+        match (any_hot, done.is_empty()) {
+            (false, _) => HotOutcome::NoAgent,
+            (true, true) => HotOutcome::Unchanged,
+            (true, false) => HotOutcome::Done(done.into_iter().collect(), lost_all.into_iter().collect()),
+        }
     }
 
     /// 窗口关了：它的会话全断开（被调试的任务在 `release_window` 里另外收）
@@ -185,19 +317,24 @@ fn breakpoints_args(path: &str, bps: &[Bp]) -> Value {
     json!({ "source": { "path": path }, "breakpoints": list, "lines": bps.iter().map(|b| b.line).collect::<Vec<_>>() })
 }
 
-/// 起任务时用的命令：在 `exec java` 后面插上 JDWP。只认 `maven::run_command` 那个形状 —— 别的命令里插哪儿说不准，不猜
-pub fn with_jdwp(command: &str) -> Option<String> {
+/// 起任务时用的命令：在 `exec java` 后面插上 JDWP。只认 `maven::run_command` 那个形状 —— 别的命令里插哪儿说不准，不猜。
+/// `agent`：热替换的代理参数（`hotswap::agent_arg`，docs/IDEA.md 第 26 节），跟在 JDWP 后面；开发构建没带它就是 `None`
+pub fn with_jdwp(command: &str, agent: Option<&str>) -> Option<String> {
     let at = command.find("exec java ")? + "exec java ".len();
-    Some(format!("{}{JDWP} {}", &command[..at], &command[at..]))
+    let agent = agent.map(|a| format!("{} ", crate::maven::word(a))).unwrap_or_default();
+    Some(format!("{}{JDWP} {agent}{}", &command[..at], &command[at..]))
 }
 
 /// 调试单测（`maven::test_command` 那个形状）：跑测试的是 surefire **另外 fork 的 JVM**，`mvn` 自己不是 —— JDWP 要交给 surefire 的
 /// `maven.surefire.debug`（值原样加在 fork 出来的 JVM 的参数后面，不盖掉 pom 里的 `argLine`）。
 /// `mvn ` 在开头，或者在「用项目要的那个 JDK」那段（`export …; `，`taskdefs::jdk_prefix`）后面；别的形状不猜
-pub fn with_surefire_debug(command: &str) -> Option<String> {
+///
+/// `agent` 也塞进同一个值里：surefire 把它按空格拆成几个参数，所以路径里带空格、引号的就不带（单测调试照样能调，只是不能热替换）
+pub fn with_surefire_debug(command: &str, agent: Option<&str>) -> Option<String> {
     let at = if command.starts_with("mvn ") { 0 } else { command.find("; mvn ")? + 2 };
     let rest = &command[at + "mvn ".len()..];
-    Some(format!("{}mvn '-Dmaven.surefire.debug={JDWP}' {rest}", &command[..at]))
+    let agent = agent.filter(|a| !a.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"')).map(|a| format!(" {a}")).unwrap_or_default();
+    Some(format!("{}mvn '-Dmaven.surefire.debug={JDWP}{agent}' {rest}", &command[..at]))
 }
 
 /// 一段输出里有没有「端口开好了」那一行（JVM 自己打的，没有前缀）
@@ -530,7 +667,7 @@ pub enum Who {
 /// 起了一个带 JDWP 的任务之后：登记会话、后台去挂。立刻返回。
 /// **一个任务里可能不止一个 JVM**（surefire `forkCount > 1`、重跑没过的跨了几个类）：每个都停在入口等调试器，
 /// 没人挂上去就永远卡着。所以一个 JVM 结束、任务还在，就接着等下一个（还没挂过的）端口、再挂上去；挂上过一次之后任务退了算正常结束
-pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, who: Who, task: Arc<tasksvc::Task>) {
+pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, who: Who, task: Arc<tasksvc::Task>, hot_dir: Option<PathBuf>) {
     let d = Arc::new(Dbg {
         run,
         root: root.to_string(),
@@ -541,6 +678,8 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
         stopped: Mutex::new(Vec::new()),
         hold: Mutex::new(None),
         warn: Mutex::new(None),
+        hot: hot_dir.map(|dir| Hot { dir, base: Mutex::new(hotswap::Baseline::default()) }),
+        lost: Mutex::new(Default::default()),
     });
     let st = app.state::<crate::state::AppState>();
     if let Some(old) = st.debug.all.insert(owner, run, Arc::clone(&d)) {
@@ -583,6 +722,9 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
         };
         d.disconnect();
         d.stopped.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        if let Some(h) = &d.hot {
+            hotswap::remove_control_dir(&h.dir);
+        }
         d.set(|s| {
             s.phase = Phase::Ended(why);
             s.thread = None;
@@ -610,6 +752,11 @@ fn fail(d: &Dbg, task: &tasksvc::Task, why: String) -> String {
 
 fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u16, String>, who: &Who, alive: &dyn Fn() -> bool) -> Result<mpsc::Receiver<Value>, String> {
     let jvm_port = next_port()?;
+    // 热替换的基准：JVM 这会儿刚起来，里面跑的就是此刻盘上的样子（`mvn compile` 刚编完）。一个任务里的下一个 JVM 再记一遍
+    if let Some(h) = &d.hot {
+        *h.base.lock().unwrap_or_else(|e| e.into_inner()) = hotswap::Baseline::scan(Path::new(&d.root));
+    }
+    d.lost.lock().unwrap_or_else(|e| e.into_inner()).clear();
     d.set(|s| s.phase = Phase::Waiting("等 Java 语言服务器导入完…".into()));
     let st = app.state::<crate::state::AppState>();
     let java = st.java.ensure(app, &d.owner, &d.root).map_err(|s| match s.phase {
@@ -738,8 +885,31 @@ mod tests {
     #[test]
     fn jdwp_插在_exec_java_后面_别的命令不猜() {
         let c = r#"mvn -B -ntp -pl a -am compile && cd a && exec java -cp "target/classes:$(cat x)" com.A"#;
-        assert_eq!(with_jdwp(c).unwrap(), format!(r#"mvn -B -ntp -pl a -am compile && cd a && exec java {JDWP} -cp "target/classes:$(cat x)" com.A"#));
-        assert_eq!(with_jdwp("pnpm run dev"), None);
+        assert_eq!(with_jdwp(c, None).unwrap(), format!(r#"mvn -B -ntp -pl a -am compile && cd a && exec java {JDWP} -cp "target/classes:$(cat x)" com.A"#));
+        assert_eq!(with_jdwp("pnpm run dev", None), None);
+    }
+
+    #[test]
+    fn 类对源文件_内部类算外面那个_同名不同包的不算() {
+        assert!(source_of("/p/shop-common/src/main/java/com/demo/common/Money.java", "com.demo.common.Money"));
+        assert!(source_of("/p/shop-common/src/main/java/com/demo/common/Money.java", "com.demo.common.Money$1"));
+        assert!(!source_of("/p/x/src/main/java/com/other/Money.java", "com.demo.common.Money"));
+        assert!(!source_of("/p/src/main/java/com/demo/common/BigMoney.java", "com.demo.common.Money"));
+    }
+
+    #[test]
+    fn 热替换的代理跟在_jdwp_后面_路径带空格的加引号() {
+        let c = "mvn compile && exec java -cp x com.A";
+        let a = "-javaagent:/Applications/lite ide.app/Contents/Resources/java/hotswap/lite-hotswap.jar=/var/folders/T/lite-hotswap-1";
+        assert_eq!(with_jdwp(c, Some(a)).unwrap(), format!("mvn compile && exec java {JDWP} '{a}' -cp x com.A"));
+    }
+
+    #[test]
+    fn 单测的代理塞进_surefire_那个值里_路径带空格的不带() {
+        let a = "-javaagent:/A/lite-hotswap.jar=/T/lite-hotswap-1";
+        assert_eq!(with_surefire_debug("mvn -B test", Some(a)).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP} {a}' -B test"));
+        // surefire 按空格拆：带空格的路径会拆成两个参数、JVM 起不来。宁可不能热替换，也不能调试不了
+        assert_eq!(with_surefire_debug("mvn -B test", Some("-javaagent:/A b/x.jar=/T")).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP}' -B test"));
     }
 
     #[test]
@@ -845,11 +1015,11 @@ mod tests {
     #[test]
     fn 单测的调试参数交给_surefire_不是_mvn_自己() {
         let c = "mvn -B -ntp -Dtest='com.demo.OrderTest' -Dsurefire.failIfNoSpecifiedTests=false -pl order-service -am test";
-        assert_eq!(with_surefire_debug(c).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP}' -B -ntp -Dtest='com.demo.OrderTest' -Dsurefire.failIfNoSpecifiedTests=false -pl order-service -am test"));
-        assert_eq!(with_surefire_debug("./mvnw test"), None);
+        assert_eq!(with_surefire_debug(c, None).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP}' -B -ntp -Dtest='com.demo.OrderTest' -Dsurefire.failIfNoSpecifiedTests=false -pl order-service -am test"));
+        assert_eq!(with_surefire_debug("./mvnw test", None), None);
         // 前面有「用项目要的 JDK」那段：插在 mvn 后面，不是插在 export 后面
         assert_eq!(
-            with_surefire_debug("export JAVA_HOME=/j PATH=/j/bin:\"$PATH\"; mvn -B test").unwrap(),
+            with_surefire_debug("export JAVA_HOME=/j PATH=/j/bin:\"$PATH\"; mvn -B test", None).unwrap(),
             format!("export JAVA_HOME=/j PATH=/j/bin:\"$PATH\"; mvn '-Dmaven.surefire.debug={JDWP}' -B test")
         );
     }

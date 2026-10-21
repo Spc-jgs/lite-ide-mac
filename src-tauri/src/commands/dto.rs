@@ -1120,6 +1120,34 @@ pub struct DebugVarsDto {
     pub more: u32,
 }
 
+/// 「重新加载改过的类」的结果（docs/IDEA.md 第 26 节）。`kind`：nosession / noagent / unchanged / done / failed / noreply
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugHotswapDto {
+    pub kind: String,
+    /// done：换了的类；failed：这次要换的类
+    pub classes: Vec<String>,
+    /// failed：为什么（人话）
+    pub message: String,
+    /// done：断点这次调试不再停的源文件（换进去的类行号表变了）
+    pub lost: Vec<String>,
+}
+
+impl DebugHotswapDto {
+    pub fn of(o: crate::debug::HotOutcome) -> Self {
+        use crate::debug::HotOutcome as O;
+        let (kind, classes, message, lost) = match o {
+            O::NoSession => ("nosession", vec![], String::new(), vec![]),
+            O::NoAgent => ("noagent", vec![], String::new(), vec![]),
+            O::Unchanged => ("unchanged", vec![], String::new(), vec![]),
+            O::Done(c, l) => ("done", c, String::new(), l),
+            O::Failed(m, c) => ("failed", c, m, vec![]),
+            O::NoReply => ("noreply", vec![], String::new(), vec![]),
+        };
+        DebugHotswapDto { kind: kind.into(), classes, message, lost }
+    }
+}
+
 /// 一个响应头（docs/IDEA.md 第 19 节）
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

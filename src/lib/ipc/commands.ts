@@ -321,6 +321,17 @@ export interface DebugVars {
   more: number;
 }
 
+/** 「重新加载改过的类」的结果（docs/IDEA.md 第 26 节） */
+export interface DebugHotswap {
+  kind: "nosession" | "noagent" | "unchanged" | "done" | "failed" | "noreply";
+  /** done：换了的类；failed：这次要换的类 */
+  classes: string[];
+  /** failed：为什么 */
+  message: string;
+  /** done：断点这次调试不再停的源文件（换进去的类行号表变了，照旧表下会下错地方） */
+  lost: string[];
+}
+
 /** 一条修复（⌥↵）。`raw` 原样交回 `javaApplyAction` */
 export interface JavaAction {
   title: string;

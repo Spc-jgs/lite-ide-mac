@@ -170,6 +170,9 @@ export function debugCmd(cmd: string, a: A): unknown {
       const key = a.reference != null ? Number(a.reference) : -Number(a.frame);
       return { vars: VARS[key] ?? [], more: 0 };
     }
+    // 桩里没有 JVM：有会话就当「一个都没变」，没有就是没在调试
+    case "debug_hotswap":
+      return { kind: SESS.size ? "unchanged" : "nosession", classes: [], message: "", lost: [] };
     case "debug_eval": {
       if (!SESS.has(Number(a.run))) throw new Error("这次运行没在调试");
       const expr = String(a.expr);

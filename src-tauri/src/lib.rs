@@ -313,6 +313,7 @@ pub fn run() {
             commands::debug_thread,
             commands::debug_vars,
             commands::debug_eval,
+            commands::debug_hotswap,
             commands::http_envs,
             commands::http_send,
             commands::http_cancel,

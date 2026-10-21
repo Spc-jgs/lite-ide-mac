@@ -42,7 +42,10 @@ JDK="${LITE_JDK21:-$(/usr/libexec/java_home -v 21 2>/dev/null || true)}"
 jver() { sed -n 's/^JAVA_VERSION="\(.*\)"/\1/p' "$1/release"; }
 VER=$(jver "${JDK}")
 
-stamp="jdtls=${JDTLS_VERSION} ${JDTLS_SHA256} debug=${DEBUG_VERSION} java=${VER} modules=${MODULES} arches=${ARCHES[*]}"
+# 热替换的 agent（docs/IDEA.md 第 26 节）：我们自己的 Java 源码，打包时编。源码一改 stamp 就变、整份重来
+AGENT_SRC=src-tauri/crates/hotswap/agent
+AGENT_SUM=$(find "${AGENT_SRC}" -name '*.java' | sort | xargs cat | shasum -a 256 | cut -c1-16)
+stamp="jdtls=${JDTLS_VERSION} ${JDTLS_SHA256} debug=${DEBUG_VERSION} agent=${AGENT_SUM} java=${VER} modules=${MODULES} arches=${ARCHES[*]}"
 if [ -f "${OUT}/.stamp" ] && [ "$(cat "${OUT}/.stamp")" = "${stamp}" ]; then
   echo "java-bundle：没变（${stamp}）"
   exit 0
@@ -76,6 +79,13 @@ rm -rf "${OUT}.partial/jdtls/bin" "${OUT}.partial/jdtls"/config_{linux,linux_arm
 
 mkdir -p "${OUT}.partial/java-debug"
 cp "${dbg}" "${OUT}.partial/java-debug/"
+
+# ── 热替换的 agent：--release 8，被调试的项目可能还在 Java 8 上（Instrumentation 从 5 就有）──
+mkdir -p "${OUT}.partial/hotswap/classes"
+"${JDK}/bin/javac" --release 8 -Xlint:-options -d "${OUT}.partial/hotswap/classes" $(find "${AGENT_SRC}" -name '*.java')
+printf 'Premain-Class: liteide.hotswap.Agent\nCan-Redefine-Classes: true\n' > "${OUT}.partial/hotswap/MANIFEST.MF"
+"${JDK}/bin/jar" cfm "${OUT}.partial/hotswap/lite-hotswap.jar" "${OUT}.partial/hotswap/MANIFEST.MF" -C "${OUT}.partial/hotswap/classes" .
+rm -rf "${OUT}.partial/hotswap/classes" "${OUT}.partial/hotswap/MANIFEST.MF"
 
 # ── 运行时：一个架构一份 ──
 for arch in "${ARCHES[@]}"; do

@@ -1323,6 +1323,13 @@ name = "histsvc"
 version = "0.1.0"
 
 [[package]]
+name = "hotswap"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1888,6 +1895,7 @@ dependencies = [
  "fsservice",
  "gitsvc",
  "histsvc",
+ "hotswap",
  "httpsvc",
  "logengine",
  "lspsvc",

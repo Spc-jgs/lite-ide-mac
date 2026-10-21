@@ -1,0 +1,9 @@
+[package]
+name = "hotswap"
+version = "0.1.0"
+edition = "2021"
+description = "调试时把改过的 class 换进被调试的 JVM（零 Tauri 依赖，docs/IDEA.md 第 26 节）"
+
+[dependencies]
+# 问「这个 pid 的 JVM 还在不在」（kill(pid, 0)）。工作区里 gitsvc / tasksvc 早就在用，不是新包
+libc = "0.2"

@@ -1,6 +1,6 @@
 /** 断点调试（docs/IDEA.md 第 18 节）的命令包装：只有调试那几块用，它们是懒的（同 ipc/tasks.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { DebugState, DebugVar, DebugVars } from "./commands";
+import type { DebugHotswap, DebugState, DebugVar, DebugVars } from "./commands";
 
 /** 这次运行的调试会话此刻什么样；不在调试是 null */
 export const debugState = (run: number) => invoke<DebugState | null>("debug_state", { run });
@@ -20,3 +20,6 @@ export const debugVars = (run: number, a: { frame?: number; reference?: number; 
   invoke<DebugVars>("debug_vars", { run, frame: a.frame ?? null, reference: a.reference ?? null, indexed: a.indexed ?? 0 });
 
 export const debugEval = (run: number, frame: number, expr: string) => invoke<DebugVar>("debug_eval", { run, frame, expr });
+
+/** 「重新加载改过的类」（docs/IDEA.md 第 26 节）：这个窗口里、这个项目正在调试的 JVM，把和它起来时比变了的 class 换进去 */
+export const debugHotswap = (root: string) => invoke<DebugHotswap>("debug_hotswap", { root });

@@ -81,6 +81,8 @@ pub struct MenuHandles {
     pub debug_paused: Vec<MenuItem<Wry>>,
     /// 调试着、在跑才有意义的（暂停）
     pub debug_running: Vec<MenuItem<Wry>>,
+    /// 有调试会话就有意义的，停着、在跑都算（重新加载改过的类）
+    pub debug_live: Vec<MenuItem<Wry>>,
 }
 
 /// 一个普通菜单项。`accel` 为 `None` 就只有标签 —— 那正是 ⌘P 那一类的处理。
@@ -132,7 +134,9 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let debug_into = item(app, "debug-into", "单步进入", Some("F7"))?;
     let debug_out = item(app, "debug-out", "单步跳出", Some("Shift+F8"))?;
     let debug_pause = item(app, "debug-pause", "暂停程序", None)?;
-    for it in [&debug_resume, &debug_over, &debug_into, &debug_out, &debug_pause] {
+    // 热替换（docs/IDEA.md 第 26 节）：IDEA 的 Run › Debugging Actions › Reload Changed Classes。构建（⌘F9）成功后自动做一次，这一项是手动的那条路
+    let debug_reload = item(app, "debug-reload", "重新加载改过的类", None)?;
+    for it in [&debug_resume, &debug_over, &debug_into, &debug_out, &debug_pause, &debug_reload] {
         it.set_enabled(false)?;
     }
     // #45：要有一个打开的文件才有东西可发
@@ -283,6 +287,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&debug_over)
         .item(&debug_into)
         .item(&debug_out)
+        .item(&debug_reload)
         .separator()
         .item(&tasks_file)
         .build()?;
@@ -365,6 +370,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         needs_split: vec![focus_other, unsplit],
         debug_paused: vec![debug_resume, debug_over, debug_into, debug_out],
         debug_running: vec![debug_pause],
+        debug_live: vec![debug_reload],
     };
     Ok((menu, handles))
 }
@@ -404,6 +410,9 @@ pub fn sync_debug(app: &AppHandle<Wry>, paused: bool, running: bool) {
     }
     for it in &h.debug_running {
         let _ = it.set_enabled(running);
+    }
+    for it in &h.debug_live {
+        let _ = it.set_enabled(paused || running);
     }
 }
 

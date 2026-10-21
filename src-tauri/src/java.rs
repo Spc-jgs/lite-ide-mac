@@ -970,6 +970,11 @@ fn bundled(app: &AppHandle) -> Option<PathBuf> {
     d.is_dir().then_some(d)
 }
 
+/// 热替换的代理（docs/IDEA.md 第 26 节，scripts/java-bundle.sh 编的）。开发构建没有 —— 那时调试照常、只是不能热替换
+pub fn hotswap_jar(app: &AppHandle) -> Option<PathBuf> {
+    bundled(app).map(|d| d.join("hotswap/lite-hotswap.jar")).filter(|p| p.is_file())
+}
+
 /// 内置运行时的目录名：一个架构一份（universal 包里两份都有，起的时候挑这台机器的）
 fn runtime_dir_name() -> String {
     format!("runtime-{}", std::env::consts::ARCH)

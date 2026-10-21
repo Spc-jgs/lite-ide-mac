@@ -14,6 +14,7 @@ members = [
     "crates/dapsvc",
     "crates/httpsvc",
     "crates/histsvc",
+    "crates/hotswap",
 ]
 
 [package]
@@ -67,6 +68,7 @@ httpsvc = { path = "crates/httpsvc" }
 histsvc = { path = "crates/histsvc" }
 # Maven 工具窗算插件和依赖时起 mvn、读插件 jar（maven_run.rs）：输出设闸、丢掉就收尸。同仓库的 crate
 procutil = { path = "crates/procutil" }
+hotswap = { path = "crates/hotswap" }
 
 # 「打开文件夹…」的原生选择框。
 #

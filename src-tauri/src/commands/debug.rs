@@ -26,6 +26,13 @@ pub async fn debug_breakpoints(app: tauri::AppHandle, root: String, path: String
     .await
 }
 
+/// 「重新加载改过的类」（docs/IDEA.md 第 26 节）：构建成功后前端自动调，菜单里也能点。只动这个窗口的会话
+#[tauri::command]
+pub async fn debug_hotswap(window: tauri::Window, app: tauri::AppHandle, root: String) -> Result<DebugHotswapDto, String> {
+    let owner = window.label().to_string();
+    blocking(move || Ok(DebugHotswapDto::of(app.state::<AppState>().debug.hotswap(&owner, &root)))).await
+}
+
 /// continue / next / stepIn / stepOut / pause
 #[tauri::command]
 pub async fn debug_step(app: tauri::AppHandle, run: u32, action: String) -> Result<(), String> {

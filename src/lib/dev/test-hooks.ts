@@ -25,7 +25,7 @@ import type { EditorView } from "@codemirror/view";
 
 type View = {
   state: {
-    doc: { toString(): string; length: number; line(n: number): { from: number }; lineAt(pos: number): { number: number; from: number } };
+    doc: { toString(): string; length: number; line(n: number): { from: number; text: string }; lineAt(pos: number): { number: number; from: number } };
     selection: { main: { head: number } };
   };
   dispatch(tr: unknown): void;
@@ -126,6 +126,17 @@ export function installTestHooks() {
       const v = mustEditor();
       const p = v.state.selection.main.head;
       v.dispatch({ changes: { from: p, insert: text }, selection: { anchor: p + text.length }, userEvent: "input.type" });
+    },
+    /**
+     * 第 line 行里第一处 `find` 换成 `repl`（`find` 是空串就插在这一行开头）：人在那儿改几个字的样子，一次局部的改动（`input.type`）。
+     * 热替换的验收要它：在外面写文件、或者 setText 整份换，断点都会被挪到第 1 行（外部重读是整份替换，见那个单独的问题）
+     */
+    editLine: (line: number, find: string, repl: string) => {
+      const v = mustEditor();
+      const l = v.state.doc.line(line);
+      const i = find ? l.text.indexOf(find) : 0;
+      if (i < 0) throw new Error(`第 ${line} 行没有「${find}」：${l.text}`);
+      v.dispatch({ changes: { from: l.from + i, to: l.from + i + find.length, insert: repl }, userEvent: "input.type" });
     },
     /** 整份换成这段文字（⌘A ⌘V 的效果，`input.paste`）。smoke 原来真走剪贴板，那条路要按键 */
     setText: (text: string) => {

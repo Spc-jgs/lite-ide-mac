@@ -112,6 +112,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("DebugStateDto", "DebugState"),
     ("DebugVarDto", "DebugVar"),
     ("DebugVarsDto", "DebugVars"),
+    ("DebugHotswapDto", "DebugHotswap"),
     ("HttpHeaderDto", "HttpHeader"),
     ("HttpResponseDto", "HttpResponse"),
     ("HttpEnvsDto", "HttpEnvs"),

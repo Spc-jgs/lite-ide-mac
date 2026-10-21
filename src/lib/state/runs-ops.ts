@@ -70,9 +70,59 @@ async function loadProblems(id: number) {
     if (now.status === "stopped") return;
     if (errs) notify.fail(`构建失败：${res.total > res.items.length ? `${res.total} 条里列了 ${res.items.length} 条，` : ""}${errs} 个错误`);
     else if (now.status === "failed") notify.fail("构建失败了，但不是编译错误（依赖、pom、插件），看输出", 8000);
+    else if (debugging(now.root)) await hotswap(`构建完成（${secs} 秒）`);
     else notify.ok(`构建完成，用了 ${secs} 秒`);
   } catch (e) {
     notify.fail(`读不到构建结果：${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** 这个项目有没有正在调试的程序（挂上了的：在跑或停着） */
+const debugging = (root: string) => runs.list.some((r) => r.root === root && (r.debug?.phase === "running" || r.debug?.phase === "paused"));
+
+/** 类全名只说最后一段，内部类算进外面那个（`com.demo.Money$1` → `Money`），多了说「等 N 个」 */
+function classNames(all: string[]): string {
+  const names = [...new Set(all.map((c) => c.slice(c.lastIndexOf(".") + 1).split("$")[0]))];
+  return names.length > 3 ? `${names.slice(0, 3).join("、")} 等 ${names.length} 个` : names.join("、");
+}
+
+/**
+ * 热替换（docs/IDEA.md 第 26 节）：把和调试开始时比变了的 class 换进正在调试的 JVM。构建（⌘F9）成功后自动做（`head` 是「构建完成」那半句，
+ * 合成一句说：连着弹两句，第一句来不及读就被顶掉），菜单「重新加载改过的类」手动做。
+ * 自动那次「没变化」就只说构建完成 —— 构建的多半是没改过的模块
+ */
+export async function hotswap(head = "") {
+  const root = project.root;
+  if (!root) return;
+  const pre = head ? `${head}，` : "";
+  try {
+    const { debugHotswap } = await import("../ipc/debug");
+    const r = await debugHotswap(root);
+    const paused = runs.list.some((x) => x.root === root && x.debug?.phase === "paused");
+    switch (r.kind) {
+      case "done":
+        // 停着的那一帧已经在旧方法里了，JVM 让它把旧的跑完 —— 不说的话，人 F8 一步看到的还是旧代码，以为没换上
+        // 行号变了的类，这次调试里它的断点下不了（照旧表下会下错地方）：不说的话，人只会觉得「断点怎么不停了」
+        if (r.lost.length) {
+          const files = r.lost.map((p) => p.slice(p.lastIndexOf("/") + 1)).join("、");
+          return notify.ok(`${pre}已热替换 ${classNames(r.classes)}。${files} 的行号变了，里面的断点这次调试不再停，重新调试就回来`, 10000);
+        }
+        return notify.ok(`${pre}已热替换 ${classNames(r.classes)}${paused ? "（停着的那一帧跑完旧的，下次调用起是新的）" : ""}`);
+      case "unchanged":
+        if (head) return notify.ok(`${head}，没有要热替换的类`);
+        return notify.hint("没有改过的类：和调试开始时一样（改完先构建 ⌘F9）");
+      case "failed":
+        return notify.fail(`${pre}但没热替换：${r.message}（${classNames(r.classes)}）。要生效得重新调试`, 10000);
+      case "noreply":
+        return notify.fail(`${pre}但热替换没回话：整个程序暂停着时它也停着，继续之后再点「运行 › 重新加载改过的类」`, 10000);
+      case "noagent":
+        return notify.hint(`${pre}这个构建没带热替换（开发构建）：要生效得重新调试`);
+      case "nosession":
+        if (head) return notify.ok(head);
+        return notify.hint("没在调试：热替换是给调试中的程序用的");
+    }
+  } catch (e) {
+    notify.fail(`热替换出错：${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
