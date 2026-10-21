@@ -169,6 +169,47 @@ function emitExit(id: number, x: { code: number | null; stopped: boolean; port?:
   mockEmit("task-exit", payload);
 }
 
+/**
+ * 构建（⌘F9，docs/IDEA.md 第 22 节）的假输出：项目里哪个 Java 文件写了 `nosuch`（照真实现撞出来的样子：中文的 javac、同一条出现两遍），
+ * 那一行就报「找不到符号」；没有就是 BUILD SUCCESS。浏览器里把某个文件改出一个 nosuch、保存、⌘F9 就看得到错误树
+ */
+function buildOutput(root: string, command: string): { text: string; failed: boolean } {
+  const bad: string[] = [];
+  for (const [p, text] of Object.entries(FILES)) {
+    if (!p.startsWith(`${root}/`) || !p.endsWith(".java") || typeof text !== "string") continue;
+    text.split("\n").forEach((l, i) => {
+      const c = l.indexOf("nosuch");
+      if (c >= 0) bad.push(`[ERROR] ${p}:[${i + 1},${c + 1}] 找不到符号\n  符号:   变量 nosuch\n  位置: 类 ${p.slice(p.lastIndexOf("/") + 1, -5)}`);
+    });
+  }
+  const head = `$ ${command}\n[INFO] Scanning for projects...\n[INFO] --- maven-compiler-plugin:3.14.1:compile (default-compile) ---\n`;
+  if (!bad.length) return { text: `${head}[INFO] Nothing to compile - all classes are up to date.\n[INFO] BUILD SUCCESS\n`, failed: false };
+  const again = bad.map((b) => b.replace(/\n {2}/g, "\n[ERROR]   ")).join("\n");
+  return { text: `${head}[ERROR] COMPILATION ERROR : \n${bad.join("\n")}\n[INFO] BUILD FAILURE\n[ERROR] Failed to execute goal ...: Compilation failure\n${again}\n`, failed: true };
+}
+
+/** 同 `javac.rs` 的 parse：认 `[ERROR] /路径.java:[行,列] 消息`，缩进两格（或 `[ERROR]   `）的是补充；同一条出现两遍只算一条 */
+function parseProblems(text: string) {
+  const items: { path: string; line: number; col: number; error: boolean; message: string }[] = [];
+  const seen = new Set<string>();
+  let cur: (typeof items)[number] | null | undefined;
+  for (const line of text.split("\n")) {
+    const m = /^\[(ERROR|WARNING)\] (\/.+\.java):\[(\d+),(\d+)\] ?(.*)$/.exec(line);
+    if (m) {
+      const key = `${m[2]}|${m[3]}|${m[4]}|${m[5]}`;
+      cur = seen.has(key) ? null : { path: m[2], line: +m[3], col: +m[4], error: m[1] === "ERROR", message: m[5].trim() };
+      seen.add(key);
+      if (cur) items.push(cur);
+      continue;
+    }
+    const more = /^(?:\[(?:ERROR|WARNING)\] {3}| {2})(.+)$/.exec(line);
+    if (more && cur !== undefined) {
+      if (cur) cur.message += `\n${more[1].trim()}`;
+    } else cur = undefined;
+  }
+  return { items, total: items.length };
+}
+
 function fakeOutput(name: string, command: string, fail: boolean): string {
   const t = (s: number) => `2026-10-10T09:18:${String(20 + s).padStart(2, "0")}.000+08:00`;
   const head = `$ ${command}\n`;
@@ -244,11 +285,14 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       // Maven 工具窗的「artifactId [目标]」：不在列表里，按名字认（真实现在 taskdefs::maven_goal）。
       // 跑单测的「模块 [test 选择器]」同一个形状（第 17 节），选择器按 maven::safe_selector 的字符卡
       const test = /^(.+) \[test ([\w.#$*+,]+)\]$/.exec(name);
+      // 构建（⌘F9，第 22 节）：同 taskdefs::build，有 pom.xml 才认
+      const build = (name === "构建项目" || name === "重新构建项目") && FILES[`${root}/pom.xml`] !== undefined;
       const goal = test ? null : /^(.+) \[([^\]]+)\]$/.exec(name);
       const def =
         list(root).tasks.find((d) => d.name === name) ??
         (goal && goal[2].split(/\s+/).every((t) => SAFE.test(t)) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "goal" as const } : undefined) ??
-        (test ? { name, command: `mvn -B -ntp -Dtest=${test[2]} -Dsurefire.failIfNoSpecifiedTests=false -pl ${test[1]} -am test`, cwd: "", source: "goal" as const } : undefined);
+        (test ? { name, command: `mvn -B -ntp -Dtest=${test[2]} -Dsurefire.failIfNoSpecifiedTests=false -pl ${test[1]} -am test`, cwd: "", source: "goal" as const } : undefined) ??
+        (build ? { name, command: `mvn -B -ntp ${name === "重新构建项目" ? "clean " : ""}test-compile`, cwd: "", source: "goal" as const } : undefined);
       if (!def) throw new Error(`没有叫「${name}」的任务了（tasks.json 改过？）`);
       // 调试（第 18 节）：同真实现，只有认出来的 Spring Boot 应用和单测
       if (a.debug && def.source !== "spring" && !test) throw new Error(`「${name}」不是认出来的 Spring Boot 应用或单测，调试不了`);
@@ -265,7 +309,8 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       // 名字带 fail 的：8080 还被占着就 0.9 秒后失败退出（输出里那句 `Port 8080 was already in use`）。
       // 带 ours 的，占着的算「你之前跑的」（主按钮）；不带的是别的程序（danger）—— 两种卡片在浏览器里都看得到
       const fail = !test && name.includes("fail") && HOLDERS.has(8080);
-      FILES[log] = fakeOutput(name, command, fail);
+      const built = build ? buildOutput(root, command) : null;
+      FILES[log] = built ? built.text : fakeOutput(name, command, fail);
       bump(log);
       const run: Run = { root, name, status: "running", service: def.source === "spring", at: Date.now() };
       RUNS.set(id, run);
@@ -280,6 +325,8 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
         // 调试着跑的：停在断点上那段时间不退（被调试的 JVM 停着），跑完由调试那边说
         if (!a.debug) run.timer = setTimeout(testExit, 1200);
       }
+      // 构建：1.5 秒（真的 mvn 起来就要一两秒，「正在构建」要看得见）
+      if (built) run.timer = setTimeout(() => emitExit(id, { code: built.failed ? 1 : 0, stopped: false }), 1500);
       if (a.debug && test) mockDebugStart(id, root, test[2].split(/[#+,]/)[0], testExit);
       else if (a.debug) mockDebugStart(id, root, /(\S+)$/.exec(def.command)?.[1] ?? name);
       return { id, name, command, log, service: def.source === "spring" };
@@ -299,6 +346,8 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
     }
     case "task_ports":
       return mockPorts(Number(a.id));
+    case "build_problems":
+      return parseProblems(String(FILES[String(a.log)] ?? ""));
     case "test_results": {
       // 真实现读 surefire 报告；桩按选择器从 FILES 里的测试类造（testCases）
       const sel = TESTS.get(String(a.name));

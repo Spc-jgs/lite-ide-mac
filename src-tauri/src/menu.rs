@@ -265,6 +265,12 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&send_to_terminal)
         .build()?;
 
+    // 构建（docs/IDEA.md 第 22 节）：IDEA 的 Build 菜单，排在「运行」前面
+    let build = SubmenuBuilder::new(app, "构建")
+        .item(&item(app, "build-project", "构建项目", Some("CmdOrCtrl+F9"))?)
+        .item(&item(app, "rebuild-project", "重新构建项目", None)?)
+        .build()?;
+
     let run = SubmenuBuilder::new(app, "运行")
         .item(&run_last)
         .item(&run_pick)
@@ -318,7 +324,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .build()?;
 
     let menu = MenuBuilder::new(app)
-        .items(&[&app_menu, &file, &edit, &view, &goto, &git, &term, &run, &window, &help])
+        .items(&[&app_menu, &file, &edit, &view, &goto, &git, &term, &build, &run, &window, &help])
         .build()?;
 
     // 认了这两个，系统才会自动往「窗口」里塞窗口列表、往「帮助」里塞搜索框

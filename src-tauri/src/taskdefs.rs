@@ -431,9 +431,25 @@ pub fn test_module_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
     Some(root.join(rel).join(m.rel))
 }
 
-/// 按名字找任务：先找列表里的（tasks.json、scripts、Spring Boot），再认 Maven 工具窗的「模块 [目标]」
+/// 按名字找任务：先找列表里的（tasks.json、scripts、Spring Boot），再认 Maven 工具窗的「模块 [目标]」、构建项目
 pub fn resolve(root: &Path, name: &str) -> Option<Def> {
-    discover(root).defs.into_iter().find(|d| d.name == name).or_else(|| maven_goal(root, name))
+    discover(root).defs.into_iter().find(|d| d.name == name).or_else(|| maven_goal(root, name)).or_else(|| build(root, name))
+}
+
+/// 构建（⌘F9，docs/IDEA.md 第 22 节）的两个任务名。不进任务列表（同 Maven 目标），`task_run` 按名字认；运行窗、⌃R 重跑、⌘F2 停、同名先停旧的都是现成的
+pub const BUILD: &str = "构建项目";
+pub const REBUILD: &str = "重新构建项目";
+
+pub fn is_build(name: &str) -> bool {
+    name == BUILD || name == REBUILD
+}
+
+fn build(root: &Path, name: &str) -> Option<Def> {
+    if !is_build(name) {
+        return None;
+    }
+    let command = crate::maven::build_command(&crate::maven::reactors(root), &crate::maven::prefs(root), name == REBUILD)?;
+    Some(Def { name: name.to_string(), command, cwd: String::new(), env: Vec::new(), source: Source::Goal { module: String::new() } })
 }
 
 fn shown(rel: &str, file: &str) -> String {

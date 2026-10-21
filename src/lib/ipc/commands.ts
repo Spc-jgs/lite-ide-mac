@@ -173,6 +173,21 @@ export interface TestResults {
   total: number;
 }
 
+/** 构建（⌘F9，docs/IDEA.md 第 22 节）认出来的一条编译错误 / 警告。`message` 第一行是 javac 的话，后面是补充（符号、位置） */
+export interface BuildProblem {
+  path: string;
+  line: number;
+  col: number;
+  error: boolean;
+  message: string;
+}
+
+/** 一次构建的编译错误。`total` 比 `items` 多 = 截了 */
+export interface BuildProblems {
+  items: BuildProblem[];
+  total: number;
+}
+
 /** 调试会话的一帧（docs/IDEA.md 第 18 节）。`path`：源文件，或者 jar 里的类的 `jdt://` 地址（`label` 是类的全名），没有源码是空串 */
 export interface DebugFrame {
   id: number;

@@ -57,7 +57,7 @@ export interface KeyDef {
    * 速查表是按「这个键管哪一摊」分的，两者不必一致
    * （比如「文件编码…」在菜单的「文件」下，在速查表里归「编辑」）。
    */
-  group: "导航" | "编辑" | "视图" | "Git" | "终端" | "运行" | "文件" | "帮助";
+  group: "导航" | "编辑" | "视图" | "Git" | "终端" | "构建" | "运行" | "文件" | "帮助";
   owner: Owner;
 }
 
@@ -314,6 +314,11 @@ export const KEYS: KeyDef[] = [
    * IDEA 默认键位里 ⌥⌘K 没有占用，表里也没人用。归菜单：焦点在终端里时也该能按（选完代码切进终端再想起来）
    */
   { id: "send-to-terminal", label: "发送到终端", accel: "⌥⌘K", group: "终端", owner: "menu" },
+
+  // ── 构建（docs/IDEA.md 第 22 节）：照 IDEA 的 Build 菜单。⌘F9 进菜单 —— 终端里没人用 ⌘F9，编辑器里它也没别的意思 ──
+  { id: "build-project", label: "构建项目", accel: "⌘F9", group: "构建", owner: "menu" },
+  /** IDEA 的 Rebuild Project 没有默认键位 */
+  { id: "rebuild-project", label: "重新构建项目", group: "构建", owner: "menu" },
 
   // ── 运行（#48，docs/TASKS.md Q1：照 IDEA 的 macOS 键位）──
   /*

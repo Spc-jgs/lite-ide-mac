@@ -101,6 +101,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("JavaActionDto", "JavaAction"),
     ("TestCaseDto", "TestCase"),
     ("TestResultsDto", "TestResults"),
+    ("BuildProblemDto", "BuildProblem"),
+    ("BuildProblemsDto", "BuildProblems"),
     ("DebugFrameDto", "DebugFrame"),
     ("DebugThreadDto", "DebugThread"),
     ("DebugStateDto", "DebugState"),

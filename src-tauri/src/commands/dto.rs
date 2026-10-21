@@ -922,6 +922,25 @@ pub struct TestResultsDto {
     pub total: u32,
 }
 
+/// 构建（⌘F9）认出来的一条编译错误 / 警告。`message` 第一行是 javac 的话，后面是补充（符号、位置）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildProblemDto {
+    pub path: String,
+    pub line: u32,
+    pub col: u32,
+    pub error: bool,
+    pub message: String,
+}
+
+/// 一次构建的编译错误。`total` 比 `items` 多 = 截了
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildProblemsDto {
+    pub items: Vec<BuildProblemDto>,
+    pub total: u32,
+}
+
 /// 一条修复（⌥↵）。`raw` 原样交回 `java_apply_action`
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -9,7 +9,7 @@ import { project } from "./project.svelte";
 import { notify } from "./notify.svelte";
 import { overlay } from "./overlay.svelte";
 import { listenHere, type TaskExit } from "../ipc/commands";
-import { servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, testResults } from "../ipc/tasks";
+import { buildProblems, servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, testResults } from "../ipc/tasks";
 
 let listening: Promise<unknown> | null = null;
 
@@ -34,7 +34,46 @@ export function exited(x: TaskExit) {
   r.holder = x.port;
   // 端口被占有自己的卡片（说清是谁、给出路），不再另弹一句「退出了」。跑单测的失败由结果那句说（「3 通过 · 1 没过」比「退出码 1」有用）
   if (isTestRun(r.name)) void loadTests(r.id);
+  else if (isBuildRun(r.name)) void loadProblems(r.id);
   else if (r.status === "failed" && !x.port) notify.fail(exitText(r.name, x.code));
+}
+
+/** 构建的两个任务名（同 `taskdefs::BUILD` / `REBUILD`） */
+const BUILD = "构建项目";
+const REBUILD = "重新构建项目";
+const isBuildRun = (name: string) => name === BUILD || name === REBUILD;
+
+/** 构建项目（⌘F9）/ 重新构建（docs/IDEA.md 第 22 节）：每个 Maven reactor 跑一遍 `test-compile`，走任务那套（运行窗、⌃R 重跑、⌘F2 停） */
+export async function buildProject(clean: boolean) {
+  const root = project.root;
+  if (!root) {
+    notify.hint("先打开一个项目：构建是对整个项目的");
+    return;
+  }
+  await runTask(clean ? REBUILD : BUILD, root);
+}
+
+/**
+ * 构建结束了：从这次的输出里认出编译错误，交给运行窗左边的错误树，说一句结果（同 IDEA 状态栏那句「构建完成，用了 N 秒」）。
+ * 失败了却一条都没认出来 —— 不是编译错误（依赖没下下来、pom 写错），照实说
+ */
+async function loadProblems(id: number) {
+  const r = runs.list.find((t) => t.id === id);
+  if (!r) return;
+  const secs = ((Date.now() - r.startedAt) / 1000).toFixed(1);
+  try {
+    const res = await buildProblems(r.log);
+    const now = runs.list.find((t) => t.id === id);
+    if (!now) return;
+    now.problems = res;
+    const errs = res.items.filter((p) => p.error).length;
+    if (now.status === "stopped") return;
+    if (errs) notify.fail(`构建失败：${res.total > res.items.length ? `${res.total} 条里列了 ${res.items.length} 条，` : ""}${errs} 个错误`);
+    else if (now.status === "failed") notify.fail("构建失败了，但不是编译错误（依赖、pom、插件），看输出", 8000);
+    else notify.ok(`构建完成，用了 ${secs} 秒`);
+  } catch (e) {
+    notify.fail(`读不到构建结果：${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 /**

@@ -10,6 +10,7 @@
    */
   import LogPane from "../logview/LogPane.svelte";
   import TestTree from "./TestTree.svelte";
+  import BuildTree from "./BuildTree.svelte";
   import DebugPane from "./DebugPane.svelte";
   import HttpPane from "./HttpPane.svelte";
   import { openLog, closeLog } from "../ipc/commands";
@@ -21,6 +22,8 @@
   // 给了 id 按 id 找：HTTP 请求还在发的时候 `log` 是空串，按它找会认到别的格子上（运行窗传 id，Services 只有任务、按 log 就够）
   let run = $derived(runs.list.find((r) => (id !== undefined ? r.id === id : r.log === log)) ?? null);
   let isTest = $derived(!!run && !!parseTestTask(run.name));
+  /** 构建那一格（⌘F9，docs/IDEA.md 第 22 节）：左边是错误树（同 IDEA 的 Build 窗） */
+  let isBuild = $derived(run?.name === "构建项目" || run?.name === "重新构建项目");
 
   let handle = $state<number | null>(null);
   let err = $state("");
@@ -56,9 +59,11 @@
 </script>
 
 {#snippet plain(h: number)}
-  <div class="split" class:tests={isTest}>
+  <div class="split" class:tests={isTest || isBuild}>
     {#if isTest && run}
       <div class="tests-pane"><TestTree {run} /></div>
+    {:else if isBuild && run}
+      <div class="tests-pane"><BuildTree {run} /></div>
     {/if}
     {@render output(h)}
   </div>

@@ -318,6 +318,23 @@ pub fn test_command(module: &str, selector: &str, prefs: &Prefs) -> Option<Strin
     Some(if module.is_empty() { format!("{base} test") } else { format!("{base} -pl {} -am test", word(module)) })
 }
 
+/// 构建项目（⌘F9，docs/IDEA.md 第 22 节）：每个 reactor 跑一遍 `test-compile` —— IDEA 的 Build 连测试一起编；`clean` 是「重新构建」。
+/// 用 Maven 不用 jdtls 的增量构建：「运行」走的是 `mvn compile`，Build 说编得过、运行却编不过就白问了（第 22 节有对照）。
+/// 带 profile 和离线；不带跳过测试（`-DskipTests` 本来也不跳过编译测试）。几个 reactor 都跑完再说结果（IDEA 也是全编完才列错误），
+/// 有一个没过整个算失败。没有 reactor（不是 Maven 项目）给 None
+pub fn build_command(reactors: &[String], prefs: &Prefs, clean: bool) -> Option<String> {
+    let goal = if clean { "clean test-compile" } else { "test-compile" };
+    let one = format!("mvn -B -ntp{} {goal}", prefs.flags());
+    match reactors {
+        [] => None,
+        [r] if r.is_empty() => Some(one),
+        rs => Some(format!(
+            "rc=0; {}exit $rc",
+            rs.iter().map(|r| format!("(cd {} && {one}) || rc=1; ", word(if r.is_empty() { "." } else { r }))).collect::<String>()
+        )),
+    }
+}
+
 /// 算插件和依赖的那一条（`maven_run.rs`）：有效 POM 写到 `scratch`（绝对路径），依赖树写进各模块的 `deps_file`（相对模块）。
 /// 带离线和 profile（profile 会改插件和依赖），不带跳过测试（这两个目标不跑测试）
 pub fn resolve_command(prefs: &Prefs, scratch: &Path, deps_file: &str) -> String {
@@ -515,6 +532,16 @@ pub fn run_command(app: &BootApp, prefs: &Prefs) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 构建_每个_reactor_一遍_test_compile_重新构建先_clean_有一个没过整体失败() {
+        let p = Prefs { offline: true, skip_tests: true, profiles: vec!["dev".into()] };
+        assert_eq!(build_command(&[String::new()], &p, false).unwrap(), "mvn -B -ntp -o -P dev test-compile", "跳过测试不带（不该跳过编译测试）");
+        assert_eq!(build_command(&[String::new()], &p, true).unwrap(), "mvn -B -ntp -o -P dev clean test-compile");
+        let two = build_command(&["api".into(), "my svc".into()], &Prefs::default(), false).unwrap();
+        assert_eq!(two, "rc=0; (cd api && mvn -B -ntp test-compile) || rc=1; (cd 'my svc' && mvn -B -ntp test-compile) || rc=1; exit $rc");
+        assert_eq!(build_command(&[], &p, false), None, "不是 Maven 项目");
+    }
 
     #[test]
     fn 跑单测_带选择器和放过上游模块的开关_不带跳过测试_内部类加引号_不安全的不拼() {

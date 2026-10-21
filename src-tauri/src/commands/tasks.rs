@@ -132,6 +132,19 @@ pub fn task_stop(id: u32, state: State<'_, AppState>) -> String {
     }
 }
 
+/// 构建那次（⌘F9）的编译错误：从这次运行的输出里认（`javac.rs`）。`log` 是 `task_run` 回的那个输出文件
+#[tauri::command]
+pub async fn build_problems(log: String) -> Result<BuildProblemsDto, String> {
+    blocking(move || {
+        let (items, total) = crate::javac::parse_file(Path::new(&log)).map_err(|e| format!("读不了这次构建的输出：{e}"))?;
+        Ok(BuildProblemsDto {
+            items: items.into_iter().map(|p| BuildProblemDto { path: p.path, line: p.line, col: p.col, error: p.error, message: p.message }).collect(),
+            total: total as u32,
+        })
+    })
+    .await
+}
+
 /// 跑单测那次（「模块 [test 选择器]」）的结果：读那个模块 `target/surefire-reports` 里 `since_ms`（这次运行开始的时刻，毫秒）之后写的报告。
 /// 不是测试任务、模块找不到给空的
 #[tauri::command]

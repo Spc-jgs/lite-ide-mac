@@ -6,7 +6,7 @@
  *
  * **不进会话快照**：任务是活的子进程，跨进程恢复不了（同终端，`terms.svelte.ts` 头上那条）。
  */
-import type { DebugState, HttpResponse, PortHolder, TaskStale, TestResults } from "../ipc/commands";
+import type { BuildProblems, DebugState, HttpResponse, PortHolder, TaskStale, TestResults } from "../ipc/commands";
 import type { HttpReq } from "../http/http-file";
 
 export type RunStatus = "running" | "stopping" | "stopped" | "done" | "failed";
@@ -32,6 +32,8 @@ export interface RunTab {
   debug: DebugState | null;
   /** `.http` 里发的一个请求（docs/IDEA.md 第 19 节，`http/http-ops.ts`）：不是任务，id 从二十亿起；关、停、重跑按它分开走。不是请求是 null */
   http: HttpRun | null;
+  /** 构建那次（⌘F9，docs/IDEA.md 第 22 节）的编译错误：跑完从输出里认（`javac.rs`）。还在跑、或者不是构建，没有这个字段 */
+  problems?: BuildProblems | null;
 }
 
 export interface HttpRun {
