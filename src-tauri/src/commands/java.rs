@@ -247,3 +247,54 @@ pub async fn java_signature(app: tauri::AppHandle, root: String, path: String, t
     .await
 }
 
+
+/// MyBatis（docs/IDEA.md 第 24 节）：打开的 Java 接口 → `here` 是它的方法（行号），`there` 是 namespace 对得上的 XML 里的语句（绝对路径 + 行号）。
+/// `text` 是编辑器里此刻的（没保存的也算）。不靠 jdtls：读文本、在项目里找。不是接口、没有对得上的 XML 都是空的（不算错）
+#[tauri::command]
+pub async fn mybatis_for_java(root: String, text: String) -> Result<MybatisLinksDto, String> {
+    blocking(move || {
+        let Some(fqn) = crate::mybatis::interface_name(&text) else { return Ok(MybatisLinksDto::default()) };
+        let here = crate::mybatis::methods(&text).into_iter().map(|(name, line)| MybatisSpotDto { name, kind: String::new(), path: String::new(), line }).collect();
+        let mut there = Vec::new();
+        for rel in crate::mybatis::find_xml(Path::new(&root), &fqn, &super::search::skip_for(&root)) {
+            let abs = Path::new(&root).join(&rel);
+            let Some(xml) = read_small(&abs) else { continue };
+            if crate::mybatis::namespace(&xml).as_deref() != Some(fqn.as_str()) {
+                continue;
+            }
+            let path = abs.display().to_string();
+            there.extend(crate::mybatis::statements(&xml).into_iter().map(|s| MybatisSpotDto { name: s.id, kind: s.kind, path: path.clone(), line: s.line }));
+        }
+        Ok(MybatisLinksDto { here, there })
+    })
+    .await
+}
+
+/// MyBatis：打开的 Mapper XML → `here` 是它的语句（行号），`there` 是 namespace 那个接口的方法（绝对路径 + 行号）。不是 Mapper XML、找不到接口都是空的
+#[tauri::command]
+pub async fn mybatis_for_xml(root: String, text: String) -> Result<MybatisLinksDto, String> {
+    blocking(move || {
+        let Some(fqn) = crate::mybatis::namespace(&text) else { return Ok(MybatisLinksDto::default()) };
+        let here = crate::mybatis::statements(&text).into_iter().map(|s| MybatisSpotDto { name: s.id, kind: s.kind, path: String::new(), line: s.line }).collect();
+        let files = searchsvc::list_files(&root, &super::search::skip_for(&root)).unwrap_or_default();
+        let mut there = Vec::new();
+        if let Some(rel) = crate::mybatis::find_java(&files, &fqn) {
+            let abs = Path::new(&root).join(&rel);
+            if let Some(java) = read_small(&abs) {
+                let path = abs.display().to_string();
+                there = crate::mybatis::methods(&java).into_iter().map(|(name, line)| MybatisSpotDto { name, kind: String::new(), path: path.clone(), line }).collect();
+            }
+        }
+        Ok(MybatisLinksDto { here, there })
+    })
+    .await
+}
+
+/// 读一份源码（Mapper XML / 接口），最多 2 MB —— 再大的不是手写的 Mapper（Lithe 同一个数），超了不读
+fn read_small(p: &Path) -> Option<String> {
+    let meta = std::fs::metadata(p).ok()?;
+    if meta.len() > 2 << 20 {
+        return None;
+    }
+    std::fs::read_to_string(p).ok()
+}

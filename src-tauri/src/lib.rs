@@ -6,6 +6,8 @@ pub mod java;
 mod maven;
 mod maven_run;
 mod javac;
+mod javalite;
+mod mybatis;
 mod junit;
 pub mod diag;
 pub mod menu;
@@ -300,6 +302,8 @@ pub fn run() {
             commands::task_ports,
             commands::test_results,
             commands::build_problems,
+            commands::mybatis_for_java,
+            commands::mybatis_for_xml,
             commands::debug_state,
             commands::debug_breakpoints,
             commands::debug_step,

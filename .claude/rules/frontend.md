@@ -701,6 +701,12 @@ Claude 桌面应用（把它的界面缩放改了），而测试应用一个键�
   （`localstorage.sqlite3` 的 `ItemTable`，值是 UTF-16LE）要看对目录，不然读到的是
   几小时前另一份的。
 
+## 被裸 node 测试引到的模块，类里不写 `constructor(readonly x)`（2026-10-20）
+
+那是 TS 的参数属性 —— 要编译出代码的语法，不是只剥掉就行的类型注解。状态层测试在裸 node 里跑（剥类型），引到这种文件直接
+`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`，一条测试都跑不起来。条件断点（`java-debug-gutter`）和 MyBatis 跳转（`mybatis-gutter`）各撞一次：
+写成普通字段 + 构造函数里赋值。只在浏览器里跑的模块（`blame.ts`、`changemarks.ts` 那十来个）照旧能用，没为这个去改。
+
 ## 状态层（`*.svelte.ts`）能在裸 node 里测，改流程要带一条（2026-09-18）
 
 `tabflow` / `docs` / `persist` / `worktree` 原来零自动化测试 —— 09-03 两个丢数据 bug、

@@ -699,11 +699,12 @@
       return;
     }
     const lang = langOf(p);
-    const [ext, javaLsp, http] = await Promise.all([loadLang(lang), lang === "java" ? import("./java-lsp") : null, lang === "http" ? import("./http-run") : null]);
+    // Mapper XML 的跳转（docs/IDEA.md 第 24 节）：XML 文件才拉这一块
+    const [ext, javaLsp, http, mb] = await Promise.all([loadLang(lang), lang === "java" ? import("./java-lsp") : null, lang === "http" ? import("./http-run") : null, lang === "xml" ? import("./mybatis-gutter") : null]);
     if (!view) return;
     lsp = javaLsp;
     // `.http`：行号旁的 ▶、⌃⇧R 发请求、顶上的运行环境（docs/IDEA.md 第 19 节）
-    const extra = javaLsp ? javaLsp.javaLsp(project.root, p) : http ? http.httpRun(project.root, p) : [];
+    const extra = javaLsp ? javaLsp.javaLsp(project.root, p) : http ? http.httpRun(project.root, p) : mb ? mb.mybatisGutter(project.root, p) : [];
     view.dispatch({ effects: [langSlot.reconfigure([ext ?? [], extra]), completeSlot.reconfigure(completionFor(lang))] });
   }
 

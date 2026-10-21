@@ -922,6 +922,25 @@ pub struct TestResultsDto {
     pub total: u32,
 }
 
+/// MyBatis 跳转（docs/IDEA.md 第 24 节）的一个点：接口的方法，或者 XML 里的一段语句。`kind` 是 select / insert / update / delete（方法是空的）；
+/// `path` 是它在哪个文件（「这个文件里的」那些是空的）；`line` 从 1 数
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MybatisSpotDto {
+    pub name: String,
+    pub kind: String,
+    pub path: String,
+    pub line: u32,
+}
+
+/// 打开的这个文件（Java 接口 / Mapper XML）里的点，和对面那些点。前端按名字配对：两边都有的才画图标
+#[derive(serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MybatisLinksDto {
+    pub here: Vec<MybatisSpotDto>,
+    pub there: Vec<MybatisSpotDto>,
+}
+
 /// 构建（⌘F9）认出来的一条编译错误 / 警告。`message` 第一行是 javac 的话，后面是补充（符号、位置）
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

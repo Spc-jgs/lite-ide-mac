@@ -346,6 +346,31 @@ public class AdminApplication {
     }
 }
 `,
+  // MyBatis（docs/IDEA.md 第 24 节）：接口和它的 XML。count 在 XML 里没有（MyBatis-Plus 那种通用方法）：不画图标
+  "/proj/moduleB/src/main/java/com/demo/core/OrderMapper.java": `package com.demo.core;
+
+import org.apache.ibatis.annotations.Param;
+
+public interface OrderMapper {
+    Order findById(@Param("id") Long id);
+
+    int updateStatus(@Param("id") Long id, @Param("status") String status);
+
+    long count();
+}
+`,
+  "/proj/moduleB/src/main/resources/mapper/OrderMapper.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.demo.core.OrderMapper">
+    <select id="findById" resultType="com.demo.core.Order">
+        SELECT * FROM t_order WHERE id = #{id}
+    </select>
+
+    <update id="updateStatus">
+        UPDATE t_order SET status = #{status} WHERE id = #{id}
+    </update>
+</mapper>
+`,
   "/proj/moduleB/src/main/java/com/demo/core/OrderClient.java": `package com.demo.core;
 
 public class OrderClient {
@@ -530,11 +555,13 @@ export const DIRS: Record<string, Array<[string, boolean]>> = {
   // moduleB 故意没有 test：src 底下只有 main，合并成「src/main」一行，看得到 / 连接的那一种
   "/proj/moduleB": [["src", true], ["pom.xml", false]],
   "/proj/moduleB/src": [["main", true]],
-  "/proj/moduleB/src/main": [["java", true]],
+  "/proj/moduleB/src/main": [["java", true], ["resources", true]],
+  "/proj/moduleB/src/main/resources": [["mapper", true]],
+  "/proj/moduleB/src/main/resources/mapper": [["OrderMapper.xml", false]],
   "/proj/moduleB/src/main/java": [["com", true]],
   "/proj/moduleB/src/main/java/com": [["demo", true]],
   "/proj/moduleB/src/main/java/com/demo": [["core", true]],
-  "/proj/moduleB/src/main/java/com/demo/core": [["OrderClient.java", false], ["OrderServiceApplication.java", false]],
+  "/proj/moduleB/src/main/java/com/demo/core": [["OrderClient.java", false], ["OrderMapper.java", false], ["OrderServiceApplication.java", false]],
   "/proj/logs": [
     ["access-2026-08-24.log", false],
     ["gateway-2026-08-23.log", false],

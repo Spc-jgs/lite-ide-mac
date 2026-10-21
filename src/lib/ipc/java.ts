@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, ReplaceOutcome, JavaSignatures } from "./commands";
+import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, JavaSignatures } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -49,3 +49,7 @@ export const javaApplyAction = (root: string, path: string, raw: string, open: O
 export const javaClassContents = (root: string, uri: string) => invoke<string>("java_class_contents", { root, uri });
 export const javaStatus = (root: string) => invoke<JavaStatus | null>("java_status", { root });
 export const javaRestart = (root: string) => invoke<void>("java_restart", { root });
+
+/** MyBatis（docs/IDEA.md 第 24 节）：打开的 Java 接口 / Mapper XML 里的点，和对面那些（按名字配对）。`text` 是编辑器里此刻的 */
+export const mybatisForJava = (root: string, text: string) => invoke<MybatisLinks>("mybatis_for_java", { root, text });
+export const mybatisForXml = (root: string, text: string) => invoke<MybatisLinks>("mybatis_for_xml", { root, text });

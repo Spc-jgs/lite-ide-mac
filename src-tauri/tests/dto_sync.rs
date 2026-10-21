@@ -103,6 +103,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("TestResultsDto", "TestResults"),
     ("BuildProblemDto", "BuildProblem"),
     ("BuildProblemsDto", "BuildProblems"),
+    ("MybatisSpotDto", "MybatisSpot"),
+    ("MybatisLinksDto", "MybatisLinks"),
     ("DebugFrameDto", "DebugFrame"),
     ("DebugThreadDto", "DebugThread"),
     ("DebugStateDto", "DebugState"),

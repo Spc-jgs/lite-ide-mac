@@ -246,10 +246,48 @@ function resolve(raw: string) {
   return { edits: [{ ...at, endLine: at.line, endCharacter: at.character, text: pk >= 0 ? `\n\nimport ${it.import};` : `import ${it.import};\n\n` }], doc };
 }
 
+/**
+ * MyBatis（docs/IDEA.md 第 24 节）：同 mybatis.rs 的规则，桩用正则做个简化版（规则本身在 Rust 的测试里）——
+ * XML 的 namespace / 语句，接口的包名 + 名字 / 方法（缩进一层、「类型 名字(」）
+ */
+const mbNs = (xml: string) => /<mapper\s[^>]*namespace\s*=\s*["']([^"']+)["']/.exec(xml)?.[1] ?? null;
+const mbStatements = (xml: string) =>
+  xml.split("\n").flatMap((l, i) => {
+    const m = /<(select|insert|update|delete)\s[^>]*\bid\s*=\s*["']([^"']+)["']/.exec(l);
+    return m ? [{ name: m[2], kind: m[1], path: "", line: i + 1 }] : [];
+  });
+const mbInterface = (java: string) => {
+  const pkg = /^package\s+([\w.]+);/m.exec(java)?.[1];
+  const name = /\binterface\s+(\w+)/.exec(java)?.[1];
+  return name ? (pkg ? `${pkg}.${name}` : name) : null;
+};
+const mbMethods = (java: string) =>
+  java.split("\n").flatMap((l, i) => {
+    const m = /^ {4}[\w<>[\], ?]+\s+(\w+)\s*\(/.exec(l);
+    return m ? [{ name: m[1], kind: "", path: "", line: i + 1 }] : [];
+  });
+
 export async function javaCmd(cmd: string, a: A): Promise<unknown> {
   const root = String(a.root ?? "");
   const path = String(a.path ?? "");
   switch (cmd) {
+    case "mybatis_for_java": {
+      const text = String(a.text);
+      const fqn = mbInterface(text);
+      if (!fqn) return { here: [], there: [] };
+      const there = Object.entries(FILES)
+        .filter(([p, t]) => p.startsWith(`${root}/`) && p.endsWith(".xml") && typeof t === "string" && mbNs(t) === fqn)
+        .flatMap(([p, t]) => mbStatements(t as string).map((s) => ({ ...s, path: p })));
+      return { here: mbMethods(text), there };
+    }
+    case "mybatis_for_xml": {
+      const text = String(a.text);
+      const fqn = mbNs(text);
+      if (!fqn) return { here: [], there: [] };
+      const tail = `/${fqn.replace(/\./g, "/")}.java`;
+      const java = Object.keys(FILES).find((p) => p.startsWith(`${root}/`) && p.endsWith(tail));
+      return { here: mbStatements(text), there: java ? mbMethods(String(FILES[java])).map((m) => ({ ...m, path: java })) : [] };
+    }
     case "java_open":
       if (!phaseOf.has(root) && !isBuildRoot(root)) return null;
       docs.set(path, String(a.text ?? ""));

@@ -30,6 +30,9 @@ type View = {
   };
   dispatch(tr: unknown): void;
   focus(): void;
+  /** 「图标画在第几行」用（`lineOfGutter`） */
+  lineBlockAtHeight(h: number): { from: number };
+  documentTop: number;
 };
 
 /*
@@ -128,6 +131,17 @@ export function installTestHooks() {
       v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text }, selection: { anchor: text.length }, userEvent: "input.paste" });
     },
     /** 光标放到第 line 行第 col 列（都从 1 起），并让编辑器拿到焦点 —— 后面的 key() 要发给它 */
+    /** 活动编辑器里光标在第几行（从 1 数）；没有编辑器是 0 */
+    caretLine: () => {
+      const v = editor();
+      return v ? v.state.doc.lineAt(v.state.selection.main.head).number : 0;
+    },
+    /** 行号旁那一列里的一个图标画在第几行（按它在屏幕上的高度问编辑器）：验「图标画在了哪一行」，不靠 DOM 次序猜 */
+    lineOfGutter: (el: Element) => {
+      const v = mustEditor();
+      const r = el.getBoundingClientRect();
+      return v.state.doc.lineAt(v.lineBlockAtHeight(r.top + r.height / 2 - v.documentTop).from).number;
+    },
     caret: (line: number, col: number) => {
       const v = mustEditor();
       v.dispatch({ selection: { anchor: v.state.doc.line(line).from + col - 1 } });

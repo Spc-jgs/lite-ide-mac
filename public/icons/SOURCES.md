@@ -9,6 +9,8 @@
 | `icons/push.svg` | `platform/icons/src/expui/vcs/push_dark.svg` |
 | `icons/commit.svg` | `platform/icons/src/expui/vcs/commit_dark.svg` |
 | `icons/folder.svg` | `platform/icons/src/expui/nodes/folder_dark.svg` |
+| `icons/to-xml.svg` | `platform/icons/src/expui/gutter/implementingMethod_dark.svg`（MyBatis：接口方法旁边，点了跳到 XML 里那段 SQL —— IDEA 用它表示「这个方法有实现，跳过去」） |
+| `icons/to-java.svg` | `platform/icons/src/expui/gutter/implementedMethod_dark.svg`（MyBatis：XML 语句旁边，点了跳回接口方法 —— IDEA 用它表示「跳回声明」） |
 | `icons/tag.svg` | **lite-ide 自绘**：IDEA 新 UI 没有 git 标签的独立图标（提交历史里的标签是代码画的色块，`nodes/tag` 是 XML 标签 `<>`）。描边按新 UI 的 1px 画 |
 | `icons/maven.svg` | `plugins/maven/src/main/resources/images/expui/toolwindow/maven_dark.svg`（Maven 插件的工具窗图标，不在 platform/icons 里） |
 | `icons/maven-project.svg` | `plugins/maven/src/main/resources/images/expui/build/mavenProject_dark.svg`（Maven 工具窗里的项目 / 模块节点（IDEA 的 `MavenIcons.MavenProject`）） |

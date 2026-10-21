@@ -173,6 +173,21 @@ export interface TestResults {
   total: number;
 }
 
+/** MyBatis 跳转（docs/IDEA.md 第 24 节）的一个点：接口的方法，或者 XML 里的一段语句。`path` 是它在哪个文件（这个文件里的是空串） */
+export interface MybatisSpot {
+  name: string;
+  /** select / insert / update / delete；方法是空串 */
+  kind: string;
+  path: string;
+  line: number;
+}
+
+/** 打开的这个文件里的点（`here`），和对面那些（`there`）。按名字配对，两边都有的才画图标 */
+export interface MybatisLinks {
+  here: MybatisSpot[];
+  there: MybatisSpot[];
+}
+
 /** 构建（⌘F9，docs/IDEA.md 第 22 节）认出来的一条编译错误 / 警告。`message` 第一行是 javac 的话，后面是补充（符号、位置） */
 export interface BuildProblem {
   path: string;

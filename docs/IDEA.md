@@ -649,3 +649,16 @@ IDEA 的 Local History：不提交也能回到十分钟前那一版。菜单「�
 - 调试单测往命令里插 surefire 参数的地方（`debug::with_surefire_debug`）原来认「`mvn ` 开头」，现在也认「前缀那句之后的 `mvn `」
 
 **真 .app `scripts/accept/spring.sh` 57/57**（新加 2 条）：pom 改成要 21（你默认 17）、重新构建 —— 命令最前面是 temurin-21、输出里是 `release 21`、编过了。用 17 编同一个项目的原话是「错误: 不支持发行版本 21」（手工验过）。
+
+## 24. MyBatis：Mapper 接口 ↔ XML 跳转（2026-10-21，用户：MyBatis 用法 XML 和注解各一半）
+
+照 IDEA 的 MyBatisX 插件（Lithe 也做了）：接口方法旁边一个图标，点了跳到 XML 里那段 SQL；XML 的 `<select|insert|update|delete id="…">` 旁边一个，点了跳回接口方法。两边都有的才画。
+规则是 MyBatis 自己的：`namespace` = 接口全名，`id` = 方法名。用注解写 SQL 的那一半（`@Select`）SQL 就在方法上，不用跳；MyBatis-Plus 的通用方法 XML 里没有，不画。
+
+- **不靠 jdtls**（第 3 节「秒开不等」）：读文本。打开就有；改动停下 1 秒再问一次，没保存的也算
+- **两边的解析都在 Rust**（`mybatis.rs`），前端只画、只跳（同一套规则写两份，早晚有一边少一条）。认接口方法用 `javalite` 的分词（字符串、注释、注解括号跳过，记着第几层括号），
+  不用正则：正则不知道自己在第几层括号里，`default` 方法里匿名类的 `run()`、`@Param("id")` 都会被认错（测试各有一例，验红过）
+- 找 XML 走项目搜索那条路（有 rg 用 rg），**跳过构建产物** —— Maven 打包会把 XML 拷进 `target/classes`，不跳进去；找接口文件 `src/main/java` 的优先于 test 里同名的
+- 图标是 IDEA 的 `gutter/implementingMethod`（往实现跳）/ `implementedMethod`（往声明跳），深色版，用户同意后下的
+
+**真 .app `scripts/accept/mybatis.sh` 7/7**：三个图标、行号对（注释里的、`count`、匿名类的 `run` 不算）；点了进 src 的 XML（不是 target 的）；从 XML 回到 main 的接口（不是 test 的）；XML 里加一段不保存，一秒后图标多一个。
