@@ -301,6 +301,7 @@ pub fn run() {
             commands::maven_prefs_set,
             commands::services_list,
             commands::task_ports,
+            commands::task_heap,
             commands::test_results,
             commands::build_problems,
             commands::mybatis_for_java,

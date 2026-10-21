@@ -769,6 +769,18 @@ pub struct TaskExitDto {
     pub port: Option<PortHolderDto>,
 }
 
+/// 一个跑着的 JVM 此刻的堆（docs/IDEA.md 第 27 节），字节
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskHeapDto {
+    pub id: u32,
+    pub used: u64,
+    pub committed: u64,
+    pub max: u64,
+    pub gc_count: u64,
+    pub gc_ms: u64,
+}
+
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PortHolderDto {

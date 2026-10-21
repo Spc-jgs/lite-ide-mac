@@ -1,0 +1,7 @@
+[package]
+name = "jvmstat"
+version = "0.1.0"
+edition = "2021"
+description = "读 JVM 自己写的性能计数（hsperfdata）：堆用了多少、GC 几次（零 Tauri 依赖，docs/IDEA.md 第 27 节）"
+
+[dependencies]

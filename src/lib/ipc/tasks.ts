@@ -1,6 +1,6 @@
 /** 任务（#48）的命令包装：只有任务列表 / 运行工具窗用，它们是懒的（同 ipc/pty.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { BuildProblems, MavenProject, MavenResolved, Service, TaskList, TaskRun, TaskStale, TestResults } from "./commands";
+import type { BuildProblems, MavenProject, MavenResolved, Service, TaskHeap, TaskList, TaskRun, TaskStale, TestResults } from "./commands";
 
 /** 这个项目的全部任务：`.lite-ide/tasks.json` 里的 + 自动认出的 package.json scripts */
 export const taskList = (root: string) => invoke<TaskList>("task_list", { root });
@@ -37,6 +37,8 @@ export const servicesList = (root: string) => invoke<Service[]>("services_list",
 
 /** 一次运行此刻在听的端口：Services 里「跑着、还没端口」时隔一会儿问一次（只是一次 lsof，不重新认服务） */
 export const taskPorts = (id: number) => invoke<number[]>("task_ports", { id });
+/** 这几次运行的 JVM 堆（docs/IDEA.md 第 27 节）：读 JVM 的性能计数，不是 JVM 的、还在编译的不回 */
+export const taskHeap = (ids: number[]) => invoke<TaskHeap[]>("task_heap", { ids });
 
 /** Maven 工具窗：读 pom 就有的（模块树、阶段、profile、工具栏开关） */
 export const mavenProject = (root: string) => invoke<MavenProject>("maven_project", { root });

@@ -205,6 +205,25 @@ pub async fn task_ports(id: u32, app: tauri::AppHandle) -> Result<Vec<u16>, Stri
     .await
 }
 
+/// 这几次运行的 JVM 堆用了多少（docs/IDEA.md 第 27 节，Services 工具栏上选中服务的数和小曲线）。读 JVM 自己写的性能计数，不起子进程。
+/// 进程组长就是那个 JVM（Spring 的命令是 `… && exec java …`）；还在 `mvn compile` 的、不是 JVM 的、读不到的不回
+#[tauri::command]
+pub async fn task_heap(ids: Vec<u32>, app: tauri::AppHandle) -> Result<Vec<TaskHeapDto>, String> {
+    blocking(move || {
+        let st = app.state::<AppState>();
+        let tmp = std::env::temp_dir();
+        Ok(ids
+            .into_iter()
+            .filter_map(|id| {
+                let task = st.run_task(id).filter(|t| t.alive())?;
+                let h = jvmstat::read(&tmp, task.pgid() as u32).ok()?;
+                Some(TaskHeapDto { id, used: h.used, committed: h.committed, max: h.max, gc_count: h.gc_count, gc_ms: h.gc_ms })
+            })
+            .collect())
+    })
+    .await
+}
+
 /// 关掉一个任务的标签：从表里摘掉；还在跑就软停（宽限期在后台线程里等）
 #[tauri::command]
 pub fn task_close(id: u32, state: State<'_, AppState>) {

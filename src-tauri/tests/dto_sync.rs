@@ -79,6 +79,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("ServiceDto", "Service"),
     ("TaskExitDto", "TaskExit"),
     ("PortHolderDto", "PortHolder"),
+    ("TaskHeapDto", "TaskHeap"),
     ("TaskStaleDto", "TaskStale"),
     ("ReplaceScanDto", "ReplaceScan"),
     ("ReplaceAfterDto", "ReplaceAfter"),

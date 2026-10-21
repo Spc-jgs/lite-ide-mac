@@ -165,6 +165,11 @@ if wait_for 120 "listening ${UP}"; then
   ok "$([ "$(lite_eval main "return document.querySelector('.panel-head .tw-name')?.textContent === 'Services' && !!document.querySelector('.rail button[aria-label=\"Services\"]')")" = true ] && echo 1)" "服务跑起来亮的是 Services 工具窗（导轨上有它的按钮），不是运行窗"
   lite_wait main "${SVC} return port('UserApplication') === ':${UP}'" 15 >/dev/null
   ok "$([ "$(lite_eval main "${SVC} return grp('UserApplication') + ' ' + port('UserApplication')")" = "Running :${UP}" ] && echo 1)" "Services 里 UserApplication 在 Running、端口 :${UP}（lsof 查的是它那个进程组）：$(lite_eval main "${SVC} return rows().map((r) => r.innerText.replace(/\n/g, ' ')).join(' / ')")"
+  # 堆（docs/IDEA.md 第 27 节）：读 JVM 自己写的性能计数，2 秒一个点，画选中的那个。用了 ≤ 要了 ≤ 最多，三个数都对得上才算
+  lite_eval main "${SVC} row('UserApplication').click(); return true" >/dev/null
+  lite_wait main "return !!document.querySelector('.svc .bar .heap polyline')" 10 >/dev/null
+  HEAP=$(lite_eval main "const h = document.querySelector('.svc .bar .heap'); const t = h?.title ?? ''; const n = [...t.matchAll(/(\\d+) MB/g)].map((m) => +m[1]); return (n.length === 3 && n[0] > 0 && n[0] <= n[1] && n[1] <= n[2] ? 'ok ' : 'bad ') + h?.textContent + ' | ' + t.split('\\n')[0]")
+  ok "$(echo "${HEAP}" | grep -qE '^ok [0-9]+ MB \| 堆：用了' && echo 1)" "选中它，工具栏上带着它的堆和小曲线（读 JVM 自己的性能计数，不起子进程）：${HEAP}"
   lite menu run-stop main >/dev/null
   ok "$(wait_for 15 "! listening ${UP} && [ \"\$(group_left ${G})\" = 0 ]" && echo 1)" "⌘F2 停的是 Services 里选中的它：端口空了、组里剩 $(group_left "${G}") 个"
   lite_wait main "${SVC} return grp('UserApplication') === 'Finished'" 10 >/dev/null

@@ -1220,6 +1220,16 @@ export interface TaskExit {
   port: PortHolder | null;
 }
 
+/** 一个跑着的 JVM 此刻的堆（docs/IDEA.md 第 27 节），字节 */
+export interface TaskHeap {
+  id: number;
+  used: number;
+  committed: number;
+  max: number;
+  gcCount: number;
+  gcMs: number;
+}
+
 export interface PortHolder {
   port: number;
   pid: number;

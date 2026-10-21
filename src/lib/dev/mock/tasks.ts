@@ -346,6 +346,15 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
     }
     case "task_ports":
       return mockPorts(Number(a.id));
+    // 堆（真实现读 JVM 的性能计数）：端口有了才有（JVM 起来了），用量锯齿形涨落 —— 涨到一截 GC 一次掉下来，曲线看得出 GC
+    case "task_heap":
+      return (a.ids as number[]).flatMap((id) => {
+        const r = RUNS.get(id);
+        if (!mockPorts(id).length || !r) return [];
+        const s = (Date.now() - (r.at ?? 0)) / 1000;
+        const MB = 1 << 20;
+        return [{ id, used: Math.round((60 + ((s * 9) % 140)) * MB), committed: 256 * MB, max: 4096 * MB, gcCount: Math.floor((s * 9) / 140), gcMs: Math.floor((s * 9) / 140) * 6 }];
+      });
     case "build_problems":
       return parseProblems(String(FILES[String(a.log)] ?? ""));
     case "test_results": {

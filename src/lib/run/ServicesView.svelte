@@ -21,8 +21,8 @@
   import Icon from "../shell/Icon.svelte";
   import { imeKey } from "../shell/ime";
   import RunView from "./RunView.svelte";
-  import { servicesList, taskPorts } from "../ipc/tasks";
-  import type { Service } from "../ipc/commands";
+  import { servicesList, taskHeap, taskPorts } from "../ipc/tasks";
+  import type { Service, TaskHeap } from "../ipc/commands";
   import { runTask, stopRun, openRunLog, freePortAndRerun, dismissHolder, focusService } from "../state/runs-ops";
   import { debugTask } from "../debug/debug-ops";
   import { runs, type RunTab } from "../state/runs.svelte";
@@ -160,6 +160,34 @@
     return () => clearTimeout(t);
   });
 
+  /*
+   * 堆（docs/IDEA.md 第 27 节）：跑着的服务每 2 秒问一次，每个记最近 60 个点（两分钟）—— 全都问、只画选中的那个：换着选时曲线是现成的。
+   * Rust 读的是 JVM 自己写的性能计数，不起子进程，问得起。
+   * 只在这个工具窗开着时问 —— 它挂着就是开着。停了的那次运行不再问，它的点跟着丢掉
+   */
+  const HEAP_KEEP = 60;
+  let heaps = $state<Record<number, TaskHeap[]>>({});
+  $effect(() => {
+    if (!list) return;
+    const ids = list.map(runOf).filter((r): r is RunTab => !!r && r.status === "running").map((r) => r.id);
+    if (!ids.length) return;
+    const t = setInterval(async () => {
+      const got = await taskHeap(ids).catch(() => [] as TaskHeap[]);
+      const next: Record<number, TaskHeap[]> = {};
+      for (const h of got) next[h.id] = [...(heaps[h.id] ?? []), h].slice(-HEAP_KEEP);
+      heaps = next;
+    }, 2000);
+    return () => clearInterval(t);
+  });
+  const mb = (n: number) => `${Math.round(n / 1048576)} MB`;
+  const heapTip = (h: TaskHeap) =>
+    `堆：用了 ${mb(h.used)}，向系统要了 ${mb(h.committed)}，最多能到 ${mb(h.max)}\nGC ${h.gcCount} 次，一共 ${h.gcMs} ms\n曲线是最近两分钟的用量（每 2 秒一个点）`;
+  /** 小曲线的点：最新的在最右，高度按这段时间里最大的「向系统要了」算 —— 用量贴着它就是快满了 */
+  function spark(hs: TaskHeap[]): string {
+    const top = Math.max(...hs.map((h) => h.committed), 1);
+    return hs.map((h, i) => `${HEAP_KEEP - (hs.length - 1 - i)},${(12 - (h.used / top) * 11).toFixed(1)}`).join(" ");
+  }
+
   function start(all: Service[]) {
     // 整组启动只起没在跑的；单个服务跑着就是重跑（Rust 那边先停旧的、等端口空出来）
     const go = all.length === 1 ? all : all.filter((s) => !alive(runOf(s)));
@@ -247,6 +275,16 @@
         <Icon name="stop" />
       </button>
       <span class="gap"></span>
+      <!--
+        选中的那个服务的堆（docs/IDEA.md 第 27 节）。原来想放在树里每一行端口旁边：树那一栏固定 300px，服务名本来就紧，再加一截数字和曲线，
+        「AdminApplication」被挤成「AdminA…」（浏览器里看出来的）—— 名字比堆要紧。工具栏这一段本来空着，选中会跟着刚起的服务走
+      -->
+      {#if selRun && alive(selRun) && heaps[selRun.id]?.length}
+        {@const hs = heaps[selRun.id]}
+        <span class="heap" title={heapTip(hs[hs.length - 1])}
+          ><svg class="spark" viewBox="0 0 {HEAP_KEEP} 12" preserveAspectRatio="none" aria-hidden="true"><polyline points={spark(hs)} /></svg>{mb(hs[hs.length - 1].used)}</span
+        >
+      {/if}
       <button class="ibtn" onclick={() => void refresh()} title="重新识别服务（改了 pom、加了入口类之后）" aria-label="重新识别服务">
         <Icon name="refresh" />
       </button>
@@ -382,6 +420,10 @@
   .note { flex: 0 1 auto; min-width: 0; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); font-size: var(--fs-xs); }
   /* 端口是「它能用了」的信号，人要一眼找到它：强调色、等宽数字 */
   .port { flex: none; margin-left: 6px; color: var(--accent); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+  /* 堆：淡色、不抢按钮的眼 —— 扫一眼「它还好不好」就够 */
+  .heap { flex: none; display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; color: var(--text-faint); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+  .spark { width: 40px; height: 12px; }
+  .spark polyline { fill: none; stroke: currentColor; stroke-width: 1; vector-effect: non-scaling-stroke; }
   /* 调试着的：停着的那个要一眼找到（琥珀，同「要你处理」的颜色），在跑的灰字 */
   .dbg-note { flex: none; margin-left: 6px; color: var(--text-faint); font-size: var(--fs-xs); }
   .dbg-note.paused { color: var(--lvl-warn); }
