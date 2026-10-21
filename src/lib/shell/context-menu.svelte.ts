@@ -16,3 +16,6 @@ import { lazy } from "../lazy/lazy.svelte";
 import type ContextMenu from "./ContextMenu.svelte";
 
 export const cmenu = lazy<typeof ContextMenu>(() => import("./ContextMenu.svelte"), "右键菜单");
+
+/** 入口里那几个菜单的菜单项（`menu-items.ts`）：标签栏和状态栏共用这一个句柄，入口里只留一处 `import()` */
+export const menuItems = lazy(() => import("./menu-items").then((m) => ({ default: m })), "菜单项");

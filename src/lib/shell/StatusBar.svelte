@@ -8,8 +8,7 @@
    * 剩下的都是当前标签的事实，由 App 传进来 —— 标签表还在 App 里（#9 第 4 步）。
    */
   import Icon from "./Icon.svelte";
-  import type { MenuItem } from "./ContextMenu.svelte";
-  import { cmenu } from "./context-menu.svelte";
+  import { cmenu, menuItems } from "./context-menu.svelte";
   import { progress } from "../state/progress.svelte";
   import { crumbsOf, projectName } from "../state/crumbs";
   import { isLogName } from "../logview/is-log-name";
@@ -70,31 +69,17 @@
 
   let fmtMenu = $state<{ x: number; y: number } | null>(null);
   $effect(() => {
-    if (fmtMenu) cmenu.load();
+    if (!fmtMenu) return;
+    cmenu.load();
+    menuItems.load();
   });
   let fmtBtn = $state<HTMLButtonElement | null>(null);
-  /**
-   * 菜单项：三档常用缩进 + LF / CRLF。文件猜出来的是 3 空格这种不在档里的，把它也列进去
-   * 打上勾 —— 不然菜单里一个勾都没有，人会以为「现在」是什么都没设。
-   * CR（老 Mac）同理不给选项：没人往这个方向改，但当前是 CR 时勾就空着，格子里的字说明了。
-   */
-  let fmtItems = $derived.by<MenuItem[]>(() => {
-    if (!lang.mod) return [];
-    const m = lang.mod;
-    const spaces = [2, 4];
-    if (typeof indentNow === "number" && !spaces.includes(indentNow)) spaces.push(indentNow);
-    spaces.sort((a, b) => a - b);
-    const opts: ("tab" | number)[] = [...spaces, "tab"];
-    const items: MenuItem[] = opts.map((o) => ({
-      label: m.indentLabel(o),
-      checked: o === indentNow,
-      run: () => onSetIndent(o),
-    }));
-    for (const [i, e] of (["LF", "CRLF"] as const).entries()) {
-      items.push({ label: e, checked: active?.eol === e, sep: i === 0, run: () => onSetEol(e) });
-    }
-    return items;
-  });
+  /** 菜单项在 `menu-items.ts`（懒的，点了和菜单壳一起拉） */
+  let fmtItems = $derived(
+    lang.mod && menuItems.comp
+      ? menuItems.comp.fmtMenuItems({ indentNow, eol: active?.eol, indentLabel: lang.mod.indentLabel, onSetIndent, onSetEol })
+      : [],
+  );
   function openFmt() {
     if (!fmtBtn || !lang.mod) return;
     const r = fmtBtn.getBoundingClientRect();
@@ -311,7 +296,7 @@
   {/if}
 </footer>
 
-{#if fmtMenu && cmenu.comp}
+{#if fmtMenu && cmenu.comp && menuItems.comp}
   <cmenu.comp
     x={fmtMenu.x}
     y={fmtMenu.y}

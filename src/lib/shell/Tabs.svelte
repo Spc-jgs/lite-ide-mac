@@ -1,11 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { MenuItem } from "./ContextMenu.svelte";
   import type { Group } from "../state/tab";
-  import { cmenu } from "./context-menu.svelte";
+  import { cmenu, menuItems } from "./context-menu.svelte";
   import Icon from "./Icon.svelte";
   import FileGlyph from "./FileGlyph.svelte";
-  import { copyText, relTo, showInFinder } from "./pathactions";
   import { scratchSaveState } from "../state/autosave";
 
   export interface Tab {
@@ -136,16 +134,6 @@
     return { on: false, warn: false, title: "" };
   }
 
-  /**
-   * 差异/合并标签的 path 是 `git-diff:xxx` 这类**合成 key**，不是盘上的路径。
-   * 拿它去 Finder 里显示或者复制，给出来的是一串没用的东西 ——
-   * 所以那几项只对真实文件出现。判据就是「以 / 开头」。
-   */
-  const isReal = (p: string) => p.startsWith("/");
-
-  /** 在当前项目根底下。草稿住在根外面，跟它有关的菜单项要跟着让开 */
-  const inRoot = (p: string) => !!root && p.startsWith(root.endsWith("/") ? root : `${root}/`);
-
   const MODE_LABEL: Record<Tab["mode"], string> = {
     edit: "",
     log: "日志",
@@ -157,73 +145,17 @@
 
   let menu = $state<{ x: number; y: number; tab: Tab; i: number } | null>(null);
   $effect(() => {
-    if (menu) cmenu.load();
+    if (!menu) return;
+    cmenu.load();
+    menuItems.load();
   });
 
-  let items = $derived.by(() => {
-    const m = menu;
-    if (!m) return [] as MenuItem[];
-    const { tab, i } = m;
-    // 钉住的也能从这儿关（`force`）：钉住防的是误关，不是不许关
-    const out: MenuItem[] = [{ label: "关闭", run: () => onClose(tab.id, true) }];
-    out.push({ label: tab.pinned ? "取消钉住" : "钉住", run: () => onPin?.(tab.id, !tab.pinned) });
-    /*
-     * 不适用的项**直接不出现**，而不是灰着放在那儿。
-     *
-     * 灰项要么让键盘游标停在一个按了没反应的条目上，要么就得写跳过逻辑 ——
-     * 而「关闭其他」在只有一个标签时本来也没什么可解释的。
-     */
-    if (tabs.length > 1) {
-      out.push({
-        label: "关闭其他",
-        run: () => onCloseMany?.(tabs.filter((t) => t.id !== tab.id).map((t) => t.id)),
-      });
-    }
-    if (i < tabs.length - 1) {
-      out.push({
-        label: "关闭右侧的",
-        run: () => onCloseMany?.(tabs.slice(i + 1).map((t) => t.id)),
-      });
-    }
-    out.push({ label: "关闭全部", run: () => onCloseMany?.(tabs.map((t) => t.id)) });
-    // 分屏（issue #35）：只有一个标签时不出现 —— 挪走它这一组就空了、立刻收起，等于白做。
-    // 判据同上面那句：不适用的项直接不出现
-    if (onMoveToOther && tabs.length > 1) {
-      out.push({ label: moveLabel, sep: true, run: () => onMoveToOther(tab.id) });
-    }
-
-    if (isReal(tab.path)) {
-      /*
-       * 「定位」和「相对路径」只对**项目根底下**的文件成立。
-       *
-       * 草稿就住在根外面（`~/Library/Application Support/…/scratches`）：
-       * 文件树里根本没有它那一行，定位必然落空；而 `relTo` 对根外的路径
-       * 是原样返回绝对路径的 —— 一个叫「复制相对路径」的菜单项给你一串
-       * `/Users/…/Application Support/…`，那是菜单在说谎。
-       * 判据同上面那句：**不适用的项直接不出现**。
-       */
-      if (inRoot(tab.path)) {
-        out.push({
-          label: "在文件树中定位",
-          sep: true,
-          run: () => onRevealInTree?.(tab.path),
-        });
-      }
-      out.push({
-        label: "在 Finder 中显示",
-        sep: !inRoot(tab.path),
-        run: () => void showInFinder(tab.path),
-      });
-      out.push({ label: "复制路径", sep: true, run: () => void copyText(tab.path, "路径") });
-      if (inRoot(tab.path)) {
-        out.push({
-          label: "复制相对路径",
-          run: () => void copyText(relTo(root, tab.path), "相对路径"),
-        });
-      }
-    }
-    return out;
-  });
+  /** 菜单项怎么排在 `menu-items.ts`（懒的，右键时和菜单壳一起拉）。还没到就是空表，`{#if}` 等它到了再画 */
+  let items = $derived(
+    menu && menuItems.comp
+      ? menuItems.comp.tabMenuItems({ ...menu, tabs, root, onClose, onPin, onCloseMany, onMoveToOther, moveLabel, onRevealInTree })
+      : [],
+  );
 
   function openMenu(e: MouseEvent, tab: Tab, i: number) {
     e.preventDefault();
@@ -414,7 +346,7 @@
   {/if}
 </div>
 
-{#if menu && cmenu.comp}
+{#if menu && cmenu.comp && menuItems.comp}
   <cmenu.comp
     x={menu.x}
     y={menu.y}
