@@ -258,7 +258,12 @@ pub fn init_options() -> Value {
         "extendedClientCapabilities": { "classFileContentsSupport": true, "progressReportProvider": false },
         "settings": { "java": {
             "import": { "maven": { "enabled": true }, "gradle": { "enabled": true } },
-            "autobuild": { "enabled": true },
+            // **不自动构建**（2026-10-20，构建 ⌘F9 的验收撞出来的）：开着的话 jdtls 每次改动都往 `target/classes` 里写 class ——
+            // 和 Maven 写的是同一个目录。代码有错时 Eclipse 编译器照样出 class，出错的方法换成一句
+            // `throw new Error("Unresolved compilation problem: …")`（javap 实测），而且比源文件新，于是 `mvn compile` 说「Nothing to compile」：
+            // 构建报成功、运行（`mvn compile && java`）跑的是这个坏 class、一调到那个方法就抛。关了之后 `target/classes` 只有 Maven 一家写。
+            // 编辑器里的实时报错是 jdtls 对开着的文件做的（reconcile），不靠构建；补全、跳转、改名也不靠（java.sh 全过）
+            "autobuild": { "enabled": false },
             // 不下源码 jar：开着的话 m2e 导入完就在后台给**每个依赖**下 sources + javadoc —— 往用户的本地仓库里下东西没问过他，
             // 而且收尾时 jdtls 卡在这个下载任务上（实测冷缓存那次 shutdown + exit 之后 20 秒不退，日志最后一句
             // `An internal error occurred during: "Download sources and javadoc"`）。本地仓库里已经有的 sources jar m2e 照样自动挂上；
@@ -289,6 +294,12 @@ mod tests {
             #[allow(clippy::disallowed_methods)] // 同上
             std::fs::write(home.join("bin/java"), "").unwrap();
         }
+    }
+
+    #[test]
+    fn 不自动构建_target_classes_只归_maven_写() {
+        // 开着的话 jdtls 把有错的代码编成「一调就抛」的 class 写进 target/classes，mvn 还当它是新的（见 init_options 里那段）
+        assert_eq!(init_options()["settings"]["java"]["autobuild"]["enabled"], false);
     }
 
     #[test]

@@ -247,7 +247,9 @@ mvn -q -B -pl <模块> -am -DskipTests compile dependency:build-classpath -Dmdep
 - IDEA 的「Find」工具窗（⌥F7 现在开的是 Show Usages 那张列表）；跳到项目外的源码（另一个项目）
 - 跳进 jar 里的类之后，在那个类里再 ⌘B
 - Gradle 项目没验过（判据认 build.gradle，jdtls 的导入也开着，但没有样例跑过）
-- `target/classes` 两个编译器同写（第 7 节）：还没用 spring.sh 在 jdtls 开着时验
+- ~~`target/classes` 两个编译器同写（第 7 节）：还没用 spring.sh 在 jdtls 开着时验~~ 2026-10-20 构建（第 22 节）的验收撞上了，**真会出事**：
+  jdtls 的自动构建把有错的代码编成「出错的方法只剩 `throw new Error("Unresolved compilation problem")`」的 class（javap 实测）、比源文件新，
+  `mvn compile` 说「Nothing to compile」—— 构建报成功，运行跑的是这个坏 class。已关掉 jdtls 的自动构建（`jdtls::init_options`），`target/classes` 只归 Maven
 
 ## 10. jdtls 和 Java 21 内置（2026-10-15）
 
