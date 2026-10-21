@@ -50,9 +50,37 @@ pub fn find_jdk(dirs: &[PathBuf], min: u32) -> Option<(u32, PathBuf)> {
     best
 }
 
-/// macOS 上 JDK 装在哪：系统那份（pkg / Homebrew cask）和用户自己的（IDEA 下载的）
+/// macOS 上 JDK 装在哪：系统那份（pkg / Homebrew cask）、用户自己的（IDEA 下载的）、sdkman 的
 pub fn default_jdk_dirs(user_home: &Path) -> Vec<PathBuf> {
-    vec!["/Library/Java/JavaVirtualMachines".into(), user_home.join("Library/Java/JavaVirtualMachines")]
+    vec!["/Library/Java/JavaVirtualMachines".into(), user_home.join("Library/Java/JavaVirtualMachines"), user_home.join(".sdkman/candidates/java")]
+}
+
+/// 这些目录里全部的 JDK：(主版本, JAVA_HOME)。macOS 的包是 `<名字>/Contents/Home`，sdkman 的是 `<名字>` 自己；
+/// 按 `release` 文件判版本、要有 `bin/java`（同 [`find_jdk`]）。sdkman 的 `current` 是指到另一个的软链，跳过免得一个 JDK 算两遍
+pub fn list_jdks(dirs: &[PathBuf]) -> Vec<(u32, PathBuf)> {
+    let mut out = Vec::new();
+    for d in dirs {
+        let Ok(rd) = std::fs::read_dir(d) else { continue };
+        for e in rd.flatten() {
+            if e.file_name() == "current" {
+                continue;
+            }
+            let mac = e.path().join("Contents/Home");
+            let home = if mac.is_dir() { mac } else { e.path() };
+            let Ok(text) = std::fs::read_to_string(home.join("release")) else { continue };
+            if let (Some(v), true) = (java_version(&text), home.join("bin/java").is_file()) {
+                out.push((v, home));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// 项目要 Java `want`：主版本一样的优先（多个就挑排在前面的，稳定）；没有就挑比它高、离它最近的（javac 的 `--release` 往下兼容）；
+/// 都没有给 None（只装了更老的）。IDEA 是让人选项目 SDK；我们按 pom 说的挑，同 Lithe 的做法
+pub fn pick_jdk(jdks: &[(u32, PathBuf)], want: u32) -> Option<(u32, PathBuf)> {
+    jdks.iter().find(|(v, _)| *v == want).or_else(|| jdks.iter().filter(|(v, _)| *v > want).min_by_key(|(v, _)| *v)).cloned()
 }
 
 /// 一个 jdtls 的目录（解开的发行包，里面有 `plugins/` 和 `config_*`）
@@ -300,6 +328,31 @@ mod tests {
     fn 不自动构建_target_classes_只归_maven_写() {
         // 开着的话 jdtls 把有错的代码编成「一调就抛」的 class 写进 target/classes，mvn 还当它是新的（见 init_options 里那段）
         assert_eq!(init_options()["settings"]["java"]["autobuild"]["enabled"], false);
+    }
+
+    #[test]
+    fn 按项目挑_jdk_同版本优先_没有就挑最近的更高版本_sdkman_的也认() {
+        let d = tmp("pick");
+        let mac = d.join("mac");
+        jdk(&mac, "temurin-17.jdk", "17.0.19", true);
+        jdk(&mac, "temurin-21.jdk", "21.0.12.1", true);
+        jdk(&mac, "zulu-11.jdk", "11.0.2", false);
+        // sdkman：没有 Contents/Home，名字底下直接是 JDK；current 是软链不算
+        let sdk = d.join("sdk");
+        let h = sdk.join("8.0.402-tem");
+        std::fs::create_dir_all(h.join("bin")).unwrap();
+        #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
+        {
+            std::fs::write(h.join("release"), "JAVA_VERSION=\"1.8.0_402\"\n").unwrap();
+            std::fs::write(h.join("bin/java"), "").unwrap();
+        }
+        std::os::unix::fs::symlink(&h, sdk.join("current")).unwrap();
+        let all = list_jdks(&[mac.clone(), sdk.clone()]);
+        assert_eq!(all.iter().map(|(v, _)| *v).collect::<Vec<_>>(), vec![8, 17, 21], "没有 java 的 11 不算、current 不重复算");
+        assert_eq!(pick_jdk(&all, 17).unwrap().0, 17, "同版本优先（不是挑最高的 21）");
+        assert_eq!(pick_jdk(&all, 11).unwrap().0, 17, "没有 11：挑比它高、最近的");
+        assert_eq!(pick_jdk(&all, 8).unwrap().1, h, "sdkman 的 JAVA_HOME 是目录自己");
+        assert_eq!(pick_jdk(&all, 25), None, "只有更老的：不硬挑");
     }
 
     #[test]

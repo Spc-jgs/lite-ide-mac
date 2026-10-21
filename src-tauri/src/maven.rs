@@ -105,6 +105,37 @@ fn values<'a>(s: &'a str, tag: &str) -> Vec<&'a str> {
     out
 }
 
+/// 项目要的 Java 版本（按项目挑 JDK 用，docs/IDEA.md 第 23 节）：按这个次序找第一个写了的 ——
+/// `maven.compiler.release` > 编译插件的 `<release>` > `maven.compiler.target` > `maven.compiler.source` > `java.version`（Spring Boot 的父 pom 拿它去设前面几个）。
+/// `1.8` 是 8；`${名字}` 在同一份 pom 里解一次。profile 里的不算（默认不生效）。没写给 None —— 那就照旧用你的默认 JDK，不猜
+pub fn java_release(text: &str) -> Option<u32> {
+    let s = drop_sections(&strip_comments(text), "profiles");
+    let num = |v: &str| -> Option<u32> {
+        let v = v.trim();
+        let v = v.strip_prefix("1.").unwrap_or(v);
+        v.split('.').next()?.parse().ok()
+    };
+    for tag in ["maven.compiler.release", "release", "maven.compiler.target", "maven.compiler.source", "java.version"] {
+        let Some(v) = values(&s, tag).into_iter().find(|v| !v.is_empty()) else { continue };
+        if let Some(name) = v.strip_prefix("${").and_then(|x| x.strip_suffix('}')) {
+            if let Some(n) = values(&s, name).first().and_then(|x| num(x)) {
+                return Some(n);
+            }
+            continue;
+        }
+        if let Some(n) = num(v) {
+            return Some(n);
+        }
+    }
+    None
+}
+
+/// 一个模块要的 Java 版本：先看模块自己的 pom，再看 reactor 根的（子模块一般从根继承）
+pub fn module_java(reactor: &Path, module_rel: &str) -> Option<u32> {
+    let own = if module_rel.is_empty() { None } else { read_pom(&reactor.join(module_rel).join("pom.xml")).and_then(|t| java_release(&t)) };
+    own.or_else(|| read_pom(&reactor.join("pom.xml")).and_then(|t| java_release(&t)))
+}
+
 /// 一份 pom 自己这一层的 artifactId 和默认生效的子模块
 pub fn parse_pom(text: &str) -> (Option<String>, Vec<String>) {
     let mut s = strip_comments(text);
@@ -322,15 +353,16 @@ pub fn test_command(module: &str, selector: &str, prefs: &Prefs) -> Option<Strin
 /// 用 Maven 不用 jdtls 的增量构建：「运行」走的是 `mvn compile`，Build 说编得过、运行却编不过就白问了（第 22 节有对照）。
 /// 带 profile 和离线；不带跳过测试（`-DskipTests` 本来也不跳过编译测试）。几个 reactor 都跑完再说结果（IDEA 也是全编完才列错误），
 /// 有一个没过整个算失败。没有 reactor（不是 Maven 项目）给 None
-pub fn build_command(reactors: &[String], prefs: &Prefs, clean: bool) -> Option<String> {
+/// `jdk`：每个 reactor 前面加的那段（「用项目要的那个 JDK」，见 `taskdefs::jdk_prefix`；没有就是空的）
+pub fn build_command(reactors: &[String], prefs: &Prefs, clean: bool, jdk: &dyn Fn(&str) -> String) -> Option<String> {
     let goal = if clean { "clean test-compile" } else { "test-compile" };
     let one = format!("mvn -B -ntp{} {goal}", prefs.flags());
     match reactors {
         [] => None,
-        [r] if r.is_empty() => Some(one),
+        [r] if r.is_empty() => Some(format!("{}{one}", jdk(r))),
         rs => Some(format!(
             "rc=0; {}exit $rc",
-            rs.iter().map(|r| format!("(cd {} && {one}) || rc=1; ", word(if r.is_empty() { "." } else { r }))).collect::<String>()
+            rs.iter().map(|r| format!("(cd {} && {}{one}) || rc=1; ", word(if r.is_empty() { "." } else { r }), jdk(r))).collect::<String>()
         )),
     }
 }
@@ -508,7 +540,7 @@ pub fn reactors(root: &Path) -> Vec<String> {
 }
 
 /// 放进 shell 命令行的一个词（路径、类名）：普通的原样，带空格之类的套单引号
-fn word(s: &str) -> String {
+pub(crate) fn word(s: &str) -> String {
     if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "_-./:@+=,%".contains(c)) {
         s.to_string()
     } else {
@@ -534,13 +566,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn 项目要的_java_版本_按次序找_1点8_是_8_变量解一次_profile_里的不算() {
+        assert_eq!(java_release("<properties><java.version>17</java.version></properties>"), Some(17), "Spring Boot 的写法");
+        assert_eq!(java_release("<properties><maven.compiler.source>1.8</maven.compiler.source><maven.compiler.target>1.8</maven.compiler.target></properties>"), Some(8));
+        assert_eq!(java_release("<properties><java.version>11</java.version><maven.compiler.release>21</maven.compiler.release></properties>"), Some(21), "release 优先");
+        assert_eq!(java_release("<properties><jdk>21</jdk><maven.compiler.release>${jdk}</maven.compiler.release></properties>"), Some(21), "变量");
+        assert_eq!(java_release("<build><plugins><plugin><artifactId>maven-compiler-plugin</artifactId><configuration><release>17</release></configuration></plugin></plugins></build>"), Some(17));
+        assert_eq!(java_release("<profiles><profile><properties><java.version>8</java.version></properties></profile></profiles>"), None, "profile 里的默认不生效");
+        assert_eq!(java_release("<!-- <java.version>8</java.version> --><artifactId>a</artifactId>"), None, "注释掉的不算");
+    }
+
+    #[test]
     fn 构建_每个_reactor_一遍_test_compile_重新构建先_clean_有一个没过整体失败() {
         let p = Prefs { offline: true, skip_tests: true, profiles: vec!["dev".into()] };
-        assert_eq!(build_command(&[String::new()], &p, false).unwrap(), "mvn -B -ntp -o -P dev test-compile", "跳过测试不带（不该跳过编译测试）");
-        assert_eq!(build_command(&[String::new()], &p, true).unwrap(), "mvn -B -ntp -o -P dev clean test-compile");
-        let two = build_command(&["api".into(), "my svc".into()], &Prefs::default(), false).unwrap();
-        assert_eq!(two, "rc=0; (cd api && mvn -B -ntp test-compile) || rc=1; (cd 'my svc' && mvn -B -ntp test-compile) || rc=1; exit $rc");
-        assert_eq!(build_command(&[], &p, false), None, "不是 Maven 项目");
+        let none = |_: &str| String::new();
+        assert_eq!(build_command(&[String::new()], &p, false, &none).unwrap(), "mvn -B -ntp -o -P dev test-compile", "跳过测试不带（不该跳过编译测试）");
+        assert_eq!(build_command(&[String::new()], &p, true, &none).unwrap(), "mvn -B -ntp -o -P dev clean test-compile");
+        // 每个 reactor 各自的 JDK 加在它自己那段里
+        let jdk = |r: &str| if r == "api" { "export JAVA_HOME=/j17; ".to_string() } else { String::new() };
+        let two = build_command(&["api".into(), "my svc".into()], &Prefs::default(), false, &jdk).unwrap();
+        assert_eq!(two, "rc=0; (cd api && export JAVA_HOME=/j17; mvn -B -ntp test-compile) || rc=1; (cd 'my svc' && mvn -B -ntp test-compile) || rc=1; exit $rc");
+        assert_eq!(build_command(&[], &p, false, &none), None, "不是 Maven 项目");
     }
 
     #[test]

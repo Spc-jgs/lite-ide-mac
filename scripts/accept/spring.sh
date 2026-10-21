@@ -318,7 +318,7 @@ TRUN="order-service [test com.demo.order.OrderMathTest#usesSiblingModule]"
 TDBG="const r = __lite.runs.list.find((x) => x.name === '${TRUN}'); const d = r?.debug;"
 T0=$(date +%s)
 lite_wait main "${TDBG} return d?.phase === 'paused' || d?.phase === 'ended'" 300 >/dev/null
-ok "$(lite_eval main "${TDBG} return r?.command ?? ''" | grep -q -- "^mvn '-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0' .*-Dtest='com.demo.order.OrderMathTest#usesSiblingModule'" && echo 1)" "⌃⇧D 起的是那一个方法、调试代理交给 surefire：$(lite_eval main "${TDBG} return (r?.command ?? '没有').slice(0, 90)")"
+ok "$(lite_eval main "${TDBG} return r?.command ?? ''" | grep -q -- "^export JAVA_HOME=[^;]*temurin-17[^;]*; mvn '-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0' .*-Dtest='com.demo.order.OrderMathTest#usesSiblingModule'" && echo 1)" "⌃⇧D 起的是那一个方法、调试代理交给 surefire：$(lite_eval main "${TDBG} return (r?.command ?? '没有').slice(0, 90)")"
 FR=$(lite_eval main "${TDBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.name + '@' + f.path.split('/').pop() + ':' + f.line).join('')")
 ok "$(echo "${FR}" | grep -q '^paused OrderMathTest.usesSiblingModule()@OrderMathTest.java:11$' && echo 1)" "停在测试里的断点上（从按键到停下 $(( $(date +%s) - T0 )) 秒）：${FR}"
 lite_wait main "${VARS} return !!document.querySelector('.dbg .expr')" 10 >/dev/null
@@ -337,7 +337,7 @@ python3 -c 'import sys; p=sys.argv[1]; s=open(p).read(); open(p,"w").write(s.rep
 B="const r = __lite.runs.list.find((x) => x.name === '构建项目');"
 lite menu build-project main >/dev/null
 lite_wait main "${B} return !!r && r.status !== 'running' && !!r.problems" 240 >/dev/null
-ok "$([ "$(lite_eval main "${B} return r?.command + '|' + r?.status")" = "mvn -B -ntp -P probe test-compile|failed" ] && echo 1)" "菜单「构建项目」：带上勾的 profile 跑 test-compile、失败了：$(lite_eval main "${B} return r?.command + '|' + r?.status")"
+ok "$([ "$(lite_eval main "${B} return r?.command.replace(/^export [^;]*; /, '') + '|' + r?.status")" = "mvn -B -ntp -P probe test-compile|failed" ] && echo 1)" "菜单「构建项目」：带上勾的 profile 跑 test-compile、失败了（JDK 那段见下一节）：$(lite_eval main "${B} return r?.command + '|' + r?.status")"
 ok "$(lite_eval main "${B} const p = r?.problems?.items ?? []; return p.length + ' ' + p.map((x) => x.path.split('/').pop() + ':' + x.line + ':' + x.message.split('\\n')[0]).join(',')" | grep -q '^1 Money.java:5:' && echo 1)" "错误树里正好一条、在 Money.java 第 5 行（Maven 把它打了两遍）：$(lite_eval main "${B} const p = r?.problems?.items ?? []; return p.length + ' ' + p.map((x) => x.path.split('/').pop() + ':' + x.line + ':' + x.message.split('\\n')[0]).join(',')")"
 mv "${P}/Money.java.bak" "${MONEY}"; touch "${MONEY}"
 # 上一次「构建失败」那条提示没读完时，做成了的不会把它顶掉（ui.md 第三条「坏消息不被好消息顶掉」）—— 等它自己走了再构建，像人看完了那样
@@ -346,6 +346,23 @@ lite menu build-project main >/dev/null
 lite_wait main "${B} return !!r && r.status === 'done' && r.problems?.items.length === 0" 240 >/dev/null
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('构建完成')" 10 >/dev/null
 ok "$([ "$(lite_eval main "${B} return r?.status + ':' + r?.problems?.items.length + ':' + (document.querySelector('.bt .sum')?.textContent?.trim() ?? '')")" = "done:0:构建成功" ] && lite_eval main "return document.querySelector('.toast')?.textContent ?? ''" | grep -q '构建完成，用了' && echo 1)" "改好了再构建：成功、没有错误，说了「$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? '没有'")」"
+
+echo "== 按项目挑 JDK（docs/IDEA.md 第 23 节）：pom 要 21、你默认的是 17 —— 用 21 编；运行、单测、调试、构建都一样，写在命令最前面"
+J21=$(ls -d /Library/Java/JavaVirtualMachines/*21*/Contents/Home 2>/dev/null | head -1)
+if [ -z "${J21}" ]; then
+  skip "这台机器上没有 JDK 21"
+else
+  cp "${P}/pom.xml" "${P}/pom.xml.bak"
+  python3 -c 'import sys; p=sys.argv[1]; s=open(p).read(); open(p,"w").write(s.replace("<java.version>17</java.version>", "<java.version>21</java.version>"))' "${P}/pom.xml"
+  lite_wait main "return !document.querySelector('.toast')" 15 >/dev/null
+  # 重新构建（先 clean）：只改了 pom 的话 test-compile 的增量判断可能说「不用编」，输出里就没有 release 21
+  RB="const r = __lite.runs.list.find((x) => x.name === '重新构建项目');"
+  lite menu rebuild-project main >/dev/null
+  lite_wait main "${RB} return !!r && r.status !== 'running'" 240 >/dev/null
+  ok "$(lite_eval main "${RB} return r?.command ?? ''" | grep -q "^export JAVA_HOME=[^;]*21[^;]*; mvn" && echo 1)" "命令最前面换成了 JDK 21：$(lite_eval main "${RB} return (r?.command ?? '').split(';')[0]")"
+  ok "$([ "$(lite_eval main "${RB} return r?.status")" = done ] && logtext 重新构建项目 | grep -q 'release 21' && echo 1)" "用 21 编过了（输出里是 release 21；用你默认的 17 编会报「不支持发行版本 21」）：$(lite_eval main "${RB} return r?.status") $(logtext 重新构建项目 | grep -o 'release [0-9]*' | head -1)"
+  mv "${P}/pom.xml.bak" "${P}/pom.xml"; touch "${P}/pom.xml"
+fi
 
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then

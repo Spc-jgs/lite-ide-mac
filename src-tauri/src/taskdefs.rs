@@ -358,7 +358,7 @@ pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
             let module = [rel.as_str(), app.module.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("/");
             let name = if dup { format!("{module}/{short}") } else { short.to_string() };
             SpringTask {
-                def: Def { name, command: crate::maven::run_command(app, &prefs), cwd: rel.clone(), env: Vec::new(), source: Source::Spring { module } },
+                def: Def { name, command: format!("{}{}", jdk_prefix(root, &rel, &app.module), crate::maven::run_command(app, &prefs)), cwd: rel.clone(), env: Vec::new(), source: Source::Spring { module } },
                 app: app.clone(),
             }
         })
@@ -397,6 +397,7 @@ pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
         Some(sel) => crate::maven::test_command(&m.rel, sel.trim(), &prefs)?,
         None => crate::maven::goal_command(&m.rel, goal, &prefs)?,
     };
+    let command = format!("{}{command}", jdk_prefix(root, &rel, &m.rel));
     Some(Def { name: name.to_string(), command, cwd: rel, env: Vec::new(), source: Source::Goal { module: m.rel } })
 }
 
@@ -436,6 +437,27 @@ pub fn resolve(root: &Path, name: &str) -> Option<Def> {
     discover(root).defs.into_iter().find(|d| d.name == name).or_else(|| maven_goal(root, name)).or_else(|| build(root, name))
 }
 
+/// 我们拼的 Maven 命令前面加的那段：用项目要的那个 JDK（docs/IDEA.md 第 23 节）。`reactor` / `module` 相对项目根 / reactor。
+///
+/// **写进命令，不走环境变量**：任务跑在登录 shell 里（`-ilc`），你的 `.zshrc` 在我们设的环境变量之后执行，`export JAVA_HOME=…` 一句就盖回去了；
+/// 写在命令最前面就是最后生效的。运行窗里那一行命令也看得出用的是哪个 JDK。
+/// pom 没写版本：空的（照旧用你的默认，不猜）。写了但这台机器上没有够格的：说一句再照旧跑 —— 不让 Maven 甩一句「不支持发行版本 21」让人猜
+pub fn jdk_prefix(root: &Path, reactor: &str, module: &str) -> String {
+    let Some(want) = crate::maven::module_java(&root.join(reactor), module) else { return String::new() };
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    jdk_prefix_from(want, &lspsvc::jdtls::list_jdks(&lspsvc::jdtls::default_jdk_dirs(&home)))
+}
+
+fn jdk_prefix_from(want: u32, jdks: &[(u32, PathBuf)]) -> String {
+    match lspsvc::jdtls::pick_jdk(jdks, want) {
+        Some((_, h)) => {
+            let h = h.to_string_lossy();
+            format!("export JAVA_HOME={} PATH={}:\"$PATH\"; ", crate::maven::word(&h), crate::maven::word(&format!("{h}/bin")))
+        }
+        None => format!("echo {}; ", crate::maven::word(&format!("[lite-ide] 项目要 Java {want}，这台机器上没找到够格的 JDK，用的是你默认的那个"))),
+    }
+}
+
 /// 构建（⌘F9，docs/IDEA.md 第 22 节）的两个任务名。不进任务列表（同 Maven 目标），`task_run` 按名字认；运行窗、⌃R 重跑、⌘F2 停、同名先停旧的都是现成的
 pub const BUILD: &str = "构建项目";
 pub const REBUILD: &str = "重新构建项目";
@@ -448,7 +470,7 @@ fn build(root: &Path, name: &str) -> Option<Def> {
     if !is_build(name) {
         return None;
     }
-    let command = crate::maven::build_command(&crate::maven::reactors(root), &crate::maven::prefs(root), name == REBUILD)?;
+    let command = crate::maven::build_command(&crate::maven::reactors(root), &crate::maven::prefs(root), name == REBUILD, &|r| jdk_prefix(root, r, ""))?;
     Some(Def { name: name.to_string(), command, cwd: String::new(), env: Vec::new(), source: Source::Goal { module: String::new() } })
 }
 
@@ -619,6 +641,19 @@ mod tests {
     }
 
     /// Maven 工具窗的「模块 [目标]」：task_run 认得、任务列表里不列；不认识的模块、带 shell 特殊字符的目标都不给
+    #[test]
+    fn 用项目要的_jdk_写进命令最前面_没有够格的说一句() {
+        let jdks = vec![(17, PathBuf::from("/L/temurin-17.jdk/Contents/Home")), (21, PathBuf::from("/L/my jdk 21/Contents/Home"))];
+        assert_eq!(jdk_prefix_from(17, &jdks), "export JAVA_HOME=/L/temurin-17.jdk/Contents/Home PATH=/L/temurin-17.jdk/Contents/Home/bin:\"$PATH\"; ");
+        assert_eq!(jdk_prefix_from(21, &jdks), "export JAVA_HOME='/L/my jdk 21/Contents/Home' PATH='/L/my jdk 21/Contents/Home/bin':\"$PATH\"; ", "带空格的路径要引号");
+        assert!(jdk_prefix_from(25, &jdks).starts_with("echo '[lite-ide] 项目要 Java 25"), "没有够格的：说一句");
+        // pom 没写版本：不加任何东西（taskdefs 的其余测试的 pom 都没写，命令照旧）
+        let d = tmp("jdkprefix");
+        #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
+        std::fs::write(d.join("pom.xml"), "<project><artifactId>a</artifactId></project>").unwrap();
+        assert_eq!(jdk_prefix(&d, "", ""), "");
+    }
+
     #[test]
     fn maven_目标按名字认得_不进列表() {
         let d = tmp("goal");

@@ -192,10 +192,12 @@ pub fn with_jdwp(command: &str) -> Option<String> {
 }
 
 /// 调试单测（`maven::test_command` 那个形状）：跑测试的是 surefire **另外 fork 的 JVM**，`mvn` 自己不是 —— JDWP 要交给 surefire 的
-/// `maven.surefire.debug`（值原样加在 fork 出来的 JVM 的参数后面，不盖掉 pom 里的 `argLine`）。不是 `mvn ` 开头的不猜
+/// `maven.surefire.debug`（值原样加在 fork 出来的 JVM 的参数后面，不盖掉 pom 里的 `argLine`）。
+/// `mvn ` 在开头，或者在「用项目要的那个 JDK」那段（`export …; `，`taskdefs::jdk_prefix`）后面；别的形状不猜
 pub fn with_surefire_debug(command: &str) -> Option<String> {
-    let rest = command.strip_prefix("mvn ")?;
-    Some(format!("mvn '-Dmaven.surefire.debug={JDWP}' {rest}"))
+    let at = if command.starts_with("mvn ") { 0 } else { command.find("; mvn ")? + 2 };
+    let rest = &command[at + "mvn ".len()..];
+    Some(format!("{}mvn '-Dmaven.surefire.debug={JDWP}' {rest}", &command[..at]))
 }
 
 /// 一段输出里有没有「端口开好了」那一行（JVM 自己打的，没有前缀）
@@ -845,6 +847,11 @@ mod tests {
         let c = "mvn -B -ntp -Dtest='com.demo.OrderTest' -Dsurefire.failIfNoSpecifiedTests=false -pl order-service -am test";
         assert_eq!(with_surefire_debug(c).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP}' -B -ntp -Dtest='com.demo.OrderTest' -Dsurefire.failIfNoSpecifiedTests=false -pl order-service -am test"));
         assert_eq!(with_surefire_debug("./mvnw test"), None);
+        // 前面有「用项目要的 JDK」那段：插在 mvn 后面，不是插在 export 后面
+        assert_eq!(
+            with_surefire_debug("export JAVA_HOME=/j PATH=/j/bin:\"$PATH\"; mvn -B test").unwrap(),
+            format!("export JAVA_HOME=/j PATH=/j/bin:\"$PATH\"; mvn '-Dmaven.surefire.debug={JDWP}' -B test")
+        );
     }
 
     #[test]

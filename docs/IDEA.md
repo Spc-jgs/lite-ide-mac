@@ -634,3 +634,18 @@ IDEA 的 Local History：不提交也能回到十分钟前那一版。菜单「�
 **真 .app `scripts/accept/spring.sh` 55/55**（新加 3 条，真 mvn）：菜单「构建项目」带上勾的 profile 跑 `test-compile`；兄弟模块里写错一个变量名，错误树里正好一条、在 Money.java 第 5 行（Maven 打了两遍）；改好再构建，成功、说了用了几秒。
 
 还没做：Build Module（只编一个模块）、Recompile 当前文件（⇧⌘F9）、编译警告（要 `-Xlint`，默认 javac 只给一句「使用了已过时的 API」、没有行号）、Gradle 项目（#78）、构建完成后把错误标进编辑器（jdtls 开着时编辑器里本来就有实时报错）。
+
+## 23. 运行、单测、调试、构建用项目要的那个 JDK（2026-10-21，对照 Lithe-IDEA 找出来的设计问题）
+
+原来编辑器里的 Java 智能按项目挑 JDK（jdtls 自己认），而运行、单测、调试、构建走 mvn、用的是你登录 shell 的 `JAVA_HOME` —— 同一个项目两边用的不是一个 JDK。
+项目要 21、你默认的是 17：编辑器一切正常，一构建就「错误: 不支持发行版本 21」（真 mvn 上撞过）。IDEA 用项目 SDK；Lithe 的功能表里专门有两条（按项目自动选 JDK、调试和运行用同一个）。
+
+- **项目要哪个版本**（`maven::java_release`）：pom 里按次序找第一个写了的 —— `maven.compiler.release` > 编译插件的 `<release>` > `maven.compiler.target` / `source` > `java.version`（Spring Boot 的父 pom 用它设前面几个）。
+  `1.8` 是 8；`${名字}` 在同一份 pom 里解一次；profile 里的不算（默认不生效）。先看模块自己的 pom，再看 reactor 根的。**没写就不管**，照旧用你的默认，不猜
+- **挑哪个**（`jdtls::pick_jdk`）：主版本一样的优先；没有就挑比它高、离它最近的（`--release` 往下兼容）。扫 `/Library/Java/JavaVirtualMachines`、`~/Library/Java/…`（IDEA 下载的）、sdkman 的
+- **写进命令最前面**（`taskdefs::jdk_prefix`）：`export JAVA_HOME=… PATH=…/bin:"$PATH"; mvn …`。**不走环境变量**：任务跑在登录 shell 里，你的 `.zshrc` 在我们设的环境变量之后执行，一句 `export JAVA_HOME` 就盖回去了。
+  运行窗里那一行命令看得出用的是哪个 JDK。这台机器上没有够格的：输出第一行说「项目要 Java 21，这台机器上没找到够格的 JDK，用的是你默认的那个」，不让 Maven 甩一句让人猜
+- 只管我们拼的命令（Spring 服务、Maven 目标、单测、构建）；`tasks.json` 里你自己写的不碰
+- 调试单测往命令里插 surefire 参数的地方（`debug::with_surefire_debug`）原来认「`mvn ` 开头」，现在也认「前缀那句之后的 `mvn `」
+
+**真 .app `scripts/accept/spring.sh` 57/57**（新加 2 条）：pom 改成要 21（你默认 17）、重新构建 —— 命令最前面是 temurin-21、输出里是 `release 21`、编过了。用 17 编同一个项目的原话是「错误: 不支持发行版本 21」（手工验过）。
