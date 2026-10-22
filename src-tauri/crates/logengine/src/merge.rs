@@ -601,6 +601,11 @@ impl MergedLog {
         }
     }
 
+    /// 第 `i` 份（行详情按「哪一份 + 那份里的行号」取整行，#64）
+    pub fn file(&self, i: usize) -> Option<&Arc<LogFile>> {
+        self.files.get(i)
+    }
+
     /// 取 `[start, start + count)` 行，线格式同 [`LogFile::read_block`]
     pub fn read_block(&self, start: u64, count: u32) -> Vec<u8> {
         let snap = self.current().snapshot();

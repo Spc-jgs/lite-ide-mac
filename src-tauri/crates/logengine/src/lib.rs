@@ -524,6 +524,23 @@ impl LogFile {
         }
         block::encode(start, &lines)
     }
+
+    /// 第 `line` 行（0 起）的整行，最多 `cap` 字节；第二个是这一行的真长度（字节，不含换行）。没有这一行 → None。
+    ///
+    /// 行详情用（#64）：列表走的线格式把每行截在 [`block::MAX_LINE_BYTES`]（64KB），点开一行要看整行时单独取这一行 ——
+    /// 不为了偶尔点开的那一行把整块的上限放大。按字节截，可能切在半个字符上：解码交给前端（它知道编码，流式解码丢掉末尾那半个）
+    pub fn read_line_full(&self, line: u64, cap: usize) -> Option<(Vec<u8>, u64)> {
+        let ix = self.snapshot();
+        if line >= ix.line_count() {
+            return None;
+        }
+        let map = self.map();
+        let data: &[u8] = &map;
+        let pos = ix.offset_of_line(data, line)? as usize;
+        let end = memchr::memchr(b'\n', &data[pos..]).map_or(data.len(), |n| pos + n);
+        let take = (end - pos).min(cap);
+        Some((data[pos..pos + take].to_vec(), (end - pos) as u64))
+    }
 }
 
 #[cfg(test)]
@@ -779,5 +796,23 @@ mod tests {
             cancelled_lines < 70_000,
             "被取消那次不该已经推到底（实得 {cancelled_lines} 行）"
         );
+    }
+
+    #[test]
+    fn 整行_不受64kb截断_带真长度_末行没换行也算() {
+        let long = "x".repeat(200_000);
+        let p = temp_log("line-full", format!("short\n{long}\nlast").as_bytes());
+        let f = LogFile::open(&p).unwrap();
+        f.wait_indexed();
+        assert_eq!(f.read_line_full(0, 1 << 20), Some((b"short".to_vec(), 5)));
+        // 列表那条路截在 64KB：同一行这里拿得到整行
+        let (b, len) = f.read_line_full(1, 1 << 20).unwrap();
+        assert_eq!((b.len(), len), (200_000, 200_000));
+        // 超了 cap：截到 cap，真长度照报
+        let (b, len) = f.read_line_full(1, 1000).unwrap();
+        assert_eq!((b.len(), len), (1000, 200_000));
+        assert_eq!(f.read_line_full(2, 1 << 20), Some((b"last".to_vec(), 4)));
+        assert_eq!(f.read_line_full(3, 1 << 20), None);
+        let _ = std::fs::remove_file(&p);
     }
 }

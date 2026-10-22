@@ -48,7 +48,8 @@ export function cutNote(bytes: number): string {
   // 中文单位后面直接接字，英文单位后面空一格（「500 字节没显示」「1.5 KB 没显示」）
   const size =
     bytes < 1024 ? `${bytes} 字节` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB ` : `${(bytes / 1024 / 1024).toFixed(1)} MB `;
-  return `…这一行还有 ${size}没显示`;
+  // 说完怎么看：行详情（#64）取得到整行
+  return `…这一行还有 ${size}没显示，双击看整行`;
 }
 
 export function decodeBlock(buf: ArrayBuffer, encoding = "utf-8"): Block {

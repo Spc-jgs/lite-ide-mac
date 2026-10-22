@@ -289,6 +289,7 @@ pub fn run() {
             commands::open_log,
             commands::log_stat,
             commands::log_lines,
+            commands::log_line_full,
             commands::log_filter,
             commands::log_filter_stat,
             commands::log_seek_time,

@@ -6,6 +6,10 @@
   import { parse, type LogFormat } from "./parse";
   import { parseQuery, highlightQuery } from "./query";
   import { withLink } from "./stack-frame";
+  import { decodeLineFull } from "./line-detail";
+  import { logLineFull } from "../ipc/log";
+  import LineDetail from "./LineDetail.svelte";
+  import { imeKey } from "../shell/ime";
 
   let {
     handle,
@@ -215,8 +219,79 @@
     if (row) onFrame(row.text);
   }
 
-  function onKeydown(e: KeyboardEvent) {
+  /**
+   * 行详情（#64）：双击一行 / 回车，在底下展开整行。`n` 是视图行（过滤态下是第几条命中），`line` 是文件里的行号。
+   * 列表里截过的行（>64KB）另外取整行；没截过的就用手上这份，不多走一趟
+   */
+  let detail = $state<{ n: number; line: number; text: string; total: number; shown: number; loading: boolean } | null>(null);
+  /** 连按 ↓ 时前一次的取整行晚到，别盖掉后一次 */
+  let detailSeq = 0;
+
+  function openDetail(n: number) {
+    if (n < 0 || n >= lineCount) return;
+    const seq = ++detailSeq;
+    const row = cache.get(n);
+    if (!row) {
+      // 还没取回来（↓ 走到了没加载的那一截）：先占住，取回来再填
+      detail = { n, line: n + 1, text: "", total: 0, shown: 0, loading: true };
+      cache.ensure(n, n, () => {
+        revision++;
+        if (seq === detailSeq) openDetail(n);
+      });
+      return;
+    }
+    detail = { n, line: row.phys + 1, text: row.text, total: 0, shown: 0, loading: !!row.more };
+    if (!row.more) return;
+    void logLineFull(handle, row.src ?? null, row.phys)
+      .then((buf) => {
+        if (seq !== detailSeq || !detail) return;
+        const r = decodeLineFull(buf, encoding);
+        detail = r ? { ...detail, text: r.text, total: r.total, shown: r.bytes, loading: false } : { ...detail, loading: false };
+      })
+      .catch(() => {
+        // 取不到就留着列表里那 64KB（行尾那句「还有多少没显示」照旧在列表里）
+        if (seq === detailSeq && detail) detail = { ...detail, loading: false };
+      });
+  }
+
+  /** ↑↓ 换行时让那一行留在视口里：往上越过顶就贴顶，往下越过底就停在倒数第二行 */
+  function keepVisible(n: number) {
     if (!viewport) return;
+    const visible = Math.max(1, Math.floor(viewportHeight / LINE_HEIGHT));
+    if (n < topLine) viewport.scrollTop = map.scrollTopFor(n, viewportHeight);
+    else if (n > topLine + visible - 2) viewport.scrollTop = map.scrollTopFor(Math.max(0, n - visible + 2), viewportHeight);
+  }
+
+  function onDblclick(e: MouseEvent) {
+    const n = (e.target as HTMLElement).closest<HTMLElement>(".row")?.dataset.n;
+    if (n === undefined) return;
+    // 双击会选中一个词：要看整行的人不是要选词
+    getSelection()?.removeAllRanges();
+    openDetail(Number(n));
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (!viewport || imeKey(e)) return;
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+    if (detail && plain && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      const n = Math.min(Math.max(0, detail.n + (e.key === "ArrowDown" ? 1 : -1)), lineCount - 1);
+      keepVisible(n);
+      openDetail(n);
+      return;
+    }
+    if (detail && e.key === "Escape") {
+      // 只关行详情：同一下 Esc 别再被外层拿去关过滤条
+      e.preventDefault();
+      e.stopPropagation();
+      detail = null;
+      return;
+    }
+    if (plain && e.key === "Enter") {
+      e.preventDefault();
+      openDetail(currentLine > 0 ? currentLine - 1 : topLine);
+      return;
+    }
     noteIntent(e);
     const page = viewportHeight - LINE_HEIGHT;
     const step: Record<string, number> = {
@@ -245,6 +320,7 @@
   // 有 role），可聚焦滚动容器是公认的合法模式，故按元素抑制。
 </script>
 
+<div class="lv">
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
@@ -255,6 +331,7 @@
   onkeydown={onKeydown}
   onwheel={noteIntent}
   onclick={onClick}
+  ondblclick={onDblclick}
   tabindex="0"
   role="log"
   aria-label="日志内容"
@@ -270,6 +347,7 @@
           class:pending={!row}
           class:stack={seg?.stack}
           class:current={currentLine > 0 && n === currentLine - 1}
+          class:picked={detail?.n === n}
           data-lvl={seg?.lvl}
         >
           {#if sources}
@@ -299,10 +377,26 @@
     </div>
   </div>
 </div>
+{#if detail}
+  <LineDetail
+    line={detail.line}
+    text={detail.text}
+    total={detail.total}
+    shown={detail.shown}
+    loading={detail.loading}
+    onclose={() => {
+      detail = null;
+      viewport?.focus();
+    }}
+  />
+{/if}
+</div>
 
 <style>
+  .lv { height: 100%; display: flex; flex-direction: column; }
   .viewport {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     outline: none;
@@ -338,6 +432,8 @@
     box-shadow: inset 2px 0 0 var(--accent);
   }
   .row.current .gutter { color: var(--accent); }
+  /* 底下行详情里正展开着的那一行：和「当前命中」同一个竖线，底更淡一档 —— 两个同时在时都认得出 */
+  .row.picked { box-shadow: inset 2px 0 0 var(--accent); background: var(--selected); }
 
   /* 合并视图的来源格：左边 2px 的色条，名字用同一个颜色、压暗一档 —— 一眼扫下去看得出「这一段是哪个服务的」，又不抢正文 */
   .src {

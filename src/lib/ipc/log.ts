@@ -40,6 +40,13 @@ export const logFilterStat = (handle: number) =>
 export const logLinesFiltered = (handle: number, start: number, count: number) =>
   invoke<ArrayBuffer>("log_lines_filtered", { handle, start, count });
 
+/**
+ * 一整行（#64 行详情）：列表里超过 64KB 的行截过，点开时另外取。`line` 是文件里的行号（0 起）；合并视图另给 `src`（第几份）。
+ * 回的是二进制：8 字节真长度 + 最多 1MB 原文，用 `logview/line-detail.ts` 的 `decodeLineFull` 解
+ */
+export const logLineFull = (handle: number, src: number | null, line: number) =>
+  invoke<ArrayBuffer>("log_line_full", { handle, src, line });
+
 /** 视图行号 → 物理行号，过滤态下显示真实行号用 */
 export const logFilterMap = (handle: number, start: number, count: number) =>
   invoke<number[]>("log_filter_map", { handle, start, count });

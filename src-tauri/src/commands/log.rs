@@ -53,6 +53,33 @@ pub fn log_lines(handle: u32, start: u64, count: u32, state: State<'_, AppState>
     }
 }
 
+/// 行详情（#64）最多取多大：再大的一行画在界面上也看不完，而且整页卡；超了界面说真长度
+const LINE_FULL_MAX: usize = 1 << 20;
+
+/// 行详情（#64）：一整行，不受列表那 64KB 的截断。`line` 是文件里的行号（0 起）；合并视图另给 `src`（第几份），行号是那一份里的。
+/// 回的是二进制：前 8 字节是这一行的真长度（小端 u64），后面是最多 [`LINE_FULL_MAX`] 字节的原文 —— 编码由前端解（它知道是 GBK 还是 UTF-8）。
+/// 读 mmap 可能碰盘（冷缓存、网络卷），挪到阻塞池；没有这一行回空
+#[tauri::command]
+pub async fn log_line_full(handle: u32, src: Option<u32>, line: u64, state: State<'_, AppState>) -> Result<Response, String> {
+    let file = match (state.merged(handle), src) {
+        (Some(m), Some(i)) => m.file(i as usize).cloned(),
+        (Some(_), None) => None,
+        (None, _) => state.get(handle),
+    };
+    let Some(file) = file else { return Ok(Response::new(Vec::new())) };
+    blocking(move || {
+        Ok(Response::new(match file.read_line_full(line, LINE_FULL_MAX) {
+            Some((bytes, len)) => {
+                let mut out = len.to_le_bytes().to_vec();
+                out.extend_from_slice(&bytes);
+                out
+            }
+            None => Vec::new(),
+        }))
+    })
+    .await
+}
+
 /// 启动过滤。传空 pattern + 全级别掩码等于清除过滤。
 ///
 /// `sources` 只对合并视图有意义：只看哪几份（第 i 位 = 第 i 份），不传就是全看。

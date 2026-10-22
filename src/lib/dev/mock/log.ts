@@ -215,6 +215,19 @@ export async function logCmd(cmd: string, a: A): Promise<unknown> {
       for (let i = 0; i < n; i++) out.push(s.at(Number(a.start) + i));
       return encodeBlock(Number(a.start), out);
     }
+    case "log_line_full": {
+      // 同 Rust：8 字节真长度（小端）+ 最多 1MB 原文；合并视图按「第几份 + 那份里的行号」取
+      const m = MERGES[Number(a.handle)];
+      const s = m && a.src != null ? srcOf(m.paths[Number(a.src)]) : src(a.handle);
+      const n = Number(a.line);
+      if (n >= s.total) return new ArrayBuffer(0);
+      const bytes = new TextEncoder().encode(s.at(n));
+      const body = bytes.subarray(0, 1 << 20);
+      const out = new Uint8Array(8 + body.byteLength);
+      new DataView(out.buffer).setBigUint64(0, BigInt(bytes.byteLength), true);
+      out.set(body, 8);
+      return out.buffer;
+    }
     case "log_filter": {
       const bits = Number(a.levelBits);
       const pat = String(a.pattern ?? "");

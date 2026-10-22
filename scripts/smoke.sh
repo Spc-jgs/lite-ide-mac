@@ -1210,6 +1210,25 @@ fi
 is "await __lite.debug.breakpoints($(q "${FIX}"), $(q "${BPF}"), []); return true" >/dev/null
 menu close-tab; sleep 0.3
 
+say "㉙ 日志的长行：双击看整行（#64）—— 列表里超过 64KB 的行截过，行详情另外取整行、JSON 排好版"
+LONGF="${FIX}/long-line.log"
+python3 - "${LONGF}" <<'PY'
+import json, sys
+body = json.dumps({"orders": [{"id": 100000 + i, "status": "PAID", "note": "演示"} for i in range(2500)]}, ensure_ascii=False)
+open(sys.argv[1], "w").write("2026-10-22 10:00:00.000 INFO  [main] c.d.Api - start\n2026-10-22 10:00:01.000 INFO  [http-1] c.d.Api - 响应体 " + body + "\n2026-10-22 10:00:02.000 INFO  [main] c.d.Api - done\n")
+PY
+LONGN=$(python3 -c 'import sys; print(len(open(sys.argv[1]).read().split("\n")[1]))' "${LONGF}")
+is "await __lite.tabflow.openPath($(q "${LONGF}"), { preview: false }); return true"
+if lite_wait "${W}" "return !!document.querySelector('.viewport .row[data-n=\"1\"] .cut')" 8 >/dev/null; then
+  is "document.querySelector('.viewport .row[data-n=\"1\"] .cells').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return true" >/dev/null
+  lite_wait "${W}" "return !!document.querySelector('.detail .json')" 6 >/dev/null
+  check "$(lite eval "${W}" "return (document.querySelector('.detail header')?.innerText ?? '').includes('${LONGN} 个字') && document.querySelector('.detail .json')?.textContent.includes('\"id\": 102499')" 2>/dev/null)" "true" "第 2 行列表里截在 64KB，行详情拿到整行（${LONGN} 个字）、JSON 排好版、最后一个订单在"
+  is "document.querySelector('.viewport').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
+else
+  bad "long-line.log 第 2 行没有「还有多少没显示」那句（这一段的前提没做成：没截、或者没按日志打开）"
+fi
+menu close-tab; sleep 0.3
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）
