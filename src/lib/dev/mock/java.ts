@@ -364,6 +364,25 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       // 桩：照 jdtls 回的样子（签名代码块 + Javadoc 转的 Markdown）给一段
       await wait(50);
       return "```java\nlong com.demo.PriceRule.apply(long cents)\n```\n\n按规则算出**折后价**（分），见 [Money](jdt://contents/Money.class)。\n\n* **Parameters:**\n  * **cents** 原价\n* **Returns:**\n  * 折后价";
+    case "java_highlights": {
+      // 同名高亮：桩不懂作用域，按整词找这个文件里同样的字（真的是语义的，同名的别的变量不算）；后面跟着 `=`（不是 `==`）的算写。故意等 30 ms
+      await wait(30);
+      const text = docs.get(path) ?? String(FILES[path] ?? "");
+      const lines = text.split("\n");
+      const l = lines[Number(a.line)] ?? "";
+      const ch = Number(a.character);
+      const id = /[\w$]/;
+      let s = ch, e = ch;
+      while (s > 0 && id.test(l[s - 1])) s--;
+      while (e < l.length && id.test(l[e])) e++;
+      const w = l.slice(s, e);
+      if (!w || /^\d/.test(w) || KEYWORDS.has(w)) return [];
+      return lines.flatMap((x, i) =>
+        [...x.matchAll(new RegExp(`(?<![\\w$])${w.replace(/\$/g, "\\$")}(?![\\w$])`, "g"))].map((m) => ({
+          line: i, character: m.index!, endLine: i, endCharacter: m.index! + w.length, write: /^\s*=(?!=)/.test(x.slice(m.index! + w.length)),
+        })),
+      );
+    }
     case "java_types": {
       // ⇧⇧ 的「类」：jdtls 没起给 null（同真实现，不为一次搜索起它）。起了就从桩里的 .java 认类型；匹配照 jdtls 的「包含 + 驼峰」做个简化版。
       // 故意等 60 ms（真 jdtls 热的时候几十毫秒）

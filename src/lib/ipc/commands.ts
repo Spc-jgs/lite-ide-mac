@@ -137,6 +137,15 @@ export interface JavaRefs {
   total: number;
 }
 
+/** 同名高亮的一处（docs/TAKEOVER.md G11）。行列从 0 数、列按 UTF-16；`write`：这一处是写（赋值、带初值的声明） */
+export interface JavaHighlight {
+  line: number;
+  character: number;
+  endLine: number;
+  endCharacter: number;
+  write: boolean;
+}
+
 /** ⇧⇧ 的「类」（docs/TAKEOVER.md G2）找到的一个类型。`kind`：LSP 的 SymbolKind，jdtls 只回 5 类 / 11 接口（注解也是）/ 10 枚举 */
 export interface JavaType {
   name: string;

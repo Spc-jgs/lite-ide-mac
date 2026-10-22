@@ -108,6 +108,16 @@ pub async fn java_super(app: tauri::AppHandle, root: String, path: String, line:
     .await
 }
 
+/// 同名高亮（docs/TAKEOVER.md G11）：光标底下那个名字在这个文件里出现的地方
+#[tauri::command]
+pub async fn java_highlights(app: tauri::AppHandle, root: String, path: String, line: u32, character: u32) -> Result<Vec<JavaHighlightDto>, String> {
+    blocking(move || {
+        let hs = instance(&app, &root)?.highlights(&path, line, character)?;
+        Ok(hs.into_iter().map(|h| JavaHighlightDto { line: h.line, character: h.character, end_line: h.end_line, end_character: h.end_character, write: h.write }).collect())
+    })
+    .await
+}
+
 /// ⇧⇧ 的「类」（docs/TAKEOVER.md G2）。`libs`：连 jar / JDK 里的一起找（IDEA 的「包含非项目项」）。
 /// 这个项目的 jdtls 没在跑给 null —— 前端按文件名找，不为一次搜索起一个语言服务器（起好要十几秒，那时人早搜完了）
 #[tauri::command]

@@ -1057,6 +1057,17 @@ pub struct JavaRefsDto {
     pub total: u32,
 }
 
+/// 同名高亮的一处（docs/TAKEOVER.md G11）。行列从 0 数、列按 UTF-16；`write`：这一处是写
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaHighlightDto {
+    pub line: u32,
+    pub character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+    pub write: bool,
+}
+
 /// ⇧⇧ 的「类」（docs/TAKEOVER.md G2）找到的一个类型。`kind` 是 LSP 的 SymbolKind（jdtls 只回 5 类 / 11 接口（含注解）/ 10 枚举）；
 /// `at` 里 jar 里的那种 `path` 为空、`uri` 是 `jdt://`，同跳转
 #[derive(serde::Serialize)]

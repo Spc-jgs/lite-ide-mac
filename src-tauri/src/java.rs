@@ -35,6 +35,8 @@ pub const REFS_MAX: usize = 2000;
 /// ⇧⇧ 的「类」一次最多要多少个：项目里的、连 jar 一起的各一份（找够 jdtls 自己停，见 [`Instance::types`]）
 const TYPES_SRC: u32 = 100;
 const TYPES_ALL: u32 = 200;
+/// 同名高亮一次最多标多少处（一个几千行的生成文件里的 `i`）
+const HL_MAX: usize = 1000;
 /// 一个文件最多报多少条诊断（导入时整个项目的警告一起来，一个生成的文件可能几千条）
 const DIAG_MAX: usize = 500;
 /// 一次补全最多回多少项（jdtls 默认自己就截在 50 左右、标 isIncomplete；这里是防别的服务器 / 设置改大了一次回几千项）
@@ -86,6 +88,16 @@ pub struct TypeHit {
     /// 注解类型带着接口标记）、10 枚举、5 类（record 也是）
     pub kind: u8,
     pub loc: Location,
+}
+
+/// 同名高亮的一处（docs/TAKEOVER.md G11）。`write`：这一处是写（赋值、声明时带初值），IDEA 用另一种底色
+#[derive(Clone, Debug, PartialEq)]
+pub struct Highlight {
+    pub line: u32,
+    pub character: u32,
+    pub end_line: u32,
+    pub end_character: u32,
+    pub write: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -441,6 +453,13 @@ impl Instance {
         Ok((out, cut))
     }
 
+    /// 同名高亮（docs/TAKEOVER.md G11，IDEA 的「光标处元素的用法」）：光标底下那个名字在这个文件里出现的地方。
+    /// 是语义的：同名的局部变量、别的类的同名字段不算 —— 这就是它和「选中的字在文中别处」（CM6 的 selectionMatch）不一样的地方
+    pub fn highlights(&self, path: &str, line: u32, character: u32) -> Result<Vec<Highlight>, String> {
+        let r = self.ask("textDocument/documentHighlight", json!({ "textDocument": { "uri": uri::from_path(path) }, "position": { "line": line, "character": character } }))?;
+        Ok(highlights_of(&r))
+    }
+
     /// 查用法。超过 [`REFS_MAX`] 截断，返回 `(前 REFS_MAX 条, 真条数)`
     pub fn references(&self, path: &str, line: u32, character: u32) -> Result<(Vec<Location>, usize), String> {
         let r = self.ask(
@@ -686,6 +705,24 @@ pub fn hover_markdown(r: &Value) -> String {
         None => Vec::new(),
     };
     parts.into_iter().filter(|s| !s.trim().is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
+/// `DocumentHighlight[] | null` → 几处。`kind` 3 = 写，1（文本）/ 2（读）/ 没给都算读；超过 [`HL_MAX`] 的不要（画几千个底色没有意义）
+pub fn highlights_of(r: &Value) -> Vec<Highlight> {
+    r.as_array()
+        .map(|a| {
+            a.iter()
+                .take(HL_MAX)
+                .map(|h| Highlight {
+                    line: num(&h["range"]["start"]["line"]),
+                    character: num(&h["range"]["start"]["character"]),
+                    end_line: num(&h["range"]["end"]["line"]),
+                    end_character: num(&h["range"]["end"]["character"]),
+                    write: h["kind"].as_u64() == Some(3),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// `SymbolInformation[]` → 类型。位置照 [`locations`] 读（jar 里的是 `jdt://`、`path` 为空）；名字是空的丢掉（匿名类）
@@ -1564,6 +1601,19 @@ mod tests {
         assert_eq!(hover_markdown(&json!({ "contents": "纯字符串" })), "纯字符串");
         assert_eq!(hover_markdown(&json!({ "contents": [{ "language": "java", "value": "" }, ""] })), "", "空的项丢掉");
         assert_eq!(hover_markdown(&Value::Null), "");
+    }
+
+    #[test]
+    fn 同名高亮_写的单独标_没给种类的算读() {
+        let r = json!([
+            { "range": { "start": { "line": 3, "character": 8 }, "end": { "line": 3, "character": 13 } }, "kind": 3 },
+            { "range": { "start": { "line": 5, "character": 15 }, "end": { "line": 5, "character": 20 } }, "kind": 2 },
+            { "range": { "start": { "line": 6, "character": 4 }, "end": { "line": 6, "character": 9 } } },
+        ]);
+        let h = highlights_of(&r);
+        assert_eq!(h.iter().map(|x| x.write).collect::<Vec<_>>(), vec![true, false, false]);
+        assert_eq!((h[1].line, h[1].character, h[1].end_line, h[1].end_character), (5, 15, 5, 20));
+        assert!(highlights_of(&Value::Null).is_empty(), "jdtls 对空白处回 null");
     }
 
     #[test]

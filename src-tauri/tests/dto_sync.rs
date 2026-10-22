@@ -95,6 +95,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("JavaLocationDto", "JavaLocation"),
     ("JavaRefsDto", "JavaRefs"),
     ("JavaTypeDto", "JavaType"),
+    ("JavaHighlightDto", "JavaHighlight"),
     ("JavaTypesDto", "JavaTypes"),
     ("JavaEditDto", "JavaEdit"),
     ("JavaCompletionItemDto", "JavaCompletionItem"),

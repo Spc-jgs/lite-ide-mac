@@ -21,7 +21,8 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaHover, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaHighlights, javaHover, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
+import { usageHighlight } from "./java-usage-hl";
 import { configKeyAt } from "./spring-key";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { nav } from "../state/nav.svelte";
@@ -903,6 +904,13 @@ export function javaLsp(root: string | null, path: string): Extension {
     // 换掉通用的「文档里的词」：Java 文件里由 javaSource 说了算（它自己会在 jdtls 没起好时退回去）。和 Editor 里那份 autocompletion() 的配置合并
     autocompletion({ override: [javaSource], addToOptions: [descriptionColumn] }),
     ViewPlugin.define((view) => new Sync(view, root, path)),
+    // 同名高亮（docs/TAKEOVER.md G11）：问之前先把攒着的改动发出去，同跳转
+    usageHighlight((view, line, character) => {
+      const s = syncs.get(view);
+      if (!s || !usable(s.root)) return null;
+      s.flush();
+      return javaHighlights(s.root, s.path, line, character);
+    }),
     // `${demo.greeting}` 上 ⌘B 去配置文件（第 25 节）；不在 `${…}` 里放过，交给原来的跳转
     Prec.highest(keymap.of([{ key: "Mod-b", run: (v) => configJump(v, root) }])),
     // IDEA 的键位：⌥F7 查找用法、⌥⌘F7 Show Usages。两个都开同一张列表（UsagesPopup.svelte 头上说了为什么）

@@ -231,6 +231,9 @@
   --src-7: #c792ea;
   --search-hit: rgba(91, 141, 239, 0.38);
   --selection-match: rgba(91, 141, 239, 0.16);
+  /* 同名高亮（Java，G11）：读的一处淡灰、写的一处暖色 —— 照 IDEA 的分法；和上面「选中的字在别处」的蓝分开，两个能同时出现 */
+  --usage-read: rgba(255, 255, 255, 0.1);
+  --usage-write: rgba(232, 161, 112, 0.22);
 
   /*
    * 编辑器专用的几个。放在这儿而不是 theme-idea-dark.ts 里，

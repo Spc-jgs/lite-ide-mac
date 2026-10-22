@@ -329,7 +329,8 @@
     const shown = new Set<string>();
     if ((scope === "all" && goto.kind === "plain" && jtypes) || scope === "class") {
       const q = query.trim();
-      const list = !q ? [] : jtypes ? rankTypes(jtypes.items, q, scope === "class" ? 100 : 4) : fileTypes(files.list, q, 60);
+      // `undefined` 是还没问回来：不先拿文件名顶一下再换掉（第一次打开「类」页会闪一下另一份列表）；只有 `null`（jdtls 没在跑）才按文件名
+      const list = !q || jtypes === undefined ? [] : jtypes ? rankTypes(jtypes.items, q, scope === "class" ? 100 : 4) : fileTypes(files.list, q, 60);
       for (const h of list) {
         out.push({ kind: "type", hit: h });
         if (h.path) shown.add(abs(h.path));

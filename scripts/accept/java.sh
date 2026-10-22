@@ -84,6 +84,8 @@ C="${P}/shop-common/src/main/java/com/demo/common"
 printf 'package com.demo.common;\n\npublic interface PriceRule {\n    /** 按规则算出<b>折后价</b>（分）。 */\n    long apply(long cents);\n}\n' > "${C}/PriceRule.java"
 printf 'package com.demo.common;\n\npublic class VipRule implements PriceRule {\n    @Override\n    public long apply(long cents) { return cents * 9 / 10; }\n}\n' > "${C}/VipRule.java"
 printf 'package com.demo.common;\n\npublic class HalfRule implements PriceRule {\n    @Override\n    public long apply(long cents) { return cents / 2; }\n}\n' > "${C}/HalfRule.java"
+# 同名高亮（G11）用：字段 total 有声明、有写、有读；other() 的参数也叫 total —— 语义的高亮不该标它
+printf 'package com.demo.common;\n\npublic class Tally {\n    private int total;\n    public int add(int n) {\n        total = total + n;\n        return total;\n    }\n    public int other(int total) { return total; }\n}\n' > "${C}/Tally.java"
 printf 'package com.demo.common;\n\npublic class Coupon {\n    @Override\n    public String toString() { return "coupon"; }\n}\n' > "${C}/Coupon.java"
 APP="${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
 cat > "${APP}" <<'EOF'
@@ -334,6 +336,16 @@ ok "$(echo "${DOC}" | grep -q 'apply(long cents)' && echo "${DOC}" | grep -q '�
 ok "$([ "$(lite_eval main "return [...document.querySelectorAll('.popup.doc b')].some((b) => b.textContent.includes('折后价'))")" = true ] && echo 1)" "Javadoc 里 <b>折后价</b> → jdtls 转成 Markdown 的粗体 → 画成粗体（走文本插值，不插 HTML）"
 lite_eval main "document.querySelector('.popup.doc').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
 
+echo "== 同名高亮（docs/TAKEOVER.md G11）：光标停在字段上，这个字段出现的地方都标出来、写的那处换颜色；另一个方法里同名的参数不标（语义的，不是按字找）"
+open_file "${C}/Tally.java" >/dev/null
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('int total;')); __lite.caret(l + 1, t[l].indexOf('total') + 2); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-usage, .cm-usage-w').length >= 3" 20 >/dev/null
+HL=$(lite_eval main "return [...document.querySelectorAll('.cm-line')].map((l, i) => [...l.querySelectorAll('.cm-usage, .cm-usage-w')].map((m) => (i + 1) + (m.classList.contains('cm-usage-w') ? '写' : '读')).join(' ')).filter(Boolean).join(' ')")
+ok "$(echo "${HL}" | grep -q '6写' && echo "${HL}" | grep -q '6读' && echo "${HL}" | grep -q '7读' && ! echo "${HL}" | grep -qE '(^| )9[读写]' && echo 1)" "字段 total：第 6 行一写一读、第 7 行读，第 9 行同名的参数不标：${HL}"
+lite_eval main "__lite.caret(5, 1); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-usage, .cm-usage-w').length === 0" 5 >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-usage, .cm-usage-w').length")" = 0 ] && echo 1)" "光标挪到空白处：标记收掉"
+
 echo "== ⇧⇧ 找类（docs/TAKEOVER.md G2）：问 jdtls（驼峰缩写也认，接口标「接口」）；默认只找项目的，「含 jar 里的」找得到依赖里的、↵ 开成只读标签"
 Q='[aria-label="随处搜索"]'
 lite_eval main "__lite.overlay.openQuick('class', 'PrRu'); return true" >/dev/null
@@ -347,7 +359,10 @@ lite_eval main "__lite.click('含 jar 里的'); return true" >/dev/null
 lite_wait main "return [...document.querySelectorAll('${Q} .row')].some((r) => r.innerText.includes('spring-boot'))" 20 >/dev/null
 JAR=$(lite_eval main "return document.querySelector('${Q} .row')?.innerText.replace(/\\s+/g, ' ') ?? ''")
 ok "$(echo "${JAR}" | grep -q 'SpringApplication org.springframework.boot · spring-boot-4.0.1.jar' && echo 1)" "点「含 jar 里的」：依赖里的找到了、标出是哪个 jar：${JAR}"
-lite_eval main "document.querySelector('${Q} input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true" >/dev/null
+# 点名字对得上的那一行，不按 ↵：↵ 选的是「当前项」，2026-10-22 有一次检查时第一行是 SpringApplication、↵ 开的却是 SpringApplicationBannerPrinter ——
+# 当前项被挪走了。打一行出来：当前项是哪个
+echo "    （当前项：$(lite_eval main "return document.querySelector('${Q} .row.sel .main')?.textContent ?? '无'")）"
+lite_eval main "[...document.querySelectorAll('${Q} .row')].find((r) => r.querySelector('.main')?.textContent === 'SpringApplication')?.click(); return true" >/dev/null
 lite_wait main "return __lite.tabs.active?.mode === 'class'" 20 >/dev/null
 lite_wait main "return /class SpringApplication\\b/.test(__lite.text().split('\\n')[parseInt(__lite.where()) - 1] ?? '')" 10 >/dev/null
 ok "$([ "$(lite_eval main "return __lite.tabs.active?.mode === 'class' && /^SpringApplication\\.(java|class)$/.test(__lite.tabs.active.name) && /class SpringApplication\\b/.test(__lite.text().split('\\n')[parseInt(__lite.where()) - 1] ?? '')")" = true ] && echo 1)" "↵：开成只读标签、停在类声明那行（jdtls 给 jar 里的类的位置是文件开头，同 ⌘B 停的地方）：$(lite_eval main "return __lite.tabs.active?.name + ' ' + __lite.where()")"
