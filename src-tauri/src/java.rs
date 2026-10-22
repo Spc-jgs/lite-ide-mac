@@ -684,8 +684,9 @@ impl Instance {
         Ok(plan.files.into_iter().find(|(p, _)| p == path).map(|(_, e)| e).unwrap_or_default())
     }
 
-    /// 光标那儿（或选中的那几行）能做的修复（⌥↵）。带着全文；把和这几行重叠的报错原样带上（[`Shared::raw_diags`]）
-    pub fn code_actions(&self, path: &str, text: &str, range: Edit) -> Result<Vec<Action>, String> {
+    /// 光标那儿（或选中的那几行）能做的修复（⌥↵）。带着全文；把和这几行重叠的报错原样带上（[`Shared::raw_diags`]）。
+    /// `only`：只要这一种（重构的快捷键，docs/TAKEOVER.md G12：`refactor.extract.variable` / `.constant` / `.field` / `.function`、`refactor.inline` —— 读 1.61 `JavaCodeActionKind`）
+    pub fn code_actions(&self, path: &str, text: &str, range: Edit, only: Option<&str>) -> Result<Vec<Action>, String> {
         self.change(path, text);
         let diags: Vec<Value> = self
             .shared
@@ -700,7 +701,10 @@ impl Instance {
             json!({
                 "textDocument": { "uri": uri::from_path(path) },
                 "range": { "start": { "line": range.line, "character": range.character }, "end": { "line": range.end_line, "character": range.end_character } },
-                "context": { "diagnostics": diags, "triggerKind": 1 },
+                "context": match only {
+                    Some(k) => json!({ "diagnostics": diags, "only": [k], "triggerKind": 1 }),
+                    None => json!({ "diagnostics": diags, "triggerKind": 1 }),
+                },
             }),
         )?;
         Ok(actions_of(&r))
@@ -1363,10 +1367,29 @@ pub fn apply_rename(plan: &RenamePlan, root: &Path, journal: &Path, dirty: &Hash
     Ok(out)
 }
 
-/// 服务器问我们的。只答真问得到的几种；`workspace/applyEdit` 第 2 步不接（只读智能），答「没改」
-fn answer(method: &str, p: &Value) -> Result<Value, (i64, String)> {
+/// 服务器问我们的。只答真问得到的几种；`workspace/applyEdit` 第 2 步不接（只读智能），答「没改」。
+///
+/// `workspace/configuration`：jdtls 每次问代码动作前问这个文件的 `java.format.tabSize` / `java.format.insertSpaces`，拿来定**生成的代码**怎么缩进
+/// （读 1.61 `CodeActionHandler` / `ConfigurationHandler.getFormattingOptions` 的字节码）。原来一律答 null —— jdtls 那边是
+/// `Boolean.parseBoolean(String.valueOf(值))`，JSON 的 null 到它手里是个对象、`valueOf` 成字符串 "null"、解析出 false → **用 Tab**：
+/// 快速修复、抽变量、⌃↵ 生成写出来的代码全是 Tab，文件别处是空格（G12 验收打出来才看见）。现在照这个项目的代码风格答（`indent`、`tabs`），
+/// 不认识的项照旧 null
+fn answer(method: &str, p: &Value, indent: u32, tabs: bool) -> Result<Value, (i64, String)> {
     match method {
-        "workspace/configuration" => Ok(Value::Array(vec![Value::Null; p["items"].as_array().map_or(0, Vec::len)])),
+        "workspace/configuration" => Ok(Value::Array(
+            p["items"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .map(|it| match it["section"].as_str() {
+                            Some("java.format.tabSize") => json!(indent),
+                            Some("java.format.insertSpaces") => json!(!tabs),
+                            _ => Value::Null,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        )),
         "client/registerCapability" | "client/unregisterCapability" | "window/workDoneProgress/create" => Ok(Value::Null),
         "workspace/applyEdit" => Ok(json!({ "applied": false, "failureReason": "这一版只读，不改代码" })),
         "window/showMessageRequest" => Ok(Value::Null),
@@ -1524,9 +1547,11 @@ impl Java {
         });
         let on_notify = Arc::clone(&shared);
         let on_exit = Arc::clone(&shared);
+        let style = crate::codestyle::resolve(Path::new(root), std::env::var_os("HOME").and_then(|h| crate::codestyle::idea_config_dir(Path::new(&h))).as_deref());
+        let (indent, tabs) = (if style.tabs { style.tab } else { style.indent }, style.tabs);
         let srv = Server::start(
             &spec,
-            Box::new(answer),
+            Box::new(move |m, p| answer(m, p, indent, tabs)),
             Box::new(move |m, p| on_notify.on_notify(m, p)),
             Box::new(move |e| {
                 if !e.stopped {
@@ -1538,7 +1563,6 @@ impl Java {
             }),
         )
         .map_err(|e| fail(format!("起不了 jdtls：{e}")))?;
-        let style = crate::codestyle::resolve(Path::new(root), std::env::var_os("HOME").and_then(|h| crate::codestyle::idea_config_dir(Path::new(&h))).as_deref());
         let inst = Arc::new(Instance { shared: Arc::clone(&shared), srv, watch: Mutex::new(None), holds: Default::default(), style });
         // 盘上的变化告诉 jdtls（`on_disk_changes`）。拿弱引用：监听活在实例里，强引用就是互相攥着、谁也收不掉。起不来只记一句，Java 智能照常
         let weak = Arc::downgrade(&inst);
@@ -1892,9 +1916,13 @@ mod tests {
 
     #[test]
     fn 服务器问的_配置按条数回空_改代码一律不接() {
-        assert_eq!(answer("workspace/configuration", &json!({ "items": [{}, {}, {}] })).unwrap(), json!([null, null, null]));
-        assert_eq!(answer("workspace/applyEdit", &json!({})).unwrap()["applied"], json!(false));
-        assert!(answer("something/else", &json!({})).is_err());
+        assert_eq!(answer("workspace/configuration", &json!({ "items": [{}, {}, {}] }), 4, false).unwrap(), json!([null, null, null]));
+        // 生成的代码怎么缩进：照代码风格答，不能答 null（jdtls 把 null 读成 false = 用 Tab）
+        let r = answer("workspace/configuration", &json!({ "items": [{ "section": "java.format.tabSize" }, { "section": "java.format.insertSpaces" }, { "section": "x" }] }), 2, false).unwrap();
+        assert_eq!(r, json!([2, true, null]));
+        assert_eq!(answer("workspace/configuration", &json!({ "items": [{ "section": "java.format.insertSpaces" }] }), 4, true).unwrap(), json!([false]));
+        assert_eq!(answer("workspace/applyEdit", &json!({}), 4, false).unwrap()["applied"], json!(false));
+        assert!(answer("something/else", &json!({}), 4, false).is_err());
     }
 
     /// hover 的三种样子都认（jdtls 回的是数组那种）；空的项丢掉；没有 contents（光标在空白上）是空串

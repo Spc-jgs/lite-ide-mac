@@ -72,7 +72,8 @@ export const javaFormat = (
 export const javaOrganizeImports = (root: string, path: string, text: string) => invoke<JavaEdit[]>("java_organize_imports", { root, path, text });
 type Range = { line: number; character: number; endLine: number; endCharacter: number };
 /** 光标那儿（或选中的那几行）能做的修复（⌥↵） */
-export const javaCodeActions = (root: string, path: string, text: string, range: Range) => invoke<JavaAction[]>("java_code_actions", { root, path, text, range });
+export const javaCodeActions = (root: string, path: string, text: string, range: Range, only: string | null = null) =>
+  invoke<JavaAction[]>("java_code_actions", { root, path, text, range, only });
 /** 做选中的那条修复 */
 export const javaApplyAction = (root: string, path: string, raw: string, open: OpenDoc[]) => invoke<JavaActionResult>("java_apply_action", { root, path, raw, open });
 /** jar 里一个类的内容（`jdt://…`）：有源码 jar 就是源码，没有就是反编译的 */

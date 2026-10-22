@@ -601,6 +601,22 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       await wait(250);
       const text = String(a.text ?? "");
       docs.set(path, text);
+      // 重构的快捷键（docs/TAKEOVER.md G12）：桩只演「抽成局部变量」—— 选中的那段换成 `extracted`、上一行加声明（真的名字、类型、替换几处是 jdtls 算的）
+      if (a.only) {
+        const r = a.range as unknown as { line: number; character: number; endLine: number; endCharacter: number };
+        if (a.only !== "refactor.extract.variable" || r.line !== r.endLine || r.character === r.endCharacter) return [];
+        const l = text.split("\n")[r.line] ?? "";
+        const ind = l.slice(0, l.length - l.trimStart().length);
+        const expr = l.slice(r.character, r.endCharacter);
+        const edits = [
+          { line: r.line, character: 0, endLine: r.line, endCharacter: 0, text: `${ind}var extracted = ${expr};\n` },
+          { line: r.line, character: r.character, endLine: r.line, endCharacter: r.endCharacter, text: "extracted" },
+        ];
+        return [
+          { title: "Extract to local variable (replace all occurrences)", kind: "refactor.extract.variable", raw: JSON.stringify({ path, edits }) },
+          { title: "Extract to local variable", kind: "refactor.extract.variable", raw: JSON.stringify({ path, edits }) },
+        ];
+      }
       const line = Number((a.range as unknown as { line: number }).line);
       const l = text.split("\n")[line] ?? "";
       const out = [];
@@ -613,7 +629,8 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
     }
     case "java_apply_action": {
       await wait(40);
-      const it = JSON.parse(String(a.raw)) as { path: string; import?: string; finalAt?: number };
+      const it = JSON.parse(String(a.raw)) as { path: string; import?: string; finalAt?: number; edits?: unknown[] };
+      if (it.edits) return { edits: it.edits, outcome: null };
       if (it.import) return { edits: resolve(JSON.stringify({ label: "", path: it.path, import: it.import })).edits, outcome: null };
       const l = (docs.get(it.path) ?? FILES[it.path] ?? "").split("\n")[it.finalAt!] ?? "";
       const at = l.length - l.trimStart().length;

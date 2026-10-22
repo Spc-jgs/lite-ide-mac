@@ -24,6 +24,7 @@ import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
 import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaOrganizeImports, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { usageHighlight } from "./java-usage-hl";
+import { nameSpot, refactorTitle } from "./refactor";
 import { idKeymap } from "./id-keys";
 import { inlayHints } from "./java-inlay";
 import { configKeyAt } from "./spring-key";
@@ -738,28 +739,74 @@ async function quickFix(view: EditorView): Promise<void> {
     return;
   }
   const gen = view.state.field(genField, false) ?? 0;
-  const c = view.coordsAtPos(sel.head);
+  pickAction(view, items, (it) => void applyAction(view, s, it.title, it.raw, gen, false));
+}
+
+/** 几条里挑一条（⌥↵ 的列表、重构有好几种做法时）。jdtls 的英文标题换成中文（`refactorTitle`，表里没有的原样） */
+function pickAction(view: EditorView, items: { title: string; kind: string; raw: string }[], go: (it: { title: string; raw: string }) => void) {
+  const shown = items.map((it) => ({ ...it, title: refactorTitle(it.title) }));
+  const c = view.coordsAtPos(view.state.selection.main.head);
   closePopup();
   popup = mount(QuickFixPopup, {
     target: document.body,
     props: {
-      items,
+      items: shown,
       x: c?.left ?? 200,
       y: c?.bottom ?? 200,
       onclose: () => {
         closePopup();
         view.focus();
       },
-      onpick: (it: (typeof items)[number]) => {
+      onpick: (it: (typeof shown)[number]) => {
         closePopup();
         view.focus();
-        void applyAction(view, s, it.title, it.raw, gen);
+        go(it);
       },
     },
   });
 }
 
-async function applyAction(view: EditorView, s: Sync, title: string, raw: string, gen: number) {
+/**
+ * 重构的快捷键（docs/TAKEOVER.md G12）：选中一段按 ⌥⌘V / ⌥⌘C / ⌥⌘F / ⌥⌘M，光标放在变量 / 方法上按 ⌥⌘N。
+ * 只问 jdtls 这一种（`only`）；一种做法直接做，几种（抽变量「替换所有相同的 / 只换这一处」）弹出来挑。抽完接着在新名字上开改名
+ */
+async function refactor(view: EditorView, kind: string, what: string): Promise<void> {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) {
+    notify.hint(`Java 语言服务器还没起好，${what}要等它`);
+    return;
+  }
+  const st = view.state;
+  const sel = st.selection.main;
+  const inline = kind === "refactor.inline";
+  if (sel.empty && !inline) {
+    notify.hint(`先选中要${what}的那段（表达式，或者抽方法时的几行）`);
+    return;
+  }
+  const a = st.doc.lineAt(sel.from);
+  const b = st.doc.lineAt(sel.to);
+  const range = { line: a.number - 1, character: sel.from - a.from, endLine: b.number - 1, endCharacter: sel.to - b.from };
+  let items: Awaited<ReturnType<typeof javaCodeActions>>;
+  try {
+    items = (await javaCodeActions(s.root, s.path, st.doc.toString(), range, kind)).filter((it) => it.kind.startsWith(kind));
+  } catch (e) {
+    notify.fail(`没${what}：${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  if (!view.dom.isConnected) return;
+  if (!items.length) {
+    notify.hint(inline ? "光标底下没有能内联的（局部变量、方法、常量才行）" : `选中的这段${what}不了（要是一个完整的表达式，或者几条完整的语句）`);
+    return;
+  }
+  const gen = view.state.field(genField, false) ?? 0;
+  const go = (it: { title: string; raw: string }) => void applyAction(view, s, refactorTitle(it.title), it.raw, gen, !inline);
+  if (items.length === 1) go(items[0]);
+  else pickAction(view, items, go);
+}
+
+/** `rename`：做完之后在新名字上接着开改名（抽取：名字是 jdtls 起的，`refactor.ts` 的 `nameSpot` 认它在哪） */
+async function applyAction(view: EditorView, s: Sync, title: string, raw: string, gen: number, rename: boolean) {
   const t = progress.start(`正在做：${title}`);
   try {
     const ops = await import("../state/replace-ops");
@@ -787,8 +834,16 @@ async function applyAction(view: EditorView, s: Sync, title: string, raw: string
       notify.hint(`「${title}」什么都没改`);
       return;
     }
-    view.dispatch({ changes, userEvent: "input.fix", scrollIntoView: true });
+    const tr = view.state.update({ changes, userEvent: "input.fix", scrollIntoView: true });
+    view.dispatch(tr);
     notify.ok(title);
+    const spot = rename ? nameSpot(changes.map((c) => ({ insert: c.insert, old: doc.sliceString(c.from, c.to) }))) : null;
+    if (spot) {
+      // 插进去的那段在新文档里从哪开始：往前靠（-1），不被同一处别的插入推走
+      const at = tr.changes.mapPos(changes[spot.index].from, -1) + spot.offset;
+      view.dispatch({ selection: { anchor: at } });
+      void renameAt(view);
+    }
   } catch (e) {
     notify.fail(`没做成「${title}」：${e instanceof Error ? e.message : String(e)}`, 8000);
   } finally {
@@ -1121,6 +1176,12 @@ export function javaLsp(root: string | null, path: string): Extension {
         { id: "cm-format-json", preventDefault: true, run: (v) => (void formatJava(v), true) },
         // IDEA 的 Optimize Imports（docs/TAKEOVER.md G22）
         { id: "optimize-imports", preventDefault: true, run: (v) => (void organizeImports(v), true) },
+        // IDEA 的 Refactor › Extract / Inline（docs/TAKEOVER.md G12）
+        { id: "extract-variable", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.variable", "抽成变量"), true) },
+        { id: "extract-constant", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.constant", "抽成常量"), true) },
+        { id: "extract-field", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.field", "抽成字段"), true) },
+        { id: "extract-method", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.function", "抽成方法"), true) },
+        { id: "inline", preventDefault: true, run: (v) => (void refactor(v, "refactor.inline", "内联"), true) },
       ]),
     ),
     EditorView.theme({

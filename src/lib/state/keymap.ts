@@ -274,6 +274,15 @@ export const KEYS: KeyDef[] = [
   { id: "cm-format-json", label: "重新格式化（Java：整份或选中的；别的文件：JSON）", accel: "⌥⌘L", group: "编辑", owner: "cm6" },
   /** IDEA 的 Optimize Imports（docs/TAKEOVER.md G22）：删没用的、补齐、按 IDEA 代码风格里的次序排、到阈值合成 `.*`。Java 文件里 jdtls 起好之后才有 */
   { id: "optimize-imports", label: "优化 import（Java）", accel: "⌃⌥O", group: "编辑", owner: "cm6" },
+  /*
+   * 重构（docs/TAKEOVER.md G12），键位照 IDEA 的 Refactor › Extract / Inline。选中一段按，抽完接着在新名字上开改名（⇧F6 那个框）。
+   * ⌥⌘F 原来是查找面板里一条 VS Code 的「替换」别名（没登记、速查表不列），让给 IDEA 的抽字段
+   */
+  { id: "extract-variable", label: "抽成变量（Java）", accel: "⌥⌘V", group: "编辑", owner: "cm6" },
+  { id: "extract-constant", label: "抽成常量（Java）", accel: "⌥⌘C", group: "编辑", owner: "cm6" },
+  { id: "extract-field", label: "抽成字段（Java）", accel: "⌥⌘F", group: "编辑", owner: "cm6" },
+  { id: "extract-method", label: "抽成方法（Java）", accel: "⌥⌘M", group: "编辑", owner: "cm6" },
+  { id: "inline", label: "内联（Java）", accel: "⌥⌘N", group: "编辑", owner: "cm6" },
   { id: "encoding", label: "文件编码…", group: "编辑", owner: "menu" },
   /**
    * 跨文件替换、Java 改名、快速修复做完，胶囊上带一个「撤销」（2026-10-21 起，原来是一张卡片）；胶囊几秒就走，这里是常驻的那条路，

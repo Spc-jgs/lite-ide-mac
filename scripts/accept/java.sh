@@ -116,6 +116,23 @@ public class Sty {
     }
 }
 EOF2
+# 重构（G12）用：两处一样的 qty * 100（抽变量「替换所有相同的」）、两行可以抽成方法、一个字面量抽成常量
+cat > "${C}/Ref.java" <<'EOF2'
+package com.demo.common;
+
+public class Ref {
+    int price(int qty) {
+        int total = qty * 100 + 5;
+        int other = qty * 100 + 7;
+        return total + other;
+    }
+
+    void show(String name) {
+        System.out.println("hello " + name);
+        System.out.println("bye " + name);
+    }
+}
+EOF2
 APP="${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
 cat > "${APP}" <<'EOF'
 package com.demo.order;
@@ -494,6 +511,36 @@ ok "$([ "$(lite_eval main "return __lite.tabs.active?.mode === 'class' && /^Spri
 LAT=$(lite_eval main "const qs = ['Order', 'Cust', 'PrRu', 'Vip', 'Half', 'Coup', 'Str', 'List', 'Map', 'Spring', 'Appl', 'Obj']; const ms = []; for (const q of qs) for (const libs of [false, true]) { const t = performance.now(); await window.__TAURI_INTERNALS__.invoke('java_types', { root: __lite.project.root, query: q, libs }); ms.push(performance.now() - t); } ms.sort((a, b) => a - b); return Math.round(ms[Math.floor(ms.length / 2)]) + ' ' + Math.round(ms[Math.floor(ms.length * 0.95)]) + ' ' + Math.round(ms[ms.length - 1])")
 read -r P50 P95 PMAX <<< "${LAT}"
 ok "$([ "${P95:-9999}" -lt 500 ] && echo 1)" "一次找类（24 次，热的 jdtls）：p50 ${P50} ms、p95 ${P95} ms、最慢 ${PMAX} ms（p95 要在 500 以内）"
+
+echo "== 重构（docs/TAKEOVER.md G12）：⌥⌘V 抽变量（几种做法弹出来挑）、抽完接着改名；⌥⌘M 抽方法、⌥⌘C 抽常量，同样接着改名；⌥⌘N 内联回去"
+open_file "${C}/Ref.java" >/dev/null
+SEL='const sel = (needle, part) => { const t = __lite.text().split("\n"); const l = t.findIndex((x) => x.includes(needle)); const c = t[l].indexOf(part); __lite.select(l + 1, c + 1, l + 1, c + 1 + part.length); };'
+RENAME() { lite_wait main "return !!document.querySelector('.rename input')" 20 >/dev/null; [ "$(lite_eval main "return !!document.querySelector('.rename input')")" = true ] || echo "    （诊断：没开改名框；胶囊「$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")」；Ref.java 此刻：$(lite_eval main "return __lite.text().split('\\n').slice(3, 16).join(' ⏎ ')")）"; N0=$(lite_eval main "return document.querySelector('.rename input')?.value ?? ''"); lite_eval main "__lite.fill('$1', '.rename input'); document.querySelector('.rename input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); return true" >/dev/null; }
+lite_eval main "${SEL} sel('qty * 100 + 5', 'qty * 100'); __lite.key('Alt-Mod-v'); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('[role=option]').length >= 2" 20 >/dev/null
+OPTS=$(lite_eval main "return [...document.querySelectorAll('[role=option]')].map((o) => o.textContent.trim()).join(' / ')")
+ok "$(echo "${OPTS}" | grep -q '替换所有相同的' && echo 1)" "⌥⌘V：几种做法弹出来挑、标题是中文：${OPTS}"
+lite_eval main "const o = [...document.querySelectorAll('[role=option]')].find((x) => x.textContent.includes('替换所有相同的')); o.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); o.click(); return true" >/dev/null
+RENAME base
+lite_wait main "return /int base = qty \\* 100;/.test(__lite.text())" 20 >/dev/null
+ok "$([ "$(lite_eval main "const t = __lite.text(); return /int base = qty \\* 100;/.test(t) && t.includes('int total = base + 5;') && t.includes('int other = base + 7;') && !/\\t/.test(t)")" = true ] && echo 1)" "抽完光标停在新名字上、改名框直接开着（jdtls 起的名字是「${N0}」），打 base 回车：声明一行、两处都换成 base；抽出来的代码是空格缩进（Eclipse 默认是 Tab）$([ "$(lite_eval main "return /\\t/.test(__lite.text())")" = true ] && echo "；此刻：$(lite_eval main "return JSON.stringify(__lite.text().split('\\n').slice(3, 9))")")"
+lite_wait main "return !document.querySelector('.rename')" 10 >/dev/null; sleep 1
+lite_eval main "const t = __lite.text().split('\\n'); const a = t.findIndex((x) => x.includes('hello ')); const b = t.findIndex((x) => x.includes('bye ')); __lite.select(a + 1, t[a].indexOf('System') + 1, b + 1, t[b].length + 1); __lite.key('Alt-Mod-m'); return true" >/dev/null
+RENAME greet
+lite_wait main "return __lite.text().includes('greet(name);')" 20 >/dev/null
+ok "$([ "$(lite_eval main "const t = __lite.text(); return t.includes('greet(name);') && /^    private void greet\\(String name\\)/m.test(t) && !/extracted/.test(t) && !/\\t/.test(t)")" = true ] && echo 1)" "⌥⌘M：两行抽成方法、接着改名（jdtls 起的是「${N0}」）：调用处 greet(name);、声明 private void greet(String name)$([ "$(lite_eval main "return /\\t/.test(__lite.text())")" = true ] && echo "；此刻：$(lite_eval main "return JSON.stringify(__lite.text().split('\\n').slice(9, 20))")")"
+# 上一步的改名是异步落进编辑器的：落下来那一下会把选区换掉。等改名框关了、正文不再变再选（一次间歇红：选中之后被换掉，⌥⌘C 没有选区什么都没做）
+lite_wait main "return !document.querySelector('.rename')" 10 >/dev/null; sleep 1
+lite_eval main "${SEL} sel('\"bye \"', '\"bye \"'); __lite.key('Alt-Mod-c'); return true" >/dev/null
+RENAME BYE
+lite_wait main "return __lite.text().includes('BYE + name')" 20 >/dev/null
+ok "$([ "$(lite_eval main "const t = __lite.text(); return /static final String BYE = \"bye \";/.test(t) && t.includes('BYE + name')")" = true ] && echo 1)" "⌥⌘C：字面量抽成常量、接着改名（jdtls 起的是「${N0}」）：static final String BYE = \"bye \";"
+lite_wait main "return !document.querySelector('.rename')" 10 >/dev/null; sleep 1
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('int total = base')); __lite.caret(l + 1, t[l].indexOf('base') + 2); __lite.key('Alt-Mod-n'); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('[role=option]').length > 0 || !__lite.text().includes('int base')" 20 >/dev/null
+lite_eval main "const o = document.querySelector('[role=option]'); if (o) { o.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); o.click(); } return true" >/dev/null
+lite_wait main "return !__lite.text().includes('int base')" 20 >/dev/null
+ok "$([ "$(lite_eval main "const t = __lite.text(); return !t.includes('int base') && t.includes('int total = qty * 100 + 5;') && t.includes('int other = qty * 100 + 7;')")" = true ] && echo 1)" "⌥⌘N：base 内联回去，声明没了、两处换回 qty * 100（没接着开改名框：$(lite_eval main "return document.querySelector('.rename') ? '开了' : '没开'")）"
 
 echo "== 代码风格照 IDEA（docs/TAKEOVER.md G22）：项目的 .idea/codeStyles 写着续行 4、行宽 80、3 个类合成 .*；⌃⌥O 删没用的、合成 java.util.*、static 放最后；⌥⌘L 照行宽折行、续行缩 4"
 open_file "${C}/Sty.java" >/dev/null

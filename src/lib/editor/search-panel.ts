@@ -25,8 +25,8 @@
  * `keymap.ts` 里 `cm-replace` 标的是 ⌥⌘F，注释写「CM6 的 `searchKeymap` 给的」——
  * **那是错的**：`searchKeymap` 一共七条绑定，没有 `Mod-Alt-f`
  * （`Mod-f` `F3` `Mod-g` `Escape` `Mod-Shift-l` `Mod-Alt-g` `Mod-d`）。
- * 也就是说速查表上挂着一个按下去什么都不会发生的键。现在它真的接上了：
- * 打开面板并展开替换行。
+ * 也就是说速查表上挂着一个按下去什么都不会发生的键。后来它真的接上了（打开面板并展开替换行）；
+ * 2026-09-23 替换照 IDEA 改成 ⌘R，⌥⌘F 留作别名，2026-10-23 让给 IDEA 的「抽成字段」（docs/TAKEOVER.md G12）。
  *
  * # 计数是有闸的
  *
@@ -54,7 +54,7 @@ import { Prec } from "@codemirror/state";
 import { countLabel, countMatches } from "./search-count";
 import { mount, unmount } from "svelte";
 import Icon from "../shell/Icon.svelte";
-import { EditorView, keymap, runScopeHandlers, type Panel } from "@codemirror/view";
+import { EditorView, runScopeHandlers, type Panel } from "@codemirror/view";
 import { idKeymap } from "./id-keys";
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -77,7 +77,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
  */
 let openReplace = false;
 
-/** 让 ⌥⌘F 能在面板已经开着的时候把替换行展开 —— 它得找得到那个面板 */
+/** 让 ⌘R 能在面板已经开着的时候把替换行展开 —— 它得找得到那个面板 */
 const panels = new WeakMap<EditorView, { expand: () => void }>();
 
 function createPanel(view: EditorView): Panel {
@@ -238,14 +238,14 @@ function createPanel(view: EditorView): Panel {
      * **剩下的键要手动转交，否则面板里按什么快捷键都没反应。**
      *
      * CM6 的 `keymap` 挂在 `contentDOM` 上，而面板不在 `contentDOM` 里面 ——
-     * 焦点一进查找框，⌘F、F3、⌘G、⌥⌘F 全都到不了。默认面板正是靠这一句活的，
+     * 焦点一进查找框，⌘F、F3、⌘G、⌘R 全都到不了。默认面板正是靠这一句活的，
      * 抄它的时候只看见了 DOM，没看见这一句。
      *
-     * 浏览器里实测到的形状：按 ⌥⌘F 什么都不发生，面板还开着、也没报错 ——
+     * 浏览器里实测到的形状：按替换键（那时是 ⌥⌘F）什么都不发生，面板还开着、也没报错 ——
      * 典型的「装了不生效」，不看代码根本猜不到是作用域的问题。
      *
      * 走 `search-panel` 作用域：`searchKeymap` 里那几条正是按这个作用域注册的，
-     * 我们自己那条 `Mod-Alt-f` 也标了同一个。
+     * 我们自己那条替换（⌘R，按 id 挂）也标了同一个。
      */
     if (runScopeHandlers(view, e, "search-panel")) e.preventDefault();
   });
@@ -432,16 +432,15 @@ function openOrExpandReplace(view: EditorView): boolean {
   /*
    * 面板还没开：先把展开状态置位，`createPanel` 会照着它画。
    *
-   * **这里必须自己调 `openSearchPanel`。** `searchKeymap` 里没有
-   * `Mod-Alt-f`（那正是这条键位以前是假的原因），返回 `false`
-   * 底下没有人接得住 —— 按下去仍然什么都不会发生。
+   * **这里必须自己调 `openSearchPanel`。** `searchKeymap` 里没有替换键
+   * （那正是 ⌥⌘F 当年是假键位的原因），返回 `false` 底下没有人接得住 —— 按下去仍然什么都不会发生。
    */
   openReplace = true;
   return openSearchPanel(view);
 }
 
 /**
- * 装上查找面板 + 替换键（⌘R，以及那条一直没接上的 ⌥⌘F）。
+ * 装上查找面板 + 替换键（⌘R）。
  *
  * `Prec.highest` 的理由同 `jump-ext` 的 ⌘B：`searchKeymap` 里没有这条，
  * 但别的扩展将来可能有，而「装了不生效」这类问题不报错、只是按了没反应。
@@ -451,21 +450,9 @@ export function searchPanel(): Extension {
     search({ top: true, createPanel }),
     panelTheme,
     Prec.highest(
-      // ⌘R 是 IDEA 的替换（2026-09-23 编辑器键位改照 IDEA，idea-keys.ts），按 id 挂、你改得了（docs/TAKEOVER.md R3）；
-      // ⌥⌘F 是 VSCode 的，原来就有、不碍事，照留 —— 速查表只列 ⌘R
+      // ⌘R 是 IDEA 的替换（2026-09-23 编辑器键位改照 IDEA，idea-keys.ts），按 id 挂、你改得了（docs/TAKEOVER.md R3）。
+      // 原来还挂着一条 VS Code 的 ⌥⌘F（没登记、速查表不列），2026-10-23 让给 IDEA 的「抽成字段」（G12）
       idKeymap([{ id: "cm-replace", scope: "editor search-panel", preventDefault: true, run: (view) => openOrExpandReplace(view) }]),
-    ),
-    Prec.highest(
-      keymap.of([
-        {
-          key: "Mod-Alt-f",
-          // 两个作用域都要：焦点在正文里按（editor）和焦点在查找框里按
-          // （search-panel，经面板的 `runScopeHandlers` 转交）都得管用
-          scope: "editor search-panel",
-          preventDefault: true,
-          run: (view) => openOrExpandReplace(view),
-        },
-      ]),
     ),
   ];
 }

@@ -256,10 +256,10 @@ pub async fn java_organize_imports(app: tauri::AppHandle, root: String, path: St
 
 /// 光标那儿（或选中的那几行）能做的修复（⌥↵）
 #[tauri::command]
-pub async fn java_code_actions(app: tauri::AppHandle, root: String, path: String, text: String, range: JavaRangeArg) -> Result<Vec<JavaActionDto>, String> {
+pub async fn java_code_actions(app: tauri::AppHandle, root: String, path: String, text: String, range: JavaRangeArg, only: Option<String>) -> Result<Vec<JavaActionDto>, String> {
     blocking(move || {
         let r = crate::java::Edit { line: range.line, character: range.character, end_line: range.end_line, end_character: range.end_character, text: String::new() };
-        Ok(instance(&app, &root)?.code_actions(&path, &text, r)?.into_iter().map(|a| JavaActionDto { title: a.title, kind: a.kind, raw: a.raw }).collect())
+        Ok(instance(&app, &root)?.code_actions(&path, &text, r, only.as_deref())?.into_iter().map(|a| JavaActionDto { title: a.title, kind: a.kind, raw: a.raw }).collect())
     })
     .await
 }
