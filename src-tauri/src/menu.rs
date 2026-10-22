@@ -208,6 +208,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "tw-run", "运行", Some("CmdOrCtrl+4"))?)
         .item(&item(app, "tw-debug", "调试", Some("CmdOrCtrl+5"))?)
         .item(&item(app, "tw-problems", "问题", Some("CmdOrCtrl+6"))?)
+        .item(&item(app, "tw-structure", "结构", Some("CmdOrCtrl+7"))?)
         .item(&item(app, "tw-services", "Services", Some("CmdOrCtrl+8"))?)
         .item(&item(app, "tw-git", "Git", Some("CmdOrCtrl+9"))?)
         .build()?;

@@ -119,7 +119,9 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 155,986 B → CI 取整 152，告警是「大于 152」、红线 160，离告警 686 B**（2026-10-22 晚 G11 的两个开关 +45 B：`DEFAULT_SETTINGS` 两个字段；⇧⇧ 找类、同名高亮、参数名提示本身全在懒块里，0 B。
+（**当前 156,276 B → CI 取整 152，告警是「大于 152」、红线 160，离告警 396 B**（2026-10-22 晚 结构工具窗 ⌘7 +290 B：导轨上一个按钮（模板占大头）、侧边栏的条件、会话快照认 `structure`、menu-actions 一个 case。
+视图本身懒；没给它在 App 里另开懒加载句柄 —— Maven 窗那个句柄换成一个「侧边栏工具窗宿主」，宿主按 sideView 再拉。**下一个往首屏加的东西先做一轮瘦身**：导轨顶上那组按钮（文件树 / Git / Maven / 结构）还是各写各的，改成表驱动能省一截（底部那组 10-19 改过，−284 B）。
+之前 155,986 B（2026-10-22 晚 G11 的两个开关 +45 B：`DEFAULT_SETTINGS` 两个字段；⇧⇧ 找类、同名高亮、参数名提示本身全在懒块里，0 B。
 之前 155,941 B（2026-10-22 晚 瘦身 −657 B：Git 改动面板、草稿列表的接线（二十来个回调）原来写在 App 模板的 snippet 里、跟着 App 进入口；
 挪进懒的 `GitPaneHost.svelte` / `ScratchListHost.svelte`（展示组件本身照旧只吃 props）。按 sourcemap 把 App.svelte 按 50 行一段归因找到的。文件树的接线用到 App 里的几个局部函数，没挪。
 之前 156,598 B（2026-10-22 晚 ⇧⌘T / ⇧⌘E：+195 B（`tabflow` 记关掉的标签和一个转发、menu-actions 两条 + 一处 `import()`）。

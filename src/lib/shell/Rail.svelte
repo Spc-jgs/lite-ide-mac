@@ -102,6 +102,16 @@
         <Icon name="maven" />
       </button>
     {/if}
+    <!-- 结构（⌘7，docs/TAKEOVER.md G17）：当前文件的类、方法、字段。图标暂用「按包分组」那个，上游的 structure 图标还没下 -->
+    <button
+      class="ibtn lg rbtn"
+      class:on={layout.sidebar && layout.sideView === "structure"}
+      onclick={() => layout.showSide("structure")}
+      title="结构 ⌘7"
+      aria-label="结构"
+    >
+      <Icon name="compact" />
+    </button>
     <button class="ibtn lg rbtn" onclick={onSearch} title="在项目中搜内容 ⌘⇧F" aria-label="搜索">
       <Icon name="search" />
     </button>

@@ -1245,6 +1245,23 @@ else
 fi
 for i in 1 2 3; do menu close-terminal; done; sleep 0.3
 
+say "㉛ 结构工具窗（⌘7，docs/TAKEOVER.md G17）：侧边栏列出当前文件的类、字段、构造器；光标在哪个里面哪个亮；点一项编辑器跳过去；再按一次收起"
+is "await __lite.tabflow.openPath($(q "${ADMIN}"), { preview: false }); return true" || true
+lite_wait "${W}" "return __lite.tabs.active?.path.endsWith('/AdminController.java') && !!document.querySelector('.cm-content')" 10 >/dev/null
+menu tw-structure
+if lite_wait "${W}" "return document.querySelectorAll('.structure .srow').length >= 4" 10 >/dev/null; then
+  check "$(lite eval "${W}" "return [...document.querySelectorAll('.structure .srow')].map((r) => r.innerText.replace(/\\s+/g, ' ')).join(' / ')" 2>/dev/null)" "类 AdminController / 字段 orderClient / 字段 helper / 构造 AdminController" "列出类、两个字段、构造器（Lezer 的语法树，不等 jdtls）"
+  lite eval "${W}" "__lite.caret(12, 9); return true" >/dev/null 2>&1
+  lite_wait "${W}" "return document.querySelector('.structure .srow.here')?.innerText.includes('构造')" 5 >/dev/null
+  check "$(lite eval "${W}" "return document.querySelector('.structure .srow.here')?.innerText.replace(/\\s+/g, ' ')" 2>/dev/null)" "构造 AdminController" "光标在构造器里：那一项亮着"
+  lite eval "${W}" "[...document.querySelectorAll('.structure .srow')].find((r) => r.innerText.includes('helper')).click(); return true" >/dev/null 2>&1
+  check "$(lite eval "${W}" "return __lite.where().split(':')[0]" 2>/dev/null)" "9" "点「helper」：编辑器跳到第 9 行"
+  menu tw-structure; sleep 0.3
+  check "$(lite eval "${W}" "return !document.querySelector('.structure')" 2>/dev/null)" "true" "再按一次 ⌘7：收起"
+else
+  bad "⌘7 之后侧边栏没出结构（$(lite eval "${W}" "return document.querySelector('aside')?.innerText.slice(0, 120)" 2>/dev/null)）"
+fi
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

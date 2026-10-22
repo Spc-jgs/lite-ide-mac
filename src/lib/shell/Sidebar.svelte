@@ -28,7 +28,7 @@
     fileTree: Snippet;
     gitPane: Snippet;
     scratchList: Snippet;
-    /** Maven 工具窗（docs/IDEA.md 第 1 步） */
+    /** Maven 工具窗（docs/IDEA.md 第 1 步）、结构（⌘7）：同一个宿主，按 sideView 挑 */
     mavenView: Snippet;
   } = $props();
 
@@ -63,7 +63,7 @@
       {@render gitPane()}
     {:else if layout.sideView === "git" && repo}
       <div class="no-root"><span class="spinner sm"></span> 正在载入 Git 面板…</div>
-    {:else if layout.sideView === "maven"}
+    {:else if layout.sideView === "maven" || layout.sideView === "structure"}
       {@render mavenView()}
     {:else}
       {@render fileTree()}

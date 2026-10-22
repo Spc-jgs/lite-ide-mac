@@ -293,12 +293,13 @@ export const KEYS: KeyDef[] = [
   /*
    * 工具窗的编号键，照 IDEA（docs/TAKEOVER.md G7）：按一下打开、开着再按一下收起。
    * ⌘1 是上面那个侧边栏（IDEA 的 Project），⌘J 留着（VS Code 的手感，开合整个底部）；
-   * IDEA 的 ⌘2 书签、⌘3 查找、⌘7 结构还没有对应的工具窗，等做了再占键 —— 按了没反应的键比没有更糟
+   * IDEA 的 ⌘2 书签、⌘3 查找还没有对应的工具窗，等做了再占键（⌘7 结构 2026-10-22 做了） —— 按了没反应的键比没有更糟
    */
   { id: "tw-terminal", label: "终端", accel: "⌥F12", group: "视图", owner: "menu" },
   { id: "tw-run", label: "运行", accel: "⌘4", group: "视图", owner: "menu" },
   { id: "tw-debug", label: "调试", accel: "⌘5", group: "视图", owner: "menu" },
   { id: "tw-problems", label: "问题", accel: "⌘6", group: "视图", owner: "menu" },
+  { id: "tw-structure", label: "结构", accel: "⌘7", group: "视图", owner: "menu" },
   { id: "tw-services", label: "Services", accel: "⌘8", group: "视图", owner: "menu" },
   { id: "tw-git", label: "Git", accel: "⌘9", group: "视图", owner: "menu" },
   { id: "toggle-minimap", label: "代码缩略图", group: "视图", owner: "menu" },

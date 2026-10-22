@@ -1,5 +1,5 @@
 /**
- * 工具窗的编号键（⌘4 运行、⌘5 调试、⌘6 问题、⌘8 Services、⌘9 Git、⌥F12 终端，照 IDEA；docs/TAKEOVER.md G7）。
+ * 工具窗的编号键（⌘4 运行、⌘5 调试、⌘6 问题、⌘7 结构、⌘8 Services、⌘9 Git、⌥F12 终端，照 IDEA；docs/TAKEOVER.md G7）。
  *
  * 懒的：菜单那边（menu-actions.ts，在入口包里）只有一行把 `tw-*` 交过来。
  * 指名道姓地要一个工具窗、它此刻又没有内容可显示时，说一句为什么 —— 不开一个空壳（ui.md 第十条「工具窗有内容才出现」）
@@ -16,6 +16,12 @@ export function toggleToolKey(id: string) {
       return layout.toggleTool("term");
     case "tw-problems":
       return layout.toggleTool("problems");
+    case "tw-structure":
+      // 侧边栏里的（IDEA 也在左边）：开着就收起，否则切过去
+      if (!project.root) return void notify.hint("先打开一个项目：结构列的是当前文件的类、方法、字段");
+      if (layout.sidebar && layout.sideView === "structure") layout.sidebar = false;
+      else layout.showSide("structure");
+      return;
     case "tw-git":
       if (!git.repo) return void notify.hint("这个项目不是 Git 仓库，没有 Git 工具窗");
       return layout.toggleTool("git");
