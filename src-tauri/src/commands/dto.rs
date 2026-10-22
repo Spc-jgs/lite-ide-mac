@@ -1267,6 +1267,23 @@ pub struct ProjectPageDto {
     pub skip_tests: bool,
     /// 项目根上有 mvnw
     pub wrapper: bool,
+    /// 这个项目照的 Java 代码风格（docs/TAKEOVER.md G22，从 IDEA 读的，只读）
+    pub code_style: CodeStyleDto,
+}
+
+/// 一个项目的 Java 代码风格：从哪读的、几个数、转不了的说一句（`codestyle.rs`）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeStyleDto {
+    pub origin: String,
+    pub indent: u32,
+    pub cont: u32,
+    pub margin: u32,
+    /// import 次序，给人看的写法：`其余 · javax · java · static 其余`
+    pub imports: String,
+    pub star: u32,
+    pub static_star: u32,
+    pub notes: Vec<String>,
 }
 
 /// 运行配置对话框要的

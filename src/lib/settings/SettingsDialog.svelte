@@ -255,6 +255,18 @@
               {#if page.project.wrapper}项目根上有 mvnw：{page.values["maven.useWrapper"] ? "用它（版本写在 .mvn/wrapper/ 里）" : "没用它（「Maven」一类里关了）"}{:else}项目根上没有 mvnw：用「Maven」一类里设的 Maven{/if}。
               勾哪些 profile 在 Maven 工具窗里；每个服务的 VM 参数、Spring profile、环境变量在「运行 › 编辑配置…」
             </p>
+            {@const cs = page.project.codeStyle}
+            <h3>Java 代码风格 <span class="scope">照 IDEA，{cs.origin}</span></h3>
+            <dl class="style">
+              <dt>缩进 / 续行</dt><dd>{cs.indent} / {cs.cont} 个空格</dd>
+              <dt>行宽</dt><dd>{cs.margin}</dd>
+              <dt>import 次序</dt><dd>{cs.imports}</dd>
+              <dt>合成 .*</dt><dd>同一个包 {cs.star} 个类、static {cs.staticStar} 个成员</dd>
+            </dl>
+            <p class="doc">
+              ⌥⌘L 格式化、⌃⌥O 优化 import、补全时自动加的 import 都照它。要改就在 IDEA 里改（项目的方案提交在 .idea/codeStyles/ 里，团队共用），
+              改完在状态栏「重起」Java 智能。缩进跟着编辑器对每个文件的判断走{#each cs.notes as n}；{n}{/each}
+            </p>
           {:else}
             {#each fields as d (d.key)}{@render field(d)}{/each}
             {#if cat === "java"}
@@ -410,6 +422,9 @@
   .tag { flex: none; font-size: var(--fs-xs); color: var(--text-faint); }
   .add { display: flex; gap: 8px; align-items: center; max-width: 520px; }
   .manual { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .style { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 8px 0 0; font-size: var(--fs-md); }
+  .style dt { color: var(--text-muted); }
+  .style dd { margin: 0; color: var(--text); }
   .chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: var(--r-xs); background: var(--hover); font-size: var(--fs-sm); color: var(--text-dim); }
   .banner { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 12px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--lvl-error) 14%, transparent); font-size: var(--fs-sm); color: var(--text); }
   .banner span { flex: 1; }

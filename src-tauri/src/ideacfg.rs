@@ -283,7 +283,7 @@ fn shell_arg(a: &str) -> String {
 }
 
 /// `<name …>…</name>` 和 `<name …/>`：每处的（开始标签, 正文）。同名的不嵌套（RunManager 里的 configuration、option、env 都是）
-fn elements<'a>(s: &'a str, name: &str) -> Vec<(&'a str, &'a str)> {
+pub(crate) fn elements<'a>(s: &'a str, name: &str) -> Vec<(&'a str, &'a str)> {
     let open = format!("<{name}");
     let close = format!("</{name}>");
     let mut out = Vec::new();
@@ -311,7 +311,7 @@ fn elements<'a>(s: &'a str, name: &str) -> Vec<(&'a str, &'a str)> {
 }
 
 /// 把这几种套着的段落从正文里摘出来：返回（剩下的, [(段名, 段的正文)]）
-fn cut<'a>(body: &'a str, names: &[&'static str]) -> (String, Vec<(&'static str, &'a str)>) {
+pub(crate) fn cut<'a>(body: &'a str, names: &[&'static str]) -> (String, Vec<(&'static str, &'a str)>) {
     let mut rest = body.to_string();
     let mut sections = Vec::new();
     for &n in names {

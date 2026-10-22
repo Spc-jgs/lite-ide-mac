@@ -91,6 +91,31 @@ printf 'package com.demo.common;\n\npublic class Tpl {\n    void run(String name
 # 生成（G5）用：一个普通字段、一个带初值的 final 字段（final 的没有 setter）
 printf 'package com.demo.common;\n\npublic class Point {\n    private int x;\n    private final String name = "p";\n}\n' > "${C}/Point.java"
 printf 'package com.demo.common;\n\npublic class Coupon {\n    @Override\n    public String toString() { return "coupon"; }\n}\n' > "${C}/Coupon.java"
+# 代码风格（G22）用：项目自己的 IDEA 方案（「用项目的」打开 —— 也让这份验收不跟着你机器上 IDEA 的设置变）。
+# 续行 4、行宽 80 都和 Eclipse 的默认（8、120）不一样：没转过去的话一眼看得出来；同一个包 3 个类就合成 .*，import 次序照 IDEA 默认（不碰前面自动 import 那几节）
+mkdir -p "${P}/.idea/codeStyles"
+printf '<component name="ProjectCodeStyleConfiguration">\n  <state>\n    <option name="USE_PER_PROJECT_SETTINGS" value="true" />\n  </state>\n</component>\n' > "${P}/.idea/codeStyles/codeStyleConfig.xml"
+printf '<component name="ProjectCodeStyleConfiguration">\n  <code_scheme name="Project" version="173">\n    <JavaCodeStyleSettings>\n      <option name="CLASS_COUNT_TO_USE_IMPORT_ON_DEMAND" value="3" />\n    </JavaCodeStyleSettings>\n    <codeStyleSettings language="JAVA">\n      <option name="RIGHT_MARGIN" value="80" />\n      <indentOptions>\n        <option name="CONTINUATION_INDENT_SIZE" value="4" />\n      </indentOptions>\n    </codeStyleSettings>\n  </code_scheme>\n</component>\n' > "${P}/.idea/codeStyles/Project.xml"
+cat > "${C}/Sty.java" <<'EOF2'
+package com.demo.common;
+
+import java.util.Map;
+import com.demo.common.Money;
+import static java.util.Collections.emptyList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.ArrayList;
+
+public class Sty {
+    List<String> a = new ArrayList<>();
+    Map<String, String> b = new HashMap<>();
+    List<String> c = emptyList();
+
+    void say(String first, String second, String third) {
+        System.out.println(first + second + third + first + second + third + first + second);
+    }
+}
+EOF2
 APP="${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
 cat > "${APP}" <<'EOF'
 package com.demo.order;
@@ -469,6 +494,20 @@ ok "$([ "$(lite_eval main "return __lite.tabs.active?.mode === 'class' && /^Spri
 LAT=$(lite_eval main "const qs = ['Order', 'Cust', 'PrRu', 'Vip', 'Half', 'Coup', 'Str', 'List', 'Map', 'Spring', 'Appl', 'Obj']; const ms = []; for (const q of qs) for (const libs of [false, true]) { const t = performance.now(); await window.__TAURI_INTERNALS__.invoke('java_types', { root: __lite.project.root, query: q, libs }); ms.push(performance.now() - t); } ms.sort((a, b) => a - b); return Math.round(ms[Math.floor(ms.length / 2)]) + ' ' + Math.round(ms[Math.floor(ms.length * 0.95)]) + ' ' + Math.round(ms[ms.length - 1])")
 read -r P50 P95 PMAX <<< "${LAT}"
 ok "$([ "${P95:-9999}" -lt 500 ] && echo 1)" "一次找类（24 次，热的 jdtls）：p50 ${P50} ms、p95 ${P95} ms、最慢 ${PMAX} ms（p95 要在 500 以内）"
+
+echo "== 代码风格照 IDEA（docs/TAKEOVER.md G22）：项目的 .idea/codeStyles 写着续行 4、行宽 80、3 个类合成 .*；⌃⌥O 删没用的、合成 java.util.*、static 放最后；⌥⌘L 照行宽折行、续行缩 4"
+open_file "${C}/Sty.java" >/dev/null
+lite_eval main "__lite.caret(1, 1); __lite.key('Ctrl-Alt-o'); return true" >/dev/null
+lite_wait main "return __lite.text().includes('import java.util.*;')" 20 >/dev/null
+IMPS=$(lite_eval main "return __lite.text().split('\\n').filter((l) => l.startsWith('import') || l === '').slice(0, 6).join(' | ')")
+ok "$([ "$(lite_eval main "const t = __lite.text(); return t.includes('import java.util.*;') && !t.includes('import java.util.List;') && !t.includes('import com.demo.common.Money;') && t.indexOf('import java.util.*;') < t.indexOf('import static java.util.Collections.emptyList;')")" = true ] && echo 1)" "⌃⌥O：4 个 java.util 的类合成一行 .*（阈值 3）、同包的 Money 删掉、static 排在最后：${IMPS}"
+lite_eval main "__lite.key('Ctrl-Alt-o'); return true" >/dev/null; sleep 1
+ok "$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''" | grep -q '已经是这个样子' && echo 1)" "再按一次：没什么可改的，说一句（不是「已优化」）"
+lite_eval main "__lite.caret(1, 1); __lite.key('Alt-Mod-l'); return true" >/dev/null
+lite_wait main "return !__lite.text().split('\\n').some((l) => l.length > 80)" 15 >/dev/null
+WRAP=$(lite_eval main "const t = __lite.text().split('\\n'); const i = t.findIndex((l) => l.includes('System.out.println(')); return t.slice(i, i + 2).map((l) => l.length + ':' + (l.match(/^ */)[0].length)).join(' ')")
+ok "$([ "$(lite_eval main "const t = __lite.text().split('\\n'); const i = t.findIndex((l) => l.includes('System.out.println(')); return t.every((l) => l.length <= 80) && /^ {12}\\S/.test(t[i + 1] ?? '')")" = true ] && echo 1)" "⌥⌘L：没有一行超过 80、折下来那行缩进 8 + 4 = 12（Eclipse 默认是 120 不折、续行 16）（长度:缩进）：${WRAP}"
+lite_eval main "__lite.key('Mod-z'); __lite.key('Mod-z'); return true" >/dev/null
 
 echo "== 不往项目里写东西、退出不留 jdtls"
 META=$(cd "${P}" && find . \( -name .project -o -name .classpath -o -name .settings -o -name .factorypath \) | head -5 | tr '\n' ' ')

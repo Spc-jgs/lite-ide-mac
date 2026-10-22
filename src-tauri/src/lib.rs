@@ -17,6 +17,7 @@ mod keymapctl;
 mod open;
 mod owned;
 mod ideacfg;
+mod codestyle;
 mod jdks;
 mod projectcfg;
 mod settings;
@@ -350,6 +351,7 @@ pub fn run() {
             commands::java_prepare_rename,
             commands::java_rename,
             commands::java_format,
+            commands::java_organize_imports,
             commands::java_code_actions,
             commands::java_apply_action,
             commands::java_references,

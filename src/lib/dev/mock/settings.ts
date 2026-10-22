@@ -100,7 +100,7 @@ function page(root: string | null) {
     broken: null,
     jdks: [...MOCK_JDKS, ...manual],
     badJdks: [],
-    project: p && root ? { root, jdk: p.jdk, autoJdk: `pom 要 Java 17 → Java 17（${MOCK_JDKS[0].home}）`, offline: p.offline, skipTests: p.skipTests, wrapper: false } : null,
+    project: p && root ? { root, jdk: p.jdk, autoJdk: `pom 要 Java 17 → Java 17（${MOCK_JDKS[0].home}）`, offline: p.offline, skipTests: p.skipTests, wrapper: false, codeStyle: MOCK_STYLE } : null,
   };
 }
 
@@ -112,6 +112,18 @@ const KEYS: Record<string, keyof typeof ui> = {
 };
 
 let KEYMAP: Record<string, string> = {};
+
+/** 「此项目」里的代码风格（真实现从 IDEA 读，`codestyle.rs`）：桩给一份「IDE 的 Default 方案改过阈值」的，看得到来源和转不了的那句 */
+const MOCK_STYLE = {
+  origin: "IDEA 的「Default」方案（IntelliJIdea2026.1）",
+  indent: 4,
+  cont: 8,
+  margin: 120,
+  imports: "其余 · javax · java · static 其余",
+  star: 999,
+  staticStar: 999,
+  notes: ["import 每两组之间都会空一行（Eclipse 的规矩），IDEA 里挨着的两组（比如 javax 和 java）这里中间多一行"],
+};
 
 export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {

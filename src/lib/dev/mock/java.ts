@@ -575,6 +575,26 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       });
       return edits;
     }
+    case "java_organize_imports": {
+      // 桩：把挨在一起的 import 行按 IDEA 默认的次序排（其余、javax、java、static），不删不补（真的是 jdtls 算，还会删没用的、补缺的）。等 200 ms
+      await wait(200);
+      const text = String(a.text ?? "");
+      docs.set(path, text);
+      const lines = text.split("\n");
+      const idx = lines.map((l, i) => (/^import\s/.test(l) ? i : -1)).filter((i) => i >= 0);
+      if (idx.length < 2) return [];
+      const [first, last] = [idx[0], idx[idx.length - 1]];
+      const rank = (l: string) => (/^import static /.test(l) ? 3 : /^import java\./.test(l) ? 2 : /^import javax\./.test(l) ? 1 : 0);
+      const sorted = lines.slice(first, last + 1).filter((l) => l.trim()).sort((x, y) => rank(x) - rank(y) || x.localeCompare(y));
+      const out: string[] = [];
+      sorted.forEach((l, i) => {
+        if (i > 0 && rank(l) !== rank(sorted[i - 1]) && !(rank(l) === 2 && rank(sorted[i - 1]) === 1)) out.push("");
+        out.push(l);
+      });
+      const next = out.join("\n");
+      if (next === lines.slice(first, last + 1).join("\n")) return [];
+      return [{ line: first, character: 0, endLine: last, endCharacter: lines[last].length, text: next }];
+    }
     case "java_code_actions": {
       // 桩：光标那行有一个文件里没 import 过的 JDK 类名（List / Map / Optional）就给几条 import 候选（排序照真实现：java.* 在前、JDK 内部的最后），
       // 外加一条只改这一行的「Add final modifier」。真的修复是 jdtls 算的。故意等 250 ms（实测 190–280）

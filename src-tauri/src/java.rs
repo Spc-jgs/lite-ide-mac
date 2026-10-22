@@ -256,6 +256,9 @@ pub struct Instance {
     holds: std::sync::atomic::AtomicUsize,
     /// 项目里的 `.java` / 构建文件在盘上变了（改名、查找替换、撤销、切分支、别的编辑器）→ 告诉 jdtls。随实例 drop 停
     watch: Mutex<Option<fsservice::watch::PathWatch>>,
+    /// 这个项目在 IDEA 里的代码风格（docs/TAKEOVER.md G22，`codestyle.rs`）：起 jdtls 时读一次。import 次序、合成 `.*` 的阈值进初始化参数，
+    /// 续行缩进、行宽每次格式化时带上。改了 IDEA 的方案要重起 Java 智能才生效（同 import 次序是 jdtls 起来时定的）
+    style: crate::codestyle::Style,
 }
 
 /// 一个调试会话攥着的 jdtls（[`Instance::hold`]）
@@ -640,7 +643,11 @@ impl Instance {
     pub fn format(&self, path: &str, text: &str, range: Option<Edit>, tab_size: u32, spaces: bool) -> Result<Vec<Edit>, String> {
         self.change(path, text);
         let doc = json!({ "uri": uri::from_path(path) });
-        let options = json!({ "tabSize": tab_size, "insertSpaces": spaces });
+        // 续行缩进、行宽照 IDEA（`codestyle::format_options`：jdtls 把请求里的选项原样交给格式化器）；缩进和 Tab 跟着编辑器对这个文件的判断
+        let mut options = json!({ "tabSize": tab_size, "insertSpaces": spaces });
+        for (k, v) in crate::codestyle::format_options(&self.style) {
+            options[k] = json!(v);
+        }
         let r = match range {
             Some(r) => self.ask(
                 "textDocument/rangeFormatting",
@@ -649,6 +656,32 @@ impl Instance {
             None => self.ask("textDocument/formatting", json!({ "textDocument": doc, "options": options }))?,
         };
         Ok(r.as_array().map(|a| a.iter().filter_map(|e| e["newText"].as_str().map(|t| edit_of(&e["range"], t))).collect()).unwrap_or_default())
+    }
+
+    /// 优化 import（⌃⌥O，IDEA 的 Optimize Imports，docs/TAKEOVER.md G22）：删没用的、补齐、按 IDEA 的次序排、到阈值合成 `.*`。
+    /// 走 jdtls 的 `source.organizeImports` 代码动作，只收落在这个文件里的改动。有几个同名类要挑的（`List` 有 java.util 和 java.awt），
+    /// jdtls 只在客户端声明了 `advancedOrganizeImportsSupport` 时才回头问（`java/chooseImports`）；我们没声明，它交给 Eclipse 的
+    /// `OrganizeImportsOperation` 的挑选函数是 null（读 1.61 `SourceAssistProcessor.getOrganizeImportsTextEdit` 的字节码）
+    pub fn organize_imports(&self, path: &str, text: &str) -> Result<Vec<Edit>, String> {
+        self.change(path, text);
+        let lines = text.lines().count() as u32;
+        let r = self.ask(
+            "textDocument/codeAction",
+            json!({
+                "textDocument": { "uri": uri::from_path(path) },
+                "range": { "start": { "line": 0, "character": 0 }, "end": { "line": lines, "character": 0 } },
+                "context": { "diagnostics": [], "only": ["source.organizeImports"], "triggerKind": 1 },
+            }),
+        )?;
+        let Some(item) = r.as_array().and_then(|a| a.iter().find(|x| x["kind"].as_str().is_some_and(|k| k.starts_with("source.organizeImports")))).cloned() else {
+            return Ok(vec![]);
+        };
+        let resolved = if item.get("edit").is_some() { item } else { self.ask("codeAction/resolve", item)? };
+        if resolved.get("edit").is_none() {
+            return Ok(vec![]);
+        }
+        let plan = workspace_edit(&resolved["edit"])?;
+        Ok(plan.files.into_iter().find(|(p, _)| p == path).map(|(_, e)| e).unwrap_or_default())
     }
 
     /// 光标那儿（或选中的那几行）能做的修复（⌥↵）。带着全文；把和这几行重叠的报错原样带上（[`Shared::raw_diags`]）
@@ -1505,7 +1538,8 @@ impl Java {
             }),
         )
         .map_err(|e| fail(format!("起不了 jdtls：{e}")))?;
-        let inst = Arc::new(Instance { shared: Arc::clone(&shared), srv, watch: Mutex::new(None), holds: Default::default() });
+        let style = crate::codestyle::resolve(Path::new(root), std::env::var_os("HOME").and_then(|h| crate::codestyle::idea_config_dir(Path::new(&h))).as_deref());
+        let inst = Arc::new(Instance { shared: Arc::clone(&shared), srv, watch: Mutex::new(None), holds: Default::default(), style });
         // 盘上的变化告诉 jdtls（`on_disk_changes`）。拿弱引用：监听活在实例里，强引用就是互相攥着、谁也收不掉。起不来只记一句，Java 智能照常
         let weak = Arc::downgrade(&inst);
         match fsservice::watch::watch_paths(root, java_relevant, WATCH_CAP, move |b| {
@@ -1524,6 +1558,9 @@ impl Java {
         let init = Arc::clone(&inst);
         let mvn_settings = crate::maven::cfg().settings_file;
         let mut opts = jdtls::init_options(&crate::jdks::all(), Some(&mvn_settings));
+        // import 次序、合成 `.*` 的阈值照 IDEA（docs/TAKEOVER.md G22）：自动 import 和 ⌃⌥O 都按它
+        opts["settings"]["java"]["completion"]["importOrder"] = json!(crate::codestyle::import_order(&inst.style));
+        opts["settings"]["java"]["sources"]["organizeImports"] = json!({ "starThreshold": inst.style.star, "staticStarThreshold": inst.style.static_star });
         if let Some(j) = &f.debug_jar {
             opts["bundles"] = json!([j]);
         }

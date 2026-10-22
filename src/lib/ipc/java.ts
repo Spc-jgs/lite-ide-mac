@@ -68,6 +68,8 @@ export const javaFormat = (
   tabSize: number,
   insertSpaces: boolean,
 ) => invoke<JavaEdit[]>("java_format", { root, path, text, range, tabSize, insertSpaces });
+/** 优化 import（⌃⌥O，docs/TAKEOVER.md G22）：这个文件要改的那几处。次序、合成 `.*` 的阈值照 IDEA 的代码风格（`codestyle.rs`） */
+export const javaOrganizeImports = (root: string, path: string, text: string) => invoke<JavaEdit[]>("java_organize_imports", { root, path, text });
 type Range = { line: number; character: number; endLine: number; endCharacter: number };
 /** 光标那儿（或选中的那几行）能做的修复（⌥↵） */
 export const javaCodeActions = (root: string, path: string, text: string, range: Range) => invoke<JavaAction[]>("java_code_actions", { root, path, text, range });

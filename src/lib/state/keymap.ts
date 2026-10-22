@@ -272,6 +272,8 @@ export const KEYS: KeyDef[] = [
   { id: "cm-case", label: "切换大小写", accel: "⇧⌘U", group: "编辑", owner: "cm6" },
   /** Java 文件（语言服务器起好之后）交给 jdtls 格式化整份 / 选中的几行（java-lsp.ts，docs/IDEA.md 第 15 节）；别的文件照旧只认 JSON */
   { id: "cm-format-json", label: "重新格式化（Java：整份或选中的；别的文件：JSON）", accel: "⌥⌘L", group: "编辑", owner: "cm6" },
+  /** IDEA 的 Optimize Imports（docs/TAKEOVER.md G22）：删没用的、补齐、按 IDEA 代码风格里的次序排、到阈值合成 `.*`。Java 文件里 jdtls 起好之后才有 */
+  { id: "optimize-imports", label: "优化 import（Java）", accel: "⌃⌥O", group: "编辑", owner: "cm6" },
   { id: "encoding", label: "文件编码…", group: "编辑", owner: "menu" },
   /**
    * 跨文件替换、Java 改名、快速修复做完，胶囊上带一个「撤销」（2026-10-21 起，原来是一张卡片）；胶囊几秒就走，这里是常驻的那条路，

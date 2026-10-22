@@ -10274,3 +10274,29 @@ muda 的菜单项没有「读键位」的口子，挂的时候自己记一笔（
 
 数字：settings.sh 15 → 22 条全过（录键时菜单的键全摘掉、录完挂回、keymap.json 只存两条、菜单挂新的、两个窗口里开着的编辑器当场换、手改文件不用重启）；
 keymap.test 新增一批（换算、撞键、录键、扫源码）、keymap-form 17 条、Rust 4 条 + menu_sync 一条，各有错版本验红；入口包 +110 B（空态卡片和随处搜索印的键位跟着改）。
+
+## 2026-10-23 · 代码风格照 IDEA（G22）+ ⌃⌥O：不另设一套，去 IDEA 存的地方读
+
+**先看真数据再定做法。** 计划里写的是「设置里加缩进 / 续行 / import 次序，能导入 IDEA 的 XML」。动手前看了这台机器上 IDEA 存的东西（只看结构、值打码）：
+项目里没有 `.idea/codeStyles`，IDE 的 `codestyles/Default.xml` 只有两行 —— 改过 `CLASS_COUNT_TO_USE_IMPORT_ON_DEMAND` 和 `NAMES_COUNT_TO_USE_IMPORT_ON_DEMAND`（合成 `.*` 的阈值）。
+也就是说：你在 IDEA 里改过的恰好是 import 怎么合，照 IDEA 的**默认值**来的话，⌃⌥O 会合出你在 IDEA 里从没见过的 `import x.*`。
+所以不另设一套设置（那是第二个要维护的真相），照 IDEA 自己选方案的规矩读：项目「用项目的方案」→ `.idea/codeStyles/Project.xml`；不然 IDE 当前的方案；都没有用 IDEA 默认值。
+
+**默认值不照印象写**：读 IDEA 2026.1 的字节码（`javap`，只解析）—— 缩进 4、续行 8、Tab 4、行宽 120、import「模块、其余、空行、javax、java、空行、static」、阈值 5 / 3。
+找 jar 时又撞了一次 10-22 那个坑：`IntelliJ IDEA.app` 有空格，`for j in "$L"/*.jar` 里 zsh 的 glob 一个没匹配就报错退出，看着像没找到 —— 改 `find -print0 | while read -d ''`。
+
+**续行、行宽不用重启 jdtls。** 本来打算写一份 Eclipse 的 properties 文件、用 `java.settings.url` 交给 jdtls（读字节码确认它会 `JavaCore.setOptions`）。
+接着读 `FormatterHandler.getOptions`：格式化请求里的 `FormattingOptions`，**每一个不为空的项原样 `putAll` 进格式化选项** —— 所以每次 ⌥⌘L 把
+`org.eclipse.jdt.core.formatter.continuation_indentation` / `lineSplit` 带在请求里就行：不写文件、不重启、按项目各是各的。
+import 次序和阈值是 jdtls 的偏好（`java.completion.importOrder`、`java.sources.organizeImports.starThreshold`），起 jdtls 时进初始化参数。
+IDEA 的续行按空格数、Eclipse 按「几个缩进」，8 / 4 = 2。
+
+**转不了的说出来**：Eclipse 每两组 import 之间都空一行，IDEA 里挨着的两组（默认的 javax 和 java）这里会多一行；换行、空格、大括号这些方案里写了的，
+jdtls 的格式化器没有对应项，列出名字。都在设置「此项目」里写着。
+
+**⌃⌥O 以前没有** —— 计划只写了「import 次序」，可是没有优化 import，次序只在补全自动加 import 时用得上一回。jdtls 的 `source.organizeImports` 代码动作，只收这个文件的改动、一笔做完。
+
+**一条单测是假的**：「只看 JAVA 那份」，把语言过滤删掉照样绿 —— 夹具里 XML 那份排在 JAVA 前面，后读的 JAVA 把它盖掉了。挪到后面、再给它一个 JAVA 那份没写的项（用 Tab），错版本才红。
+
+数字：java.sh 73 → 76 条全过（⌃⌥O 合成 `java.util.*`、删同包的 import、static 排最后；再按一次说「已经是这个样子」；⌥⌘L 没有一行超过 80、折下来那行缩进 12）；
+codestyle 6 条单测，两个错版本各自红；验收里把「格式化请求带上风格」「阈值进初始化参数」改坏，管风格的两条都红（⌃⌥O 出来的是四行 `java.util.X`、⌥⌘L 那行 93 个字不折）；「再按一次」那条本来就不看风格，照绿。

@@ -22,7 +22,7 @@ import { autocompletion, closeCompletion, completeAnyWord, completionStatus, sni
 import { POSTFIX, TEMPLATES, exprStart, templateAt } from "./java-templates";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaOrganizeImports, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { usageHighlight } from "./java-usage-hl";
 import { idKeymap } from "./id-keys";
 import { inlayHints } from "./java-inlay";
@@ -626,6 +626,43 @@ function configJump(view: EditorView, root: string): boolean {
  * 不给的话 jdtls 用 Eclipse 的默认 Tab。回来的是几十处很小的改动，**一笔事务**放进去：⌘Z 一下全撤、光标跟着改动挪。
  * 问的时候带着全文；回来时文件又被改过（人在等的时候接着敲了）就不放，说一句 —— 那些位置是在旧文本上算的
  */
+/**
+ * 优化 import（⌃⌥O）：jdtls 的 organizeImports，次序和合成 `.*` 的阈值照 IDEA 的代码风格（Rust 起 jdtls 时读的，`codestyle.rs`）。
+ * 改动一笔做完（⌘Z 一下撤回）；问的时候文件又改了就不动它，同 ⌥⌘L
+ */
+async function organizeImports(view: EditorView): Promise<void> {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) {
+    notify.hint("Java 语言服务器还没起好，优化 import 要等它");
+    return;
+  }
+  const gen = view.state.field(genField, false) ?? 0;
+  let edits: Awaited<ReturnType<typeof javaOrganizeImports>>;
+  try {
+    edits = await javaOrganizeImports(s.root, s.path, view.state.doc.toString());
+  } catch (e) {
+    notify.fail(`没优化 import：${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  if (!view.dom.isConnected) return;
+  if ((view.state.field(genField, false) ?? 0) !== gen) {
+    notify.hint("回来时文件又改过了，没动它 —— 再按一次 ⌃⌥O");
+    return;
+  }
+  const doc = view.state.doc;
+  const changes = edits
+    .map((e) => ({ from: offset(doc, e.line, e.character), to: offset(doc, e.endLine, e.endCharacter), insert: e.text }))
+    .filter((c) => c.insert !== doc.sliceString(c.from, c.to))
+    .sort((a, b) => a.from - b.from || a.to - b.to);
+  if (!changes.length) {
+    notify.hint("import 已经是这个样子了");
+    return;
+  }
+  view.dispatch({ changes, userEvent: "input.format" });
+  notify.ok("已优化 import");
+}
+
 async function formatJava(view: EditorView): Promise<void> {
   const s = syncs.get(view);
   if (!s) return;
@@ -1082,6 +1119,8 @@ export function javaLsp(root: string | null, path: string): Extension {
         { id: "quick-fix", preventDefault: true, run: (v) => (void quickFix(v), true) },
         // IDEA 的 Reformat Code。Prec.high 排在 Editor 里那条「格式化 JSON」前面：Java 文件里先到这儿（keymap.ts 里是同一行，说明写了两种）
         { id: "cm-format-json", preventDefault: true, run: (v) => (void formatJava(v), true) },
+        // IDEA 的 Optimize Imports（docs/TAKEOVER.md G22）
+        { id: "optimize-imports", preventDefault: true, run: (v) => (void organizeImports(v), true) },
       ]),
     ),
     EditorView.theme({

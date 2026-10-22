@@ -125,6 +125,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("SettingsPageDto", "SettingsPage"),
     ("JdkDto", "Jdk"),
     ("ProjectPageDto", "ProjectPage"),
+    ("CodeStyleDto", "CodeStyle"),
     ("RunConfigsDto", "RunConfigs"),
     ("RunConfigDto", "RunConfig"),
     ("EnvVarDto", "EnvVar"),

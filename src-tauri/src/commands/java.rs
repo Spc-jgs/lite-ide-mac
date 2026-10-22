@@ -248,6 +248,12 @@ pub async fn java_format(
     .await
 }
 
+/// 优化 import（⌃⌥O，docs/TAKEOVER.md G22）：这个文件要改的那几处（前端一笔做完）。jdtls 没起 / 不是 Java 项目 → 报错
+#[tauri::command]
+pub async fn java_organize_imports(app: tauri::AppHandle, root: String, path: String, text: String) -> Result<Vec<JavaEditDto>, String> {
+    blocking(move || Ok(instance(&app, &root)?.organize_imports(&path, &text)?.into_iter().map(Into::into).collect())).await
+}
+
 /// 光标那儿（或选中的那几行）能做的修复（⌥↵）
 #[tauri::command]
 pub async fn java_code_actions(app: tauri::AppHandle, root: String, path: String, text: String, range: JavaRangeArg) -> Result<Vec<JavaActionDto>, String> {

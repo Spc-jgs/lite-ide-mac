@@ -420,6 +420,21 @@ export interface ProjectPage {
   skipTests: boolean;
   /** 项目根上有 mvnw */
   wrapper: boolean;
+  /** 这个项目照的 Java 代码风格（docs/TAKEOVER.md G22，从 IDEA 读的，只读） */
+  codeStyle: CodeStyle;
+}
+
+/** 一个项目的 Java 代码风格：从哪读的、几个数、转不了的说一句（`codestyle.rs`） */
+export interface CodeStyle {
+  origin: string;
+  indent: number;
+  cont: number;
+  margin: number;
+  /** import 次序，给人看的写法：`其余 · javax · java · static 其余` */
+  imports: string;
+  star: number;
+  staticStar: number;
+  notes: string[];
 }
 
 /** 运行配置对话框要的 */

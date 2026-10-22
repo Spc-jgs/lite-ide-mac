@@ -103,6 +103,31 @@ fn hand_out(s: &settings::Settings) {
     crate::jdks::set_user(s.java_jdks.clone());
 }
 
+/// 「此项目」里给你看的代码风格（和起 jdtls 时读的是同一个函数，`java.rs`）
+fn code_style(root: &std::path::Path) -> crate::commands::CodeStyleDto {
+    use crate::codestyle::{self, Entry};
+    let s = codestyle::resolve(root, std::env::var_os("HOME").and_then(|h| codestyle::idea_config_dir(std::path::Path::new(&h))).as_deref());
+    let imports = s
+        .imports
+        .iter()
+        .filter_map(|e| match e {
+            Entry::Pkg { name, statik } => Some(format!("{}{}", if *statik { "static " } else { "" }, if name.is_empty() { "其余" } else { name })),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+    crate::commands::CodeStyleDto {
+        notes: codestyle::notes(&s),
+        origin: s.origin,
+        indent: s.indent,
+        cont: s.cont,
+        margin: s.margin,
+        imports,
+        star: s.star,
+        static_star: s.static_star,
+    }
+}
+
 pub fn broadcast(app: &AppHandle) {
     let _ = app.emit(EVENT, dto(app));
 }
@@ -266,6 +291,7 @@ pub fn page(app: &AppHandle, root: Option<&str>) -> crate::commands::SettingsPag
             offline: prefs.offline,
             skip_tests: prefs.skip_tests,
             wrapper: rp.join("mvnw").is_file(),
+            code_style: code_style(rp),
         }
     });
     crate::commands::SettingsPageDto {
