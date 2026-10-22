@@ -651,5 +651,29 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   tabflow.doClose(tabs.byId(t.id)!);
 }
 
+// ── 收起的草稿：重启之后从草稿列表点开，光标回到上次那一行（#70） ──
+// 草稿本把三天没动的草稿从标签栏收起；收起的不在标签里，原来位置跟着快照一起丢了（快照只存开着的标签）
+{
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  await tabflow.newScratch();
+  const s = tabs.active!;
+  const root = project.root;
+  docs.markView(s.path, { line: 7, col: 3 });
+  // 收起 = 文件还在、标签没了（同一次运行里位置还在内存里，点开就回第 7 行 —— 这一半原来就对）
+  tabflow.doClose(s);
+  ok(!tabs.byPath(s.path) && docs.posByPath.get(s.path)?.line === 7, "前提：收起了，这次运行里位置还在");
+  persist.restoring = false;
+  persist.flush();
+  // 重启：内存里的位置记忆全没了，只剩落盘的那份快照
+  docs.posByPath.clear();
+  await persist.afterRootChange(root!);
+  const back = docs.posByPath.get(s.path);
+  ok(back?.line === 7 && back.col === 3, `重启之后，收起的草稿的位置还在：${JSON.stringify(back)}`);
+  // 开着的标签不进收起的那张表（以标签为准，不记两份）
+  ok(!(persist.snapshot().parked ?? []).some((p) => tabs.list.some((t) => t.path === p.path)), "开着的标签不在收起的那张表里");
+  persist.restoring = true;
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

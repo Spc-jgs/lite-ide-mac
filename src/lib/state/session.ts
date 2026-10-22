@@ -135,6 +135,21 @@ export interface Stamp {
   size: number;
 }
 
+/**
+ * 不在标签里、但以后还会点开的文件，上次停在哪（#70）。现在只有草稿：草稿本把三天没动的草稿从标签栏收起来，
+ * 收起的不在 `tabs` 里，原来位置跟着没了 —— 重启之后从草稿列表点开，光标在第一行。**可选字段、不升 VERSION**：老快照没有它，当空的
+ */
+export interface ParkedPos {
+  path: string;
+  line: number;
+  col?: number;
+  top?: number;
+  toff?: number;
+}
+
+/** 最多记这么多份收起的位置（按最近报上来的留） */
+export const PARKED_MAX = 100;
+
 export interface TabSnap {
   path: string;
   /** 上次光标停在第几行（1-based）。日志模式记的是视图行。 */
@@ -208,6 +223,19 @@ export interface Session {
    * 不按项目分：跨项目来回看的时候正需要它。可选 —— 老快照没有这个字段。
    */
   recentFiles?: string[];
+  /** 收起的草稿上次停在哪（#70）。可选 —— 老快照没有 */
+  parked?: ParkedPos[];
+}
+
+/** 一条位置里的行 / 列 / 视口顶行 / 行内偏移：坏的各自丢，不连坐 —— 一个负偏移不该把行号也拖没。标签和收起的那几份共用 */
+function parsePos(e: Record<string, unknown>): { line?: number; col?: number; top?: number; toff?: number } {
+  const p: { line?: number; col?: number; top?: number; toff?: number } = {};
+  if (typeof e.line === "number" && Number.isFinite(e.line) && e.line >= 1) p.line = Math.floor(e.line);
+  if (typeof e.col === "number" && Number.isFinite(e.col) && e.col >= 1) p.col = Math.floor(e.col);
+  if (typeof e.top === "number" && Number.isFinite(e.top) && e.top >= 1) p.top = Math.floor(e.top);
+  // 偏移封顶：它只该是一行之内的零头，几千像素多半是坏数据，宁可回到行首
+  if (typeof e.toff === "number" && Number.isFinite(e.toff) && e.toff >= 0 && e.toff <= 400) p.toff = Math.round(e.toff);
+  return p;
 }
 
 export const DEFAULT_LAYOUT: Layout = {
@@ -318,17 +346,7 @@ export function parse(raw: string | null | undefined): Session | null {
     const e = (t ?? {}) as Record<string, unknown>;
     if (!isStr(e.path) || seen.has(e.path)) continue;
     seen.add(e.path);
-    const line =
-      typeof e.line === "number" && Number.isFinite(e.line) && e.line >= 1
-        ? Math.floor(e.line)
-        : undefined;
-    const snap: TabSnap = { path: e.path };
-    if (line !== undefined) snap.line = line;
-    // 列 / 视口顶行 / 行内偏移：坏的各自丢，不连坐 —— 一个负偏移不该把行号也拖没
-    if (typeof e.col === "number" && Number.isFinite(e.col) && e.col >= 1) snap.col = Math.floor(e.col);
-    if (typeof e.top === "number" && Number.isFinite(e.top) && e.top >= 1) snap.top = Math.floor(e.top);
-    // 偏移封顶：它只该是一行之内的零头，几千像素多半是坏数据，宁可回到行首
-    if (typeof e.toff === "number" && Number.isFinite(e.toff) && e.toff >= 0 && e.toff <= 400) snap.toff = Math.round(e.toff);
+    const snap: TabSnap = { path: e.path, ...parsePos(e) };
     // 只认字面的 true。字符串 "true" / 1 之类一律当没有 —— 宁可多占一格也别猜
     if (e.preview === true) snap.preview = true;
     if (e.pinned === true) snap.pinned = true;
@@ -385,6 +403,20 @@ export function parse(raw: string | null | undefined): Session | null {
     }
   }
 
+  // 收起的草稿的位置：同一条判据，没有行号的不要（光有列没有意义）；在标签里的以标签为准
+  const parked: ParkedPos[] = [];
+  if (Array.isArray(o.parked)) {
+    for (const t of o.parked) {
+      const e = (t ?? {}) as Record<string, unknown>;
+      if (!isStr(e.path) || seen.has(e.path)) continue;
+      const p = parsePos(e);
+      if (p.line === undefined) continue;
+      seen.add(e.path);
+      parked.push({ path: e.path, ...p } as ParkedPos);
+      if (parked.length >= PARKED_MAX) break;
+    }
+  }
+
   return {
     root: isStr(o.root) ? o.root : null,
     tabs: normalizeGroups(tabs, active),
@@ -392,6 +424,7 @@ export function parse(raw: string | null | undefined): Session | null {
     layout: toLayout(o.layout),
     recent,
     recentFiles,
+    parked,
   };
 }
 
@@ -457,6 +490,7 @@ export function serialize(s: Session, withDrafts = true): string {
      */
     recent: (s.recent ?? []).slice(0, RECENT_MAX),
     recentFiles: (s.recentFiles ?? []).slice(0, RECENT_FILES_MAX),
+    parked: (s.parked ?? []).slice(-PARKED_MAX),
   });
 }
 

@@ -158,6 +158,11 @@ class Persist {
     if (!s) return;
     layout.restore(s.layout);
     files.recent = s.recentFiles ?? [];
+    // 收起的草稿的位置先放回去：从草稿列表点开时编辑器挂载就从 `posByPath` 取（#70）
+    for (const p of s.parked ?? []) {
+      const { path, ...pos } = p;
+      if (!docs.posByPath.has(path)) docs.posByPath.set(path, pos);
+    }
     await this.#restoreTabs(s);
   }
 
@@ -364,7 +369,22 @@ class Persist {
       recent: [],
       // ⌘E 的最近文件跟着窗口走（也就是跟着项目，同 IDEA）
       recentFiles: [...files.recent],
+      parked: this.#parked(),
     };
+  }
+
+  /**
+   * 收起的草稿上次停在哪（#70）：草稿本把三天没动的草稿从标签栏收起，它们不在 `tabs` 里，位置原来跟着快照一起丢了。
+   * 只记草稿（以后会从草稿列表点开的那些）；按最近报上来的留 `PARKED_MAX` 份（Map 按插入次序，新报的在后面）
+   */
+  #parked(): session.ParkedPos[] {
+    const open = new Set(tabs.list.map((t) => t.path));
+    const out: session.ParkedPos[] = [];
+    for (const [path, pos] of docs.posByPath) {
+      if (open.has(path) || !project.isScratch(path) || pos.line === undefined) continue;
+      out.push({ path, ...pos });
+    }
+    return out.slice(-session.PARKED_MAX);
   }
 
   write() {
