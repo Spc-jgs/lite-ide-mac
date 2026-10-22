@@ -557,6 +557,8 @@ pub struct SettingsDto {
     /// Java 的同名高亮、参数名提示开不开（docs/TAKEOVER.md G11）
     pub editor_highlight_usages: bool,
     pub editor_inlay_hints: bool,
+    /// 粘性行开不开（docs/TAKEOVER.md G19）
+    pub editor_sticky_lines: bool,
     /// 调试时存盘自动构建、热替换（docs/TAKEOVER.md I6）
     pub java_hotswap_on_save: bool,
     /// 已经换算过：没写就是编辑器那个

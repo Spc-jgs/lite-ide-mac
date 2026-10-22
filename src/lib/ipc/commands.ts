@@ -1180,6 +1180,8 @@ export interface Settings {
   /** Java 的同名高亮、参数名提示开不开（docs/TAKEOVER.md G11） */
   editorHighlightUsages: boolean;
   editorInlayHints: boolean;
+  /** 粘性行开不开（docs/TAKEOVER.md G19） */
+  editorStickyLines: boolean;
   /** 调试时存盘自动构建、热替换（docs/TAKEOVER.md I6） */
   javaHotswapOnSave: boolean;
   terminalFontFamily: string;

@@ -9,6 +9,7 @@
   import { history, historyKeymap, indentWithTab } from "@codemirror/commands";
   import { ideaBindings, editorDefaults, ideaKeysState, searchDefaults } from "./idea-keys";
   import { idKeymap } from "./id-keys";
+  import { stickyLinesExt, stickyTheme } from "./sticky";
   import { formatJson } from "./format-json";
   import { notify } from "../state/notify.svelte";
   import { saveHistory, stateWithHistory } from "./undo-store";
@@ -464,6 +465,9 @@
         langSlot.of([]),
         jumpExtension(jumpHooks),
         ideaKeysState,
+        // 粘性行（docs/TAKEOVER.md G19）：所在的类、方法钉在顶上。设置里能关，关了插件还在、只是不画
+        stickyLinesExt,
+        stickyTheme,
         EditorView.domEventHandlers({ contextmenu: (e, v) => openContextMenu(e, v) }),
         ideaDarkTheme,
         ideaDarkHighlight,

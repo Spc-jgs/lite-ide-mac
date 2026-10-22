@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: Settings = {
   editorFontBase: 13,
   editorHighlightUsages: true,
   editorInlayHints: true,
+  editorStickyLines: true,
   javaHotswapOnSave: true,
   terminalFontFamily: "JetBrains Mono",
   terminalFontSize: 13,

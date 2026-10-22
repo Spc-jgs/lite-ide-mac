@@ -1276,6 +1276,22 @@ else
   bad "测试通道里没有 __lite.overlay"
 fi
 
+say "㉝ 粘性行（docs/TAKEOVER.md G19）：长方法滚到中间，类、方法签名（不是上面单独一行的 @Override）、for 那三行钉在顶上；点方法那行跳过去"
+STK="${FIX}/Sticky.java"
+python3 - "${STK}" <<'PY'
+import sys
+body = "\n".join(f"            total += i * {i};" for i in range(80))
+open(sys.argv[1], "w").write(f"package a;\n\npublic class Sticky {{\n    @Override\n    public int sum(int n) {{\n        int total = 0;\n        for (int i = 0; i < n; i++) {{\n{body}\n        }}\n        return total;\n    }}\n}}\n")
+PY
+is "await __lite.tabflow.openPath($(q "${STK}"), { preview: false }); return true"
+lite_wait "${W}" "return !!document.querySelector('.cm-sticky')" 8 >/dev/null
+# 测试窗口在后台：浏览器不发滚动事件（帧回调也停着），滚完自己补一个 scroll 事件 —— 走的还是插件里接滚动的那条路
+lite eval "${W}" "const s = document.querySelector('.cm-scroller'); s.scrollTop = 1000; s.dispatchEvent(new Event('scroll')); return true" >/dev/null 2>&1
+check "$(lite eval "${W}" "return [...document.querySelectorAll('.cm-sticky-num')].map((e) => e.textContent).join(',')" 2>/dev/null)" "3,5,7" "钉的是第 3 行（类）、第 5 行（方法签名，不是第 4 行的 @Override）、第 7 行（for）"
+lite eval "${W}" "document.querySelectorAll('.cm-sticky-line')[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); return true" >/dev/null 2>&1
+check "$(lite eval "${W}" "return __lite.caretLine()" 2>/dev/null)" "5" "点钉着的方法那行：光标跳到第 5 行"
+menu close-tab; sleep 0.3
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）
