@@ -108,6 +108,27 @@ pub async fn java_super(app: tauri::AppHandle, root: String, path: String, line:
     .await
 }
 
+fn hier_dto(n: crate::java::HierNode) -> JavaHierNodeDto {
+    let site = n.site.map(|(line, character)| JavaLocationDto { line, character, end_line: line, end_character: character, ..JavaLocationDto::from(n.at.clone()) });
+    JavaHierNodeDto { name: n.name, detail: n.detail, kind: n.kind, at: n.at.into(), site, raw: n.raw }
+}
+
+/// 调用层级 / 类型层级的根（docs/TAKEOVER.md G10）：光标底下那个方法 / 类型。`types`：类型层级（⌃H），否则调用层级（⌃⌥H）
+#[tauri::command]
+pub async fn java_hier_prepare(app: tauri::AppHandle, root: String, path: String, line: u32, character: u32, types: bool) -> Result<Vec<JavaHierNodeDto>, String> {
+    blocking(move || Ok(instance(&app, &root)?.hier_prepare(&path, line, character, types)?.into_iter().map(hier_dto).collect())).await
+}
+
+/// 一个节点的下一层。`dir`：`in` 谁调了它 / `out` 它调了谁 / `super` 父类型 / `sub` 子类型
+#[tauri::command]
+pub async fn java_hier_children(app: tauri::AppHandle, root: String, raw: String, dir: String) -> Result<JavaHierChildrenDto, String> {
+    blocking(move || {
+        let (items, total) = instance(&app, &root)?.hier_children(&raw, &dir)?;
+        Ok(JavaHierChildrenDto { items: items.into_iter().map(hier_dto).collect(), total: total as u32 })
+    })
+    .await
+}
+
 /// 内嵌提示（docs/TAKEOVER.md G11）：从 `from` 行开头到 `(end_line, end_char)`（前端问的是看得见的那一截；终点要是文件里真有的位置）
 #[tauri::command]
 pub async fn java_inlay_hints(app: tauri::AppHandle, root: String, path: String, from: u32, end_line: u32, end_char: u32) -> Result<Vec<JavaInlayDto>, String> {

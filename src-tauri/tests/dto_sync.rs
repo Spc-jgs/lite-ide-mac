@@ -97,6 +97,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("JavaTypeDto", "JavaType"),
     ("JavaHighlightDto", "JavaHighlight"),
     ("JavaInlayDto", "JavaInlay"),
+    ("JavaHierNodeDto", "JavaHierNode"),
+    ("JavaHierChildrenDto", "JavaHierChildren"),
     ("JavaTypesDto", "JavaTypes"),
     ("JavaEditDto", "JavaEdit"),
     ("JavaCompletionItemDto", "JavaCompletionItem"),

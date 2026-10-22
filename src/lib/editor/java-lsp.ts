@@ -21,7 +21,7 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { usageHighlight } from "./java-usage-hl";
 import { inlayHints } from "./java-inlay";
 import { configKeyAt } from "./spring-key";
@@ -35,6 +35,8 @@ import { javaDebugGutter } from "./java-debug-gutter";
 import { mybatisGutter } from "./mybatis-gutter";
 import { signatureHelp } from "./java-signature";
 import { notify } from "../state/notify.svelte";
+import { layout } from "../state/layout.svelte";
+import { hierarchy } from "../state/hierarchy.svelte";
 import { progress, type TaskHandle } from "../state/progress.svelte";
 import { tabs } from "../state/tabs.svelte";
 import { problems } from "../state/problems.svelte";
@@ -326,6 +328,28 @@ export function lspResolve(view: EditorView, pos: number, recheck: () => void): 
 export function lspSettle(view: EditorView): Promise<void> | null {
   const a = asked.get(view);
   return a && a.hit === undefined ? a.wait : null;
+}
+
+// ── 调用层级 / 类型层级（⌃⌥H / ⌃H，docs/TAKEOVER.md G10） ──
+
+/** 以光标底下那个方法 / 类型为根，打开底部的「层级」工具窗。光标不在方法 / 类型上说一句（hint：什么都没发生，说为什么） */
+async function openHierarchy(view: EditorView, types: boolean) {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) return notify.hint("Java 语言服务器还没起好，稍等一下再按");
+  s.flush();
+  const pos = view.state.selection.main.head;
+  const l = view.state.doc.lineAt(pos);
+  let nodes;
+  try {
+    nodes = await javaHierPrepare(s.root, s.path, l.number - 1, pos - l.from, types);
+  } catch (e) {
+    return notify.fail(`${types ? "类型" : "调用"}层级没打开：${e instanceof Error ? e.message : e}`);
+  }
+  if (!nodes.length) return notify.hint(types ? "光标不在类型上（类、接口、枚举的名字）" : "光标不在方法上（方法名、构造器）");
+  hierarchy.open(s.root, nodes[0], types);
+  layout.panelView = "hierarchy";
+  layout.panel = true;
 }
 
 // ── 查找用法（⌥F7 / ⌥⌘F7） ──
@@ -928,6 +952,9 @@ export function javaLsp(root: string | null, path: string): Extension {
         { key: "Mod-Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
         // IDEA 的 Go to Implementation(s) / Super Method（keymap.ts 登记成 cm6）。⌘U 盖掉 CM6 默认的「撤销选区」：Java 文件里照 IDEA
         { key: "Mod-Alt-b", preventDefault: true, run: (v) => (void jumpList(v, "实现", javaImplementation, (n) => `${n} 没有实现（不是接口 / 抽象方法，或者没人实现它）`), true) },
+        // IDEA 的 Call Hierarchy / Type Hierarchy（keymap.ts 登记成 cm6）
+        { key: "Ctrl-Alt-h", preventDefault: true, run: (v) => (void openHierarchy(v, false), true) },
+        { key: "Ctrl-h", preventDefault: true, run: (v) => (void openHierarchy(v, true), true) },
         // IDEA 的 Quick Documentation（macOS 键位是 F1）
         { key: "F1", preventDefault: true, run: (v) => (void quickDoc(v), true) },
         { key: "Mod-u", preventDefault: true, run: (v) => (void jumpList(v, "父方法", javaSuper, (n) => `${n} 没有覆盖父类 / 接口里的方法`), true) },

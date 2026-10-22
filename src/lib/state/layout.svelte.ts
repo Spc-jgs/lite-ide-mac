@@ -4,7 +4,7 @@ import { DEFAULT_LAYOUT, type Layout } from "./session";
  * 底部的工具窗。比快照里的 `Layout["panelView"]` 多一个 `run`（#48 的运行窗）：
  * 任务跟着进程死，重启时没有一次运行可恢复（同终端）—— 所以 `run` 只活在运行时，存快照时写成 `term`
  */
-export type PanelTool = Layout["panelView"] | "run" | "services" | "problems";
+export type PanelTool = Layout["panelView"] | "run" | "services" | "problems" | "hierarchy";
 
 /**
  * 外壳的布局状态：侧边栏开合 / 宽度 / 视图，底部面板开合 / 高度 / 工具窗 / 标签。

@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaHighlight, JavaInlay, JavaLocation, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
+import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaHierChildren, JavaHierNode, JavaHighlight, JavaInlay, JavaLocation, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -30,6 +30,11 @@ export const javaHighlights = (root: string, path: string, line: number, charact
 /** 内嵌提示（G11）：从 `from` 行开头到 `(endLine, endChar)` 的参数名提示（行列从 0 数；终点要是文件里真有的位置，jdtls 对不存在的行整段回空） */
 export const javaInlayHints = (root: string, path: string, from: number, endLine: number, endChar: number) =>
   invoke<JavaInlay[]>("java_inlay_hints", { root, path, from, endLine, endChar });
+/** 调用层级 / 类型层级的根（G10）：光标底下那个方法 / 类型。`types`：类型层级（⌃H） */
+export const javaHierPrepare = (root: string, path: string, line: number, character: number, types: boolean) =>
+  invoke<JavaHierNode[]>("java_hier_prepare", { root, path, line, character, types });
+/** 一个节点的下一层：`in` 谁调了它 / `out` 它调了谁 / `super` 父类型 / `sub` 子类型 */
+export const javaHierChildren = (root: string, raw: string, dir: "in" | "out" | "super" | "sub") => invoke<JavaHierChildren>("java_hier_children", { root, raw, dir });
 /** 跳到父方法（⌘U）：覆盖的那个方法 / 父类（jdtls 的 `java/findLinks`） */
 export const javaSuper = (root: string, path: string, line: number, character: number) =>
   invoke<JavaRefs>("java_super", { root, path, line, character });

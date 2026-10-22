@@ -359,6 +359,28 @@ lite_wait main "return document.querySelectorAll('.cm-inlay').length === 2" 10 >
 ON=$(lite_eval main "return document.querySelectorAll('.cm-inlay').length")
 ok "$([ "${OFF}" = 0 ] && [ "${ON}" = 2 ] && echo 1)" "设置里关掉 editor.inlayHints：当场收（${OFF}）；恢复默认：回来（${ON}）—— 走的是写 settings.json → 文件监听 → 广播"
 
+echo "== 调用层级 ⌃⌥H、类型层级 ⌃H（docs/TAKEOVER.md G10）：底部「层级」工具窗；调用方带调用的那一行、↵ 跳过去；换成「被调用」；接口上 ⌃H 列出两个实现"
+H='.hier [role="tree"]'
+hrows() { lite_eval main "return [...document.querySelectorAll('${H} .hrow')].map((r) => r.querySelector('.name').textContent + '@' + r.querySelector('.file').textContent).join(' ')"; }
+open_file "${C}/Tally.java" >/dev/null
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('int add(')); __lite.caret(l + 1, t[l].indexOf('add') + 2); __lite.key('Ctrl-Alt-h'); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('${H} .hrow').length >= 2" 20 >/dev/null
+ROWS=$(hrows)
+ok "$([ "${ROWS}" = 'add(int) : int@Tally.java twice() : int@Tally.java:10' ] && echo 1)" "add 的调用方：twice，带调用那一行（第 10 行）；名字带签名（jdtls 给的，同 IDEA）：${ROWS}"
+lite_eval main "const t = document.querySelector('${H}'); t.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true" >/dev/null
+lite_wait main "return __lite.where().startsWith('10:')" 10 >/dev/null
+ok "$([ "$(lite_eval main "const [l, c] = __lite.where().split(':').map(Number); return __lite.text().split('\\n')[l - 1].slice(c - 1).startsWith('add(2)')")" = true ] && echo 1)" "↵：跳到调用 add 的那一处（不是 twice 的开头）：$(lite_eval main "return __lite.where()")"
+lite_eval main "__lite.click('被调用', 'any'); return true" >/dev/null
+lite_wait main "return [...document.querySelectorAll('${H} .hrow')].length >= 1 && !document.querySelector('${H} .spinner')" 20 >/dev/null
+ok "$([ "$(hrows)" = 'add(int) : int@Tally.java' ] && echo 1)" "换成「被调用」：add 自己不调项目里的方法，只剩根：$(hrows) / $(lite_eval main "return document.querySelector('${H} .sub')?.textContent ?? ''")"
+open_file "${C}/PriceRule.java" >/dev/null
+caret_on 'PriceRule {' >/dev/null
+lite_eval main "__lite.key('Ctrl-h'); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('${H} .hrow').length >= 3" 20 >/dev/null
+TROWS=$(lite_eval main "return [...document.querySelectorAll('${H} .hrow .name')].map((r) => r.textContent).slice(1).sort().join(',')")
+ok "$([ "${TROWS}" = 'HalfRule,VipRule' ] && [ "$(lite_eval main "return document.querySelector('${H} .hrow .name')?.textContent + '/' + document.querySelector('.hier .segs .on')?.textContent")" = 'PriceRule/子类型' ] && echo 1)" "接口上 ⌃H：默认看子类型，两个实现：${TROWS}"
+ok "$([ "$(lite_eval main "return __lite.text().includes('public interface PriceRule {')")" = true ] && echo 1)" "⌃H 在 Java 文件里不再是「往回删一个字」"
+
 echo "== ⇧⇧ 找类（docs/TAKEOVER.md G2）：问 jdtls（驼峰缩写也认，接口标「接口」）；默认只找项目的，「含 jar 里的」找得到依赖里的、↵ 开成只读标签"
 Q='[aria-label="随处搜索"]'
 lite_eval main "__lite.overlay.openQuick('class', 'PrRu'); return true" >/dev/null

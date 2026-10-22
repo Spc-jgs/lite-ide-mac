@@ -275,6 +275,9 @@ pub fn capabilities() -> Value {
             "documentHighlight": {},
             // 内嵌提示（G11）：参数名
             "inlayHint": {},
+            // 调用层级 / 类型层级（G10）
+            "callHierarchy": {},
+            "typeHierarchy": {},
             "rename": { "prepareSupport": true },
             // 快速修复（⌥↵）：要声明认「字面量形式」，不然 jdtls 一项都不回（探针实测 0 项）；resolve 先给标题、选中了再要改动
             "codeAction": {

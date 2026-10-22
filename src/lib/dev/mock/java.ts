@@ -309,6 +309,44 @@ function springConfig(root: string, key: string) {
   return out.sort((a, b) => Number(a.name.includes("-")) - Number(b.name.includes("-")));
 }
 
+/** 层级的桩：这个项目里的方法（声明在哪、方法体里调了谁） */
+function mockMethods(root: string) {
+  const out: { name: string; calls: { name: string; line: number; character: number }[]; node: Record<string, unknown> }[] = [];
+  for (const [p, text] of Object.entries(FILES)) {
+    if (!p.startsWith(`${root}/`) || !p.endsWith(".java") || typeof text !== "string") continue;
+    const cls = /\b(?:class|interface|enum|record)\s+(\w+)/.exec(text)?.[1] ?? "";
+    let cur: (typeof out)[number] | null = null;
+    text.split("\n").forEach((l, i) => {
+      const d = /^\s*(?:(?:public|private|protected|static|final|synchronized)\s+)*[\w<>\[\],.? ]+\s+(\w+)\s*\([^)]*\)\s*(?:throws [\w, .]+)?\{/.exec(l);
+      if (d && !KEYWORDS.has(d[1])) {
+        const at = { uri: `file://${p}`, path: p, label: p.slice(p.lastIndexOf("/") + 1), line: i, character: l.indexOf(d[1]), endLine: i, endCharacter: l.indexOf(d[1]) + d[1].length, text: "" };
+        cur = { name: d[1], calls: [], node: { name: d[1], detail: cls, kind: 6, at, site: null, raw: JSON.stringify({ name: d[1] }) } };
+        out.push(cur);
+        return;
+      }
+      if (!cur) return;
+      for (const m of l.matchAll(/\b(\w+)\s*\(/g)) if (!KEYWORDS.has(m[1])) cur.calls.push({ name: m[1], line: i, character: m.index! });
+    });
+  }
+  return out;
+}
+
+/** 层级的桩：这个项目里的类型（extends / implements 了谁） */
+function mockTypes(root: string) {
+  const out: { name: string; supers: string[]; node: Record<string, unknown> }[] = [];
+  for (const [p, text] of Object.entries(FILES)) {
+    if (!p.startsWith(`${root}/`) || !p.endsWith(".java") || typeof text !== "string") continue;
+    text.split("\n").forEach((l, i) => {
+      const m = /\b(class|interface|enum|record)\s+(\w+)([^{]*)/.exec(l);
+      if (!m) return;
+      const supers = [...m[3].matchAll(/\b([A-Z]\w*)/g)].map((x) => x[1]).filter((x) => x !== "extends" && x !== "implements");
+      const at = { uri: `file://${p}`, path: p, label: p.slice(p.lastIndexOf("/") + 1), line: i, character: l.indexOf(m[2]), endLine: i, endCharacter: l.indexOf(m[2]) + m[2].length, text: "" };
+      out.push({ name: m[2], supers, node: { name: m[2], detail: /^package\s+([\w.]+);/m.exec(text)?.[1] ?? "", kind: m[1] === "interface" ? 11 : m[1] === "enum" ? 10 : 5, at, site: null, raw: JSON.stringify({ name: m[2] }) } });
+    });
+  }
+  return out;
+}
+
 export async function javaCmd(cmd: string, a: A): Promise<unknown> {
   const root = String(a.root ?? "");
   const path = String(a.path ?? "");
@@ -364,6 +402,41 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       // 桩：照 jdtls 回的样子（签名代码块 + Javadoc 转的 Markdown）给一段
       await wait(50);
       return "```java\nlong com.demo.PriceRule.apply(long cents)\n```\n\n按规则算出**折后价**（分），见 [Money](jdt://contents/Money.class)。\n\n* **Parameters:**\n  * **cents** 原价\n* **Returns:**\n  * 折后价";
+    case "java_hier_prepare": {
+      // 层级：桩不懂语义 —— 方法认「名字(…) {」的声明，类型认 class / interface 后面的名字；调用方 = 别的方法体里出现了「名字(」。
+      // 真的是 jdtls 算的（重载、继承、跨模块都认得）。故意等 60 ms
+      await wait(60);
+      const text = docs.get(path) ?? String(FILES[path] ?? "");
+      const l = text.split("\n")[Number(a.line)] ?? "";
+      const ch = Number(a.character);
+      let s = ch, e = ch;
+      while (s > 0 && /\w/.test(l[s - 1])) s--;
+      while (e < l.length && /\w/.test(l[e])) e++;
+      const w = l.slice(s, e);
+      if (!w) return [];
+      const n = a.types ? mockTypes(root).find((t) => t.name === w) : mockMethods(root).find((m) => m.name === w);
+      return n ? [n.node] : [];
+    }
+    case "java_hier_children": {
+      await wait(80);
+      const item = JSON.parse(String(a.raw)) as { name: string };
+      const dir = String(a.dir);
+      if (dir === "in") {
+        const out = [];
+        for (const m of mockMethods(root)) for (const c of m.calls) if (c.name === item.name) out.push({ ...m.node, site: { ...(m.node.at as Record<string, unknown>), line: c.line, character: c.character, endLine: c.line, endCharacter: c.character } });
+        return { items: out, total: out.length };
+      }
+      if (dir === "out") {
+        const me = mockMethods(root).find((m) => m.name === item.name);
+        const all = mockMethods(root);
+        const out = (me?.calls ?? []).map((c) => all.find((m) => m.name === c.name)?.node).filter((x) => !!x);
+        return { items: out, total: out.length };
+      }
+      const ts = mockTypes(root);
+      const me = ts.find((t) => t.name === item.name);
+      const out = dir === "super" ? ts.filter((t) => me?.supers.includes(t.name)).map((t) => t.node) : ts.filter((t) => t.supers.includes(item.name)).map((t) => t.node);
+      return { items: out, total: out.length };
+    }
     case "java_inlay_hints": {
       // 参数名提示：桩只认「这个文件里声明过的方法、调用时传的是字面量」—— 照 jdtls 的默认（literals）。真的是语义的（重载、别的类的方法都认得）。故意等 40 ms
       await wait(40);

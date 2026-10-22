@@ -1060,6 +1060,27 @@ pub struct JavaRefsDto {
     pub total: u32,
 }
 
+/// 层级里的一个节点（docs/TAKEOVER.md G10）。`raw`：jdtls 的节点原样，问下一层时原样交回来；
+/// `site`：「谁调了它」那一层里调用的位置（在 `at` 那个文件里，行列从 0 数），别的方向为空
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaHierNodeDto {
+    pub name: String,
+    pub detail: String,
+    pub kind: u8,
+    pub at: JavaLocationDto,
+    pub site: Option<JavaLocationDto>,
+    pub raw: String,
+}
+
+/// 一个节点的下一层。`total` 是真个数；比 `items` 多就是截断了
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaHierChildrenDto {
+    pub items: Vec<JavaHierNodeDto>,
+    pub total: u32,
+}
+
 /// 一条内嵌提示（docs/TAKEOVER.md G11）：`label` 画在 `(line, character)` 前面（行列从 0 数、列按 UTF-16）。`param`：参数名
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

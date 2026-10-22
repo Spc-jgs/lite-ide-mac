@@ -183,6 +183,9 @@ export const KEYS: KeyDef[] = [
   { id: "goto-impl", label: "跳到实现（Java）", accel: "⌥⌘B", group: "导航", owner: "cm6" },
   { id: "goto-super", label: "跳到父方法（Java）", accel: "⌘U", group: "导航", owner: "cm6" },
   { id: "quick-doc", label: "快速文档（Java）", accel: "F1", group: "导航", owner: "cm6" },
+  // IDEA 的 Call Hierarchy / Type Hierarchy（macOS 键位）。⌃H 在 CM6 里是「往回删一个字」（emacs 那套），Java 文件里照 IDEA 盖掉
+  { id: "call-hierarchy", label: "调用层级（Java）", accel: "⌃⌥H", group: "导航", owner: "cm6" },
+  { id: "type-hierarchy", label: "类型层级（Java）", accel: "⌃H", group: "导航", owner: "cm6" },
   /** 改名（docs/IDEA.md 第 14 节，Java 文件、jdtls 起好之后）：IDEA 的 Refactor → Rename。归 cm6：要读光标底下的词 */
   { id: "rename", label: "改名（Java）", accel: "⇧F6", group: "编辑", owner: "cm6" },
   /** 快速修复（docs/IDEA.md 第 16 节）：IDEA 的 Show Context Actions。归 cm6：要读光标在哪 */

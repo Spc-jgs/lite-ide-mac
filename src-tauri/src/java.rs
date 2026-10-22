@@ -37,6 +37,8 @@ const TYPES_SRC: u32 = 100;
 const TYPES_ALL: u32 = 200;
 /// 内嵌提示一次最多要多少条（问的是看得见的那几十行，正常几条到几十条）
 const INLAY_MAX: usize = 2000;
+/// 层级里一个节点最多列多少个孩子（一个工具方法被几千处调用）
+const HIER_MAX: usize = 500;
 /// 同名高亮一次最多标多少处（一个几千行的生成文件里的 `i`）
 const HL_MAX: usize = 1000;
 /// 一个文件最多报多少条诊断（导入时整个项目的警告一起来，一个生成的文件可能几千条）
@@ -109,6 +111,19 @@ pub struct Inlay {
     pub character: u32,
     pub label: String,
     pub param: bool,
+}
+
+/// 层级里的一个节点（docs/TAKEOVER.md G10）：调用层级的一个方法、类型层级的一个类型。
+/// `raw` 是 jdtls 给的那个节点原样的 JSON —— 问它的下一层要原样送回去（里面有 jdtls 自己的 `data`），我们不拆它。
+/// `site`：调用方那一层里「在哪儿调的」（`fromRanges` 的第一处，在 `at` 那个文件里）；别的方向没有
+#[derive(Clone, Debug)]
+pub struct HierNode {
+    pub name: String,
+    pub detail: String,
+    pub kind: u8,
+    pub at: Location,
+    pub site: Option<(u32, u32)>,
+    pub raw: String,
 }
 
 #[derive(Clone, Debug)]
@@ -483,6 +498,30 @@ impl Instance {
         Ok(inlays_of(&r))
     }
 
+    /// 调用层级 / 类型层级的根（docs/TAKEOVER.md G10，⌃⌥H / ⌃H）：光标底下那个方法 / 类型。`types`：类型层级。
+    /// LSP 3.17 那几条（jdtls 1.61 的 `JDTLanguageServer` 里都登记了，读字节码确认）。光标不在方法 / 类型上是空的
+    pub fn hier_prepare(&self, path: &str, line: u32, character: u32, types: bool) -> Result<Vec<HierNode>, String> {
+        let method = if types { "textDocument/prepareTypeHierarchy" } else { "textDocument/prepareCallHierarchy" };
+        let r = self.ask(method, json!({ "textDocument": { "uri": uri::from_path(path) }, "position": { "line": line, "character": character } }))?;
+        Ok(r.as_array().map(|a| a.iter().filter_map(|i| hier_node(i, None)).collect()).unwrap_or_default())
+    }
+
+    /// 一个节点的下一层，返回 `(前 HIER_MAX 个, 真个数)`。`dir`：`in` 谁调了它 / `out` 它调了谁 / `super` 父类型 / `sub` 子类型。`raw` 是那个节点原样的 JSON
+    pub fn hier_children(&self, raw: &str, dir: &str) -> Result<(Vec<HierNode>, usize), String> {
+        let item: Value = serde_json::from_str(raw).map_err(|e| format!("层级节点读不懂：{e}"))?;
+        let method = match dir {
+            "in" => "callHierarchy/incomingCalls",
+            "out" => "callHierarchy/outgoingCalls",
+            "super" => "typeHierarchy/supertypes",
+            "sub" => "typeHierarchy/subtypes",
+            _ => return Err(format!("不认识的方向：{dir}")),
+        };
+        let r = self.ask(method, json!({ "item": item }))?;
+        let all = hier_children_of(&r, dir);
+        let total = all.len();
+        Ok((all.into_iter().take(HIER_MAX).collect(), total))
+    }
+
     /// 查用法。超过 [`REFS_MAX`] 截断，返回 `(前 REFS_MAX 条, 真条数)`
     pub fn references(&self, path: &str, line: u32, character: u32) -> Result<(Vec<Location>, usize), String> {
         let r = self.ask(
@@ -728,6 +767,31 @@ pub fn hover_markdown(r: &Value) -> String {
         None => Vec::new(),
     };
     parts.into_iter().filter(|s| !s.trim().is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
+/// `CallHierarchyItem` / `TypeHierarchyItem` → 节点。`site` 由调用方给（调用方那一层的 `fromRanges`）。位置用 `selectionRange`（名字那一段）
+fn hier_node(i: &Value, site: Option<(u32, u32)>) -> Option<HierNode> {
+    let name = i["name"].as_str()?.to_string();
+    let range = if i["selectionRange"].is_object() { &i["selectionRange"] } else { &i["range"] };
+    let at = locations(&json!({ "uri": i["uri"], "range": range })).into_iter().next()?;
+    Some(HierNode { name, detail: i["detail"].as_str().unwrap_or("").to_string(), kind: i["kind"].as_u64().unwrap_or(0).min(255) as u8, at, site, raw: i.to_string() })
+}
+
+/// 下一层的回话 → 节点。调用层级回的是包了一层的（`{from, fromRanges}` / `{to, fromRanges}`），类型层级直接是节点。
+/// 「谁调了它」那一层带上第一处调用的位置（`fromRanges` 在 `from` 那个文件里）—— 双击要跳到调用那一行，不是那个方法的开头（同 IDEA）。
+/// 「它调了谁」的 `fromRanges` 在**我们自己**的文件里，跳的是被调的那个方法，不带
+pub fn hier_children_of(r: &Value, dir: &str) -> Vec<HierNode> {
+    let Some(a) = r.as_array() else { return Vec::new() };
+    a.iter()
+        .filter_map(|c| match dir {
+            "in" => {
+                let s = &c["fromRanges"][0]["start"];
+                hier_node(&c["from"], s.is_object().then(|| (num(&s["line"]), num(&s["character"]))))
+            }
+            "out" => hier_node(&c["to"], None),
+            _ => hier_node(c, None),
+        })
+        .collect()
 }
 
 /// `InlayHint[] | null` → 几条。`label` 可以是字符串、也可以是几段（`InlayHintLabelPart[]`，拼起来）；空的丢掉。
@@ -1649,6 +1713,20 @@ mod tests {
         assert_eq!(hover_markdown(&json!({ "contents": "纯字符串" })), "纯字符串");
         assert_eq!(hover_markdown(&json!({ "contents": [{ "language": "java", "value": "" }, ""] })), "", "空的项丢掉");
         assert_eq!(hover_markdown(&Value::Null), "");
+    }
+
+    #[test]
+    fn 层级_调用方带调用那一行_被调的不带_类型层级直接是节点_原样留着送回去() {
+        let item = |name: &str, uri: &str, line: u64| json!({ "name": name, "detail": "com.demo.common.Tally", "kind": 6, "uri": uri, "range": { "start": { "line": line, "character": 4 }, "end": { "line": line + 2, "character": 5 } }, "selectionRange": { "start": { "line": line, "character": 15 }, "end": { "line": line, "character": 20 } }, "data": { "k": 1 } });
+        let incoming = json!([{ "from": item("twice", "file:///p/Tally.java", 9), "fromRanges": [{ "start": { "line": 9, "character": 32 }, "end": { "line": 9, "character": 35 } }] }]);
+        let n = hier_children_of(&incoming, "in");
+        assert_eq!((n[0].name.as_str(), n[0].at.line, n[0].at.character, n[0].site), ("twice", 9, 15, Some((9, 32))), "位置是名字那一段，site 是调用的那一处");
+        assert!(n[0].raw.contains("\"data\""), "jdtls 自己的 data 留在 raw 里，问下一层原样送回去");
+        let outgoing = json!([{ "to": item("add", "file:///p/Tally.java", 4), "fromRanges": [{ "start": { "line": 9, "character": 32 }, "end": { "line": 9, "character": 35 } }] }]);
+        assert_eq!(hier_children_of(&outgoing, "out")[0].site, None, "被调的：fromRanges 在我们自己的文件里，不当成它的位置");
+        let types = json!([item("PriceRule", "file:///p/PriceRule.java", 2)]);
+        assert_eq!(hier_children_of(&types, "super")[0].name, "PriceRule");
+        assert!(hier_children_of(&Value::Null, "in").is_empty());
     }
 
     #[test]

@@ -353,6 +353,8 @@ pub fn run() {
             commands::java_types,
             commands::java_highlights,
             commands::java_inlay_hints,
+            commands::java_hier_prepare,
+            commands::java_hier_children,
             commands::java_class_contents,
             commands::java_status,
             commands::java_restart,

@@ -137,6 +137,24 @@ export interface JavaRefs {
   total: number;
 }
 
+/** 层级里的一个节点（docs/TAKEOVER.md G10）。`raw`：jdtls 的节点原样，问下一层时原样交回去；`site`：「谁调了它」那一层里调用的位置，别的方向为空 */
+export interface JavaHierNode {
+  name: string;
+  /** jdtls 给的补充：方法所在的类、类型的包名 */
+  detail: string;
+  /** LSP 的 SymbolKind：6 方法、9 构造器、5 类、11 接口、10 枚举… */
+  kind: number;
+  at: JavaLocation;
+  site: JavaLocation | null;
+  raw: string;
+}
+
+/** 一个节点的下一层。`total` 比 `items` 多就是截断了 */
+export interface JavaHierChildren {
+  items: JavaHierNode[];
+  total: number;
+}
+
 /** 一条内嵌提示（docs/TAKEOVER.md G11）：`label` 画在 `(line, character)` 前面（行列从 0 数、列按 UTF-16）。`param`：参数名（`cents:`） */
 export interface JavaInlay {
   line: number;
