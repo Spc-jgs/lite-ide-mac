@@ -137,6 +137,22 @@ export interface JavaRefs {
   total: number;
 }
 
+/** ⇧⇧ 的「类」（docs/TAKEOVER.md G2）找到的一个类型。`kind`：LSP 的 SymbolKind，jdtls 只回 5 类 / 11 接口（注解也是）/ 10 枚举 */
+export interface JavaType {
+  name: string;
+  /** 包名（内部类是外面那个类的全名） */
+  container: string;
+  kind: number;
+  /** jar 里的：`path` 为空、`uri` 是 `jdt://` */
+  at: JavaLocation;
+}
+
+/** `truncated`：到了上限，再打几个字缩小范围 */
+export interface JavaTypes {
+  items: JavaType[];
+  truncated: boolean;
+}
+
 /** 一处改动：`[line:character, endLine:endCharacter)` 换成 `text`。行列从 0 数、列按 UTF-16 */
 export interface JavaEdit {
   line: number;

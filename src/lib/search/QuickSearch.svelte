@@ -8,7 +8,10 @@
   import { rank, segments, snippet } from "./fuzzy";
   import { parseGoto, type Goto } from "./goto";
   import { looksLikeUrl, rankEndpoints } from "./endpoints";
-  import type { SpringEndpoint } from "../ipc/commands";
+  import type { JavaTypes, SpringEndpoint } from "../ipc/commands";
+  import { declLine, fileTypes, rankTypes, type ClassHit } from "./class-hits";
+  import { tabflow } from "../state/tabflow.svelte";
+  import { nav } from "../state/nav.svelte";
   import type { Sym } from "../editor/outline";
   import { tabs } from "../state/tabs.svelte";
   import { docs } from "../state/docs.svelte";
@@ -23,7 +26,7 @@
     run: () => void;
   }
 
-  type Scope = "all" | "file" | "content" | "action" | "endpoint";
+  type Scope = "all" | "class" | "file" | "content" | "action" | "endpoint";
 
   let {
     open = $bindable(),
@@ -66,6 +69,8 @@
 
   const SCOPES: { id: Scope; label: string }[] = [
     { id: "all", label: "全部" },
+    // 按类名找（docs/TAKEOVER.md G2，IDEA 的 Classes 页）：jdtls 在跑就问它（jar、JDK 里的也找得到），没跑按文件名
+    { id: "class", label: "类" },
     { id: "file", label: "文件" },
     { id: "content", label: "内容" },
     { id: "action", label: "操作" },
@@ -92,6 +97,43 @@
       });
     return () => {
       dead = true;
+    };
+  });
+
+  /*
+   * 类（G2）：问这个项目的 jdtls（`java/searchSymbols`，Rust 那边写了为什么不用标准的 `workspace/symbol`）。
+   * `undefined` = 还没问过；`null` = jdtls 没在跑 —— 按文件名顶上，不为一次搜索起它（起好要十几秒）。
+   * 等回话的时候列表照旧画上一份（按新的输入重排过），不闪成「找类…」：jdtls 热的时候几十毫秒，闪一下反而像卡了
+   */
+  let jtypes = $state<JavaTypes | null | undefined>(undefined);
+  let jWait = $state(false);
+  /** 连 jar / JDK 里的一起找（IDEA 的「包含非项目项」）。只在「类」那页有，浮层关了还记着 */
+  let libs = $state(false);
+  $effect(() => {
+    const q = query.trim();
+    const sc = scope;
+    const r = root;
+    const withLibs = libs && sc === "class";
+    if (!open || !r || !q || (sc !== "all" && sc !== "class") || goto.kind !== "plain") {
+      jWait = false;
+      return;
+    }
+    let dead = false;
+    jWait = true;
+    const timer = setTimeout(() => {
+      void import("../ipc/java")
+        .then((m) => m.javaTypes(r, q, withLibs))
+        // 问出错（jdtls 刚崩、还没起好）同「没在跑」：按文件名找，至少不是一片空白
+        .catch(() => null)
+        .then((t) => {
+          if (dead) return;
+          jtypes = t;
+          jWait = false;
+        });
+    }, 120);
+    return () => {
+      dead = true;
+      clearTimeout(timer);
     };
   });
 
@@ -246,7 +288,8 @@
     /** 草稿里的内容命中：单独一组「草稿」，右边那列是那条草稿的标题 */
     | { kind: "scratch"; path: string; line: number; text: string; spans: [number, number][]; title: string }
     | { kind: "action"; action: Action; seg: { t: string; hit: boolean }[] }
-    | { kind: "endpoint"; ep: SpringEndpoint; seg: { t: string; hit: boolean }[] };
+    | { kind: "endpoint"; ep: SpringEndpoint; seg: { t: string; hit: boolean }[] }
+    | { kind: "type"; hit: ClassHit };
 
   let rows = $derived.by(() => {
     const out: Row[] = [];
@@ -279,11 +322,25 @@
         out.push({ kind: "action", action: r.item, seg: segments(r.item.label, r.positions) });
       }
     }
+    /*
+     * 类：「类」那页全列；「全部」里只列 jdtls 找到的几个（按文件名顶上的那种和下面「文件」那组是同一批东西，不列两遍），
+     * 而且下面「文件」那组跳过这几个类所在的文件 —— `OrderService` 和 `OrderService.java` 挨着出现是同一件事说两遍
+     */
+    const shown = new Set<string>();
+    if ((scope === "all" && goto.kind === "plain" && jtypes) || scope === "class") {
+      const q = query.trim();
+      const list = !q ? [] : jtypes ? rankTypes(jtypes.items, q, scope === "class" ? 100 : 4) : fileTypes(files.list, q, 60);
+      for (const h of list) {
+        out.push({ kind: "type", hit: h });
+        if (h.path) shown.add(abs(h.path));
+      }
+      if (scope === "class") return out;
+    }
     if (scope === "all" || scope === "file") {
       // `文件:行` 时文件那一档放宽到 40 条（同「文件」范围）：这时候列表里只有它
       const line = goto.kind === "line" && goto.line !== null ? { line: goto.line, col: goto.col ?? undefined } : {};
       for (const r of rank(files.list, fileQ, (f) => f, scope === "file" || goto.kind !== "plain" ? 40 : 8)) {
-        out.push({ kind: "file", path: r.item, seg: segments(r.item, r.positions), ...line });
+        if (!shown.has(abs(r.item))) out.push({ kind: "file", path: r.item, seg: segments(r.item, r.positions), ...line });
       }
       // 草稿按文件名匹配（目录那串对所有草稿都一样，拿它排名只会全体并列）
       for (const r of rank(scratches, fileQ, (e) => e.name, scope === "file" ? 10 : 3)) {
@@ -318,12 +375,24 @@
     open = false;
     if (row.kind === "action") row.action.run();
     else if (row.kind === "endpoint") onOpenFile(row.ep.file, row.ep.line, false);
+    else if (row.kind === "type") openType(row.hit);
     else if (row.kind === "file") onOpenFile(row.path, row.line, false, row.col);
     else if (row.kind === "recent") onOpenFile(row.path, undefined, false);
     else if (row.kind === "symbol") onOpenFile(row.path, row.sym.line, false);
     else if (row.kind === "line") onOpenFile(row.path, row.line, false, row.col);
     // 草稿命中也是「看看这一处」，但草稿标签不做预览（它是「我的东西」，被顶掉会莫名其妙）
     else onOpenFile(row.path, row.line, row.kind === "content");
+  }
+
+  /** 类：有源文件的同按名打开文件（「我要这个」，不是预览）；jar 里的走 ⌘B 进 jar 那条路，开成只读标签再跳到声明那行 */
+  function openType(h: ClassHit) {
+    if (h.path) onOpenFile(h.path, h.line, false, h.col);
+    else
+      void tabflow.openClass(h.uri, h.label).then((ok) => {
+        if (!ok) return;
+        const at = (h.line ?? 1) > 1 ? { line: h.line!, col: h.col } : declLine(tabs.byPath(h.uri)?.content ?? "", h.name);
+        nav.goto(at?.line ?? 1, at?.col);
+      });
   }
 
   /*
@@ -379,7 +448,7 @@
     { key: "regex", icon: "regex", title: "正则（⌥X）" },
   ];
 
-  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开", symbol: "符号", line: "跳到行", endpoint: "接口" } as const;
+  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开", symbol: "符号", line: "跳到行", endpoint: "接口", type: "类" } as const;
 
   /** 最近文件右边那列：项目里的显示相对目录，草稿标「草稿」，别处的显示整条目录 */
   const recentSide = (p: string) => {
@@ -429,7 +498,7 @@
         bind:this={input}
         bind:value={query}
         onkeydown={onKey}
-        placeholder={scope === "content" ? "在项目中搜索内容…" : scope === "endpoint" ? "输入 URL（/api/orders/42 也行）或方法名…" : "输入文件名、内容或操作…"}
+        placeholder={scope === "content" ? "在项目中搜索内容…" : scope === "endpoint" ? "输入 URL（/api/orders/42 也行）或方法名…" : scope === "class" ? "输入类名（驼峰缩写也行：OC 找 OrderController）…" : "输入文件名、内容或操作…"}
         spellcheck="false"
         autocomplete="off"
       />
@@ -459,12 +528,30 @@
           {s.label}
         </button>
       {/each}
+      {#if scope === "class"}
+        <!-- IDEA 的「包含非项目项」：默认只找项目自己的，JDK 里同名的一大堆会把它们淹掉 -->
+        <button
+          class="tab libs"
+          class:on={libs}
+          disabled={jtypes === null}
+          aria-pressed={libs}
+          title={jtypes === null ? "Java 语言服务器没在跑，jar 里的找不了（打开一个 .java 文件它就起）" : "连依赖的 jar 和 JDK 里的一起找"}
+          onclick={() => {
+            libs = !libs;
+            input?.focus();
+          }}>含 jar 里的</button>
+      {/if}
     </div>
 
     <div class="results">
       {#if rows.length === 0}
         <div class="empty-msg">
           {#if searchErr && (scope === "content" || scope === "all")}<span class="err">{searchErr}</span>
+          {:else if scope === "class" && !query.trim()}输入类名 —— 驼峰缩写也行（<kbd>OC</kbd> 找 OrderController）
+          {:else if scope === "class" && (jWait || jtypes === undefined)}<span class="wait"><span class="spinner"></span>找类…</span>
+          {:else if scope === "class" && jtypes === null}没有叫这个的 .java 文件 —— Java 语言服务器没在跑，只按文件名找（打开一个 .java 文件它就起）
+          {:else if scope === "class" && !libs}项目里没有叫这个的类 —— 点「含 jar 里的」连依赖和 JDK 一起找
+          {:else if scope === "class"}没有叫这个的类
           {:else if goto.kind === "symbol" && !target}{#if goto.file}没有匹配的文件{:else}没有打开的文件 —— 在 <kbd>@</kbd> 前面写文件名{/if}
           {:else if goto.kind === "symbol" && (symsLoading || symsOf !== target)}<span class="wait"><span class="spinner"></span>解析中…</span>
           {:else if goto.kind === "symbol" && syms.length === 0}这个文件没有可列的符号 —— 只有带语法树的语言才有（Java、Python、TS…）
@@ -484,7 +571,7 @@
           {:else}没有匹配 —— 换个词，或 <kbd>Tab</kbd> 缩小范围{/if}
         </div>
       {/if}
-      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" || row.kind === "line" ? `${row.path}:${row.line}` : row.kind === "symbol" ? `${row.sym.line}:${row.sym.name}` : row.kind === "file" || row.kind === "recent" ? row.path : row.kind === "endpoint" ? `${row.ep.methods.join()} ${row.ep.path} ${row.ep.file}:${row.ep.line}` : row.action.id))}
+      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" || row.kind === "line" ? `${row.path}:${row.line}` : row.kind === "symbol" ? `${row.sym.line}:${row.sym.name}` : row.kind === "file" || row.kind === "recent" ? row.path : row.kind === "endpoint" ? `${row.ep.methods.join()} ${row.ep.path} ${row.ep.file}:${row.ep.line}` : row.kind === "type" ? `${row.hit.uri || row.hit.path}#${row.hit.name}` : row.action.id))}
         <!--
           分组头代替每行的类型胶囊。结果本来就是按类型排好的，
           每行再印一遍「文件」「操作」等于把分组信息摊到了每一行上 ——
@@ -499,6 +586,11 @@
             <span class="verb">{row.ep.methods.join(" ")}</span>
             <span class="main mono">{#each row.seg as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
             <span class="side plain">{row.ep.controller}.{row.ep.method}</span>
+          {:else if row.kind === "type"}
+            <!-- 种类那格同「文件@符号」那几行（类 / 接口 / 枚举）；按文件名顶上的不知道种类，画文件图标 -->
+            {#if row.hit.kind}<span class="ic kind">{row.hit.kind}</span>{:else}<span class="ic"><FileGlyph name={`${row.hit.name}.java`} /></span>{/if}
+            <span class="main">{#each row.hit.seg as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
+            <span class="side">{row.hit.lib ? `${row.hit.container} · ${row.hit.lib}` : row.hit.container}</span>
           {:else if row.kind === "action"}
             <span class="ic act"><Icon name="chevron-right" /></span>
             <span class="main">
@@ -562,6 +654,11 @@
         <span><kbd>:</kbd> 行</span>
       {/if}
       <span class="gap"></span>
+      {#if scope === "class" && jtypes === null && query.trim()}
+        <span class="note">按文件名找的：Java 语言服务器没在跑</span>
+      {:else if scope === "class" && jtypes?.truncated}
+        <span class="trunc">太多了，只列了一部分 —— 再打几个字</span>
+      {/if}
       {#if files.truncated && (scope === "all" || scope === "file")}
         <!-- 「没找到」和「索引没看到那儿」是两个答案，rust.md：truncated 必须一路传到界面 -->
         <span class="trunc">索引只看了前 {files.list.length.toLocaleString("en-US")} 个文件，后面的搜不到</span>
@@ -622,6 +719,9 @@
   }
   .tab:hover { background: var(--hover); }
   .tab.on { background: var(--selected); color: var(--text); }
+  /* 「含 jar 里的」是开关不是范围：靠右、和范围那排隔开 */
+  .tab.libs { margin-left: auto; }
+  .tab:disabled { color: var(--text-faint); background: transparent; }
 
   .results { overflow-y: auto; padding: 2px 0 4px; }
 
@@ -711,6 +811,7 @@
   .row.sel .key { color: var(--text-dim); }
 
   .foot .trunc { color: var(--lvl-warn); }
+  .foot .note { color: var(--text-faint); }
   .foot {
     flex: none;
     display: flex;

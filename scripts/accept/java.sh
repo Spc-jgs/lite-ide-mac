@@ -334,6 +334,28 @@ ok "$(echo "${DOC}" | grep -q 'apply(long cents)' && echo "${DOC}" | grep -q '�
 ok "$([ "$(lite_eval main "return [...document.querySelectorAll('.popup.doc b')].some((b) => b.textContent.includes('折后价'))")" = true ] && echo 1)" "Javadoc 里 <b>折后价</b> → jdtls 转成 Markdown 的粗体 → 画成粗体（走文本插值，不插 HTML）"
 lite_eval main "document.querySelector('.popup.doc').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
 
+echo "== ⇧⇧ 找类（docs/TAKEOVER.md G2）：问 jdtls（驼峰缩写也认，接口标「接口」）；默认只找项目的，「含 jar 里的」找得到依赖里的、↵ 开成只读标签"
+Q='[aria-label="随处搜索"]'
+lite_eval main "__lite.overlay.openQuick('class', 'PrRu'); return true" >/dev/null
+lite_wait main "return [...document.querySelectorAll('${Q} .row')].some((r) => r.innerText.includes('PriceRule'))" 20 >/dev/null
+ROWS=$(lite_eval main "return [...document.querySelectorAll('${Q} .row')].map((r) => r.innerText.replace(/\\s+/g, ' ')).join(' / ')")
+ok "$(echo "${ROWS}" | grep -q '接口 PriceRule com.demo.common' && echo 1)" "驼峰缩写 PrRu → PriceRule，种类是接口、右边是包名：${ROWS}"
+lite_eval main "__lite.fill('SpringApplication', '${Q} input'); return true" >/dev/null
+lite_wait main "return !!document.querySelector('${Q} .empty-msg')?.innerText.includes('含 jar 里的')" 20 >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelectorAll('${Q} .row').length")" = 0 ] && echo 1)" "默认只找项目自己的：SpringApplication 不在项目里，空着、说可以连 jar 一起找"
+lite_eval main "__lite.click('含 jar 里的'); return true" >/dev/null
+lite_wait main "return [...document.querySelectorAll('${Q} .row')].some((r) => r.innerText.includes('spring-boot'))" 20 >/dev/null
+JAR=$(lite_eval main "return document.querySelector('${Q} .row')?.innerText.replace(/\\s+/g, ' ') ?? ''")
+ok "$(echo "${JAR}" | grep -q 'SpringApplication org.springframework.boot · spring-boot-4.0.1.jar' && echo 1)" "点「含 jar 里的」：依赖里的找到了、标出是哪个 jar：${JAR}"
+lite_eval main "document.querySelector('${Q} input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true" >/dev/null
+lite_wait main "return __lite.tabs.active?.mode === 'class'" 20 >/dev/null
+lite_wait main "return /class SpringApplication\\b/.test(__lite.text().split('\\n')[parseInt(__lite.where()) - 1] ?? '')" 10 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.tabs.active?.mode === 'class' && /^SpringApplication\\.(java|class)$/.test(__lite.tabs.active.name) && /class SpringApplication\\b/.test(__lite.text().split('\\n')[parseInt(__lite.where()) - 1] ?? '')")" = true ] && echo 1)" "↵：开成只读标签、停在类声明那行（jdtls 给 jar 里的类的位置是文件开头，同 ⌘B 停的地方）：$(lite_eval main "return __lite.tabs.active?.name + ' ' + __lite.where()")"
+# 延迟：每个词问一次（项目里的、连 jar 一起的各算一次），热的 jdtls
+LAT=$(lite_eval main "const qs = ['Order', 'Cust', 'PrRu', 'Vip', 'Half', 'Coup', 'Str', 'List', 'Map', 'Spring', 'Appl', 'Obj']; const ms = []; for (const q of qs) for (const libs of [false, true]) { const t = performance.now(); await window.__TAURI_INTERNALS__.invoke('java_types', { root: __lite.project.root, query: q, libs }); ms.push(performance.now() - t); } ms.sort((a, b) => a - b); return Math.round(ms[Math.floor(ms.length / 2)]) + ' ' + Math.round(ms[Math.floor(ms.length * 0.95)]) + ' ' + Math.round(ms[ms.length - 1])")
+read -r P50 P95 PMAX <<< "${LAT}"
+ok "$([ "${P95:-9999}" -lt 500 ] && echo 1)" "一次找类（24 次，热的 jdtls）：p50 ${P50} ms、p95 ${P95} ms、最慢 ${PMAX} ms（p95 要在 500 以内）"
+
 echo "== 不往项目里写东西、退出不留 jdtls"
 META=$(cd "${P}" && find . \( -name .project -o -name .classpath -o -name .settings -o -name .factorypath \) | head -5 | tr '\n' ' ')
 ok "$([ -z "${META}" ] && echo 1)" "项目里没有 Eclipse 的元数据文件${META:+：${META}}"

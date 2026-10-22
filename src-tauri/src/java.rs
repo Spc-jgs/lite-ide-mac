@@ -32,6 +32,9 @@ const INIT: Duration = Duration::from_secs(120);
 const GRACE: Duration = Duration::from_secs(3);
 /// 一次查用法最多回多少条（再多就截断、说出真条数）
 pub const REFS_MAX: usize = 2000;
+/// ⇧⇧ 的「类」一次最多要多少个：项目里的、连 jar 一起的各一份（找够 jdtls 自己停，见 [`Instance::types`]）
+const TYPES_SRC: u32 = 100;
+const TYPES_ALL: u32 = 200;
 /// 一个文件最多报多少条诊断（导入时整个项目的警告一起来，一个生成的文件可能几千条）
 const DIAG_MAX: usize = 500;
 /// 一次补全最多回多少项（jdtls 默认自己就截在 50 左右、标 isIncomplete；这里是防别的服务器 / 设置改大了一次回几千项）
@@ -72,6 +75,17 @@ pub struct Location {
     pub character: u32,
     pub end_line: u32,
     pub end_character: u32,
+}
+
+/// ⇧⇧ 的「类」找到的一个类型（docs/TAKEOVER.md G2）。`container` 是包名（内部类是外面那个类的全名）
+#[derive(Clone, Debug)]
+pub struct TypeHit {
+    pub name: String,
+    pub container: String,
+    /// LSP 的 SymbolKind，jdtls 只回三种（1.61 的 `WorkspaceSymbolTypeRequestor.mapKind`）：11 接口（**注解也是**：先判的 `isInterface`，
+    /// 注解类型带着接口标记）、10 枚举、5 类（record 也是）
+    pub kind: u8,
+    pub loc: Location,
 }
 
 #[derive(Clone, Debug)]
@@ -399,6 +413,34 @@ impl Instance {
         Ok(hover_markdown(&r))
     }
 
+    /// 按名字找类型（⇧⇧ 的「类」，docs/TAKEOVER.md G2），返回 `(找到的, 是不是没找全)`。
+    ///
+    /// 走 jdtls 自己的 `java/searchSymbols`，不走 LSP 的 `workspace/symbol`：两条进的是同一个 `WorkspaceSymbolHandler.search`
+    /// （读 1.61 的字节码确认），但标准那条把上限写死成 0 = 不设上限 —— 打一个 `S` 就把 JDK 和每个 jar 里名字带 S 的类型全回来，
+    /// 一条消息几 MB。这条能传 `maxResults`（找够了让搜索自己停）和 `sourceOnly`。名字怎么匹配是 jdtls 定的：
+    /// 不带 `*` `?` 时按「包含」和驼峰（`OC` 找得到 `OrderController`），带 `.` 时点前面那段当包名。
+    ///
+    /// 项目里的单独先问一次：回来的次序 jdtls 不保证（存在一个 HashSet 里），只问一次「连 jar 一起、200 个」的话，
+    /// JDK 里同名的能把项目自己的挤出去。只找类型 —— 方法要 jdtls 开 `includeSourceMethodDeclarations`，开了类型和方法共用一个上限
+    pub fn types(&self, query: &str, libs: bool) -> Result<(Vec<TypeHit>, bool), String> {
+        let ask = |max: u32, source_only: bool| -> Result<Vec<TypeHit>, String> {
+            let r = self.ask("java/searchSymbols", json!({ "query": query, "maxResults": max, "sourceOnly": source_only, "projectName": null }))?;
+            Ok(type_hits(&r))
+        };
+        let mut out = ask(TYPES_SRC, true)?;
+        let mut cut = out.len() >= TYPES_SRC as usize;
+        if libs {
+            let more = ask(TYPES_ALL, false)?;
+            cut |= more.len() >= TYPES_ALL as usize;
+            for t in more {
+                if !out.iter().any(|o| o.loc.uri == t.loc.uri && o.name == t.name) {
+                    out.push(t);
+                }
+            }
+        }
+        Ok((out, cut))
+    }
+
     /// 查用法。超过 [`REFS_MAX`] 截断，返回 `(前 REFS_MAX 条, 真条数)`
     pub fn references(&self, path: &str, line: u32, character: u32) -> Result<(Vec<Location>, usize), String> {
         let r = self.ask(
@@ -644,6 +686,21 @@ pub fn hover_markdown(r: &Value) -> String {
         None => Vec::new(),
     };
     parts.into_iter().filter(|s| !s.trim().is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
+/// `SymbolInformation[]` → 类型。位置照 [`locations`] 读（jar 里的是 `jdt://`、`path` 为空）；名字是空的丢掉（匿名类）
+pub fn type_hits(r: &Value) -> Vec<TypeHit> {
+    r.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| {
+                    let name = s["name"].as_str().filter(|n| !n.is_empty())?.to_string();
+                    let loc = locations(&s["location"]).into_iter().next()?;
+                    Some(TypeHit { name, container: s["containerName"].as_str().unwrap_or("").to_string(), kind: s["kind"].as_u64().unwrap_or(5).min(255) as u8, loc })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub fn locations(r: &Value) -> Vec<Location> {
@@ -1507,5 +1564,22 @@ mod tests {
         assert_eq!(hover_markdown(&json!({ "contents": "纯字符串" })), "纯字符串");
         assert_eq!(hover_markdown(&json!({ "contents": [{ "language": "java", "value": "" }, ""] })), "", "空的项丢掉");
         assert_eq!(hover_markdown(&Value::Null), "");
+    }
+
+    #[test]
+    fn 找类_项目里的带路径_jar_里的是_jdt_地址_匿名的丢掉() {
+        // jdtls 1.61 `java/searchSymbols` 回的形状（SymbolInformation[]）
+        let r = json!([
+            { "name": "OrderService", "kind": 5, "containerName": "com.demo.order", "location": { "uri": "file:///p/src/main/java/com/demo/order/OrderService.java", "range": { "start": { "line": 6, "character": 13 }, "end": { "line": 6, "character": 25 } } } },
+            { "name": "Ordered", "kind": 11, "containerName": "org.springframework.core", "location": { "uri": "jdt://contents/spring-core.jar/org.springframework.core/Ordered.class", "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } } } },
+            { "name": "", "kind": 5, "containerName": "com.demo", "location": { "uri": "file:///p/A.java", "range": { "start": { "line": 1, "character": 0 }, "end": { "line": 1, "character": 0 } } } },
+        ]);
+        let t = type_hits(&r);
+        assert_eq!(t.len(), 2, "匿名类（名字是空的）不列");
+        assert_eq!((t[0].name.as_str(), t[0].container.as_str(), t[0].kind), ("OrderService", "com.demo.order", 5));
+        assert_eq!((t[0].loc.path.as_deref(), t[0].loc.line, t[0].loc.character), (Some("/p/src/main/java/com/demo/order/OrderService.java"), 6, 13));
+        assert!(t[1].loc.path.is_none() && t[1].loc.uri.starts_with("jdt://"), "jar 里的：没有路径，地址留着给 ⌘B 那条路开");
+        assert_eq!(t[1].kind, 11);
+        assert!(type_hits(&Value::Null).is_empty());
     }
 }

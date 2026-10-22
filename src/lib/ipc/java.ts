@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
+import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -22,6 +22,8 @@ export const javaImplementation = (root: string, path: string, line: number, cha
   invoke<JavaRefs>("java_implementation", { root, path, line, character });
 /** 快速文档（F1）：签名 + Javadoc，一段 Markdown；没有文档是空串 */
 export const javaHover = (root: string, path: string, line: number, character: number) => invoke<string>("java_hover", { root, path, line, character });
+/** ⇧⇧ 的「类」（docs/TAKEOVER.md G2）。`libs`：连 jar / JDK 里的一起找。这个项目的 jdtls 没在跑给 null（按文件名找，不为一次搜索起它） */
+export const javaTypes = (root: string, query: string, libs: boolean) => invoke<JavaTypes | null>("java_types", { root, query, libs });
 /** 跳到父方法（⌘U）：覆盖的那个方法 / 父类（jdtls 的 `java/findLinks`） */
 export const javaSuper = (root: string, path: string, line: number, character: number) =>
   invoke<JavaRefs>("java_super", { root, path, line, character });

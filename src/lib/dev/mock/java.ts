@@ -364,6 +364,30 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       // 桩：照 jdtls 回的样子（签名代码块 + Javadoc 转的 Markdown）给一段
       await wait(50);
       return "```java\nlong com.demo.PriceRule.apply(long cents)\n```\n\n按规则算出**折后价**（分），见 [Money](jdt://contents/Money.class)。\n\n* **Parameters:**\n  * **cents** 原价\n* **Returns:**\n  * 折后价";
+    case "java_types": {
+      // ⇧⇧ 的「类」：jdtls 没起给 null（同真实现，不为一次搜索起它）。起了就从桩里的 .java 认类型；匹配照 jdtls 的「包含 + 驼峰」做个简化版。
+      // 故意等 60 ms（真 jdtls 热的时候几十毫秒）
+      if (!phaseOf.has(root)) return null;
+      await wait(60);
+      const q = String(a.query ?? "").trim().toLowerCase();
+      const camel = (n: string) => (n.match(/[A-Z]/g) ?? []).join("").toLowerCase();
+      const ok = (n: string) => n.toLowerCase().includes(q) || camel(n).startsWith(q);
+      const at = (uri: string, path: string | null, label: string, line: number) => ({ uri, path, label, line, character: 0, endLine: line, endCharacter: 0, text: "" });
+      const items = [];
+      for (const [p, text] of Object.entries(FILES)) {
+        if (!p.startsWith(`${root}/`) || !p.endsWith(".java") || typeof text !== "string") continue;
+        const pkg = /^package\s+([\w.]+);/m.exec(text)?.[1] ?? "";
+        text.split("\n").forEach((l, i) => {
+          const m = /\b(class|interface|enum|record|@interface)\s+(\w+)/.exec(l);
+          if (m && ok(m[2])) items.push({ name: m[2], container: pkg, kind: m[1] === "interface" || m[1] === "@interface" ? 11 : m[1] === "enum" ? 10 : 5, at: at(`file://${p}`, p, p.slice(p.lastIndexOf("/") + 1), i) });
+        });
+      }
+      if (a.libs) {
+        const libs: [string, string, number, string][] = [["String", "java.lang", 5, "jdt://contents/java.base/java.lang/String.class"], ["Ordered", "org.springframework.core", 11, "jdt://contents/spring-core-7.0.2.jar/org.springframework.core/Ordered.class"], ["SpringApplication", "org.springframework.boot", 5, JAR]];
+        for (const [name, container, kind, uri] of libs) if (ok(name)) items.push({ name, container, kind, at: at(uri, null, `${container}.${name}`, 0) });
+      }
+      return { items, truncated: false };
+    }
     case "java_super": {
       await wait(40);
       const r = references(root, path, Number(a.line), Number(a.character));

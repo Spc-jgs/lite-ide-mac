@@ -14,6 +14,7 @@ import { docs } from "../state/docs.svelte";
 import { nav } from "../state/nav.svelte";
 import { terms } from "../state/terms.svelte";
 import { runs } from "../state/runs.svelte";
+import { overlay } from "../state/overlay.svelte";
 import { acceptCompletion, completionStatus, currentCompletions } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
 
@@ -98,6 +99,8 @@ export function installTestHooks() {
     terms,
     /** 运行窗的那些任务（带 `command`：验 Maven 工具窗的开关真带进了命令行） */
     runs,
+    /** 浮层（⇧⇧ 直接开到某一页：「连按两下 ⇧」是真输入，测试通道不发） */
+    overlay,
     /**
      * 断点调试（docs/IDEA.md 第 18 节）。下断点走的是行号上点一下的同一条路（`breakpoints.ts` 的表 → 编辑器照表画、告诉 Rust）；
      * 点行号本身要真鼠标落在那一行上，测试通道不发真输入。都是动态引：调试那几块是懒的，测试构建也别把它们拽进入口

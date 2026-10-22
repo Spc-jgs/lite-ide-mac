@@ -108,6 +108,19 @@ pub async fn java_super(app: tauri::AppHandle, root: String, path: String, line:
     .await
 }
 
+/// ⇧⇧ 的「类」（docs/TAKEOVER.md G2）。`libs`：连 jar / JDK 里的一起找（IDEA 的「包含非项目项」）。
+/// 这个项目的 jdtls 没在跑给 null —— 前端按文件名找，不为一次搜索起一个语言服务器（起好要十几秒，那时人早搜完了）
+#[tauri::command]
+pub async fn java_types(app: tauri::AppHandle, root: String, query: String, libs: bool) -> Result<Option<JavaTypesDto>, String> {
+    blocking(move || {
+        let Some(i) = app.state::<AppState>().java.get(&root) else { return Ok(None) };
+        let (hits, truncated) = i.types(&query, libs)?;
+        let items = hits.into_iter().map(|t| JavaTypeDto { name: t.name, container: t.container, kind: t.kind, at: t.loc.into() }).collect();
+        Ok(Some(JavaTypesDto { items, truncated }))
+    })
+    .await
+}
+
 fn refs_dto(locs: Vec<crate::java::Location>, total: usize) -> JavaRefsDto {
     let texts = crate::java::line_texts(&locs);
     let items = locs.into_iter().zip(texts).map(|(l, text)| JavaLocationDto { text, ..JavaLocationDto::from(l) }).collect();

@@ -350,6 +350,7 @@ pub fn run() {
             commands::java_implementation,
             commands::java_super,
             commands::java_hover,
+            commands::java_types,
             commands::java_class_contents,
             commands::java_status,
             commands::java_restart,

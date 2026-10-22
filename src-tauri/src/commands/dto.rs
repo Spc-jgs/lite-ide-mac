@@ -1057,6 +1057,25 @@ pub struct JavaRefsDto {
     pub total: u32,
 }
 
+/// ⇧⇧ 的「类」（docs/TAKEOVER.md G2）找到的一个类型。`kind` 是 LSP 的 SymbolKind（jdtls 只回 5 类 / 11 接口（含注解）/ 10 枚举）；
+/// `at` 里 jar 里的那种 `path` 为空、`uri` 是 `jdt://`，同跳转
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaTypeDto {
+    pub name: String,
+    pub container: String,
+    pub kind: u8,
+    pub at: JavaLocationDto,
+}
+
+/// `truncated`：项目里的、连 jar 一起的，有一份到了上限 —— 再打几个字缩小范围
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaTypesDto {
+    pub items: Vec<JavaTypeDto>,
+    pub truncated: bool,
+}
+
 /// 调试会话的一帧（docs/IDEA.md 第 18 节）。`path` 是源文件、或者 jar 里的类的 `jdt://` 地址，没有源码是空的
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]

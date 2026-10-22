@@ -10100,3 +10100,24 @@ effect 写完把自己叫醒、转到上限，后面的更新全停了。改成�
 **主干 CI 红了（f6ecaae）**：⇧⌘E 那次把 `recent-locations.ts` 里的动态 import 改成静态 import（为了入口包）之后，**没有再跑一遍测试就提交了** ——
 它现在静态引着 runes 模块，裸 node 的测试加载不了。前一次跑测试是在改动之前。修法：纯函数拆进不引任何东西的 `recent-spots.ts`。
 规矩不新：提交前最后一次改动之后要再跑一遍。这次是「改的是 import 次序、以为不影响行为」—— 恰恰影响了能不能加载。
+
+## 2026-10-22 晚 · ⇧⇧ 找类（G2）：标准的 `workspace/symbol` 不设上限；jar 里的类停在 1:1
+
+**为什么不用 LSP 标准的 `workspace/symbol`**：读 jdtls 1.61 的字节码（`WorkspaceSymbolHandler`），标准那条进来是 `search(query, maxResults = 0, …)`，
+0 = 不设上限 —— 打一个 `S` 会把 JDK 和每个 jar 里名字带 S 的类型全回来，一条消息几 MB。jdtls 自己的 `java/searchSymbols` 进的是同一个函数，
+但能传 `maxResults`（找够了把进度监视器标成取消，搜索自己停）和 `sourceOnly`。还读到三件写进注释的事：默认只找类型（方法要开
+`includeSourceMethodDeclarations`）；jar 里的只有客户端声明了 `classFileContentsSupport` 才找（我们声明了）；种类只有三种，
+**注解报成接口**（先判的 `isInterface`，注解类型带着接口标记）。
+
+**项目里的单独问一次**：结果存在 HashSet 里、次序不作数，只问一次「连 jar 一起、200 个」的话 JDK 里同名的能把项目自己的挤出去。
+所以先问 `sourceOnly` 的 100 个，开了「含 jar 里的」再问一次、去重；前端排序时项目里的整组在前（IDEA 也是）。测试的错版本「一锅排」红了三条。
+
+**jdtls 没在跑不起它**：起好要十几秒，那时人早搜完了。按文件名顶上（一个 .java 一个公开类型），底下说一句「按文件名找的」。
+
+**jar 里的类开出来停在 1:1**：第一版验收全绿，但读输出发现 ↵ 之后在 `SpringApplication.java 1:1`，同一个类 ⌘B 进去在 191:14。
+jdtls 给二进制类的位置是 `JDTUtils.toLocation(classFile)` —— 文件开头；⌘B 那条问的是 definition，有真位置。开了之后在内容里找 `class 名字`
+那行（注释里的不算：SpringApplication 的 Javadoc 里就提到 `class SpringApplication`，错版本停在第 4 行）。**验收全绿时也要读一遍它打出来的值** ——
+断言只写了「开成只读标签」，停在哪没断言。
+
+数字：java.sh 48 → 53；热的 jdtls 找一次 p50 11 ms、p95 118 ms（24 次）；入口包 0 B（全在 ⇧⇧ 的懒块里）。
+
