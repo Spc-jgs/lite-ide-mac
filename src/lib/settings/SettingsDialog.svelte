@@ -14,6 +14,10 @@
   import { settingsApply, settingsPage } from "../ipc/settings";
   import { CATS, catOf, changes, isSet, matches, parseIntField, shown, type Cat, type Edits } from "./settings-form";
   import { imeKey } from "../shell/ime";
+  import KeymapPane from "./KeymapPane.svelte";
+  import { staged, type KeyEdits } from "./keymap-form";
+  import { conflicts, setOverrides } from "../state/keymap";
+  import { keymapOverrides, keymapSet } from "../ipc/keymap";
   // 静态引：notify 本来就在入口包里。写成 `await import()` 的话 Rollup 要在入口里给它造一个模块命名空间对象（+114 B，量过）
   import { notify } from "../state/notify.svelte";
 
@@ -34,11 +38,17 @@
   /** 「应用」之后在按钮旁边说一句（按钮原地反馈，ui.md 第十五条） */
   let applied = $state(false);
   let newJdk = $state("");
+  /** 键位（docs/TAKEOVER.md R3）：现在的覆盖表、这次改了还没应用的 */
+  let keyOver = $state<Record<string, string>>({});
+  let keyEdits = $state<KeyEdits>({});
 
   $effect(() => {
     void settingsPage(root)
       .then((p) => (page = p))
       .catch((e) => (loadError = e instanceof Error ? e.message : String(e)));
+    void keymapOverrides()
+      .then((o) => (keyOver = o))
+      .catch(() => {});
   });
 
   const cats = $derived(CATS.filter((c) => c.id !== "project" || page?.project));
@@ -48,7 +58,10 @@
   const projDirty = $derived(
     !!(page?.project && proj && (proj.jdk !== page.project.jdk || proj.offline !== page.project.offline || proj.skipTests !== page.project.skipTests)),
   );
-  const dirty = $derived(Object.keys(global).length > 0 || projDirty);
+  const keyNext = $derived(staged(keyOver, keyEdits));
+  const keyDirty = $derived(JSON.stringify(Object.entries(keyNext).sort()) !== JSON.stringify(Object.entries(keyOver).sort()));
+  const settingsDirty = $derived(Object.keys(global).length > 0 || projDirty);
+  const dirty = $derived(settingsDirty || keyDirty);
   /** 写不了全局设置（settings.json 读不懂）：那几类的输入框灰掉 */
   const locked = $derived(!!page?.broken);
   /** 列出来的项：搜索时跨所有类（「java.jdks」那一项在 JDK 一节里单独画） */
@@ -104,13 +117,28 @@
       if (thenClose) onclose();
       return;
     }
+    // 键位撞了不让应用：菜单的键会先被吃掉、编辑器里两个只有一个能用 —— 应用出去就是「按了没反应」，不报错
+    const clash = Object.keys(conflicts(keyNext));
+    if (keyDirty && clash.length) {
+      error = `键位 ${clash.join(" ")} 撞了，改掉一个再应用`;
+      cat = "keymap";
+      q = "";
+      return;
+    }
     busy = true;
     error = "";
     const restart = needsRestart;
     try {
-      page = await settingsApply(root, global, projDirty && projNow && page.project ? { root: page.project.root, ...projNow } : null);
+      if (settingsDirty) page = await settingsApply(root, global, projDirty && projNow && page.project ? { root: page.project.root, ...projNow } : null);
       edits = {};
       proj = null;
+      if (keyDirty) {
+        await keymapSet(keyNext);
+        // 广播也会来（keymap-changed），这里先换上：这个窗口里不用等那一趟
+        setOverrides(keyNext);
+        keyOver = keyNext;
+        keyEdits = {};
+      }
       if (thenClose) {
         onclose();
         notify.ok(restart ? "设置已保存。Java 智能下次启动时用新的（这个项目的 Java 文件都关掉、过一会再开）" : "设置已保存");
@@ -188,7 +216,7 @@
         {:else if !page}
           <div class="empty-msg wait"><span class="spinner sm"></span> 正在读设置…</div>
         {:else}
-          {#if page.broken && cat !== "project"}
+          {#if page.broken && cat !== "project" && cat !== "keymap"}
             <div class="banner">
               <Icon name="warn" />
               <span>settings.json {page.broken}。先修好它，设置页才能改全局设置（在一份读不懂的文件上改，只会改得更坏）</span>
@@ -197,6 +225,13 @@
           {/if}
           {#if q.trim()}
             {#each fields as d (d.key)}{@render field(d)}{:else}<div class="empty-msg">没有名字或说明里带「{q.trim()}」的设置</div>{/each}
+          {:else if cat === "keymap"}
+            <KeymapPane
+              over={keyOver}
+              edits={keyEdits}
+              onedit={(id, a) => ((keyEdits = { ...keyEdits, [id]: a }), (applied = false), (error = ""))}
+              onresetall={() => (keyEdits = Object.fromEntries(Object.keys(keyNext).map((id) => [id, null])))}
+            />
           {:else if cat === "project" && page.project && projNow}
             <h3>项目 JDK <span class="scope">只对 {projName}</span></h3>
             <p class="doc">运行、构建、跑单测用哪个 JDK。运行配置里还能给单个服务另选</p>

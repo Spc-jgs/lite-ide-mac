@@ -13,13 +13,14 @@
  * **右键是断点属性窗**（2026-10-22，docs/TAKEOVER.md G14，照 IDEA 右键断点那个小窗）：启用、条件、命中次数（第几次走到才停）、
  * 日志断点（不停，打一句进运行窗的输出）、删除。停用的画成空心（IDEA 同样），日志断点是橙点（IDEA 不挂起的断点是黄的）
  */
-import { Decoration, EditorView, GutterMarker, ViewPlugin, WidgetType, gutterLineClass, keymap, lineNumberMarkers, lineNumbers, type DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView, GutterMarker, ViewPlugin, WidgetType, gutterLineClass, lineNumberMarkers, lineNumbers, type DecorationSet } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { inlineVals, type Val } from "../debug/inline-vals";
 import { Prec, RangeSet, StateEffect, StateField, type EditorState, type Extension } from "@codemirror/state";
 import { bpTitle, bpsOf, onBreakpoints, sameBp, setBp, setBps, toggle, type Bp } from "../debug/breakpoints";
 import { imeKey } from "../shell/ime";
 import { execPoint, onExecPoint } from "../debug/exec-point";
+import { idKeymap } from "./id-keys";
 
 class BpMarker extends GutterMarker {
   // 不写成 `constructor(readonly bp)`：那是要编译的 TS 语法，状态层测试在裸 node 里剥类型跑，剥不掉它。
@@ -301,7 +302,7 @@ export function javaDebugGutter(root: string, path: string): Extension {
         },
       };
     }),
-    Prec.high(keymap.of([{ key: "Mod-F8", preventDefault: true, run: atCursor }])),
+    Prec.high(idKeymap([{ id: "toggle-breakpoint", preventDefault: true, run: atCursor }])),
     EditorView.baseTheme({
       // 行号格里的红点：14 的图标居中，盖住数字（IDEA 新 UI 的「断点画在行号上」）
       ".cm-lineNumbers .cm-gutterElement": { cursor: "pointer" },

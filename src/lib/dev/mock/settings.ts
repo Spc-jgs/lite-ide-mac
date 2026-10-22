@@ -111,6 +111,8 @@ const KEYS: Record<string, keyof typeof ui> = {
   "git.grouped": "gitGrouped",
 };
 
+let KEYMAP: Record<string, string> = {};
+
 export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
     case "settings":
@@ -155,6 +157,17 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
       if (Object.keys(g).length) setTimeout(() => mockEmit("settings-changed", view()), 50);
       return page((a.root as string | null) ?? null);
     }
+    // 键位覆盖（docs/TAKEOVER.md R3）：真实现写 keymap.json、菜单换键、广播 keymap-changed；桩只记着、照样广播
+    case "keymap_overrides":
+      return { ...KEYMAP };
+    case "keymap_set": {
+      KEYMAP = { ...(a.overrides as Record<string, string>) };
+      setTimeout(() => mockEmit("keymap-changed", { ...KEYMAP }), 20);
+      return null;
+    }
+    // 录键时摘掉菜单的键：浏览器里没有原生菜单，什么都不用做
+    case "keymap_record":
+      return null;
     case "run_configs": {
       const root = String(a.root);
       const runs = proj(root).runs;

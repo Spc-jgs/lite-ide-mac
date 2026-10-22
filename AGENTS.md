@@ -16,7 +16,7 @@ cd src-tauri && cargo clippy --workspace --features lite-ide/test-bridge -- -A c
 scripts/build-test-app.sh      # 带测试通道的临时身份 .app（验收用，碰不到真实数据；正式包永远不带）。放在 target/test-app.noindex/，Spotlight 不收录
 scripts/ls-clean.sh            # 注销系统登记里已经不在盘上的 lite-ide（打 .dmg 挂载的临时卷每次留一条）；app:bundle 末尾自动跑
 python3 design/icon/make_icon.py # 重新生成应用图标（Assets.car + icon.icns + 几张 PNG，要 Xcode 26+）。改图标只改这个脚本，产物都提交
-scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点。设置对话框（写回 settings.json 注释还在、恢复默认、写坏了不动刀、真模态、此项目）
+scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点。设置对话框（写回 settings.json 注释还在、恢复默认、写坏了不动刀、真模态、此项目）；键位可改（22 条：录键时摘掉菜单的键、keymap.json 只存改过的、菜单和两个窗口里开着的编辑器当场换、手改文件不用重启）
 scripts/accept/tasks.sh        # 任务运行的机制（39 条，含日志跟随时往上翻不被拽回去）；quit.sh 是 Dock 右键退出那条路（6 条）
 scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪样哪段记「未验」）
 scripts/accept/merge.sh        # 几份日志按时间合并（15 条）：顺序、堆栈不拆散、过滤、偏移、跨块、会话恢复

@@ -7,11 +7,12 @@
            highlightActiveLineGutter, drawSelection, rectangularSelection,
            crosshairCursor, highlightSpecialChars } from "@codemirror/view";
   import { history, historyKeymap, indentWithTab } from "@codemirror/commands";
-  import { ideaKeymap, editorDefaults, ideaKeysState } from "./idea-keys";
+  import { ideaBindings, editorDefaults, ideaKeysState, searchDefaults } from "./idea-keys";
+  import { idKeymap } from "./id-keys";
   import { formatJson } from "./format-json";
   import { notify } from "../state/notify.svelte";
   import { saveHistory, stateWithHistory } from "./undo-store";
-  import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
+  import { highlightSelectionMatches } from "@codemirror/search";
   import { searchPanel } from "./search-panel";
   import { autocompletion, closeBrackets, closeBracketsKeymap, completeAnyWord, completionKeymap } from "@codemirror/autocomplete";
   import { bracketMatching, foldGutter, foldKeymap, indentOnInput,
@@ -482,23 +483,23 @@
            */
           ...closeBracketsKeymap,
           ...completionKeymap,
-          // ⌥⌘L 格式化 JSON（IDEA 的「重新格式化代码」键位；format-json.ts）。缩进跟这个文件走
+        ]),
+        /*
+         * IDEA 的键排在 CM6 默认键位前面：⌘D ⌥↑ ⌥⇧↓ ⌘⌫ 在两边含义不同，先到先得（idea-keys.ts）。按 id 挂、键位从 keymap.ts 取（你改得了，docs/TAKEOVER.md R3）。
+         * ⌥⌘L 格式化 JSON（IDEA 的「重新格式化代码」键位；format-json.ts），缩进跟这个文件走
+         */
+        idKeymap([
+          ...ideaBindings,
           {
-            key: "Alt-Mod-l",
+            id: "cm-format-json",
             preventDefault: true,
             run: formatJson(
               (s) => s.facet(indentUnit),
               (ok, msg) => (ok ? notify.ok(msg) : notify.fail(msg)),
             ),
           },
-          // IDEA 的键排在 CM6 默认键位前面：⌘D ⌥↑ ⌥⇧↓ ⌘⌫ 在两边含义不同，先到先得（idea-keys.ts）
-          ...ideaKeymap,
-          ...editorDefaults,
-          ...historyKeymap,
-          ...searchKeymap,
-          ...foldKeymap,
-          indentWithTab,
         ]),
+        keymap.of([...editorDefaults, ...historyKeymap, ...searchDefaults, ...foldKeymap, indentWithTab]),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) {
             onChange(u.state.doc.toString() !== baseText);

@@ -68,6 +68,8 @@ const ALLOW: &[(&str, &str)] = &[
     // ── settings.rs ──
     ("settings", "内存：设置的那份内存拷贝"),
     ("settings_schema", "内存：常量表"),
+    ("keymap_overrides", "内存：启动时读好的覆盖表"),
+    ("keymap_record", "内存：菜单项换键（muda 自己派到主线程）"),
     // ── tasks.rs ──
     ("task_close", "内存：摘表，收尾在后台线程里"),
     ("task_stale", "例外：proc_pidinfo 核对组长还在不在（系统调用，不碰盘）"),

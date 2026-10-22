@@ -5,10 +5,11 @@
  *
  * 发的是编辑器里**此刻**的文本（没保存的也算）。切请求、替换变量在 `http/http-file.ts`，发在 `http/http-ops.ts`（动态引：没发过就不拉）。
  */
-import { EditorView, GutterMarker, gutter, keymap, showPanel, type Panel } from "@codemirror/view";
+import { EditorView, GutterMarker, gutter, showPanel, type Panel } from "@codemirror/view";
 import { Prec, RangeSet, StateField, type Extension } from "@codemirror/state";
 import { parseHttp, type HttpReq } from "../http/http-file";
 import { httpEnvs } from "../ipc/http";
+import { idKeymap } from "./id-keys";
 
 const reqField = StateField.define<HttpReq[]>({
   create: (s) => parseHttp(s.doc.toString()).requests,
@@ -132,9 +133,9 @@ export function httpRun(root: string | null, path: string): Extension {
     }),
     showPanel.of(envPanel(root, path)),
     Prec.high(
-      keymap.of([
+      idKeymap([
         {
-          key: "Ctrl-Shift-r",
+          id: "run-test",
           preventDefault: true,
           run: (view) => {
             void send(root, path, view, view.state.doc.lineAt(view.state.selection.main.head).number);

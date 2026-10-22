@@ -4,11 +4,12 @@
  * **点 ▶ 出一个小菜单「运行 / 调试」**（同 IDEA：点了不直接跑，菜单里两项各带键位 —— 菜单是人学键位的地方）。
  * 只认 `src/test/java/` 底下的文件；认测试按注解（`java-tests.ts`），不靠语言服务器 —— jdtls 没起好也能跑
  */
-import { EditorView, GutterMarker, ViewPlugin, gutter, keymap } from "@codemirror/view";
+import { EditorView, GutterMarker, ViewPlugin, gutter } from "@codemirror/view";
 import { Prec, RangeSet, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { moduleOf, testTargets, testTaskName, type TestTarget } from "./java-tests";
 import { onOutcomes, outcomeOf } from "../run/test-outcomes";
 import { mount, unmount } from "svelte";
+import { idKeymap } from "./id-keys";
 
 const refresh = StateEffect.define<null>();
 
@@ -121,9 +122,9 @@ export function javaTestGutter(root: string, path: string): Extension {
       return { destroy: off };
     }),
     Prec.high(
-      keymap.of([
+      idKeymap([
         {
-          key: "Ctrl-Shift-r",
+          id: "run-test",
           preventDefault: true,
           run: (view) => {
             const t = targetAt(view);
@@ -132,7 +133,7 @@ export function javaTestGutter(root: string, path: string): Extension {
           },
         },
         {
-          key: "Ctrl-Shift-d",
+          id: "debug-test",
           preventDefault: true,
           run: (view) => {
             const t = targetAt(view);

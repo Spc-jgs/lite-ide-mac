@@ -367,3 +367,12 @@ JMX、缩短命令行、URL 路径这些 IDEA 自己的行为。带不过来、�
 关掉当场收、打开马上问一次（前端订阅 `settings-changed`，不重建编辑器）。值要进 `SettingsDto`（前端要读），所以入口里的默认值表多两个字段（+45 B）。
 桩原来「应用」之后不广播（真实现靠文件监听重读再广播），设置页里切的开关在浏览器里没反应 —— 补上了。
 
+### 13.10 键位（2026-10-23，docs/TAKEOVER.md R3）
+
+**不进 `settings.json`，单独一份 `keymap.json`**（同目录）：`settings::DEFS` 是「一项一个值、只改那一个值的字符」，键位是一张「动作 → 键」的表，
+塞进去就得给一百多个动作各开一个设置项。VS Code 的 `keybindings.json`、IDEA 的 keymap XML 也都和设置分开。整份是我们写的（没有人的注释要留），只存改过的。
+
+- **谁是默认**：`src/lib/state/keymap.ts` 照旧是唯一出处。生效 = 默认 ⊕ 覆盖。Rust 读覆盖、建菜单时挂生效的键（`keymap::menu_accel`），前端的编辑器键按 id 挂（`editor/id-keys.ts`）
+- **改了当场生效、不重建菜单**：muda 的菜单项能换 accelerator（`menu::apply_keys`）；编辑器的每张键位表包在 compartment 里，覆盖一换逐个 reconfigure。重建菜单要换掉 `manage` 进去的 `MenuHandles`（只能放一次）、还要重灌灰态和「最近打开」
+- **录键时摘掉菜单的键**：菜单挂着的键 AppKit 先吃掉、页面收不到 —— 不摘的话 ⌘S 这种「有人用着的」永远录不进来，而「把一个键从 A 挪给 B」是最常见的改法
+- **撞键前端判**：全表（连同编辑器自己吃的键）只有 `keymap.ts` 有。Rust 只管「读得懂」和「归 keydown 的那几项不挂进菜单」（`keymap::KEY_OWNED_IN_MENU`，`menu_sync.rs` 卡着和 keymap.ts 一致）

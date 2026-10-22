@@ -55,6 +55,7 @@ import { countLabel, countMatches } from "./search-count";
 import { mount, unmount } from "svelte";
 import Icon from "../shell/Icon.svelte";
 import { EditorView, keymap, runScopeHandlers, type Panel } from "@codemirror/view";
+import { idKeymap } from "./id-keys";
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -450,15 +451,12 @@ export function searchPanel(): Extension {
     search({ top: true, createPanel }),
     panelTheme,
     Prec.highest(
+      // ⌘R 是 IDEA 的替换（2026-09-23 编辑器键位改照 IDEA，idea-keys.ts），按 id 挂、你改得了（docs/TAKEOVER.md R3）；
+      // ⌥⌘F 是 VSCode 的，原来就有、不碍事，照留 —— 速查表只列 ⌘R
+      idKeymap([{ id: "cm-replace", scope: "editor search-panel", preventDefault: true, run: (view) => openOrExpandReplace(view) }]),
+    ),
+    Prec.highest(
       keymap.of([
-        {
-          // ⌘R 是 IDEA 的替换（2026-09-23 编辑器键位改照 IDEA，idea-keys.ts）；⌥⌘F 是 VSCode 的，
-          // 原来就有、不碍事，照留 —— 速查表只列 ⌘R
-          key: "Mod-r",
-          scope: "editor search-panel",
-          preventDefault: true,
-          run: (view) => openOrExpandReplace(view),
-        },
         {
           key: "Mod-Alt-f",
           // 两个作用域都要：焦点在正文里按（editor）和焦点在查找框里按

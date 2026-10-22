@@ -1,6 +1,7 @@
 // 编辑器键位照 IDEA（src/lib/editor/idea-keys.ts）。测的是命令做了 IDEA 那件事，
 // 以及「CM6 默认的那个意外」不会再发生（⌥⇧↓ 复制行、⌥↑ 挪行、⌘[ 减缩进）。
 import { EditorSelection, EditorState, type Transaction } from "@codemirror/state";
+import { byId, toCmKey } from "../src/lib/state/keymap.ts";
 import { javaLanguage } from "@codemirror/lang-java";
 import {
   duplicate,
@@ -8,7 +9,8 @@ import {
   shrinkSelection,
   selectAllOccurrences,
   toggleCase,
-  ideaKeymap,
+  ideaBindings,
+  searchDefaults,
   editorDefaults,
   ideaKeysState,
 } from "../src/lib/editor/idea-keys.ts";
@@ -93,14 +95,20 @@ const selText = (st: EditorState) => st.sliceDoc(st.selection.main.from, st.sele
 
 // ── 键位表本身 ──
 {
-  const keys = ideaKeymap.map((b) => b.key);
-  for (const k of ["Mod-d", "Mod-Backspace", "Shift-Alt-ArrowUp", "Shift-Alt-ArrowDown", "Alt-ArrowUp", "Alt-ArrowDown", "Ctrl-g", "Ctrl-Mod-g", "Alt-Mod-/", "Shift-Mod-u"]) {
+  // 键位按 id 从 keymap.ts 取（docs/TAKEOVER.md R3），这里验的是默认表换出来的 CM6 键
+  const keys = ideaBindings.map((b) => toCmKey(byId(b.id)?.accel));
+  for (const k of ["Mod-d", "Mod-Backspace", "Alt-Shift-ArrowUp", "Alt-Shift-ArrowDown", "Alt-ArrowUp", "Alt-ArrowDown", "Ctrl-g", "Ctrl-Mod-g", "Alt-Mod-/", "Shift-Mod-u"]) {
     ok(keys.includes(k), `IDEA 键在表里：${k}`);
   }
   // 默认键位里原来的意外：⌥⇧↓ = copyLineDown。IDEA 那条必须排在它前面才压得住 —— 这里验的是
   // 默认表里确实有这条（否则这份测试是在防一个不存在的东西），以及 ⌘[ ⌘] 被摘掉了
   ok(editorDefaults.some((b) => b.key === "Shift-Alt-ArrowDown"), "默认表里确实有 ⌥⇧↓（复制行），所以 IDEA 那条必须排在前面");
   ok(!editorDefaults.some((b) => b.key === "Mod-[" || b.key === "Mod-]"), "⌘[ ⌘] 从默认键位里摘掉了，让给回退 / 前进");
+  // 查找 / 注释按 id 挂了，默认表里那份要摘：不摘的话你把「查找」改到别的键上，⌘F 照样打开查找
+  ok(keys.includes("Mod-f") && keys.includes("Mod-g") && keys.includes("Shift-Mod-g") && keys.includes("Mod-/"), `查找、上下一处、注释按 id 挂上了：${keys.join(" ")}`);
+  ok(!editorDefaults.some((b) => b.key === "Mod-/"), "⌘/ 从默认键位里摘掉了");
+  ok(!searchDefaults.some((b) => b.key === "Mod-f" || b.key === "Mod-g" || b.key === "Mod-d"), "⌘F ⌘G ⌘D 从查找的默认键位里摘掉了");
+  ok(searchDefaults.some((b) => b.key === "F3") && searchDefaults.some((b) => b.key === "Escape"), "F3、Esc 照留");
 }
 
 console.log(`IDEA 编辑键：${pass} 通过，${fail} 失败`);

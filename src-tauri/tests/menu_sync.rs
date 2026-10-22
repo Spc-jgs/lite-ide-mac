@@ -175,6 +175,27 @@ fn 菜单项的文案和键位必须和_keymap_ts_一致() {
     }
 }
 
+/// 菜单里归 keydown 的那几项，Rust 那边有一张名单（`keymap::KEY_OWNED_IN_MENU`）：键位覆盖里写了它们也不挂进菜单。
+/// 名单漏一条 = 你在设置里给它改了键，菜单就把这个键吃了 —— ⌃R 在终端里搜不了历史那种，不报错
+#[test]
+fn 菜单里归_keydown_的那几项_和_keymap_rs_的名单一致() {
+    let keymap = parse_keymap();
+    let menu = parse_menu();
+    let want: std::collections::BTreeSet<&str> = menu
+        .keys()
+        .filter(|id| keymap.get(*id).is_some_and(|(_, o)| o == "key"))
+        .map(String::as_str)
+        .collect();
+    let src = include_str!("../src/keymap.rs");
+    let start = src.find("pub const KEY_OWNED_IN_MENU").expect("keymap.rs 里找不到 KEY_OWNED_IN_MENU");
+    // 从 `= [` 截到 `];`：类型 `[&str; N]` 里也有分号
+    let body = &src[start..];
+    let list = &body[body.find("= [").unwrap()..body.find("];").unwrap()];
+    let got: std::collections::BTreeSet<&str> = list.split('"').skip(1).step_by(2).collect();
+    assert!(want.len() >= 3, "解析出的名单太短，解析器怕是坏了：{want:?}");
+    assert_eq!(got, want, "keymap.rs 的 KEY_OWNED_IN_MENU 和菜单里归 keydown 的那几项对不上");
+}
+
 #[test]
 fn 解析器本身不是空转() {
     // 两个解析器只要有一个悄悄返回空集，上面那条测试就会全部通过而什么也没测

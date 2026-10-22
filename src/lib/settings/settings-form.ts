@@ -4,11 +4,13 @@
  */
 import type { SettingDef, SettingsPage } from "../ipc/commands";
 
-export type Cat = "appearance" | "terminal" | "java" | "maven" | "project";
+export type Cat = "appearance" | "terminal" | "java" | "maven" | "project" | "keymap";
 
 /** 左边那一列。「此项目」只在打开了项目时出现（调用方过滤） */
 export const CATS: { id: Cat; label: string }[] = [
   { id: "appearance", label: "外观" },
+  // 照 IDEA 的设置树：外观下面就是键位（docs/TAKEOVER.md R3）。不是 settings.json 里的项，单独一页（KeymapPane）
+  { id: "keymap", label: "键位" },
   { id: "terminal", label: "终端" },
   { id: "java", label: "Java 与 JDK" },
   { id: "maven", label: "Maven" },

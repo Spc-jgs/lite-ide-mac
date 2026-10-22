@@ -20,6 +20,7 @@
 //! | `{"cmd":"windows"}` | 开着的窗口和各自的项目根，前台的在前 |
 //! | `{"cmd":"menu","id":"save"}` | 触发菜单项 —— 和点原生菜单走同一个函数（`winctl::menu_event`）；带 `"window"` 就只发给那个窗口 |
 //! | `{"cmd":"close","window":"w-1"}` | 关一个窗口（和点红叉一样走 `Destroyed`） |
+//! | `{"cmd":"accel","id":"save"}` | 菜单项此刻挂着的键位（Tauri 写法，`null` = 没挂；键位覆盖 R3 验收用） |
 //! | `{"cmd":"eval","window":"main","js":"return …"}` | 在那个窗口里跑一段 JS（函数体，可以 `await`），把 `return` 的值拿回来 |
 //!
 //! `eval` 的回话走 Tauri 现成的事件通道：页面跑完 `emit("test-reply")`，这边只在测试构建里听它 —— 正式版里不需要任何测试专用的命令。
@@ -113,6 +114,12 @@ fn run(app: &AppHandle, req: &Value) -> Result<Value, String> {
                 None => crate::winctl::menu_event(app, id),
             }
             Ok(Value::Null)
+        }
+        // 菜单项此刻挂着的键位（Tauri 写法，null = 没挂）。muda 没有读的口子，读的是挂的时候记下的（`keymap::APPLIED`）
+        "accel" => {
+            let id = req["id"].as_str().ok_or("缺 id")?;
+            let m = crate::keymap::APPLIED.lock().unwrap_or_else(|e| e.into_inner());
+            Ok(m.get(id).map(|a| json!(a)).ok_or_else(|| format!("菜单里没有 {id}"))?)
         }
         "close" => {
             let w = s("window").ok_or("缺 window")?;

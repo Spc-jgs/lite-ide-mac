@@ -106,3 +106,21 @@ pub async fn run_config_user_set(root: String, old: String, cfg: UserConfigDto) 
 pub async fn run_config_user_delete(root: String, name: String) -> Result<(), String> {
     blocking(move || crate::settingsctl::delete_user_config(&root, &name)).await
 }
+
+/// 你改过的键位（docs/TAKEOVER.md R3）：`{ 动作 id: 键位 }`，只有改过的。只读内存（启动时读好了），留在主线程
+#[tauri::command]
+pub fn keymap_overrides() -> std::collections::BTreeMap<String, String> {
+    crate::keymapctl::current()
+}
+
+/// 设置里「应用 / 确定」键位那一页：整张覆盖表换掉、写 keymap.json、菜单换键、广播。碰盘，走阻塞池
+#[tauri::command]
+pub async fn keymap_set(app: tauri::AppHandle, overrides: std::collections::BTreeMap<String, String>) -> Result<(), String> {
+    blocking(move || crate::keymapctl::set(&app, overrides)).await
+}
+
+/// 设置的键位页开始 / 停止录键：录的时候菜单上的键全摘掉（AppKit 先吃菜单的键，页面收不到），停了挂回去。只动内存里的菜单，留在主线程
+#[tauri::command]
+pub fn keymap_record(app: tauri::AppHandle, on: bool) {
+    crate::keymapctl::recording(&app, on);
+}

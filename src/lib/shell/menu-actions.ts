@@ -14,6 +14,8 @@
  * 它们是 `$state`，搬进普通模块就得改成另一套；通过 `MenuCtx` 回调过去。
  */
 import { probePath, diag, clearRecent } from "../ipc/commands";
+// 你改过的键位（docs/TAKEOVER.md R3）从这里开始取：这个模块首屏后 300ms 预拉，速查表、随处搜索印的键位要用
+import "../state/keys-live";
 import { installCli, appLogPath, clearAppLog, openExternal, openSettings, openScratchbook, requestQuit } from "../ipc/app";
 import { notify } from "../state/notify.svelte";
 import { dialogUp, nudgeDialog } from "./modal";

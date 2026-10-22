@@ -31,6 +31,11 @@
  * `cm6` 和 `xterm` 是同一类：**控件自己吃键，按焦点分派**。所以 ⌘F 在表里出现两次
  * （`cm-find` / `term-find`）是对的 —— 焦点在哪个控件里哪个接，不会双触发；
  * `tests/keymap.test.ts` 里「同一个键位不许挂两条」对这一类放行。
+ *
+ * # 这张表是**默认**（docs/TAKEOVER.md R3）
+ *
+ * 你在设置里改过的存 `keymap.json`（只存改过的），生效 = 默认 ⊕ 覆盖（`accelOf` / `byId`）。菜单由 Rust 按生效的挂，
+ * 编辑器里的按 id 挂（`editor/id-keys.ts`）—— 所以 `cm6` 那几行不再只是说明书，键真的从这里取。
  */
 
 export type Owner = "menu" | "key" | "cm6" | "xterm";
@@ -440,6 +445,142 @@ export const KEYS: KeyDef[] = [
   { id: "help-log-clear", label: "清空应用日志", group: "帮助", owner: "menu" },
 ];
 
+// ── 你改过的键位（docs/TAKEOVER.md R3）：这张表是默认，改过的存 `keymap.json`、只存改过的 ──
+
+/** 你改过的：`{ 动作 id: 键位 }`，`""` = 不要键位。`state/keys-live.ts` 从 Rust 取来放进这里、改了再换 */
+let over: Readonly<Record<string, string>> = {};
+const subs = new Set<() => void>();
+
+/** 换上新的覆盖表，告诉订了的（编辑器里那几张键位表要重配，`editor/id-keys.ts`） */
+export function setOverrides(o: Record<string, string>): void {
+  over = { ...o };
+  for (const f of subs) f();
+}
+
+export function overrides(): Readonly<Record<string, string>> {
+  return over;
+}
+
+/** 覆盖表一换就叫。返回退订 */
+export function onOverrides(f: () => void): () => void {
+  subs.add(f);
+  return () => subs.delete(f);
+}
+
+/** 这一项生效的键位：改过用改的（`""` = 不要了 → undefined），没改用默认 */
+export function accelOf(def: KeyDef, o: Readonly<Record<string, string>> = over): string | undefined {
+  const a = o[def.id];
+  return a === undefined ? def.accel : a || undefined;
+}
+
+/** 生效的那一项（`accel` 换成改过的）。菜单、速查表、随处搜索、右键菜单印出来的都从这里拿 */
+function live(def: KeyDef): KeyDef {
+  return def.id in over ? { ...def, accel: accelOf(def) } : def;
+}
+
+/**
+ * 能不能改：菜单的、编辑器的能。不能的三种，理由各一条 ——
+ * 归 keydown 的（⌃R、⌘E、⌃Tab…）各有各的特殊处理（终端里让给 shell、按住 ⌃ 连按），写死在 `App.svelte` 里；
+ * 终端的 ⌘F 是 xterm 自己的；连按两下 ⇧ 是手势，表达不成一个键
+ */
+export function editable(def: KeyDef): boolean {
+  // 「⌘Click」这种鼠标手势写在 accel 里，不是一个键
+  return (def.owner === "menu" || def.owner === "cm6") && !def.gesture && (!def.accel || splitAccel(def.accel) !== null);
+}
+
+/** 系统和「编辑」菜单（predefined，走 AppKit 的选择器）占着的键：改到这上面，要么被系统吃掉，要么把复制粘贴弄没了 */
+export const RESERVED: Readonly<Record<string, string>> = {
+  "⌘Z": "撤销", "⇧⌘Z": "重做", "⌘X": "剪切", "⌘C": "复制", "⌘V": "粘贴", "⌘A": "全选",
+  "⇧⌘W": "关闭窗口", "⌘M": "最小化", "⌘H": "隐藏 lite-ide", "⌥⌘H": "隐藏其他", "⌃⌘F": "进入全屏",
+  "⌘Space": "输入法 / 聚焦搜索", "⌃Space": "切换输入法",
+};
+
+/**
+ * 按覆盖表算出来，同一个键挂了两件事的：`{ 键位: [动作 id…] }`。规矩同 `tests/keymap.test.ts` 那条 ——
+ * 编辑器和终端各吃各的（按焦点分派），两条都是 cm6 / xterm 且不同 owner 时不算撞；cm6 和 cm6 撞了算（同一个编辑器里）。
+ * 别名（⌘[）也占着键
+ */
+export function conflicts(o: Readonly<Record<string, string>> = over): Record<string, string[]> {
+  const by = new Map<string, KeyDef[]>();
+  const put = (a: string, k: KeyDef) => by.set(a, [...(by.get(a) ?? []), k]);
+  for (const k of KEYS) {
+    const a = accelOf(k, o);
+    if (a) put(a, k);
+    if (k.alias) put(k.alias, k);
+  }
+  const out: Record<string, string[]> = {};
+  for (const [a, ks] of by) {
+    if (ks.length < 2) continue;
+    const widget = ks.every((k) => k.owner === "cm6" || k.owner === "xterm");
+    const sameWidget = widget && new Set(ks.map((k) => k.owner)).size < ks.length;
+    if (!widget || sameWidget) out[a] = ks.map((k) => k.id);
+  }
+  return out;
+}
+
+/**
+ * 主键的写法：显示用的 ↔ Tauri（muda）的 ↔ CM6 的 ↔ `KeyboardEvent.code`。**和 `src-tauri/src/keymap.rs` 的 `key_name` 是同一张表**
+ * （那边读的是 muda 0.19 认的名字）。字母数字、F1–F20、标点不在表里：字母数字两边都是大写原样，标点原样
+ */
+const KEY_NAMES: { show: string; tauri: string; cm: string; code: string }[] = [
+  { show: "←", tauri: "Left", cm: "ArrowLeft", code: "ArrowLeft" },
+  { show: "→", tauri: "Right", cm: "ArrowRight", code: "ArrowRight" },
+  { show: "↑", tauri: "Up", cm: "ArrowUp", code: "ArrowUp" },
+  { show: "↓", tauri: "Down", cm: "ArrowDown", code: "ArrowDown" },
+  { show: "↵", tauri: "Enter", cm: "Enter", code: "Enter" },
+  { show: "⌫", tauri: "Backspace", cm: "Backspace", code: "Backspace" },
+  { show: "⌦", tauri: "Delete", cm: "Delete", code: "Delete" },
+  { show: "Tab", tauri: "Tab", cm: "Tab", code: "Tab" },
+  { show: "Space", tauri: "Space", cm: "Space", code: "Space" },
+  { show: "Esc", tauri: "Escape", cm: "Escape", code: "Escape" },
+  { show: "`", tauri: "Backquote", cm: "`", code: "Backquote" },
+];
+const PUNCT: Record<string, string> = { Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/" };
+
+/** `⌥⌘L` → `{ mods: ["⌥", "⌘"], key: "L" }`。修饰键次序不对、主键不认识、不是功能键又没带 ⌃ ⌥ ⌘（裸字母、⇧ + 字母进菜单就打不了字）→ null */
+export function splitAccel(accel: string): { mods: string[]; key: string } | null {
+  const mods: string[] = [];
+  let rest = accel;
+  for (const m of APPLE_ORDER) {
+    if (rest.startsWith(m)) {
+      mods.push(m);
+      rest = rest.slice(1);
+    }
+  }
+  const fkey = /^F([1-9]|1[0-9]|20)$/.test(rest);
+  const known = fkey || /^[A-Z0-9]$/.test(rest) || Object.values(PUNCT).includes(rest) || KEY_NAMES.some((n) => n.show === rest);
+  // 不是功能键就要带 ⌃ ⌥ ⌘ 之一：只带 ⇧ 的字母就是打一个大写字母
+  if (!known || (!fkey && !mods.some((m) => m !== "⇧"))) return null;
+  return { mods, key: rest };
+}
+
+/** CM6 keymap 的写法：`⌥⌘L` → `Alt-Mod-l`、`⌃⇧R` → `Ctrl-Shift-r`、`⌘⌫` → `Mod-Backspace`。认不了 → null */
+export function toCmKey(accel: string | undefined): string | null {
+  const s = accel ? splitAccel(accel) : null;
+  if (!s) return null;
+  const MOD: Record<string, string> = { "⌃": "Ctrl", "⌥": "Alt", "⇧": "Shift", "⌘": "Mod" };
+  const named = KEY_NAMES.find((n) => n.show === s.key)?.cm;
+  // 字母写小写：带 Shift 时 CM6 拿「Shift + 原键」去配（现有的 `Ctrl-Shift-r`、`Shift-Mod-u` 都是这么写的）
+  const key = named ?? (s.key.length === 1 ? s.key.toLowerCase() : s.key);
+  return [...s.mods.map((m) => MOD[m]), key].join("-");
+}
+
+/**
+ * 录键：按下的这一下 → 显示写法（`⌥⌘L`）。主键按 `e.code` 认（物理键位）—— ⌥ 在 macOS 上会把 `e.key` 变成别的字（⌥L = ¬），
+ * 按 key 认就录成了 `⌥⌘¬`。只按了修饰键 → null（还在等主键）
+ */
+export function accelFromEvent(e: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey">): string | null {
+  const c = e.code;
+  let key: string | undefined;
+  if (/^Key[A-Z]$/.test(c)) key = c.slice(3);
+  else if (/^Digit[0-9]$/.test(c)) key = c.slice(5);
+  else if (/^F([1-9]|1[0-9]|20)$/.test(c)) key = c;
+  else key = PUNCT[c] ?? KEY_NAMES.find((n) => n.code === c)?.show;
+  if (!key) return null;
+  const mods = [e.ctrlKey && "⌃", e.altKey && "⌥", e.shiftKey && "⇧", e.metaKey && "⌘"].filter(Boolean).join("");
+  return mods + key;
+}
+
 /**
  * 速查表要显示的那些 —— 有键位或有手势的。
  *
@@ -447,12 +588,13 @@ export const KEYS: KeyDef[] = [
  * 但它们不属于一张**快捷键**速查表。
  */
 export function shortcuts(): KeyDef[] {
-  return KEYS.filter((k) => k.accel || k.gesture);
+  return KEYS.map(live).filter((k) => k.accel || k.gesture);
 }
 
-/** 按 id 取。找不到返回 undefined —— 调用方自己决定要不要兜底 */
+/** 按 id 取（键位是生效的那个）。找不到返回 undefined —— 调用方自己决定要不要兜底 */
 export function byId(id: string): KeyDef | undefined {
-  return KEYS.find((k) => k.id === id);
+  const k = KEYS.find((k) => k.id === id);
+  return k && live(k);
 }
 
 /**
@@ -480,14 +622,8 @@ export function toTauriAccel(accel: string | undefined): string | undefined {
    * 一字不差** —— 那条测试正是拿两边的换算结果对比的，少一行就是
    * 「菜单上写着 ⌥⌘←，按下去没反应」，而它不报错。
    */
-  const SPECIAL: Record<string, string> = {
-    "`": "Backquote", // muda 认这个名字，不认裸的反引号加修饰键
-    "←": "Left",
-    "→": "Right",
-    "↑": "Up",
-    "↓": "Down",
-  };
-  const key = SPECIAL[rest] ?? rest.toUpperCase();
+  // `` ` `` 写成 Backquote：muda 认这个名字，不认裸的反引号加修饰键；↵ ⌫ 这些是你改键位时才会出现的（R3）
+  const key = KEY_NAMES.find((n) => n.show === rest)?.tauri ?? rest.toUpperCase();
   return [...mods, key].join("+");
 }
 

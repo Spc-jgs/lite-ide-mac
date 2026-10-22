@@ -1,4 +1,5 @@
-import { KEYS, byId, toTauriAccel, accelOrderIsApple } from "../src/lib/state/keymap.ts";
+import { readdirSync, readFileSync } from "node:fs";
+import { KEYS, byId, toTauriAccel, accelOrderIsApple, accelFromEvent, accelOf, conflicts, editable, setOverrides, shortcuts, splitAccel, toCmKey } from "../src/lib/state/keymap.ts";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -120,6 +121,56 @@ ok(
  * （它默认就吃 altKey），锁住这条免得有人再挪一次。
  */
 ok(byId("cm-multi-cursor")?.accel === "⌘Click", "多光标还在 ⌘Click 上");
+
+// ── 你改过的键位（docs/TAKEOVER.md R3） ─────────────────────────────
+
+ok(toCmKey("⌥⌘L") === "Alt-Mod-l" && toCmKey("⌃⇧R") === "Ctrl-Shift-r" && toCmKey("⌘⌫") === "Mod-Backspace", `换成 CM6 的写法：${toCmKey("⌥⌘L")} ${toCmKey("⌃⇧R")} ${toCmKey("⌘⌫")}`);
+ok(toCmKey("⌥⇧↑") === "Alt-Shift-ArrowUp" && toCmKey("F1") === "F1" && toCmKey("⌃↵") === "Ctrl-Enter" && toCmKey("⇧F6") === "Shift-F6", "方向键、功能键、回车");
+ok(toCmKey("⌘⇧G") === null && toCmKey("L") === null && toCmKey("⌘Click") === null && toCmKey(undefined) === null, "次序错的、裸字母、鼠标手势、没键位：都不挂");
+ok(toTauriAccel("⌃↵") === "Ctrl+Enter" && toTauriAccel("⌘⌫") === "CmdOrCtrl+Backspace", "菜单那边也认回车退格（和 keymap.rs 同一张表）");
+ok(splitAccel("F9") !== null && splitAccel("F21") === null && splitAccel("⌘é") === null, "功能键 F1–F20；不认识的字不收");
+
+// 录键按 e.code：⌥ 在 macOS 上把 e.key 变成别的字（⌥L = ¬），按 key 认就录成 ⌥⌘¬
+const ev = (code: string, m: Partial<Record<"ctrlKey" | "altKey" | "shiftKey" | "metaKey", boolean>> = {}) => ({ code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...m });
+ok(accelFromEvent(ev("KeyL", { altKey: true, metaKey: true })) === "⌥⌘L", `⌥⌘L：${accelFromEvent(ev("KeyL", { altKey: true, metaKey: true }))}`);
+ok(accelFromEvent(ev("Slash", { metaKey: true, shiftKey: true })) === "⇧⌘/", "修饰键按 ⌃⌥⇧⌘ 排，不按按下的先后");
+ok(accelFromEvent(ev("ArrowUp", { altKey: true })) === "⌥↑" && accelFromEvent(ev("Enter", { ctrlKey: true })) === "⌃↵", "方向键、回车");
+ok(accelFromEvent(ev("MetaLeft", { metaKey: true })) === null, "只按了修饰键：还在等主键");
+
+// 生效的键位：改过用改的，"" = 不要了
+const save = KEYS.find((k) => k.id === "save")!;
+ok(accelOf(save, { save: "⌥⌘S" }) === "⌥⌘S" && accelOf(save, { save: "" }) === undefined && accelOf(save, {}) === "⌘S", "改过用改的、空串是不要、没改用默认");
+setOverrides({ save: "⌥⌘S", "git-fetch": "⌃⌘F9" });
+ok(byId("save")?.accel === "⌥⌘S" && byId("git-fetch")?.accel === "⌃⌘F9", "byId 给的是生效的（菜单、随处搜索、右键菜单都从这儿印）");
+ok(shortcuts().some((k) => k.id === "git-fetch"), "改出了键位的进速查表");
+ok(KEYS.find((k) => k.id === "save")!.accel === "⌘S", "默认表本身没被改");
+setOverrides({});
+ok(byId("save")?.accel === "⌘S", "换回空的覆盖表 = 全部默认");
+
+// 撞键：默认表一条都不撞；把「保存」改到 ⌘F 上撞编辑器的查找（菜单先吃键）；编辑器里两件事一个键也撞；别名也占着
+ok(Object.keys(conflicts({})).length === 0, `默认表不撞：${JSON.stringify(conflicts({}))}`);
+ok(conflicts({ save: "⌘F" })["⌘F"]?.includes("save") === true, "菜单改到 ⌘F：和编辑器的查找撞");
+ok(conflicts({ "cm-duplicate": "⌘G" })["⌘G"]?.length === 2, "编辑器里两件事一个键：撞");
+ok(conflicts({ "git-fetch": "⌘[" })["⌘["]?.includes("nav-back") === true, "别名（⌘[ 是回退的别名）也占着键");
+ok(conflicts({ "cm-find": "⌘G", "cm-find-next": "⌘F" })["⌘F"] === undefined, "编辑器和终端各吃各的 ⌘F：不算撞");
+
+// 能改的：菜单的、编辑器的；归 keydown 的、终端的、手势、鼠标手势不能
+ok(editable(byId("save")!) && editable(byId("find-usages")!) && editable(byId("git-fetch")!), "菜单、编辑器、没默认键的菜单项都能改");
+ok(!editable(byId("run-last")!) && !editable(byId("term-find")!) && !editable(byId("quick-all")!) && !editable(byId("cm-multi-cursor")!), "keydown、终端、⇧⇧、⌘Click 不能改");
+
+/*
+ * 编辑器里每一条能改的，都真的按 id 挂上了（`id: "…"` 出现在 src/lib/editor 里）；反过来，编辑器里不许再写死
+ * 一条能改的默认键（`key: "Alt-F7"`）—— 写死的那条你在设置里改了也没用，而且它不报错，只表现为「改了没生效」
+ */
+{
+  const dir = "src/lib/editor";
+  const src = readdirSync(dir).filter((f) => /\.(ts|svelte)$/.test(f)).map((f) => readFileSync(`${dir}/${f}`, "utf8")).join("\n");
+  for (const k of KEYS.filter((k) => k.owner === "cm6" && editable(k))) {
+    ok(src.includes(`id: "${k.id}"`), `${k.id}（${k.accel}）在 keymap.ts 里归编辑器，src/lib/editor 里却没有按 id 挂它`);
+    const cm = toCmKey(k.accel);
+    if (cm) ok(!src.includes(`key: "${cm}"`), `${k.id} 的默认键 ${cm} 在 src/lib/editor 里写死了 —— 改成 idKeymap({ id: "${k.id}" })`);
+  }
+}
 
 console.log(fail === 0 ? `✅ 键位表：${pass} 通过，0 失败` : `❌ 键位表：${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

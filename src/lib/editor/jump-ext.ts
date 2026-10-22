@@ -32,9 +32,10 @@
  * 还在同一个词上时直接返回。
  */
 
-import { Decoration, type DecorationSet, EditorView, keymap } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import type { JumpHit } from "./jump";
+import { idKeymap } from "./id-keys";
 
 export interface JumpHooks {
   /** 问一次「这个位置能不能跳」。同步，纯计算 —— 见 jump.ts 的说明 */
@@ -177,9 +178,9 @@ export function jumpExtension(hooks: JumpHooks): Extension {
       },
     }),
     Prec.highest(
-      keymap.of([
+      idKeymap([
         {
-          key: "Mod-b",
+          id: "jump-decl",
           preventDefault: true,
           run: (view) => {
             const hit = hooks.resolve(view.state.selection.main.head);

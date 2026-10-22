@@ -17,7 +17,7 @@
  *
  * 混着用比统一成哪一家都糟 —— 两边的人都会被坑。用户拍板跟 IDEA。
  *
- * 这张表排在 `defaultKeymap` 前面（`Editor.svelte`），同一个键先到先得；
+ * 这张表排在 `defaultKeymap` 前面（`Editor.svelte`），同一个键先到先得（键位按 id 从 `keymap.ts` 取，你改得了，docs/TAKEOVER.md R3）；
  * `⌘[` `⌘]` 从默认键位里摘掉（`editorDefaults`），让给窗口级的回退 / 前进。
  * 每一条都登记在 `state/keymap.ts`（owner = cm6）—— 菜单再来抢同一个键，
  * `keymap.test.ts` 的「同一个键位不许挂两条」当场红（`⌘/`、`⇧⌘G` 就是这么被抢了几周没人发现的：
@@ -33,8 +33,10 @@ import {
   moveLineUp,
   selectParentSyntax,
   toggleBlockComment,
+  toggleComment,
 } from "@codemirror/commands";
-import { selectNextOccurrence, selectSelectionMatches } from "@codemirror/search";
+import { findNext, findPrevious, openSearchPanel, searchKeymap, selectNextOccurrence, selectSelectionMatches } from "@codemirror/search";
+import type { IdBinding } from "./id-keys";
 
 /**
  * ⌘D：没有选区复制当前行（光标落到下面那份，同 IDEA）；有选区就把选中的文字紧跟着再贴一份，
@@ -149,18 +151,33 @@ export const toggleCase: StateCommand = ({ state, dispatch }) => {
   return true;
 };
 
-export const ideaKeymap: readonly KeyBinding[] = [
-  { key: "Mod-d", run: duplicate, preventDefault: true },
-  { key: "Mod-Backspace", run: deleteLine, preventDefault: true },
-  { key: "Shift-Alt-ArrowUp", run: moveLineUp, preventDefault: true },
-  { key: "Shift-Alt-ArrowDown", run: moveLineDown, preventDefault: true },
-  { key: "Alt-ArrowUp", run: extendSelection, preventDefault: true },
-  { key: "Alt-ArrowDown", run: shrinkSelection, preventDefault: true },
-  { key: "Ctrl-g", run: selectNextOccurrence, preventDefault: true },
-  { key: "Ctrl-Mod-g", run: selectAllOccurrences, preventDefault: true },
-  { key: "Alt-Mod-/", run: toggleBlockComment, preventDefault: true },
-  { key: "Shift-Mod-u", run: toggleCase, preventDefault: true },
+/**
+ * 编辑器里按 id 挂的那些（`editor/id-keys.ts`，docs/TAKEOVER.md R3）：键位在 `keymap.ts`，你在设置里改得了。
+ * 查找 / 注释这几条原来是 CM6 默认键位表里的（`searchKeymap` 的 ⌘F ⌘G、`defaultKeymap` 的 ⌘/），改得了键就得自己挂、
+ * 再从默认表里摘掉（`editorDefaults` / `searchDefaults`）—— 不摘的话你把「查找」改到别的键上，⌘F 照样打开查找
+ */
+export const ideaBindings: readonly IdBinding[] = [
+  { id: "cm-find", run: openSearchPanel, scope: "editor search-panel" },
+  { id: "cm-find-next", run: findNext, scope: "editor search-panel", preventDefault: true },
+  { id: "cm-find-prev", run: findPrevious, scope: "editor search-panel", preventDefault: true },
+  { id: "cm-comment", run: toggleComment },
+  { id: "cm-duplicate", run: duplicate, preventDefault: true },
+  { id: "cm-delete-line", run: deleteLine, preventDefault: true },
+  { id: "cm-move-up", run: moveLineUp, preventDefault: true },
+  { id: "cm-move-down", run: moveLineDown, preventDefault: true },
+  { id: "cm-extend", run: extendSelection, preventDefault: true },
+  { id: "cm-shrink", run: shrinkSelection, preventDefault: true },
+  { id: "cm-next-occ", run: selectNextOccurrence, preventDefault: true },
+  { id: "cm-all-occ", run: selectAllOccurrences, preventDefault: true },
+  { id: "cm-block-comment", run: toggleBlockComment, preventDefault: true },
+  { id: "cm-case", run: toggleCase, preventDefault: true },
 ];
+
+/**
+ * CM6 的查找键位，摘掉 ⌘F、⌘G（上面按 id 挂了）和 ⌘D（它拿来「选中下一个相同的词」，IDEA 的 ⌘D 是复制行 ——
+ * 原来靠 IDEA 那张表排在前面先吃到；你把复制行改到别的键上之后，⌘D 不该悄悄变回 CM6 的意思）。F3 / Esc 照留
+ */
+export const searchDefaults: readonly KeyBinding[] = searchKeymap.filter((b) => b.key !== "Mod-f" && b.key !== "Mod-g" && b.key !== "Mod-d");
 
 /**
  * CM6 的默认键位，摘掉 `⌘[` `⌘]`（它拿来减 / 加缩进）—— 那两个键在 IDEA 里是回退 / 前进，
@@ -170,7 +187,8 @@ export const ideaKeymap: readonly KeyBinding[] = [
  */
 export const editorDefaults: readonly KeyBinding[] = defaultKeymap.filter(
   // ⌃D 也摘掉：CM6 在 macOS 上把 Emacs 那套（⌃D 删后一个字）带进了默认键位，IDEA 里它是「调试」（docs/IDEA.md 第 18 节，App.svelte 接）
-  (b) => b.key !== "Mod-[" && b.key !== "Mod-]" && b.mac !== "Ctrl-d",
+  // ⌘/ 也摘：注释按 id 挂（`ideaBindings`），改得了键
+  (b) => b.key !== "Mod-[" && b.key !== "Mod-]" && b.mac !== "Ctrl-d" && b.key !== "Mod-/",
 );
 
 /** 扩大 / 缩小选区要的那个栈 */

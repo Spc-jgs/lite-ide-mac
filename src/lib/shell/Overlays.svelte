@@ -64,15 +64,21 @@
   /** 幂等：和 `overlays.load()` 一样，预拉和真按下去都会调 */
   function loadActions() {
     if (actions.length) return;
-    void import("../state/keymap").then(({ KEYS }) => {
-      // 控件自己吃键的那两类（cm6 / xterm）进不了命令面板：面板没法替它们把键送进控件
-      actions = KEYS.filter((k) => k.owner !== "cm6" && k.owner !== "xterm").map((k) => ({
-        id: k.id,
-        // Git 那一摊加前缀：单看「刷新状态」「提交历史」不知道是谁的
-        label: k.group === "Git" ? `Git：${k.label}` : k.label,
-        hint: k.accel ?? k.gesture,
-        run: () => onAction(k.id),
-      }));
+    void import("../state/keymap").then(({ KEYS, byId, onOverrides }) => {
+      // 控件自己吃键的那两类（cm6 / xterm）进不了命令面板：面板没法替它们把键送进控件。键位印生效的（你改过的，docs/TAKEOVER.md R3），改了重算
+      const build = () =>
+        (actions = KEYS.filter((k) => k.owner !== "cm6" && k.owner !== "xterm").map((d) => {
+          const k = byId(d.id) ?? d;
+          return {
+            id: k.id,
+            // Git 那一摊加前缀：单看「刷新状态」「提交历史」不知道是谁的
+            label: k.group === "Git" ? `Git：${k.label}` : k.label,
+            hint: k.accel ?? k.gesture,
+            run: () => onAction(k.id),
+          };
+        }));
+      build();
+      onOverrides(build);
     });
   }
 

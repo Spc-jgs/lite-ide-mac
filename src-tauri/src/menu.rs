@@ -86,12 +86,39 @@ pub struct MenuHandles {
 }
 
 /// 一个普通菜单项。`accel` 为 `None` 就只有标签 —— 那正是 ⌘P 那一类的处理。
+/// `accel` 是**默认**键位（`menu_sync.rs` 拿它和 keymap.ts 比）；你在设置里改过的从 `keymap::menu_accel` 来（docs/TAKEOVER.md R3）
 fn item(app: &AppHandle<Wry>, id: &str, label: &str, accel: Option<&str>) -> tauri::Result<MenuItem<Wry>> {
     let mut b = MenuItemBuilder::with_id(id, label);
-    if let Some(a) = accel {
+    if let Some(a) = crate::keymap::menu_accel(id, accel) {
         b = b.accelerator(a);
     }
     b.build(app)
+}
+
+/// 键位改了（设置里、或者 keymap.json 被改了）：菜单上每一项换成生效的键位。不重建菜单 —— 重建要换掉 `MenuHandles`
+/// （`manage` 进去的只能放一次）、还要把灰态和「最近打开」重灌一遍；muda 的菜单项本来就能换 accelerator。
+///
+/// `bare`：一个键都不挂（设置里正在录键）。菜单项挂着的键 AppKit 先吃掉、页面收不到 —— 不摘的话 ⌘S、⌘W 这种「已经有人用的」录不进来
+pub fn apply_keys(app: &AppHandle<Wry>, bare: bool) {
+    let Some(menu) = app.menu() else { return };
+    let defaults = crate::keymap::DEFAULTS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let over = crate::keymap::OVERRIDES.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let mut stack: Vec<tauri::menu::MenuItemKind<Wry>> = menu.items().unwrap_or_default();
+    while let Some(k) = stack.pop() {
+        match k {
+            tauri::menu::MenuItemKind::Submenu(s) => stack.extend(s.items().unwrap_or_default()),
+            tauri::menu::MenuItemKind::MenuItem(m) => {
+                let id = m.id().0.clone();
+                let Some(def) = defaults.get(&id) else { continue };
+                let want = if bare { None } else { crate::keymap::menu_override(&over, &id).unwrap_or_else(|| def.clone()) };
+                match m.set_accelerator(want.as_deref()) {
+                    Ok(()) => drop(crate::keymap::APPLIED.lock().unwrap_or_else(|e| e.into_inner()).insert(id, want)),
+                    Err(e) => applog::write(applog::Level::Warn, "keymap", &format!("菜单「{id}」换不了键位 {want:?}：{e}")),
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {

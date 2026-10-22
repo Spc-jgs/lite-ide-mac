@@ -573,6 +573,11 @@ v0.5.0 里把 `⌘1` 显示成 `1⌘` 那个就是先例（源码对、渲染错
   和 ⇧⌘G（改动列表）就这么把编辑器的注释、查找上一处抢了几周没人发现。登记进来之后，
   「同一个键位不许挂两条」会当场卡住。加菜单键位前先查 IDEA 里这个组合在编辑器里干什么。
 
+**你改得了键位（R3，2026-10-23）**：`keymap.ts` 是默认，`keymap.json` 存你改过的。编辑器里的键**按 id 挂**（`editor/id-keys.ts` 的 `idKeymap([{ id, run }])`），
+不再在扩展里写死 `key: "Alt-F7"` —— 写死的那条你在设置里改了也没用、还不报错。`tests/keymap.test.ts` 扫 `src/lib/editor`：每一条能改的 cm6 都得按 id 挂、
+不许再写死它的默认键。CM6 自带的键（`searchKeymap` 的 ⌘F ⌘G、`defaultKeymap` 的 ⌘/）要改得了，就自己按 id 挂、再从默认表里摘掉（`idea-keys.ts` 的 `searchDefaults` / `editorDefaults`）。
+归 keydown 的（`owner: "key"`）不能改：各有特殊处理写死在 `App.svelte` 里（终端里让给 shell、按住 ⌃ 连按）。
+
 修饰键次序按 Apple 的 **⌃⌥⇧⌘**。老的 `actions` 表里写的是 `⌘⇧G`，
 `tests/keymap.test.ts` 现在卡着这条 —— 这类错误肉眼扫不出来。
 

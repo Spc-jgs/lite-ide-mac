@@ -86,8 +86,12 @@
   const HINT_IDS_LOOSE = ["quick-all", "quick-file", "recent-files", "toggle-panel"];
   let byIdFn = $state<((id: string) => KeyDef | undefined) | null>(null);
   $effect(() => {
-    if (tab || byIdFn) return;
-    void import("../state/keymap").then(({ byId }) => (byIdFn = byId));
+    if (byIdFn || (tab && !project.isScratch(tab.path))) return;
+    // 你在设置里改了键位（docs/TAKEOVER.md R3）：换一个函数让下面两处重算 —— 印错的快捷键比不印更糟
+    void import("../state/keymap").then(({ byId, onOverrides }) => {
+      byIdFn = byId;
+      onOverrides(() => (byIdFn = (id) => byId(id)));
+    });
   });
   let keyHints = $derived.by<KeyDef[]>(() => {
     const by = byIdFn;
@@ -102,16 +106,14 @@
    * `keymap.ts` 生成，不手抄第四份。键位表是懒的，没到之前只有前半句。
    */
   const SCRATCH_HINT_IDS = ["open-folder", "quick-file"];
-  let scratchHint = $state("记点东西…");
-  $effect(() => {
-    const t = tab;
-    if (!t || !project.isScratch(t.path) || scratchHint.includes("·")) return;
-    void import("../state/keymap").then(({ byId }) => {
-      const parts = SCRATCH_HINT_IDS.map((id) => byId(id))
-        .filter((k) => k !== undefined)
-        .map((k) => `${k.accel} ${k.label}`);
-      scratchHint = ["记点东西…", ...parts].join("  ·  ");
-    });
+  let scratchHint = $derived.by(() => {
+    const by = byIdFn;
+    const parts = by
+      ? SCRATCH_HINT_IDS.map((id) => by(id))
+          .filter((k) => k?.accel)
+          .map((k) => `${k!.accel} ${k!.label}`)
+      : [];
+    return ["记点东西…", ...parts].join("  ·  ");
   });
 
 

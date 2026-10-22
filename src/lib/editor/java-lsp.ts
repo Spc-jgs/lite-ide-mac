@@ -24,6 +24,7 @@ import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
 import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { usageHighlight } from "./java-usage-hl";
+import { idKeymap } from "./id-keys";
 import { inlayHints } from "./java-inlay";
 import { configKeyAt } from "./spring-key";
 import { boostOf, kindType, lspSnippet, offsetOf, splitEdits } from "./java-complete";
@@ -1058,28 +1059,29 @@ export function javaLsp(root: string | null, path: string): Extension {
       return { hints: javaInlayHints(s.root, s.path, from, endLine, endChar), settled: statusOf.get(s.root)?.phase === "ready" };
     }),
     // `${demo.greeting}` 上 ⌘B 去配置文件（第 25 节）；不在 `${…}` 里放过，交给原来的跳转
-    Prec.highest(keymap.of([{ key: "Mod-b", run: (v) => configJump(v, root) }])),
-    // IDEA 的键位：⌥F7 查找用法、⌥⌘F7 Show Usages。两个都开同一张列表（UsagesPopup.svelte 头上说了为什么）
+    Prec.highest(idKeymap([{ id: "jump-decl", run: (v) => configJump(v, root) }])),
+    // IDEA 的键位：⌥⌘F7 Show Usages 和 ⌥F7 开同一张列表（UsagesPopup.svelte 头上说了为什么）。⌥⌘F7 不在 keymap.ts 里、改不了键，照写死
+    Prec.high(keymap.of([{ key: "Mod-Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) }])),
+    // 下面这些按 id 挂，键位从 keymap.ts 取、你在设置里改得了（docs/TAKEOVER.md R3）
     Prec.high(
-      keymap.of([
-        { key: "Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
-        { key: "Mod-Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
+      idKeymap([
+        { id: "find-usages", preventDefault: true, run: (v) => (void findUsages(v), true) },
         // IDEA 的 Go to Implementation(s) / Super Method（keymap.ts 登记成 cm6）。⌘U 盖掉 CM6 默认的「撤销选区」：Java 文件里照 IDEA
-        { key: "Mod-Alt-b", preventDefault: true, run: (v) => (void jumpList(v, "实现", javaImplementation, (n) => `${n} 没有实现（不是接口 / 抽象方法，或者没人实现它）`), true) },
+        { id: "goto-impl", preventDefault: true, run: (v) => (void jumpList(v, "实现", javaImplementation, (n) => `${n} 没有实现（不是接口 / 抽象方法，或者没人实现它）`), true) },
         // IDEA 的 Generate（macOS 键位 ⌘N / ⌃↵；⌘N 在这里是「新建草稿」，先挂 ⌃↵。keymap.ts 登记成 cm6）
-        { key: "Ctrl-Enter", preventDefault: true, run: (v) => (void generate(v), true) },
+        { id: "generate", preventDefault: true, run: (v) => (void generate(v), true) },
         // IDEA 的 Call Hierarchy / Type Hierarchy（keymap.ts 登记成 cm6）
-        { key: "Ctrl-Alt-h", preventDefault: true, run: (v) => (void openHierarchy(v, false), true) },
-        { key: "Ctrl-h", preventDefault: true, run: (v) => (void openHierarchy(v, true), true) },
+        { id: "call-hierarchy", preventDefault: true, run: (v) => (void openHierarchy(v, false), true) },
+        { id: "type-hierarchy", preventDefault: true, run: (v) => (void openHierarchy(v, true), true) },
         // IDEA 的 Quick Documentation（macOS 键位是 F1）
-        { key: "F1", preventDefault: true, run: (v) => (void quickDoc(v), true) },
-        { key: "Mod-u", preventDefault: true, run: (v) => (void jumpList(v, "父方法", javaSuper, (n) => `${n} 没有覆盖父类 / 接口里的方法`), true) },
+        { id: "quick-doc", preventDefault: true, run: (v) => (void quickDoc(v), true) },
+        { id: "goto-super", preventDefault: true, run: (v) => (void jumpList(v, "父方法", javaSuper, (n) => `${n} 没有覆盖父类 / 接口里的方法`), true) },
         // IDEA 的 Refactor → Rename（keymap.ts 登记成 cm6）
-        { key: "Shift-F6", preventDefault: true, run: (v) => (void renameAt(v), true) },
+        { id: "rename", preventDefault: true, run: (v) => (void renameAt(v), true) },
         // IDEA 的 Show Context Actions（keymap.ts 登记成 cm6）
-        { key: "Alt-Enter", preventDefault: true, run: (v) => (void quickFix(v), true) },
+        { id: "quick-fix", preventDefault: true, run: (v) => (void quickFix(v), true) },
         // IDEA 的 Reformat Code。Prec.high 排在 Editor 里那条「格式化 JSON」前面：Java 文件里先到这儿（keymap.ts 里是同一行，说明写了两种）
-        { key: "Alt-Mod-l", preventDefault: true, run: (v) => (void formatJava(v), true) },
+        { id: "cm-format-json", preventDefault: true, run: (v) => (void formatJava(v), true) },
       ]),
     ),
     EditorView.theme({

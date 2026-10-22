@@ -12,6 +12,8 @@ mod spring;
 mod junit;
 pub mod diag;
 pub mod menu;
+mod keymap;
+mod keymapctl;
 mod open;
 mod owned;
 mod ideacfg;
@@ -169,6 +171,8 @@ pub fn run() {
              * 看着像另一个应用。代价是 `menu.rs` 里存着一份 keymap.ts
              * 的拷贝，由 `tests/menu_sync.rs` 卡住。
              */
+            // 你改过的键位先读进来：菜单一建好就挂着它们（docs/TAKEOVER.md R3）
+            keymapctl::init(app.handle());
             let (m, handles) = menu::build(app.handle())?;
             app.set_menu(m)?;
             app.manage(handles);
@@ -434,6 +438,9 @@ pub fn run() {
             commands::open_scratchbook,
             commands::settings,
             commands::settings_schema,
+            commands::keymap_overrides,
+            commands::keymap_set,
+            commands::keymap_record,
             commands::set_ui_state,
             commands::step_font,
             commands::adopt_ui_state,

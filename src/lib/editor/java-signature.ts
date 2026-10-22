@@ -8,6 +8,7 @@
 import { EditorView, keymap, showTooltip, ViewPlugin, type Tooltip, type ViewUpdate } from "@codemirror/view";
 import { Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import type { JavaSignatures } from "../ipc/commands";
+import { idKeymap } from "./id-keys";
 
 const setSig = StateEffect.define<{ pos: number; data: JavaSignatures } | null>();
 
@@ -105,10 +106,10 @@ export function signatureHelp(ask: Ask): Extension {
   return [
     sigField,
     p,
+    // 手动弹：⌘P（IDEA 的 Parameter Info）。按 id 挂，键位你改得了（docs/TAKEOVER.md R3）
+    Prec.high(idKeymap([{ id: "param-info", preventDefault: true, run: (v) => (v.plugin(p)?.schedule(0), true) }])),
     Prec.high(
       keymap.of([
-        // 手动弹：⌘P（IDEA 的 Parameter Info）
-        { key: "Mod-p", preventDefault: true, run: (v) => (v.plugin(p)?.schedule(0), true) },
         // 开着时 Esc 只收起它（不然 Esc 往外冒，关掉的是别的东西）
         { key: "Escape", run: (v) => (v.state.field(sigField) ? (v.dispatch({ effects: setSig.of(null) }), true) : false) },
       ]),

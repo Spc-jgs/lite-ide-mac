@@ -50,6 +50,9 @@ def main(argv: list[str]) -> int:
             if len(rest) > 1:
                 req["window"] = rest[1]
             v = call(req)
+        elif cmd == "accel":
+            # 菜单项此刻挂着的键位（Tauri 写法，没挂是 null）—— 键位覆盖（R3）的验收用
+            v = call({"cmd": "accel", "id": rest[0]})
         elif cmd == "close":
             v = call({"cmd": "close", "window": rest[0]})
         elif cmd == "eval":

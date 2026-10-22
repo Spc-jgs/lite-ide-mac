@@ -55,7 +55,7 @@ SD='const d = document.querySelector(".dialog.settings"); const cat = (n) => [..
 lite menu open-settings main >/dev/null
 lite_wait main "return !!document.querySelector('.dialog.settings .row')" 10 >/dev/null
 CATS=$(lite_eval main "${SD} return [...d.querySelectorAll('.cat')].map((c) => c.innerText.replace(/\n/g, ' ')).join('|')")
-ok "$([ "${CATS}" = "外观|终端|Java 与 JDK|Maven|此项目 $(basename "${A}")" ] && echo 1)" "⌘, 开的是对话框，有「此项目」那一类：${CATS}"
+ok "$([ "${CATS}" = "外观|键位|终端|Java 与 JDK|Maven|此项目 $(basename "${A}")" ] && echo 1)" "⌘, 开的是对话框，有「此项目」那一类：${CATS}"
 lite menu toggle-sidebar main >/dev/null; sleep 0.2
 ok "$([ "$(lite_eval main "return document.querySelector('.dialog.settings')?.classList.contains('nudge') ?? false")" = true ] && echo 1)" "对话框开着时点菜单：被挡下、对话框顶一下（真模态）"
 lite_eval main "${SD} cat('Maven').click(); await new Promise((r) => setTimeout(r, 150)); put(rowOf('maven.extraArgs').querySelector('input'), '-T 2'); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null
@@ -82,6 +82,32 @@ BAN=$(lite_eval main "${SD} return (d.querySelector('.banner')?.textContent ?? '
 lite_eval main "document.querySelector('.dialog.settings [data-default]').click(); return true" >/dev/null
 lite_wait main "return !document.querySelector('.dialog.settings')" 5 >/dev/null
 ok "$(echo "${BAN}" | grep -q '先修好它.*| true$' && [ "$(shasum "${LITE_DATA}/settings.json")" = "${BEFORE}" ] && echo 1)" "settings.json 写坏了：说清楚、输入框灰掉，文件一个字节不动：${BAN}"
+note_front
+
+echo "== 键位可改（docs/TAKEOVER.md R3）：设置里「保存」⌘S → ⌥⌘S、「复制行」⌘D → ⌥⌘D；录键时菜单上的键全摘掉；应用后 keymap.json 只存这两条、菜单挂新的、两个窗口里开着的编辑器当场换键；手改 keymap.json 也当场生效"
+KM='const d = document.querySelector(".dialog.settings"); const cat = (n) => [...d.querySelectorAll(".cat")].find((c) => c.innerText.startsWith(n)); const krow = (l) => [...d.querySelectorAll(".row")].find((r) => r.querySelector(".name")?.textContent === l); const W = (ms) => new Promise((r) => setTimeout(r, ms));'
+lite menu open-settings main >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.settings .cat')" 10 >/dev/null
+lite_eval main "${KM} cat('键位').click(); await W(200); krow('保存').querySelector('.cap').click(); await W(150); return true" >/dev/null
+REC="$(lite accel save)/$(lite accel close-tab)"
+lite_eval main "__lite.key('Mod-Alt-s'); return true" >/dev/null; sleep 0.3
+BACK=$(lite accel save)
+ok "$([ "${REC}" = "null/null" ] && [ "${BACK}" = "CmdOrCtrl+S" ] && echo 1)" "录键时菜单上的键全摘掉（AppKit 先吃菜单的键，不摘 ⌘S 这种录不进来）、录完挂回去（还没应用，挂的还是默认）：录时 ${REC}，录完 ${BACK}"
+CAPS=$(lite_eval main "${KM} krow('复制行（有选区时复制选区）').querySelector('.cap').click(); await W(150); __lite.key('Mod-Alt-d'); await W(150); return krow('保存').querySelector('.cap').textContent + ' ' + krow('复制行（有选区时复制选区）').querySelector('.cap').textContent")
+ok "$([ "${CAPS}" = "⌥⌘S ⌥⌘D" ] && echo 1)" "录到的键（按 e.code 认，⌥ 不会把 S 变成别的字）：${CAPS}"
+lite_eval main "document.querySelector('.dialog.settings [data-default]').click(); return true" >/dev/null
+lite_wait main "return !document.querySelector('.dialog.settings')" 5 >/dev/null; sleep 0.3
+KJ=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])), ensure_ascii=False, sort_keys=True))' "${LITE_DATA}/keymap.json" 2>/dev/null)
+ok "$([ "${KJ}" = '{"cm-duplicate": "⌥⌘D", "save": "⌥⌘S"}' ] && echo 1)" "keymap.json 只存改过的两条：${KJ}"
+ok "$([ "$(lite accel save)" = "Alt+CmdOrCtrl+S" ] && echo 1)" "菜单上「保存」挂的是 ⌥⌘S：$(lite accel save)"
+# 开着的编辑器（两个窗口各一个）不重开就换键：⌘D 不再复制行、⌥⌘D 复制；最后 ⌘Z 撤回，不留脏标签
+for w in main w-1; do
+  R=$(lite_eval "${w}" "__lite.caret(1, 1); const n = () => __lite.text().split('\\n').length; const a = n(); __lite.key('Mod-d'); const b = n(); __lite.key('Mod-Alt-d'); const c = n(); __lite.key('Mod-z'); return [a, b, c].join(',')")
+  ok "$(python3 -c 'import sys; a,b,c=map(int,sys.argv[1].split(",")); print(1 if a==b and c==a+1 else 0)' "${R}" 2>/dev/null)" "${w} 里开着的编辑器当场换键（行数：原来,按 ⌘D,再按 ⌥⌘D）：${R}"
+done
+printf '{\n  "save": "⌃⌘S"\n}\n' > "${LITE_DATA}/keymap.json"
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(lite accel save)" = "Ctrl+CmdOrCtrl+S" ] && break; sleep 0.3; done
+ok "$([ "$(lite accel save)" = "Ctrl+CmdOrCtrl+S" ] && [ "$(lite_eval main "__lite.caret(1, 1); const a = __lite.text().split('\\n').length; __lite.key('Mod-d'); const b = __lite.text().split('\\n').length; __lite.key('Mod-z'); return b - a")" = 1 ] && echo 1)" "手改 keymap.json：菜单换成 ⌃⌘S，删掉的那条（复制行）回到 ⌘D —— 不用重启"
 note_front
 
 lite_quit
