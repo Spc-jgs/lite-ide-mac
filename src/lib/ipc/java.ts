@@ -17,6 +17,14 @@ export const javaDefinition = (root: string, path: string, line: number, charact
   invoke<JavaLocation[]>("java_definition", { root, path, line, character });
 export const javaReferences = (root: string, path: string, line: number, character: number) =>
   invoke<JavaRefs>("java_references", { root, path, line, character });
+/** 跳到实现（⌥⌘B，docs/TAKEOVER.md G1）：接口 / 抽象方法的实现、类的子类。样子同查用法 */
+export const javaImplementation = (root: string, path: string, line: number, character: number) =>
+  invoke<JavaRefs>("java_implementation", { root, path, line, character });
+/** 快速文档（F1）：签名 + Javadoc，一段 Markdown；没有文档是空串 */
+export const javaHover = (root: string, path: string, line: number, character: number) => invoke<string>("java_hover", { root, path, line, character });
+/** 跳到父方法（⌘U）：覆盖的那个方法 / 父类（jdtls 的 `java/findLinks`） */
+export const javaSuper = (root: string, path: string, line: number, character: number) =>
+  invoke<JavaRefs>("java_super", { root, path, line, character });
 /** 补全：带着编辑器此刻的全文（Rust 那边先同步再问 —— 去抖还没发出去的那几个字 jdtls 也要看到） */
 export const javaComplete = (root: string, path: string, text: string, line: number, character: number) =>
   invoke<JavaCompletion>("java_complete", { root, path, text, line, character });

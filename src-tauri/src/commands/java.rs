@@ -81,6 +81,39 @@ pub async fn java_references(app: tauri::AppHandle, root: String, path: String, 
     .await
 }
 
+/// 跳到实现（⌥⌘B）。和查用法同一个样子（带那一行的文字，列表里给人看）
+#[tauri::command]
+pub async fn java_implementation(app: tauri::AppHandle, root: String, path: String, line: u32, character: u32) -> Result<JavaRefsDto, String> {
+    blocking(move || {
+        let (locs, total) = instance(&app, &root)?.implementation(&path, line, character)?;
+        Ok(refs_dto(locs, total))
+    })
+    .await
+}
+
+/// 快速文档（F1）：签名 + Javadoc，一段 Markdown；没有文档是空串
+#[tauri::command]
+pub async fn java_hover(app: tauri::AppHandle, root: String, path: String, line: u32, character: u32) -> Result<String, String> {
+    blocking(move || instance(&app, &root)?.hover(&path, line, character)).await
+}
+
+/// 跳到父方法（⌘U）
+#[tauri::command]
+pub async fn java_super(app: tauri::AppHandle, root: String, path: String, line: u32, character: u32) -> Result<JavaRefsDto, String> {
+    blocking(move || {
+        let locs = instance(&app, &root)?.super_impl(&path, line, character)?;
+        let n = locs.len();
+        Ok(refs_dto(locs, n))
+    })
+    .await
+}
+
+fn refs_dto(locs: Vec<crate::java::Location>, total: usize) -> JavaRefsDto {
+    let texts = crate::java::line_texts(&locs);
+    let items = locs.into_iter().zip(texts).map(|(l, text)| JavaLocationDto { text, ..JavaLocationDto::from(l) }).collect();
+    JavaRefsDto { items, total: total as u32 }
+}
+
 /// 补全。带着编辑器此刻的全文（先同步再问，见 `java::Instance::complete`）。位置行列从 0 数、列按 UTF-16
 #[tauri::command]
 pub async fn java_complete(app: tauri::AppHandle, root: String, path: String, text: String, line: u32, character: u32) -> Result<JavaCompletionDto, String> {

@@ -356,6 +356,19 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
     case "java_references":
       await wait(70); // 之后 p50 65 ms
       return references(root, path, Number(a.line), Number(a.character));
+    // 跳到实现 / 父方法：桩不懂继承，拿查用法那份顶（看得到「一处直接跳、几处列出来」两种样子）；父方法只给第一处
+    case "java_implementation":
+      await wait(60);
+      return references(root, path, Number(a.line), Number(a.character));
+    case "java_hover":
+      // 桩：照 jdtls 回的样子（签名代码块 + Javadoc 转的 Markdown）给一段
+      await wait(50);
+      return "```java\nlong com.demo.PriceRule.apply(long cents)\n```\n\n按规则算出**折后价**（分），见 [Money](jdt://contents/Money.class)。\n\n* **Parameters:**\n  * **cents** 原价\n* **Returns:**\n  * 折后价";
+    case "java_super": {
+      await wait(40);
+      const r = references(root, path, Number(a.line), Number(a.character));
+      return { items: r.items.slice(0, 1), total: Math.min(1, r.total) };
+    }
     case "java_complete":
       await wait(60); // 实测 59–66 ms（第 3 步的探针）
       docs.set(path, String(a.text ?? ""));

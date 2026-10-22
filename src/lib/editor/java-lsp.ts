@@ -21,7 +21,7 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, springConfig } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaHover, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { configKeyAt } from "./spring-key";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { nav } from "../state/nav.svelte";
@@ -391,6 +391,104 @@ async function findUsages(view: EditorView): Promise<void> {
           return;
         }
         void nav.jumpTo({ from: w.from, to: w.to, text: name, target });
+      },
+    },
+  });
+}
+
+// ── 跳到实现（⌥⌘B）/ 父方法（⌘U），docs/TAKEOVER.md G1 ──
+
+/**
+ * 问 jdtls 要一串落点：一处直接跳、几处列出来挑（查用法那张列表，同 IDEA 的选择框）、一处都没有说一句（不让键按了没反应）。
+ * 跳的时候走 `toHit`（同 ⌘B）：jar 里的、JDK 里的照样能跳（覆盖 `toString` 跳到 `Object.toString`）
+ */
+async function jumpList(view: EditorView, what: string, ask: typeof javaImplementation, none: (name: string) => string): Promise<void> {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) {
+    notify.hint("Java 语言服务器还没起好");
+    return;
+  }
+  const w = wordAt(view.state.doc, view.state.selection.main.head);
+  if (!w) {
+    notify.hint("光标不在名字上");
+    return;
+  }
+  s.flush();
+  const name = view.state.doc.sliceString(w.from, w.to);
+  const line = view.state.doc.lineAt(w.from);
+  const t = progress.start(`正在找 ${name} 的${what}`);
+  let r: Awaited<ReturnType<typeof javaImplementation>>;
+  try {
+    r = await ask(s.root, s.path, line.number - 1, w.from - line.from);
+  } catch (e) {
+    notify.fail(`找不了 ${name} 的${what}：${e}`);
+    return;
+  } finally {
+    t.end();
+  }
+  if (!view.dom.isConnected) return;
+  const go = (loc: JavaLocation) => {
+    const hit = toHit(loc, s.root, s.path, w, view.state.doc);
+    if (hit) void nav.jumpTo(hit);
+    else notify.hint(`${loc.label} 不在这个项目里，这一版还跳不过去`);
+  };
+  if (!r.items.length) return void notify.hint(none(name));
+  if (r.items.length === 1) return go(r.items[0]);
+  const c = view.coordsAtPos(w.from);
+  closePopup();
+  popup = mount(UsagesPopup, {
+    target: document.body,
+    props: {
+      name,
+      title: `${name} 的${what}`,
+      items: r.items,
+      total: r.total,
+      x: c?.left ?? 200,
+      y: c?.bottom ?? 200,
+      onclose: () => {
+        closePopup();
+        view.focus();
+      },
+      onpick: (loc: JavaLocation) => {
+        closePopup();
+        go(loc);
+      },
+    },
+  });
+}
+
+// ── 快速文档（F1），docs/TAKEOVER.md G3 ──
+
+async function quickDoc(view: EditorView): Promise<void> {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) return void notify.hint("Java 语言服务器还没起好");
+  const w = wordAt(view.state.doc, view.state.selection.main.head);
+  if (!w) return void notify.hint("光标不在名字上");
+  s.flush();
+  const name = view.state.doc.sliceString(w.from, w.to);
+  const line = view.state.doc.lineAt(w.from);
+  let md: string;
+  try {
+    md = await javaHover(s.root, s.path, line.number - 1, w.from - line.from);
+  } catch (e) {
+    return void notify.fail(`拿不到 ${name} 的文档：${e}`);
+  }
+  if (!view.dom.isConnected) return;
+  if (!md.trim()) return void notify.hint(`${name} 没有文档`);
+  const c = view.coordsAtPos(w.from);
+  closePopup();
+  const { default: DocPopup } = await import("./DocPopup.svelte");
+  popup = mount(DocPopup, {
+    target: document.body,
+    props: {
+      md,
+      x: c?.left ?? 200,
+      y: c?.bottom ?? 200,
+      onclose: () => {
+        closePopup();
+        view.focus();
       },
     },
   });
@@ -812,6 +910,11 @@ export function javaLsp(root: string | null, path: string): Extension {
       keymap.of([
         { key: "Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
         { key: "Mod-Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
+        // IDEA 的 Go to Implementation(s) / Super Method（keymap.ts 登记成 cm6）。⌘U 盖掉 CM6 默认的「撤销选区」：Java 文件里照 IDEA
+        { key: "Mod-Alt-b", preventDefault: true, run: (v) => (void jumpList(v, "实现", javaImplementation, (n) => `${n} 没有实现（不是接口 / 抽象方法，或者没人实现它）`), true) },
+        // IDEA 的 Quick Documentation（macOS 键位是 F1）
+        { key: "F1", preventDefault: true, run: (v) => (void quickDoc(v), true) },
+        { key: "Mod-u", preventDefault: true, run: (v) => (void jumpList(v, "父方法", javaSuper, (n) => `${n} 没有覆盖父类 / 接口里的方法`), true) },
         // IDEA 的 Refactor → Rename（keymap.ts 登记成 cm6）
         { key: "Shift-F6", preventDefault: true, run: (v) => (void renameAt(v), true) },
         // IDEA 的 Show Context Actions（keymap.ts 登记成 cm6）

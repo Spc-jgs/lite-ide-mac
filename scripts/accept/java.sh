@@ -79,6 +79,12 @@ public class Customer {
     private String name;
 }
 EOF
+# 跳到实现 / 父方法（docs/TAKEOVER.md G1）用：一个接口两个实现、一个覆盖 toString 的类
+C="${P}/shop-common/src/main/java/com/demo/common"
+printf 'package com.demo.common;\n\npublic interface PriceRule {\n    /** 按规则算出<b>折后价</b>（分）。 */\n    long apply(long cents);\n}\n' > "${C}/PriceRule.java"
+printf 'package com.demo.common;\n\npublic class VipRule implements PriceRule {\n    @Override\n    public long apply(long cents) { return cents * 9 / 10; }\n}\n' > "${C}/VipRule.java"
+printf 'package com.demo.common;\n\npublic class HalfRule implements PriceRule {\n    @Override\n    public long apply(long cents) { return cents / 2; }\n}\n' > "${C}/HalfRule.java"
+printf 'package com.demo.common;\n\npublic class Coupon {\n    @Override\n    public String toString() { return "coupon"; }\n}\n' > "${C}/Coupon.java"
 APP="${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
 cat > "${APP}" <<'EOF'
 package com.demo.order;
@@ -293,6 +299,40 @@ ok "$(echo "${ROWS}" | grep -q 'OrderApplication.java' && echo 1)" "列表里有
 lite_eval main "document.querySelector('.usages').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true" >/dev/null
 lite_wait main "return __lite.tabs.active?.path.endsWith('/OrderApplication.java')" 10
 ok "$([ "$(lite_eval main "return __lite.tabs.active?.path.endsWith('/OrderApplication.java') && !document.querySelector('.usages')")" = true ] && echo 1)" "↵ 跳过去、列表关掉：$(lite_eval main "return __lite.tabs.active?.name + ' ' + __lite.where()")"
+
+echo "== ⌥⌘B 跳到实现、⌘U 跳到父方法（docs/TAKEOVER.md G1）：接口上列出两个实现；实现里 ⌘U 回到接口；覆盖 toString 的 ⌘U 进 JDK 的 Object"
+open_file "${C}/PriceRule.java" >/dev/null
+caret_on 'PriceRule {' >/dev/null
+lite_eval main "__lite.key('Mod-Alt-b'); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.usages .row').length >= 2" 20 >/dev/null
+IMPL=$(lite_eval main "return [...document.querySelectorAll('.usages .row .file')].map((r) => r.innerText).sort().join(',')")
+ok "$(echo "${IMPL}" | grep -q 'HalfRule.java' && echo "${IMPL}" | grep -q 'VipRule.java' && echo 1)" "接口名上 ⌥⌘B：两个实现都列出来：${IMPL}"
+lite_eval main "document.querySelector('.usages').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
+caret_on 'apply' >/dev/null
+lite_eval main "__lite.key('Mod-Alt-b'); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.usages .row').length >= 2" 20 >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelectorAll('.usages .row').length")" = 2 ] && echo 1)" "接口方法上 ⌥⌘B：两个实现方法：$(lite_eval main "return [...document.querySelectorAll('.usages .row')].map((r) => r.innerText.replace(/\\s+/g, ' ')).join(' / ')")"
+lite_eval main "document.querySelector('.usages').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
+open_file "${C}/VipRule.java" >/dev/null
+caret_on 'apply' >/dev/null
+lite_eval main "__lite.key('Mod-u'); return true" >/dev/null
+lite_wait main "return __lite.tabs.active?.path.endsWith('/PriceRule.java')" 20 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.tabs.active?.path.endsWith('/PriceRule.java') && __lite.where().startsWith('5:')")" = true ] && echo 1)" "实现方法上 ⌘U：一处直接跳到接口的 apply（第 5 行）：$(lite_eval main "return __lite.tabs.active?.name + ' ' + __lite.where()")"
+open_file "${C}/Coupon.java" >/dev/null
+caret_on 'toString' >/dev/null
+lite_eval main "__lite.key('Mod-u'); return true" >/dev/null
+lite_wait main "return __lite.tabs.active?.mode === 'class'" 20 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.tabs.active?.mode === 'class' && /^Object\\.(java|class)$/.test(__lite.tabs.active.name) && __lite.text().includes('public String toString()')")" = true ] && echo 1)" "覆盖 toString 的 ⌘U：进 JDK 的 Object（只读标签）：$(lite_eval main "return __lite.tabs.active?.name + ' ' + __lite.where()")"
+
+echo "== F1 快速文档（docs/TAKEOVER.md G3）：签名 + Javadoc；Javadoc 里的 HTML 标签不当 HTML 画（<b> 变成粗体那一段的字，不出现标签本身）"
+open_file "${C}/PriceRule.java" >/dev/null
+caret_on 'apply' >/dev/null
+lite_eval main "__lite.key('F1'); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.popup.doc')" 20 >/dev/null
+DOC=$(lite_eval main "return document.querySelector('.popup.doc')?.innerText.replace(/\\s+/g, ' ') ?? ''")
+ok "$(echo "${DOC}" | grep -q 'apply(long cents)' && echo "${DOC}" | grep -q '折后价' && ! echo "${DOC}" | grep -q '<b>' && echo 1)" "签名和 Javadoc 都在、没有 HTML 标签原样露出来：${DOC}"
+ok "$([ "$(lite_eval main "return [...document.querySelectorAll('.popup.doc b')].some((b) => b.textContent.includes('折后价'))")" = true ] && echo 1)" "Javadoc 里 <b>折后价</b> → jdtls 转成 Markdown 的粗体 → 画成粗体（走文本插值，不插 HTML）"
+lite_eval main "document.querySelector('.popup.doc').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
 
 echo "== 不往项目里写东西、退出不留 jdtls"
 META=$(cd "${P}" && find . \( -name .project -o -name .classpath -o -name .settings -o -name .factorypath \) | head -5 | tr '\n' ' ')

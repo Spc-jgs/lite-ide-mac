@@ -176,6 +176,9 @@ export const KEYS: KeyDef[] = [
    * ⌥⌘F7 不写成 `alias`：别名的意思是「菜单一项只挂得下一个」（keymap.test.ts 卡着），这里不进菜单；它在 java-lsp.ts 的键位里
    */
   { id: "find-usages", label: "查找用法（Java）", accel: "⌥F7", group: "导航", owner: "cm6" },
+  { id: "goto-impl", label: "跳到实现（Java）", accel: "⌥⌘B", group: "导航", owner: "cm6" },
+  { id: "goto-super", label: "跳到父方法（Java）", accel: "⌘U", group: "导航", owner: "cm6" },
+  { id: "quick-doc", label: "快速文档（Java）", accel: "F1", group: "导航", owner: "cm6" },
   /** 改名（docs/IDEA.md 第 14 节，Java 文件、jdtls 起好之后）：IDEA 的 Refactor → Rename。归 cm6：要读光标底下的词 */
   { id: "rename", label: "改名（Java）", accel: "⇧F6", group: "编辑", owner: "cm6" },
   /** 快速修复（docs/IDEA.md 第 16 节）：IDEA 的 Show Context Actions。归 cm6：要读光标在哪 */

@@ -374,6 +374,31 @@ impl Instance {
         Ok(locations(&r))
     }
 
+    /// 跳到实现（⌥⌘B，docs/TAKEOVER.md G1）：接口方法 / 抽象方法的实现，类的子类。超过 [`REFS_MAX`] 截断，返回 `(前 REFS_MAX 条, 真条数)`
+    pub fn implementation(&self, path: &str, line: u32, character: u32) -> Result<(Vec<Location>, usize), String> {
+        let r = self.ask("textDocument/implementation", json!({ "textDocument": { "uri": uri::from_path(path) }, "position": { "line": line, "character": character } }))?;
+        let mut all = locations(&r);
+        let total = all.len();
+        all.truncate(REFS_MAX);
+        Ok((all, total))
+    }
+
+    /// 跳到父方法（⌘U）：覆盖的那个方法 / 父类。LSP 没有这一条，jdtls 自己的 `java/findLinks`（type = superImplementation，
+    /// VS Code 的 Java 插件也是它）—— 读 jdtls 1.61 的 `FindLinksHandler` 确认：回的是 `LinkLocation`（Location 多两个字段），`locations` 照读
+    pub fn super_impl(&self, path: &str, line: u32, character: u32) -> Result<Vec<Location>, String> {
+        let r = self.ask(
+            "java/findLinks",
+            json!({ "type": "superImplementation", "position": { "textDocument": { "uri": uri::from_path(path) }, "position": { "line": line, "character": character } } }),
+        )?;
+        Ok(locations(&r))
+    }
+
+    /// 快速文档（F1，docs/TAKEOVER.md G3）：jdtls 的 hover —— 签名 + Javadoc，统一成一段 Markdown（[`hover_markdown`]）；没有就是空串
+    pub fn hover(&self, path: &str, line: u32, character: u32) -> Result<String, String> {
+        let r = self.ask("textDocument/hover", json!({ "textDocument": { "uri": uri::from_path(path) }, "position": { "line": line, "character": character } }))?;
+        Ok(hover_markdown(&r))
+    }
+
     /// 查用法。超过 [`REFS_MAX`] 截断，返回 `(前 REFS_MAX 条, 真条数)`
     pub fn references(&self, path: &str, line: u32, character: u32) -> Result<(Vec<Location>, usize), String> {
         let r = self.ask(
@@ -596,6 +621,31 @@ fn num(v: &Value) -> u32 {
 }
 
 /// `Location | Location[] | LocationLink[] | null` → 我们的位置列表（规范允许这几种，jdtls 回的是数组，别的服务器不一定）
+/// hover 回的 `contents` 有三种样子（LSP 规范）：`MarkupContent { kind, value }`、`MarkedString`（字符串，或 `{ language, value }`）、
+/// 以及它们的数组。jdtls 回的是数组：第一项 `{ language: "java", value: 签名 }`、第二项 Javadoc 转成的 Markdown 字符串。
+/// 统一成一段 Markdown：带 language 的包成代码块，空的项丢掉
+pub fn hover_markdown(r: &Value) -> String {
+    fn one(v: &Value) -> String {
+        match v {
+            Value::String(s) => s.clone(),
+            Value::Object(o) => {
+                let value = o.get("value").and_then(Value::as_str).unwrap_or("");
+                match o.get("language").and_then(Value::as_str) {
+                    Some(lang) if !value.trim().is_empty() => format!("```{lang}\n{value}\n```"),
+                    _ => value.to_string(),
+                }
+            }
+            _ => String::new(),
+        }
+    }
+    let parts: Vec<String> = match r.get("contents") {
+        Some(Value::Array(a)) => a.iter().map(one).collect(),
+        Some(c) => vec![one(c)],
+        None => Vec::new(),
+    };
+    parts.into_iter().filter(|s| !s.trim().is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
 pub fn locations(r: &Value) -> Vec<Location> {
     let items: Vec<&Value> = match r {
         Value::Array(a) => a.iter().collect(),
@@ -1446,5 +1496,16 @@ mod tests {
         assert_eq!(answer("workspace/configuration", &json!({ "items": [{}, {}, {}] })).unwrap(), json!([null, null, null]));
         assert_eq!(answer("workspace/applyEdit", &json!({})).unwrap()["applied"], json!(false));
         assert!(answer("something/else", &json!({})).is_err());
+    }
+
+    /// hover 的三种样子都认（jdtls 回的是数组那种）；空的项丢掉；没有 contents（光标在空白上）是空串
+    #[test]
+    fn 快速文档_三种样子统一成一段_markdown() {
+        let jdtls = json!({ "contents": [{ "language": "java", "value": "long com.demo.PriceRule.apply(long cents)" }, "按规则算出折后价（分）。\n\n* **Parameters:**\n  * **cents** 原价"] });
+        assert_eq!(hover_markdown(&jdtls), "```java\nlong com.demo.PriceRule.apply(long cents)\n```\n\n按规则算出折后价（分）。\n\n* **Parameters:**\n  * **cents** 原价");
+        assert_eq!(hover_markdown(&json!({ "contents": { "kind": "markdown", "value": "**粗**" } })), "**粗**");
+        assert_eq!(hover_markdown(&json!({ "contents": "纯字符串" })), "纯字符串");
+        assert_eq!(hover_markdown(&json!({ "contents": [{ "language": "java", "value": "" }, ""] })), "", "空的项丢掉");
+        assert_eq!(hover_markdown(&Value::Null), "");
     }
 }
