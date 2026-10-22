@@ -175,8 +175,12 @@ pub struct CompletionItem {
     pub detail: String,
     /// 靠右的灰字：返回类型 / 包名
     pub description: String,
-    /// 没有 textEdit 的（别的服务器）：`edit` 为空，前端拿光标前那个词的范围、插 `label`
+    /// 没有 textEdit 的：`edit` 为空，前端拿光标前那个词的范围、插 `insert`（没有就插 `label`）
     pub edit: Option<Edit>,
+    /// 没有 textEdit 时的 `insertText`。jdtls 的后缀补全（`.var`、`.for`）只给这个：客户端没声明 `itemDefaults` 时它不发 textEdit、
+    /// 把算好的模板放进 insertText，删掉前面那个表达式的那一笔放在 resolve 回来的 additionalTextEdits 里（读 1.61 `PostfixTemplateEngine` 的字节码）。
+    /// 有 textEdit 的项不看它：方法的 insertText 只有名字、不带括号
+    pub insert: Option<String>,
     /// `newText` 是 snippet（`${1:name}`、`$0` 这种占位）
     pub snippet: bool,
     pub sort: String,
@@ -1083,6 +1087,7 @@ pub fn completion_items(r: &Value) -> (Vec<CompletionItem>, bool, usize) {
                 detail: it["labelDetails"]["detail"].as_str().unwrap_or("").to_string(),
                 description: it["labelDetails"]["description"].as_str().or(it["detail"].as_str()).unwrap_or("").to_string(),
                 snippet: it["insertTextFormat"].as_u64() == Some(2),
+                insert: if edit.is_none() { it["insertText"].as_str().map(str::to_string) } else { None },
                 edit,
                 sort: it["sortText"].as_str().unwrap_or("").to_string(),
                 raw: it.to_string(),
@@ -1671,10 +1676,12 @@ mod tests {
             { "label": "ArrayList", "kind": 7, "detail": "java.util.ArrayList", "insertTextFormat": 1,
               "textEdit": { "newText": "ArrayList", "insert": { "start": { "line": 4, "character": 8 }, "end": { "line": 4, "character": 15 } },
                             "replace": { "start": { "line": 4, "character": 8 }, "end": { "line": 4, "character": 20 } } } },
-            { "label": "foo" }
+            { "label": "foo" },
+            // 后缀补全（`name.length().var`）：没有 textEdit，算好的模板在 insertText；删表达式的那一笔在 resolve 里
+            { "label": "var", "kind": 15, "insertText": "${1:int} ${2:length} = name.length();${0}", "insertTextFormat": 2 }
         ]});
         let (items, incomplete, total) = completion_items(&r);
-        assert_eq!((items.len(), incomplete, total), (3, false, 3));
+        assert_eq!((items.len(), incomplete, total), (4, false, 4));
         let add = &items[0];
         assert_eq!(add.edit, Some(Edit { line: 10, character: 13, end_line: 10, end_character: 15, text: "add(${0});".into() }));
         assert!(add.snippet);
@@ -1686,6 +1693,9 @@ mod tests {
         assert!(!al.snippet);
         assert_eq!(al.description, "java.util.ArrayList");
         assert!(items[2].edit.is_none(), "没有 textEdit 的交给前端按光标前的词插 label");
+        assert_eq!((items[2].insert.as_deref(), add.insert.as_deref()), (None, None), "有 textEdit 的不看 insertText（方法的只有名字）");
+        assert_eq!(items[3].insert.as_deref(), Some("${1:int} ${2:length} = name.length();${0}"));
+        assert!(items[3].snippet);
         // 数组形式（不是 CompletionList）也认
         assert_eq!(completion_items(&json!([{ "label": "x" }])).0.len(), 1);
         assert_eq!(completion_items(&Value::Null).0.len(), 0);

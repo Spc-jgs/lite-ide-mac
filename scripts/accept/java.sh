@@ -86,6 +86,8 @@ printf 'package com.demo.common;\n\npublic class VipRule implements PriceRule {\
 printf 'package com.demo.common;\n\npublic class HalfRule implements PriceRule {\n    @Override\n    public long apply(long cents) { return cents / 2; }\n}\n' > "${C}/HalfRule.java"
 # 同名高亮（G11）用：字段 total 有声明、有写、有读；other() 的参数也叫 total —— 语义的高亮不该标它。twice() 传字面量：参数名提示用
 printf 'package com.demo.common;\n\npublic class Tally {\n    private int total;\n    public int add(int n) {\n        total = total + n;\n        return total;\n    }\n    public int other(int total) { return total; }\n    public int twice() { return add(2) + other(3); }\n}\n' > "${C}/Tally.java"
+# 代码模板（G21）用：一个空方法体，里面敲模板
+printf 'package com.demo.common;\n\npublic class Tpl {\n    void run(String name) {\n        \n    }\n}\n' > "${C}/Tpl.java"
 # 生成（G5）用：一个普通字段、一个带初值的 final 字段（final 的没有 setter）
 printf 'package com.demo.common;\n\npublic class Point {\n    private int x;\n    private final String name = "p";\n}\n' > "${C}/Point.java"
 printf 'package com.demo.common;\n\npublic class Coupon {\n    @Override\n    public String toString() { return "coupon"; }\n}\n' > "${C}/Coupon.java"
@@ -397,6 +399,29 @@ gen_pick 6
 OV=$(lite_eval main "return [...document.querySelectorAll('${G} .list .mi')].map((e) => (e.querySelector('input').checked ? '✓' : '') + e.querySelector('.nm').textContent).join(',') + (document.querySelector('${G} .err')?.textContent ?? '')")
 ok "$(echo "${OV}" | grep -q 'clone()' && ! echo "${OV}" | grep -q '✓' && echo 1)" "覆盖方法：列出 Object 的（clone 这些），没有抽象方法时一项都不默认勾：${OV}"
 gk Escape
+
+echo "== 代码模板（docs/TAKEOVER.md G21）：敲 sout 按 Tab 展开（补全框开着也展开）；jdtls 自带的后缀 .var 出得来；IDEA 的 .sout（jdtls 没有）也有"
+open_file "${C}/Tpl.java" >/dev/null
+lite_eval main "__lite.caret(5, 9); __lite.type('sout'); return true" >/dev/null
+sleep 0.6
+lite_eval main "__lite.key('Tab'); return true" >/dev/null
+lite_wait main "return __lite.text().includes('System.out.println();')" 5 >/dev/null
+lite_eval main "__lite.type('name'); return true" >/dev/null
+ok "$([ "$(lite_eval main "return __lite.text().split('\\n')[4].trim()")" = 'System.out.println(name);' ] && echo 1)" "sout + Tab：展开、光标停在括号里（接着打的 name 进了括号）：$(lite_eval main "return __lite.text().split('\\n')[4].trim()")"
+lite_eval main "const t = __lite.text().split('\\n'); __lite.caret(5, t[4].length + 1); __lite.type('\\n        name.length().va'); return true" >/dev/null
+lite_wait main "return __lite.completions().labels.some((l) => /^var\b/.test(l))" 20 >/dev/null
+VAR=$(lite_eval main "return __lite.completions().labels.filter((l) => /^var\b/.test(l)).join(' / ')")
+ok "$([ -n "${VAR}" ] && echo 1)" "jdtls 自带的后缀 .var 在补全框里：${VAR}"
+sleep 0.3
+lite_eval main "const c = __lite.completions(); const i = c.labels.findIndex((l) => /^var\b/.test(l)); if (i !== 0) return c.labels.join(','); return __lite.acceptCompletion()" >/dev/null
+# 整行比：第一版用「含有」判，`name.length().int length = name.length();`（前面的表达式没删）照样算过
+lite_wait main "return __lite.text().split('\\n').some((l) => /^int \\w+ = name\\.length\\(\\);$/.test(l.trim()))" 10 >/dev/null
+ok "$(lite_eval main "return __lite.text().split('\\n').some((l) => /^int \\w+ = name\\.length\\(\\);$/.test(l.trim()))" | grep -q true && echo 1)" ".var：整行换成 int 变量 = name.length();（类型是 jdtls 推的、前面的表达式删掉）：$(lite_eval main "return __lite.text().split('\\n').find((l) => l.includes('name.length()'))?.trim() ?? ''")"
+lite_eval main "__lite.key('Escape'); const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('name.length()')); __lite.caret(l + 1, t[l].length + 1); __lite.type('\\n        name.sou'); return true" >/dev/null
+lite_wait main "return __lite.completions().labels.includes('.sout')" 15 >/dev/null
+sleep 0.3
+lite_eval main "const c = __lite.completions(); if (c.labels[0] !== '.sout') return c.labels.join(','); return __lite.acceptCompletion()" >/dev/null
+ok "$(lite_eval main "return __lite.text().split('\\n').filter((l) => l.trim() === 'System.out.println(name);').length" | grep -q '^2$' && echo 1)" "name.sou → .sout：整段换成 System.out.println(name);（第二处）：$(lite_eval main "return __lite.completions().labels.slice(0, 4).join(' / ')")"
 
 echo "== 调用层级 ⌃⌥H、类型层级 ⌃H（docs/TAKEOVER.md G10）：底部「层级」工具窗；调用方带调用的那一行、↵ 跳过去；换成「被调用」；接口上 ⌃H 列出两个实现"
 H='.hier [role="tree"]'

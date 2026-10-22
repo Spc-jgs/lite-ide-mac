@@ -10226,3 +10226,24 @@ lsp4j 按序号收（VS Code 的 Java 插件传 0 / 1 / 2）。字节码里只�
 
 数字：spring.sh 82 → 103（最后一遍 103/103）；java.sh 69/69、smoke 108/108；Rust 新增 9 条、前端新增 4 个测试文件，各有错版本验红；入口包 +27 B → 155,776 B。
 
+
+## 2026-10-22 深夜 · 代码模板（G21）和 ⇧⇧ 搜设置（I8）；`.var` 被一条「含有」的断言放过去了一次
+
+**模板不重造引擎**：jdtls 自己有片段（`sysout`、`foreach`）和后缀补全（`.var`、`.for`、`.null`…，1.61 默认开），补全框里本来就有。缺的是 IDEA 的名字和手感 ——
+IDEA 里敲 `sout` 按 Tab；`sout` 不是 jdtls `sysout` 的前缀，按名字筛根本出不来。所以只做一张 IDEA 缩写表（`java-templates.ts`）展开成 CM6 的 snippet，
+加上 jdtls 没有的 `.sout` / `.soutv`。Tab 在补全框开着时也展开：第一版在框开着时让路，结果敲完 `sout` 按 Tab 得到的是缩进 —— 敲 `sout` 时补全框本来就会弹。
+
+**`.var` 只插进去一个 `var`**。读 jdtls 的字节码（`PostfixTemplateEngine`、`CompletionResolveHandler`）看清了它怎么给后缀补全：
+- 客户端没声明 `itemDefaults` 时，**不发 textEdit**，算好的模板（`${1:int} ${2:length} = name.length();`）放在 `insertText`。
+  我们的补全一直不看 `insertText`（方法的 insertText 只有名字、不带括号，第 3 步专门写过「看 textEdit 不看 insertText」），没 textEdit 就插 label —— `var`
+- 删掉前面那个表达式的那一笔在 **resolve** 回来的 `additionalTextEdits` 里：`TextEdit(表达式开头..光标, "")`。它和补全正文换的那段（`var`）**重叠**。
+  我们原来只收补全那一行上面的（自动 import），这一笔被过滤掉
+
+第一处修完跑验收，**过了** —— 但打出来的那一行是 `name.length().int length = name.length();`。断言写的是「正文里含有 `int x = name.length();`」，表达式没删也含有。
+改成整行比，再修第二处：和补全范围重叠的删除并进补全范围、一笔换掉（`splitEdits`，纯函数、单测）；这种重叠的只能一起做，「先插正文、resolve 回来再补」那条两段的路走不通
+（插完之后那笔删除的列已经不对了），所以后缀补全没 resolve 好时等它（140–250 ms），等的时候文本又变了就不做 —— 宁可没补上，不删错。
+
+**这一类的通则**：验收断言写「含有」等于只验了一半 —— 多出来的东西它看不见。判一行代码长什么样，比整行。
+
+**⇧⇧ 搜设置**：设置项的定义（`settings::DEFS`）浮层打开时动态引一次；至少两个字才出（一个字匹配得太散）；选了打开设置对话框、搜索框里填好那一项的键。
+设置对话框的搜索框原来是组件内部的状态，加了一个 `query` 参数当初值（`untrack` 读一次，之后人改的不被冲掉）。

@@ -543,7 +543,9 @@ export interface JavaCompletionItem {
   /** 靠右的灰字（返回类型 / 包名） */
   description: string;
   edit: JavaEdit | null;
-  /** `edit.text` 是 snippet（`${1:name}` 这种占位） */
+  /** 没有 `edit` 时插的（jdtls 的后缀补全只给这个）；也没有就插 `label` */
+  insert: string | null;
+  /** 插的那段是 snippet（`${1:name}` 这种占位） */
   snippet: boolean;
   sort: string;
   raw: string;

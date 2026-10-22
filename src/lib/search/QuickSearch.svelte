@@ -8,7 +8,7 @@
   import { rank, segments, snippet } from "./fuzzy";
   import { parseGoto, type Goto } from "./goto";
   import { looksLikeUrl, rankEndpoints } from "./endpoints";
-  import type { JavaTypes, SpringEndpoint } from "../ipc/commands";
+  import type { JavaTypes, SettingDef, SpringEndpoint } from "../ipc/commands";
   import { declLine, fileTypes, rankTypes, type ClassHit } from "./class-hits";
   import { tabflow } from "../state/tabflow.svelte";
   import { nav } from "../state/nav.svelte";
@@ -134,6 +134,25 @@
     return () => {
       dead = true;
       clearTimeout(timer);
+    };
+  });
+
+  /**
+   * 设置项（docs/TAKEOVER.md I8，IDEA 的随处搜索也搜设置）：浮层打开时问一次定义（`settings::DEFS`，十几项、几十个字节）。
+   * 「全部」里列前三个、「操作」里列多些；选了打开设置对话框、搜索框里填好那一项的键 —— 直接看到它。动态引：同接口列表那条理由
+   */
+  let defs = $state<SettingDef[]>([]);
+  $effect(() => {
+    if (!open || defs.length) return;
+    let dead = false;
+    void import("../ipc/app")
+      .then((m) => m.settingsSchema())
+      .then((d) => {
+        if (!dead) defs = d;
+      })
+      .catch(() => {});
+    return () => {
+      dead = true;
     };
   });
 
@@ -289,7 +308,8 @@
     | { kind: "scratch"; path: string; line: number; text: string; spans: [number, number][]; title: string }
     | { kind: "action"; action: Action; seg: { t: string; hit: boolean }[] }
     | { kind: "endpoint"; ep: SpringEndpoint; seg: { t: string; hit: boolean }[] }
-    | { kind: "type"; hit: ClassHit };
+    | { kind: "type"; hit: ClassHit }
+    | { kind: "setting"; def: SettingDef; seg: { t: string; hit: boolean }[] };
 
   let rows = $derived.by(() => {
     const out: Row[] = [];
@@ -320,6 +340,13 @@
     if ((scope === "all" && goto.kind === "plain") || scope === "action") {
       for (const r of rank(actions, query, (a) => a.label, scope === "action" ? 20 : 4)) {
         out.push({ kind: "action", action: r.item, seg: segments(r.item.label, r.positions) });
+      }
+      // 设置项：按名字和键找（「字号」「jdtls」「mvnw」都找得到）。至少两个字才出：一个字匹配得太散
+      if (query.trim().length >= 2) {
+        for (const r of rank(defs, query, (d) => `${d.label} ${d.key}`, scope === "action" ? 10 : 3)) {
+          const n = r.item.label.length;
+          out.push({ kind: "setting", def: r.item, seg: segments(r.item.label, r.positions.filter((p) => p < n)) });
+        }
       }
     }
     /*
@@ -377,6 +404,7 @@
     if (row.kind === "action") row.action.run();
     else if (row.kind === "endpoint") onOpenFile(row.ep.file, row.ep.line, false);
     else if (row.kind === "type") openType(row.hit);
+    else if (row.kind === "setting") void import("../settings/open").then((m) => m.openSettingsDialog(root, row.def.key));
     else if (row.kind === "file") onOpenFile(row.path, row.line, false, row.col);
     else if (row.kind === "recent") onOpenFile(row.path, undefined, false);
     else if (row.kind === "symbol") onOpenFile(row.path, row.sym.line, false);
@@ -449,7 +477,7 @@
     { key: "regex", icon: "regex", title: "正则（⌥X）" },
   ];
 
-  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开", symbol: "符号", line: "跳到行", endpoint: "接口", type: "类" } as const;
+  const KIND_LABEL = { action: "操作", file: "文件", content: "内容", scratch: "草稿", recent: "最近打开", symbol: "符号", line: "跳到行", endpoint: "接口", type: "类", setting: "设置" } as const;
 
   /** 最近文件右边那列：项目里的显示相对目录，草稿标「草稿」，别处的显示整条目录 */
   const recentSide = (p: string) => {
@@ -572,7 +600,7 @@
           {:else}没有匹配 —— 换个词，或 <kbd>Tab</kbd> 缩小范围{/if}
         </div>
       {/if}
-      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" || row.kind === "line" ? `${row.path}:${row.line}` : row.kind === "symbol" ? `${row.sym.line}:${row.sym.name}` : row.kind === "file" || row.kind === "recent" ? row.path : row.kind === "endpoint" ? `${row.ep.methods.join()} ${row.ep.path} ${row.ep.file}:${row.ep.line}` : row.kind === "type" ? `${row.hit.uri || row.hit.path}#${row.hit.name}` : row.action.id))}
+      {#each rows as row, i (row.kind + (row.kind === "content" || row.kind === "scratch" || row.kind === "line" ? `${row.path}:${row.line}` : row.kind === "symbol" ? `${row.sym.line}:${row.sym.name}` : row.kind === "file" || row.kind === "recent" ? row.path : row.kind === "endpoint" ? `${row.ep.methods.join()} ${row.ep.path} ${row.ep.file}:${row.ep.line}` : row.kind === "type" ? `${row.hit.uri || row.hit.path}#${row.hit.name}` : row.kind === "setting" ? `setting:${row.def.key}` : row.action.id))}
         <!--
           分组头代替每行的类型胶囊。结果本来就是按类型排好的，
           每行再印一遍「文件」「操作」等于把分组信息摊到了每一行上 ——
@@ -592,6 +620,11 @@
             {#if row.hit.kind}<span class="ic kind">{row.hit.kind}</span>{:else}<span class="ic"><FileGlyph name={`${row.hit.name}.java`} /></span>{/if}
             <span class="main">{#each row.hit.seg as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
             <span class="side">{row.hit.lib ? `${row.hit.container} · ${row.hit.lib}` : row.hit.container}</span>
+          {:else if row.kind === "setting"}
+            <!-- 设置项：名字（命中处高亮）+ 右边是键（settings.json 里那个名字，代码字体）；选了打开设置对话框停在它 -->
+            <span class="ic act"><Icon name="chevron-right" /></span>
+            <span class="main">{#each row.seg as s}{#if s.hit}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</span>
+            <span class="key mono">{row.def.key}</span>
           {:else if row.kind === "action"}
             <span class="ic act"><Icon name="chevron-right" /></span>
             <span class="main">

@@ -18,14 +18,15 @@
 import { Decoration, EditorView, ViewPlugin, hoverTooltip, keymap, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { Prec, StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
 import { indentUnit } from "@codemirror/language";
-import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { autocompletion, closeCompletion, completeAnyWord, completionStatus, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { POSTFIX, TEMPLATES, exprStart, templateAt } from "./java-templates";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
 import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { usageHighlight } from "./java-usage-hl";
 import { inlayHints } from "./java-inlay";
 import { configKeyAt } from "./spring-key";
-import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
+import { boostOf, kindType, lspSnippet, offsetOf, splitEdits } from "./java-complete";
 import { nav } from "../state/nav.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
 import RenamePopup from "./RenamePopup.svelte";
@@ -850,20 +851,15 @@ function resolveOf(root: string, raw: string): Promise<JavaResolved | null> {
 /** 已经回来了的 resolve（同步取）：回车时手上有就和正文一起做，没有就先插正文 */
 const settled = new Map<string, JavaResolved | null>();
 
-/**
- * 自动 import（和别的 additionalTextEdits）→ CM6 的改动。**只收补全那一行上面的**：它们是在补全前那份文本上算的行列，
- * 回来之前人可能已经接着敲了 —— 敲在光标处，上面的行没动，行列照样对；落在补全那一行或者下面的就不敢做了（没见 jdtls 给过）
- */
-function importChanges(doc: Text, edits: JavaEdit[], line: number) {
-  return edits
-    .filter((e) => e.endLine < line)
-    .map((e) => ({ from: offsetOf(doc, e.line, e.character), to: offsetOf(doc, e.endLine, e.endCharacter), insert: e.text }));
+/** additionalTextEdits → CM6 的改动（哪些能做由 `splitEdits` 挑） */
+function editChanges(doc: Text, edits: JavaEdit[]) {
+  return edits.map((e) => ({ from: offsetOf(doc, e.line, e.character), to: offsetOf(doc, e.endLine, e.endCharacter), insert: e.text }));
 }
 
 type JavaOption = Completion & { description: string };
 
 function toCompletion(root: string, it: JavaCompletionItem, index: number, total: number): JavaOption {
-  const text = it.edit?.text ?? it.label;
+  const text = it.edit?.text ?? it.insert ?? it.label;
   return {
     label: it.label,
     detail: it.detail || undefined,
@@ -882,29 +878,47 @@ function toCompletion(root: string, it: JavaCompletionItem, index: number, total
       return dom;
     },
     apply: (view, c, from, to) => {
-      const line = view.state.doc.lineAt(from).number - 1;
       const ready = settled.get(it.raw);
-      const pending = ready === undefined ? resolveOf(root, it.raw) : null;
-      // 手上已有 import：先加 import（在上面），再把补全的范围挪一下、插正文 —— 撤销时两样分两步，但都在这一下里发生
-      if (ready?.edits.length) {
-        const changes = importChanges(view.state.doc, ready.edits, line);
-        if (changes.length) {
-          const tr = view.state.update({ changes, userEvent: "input.complete" });
-          view.dispatch(tr);
-          from = tr.changes.mapPos(from, -1);
-          to = tr.changes.mapPos(to, 1);
-        }
+      // 后缀补全（没有 textEdit、只有 insertText）：删表达式的那一笔在 resolve 里、还和正文重叠，只能一起做 —— 没回来就等它（140–250 ms）。
+      // 等的时候人又改了文本：那笔删除的行列已经不对了，这次不做（宁可没补上，不删错）
+      if (ready === undefined && !it.edit && it.insert != null) {
+        const doc = view.state.doc;
+        void resolveOf(root, it.raw).then((r) => {
+          if (view.dom.isConnected && view.state.doc === doc) put(view, c, from, to, r, null);
+        });
+        return;
       }
-      if (it.snippet) snippet(lspSnippet(text))(view, c, from, to);
-      else view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length }, userEvent: "input.complete", scrollIntoView: true });
-      // 还没回来：先插了正文，import 回来再补到上面（第 13 节「两段」）
-      void pending?.then((r) => {
-        if (!r?.edits.length || !view.dom.isConnected) return;
-        const changes = importChanges(view.state.doc, r.edits, view.state.doc.lineAt(view.state.selection.main.head).number - 1);
-        if (changes.length) view.dispatch({ changes, userEvent: "input.complete" });
-      });
+      put(view, c, from, to, ready ?? null, ready === undefined ? resolveOf(root, it.raw) : null);
     },
   };
+
+  /** 插正文。`ready`：手上已有的 resolve，和正文一起做；`pending`：还没回来的，回来再把 import 补到上面（第 13 节「两段」） */
+  function put(view: EditorView, c: Completion, from: number, to: number, ready: JavaResolved | null, pending: Promise<JavaResolved | null> | null) {
+    const at = view.state.doc.lineAt(from);
+    const line = at.number - 1;
+    // 列按 UTF-16 数，和 jdtls 的一样；CM6 的位置也是 UTF-16
+    const col = from - at.from;
+    const endCol = Math.min(to, at.to) - at.from;
+    if (ready?.edits.length) {
+      const { before, span } = splitEdits(ready.edits, line, col, endCol);
+      if (span) [from, to] = [at.from + span[0], at.from + span[1]];
+      // 先做上面的（import），再把补全的范围挪一下、插正文 —— 撤销时两样分两步，但都在这一下里发生
+      if (before.length) {
+        const tr = view.state.update({ changes: editChanges(view.state.doc, before), userEvent: "input.complete" });
+        view.dispatch(tr);
+        from = tr.changes.mapPos(from, -1);
+        to = tr.changes.mapPos(to, 1);
+      }
+    }
+    if (it.snippet) snippet(lspSnippet(text))(view, c, from, to);
+    else view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length }, userEvent: "input.complete", scrollIntoView: true });
+    void pending?.then((r) => {
+      if (!r?.edits.length || !view.dom.isConnected) return;
+      // 只补前面的：正文已经插了，和它重叠的那种这时候做不对
+      const { before } = splitEdits(r.edits, line, col, endCol);
+      if (before.length) view.dispatch({ changes: editChanges(view.state.doc, before), userEvent: "input.complete" });
+    });
+  }
 }
 
 /**
@@ -940,6 +954,61 @@ async function javaSource(ctx: CompletionContext): Promise<CompletionResult | nu
   };
 }
 
+// ── 代码模板（docs/TAKEOVER.md G21）：IDEA 的缩写，Tab 展开；补全框里也列 ──
+
+/**
+ * Tab：光标前正好是一个模板词（整词）就展开它；不是就交还给普通的 Tab（缩进）。
+ * 补全框开着也展开（先关掉它）：敲 `sout` 时补全框本来就会弹（模板和 jdtls 都在答），第一版在框开着时让路，结果敲完 sout 按 Tab 是缩进 —— IDEA 这时也是展开
+ */
+function expandTemplate(view: EditorView): boolean {
+  const sel = view.state.selection.main;
+  if (!sel.empty) return false;
+  const line = view.state.doc.lineAt(sel.head);
+  const hit = templateAt(line.text.slice(0, sel.head - line.from));
+  if (!hit) return false;
+  if (completionStatus(view.state) !== null) closeCompletion(view);
+  snippet(hit.tpl.body)(view, null, line.from + hit.from, sel.head);
+  return true;
+}
+
+/**
+ * 补全框里的模板和两个后缀（jdtls 那份照常在，CM6 把两个来源合在一起排）：
+ * - 光标前是一个词、是某个模板名字的开头 → 列那几个模板（右边写「模板 · 说明」）
+ * - 光标前是 `表达式.sou` 这种 → 列 `.sout` / `.soutv`，选了把整段换掉
+ */
+function templateSource(ctx: CompletionContext): CompletionResult | null {
+  const line = ctx.state.doc.lineAt(ctx.pos);
+  const before = line.text.slice(0, ctx.pos - line.from);
+  const post = /\.([\p{L}_$]*)$/u.exec(before);
+  if (post) {
+    const dot = before.length - post[0].length;
+    const start = exprStart(before.slice(0, dot));
+    if (start < 0) return null;
+    const expr = before.slice(start, dot);
+    const opts = POSTFIX.filter((p) => p.key.startsWith(post[1]) && (post[1].length > 0 || ctx.explicit)).map((p) => ({
+      label: `.${p.key}`,
+      detail: "后缀",
+      description: p.desc,
+      type: "keyword",
+      apply: (view: EditorView) => snippet(p.wrap(expr))(view, null, line.from + start, ctx.pos),
+    }));
+    return opts.length ? { from: line.from + dot, options: opts, filter: false } : null;
+  }
+  const w = ctx.matchBefore(/[\p{L}_$][\p{L}\p{N}_$]*/u);
+  if (!w || (w.from === w.to && !ctx.explicit)) return null;
+  const prev = w.from > line.from ? ctx.state.sliceDoc(w.from - 1, w.from) : "";
+  if (prev === ".") return null;
+  const opts = TEMPLATES.filter((t) => t.key.startsWith(w.text)).map((t) => ({
+    label: t.key,
+    detail: "模板",
+    description: t.desc,
+    type: "keyword",
+    boost: t.key === w.text ? 2 : 0,
+    apply: (view: EditorView) => snippet(t.body)(view, null, w.from, ctx.pos),
+  }));
+  return opts.length ? { from: w.from, options: opts, validFor: /^[\p{L}\p{N}_$]*$/u } : null;
+}
+
 /** 补全框每行右边那一格：返回类型 / 包名（IDEA 的补全也是这么摆的） */
 const descriptionColumn = {
   position: 90,
@@ -970,7 +1039,9 @@ export function javaLsp(root: string | null, path: string): Extension {
     // 参数提示：敲 ( 或 , 时弹，⇧⌘Space 手动弹
     signatureHelp((text, line, character) => javaSignature(root, path, text, line, character)),
     // 换掉通用的「文档里的词」：Java 文件里由 javaSource 说了算（它自己会在 jdtls 没起好时退回去）。和 Editor 里那份 autocompletion() 的配置合并
-    autocompletion({ override: [javaSource], addToOptions: [descriptionColumn] }),
+    autocompletion({ override: [javaSource, templateSource], addToOptions: [descriptionColumn] }),
+    // 代码模板：Tab 展开（光标前不是模板词就交还给普通的 Tab）
+    Prec.high(keymap.of([{ key: "Tab", run: expandTemplate }])),
     ViewPlugin.define((view) => new Sync(view, root, path)),
     // 同名高亮（docs/TAKEOVER.md G11）：问之前先把攒着的改动发出去，同跳转
     usageHighlight((view, line, character) => {

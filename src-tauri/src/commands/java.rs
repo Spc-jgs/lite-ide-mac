@@ -208,6 +208,7 @@ pub async fn java_complete(app: tauri::AppHandle, root: String, path: String, te
                 detail: i.detail,
                 description: i.description,
                 edit: i.edit.map(Into::into),
+                insert: i.insert,
                 snippet: i.snippet,
                 sort: i.sort,
                 raw: i.raw,

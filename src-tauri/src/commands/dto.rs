@@ -1034,6 +1034,7 @@ pub struct JavaCompletionItemDto {
     pub detail: String,
     pub description: String,
     pub edit: Option<JavaEditDto>,
+    pub insert: Option<String>,
     pub snippet: bool,
     pub sort: String,
     pub raw: String,

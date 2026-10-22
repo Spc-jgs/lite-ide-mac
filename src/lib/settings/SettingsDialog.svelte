@@ -8,6 +8,7 @@
    *
    * 下拉框不用 `<select>`：Svelte 运行时里处理它的那段会落进入口包（frontend.md，调试面板那次）。JDK 这种几个选项的，摆成一列单选
    */
+  import { untrack } from "svelte";
   import Icon from "../shell/Icon.svelte";
   import type { SettingDef, SettingsPage } from "../ipc/commands";
   import { settingsApply, settingsPage } from "../ipc/settings";
@@ -16,7 +17,8 @@
   // 静态引：notify 本来就在入口包里。写成 `await import()` 的话 Rollup 要在入口里给它造一个模块命名空间对象（+114 B，量过）
   import { notify } from "../state/notify.svelte";
 
-  let { root, onclose }: { root: string | null; onclose: () => void } = $props();
+  /** `query`：打开时先填进搜索框（⇧⇧ 里选了一个设置项，docs/TAKEOVER.md I8 —— 直接看到那一项） */
+  let { root, query = "", onclose }: { root: string | null; query?: string; onclose: () => void } = $props();
 
   let page = $state<SettingsPage | null>(null);
   let loadError = $state("");
@@ -26,7 +28,7 @@
   /** 「此项目」那一栏改了还没应用的；null = 没动 */
   let proj = $state<{ jdk: string; offline: boolean; skipTests: boolean } | null>(null);
   let cat = $state<Cat>("appearance");
-  let q = $state("");
+  let q = $state(untrack(() => query));
   let busy = $state(false);
   let error = $state("");
   /** 「应用」之后在按钮旁边说一句（按钮原地反馈，ui.md 第十五条） */

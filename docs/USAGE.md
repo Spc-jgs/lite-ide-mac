@@ -887,6 +887,10 @@ Maven / Gradle 项目里打开 `.java`，后台起一个 Java 语言服务器（
 - **⌥⌘B 跳到实现**：接口 / 抽象方法上按，跳到实现它的那个；有好几个就列出来挑（同 ⌥F7 那张列表）；一个都没有说一句
 - **⌘U 跳到父方法**：覆盖的那个方法、父类 / 接口里的声明。覆盖 `toString` 的按它进 JDK 的 `Object`（只读标签）
 - **F1 快速文档**：光标底下那个名字的签名 + Javadoc，挂在光标底下一张卡片，Esc 关
+- **代码模板**（Java，IDEA 的 Live Templates）：敲缩写按 **Tab** 展开 —— `sout` `serr` `souf` `soutv` `psvm` `fori` `itar` `iter` `ifn` `inn` `thr` `psf` `psfs` `psfi` `prsf`，名字照 IDEA。
+  展开后有要填的格子（`fori` 的 `i`，改一处三处一起变），Tab 跳到下一格。补全框里也列着它们（右边写「模板」）。
+  **后缀补全**：表达式后面打点 —— `.var`（生成变量，类型 jdtls 推）、`.for` `.fori` `.null` `.nn` `.not` `.par` `.throw` `.cast` 这些是 jdtls 自带的，
+  IDEA 的 `.sout` `.soutv` jdtls 没有，这里补上（`order.total().sout` → `System.out.println(order.total());`）。模板这一版还不能自己加
 - **生成 ⌃↵**（Java，IDEA 的 Generate）：光标放在类里按 ⌃↵，先选生成什么 —— 构造器 / Getter / Setter / Getter 和 Setter / equals() 和 hashCode() / toString() / 覆盖方法，
   再勾用哪些字段（默认全勾；覆盖方法默认只勾没实现的），↵ 生成。空格勾选、⌘A 全选 / 全不选。生成的落进编辑器、没存盘，⌘Z 撤得回。
   已经有 toString / equals 了会先说一句「会替换」。final 的字段没有 setter。IDEA 里 ⌘N 也是它，这里 ⌘N 还是「新建草稿」
@@ -899,6 +903,7 @@ Maven / Gradle 项目里打开 `.java`，后台起一个 Java 语言服务器（
   另一个方法里同名的参数、别的类的同名字段不标（选中一段字时的那种蓝底是按字面找的，两种会同时出现）。打字时收起，停下来再标
 - **参数名提示**：调用时传的是字面量（`rule.apply(100)`、`find(null)`），前面一小块灰字写参数名（`apply(cents: 100)`）—— 照 IDEA 的默认，传变量的不提示（变量名本身就说清了）。
   它不是正文：光标一下跳过去，存盘、复制都没有它。这两样嫌吵可以在设置（⌘,）的「外观」里关：`editor.highlightUsages`、`editor.inlayHints`
+- **⇧⇧ 也搜设置**：打两个字以上，「操作」下面多一组「设置」（按名字和 settings.json 里的键找，「字号」「jdtls」「mvnw」都行），选了打开设置对话框、直接停在那一项
 - **找类**：⇧⇧ 之后 Tab 到「类」（IDEA 的 Classes 页）。驼峰缩写也认（`OC` 找 `OrderController`），`order.OS` 带包名找；默认只找项目自己的，
   点右边的「含 jar 里的」连依赖和 JDK 一起找，回车开成只读标签、停在类声明那行。「全部」页里也会列几个类（下面「文件」那组就不再重复列它们的 `.java`）。
   Java 语言服务器还没起的时候（这个项目还没开过 .java 文件）按文件名找，底下有一句说明

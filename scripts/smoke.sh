@@ -1262,6 +1262,20 @@ else
   bad "⌘7 之后侧边栏没出结构（$(lite eval "${W}" "return document.querySelector('aside')?.innerText.slice(0, 120)" 2>/dev/null)）"
 fi
 
+say "㉜ ⇧⇧ 搜得到设置项（docs/TAKEOVER.md I8）：搜「字号」多一组「设置」，选「代码字号」→ 设置对话框打开、搜索框里是它的键、只列它"
+lite eval "${W}" "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null 2>&1
+if lite eval "${W}" "return typeof __lite.overlay?.openQuick" 2>/dev/null | grep -q function; then
+  lite eval "${W}" "__lite.overlay.openQuick('all', '字号'); return true" >/dev/null 2>&1
+  lite_wait "${W}" "return [...document.querySelectorAll('[aria-label=\"随处搜索\"] .row')].some((r) => r.innerText.includes('editor.fontSize'))" 8 >/dev/null
+  check "$(lite eval "${W}" "return [...document.querySelectorAll('[aria-label=\"随处搜索\"] .sec')].map((s) => s.textContent).includes('设置')" 2>/dev/null)" "true" "「全部」里多一组「设置」"
+  lite eval "${W}" "[...document.querySelectorAll('[aria-label=\"随处搜索\"] .row')].find((r) => r.innerText.includes('editor.fontSize')).click(); return true" >/dev/null 2>&1
+  lite_wait "${W}" "return !!document.querySelector('.dialog.settings')" 8 >/dev/null
+  check "$(lite eval "${W}" "return document.querySelector('.dialog.settings input.search')?.value + '|' + document.querySelectorAll('.dialog.settings .pane .row').length" 2>/dev/null)" "editor.fontSize|1" "设置对话框打开、搜索框里是 editor.fontSize、只列这一项"
+  lite eval "${W}" "document.querySelector('.dialog.settings [data-dismiss]')?.click(); return true" >/dev/null 2>&1
+else
+  bad "测试通道里没有 __lite.overlay"
+fi
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

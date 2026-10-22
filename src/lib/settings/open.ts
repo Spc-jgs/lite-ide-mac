@@ -10,11 +10,11 @@ import BreakpointsDialog from "../debug/BreakpointsDialog.svelte";
 /** 一次只开一个：⌘, 按两下不叠两层。关掉（不管点的是取消、确定还是 Esc）时清掉 */
 let open = false;
 
-/** ⌘,：`root` 是这个窗口的项目，没打开项目就没有「此项目」那一类 */
-export function openSettingsDialog(root: string | null) {
+/** ⌘,：`root` 是这个窗口的项目，没打开项目就没有「此项目」那一类。`query`：先填进搜索框（⇧⇧ 里选了一个设置项） */
+export function openSettingsDialog(root: string | null, query = "") {
   if (open) return;
   open = true;
-  openModal(SettingsDialog, { root }, () => (open = false));
+  openModal(SettingsDialog, { root, query }, () => (open = false));
 }
 
 /** 「运行 › 编辑配置…」、Services 的右键：`pick` 是先选中的那个服务 */

@@ -166,7 +166,7 @@ function complete(path: string, text: string, line: number, ch: number) {
   const word = l.slice(a, ch);
   const range = { line, character: a, endLine: line, endCharacter: ch };
   const item = (label: string, kind: number, newText: string, detail: string, description: string, extra: object = {}) => ({
-    label, kind, detail, description, snippet: newText.includes("${"), sort: "", edit: { ...range, text: newText },
+    label, kind, detail, description, snippet: newText.includes("${"), sort: "", edit: { ...range, text: newText }, insert: null,
     raw: JSON.stringify({ label, path, ...extra }),
   });
   if (l[a - 1] === ".") return { items: MEMBERS.map((m) => item(m.label, 2, `${m.label}(\${0})`, m.detail, m.description)), incomplete: false, total: MEMBERS.length };

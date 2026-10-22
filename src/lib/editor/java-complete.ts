@@ -3,6 +3,7 @@
  * 拆出来是为了在裸 node 里测（tests/java-complete.test.ts）—— 接线在 java-lsp.ts。
  */
 import type { Text } from "@codemirror/state";
+import type { JavaEdit } from "../ipc/commands";
 
 /**
  * LSP 的 snippet → CM6 `snippet()` 的模板。
@@ -57,6 +58,26 @@ export function offsetOf(doc: Text, line: number, ch: number): number {
   if (line >= doc.lines) return doc.length;
   const l = doc.line(line + 1);
   return Math.min(l.from + ch, l.to);
+}
+
+/**
+ * resolve 回来的 additionalTextEdits 怎么和补全正文一起做。补全落在第 `line` 行的 `[col, endCol)`（列从 0 数、按 UTF-16）：
+ * - `before`：补全那一处前面的 —— 上面的行、同一行在 `col` 之前结束的（自动 import 都在这里），先做，再把补全的范围挪一下
+ * - `span`：同一行上、和补全范围重叠的**删除**，并进补全的范围里一笔换掉。这是后缀补全的：`name.length().var` 选 `var`，
+ *   jdtls 给一笔「删 `name.length().var`」（从表达式开头到光标，读 1.61 `CompletionResolveHandler` / `PostfixTemplateEngine` 的字节码），
+ *   正文那段换的是 `var` —— 两笔重叠，分开做哪一笔先都不对。没有就是 null
+ * 别的（补全后面的、重叠但不是删除的）不做：没见 jdtls 给过，猜着做会把人的代码改坏
+ */
+export function splitEdits(edits: JavaEdit[], line: number, col: number, endCol: number): { before: JavaEdit[]; span: [number, number] | null } {
+  const before: JavaEdit[] = [];
+  let span: [number, number] | null = null;
+  for (const e of edits) {
+    if (e.endLine < line || (e.endLine === line && e.endCharacter <= col)) before.push(e);
+    else if (e.line === line && e.endLine === line && e.text === "" && e.character <= col && e.endCharacter >= col) {
+      span = [Math.min(span?.[0] ?? col, e.character), Math.max(span?.[1] ?? endCol, e.endCharacter)];
+    }
+  }
+  return { before, span };
 }
 
 /**
