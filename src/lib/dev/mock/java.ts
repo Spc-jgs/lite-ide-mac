@@ -364,6 +364,34 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       // 桩：照 jdtls 回的样子（签名代码块 + Javadoc 转的 Markdown）给一段
       await wait(50);
       return "```java\nlong com.demo.PriceRule.apply(long cents)\n```\n\n按规则算出**折后价**（分），见 [Money](jdt://contents/Money.class)。\n\n* **Parameters:**\n  * **cents** 原价\n* **Returns:**\n  * 折后价";
+    case "java_inlay_hints": {
+      // 参数名提示：桩只认「这个文件里声明过的方法、调用时传的是字面量」—— 照 jdtls 的默认（literals）。真的是语义的（重载、别的类的方法都认得）。故意等 40 ms
+      await wait(40);
+      const text = docs.get(path) ?? String(FILES[path] ?? "");
+      const lines = text.split("\n");
+      const params = new Map<string, string[]>();
+      for (const m of text.matchAll(/\b(\w+)\s*\(([^()]*)\)\s*(?:throws\s+[\w, ]+)?\{/g)) {
+        const names = m[2].split(",").map((p) => p.trim().split(/\s+/).pop() ?? "").filter(Boolean);
+        if (names.length && !KEYWORDS.has(m[1])) params.set(m[1], names);
+      }
+      const out: { line: number; character: number; label: string; param: boolean }[] = [];
+      // 照真实现：终点不是文件里真有的位置就整段回空（jdtls 换不成偏移）—— 不照的话「问到下一行」那个错在桩上永远看不出来
+      const endLine = Number(a.endLine);
+      if (endLine >= lines.length || Number(a.endChar) > lines[endLine].length) return [];
+      for (let i = Number(a.from); i <= endLine; i++) {
+        for (const m of lines[i].matchAll(/\b(\w+)\(([^()]*)\)/g)) {
+          const names = params.get(m[1]);
+          if (!names || /\{\s*$/.test(lines[i].slice(m.index! + m[0].length))) continue;
+          let at = m.index! + m[1].length + 1;
+          m[2].split(",").forEach((arg, k) => {
+            const lead = arg.length - arg.trimStart().length;
+            if (names[k] && /^\s*(\d[\d_]*[lLdDfF]?|"[^"]*"|true|false|null)\s*$/.test(arg)) out.push({ line: i, character: at + lead, label: `${names[k]}:`, param: true });
+            at += arg.length + 1;
+          });
+        }
+      }
+      return out;
+    }
     case "java_highlights": {
       // 同名高亮：桩不懂作用域，按整词找这个文件里同样的字（真的是语义的，同名的别的变量不算）；后面跟着 `=`（不是 `==`）的算写。故意等 30 ms
       await wait(30);

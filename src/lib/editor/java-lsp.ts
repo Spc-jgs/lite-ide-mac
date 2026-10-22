@@ -21,8 +21,9 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaHighlights, javaHover, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { usageHighlight } from "./java-usage-hl";
+import { inlayHints } from "./java-inlay";
 import { configKeyAt } from "./spring-key";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { nav } from "../state/nav.svelte";
@@ -910,6 +911,13 @@ export function javaLsp(root: string | null, path: string): Extension {
       if (!s || !usable(s.root)) return null;
       s.flush();
       return javaHighlights(s.root, s.path, line, character);
+    }),
+    // 内嵌提示（G11）：参数名。导入完之前问到的不全，它会过一会儿再问
+    inlayHints((view, from, endLine, endChar) => {
+      const s = syncs.get(view);
+      if (!s || !usable(s.root)) return null;
+      s.flush();
+      return { hints: javaInlayHints(s.root, s.path, from, endLine, endChar), settled: statusOf.get(s.root)?.phase === "ready" };
     }),
     // `${demo.greeting}` 上 ⌘B 去配置文件（第 25 节）；不在 `${…}` 里放过，交给原来的跳转
     Prec.highest(keymap.of([{ key: "Mod-b", run: (v) => configJump(v, root) }])),

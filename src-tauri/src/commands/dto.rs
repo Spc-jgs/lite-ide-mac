@@ -1057,6 +1057,16 @@ pub struct JavaRefsDto {
     pub total: u32,
 }
 
+/// 一条内嵌提示（docs/TAKEOVER.md G11）：`label` 画在 `(line, character)` 前面（行列从 0 数、列按 UTF-16）。`param`：参数名
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaInlayDto {
+    pub line: u32,
+    pub character: u32,
+    pub label: String,
+    pub param: bool,
+}
+
 /// 同名高亮的一处（docs/TAKEOVER.md G11）。行列从 0 数、列按 UTF-16；`write`：这一处是写
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -35,6 +35,8 @@ pub const REFS_MAX: usize = 2000;
 /// ⇧⇧ 的「类」一次最多要多少个：项目里的、连 jar 一起的各一份（找够 jdtls 自己停，见 [`Instance::types`]）
 const TYPES_SRC: u32 = 100;
 const TYPES_ALL: u32 = 200;
+/// 内嵌提示一次最多要多少条（问的是看得见的那几十行，正常几条到几十条）
+const INLAY_MAX: usize = 2000;
 /// 同名高亮一次最多标多少处（一个几千行的生成文件里的 `i`）
 const HL_MAX: usize = 1000;
 /// 一个文件最多报多少条诊断（导入时整个项目的警告一起来，一个生成的文件可能几千条）
@@ -98,6 +100,15 @@ pub struct Highlight {
     pub end_line: u32,
     pub end_character: u32,
     pub write: bool,
+}
+
+/// 一条内嵌提示（docs/TAKEOVER.md G11）：`label` 画在 `(line, character)` 那个位置前面。`param`：参数名（`cents:`）；否则是类型（`: long`）
+#[derive(Clone, Debug, PartialEq)]
+pub struct Inlay {
+    pub line: u32,
+    pub character: u32,
+    pub label: String,
+    pub param: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -460,6 +471,18 @@ impl Instance {
         Ok(highlights_of(&r))
     }
 
+    /// 内嵌提示（docs/TAKEOVER.md G11，IDEA 的 Parameter Name Hints）：从 `from` 行开头到 `(end_line, end_char)` 的。行列从 0 数。
+    /// **终点必须是文件里真有的位置**：写成「最后一行的下一行、第 0 列」jdtls 换不成偏移，整段回空（2026-10-22 探针：12 行的文件问到第 12 行是 `[]`、问到第 11 行有两条）。
+    /// 给哪些是 jdtls 的设置定的：`java.inlayHints.parameterNames.enabled` 默认 `literals`（读 1.61 的 `Preferences` 确认）——
+    /// 只给字面量参数（`apply(100)` 的 `cents:`），变量名本身就说清了的不给，同 IDEA 的默认
+    pub fn inlay_hints(&self, path: &str, from: u32, end_line: u32, end_char: u32) -> Result<Vec<Inlay>, String> {
+        let r = self.ask(
+            "textDocument/inlayHint",
+            json!({ "textDocument": { "uri": uri::from_path(path) }, "range": { "start": { "line": from, "character": 0 }, "end": { "line": end_line, "character": end_char } } }),
+        )?;
+        Ok(inlays_of(&r))
+    }
+
     /// 查用法。超过 [`REFS_MAX`] 截断，返回 `(前 REFS_MAX 条, 真条数)`
     pub fn references(&self, path: &str, line: u32, character: u32) -> Result<(Vec<Location>, usize), String> {
         let r = self.ask(
@@ -705,6 +728,31 @@ pub fn hover_markdown(r: &Value) -> String {
         None => Vec::new(),
     };
     parts.into_iter().filter(|s| !s.trim().is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
+/// `InlayHint[] | null` → 几条。`label` 可以是字符串、也可以是几段（`InlayHintLabelPart[]`，拼起来）；空的丢掉。
+/// 是不是参数名：`kind` 2，或者没给 `kind`、标签以 `:` 结尾 —— jdtls 1.61 给参数名提示时**不带 kind**（同一次探针看到的）
+pub fn inlays_of(r: &Value) -> Vec<Inlay> {
+    r.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|h| {
+                    let label = match &h["label"] {
+                        Value::String(s) => s.clone(),
+                        Value::Array(parts) => parts.iter().filter_map(|p| p["value"].as_str()).collect(),
+                        _ => return None,
+                    };
+                    let label = label.trim().to_string();
+                    let param = match h["kind"].as_u64() {
+                        Some(k) => k == 2,
+                        None => label.ends_with(':'),
+                    };
+                    (!label.is_empty()).then(|| Inlay { line: num(&h["position"]["line"]), character: num(&h["position"]["character"]), label, param })
+                })
+                .take(INLAY_MAX)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// `DocumentHighlight[] | null` → 几处。`kind` 3 = 写，1（文本）/ 2（读）/ 没给都算读；超过 [`HL_MAX`] 的不要（画几千个底色没有意义）
@@ -1601,6 +1649,27 @@ mod tests {
         assert_eq!(hover_markdown(&json!({ "contents": "纯字符串" })), "纯字符串");
         assert_eq!(hover_markdown(&json!({ "contents": [{ "language": "java", "value": "" }, ""] })), "", "空的项丢掉");
         assert_eq!(hover_markdown(&Value::Null), "");
+    }
+
+    #[test]
+    fn 内嵌提示_字符串和几段的标签都认_空的丢掉() {
+        let r = json!([
+            { "position": { "line": 6, "character": 22 }, "label": "cents:", "kind": 2, "paddingRight": true },
+            { "position": { "line": 7, "character": 9 }, "label": [{ "value": ": " }, { "value": "long" }], "kind": 1 },
+            { "position": { "line": 8, "character": 0 }, "label": "  " },
+            // jdtls 1.61 真回的样子：参数名不带 kind
+            { "position": { "line": 9, "character": 36 }, "label": "n:", "paddingRight": true },
+        ]);
+        let h = inlays_of(&r);
+        assert_eq!(
+            h,
+            vec![
+                Inlay { line: 6, character: 22, label: "cents:".into(), param: true },
+                Inlay { line: 7, character: 9, label: ": long".into(), param: false },
+                Inlay { line: 9, character: 36, label: "n:".into(), param: true },
+            ]
+        );
+        assert!(inlays_of(&Value::Null).is_empty());
     }
 
     #[test]

@@ -137,6 +137,14 @@ export interface JavaRefs {
   total: number;
 }
 
+/** 一条内嵌提示（docs/TAKEOVER.md G11）：`label` 画在 `(line, character)` 前面（行列从 0 数、列按 UTF-16）。`param`：参数名（`cents:`） */
+export interface JavaInlay {
+  line: number;
+  character: number;
+  label: string;
+  param: boolean;
+}
+
 /** 同名高亮的一处（docs/TAKEOVER.md G11）。行列从 0 数、列按 UTF-16；`write`：这一处是写（赋值、带初值的声明） */
 export interface JavaHighlight {
   line: number;

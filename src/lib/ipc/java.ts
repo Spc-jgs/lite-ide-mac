@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaHighlight, JavaLocation, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
+import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaHighlight, JavaInlay, JavaLocation, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -27,6 +27,9 @@ export const javaTypes = (root: string, query: string, libs: boolean) => invoke<
 /** 同名高亮（G11）：光标底下那个名字在这个文件里出现的地方（语义的：同名的别的变量不算） */
 export const javaHighlights = (root: string, path: string, line: number, character: number) =>
   invoke<JavaHighlight[]>("java_highlights", { root, path, line, character });
+/** 内嵌提示（G11）：从 `from` 行开头到 `(endLine, endChar)` 的参数名提示（行列从 0 数；终点要是文件里真有的位置，jdtls 对不存在的行整段回空） */
+export const javaInlayHints = (root: string, path: string, from: number, endLine: number, endChar: number) =>
+  invoke<JavaInlay[]>("java_inlay_hints", { root, path, from, endLine, endChar });
 /** 跳到父方法（⌘U）：覆盖的那个方法 / 父类（jdtls 的 `java/findLinks`） */
 export const javaSuper = (root: string, path: string, line: number, character: number) =>
   invoke<JavaRefs>("java_super", { root, path, line, character });

@@ -273,6 +273,8 @@ pub fn capabilities() -> Value {
             "references": {},
             // 同名高亮（docs/TAKEOVER.md G11）
             "documentHighlight": {},
+            // 内嵌提示（G11）：参数名
+            "inlayHint": {},
             "rename": { "prepareSupport": true },
             // 快速修复（⌥↵）：要声明认「字面量形式」，不然 jdtls 一项都不回（探针实测 0 项）；resolve 先给标题、选中了再要改动
             "codeAction": {

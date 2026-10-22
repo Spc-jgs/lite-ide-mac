@@ -84,8 +84,8 @@ C="${P}/shop-common/src/main/java/com/demo/common"
 printf 'package com.demo.common;\n\npublic interface PriceRule {\n    /** 按规则算出<b>折后价</b>（分）。 */\n    long apply(long cents);\n}\n' > "${C}/PriceRule.java"
 printf 'package com.demo.common;\n\npublic class VipRule implements PriceRule {\n    @Override\n    public long apply(long cents) { return cents * 9 / 10; }\n}\n' > "${C}/VipRule.java"
 printf 'package com.demo.common;\n\npublic class HalfRule implements PriceRule {\n    @Override\n    public long apply(long cents) { return cents / 2; }\n}\n' > "${C}/HalfRule.java"
-# 同名高亮（G11）用：字段 total 有声明、有写、有读；other() 的参数也叫 total —— 语义的高亮不该标它
-printf 'package com.demo.common;\n\npublic class Tally {\n    private int total;\n    public int add(int n) {\n        total = total + n;\n        return total;\n    }\n    public int other(int total) { return total; }\n}\n' > "${C}/Tally.java"
+# 同名高亮（G11）用：字段 total 有声明、有写、有读；other() 的参数也叫 total —— 语义的高亮不该标它。twice() 传字面量：参数名提示用
+printf 'package com.demo.common;\n\npublic class Tally {\n    private int total;\n    public int add(int n) {\n        total = total + n;\n        return total;\n    }\n    public int other(int total) { return total; }\n    public int twice() { return add(2) + other(3); }\n}\n' > "${C}/Tally.java"
 printf 'package com.demo.common;\n\npublic class Coupon {\n    @Override\n    public String toString() { return "coupon"; }\n}\n' > "${C}/Coupon.java"
 APP="${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
 cat > "${APP}" <<'EOF'
@@ -345,6 +345,12 @@ ok "$(echo "${HL}" | grep -q '6写' && echo "${HL}" | grep -q '6读' && echo "${
 lite_eval main "__lite.caret(5, 1); return true" >/dev/null
 lite_wait main "return document.querySelectorAll('.cm-usage, .cm-usage-w').length === 0" 5 >/dev/null
 ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-usage, .cm-usage-w').length")" = 0 ] && echo 1)" "光标挪到空白处：标记收掉"
+
+echo "== 参数名提示（docs/TAKEOVER.md G11）：传字面量的地方前面一小块灰字写参数名（add(n: 2)、other(total: 3)），不是正文"
+lite_wait main "return document.querySelectorAll('.cm-inlay').length >= 2" 20 >/dev/null
+INL=$(lite_eval main "return [...document.querySelectorAll('.cm-line')].map((l, i) => [...l.querySelectorAll('.cm-inlay')].map((m) => (i + 1) + ':' + m.textContent).join(' ')).filter(Boolean).join(' ')")
+ok "$([ "${INL}" = '10:n: 10:total:' ] && echo 1)" "第 10 行 add(2)、other(3) 前面各一个，别处没有：${INL}"
+ok "$([ "$(lite_eval main "return !__lite.text().includes('n: 2') && __lite.text().includes('add(2)')")" = true ] && echo 1)" "提示不进正文（存盘、复制拿到的还是 add(2)）"
 
 echo "== ⇧⇧ 找类（docs/TAKEOVER.md G2）：问 jdtls（驼峰缩写也认，接口标「接口」）；默认只找项目的，「含 jar 里的」找得到依赖里的、↵ 开成只读标签"
 Q='[aria-label="随处搜索"]'

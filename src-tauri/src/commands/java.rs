@@ -108,6 +108,16 @@ pub async fn java_super(app: tauri::AppHandle, root: String, path: String, line:
     .await
 }
 
+/// 内嵌提示（docs/TAKEOVER.md G11）：从 `from` 行开头到 `(end_line, end_char)`（前端问的是看得见的那一截；终点要是文件里真有的位置）
+#[tauri::command]
+pub async fn java_inlay_hints(app: tauri::AppHandle, root: String, path: String, from: u32, end_line: u32, end_char: u32) -> Result<Vec<JavaInlayDto>, String> {
+    blocking(move || {
+        let hs = instance(&app, &root)?.inlay_hints(&path, from, end_line, end_char)?;
+        Ok(hs.into_iter().map(|h| JavaInlayDto { line: h.line, character: h.character, label: h.label, param: h.param }).collect())
+    })
+    .await
+}
+
 /// 同名高亮（docs/TAKEOVER.md G11）：光标底下那个名字在这个文件里出现的地方
 #[tauri::command]
 pub async fn java_highlights(app: tauri::AppHandle, root: String, path: String, line: u32, character: u32) -> Result<Vec<JavaHighlightDto>, String> {
