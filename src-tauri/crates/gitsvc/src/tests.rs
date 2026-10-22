@@ -240,7 +240,7 @@ fn 真仓库上的状态与暂存往返() {
     discard(&dir, &["a.txt".into()], &[], |_| unreachable!("没有未跟踪的，不该叫废纸篓")).unwrap();
     assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "hello\n");
 
-    let l = log_entries(&dir, 10, false, "").unwrap();
+    let l = log_entries(&dir, 10, false, "", None).unwrap();
     assert_eq!(l.len(), 1);
     assert_eq!(l[0].subject, "首次提交");
     assert!(l[0].parents.is_empty(), "首次提交没有父");
@@ -329,7 +329,7 @@ fn 提交历史必须是拓扑序() {
 
     git(&["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
 
-    let es = log_entries(&dir, 100, true, "").unwrap();
+    let es = log_entries(&dir, 100, true, "", None).unwrap();
     assert!(es.len() >= 4, "应该有至少 4 条提交，实得 {}", es.len());
 
     // 核心断言：每条提交的父，位置都必须比它自己靠后
@@ -1735,4 +1735,48 @@ fn 被忽略的目录和文件分开交出来() {
     assert_eq!(dirs.into_iter().collect::<Vec<_>>(), vec!["logs".to_string()], "整个被忽略的目录折成一条");
     assert_eq!(files.into_iter().collect::<Vec<_>>(), vec!["src/.env".to_string()], "文件规则命中的单个文件要交出来");
     assert_eq!(ignored_dirs(&dir).unwrap().into_iter().collect::<Vec<_>>(), vec!["logs".to_string()], "老口子只交目录，行为不变");
+}
+
+#[test]
+fn 文件历史跟着改名_选中几行的历史只列动过那几行的() {
+    if !available() {
+        eprintln!("跳过：机器上没有 git");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("gitsvc-lines-{}-{:?}", std::process::id(), std::time::Instant::now()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t.t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t.t")
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(dir.join("Old.java"), "a\nb\nc\nd\ne\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "起头"]);
+    std::fs::write(dir.join("Old.java"), "a\nB\nc\nd\ne\n").unwrap();
+    git(&["commit", "-qam", "改第 2 行"]);
+    std::fs::write(dir.join("Old.java"), "a\nB\nc\nd\nE\n").unwrap();
+    git(&["commit", "-qam", "改第 5 行"]);
+    git(&["mv", "Old.java", "New.java"]);
+    git(&["commit", "-qm", "改名"]);
+
+    let subjects = |es: Vec<LogEntry>| es.into_iter().map(|e| e.subject).collect::<Vec<_>>();
+    // 文件历史跟着改名往前找：改名之前的三次也在（不跟的话只有「改名」一条）
+    assert_eq!(subjects(log_entries(&dir, 50, false, "New.java", None).unwrap()), vec!["改名", "改第 5 行", "改第 2 行", "起头"]);
+    // 第 2 行的历史：起头、改第 2 行 —— 改第 5 行那次没动它
+    assert_eq!(subjects(log_entries(&dir, 50, false, "New.java", Some((2, 2))).unwrap()), vec!["改第 2 行", "起头"]);
+    assert_eq!(subjects(log_entries(&dir, 50, false, "New.java", Some((4, 5))).unwrap()), vec!["改第 5 行", "起头"]);
+    // 行号反了、从 0 起：夹回来，不让 git 报错
+    assert_eq!(subjects(log_entries(&dir, 50, false, "New.java", Some((0, 0))).unwrap()), vec!["起头"]);
+    let _ = std::fs::remove_dir_all(&dir);
 }

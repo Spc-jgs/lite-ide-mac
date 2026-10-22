@@ -1292,6 +1292,25 @@ lite eval "${W}" "document.querySelectorAll('.cm-sticky-line')[1].dispatchEvent(
 check "$(lite eval "${W}" "return __lite.caretLine()" 2>/dev/null)" "5" "点钉着的方法那行：光标跳到第 5 行"
 menu close-tab; sleep 0.3
 
+say "㉞ 文件 / 选中几行的历史（docs/TAKEOVER.md G16）：改过名的文件，「当前文件的历史」跟着改名列全 4 次；光标在第 2 行，「选中几行的历史」只列动过它的 2 次"
+HG() { git -C "${FIX}" -c user.name=t -c user.email=t@t.t "$@" >/dev/null 2>&1; }
+printf 'a\nb\nc\nd\ne\n' > "${FIX}/HistOld.java"; HG add HistOld.java; HG commit -qm "hist 起头"
+printf 'a\nB\nc\nd\ne\n' > "${FIX}/HistOld.java"; HG commit -qam "hist 改第 2 行"
+printf 'a\nB\nc\nd\nE\n' > "${FIX}/HistOld.java"; HG commit -qam "hist 改第 5 行"
+HG mv HistOld.java HistNew.java; HG commit -qm "hist 改名"
+is "await __lite.tabflow.openPath($(q "${FIX}/HistNew.java"), { preview: false }); return true"
+lite_wait "${W}" "return !!document.querySelector('.cm-content')" 8 >/dev/null
+menu git-file-history
+lite_wait "${W}" "return /只看 HistNew\\.java/.test(document.querySelector('.tools .pin')?.textContent ?? '') && !document.querySelector('.tools .spinner')" 10 >/dev/null
+check "$(lite eval "${W}" "return document.querySelector('.tools .cnt')?.textContent.trim()" 2>/dev/null)" "4 条" "当前文件的历史：改名之前的 3 次也在（跟着改名往前找）"
+lite eval "${W}" "__lite.caret(2, 1); return true" >/dev/null 2>&1
+menu git-selection-history
+lite_wait "${W}" "return /第 2 行/.test(document.querySelector('.tools .pin')?.textContent ?? '') && !document.querySelector('.tools .spinner')" 10 >/dev/null
+sleep 0.5
+check "$(lite eval "${W}" "return document.querySelector('.tools .cnt')?.textContent.trim() + '|' + [...document.querySelectorAll('.rows .subject, .rows .subj')].map((e) => e.textContent.trim()).join(',')" 2>/dev/null | cut -d'|' -f1)" "2 条" "光标在第 2 行：只列动过它的「改第 2 行」「起头」（git log -L）"
+lite eval "${W}" "document.querySelector('.tools .pin button')?.click(); return true" >/dev/null 2>&1
+menu close-tab; sleep 0.3
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

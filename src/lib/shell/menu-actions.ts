@@ -260,6 +260,18 @@ export async function runMenu(id: string, ctx: MenuCtx) {
       if (git.blameOn && tabs.active?.mode !== "edit") notify.ok("注解已打开，打开一个仓库里的文件就能看到", 2600);
       return;
     case "git-log": layout.openGitTab("log"); return;
+    case "git-file-history":
+    case "git-selection-history": {
+      // 提交历史那个工具窗只列这个文件 / 这几行的（docs/TAKEOVER.md G16）。没选东西时「选中几行」用光标那一行（IDEA 也是）
+      const t = tabs.active;
+      if (!t || t.mode !== "edit") return void notify.hint("先打开一个仓库里的文件");
+      const spans = id === "git-selection-history" ? docs.selectedLines(t.path) : [];
+      const lines: [number, number] | null =
+        id !== "git-selection-history" ? null : spans.length ? [spans[0].from, spans[spans.length - 1].to] : [nav.caret?.line ?? 1, nav.caret?.line ?? 1];
+      (await import("../git/log-filter.svelte")).logFilter.v = { path: t.path, lines };
+      layout.openGitTab("log");
+      return;
+    }
     case "git-console": layout.openGitTab("console"); return;
     case "git-branches": return ctx.openBranchPicker();
     case "git-refresh": return void git.refresh();

@@ -46,8 +46,9 @@ export const gitDiscard = (root: string, paths: string[], untracked: string[]) =
 export const gitCommit = (root: string, message: string, amend = false) =>
   invoke<string>("git_commit", { root, message, amend });
 
-export const gitLogEntries = (root: string, limit = 200, all = false, path = "") =>
-  invoke<GitLogEntry[]>("git_log_entries", { root, limit, all, path });
+/** `lines`：只看动过这几行（从 1 数、两头都算）的提交（`git log -L`，docs/TAKEOVER.md G16）；`path` 非空时跟着改名往前找 */
+export const gitLogEntries = (root: string, limit = 200, all = false, path = "", lines: [number, number] | null = null) =>
+  invoke<GitLogEntry[]>("git_log_entries", { root, limit, all, path, lines });
 
 export const gitCommitFiles = (root: string, sha: string) =>
   invoke<GitEntry[]>("git_commit_files", { root, sha });

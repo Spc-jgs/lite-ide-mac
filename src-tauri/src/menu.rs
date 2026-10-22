@@ -143,6 +143,9 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let git_file_diff = item(app, "git-file-diff", "查看当前文件的改动", None)?;
     let git_blame = item(app, "git-blame", "显示 / 隐藏注解（blame）", None)?;
     let git_log = item(app, "git-log", "提交历史", None)?;
+    // IDEA 的 Git › Show History / Show History for Selection（docs/TAKEOVER.md G16）：要一个打开的文件，同「查看当前文件的改动」
+    let git_file_history = item(app, "git-file-history", "当前文件的历史", None)?;
+    let git_selection_history = item(app, "git-selection-history", "选中几行的历史", None)?;
     let git_console = item(app, "git-console", "Git 控制台", None)?;
     let git_branches = item(app, "git-branches", "分支与工作树…", None)?;
     let git_refresh = item(app, "git-refresh", "刷新状态", None)?;
@@ -299,6 +302,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&git_file_diff)
         .item(&git_blame)
         .item(&git_log)
+        .item(&git_file_history)
+        .item(&git_selection_history)
         .item(&git_console)
         .separator()
         .item(&git_pull)
@@ -403,6 +408,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
             toggle_wrap,
             outline,
             git_file_diff,
+            git_file_history,
+            git_selection_history,
             git_blame,
             goto_line,
             nav_back,

@@ -132,9 +132,10 @@ pub async fn git_log_entries(
     limit: usize,
     all: bool,
     path: String,
+    lines: Option<(u32, u32)>,
 ) -> Result<Vec<LogEntryDto>, String> {
     blocking(move || {
-        let es = gitsvc::log_entries(&root, limit, all, &path).map_err(|e| format!("读历史失败：{e}"))?;
+        let es = gitsvc::log_entries(&root, limit, all, &path, lines).map_err(|e| format!("读历史失败：{e}"))?;
         Ok(es
             .into_iter()
             .map(|c| LogEntryDto {

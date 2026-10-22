@@ -4,6 +4,8 @@
   import { gitLogEntries, gitCommitFiles } from "../ipc/git";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
   import { copyText } from "../shell/pathactions";
+  import { logFilter } from "./log-filter.svelte";
+  import Icon from "../shell/Icon.svelte";
 
   let {
     repo,
@@ -101,8 +103,10 @@
   const LANE_W = 13;
   const DOT_R = 3.4;
 
+  /** 菜单「当前文件的历史 / 选中几行的历史」放进来的（docs/TAKEOVER.md G16）：有它就照它，「只看当前文件」那个勾让位 */
+  let pinned = $derived(logFilter.v && logFilter.v.path.startsWith(`${repo}/`) ? { rel: logFilter.v.path.slice(repo.length + 1), lines: logFilter.v.lines } : null);
   let rel = $derived(
-    onlyFile && filePath.startsWith(`${repo}/`) ? filePath.slice(repo.length + 1) : "",
+    pinned ? pinned.rel : onlyFile && filePath.startsWith(`${repo}/`) ? filePath.slice(repo.length + 1) : "",
   );
 
   // 条件变了就重拉。repo / all / onlyFile 任一变化都要重来
@@ -110,11 +114,12 @@
     const r = repo;
     const a = all;
     const p = rel;
+    const ln = pinned?.lines ?? null;
     void (async () => {
       loading = true;
       err = "";
       try {
-        commits = await gitLogEntries(r, LIMIT, a, p);
+        commits = await gitLogEntries(r, LIMIT, a, p, ln);
         picked = commits[0] ?? null;
       } catch (e) {
         err = String(e);
@@ -228,10 +233,21 @@
         spellcheck="false"
       />
       <!-- title 是给窄窗准备的：栏只有 190px 时字会被省略到只剩复选框 -->
-      <label class="chk" title="全部分支"><input type="checkbox" bind:checked={all} /> <span>全部分支</span></label>
-      <label class="chk" class:off={!filePath} title="只看当前文件">
-        <input type="checkbox" bind:checked={onlyFile} disabled={!filePath} /> <span>只看当前文件</span>
+      <!-- 只看几行（git log -L）时只能看当前这条线：勾了也不管用，灰掉、说为什么 -->
+      <label class="chk" class:off={!!pinned?.lines} title={pinned?.lines ? "只看几行的历史时只能看当前分支（git log -L 不支持全部分支）" : "全部分支"}>
+        <input type="checkbox" bind:checked={all} disabled={!!pinned?.lines} /> <span>全部分支</span>
       </label>
+      {#if pinned}
+        <!-- 只看一个文件 / 几行（菜单、编辑器右键进来的）：说清看的是什么，✕ 回到整个仓库 -->
+        <span class="pin" title={pinned.rel}>
+          只看 {pinned.rel.slice(pinned.rel.lastIndexOf("/") + 1)}{#if pinned.lines}{pinned.lines[0] === pinned.lines[1] ? ` 第 ${pinned.lines[0]} 行` : ` 第 ${pinned.lines[0]}–${pinned.lines[1]} 行`}{/if}
+          <button class="ibtn xs" aria-label="不只看它了" title="回到整个仓库的历史" onclick={() => (logFilter.v = null)}><Icon name="x" /></button>
+        </span>
+      {:else}
+        <label class="chk" class:off={!filePath} title="只看当前文件">
+          <input type="checkbox" bind:checked={onlyFile} disabled={!filePath} /> <span>只看当前文件</span>
+        </label>
+      {/if}
       <span class="gap"></span>
       <span class="cnt">
         {#if loading}<span class="spinner sm"></span>{:else}{shown.length}{q.trim() ? ` / ${commits.length}` : ""} 条{/if}
@@ -446,6 +462,7 @@
   }
   .q:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-glow); }
   .chk { display: flex; align-items: center; gap: 4px; }
+  .pin { display: inline-flex; align-items: center; gap: 2px; min-width: 0; padding: 0 2px 0 8px; height: 22px; border-radius: var(--r-xs); background: var(--selected); color: var(--text); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chk.off { opacity: 0.4; }
   .chk input { margin: 0; accent-color: var(--accent); }
   .cnt { font-family: var(--ui-font); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--text-faint); }

@@ -74,6 +74,9 @@
       out.push(
         { label: "查看这个文件的改动", sep: true, run: () => onMenuAction("git-file-diff") },
         { label: "显示 / 隐藏注解（blame）", run: () => onMenuAction("git-blame") },
+        // IDEA 右键 › Git › Show History / Show History for Selection（docs/TAKEOVER.md G16）
+        { label: "这个文件的历史", run: () => onMenuAction("git-file-history") },
+        { label: api.hasSelection ? "选中几行的历史" : "这一行的历史", run: () => onMenuAction("git-selection-history") },
       );
     }
     return out;

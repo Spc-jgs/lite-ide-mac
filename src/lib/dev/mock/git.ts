@@ -381,8 +381,9 @@ index 1a2b3c4..5d6e7f8 100644
       return "[m13/git abc1234] 桩提交";
 
     // 造一段带合并的历史，泳道图的分叉与汇合都能看到
+    // 真实现：有 path 时 `--follow`、有 lines 时 `git log -L`（docs/TAKEOVER.md G16）。桩里没有真历史：只看几行时给前两条，看得到「列表变短了」
     case "git_log_entries":
-      return MOCK_LOG;
+      return a.lines ? MOCK_LOG.slice(0, 2) : MOCK_LOG;
     case "git_commit_files":
       return [
         g("src/OrderService.java", "M", "."),

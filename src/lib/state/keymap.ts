@@ -425,6 +425,9 @@ export const KEYS: KeyDef[] = [
   { id: "git-file-diff", label: "查看当前文件的改动", group: "Git", owner: "menu" },
   { id: "git-blame", label: "显示 / 隐藏注解（blame）", group: "Git", owner: "menu" },
   { id: "git-log", label: "提交历史", group: "Git", owner: "menu" },
+  // IDEA 的 Show History / Show History for Selection（docs/TAKEOVER.md G16）：提交历史那个工具窗只列这个文件 / 这几行的，跟着改名往前找
+  { id: "git-file-history", label: "当前文件的历史", group: "Git", owner: "menu" },
+  { id: "git-selection-history", label: "选中几行的历史", group: "Git", owner: "menu" },
   { id: "git-console", label: "Git 控制台", group: "Git", owner: "menu" },
   { id: "git-branches", label: "分支与工作树…", group: "Git", owner: "menu" },
   { id: "git-refresh", label: "刷新状态", group: "Git", owner: "menu" },

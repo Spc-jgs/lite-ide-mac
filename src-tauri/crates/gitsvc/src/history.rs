@@ -25,12 +25,15 @@ pub struct LogEntry {
 /// 提交历史。
 ///
 /// `all` 为真时把所有分支都算进来（IDEA 的「全部分支」），否则只看当前 HEAD 这条线。
-/// `path` 非空时只看某个文件的历史。
+/// `path` 非空时只看某个文件的历史，**跟着改名往前找**（`--follow`，IDEA 的 Show History 也跟；不跟的话改过名的文件历史停在改名那一刻）。
+/// `lines`（从 1 数、两头都算）：只看动过这几行的提交（`git log -L`，IDEA 的 Show History for Selection，docs/TAKEOVER.md G16）。
+/// 只要提交列表（`-s` 不带补丁：git 2.54 实测 `-L` 和 `-s` 能一起用；`-L` 自己会跟着改名）；`-L` 只能看当前这条线，`all` 不管用
 pub fn log_entries(
     root: impl AsRef<Path>,
     limit: usize,
     all: bool,
     path: &str,
+    lines: Option<(u32, u32)>,
 ) -> R<Vec<LogEntry>> {
     let n = format!("-{limit}");
     // %H sha · %h 短 sha · %an 作者 · %ae 邮箱 · %ar 相对时间 · %ad 日期
@@ -51,12 +54,24 @@ pub fn log_entries(
         "--date=short",
         "--topo-order",
     ];
-    if all {
-        args.push("--all");
-    }
-    if !path.is_empty() {
-        args.push("--");
-        args.push(path);
+    let range;
+    match lines {
+        Some((a, b)) if !path.is_empty() => {
+            // 行号到 git 那里是 `-L起,止:路径` 一个参数：路径就在参数里，不会被当成开关（同 `--` 的用意）
+            range = format!("-L{},{}:{path}", a.max(1), b.max(a.max(1)));
+            args.push(&range);
+            args.push("-s");
+        }
+        _ => {
+            if all {
+                args.push("--all");
+            }
+            if !path.is_empty() {
+                args.push("--follow");
+                args.push("--");
+                args.push(path);
+            }
+        }
     }
     let out = match run(root.as_ref(), &args) {
         Ok(s) => s,
