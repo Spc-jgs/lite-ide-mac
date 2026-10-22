@@ -176,6 +176,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .separator()
         .item(&close_tab)
         .item(&close_all)
+        .item(&item(app, "reopen-tab", "重新打开关掉的标签", Some("Shift+CmdOrCtrl+T"))?)
         .separator()
         .item(&local_history)
         .separator()
@@ -239,6 +240,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         // ⌘P 只放标签：挂了 accelerator，终端里的 ⌘P 就被菜单抢走了
         .item(&item(app, "quick-file", "找文件…", Some("Shift+CmdOrCtrl+O"))?)
         .item(&item(app, "recent-files", "最近文件…", None)?)
+        .item(&item(app, "recent-locations", "最近位置…", Some("Shift+CmdOrCtrl+E"))?)
         .item(&item(app, "quick-content", "在项目中搜索…", Some("Shift+CmdOrCtrl+F"))?)
         .item(&item(app, "replace-content", "在项目中替换…", Some("Shift+CmdOrCtrl+R"))?)
         .item(&outline)

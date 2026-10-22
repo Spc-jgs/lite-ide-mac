@@ -115,6 +115,8 @@ export const KEYS: KeyDef[] = [
   { id: "save-as", label: "另存为…", accel: "⇧⌘S", group: "文件", owner: "menu" },
   { id: "close-tab", label: "关闭标签", accel: "⌘W", group: "文件", owner: "menu" },
   { id: "close-all-tabs", label: "关闭所有标签", group: "文件", owner: "menu" },
+  /* IDEA 的 Reopen Closed Tab（同 Chrome / VS Code 的 ⇧⌘T）：一层层往回开你亲手关掉的标签 */
+  { id: "reopen-tab", label: "重新打开关掉的标签", accel: "⇧⌘T", group: "文件", owner: "menu" },
   /** 本地历史（docs/IDEA.md 第 21 节，IDEA 的 Local History → Show History）。IDEA 默认没给它键位，这里也不给；编辑器右键里也有 */
   { id: "local-history", label: "本地历史…", group: "文件", owner: "menu" },
   /*
@@ -143,6 +145,8 @@ export const KEYS: KeyDef[] = [
   { id: "quick-file", label: "找文件…", accel: "⇧⌘O", group: "导航", owner: "menu" },
   /** IDEA 的 ⌘E：找文件那个面板空着的时候列的就是最近打开的，这条只是那个手势的名字。留 keydown：终端里的 ⌘E 是 shell 的「行尾」 */
   { id: "recent-files", label: "最近文件…", accel: "⌘E", group: "导航", owner: "key" },
+  /* IDEA 的 Recent Locations：最近看过 / 跳过的地方，带那一行代码（⌘E 是最近的文件，这个是最近的位置） */
+  { id: "recent-locations", label: "最近位置…", accel: "⇧⌘E", group: "导航", owner: "menu" },
   /*
    * 切标签（2026-09-23 之前一个键都没有）。归 keydown 不归菜单：⌃Tab 要「松开 ⌃ 才选定」，
    * 菜单项只有按下没有松开；⌘⇧[ ⌘⇧] 跟着它一起，省得一对键分两处接。终端里 xterm 已经放行。

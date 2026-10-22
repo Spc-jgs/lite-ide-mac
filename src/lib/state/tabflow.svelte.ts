@@ -317,6 +317,12 @@ class TabFlow {
     };
   }
 
+  /**
+   * 你亲手关掉的标签（⇧⌘T 一层层往回开，docs/TAKEOVER.md G6）。只记真文件、最多 30 个、不进快照。
+   * 记在 `requestClose` 不记在 `doClose`：后者还管替换预览、切项目、删文件那些「不是你关的」，记进来全是噪音
+   */
+  closed: string[] = [];
+
   requestClose(id: number, force = false) {
     const tab = tabs.byId(id);
     if (!tab) return;
@@ -325,6 +331,7 @@ class TabFlow {
       notify.hint(`${tab.name} 已钉住 —— 点标签上的图钉取消钉住，或右键「关闭」`);
       return;
     }
+    if (tab.path.startsWith("/")) this.closed = [...this.closed.filter((p) => p !== tab.path).slice(-29), tab.path];
     if (tab.dirty) {
       /*
        * 草稿先自己写一次（issue #40）：写成了就直接关，不问 ——
@@ -349,6 +356,10 @@ class TabFlow {
   // ── 动作：全部转发到 tabflow-ops.ts（按需加载，入口包瘦身 2026-09-21）。签名和文档见那边 ──
   async closeProject() {
     return (await ops()).closeProject();
+  }
+  /** ⇧⌘T：重新打开最近关掉、现在没开着的那个 */
+  async reopenClosed() {
+    return (await ops()).reopenClosed();
   }
   async openFolder() {
     return (await ops()).openFolder();

@@ -675,5 +675,27 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   for (const t of [...tabs.list]) tabflow.doClose(t);
 }
 
+// ── ⇧⌘T 重新打开关掉的标签（docs/TAKEOVER.md G6）：只记你亲手关的；替换掉的预览标签不算；一层层往回 ──
+{
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+  tabflow.closed = [];
+  await tabflow.openPath("/proj/pom.xml", { preview: false });
+  await tabflow.openPath("/proj/package.json", { preview: false });
+  // 单击预览一个、再单击预览另一个：前一个被替换掉（走 doClose），不是你关的
+  await tabflow.openPath("/proj/README.md", { preview: true });
+  await tabflow.openPath("/proj/Cargo.toml", { preview: true });
+  ok(!tabs.byPath("/proj/README.md"), "前提：预览的 README 被替换掉了");
+  tabflow.requestClose(tabs.byPath("/proj/pom.xml")!.id);
+  tabflow.requestClose(tabs.byPath("/proj/package.json")!.id);
+  ok(tabflow.closed.join() === "/proj/pom.xml,/proj/package.json", `只记亲手关的两个，替换掉的预览不在里面：${tabflow.closed.join()}`);
+  await tabflow.reopenClosed();
+  ok(!!tabs.byPath("/proj/package.json") && !tabs.byPath("/proj/package.json")!.preview, "⇧⌘T：最后关的那个回来，正式标签");
+  await tabflow.reopenClosed();
+  ok(!!tabs.byPath("/proj/pom.xml"), "再按一次：再往前那个回来");
+  await tabflow.reopenClosed();
+  ok(tabflow.closed.length === 0, "都开回来了：再按说一句、不出错");
+  for (const t of [...tabs.list]) tabflow.doClose(t);
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 状态层（tabflow / docs / files）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

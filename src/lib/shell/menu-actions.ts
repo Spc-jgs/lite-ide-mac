@@ -163,6 +163,8 @@ export async function runMenu(id: string, ctx: MenuCtx) {
       if (tabs.active) tabflow.requestClose(tabs.active.id);
       return;
     case "close-all-tabs": return tabflow.closeMany(tabs.list.map((t) => t.id));
+    case "reopen-tab": return void tabflow.reopenClosed();
+    case "recent-locations": return void import("./recent-locations").then((m) => m.openRecentLocations());
     case "toggle-mode":
       if (tabs.active) tabflow.requestSwitchMode(tabs.active);
       return;

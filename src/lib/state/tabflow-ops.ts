@@ -33,6 +33,14 @@ import type { TabState } from "./tab";
  * （脏的留着，自己会在关的时候问）、草稿不动。VS Code 的 Close Folder 也是
  * 这个语义。没有项目时什么都不做。
  */
+/** ⇧⌘T（docs/TAKEOVER.md G6）：最近关掉、现在没开着的那个，正式标签打开；位置照旧回到上次那一行（`posByPath` 关的时候没删）。一层层往回 */
+export async function reopenClosed() {
+  const p = [...tabflow.closed].reverse().find((x) => !tabs.byPath(x));
+  if (!p) return void notify.hint("没有关掉的标签可以重新打开");
+  tabflow.closed = tabflow.closed.filter((x) => x !== p);
+  await tabflow.openPath(p, { preview: false });
+}
+
 export function closeProject() {
   const old = project.root;
   if (!old) return;
