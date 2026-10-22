@@ -37,8 +37,8 @@ pub struct Case {
     pub detail: String,
 }
 
-/// XML 的五个实体和数字实体 → 字符。不认的 `&xxx;` 原样留着（surefire 不会写别的）
-fn unescape(s: &str) -> String {
+/// XML 的五个实体和数字实体 → 字符。不认的 `&xxx;` 原样留着（surefire 不会写别的）。`ideacfg` 读 IDEA 的 workspace.xml 也用它
+pub(crate) fn unescape(s: &str) -> String {
     if !s.contains('&') {
         return s.to_string();
     }
@@ -81,7 +81,7 @@ fn unescape(s: &str) -> String {
 }
 
 /// 一个开始标签里某个属性的值（`name="…"` 或 `name='…'`），已解码。按「前面是空白」认属性名，免得 `classname` 被当成 `name`
-fn attr(tag: &str, name: &str) -> Option<String> {
+pub(crate) fn attr(tag: &str, name: &str) -> Option<String> {
     let mut from = 0;
     while let Some(i) = tag[from..].find(name) {
         let at = from + i;

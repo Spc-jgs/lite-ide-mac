@@ -316,11 +316,46 @@ IPC 往返在临时身份的 `.app` 上往 `main.ts` 临时加了一个探针、
 
 ### 13.7 分步
 
-进度（2026-10-22）：1–3 做完；4 是说好的下一步。
+进度（2026-10-22）：1–3 做完；4 改了方向（13.8）：做的是「从 IDEA 的 workspace.xml 导入」，不是 `.run/*.run.xml`。
 
 | 步 | 做什么 | 怎么验 |
 |---|---|---|
 | 1 | Rust：新键（`Kind` 加布尔、字符串列表）、`settings.json` 的定点改写、`project-settings.json`、运行配置进命令、Maven 怎么调（mvnw / 目录 / -s / 本地仓库 / 额外参数 / MAVEN_OPTS，所有 mvn 命令一处拼）、JDK 多找几处 + 手动加的、jdtls 的 runtimes 和内存跟着走 | 单测，各自改坏验红 |
 | 2 | 前端：设置对话框、运行配置对话框、⌘, 改开对话框（对话框里留「打开 settings.json」）、Services「编辑配置…」、桩 | 浏览器桩 |
 | 3 | 真 `.app`：设置页改了写回去、注释还在；运行配置的 profile / VM 参数真到了 JVM、调试照常；项目有 mvnw 时用它 | 验收脚本 |
-| 4 | `.run/*.run.xml`：读 IDEA 的 Spring Boot 配置、「存成项目文件」 | 拿 IDEA 存的真文件对 |
+| 4 | ~~`.run/*.run.xml`：读 IDEA 的 Spring Boot 配置、「存成项目文件」~~ → 从 `.idea/workspace.xml` 导入（13.8） | 字段照 IDEA 源码 / 字节码核对；你机器上三份真文件过一遍；验收脚本 |
+
+### 13.8 从 IDEA 带运行配置过来
+
+**为什么改了方向。** 动手前去看了你机器上 IDEA 存的真文件（只看结构、不看值）：三个项目都**没有** `.run/`，
+11 份 Spring Boot 运行配置全在私有的 `.idea/workspace.xml` 里，而且全是 `nameIsGenerated="true"` —— IDEA 认出主类自动建的，
+只有主类和模块，profile、VM 参数、环境变量一个都没配。`.run/*.run.xml` 对你是空的；你选了「改成读 workspace.xml」。
+按现在的数据它也导入不出东西（这些我们扫 pom 本来就认得），它管的是「在 IDEA 里配过」的那种项目。`.run/` 和 `.idea/runConfigurations/`
+是同一种 `<configuration>`，加进来是几行的事，等真有人提交了再做。
+
+**读什么、怎么转**（`ideacfg.rs`；字段名、默认值、怎么进命令照 IDEA 2026.1 核对：平台部分读 intellij-community 的源码，
+Spring Boot 插件不开源、读装着的那份 IDEA 里的字节码）：
+
+| IDEA 里 | XML | 我们这边 |
+|---|---|---|
+| Active profiles | `ACTIVE_PROFILES` | Spring profile |
+| VM options | `VM_PARAMETERS` | VM 参数（**重新拆、重新包引号**，见下） |
+| Override configuration properties | `<additionalParameters><param>`，勾上的（`enabled` 默认关、没写就是没勾） | 进 VM 参数：`-D名=值`，值空的是 `-D名` |
+| Enable debug output / Hide banner | `DEBUG_MODE` / `HIDE_BANNER` | `-Ddebug` / `-Dspring.main.banner-mode=OFF` |
+| Program arguments | `PROGRAM_PARAMETERS` | 程序参数（同 VM 参数） |
+| Environment variables | `<envs><env name value/>` | 环境变量；名字放不进 shell 的不带、说一句 |
+| JRE | `ALTERNATIVE_JRE_PATH` + `_ENABLED` | 是路径、是 JDK 就带；是 IDEA 自己 JDK 表里的名字（`corretto-17`）认不出、说一句、跟项目 |
+| 社区版的 Application 配置 | `type="Application"`、`MAIN_CLASS_NAME` | 同上，按主类对上 Spring 服务 |
+
+不带、也不说的：`ENABLE_LAUNCH_OPTIMIZATION`（**默认开**，IDEA 每次起都带 `-XX:TieredStopAtLevel=1` —— 它自己的启动加速，不是你配的）、
+JMX、缩短命令行、URL 路径这些 IDEA 自己的行为。带不过来、要说一句的：别的工作目录、关了「带上系统环境变量」、`.env` 文件、`$名字$` 路径变量。
+
+**参数串不能原样搬。** IDEA 拆参数只认双引号（`\"` 转义、单引号是普通字符），再把 `${名字}` 换成环境变量；我们的 VM 参数一栏是 shell 的写法。
+原样搬的话，`-Dmsg='a b'` 在 IDEA 里是一个带单引号的值、到 shell 里引号没了；`-Dcost=$5` 到 shell 里 `$5` 被吃掉。
+所以照 IDEA 的规则拆成一个个参数，再一个个套单引号，`${名字}` 留在外面给 shell 展开（IDEA 先查自己的路径变量、不分大小写，这两处对不齐）。
+
+**路径要换回来。** IDEA 存盘时把值里的项目目录、家目录换成 `$PROJECT_DIR$` / `$USER_HOME$`，读的时候换回去（`$PROJECT_DIR$` 是 `.idea` 所在的目录 ——
+项目根和每个 reactor 目录下的 `.idea` 都读，IDEA 的项目根不一定是你打开的那一层）。
+
+**点一下是填进表单，不是存。** 和手改一样要点「确定」；整份换掉不合并（IDEA 里没配的就是空的）。对上服务按主类，
+好几个服务同一个主类时再按模块名分。workspace.xml 超过 16 MB 不读、说一句（它常年攒着别的组件，RunManager 只是一段）。

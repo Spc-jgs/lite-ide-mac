@@ -130,7 +130,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
 public class UserApplication {
-    public static void main(String[] args) { SpringApplication.run(UserApplication.class, args); }
+    public static void main(String[] args) { System.out.println("LITE-IDE-IDEA " + System.getProperty("lite.msg") + "|" + System.getProperty("lite.over") + "|" + System.getenv("LITE_IDEA_ENV") + "|" + System.getProperty("spring.profiles.active")); SpringApplication.run(UserApplication.class, args); }
 }
 EOF
 printf 'server:\n  port: %s\n' "${UP}" > "${P}/user-service/src/main/resources/application.yml"
@@ -484,6 +484,64 @@ lite menu build-project main >/dev/null
 lite_wait main "${B} return !!r && r.id !== ${before} && r.status !== 'running'" 240 >/dev/null
 ok "$(lite_eval main "${B} return r?.command ?? ''" | grep -qv "mvnw" && lite_eval main "${B} return r?.command ?? ''" | grep -q "mvn -B -ntp" && grep -q '"maven.useWrapper": false,' "${LITE_DATA}/settings.json" && echo 1)" "设置里关掉「用 mvnw」（写进了 settings.json）：用 PATH 里的 mvn：$(lite_eval main "${B} return (r?.command ?? '').replace(/^export [^;]*; /, '').slice(0, 40)")"
 rm -f "${P}/mvnw"
+
+echo "== 从 IDEA 带运行配置（docs/SETTINGS.md 13.8）：项目里有 IDEA 存的 .idea/workspace.xml → 「编辑配置…」里 UserApplication 多一个「从 IDEA 导入」→ 填进表单、确定 → 起的 JVM 拿到；IDEA 自动建的那份（只有主类和模块）不列"
+# 照 IDEA 2026.1 存出来的样子写（字段名、默认值不写、路径换成 $PROJECT_DIR$、VM 参数里的双引号）
+mkdir -p "${P}/.idea"
+cat > "${P}/.idea/workspace.xml" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectId" id="lite-ide-accept" />
+  <component name="RunManager" selected="Spring Boot.UserApplication (idea)">
+    <configuration name="OrderApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot" nameIsGenerated="true">
+      <module name="order-service" />
+      <option name="SPRING_BOOT_MAIN_CLASS" value="com.demo.order.OrderApplication" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="UserApplication (idea)" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+      <option name="ACTIVE_PROFILES" value="ideaprof" />
+      <additionalParameters>
+        <param>
+          <option name="enabled" value="true" />
+          <option name="name" value="lite.over" />
+          <option name="value" value="o1" />
+        </param>
+      </additionalParameters>
+      <envs>
+        <env name="LITE_IDEA_ENV" value="e1" />
+      </envs>
+      <module name="user-service" />
+      <option name="SPRING_BOOT_MAIN_CLASS" value="com.demo.user.UserApplication" />
+      <option name="VM_PARAMETERS" value="-Dlite.msg=&quot;a b $PROJECT_DIR$&quot;" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+  </component>
+</project>
+EOF
+WS0=$(shasum "${P}/.idea/workspace.xml")
+lite menu run-configs main >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.runcfg #rc-profiles')" 30 >/dev/null
+# 带花括号的 JS 放进单引号变量：bash 3.2 在 $(…) 里照样做花括号展开（AGENTS.md「验证纪律」）
+BTNS='const btns = async (n) => { [...d.querySelectorAll(".svc")].find((b) => b.textContent.trim() === n).click(); await tick(); return [...d.querySelectorAll(".idea .btn")].map((b) => b.textContent.trim()).join(","); };'
+IDEA=$(lite_eval main "${RC} ${BTNS} return 'Order=' + (await btns('OrderApplication')) + ' User=' + (await btns('UserApplication'))")
+ok "$([ "${IDEA}" = "Order= User=从「UserApplication (idea)」导入" ] && echo 1)" "只有配过东西的那份有「导入」，自动建的不列：${IDEA}"
+lite_eval main "${RC} d.querySelector('.idea .btn').click(); await tick(); d.querySelector('[data-default]').click(); return true" >/dev/null
+lite_wait main "return !document.querySelector('.dialog.runcfg')" 10 >/dev/null
+pick UserApplication >/dev/null
+if wait_for 120 "listening ${UP}"; then
+  G=$(pgid_of "${UP}"); GROUPS_SEEN+=("${G}")
+  ok "$(logtext UserApplication | grep -qF "LITE-IDE-IDEA a b ${P}|o1|e1|ideaprof" && echo 1)" "起来的 JVM 拿到了：带空格的 VM 参数是一个参数、\$PROJECT_DIR\$ 换回了路径、勾上的覆盖属性、环境变量、profile：$(logtext UserApplication | grep LITE-IDE-IDEA | tail -1 | sed "s|${P}|<项目>|")"
+  lite menu run-stop main >/dev/null
+  wait_for 15 "! listening ${UP}" >/dev/null
+else
+  ok "" "UserApplication 带着导入的配置没起来：$(logtext UserApplication | tail -5)"
+fi
+ok "$([ "$(shasum "${P}/.idea/workspace.xml")" = "${WS0}" ] && [ "$(ls "${P}/.idea")" = workspace.xml ] && echo 1)" "IDEA 的文件只读：workspace.xml 一个字节没变、.idea 里没多东西"
+rm -rf "${P}/.idea"
 
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then

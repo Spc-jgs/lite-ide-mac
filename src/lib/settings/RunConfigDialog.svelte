@@ -4,11 +4,12 @@
    * 左边认出来的 Spring 服务，右边它的 Spring profile、VM 参数、程序参数、环境变量、JDK。
    *
    * 只往我们拼的命令里加东西（Rust 的 `maven::run_command`），所以调试、热替换照常。存在应用自己的目录里，只有你自己的
-   * （IDEA 的运行配置默认也是：`.idea/workspace.xml`）；写成 `.run/*.run.xml` 和同事共享是下一步。
+   * （IDEA 的运行配置默认也是：`.idea/workspace.xml`）。IDEA 里给这个服务配过的（profile、VM 参数……），上面一行「从 IDEA 导入」
+   * 填进表单（`ideacfg.rs` 读、转好），带不过来的几处列在底下 —— 填进来不等于存了，和手改一样要点「确定」
    * 改的是下次起它时用的：正在跑的要重跑才生效，底下说一句
    */
   import Icon from "../shell/Icon.svelte";
-  import type { RunConfig, RunConfigs } from "../ipc/commands";
+  import type { IdeaRun, RunConfig, RunConfigs } from "../ipc/commands";
   import { runConfigs, runConfigSet } from "../ipc/settings";
   import { imeKey } from "../shell/ime";
   // 静态引：notify 本来就在入口包里。写成 `await import()` 的话 Rollup 要在入口里给它造一个模块命名空间对象（+114 B，量过）
@@ -24,6 +25,8 @@
   let busy = $state(false);
   let error = $state("");
   let applied = $state(false);
+  /** 刚从 IDEA 导入的：哪个服务、从哪份、带不过来的几处 */
+  let took = $state<{ svc: string; from: string; notes: string[] } | null>(null);
 
   $effect(() => {
     void runConfigs(root)
@@ -46,6 +49,13 @@
     applied = false;
   }
 
+  /** 整份换成 IDEA 那份（不是合并：IDEA 里没配的就是空的） */
+  function takeIdea(r: IdeaRun) {
+    if (!cur) return;
+    patch({ profiles: r.profiles, vmOptions: r.vmOptions, programArgs: r.programArgs, env: r.env.map((e) => ({ ...e })), jdk: r.jdk });
+    took = { svc: cur.name, from: r.name, notes: r.notes };
+  }
+
   async function apply(thenClose: boolean) {
     if (!data) return;
     error = "";
@@ -60,6 +70,7 @@
       const changed = dirtyNames.length;
       data = await runConfigs(root);
       edits = {};
+      took = null;
       if (thenClose) {
         onclose();
         if (changed) {
@@ -114,6 +125,20 @@
         {:else}
           <h3>{cur.name}</h3>
           <p class="doc">{cur.mainClass}{cur.module ? `（${cur.module}）` : ""}</p>
+          {#if cur.idea.length}
+            <div class="idea">
+              <span class="idea-lab">IDEA 里配过</span>
+              {#each cur.idea as r (r.name)}
+                <button class="btn sm" onclick={() => takeIdea(r)} title="把它的 profile、VM 参数、程序参数、环境变量、JDK 换进下面（点「确定」才存）">从「{r.name}」导入</button>
+              {/each}
+            </div>
+            {#if took?.svc === cur.name}
+              <div class="took">
+                已把「{took.from}」填进下面，点「确定」才存{took.notes.length ? `；有 ${took.notes.length} 处带不过来：` : "。"}
+                {#if took.notes.length}<ul>{#each took.notes as n (n)}<li>{n}</li>{/each}</ul>{/if}
+              </div>
+            {/if}
+          {/if}
 
           <label class="lab" for="rc-profiles">Spring profile</label>
           <input id="rc-profiles" class="field" bind:value={() => cur!.profiles, (v) => patch({ profiles: v })} placeholder="dev, local" spellcheck="false" />
@@ -148,6 +173,12 @@
             <button class="choice" role="radio" aria-checked={cur.jdk === ""} onclick={() => patch({ jdk: "" })}>
               <span class="dot" class:on={cur.jdk === ""}></span><span class="what">跟项目</span><span class="where">设置 › 此项目 里选的；没选就按 pom 自动挑</span>
             </button>
+            {#if cur.jdk && !data.jdks.some((j) => j.home === cur.jdk)}
+              <!-- 选的这个不在列表里（导入的 IDEA 配置指的、或者存过之后挪走了）：照样列出来，别让人以为什么都没选 -->
+              <button class="choice" role="radio" aria-checked="true">
+                <span class="dot on"></span><span class="what">不在列表里</span><span class="where">{cur.jdk}</span>
+              </button>
+            {/if}
             {#each data.jdks as j (j.home)}
               <button class="choice" role="radio" aria-checked={cur.jdk === j.home} onclick={() => patch({ jdk: j.home })}>
                 <span class="dot" class:on={cur.jdk === j.home}></span><span class="what">Java {j.version}</span><span class="where">{j.home}</span>
@@ -158,7 +189,7 @@
       </section>
     </div>
     <div class="actions">
-      <span class="note">只存在你这台机器上，不往项目里写</span>
+      <span class="note">{data?.ideaProblems.length ? data.ideaProblems.join("；") : "只存在你这台机器上，不往项目里写"}</span>
       <span class="gap"></span>
       {#if error}<span class="err">{error}</span>{:else if applied}<span class="ok">已应用</span>{/if}
       <button class="btn" data-dismiss onclick={onclose}>取消</button>
@@ -224,6 +255,10 @@
   .mono { font-family: var(--code-font); font-size: var(--fs-sm); }
   .doc { margin: 6px 0 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); }
   .ferr { margin: 6px 0 0; font-size: var(--fs-sm); color: var(--lvl-error); }
+  .idea { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+  .idea-lab { font-size: var(--fs-sm); color: var(--text-muted); }
+  .took { margin-top: 8px; max-width: 560px; padding: 6px 10px; border-radius: var(--r-sm); background: var(--hover); font-size: var(--fs-sm); line-height: 1.5; color: var(--text-dim); }
+  .took ul { margin: 4px 0 0; padding-left: 18px; }
   .env { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
   .kv { display: flex; align-items: center; gap: 6px; width: 100%; max-width: 560px; }
   .kv .k { flex: 0 0 180px; }

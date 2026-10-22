@@ -1184,6 +1184,8 @@ pub struct ProjectPageDto {
 pub struct RunConfigsDto {
     pub services: Vec<RunConfigDto>,
     pub jdks: Vec<JdkDto>,
+    /// IDEA 的 workspace.xml 读不了的（太大、读不出），一条一句
+    pub idea_problems: Vec<String>,
 }
 
 /// 一个 Spring 服务的运行配置
@@ -1199,6 +1201,23 @@ pub struct RunConfigDto {
     pub env: Vec<EnvVarDto>,
     /// 空 = 跟项目
     pub jdk: String,
+    /// IDEA 里这个服务的运行配置（`.idea/workspace.xml`，`ideacfg`），对话框里点一下填进表单
+    pub idea: Vec<IdeaRunDto>,
+}
+
+/// IDEA 里的一份运行配置，转成我们的写法了
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeaRunDto {
+    /// IDEA 里起的名字
+    pub name: String,
+    pub profiles: String,
+    pub vm_options: String,
+    pub program_args: String,
+    pub env: Vec<EnvVarDto>,
+    pub jdk: String,
+    /// 带不过来、或者带过来意思会变的那几处
+    pub notes: Vec<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]

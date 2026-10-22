@@ -1,7 +1,8 @@
 //! 按项目的设置（docs/SETTINGS.md 13.4）：项目用哪个 JDK、每个 Spring 服务的运行配置。
 //!
 //! **默认只有你自己的**，存在应用数据目录的 `project-settings.json`（按项目根），不往项目里写 —— 同 IDEA 运行配置默认存在
-//! `.idea/workspace.xml`：VM 参数里常有本机路径、数据库密码，不该一不小心就提交上去。要和同事共享的，第二步做成 IDEA 的 `.run/*.run.xml`。
+//! `.idea/workspace.xml`：VM 参数里常有本机路径、数据库密码，不该一不小心就提交上去。IDEA 里配过的，运行配置对话框里「从 IDEA 导入」（`ideacfg`）；
+//! 和同事共享（IDEA 的 `.run/*.run.xml`）暂不做 —— 真文件里一份都没有，理由在 13.8。
 //!
 //! 读写的样子照 `maven-prefs.json`（`maven::prefs`）：几十字节到几 KB 的文件，每次现读，不缓存 —— 和「两个窗口各改一处」比，不值得
 

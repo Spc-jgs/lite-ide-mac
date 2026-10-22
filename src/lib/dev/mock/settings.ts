@@ -36,6 +36,18 @@ function view() {
   };
 }
 
+const MOCK_IDEA = [
+  {
+    name: "ShopApplication (dev)",
+    profiles: "dev,local",
+    vmOptions: "-Xmx512m '-Dmsg=hello world' -Dserver.port=8081",
+    programArgs: "",
+    env: [{ name: "DB_URL", value: "jdbc:mysql://localhost/shop" }],
+    jdk: "",
+    notes: ["IDEA 里选的 JDK「corretto-17」是 IDEA 自己起的名字，这里认不出，跟项目"],
+  },
+];
+
 /** 和 Rust 的 `settings::DEFS` 一致（键、类型、默认值、次序）；说明文字简写 */
 const SCHEMA = [
   { key: "editor.fontFamily", label: "代码字体", kind: "string", default: '"JetBrains Mono"', doc: "代码字体：编辑器、差异、日志视图", min: null, max: null },
@@ -136,7 +148,7 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
       const { tasks } = (await import("./tasks")).mockTaskList(root);
       const services = tasks
         .filter((t) => t.source === "spring")
-        .map((t) => {
+        .map((t, i) => {
           const r = runs[t.name] ?? {};
           return {
             name: t.name,
@@ -147,9 +159,11 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
             programArgs: (r.programArgs as string) ?? "",
             env: (r.env as unknown[]) ?? [],
             jdk: (r.jdk as string) ?? "",
+            // 真实现读项目的 .idea/workspace.xml（ideacfg.rs）；桩给第一个服务一份，看得到「从 IDEA 带过来」那一条
+            idea: i === 0 ? MOCK_IDEA : [],
           };
         });
-      return { services, jdks: MOCK_JDKS };
+      return { services, jdks: MOCK_JDKS, ideaProblems: [] };
     }
     case "run_config_set": {
       const env = (a.env as { name: string }[]) ?? [];

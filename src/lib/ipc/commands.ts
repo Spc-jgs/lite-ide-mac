@@ -361,6 +361,8 @@ export interface ProjectPage {
 export interface RunConfigs {
   services: RunConfig[];
   jdks: Jdk[];
+  /** IDEA 的 workspace.xml 读不了的（太大、读不出），一条一句 */
+  ideaProblems: string[];
 }
 
 /** 一个 Spring 服务的运行配置 */
@@ -374,6 +376,20 @@ export interface RunConfig {
   env: EnvVar[];
   /** 空 = 跟项目 */
   jdk: string;
+  /** IDEA 里这个服务的运行配置（`.idea/workspace.xml`），点一下填进表单 */
+  idea: IdeaRun[];
+}
+
+/** IDEA 里的一份运行配置，转成我们的写法了 */
+export interface IdeaRun {
+  name: string;
+  profiles: string;
+  vmOptions: string;
+  programArgs: string;
+  env: EnvVar[];
+  jdk: string;
+  /** 带不过来、或者带过来意思会变的那几处 */
+  notes: string[];
 }
 
 export interface EnvVar {

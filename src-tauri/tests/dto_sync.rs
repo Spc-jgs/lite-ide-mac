@@ -120,6 +120,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("RunConfigsDto", "RunConfigs"),
     ("RunConfigDto", "RunConfig"),
     ("EnvVarDto", "EnvVar"),
+    ("IdeaRunDto", "IdeaRun"),
     ("HttpHeaderDto", "HttpHeader"),
     ("HttpResponseDto", "HttpResponse"),
     ("HttpEnvsDto", "HttpEnvs"),

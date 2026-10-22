@@ -14,6 +14,7 @@ pub mod diag;
 pub mod menu;
 mod open;
 mod owned;
+mod ideacfg;
 mod jdks;
 mod projectcfg;
 mod settings;

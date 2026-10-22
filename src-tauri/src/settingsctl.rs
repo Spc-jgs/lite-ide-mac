@@ -342,17 +342,35 @@ pub fn run_configs(root: &str) -> crate::commands::RunConfigsDto {
     let rp = std::path::Path::new(root);
     let cfg = crate::projectcfg::get(rp);
     let (tasks, _) = crate::taskdefs::spring_tasks(rp);
+    let (idea, idea_problems) = crate::ideacfg::read(rp);
     let services = tasks
-        .into_iter()
+        .iter()
         .map(|t| {
             let r = cfg.runs.get(&t.def.name).cloned().unwrap_or_default();
+            // 按主类对上；好几个服务同一个主类（各模块一个 Application）时再按模块名分，IDEA 的模块名一般是 artifactId、我们这边是目录名
+            let same_main = tasks.iter().filter(|o| o.app.main_class == t.app.main_class).count();
+            let dir = t.app.module.rsplit('/').next().unwrap_or("");
+            let idea = idea
+                .iter()
+                .filter(|i| i.main_class == t.app.main_class && (same_main == 1 || i.module == dir || i.module.is_empty()))
+                .map(|i| crate::commands::IdeaRunDto {
+                    name: i.name.clone(),
+                    profiles: i.cfg.profiles.clone(),
+                    vm_options: i.cfg.vm_options.clone(),
+                    program_args: i.cfg.program_args.clone(),
+                    env: i.cfg.env.iter().map(|(name, value)| crate::commands::EnvVarDto { name: name.clone(), value: value.clone() }).collect(),
+                    jdk: i.cfg.jdk.clone(),
+                    notes: i.notes.clone(),
+                })
+                .collect();
             crate::commands::RunConfigDto {
                 main_class: t.app.main_class.clone(),
                 module: match &t.def.source {
                     crate::taskdefs::Source::Spring { module } => module.clone(),
                     _ => String::new(),
                 },
-                name: t.def.name,
+                name: t.def.name.clone(),
+                idea,
                 profiles: r.profiles,
                 vm_options: r.vm_options,
                 program_args: r.program_args,
@@ -361,7 +379,7 @@ pub fn run_configs(root: &str) -> crate::commands::RunConfigsDto {
             }
         })
         .collect();
-    crate::commands::RunConfigsDto { services, jdks: jdk_dtos() }
+    crate::commands::RunConfigsDto { services, jdks: jdk_dtos(), idea_problems }
 }
 
 /// 记下一个服务的运行配置。环境变量名不像变量名的拒掉（进 shell 会变成别的意思），说清是哪个
