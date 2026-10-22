@@ -56,62 +56,30 @@
     <Icon name="sidebar" />
   </button>
   {#if root}
-    <button
-      class="ibtn lg rbtn"
-      class:on={layout.sidebar && layout.sideView === "files"}
-      onclick={() => layout.showSide("files")}
-      title="文件树"
-      aria-label="文件树"
-    >
-      <Icon name="files" />
-    </button>
-    {#if repo}
-      <!--
-        tooltip 里的 ⌘K 是写死的：从 keymap.ts 取（byId）会把整张键位表拽进入口包，
-        2026-09-23 实测 +6.8 KB，就为一行 tooltip。改键位时这里要跟着改（原来是 ⇧⌘G）。
-      -->
-      <button
-        class="ibtn lg rbtn"
-        class:on={layout.sidebar && layout.sideView === "git"}
-        onclick={() => layout.showSide("git")}
-        title="Git 改动 ⌘K"
-        aria-label="Git 改动"
-      >
-        <Icon name="git" />
-        <!--
-          角标带数字。原来是个不带数字的 5px 圆点，而改动条数印在状态栏的
-          「改动 9」按钮上 —— 那个按钮和这个图标是同一件事的两份入口，
-          删掉按钮时计数不能跟着一起没。IDEA 的提交工具窗图标就是这么标的。
-          99 是上限：三位数会把 26px 的按钮撑变形，而「到底是 128 还是 132」
-          在这个位置上没人要看。
-        -->
-        {#if changes > 0}
-          <span class="badge">{changes > 99 ? "99+" : changes}</span>
-        {/if}
-      </button>
-    {/if}
-    {#if maven}
-      <!-- Maven 工具窗（docs/IDEA.md 第 1 步）：模块、生命周期、认出来的 Spring Boot 应用。IDEA 里它是独立的工具窗，这里也是（抄层级） -->
-      <button
-        class="ibtn lg rbtn"
-        class:on={layout.sidebar && layout.sideView === "maven"}
-        onclick={() => layout.showSide("maven")}
-        title="Maven"
-        aria-label="Maven"
-      >
-        <Icon name="maven" />
-      </button>
-    {/if}
-    <!-- 结构（⌘7，docs/TAKEOVER.md G17）：当前文件的类、方法、字段。图标暂用「按包分组」那个，上游的 structure 图标还没下 -->
-    <button
-      class="ibtn lg rbtn"
-      class:on={layout.sidebar && layout.sideView === "structure"}
-      onclick={() => layout.showSide("structure")}
-      title="结构 ⌘7"
-      aria-label="结构"
-    >
-      <Icon name="compact" />
-    </button>
+    <!--
+      侧边栏的四个视图一个模板（2026-10-22 结构窗 ⌘7 进来时合的，同底部那组 10-19 的做法：同样的一段写四遍要付四份，入口包离告警线只剩几百字节）。
+      - Git 改动只在有仓库时出现；角标带数字（原来是不带数字的圆点，条数印在状态栏的「改动 9」上 —— 删那个按钮时计数不能跟着没；
+        IDEA 的提交工具窗图标就是这么标的）。99 封顶：三位数会把 26px 的按钮撑变形，「128 还是 132」在这儿没人要看
+      - tooltip 里的 ⌘K、⌘7 是写死的：从 keymap.ts 取（byId）会把整张键位表拽进入口包（2026-09-23 实测 +6.8 KB）。改键位时这里跟着改
+      - Maven 工具窗（docs/IDEA.md 第 1 步）：Maven 项目才有。IDEA 里它是独立的工具窗，这里也是（抄层级）
+      - 结构（⌘7，docs/TAKEOVER.md G17）：图标暂用「按包分组」那个，上游的 structure 图标还没下
+    -->
+    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 改动", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "structure", on: true, i: "compact", l: "结构", k: " ⌘7", n: 0 }] as const as b}
+      {#if b.on}
+        <button
+          class="ibtn lg rbtn"
+          class:on={layout.sidebar && layout.sideView === b.v}
+          onclick={() => layout.showSide(b.v)}
+          title={b.l + b.k}
+          aria-label={b.l}
+        >
+          <Icon name={b.i} />
+          {#if b.n > 0}
+            <span class="badge">{b.n > 99 ? "99+" : b.n}</span>
+          {/if}
+        </button>
+      {/if}
+    {/each}
     <button class="ibtn lg rbtn" onclick={onSearch} title="在项目中搜内容 ⌘⇧F" aria-label="搜索">
       <Icon name="search" />
     </button>
