@@ -119,7 +119,9 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 156,598 B → CI 取整 152，告警是「大于 152」、红线 160，离告警 74 B**（2026-10-22 晚 ⇧⌘T / ⇧⌘E：+195 B（`tabflow` 记关掉的标签和一个转发、menu-actions 两条 + 一处 `import()`）。
+（**当前 155,941 B → CI 取整 152，告警是「大于 152」、红线 160，离告警 731 B**（2026-10-22 晚 瘦身 −657 B：Git 改动面板、草稿列表的接线（二十来个回调）原来写在 App 模板的 snippet 里、跟着 App 进入口；
+挪进懒的 `GitPaneHost.svelte` / `ScratchListHost.svelte`（展示组件本身照旧只吃 props）。按 sourcemap 把 App.svelte 按 50 行一段归因找到的。文件树的接线用到 App 里的几个局部函数，没挪。
+之前 156,598 B（2026-10-22 晚 ⇧⌘T / ⇧⌘E：+195 B（`tabflow` 记关掉的标签和一个转发、menu-actions 两条 + 一处 `import()`）。
 **第一版是 +528、过了告警线**：`recent-locations.ts`（懒块）里 `await import()` 了 nav / files / docs 三个本来就在入口里的模块，Rollup 给每个在入口里造一个命名空间对象（+101 / +102 / +103）——
 和 10-22 白天 notify 那条一模一样，同一天第二次。懒块里要用入口里的模块，**一律静态引**。离告警 74 B：下一个往首屏加东西之前先做一轮瘦身。
 之前 156,403 B（2026-10-22 晚 终端拆分：先把标题栏项目挂件的菜单项挪进懒的 `menu-items.ts`（−179 B），再加拆分（`terms.pair` / `split()`、Panel 里并排那两个 class、菜单一条，+207 B），净 +28。

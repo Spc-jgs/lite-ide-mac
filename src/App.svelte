@@ -47,10 +47,7 @@
     setWindowRoot,
     listenHere,
     quitReady,
-    gitStage,
-    gitUnstage,
     scratchDir,
-    revealInFinder,
   } from "./lib/ipc/commands";
 
 
@@ -191,7 +188,7 @@
     return () => clearTimeout(id);
   });
   /** 草稿列表（issue #40）。只在侧边栏切到它时才拉，多数会话一次都不切 */
-  const scratchUi = lazy(() => import("./lib/shell/ScratchList.svelte"), "草稿列表");
+  const scratchUi = lazy(() => import("./lib/shell/ScratchListHost.svelte"), "草稿列表");
   $effect(() => {
     if (layout.sidebar && layout.sideView === "scratch") scratchUi.load();
   });
@@ -203,7 +200,7 @@
 
   const gitUi = lazyGroup(
     {
-      pane: () => import("./lib/git/GitPane.svelte"),
+      pane: () => import("./lib/git/GitPaneHost.svelte"),
       diff: () => import("./lib/git/DiffView.svelte"),
       log: () => import("./lib/git/GitLog.svelte"),
       branch: () => import("./lib/git/BranchPicker.svelte"),
@@ -1010,45 +1007,14 @@
       -->
       <Sidebar repo={git.repo} gitReady={!!gitUi.comps.pane}>
         {#snippet gitPane()}
-          <gitUi.comps.pane
-            status={git.status}
-            busy={git.busy}
-            committing={git.writing === "提交"}
-            committed={git.justDone === "提交"}
-            onOpenDiff={(e, staged) => void (e.conflicted ? git.openMerge(e) : git.openDiff(e, staged))}
-            onStage={(paths) => void git.run("暂存失败", () => gitStage(git.repo!, paths), "暂存")}
-            onUnstage={(paths) =>
-              void git.run("取消暂存失败", () => gitUnstage(git.repo!, paths), "取消暂存")}
-            onDiscard={(es) => (git.pendingDiscard = es)}
-            onCommit={(m, amend, push) =>
-              void git.commit(m, amend).then((ok) => {
-                // 提交成功才推；推之前照常走推送确认条（列出要推的提交）
-                if (ok && push) void remote.askPush();
-              })}
-            onRefresh={() => void git.refresh()}
-            stashCount={git.stashes.length}
-            onStash={() => void git.stashPush()}
-            onUnstash={() => void git.stashPop()}
-            onOpenLog={() => layout.openGitTab("log")}
-            ahead={git.status?.ahead ?? 0}
-            behind={git.status?.behind ?? 0}
-          />
+          <!-- 接线在 GitPaneHost（懒的，跟着 GitPane 一起来）：二十来个回调原来写在这儿、跟着 App 进入口包 -->
+          <gitUi.comps.pane />
         {/snippet}
         {#snippet mavenView()}
           {#if mavenUi.comp && project.root}<mavenUi.comp root={project.root} />{/if}
         {/snippet}
         {#snippet scratchList()}
-          {#if scratchUi.comp}
-            <scratchUi.comp
-              activePath={tabs.active?.path ?? ""}
-              onOpen={(p, keep) => void tabflow.openPath(p, { preview: !keep })}
-              onNew={() => void tabflow.newScratch()}
-              onTrash={(p) => void tabflow.trashScratch(p)}
-              onRename={(p, stem) => worktree.renameScratch(p, stem)}
-              onSaveAs={(p) => void tabflow.openPath(p).then(() => worktree.saveAs())}
-              onReveal={(p) => void revealInFinder(p).catch((e) => notify.fail(String(e)))}
-            />
-          {/if}
+          {#if scratchUi.comp}<scratchUi.comp />{/if}
         {/snippet}
         {#snippet fileTree()}
           <!-- `root!`：没项目时侧边栏整个不渲染（`layout.sideShown`），走到这儿 root 一定非空 -->

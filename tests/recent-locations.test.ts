@@ -1,7 +1,7 @@
 /**
- * 最近位置（`shell/recent-locations.ts`，docs/TAKEOVER.md G6）：跳转历史新的在前、再接最近文件停在的那一行；同一处只留一条；没记过位置的文件不列
+ * 最近位置（`shell/recent-spots.ts`，docs/TAKEOVER.md G6）：跳转历史新的在前、再接最近文件停在的那一行；同一处只留一条；没记过位置的文件不列
  */
-import { spotsOf } from "../src/lib/shell/recent-locations.ts";
+import { spotsOf } from "../src/lib/shell/recent-spots.ts";
 
 let pass = 0,
   fail = 0;

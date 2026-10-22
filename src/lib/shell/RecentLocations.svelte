@@ -4,7 +4,7 @@
    * 那一行代码：开着的文件从编辑器里拿（没存的改动也算），没开的读盘（只读这几个文件，读不了的那条只显示位置）
    */
   import { imeKey } from "./ime";
-  import type { Spot } from "./recent-locations";
+  import type { Spot } from "./recent-spots";
   import { viewOf } from "../editor/live-views";
   import { readText } from "../ipc/commands";
   import { nav } from "../state/nav.svelte";
