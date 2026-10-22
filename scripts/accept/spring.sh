@@ -543,6 +543,21 @@ fi
 ok "$([ "$(shasum "${P}/.idea/workspace.xml")" = "${WS0}" ] && [ "$(ls "${P}/.idea")" = workspace.xml ] && echo 1)" "IDEA 的文件只读：workspace.xml 一个字节没变、.idea 里没多东西"
 rm -rf "${P}/.idea"
 
+echo "== 你建的运行配置（docs/TAKEOVER.md R1）：「编辑配置…」里 ＋ 应用 → 主类、模块、VM 参数、程序参数 → ⌃⌥R 里有它、起来的 JVM 拿到；和认出来的服务同一种命令（在 reactor 根上跑）"
+lite menu run-configs main >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.runcfg [aria-label=\"新建\"]')" 30 >/dev/null
+# 一步一个 lite_eval：每步之后 Svelte 要重画（表单换了一份），连着写在一个里会拿到旧的元素
+lite_eval main "${RC} d.querySelector('[aria-label=\"新建\"]').click(); await tick(); [...d.querySelectorAll('.addmenu .svc')].find((b) => b.textContent.trim() === '应用').click(); await tick(); return true" >/dev/null
+lite_eval main "${RC} put(d.querySelector('#rc-name'), '订单手建'); await tick(); put(d.querySelector('#rc-main'), 'com.demo.order.OrderApplication'); await tick(); [...d.querySelectorAll('[aria-label=\"哪个 Maven 模块\"] .choice')].find((c) => c.textContent.trim() === 'order-service').click(); await tick(); put(d.querySelector('#rc-uvm'), '-Dlite.vm=hand1'); await tick(); put(d.querySelector('#rc-uargs'), '--lite.arg=h1'); await tick(); d.querySelector('[data-default]').click(); return true" >/dev/null
+if lite_wait main "return !document.querySelector('.dialog.runcfg')" 10 >/dev/null; then
+  pick '订单手建' >/dev/null
+  ok "$(wait_for 120 "logtext '订单手建' | grep -q 'LITE-IDE-CFG hand1 null --lite.arg=h1'" && echo 1)" "起来的 JVM 拿到了 VM 参数和程序参数：$(logtext '订单手建' | grep LITE-IDE-CFG | tail -1)"
+  ok "$(lite_eval main "return __lite.runs.list.find((x) => x.name === '订单手建')?.command ?? ''" | grep -q -- "-pl order-service -am .* exec java -Dlite.vm=hand1 -cp .* com.demo.order.OrderApplication --lite.arg=h1$" && echo 1)" "命令和认出来的服务同一种（-pl 模块 -am、exec java、主类在最后）"
+else
+  ok "" "运行配置对话框没关上（存的时候报错了）：$(lite_eval main "return document.querySelector('.dialog.runcfg .actions .err')?.textContent ?? ''")"
+fi
+ok "$([ -z "$(ls -A "${P}/.lite-ide" 2>/dev/null)" ] && echo 1)" "你建的运行配置也不往项目里写"
+
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then
   ok "$([ ! -e "${REPO}/com/demo" ] && echo 1)" "本地仓库（${REPO/#$HOME/~}）里没有 com/demo：没 install"

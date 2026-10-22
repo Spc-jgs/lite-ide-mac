@@ -18,6 +18,44 @@ pub struct ProjectCfg {
     pub jdk: String,
     /// 运行配置：任务名（Spring 服务的主类简单名）→ 配置
     pub runs: BTreeMap<String, RunCfg>,
+    /// 你自己建的运行配置（docs/TAKEOVER.md R1）：认出来的（Spring、package.json）和 tasks.json 之外的第四种来源。按建的次序
+    pub configs: Vec<UserCfg>,
+}
+
+/// 你自己建的一份运行配置（docs/TAKEOVER.md R1，照 IDEA 的 Run/Debug Configurations 里那几种常用的）。
+/// 一个结构装四种：用不上的字段空着（serde 默认值，老文件照读）。命令都由 `taskdefs` 用现成的拼法拼 ——
+/// `application` 和认出来的 Spring 服务走同一个 `maven::run_command`，调试、热替换、选 JDK 那几处照常
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UserCfg {
+    pub name: String,
+    /// `application`（一个 main 方法）/ `maven`（几个目标）/ `shell`（一行命令）/ `compound`（几份一起起）
+    pub kind: String,
+    /// application：主类全名（`com.demo.Tool`）
+    pub main_class: String,
+    /// application / maven：模块目录，相对项目根（"" = 根上那个 pom）
+    pub module: String,
+    /// maven：目标，空格隔开（`clean package`）
+    pub goals: String,
+    /// shell：一整行命令，交给登录 shell（同 tasks.json）
+    pub command: String,
+    /// shell：工作目录，相对项目根
+    pub cwd: String,
+    /// compound：一起起的那几份的名字（认出来的、tasks.json 里的、你建的都行）
+    pub items: Vec<String>,
+    /// VM 参数、程序参数、环境变量、JDK、profile：application 全用；maven、shell 用环境变量（maven 还用 JDK）
+    pub run: RunCfg,
+}
+
+pub const KINDS: [&str; 4] = ["application", "maven", "shell", "compound"];
+
+/// 一个主类全名像不像（`a.b.C`、`$` 和下划线也算）：进命令之前挡掉明显写错的，别让 java 报一句「找不到或无法加载主类」让人猜
+pub fn main_class_ok(s: &str) -> bool {
+    !s.is_empty()
+        && s.split('.').all(|p| {
+            let mut c = p.chars();
+            c.next().is_some_and(|f| f.is_alphabetic() || f == '_' || f == '$') && c.all(|x| x.is_alphanumeric() || x == '_' || x == '$')
+        })
 }
 
 /// 一个 Spring 服务的运行配置（IDEA 的 Spring Boot 运行配置里常用的那几项）

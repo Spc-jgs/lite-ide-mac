@@ -4,7 +4,7 @@
  * 挪过来没变 —— 真原因是对话框里的 `value={…}` 用到了入口里没有的运行时函数、以及 `await import()` 了入口里的 notify，见 frontend.md 的账）
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { EnvVar, RunConfigs, SettingsPage } from "./commands";
+import type { EnvVar, RunConfigs, SettingsPage, UserConfig } from "./commands";
 /** 设置对话框（docs/SETTINGS.md 第 13 节）。`root`：这个窗口的项目，没有就不给「此项目」那一栏 */
 export const settingsPage = (root: string | null) => invoke<SettingsPage>("settings_page", { root });
 
@@ -21,3 +21,9 @@ export const runConfigs = (root: string) => invoke<RunConfigs>("run_configs", { 
 /** 记下一个服务的运行配置（下次起它时生效） */
 export const runConfigSet = (root: string, name: string, c: { profiles: string; vmOptions: string; programArgs: string; env: EnvVar[]; jdk: string }) =>
   invoke<void>("run_config_set", { root, name, ...c });
+
+/** 存一份你建的运行配置（docs/TAKEOVER.md R1）：新建时 `old` 是空串，改名时是原来的名字 */
+export const runConfigUserSet = (root: string, old: string, cfg: UserConfig) => invoke<void>("run_config_user_set", { root, old, cfg });
+
+/** 删一份你建的运行配置 */
+export const runConfigUserDelete = (root: string, name: string) => invoke<void>("run_config_user_delete", { root, name });

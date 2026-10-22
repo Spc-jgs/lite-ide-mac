@@ -69,8 +69,12 @@ const SCHEMA = [
 /** 设置页写过的值（桩里没有 settings.json：写进这张表，读的时候盖在默认值上） */
 const WRITTEN: Record<string, unknown> = {};
 /** 按项目的设置（真实现在 project-settings.json / maven-prefs.json） */
-const PROJ: Record<string, { jdk: string; offline: boolean; skipTests: boolean; runs: Record<string, Record<string, unknown>> }> = {};
-const proj = (root: string) => (PROJ[root] ??= { jdk: "", offline: false, skipTests: false, runs: {} });
+type UserCfg = { name: string; kind: string; mainClass: string; module: string; goals: string; command: string; cwd: string; items: string[]; profiles: string; vmOptions: string; programArgs: string; env: { name: string; value: string }[]; jdk: string };
+const PROJ: Record<string, { jdk: string; offline: boolean; skipTests: boolean; runs: Record<string, Record<string, unknown>>; configs: UserCfg[] }> = {};
+const proj = (root: string) => (PROJ[root] ??= { jdk: "", offline: false, skipTests: false, runs: {}, configs: [] });
+
+/** 你建的运行配置（真实现在 projectcfg 的 configs）：任务的桩（mock/tasks.ts）照着它列 */
+export const mockUserConfigs = (root: string): UserCfg[] => proj(root).configs;
 const MOCK_JDKS = [
   { version: 17, home: "/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home", manual: false },
   { version: 21, home: "/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home", manual: false },
@@ -163,7 +167,42 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
             idea: i === 0 ? MOCK_IDEA : [],
           };
         });
-      return { services, jdks: MOCK_JDKS, ideaProblems: [] };
+      // Maven 模块：有 pom.xml 的目录（桩不读 <modules>，演示数据里够用）
+      const modules = Object.keys(FILES)
+        // 根上那个单独加（下面 concat），这里不算 —— 算两遍是重复的键（each_key_duplicate，浏览器里撞见的）
+        .filter((p) => p.startsWith(`${root}/`) && p.endsWith("/pom.xml") && p !== `${root}/pom.xml`)
+        .map((p) => p.slice(root.length + 1, -"/pom.xml".length))
+        .concat(FILES[`${root}/pom.xml`] !== undefined ? [""] : [])
+        .sort();
+      const others = tasks.filter((t) => t.source === "package" || t.source === "file").map((t) => ({ name: t.name, source: t.source, command: t.command }));
+      return { services, jdks: MOCK_JDKS, ideaProblems: [], user: proj(root).configs.map((c) => ({ ...c })), others, modules, problems: [] };
+    }
+    case "run_config_user_set": {
+      // 同 Rust 的 settingsctl::check_user，挑几条最常撞的
+      const root = String(a.root);
+      const old = String(a.old ?? "");
+      const c = { ...(a.cfg as UserCfg), name: String((a.cfg as UserCfg).name ?? "").trim() };
+      if (!c.name) throw new Error("名字不能空着");
+      const { mockTaskList } = await import("./tasks");
+      const taken = mockTaskList(root).tasks.some((t) => t.name === c.name && !(t.name === old && t.source === "user"));
+      if (taken) throw new Error(`已经有一份叫「${c.name}」的了`);
+      if (c.kind === "application" && !/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(c.mainClass.trim())) throw new Error("主类要写全名（com.demo.Tool）");
+      if (c.kind === "maven" && !c.goals.trim()) throw new Error("目标要填（空格隔开，比如 clean package）");
+      if (c.kind === "shell" && !c.command.trim()) throw new Error("命令不能空着");
+      if (c.kind === "compound" && !c.items.length) throw new Error("组合配置至少要选一份");
+      if (c.kind === "compound" && c.items.includes(c.name)) throw new Error("组合配置不能包含它自己");
+      const list = proj(root).configs;
+      const i = old ? list.findIndex((x) => x.name === old) : -1;
+      if (i >= 0) list[i] = c;
+      else list.push(c);
+      if (old && old !== c.name) for (const x of list) x.items = x.items.map((it) => (it === old ? c.name : it));
+      return null;
+    }
+    case "run_config_user_delete": {
+      const p = proj(String(a.root));
+      p.configs = p.configs.filter((x) => x.name !== String(a.name));
+      for (const x of p.configs) x.items = x.items.filter((it) => it !== String(a.name));
+      return null;
     }
     case "run_config_set": {
       const env = (a.env as { name: string }[]) ?? [];

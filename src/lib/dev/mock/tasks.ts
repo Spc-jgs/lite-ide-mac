@@ -13,6 +13,7 @@
 import { type A, bump, FILES, NOT_MINE } from "./data";
 import { mockEmit } from "./events";
 import { mockDebugEnd, mockDebugStart } from "./debug";
+import { mockUserConfigs } from "./settings";
 
 const FILE = ".lite-ide/tasks.json";
 const TEMPLATE = `// lite-ide 的任务（docs/USAGE.md「任务」）。⌃⌥R 选一个跑，⌃R 再跑上一个，⌘F2 停。
@@ -27,7 +28,7 @@ const TEMPLATE = `// lite-ide 的任务（docs/USAGE.md「任务」）。⌃⌥R
 `;
 const LIFECYCLE = new Set(["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare", "prepublishOnly", "prepack", "postpack", "publish", "postpublish", "preversion", "version", "postversion", "dependencies"]);
 
-type Def = { name: string; command: string; cwd: string; source: "file" | "package" | "spring" | "goal"; module?: string };
+type Def = { name: string; command: string; cwd: string; source: "file" | "package" | "spring" | "goal" | "user"; module?: string; kind?: string; items?: string[] };
 /** Lifecycle 底下的阶段（同 Rust 的 maven::PHASES） */
 const PHASES = ["clean", "validate", "compile", "test", "package", "verify", "install", "site", "deploy"];
 /** 能放进 mvn 命令行的词（同 Rust 的 maven::safe_token） */
@@ -117,7 +118,25 @@ function list(root: string) {
       });
     }
   }
-  return { tasks: defs, file, problems };
+  // 你建的运行配置（真实现在 taskdefs::user_defs）：拼法照真实现
+  for (const u of mockUserConfigs(root)) {
+    if (defs.some((d) => d.name === u.name)) {
+      problems.push(`你建的运行配置「${u.name}」和别处的同名，没列 —— 改个名`);
+      continue;
+    }
+    const mod = u.module;
+    const cp = "target/.lite-ide-cp.txt";
+    const command =
+      u.kind === "application"
+        ? `mvn -B -ntp${mod ? ` -pl ${mod} -am` : ""} -DskipTests compile dependency:build-classpath -Dmdep.outputFile=${cp} && ${mod ? `cd ${mod} && ` : ""}exec java${u.vmOptions ? ` ${u.vmOptions}` : ""} -cp "target/classes:$(cat ${cp})" ${u.mainClass}${u.programArgs ? ` ${u.programArgs}` : ""}`
+        : u.kind === "maven"
+          ? `mvn -B -ntp${mod ? ` -pl ${mod}` : ""} ${u.goals}`
+          : u.kind === "shell"
+            ? u.command
+            : "";
+    defs.push({ name: u.name, command, cwd: u.kind === "shell" ? u.cwd : "", source: "user", kind: u.kind, items: u.kind === "compound" ? u.items : [] });
+  }
+  return { tasks: defs.map((d) => ({ kind: "", items: [], ...d })), file, problems };
 }
 
 type Run = { root: string; name: string; status: "running" | "stopping" | "gone"; timer?: ReturnType<typeof setTimeout>; service?: boolean; at?: number };
@@ -386,6 +405,10 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       }
       r.timer = setTimeout(() => emitExit(id, { code: 130, stopped: true }), 600);
       return "stopping";
+    }
+    case "run_compound_items": {
+      const u = mockUserConfigs(String(a.root)).find((x) => x.name === String(a.name) && x.kind === "compound");
+      return u ? [...u.items] : null;
     }
     case "task_stuck":
       // 真实现枚举组员、挑出不归我们的（tasksvc::foreign_members）

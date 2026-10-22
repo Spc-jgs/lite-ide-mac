@@ -15,6 +15,8 @@ export const taskRun = (root: string, name: string, debug = false) => invoke<Tas
 export const taskStop = (id: number) => invoke<"stopping" | "killed" | "gone">("task_stop", { id });
 /** 停不掉的那些（#68）：宽限期过了还在「正在停」时问 —— 组里活着、但不归我们管的进程 */
 export const taskStuck = (id: number) => invoke<StuckProc[]>("task_stuck", { id });
+/** 组合配置的那几份；不是组合配置回 null（docs/TAKEOVER.md R1）。起之前问一句，只读应用自己的那份文件 */
+export const runCompoundItems = (root: string, name: string) => invoke<string[] | null>("run_compound_items", { root, name });
 
 /** 关掉标签：从表里摘掉，还在跑就软停 */
 export const taskClose = (id: number) => invoke<void>("task_close", { id });

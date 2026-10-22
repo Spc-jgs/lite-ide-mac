@@ -717,8 +717,12 @@ pub struct TaskDefDto {
     pub command: String,
     /// 相对项目根；"" = 根
     pub cwd: String,
-    /// "file"（`.lite-ide/tasks.json`）/ "package"（自动认出来的 package.json scripts）
+    /// "file"（`.lite-ide/tasks.json`）/ "package"（自动认出来的 package.json scripts）/ "spring" / "goal" / "user"（你建的运行配置）
     pub source: String,
+    /// 你建的那种是哪一类：application / maven / shell / compound；别的来源是空串
+    pub kind: String,
+    /// compound：一起起的那几份的名字；别的是空的
+    pub items: Vec<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -1186,6 +1190,44 @@ pub struct RunConfigsDto {
     pub jdks: Vec<JdkDto>,
     /// IDEA 的 workspace.xml 读不了的（太大、读不出），一条一句
     pub idea_problems: Vec<String>,
+    /// 你建的运行配置（docs/TAKEOVER.md R1）
+    pub user: Vec<UserConfigDto>,
+    /// 别的能跑的（package.json scripts、tasks.json 里的、Maven 工具窗没有的）：列出来给人看、组合配置里选得到；这里不改
+    pub others: Vec<OtherRunDto>,
+    /// Maven 模块的目录，相对项目根（"" = 根上那个 pom）：application / maven 配置选模块用
+    pub modules: Vec<String>,
+    /// 列的时候发现的问题（名字撞了、目标写坏了），一条一句
+    pub problems: Vec<String>,
+}
+
+/// 你建的一份运行配置（`projectcfg::UserCfg` 摊平：运行那几项和 Spring 服务的运行配置同名）
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UserConfigDto {
+    pub name: String,
+    /// application / maven / shell / compound
+    pub kind: String,
+    pub main_class: String,
+    pub module: String,
+    pub goals: String,
+    pub command: String,
+    pub cwd: String,
+    pub items: Vec<String>,
+    pub profiles: String,
+    pub vm_options: String,
+    pub program_args: String,
+    pub env: Vec<EnvVarDto>,
+    pub jdk: String,
+}
+
+/// 别的能跑的一份（运行配置对话框里只列、不改）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtherRunDto {
+    pub name: String,
+    /// "package" / "file"
+    pub source: String,
+    pub command: String,
 }
 
 /// 停不掉的一个进程（#68）：组里活着、但不归我们管

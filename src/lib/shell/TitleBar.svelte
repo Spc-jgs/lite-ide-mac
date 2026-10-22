@@ -13,6 +13,13 @@
   import { cmenu } from "./context-menu.svelte";
   import { devtoolsBuild, type GitStatus } from "../ipc/commands";
   import { projectName } from "../state/crumbs";
+  import { lazy } from "../lazy/lazy.svelte";
+
+  /** 右边的运行挂件（docs/TAKEOVER.md I3，照 IDEA 新 UI 的 Run widget）：懒的，有项目才拉 */
+  const runWidget = lazy(() => import("../run/RunWidget.svelte"), "运行挂件");
+  $effect(() => {
+    if (root) runWidget.load();
+  });
 
   let {
     root,
@@ -174,6 +181,9 @@
     </button>
   {/if}
   <span class="tgap" data-tauri-drag-region></span>
+  {#if root}
+    {#if runWidget.comp}<runWidget.comp {root} />{/if}
+  {/if}
 </header>
 
 {#if projMenu && cmenu.comp}

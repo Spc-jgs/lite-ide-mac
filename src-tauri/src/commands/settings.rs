@@ -94,3 +94,15 @@ pub async fn run_config_set(
     })
     .await
 }
+
+/// 存一份你建的运行配置（docs/TAKEOVER.md R1）：新建（`old` 空串）、改、改名
+#[tauri::command]
+pub async fn run_config_user_set(root: String, old: String, cfg: UserConfigDto) -> Result<(), String> {
+    blocking(move || crate::settingsctl::set_user_config(&root, &old, crate::settingsctl::user_cfg(cfg))).await
+}
+
+/// 删一份你建的运行配置
+#[tauri::command]
+pub async fn run_config_user_delete(root: String, name: String) -> Result<(), String> {
+    blocking(move || crate::settingsctl::delete_user_config(&root, &name)).await
+}

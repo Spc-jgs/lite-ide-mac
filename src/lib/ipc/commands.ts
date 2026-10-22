@@ -363,6 +363,40 @@ export interface RunConfigs {
   jdks: Jdk[];
   /** IDEA 的 workspace.xml 读不了的（太大、读不出），一条一句 */
   ideaProblems: string[];
+  /** 你建的运行配置（docs/TAKEOVER.md R1） */
+  user: UserConfig[];
+  /** 别的能跑的（package.json scripts、tasks.json 里的）：只列、不改，组合配置里选得到 */
+  others: OtherRun[];
+  /** Maven 模块的目录，相对项目根（"" = 根上那个 pom） */
+  modules: string[];
+  /** 列的时候发现的问题，一条一句 */
+  problems: string[];
+}
+
+export type UserKind = "application" | "maven" | "shell" | "compound";
+
+/** 你建的一份运行配置。用不上的字段空着（四种一个结构） */
+export interface UserConfig {
+  name: string;
+  kind: UserKind;
+  mainClass: string;
+  module: string;
+  goals: string;
+  command: string;
+  cwd: string;
+  items: string[];
+  profiles: string;
+  vmOptions: string;
+  programArgs: string;
+  env: EnvVar[];
+  jdk: string;
+}
+
+/** 别的能跑的一份（只列、不改） */
+export interface OtherRun {
+  name: string;
+  source: "package" | "file";
+  command: string;
 }
 
 /** 停不掉的一个进程（#68）：组里活着、但不归我们管（免密 sudo 的 root） */
@@ -1262,8 +1296,12 @@ export interface TaskDef {
   command: string;
   /** 相对项目根；"" = 根 */
   cwd: string;
-  /** "file" = `.lite-ide/tasks.json` 里写的；"package" = 自动认出来的 package.json scripts；"spring" = 认出来的 Spring Boot 应用（docs/IDEA.md） */
-  source: "file" | "package" | "spring" | "goal";
+  /** "file" = `.lite-ide/tasks.json` 里写的；"package" = 自动认出来的 package.json scripts；"spring" = 认出来的 Spring Boot 应用（docs/IDEA.md）；"user" = 你建的运行配置（docs/TAKEOVER.md R1） */
+  source: "file" | "package" | "spring" | "goal" | "user";
+  /** 你建的那种是哪一类：application / maven / shell / compound；别的来源是空串 */
+  kind: string;
+  /** compound：一起起的那几份的名字 */
+  items: string[];
 }
 
 export interface TaskList {

@@ -9,7 +9,7 @@ import { project } from "./project.svelte";
 import { notify } from "./notify.svelte";
 import { overlay } from "./overlay.svelte";
 import { listenHere, type TaskExit } from "../ipc/commands";
-import { buildProblems, servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, taskStuck, testResults } from "../ipc/tasks";
+import { buildProblems, runCompoundItems, servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, taskStuck, testResults } from "../ipc/tasks";
 
 let listening: Promise<unknown> | null = null;
 
@@ -174,6 +174,15 @@ export async function runTask(name: string, root: string | null = project.root, 
   if (starting.has(key)) return;
   starting.add(key);
   try {
+    // 组合配置（docs/TAKEOVER.md R1）：没有自己的命令，一份份起；⌃R 记的是组合的名字，重跑还是整组
+    const items = await runCompoundItems(root, name).catch(() => null);
+    if (items) {
+      if (!items.length) return void notify.hint(`组合配置「${name}」里一份都没有了（被删了），去「编辑配置…」里加`);
+      for (const it of items) await runTask(it, root, debug);
+      last[root] = name;
+      lastDebug[root] = debug;
+      return;
+    }
     await start(name, root, debug);
   } finally {
     starting.delete(key);

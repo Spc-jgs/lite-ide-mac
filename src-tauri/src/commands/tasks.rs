@@ -21,8 +21,11 @@ pub async fn task_list(root: String) -> Result<TaskListDto, String> {
                         crate::taskdefs::Source::Package { .. } => "package",
                         crate::taskdefs::Source::Spring { .. } => "spring",
                         crate::taskdefs::Source::Goal { .. } => "goal",
+                        crate::taskdefs::Source::User { .. } => "user",
                     }
                     .into(),
+                    kind: if let crate::taskdefs::Source::User { kind, .. } = &d.source { kind.clone() } else { String::new() },
+                    items: if let crate::taskdefs::Source::User { items, .. } = d.source { items } else { Vec::new() },
                 })
                 .collect(),
             file: f.file,
@@ -51,6 +54,10 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
     blocking(move || {
         let st = app.state::<AppState>();
         let mut def = crate::taskdefs::resolve(Path::new(&root), &name).ok_or_else(|| format!("没有叫「{name}」的任务了（tasks.json 改过？）"))?;
+        // 组合配置没有自己的命令：前端先问 `run_compound_items`、一份份起。走到这儿是前端漏了那一步
+        if matches!(&def.source, crate::taskdefs::Source::User { kind, .. } if kind == "compound") {
+            return Err(format!("「{name}」是组合配置，要一份份起（这是个 bug）"));
+        }
         // 调试（docs/IDEA.md 第 18 节）：只有命令是我们拼的那两种 —— 认出来的 Spring Boot 应用（知道 `java` 在哪、主类是谁）、
         // 单测（`mvn -Dtest=… test`，JDWP 交给 surefire fork 的 JVM）
         // 热替换（docs/IDEA.md 第 26 节）：JVM 多带一个代理，和它说话的控制目录现在建好。开发构建没带 agent 的 jar 就不带（调试照常）
@@ -64,14 +71,14 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
                     hot_dir = Some(dir);
                     Some(arg)
                 });
-                Some(if let Some(main) = crate::taskdefs::spring_main(Path::new(&root), &name) {
+                Some(if let Some(main) = crate::taskdefs::java_main(Path::new(&root), &name) {
                     def.command = crate::debug::with_jdwp(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 java 起的，调试不了"))?;
                     crate::debug::Who::Main(main)
                 } else if let Some(project) = crate::taskdefs::test_project(Path::new(&root), &name).filter(|_| matches!(def.source, crate::taskdefs::Source::Goal { .. })) {
                     def.command = crate::debug::with_surefire_debug(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 mvn 起的，调试不了"))?;
                     crate::debug::Who::Project(project)
                 } else {
-                    return Err(format!("「{name}」不是认出来的 Spring Boot 应用或单测，调试不了"));
+                    return Err(format!("「{name}」不是 Java 应用（认出来的 Spring Boot、你建的应用配置）也不是单测，调试不了"));
                 })
             }
         };
@@ -127,6 +134,12 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
         Ok(TaskRunDto { id, name, command: def.command, log: spec.log.to_string_lossy().into_owned(), service })
     })
     .await
+}
+
+/// 组合配置（compound）的那几份；不是组合配置回 null（docs/TAKEOVER.md R1）。⌃R / ▶ 之前问一句：只读应用自己的那份文件，不扫项目
+#[tauri::command]
+pub async fn run_compound_items(root: String, name: String) -> Result<Option<Vec<String>>, String> {
+    blocking(move || Ok(crate::taskdefs::compound_items(Path::new(&root), &name))).await
 }
 
 /// 停。第一次软停（SIGINT 整组，宽限期后 SIGKILL）；软停还没完再叫一次 → 立刻强杀（同 IDEA 按钮变「强制结束」）。

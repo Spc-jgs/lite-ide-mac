@@ -28,6 +28,9 @@ pub enum Source {
     Spring { module: String },
     /// Maven 工具窗里点的目标（「artifactId [目标]」）：在运行窗里跑。和 `Spring` 分开，是因为两种跑起来去的工具窗不一样
     Goal { module: String },
+    /// 你自己建的运行配置（`projectcfg::UserCfg`，docs/TAKEOVER.md R1）：`kind` 是 application / maven / shell / compound。
+    /// compound 没有命令（几份一起起，前端一份份起），`items` 是那几份的名字
+    User { kind: String, items: Vec<String> },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -327,7 +330,74 @@ pub fn discover(root: &Path) -> Found {
         }
     }
     spring_apps(root, &mut found);
+    user_configs(root, &mut found);
     found
+}
+
+/// 一个模块目录（相对项目根）→（它在哪个 reactor 下、相对那个 reactor 的路径）。命令要在 reactor 根上跑（`-pl 模块 -am`），
+/// 和认出来的 Spring 服务一样。根上有 pom 就整个项目是一个 reactor
+fn split_module(root: &Path, module: &str) -> (String, String) {
+    let mut rs = crate::maven::reactors(root);
+    rs.sort_by_key(|r| std::cmp::Reverse(r.len()));
+    for r in rs {
+        if r.is_empty() {
+            return (String::new(), module.to_string());
+        }
+        if module == r {
+            return (r, String::new());
+        }
+        if let Some(rest) = module.strip_prefix(&format!("{r}/")) {
+            return (r, rest.to_string());
+        }
+    }
+    (String::new(), module.to_string())
+}
+
+/// 你自己建的运行配置（docs/TAKEOVER.md R1）→ 任务。拼法全用现成的：application 是 `maven::run_command`（和认出来的 Spring 服务同一个，
+/// 调试插 JDWP、热替换带代理认的「`exec java `」形状照旧），maven 是 `goal_command`，都在最前面带上该用的 JDK（`jdk_prefix_for`）。
+/// 和已经列出来的同名的不列、说一句：认出来的和 tasks.json 里的名字是别处定的，你建的那份改个名就好
+fn user_configs(root: &Path, found: &mut Found) {
+    let configs = crate::projectcfg::get(root).configs;
+    if !configs.is_empty() {
+        user_defs(root, configs, found);
+    }
+}
+
+/// [`user_configs`] 的身子：配置从参数来（测试不用碰应用那份文件 —— 它的路径是进程里设一次的）
+fn user_defs(root: &Path, configs: Vec<crate::projectcfg::UserCfg>, found: &mut Found) {
+    let prefs = crate::maven::prefs(root);
+    for u in configs {
+        if found.defs.iter().any(|d| d.name == u.name) {
+            found.problems.push(format!("你建的运行配置「{}」和别处的同名，没列 —— 改个名", u.name));
+            continue;
+        }
+        let (command, cwd, env) = match u.kind.as_str() {
+            "application" => {
+                let (r, m) = split_module(root, &u.module);
+                let app = crate::maven::BootApp { module: m.clone(), main_class: u.main_class.clone() };
+                let mvn = crate::maven::invocation(&root.join(&r));
+                (format!("{}{}", jdk_prefix_for(root, &r, &m, &u.run.jdk), crate::maven::run_command(&app, &prefs, &mvn, &u.run)), r, Vec::new())
+            }
+            "maven" => {
+                let (r, m) = split_module(root, &u.module);
+                let mvn = crate::maven::invocation(&root.join(&r));
+                let Some(c) = crate::maven::goal_command(&m, &u.goals, &prefs, &mvn) else {
+                    found.problems.push(format!("运行配置「{}」的 Maven 目标里有认不出的字符，没列", u.name));
+                    continue;
+                };
+                (format!("{}{c}", jdk_prefix_for(root, &r, &m, &u.run.jdk)), r, u.run.env.clone())
+            }
+            "shell" => (u.command.clone(), u.cwd.clone(), u.run.env.clone()),
+            "compound" => (String::new(), String::new(), Vec::new()),
+            _ => continue,
+        };
+        found.defs.push(Def { name: u.name, command, cwd, env, source: Source::User { kind: u.kind, items: u.items } });
+    }
+}
+
+/// 组合配置（compound）的那几份；不是组合配置 → None。只读应用自己的那份文件，不扫项目 —— 每次 ⌃R 之前前端问一句，要快
+pub fn compound_items(root: &Path, name: &str) -> Option<Vec<String>> {
+    crate::projectcfg::get(root).configs.into_iter().find(|u| u.name == name && u.kind == "compound").map(|u| u.items)
 }
 
 /// 一个认出来的 Spring Boot 应用：它的任务定义，加上它在哪个 reactor、哪个模块。
@@ -373,13 +443,15 @@ pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
     (out, problems)
 }
 
-/// 这个任务名是不是认出来的 Spring Boot 应用；是的话它的主类（调试要：问 jdtls 这个类在哪个项目）。tasks.json 里同名的以文件为准 —— 那就不是我们拼的命令，不算
-pub fn spring_main(root: &Path, name: &str) -> Option<String> {
+/// 这个任务名是不是我们拼的 `java` 命令（认出来的 Spring Boot 应用，或者你建的 application 运行配置）；是的话它的主类
+/// （调试要：问 jdtls 这个类在哪个项目）。tasks.json 里同名的以文件为准 —— 那就不是我们拼的命令，不算
+pub fn java_main(root: &Path, name: &str) -> Option<String> {
     // resolve 也是这个次序：discover 里同名的以文件为准，那就不是我们拼的命令
-    if !matches!(discover(root).defs.into_iter().find(|d| d.name == name)?.source, Source::Spring { .. }) {
-        return None;
+    match discover(root).defs.into_iter().find(|d| d.name == name)?.source {
+        Source::Spring { .. } => spring_tasks(root).0.into_iter().find(|t| t.def.name == name).map(|t| t.app.main_class),
+        Source::User { kind, .. } if kind == "application" => crate::projectcfg::get(root).configs.into_iter().find(|u| u.name == name).map(|u| u.main_class),
+        _ => None,
     }
-    spring_tasks(root).0.into_iter().find(|t| t.def.name == name).map(|t| t.app.main_class)
 }
 
 fn spring_apps(root: &Path, found: &mut Found) {
@@ -664,6 +736,47 @@ mod tests {
         let user = f.defs.iter().find(|x| x.name == "backend/user/Application").unwrap();
         assert_eq!(user.cwd, "backend", "在 reactor 根上跑");
         assert!(user.command.contains("-pl user -am") && user.command.ends_with(" u.Application"), "{}", user.command);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 你建的运行配置（docs/TAKEOVER.md R1）：四种各拼成什么样；application 和认出来的 Spring 服务同一种命令（调试插得进 JDWP），
+    /// 在 reactor 根上跑；目标里有 shell 特殊字符的不列、说一句；和已有的同名的不列、说一句
+    #[test]
+    fn 你建的运行配置_四种各拼成什么样() {
+        use crate::projectcfg::{RunCfg, UserCfg};
+        let d = tmp("user");
+        let w = |p: &str, t: &str| {
+            let p = d.join(p);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            #[allow(clippy::disallowed_methods)] // 测试自己的临时文件
+            std::fs::write(p, t).unwrap();
+        };
+        w("backend/pom.xml", "<project><artifactId>shop</artifactId><modules><module>order</module></modules></project>");
+        w("backend/order/pom.xml", "<project><artifactId>order</artifactId></project>");
+        let u = |name: &str, kind: &str| UserCfg { name: name.into(), kind: kind.into(), ..Default::default() };
+        let configs = vec![
+            UserCfg { main_class: "o.Tool".into(), module: "backend/order".into(), run: RunCfg { vm_options: "-Xmx1g".into(), program_args: "--x".into(), ..Default::default() }, ..u("Tool", "application") },
+            UserCfg { module: "backend/order".into(), goals: "clean package".into(), ..u("打包", "maven") },
+            UserCfg { command: "pnpm dev".into(), cwd: "web".into(), run: RunCfg { env: vec![("A".into(), "1".into())], ..Default::default() }, ..u("前端", "shell") },
+            UserCfg { items: vec!["Tool".into(), "前端".into()], ..u("全部", "compound") },
+            UserCfg { module: "backend/order".into(), goals: "clean; rm -rf ~".into(), ..u("坏目标", "maven") },
+            UserCfg { command: "echo 撞了".into(), ..u("已有的", "shell") },
+        ];
+        let mut f = Found { defs: vec![Def { name: "已有的".into(), command: "x".into(), cwd: String::new(), env: Vec::new(), source: Source::File }], ..Default::default() };
+        user_defs(&d, configs, &mut f);
+        let by = |n: &str| f.defs.iter().find(|x| x.name == n).unwrap_or_else(|| panic!("没有 {n}：{:?}", f.problems));
+        let tool = by("Tool");
+        assert_eq!(tool.cwd, "backend", "在 reactor 根上跑");
+        assert!(tool.command.contains("-pl order -am") && tool.command.contains("exec java -Xmx1g -cp") && tool.command.ends_with(" o.Tool --x"), "{}", tool.command);
+        assert!(crate::debug::with_jdwp(&tool.command, None).is_some(), "调试插得进 JDWP（和 Spring 服务同一个形状）");
+        let pack = by("打包");
+        assert!(pack.cwd == "backend" && pack.command.contains("-pl order") && pack.command.contains("clean package"), "{} @ {}", pack.command, pack.cwd);
+        let front = by("前端");
+        assert_eq!((front.command.as_str(), front.cwd.as_str(), front.env.clone()), ("pnpm dev", "web", vec![("A".to_string(), "1".to_string())]));
+        assert_eq!(by("全部").source, Source::User { kind: "compound".into(), items: vec!["Tool".into(), "前端".into()] });
+        assert!(!f.defs.iter().any(|x| x.name == "坏目标") && f.problems.iter().any(|p| p.contains("坏目标")), "{:?}", f.problems);
+        assert_eq!(f.defs.iter().filter(|x| x.name == "已有的").count(), 1, "同名的不列第二份");
+        assert!(f.problems.iter().any(|p| p.contains("「已有的」和别处的同名")), "{:?}", f.problems);
         let _ = std::fs::remove_dir_all(&d);
     }
 
