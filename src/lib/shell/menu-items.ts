@@ -121,3 +121,17 @@ export function fmtMenuItems(c: {
   }
   return items;
 }
+
+/**
+ * 标题栏项目挂件的下拉：最近项目 + 打开 + 清除（2026-10-22 入口包瘦身，从 `TitleBar.svelte` 挪出来 —— 点了才用得上）。
+ * 前面那个格子标出当前项目，全角空格占位，切换时名字不会左右跳
+ */
+export function projectItems(recent: string[], root: string | null, open: (dir: string) => void, openFolder: () => void, clear: () => void): MenuItem[] {
+  const items: MenuItem[] = recent.map((r) => ({
+    label: `${r === root ? "●" : "\u3000"} ${r.slice(r.lastIndexOf("/") + 1) || r}`,
+    run: () => open(r),
+  }));
+  items.push({ label: "打开文件夹…", sep: items.length > 0, run: openFolder });
+  if (recent.length > 0) items.push({ label: "清除最近记录", run: clear });
+  return items;
+}

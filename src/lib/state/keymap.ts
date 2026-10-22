@@ -324,6 +324,8 @@ export const KEYS: KeyDef[] = [
   /** 焦点在终端里的 ⌘F（issue #34）。归 xterm，理由见文件头 owner 那张表 */
   { id: "term-find", label: "在终端里查找", accel: "⌘F", group: "终端", owner: "xterm" },
   { id: "close-terminal", label: "关闭当前终端", group: "终端", owner: "menu" },
+  /* 拆分终端（#34 后半）：不占键 —— VS Code 的 ⌘\ 在这个应用里是编辑器的向右分屏，菜单的键不看焦点，挂上去两边会打架 */
+  { id: "split-terminal", label: "向右拆分终端", group: "终端", owner: "menu" },
   /*
    * 把当前文件 / 选中的几行以 `@路径#L10-20` 写进终端里的 claude（#45），不回车。
    * ⌥⌘K 照 Claude Code 官方 JetBrains 插件的「插入文件引用」—— 在 IDEA 里装了插件的人手上已经是这个键；

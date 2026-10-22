@@ -25,6 +25,11 @@ class Terms {
    */
   list = $state<TermTab[]>([]);
   activeId = $state<number | null>(null);
+  /**
+   * 左右拆开的那一对（docs/TAKEOVER.md G20，#34 后半）：[左, 右]。当前那个在这一对里时两个并排，点哪边哪边是当前的（⌘F、发送到终端都给它）；
+   * 切到别的终端照旧一次一个。关掉其中一个就不拆了
+   */
+  pair = $state<[number, number] | null>(null);
   #nextId = 1;
 
   /** 新开一个，落在 `dir`，并把面板亮出来 */
@@ -44,7 +49,14 @@ class Terms {
     return t;
   }
 
+  /** 向右拆分：在当前那个的目录里新开一个，和它并排（同 IDEA 终端的 Split Right） */
+  split() {
+    const cur = this.list.find((t) => t.id === this.activeId);
+    if (cur) this.pair = [cur.id, this.open(cur.cwd).id];
+  }
+
   close(id: number) {
+    if (this.pair?.includes(id)) this.pair = null;
     const idx = this.list.findIndex((t) => t.id === id);
     this.list = this.list.filter((t) => t.id !== id);
     if (this.activeId === id) {

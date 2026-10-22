@@ -236,6 +236,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
       return;
     }
     case "new-terminal": terms.open(project.root ?? "~"); return;
+    case "split-terminal": return terms.list.length ? terms.split() : void terms.open(project.root ?? "~");
     case "close-terminal":
       if (terms.activeId !== null) terms.close(terms.activeId);
       return;

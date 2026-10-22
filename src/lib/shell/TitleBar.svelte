@@ -10,7 +10,7 @@
    */
   import Icon from "./Icon.svelte";
   import type { MenuItem } from "./ContextMenu.svelte";
-  import { cmenu } from "./context-menu.svelte";
+  import { cmenu, menuItems } from "./context-menu.svelte";
   import { devtoolsBuild, type GitStatus } from "../ipc/commands";
   import { projectName } from "../state/crumbs";
   import { lazy } from "../lazy/lazy.svelte";
@@ -65,7 +65,10 @@
    */
   let projMenu = $state<{ x: number; y: number } | null>(null);
   $effect(() => {
-    if (projMenu) cmenu.load();
+    if (projMenu) {
+      cmenu.load();
+      menuItems.load();
+    }
   });
 
   function openProjMenu(e: MouseEvent) {
@@ -77,17 +80,8 @@
   /** 方块里那个字。IDEA 用项目名首字母，中文项目名就直接用第一个字 */
   let projInitial = $derived((projName[0] ?? "?").toUpperCase());
 
-  let projMenuItems = $derived.by<MenuItem[]>(() => {
-    if (!projMenu) return [];
-    // 前面那个格子标出当前项目。全角空格占位，切换时名字不会左右跳
-    const items: MenuItem[] = recent.map((r) => ({
-      label: `${r === root ? "●" : "\u3000"} ${r.slice(r.lastIndexOf("/") + 1) || r}`,
-      run: () => onOpenRecent(r),
-    }));
-    items.push({ label: "打开文件夹…", sep: items.length > 0, run: onOpenFolder });
-    if (recent.length > 0) items.push({ label: "清除最近记录", run: onClearRecent });
-    return items;
-  });
+  // 菜单项在懒的 menu-items.ts（同标签栏、状态栏那两个菜单，2026-10-22 入口包瘦身）
+  let projMenuItems = $derived<MenuItem[]>(projMenu && menuItems.comp ? menuItems.comp.projectItems(recent, root, onOpenRecent, onOpenFolder, onClearRecent) : []);
 
   /**
    * 这份构建带不带 Web Inspector（issue #20）。
@@ -186,7 +180,7 @@
   {/if}
 </header>
 
-{#if projMenu && cmenu.comp}
+{#if projMenu && cmenu.comp && menuItems.comp}
   <cmenu.comp
     x={projMenu.x}
     y={projMenu.y}

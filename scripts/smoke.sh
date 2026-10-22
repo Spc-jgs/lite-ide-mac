@@ -1229,6 +1229,22 @@ else
 fi
 menu close-tab; sleep 0.3
 
+say "㉚ 终端向右拆分（#34 后半）：当前那个旁边再开一个，并排各占一半、各自一个 shell；点哪边哪边是当前的；关掉一个就不拆了"
+menu new-terminal; sleep 1
+menu split-terminal
+if lite_wait "${W}" "return !!document.querySelector('.term-slot.left') && !!document.querySelector('.term-slot.right')" 8 >/dev/null; then
+  check "$(lite eval "${W}" "const [l, r] = ['.term-slot.left', '.term-slot.right'].map((s) => document.querySelector(s).getBoundingClientRect()); return Math.abs(l.width - r.width) <= 2 && l.right <= r.left + 1 && l.width > 100" 2>/dev/null)" "true" "两个并排、各占一半"
+  # 读 xterm 的缓冲区，不读画面：测试窗口被挡着时页面 hidden、xterm 不画（同 ㉔ 那段，第一版这条就是读画面、红在这上面）
+  PAIRBUF='const reg = window.__liteXterm; const has = (id) => { const b = reg?.get(id)?.buffer.active; if (!b) return false; for (let i = 0; i < b.length; i++) if (b.getLine(i)?.translateToString(true).trim()) return true; return false; };'
+  lite_wait "${W}" "${PAIRBUF} return (__lite.terms.pair ?? []).filter(has).length === 2" 10 >/dev/null
+  check "$(lite eval "${W}" "${PAIRBUF} return (__lite.terms.pair ?? []).filter(has).length" 2>/dev/null)" "2" "两边各起了一个 shell（各自的缓冲区里都有提示符）"
+  menu close-terminal; sleep 0.5
+  check "$(lite eval "${W}" "return !document.querySelector('.term-slot.left')" 2>/dev/null)" "true" "关掉其中一个：不拆了"
+else
+  bad "「终端 › 向右拆分终端」之后没有并排的两个终端"
+fi
+for i in 1 2 3; do menu close-terminal; done; sleep 0.3
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

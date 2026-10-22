@@ -278,6 +278,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
 
     let term = SubmenuBuilder::new(app, "终端")
         .item(&item(app, "new-terminal", "新建终端", Some("Ctrl+Shift+Backquote"))?)
+        .item(&item(app, "split-terminal", "向右拆分终端", None)?)
         .item(&close_terminal)
         .separator()
         .item(&send_to_terminal)

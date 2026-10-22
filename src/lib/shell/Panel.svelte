@@ -121,6 +121,7 @@
     if (terms.activeId !== null) {
       const id = terms.activeId;
       items.push({ label: "关闭当前终端", run: () => terms.close(id) });
+      items.push(terms.pair ? { label: "取消拆分", run: () => (terms.pair = null) } : { label: "向右拆分", sep: true, run: () => terms.split() });
     }
     if (terms.list.length > 1) {
       items.push({ label: "关闭其他终端", run: () => terms.closeOthers() });
@@ -315,8 +316,17 @@
       -->
       <div class="tool-slot" class:hidden={panelTool !== "term"}>
         {#if terminal.comp}
+          {@const pair = terms.pair && terms.activeId !== null && terms.pair.includes(terms.activeId) ? terms.pair : null}
           {#each terms.list as t (t.id)}
-            <div class="term-slot" class:hidden={t.id !== terms.activeId}>
+            <!-- 拆开的那一对并排（左右各一半）；按下哪边哪边是当前的 -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="term-slot"
+              class:hidden={t.id !== terms.activeId && !pair?.includes(t.id)}
+              class:left={pair?.[0] === t.id}
+              class:right={pair?.[1] === t.id}
+              onpointerdown={() => (terms.activeId = t.id)}
+            >
               <terminal.comp id={t.id} cwd={t.cwd} onExit={() => terms.close(t.id)} />
             </div>
           {/each}
@@ -533,6 +543,8 @@
   /* 用 visibility 而不是 display:none —— 后者会让 xterm 的尺寸计算拿到 0，
      切回来时排版是乱的 */
   .term-slot.hidden { visibility: hidden; pointer-events: none; z-index: -1; }
+  .term-slot.left { right: 50%; }
+  .term-slot.right { left: 50%; border-left: 1px solid var(--border-soft); }
 
   .loading {
     display: flex;
