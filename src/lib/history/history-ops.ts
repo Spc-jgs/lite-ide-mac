@@ -9,6 +9,7 @@ import { project } from "../state/project.svelte";
 import { notify } from "../state/notify.svelte";
 import { readText } from "../ipc/commands";
 import { viewOf } from "../editor/live-views";
+import { lineChanges } from "../editor/doc-diff";
 import HistoryPanel from "./HistoryPanel.svelte";
 
 let open: { comp: Record<string, unknown>; host: HTMLElement } | null = null;
@@ -68,7 +69,8 @@ async function restore(path: string, text: string, when: string) {
     notify.fail("编辑器没打开，没换成");
     return;
   }
-  v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text }, userEvent: "input.paste", scrollIntoView: true });
+  // 按行的最小改动，不是整篇替换：没变的行上的断点留着（doc-diff.ts）
+  v.dispatch({ changes: lineChanges(v.state.doc.toString(), text), userEvent: "input.paste", scrollIntoView: true });
   v.focus();
   notify.ok(`换成了 ${when} 那一版，还没保存（⌘Z 撤回）`);
 }

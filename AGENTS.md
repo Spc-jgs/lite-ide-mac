@@ -27,7 +27,7 @@ scripts/accept/spring-nav.sh   # Spring 接口搜索和配置跳转（8 条，�
 scripts/accept/http.sh         # `.http` 发请求（17 条，真 curl + 脚本自己的回显服务）：没选环境不发、私有环境盖公开的、头和体逐字对、按原样次序排 JSON、< 文件、重定向、4xx 标红、3 MB、取消后 curl 没了、`< 项目外面的文件` 不发、不往项目里写
 scripts/accept/history.sh      # 本地历史（9 条）：GBK + CRLF 存的是原始字节、读回来解得对；外面改过补记一版；面板里恢复是编辑器里的一笔修改（不写盘）；不往项目里写
 scripts/accept/java.sh         # Java 智能（42 条，内置的 jdtls + Java 21）：跑的是 .app 里那份、Lombok 不报假错、实时报错、补全（自动 import、方法带括号）、参数提示（换参数、出了括号收起、⌘P 手动弹）、改名（文件跟着改名、jdtls 从文件监听知道、撤销、撞名不动）、格式化（照编辑器的缩进、一笔撤销、只排选中的）、快速修复（import 候选的次序、补上后波浪线消失）、⌘B 进兄弟模块 / jar / JDK 源码、⌥F7、不往项目里写、退出不留。JDTLS_HOME=… 验「用自己那份」
-scripts/smoke.sh               # 发版前的端到端清单（98 条，约 100 秒），同样走测试通道，先打测试 .app
+scripts/smoke.sh               # 发版前的端到端清单（100 条，约 100 秒），同样走测试通道，先打测试 .app
 ```
 
 ## 验证纪律

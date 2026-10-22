@@ -112,6 +112,8 @@ export function installTestHooks() {
     },
     debug: {
       breakpoints: async (root: string, path: string, lines: number[]) => (await import("../debug/breakpoints")).setLines(root, path, lines),
+      /** 这个文件的断点在哪几行（编辑器照它画、调试时交给 Rust 的就是这张表） */
+      lines: async (root: string, path: string) => (await import("../debug/breakpoints")).linesOf(root, path),
       /** 条件断点：和右键行号、填条件、回车走同一个函数（右键那个小框本身在浏览器里验） */
       cond: async (root: string, path: string, line: number, cond: string) => (await import("../debug/breakpoints")).setCond(root, path, line, cond),
       exec: async () => (await import("../debug/exec-point")).execPoint(),

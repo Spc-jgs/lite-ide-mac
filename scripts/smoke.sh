@@ -1188,6 +1188,28 @@ fi
 pkill -KILL -f "${TMARK}" 2>/dev/null
 rm -rf "${FIX}/.lite-ide"
 
+say "㉘ 外面改了文件、编辑器重读：断点跟着没动的行走，不丢（editor/doc-diff.ts）"
+#
+# 原来重读是整篇一笔替换：行号上的标记前面那个字符一被删就没了（CM6 的 TrackBefore），第 1 行以外的断点全丢 ——
+# 2026-10-21 验热替换时撞见（验收脚本在外面重写了 Money.java）。这里照 git checkout / 格式化器那样从外面整份重写：
+# 开头加 import、两个断点之间插一行、末尾加一个方法 —— 断点那两行没动，该跟着下移、一个不丢
+BPF="${FIX}/Money.java"
+printf 'package shop;\n\npublic class Money {\n    String show(long c) {\n        String s = fmt(c);\n        return s;\n    }\n\n    String fmt(long c) {\n        return c / 100 + ".";\n    }\n}\n' > "${BPF}"
+is "await __lite.tabflow.openPath($(q "${BPF}"), { preview: false }); return true"
+lite_wait "${W}" "return __lite.tabs.active?.path === $(q "${BPF}")" 6 >/dev/null
+is "await __lite.debug.breakpoints($(q "${FIX}"), $(q "${BPF}"), [5, 10]); return true"
+lite_wait "${W}" "return document.querySelectorAll('.cm-bp').length === 2" 4 >/dev/null || bad "断点没画出来（这一段的前提没做成）"
+printf 'package shop;\n\nimport java.util.List;\nimport java.util.Map;\n\npublic class Money {\n    String show(long c) {\n        String s = fmt(c);\n        return s;\n    }\n    // 新加的注释\n\n    String fmt(long c) {\n        return c / 100 + ".";\n    }\n\n    void extra() {}\n}\n' > "${BPF}"
+if lite_wait "${W}" "return __lite.text()?.includes('void extra()') === true" 8 >/dev/null; then
+  sleep 0.8   # 映射完去抖 400ms 才写回断点表
+  check "$(lite eval "${W}" "return JSON.stringify(await __lite.debug.lines($(q "${FIX}"), $(q "${BPF}")))" 2>/dev/null)" "[8,14]" "断点跟着没动的那两行下移（5 → 8、10 → 14），一个不丢"
+  check "$(lite eval "${W}" "return document.querySelectorAll('.cm-bp').length" 2>/dev/null)" "2" "行号上照样画着两个红点"
+else
+  bad "外面改了 Money.java，编辑器 8 秒没重读"
+fi
+is "await __lite.debug.breakpoints($(q "${FIX}"), $(q "${BPF}"), []); return true" >/dev/null
+menu close-tab; sleep 0.3
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

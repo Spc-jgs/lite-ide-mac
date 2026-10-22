@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { registerView, unregisterView } from "./live-views";
+  import { lineChanges } from "./doc-diff";
   import { EditorState, Compartment } from "@codemirror/state";
   import { EditorView, keymap, lineNumbers, highlightActiveLine,
            highlightActiveLineGutter, drawSelection, rectangularSelection,
@@ -669,12 +670,15 @@
        * 第 3000 行，旁边的 gradle 一跑，视线被拽回文件开头（2026-09-17 体感那轮列的
        * 「光标不在预期的地方」，这是仓库里唯一一处非用户发起的跳动）。
        *
-       * 整份替换成一次事务：光标和视口先记下、换完按行列摆回去（越界就夹到文档范围内，
+       * 换成一次事务：光标和视口先记下、换完按行列摆回去（越界就夹到文档范围内，
        * `applyView` 本来就会夹）；撤销栈留着 —— ⌘Z 能退回外部改之前那份，
        * 那时标签变脏，和 IDEA 的 local history 一个意思。
+       *
+       * 改动按行算最小的（`doc-diff.ts`），不是整篇一笔替换：断点挂在行首、前面的字符一被删就没了，
+       * 整篇替换会把第 1 行以外的断点全删掉（2026-10-21 验热替换时撞见）。
        */
       const keep = viewNow();
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+      view.dispatch({ changes: lineChanges(view.state.doc.toString(), text) });
       applyView(view, keep);
     }
     // 脏不脏看**文档**对基线，不看 prop：自己存的落盘那次文档可能已经领先 initial
