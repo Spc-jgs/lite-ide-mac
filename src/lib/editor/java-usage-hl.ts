@@ -13,6 +13,7 @@
 import { StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import type { JavaHighlight } from "../ipc/commands";
+import { settings } from "../state/settings.svelte";
 
 export type Spot = { from: number; to: number; write: boolean };
 
@@ -68,7 +69,12 @@ class Watch {
   constructor(view: EditorView, ask: Ask) {
     this.view = view;
     this.ask = ask;
+    // 设置里关掉：标着的当场收；打开：等下一次光标停下来
+    this.#off = settings.subscribe((s) => {
+      if (!s.editorHighlightUsages && this.view.state.field(field).spots.length) this.view.dispatch({ effects: setSpots.of([]) });
+    });
   }
+  #off: () => void;
 
   update(u: ViewUpdate) {
     if (!u.selectionSet && !u.docChanged) return;
@@ -84,6 +90,8 @@ class Watch {
   fire() {
     this.#timer = null;
     const { view } = this;
+    // 设置里关了（editor.highlightUsages）：不问
+    if (!settings.v.editorHighlightUsages) return;
     const sel = view.state.selection.main;
     if (!sel.empty || !onWord(view.state.doc, sel.head)) return;
     const doc = view.state.doc;
@@ -101,6 +109,7 @@ class Watch {
 
   destroy() {
     if (this.#timer) clearTimeout(this.#timer);
+    this.#off();
   }
 }
 

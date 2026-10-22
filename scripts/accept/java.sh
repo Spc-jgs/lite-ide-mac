@@ -351,6 +351,13 @@ lite_wait main "return document.querySelectorAll('.cm-inlay').length >= 2" 20 >/
 INL=$(lite_eval main "return [...document.querySelectorAll('.cm-line')].map((l, i) => [...l.querySelectorAll('.cm-inlay')].map((m) => (i + 1) + ':' + m.textContent).join(' ')).filter(Boolean).join(' ')")
 ok "$([ "${INL}" = '10:n: 10:total:' ] && echo 1)" "第 10 行 add(2)、other(3) 前面各一个，别处没有：${INL}"
 ok "$([ "$(lite_eval main "return !__lite.text().includes('n: 2') && __lite.text().includes('add(2)')")" = true ] && echo 1)" "提示不进正文（存盘、复制拿到的还是 add(2)）"
+lite_eval main "await window.__TAURI_INTERNALS__.invoke('settings_apply', { root: __lite.project.root, global: { 'editor.inlayHints': false }, project: null }); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-inlay').length === 0" 10 >/dev/null
+OFF=$(lite_eval main "return document.querySelectorAll('.cm-inlay').length")
+lite_eval main "await window.__TAURI_INTERNALS__.invoke('settings_apply', { root: __lite.project.root, global: { 'editor.inlayHints': null }, project: null }); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-inlay').length === 2" 10 >/dev/null
+ON=$(lite_eval main "return document.querySelectorAll('.cm-inlay').length")
+ok "$([ "${OFF}" = 0 ] && [ "${ON}" = 2 ] && echo 1)" "设置里关掉 editor.inlayHints：当场收（${OFF}）；恢复默认：回来（${ON}）—— 走的是写 settings.json → 文件监听 → 广播"
 
 echo "== ⇧⇧ 找类（docs/TAKEOVER.md G2）：问 jdtls（驼峰缩写也认，接口标「接口」）；默认只找项目的，「含 jar 里的」找得到依赖里的、↵ 开成只读标签"
 Q='[aria-label="随处搜索"]'

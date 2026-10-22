@@ -68,6 +68,21 @@ pub const DEFS: &[Def] = &[
         default: "13",
         doc: "代码字号（9–28）。⌘= / ⌘- 在它上面临时加减，⌘0 回到这里写的值",
     },
+    // ── Java 智能的三样「编辑器里看得见的」（docs/TAKEOVER.md G11）：照 IDEA 默认开着，嫌吵的关掉。键归 editor.：以后别的语言服务器也用 ──
+    Def {
+        key: "editor.highlightUsages",
+        label: "光标停在名字上时，标出它在这个文件里的用法",
+        kind: Kind::Bool,
+        default: "true",
+        doc: "光标停在一个名字上，这个文件里它出现的地方铺一层淡底、写的那几处换暖色（IDEA 的 Highlight usages）。按意思找的，同名的别的变量不标。目前只有 Java",
+    },
+    Def {
+        key: "editor.inlayHints",
+        label: "参数名提示",
+        kind: Kind::Bool,
+        default: "true",
+        doc: "调用时传字面量的参数前面一小块灰字写参数名（apply(cents: 100)），不进正文。目前只有 Java",
+    },
     Def {
         key: "terminal.fontFamily",
         label: "终端字体",
@@ -168,6 +183,8 @@ fn def(key: &str) -> Option<&'static Def> {
 pub struct Settings {
     pub editor_font_family: String,
     pub editor_font_size: i64,
+    pub editor_highlight_usages: bool,
+    pub editor_inlay_hints: bool,
     /// 空 = 跟编辑器
     pub terminal_font_family: String,
     pub terminal_font_size: i64,
@@ -191,6 +208,8 @@ impl Default for Settings {
         Settings {
             editor_font_family: "JetBrains Mono".into(),
             editor_font_size: FONT_DEFAULT,
+            editor_highlight_usages: true,
+            editor_inlay_hints: true,
             terminal_font_family: String::new(),
             terminal_font_size: FONT_DEFAULT,
             terminal_shell: String::new(),
@@ -217,6 +236,8 @@ impl Settings {
         match key {
             "editor.fontFamily" => self.editor_font_family = s(),
             "editor.fontSize" => self.editor_font_size = n(),
+            "editor.highlightUsages" => self.editor_highlight_usages = b(),
+            "editor.inlayHints" => self.editor_inlay_hints = b(),
             "terminal.fontFamily" => self.terminal_font_family = s(),
             "terminal.fontSize" => self.terminal_font_size = n(),
             "terminal.shell" => self.terminal_shell = s(),
@@ -598,6 +619,8 @@ pub fn values(s: &Settings) -> serde_json::Map<String, Value> {
         let v = match d.key {
             "editor.fontFamily" => Value::from(s.editor_font_family.clone()),
             "editor.fontSize" => Value::from(s.editor_font_size),
+            "editor.highlightUsages" => Value::from(s.editor_highlight_usages),
+            "editor.inlayHints" => Value::from(s.editor_inlay_hints),
             "terminal.fontFamily" => Value::from(s.terminal_font_family.clone()),
             "terminal.fontSize" => Value::from(s.terminal_font_size),
             "terminal.shell" => Value::from(s.terminal_shell.clone()),
@@ -886,6 +909,8 @@ pub struct Effective {
     pub editor_font_size: i64,
     /// `settings.json` 里写的基础字号（⌘0 回到它）
     pub editor_font_base: i64,
+    pub editor_highlight_usages: bool,
+    pub editor_inlay_hints: bool,
     pub terminal_font_family: String,
     pub terminal_font_size: i64,
     /// 空 = `$SHELL`
@@ -903,6 +928,8 @@ pub fn effective(s: &Settings, u: &UiState) -> Effective {
         editor_font_family: s.editor_font_family.clone(),
         editor_font_size: font_size(s.editor_font_size, u.font_offset),
         editor_font_base: s.editor_font_size,
+        editor_highlight_usages: s.editor_highlight_usages,
+        editor_inlay_hints: s.editor_inlay_hints,
         terminal_font_family: if s.terminal_font_family.trim().is_empty() {
             s.editor_font_family.clone()
         } else {

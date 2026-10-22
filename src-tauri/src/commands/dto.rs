@@ -554,6 +554,9 @@ pub struct SettingsDto {
     pub editor_font_size: i64,
     /// `settings.json` 里写的基础字号
     pub editor_font_base: i64,
+    /// Java 的同名高亮、参数名提示开不开（docs/TAKEOVER.md G11）
+    pub editor_highlight_usages: bool,
+    pub editor_inlay_hints: bool,
     /// 已经换算过：没写就是编辑器那个
     pub terminal_font_family: String,
     pub terminal_font_size: i64,

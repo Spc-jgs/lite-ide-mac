@@ -12,6 +12,7 @@
 import { StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import type { JavaInlay } from "../ipc/commands";
+import { settings } from "../state/settings.svelte";
 
 export type Hint = { pos: number; label: string; param: boolean };
 
@@ -78,7 +79,16 @@ class Watch {
     this.view = view;
     this.ask = ask;
     this.later(300);
+    // 设置里关掉（editor.inlayHints）：当场收；打开：马上问一次
+    this.#off = settings.subscribe((s) => {
+      if (s.editorInlayHints === this.#on) return;
+      this.#on = s.editorInlayHints;
+      if (this.#on) this.later(0);
+      else this.view.dispatch({ effects: setHints.of([]) });
+    });
   }
+  #off: () => void;
+  #on = settings.v.editorInlayHints;
 
   later(ms: number) {
     if (this.#timer) clearTimeout(this.#timer);
@@ -92,6 +102,7 @@ class Watch {
 
   fire() {
     this.#timer = null;
+    if (!settings.v.editorInlayHints) return;
     const { view } = this;
     const doc = view.state.doc;
     const [from, endLine, endChar] = linesAround(doc, view.viewport.from, view.viewport.to);
@@ -101,7 +112,7 @@ class Watch {
     void r.hints
       .then((hs) => {
         // 问的这一会儿里又改过字：这份对不上了，改动那边已经排了下一次
-        if (view.state.doc !== doc) return;
+        if (view.state.doc !== doc || !settings.v.editorInlayHints) return;
         view.dispatch({ effects: setHints.of(hintsOf(doc, hs)) });
         if (!r.settled) this.later(3000);
       })
@@ -110,6 +121,7 @@ class Watch {
 
   destroy() {
     if (this.#timer) clearTimeout(this.#timer);
+    this.#off();
   }
 }
 

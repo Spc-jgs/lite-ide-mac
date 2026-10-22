@@ -113,6 +113,8 @@ pub fn dto(app: &AppHandle) -> crate::commands::SettingsDto {
         editor_font_family: e.editor_font_family,
         editor_font_size: e.editor_font_size,
         editor_font_base: e.editor_font_base,
+        editor_highlight_usages: e.editor_highlight_usages,
+        editor_inlay_hints: e.editor_inlay_hints,
         terminal_font_family: e.terminal_font_family,
         terminal_font_size: e.terminal_font_size,
         terminal_shell: e.terminal_shell,

@@ -6,6 +6,7 @@
  * 能造出「设置文件写错了」那种状态（真实现里要去改文件才看得到）。
  */
 import { type A, FILES, NOT_MINE } from "./data";
+import { mockEmit } from "./events";
 
 const PATH = "/Users/you/Library/Application Support/com.liteide.app/settings.json";
 const MIN = 9;
@@ -24,6 +25,8 @@ function view() {
     editorFontFamily: family,
     editorFontSize: clamp(BASE + ui.offset),
     editorFontBase: BASE,
+    editorHighlightUsages: WRITTEN["editor.highlightUsages"] !== false,
+    editorInlayHints: WRITTEN["editor.inlayHints"] !== false,
     terminalFontFamily: family,
     terminalFontSize: BASE,
     terminalShell: "",
@@ -52,6 +55,8 @@ const MOCK_IDEA = [
 const SCHEMA = [
   { key: "editor.fontFamily", label: "代码字体", kind: "string", default: '"JetBrains Mono"', doc: "代码字体：编辑器、差异、日志视图", min: null, max: null },
   { key: "editor.fontSize", label: "代码字号", kind: "integer", default: "13", doc: "代码字号（9–28）", min: MIN, max: MAX },
+  { key: "editor.highlightUsages", label: "光标停在名字上时，标出它在这个文件里的用法", kind: "boolean", default: "true", doc: "IDEA 的 Highlight usages。目前只有 Java", min: null, max: null },
+  { key: "editor.inlayHints", label: "参数名提示", kind: "boolean", default: "true", doc: "传字面量的参数前面写参数名。目前只有 Java", min: null, max: null },
   { key: "terminal.fontFamily", label: "终端字体", kind: "string", default: '""', doc: "终端字体，空 = 跟编辑器", min: null, max: null },
   { key: "terminal.fontSize", label: "终端字号", kind: "integer", default: "13", doc: "终端字号（9–28）", min: MIN, max: MAX },
   { key: "terminal.shell", label: "终端用的 shell", kind: "string", default: '""', doc: "终端用的 shell，空 = $SHELL", min: null, max: null },
@@ -144,6 +149,8 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
       else WRITTEN[k] = v;
       const pr = a.project as { root: string; jdk: string; offline: boolean; skipTests: boolean } | null;
       if (pr) Object.assign(proj(pr.root), { jdk: pr.jdk, offline: pr.offline, skipTests: pr.skipTests });
+      // 真实现：写进 settings.json → 文件监听重读 → 广播（settingsctl::reload）。桩没有文件，直接广播 —— 不然设置页里切的开关在页面上没反应
+      if (Object.keys(g).length) setTimeout(() => mockEmit("settings-changed", view()), 50);
       return page((a.root as string | null) ?? null);
     }
     case "run_configs": {

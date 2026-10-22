@@ -1125,6 +1125,9 @@ export interface Settings {
   editorFontSize: number;
   /** `settings.json` 里写的基础字号（⌘0 回到它） */
   editorFontBase: number;
+  /** Java 的同名高亮、参数名提示开不开（docs/TAKEOVER.md G11） */
+  editorHighlightUsages: boolean;
+  editorInlayHints: boolean;
   terminalFontFamily: string;
   terminalFontSize: number;
   /** 空 = `$SHELL` */

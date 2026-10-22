@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS: Settings = {
   editorFontFamily: "JetBrains Mono",
   editorFontSize: 13,
   editorFontBase: 13,
+  editorHighlightUsages: true,
+  editorInlayHints: true,
   terminalFontFamily: "JetBrains Mono",
   terminalFontSize: 13,
   terminalShell: "",
