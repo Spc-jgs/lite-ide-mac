@@ -108,6 +108,33 @@ pub async fn java_super(app: tauri::AppHandle, root: String, path: String, line:
     .await
 }
 
+/// ⌘N 生成第一步（docs/TAKEOVER.md G5）：光标所在的类里能选哪些。`what`：constructor / getter / setter / accessors / equals / tostring / override。带着此刻的全文
+#[tauri::command]
+pub async fn java_gen_status(app: tauri::AppHandle, root: String, path: String, text: String, line: u32, character: u32, what: String) -> Result<JavaGenChoicesDto, String> {
+    blocking(move || {
+        let c = instance(&app, &root)?.gen_status(&path, &text, line, character, &what)?;
+        Ok(JavaGenChoicesDto {
+            type_name: c.type_name,
+            items: c.items.into_iter().map(|i| JavaGenItemDto { label: i.label, detail: i.detail, checked: i.checked, raw: i.raw }).collect(),
+            note: c.note,
+        })
+    })
+    .await
+}
+
+/// ⌘N 生成第二步：人勾好了，要改动。只改这个文件的直接交给编辑器（⌘Z 能撤），同快速修复那条路
+#[tauri::command]
+pub async fn java_gen_apply(app: tauri::AppHandle, root: String, path: String, text: String, line: u32, character: u32, what: String, picked: Vec<String>) -> Result<JavaActionResultDto, String> {
+    blocking(move || {
+        let plan = instance(&app, &root)?.gen_apply(&path, &text, line, character, &what, &picked)?;
+        if !plan.renames.is_empty() || plan.files.iter().any(|(p, _)| *p != path) {
+            return Err("生成的改动落到了别的文件上，这一版不接（只改光标所在的这个文件）".into());
+        }
+        Ok(JavaActionResultDto { edits: plan.files.into_iter().flat_map(|(_, e)| e).map(Into::into).collect(), outcome: None })
+    })
+    .await
+}
+
 fn hier_dto(n: crate::java::HierNode) -> JavaHierNodeDto {
     let site = n.site.map(|(line, character)| JavaLocationDto { line, character, end_line: line, end_character: character, ..JavaLocationDto::from(n.at.clone()) });
     JavaHierNodeDto { name: n.name, detail: n.detail, kind: n.kind, at: n.at.into(), site, raw: n.raw }

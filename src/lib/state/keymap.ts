@@ -183,6 +183,8 @@ export const KEYS: KeyDef[] = [
   { id: "goto-impl", label: "跳到实现（Java）", accel: "⌥⌘B", group: "导航", owner: "cm6" },
   { id: "goto-super", label: "跳到父方法（Java）", accel: "⌘U", group: "导航", owner: "cm6" },
   { id: "quick-doc", label: "快速文档（Java）", accel: "F1", group: "导航", owner: "cm6" },
+  // IDEA 的 Generate：macOS 键位是 ⌘N 和 ⌃↵ 两个，⌘N 在这里是「新建草稿」（菜单的），先只挂 ⌃↵
+  { id: "generate", label: "生成…（Java：构造器、Getter / Setter、toString…）", accel: "⌃↵", group: "编辑", owner: "cm6" },
   // IDEA 的 Call Hierarchy / Type Hierarchy（macOS 键位）。⌃H 在 CM6 里是「往回删一个字」（emacs 那套），Java 文件里照 IDEA 盖掉
   { id: "call-hierarchy", label: "调用层级（Java）", accel: "⌃⌥H", group: "导航", owner: "cm6" },
   { id: "type-hierarchy", label: "类型层级（Java）", accel: "⌃H", group: "导航", owner: "cm6" },

@@ -10174,3 +10174,21 @@ CM6 的文档不可变，没改就是同一个对象，比一下引用就知道�
 
 数字：smoke 104 → 108（列出类 / 字段 / 构造器、光标在构造器里那一项亮、点 helper 跳到第 9 行、再按 ⌘7 收起）；入口 +290 B → 156,276 B。
 
+## 2026-10-22 晚 · 生成 ⌃↵（G5）：jdtls 不给「要弹框」的那几样，弹框自己做；`seq 1 0` 是倒着数的
+
+**为什么不走 code action**：toString、equals / hashCode、覆盖方法这几样，客户端不声明「我会弹框让人勾」jdtls **根本不给**（1.61 `SourceAssistProcessor`
+里先判 `is*PromptSupported`，否则 `Optional.empty`）；声明了的话 ⌥↵ 里又多出一堆只带命令、我们执行不了的条目。所以弹框是自己的，直接调它背后的两步：
+`java/check*Status`（这个类有哪些字段 / 可覆盖的方法）→ 人勾 → `java/generate*`（回一份 WorkspaceEdit，同快速修复落进编辑器）。
+
+**真 jdtls 上撞的**：Getter / Setter 那一步回「Internal error」—— `resolveUnimplementedAccessors` 的参数里有个 `kind`（GETTER / SETTER / BOTH）不能省，
+lsp4j 按序号收（VS Code 的 Java 插件传 0 / 1 / 2）。字节码里只看到字段名、看不出它不能为空，验收一跑就知道了。
+只要 getter 时要把每一项的 `generateSetter` 关掉 —— jdtls 照标记生成，不关的话选了 getter 顺带生成 setter（单测的错版本红）。
+
+**脚本自己的坑**：「选菜单第 0 项」写成 `for _ in $(seq 1 "$1")` —— macOS 的 `seq 1 0` 输出 `1`、`0` 两行（倒着数），多按两下 ↓，选成了 Setter，
+弹层说「每个字段都有 setter 了」，看着像构造器坏了。AGENTS.md 那段「macOS 自带工具的行为和 GNU 不一样」又多一条。
+
+**⌘N 没占**：IDEA 的 macOS 键位里生成是 ⌘N 和 ⌃↵ 两个，⌘N 在这里是「新建草稿」（当初特意定的），先挂 ⌃↵，要不要让问用户。
+
+数字：java.sh 63 → 69（Getter 和 Setter：getX / setX / getName、final 的没有 setName；toString 两个字段；构造器 Point(int x)；equals / hashCode；
+覆盖方法列出 clone / finalize、一项都不默认勾）；Rust 两条（两个错版本各自红）；入口包 0 B。
+

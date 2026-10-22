@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaHierChildren, JavaHierNode, JavaHighlight, JavaInlay, JavaLocation, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
+import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaGenChoices, JavaHierChildren, JavaHierNode, JavaHighlight, JavaInlay, JavaLocation, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -35,6 +35,13 @@ export const javaHierPrepare = (root: string, path: string, line: number, charac
   invoke<JavaHierNode[]>("java_hier_prepare", { root, path, line, character, types });
 /** 一个节点的下一层：`in` 谁调了它 / `out` 它调了谁 / `super` 父类型 / `sub` 子类型 */
 export const javaHierChildren = (root: string, raw: string, dir: "in" | "out" | "super" | "sub") => invoke<JavaHierChildren>("java_hier_children", { root, raw, dir });
+/** ⌘N 生成（G5）第一步：光标所在的类里能选哪些（字段 / 可覆盖的方法） */
+export type GenWhat = "constructor" | "getter" | "setter" | "accessors" | "equals" | "tostring" | "override";
+export const javaGenStatus = (root: string, path: string, text: string, line: number, character: number, what: GenWhat) =>
+  invoke<JavaGenChoices>("java_gen_status", { root, path, text, line, character, what });
+/** 第二步：人勾好了（第一步那几项的 `raw`），要改动 —— 只改这个文件，交给编辑器 */
+export const javaGenApply = (root: string, path: string, text: string, line: number, character: number, what: GenWhat, picked: string[]) =>
+  invoke<JavaActionResult>("java_gen_apply", { root, path, text, line, character, what, picked });
 /** 跳到父方法（⌘U）：覆盖的那个方法 / 父类（jdtls 的 `java/findLinks`） */
 export const javaSuper = (root: string, path: string, line: number, character: number) =>
   invoke<JavaRefs>("java_super", { root, path, line, character });

@@ -21,7 +21,7 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { usageHighlight } from "./java-usage-hl";
 import { inlayHints } from "./java-inlay";
 import { configKeyAt } from "./spring-key";
@@ -328,6 +328,49 @@ export function lspResolve(view: EditorView, pos: number, recheck: () => void): 
 export function lspSettle(view: EditorView): Promise<void> | null {
   const a = asked.get(view);
   return a && a.hit === undefined ? a.wait : null;
+}
+
+// ── 生成（⌃↵，docs/TAKEOVER.md G5） ──
+
+/**
+ * 挂一个两步的弹层：选生成什么 → 勾字段 / 方法 → 改动落进编辑器（一笔、⌘Z 撤得回），同 ⌥↵ 落改动的那段。
+ * 位置用打开弹层那一刻的光标：jdtls 按它找「在哪个类里」、生成的东西插在哪（插在光标后面那个成员前面）
+ */
+async function generate(view: EditorView) {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) return void notify.hint("Java 语言服务器还没起好，稍等一下再按");
+  const pos = view.state.selection.main.head;
+  const l = view.state.doc.lineAt(pos);
+  const [line, ch] = [l.number - 1, pos - l.from];
+  const c = view.coordsAtPos(pos);
+  closePopup();
+  const { default: GeneratePopup } = await import("./GeneratePopup.svelte");
+  popup = mount(GeneratePopup, {
+    target: document.body,
+    props: {
+      x: c?.left ?? 200,
+      y: c?.bottom ?? 200,
+      load: (what) => javaGenStatus(s.root, s.path, view.state.doc.toString(), line, ch, what),
+      apply: async (what, raws) => {
+        const gen = view.state.field(genField, false) ?? 0;
+        const r = await javaGenApply(s.root, s.path, view.state.doc.toString(), line, ch, what, raws);
+        if (!view.dom.isConnected) return;
+        if ((view.state.field(genField, false) ?? 0) !== gen) throw new Error("生成回来时文件又改过了，没动它 —— 再按一次 ⌃↵");
+        const doc = view.state.doc;
+        const changes = r.edits
+          .map((e) => ({ from: offset(doc, e.line, e.character), to: offset(doc, e.endLine, e.endCharacter), insert: e.text }))
+          .filter((c) => c.insert !== doc.sliceString(c.from, c.to))
+          .sort((x, y) => x.from - y.from || x.to - y.to);
+        if (!changes.length) return void notify.hint("什么都没生成（要的那些已经有了）");
+        view.dispatch({ changes, userEvent: "input.generate", scrollIntoView: true });
+      },
+      onclose: () => {
+        closePopup();
+        view.focus();
+      },
+    },
+  });
 }
 
 // ── 调用层级 / 类型层级（⌃⌥H / ⌃H，docs/TAKEOVER.md G10） ──
@@ -952,6 +995,8 @@ export function javaLsp(root: string | null, path: string): Extension {
         { key: "Mod-Alt-F7", preventDefault: true, run: (v) => (void findUsages(v), true) },
         // IDEA 的 Go to Implementation(s) / Super Method（keymap.ts 登记成 cm6）。⌘U 盖掉 CM6 默认的「撤销选区」：Java 文件里照 IDEA
         { key: "Mod-Alt-b", preventDefault: true, run: (v) => (void jumpList(v, "实现", javaImplementation, (n) => `${n} 没有实现（不是接口 / 抽象方法，或者没人实现它）`), true) },
+        // IDEA 的 Generate（macOS 键位 ⌘N / ⌃↵；⌘N 在这里是「新建草稿」，先挂 ⌃↵。keymap.ts 登记成 cm6）
+        { key: "Ctrl-Enter", preventDefault: true, run: (v) => (void generate(v), true) },
         // IDEA 的 Call Hierarchy / Type Hierarchy（keymap.ts 登记成 cm6）
         { key: "Ctrl-Alt-h", preventDefault: true, run: (v) => (void openHierarchy(v, false), true) },
         { key: "Ctrl-h", preventDefault: true, run: (v) => (void openHierarchy(v, true), true) },

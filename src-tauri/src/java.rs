@@ -126,6 +126,23 @@ pub struct HierNode {
     pub raw: String,
 }
 
+/// ⌘N 生成（docs/TAKEOVER.md G5）的第一步问回来的：这个类里能选的那几样（字段、可覆盖的方法）。
+/// `raw` 是 jdtls 给的那一项原样的 JSON，第二步原样交回去；`note` 是要说给人听的一句（已经有 toString 了、会替换）
+#[derive(Clone, Debug, PartialEq)]
+pub struct GenChoices {
+    pub type_name: String,
+    pub items: Vec<GenItem>,
+    pub note: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GenItem {
+    pub label: String,
+    pub detail: String,
+    pub checked: bool,
+    pub raw: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct Diagnostic {
     pub line: u32,
@@ -522,6 +539,46 @@ impl Instance {
         Ok((all.into_iter().take(HIER_MAX).collect(), total))
     }
 
+    /// ⌘N 生成（docs/TAKEOVER.md G5）第一步：光标所在的类里能选哪些。`what`：`constructor` / `getter` / `setter` / `accessors` / `equals` / `tostring` / `override`。
+    ///
+    /// 直接调 jdtls 自己的 `java/check*Status` 这几条，不走 code action：toString、equals/hashCode、覆盖方法这几样，
+    /// 客户端不声明「会弹框让人选」jdtls 根本不给（1.61 `SourceAssistProcessor` 里先判 `is*PromptSupported`，否则空）；
+    /// 声明了的话 ⌥↵ 的列表里又会多出一堆只带命令、我们执行不了的条目。所以弹框是我们自己的，问和改都直接调它背后那两条请求
+    pub fn gen_status(&self, path: &str, text: &str, line: u32, character: u32, what: &str) -> Result<GenChoices, String> {
+        self.change(path, text);
+        let ctx = gen_ctx(path, line, character);
+        let r = match what {
+            "tostring" => self.ask("java/checkToStringStatus", ctx)?,
+            "equals" => self.ask("java/checkHashCodeEqualsStatus", ctx)?,
+            "constructor" => self.ask("java/checkConstructorsStatus", ctx)?,
+            "getter" | "setter" | "accessors" => {
+                // `kind` 不能省：jdtls 拿它挑字段，空着就是 Internal error（2026-10-22 真 jdtls 上撞的）。lsp4j 按序号收这个枚举（GETTER 0 / SETTER 1 / BOTH 2），
+                // VS Code 的 Java 插件传的也是数字
+                let mut p = ctx;
+                p["kind"] = json!(match what { "getter" => 0, "setter" => 1, _ => 2 });
+                self.ask("java/resolveUnimplementedAccessors", p)?
+            }
+            "override" => self.ask("java/listOverridableMethods", ctx)?,
+            _ => return Err(format!("不认识的生成：{what}")),
+        };
+        Ok(gen_choices_of(what, &r))
+    }
+
+    /// 第二步：人勾好了（`picked` 是第一步那几项的 `raw`），要改动。回来的是一份 WorkspaceEdit，同改名那条路落地
+    pub fn gen_apply(&self, path: &str, text: &str, line: u32, character: u32, what: &str, picked: &[String]) -> Result<RenamePlan, String> {
+        self.change(path, text);
+        let ctx = gen_ctx(path, line, character);
+        let picked: Vec<Value> = picked.iter().map(|s| serde_json::from_str(s).map_err(|e| format!("选中的那一项读不懂：{e}"))).collect::<Result<_, _>>()?;
+        // 构造器要带「调父类的哪个构造器」：第一步没让人选（几乎总是只有一个），这里再问一次、用第一个
+        let supers = if what == "constructor" { self.ask("java/checkConstructorsStatus", ctx.clone())?["constructors"].as_array().and_then(|a| a.first().cloned()) } else { None };
+        let (method, params) = gen_params(what, ctx, picked, supers)?;
+        let r = self.ask(method, params)?;
+        if r.is_null() {
+            return Err("jdtls 没有给出改动（光标可能不在类里）".into());
+        }
+        workspace_edit(&r)
+    }
+
     /// 查用法。超过 [`REFS_MAX`] 截断，返回 `(前 REFS_MAX 条, 真条数)`
     pub fn references(&self, path: &str, line: u32, character: u32) -> Result<(Vec<Location>, usize), String> {
         let r = self.ask(
@@ -767,6 +824,86 @@ pub fn hover_markdown(r: &Value) -> String {
         None => Vec::new(),
     };
     parts.into_iter().filter(|s| !s.trim().is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
+/// 生成那几条请求都吃一个 `CodeActionParams`：jdtls 按这个位置找「光标在哪个类里」
+fn gen_ctx(path: &str, line: u32, character: u32) -> Value {
+    let at = json!({ "line": line, "character": character });
+    json!({ "textDocument": { "uri": uri::from_path(path) }, "range": { "start": at, "end": at }, "context": { "diagnostics": [] } })
+}
+
+/// 第一步的回话 → 能选的几项。字段：名字 + 类型；可覆盖的方法：`名字(参数)` + 声明它的类，抽象的（没实现的）默认勾上（同 IDEA 的 Implement）；
+/// getter / setter：只列还缺的那一种（jdtls 每个字段给两个标记：缺不缺 getter、缺不缺 setter）
+pub fn gen_choices_of(what: &str, r: &Value) -> GenChoices {
+    let arr = |v: &Value| v.as_array().cloned().unwrap_or_default();
+    let field = |f: &Value| GenItem { label: f["name"].as_str().unwrap_or("").into(), detail: f["type"].as_str().unwrap_or("").into(), checked: true, raw: f.to_string() };
+    match what {
+        "tostring" | "equals" | "constructor" => {
+            let note = if what == "tostring" && r["exists"].as_bool() == Some(true) {
+                "这个类已经有 toString() 了：生成会替换掉它".to_string()
+            } else if what == "equals" && !arr(&r["existingMethods"]).is_empty() {
+                let m: Vec<String> = arr(&r["existingMethods"]).iter().filter_map(|x| x.as_str().map(str::to_owned)).collect();
+                format!("这个类已经有 {} 了：生成会替换掉", m.join("、"))
+            } else {
+                String::new()
+            };
+            GenChoices { type_name: r["type"].as_str().unwrap_or("").into(), items: arr(&r["fields"]).iter().map(field).collect(), note }
+        }
+        "getter" | "setter" | "accessors" => {
+            let items = arr(r)
+                .iter()
+                .filter(|f| match what {
+                    "getter" => f["generateGetter"].as_bool() == Some(true),
+                    "setter" => f["generateSetter"].as_bool() == Some(true),
+                    _ => f["generateGetter"].as_bool() == Some(true) || f["generateSetter"].as_bool() == Some(true),
+                })
+                .map(|f| GenItem { label: f["fieldName"].as_str().unwrap_or("").into(), detail: f["typeName"].as_str().unwrap_or("").into(), checked: true, raw: f.to_string() })
+                .collect();
+            GenChoices { type_name: String::new(), items, note: String::new() }
+        }
+        "override" => {
+            let items = arr(&r["methods"])
+                .iter()
+                .map(|m| {
+                    let ps: Vec<String> = arr(&m["parameters"]).iter().filter_map(|p| p.as_str().map(str::to_owned)).collect();
+                    GenItem {
+                        label: format!("{}({})", m["name"].as_str().unwrap_or(""), ps.join(", ")),
+                        detail: m["declaringClass"].as_str().unwrap_or("").into(),
+                        checked: m["unimplemented"].as_bool() == Some(true),
+                        raw: m.to_string(),
+                    }
+                })
+                .collect();
+            GenChoices { type_name: r["type"].as_str().unwrap_or("").into(), items, note: String::new() }
+        }
+        _ => GenChoices { type_name: String::new(), items: Vec::new(), note: String::new() },
+    }
+}
+
+/// 第二步的请求和参数。getter / setter：把每一项的两个标记改成「只生成这一种」—— jdtls 照标记生成，不改的话选了 getter 也会顺带生成 setter
+pub fn gen_params(what: &str, ctx: Value, picked: Vec<Value>, supers: Option<Value>) -> Result<(&'static str, Value), String> {
+    Ok(match what {
+        "tostring" => ("java/generateToString", json!({ "context": ctx, "fields": picked })),
+        "equals" => ("java/generateHashCodeEquals", json!({ "context": ctx, "fields": picked, "regenerate": true })),
+        "constructor" => ("java/generateConstructors", json!({ "context": ctx, "constructors": supers.into_iter().collect::<Vec<_>>(), "fields": picked })),
+        "getter" | "setter" | "accessors" => {
+            let accessors: Vec<Value> = picked
+                .into_iter()
+                .map(|mut f| {
+                    if what == "getter" {
+                        f["generateSetter"] = json!(false);
+                    }
+                    if what == "setter" {
+                        f["generateGetter"] = json!(false);
+                    }
+                    f
+                })
+                .collect();
+            ("java/generateAccessors", json!({ "context": ctx, "accessors": accessors }))
+        }
+        "override" => ("java/addOverridableMethods", json!({ "context": ctx, "overridableMethods": picked })),
+        _ => return Err(format!("不认识的生成：{what}")),
+    })
 }
 
 /// `CallHierarchyItem` / `TypeHierarchyItem` → 节点。`site` 由调用方给（调用方那一层的 `fromRanges`）。位置用 `selectionRange`（名字那一段）
@@ -1713,6 +1850,42 @@ mod tests {
         assert_eq!(hover_markdown(&json!({ "contents": "纯字符串" })), "纯字符串");
         assert_eq!(hover_markdown(&json!({ "contents": [{ "language": "java", "value": "" }, ""] })), "", "空的项丢掉");
         assert_eq!(hover_markdown(&Value::Null), "");
+    }
+
+    #[test]
+    fn 生成_字段默认全勾_已有的说出来_getter只列缺的_覆盖方法抽象的默认勾() {
+        let ts = json!({ "type": "Tally", "exists": true, "fields": [{ "bindingKey": "k1", "name": "total", "type": "int", "isField": true, "isSelected": false }] });
+        let c = gen_choices_of("tostring", &ts);
+        assert_eq!((c.type_name.as_str(), c.items[0].label.as_str(), c.items[0].detail.as_str(), c.items[0].checked), ("Tally", "total", "int", true));
+        assert!(c.note.contains("已经有 toString()"), "{}", c.note);
+        assert!(c.items[0].raw.contains("\"bindingKey\":\"k1\""), "原样留着，第二步交回去");
+        let acc = json!([
+            { "fieldName": "a", "isStatic": false, "generateGetter": true, "generateSetter": false, "typeName": "int" },
+            { "fieldName": "b", "isStatic": false, "generateGetter": false, "generateSetter": true, "typeName": "String" },
+        ]);
+        assert_eq!(gen_choices_of("getter", &acc).items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), vec!["a"], "已经有 getter 的 b 不列");
+        assert_eq!(gen_choices_of("accessors", &acc).items.len(), 2);
+        let ov = json!({ "type": "VipRule", "methods": [
+            { "bindingKey": "m1", "name": "apply", "parameters": ["long"], "unimplemented": true, "declaringClass": "PriceRule", "declaringClassType": "interface" },
+            { "bindingKey": "m2", "name": "equals", "parameters": ["Object"], "unimplemented": false, "declaringClass": "Object", "declaringClassType": "class" },
+        ] });
+        let o = gen_choices_of("override", &ov);
+        assert_eq!((o.items[0].label.as_str(), o.items[0].checked, o.items[1].checked), ("apply(long)", true, false), "接口里没实现的默认勾，Object 的不勾");
+        let eq = json!({ "type": "T", "fields": [], "existingMethods": ["equals", "hashCode"] });
+        assert!(gen_choices_of("equals", &eq).note.contains("equals、hashCode"));
+    }
+
+    #[test]
+    fn 生成_只要getter时把setter的标记关掉_构造器带父类构造器() {
+        let f = json!({ "fieldName": "b", "isStatic": false, "generateGetter": true, "generateSetter": true, "typeName": "String" });
+        let (m, p) = gen_params("getter", json!({}), vec![f.clone()], None).unwrap();
+        assert_eq!(m, "java/generateAccessors");
+        assert_eq!((p["accessors"][0]["generateGetter"].as_bool(), p["accessors"][0]["generateSetter"].as_bool()), (Some(true), Some(false)), "选了 getter 不顺带生成 setter");
+        let (_, p) = gen_params("setter", json!({}), vec![f], None).unwrap();
+        assert_eq!(p["accessors"][0]["generateGetter"].as_bool(), Some(false));
+        let (m, p) = gen_params("constructor", json!({}), vec![], Some(json!({ "name": "Object" }))).unwrap();
+        assert_eq!((m, p["constructors"][0]["name"].as_str()), ("java/generateConstructors", Some("Object")));
+        assert!(gen_params("nope", json!({}), vec![], None).is_err());
     }
 
     #[test]

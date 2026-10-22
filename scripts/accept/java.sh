@@ -86,6 +86,8 @@ printf 'package com.demo.common;\n\npublic class VipRule implements PriceRule {\
 printf 'package com.demo.common;\n\npublic class HalfRule implements PriceRule {\n    @Override\n    public long apply(long cents) { return cents / 2; }\n}\n' > "${C}/HalfRule.java"
 # 同名高亮（G11）用：字段 total 有声明、有写、有读；other() 的参数也叫 total —— 语义的高亮不该标它。twice() 传字面量：参数名提示用
 printf 'package com.demo.common;\n\npublic class Tally {\n    private int total;\n    public int add(int n) {\n        total = total + n;\n        return total;\n    }\n    public int other(int total) { return total; }\n    public int twice() { return add(2) + other(3); }\n}\n' > "${C}/Tally.java"
+# 生成（G5）用：一个普通字段、一个带初值的 final 字段（final 的没有 setter）
+printf 'package com.demo.common;\n\npublic class Point {\n    private int x;\n    private final String name = "p";\n}\n' > "${C}/Point.java"
 printf 'package com.demo.common;\n\npublic class Coupon {\n    @Override\n    public String toString() { return "coupon"; }\n}\n' > "${C}/Coupon.java"
 APP="${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
 cat > "${APP}" <<'EOF'
@@ -358,6 +360,43 @@ lite_eval main "await window.__TAURI_INTERNALS__.invoke('settings_apply', { root
 lite_wait main "return document.querySelectorAll('.cm-inlay').length === 2" 10 >/dev/null
 ON=$(lite_eval main "return document.querySelectorAll('.cm-inlay').length")
 ok "$([ "${OFF}" = 0 ] && [ "${ON}" = 2 ] && echo 1)" "设置里关掉 editor.inlayHints：当场收（${OFF}）；恢复默认：回来（${ON}）—— 走的是写 settings.json → 文件监听 → 广播"
+
+echo "== 生成 ⌃↵（docs/TAKEOVER.md G5）：Getter 和 Setter（final 的字段只有 getter）、toString()、构造器；字段默认全勾，生成的落进编辑器"
+G='.popup.gen'
+gk() { lite_eval main "document.querySelector('${G}').dispatchEvent(new KeyboardEvent('keydown', { key: '$1', bubbles: true, cancelable: true })); return true" >/dev/null; }
+gen_pick() {
+  lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('private int x')); __lite.caret(l + 1, 5); __lite.key('Ctrl-Enter'); return true" >/dev/null
+  lite_wait main "return !!document.querySelector('${G} .mi')" 10 >/dev/null
+  # 不用 seq：macOS 的 `seq 1 0` 是倒着数的（输出 1、0 两行），「选第 0 项」会多按两下 ↓（2026-10-22 撞的）
+  local n=0; while [ "${n}" -lt "$1" ]; do gk ArrowDown; n=$((n + 1)); done
+  gk Enter
+  lite_wait main "return !!document.querySelector('${G} .foot') || !!document.querySelector('${G} .err')" 20 >/dev/null
+}
+open_file "${C}/Point.java" >/dev/null
+gen_pick 3
+ITEMS=$(lite_eval main "return [...document.querySelectorAll('${G} .list .nm')].map((e) => e.textContent).join(',') + (document.querySelector('${G} .err')?.textContent ?? '')")
+gk Enter
+lite_wait main "return !document.querySelector('${G}') && __lite.text().includes('getX()')" 20 >/dev/null
+TXT=$(lite_eval main "return ['int getX()', 'void setX(int x)', 'String getName()', 'setName'].map((s) => __lite.text().includes(s) ? 1 : 0).join('')")
+ok "$([ "${TXT}" = 1110 ] && echo 1)" "Getter 和 Setter：getX / setX / getName 都有、final 的 name 没有 setName（${TXT}）；列出的字段：${ITEMS}"
+gen_pick 5
+gk Enter
+lite_wait main "return !document.querySelector('${G}') && __lite.text().includes('toString()')" 20 >/dev/null
+ok "$([ "$(lite_eval main "return /public String toString\\(\\)/.test(__lite.text()) && /x=/.test(__lite.text()) && /name=/.test(__lite.text())")" = true ] && echo 1)" "toString()：两个字段都在里面"
+gen_pick 0
+CITEMS=$(lite_eval main "return [...document.querySelectorAll('${G} .list .nm')].map((e) => e.textContent).join(',') + (document.querySelector('${G} .err')?.textContent ?? '') + (document.querySelector('${G} .empty-msg')?.textContent ?? '')")
+gk Enter
+lite_wait main "return !document.querySelector('${G}') && /public Point\\(/.test(__lite.text())" 20 >/dev/null
+ok "$([ "$(lite_eval main "return /public Point\\(int x\\)/.test(__lite.text())")" = true ] && echo 1)" "构造器：带 x（带初值的 final 字段 jdtls 不列：${CITEMS}）：$(lite_eval main "return __lite.text().split('\\n').find((l) => l.includes('public Point(')) ?? '没有'")"
+ok "$([ "$(lite_eval main "return __lite.tabs.active?.dirty === true")" = true ] && echo 1)" "改动在编辑器里（没存盘，⌘Z 撤得回）"
+gen_pick 4
+gk Enter
+lite_wait main "return !document.querySelector('${G}') && __lite.text().includes('hashCode()')" 20 >/dev/null
+ok "$([ "$(lite_eval main "return /public boolean equals\\(Object/.test(__lite.text()) && /public int hashCode\\(\\)/.test(__lite.text())")" = true ] && echo 1)" "equals() 和 hashCode()：两个都生成了"
+gen_pick 6
+OV=$(lite_eval main "return [...document.querySelectorAll('${G} .list .mi')].map((e) => (e.querySelector('input').checked ? '✓' : '') + e.querySelector('.nm').textContent).join(',') + (document.querySelector('${G} .err')?.textContent ?? '')")
+ok "$(echo "${OV}" | grep -q 'clone()' && ! echo "${OV}" | grep -q '✓' && echo 1)" "覆盖方法：列出 Object 的（clone 这些），没有抽象方法时一项都不默认勾：${OV}"
+gk Escape
 
 echo "== 调用层级 ⌃⌥H、类型层级 ⌃H（docs/TAKEOVER.md G10）：底部「层级」工具窗；调用方带调用的那一行、↵ 跳过去；换成「被调用」；接口上 ⌃H 列出两个实现"
 H='.hier [role="tree"]'

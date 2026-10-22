@@ -137,6 +137,20 @@ export interface JavaRefs {
   total: number;
 }
 
+/** ⌘N 生成（docs/TAKEOVER.md G5）第一步：能选的那几项。`raw` 第二步原样交回去；`note`：要说给人听的一句（已经有了、会替换） */
+export interface JavaGenChoices {
+  typeName: string;
+  items: JavaGenItem[];
+  note: string;
+}
+
+export interface JavaGenItem {
+  label: string;
+  detail: string;
+  checked: boolean;
+  raw: string;
+}
+
 /** 层级里的一个节点（docs/TAKEOVER.md G10）。`raw`：jdtls 的节点原样，问下一层时原样交回去；`site`：「谁调了它」那一层里调用的位置，别的方向为空 */
 export interface JavaHierNode {
   name: string;

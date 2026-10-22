@@ -1060,6 +1060,24 @@ pub struct JavaRefsDto {
     pub total: u32,
 }
 
+/// ⌘N 生成（docs/TAKEOVER.md G5）第一步：能选的那几项。`raw` 第二步原样交回来；`note`：要说给人听的一句（已经有了、会替换）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaGenChoicesDto {
+    pub type_name: String,
+    pub items: Vec<JavaGenItemDto>,
+    pub note: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaGenItemDto {
+    pub label: String,
+    pub detail: String,
+    pub checked: bool,
+    pub raw: String,
+}
+
 /// 层级里的一个节点（docs/TAKEOVER.md G10）。`raw`：jdtls 的节点原样，问下一层时原样交回来；
 /// `site`：「谁调了它」那一层里调用的位置（在 `at` 那个文件里，行列从 0 数），别的方向为空
 #[derive(serde::Serialize)]

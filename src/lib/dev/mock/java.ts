@@ -402,6 +402,33 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       // 桩：照 jdtls 回的样子（签名代码块 + Javadoc 转的 Markdown）给一段
       await wait(50);
       return "```java\nlong com.demo.PriceRule.apply(long cents)\n```\n\n按规则算出**折后价**（分），见 [Money](jdt://contents/Money.class)。\n\n* **Parameters:**\n  * **cents** 原价\n* **Returns:**\n  * 折后价";
+    case "java_gen_status": {
+      // 生成：桩认「private 类型 名字;」那种字段，toString 之外的几种都给同一份字段；覆盖方法给 Object 的两个。真的是 jdtls 算的。故意等 120 ms
+      await wait(120);
+      const text = String(a.text ?? "");
+      const what = String(a.what);
+      const type = /\b(?:class|record)\s+(\w+)/.exec(text)?.[1] ?? "";
+      const fields = [...text.matchAll(/^\s*(?:private|protected|public)?\s*(?:final\s+)?([\w<>.]+)\s+(\w+)\s*(?:=[^;]*)?;/gm)].filter((m) => !KEYWORDS.has(m[1]) || m[1] === "int" || m[1] === "long");
+      const item = (label: string, detail: string, raw: Record<string, unknown>, checked = true) => ({ label, detail, checked, raw: JSON.stringify(raw) });
+      if (what === "override")
+        return { typeName: type, note: "", items: [item("toString()", "Object", { name: "toString", parameters: [] }, false), item("hashCode()", "Object", { name: "hashCode", parameters: [] }, false)] };
+      const items = fields.map((m) => item(m[2], m[1], { name: m[2], type: m[1] }));
+      return { typeName: type, note: what === "tostring" && /String toString\(\)/.test(text) ? "这个类已经有 toString() 了：生成会替换掉它" : "", items };
+    }
+    case "java_gen_apply": {
+      // 插在类的最后一个 } 前面：每选一项一行（真的是 jdtls 的代码生成，会排版、会照代码风格）
+      await wait(150);
+      const text = String(a.text ?? "");
+      const lines = text.split("\n");
+      const last = lines.map((l, i) => (/^}/.test(l) ? i : -1)).filter((i) => i >= 0).pop() ?? lines.length - 1;
+      const names = ((a.picked as unknown as string[]) ?? []).map((r) => JSON.parse(r).name as string);
+      const what = String(a.what);
+      const body =
+        what === "tostring" ? `    @Override\n    public String toString() {\n        return "${names.join(", ")}";\n    }\n`
+        : what === "constructor" ? `    public Generated(${names.join(", ")}) {\n    }\n`
+        : names.map((n) => `    // ${what} ${n}\n`).join("");
+      return { edits: [{ line: last, character: 0, endLine: last, endCharacter: 0, text: `\n${body}` }], outcome: null };
+    }
     case "java_hier_prepare": {
       // 层级：桩不懂语义 —— 方法认「名字(…) {」的声明，类型认 class / interface 后面的名字；调用方 = 别的方法体里出现了「名字(」。
       // 真的是 jdtls 算的（重载、继承、跨模块都认得）。故意等 60 ms
