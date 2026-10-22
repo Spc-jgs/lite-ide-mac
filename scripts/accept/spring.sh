@@ -95,7 +95,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class OrderApplication implements CommandLineRunner {
     @Value("${demo.greeting}") String greeting;
-    public static void main(String[] args) { SpringApplication.run(OrderApplication.class, args); }
+    public static void main(String[] args) { System.out.println("LITE-IDE-CFG " + System.getProperty("lite.vm") + " " + System.getenv("LITE_ENV") + " " + String.join(",", args) + " " + System.getProperty("spring.profiles.active")); SpringApplication.run(OrderApplication.class, args); }
     @Override public void run(String... args) { System.out.println("LITE-IDE-PROBE " + greeting + " " + new Money(12345).show()); }
 }
 EOF
@@ -317,6 +317,17 @@ lite menu debug-resume main >/dev/null
 lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
 lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
 
+echo "== 运行配置（docs/SETTINGS.md 13.6）：「运行 › 编辑配置…」里给 OrderApplication 配 profile、VM 参数、环境变量、程序参数 → 起它时全带上（下面热替换那段就带着这份配置调试）"
+RC='const d = document.querySelector(".dialog.runcfg"); const put = (el, v) => { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); }; const tick = () => new Promise((r) => setTimeout(r, 80));'
+lite menu run-configs main >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.runcfg #rc-profiles')" 30 >/dev/null
+lite_eval main "${RC} [...d.querySelectorAll('.svc')].find((b) => b.textContent.trim() === 'OrderApplication').click(); await tick(); put(d.querySelector('#rc-profiles'), 'cfgprof'); await tick(); put(d.querySelector('#rc-vm'), '-Dlite.vm=vm1'); await tick(); put(d.querySelector('#rc-args'), '--lite.arg=a1'); await tick(); [...d.querySelectorAll('.env .btn')].find((b) => b.textContent.includes('加一个')).click(); await tick(); const kv = d.querySelectorAll('.kv input'); put(kv[0], 'LITE_ENV'); await tick(); put(kv[1], 'env1'); await tick(); d.querySelector('[data-default]').click(); return true" >/dev/null
+lite_wait main "return !document.querySelector('.dialog.runcfg')" 10 >/dev/null
+pick OrderApplication >/dev/null
+ok "$(wait_for 120 "logtext OrderApplication | grep -q 'LITE-IDE-CFG vm1 env1 --lite.arg=a1 cfgprof'" && echo 1)" "起来的 JVM 拿到了 VM 参数、环境变量、程序参数、Spring profile：$(logtext OrderApplication | grep LITE-IDE-CFG | tail -1)"
+ok "$(lite_eval main "return __lite.runs.list.find((x) => x.name === 'OrderApplication')?.command ?? ''" | grep -q -- "export LITE_ENV=env1 && exec java -Dlite.vm=vm1 -Dspring.profiles.active=cfgprof -cp .* com.demo.order.OrderApplication --lite.arg=a1$" && echo 1)" "命令照 13.6 的样子拼：环境变量在 exec 前、VM 参数和 profile 在 java 后、程序参数在主类后"
+ok "$([ -z "$(ls -A "${P}/.lite-ide" 2>/dev/null)" ] && ! grep -rq 'cfgprof' "${P}" --include='*.json' --include='*.xml' && echo 1)" "运行配置没往项目里写（只有你自己的，同 IDEA 的 workspace.xml）"
+
 echo "== 热替换（docs/IDEA.md 第 26 节）：停在断点时改方法体 → ⌘S → ⌘F9 → 换进 JVM；停着那一帧跑完旧的、下一次调用是新的、断点还在；行号变了的断点这次不停；加了方法的换不了"
 # 入口类临时改成调三次 show()（12345、7、7），这一节完了改回去：前面「F9 之后照常跑完」那几条只认一次调用
 ORDER="${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
@@ -433,8 +444,46 @@ else
   lite_wait main "${RB} return !!r && r.status !== 'running'" 240 >/dev/null
   ok "$(lite_eval main "${RB} return r?.command ?? ''" | grep -q "^export JAVA_HOME=[^;]*21[^;]*; mvn" && echo 1)" "命令最前面换成了 JDK 21：$(lite_eval main "${RB} return (r?.command ?? '').split(';')[0]")"
   ok "$([ "$(lite_eval main "${RB} return r?.status")" = done ] && logtext 重新构建项目 | grep -q 'release 21' && echo 1)" "用 21 编过了（输出里是 release 21；用你默认的 17 编会报「不支持发行版本 21」）：$(lite_eval main "${RB} return r?.status") $(logtext 重新构建项目 | grep -o 'release [0-9]*' | head -1)"
+  # 设置 › 此项目 里明确选一个 JDK：盖过按 pom 自动挑的（docs/SETTINGS.md 13.6 的次序）。选 17 而 pom 要 21，构建会失败 —— 这里只看命令用的是哪个
+  J17=$(ls -d /Library/Java/JavaVirtualMachines/*17*/Contents/Home 2>/dev/null | head -1)
+  if [ -n "${J17}" ]; then
+    SD='const d = document.querySelector(".dialog.settings"); const cat = (n) => [...d.querySelectorAll(".cat")].find((c) => c.innerText.startsWith(n));'
+    lite menu open-settings main >/dev/null
+    lite_wait main "return !!document.querySelector('.dialog.settings .cat')" 10 >/dev/null
+    lite_eval main "${SD} cat('此项目').click(); await new Promise((r) => setTimeout(r, 300)); [...d.querySelectorAll('.choice')].find((c) => c.textContent.includes('${J17}')).click(); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null
+    lite_wait main "return !document.querySelector('.dialog.settings')" 10 >/dev/null
+    before=$(lite_eval main "${RB} return r?.id ?? 0")
+    lite menu rebuild-project main >/dev/null
+    lite_wait main "${RB} return !!r && r.id !== ${before} && r.status !== 'running'" 240 >/dev/null
+    ok "$(lite_eval main "${RB} return r?.command ?? ''" | grep -q "^export JAVA_HOME=${J17} " && echo 1)" "设置 › 此项目 里选了 Java 17：命令用它，不按 pom 挑 21：$(lite_eval main "${RB} return (r?.command ?? '').split(';')[0]")"
+    lite menu open-settings main >/dev/null
+    lite_wait main "return !!document.querySelector('.dialog.settings .cat')" 10 >/dev/null
+    lite_eval main "${SD} cat('此项目').click(); await new Promise((r) => setTimeout(r, 300)); [...d.querySelectorAll('.choice')].find((c) => c.textContent.includes('按 pom 自动')).click(); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null
+    lite_wait main "return !document.querySelector('.dialog.settings')" 10 >/dev/null
+  else
+    skip "这台机器上没有 JDK 17，「项目里明确选一个」那条没验"
+  fi
   mv "${P}/pom.xml.bak" "${P}/pom.xml"; touch "${P}/pom.xml"
 fi
+
+echo "== 用哪个 Maven（docs/SETTINGS.md 13.4）：项目里有 mvnw 就用它；设置里关掉就用 PATH 里的"
+# 假的 mvnw：说一句再交给真 mvn。Spring Initializr 生成的真 mvnw 要下载 Maven，这里只验「用不用它」
+printf '#!/bin/sh\necho LITE-MVNW-USED\nexec mvn "$@"\n' > "${P}/mvnw"; chmod +x "${P}/mvnw"
+B="const r = __lite.runs.list.find((x) => x.name === '构建项目');"
+before=$(lite_eval main "${B} return r?.id ?? 0")
+lite menu build-project main >/dev/null
+lite_wait main "${B} return !!r && r.id !== ${before} && r.status !== 'running'" 240 >/dev/null
+ok "$(lite_eval main "${B} return r?.command ?? ''" | grep -q "./mvnw -B -ntp" && logtext 构建项目 | grep -q LITE-MVNW-USED && echo 1)" "项目里有 mvnw：用它（命令和输出里都看得到）：$(lite_eval main "${B} return (r?.command ?? '').replace(/^export [^;]*; /, '').slice(0, 40)")"
+lite menu open-settings main >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.settings .cat')" 10 >/dev/null
+lite_eval main "const d = document.querySelector('.dialog.settings'); [...d.querySelectorAll('.cat')].find((c) => c.innerText.startsWith('Maven')).click(); await new Promise((r) => setTimeout(r, 150)); [...d.querySelectorAll('.row')].find((r) => r.querySelector('.key')?.textContent === 'maven.useWrapper').querySelector('input').click(); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null
+lite_wait main "return !document.querySelector('.dialog.settings')" 10 >/dev/null
+sleep 0.5
+before=$(lite_eval main "${B} return r?.id ?? 0")
+lite menu build-project main >/dev/null
+lite_wait main "${B} return !!r && r.id !== ${before} && r.status !== 'running'" 240 >/dev/null
+ok "$(lite_eval main "${B} return r?.command ?? ''" | grep -qv "mvnw" && lite_eval main "${B} return r?.command ?? ''" | grep -q "mvn -B -ntp" && grep -q '"maven.useWrapper": false,' "${LITE_DATA}/settings.json" && echo 1)" "设置里关掉「用 mvnw」（写进了 settings.json）：用 PATH 里的 mvn：$(lite_eval main "${B} return (r?.command ?? '').replace(/^export [^;]*; /, '').slice(0, 40)")"
+rm -f "${P}/mvnw"
 
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then

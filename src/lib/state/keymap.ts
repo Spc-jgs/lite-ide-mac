@@ -335,6 +335,8 @@ export const KEYS: KeyDef[] = [
   /** 第一下软停（SIGINT 整组，5 秒后强杀），正在软停时再按一下立刻强杀 —— 同 IDEA 的停止按钮 */
   { id: "run-stop", label: "停止任务", accel: "⌘F2", group: "运行", owner: "menu" },
   { id: "tasks-file", label: "打开 tasks.json", group: "运行", owner: "menu" },
+  /** 运行配置（docs/SETTINGS.md 13.6）：IDEA 的 Run › Edit Configurations…，默认也没有键位 */
+  { id: "run-configs", label: "编辑配置…", group: "运行", owner: "menu" },
   /*
    * 调试（docs/IDEA.md 第 18 节），照 IDEA 的 macOS 键位。⌃D 归 key、不进菜单，理由同 ⌃R：终端里的 ⌃D 是「输入结束」。
    * 编辑器里 CM6 原来拿 ⌃D 删后一个字（macOS 的 Emacs 键位），已经从默认键位里摘掉（`idea-keys.ts` 的 `editorDefaults`）

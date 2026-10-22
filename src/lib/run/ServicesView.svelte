@@ -253,7 +253,9 @@
     if (row.svc) {
       const s = row.svc;
       items.splice(1, 0, { label: "调试", run: () => debug(s) });
-      items.push({ label: "跳到入口类", sep: true, run: () => void nav.openAt(sourceOf(s), 1, false) });
+      // 运行配置（docs/SETTINGS.md 13.6）：VM 参数、Spring profile、环境变量、JDK。IDEA 是在运行配置下拉里的 Edit Configurations…
+      items.push({ label: "编辑配置…", sep: true, run: () => void import("../settings/open").then((m) => m.openRunConfigs(root, s.task)) });
+      items.push({ label: "跳到入口类", run: () => void nav.openAt(sourceOf(s), 1, false) });
       if (r) items.push({ label: "在编辑区打开这份输出", run: () => void openRunLog(r.id) });
     }
     items.push({ label: "重新识别服务", sep: true, run: () => void refresh() });

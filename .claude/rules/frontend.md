@@ -119,7 +119,12 @@ CM6、xterm、Git 那套、67 个语言包全部 lazy。用 `src/lib/lazy/lazy.s
 pnpm build && ls -l dist/assets/$(grep -o 'assets/[^"]*\.js' dist/index.html | head -1 | cut -d/ -f2)
 ```
 
-（**当前 155,300 B → CI 取整 151，告警是「大于 152」、红线 160，离告警 1,372 B**（2026-10-21 晚：腾地方 −1,192 B。标签的右键菜单项、状态栏「缩进 · 换行符」的菜单项挪进懒的 `shell/menu-items.ts`，
+（**当前 155,300 B → CI 取整 151，告警是「大于 152」、红线 160，离告警 1,372 B**（2026-10-22 设置对话框 + 运行配置：**0 B**，两个对话框和它们的命令包装都在懒块里。
+第一版 +362 B，**新代码一个字节都没进入口**，两处都是「懒块的写法把东西拽进入口」：输入框写 `value={…}` / 复选框写 `checked={…}`，用到了 Svelte 运行时 `attributes.js` 里入口原来没有的那段（+239，
+换成 `bind:value={() => 读, (v) => 写}`、`bind:checked` —— 绑定那段随处搜索早就在用，不涨）；对话框里 `await import("../state/notify.svelte")` 了一个**本来就在入口里**的模块，
+Rollup 要在入口里给它造一个模块命名空间对象（+114，改静态引）。查法：两边关掉压缩构建、比入口里声明的名字，多出来的是 `const notify_svelte = Object.freeze(…)`；
+sourcemap 归因把它记在 notify 头上、那个文件一字没改。中间猜错了两次（「封装放错了文件」「是 bind:checked」），挪过去量了都没变 —— **猜的原因要量过才算**）。
+之前 155,300 B（2026-10-21 晚：腾地方 −1,192 B。标签的右键菜单项、状态栏「缩进 · 换行符」的菜单项挪进懒的 `shell/menu-items.ts`，
 `pathactions` 跟着离开入口（入口里只有标签栏引它）。两处共用 `context-menu.svelte.ts` 里一个加载句柄 `menuItems`：**入口里每多一处 `import()` 就多一张依赖表**，第一版只挪标签菜单时是 −995。
 调用方照旧 `$derived` 调它，菜单开着时标签变了菜单项跟着变。想过、没做的两块：`invariant.ts`（2.5 KB）—— 自检要同步跑在转换点上，改成懒加载报告就晚到，`state-tabflow` 那 8 处 `tabs.audit()` 测不出东西了；
 `persist.migrate` —— 挪走省的比多一处 `import()` 的表多不了多少。剩下的大头是启动链：状态、外壳的模板、Svelte 运行时 40 KB）。

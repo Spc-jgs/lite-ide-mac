@@ -126,6 +126,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let run_pick = item(app, "run-pick", "运行任务…", Some("Ctrl+Alt+R"))?;
     let run_stop = item(app, "run-stop", "停止任务", Some("CmdOrCtrl+F2"))?;
     let tasks_file = item(app, "tasks-file", "打开 tasks.json", None)?;
+    // 运行配置（docs/SETTINGS.md 13.6）：IDEA 的 Run › Edit Configurations…
+    let run_configs = item(app, "run-configs", "编辑配置…", None)?;
     // 调试（docs/IDEA.md 第 18 节）。「调试上一个」归 key（终端里的 ⌃D 是输入结束），同「再跑上一个」不挂键位。
     // 单步那几个起来就是灰的：调试会话停着才亮（`sync_debug`）—— 灰的菜单项不吃键，终端里的程序照样收到 F7 F8 F9
     let debug_last = item(app, "debug-last", "调试上一个任务", None)?;
@@ -289,6 +291,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&debug_out)
         .item(&debug_reload)
         .separator()
+        .item(&run_configs)
         .item(&tasks_file)
         .build()?;
 

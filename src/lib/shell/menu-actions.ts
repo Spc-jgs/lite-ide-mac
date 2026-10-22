@@ -263,7 +263,11 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "help-log-clear": return void clearLog();
     // 菜单栏上的「退出」Rust 自己接了，到不了这里；这条是随处搜索里点的（同一条路）
     case "quit": return void requestQuit().catch(() => {});
-    case "open-settings": return void openSettingsFile();
+    // 设置对话框（docs/SETTINGS.md 第 13 节）。原来 ⌘, 直接开 settings.json；文件还在，对话框底下「打开 settings.json」
+    case "open-settings": return void import("../settings/open").then((m) => m.openSettingsDialog(project.root));
+    case "run-configs":
+      if (!project.root) return notify.hint("先打开一个项目：运行配置是按项目的");
+      return void import("../settings/open").then((m) => m.openRunConfigs(project.root!));
     default:
       diag(`菜单项 ${id} 没有对应的处理`);
   }

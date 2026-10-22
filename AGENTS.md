@@ -16,7 +16,7 @@ cd src-tauri && cargo clippy --workspace --features lite-ide/test-bridge -- -A c
 scripts/build-test-app.sh      # 带测试通道的临时身份 .app（验收用，碰不到真实数据；正式包永远不带）。放在 target/test-app.noindex/，Spotlight 不收录
 scripts/ls-clean.sh            # 注销系统登记里已经不在盘上的 lite-ide（打 .dmg 挂载的临时卷每次留一条）；app:bundle 末尾自动跑
 python3 design/icon/make_icon.py # 重新生成应用图标（Assets.car + icon.icns + 几张 PNG，要 Xcode 26+）。改图标只改这个脚本，产物都提交
-scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点
+scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点。设置对话框（写回 settings.json 注释还在、恢复默认、写坏了不动刀、真模态、此项目）
 scripts/accept/tasks.sh        # 任务运行的机制（39 条，含日志跟随时往上翻不被拽回去）；quit.sh 是 Dock 右键退出那条路（6 条）
 scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪样哪段记「未验」）
 scripts/accept/merge.sh        # 几份日志按时间合并（15 条）：顺序、堆栈不拆散、过滤、偏移、跨块、会话恢复
@@ -114,7 +114,7 @@ macOS 自带的 bash 3.2 在双引号里的 `$(…)` 里照样做花括号展开
 | 界面长什么样 | [.claude/rules/ui.md](.claude/rules/ui.md) —— 十四条写死的界面规矩、键位与菜单栏 |
 | 架构与性能预算 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 窗口、事件发给谁、会话快照、退出 | [docs/MULTIWINDOW.md](docs/MULTIWINDOW.md) —— 一个项目一个窗口；进程级的资源要记 owner，跨窗口的东西只有 Rust 一个主人 |
-| 设置、偏好、`settings.json` | [docs/SETTINGS.md](docs/SETTINGS.md) —— 你写的文件应用只读不改，按钮改的另存一份；加设置项先改 `settings.rs` 的 `DEFS`，别的都从它来 |
+| 设置、偏好、`settings.json`、设置对话框、运行配置 | [docs/SETTINGS.md](docs/SETTINGS.md) —— 设置页和你都能写 `settings.json`（只改那一个值的字符，第 13 节），按钮改的另存一份；按项目的设置存在应用目录、不往项目里写；加设置项先改 `settings.rs` 的 `DEFS`（连同 `label`），别的都从它来 |
 | 任务运行（⌃R / ⌃⌥R / ⌘F2） | [docs/TASKS.md](docs/TASKS.md) —— 登录 shell、管道不用 pty、整组先软后硬地停、端口卡片、崩溃后收尸 |
 | 跨文件替换 | [docs/REPLACE.md](docs/REPLACE.md) —— 两段提交、撤销日志、命中太多不许执行 |
 | 几份日志按时间合并 | [docs/MERGE.md](docs/MERGE.md) —— k 路归并、一行一字节的合并索引、没时间戳的行跟着上一行走、借日期要说出来 |

@@ -9933,3 +9933,25 @@ git 写操作的失败原来一律卡片，`fatal: invalid reference: x` 一句�
 
 验证：hotswap 9 条、jvmstat 4 条、debug 4 条新单测；spring.sh 57 → 70 条（热替换 12、堆 1），两次真 JVM 上的变异（换完再删：绿 —— 推翻了解释；不重下：红）；
 Rust 595、前端 74 个文件；入口包 155,300 B 没变（热替换、内存监视都在懒块里）。
+
+## 2026-10-22 · 设置页：IDEA 式对话框、settings.json 定点改写、运行配置；真 `.app` 抓到一个多出来的逗号
+
+**盘点**：Maven（用不用 mvnw、装在哪、settings.xml、本地仓库、额外参数、MAVEN_OPTS）、JDK（只认几个固定目录、不能手动加、项目不能指定）、
+运行配置（profile / VM 参数 / 程序参数 / 环境变量）、jdtls 内存 —— 都只能靠改代码或手写 JSON，有的连 JSON 都没有。调研过 IDEA / Zed / VS Code 之后（SETTINGS.md 13.2）：
+全局照旧是 `settings.json`，设置页和人一起写它，写法是**只换值的那一段**、注释和次序都不动（VS Code、Zed 都这么做）；项目级跟 IDEA 的 workspace.xml 一样私有，放在应用数据里，不往项目里写。
+
+**真 `.app` 抓到一个单测没抓到的错**：settings.sh 第一次跑，设置页加一个键之后 settings.json 坏了 ——「第 3 行 key must be a string」。
+插入新键时要看前一个成员后面有没有逗号，我拿的是 `strip`（去注释 **+ 去尾逗号**）后的文本去看，尾逗号被抹成空白，于是判断「没逗号」又补了一个，`16,,`。
+单测的样本里恰好没有「最后一项带尾逗号」这种写法 —— 而这正是人手写 JSONC 最常见的样子。改成只去注释的 `strip_comments`，补了「带中文注释和末尾逗号」「同一行里删掉带末尾逗号的最后一项」两条，改回 `strip` 验红。
+教训：同一个「预处理过的文本」被拿去回答两种问题（能不能解析 / 原文长什么样），预处理就只能做两者都允许的那部分。
+
+**入口包 +362 B，前两次猜错了**：先怀疑 `app.ts` 里新加的包装、再怀疑 `bind:checked`，都不是。拿 `--minify false` 编两份、按声明 diff 才看清：
+懒块里写 `value={x}` / `checked={x}` 这种**属性**，Svelte 会从入口拉 `attributes.js`（+239）；换成函数式绑定 `bind:value={() => get, (v) => set}` 一个字节不涨。
+另 +114 是 `await import()` 一个本来就在入口里的模块（notify）—— 打包器要为它造一个命名空间对象，静态 import 就没有。两处改完入口包回到 155,300 B。
+猜之前先量，量的粒度要细到「哪个声明」，按文件看看不出来。
+
+**运行配置怎么进命令**：`{jdk}{mvn …} && {cd}{export K=V && }exec java{VM 参数}{ -Dspring.profiles.active=…} -cp … Main{程序参数}`。
+调试和热替换的 agent 原来就插在 `exec java ` 后面，形状没变，所以都不用动。JDK 选哪个：运行配置 > 项目 > 按 pom 自动；选的那个不在盘上了，回显一句、退回自动。
+
+验证：settings 37 条单测（写回 9 条，每条错版本验过红）、maven 调用 / 运行配置命令 2 条、前端 16 条（`changes()` 改坏红 2 条）；
+settings.sh 8 → 15 条、spring.sh 70 → 76 条（运行配置真到了 JVM、项目 JDK 盖过 pom、有 mvnw 用 mvnw）；入口包 155,300 B 没变。

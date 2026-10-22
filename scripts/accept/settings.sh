@@ -50,6 +50,40 @@ lite_wait main "return __lite.settings.v.editorFontSize === 26" 5; lite_wait w-1
 ok "$([ "$(lite_eval w-1 "return __lite.settings.v.editorFontSize")" = 26 ] && echo 1)" "基础 16 + 偏移 10 = 26，两个窗口都换了"
 note_front
 
+echo "== 设置对话框（docs/SETTINGS.md 第 13 节）：⌘, 打开、改了写回 settings.json —— 你写的注释和原有的键都在；恢复默认删掉那一行；写坏了不动刀"
+SD='const d = document.querySelector(".dialog.settings"); const cat = (n) => [...d.querySelectorAll(".cat")].find((c) => c.innerText.startsWith(n)); const rowOf = (k) => [...d.querySelectorAll(".row")].find((r) => r.querySelector(".key")?.textContent === k); const put = (el, v) => { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); };'
+lite menu open-settings main >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.settings .row')" 10 >/dev/null
+CATS=$(lite_eval main "${SD} return [...d.querySelectorAll('.cat')].map((c) => c.innerText.replace(/\n/g, ' ')).join('|')")
+ok "$([ "${CATS}" = "外观|终端|Java 与 JDK|Maven|此项目 $(basename "${A}")" ] && echo 1)" "⌘, 开的是对话框，有「此项目」那一类：${CATS}"
+lite menu toggle-sidebar main >/dev/null; sleep 0.2
+ok "$([ "$(lite_eval main "return document.querySelector('.dialog.settings')?.classList.contains('nudge') ?? false")" = true ] && echo 1)" "对话框开着时点菜单：被挡下、对话框顶一下（真模态）"
+lite_eval main "${SD} cat('Maven').click(); await new Promise((r) => setTimeout(r, 150)); put(rowOf('maven.extraArgs').querySelector('input'), '-T 2'); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null
+lite_wait main "return !document.querySelector('.dialog.settings')" 5 >/dev/null
+sleep 0.5
+ok "$(grep -q '"maven.extraArgs": "-T 2",' "${LITE_DATA}/settings.json" && grep -q '// 验收' "${LITE_DATA}/settings.json" && grep -q '"editor.fontSize": 16,' "${LITE_DATA}/settings.json" && echo 1)" "写进去了，你写的注释和原有的键都在：$(tr '\n' ' ' < "${LITE_DATA}/settings.json")"
+ok "$([ "$(lite_eval main "return __lite.settings.v.problems.length")" = 0 ] && echo 1)" "写回去的 settings.json 读回来没有问题（同一个校验函数）"
+lite menu open-settings main >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.settings .row')" 10 >/dev/null
+lite_eval main "${SD} rowOf('editor.fontSize').querySelector('.reset').click(); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null
+lite_wait main "return __lite.settings.v.editorFontSize === 23" 5 >/dev/null; lite_wait w-1 "return __lite.settings.v.editorFontSize === 23" 5 >/dev/null
+ok "$(! grep -q 'editor.fontSize' "${LITE_DATA}/settings.json" && [ "$(lite_eval w-1 "return __lite.settings.v.editorFontSize")" = 23 ] && echo 1)" "恢复默认：那一行删了，两个窗口的字号回到 13 + 10：$(tr '\n' ' ' < "${LITE_DATA}/settings.json")"
+lite menu open-settings main >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.settings .row')" 10 >/dev/null
+lite_eval main "${SD} cat('此项目').click(); await new Promise((r) => setTimeout(r, 150)); d.querySelector('label.check input').click(); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null
+sleep 0.5
+ok "$(python3 -c 'import json,sys; print(1 if json.load(open(sys.argv[1]))[sys.argv[2]]["offline"] else 0)' "${LITE_DATA}/maven-prefs.json" "${A}" 2>/dev/null)" "「此项目」里勾离线：记在这个项目名下（和 Maven 工具窗那个开关是同一个）"
+printf '{\n  // 写坏了\n  "editor.fontSize": 16\n' > "${LITE_DATA}/settings.json"
+lite_wait main "return __lite.settings.v.problems.some((p) => p.fatal)" 5 >/dev/null
+BEFORE=$(shasum "${LITE_DATA}/settings.json")
+lite menu open-settings main >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.settings .row')" 10 >/dev/null
+BAN=$(lite_eval main "${SD} return (d.querySelector('.banner')?.textContent ?? '').trim() + ' | ' + d.querySelector('.row input').disabled")
+lite_eval main "document.querySelector('.dialog.settings [data-default]').click(); return true" >/dev/null
+lite_wait main "return !document.querySelector('.dialog.settings')" 5 >/dev/null
+ok "$(echo "${BAN}" | grep -q '先修好它.*| true$' && [ "$(shasum "${LITE_DATA}/settings.json")" = "${BEFORE}" ] && echo 1)" "settings.json 写坏了：说清楚、输入框灰掉，文件一个字节不动：${BAN}"
+note_front
+
 lite_quit
 echo "== 焦点"
 ok "$([ "${STOLEN}" = 0 ] && echo 1)" "起来之后测试应用一次都没跑到最前面（采样到它在最前 ${STOLEN} 次）—— 你可以照常用电脑"

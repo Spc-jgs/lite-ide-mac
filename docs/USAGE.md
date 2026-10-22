@@ -686,7 +686,18 @@ pnpm app:bundle
 
 ## 十二、设置
 
-**lite-ide → 设置…**（`⌘,`）在编辑器里打开设置文件。第一次打开时它会建一份模板：所有设置项都列着、
+**lite-ide → 设置…**（`⌘,`）打开设置对话框（照 IDEA 的 Settings）：左边分类（外观 / 终端 / Java 与 JDK / Maven / 此项目）和搜索，右边每一项的名字、说明和输入框，
+改过的项左边一条蓝线、旁边有「恢复默认」。改完点「应用」或「确定」才生效（`⌘↵` = 确定、`Esc` = 取消）；对话框开着时别处点不了、快捷键不响应。
+
+- **全局的**（外观、终端、Java、Maven）写进下面说的 `settings.json`：**只改那一项的那几个字**，你写的注释、空行、次序都留着；恢复默认就是删掉那一行
+- **「此项目」**只对当前窗口的项目：用哪个 JDK（默认按 pom 自动挑，旁边写着会挑哪个）、Maven 离线 / 跳过测试。存在 lite-ide 自己的目录里，**不往项目里写**
+- 改 JDK、Maven、jdtls 的那几项，Java 智能下次启动时才用新的（关掉这个项目的 Java 文件、过一会再开）
+- `settings.json` 写坏了（语法错）时，对话框里说清第几行、全局那几类灰掉 —— 在一份读不懂的文件上改只会改得更坏；底下「打开 settings.json」直接去改它
+
+**运行配置**（「运行 › 编辑配置…」，或者 Services 里服务的右键「编辑配置…」）：每个认出来的 Spring 服务一份 —— Spring profile、VM 参数、程序参数、环境变量、用哪个 JDK。
+下次启动它时生效（正在跑的要重跑），调试和热替换照常。VM 参数、程序参数照 shell 的写法原样放进命令（带空格的值自己加引号）。也只存在你这台机器上。
+
+**设置文件**：对话框底下「打开 settings.json」在编辑器里打开它。第一次打开时它会建一份模板：所有设置项都列着、
 **全都注释着**（`//` 开头），旁边写着默认值和说明 —— 去掉行首的 `// ` 就生效。存盘立刻生效，所有窗口一起变，不用重启。
 
 文件在 `~/Library/Application Support/com.liteide.app/settings.json`。你也可以用别的编辑器改它，lite-ide 照样能看到变化。
@@ -708,6 +719,15 @@ pnpm app:bundle
 | `terminal.fontFamily` | `""` | 终端字体，空 = 跟 `editor.fontFamily` 一样 |
 | `terminal.fontSize` | `13` | 终端字号（9–28） |
 | `terminal.shell` | `""` | 终端用的 shell，写完整路径；空 = 系统的 `$SHELL`。**只对新开的终端生效**，开着的不动（换 shell 等于杀掉重开） |
+| `java.jdtlsHome` | `""` | Java 智能用的 jdtls，空 = 内置的那份 |
+| `java.jdtlsMemory` | `1024` | jdtls 最多用多少内存（MB，512–16384），大项目调大 |
+| `java.jdks` | `[]` | 手动添加的 JDK 目录。系统、`~/Library/Java`、Homebrew、sdkman、asdf、jenv、mise 装的会自己找到 |
+| `maven.useWrapper` | `true` | 项目里有 `mvnw` 就用它（版本写在 `.mvn/wrapper/` 里） |
+| `maven.home` | `""` | Maven 安装目录，空 = PATH 里的 `mvn` |
+| `maven.settingsFile` | `""` | Maven 的 settings.xml（`-s`），空 = `~/.m2/settings.xml` |
+| `maven.localRepository` | `""` | 本地仓库（`-Dmaven.repo.local`），空 = settings.xml 里写的 |
+| `maven.extraArgs` | `""` | 每条 mvn 都带的参数（`-T 4 -U`） |
+| `maven.opts` | `""` | `MAVEN_OPTS`：Maven 自己的 JVM 参数，不是你程序的 |
 
 编辑这个文件时，在一行开头敲 `"` 会列出所有设置项，选一个就把它连默认值一起插进来。
 
