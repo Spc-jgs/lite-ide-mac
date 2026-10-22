@@ -202,6 +202,9 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "outline": return overlay.openOutline();
     case "toggle-sidebar": layout.toggleSidebar(project.root !== null); return;
     case "toggle-panel": layout.panel = !layout.panel; return;
+    // 工具窗的编号键（⌘4 / ⌘5 / ⌘6 / ⌘8 / ⌘9 / ⌥F12）：逻辑在懒的 tool-keys.ts，这里只交过去
+    case "tw-terminal": case "tw-run": case "tw-debug": case "tw-problems": case "tw-services": case "tw-git":
+      return void import("./tool-keys").then((m) => m.toggleToolKey(id));
     case "toggle-scratch":
       // 已经在草稿视图上再点一次就收起侧边栏，和导轨上那个按钮同一个手势
       if (layout.sidebar && layout.sideView === "scratch") layout.sidebar = false;

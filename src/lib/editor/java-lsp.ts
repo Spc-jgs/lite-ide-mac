@@ -35,6 +35,7 @@ import { signatureHelp } from "./java-signature";
 import { notify } from "../state/notify.svelte";
 import { progress, type TaskHandle } from "../state/progress.svelte";
 import { tabs } from "../state/tabs.svelte";
+import { problems } from "../state/problems.svelte";
 import type { JumpHit } from "./jump";
 
 const DEBOUNCE = 250;
@@ -84,6 +85,7 @@ const viewsOf = new Map<string, Set<EditorView>>();
 
 function onDiags(d: JavaDiagnostics) {
   diagsOf.set(d.path, d.items);
+  problems.set(d);
   for (const v of viewsOf.get(d.path) ?? []) v.dispatch({ effects: setDiags.of(d.items) });
 }
 
@@ -104,6 +106,7 @@ function wire() {
       if (now.has(p)) continue;
       opened.delete(p);
       diagsOf.delete(p);
+      problems.drop(p);
       void javaClose(root, p).catch(() => {});
     }
   }, 1000);

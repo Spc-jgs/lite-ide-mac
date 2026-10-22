@@ -4,7 +4,7 @@ import { DEFAULT_LAYOUT, type Layout } from "./session";
  * 底部的工具窗。比快照里的 `Layout["panelView"]` 多一个 `run`（#48 的运行窗）：
  * 任务跟着进程死，重启时没有一次运行可恢复（同终端）—— 所以 `run` 只活在运行时，存快照时写成 `term`
  */
-export type PanelTool = Layout["panelView"] | "run" | "services";
+export type PanelTool = Layout["panelView"] | "run" | "services" | "problems";
 
 /**
  * 外壳的布局状态：侧边栏开合 / 宽度 / 视图，底部面板开合 / 高度 / 工具窗 / 标签。
@@ -117,6 +117,19 @@ class LayoutState {
    */
   togglePanel(v: PanelTool, showing: PanelTool) {
     if (this.panel && showing === v) {
+      this.panel = false;
+      return;
+    }
+    this.panelView = v;
+    this.panel = true;
+  }
+
+  /**
+   * 编号键（⌘4 运行、⌘6 问题…，照 IDEA）：没开就打开它，正开着它就收起。
+   * 判「正开着」看偏好（`panelView`）而不是渲染侧算出来的那个 —— 编号键是指名道姓的，它没有内容可显示时调用方先拦（`tool-keys.ts`）
+   */
+  toggleTool(v: PanelTool) {
+    if (this.panel && this.panelView === v) {
       this.panel = false;
       return;
     }

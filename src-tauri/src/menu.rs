@@ -201,9 +201,20 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .select_all_with_text("全选")
         .build()?;
 
+    // 工具窗的编号键（照 IDEA，keymap.ts 那段写着为什么只占这几个）
+    let tools = SubmenuBuilder::new(app, "工具窗口")
+        .item(&item(app, "tw-terminal", "终端", Some("Alt+F12"))?)
+        .item(&item(app, "tw-run", "运行", Some("CmdOrCtrl+4"))?)
+        .item(&item(app, "tw-debug", "调试", Some("CmdOrCtrl+5"))?)
+        .item(&item(app, "tw-problems", "问题", Some("CmdOrCtrl+6"))?)
+        .item(&item(app, "tw-services", "Services", Some("CmdOrCtrl+8"))?)
+        .item(&item(app, "tw-git", "Git", Some("CmdOrCtrl+9"))?)
+        .build()?;
+
     let view = SubmenuBuilder::new(app, "视图")
         .item(&item(app, "toggle-sidebar", "侧边栏", Some("CmdOrCtrl+1"))?)
         .item(&item(app, "toggle-panel", "终端面板", Some("CmdOrCtrl+J"))?)
+        .item(&tools)
         .item(&item(app, "toggle-scratch", "草稿列表", None)?)
         .separator()
         .item(&item(app, "toggle-minimap", "代码缩略图", None)?)
