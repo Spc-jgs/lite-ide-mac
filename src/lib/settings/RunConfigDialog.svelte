@@ -19,12 +19,13 @@
 
   let { root, pick = "", onclose }: { root: string; pick?: string; onclose: () => void } = $props();
 
-  const KIND_LABEL: Record<UserKind, string> = { application: "应用", maven: "Maven", shell: "Shell", compound: "组合" };
+  const KIND_LABEL: Record<UserKind, string> = { application: "应用", maven: "Maven", shell: "Shell", compound: "组合", remote: "远程 JVM 调试" };
   const KIND_DOC: Record<UserKind, string> = {
     application: "跑一个 main 方法（不是 Spring Boot 的也行）：先编译它在的模块，再 java 起它；调试、热替换照常",
     maven: "在一个模块上跑几个 Maven 目标（clean package、spring-boot:build-image …），带上 Maven 工具窗里勾的 profile 和开关",
     shell: "一行命令，交给你的登录 shell（和在终端里敲一样，和 tasks.json 同一种）",
     compound: "几份一起起（前后端、几个微服务）：⌃R 重跑也是一起",
+    remote: "挂到别处起的 JVM 上调试（测试环境、容器里、自己在终端起的）：▶ 就是挂上去，⌘F2 断开 —— 只断开，不停那个 JVM",
   };
 
   let data = $state<RunConfigs | null>(null);
@@ -114,7 +115,7 @@
     for (let i = 2; taken.has(name); i++) name = `${base} ${i}`;
     const cfg: UserConfig = {
       name, kind, mainClass: "", module: data.modules[0] ?? "", goals: "", command: "", cwd: "", items: [],
-      profiles: "", vmOptions: "", programArgs: "", env: [], jdk: "",
+      profiles: "", vmOptions: "", programArgs: "", env: [], jdk: "", host: "localhost", port: 5005,
     };
     const key = nextKey++;
     ulist = [...ulist, { key, orig: "", cfg, gone: false }];
@@ -353,6 +354,16 @@
             <p class="doc">空格隔开；Maven 工具窗里勾的 profile、离线、跳过测试会一起带上</p>
             {@render envEditor(c.env)}
             {@render jdkPicker(c.jdk)}
+          {:else if c.kind === "remote"}
+            {@const jdwp = `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:${c.port || 5005}`}
+            <label class="lab" for="rc-host">主机</label>
+            <input id="rc-host" class="field mono" bind:value={() => c.host, (v) => upatch({ host: v })} placeholder="localhost" spellcheck="false" />
+            <label class="lab" for="rc-port">端口</label>
+            <input id="rc-port" class="field mono num" bind:value={() => String(c.port || ""), (v) => upatch({ port: /^\d{1,5}$/.test(v.trim()) ? Number(v.trim()) : 0 })} placeholder="5005" inputmode="numeric" spellcheck="false" />
+            <div class="lab">那个 JVM 起的时候要带上（IDEA 的 Remote JVM Debug 也是这一句）</div>
+            <pre class="cmd">{jdwp}</pre>
+            <button class="btn sm" onclick={() => void navigator.clipboard.writeText(jdwp).then(() => notify.ok("已复制"))}>复制</button>
+            <p class="doc">JDK 9 之后 address 要写 *:端口 才收得到别的机器的连接（只写端口只听本机）。断点、日志断点、异常断点照常；热替换不行（代理塞不进别人起的 JVM）</p>
           {:else if c.kind === "shell"}
             <label class="lab" for="rc-cmd">命令</label>
             <input id="rc-cmd" class="field mono" bind:value={() => c.command, (v) => upatch({ command: v })} placeholder="pnpm dev" spellcheck="false" />
@@ -404,6 +415,7 @@
 </div>
 
 <style>
+  .field.num { width: 120px; }
   .layer {
     position: fixed;
     inset: 0;

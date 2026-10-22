@@ -128,6 +128,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let tasks_file = item(app, "tasks-file", "打开 tasks.json", None)?;
     // 运行配置（docs/SETTINGS.md 13.6）：IDEA 的 Run › Edit Configurations…
     let run_configs = item(app, "run-configs", "编辑配置…", None)?;
+    let debug_breakpoints = item(app, "debug-breakpoints", "查看断点…", Some("Shift+CmdOrCtrl+F8"))?;
     // 调试（docs/IDEA.md 第 18 节）。「调试上一个」归 key（终端里的 ⌃D 是输入结束），同「再跑上一个」不挂键位。
     // 单步那几个起来就是灰的：调试会话停着才亮（`sync_debug`）—— 灰的菜单项不吃键，终端里的程序照样收到 F7 F8 F9
     let debug_last = item(app, "debug-last", "调试上一个任务", None)?;
@@ -136,9 +137,11 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let debug_into = item(app, "debug-into", "单步进入", Some("F7"))?;
     let debug_out = item(app, "debug-out", "单步跳出", Some("Shift+F8"))?;
     let debug_pause = item(app, "debug-pause", "暂停程序", None)?;
+    // IDEA 的 Run to Cursor（docs/TAKEOVER.md G14）：停着时跑到光标那一行再停
+    let debug_run_to = item(app, "debug-run-to", "运行到光标", Some("Alt+F9"))?;
     // 热替换（docs/IDEA.md 第 26 节）：IDEA 的 Run › Debugging Actions › Reload Changed Classes。构建（⌘F9）成功后自动做一次，这一项是手动的那条路
     let debug_reload = item(app, "debug-reload", "重新加载改过的类", None)?;
-    for it in [&debug_resume, &debug_over, &debug_into, &debug_out, &debug_pause, &debug_reload] {
+    for it in [&debug_resume, &debug_over, &debug_into, &debug_out, &debug_run_to, &debug_pause, &debug_reload] {
         it.set_enabled(false)?;
     }
     // #45：要有一个打开的文件才有东西可发
@@ -304,7 +307,9 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&debug_over)
         .item(&debug_into)
         .item(&debug_out)
+        .item(&debug_run_to)
         .item(&debug_reload)
+        .item(&debug_breakpoints)
         .separator()
         .item(&run_configs)
         .item(&tasks_file)
@@ -386,7 +391,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         needs_root: vec![close_project, run_last, run_pick, run_stop, tasks_file, debug_last],
         needs_two: vec![split_right, move_other],
         needs_split: vec![focus_other, unsplit],
-        debug_paused: vec![debug_resume, debug_over, debug_into, debug_out],
+        debug_paused: vec![debug_resume, debug_over, debug_into, debug_out, debug_run_to],
         debug_running: vec![debug_pause],
         debug_live: vec![debug_reload],
     };

@@ -133,7 +133,9 @@ function list(root: string) {
           ? `mvn -B -ntp${mod ? ` -pl ${mod}` : ""} ${u.goals}`
           : u.kind === "shell"
             ? u.command
-            : "";
+            : u.kind === "remote"
+              ? `printf '挂到 %s:%s 的 JVM 上调试（⌘F2 断开，不会停掉那个 JVM）\\n' '${u.host}' '${u.port}'; exec tail -f /dev/null`
+              : "";
     defs.push({ name: u.name, command, cwd: u.kind === "shell" ? u.cwd : "", source: "user", kind: u.kind, items: u.kind === "compound" ? u.items : [] });
   }
   return { tasks: defs.map((d) => ({ kind: "", items: [], ...d })), file, problems };
@@ -316,11 +318,14 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
         (test ? { name, command: `mvn -B -ntp -Dtest=${test[2]} -Dsurefire.failIfNoSpecifiedTests=false -pl ${test[1]} -am test`, cwd: "", source: "goal" as const } : undefined) ??
         (build ? { name, command: `mvn -B -ntp ${name === "重新构建项目" ? "clean " : ""}test-compile`, cwd: "", source: "goal" as const } : undefined);
       if (!def) throw new Error(`没有叫「${name}」的任务了（tasks.json 改过？）`);
-      // 调试（第 18 节）：同真实现，只有认出来的 Spring Boot 应用和单测
-      if (a.debug && def.source !== "spring" && !test) throw new Error(`「${name}」不是认出来的 Spring Boot 应用或单测，调试不了`);
+      // 远程 JVM 调试（G23）：同真实现，只能调试 —— ▶ 也是挂上去
+      const remote = def.source === "user" && "kind" in def && def.kind === "remote";
+      if (remote) a.debug = true as unknown as A[string];
+      // 调试（第 18 节）：同真实现，只有认出来的 Spring Boot 应用、你建的应用配置、单测、远程
+      if (a.debug && def.source !== "spring" && !test && !remote && !("kind" in def && def.kind === "application")) throw new Error(`「${name}」不是认出来的 Spring Boot 应用或单测，调试不了`);
       // 同 debug.rs 的 with_jdwp / with_surefire_debug：Spring 在 `exec java` 后面插调试代理，单测交给 surefire（运行窗的命令那一行照实显示）
       const JDWP = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0";
-      const command = !a.debug ? def.command : test ? def.command.replace(/^mvn /, `mvn '-Dmaven.surefire.debug=${JDWP}' `) : def.command.replace("exec java ", `exec java ${JDWP} `);
+      const command = !a.debug || remote ? def.command : test ? def.command.replace(/^mvn /, `mvn '-Dmaven.surefire.debug=${JDWP}' `) : def.command.replace("exec java ", `exec java ${JDWP} `);
       // 同真实现：同名的还在跑先停掉
       for (const [id, r] of RUNS) if (r.root === root && r.name === name && r.status !== "gone") emitExit(id, { code: 130, stopped: true });
       const id = nextRun++;
@@ -351,7 +356,7 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       if (built) run.timer = setTimeout(() => emitExit(id, { code: built.failed ? 1 : 0, stopped: false }), 1500);
       if (a.debug && test) mockDebugStart(id, root, test[2].split(/[#+,]/)[0], testExit);
       else if (a.debug) mockDebugStart(id, root, /(\S+)$/.exec(def.command)?.[1] ?? name);
-      return { id, name, command, log, service: def.source === "spring" };
+      return { id, name, command, log, service: def.source === "spring", debug: !!a.debug };
     }
     /*
      * Services（真实现：commands/tasks.rs 的 services_list / task_ports）。端口**故意 2.5 秒后才有**：Spring Boot 起来要几秒，

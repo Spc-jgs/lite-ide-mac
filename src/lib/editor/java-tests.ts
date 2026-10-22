@@ -102,3 +102,13 @@ export function failedSelector(cases: { class: string; name: string; outcome: st
   if (!byClass.size) return null;
   return [...byClass].map(([cls, ms]) => `${cls}#${[...ms].join("+")}`).join(",");
 }
+
+/**
+ * 结果树里一个测试类怎么叫：去掉包名；JUnit 5 的 @Nested 是内部类（报告里 `com.demo.OrderTest$WhenEmpty`），画成「OrderTest › WhenEmpty」——
+ * 原样画 `OrderTest$WhenEmpty` 看着像编译器生成的东西（docs/TAKEOVER.md G15）
+ */
+export const classLabel = (cls: string) => cls.slice(cls.lastIndexOf(".") + 1).split("$").join(" › ");
+
+/** 测试类在哪个源文件里：嵌套类在最外层那个类的文件里（`a.b.Outer$Inner` → `a/b/Outer.java`） */
+export const classFile = (cls: string) => `${cls.split("$")[0].replace(/\./g, "/")}.java`;
+

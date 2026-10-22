@@ -67,5 +67,13 @@ eq(failedSelector([
 ]), "A#x+y,B#many", "同类的方法用 +、不同类用 ,；参数化的去掉括号、只出现一次；通过和跳过的不算");
 eq(failedSelector([{ class: "A", name: "x", outcome: "passed" }]), null, "没有失败的");
 
+// @Nested（G15）：内部类在外层类的文件里；结果树里画成「外层 › 内层」
+{
+  const { classFile, classLabel } = await import("../src/lib/editor/java-tests.ts");
+  ok(classFile("com.demo.OrderTest$WhenEmpty$AndPaid") === "com/demo/OrderTest.java", `嵌套两层：文件是最外层那个：${classFile("com.demo.OrderTest$WhenEmpty$AndPaid")}`);
+  ok(classFile("com.demo.OrderTest") === "com/demo/OrderTest.java", "不嵌套的照旧");
+  ok(classLabel("com.demo.OrderTest$WhenEmpty") === "OrderTest › WhenEmpty", `名字：${classLabel("com.demo.OrderTest$WhenEmpty")}`);
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 跑单测的识别：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

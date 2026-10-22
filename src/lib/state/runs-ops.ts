@@ -203,6 +203,9 @@ async function start(name: string, root: string, debug: boolean) {
   if (old) show(old.service);
   try {
     const r = await taskRun(root, name, debug);
+    // 远程 JVM 调试那种只能调试：▶ 也是挂上去（Rust 说了算，docs/TAKEOVER.md G23）
+    debug = r.debug;
+    lastDebug[root] = debug;
     show(r.service);
     const tab: RunTab = {
       id: r.id, root, name, command: r.command, log: r.log, status: "running", code: null, holder: null, service: r.service, startedAt, tests: null,

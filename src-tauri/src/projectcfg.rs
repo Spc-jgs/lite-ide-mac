@@ -29,7 +29,7 @@ pub struct ProjectCfg {
 #[serde(default, rename_all = "camelCase")]
 pub struct UserCfg {
     pub name: String,
-    /// `application`（一个 main 方法）/ `maven`（几个目标）/ `shell`（一行命令）/ `compound`（几份一起起）
+    /// `application`（一个 main 方法）/ `maven`（几个目标）/ `shell`（一行命令）/ `compound`（几份一起起）/ `remote`（挂到别处起的 JVM 上调试）
     pub kind: String,
     /// application：主类全名（`com.demo.Tool`）
     pub main_class: String,
@@ -45,9 +45,12 @@ pub struct UserCfg {
     pub items: Vec<String>,
     /// VM 参数、程序参数、环境变量、JDK、profile：application 全用；maven、shell 用环境变量（maven 还用 JDK）
     pub run: RunCfg,
+    /// remote：要挂上去的那个 JVM 在哪（它起的时候带着 `-agentlib:jdwp=transport=dt_socket,server=y,…`；IDEA 的 Remote JVM Debug）
+    pub host: String,
+    pub port: u32,
 }
 
-pub const KINDS: [&str; 4] = ["application", "maven", "shell", "compound"];
+pub const KINDS: [&str; 5] = ["application", "maven", "shell", "compound", "remote"];
 
 /// 一个主类全名像不像（`a.b.C`、`$` 和下划线也算）：进命令之前挡掉明显写错的，别让 java 报一句「找不到或无法加载主类」让人猜
 pub fn main_class_ok(s: &str) -> bool {

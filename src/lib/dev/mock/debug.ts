@@ -127,13 +127,18 @@ export function debugCmd(cmd: string, a: A): unknown {
       const s = SESS.get(Number(a.run));
       return s ? state(s) : null;
     }
+    case "debug_exceptions":
+      // 桩不会抛异常：只记着（真实现交给 java-debug，抛出时停、说出抛的是什么）
+      return null;
     case "debug_breakpoints": {
       const root = String(a.root);
       const lines = (a.lines as unknown as number[]) ?? [];
       const conds = (a.conds as unknown as string[]) ?? [];
+      const logs = (a.logs as unknown as string[]) ?? [];
       // 桩不会算 Java 表达式：条件写成 `false` 的那个永远不停（浏览器里看得出条件真的带下去了）；
-      // 带 `nosuch` 的当成变量名打错 —— 照样停、带一句提醒（真插件就是这样）；别的条件当成真
-      const live = lines.filter((_, i) => (conds[i] ?? "").trim() !== "false");
+      // 带 `nosuch` 的当成变量名打错 —— 照样停、带一句提醒（真插件就是这样）；别的条件当成真。
+      // 日志断点不停（真插件打一句进输出就接着跑；桩不打）
+      const live = lines.filter((_, i) => (conds[i] ?? "").trim() !== "false" && !(logs[i] ?? "").trim());
       lines.forEach((l, i) => {
         const c = (conds[i] ?? "").trim();
         if (c.includes("nosuch")) WARN.set(`${String(a.path)}:${l}`, `条件 ${c} 算不了，照样停下了：编译不过：nosuch cannot be resolved to a variable`);
@@ -158,6 +163,15 @@ export function debugCmd(cmd: string, a: A): unknown {
       set(s, "running");
       if (action !== "continue") later(s, 150, () => pauseAt(s, { path: at.path, line: at.line + (action === "stepOut" ? 3 : 1) }));
       else if (s.done) later(s, 300, s.done);
+      return null;
+    }
+    case "debug_run_to": {
+      // 运行到光标：桩不跑 JVM，停着就直接停到那一行（真实现是临时断点 + 继续）
+      const s = SESS.get(Number(a.run));
+      if (!s) throw new Error("这次运行没在调试");
+      if (s.phase !== "paused") throw new Error("程序没停着：运行到光标要先停下来（撞上断点、或者暂停）");
+      set(s, "running");
+      later(s, 150, () => pauseAt(s, { path: String(a.path), line: Number(a.line) }));
       return null;
     }
     case "debug_thread": {

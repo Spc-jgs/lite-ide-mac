@@ -438,7 +438,7 @@ export interface RunConfigs {
   problems: string[];
 }
 
-export type UserKind = "application" | "maven" | "shell" | "compound";
+export type UserKind = "application" | "maven" | "shell" | "compound" | "remote";
 
 /** 你建的一份运行配置。用不上的字段空着（四种一个结构） */
 export interface UserConfig {
@@ -455,6 +455,9 @@ export interface UserConfig {
   programArgs: string;
   env: EnvVar[];
   jdk: string;
+  /** remote：要挂上去的 JVM 在哪（docs/TAKEOVER.md G23） */
+  host: string;
+  port: number;
 }
 
 /** 别的能跑的一份（只列、不改） */
@@ -1160,6 +1163,8 @@ export interface Settings {
   /** Java 的同名高亮、参数名提示开不开（docs/TAKEOVER.md G11） */
   editorHighlightUsages: boolean;
   editorInlayHints: boolean;
+  /** 调试时存盘自动构建、热替换（docs/TAKEOVER.md I6） */
+  javaHotswapOnSave: boolean;
   terminalFontFamily: string;
   terminalFontSize: number;
   /** 空 = `$SHELL` */
@@ -1389,6 +1394,8 @@ export interface TaskRun {
   log: string;
   /** Spring Boot 服务：在 Services 工具窗里跑，不进运行窗（同 IDEA） */
   service: boolean;
+  /** 起了调试会话（说了要调试的，或者远程调试那种 —— 它只能调试） */
+  debug: boolean;
 }
 
 /** Services 工具窗里的一个 Spring Boot 服务。跑没跑看运行记录；端口只有 Rust 查得到 */

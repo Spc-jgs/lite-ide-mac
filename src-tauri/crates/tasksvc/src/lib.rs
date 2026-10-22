@@ -73,6 +73,8 @@ pub struct Task {
     pgid: i32,
     started_us: Option<u64>,
     shared: Arc<Shared>,
+    /// 日志文件：读线程往里写程序的输出，[`Task::note`] 往里插话，一把锁
+    out: Arc<Mutex<sink::Sink>>,
 }
 
 /// 组里还有没有活着的进程。`kill(-pgid, 0)` 只问不发：0 = 有，ESRCH = 一个都没了，**EPERM 两种意思都有**，要列组员再判（[`judge`]）。
@@ -274,7 +276,8 @@ pub fn log_file(base: &Path, root: &str, name: &str) -> PathBuf {
 impl Task {
     /// 起。日志文件先开好再起进程：开不了（盘满、没权限）就直接报错，不留一个输出没处去的进程
     pub fn start(spec: &Spec) -> io::Result<Task> {
-        let mut out = sink::Sink::open(&spec.log, spec.cap)?;
+        let out = Arc::new(Mutex::new(sink::Sink::open(&spec.log, spec.cap)?));
+        let sink_w = Arc::clone(&out);
         let shell = if spec.shell.is_empty() {
             std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into())
         } else {
@@ -313,13 +316,13 @@ impl Task {
                         cleaned.clear();
                         cleaner.feed(&buf[..n], &mut cleaned);
                         // 写不进去（盘满）也要接着读：停下来不读，管道一满任务就卡在写上
-                        let _ = out.write(&cleaned);
+                        let _ = sink_w.lock().unwrap_or_else(|e| e.into_inner()).write(&cleaned);
                     }
                 }
             }
             cleaned.clear();
             cleaner.finish(&mut cleaned);
-            let _ = out.write(&cleaned);
+            let _ = sink_w.lock().unwrap_or_else(|e| e.into_inner()).write(&cleaned);
         })?;
 
         let sh = shared.clone();
@@ -342,7 +345,13 @@ impl Task {
             sh.changed.notify_all();
         })?;
 
-        Ok(Task { pgid, started_us, shared })
+        Ok(Task { pgid, started_us, shared, out })
+    }
+
+    /// 往这个任务的输出里插一整行（调试器的日志断点打的那句，docs/TAKEOVER.md G14）。程序正写到一行中间时攒着、等它写完那一行（`Sink::note`）。
+    /// 写不进去（盘满）不报：插话丢了不该连累调试
+    pub fn note(&self, line: &str) {
+        let _ = self.out.lock().unwrap_or_else(|e| e.into_inner()).note(line);
     }
 
     pub fn pgid(&self) -> i32 {
@@ -470,6 +479,7 @@ mod tests {
             pgid,
             started_us: None,
             shared: Arc::new(Shared { state: Mutex::new(done), changed: Condvar::new(), stopped: AtomicBool::new(false) }),
+            out: Arc::new(Mutex::new(sink::Sink::open(&std::env::temp_dir().join(format!("tasksvc-reuse-{}.log", std::process::id())), 1 << 20).unwrap())),
         };
         assert!(!t.alive(), "整组早就没了的任务，不该按号去问 —— 那个号现在是别人的");
         t.kill();

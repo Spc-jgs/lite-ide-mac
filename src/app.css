@@ -718,15 +718,20 @@ html, body {
   box-shadow: var(--shadow-pop), var(--pop-ring);
   animation: fade-in 90ms ease-out;
 }
-/* 条件断点的小框（java-debug-gutter.ts 用裸 DOM 拼、挂在 body 上，所以样式在这儿）。条件是 Java 表达式：输入框用代码字体 */
-.cm-bp-cond .t { color: var(--text); font-size: var(--fs-md); font-weight: 600; }
-.cm-bp-cond .in {
-  width: 100%; height: 28px; margin: 8px 0 6px; padding: 0 9px;
+/* 断点属性窗（java-debug-gutter.ts 用裸 DOM 拼、挂在 body 上，所以样式在这儿；docs/TAKEOVER.md G14）。条件、日志是 Java 表达式：输入框用代码字体 */
+.cm-bp-props .t { color: var(--text); font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
+.cm-bp-props .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: var(--fs-sm); color: var(--text-muted); }
+.cm-bp-props .row .lb { flex: none; width: 3.6em; }
+.cm-bp-props .row.chk { color: var(--text); }
+.cm-bp-props .in {
+  flex: 1; min-width: 0; height: 28px; padding: 0 9px;
   background: var(--field-bg); border: 1px solid var(--field-border); border-radius: var(--r-sm);
   color: var(--text); font-family: var(--code-font); font-size: var(--fs-md);
 }
-.cm-bp-cond .in:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-glow); }
-.cm-bp-cond .h { color: var(--text-faint); font-size: var(--fs-xs); }
+.cm-bp-props .in:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-glow); }
+.cm-bp-props .in.bad { border-color: var(--lvl-error); }
+.cm-bp-props .h { margin-top: 4px; color: var(--text-faint); font-size: var(--fs-xs); }
+.cm-bp-props .acts { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
 /*
  * 居中浮层的位置只有这一处（2026-10-13 盘点：原来七个居中浮层各写各的，四种上沿、七种宽度，⌘P / ⌘E / ⇧⌘O 换着开框在屏幕上跳）。
  * **上沿钉在一条线上**，往下长：结果列表随输入变长变短，上沿不动输入框才不跟着跳（Spotlight、Raycast、VS Code 命令面板都这样）。

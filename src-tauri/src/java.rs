@@ -418,6 +418,15 @@ impl Instance {
         Ok((port, project_of(&mains, main_class)))
     }
 
+    /// 改调试插件的全局设置（`vscode.java.updateDebugSettings`，参数是一段 JSON 字符串；插件按 `DebugSettings` 读，没给的字段不动）。
+    /// 异常断点「只看哪几种异常」只能从这儿说（docs/TAKEOVER.md G14，`debug::exc_args`）
+    pub fn debug_settings(&self, json_text: &str) -> Result<(), String> {
+        self.srv
+            .request("workspace/executeCommand", json!({ "command": "vscode.java.updateDebugSettings", "arguments": [json_text] }), ASK)
+            .map(|_| ())
+            .map_err(|e| format!("调试插件没答（{e}）"))
+    }
+
     /// 调试期间攥着它（见 `holds`）。guard 丢了就放开
     pub fn hold(self: &Arc<Self>) -> Hold {
         self.holds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);

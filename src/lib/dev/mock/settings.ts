@@ -27,6 +27,7 @@ function view() {
     editorFontBase: BASE,
     editorHighlightUsages: WRITTEN["editor.highlightUsages"] !== false,
     editorInlayHints: WRITTEN["editor.inlayHints"] !== false,
+    javaHotswapOnSave: WRITTEN["java.hotswapOnSave"] !== false,
     terminalFontFamily: family,
     terminalFontSize: BASE,
     terminalShell: "",
@@ -63,6 +64,7 @@ const SCHEMA = [
   { key: "java.jdtlsHome", label: "jdtls 的位置", kind: "string", default: '""', doc: "Java 智能用的 jdtls，空 = 内置的那份", min: null, max: null },
   { key: "java.jdtlsMemory", label: "jdtls 最多用的内存（MB）", kind: "integer", default: "1024", doc: "jdtls 最多用多少内存（MB）", min: 512, max: 16384 },
   { key: "java.jdks", label: "手动添加的 JDK", kind: "array", default: "[]", doc: "手动添加的 JDK", min: null, max: null },
+  { key: "java.hotswapOnSave", label: "调试时存盘就自动构建、热替换", kind: "boolean", default: "true", doc: "调试着的时候存了 .java 文件就自动构建、热替换", min: null, max: null },
   { key: "maven.useWrapper", label: "项目里有 mvnw 就用它", kind: "boolean", default: "true", doc: "项目里有 mvnw 就用它", min: null, max: null },
   { key: "maven.home", label: "Maven 安装目录", kind: "string", default: '""', doc: "Maven 的安装目录，空 = PATH 里的 mvn", min: null, max: null },
   { key: "maven.settingsFile", label: "settings.xml", kind: "string", default: '""', doc: "Maven 的 settings.xml，空 = ~/.m2/settings.xml", min: null, max: null },
@@ -74,7 +76,7 @@ const SCHEMA = [
 /** 设置页写过的值（桩里没有 settings.json：写进这张表，读的时候盖在默认值上） */
 const WRITTEN: Record<string, unknown> = {};
 /** 按项目的设置（真实现在 project-settings.json / maven-prefs.json） */
-type UserCfg = { name: string; kind: string; mainClass: string; module: string; goals: string; command: string; cwd: string; items: string[]; profiles: string; vmOptions: string; programArgs: string; env: { name: string; value: string }[]; jdk: string };
+type UserCfg = { name: string; kind: string; mainClass: string; module: string; goals: string; command: string; cwd: string; items: string[]; profiles: string; vmOptions: string; programArgs: string; env: { name: string; value: string }[]; jdk: string; host: string; port: number };
 const PROJ: Record<string, { jdk: string; offline: boolean; skipTests: boolean; runs: Record<string, Record<string, unknown>>; configs: UserCfg[] }> = {};
 const proj = (root: string) => (PROJ[root] ??= { jdk: "", offline: false, skipTests: false, runs: {}, configs: [] });
 

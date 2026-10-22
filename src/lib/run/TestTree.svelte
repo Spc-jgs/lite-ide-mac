@@ -14,7 +14,7 @@
   import Icon from "../shell/Icon.svelte";
   import type { RunTab } from "../state/runs.svelte";
   import type { TestCase } from "../ipc/commands";
-  import { failedSelector, parseTestTask } from "../editor/java-tests";
+  import { classFile, classLabel, failedSelector, parseTestTask } from "../editor/java-tests";
   import { runTask } from "../state/runs-ops";
   import { nav } from "../state/nav.svelte";
   import { readText } from "../ipc/commands";
@@ -39,7 +39,6 @@
   let retry = $derived(failedSelector(cases));
   let task = $derived(parseTestTask(run.name));
 
-  const short = (cls: string) => cls.slice(cls.lastIndexOf(".") + 1);
   const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(2)}s` : `${n}ms`);
   const icon = (o: string) => (o === "passed" ? "check" : o === "skipped" ? "minus" : "error");
 
@@ -54,12 +53,13 @@
   async function jump(c: TestCase) {
     if (!task) return;
     const dir = task.module === "." ? run.root : `${run.root}/${task.module}`;
-    const path = `${dir}/src/test/java/${c.class.replace(/\./g, "/")}.java`;
+    // @Nested 的内部类在外层类的文件里
+    const path = `${dir}/src/test/java/${classFile(c.class)}`;
     let text: string;
     try {
       text = (await readText(path)).content;
     } catch {
-      notify.hint(`找不到 ${short(c.class)}.java（模块按 artifactId 起的？从测试文件旁边的 ▶ 起的才认得出目录）`);
+      notify.hint(`找不到 ${classFile(c.class).split("/").pop()}（模块按 artifactId 起的？从测试文件旁边的 ▶ 起的才认得出目录）`);
       return;
     }
     const name = c.name.replace(/[(\[].*$/, "");
@@ -98,7 +98,7 @@
       <div class="row cls" role="treeitem" aria-selected="false" aria-expanded={!closed.has(cls)} tabindex="-1" onclick={() => toggle(cls)} onkeydown={() => {}}>
         <span class="chev" class:open={!closed.has(cls)}><Icon name="chevron-right" /></span>
         <span class="ic" class:ok={!failed}><Icon name={failed ? "error" : "check"} /></span>
-        <span class="name">{short(cls)}</span>
+        <span class="name">{classLabel(cls)}</span>
         <span class="ms">{ms(list.reduce((n, c) => n + c.ms, 0))}</span>
       </div>
       {#if !closed.has(cls)}

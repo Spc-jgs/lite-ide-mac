@@ -137,6 +137,8 @@ pub struct Dbg {
     /// 热替换之后这个 JVM 里断点下不了的源文件：换进去的类行号表变了，调试器缓存的还是旧表（`hotswap` 文件头「断点」）。
     /// 换一个 JVM（新的连接、新的缓存）清空
     lost: Mutex<std::collections::HashSet<String>>,
+    /// 「运行到光标」临时下了断点的那个文件：下一次停下（不管停在哪）就照断点表把它下回原样
+    temp: Mutex<Option<String>>,
 }
 
 /// 一个调试会话的热替换：和代理说话的控制目录 + JVM 起来那一刻盘上 class 的指纹
@@ -169,6 +171,32 @@ pub struct Debugs {
     all: Owned<u32, Arc<Dbg>>,
     /// 项目根 → 文件 → 断点（行从 1 数，带条件的是条件断点）。前端每次改了就整份报一个文件；会话挂上时照这张表下断点
     bps: Mutex<HashMap<String, BTreeMap<String, Vec<Bp>>>>,
+    /// 项目根 → 异常断点（docs/TAKEOVER.md G14）。同断点：前端改了就报，会话挂上时照着下
+    exc: Mutex<HashMap<String, Exc>>,
+}
+
+/// 异常断点（IDEA 的 Java Exception Breakpoints）：抛出未捕获的 / 被捕获的异常时停。`types` 只看这几种（类的全名；空 = 全部）。
+/// 「被捕获的」不加类型很吵：Spring 启动时框架自己抛了又接住的异常几百个 —— 界面上把这句说出来
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Exc {
+    pub uncaught: bool,
+    pub caught: bool,
+    pub types: Vec<String>,
+}
+
+/// 下异常断点要说的两句：给插件的设置（`vscode.java.updateDebugSettings` 的参数，只管哪几种异常）和 DAP 的 `setExceptionBreakpoints`。
+/// java-debug 0.53.1 只认 `caught` / `uncaught` 两个过滤器（读字节码确认），按类型筛不在这条请求里、在它的全局设置 `exceptionFilters.exceptionTypes` 里
+pub fn exc_args(e: &Exc) -> (String, Value) {
+    let types: Vec<&str> = e.types.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect();
+    let settings = json!({ "exceptionFilters": { "exceptionTypes": types } }).to_string();
+    let mut filters = Vec::new();
+    if e.caught {
+        filters.push("caught");
+    }
+    if e.uncaught {
+        filters.push("uncaught");
+    }
+    (settings, json!({ "filters": filters }))
 }
 
 impl Debugs {
@@ -200,6 +228,43 @@ impl Debugs {
             }
         }
         verified
+    }
+
+    /// 这个项目的异常断点换成这些；正在调试的会话当场跟着改
+    pub fn set_exceptions(&self, root: &str, e: Exc) {
+        self.exc.lock().unwrap_or_else(|x| x.into_inner()).insert(root.to_string(), e.clone());
+        for d in self.all.map(Arc::clone).into_iter().filter(|d| d.root == root) {
+            d.send_exceptions(&e);
+        }
+    }
+
+    /// 运行到光标（⌥F9，IDEA 的 Run to Cursor；docs/TAKEOVER.md G14）：DAP 没有这条请求（java-debug 也没有 `goto`），
+    /// 做法同 VS Code 的 Java 插件：在那一行临时下一个**普通**断点、继续，下一次停下时（停在那儿、或者先撞上了别的断点）照断点表把那个文件下回原样。
+    /// 那一行停不了（空行、注释、没编译进去的）JVM 回「没对上」：不继续、照原样下回去、说清楚
+    pub fn run_to(&self, run: u32, path: &str, line: u32) -> Result<(), String> {
+        let d = self.get(run).ok_or("这次运行没在调试")?;
+        if d.snapshot().phase != Phase::Paused {
+            return Err("程序没停着：运行到光标要先停下来（撞上断点、或者暂停）".into());
+        }
+        if d.lost.lock().unwrap_or_else(|e| e.into_inner()).contains(path) {
+            return Err("这个文件热替换之后行号变了，这次调试里下不了断点（重新调试就好）".into());
+        }
+        let own = self.file_bps(&d.root, path);
+        let verified = d.send_breakpoints(path, &with_temp(&own, line)).ok_or("调试器没回话")?;
+        if !verified.contains(&line) {
+            d.send_breakpoints(path, &own);
+            return Err(format!("第 {line} 行停不了（空行、注释，或者没编译进去）"));
+        }
+        *d.temp.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.to_string());
+        d.step("continue")
+    }
+
+    fn file_bps(&self, root: &str, path: &str) -> Vec<Bp> {
+        self.bps.lock().unwrap_or_else(|e| e.into_inner()).get(root).and_then(|m| m.get(path)).cloned().unwrap_or_default()
+    }
+
+    fn exceptions(&self, root: &str) -> Exc {
+        self.exc.lock().unwrap_or_else(|x| x.into_inner()).get(root).cloned().unwrap_or_default()
     }
 
     fn breakpoints(&self, root: &str) -> Vec<(String, Vec<Bp>)> {
@@ -301,18 +366,35 @@ impl Debugs {
     }
 }
 
-/// 一个断点：行（从 1 数）和条件（Java 表达式，为真才停；空的是普通断点）。条件由 java-debug 在目标 JVM 里算 —— IDEA 的条件断点同一个意思
-#[derive(Clone, Debug, PartialEq)]
+/// 一个断点：行（从 1 数）和条件（Java 表达式，为真才停；空的是普通断点）。条件由 java-debug 在目标 JVM 里算 —— IDEA 的条件断点同一个意思。
+/// `hit`：第几次走到才停（IDEA 的 Pass count；java-debug 拿它 `Integer.parseInt`，不是正整数就不带）。
+/// `log`：日志断点（IDEA 的「Evaluate and log」+ 不挂起）—— 不停，把这句打进运行窗的输出，`{orderId}` 换成值（DAP 的 logpoint）
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct Bp {
     pub line: u32,
     pub condition: String,
+    pub hit: String,
+    pub log: String,
 }
 
-/// DAP 的 setBreakpoints 参数。条件是空串的不带 `condition` 字段（带一个空的，java-debug 会拿它去编译、报「表达式不对」）
+/// DAP 的 setBreakpoints 参数。条件是空串的不带 `condition` 字段（带一个空的，java-debug 会拿它去编译、报「表达式不对」）；
+/// 命中次数同理：不是正整数的不带（java-debug 0.53.1 直接 `Integer.parseInt`，读字节码确认的 —— 带一个 `abc` 过去，这个断点整个下不上）
 fn breakpoints_args(path: &str, bps: &[Bp]) -> Value {
     let list: Vec<Value> = bps
         .iter()
-        .map(|b| if b.condition.trim().is_empty() { json!({ "line": b.line }) } else { json!({ "line": b.line, "condition": b.condition.trim() }) })
+        .map(|b| {
+            let mut o = json!({ "line": b.line });
+            if !b.condition.trim().is_empty() {
+                o["condition"] = json!(b.condition.trim());
+            }
+            if let Some(n) = b.hit.trim().parse::<u32>().ok().filter(|n| *n > 0) {
+                o["hitCondition"] = json!(n.to_string());
+            }
+            if !b.log.trim().is_empty() {
+                o["logMessage"] = json!(b.log.trim());
+            }
+            o
+        })
         .collect();
     json!({ "source": { "path": path }, "breakpoints": list, "lines": bps.iter().map(|b| b.line).collect::<Vec<_>>() })
 }
@@ -505,9 +587,29 @@ impl Dbg {
         Some(body["breakpoints"].as_array().into_iter().flatten().filter(|b| b["verified"] == true).filter_map(|b| b["line"].as_u64().map(|l| l as u32)).collect())
     }
 
+    /// 异常断点下到 JVM 里：先告诉插件只看哪几种（它的全局设置，jdtls 进程里），再下过滤器。下不上记一笔，不挡调试
+    fn send_exceptions(&self, e: &Exc) {
+        let Ok(sess) = self.session() else { return };
+        let (settings, filters) = exc_args(e);
+        if let Some(j) = self.app.state::<crate::state::AppState>().java.get(&self.root) {
+            if let Err(x) = j.debug_settings(&settings) {
+                applog::write(applog::Level::Warn, "debug", &format!("异常断点的类型没交给插件：{x}"));
+            }
+        }
+        if let Err(x) = sess.request("setExceptionBreakpoints", filters, REQ) {
+            applog::write(applog::Level::Warn, "debug", &format!("setExceptionBreakpoints 失败：{x}"));
+        }
+    }
+
     /// 停在 `thread` 上：拿调用栈和停着的线程的名字，整份推给前端
     fn show_paused(&self, thread: i64, reason: &str) {
         let Ok(sess) = self.session() else { return };
+        // 停在异常上：说出抛的是什么（不说的话只看到停在框架的某一行，不知道为什么停）
+        if reason == "exception" {
+            if let Ok(b) = sess.request("exceptionInfo", json!({ "threadId": thread }), REQ) {
+                *self.warn.lock().unwrap_or_else(|e| e.into_inner()) = Some(exception_note(&b));
+            }
+        }
         let (frames, total) = match sess.request("stackTrace", json!({ "threadId": thread, "startFrame": 0, "levels": FRAMES_MAX }), REQ) {
             Ok(b) => frames_of(&b),
             Err(e) => {
@@ -663,6 +765,9 @@ pub enum Who {
     Main(String),
     /// 单测：测试类没有 main，问不出来 —— 直接用模块的 artifactId（m2e 默认拿它当项目名）
     Project(String),
+    /// 远程 JVM 调试（docs/TAKEOVER.md G23）：别处起的 JVM，在 host:port 上等调试器（它自己带着 `-agentlib:jdwp=…server=y…`）。
+    /// 任务只是占位的那一格：挂一次，断了（对面退了 / 网络断了）就把那一格停掉
+    Remote(String, u16),
 }
 
 /// 起了一个带 JDWP 的任务之后：登记会话、后台去挂。立刻返回。
@@ -681,6 +786,7 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
         warn: Mutex::new(None),
         hot: hot_dir.map(|dir| Hot { dir, base: Mutex::new(hotswap::Baseline::default()) }),
         lost: Mutex::new(Default::default()),
+        temp: Mutex::new(None),
     });
     let st = app.state::<crate::state::AppState>();
     if let Some(old) = st.debug.all.insert(owner, run, Arc::clone(&d)) {
@@ -693,21 +799,45 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
         let mut seen = std::collections::HashSet::new();
         let pgid = task.pgid();
         let t2 = Arc::clone(&task);
+        // 远程：⌘F2 停的是占位的那一格，对面的 JVM 还活着、调试连接一直在 —— 本地调试时 JVM 就是那个任务，任务一停连接自己就断了，
+        // 远程不会（2026-10-22 spring.sh 撞的：那一格「已停止」、会话一直「在跑」）。看着那一格，它没了就主动断开（Session 一丢 socket 就关，
+        // `run_events` 那边的通道跟着结束）。断开不停对面：java-debug 对 attach 来的会话做的是 JDI 的 dispose，停着的线程放行
+        if matches!(who, Who::Remote(..)) {
+            let (dw, tw) = (Arc::clone(&d), Arc::clone(&task));
+            let _ = std::thread::Builder::new().name(format!("debug-remote-{run}")).spawn(move || {
+                while tw.alive() && !matches!(dw.snapshot().phase, Phase::Ended(_)) {
+                    std::thread::sleep(Duration::from_millis(300));
+                }
+                dw.disconnect_dap();
+            });
+        }
         // 下一个 JVM 的调试端口：Spring 是 `exec java`，任务自己就是那个 JVM，那一行当场写进输出；单测的 JVM 是 surefire fork 的，问系统（见 `wait_jdwp`）
+        let mut remote_used = false;
         let mut next_port = || match &who {
             Who::Main(_) => wait_port(&log, &mut from, || t2.alive(), Duration::from_millis(150)),
             Who::Project(_) => wait_jdwp(pgid, &mut seen, || t2.alive(), Duration::from_millis(300)),
+            // 远程：端口是填的，只挂一次
+            Who::Remote(_, p) if !remote_used => {
+                remote_used = true;
+                Ok(*p)
+            }
+            Who::Remote(..) => Err("对面的 JVM 断开了".into()),
         };
         let mut attached = 0;
         let why = loop {
             match attach(&app, &d, &mut next_port, &who, &|| task.alive()) {
                 Ok(rx) => {
                     attached += 1;
-                    run_events(&d, rx);
+                    run_events(&d, rx, &task);
                     d.disconnect_dap();
                     d.stopped.lock().unwrap_or_else(|e| e.into_inner()).clear();
                     if !task.alive() {
                         break String::new();
+                    }
+                    // 远程：会话断了（对面退了、网络断了），占位的那一格也就没用了 —— 停掉它，说一句
+                    if let Who::Remote(h, p) = &who {
+                        task.stop(Duration::from_secs(2));
+                        break format!("{h}:{p} 那个 JVM 断开了（退出了，或者连不上了）");
                     }
                     d.set(|s| {
                         s.phase = Phase::Waiting("这个 JVM 跑完了，等下一个（surefire 可能还要再起一个）…".into());
@@ -718,6 +848,12 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
                 }
                 // 人停的、或者挂上过之后任务跑完了（mvn 写完报告退出）：不是出错
                 Err(_) if quiet_end(attached, &task.state()) => break String::new(),
+                // 远程挂不上（对面没开调试端口、地址写错、被防火墙挡了）：停掉占位的那一格。不说「程序停在入口」—— 那个 JVM 不是我们起的
+                Err(e) if matches!(who, Who::Remote(..)) => {
+                    task.stop(Duration::from_secs(2));
+                    let Who::Remote(h, p) = &who else { unreachable!() };
+                    break format!("挂不上 {h}:{p}：{e}（对面的 JVM 要带着 -agentlib:jdwp=transport=dt_socket,server=y,address=*:{p} 起）");
+                }
                 Err(e) => break fail(&d, &task, e),
             }
         };
@@ -768,6 +904,12 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u
     let (dap_port, project) = match who {
         Who::Main(c) => java.debug_session(Some(c), READY_WAIT, alive)?,
         Who::Project(p) => (java.debug_session(None, READY_WAIT, alive)?.0, Some(p.clone())),
+        // 远程：不知道对面跑的是哪个主类，不带项目名（求值在只认得 JDK 的类时照样能用；用到项目里的类时插件会说要项目名）
+        Who::Remote(..) => (java.debug_session(None, READY_WAIT, alive)?.0, None),
+    };
+    let host = match who {
+        Who::Remote(h, _) => h.as_str(),
+        _ => "127.0.0.1",
     };
     d.set(|s| s.phase = Phase::Waiting("正在挂上调试器…".into()));
     let (tx, rx) = mpsc::channel::<Value>();
@@ -780,7 +922,7 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u
         REQ,
     )
     .map_err(|e| format!("调试插件 initialize 失败：{e}"))?;
-    sess.request("attach", json!({ "hostName": "127.0.0.1", "port": jvm_port, "timeout": 10000, "projectName": project }), REQ)
+    sess.request("attach", json!({ "hostName": host, "port": jvm_port, "timeout": 10000, "projectName": project }), REQ)
         .map_err(|e| format!("挂不上 JVM（端口 {jvm_port}）：{e}"))?;
     // 等 initialized 再下断点（DAP 的次序）。中间来的别的事件（版本不一致的提醒这类）记日志
     let deadline = std::time::Instant::now() + REQ;
@@ -796,9 +938,45 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u
     for (path, bps) in st.debug.breakpoints(&d.root) {
         d.send_breakpoints(&path, &bps);
     }
+    let exc = st.debug.exceptions(&d.root);
+    if exc.caught || exc.uncaught {
+        d.send_exceptions(&exc);
+    }
     sess.request("configurationDone", json!({}), REQ).map_err(|e| format!("configurationDone 失败：{e}"))?;
     d.set(|s| s.phase = Phase::Running);
     Ok(rx)
+}
+
+/// 运行到光标要下的那一份：这个文件原有的断点 + 那一行一个普通断点。那一行原来有带条件 / 命中次数 / 日志的断点就换成普通的 ——
+/// 「运行到这儿」要的是一定停，条件不成立就跑过去了、日志断点干脆不停
+fn with_temp(own: &[Bp], line: u32) -> Vec<Bp> {
+    let mut v: Vec<Bp> = own.iter().filter(|b| b.line != line).cloned().collect();
+    v.push(Bp { line, ..Bp::default() });
+    v
+}
+
+/// 停在异常上时那一句：`exceptionInfo` 的类名 + 说明（说明是空的就只有类名）。
+/// java-debug 0.53.1 给的说明是异常 `toString()` 的结果、**带着引号**，开头还是类名（真 JVM 上：`"java.lang.NumberFormatException: For input string: "lite""`）——
+/// 去掉外面那对引号和重复的类名
+fn exception_note(b: &Value) -> String {
+    let id = s(&b["exceptionId"]);
+    let raw = s(&b["description"]);
+    let mut d = raw.trim();
+    if d.len() >= 2 && d.starts_with('"') && d.ends_with('"') {
+        d = &d[1..d.len() - 1];
+    }
+    let d = d.strip_prefix(id.as_str()).map(|r| r.trim_start_matches(':').trim()).unwrap_or(d);
+    if d.trim().is_empty() || d == id {
+        format!("抛出 {id}")
+    } else {
+        format!("抛出 {id}：{}", d.trim())
+    }
+}
+
+/// 这条 output 是不是日志断点打的：java-debug 0.53.1 发 console 输出的只有两处（读字节码）—— 挂上去时的「调试器和 JVM 版本不一样」
+/// （在 `configurationDone` 之前，那时还不是 Running）和日志断点。所以挂上之后来的 console 输出就是日志断点的
+fn is_logpoint(e: &Value, phase: &Phase) -> bool {
+    e["body"]["category"] == "console" && matches!(phase, Phase::Running | Phase::Paused)
 }
 
 /// 插件发来的输出（「调试器和被调试的 JVM 版本不一样」这类）：程序自己的输出在任务日志里，这些只是调试器的话，记进 app.log
@@ -833,12 +1011,16 @@ fn cond_warning(msg: &str) -> String {
     msg.to_string()
 }
 
-fn run_events(d: &Dbg, rx: mpsc::Receiver<Value>) {
+fn run_events(d: &Dbg, rx: mpsc::Receiver<Value>, task: &tasksvc::Task) {
     // 线断了（插件退了、被调试的 JVM 没了）dapsvc 的读线程退出、丢掉发送端，这里的 recv 就返回 Err
     for e in rx {
         let body = &e["body"];
         match e["event"].as_str().unwrap_or("") {
             "stopped" => {
+                // 运行到光标的临时断点：停下了（不管停在哪）就撤掉，下回断点表里的样子
+                if let Some(p) = d.temp.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    d.send_breakpoints(&p, &d.app.state::<crate::state::AppState>().debug.file_bps(&d.root, &p));
+                }
                 let t = body["threadId"].as_i64().unwrap_or(0);
                 {
                     let mut st = d.stopped.lock().unwrap_or_else(|e| e.into_inner());
@@ -852,9 +1034,19 @@ fn run_events(d: &Dbg, rx: mpsc::Receiver<Value>) {
             "usernotification" => {
                 let msg = s(&body["message"]);
                 applog::write(applog::Level::Warn, "debug", &msg);
-                *d.warn.lock().unwrap_or_else(|e| e.into_inner()) = Some(cond_warning(&msg));
+                // 日志断点算不了：它不停，不能挂到「下一次停下来」时说 —— 那时说的是别的断点。就地打进输出，和它本该打的那句在同一个位置
+                if let Some(rest) = msg.strip_prefix("[Logpoint] ") {
+                    task.note(&format!("[日志断点] 算不了：{rest}"));
+                } else {
+                    *d.warn.lock().unwrap_or_else(|e| e.into_inner()) = Some(cond_warning(&msg));
+                }
             }
             "terminated" | "exited" => break,
+            "output" if is_logpoint(&e, &d.snapshot().phase) => {
+                for l in s(&body["output"]).lines().filter(|l| !l.trim().is_empty()) {
+                    task.note(&format!("[日志断点] {l}"));
+                }
+            }
             _ => note_output(&e),
         }
     }
@@ -867,9 +1059,51 @@ mod tests {
 
     #[test]
     fn 条件断点_有条件的带_condition_空的不带() {
-        let v = breakpoints_args("/p/A.java", &[Bp { line: 4, condition: " cents == 1 ".into() }, Bp { line: 7, condition: "  ".into() }]);
+        let v = breakpoints_args("/p/A.java", &[Bp { line: 4, condition: " cents == 1 ".into(), ..Bp::default() }, Bp { line: 7, condition: "  ".into(), ..Bp::default() }]);
         assert_eq!(v["breakpoints"], json!([{ "line": 4, "condition": "cents == 1" }, { "line": 7 }]));
         assert_eq!(v["lines"], json!([4, 7]));
+    }
+
+    #[test]
+    fn 命中次数只带正整数_日志断点带_logmessage() {
+        let b = |hit: &str, log: &str| Bp { line: 3, hit: hit.into(), log: log.into(), ..Bp::default() };
+        let v = breakpoints_args("/p/A.java", &[b("3", ""), b("abc", ""), b("0", ""), b(" ", "进来了 {orderId}")]);
+        assert_eq!(v["breakpoints"][0], json!({ "line": 3, "hitCondition": "3" }));
+        assert_eq!(v["breakpoints"][1], json!({ "line": 3 }), "不是数字的不带：java-debug 直接 parseInt，带过去整个断点下不上");
+        assert_eq!(v["breakpoints"][2], json!({ "line": 3 }), "0 次没有意义");
+        assert_eq!(v["breakpoints"][3], json!({ "line": 3, "logMessage": "进来了 {orderId}" }));
+    }
+
+    #[test]
+    fn 运行到光标_那一行换成普通断点_别的照旧() {
+        let own = vec![Bp { line: 3, condition: "x > 1".into(), ..Bp::default() }, Bp { line: 7, log: "到了".into(), ..Bp::default() }];
+        let v = with_temp(&own, 7);
+        assert_eq!(v, vec![Bp { line: 3, condition: "x > 1".into(), ..Bp::default() }, Bp { line: 7, ..Bp::default() }], "第 7 行的日志断点换成会停的普通断点");
+        assert_eq!(with_temp(&own, 9).len(), 3, "没有断点的行多一个");
+    }
+
+    #[test]
+    fn 异常断点_过滤器和类型分两处说_空类型去掉() {
+        let (set, f) = exc_args(&Exc { uncaught: true, caught: true, types: vec![" java.lang.IllegalStateException ".into(), "  ".into()] });
+        assert_eq!(f, json!({ "filters": ["caught", "uncaught"] }));
+        assert_eq!(serde_json::from_str::<Value>(&set).unwrap(), json!({ "exceptionFilters": { "exceptionTypes": ["java.lang.IllegalStateException"] } }));
+        assert_eq!(exc_args(&Exc { uncaught: true, ..Exc::default() }).1, json!({ "filters": ["uncaught"] }));
+        assert_eq!(exception_note(&json!({ "exceptionId": "java.lang.IllegalStateException", "description": "库存不够" })), "抛出 java.lang.IllegalStateException：库存不够");
+        assert_eq!(exception_note(&json!({ "exceptionId": "java.lang.NullPointerException", "description": "" })), "抛出 java.lang.NullPointerException");
+        // 真 JVM 上 java-debug 给的样子：带引号、开头重复类名
+        assert_eq!(
+            exception_note(&json!({ "exceptionId": "java.lang.NumberFormatException", "description": "\"java.lang.NumberFormatException: For input string: \"lite\"\"" })),
+            "抛出 java.lang.NumberFormatException：For input string: \"lite\""
+        );
+        assert_eq!(exception_note(&json!({ "exceptionId": "java.lang.IllegalStateException", "description": "\"java.lang.IllegalStateException\"" })), "抛出 java.lang.IllegalStateException", "没有消息的：只剩类名");
+    }
+
+    #[test]
+    fn 挂上之后的_console_输出才算日志断点打的() {
+        let e = json!({ "event": "output", "body": { "category": "console", "output": "进来了 42\n" } });
+        assert!(is_logpoint(&e, &Phase::Running));
+        assert!(!is_logpoint(&e, &Phase::Waiting("挂上去".into())), "挂上去之前的是版本不一致那类提醒");
+        assert!(!is_logpoint(&json!({ "event": "output", "body": { "category": "stderr", "output": "x" } }), &Phase::Running));
     }
 
     #[test]

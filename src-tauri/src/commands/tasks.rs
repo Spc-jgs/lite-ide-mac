@@ -62,9 +62,13 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
         // 单测（`mvn -Dtest=… test`，JDWP 交给 surefire fork 的 JVM）
         // 热替换（docs/IDEA.md 第 26 节）：JVM 多带一个代理，和它说话的控制目录现在建好。开发构建没带 agent 的 jar 就不带（调试照常）
         let mut hot_dir = None;
-        let debug = match debug.unwrap_or(false) {
-            false => None,
-            true => {
+        // 远程 JVM 调试（docs/TAKEOVER.md G23）：只能调试 —— ▶ 和虫子一样。命令是占位的（`taskdefs::remote_command`），不改；
+        // 热替换的代理塞不进别人起的 JVM，没有
+        let remote = crate::taskdefs::remote_target(Path::new(&root), &name);
+        let debug = match (remote, debug.unwrap_or(false)) {
+            (Some((host, port)), _) => Some(crate::debug::Who::Remote(host, port)),
+            (None, false) => None,
+            (None, true) => {
                 let agent = crate::java::hotswap_jar(&app).and_then(|jar| {
                     let dir = hotswap::control_dir("dbg").ok()?;
                     let arg = hotswap::agent_arg(&jar, &dir);
@@ -110,6 +114,7 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
         });
         let id = st.insert_run(&owner, crate::state::Run { root: root.clone(), name: name.clone(), task: task.clone() });
         let log = spec.log.clone();
+        let is_debug = debug.is_some();
         if let Some(who) = debug {
             crate::debug::start(&app, &owner, id, &root, log.clone(), who, task.clone(), hot_dir);
         }
@@ -131,7 +136,7 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
             let _ = app2.emit_to(owner.as_str(), "task-exit", TaskExitDto { id, code, signal, stopped, failed, port });
         });
         let service = matches!(def.source, crate::taskdefs::Source::Spring { .. });
-        Ok(TaskRunDto { id, name, command: def.command, log: spec.log.to_string_lossy().into_owned(), service })
+        Ok(TaskRunDto { id, name, command: def.command, log: spec.log.to_string_lossy().into_owned(), service, debug: is_debug })
     })
     .await
 }

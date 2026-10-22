@@ -6,8 +6,15 @@ import type { DebugHotswap, DebugState, DebugVar, DebugVars } from "./commands";
 export const debugState = (run: number) => invoke<DebugState | null>("debug_state", { run });
 
 /** 这个文件的断点换成 `lines`（整份，从 1 数），`conds` 一一对应（条件断点的条件，空串是普通断点）。正在调试的话当场下到 JVM 里，回「对上了」的那些行 */
-export const debugBreakpoints = (root: string, path: string, lines: number[], conds: string[] = []) =>
-  invoke<number[]>("debug_breakpoints", { root, path, lines, conds });
+/** `conds` / `hits` / `logs` 和 `lines` 一一对应：条件、命中次数、日志断点那句（空串 = 没有） */
+export const debugBreakpoints = (root: string, path: string, lines: number[], conds: string[] = [], hits: string[] = [], logs: string[] = []) =>
+  invoke<number[]>("debug_breakpoints", { root, path, lines, conds, hits, logs });
+
+/** 异常断点（G14）：未捕获的停 / 被捕获的也停 / 只看这几种（类的全名，空 = 全部） */
+export const debugExceptions = (root: string, uncaught: boolean, caught: boolean, types: string[]) => invoke<void>("debug_exceptions", { root, uncaught, caught, types });
+
+/** 运行到光标（⌥F9）：停着时跑到这个文件的这一行（从 1 数）再停 */
+export const debugRunTo = (run: number, path: string, line: number) => invoke<void>("debug_run_to", { run, path, line });
 
 export type DebugAction = "continue" | "next" | "stepIn" | "stepOut" | "pause";
 export const debugStep = (run: number, action: DebugAction) => invoke<void>("debug_step", { run, action });

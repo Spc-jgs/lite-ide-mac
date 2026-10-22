@@ -12,6 +12,9 @@
    *
    * 控制台就是原来那份输出（级别着色、过滤、跟随），两页都只藏不卸：切回来时输出滚到哪、变量展开到哪都还在。
    * 撞上断点自动切到「调试器」（同 IDEA）；单步之后同一个变量展开着的照样展开（按名字路径记）。
+   *
+   * **监视**（IDEA 的 Watches，docs/TAKEOVER.md G14）：求值框里 ⇧↵ 把表达式加进去，按项目存、跨重启；每停一次 / 换一帧在那一帧上全算一遍，
+   * 排在局部变量上面。算不出来的（变量这一帧里没有）照样留着、说一句为什么 —— 换到别的帧、下一次停下也许就有了
    */
   import type { Snippet } from "svelte";
   import Icon from "../shell/Icon.svelte";
@@ -20,6 +23,8 @@
   import type { DebugVar } from "../ipc/commands";
   import { debugEval, debugThread, debugVars } from "../ipc/debug";
   import { showFrame, step } from "../debug/debug-ops";
+  import { setWatches, watchesOf } from "../debug/watches";
+  import { untrack } from "svelte";
   import { cmenu } from "../shell/context-menu.svelte";
 
   let { run, console: consoleView }: { run: RunTab; console: Snippet } = $props();
@@ -37,6 +42,9 @@
   let evaluating = $state(false);
   /** 展开着的变量（按名字路径）：单步之后照着重新展开 */
   const opened = new Set<string>();
+  let watches = $state<string[]>(untrack(() => watchesOf(run.root)));
+  /** 监视的结果，和 `watches` 一一对应：算出来的是一个节点，算不出来是那句话 */
+  let watchRes = $state<(Node | string | null)[]>([]);
 
   let d = $derived(run.debug);
   let paused = $derived(d?.phase === "paused");
@@ -102,6 +110,42 @@
 
   const node = (v: DebugVar, key: string): Node => ({ key, v, open: false, kids: null, more: 0, err: "" });
 
+  // 监视：帧换了、监视的表达式变了 → 在这一帧上一个个算（串着算：同时发几十个，JVM 那边也是排队）
+  $effect(() => {
+    const f = frame;
+    const list = watches;
+    const id = run.id;
+    watchRes = list.map(() => null);
+    if (!f || !list.length) return;
+    let dead = false;
+    void (async () => {
+      for (let i = 0; i < list.length; i++) {
+        let r: Node | string;
+        try {
+          const v = await debugEval(id, f.id, list[i]);
+          r = node({ ...v, name: list[i] }, `watch:${list[i]}`);
+        } catch (e) {
+          r = e instanceof Error ? e.message : String(e);
+        }
+        if (dead) return;
+        watchRes[i] = r;
+      }
+    })();
+    return () => {
+      dead = true;
+    };
+  });
+
+  function addWatch(e: string) {
+    if (!e.trim()) return;
+    watches = setWatches(run.root, [...watches, e]);
+    expr = "";
+  }
+
+  function removeWatch(e: string) {
+    watches = setWatches(run.root, watches.filter((w) => w !== e));
+  }
+
   async function load(n: Node) {
     try {
       const r = await debugVars(run.id, { reference: n.v.reference, indexed: n.v.indexed });
@@ -152,7 +196,10 @@
 
   function onEvalKey(e: KeyboardEvent) {
     if (imeKey(e)) return;
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && e.shiftKey) {
+      e.preventDefault();
+      addWatch(expr);
+    } else if (e.key === "Enter") {
       e.preventDefault();
       void evaluate();
     }
@@ -274,11 +321,27 @@
       <div class="vars" role="tree" aria-label="变量">
         {#if paused}
           <div class="eval">
-            <input class="expr" placeholder="求值：输入表达式，↵" spellcheck="false" bind:value={expr} onkeydown={onEvalKey} />
+            <input class="expr" placeholder="求值：输入表达式，↵ 算一次 · ⇧↵ 加到监视" spellcheck="false" bind:value={expr} onkeydown={onEvalKey} />
             {#if evaluating}<span class="wait-ring"><span class="spinner sm"></span></span>{/if}
           </div>
           {#if evalErr}<div class="vmsg bad">{evalErr}</div>{/if}
           {#if evalNode}{@render tree([evalNode], 0)}{/if}
+          {#each watches as w, i (w)}
+            {@const r = watchRes[i]}
+            <div class="watch">
+              {#if r && typeof r !== "string"}
+                {@render tree([r], 0)}
+              {:else}
+                <div class="vrow" title={typeof r === "string" ? r : w}>
+                  <span class="chev-gap"></span>
+                  <span class="vn">{w}</span>
+                  <span class="eq">=</span>
+                  {#if r === null}<span class="vmsg wait"><span class="spinner sm"></span></span>{:else}<span class="vv bad">{r}</span>{/if}
+                </div>
+              {/if}
+              <button class="ibtn xs wx" title="不监视了" aria-label="不监视 {w}" onclick={() => removeWatch(w)}><Icon name="x" /></button>
+            </div>
+          {/each}
           {#if varsErr}
             <div class="vmsg bad">{varsErr}</div>
           {:else if vars}
@@ -338,4 +401,10 @@
   .vmsg { padding: 3px 8px; color: var(--text-faint); font-size: var(--fs-sm); }
   .vmsg.bad { color: var(--lvl-error); white-space: pre-wrap; }
   .vmsg.wait { display: flex; align-items: center; gap: 6px; }
+  /* 监视：和变量一个样子，左边一条强调色说明它是你钉上去的（同设置对话框里「改过的」那条），✕ 悬停才出（ui.md 第三条） */
+  .watch { position: relative; }
+  .watch::before { content: ""; position: absolute; left: 0; top: 5px; height: 14px; width: 2px; border-radius: 99px; background: var(--accent); }
+  .watch .wx { position: absolute; right: 2px; top: 4px; visibility: hidden; }
+  .watch:hover .wx { visibility: visible; }
+  .vv.bad { color: var(--lvl-error); font-family: var(--ui-font); }
 </style>

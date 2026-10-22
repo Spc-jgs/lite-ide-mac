@@ -60,8 +60,8 @@ class Docs {
   /** 「读某个编辑器此刻的视口」的口子，按路径认领（同 `#live`）。快照要的是此刻，不是上次换行时 */
   readonly #viewProbe = new Map<string, () => ViewPos>();
   hooks: {
-    /** 保存成功之后。App 装的是 refreshGit */
-    afterSave?: () => void;
+    /** 保存成功之后（带着存的是哪个文件）。App 装的是 refreshGit；调试那边在它后面接「存盘自动热替换」（debug-ops） */
+    afterSave?: (path?: string) => void;
     /** 光标位置变了。App 装的是 scheduleSave —— `posByPath` 不是响应式的，没人替它触发 */
     afterPos?: () => void;
     /** 一份草稿自动落盘之后。侧边栏的草稿列表要刷「第一行」摘要 */
@@ -221,7 +221,7 @@ class Docs {
       if (opts.quiet) return true;
       notify.ok(`已保存 ${tab.name}`, 1800);
       // 保存八成改变了 git 状态，顺手刷一下，文件树的标记才跟得上
-      this.hooks.afterSave?.();
+      this.hooks.afterSave?.(tab.path);
       return true;
     } catch (e) {
       // 自动保存的失败由调用方决定说几次（见 `autosaveSweep`），这里原样抛出去

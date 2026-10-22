@@ -75,7 +75,10 @@ const FILE = "/proj/moduleB/src/main/java/com/demo/core/OrderServiceApplication.
   const marks = (s: typeof st) => {
     const out: string[] = [];
     for (const set of s.facet(lineNumberMarkers))
-      for (let it = set.iter(); it.value; it.next()) out.push(`${s.doc.lineAt(it.from).number}${(it.value as unknown as { cond: string }).cond ? ":" + (it.value as unknown as { cond: string }).cond : ""}`);
+      for (let it = set.iter(); it.value; it.next()) {
+        const c = (it.value as unknown as { bp: { cond?: string } }).bp.cond;
+        out.push(`${s.doc.lineAt(it.from).number}${c ? ":" + c : ""}`);
+      }
     return out.join();
   };
   ok(marks(st) === "4,8:cents == 1", `编辑器里的标记带着条件：${marks(st)}`);
@@ -85,6 +88,31 @@ const FILE = "/proj/moduleB/src/main/java/com/demo/core/OrderServiceApplication.
   ok(JSON.stringify(bp.bpsOf(ROOT, FILE)) === '[{"line":8,"cond":"cents == 1"},{"line":9}]', `只给行号（测试通道、点行号）：还在的那行条件照旧：${JSON.stringify(bp.bpsOf(ROOT, FILE))}`);
   bp.setCond(ROOT, FILE, 8, " ");
   ok(stored() === "[8,9]", `条件清空就是普通断点，存回数字：${stored()}`);
+  bp.setLines(ROOT, FILE, []);
+}
+
+// ── 断点属性（G14）：命中次数只留正整数；日志断点、停用跟着标记走；停用的不交给调试器；改条件不丢别的属性 ──
+{
+  const I = (globalThis as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+  const orig = I.invoke;
+  const sent: Record<string, unknown>[] = [];
+  I.invoke = (c, a) => {
+    if (c === "debug_breakpoints") sent.push(a);
+    return orig.call(I, c, a);
+  };
+  bp.setBps(ROOT, FILE, [{ line: 4, hit: "3" }, { line: 6, hit: "abc" }, { line: 8, log: " 进来了 {cents} " }, { line: 9, off: true }]);
+  ok(JSON.stringify(bp.bpsOf(ROOT, FILE)) === '[{"line":4,"hit":"3"},{"line":6},{"line":8,"log":"进来了 {cents}"},{"line":9,"off":true}]', `命中次数只留正整数、日志去掉两头空白：${JSON.stringify(bp.bpsOf(ROOT, FILE))}`);
+  const last = sent[sent.length - 1];
+  ok(JSON.stringify(last?.lines) === "[4,6,8]" && JSON.stringify(last?.hits) === '["3","",""]' && JSON.stringify(last?.logs) === '["","","进来了 {cents}"]', `停用的第 9 行不交给调试器，命中次数、日志一一对应：${JSON.stringify(last)}`);
+  bp.setCond(ROOT, FILE, 8, "cents > 1");
+  ok(JSON.stringify(bp.bpsOf(ROOT, FILE).find((b) => b.line === 8)) === '{"line":8,"cond":"cents > 1","log":"进来了 {cents}"}', "改条件：日志那句还在");
+  let st = EditorState.create({ doc: FILES[FILE], extensions: [javaDebugGutter(ROOT, FILE)] });
+  st = st.update({ changes: { from: 0, insert: "// a\n" } }).state;
+  const props: string[] = [];
+  for (const set of st.facet(lineNumberMarkers))
+    for (let it = set.iter(); it.value; it.next()) props.push(`${st.doc.lineAt(it.from).number}${JSON.stringify((it.value as unknown as { bp: object }).bp)}`);
+  ok(props.join() === '5{"hit":"3"},7{},9{"cond":"cents > 1","log":"进来了 {cents}"},10{"off":true}', `上面插一行：命中次数、日志、停用都跟着断点走：${props.join()}`);
+  I.invoke = orig;
   bp.setLines(ROOT, FILE, []);
 }
 

@@ -53,7 +53,8 @@
   const fields = $derived(page ? page.defs.filter((d) => d.kind !== "array" && (q.trim() ? matches(d, q) : catOf(d.key) === cat)) : []);
   const jdkList = $derived(page ? ((shown(page, edits, page.defs.find((d) => d.key === "java.jdks")!) as string[]) ?? []) : []);
   /** 改了这几类要重启 jdtls 才生效：应用之后提醒一句 */
-  const needsRestart = $derived(Object.keys(global).some((k) => k.startsWith("java.") || k.startsWith("maven.")) || (projDirty && proj?.jdk !== page?.project?.jdk));
+  // java.hotswapOnSave 是调试那边每次存盘时现读的，不用重启
+  const needsRestart = $derived(Object.keys(global).some((k) => (k.startsWith("java.") && k !== "java.hotswapOnSave") || k.startsWith("maven.")) || (projDirty && proj?.jdk !== page?.project?.jdk));
 
   function set(key: string, v: unknown) {
     edits = { ...edits, [key]: v };

@@ -7,6 +7,8 @@ export interface ExecPoint {
   line: number;
   /** 是不是最顶上那一帧（真的停在这儿）；选了下面的帧时是「从这儿调进去的」，颜色淡一档 */
   top: boolean;
+  /** 这一帧的局部变量（行内变量值用，docs/TAKEOVER.md G14）。停下时先标执行点，变量问回来再补上 */
+  vals?: { name: string; value: string }[];
 }
 
 let cur: ExecPoint | null = null;
@@ -15,7 +17,7 @@ const subs = new Set<() => void>();
 export const execPoint = () => cur;
 
 export function setExecPoint(p: ExecPoint | null) {
-  if (cur?.path === p?.path && cur?.line === p?.line && cur?.top === p?.top) return;
+  if (cur?.path === p?.path && cur?.line === p?.line && cur?.top === p?.top && cur?.vals === p?.vals) return;
   cur = p;
   for (const f of subs) f();
 }

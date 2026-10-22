@@ -11,7 +11,10 @@ import { notify } from "../state/notify.svelte";
 import { project } from "../state/project.svelte";
 import { nav } from "../state/nav.svelte";
 import { listenHere, type DebugFrame, type DebugState } from "../ipc/commands";
-import { debugState, debugStep, type DebugAction } from "../ipc/debug";
+import { debugRunTo, debugState, debugStep, debugVars, type DebugAction } from "../ipc/debug";
+import { tabs } from "../state/tabs.svelte";
+import { docs } from "../state/docs.svelte";
+import { settings } from "../state/settings.svelte";
 import { countOf, syncAll } from "./breakpoints";
 import { execPoint, setExecPoint } from "./exec-point";
 
@@ -24,8 +27,32 @@ let lastPaused: number | null = null;
 let execOwner: number | null = null;
 
 function listen() {
+  if (!listening) hotswapOnSave();
   listening ??= listenHere<DebugState>("debug-state", (e) => apply(e.payload));
   return listening;
+}
+
+/**
+ * 调试时存盘就自动构建、热替换（docs/TAKEOVER.md I6；设置 `java.hotswapOnSave`，默认开）：存了 .java、这个项目在调试，停手 0.8 秒构建（⌘F9 那条路）——
+ * 构建成功本来就会自动热替换、说一句换了哪几个类（`runs-ops` 的 `loadProblems`）。IDEA 是存完问一句「要重新加载吗」，这里不问：不打断。
+ * 等 0.8 秒是为了连着存好几个文件（⌥⌘S 全部保存、改名改了几个文件）只构建一次；已经在构建就不再起一个（那一次会把这次的改动一起编进去）。
+ * 挂在保存钩子后面而不是写在保存里：保存在入口包里，这段跟着调试的懒块走，第一次调试时才装
+ */
+let hotTimer: ReturnType<typeof setTimeout> | null = null;
+function hotswapOnSave() {
+  const prev = docs.hooks.afterSave;
+  docs.hooks.afterSave = (path) => {
+    prev?.(path);
+    const root = project.root;
+    if (!path?.endsWith(".java") || !root || !settings.v.javaHotswapOnSave) return;
+    if (!runs.list.some((r) => r.root === root && (r.debug?.phase === "running" || r.debug?.phase === "paused"))) return;
+    if (hotTimer) clearTimeout(hotTimer);
+    hotTimer = setTimeout(() => {
+      hotTimer = null;
+      if (runs.list.some((r) => r.root === root && (r.name === "构建项目" || r.name === "重新构建项目") && r.status === "running")) return;
+      void import("../state/runs-ops").then((m) => m.buildProject(false));
+    }, 800);
+  };
 }
 
 const tab = (id: number) => runs.list.find((t) => t.id === id);
@@ -84,7 +111,15 @@ export function showFrame(r: RunTab, f: DebugFrame | null, top: boolean) {
     return;
   }
   execOwner = r.id;
-  setExecPoint({ path: f.path, line: f.line, top });
+  const p = { path: f.path, line: f.line, top };
+  setExecPoint(p);
+  // 行内变量值：这一帧的局部变量问回来补上（问的这一会儿换了帧 / 接着跑了就不补）
+  void debugVars(r.id, { frame: f.id })
+    .then((v) => {
+      const now = execPoint();
+      if (now && now.path === p.path && now.line === p.line && now.top === p.top) setExecPoint({ ...p, vals: v.vars.map((x) => ({ name: x.name, value: x.value })) });
+    })
+    .catch(() => {});
   if (f.path.startsWith("jdt://")) {
     void import("../state/tabflow-ops").then(async (m) => {
       if (await m.openClass(f.path, f.label || f.name)) nav.goto(f.line);
@@ -110,6 +145,24 @@ export async function step(action: DebugAction, id?: number) {
   if (action === "pause" ? r.debug.phase !== "running" : r.debug.phase !== "paused") return;
   try {
     await debugStep(r.id, action);
+  } catch (e) {
+    notify.fail(e instanceof Error ? e.message : String(e));
+  }
+}
+
+/**
+ * 运行到光标（⌥F9，docs/TAKEOVER.md G14）：停着的那次调试跑到当前标签光标那一行再停。Rust 那边是临时断点 + 继续（`debug::Debugs::run_to` 写了为什么）。
+ * 光标取编辑器此刻的（`docs.viewOf` 问活着的编辑器），不取上次换行时记的
+ */
+export async function runToCursor() {
+  const r = target();
+  const t = tabs.active;
+  if (!r?.debug || r.debug.phase !== "paused") return void notify.hint("没有停着的调试：运行到光标要先停下来（撞上断点、或者暂停）");
+  if (!t || t.mode !== "edit" || !t.path.endsWith(".java")) return void notify.hint("光标要在一个 Java 文件里");
+  const line = docs.viewOf(t)?.line;
+  if (!line) return;
+  try {
+    await debugRunTo(r.id, t.path, line);
   } catch (e) {
     notify.fail(e instanceof Error ? e.message : String(e));
   }

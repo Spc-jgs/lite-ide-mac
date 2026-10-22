@@ -389,10 +389,29 @@ fn user_defs(root: &Path, configs: Vec<crate::projectcfg::UserCfg>, found: &mut 
             }
             "shell" => (u.command.clone(), u.cwd.clone(), u.run.env.clone()),
             "compound" => (String::new(), String::new(), Vec::new()),
+            // 远程 JVM 调试（docs/TAKEOVER.md G23）：没有要起的程序，起一个只占位、一直不退的任务 —— 运行窗里那一格就是这次挂接，
+            // ⌘F2 停它 = 断开（只断开，不停对面的 JVM：java-debug 对 attach 来的会话断线时做的是 JDI 的 dispose）。日志断点那句也打进这一格
+            "remote" => (remote_command(&u.host, u.port), String::new(), Vec::new()),
             _ => continue,
         };
         found.defs.push(Def { name: u.name, command, cwd, env, source: Source::User { kind: u.kind, items: u.items } });
     }
+}
+
+/// 远程调试那一格的「命令」：先说一句挂在哪、怎么断开，然后一直不退（`tail -f /dev/null` 不占 CPU、不读输入）。
+/// host 只认主机名 / IP 的字符（配置里已经校验过），拼进 printf 的参数里也不会被当成命令
+fn remote_command(host: &str, port: u32) -> String {
+    let h: String = host.chars().filter(|c| c.is_ascii_alphanumeric() || ".-:_[]".contains(*c)).collect();
+    format!("printf '挂到 %s:%s 的 JVM 上调试（⌘F2 断开，不会停掉那个 JVM）\\n' '{h}' '{port}'; exec tail -f /dev/null")
+}
+
+/// 远程调试的配置要挂到哪（`remote` 那种）；不是远程调试 → None。⌃R / ▶ 时 `task_run` 问一句
+pub fn remote_target(root: &Path, name: &str) -> Option<(String, u16)> {
+    crate::projectcfg::get(root)
+        .configs
+        .into_iter()
+        .find(|u| u.name == name && u.kind == "remote")
+        .and_then(|u| Some((u.host, u16::try_from(u.port).ok()?)))
 }
 
 /// 组合配置（compound）的那几份；不是组合配置 → None。只读应用自己的那份文件，不扫项目 —— 每次 ⌃R 之前前端问一句，要快
@@ -600,6 +619,17 @@ pub fn create_file(root: &Path) -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 远程调试的占位命令_主机名里的怪字符拼不进去() {
+        assert_eq!(remote_command("10.0.0.5", 5005), "printf '挂到 %s:%s 的 JVM 上调试（⌘F2 断开，不会停掉那个 JVM）\\n' '10.0.0.5' '5005'; exec tail -f /dev/null");
+        // 校验在配置那头（settingsctl::host_ok）；万一绕过了，这里也只留主机名的字符 —— 单引号、分号进不去
+        assert_eq!(
+            remote_command("a'; rm -rf ~; '", 1),
+            "printf '挂到 %s:%s 的 JVM 上调试（⌘F2 断开，不会停掉那个 JVM）\\n' 'arm-rf' '1'; exec tail -f /dev/null",
+            "引号、分号、空格、~ 都去掉了：拼进单引号里也闭合不了它"
+        );
+    }
 
     fn tmp(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lite-ide-taskdefs-{tag}-{}", std::process::id()));

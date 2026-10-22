@@ -127,6 +127,13 @@ pub const DEFS: &[Def] = &[
         doc: "手动添加的 JDK（JAVA_HOME 目录，如 \"/opt/jdk-21\"）。系统、~/Library/Java、Homebrew、sdkman、asdf、jenv、mise 装的会自己找到，找不到的加在这里",
     },
     Def {
+        key: "java.hotswapOnSave",
+        label: "调试时存盘就自动构建、热替换",
+        kind: Kind::Bool,
+        default: "true",
+        doc: "调试着的时候存了 .java 文件，停手不到一秒就自动构建（⌘F9）、把改过的类换进正在调试的程序，不用重启。IDEA 是存完问一句，这里不问、做完说一句换了哪几个类",
+    },
+    Def {
         key: "maven.useWrapper",
         label: "项目里有 mvnw 就用它",
         kind: Kind::Bool,
@@ -195,6 +202,7 @@ pub struct Settings {
     /// MB
     pub java_jdtls_memory: i64,
     pub java_jdks: Vec<String>,
+    pub java_hotswap_on_save: bool,
     pub maven_use_wrapper: bool,
     pub maven_home: String,
     pub maven_settings_file: String,
@@ -216,6 +224,7 @@ impl Default for Settings {
             java_jdtls_home: String::new(),
             java_jdtls_memory: 1024,
             java_jdks: Vec::new(),
+            java_hotswap_on_save: true,
             maven_use_wrapper: true,
             maven_home: String::new(),
             maven_settings_file: String::new(),
@@ -244,6 +253,7 @@ impl Settings {
             "java.jdtlsHome" => self.java_jdtls_home = s(),
             "java.jdtlsMemory" => self.java_jdtls_memory = v.as_i64().unwrap_or(1024),
             "java.jdks" => self.java_jdks = list(),
+            "java.hotswapOnSave" => self.java_hotswap_on_save = b(),
             "maven.useWrapper" => self.maven_use_wrapper = b(),
             "maven.home" => self.maven_home = s(),
             "maven.settingsFile" => self.maven_settings_file = s(),
@@ -627,6 +637,7 @@ pub fn values(s: &Settings) -> serde_json::Map<String, Value> {
             "java.jdtlsHome" => Value::from(s.java_jdtls_home.clone()),
             "java.jdtlsMemory" => Value::from(s.java_jdtls_memory),
             "java.jdks" => Value::from(s.java_jdks.clone()),
+            "java.hotswapOnSave" => Value::from(s.java_hotswap_on_save),
             "maven.useWrapper" => Value::from(s.maven_use_wrapper),
             "maven.home" => Value::from(s.maven_home.clone()),
             "maven.settingsFile" => Value::from(s.maven_settings_file.clone()),
@@ -911,6 +922,7 @@ pub struct Effective {
     pub editor_font_base: i64,
     pub editor_highlight_usages: bool,
     pub editor_inlay_hints: bool,
+    pub java_hotswap_on_save: bool,
     pub terminal_font_family: String,
     pub terminal_font_size: i64,
     /// 空 = `$SHELL`
@@ -930,6 +942,7 @@ pub fn effective(s: &Settings, u: &UiState) -> Effective {
         editor_font_base: s.editor_font_size,
         editor_highlight_usages: s.editor_highlight_usages,
         editor_inlay_hints: s.editor_inlay_hints,
+        java_hotswap_on_save: s.java_hotswap_on_save,
         terminal_font_family: if s.terminal_font_family.trim().is_empty() {
             s.editor_font_family.clone()
         } else {

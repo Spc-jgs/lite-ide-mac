@@ -17,6 +17,8 @@ pub struct Sink {
     cap: u64,
     /// 写过的最后一个字节是换行（轮转只在行首做）
     at_line_start: bool,
+    /// 别人要插进来的整行（[`Sink::note`]），程序正写到一行中间时先攒着，等它这一行写完再插
+    pending: Vec<u8>,
 }
 
 pub fn rotated(path: &Path) -> PathBuf {
@@ -37,7 +39,7 @@ impl Sink {
         }
         // 上一行刚把同名的挪走了，这里是新文件；`create` 的截断语义在这儿正是要的
         let file = File::create(path)?;
-        Ok(Sink { path: path.to_path_buf(), file, written: 0, cap: cap.max(1), at_line_start: true })
+        Ok(Sink { path: path.to_path_buf(), file, written: 0, cap: cap.max(1), at_line_start: true, pending: Vec::new() })
     }
 
     /// 写一块（已经洗过的）。**每块写完就落到文件里**（不经缓冲）：看日志的那一边要跟得上。
@@ -45,6 +47,32 @@ impl Sink {
     /// 轮转放在**写之前**判：已经过线、又正好在行首，先换一份新的再写这一块。反过来（写完这块发现过线、在末尾切开再换）
     /// 第一版就是那么写的 —— 一块就把全部输出读完的时候，整块进了 `.1`，当前那份是空的，日志视图跟着一个空文件，人什么都看不见。
     pub fn write(&mut self, data: &[u8]) -> io::Result<()> {
+        // 攒着的插话：这一块里程序那一行写完了（有换行），就插在换行后面
+        if !self.pending.is_empty() {
+            if let Some(i) = data.iter().position(|&b| b == b'\n') {
+                self.write_raw(&data[..=i])?;
+                let p = std::mem::take(&mut self.pending);
+                self.write_raw(&p)?;
+                return self.write_raw(&data[i + 1..]);
+            }
+        }
+        self.write_raw(data)
+    }
+
+    /// 插一整行进来（调试器的日志断点打的那句，docs/TAKEOVER.md G14）。程序正写到一行中间时不插 ——
+    /// 插进去就把程序的一行劈成两半、日志视图按时间戳归类时认错；攒到它这一行写完。`line` 不带换行
+    pub fn note(&mut self, line: &str) -> io::Result<()> {
+        let mut l = line.trim_end_matches(['\r', '\n']).as_bytes().to_vec();
+        l.push(b'\n');
+        if self.at_line_start {
+            self.write_raw(&l)
+        } else {
+            self.pending.extend_from_slice(&l);
+            Ok(())
+        }
+    }
+
+    fn write_raw(&mut self, data: &[u8]) -> io::Result<()> {
         let mut data = data;
         if self.written >= self.cap && !data.is_empty() {
             if self.at_line_start {
@@ -97,6 +125,19 @@ mod tests {
         s.write(b"next\n").unwrap();
         assert_eq!(fs::read_to_string(&p).unwrap(), "next\n");
         assert_eq!(fs::read_to_string(rotated(&p)).unwrap(), "0123456789abc\n");
+        let _ = fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn 插一行_程序写到一行中间时等它写完再插() {
+        let p = tmp("note");
+        let mut s = Sink::open(&p, 1 << 20).unwrap();
+        s.note("[断点] 一").unwrap();
+        s.write(b"abc").unwrap();
+        s.note("[断点] 二").unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "[断点] 一\nabc", "写到一行中间：先不插");
+        s.write(b"def\nghi\n").unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "[断点] 一\nabcdef\n[断点] 二\nghi\n", "程序那一行没被劈开，插话紧跟在它后面");
         let _ = fs::remove_dir_all(p.parent().unwrap());
     }
 

@@ -33,7 +33,7 @@
   const current = $derived(picked[root] ?? last[root] ?? list.find((t) => t.source === "spring")?.name ?? list[0]?.name ?? "");
   const def = $derived(list.find((t) => t.name === current) ?? null);
   /** 能调试的：命令是我们拼的 java（认出来的 Spring 服务、你建的应用配置）。组合配置按里面的一份份起，调试时各自判 */
-  const debuggable = $derived(!!def && (def.source === "spring" || (def.source === "user" && (def.kind === "application" || def.kind === "compound"))));
+  const debuggable = $derived(!!def && (def.source === "spring" || (def.source === "user" && (def.kind === "application" || def.kind === "compound" || def.kind === "remote"))));
   /** 它（组合配置就是它里面那几份）此刻在跑的那几格 */
   const live = $derived.by(() => {
     const names = def?.kind === "compound" ? def.items : [current];

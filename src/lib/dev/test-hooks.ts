@@ -120,6 +120,10 @@ export function installTestHooks() {
       /** 条件断点：和右键行号、填条件、回车走同一个函数（右键那个小框本身在浏览器里验） */
       cond: async (root: string, path: string, line: number, cond: string) => (await import("../debug/breakpoints")).setCond(root, path, line, cond),
       exec: async () => (await import("../debug/exec-point")).execPoint(),
+      /** 一个断点的全部属性（命中次数、日志断点、停用；docs/TAKEOVER.md G14）：和属性窗、断点列表走同一个函数 */
+      bp: async (root: string, path: string, bp: { line: number; cond?: string; hit?: string; log?: string; off?: true }) => (await import("../debug/breakpoints")).setBp(root, path, bp),
+      /** 异常断点：和断点列表里那几个勾走同一个函数 */
+      exc: async (root: string, uncaught: boolean, caught: boolean, types: string[]) => (await import("../debug/breakpoints")).setExc(root, { uncaught, caught, types }),
     },
     /** 活动编辑器里的全文；没有编辑器是 null */
     text: () => editor()?.state.doc.toString() ?? null,

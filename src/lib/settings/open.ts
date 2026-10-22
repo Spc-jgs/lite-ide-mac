@@ -5,6 +5,7 @@
 import { openModal } from "./modal-host";
 import SettingsDialog from "./SettingsDialog.svelte";
 import RunConfigDialog from "./RunConfigDialog.svelte";
+import BreakpointsDialog from "../debug/BreakpointsDialog.svelte";
 
 /** 一次只开一个：⌘, 按两下不叠两层。关掉（不管点的是取消、确定还是 Esc）时清掉 */
 let open = false;
@@ -21,4 +22,11 @@ export function openRunConfigs(root: string, pick = "") {
   if (open) return;
   open = true;
   openModal(RunConfigDialog, { root, pick }, () => (open = false));
+}
+
+/** 「运行 › 查看断点…」（⇧⌘F8，docs/TAKEOVER.md G14）：这个项目的断点和异常断点 */
+export function openBreakpoints(root: string) {
+  if (open) return;
+  open = true;
+  openModal(BreakpointsDialog, { root }, () => (open = false));
 }

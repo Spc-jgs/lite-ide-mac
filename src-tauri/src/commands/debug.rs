@@ -15,13 +15,33 @@ pub async fn debug_state(app: tauri::AppHandle, run: u32) -> Result<Option<Debug
 }
 
 /// 这个文件的断点换成 `lines`（整份，从 1 数）；`conds` 和 `lines` 一一对应（条件断点的条件，空串是普通断点；不给就都是普通的）。
+/// `hits` / `logs` 同样一一对应（命中次数、日志断点要打的那句；不给就都没有）。停用的断点前端不交过来。
 /// 正在调试的话当场下到 JVM 里，回「对上了」的那些行
 #[tauri::command]
-pub async fn debug_breakpoints(app: tauri::AppHandle, root: String, path: String, lines: Vec<u32>, conds: Option<Vec<String>>) -> Result<Vec<u32>, String> {
+pub async fn debug_breakpoints(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    lines: Vec<u32>,
+    conds: Option<Vec<String>>,
+    hits: Option<Vec<String>>,
+    logs: Option<Vec<String>>,
+) -> Result<Vec<u32>, String> {
     blocking(move || {
-        let conds = conds.unwrap_or_default();
-        let bps = lines.into_iter().enumerate().map(|(i, line)| crate::debug::Bp { line, condition: conds.get(i).cloned().unwrap_or_default() }).collect();
+        let (conds, hits, logs) = (conds.unwrap_or_default(), hits.unwrap_or_default(), logs.unwrap_or_default());
+        let at = |v: &Vec<String>, i: usize| v.get(i).cloned().unwrap_or_default();
+        let bps = lines.into_iter().enumerate().map(|(i, line)| crate::debug::Bp { line, condition: at(&conds, i), hit: at(&hits, i), log: at(&logs, i) }).collect();
         Ok(app.state::<AppState>().debug.set_breakpoints(&root, &path, bps))
+    })
+    .await
+}
+
+/// 异常断点（docs/TAKEOVER.md G14）：未捕获的停 / 被捕获的也停 / 只看这几种（类的全名，空 = 全部）。正在调试的会话当场跟着改
+#[tauri::command]
+pub async fn debug_exceptions(app: tauri::AppHandle, root: String, uncaught: bool, caught: bool, types: Vec<String>) -> Result<(), String> {
+    blocking(move || {
+        app.state::<AppState>().debug.set_exceptions(&root, crate::debug::Exc { uncaught, caught, types });
+        Ok(())
     })
     .await
 }
@@ -37,6 +57,12 @@ pub async fn debug_hotswap(window: tauri::Window, app: tauri::AppHandle, root: S
 #[tauri::command]
 pub async fn debug_step(app: tauri::AppHandle, run: u32, action: String) -> Result<(), String> {
     blocking(move || session(&app, run)?.step(&action)).await
+}
+
+/// 运行到光标（⌥F9）：停着时跑到这个文件的这一行（从 1 数）再停
+#[tauri::command]
+pub async fn debug_run_to(app: tauri::AppHandle, run: u32, path: String, line: u32) -> Result<(), String> {
+    blocking(move || app.state::<AppState>().debug.run_to(run, &path, line)).await
 }
 
 #[tauri::command]

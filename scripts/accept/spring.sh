@@ -83,6 +83,7 @@ for m in order user; do
   </dependencies></project>
 EOF
 done
+# run() 里那句 parseInt 抛了又接住：异常断点（docs/TAKEOVER.md G14）要有一个「被捕获的」异常停。写在同一行，别处按行号认的断言不受影响
 cat > "${P}/order-service/src/main/java/com/demo/order/OrderApplication.java" <<'EOF'
 package com.demo.order;
 
@@ -96,7 +97,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class OrderApplication implements CommandLineRunner {
     @Value("${demo.greeting}") String greeting;
     public static void main(String[] args) { System.out.println("LITE-IDE-CFG " + System.getProperty("lite.vm") + " " + System.getenv("LITE_ENV") + " " + String.join(",", args) + " " + System.getProperty("spring.profiles.active")); SpringApplication.run(OrderApplication.class, args); }
-    @Override public void run(String... args) { System.out.println("LITE-IDE-PROBE " + greeting + " " + new Money(12345).show()); }
+    @Override public void run(String... args) { try { Integer.parseInt("lite"); } catch (NumberFormatException e) { } System.out.println("LITE-IDE-PROBE " + greeting + " " + new Money(12345).show()); }
 }
 EOF
 # 单测（docs/IDEA.md 第 17 节）：一个用到兄弟模块的类（不用 install 就能跑）、一个故意没过
@@ -317,6 +318,47 @@ lite menu debug-resume main >/dev/null
 lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
 lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
 
+echo "== 断点属性（docs/TAKEOVER.md G14）：日志断点不停、打一句进运行窗的输出；命中次数没到不停；异常断点停在被接住的那个异常上、说出抛的是什么"
+lite_eval main "await __lite.debug.bp('${P}', '${MONEY}', { line: 4, log: 'cents={cents} 进来了' }); return true" >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-bp.log').length")" = 1 ] && echo 1)" "日志断点画成另一种颜色（橙点）"
+debug_again
+ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + r?.status")" = "ended:done" ] && echo 1)" "日志断点：跑过第 4 行没停、照常跑完：$(lite_eval main "${DBG} return d?.phase + ':' + r?.status + ':' + (d?.note ?? '')")"
+ok "$(logtext OrderApplication | grep -q '^\[日志断点\] cents=12345 进来了$' && echo 1)" "运行窗的输出里多了一行「[日志断点] cents=12345 进来了」（{cents} 换成了值）：$(logtext OrderApplication | grep '日志断点' | tail -1)"
+ok "$(! logtext OrderApplication | grep -q '.\[日志断点\]' && echo 1)" "插在行首、自成一行（没把程序的一行劈开）"
+lite_eval main "await __lite.debug.bp('${P}', '${MONEY}', { line: 4, hit: '2' }); return true" >/dev/null
+debug_again
+ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + r?.status")" = "ended:done" ] && echo 1)" "命中次数 2：第 4 行只走到一次，没停、照常跑完（命中次数真带下去了 —— 不带的话第一次就停）"
+lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); await __lite.debug.exc('${P}', false, true, ['java.lang.NumberFormatException']); return true" >/dev/null
+debug_again
+EXC=$(lite_eval main "${DBG} return d?.phase + ' ' + d?.reason + ' ' + (d?.note ?? '')")
+ok "$(echo "${EXC}" | grep -q '^paused exception 抛出 java.lang.NumberFormatException：For input string: "lite"$' && echo 1)" "异常断点（被接住的、只看 NumberFormatException）：停下了、说出抛的是什么：${EXC}"
+ok "$(lite_eval main "${DBG} return (d?.frames ?? []).map((f) => f.name).join(' | ')" | grep -q 'OrderApplication.run' && echo 1)" "调用栈里有抛它的那一处（OrderApplication.run）"
+lite_eval main "await __lite.debug.exc('${P}', false, false, []); return true" >/dev/null
+lite menu debug-resume main >/dev/null
+lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
+ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + r?.status")" = "ended:done" ] && echo 1)" "关掉异常断点、F9：照常跑完（调试中改了当场生效 —— 不然 Spring 启动里别的地方还会停）"
+
+echo "== 运行到光标 ⌥F9、行内变量值、监视（docs/TAKEOVER.md G14）：停在第 4 行 → 运行到第 5 行；第 4 行行尾写着 s 的值；监视里的表达式每停一次在当前帧上算"
+lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', [4]); return true" >/dev/null
+debug_again
+ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + d?.frames[0]?.line")" = "paused:4" ] && echo 1)" "停在第 4 行"
+lite_eval main "await __lite.tabflow.openPath('${MONEY}', { preview: false }); __lite.caret(5, 9); return true" >/dev/null
+lite menu debug-run-to main >/dev/null
+lite_wait main "${DBG} return d?.phase === 'paused' && d.frames[0]?.line === 5" 20 >/dev/null
+ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + d?.frames[0]?.line")" = "paused:5" ] && echo 1)" "运行到光标：停在第 5 行（没在那儿下断点）"
+ok "$([ "$(lite_eval main "return (await __lite.debug.lines('${P}', '${MONEY}')).join()")" = 4 ] && echo 1)" "断点表还是原来那一个（第 5 行的是临时的，不留下）"
+lite_wait main "return [...document.querySelectorAll('.cm-inline-val')].some((e) => e.textContent.startsWith('s = '))" 15 >/dev/null
+INL=$(lite_eval main "return [...document.querySelectorAll('.cm-line')].map((l, i) => [...l.querySelectorAll('.cm-inline-val')].map((e) => (i + 1) + ': ' + e.textContent).join('')).filter(Boolean).join(' | ')")
+ok "$([ "${INL}" = '4: s = "CNY 123.45" | 5: s = "CNY 123.45"' ] && echo 1)" "行内变量值：第 4、5 行（到执行点为止）行尾写着 s 的值；cents 是 record 的字段、不是局部变量，不写：${INL}"
+lite_eval main "const i = document.querySelector('.dbg .expr'); i.value = 'cents * 2'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true })); return true" >/dev/null
+lite_wait main "return [...document.querySelectorAll('.dbg .watch .vrow')].some((v) => v.innerText.includes('24690'))" 20 >/dev/null
+ok "$(lite_eval main "return [...document.querySelectorAll('.dbg .watch .vrow')].map((v) => v.innerText.replace(/\s+/g, ' ')).join(' / ')" | grep -q '^cents \* 2 = 24690' && echo 1)" "⇧↵ 加进监视：cents * 2 = 24690：$(lite_eval main "return [...document.querySelectorAll('.dbg .watch .vrow')].map((v) => v.innerText.replace(/\s+/g, ' ')).join(' / ')")"
+lite_eval main "document.querySelector('.dbg .watch .wx').click(); return true" >/dev/null
+lite menu debug-resume main >/dev/null
+lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
+ok "$([ "$(lite_eval main "${DBG} return d?.phase + ':' + r?.status + ':' + document.querySelectorAll('.cm-inline-val').length")" = "ended:done:0" ] && echo 1)" "F9 跑完：行内的值跟着执行点一起清掉"
+lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
+
 echo "== 运行配置（docs/SETTINGS.md 13.6）：「运行 › 编辑配置…」里给 OrderApplication 配 profile、VM 参数、环境变量、程序参数 → 起它时全带上（下面热替换那段就带着这份配置调试）"
 RC='const d = document.querySelector(".dialog.runcfg"); const put = (el, v) => { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); }; const tick = () => new Promise((r) => setTimeout(r, 80));'
 lite menu run-configs main >/dev/null
@@ -328,7 +370,7 @@ ok "$(wait_for 120 "logtext OrderApplication | grep -q 'LITE-IDE-CFG vm1 env1 --
 ok "$(lite_eval main "return __lite.runs.list.find((x) => x.name === 'OrderApplication')?.command ?? ''" | grep -q -- "export LITE_ENV=env1 && exec java -Dlite.vm=vm1 -Dspring.profiles.active=cfgprof -cp .* com.demo.order.OrderApplication --lite.arg=a1$" && echo 1)" "命令照 13.6 的样子拼：环境变量在 exec 前、VM 参数和 profile 在 java 后、程序参数在主类后"
 ok "$([ -z "$(ls -A "${P}/.lite-ide" 2>/dev/null)" ] && ! grep -rq 'cfgprof' "${P}" --include='*.json' --include='*.xml' && echo 1)" "运行配置没往项目里写（只有你自己的，同 IDEA 的 workspace.xml）"
 
-echo "== 热替换（docs/IDEA.md 第 26 节）：停在断点时改方法体 → ⌘S → ⌘F9 → 换进 JVM；停着那一帧跑完旧的、下一次调用是新的、断点还在；行号变了的断点这次不停；加了方法的换不了"
+echo "== 热替换（docs/IDEA.md 第 26 节）：停在断点时改方法体 → ⌘S → 自己构建、换进 JVM（TAKEOVER.md I6：调试时存盘就自动构建，不用再按 ⌘F9）；停着那一帧跑完旧的、下一次调用是新的、断点还在；行号变了的断点这次不停；加了方法的换不了"
 # 入口类临时改成调三次 show()（12345、7、7），这一节完了改回去：前面「F9 之后照常跑完」那几条只认一次调用
 ORDER="${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
 cp "${ORDER}" "${ORDER}.orig"
@@ -350,7 +392,6 @@ FR=$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1
 ok "$([ "${FR}" = "paused Money.java:4" ] && logtext OrderApplication | grep -q 'LITE-IDE-PROBE' && ! logtext OrderApplication | grep -q 'LITE-IDE-AGAIN' && echo 1)" "停在第二次调用（cents == 7）：${FR}"
 lite_eval main "__lite.editLine(4, 'CNY ', 'HOT '); return true" >/dev/null
 save_money
-lite menu build-project main >/dev/null
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 240 >/dev/null
 TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? ''")
 ok "$(echo "${TOAST}" | grep -q '构建完成.*已热替换 Money（停着的那一帧跑完旧的' && echo 1)" "构建完了自动换上、一句话说完（只有 Money：入口类重编出来一字不差，不算）：${TOAST}"
@@ -369,7 +410,6 @@ FR=$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1
 ok "$([ "${FR}" = "paused Money.java:4" ] && echo 1)" "（行号变了那次）又停在第二次调用：${FR}"
 lite_eval main "__lite.editLine(5, '', '        s = s.replace(\"HOT\", \"SHIFT\");\n'); return true" >/dev/null
 save_money
-lite menu build-project main >/dev/null
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 240 >/dev/null
 TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? ''")
 ok "$(echo "${TOAST}" | grep -q '已热替换 Money。Money.java 的行号变了，里面的断点这次调试不再停，重新调试就回来' && echo 1)" "行号变了：换上了，说清断点这次不停、为什么：${TOAST}"
@@ -382,12 +422,22 @@ FR=$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1
 ok "$([ "${FR}" = "paused Money.java:4" ] && echo 1)" "新的一次调试，断点照停（上一次「不再停」只管那一次）：${FR}"
 lite_eval main "__lite.editLine(5, 'SHIFT', 'NEW'); __lite.editLine(8, '', '    public String extra() { return \"x\"; }\n'); return true" >/dev/null
 save_money
-lite menu build-project main >/dev/null
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 240 >/dev/null
 TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? ''")
 ok "$(echo "${TOAST}" | grep -q '没热替换：加了方法 —— 运行中的 JVM 只能换方法体（Money）。要生效得重新调试' && echo 1)" "加了方法：换不了，说清为什么、要怎么办：${TOAST}"
 for _ in 1 2 3; do lite menu debug-resume main >/dev/null; lite_wait main "${DBG} return d?.phase === 'ended'" 10 >/dev/null && break; done
 ok "$(logtext OrderApplication | grep -q 'LITE-IDE-THIRD SHIFT 0.07' && ! logtext OrderApplication | grep -q 'NEW 0.07' && echo 1)" "程序照跑原来的（一个类都没换，不是换了一半）：$(logtext OrderApplication | grep LITE-IDE-THIRD | tail -1)"
+# 设置里关掉（java.hotswapOnSave）：调试着存盘也不再自动构建
+lite_eval main "await window.__TAURI_INTERNALS__.invoke('settings_apply', { root: __lite.project.root, global: { 'java.hotswapOnSave': false }, project: null }); return true" >/dev/null
+lite_wait main "return __lite.settings.v.javaHotswapOnSave === false" 10 >/dev/null
+debug_again
+B0=$(lite_eval main "return __lite.runs.list.filter((x) => x.name === '构建项目').map((x) => x.id).join()")
+lite_eval main "__lite.editLine(5, 'NEW', 'OFF'); return true" >/dev/null
+save_money
+sleep 3
+ok "$([ "$(lite_eval main "return __lite.runs.list.filter((x) => x.name === '构建项目').map((x) => x.id).join()")" = "${B0}" ] && echo 1)" "设置里关掉 java.hotswapOnSave：调试着存盘，等了 3 秒也没起构建"
+lite_eval main "await window.__TAURI_INTERNALS__.invoke('settings_apply', { root: __lite.project.root, global: { 'java.hotswapOnSave': null }, project: null }); return true" >/dev/null
+for _ in 1 2 3; do lite menu debug-resume main >/dev/null; lite_wait main "${DBG} return d?.phase === 'ended'" 10 >/dev/null && break; done
 lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
 mv "${ORDER}.orig" "${ORDER}"
 money "CNY "
@@ -420,7 +470,7 @@ python3 -c 'import sys; p=sys.argv[1]; s=open(p).read(); open(p,"w").write(s.rep
 B="const r = __lite.runs.list.find((x) => x.name === '构建项目');"
 lite menu build-project main >/dev/null
 lite_wait main "${B} return !!r && r.status !== 'running' && !!r.problems" 240 >/dev/null
-ok "$([ "$(lite_eval main "${B} return r?.command.replace(/^export [^;]*; /, '') + '|' + r?.status")" = "mvn -B -ntp -P probe test-compile|failed" ] && echo 1)" "菜单「构建项目」：带上勾的 profile 跑 test-compile、失败了（JDK 那段见下一节）：$(lite_eval main "${B} return r?.command + '|' + r?.status")"
+ok "$([ "$(lite_eval main "${B} return r?.command.replace(/^export [^;]*; /, '') + '|' + r?.status")" = "mvn -B -ntp -P probe test-compile|failed" ] && echo 1)" "菜单「构建项目」：带上勾的 profile 跑 test-compile、失败了（JDK 那段见下一节）：$(lite_eval main "${B} return r?.command + '|' + r?.status")$([ "$(lite_eval main "${B} return r?.status")" = running ] && printf ' —— 240 秒还在跑，输出最后几行：%s' "$(logtext '构建项目' | tail -4 | tr '\n' ' ')")"
 ok "$(lite_eval main "${B} const p = r?.problems?.items ?? []; return p.length + ' ' + p.map((x) => x.path.split('/').pop() + ':' + x.line + ':' + x.message.split('\\n')[0]).join(',')" | grep -q '^1 Money.java:5:' && echo 1)" "错误树里正好一条、在 Money.java 第 5 行（Maven 把它打了两遍）：$(lite_eval main "${B} const p = r?.problems?.items ?? []; return p.length + ' ' + p.map((x) => x.path.split('/').pop() + ':' + x.line + ':' + x.message.split('\\n')[0]).join(',')")"
 mv "${P}/Money.java.bak" "${MONEY}"; touch "${MONEY}"
 # 上一次「构建失败」那条提示没读完时，做成了的不会把它顶掉（ui.md 第三条「坏消息不被好消息顶掉」）—— 等它自己走了再构建，像人看完了那样
@@ -557,6 +607,52 @@ else
   ok "" "运行配置对话框没关上（存的时候报错了）：$(lite_eval main "return document.querySelector('.dialog.runcfg .actions .err')?.textContent ?? ''")"
 fi
 ok "$([ -z "$(ls -A "${P}/.lite-ide" 2>/dev/null)" ] && echo 1)" "你建的运行配置也不往项目里写"
+
+echo "== 远程 JVM 调试（docs/TAKEOVER.md G23）：自己起一个带调试端口的 JVM（每 0.3 秒打一行）→ 建一份「远程 JVM 调试」配置 → ▶ 就是挂上去、停在断点上、能看变量；⌘F2 断开之后那个 JVM 照常在跑"
+JDK=${J17:-$(/usr/libexec/java_home 2>/dev/null)}
+if [ -x "${JDK}/bin/javac" ]; then
+  LOOPSRC="${P}/order-service/src/main/java/com/demo/order/Loop.java"
+  printf 'package com.demo.order;\n\npublic class Loop {\n    static int tick(int i) {\n        int twice = i * 2;\n        return twice;\n    }\n    public static void main(String[] a) throws Exception {\n        for (int i = 0; ; i++) { System.out.println("LOOP " + tick(i)); Thread.sleep(300); }\n    }\n}\n' > "${LOOPSRC}"
+  LOOPOUT="$(dirname "${P}")/lite-loop-$$"
+  mkdir -p "${LOOPOUT}"
+  # -g：带上局部变量表（Maven 编的默认带）。不带的话调试器只认得 arg0 —— 远程调试别人编的 JVM 时也是这样，说明里写了
+  "${JDK}/bin/javac" -g -d "${LOOPOUT}" "${LOOPSRC}"
+  LPORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
+  "${JDK}/bin/java" "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:${LPORT}" -cp "${LOOPOUT}" com.demo.order.Loop > "${LOOPOUT}/out.log" 2>&1 &
+  LPID=$!
+  wait_for 10 "grep -q LOOP '${LOOPOUT}/out.log'"
+  lite_eval main "await window.__TAURI_INTERNALS__.invoke('run_config_user_set', { root: __lite.project.root, old: '', cfg: { name: '远程循环', kind: 'remote', mainClass: '', module: '', goals: '', command: '', cwd: '', items: [], profiles: '', vmOptions: '', programArgs: '', env: [], jdk: '', host: '127.0.0.1', port: ${LPORT} } }); return true" >/dev/null
+  lite_eval main "await __lite.debug.breakpoints('${P}', '${LOOPSRC}', [5]); return true" >/dev/null
+  RDBG="const r = __lite.runs.list.find((x) => x.name === '远程循环'); const d = r?.debug;"
+  pick '远程循环' >/dev/null
+  lite_wait main "${RDBG} return d?.phase === 'paused' || d?.phase === 'ended'" 300 >/dev/null
+  ok "$([ "$(lite_eval main "${RDBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('')")" = "paused Loop.java:5" ] && echo 1)" "▶ 就是挂上去（远程那种只能调试）：停在别人起的 JVM 里、Loop.java:5：$(lite_eval main "${RDBG} return d?.phase + ' ' + (d?.note ?? '')")"
+  ok "$(logtext '远程循环' | grep -q "^挂到 127.0.0.1:${LPORT} 的 JVM 上调试" && echo 1)" "运行窗那一格说清挂在哪、⌘F2 只断开"
+  lite_wait main "return [...document.querySelectorAll('.dbg .vrow')].some((v) => v.innerText.startsWith('i = '))" 20 >/dev/null
+  ok "$(lite_eval main "return [...document.querySelectorAll('.dbg .vrow')].map((v) => v.innerText.replace(/\s+/g, ' ')).join(' / ')" | grep -qE '(^| )i = [0-9]+' && echo 1)" "变量看得到：$(lite_eval main "return [...document.querySelectorAll('.dbg .vrow')].map((v) => v.innerText.replace(/\s+/g, ' ')).join(' / ')")"
+  lite_eval main "await __lite.debug.breakpoints('${P}', '${LOOPSRC}', []); return true" >/dev/null
+  lite menu debug-resume main >/dev/null
+  lite_wait main "${RDBG} return d?.phase === 'running'" 10 >/dev/null
+  lite menu run-stop main >/dev/null
+  lite_wait main "${RDBG} return d?.phase === 'ended'" 15 >/dev/null
+  N1=$(grep -c LOOP "${LOOPOUT}/out.log"); sleep 1.5; N2=$(grep -c LOOP "${LOOPOUT}/out.log")
+  ok "$(kill -0 "${LPID}" 2>/dev/null && [ "${N2}" -gt "${N1}" ] && echo 1)" "⌘F2 断开：那个 JVM 还活着、接着在打（${N1} → ${N2} 行）—— 只断开，没停它"
+  ok "$([ "$(lite_eval main "${RDBG} return d?.phase + ':' + r?.status")" = "ended:stopped" ] && echo 1)" "这边的会话结束、那一格是「已停止」：$(lite_eval main "${RDBG} return d?.phase + ':' + r?.status + ':' + (d?.note ?? '')")"
+  kill "${LPID}" 2>/dev/null
+  # 对面先退：会话自己结束、那一格自己停，说清为什么
+  "${JDK}/bin/java" "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:${LPORT}" -cp "${LOOPOUT}" com.demo.order.Loop > "${LOOPOUT}/out2.log" 2>&1 &
+  LPID=$!
+  wait_for 10 "grep -q LOOP '${LOOPOUT}/out2.log'"
+  pick '远程循环' >/dev/null
+  lite_wait main "${RDBG} return d?.phase === 'running'" 120 >/dev/null
+  kill "${LPID}" 2>/dev/null
+  lite_wait main "${RDBG} return d?.phase === 'ended'" 15 >/dev/null
+  ok "$(lite_eval main "${RDBG} return d?.phase + ':' + r?.status + ':' + (d?.note ?? '')" | grep -q "^ended:.*:127.0.0.1:${LPORT} 那个 JVM 断开了" && echo 1)" "对面的 JVM 退了：会话结束、说清是对面断了：$(lite_eval main "${RDBG} return d?.phase + ':' + r?.status + ':' + (d?.note ?? '')")"
+  lite_eval main "await window.__TAURI_INTERNALS__.invoke('run_config_user_delete', { root: __lite.project.root, name: '远程循环' }); return true" >/dev/null
+  rm -f "${LOOPSRC}"
+else
+  skip "机器上找不到 javac（远程调试要自己起一个带调试端口的 JVM）"
+fi
 
 echo "== 没有副作用"
 if [ -n "${REPO}" ] && [ -d "${REPO}" ]; then

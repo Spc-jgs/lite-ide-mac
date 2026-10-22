@@ -322,6 +322,8 @@ pub fn run() {
             commands::spring_endpoints,
             commands::spring_config,
             commands::debug_state,
+            commands::debug_run_to,
+            commands::debug_exceptions,
             commands::debug_breakpoints,
             commands::debug_step,
             commands::debug_thread,

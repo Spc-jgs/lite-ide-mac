@@ -376,11 +376,14 @@ export const KEYS: KeyDef[] = [
   { id: "debug-over", label: "单步跳过", accel: "F8", group: "运行", owner: "menu" },
   { id: "debug-into", label: "单步进入", accel: "F7", group: "运行", owner: "menu" },
   { id: "debug-out", label: "单步跳出", accel: "⇧F8", group: "运行", owner: "menu" },
+  { id: "debug-run-to", label: "运行到光标", accel: "⌥F9", group: "运行", owner: "menu" },
   { id: "debug-pause", label: "暂停程序", group: "运行", owner: "menu" },
   /** 热替换（docs/IDEA.md 第 26 节）：IDEA 的 Reload Changed Classes，默认也没有键位。构建（⌘F9）成功后自动做一次，这是手动那条路 */
   { id: "debug-reload", label: "重新加载改过的类", group: "运行", owner: "menu" },
   /** 在光标那行下 / 取消断点（Java 文件）。归 cm6：要读光标在哪一行；点行号是同一件事（java-debug-gutter.ts） */
   { id: "toggle-breakpoint", label: "切换断点（Java）", accel: "⌘F8", group: "运行", owner: "cm6" },
+  // IDEA 的 View Breakpoints：全部断点、异常断点，改属性、停用、删除（docs/TAKEOVER.md G14）
+  { id: "debug-breakpoints", label: "查看断点…", accel: "⇧⌘F8", group: "运行", owner: "menu" },
 
   /*
    * 日志模式里跳过滤命中。挂在 window 上（`LogPane.svelte`），

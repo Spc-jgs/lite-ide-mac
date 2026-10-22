@@ -191,6 +191,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "debug-last": return void import("../state/runs-ops").then((m) => m.rerunLast(true));
     case "debug-resume": return void import("../debug/debug-ops").then((m) => m.step("continue"));
     case "debug-over": return void import("../debug/debug-ops").then((m) => m.step("next"));
+    case "debug-run-to": return void import("../debug/debug-ops").then((m) => m.runToCursor());
     case "debug-into": return void import("../debug/debug-ops").then((m) => m.step("stepIn"));
     case "debug-out": return void import("../debug/debug-ops").then((m) => m.step("stepOut"));
     case "debug-pause": return void import("../debug/debug-ops").then((m) => m.step("pause"));
@@ -271,6 +272,9 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "quit": return void requestQuit().catch(() => {});
     // 设置对话框（docs/SETTINGS.md 第 13 节）。原来 ⌘, 直接开 settings.json；文件还在，对话框底下「打开 settings.json」
     case "open-settings": return void import("../settings/open").then((m) => m.openSettingsDialog(project.root));
+    case "debug-breakpoints":
+      if (!project.root) return notify.hint("先打开一个项目：断点是按项目的");
+      return void import("../settings/open").then((m) => m.openBreakpoints(project.root!));
     case "run-configs":
       if (!project.root) return notify.hint("先打开一个项目：运行配置是按项目的");
       return void import("../settings/open").then((m) => m.openRunConfigs(project.root!));

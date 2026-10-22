@@ -115,6 +115,7 @@ pub fn dto(app: &AppHandle) -> crate::commands::SettingsDto {
         editor_font_base: e.editor_font_base,
         editor_highlight_usages: e.editor_highlight_usages,
         editor_inlay_hints: e.editor_inlay_hints,
+        java_hotswap_on_save: e.java_hotswap_on_save,
         terminal_font_family: e.terminal_font_family,
         terminal_font_size: e.terminal_font_size,
         terminal_shell: e.terminal_shell,
@@ -416,6 +417,8 @@ fn user_dto(u: crate::projectcfg::UserCfg) -> crate::commands::UserConfigDto {
         program_args: u.run.program_args,
         env: u.run.env.into_iter().map(|(name, value)| crate::commands::EnvVarDto { name, value }).collect(),
         jdk: u.run.jdk,
+        host: u.host,
+        port: u.port,
     }
 }
 
@@ -437,7 +440,14 @@ pub fn user_cfg(d: crate::commands::UserConfigDto) -> crate::projectcfg::UserCfg
             env: d.env.into_iter().map(|e| (e.name.trim().to_string(), e.value)).filter(|(k, _)| !k.is_empty()).collect(),
             jdk: d.jdk,
         },
+        host: d.host.trim().to_string(),
+        port: d.port,
     }
+}
+
+/// 远程调试的主机：主机名、IPv4、IPv6（方括号也认）的字符，不能空
+fn host_ok(h: &str) -> bool {
+    !h.is_empty() && h.len() <= 255 && h.chars().all(|c| c.is_ascii_alphanumeric() || ".-:_[]".contains(c))
 }
 
 /// 你建的运行配置（docs/TAKEOVER.md R1）配不配得出来。说不行时一句人话，界面原样显示
@@ -479,6 +489,14 @@ fn check_user(root: &std::path::Path, old: &str, u: &crate::projectcfg::UserCfg)
         "shell" => {
             if u.command.trim().is_empty() {
                 return Err("命令不能空着".into());
+            }
+        }
+        "remote" => {
+            if !host_ok(&u.host) {
+                return Err("主机要填（localhost、IP 或者主机名）".into());
+            }
+            if u.port == 0 || u.port > 65535 {
+                return Err("端口要在 1–65535 之间（对面 JVM 的 address=*:5005 里那个数）".into());
             }
         }
         _ => {
@@ -584,6 +602,13 @@ mod tests {
         assert!(err(comp(&[])).contains("至少"));
         let shell = UserCfg { name: "脚本".into(), kind: "shell".into(), command: "echo hi".into(), run: RunCfg { env: vec![("bad-name".into(), "x".into())], ..Default::default() }, ..Default::default() };
         assert!(err(shell).contains("环境变量名「bad-name」"));
+        let remote = |host: &str, port: u32| UserCfg { name: "远程".into(), kind: "remote".into(), host: host.into(), port, ..Default::default() };
+        assert_eq!(check_user(&d, "", &remote("10.0.0.5", 5005)), Ok(()));
+        assert_eq!(check_user(&d, "", &remote("[::1]", 5005)), Ok(()), "IPv6 带方括号");
+        assert!(err(remote("", 5005)).contains("主机"));
+        assert!(err(remote("a;rm -rf ~", 5005)).contains("主机"), "主机名里不许有 shell 的字符（它会拼进占位的那条命令）");
+        assert!(err(remote("localhost", 0)).contains("端口"));
+        assert!(err(remote("localhost", 70000)).contains("端口"));
         let _ = std::fs::remove_dir_all(&d);
     }
 

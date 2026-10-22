@@ -557,6 +557,8 @@ pub struct SettingsDto {
     /// Java 的同名高亮、参数名提示开不开（docs/TAKEOVER.md G11）
     pub editor_highlight_usages: bool,
     pub editor_inlay_hints: bool,
+    /// 调试时存盘自动构建、热替换（docs/TAKEOVER.md I6）
+    pub java_hotswap_on_save: bool,
     /// 已经换算过：没写就是编辑器那个
     pub terminal_font_family: String,
     pub terminal_font_size: i64,
@@ -749,6 +751,8 @@ pub struct TaskRunDto {
     pub log: String,
     /// Spring Boot 服务（Services 工具窗里跑，不进运行窗；同 IDEA）
     pub service: bool,
+    /// 起了调试会话（前端说要调试的，或者远程调试那种 —— 它只能调试）
+    pub debug: bool,
 }
 
 /// Services 工具窗里的一个 Spring Boot 服务（认出来的入口；跑没跑、跑成什么样前端从运行记录里看）
@@ -1300,6 +1304,9 @@ pub struct UserConfigDto {
     pub program_args: String,
     pub env: Vec<EnvVarDto>,
     pub jdk: String,
+    /// remote：要挂上去的 JVM 在哪（docs/TAKEOVER.md G23）
+    pub host: String,
+    pub port: u32,
 }
 
 /// 别的能跑的一份（运行配置对话框里只列、不改）
