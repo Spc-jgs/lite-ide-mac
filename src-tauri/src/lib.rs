@@ -14,6 +14,8 @@ pub mod diag;
 pub mod menu;
 mod open;
 mod owned;
+mod jdks;
+mod projectcfg;
 mod settings;
 mod settingsctl;
 mod taskdefs;
@@ -206,6 +208,7 @@ pub fn run() {
             if let Ok(dir) = app.path().app_data_dir() {
                 // Maven 工具窗的开关（离线、跳过测试、勾的 profile），按项目记（maven.rs 的 Prefs）
                 maven::set_prefs_file(dir.join("maven-prefs.json"));
+                projectcfg::set_file(dir.join("project-settings.json"));
                 let runs = dir.join("runs");
                 st.init_live(runs.join("live.json"));
                 // 任务输出的清理：14 天没跑过的项目、总量超过 5GB 的最旧的（tasksvc::prune）。启动时自己的任务一个都没在跑，
@@ -302,6 +305,10 @@ pub fn run() {
             commands::services_list,
             commands::task_ports,
             commands::task_heap,
+            commands::settings_page,
+            commands::settings_apply,
+            commands::run_configs,
+            commands::run_config_set,
             commands::test_results,
             commands::build_problems,
             commands::mybatis_for_java,

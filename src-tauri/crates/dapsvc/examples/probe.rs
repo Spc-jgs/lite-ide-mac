@@ -60,7 +60,7 @@ fn main() {
         Box::new(|_| {}),
     )
     .unwrap();
-    let mut opts = jdtls::init_options();
+    let mut opts = jdtls::init_options(&[], None);
     opts["bundles"] = json!([jar]);
     s.initialize(&format!("file://{root}"), "root", jdtls::capabilities(), opts, Duration::from_secs(120)).unwrap();
     ready_rx.recv_timeout(Duration::from_secs(300)).unwrap();

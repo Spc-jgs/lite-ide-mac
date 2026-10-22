@@ -357,8 +357,15 @@ pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
             let dup = apps.iter().filter(|(_, a)| a.name() == short).count() > 1;
             let module = [rel.as_str(), app.module.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("/");
             let name = if dup { format!("{module}/{short}") } else { short.to_string() };
+            // 运行配置（docs/SETTINGS.md 13.6）：按任务名存，Services 和 ⌃⌥R 里看到的就是这个名字
+            let run = crate::projectcfg::run(root, &name);
+            let command = format!(
+                "{}{}",
+                jdk_prefix_for(root, &rel, &app.module, &run.jdk),
+                crate::maven::run_command(app, &prefs, &crate::maven::invocation(&root.join(&rel)), &run)
+            );
             SpringTask {
-                def: Def { name, command: format!("{}{}", jdk_prefix(root, &rel, &app.module), crate::maven::run_command(app, &prefs)), cwd: rel.clone(), env: Vec::new(), source: Source::Spring { module } },
+                def: Def { name, command, cwd: rel.clone(), env: Vec::new(), source: Source::Spring { module } },
                 app: app.clone(),
             }
         })
@@ -393,9 +400,10 @@ pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
     let (rel, m) = find_module(root, artifact)?;
     let prefs = crate::maven::prefs(root);
     // 单测（docs/IDEA.md 第 17 节）：「模块 [test 选择器]」—— 和跑目标同一个名字形状，运行窗、⌃R 重跑、⌘F2 停、同名先停旧的都是现成的
+    let mvn = crate::maven::invocation(&root.join(&rel));
     let command = match goal.strip_prefix("test ") {
-        Some(sel) => crate::maven::test_command(&m.rel, sel.trim(), &prefs)?,
-        None => crate::maven::goal_command(&m.rel, goal, &prefs)?,
+        Some(sel) => crate::maven::test_command(&m.rel, sel.trim(), &prefs, &mvn)?,
+        None => crate::maven::goal_command(&m.rel, goal, &prefs, &mvn)?,
     };
     let command = format!("{}{command}", jdk_prefix(root, &rel, &m.rel));
     Some(Def { name: name.to_string(), command, cwd: rel, env: Vec::new(), source: Source::Goal { module: m.rel } })
@@ -443,17 +451,36 @@ pub fn resolve(root: &Path, name: &str) -> Option<Def> {
 /// 写在命令最前面就是最后生效的。运行窗里那一行命令也看得出用的是哪个 JDK。
 /// pom 没写版本：空的（照旧用你的默认，不猜）。写了但这台机器上没有够格的：说一句再照旧跑 —— 不让 Maven 甩一句「不支持发行版本 21」让人猜
 pub fn jdk_prefix(root: &Path, reactor: &str, module: &str) -> String {
-    let Some(want) = crate::maven::module_java(&root.join(reactor), module) else { return String::new() };
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    jdk_prefix_from(want, &lspsvc::jdtls::list_jdks(&lspsvc::jdtls::default_jdk_dirs(&home)))
+    jdk_prefix_for(root, reactor, module, "")
+}
+
+/// 同 [`jdk_prefix`]，多一个运行配置里选的 JDK（`chosen`，空 = 跟项目）。挑的次序（docs/SETTINGS.md 13.6）：
+/// 运行配置里选的 > 项目设置里选的（`projectcfg`）> 按 pom 自动挑。选了的那个不在了（卸了、目录挪了）就说一句、退回自动挑 ——
+/// 不让 `JAVA_HOME` 指向一个不存在的目录，那样 mvn 报的是一句看不出原因的「JAVA_HOME is not defined correctly」
+pub fn jdk_prefix_for(root: &Path, reactor: &str, module: &str, chosen: &str) -> String {
+    let project = crate::projectcfg::get(root).jdk;
+    let pick = if chosen.trim().is_empty() { project.trim().to_string() } else { chosen.trim().to_string() };
+    let auto = || match crate::maven::module_java(&root.join(reactor), module) {
+        Some(want) => jdk_prefix_from(want, &crate::jdks::all()),
+        None => String::new(),
+    };
+    if pick.is_empty() {
+        return auto();
+    }
+    match crate::jdks::at(&pick) {
+        Some((_, h)) => export_jdk(&h),
+        None => format!("echo {}; {}", crate::maven::word(&format!("[lite-ide] 设置里选的 JDK {pick} 找不到了（或者不是 JDK），按 pom 自动挑")), auto()),
+    }
+}
+
+fn export_jdk(h: &Path) -> String {
+    let h = h.to_string_lossy();
+    format!("export JAVA_HOME={} PATH={}:\"$PATH\"; ", crate::maven::word(&h), crate::maven::word(&format!("{h}/bin")))
 }
 
 fn jdk_prefix_from(want: u32, jdks: &[(u32, PathBuf)]) -> String {
     match lspsvc::jdtls::pick_jdk(jdks, want) {
-        Some((_, h)) => {
-            let h = h.to_string_lossy();
-            format!("export JAVA_HOME={} PATH={}:\"$PATH\"; ", crate::maven::word(&h), crate::maven::word(&format!("{h}/bin")))
-        }
+        Some((_, h)) => export_jdk(&h),
         None => format!("echo {}; ", crate::maven::word(&format!("[lite-ide] 项目要 Java {want}，这台机器上没找到够格的 JDK，用的是你默认的那个"))),
     }
 }
@@ -470,7 +497,7 @@ fn build(root: &Path, name: &str) -> Option<Def> {
     if !is_build(name) {
         return None;
     }
-    let command = crate::maven::build_command(&crate::maven::reactors(root), &crate::maven::prefs(root), name == REBUILD, &|r| jdk_prefix(root, r, ""))?;
+    let command = crate::maven::build_command(&crate::maven::reactors(root), &crate::maven::prefs(root), name == REBUILD, &|r| jdk_prefix(root, r, ""), &|r| crate::maven::invocation(&root.join(r)))?;
     Some(Def { name: name.to_string(), command, cwd: String::new(), env: Vec::new(), source: Source::Goal { module: String::new() } })
 }
 

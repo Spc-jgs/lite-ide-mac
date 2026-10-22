@@ -327,14 +327,15 @@ pub fn with_jdwp(command: &str, agent: Option<&str>) -> Option<String> {
 
 /// 调试单测（`maven::test_command` 那个形状）：跑测试的是 surefire **另外 fork 的 JVM**，`mvn` 自己不是 —— JDWP 要交给 surefire 的
 /// `maven.surefire.debug`（值原样加在 fork 出来的 JVM 的参数后面，不盖掉 pom 里的 `argLine`）。
-/// `mvn ` 在开头，或者在「用项目要的那个 JDK」那段（`export …; `，`taskdefs::jdk_prefix`）后面；别的形状不猜
+/// 插在 mvn 的 ` -B -ntp` 前面 —— 每条 mvn 都从 `maven::invocation` 开头，mvn 后面紧跟的就是它；mvn 本身是 `mvn`、`./mvnw`、
+/// 带空格的安装目录、前面还有 `MAVEN_OPTS=` 都不影响（原来认的是开头的 `mvn ` 这个字，有了 mvnw 就认不出了）。不是我们拼的形状不猜
 ///
 /// `agent` 也塞进同一个值里：surefire 把它按空格拆成几个参数，所以路径里带空格、引号的就不带（单测调试照样能调，只是不能热替换）
 pub fn with_surefire_debug(command: &str, agent: Option<&str>) -> Option<String> {
-    let at = if command.starts_with("mvn ") { 0 } else { command.find("; mvn ")? + 2 };
-    let rest = &command[at + "mvn ".len()..];
+    let at = command.find(" -B -ntp")?;
+    let rest = &command[at + 1..];
     let agent = agent.filter(|a| !a.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"')).map(|a| format!(" {a}")).unwrap_or_default();
-    Some(format!("{}mvn '-Dmaven.surefire.debug={JDWP}{agent}' {rest}", &command[..at]))
+    Some(format!("{} '-Dmaven.surefire.debug={JDWP}{agent}' {rest}", &command[..at]))
 }
 
 /// 一段输出里有没有「端口开好了」那一行（JVM 自己打的，没有前缀）
@@ -907,9 +908,9 @@ mod tests {
     #[test]
     fn 单测的代理塞进_surefire_那个值里_路径带空格的不带() {
         let a = "-javaagent:/A/lite-hotswap.jar=/T/lite-hotswap-1";
-        assert_eq!(with_surefire_debug("mvn -B test", Some(a)).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP} {a}' -B test"));
+        assert_eq!(with_surefire_debug("mvn -B -ntp test", Some(a)).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP} {a}' -B -ntp test"));
         // surefire 按空格拆：带空格的路径会拆成两个参数、JVM 起不来。宁可不能热替换，也不能调试不了
-        assert_eq!(with_surefire_debug("mvn -B test", Some("-javaagent:/A b/x.jar=/T")).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP}' -B test"));
+        assert_eq!(with_surefire_debug("mvn -B -ntp test", Some("-javaagent:/A b/x.jar=/T")).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP}' -B -ntp test"));
     }
 
     #[test]
@@ -1016,11 +1017,17 @@ mod tests {
     fn 单测的调试参数交给_surefire_不是_mvn_自己() {
         let c = "mvn -B -ntp -Dtest='com.demo.OrderTest' -Dsurefire.failIfNoSpecifiedTests=false -pl order-service -am test";
         assert_eq!(with_surefire_debug(c, None).unwrap(), format!("mvn '-Dmaven.surefire.debug={JDWP}' -B -ntp -Dtest='com.demo.OrderTest' -Dsurefire.failIfNoSpecifiedTests=false -pl order-service -am test"));
-        assert_eq!(with_surefire_debug("./mvnw test", None), None);
+        assert_eq!(with_surefire_debug("./mvnw test", None), None, "不是我们拼的形状（没有 -B -ntp）不猜");
+        // mvnw、带空格的安装目录、MAVEN_OPTS：插在 mvn 本身后面，不管它长什么样
+        assert_eq!(with_surefire_debug("./mvnw -B -ntp test", None).unwrap(), format!("./mvnw '-Dmaven.surefire.debug={JDWP}' -B -ntp test"));
+        assert_eq!(
+            with_surefire_debug("MAVEN_OPTS='-Xmx2g' '/opt/my maven/bin/mvn' -B -ntp test", None).unwrap(),
+            format!("MAVEN_OPTS='-Xmx2g' '/opt/my maven/bin/mvn' '-Dmaven.surefire.debug={JDWP}' -B -ntp test")
+        );
         // 前面有「用项目要的 JDK」那段：插在 mvn 后面，不是插在 export 后面
         assert_eq!(
-            with_surefire_debug("export JAVA_HOME=/j PATH=/j/bin:\"$PATH\"; mvn -B test", None).unwrap(),
-            format!("export JAVA_HOME=/j PATH=/j/bin:\"$PATH\"; mvn '-Dmaven.surefire.debug={JDWP}' -B test")
+            with_surefire_debug("export JAVA_HOME=/j PATH=/j/bin:\"$PATH\"; mvn -B -ntp test", None).unwrap(),
+            format!("export JAVA_HOME=/j PATH=/j/bin:\"$PATH\"; mvn '-Dmaven.surefire.debug={JDWP}' -B -ntp test")
         );
     }
 

@@ -50,6 +50,9 @@ function pmOf(dir: string, root: string, declared?: string): string {
   }
 }
 
+/** 运行配置的桩（mock/settings.ts）也要这份服务列表 */
+export const mockTaskList = (root: string) => list(root);
+
 function list(root: string) {
   const defs: Def[] = [];
   const problems: string[] = [];

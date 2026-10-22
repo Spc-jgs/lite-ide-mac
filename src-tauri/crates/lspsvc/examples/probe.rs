@@ -58,7 +58,7 @@ fn main() {
     )
     .unwrap();
     let uri = |p: &Path| format!("file://{}", p.display());
-    let mut opts = jdtls::init_options();
+    let mut opts = jdtls::init_options(&[], None);
     // GUESS=off|insertParameterNames|insertBestGuessedArguments：试 jdtls 的方法补全插什么
     // DEBUG_JAR=<java-debug 插件的 jar>：作为 bundle 带上（第 5 步看它和这版 jdtls 兼不兼容）
     if let Ok(j) = std::env::var("DEBUG_JAR") {

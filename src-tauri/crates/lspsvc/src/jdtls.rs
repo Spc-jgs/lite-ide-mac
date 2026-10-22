@@ -50,25 +50,47 @@ pub fn find_jdk(dirs: &[PathBuf], min: u32) -> Option<(u32, PathBuf)> {
     best
 }
 
-/// macOS 上 JDK 装在哪：系统那份（pkg / Homebrew cask）、用户自己的（IDEA 下载的）、sdkman 的
+/// macOS 上 JDK 装在哪：系统那份（pkg / Homebrew cask）、用户自己的（IDEA 下载的）、sdkman、Homebrew 的 formula（`openjdk@17`，
+/// Apple 芯片在 `/opt/homebrew/opt`、Intel 在 `/usr/local/opt`）、asdf、jenv、mise。原来只扫前三处，后面几种装的找不到
+/// （docs/SETTINGS.md 13.1）；找不到的还能在设置里手动加（`java.jdks`，[`jdk_at`]）
 pub fn default_jdk_dirs(user_home: &Path) -> Vec<PathBuf> {
-    vec!["/Library/Java/JavaVirtualMachines".into(), user_home.join("Library/Java/JavaVirtualMachines"), user_home.join(".sdkman/candidates/java")]
+    vec![
+        "/Library/Java/JavaVirtualMachines".into(),
+        user_home.join("Library/Java/JavaVirtualMachines"),
+        user_home.join(".sdkman/candidates/java"),
+        "/opt/homebrew/opt".into(),
+        "/usr/local/opt".into(),
+        user_home.join(".asdf/installs/java"),
+        user_home.join(".jenv/versions"),
+        user_home.join(".local/share/mise/installs/java"),
+    ]
 }
 
-/// 这些目录里全部的 JDK：(主版本, JAVA_HOME)。macOS 的包是 `<名字>/Contents/Home`，sdkman 的是 `<名字>` 自己；
-/// 按 `release` 文件判版本、要有 `bin/java`（同 [`find_jdk`]）。sdkman 的 `current` 是指到另一个的软链，跳过免得一个 JDK 算两遍
+/// 一个目录是不是 JDK：本身就是 JAVA_HOME，或者是 macOS 的包（`Contents/Home`），或者是 Homebrew formula 的目录
+/// （`libexec/openjdk.jdk/Contents/Home`）。按 `release` 文件判版本、要有 `bin/java`（同 [`find_jdk`]）。手动加的也走它
+pub fn jdk_at(dir: &Path) -> Option<(u32, PathBuf)> {
+    for home in [dir.join("Contents/Home"), dir.join("libexec/openjdk.jdk/Contents/Home"), dir.to_path_buf()] {
+        let Ok(text) = std::fs::read_to_string(home.join("release")) else { continue };
+        if let (Some(v), true) = (java_version(&text), home.join("bin/java").is_file()) {
+            return Some((v, home));
+        }
+    }
+    None
+}
+
+/// 这些目录里全部的 JDK：(主版本, JAVA_HOME)，按版本排。**按真实路径去重**：sdkman 的 `current`、jenv 的版本别名、
+/// Homebrew 的 `openjdk` 和 `openjdk@21` 都是指到同一个 JDK 的软链，不去重的话一个 JDK 列好几遍
 pub fn list_jdks(dirs: &[PathBuf]) -> Vec<(u32, PathBuf)> {
-    let mut out = Vec::new();
+    let mut out: Vec<(u32, PathBuf)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for d in dirs {
         let Ok(rd) = std::fs::read_dir(d) else { continue };
-        for e in rd.flatten() {
-            if e.file_name() == "current" {
-                continue;
-            }
-            let mac = e.path().join("Contents/Home");
-            let home = if mac.is_dir() { mac } else { e.path() };
-            let Ok(text) = std::fs::read_to_string(home.join("release")) else { continue };
-            if let (Some(v), true) = (java_version(&text), home.join("bin/java").is_file()) {
+        let mut entries: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
+        // 先看不是软链的（真身），软链指过去的那个已经见过就跳过 —— 列出来的路径是真身那条
+        entries.sort_by_key(|p| (p.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()), p.clone()));
+        for e in entries {
+            let Some((v, home)) = jdk_at(&e) else { continue };
+            if seen.insert(home.canonicalize().unwrap_or_else(|_| home.clone())) {
                 out.push((v, home));
             }
         }
@@ -278,10 +300,27 @@ pub fn capabilities() -> Value {
 /// jdtls 自己的 initializationOptions。`classFileContentsSupport`：跳进 jar 里的类时给 `jdt://` 的地址，内容另外用
 /// `java/classFileContents` 要（有源码 jar 就是源码，没有就反编译）
 ///
-/// 不配 `java.configuration.runtimes`：jdtls 自己会认机器上的 JDK —— Eclipse 的 `MacInstalledJREs` 跑 `/usr/libexec/java_home -X`，
-/// 项目按声明的版本挑对应的那个当类库（⌘B 进 `String` 是 JDK 17 带的源码）。2026-10-15 配过一份，验红时把它清空、照样是 JDK 17 的源码，
-/// 反汇编才找到这个原因 —— 配了等于重复
-pub fn init_options() -> Value {
+/// `runtimes`：这台机器上的 JDK（`jdks::all()`），配成 `java.configuration.runtimes`，每个主版本一个。
+/// 2026-10-15 配过一份又删了：jdtls 自己会跑 `/usr/libexec/java_home -X`（Eclipse 的 `MacInstalledJREs`），验红时清空照样认得出 JDK 17 ——
+/// 当时的结论是「配了等于重复」。**这个结论只对装在那两个系统目录里的 JDK 成立**：`java_home -X` 不认 sdkman、Homebrew formula、asdf 装的，
+/// 而运行和构建是认的（docs/SETTINGS.md 13.1：两边看到的不一样）。所以还是配上，和运行用同一份列表。
+/// `maven_settings`：设置里指定的 settings.xml（`maven.settingsFile`），m2e 导入时按它找仓库 —— 不然 jdtls 用的是 `~/.m2/settings.xml`，和跑 mvn 的不是一份
+pub fn init_options(runtimes: &[(u32, PathBuf)], maven_settings: Option<&str>) -> Value {
+    let mut seen = std::collections::HashSet::new();
+    let rts: Vec<Value> = runtimes
+        .iter()
+        .filter(|(v, _)| seen.insert(*v))
+        .map(|(v, h)| json!({ "name": if *v <= 8 { format!("JavaSE-1.{v}") } else { format!("JavaSE-{v}") }, "path": h.to_string_lossy() }))
+        .collect();
+    let mut o = init_options_base();
+    o["settings"]["java"]["configuration"] = json!({ "runtimes": rts });
+    if let Some(s) = maven_settings.filter(|s| !s.trim().is_empty()) {
+        o["settings"]["java"]["configuration"]["maven"] = json!({ "userSettings": s.trim() });
+    }
+    o
+}
+
+fn init_options_base() -> Value {
     json!({
         "extendedClientCapabilities": { "classFileContentsSupport": true, "progressReportProvider": false },
         "settings": { "java": {
@@ -307,6 +346,51 @@ pub fn init_options() -> Value {
 mod tests {
     use super::*;
 
+    /// 造一个假 JDK：`release` 文件 + `bin/java`
+    fn fake_jdk(home: &Path, ver: &str) {
+        std::fs::create_dir_all(home.join("bin")).unwrap();
+        #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
+        std::fs::write(home.join("release"), format!("JAVA_VERSION=\"{ver}\"\n")).unwrap();
+        #[allow(clippy::disallowed_methods)] // 同上
+        std::fs::write(home.join("bin/java"), "").unwrap();
+    }
+
+    #[test]
+    fn jdtls_的_runtimes_每个主版本一个_8叫1点8_settings_xml_有才配() {
+        let o = init_options(&[(8, "/j8".into()), (17, "/j17a".into()), (17, "/j17b".into()), (21, "/j21".into())], Some("/w/settings.xml"));
+        let c = &o["settings"]["java"]["configuration"];
+        assert_eq!(c["runtimes"], json!([{ "name": "JavaSE-1.8", "path": "/j8" }, { "name": "JavaSE-17", "path": "/j17a" }, { "name": "JavaSE-21", "path": "/j21" }]));
+        assert_eq!(c["maven"]["userSettings"], "/w/settings.xml");
+        assert_eq!(o["settings"]["java"]["autobuild"]["enabled"], false, "原来那几项都还在");
+        assert!(init_options(&[], None)["settings"]["java"]["configuration"].get("maven").is_none());
+    }
+
+    #[test]
+    fn jdk_三种长相都认_软链指同一个的只算一次_不是jdk的跳过() {
+        let d = std::env::temp_dir().join(format!("lite-jdks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        fake_jdk(&d.join("pkg/temurin-17.jdk/Contents/Home"), "17.0.9");
+        fake_jdk(&d.join("brew/openjdk@21/libexec/openjdk.jdk/Contents/Home"), "21.0.2");
+        fake_jdk(&d.join("asdf/zulu-11.0.20"), "11.0.20");
+        std::fs::create_dir_all(d.join("brew/ripgrep/bin")).unwrap();
+        std::os::unix::fs::symlink(d.join("brew/openjdk@21"), d.join("brew/openjdk")).unwrap();
+        std::os::unix::fs::symlink(d.join("asdf/zulu-11.0.20"), d.join("asdf/current")).unwrap();
+        let got = list_jdks(&[d.join("pkg"), d.join("brew"), d.join("asdf")]);
+        let names: Vec<(u32, String)> = got.iter().map(|(v, h)| (*v, h.strip_prefix(&d).unwrap().display().to_string())).collect();
+        assert_eq!(
+            names,
+            vec![
+                (11, "asdf/zulu-11.0.20".into()),
+                (17, "pkg/temurin-17.jdk/Contents/Home".into()),
+                (21, "brew/openjdk@21/libexec/openjdk.jdk/Contents/Home".into()),
+            ],
+            "软链（openjdk、current）不重复列，列的是真身"
+        );
+        assert_eq!(jdk_at(&d.join("pkg/temurin-17.jdk")).map(|(v, _)| v), Some(17), "手动加的给包目录也认");
+        assert_eq!(jdk_at(&d.join("brew/ripgrep")), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lspsvc-{name}-{}-{:?}", std::process::id(), std::time::Instant::now()));
         std::fs::create_dir_all(&d).unwrap();
@@ -327,7 +411,7 @@ mod tests {
     #[test]
     fn 不自动构建_target_classes_只归_maven_写() {
         // 开着的话 jdtls 把有错的代码编成「一调就抛」的 class 写进 target/classes，mvn 还当它是新的（见 init_options 里那段）
-        assert_eq!(init_options()["settings"]["java"]["autobuild"]["enabled"], false);
+        assert_eq!(init_options(&[], None)["settings"]["java"]["autobuild"]["enabled"], false);
     }
 
     #[test]

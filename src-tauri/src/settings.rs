@@ -28,12 +28,18 @@ pub enum Kind {
     Str { empty_ok: bool },
     /// 整数，超出范围夹回来
     Int { min: i64, max: i64 },
+    /// true / false
+    Bool,
+    /// 字符串列表（手动添加的 JDK 目录）
+    StrList,
 }
 
 /// 一个设置项
 #[derive(Debug)]
 pub struct Def {
     pub key: &'static str,
+    /// 设置页上那一项的名字
+    pub label: &'static str,
     pub kind: Kind,
     /// 默认值，**JSON 字面量**（`"\"JetBrains Mono\""`、`"13"`）：模板原样写进去，补全原样给出去
     pub default: &'static str,
@@ -50,41 +56,108 @@ pub const FONT_DEFAULT: i64 = 13;
 pub const DEFS: &[Def] = &[
     Def {
         key: "editor.fontFamily",
+        label: "代码字体",
         kind: Kind::Str { empty_ok: false },
         default: "\"JetBrains Mono\"",
         doc: "代码字体：编辑器、差异、日志视图。写具体的字体名；系统里没有就退回 JetBrains Mono",
     },
     Def {
         key: "editor.fontSize",
+        label: "代码字号",
         kind: Kind::Int { min: FONT_MIN, max: FONT_MAX },
         default: "13",
         doc: "代码字号（9–28）。⌘= / ⌘- 在它上面临时加减，⌘0 回到这里写的值",
     },
     Def {
         key: "terminal.fontFamily",
+        label: "终端字体",
         kind: Kind::Str { empty_ok: true },
         default: "\"\"",
         doc: "终端字体。空 = 跟 editor.fontFamily 一样",
     },
     Def {
         key: "terminal.fontSize",
+        label: "终端字号",
         kind: Kind::Int { min: FONT_MIN, max: FONT_MAX },
         default: "13",
         doc: "终端字号（9–28）",
     },
     Def {
         key: "terminal.shell",
+        label: "终端用的 shell",
         kind: Kind::Str { empty_ok: true },
         default: "\"\"",
         doc: "终端用的 shell，写完整路径（如 \"/opt/homebrew/bin/fish\"）。空 = 用系统的 $SHELL。只对新开的终端生效",
     },
     Def {
         key: "java.jdtlsHome",
+        label: "jdtls 的位置",
         kind: Kind::Str { empty_ok: true },
         default: "\"\"",
         doc: "Java 智能用的 jdtls（解开的发行包，里面有 plugins/ 和 config_mac_arm/）。空 = 内置的那份。下次起 jdtls 时生效",
     },
+    // ── 设置页（2026-10-21，SETTINGS.md 第 13 节）新加的 ──
+    Def {
+        key: "java.jdtlsMemory",
+        label: "jdtls 最多用的内存（MB）",
+        kind: Kind::Int { min: JDTLS_MEMORY_MIN, max: JDTLS_MEMORY_MAX },
+        default: "1024",
+        doc: "jdtls 最多用多少内存（MB，512–16384）。大项目导入慢、或者报内存不够时调大。下次起 jdtls 时生效",
+    },
+    Def {
+        key: "java.jdks",
+        label: "手动添加的 JDK",
+        kind: Kind::StrList,
+        default: "[]",
+        doc: "手动添加的 JDK（JAVA_HOME 目录，如 \"/opt/jdk-21\"）。系统、~/Library/Java、Homebrew、sdkman、asdf、jenv、mise 装的会自己找到，找不到的加在这里",
+    },
+    Def {
+        key: "maven.useWrapper",
+        label: "项目里有 mvnw 就用它",
+        kind: Kind::Bool,
+        default: "true",
+        doc: "项目里有 mvnw（Maven Wrapper）就用它 —— 项目要的 Maven 版本写在 .mvn/wrapper/ 里，Spring Initializr 生成的项目都有",
+    },
+    Def {
+        key: "maven.home",
+        label: "Maven 安装目录",
+        kind: Kind::Str { empty_ok: true },
+        default: "\"\"",
+        doc: "Maven 的安装目录（里面有 bin/mvn）。空 = PATH 里的 mvn。项目有 mvnw 而且 maven.useWrapper 开着时不看这一项",
+    },
+    Def {
+        key: "maven.settingsFile",
+        label: "settings.xml",
+        kind: Kind::Str { empty_ok: true },
+        default: "\"\"",
+        doc: "Maven 的 settings.xml（mvn -s）。空 = Maven 的默认（~/.m2/settings.xml）",
+    },
+    Def {
+        key: "maven.localRepository",
+        label: "本地仓库",
+        kind: Kind::Str { empty_ok: true },
+        default: "\"\"",
+        doc: "Maven 本地仓库（-Dmaven.repo.local）。空 = settings.xml 里写的，没写就是 ~/.m2/repository",
+    },
+    Def {
+        key: "maven.extraArgs",
+        label: "每条 mvn 都带的参数",
+        kind: Kind::Str { empty_ok: true },
+        default: "\"\"",
+        doc: "每条 mvn 都带上的参数，照 shell 的写法（如 \"-T 4 -U\"）",
+    },
+    Def {
+        key: "maven.opts",
+        label: "MAVEN_OPTS（Maven 自己的 JVM 参数）",
+        kind: Kind::Str { empty_ok: true },
+        default: "\"\"",
+        doc: "MAVEN_OPTS：跑 Maven 本身的 JVM 的参数（如 \"-Xmx2g\"）。不是你程序的 JVM 参数 —— 那个在运行配置里",
+    },
 ];
+
+/// jdtls 内存的范围（MB）
+pub const JDTLS_MEMORY_MIN: i64 = 512;
+pub const JDTLS_MEMORY_MAX: i64 = 16384;
 
 fn def(key: &str) -> Option<&'static Def> {
     DEFS.iter().find(|d| d.key == key)
@@ -102,6 +175,15 @@ pub struct Settings {
     pub terminal_shell: String,
     /// 空 = `<应用数据>/jdtls`（docs/IDEA.md 第 2 步）
     pub java_jdtls_home: String,
+    /// MB
+    pub java_jdtls_memory: i64,
+    pub java_jdks: Vec<String>,
+    pub maven_use_wrapper: bool,
+    pub maven_home: String,
+    pub maven_settings_file: String,
+    pub maven_local_repository: String,
+    pub maven_extra_args: String,
+    pub maven_opts: String,
 }
 
 impl Default for Settings {
@@ -113,6 +195,14 @@ impl Default for Settings {
             terminal_font_size: FONT_DEFAULT,
             terminal_shell: String::new(),
             java_jdtls_home: String::new(),
+            java_jdtls_memory: 1024,
+            java_jdks: Vec::new(),
+            maven_use_wrapper: true,
+            maven_home: String::new(),
+            maven_settings_file: String::new(),
+            maven_local_repository: String::new(),
+            maven_extra_args: String::new(),
+            maven_opts: String::new(),
         }
     }
 }
@@ -122,6 +212,8 @@ impl Settings {
     fn put(&mut self, key: &str, v: &Value) {
         let s = || v.as_str().unwrap_or_default().to_string();
         let n = || v.as_i64().unwrap_or(FONT_DEFAULT);
+        let b = || v.as_bool().unwrap_or_default();
+        let list = || v.as_array().into_iter().flatten().filter_map(Value::as_str).map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect();
         match key {
             "editor.fontFamily" => self.editor_font_family = s(),
             "editor.fontSize" => self.editor_font_size = n(),
@@ -129,6 +221,14 @@ impl Settings {
             "terminal.fontSize" => self.terminal_font_size = n(),
             "terminal.shell" => self.terminal_shell = s(),
             "java.jdtlsHome" => self.java_jdtls_home = s(),
+            "java.jdtlsMemory" => self.java_jdtls_memory = v.as_i64().unwrap_or(1024),
+            "java.jdks" => self.java_jdks = list(),
+            "maven.useWrapper" => self.maven_use_wrapper = b(),
+            "maven.home" => self.maven_home = s(),
+            "maven.settingsFile" => self.maven_settings_file = s(),
+            "maven.localRepository" => self.maven_local_repository = s(),
+            "maven.extraArgs" => self.maven_extra_args = s(),
+            "maven.opts" => self.maven_opts = s(),
             _ => {}
         }
     }
@@ -285,6 +385,14 @@ fn check(d: &Def, v: &Value) -> Check {
             Some(_) => Check::Ok,
             None => Check::Wrong("整数"),
         },
+        Kind::Bool => match v {
+            Value::Bool(_) => Check::Ok,
+            _ => Check::Wrong(" true 或 false"),
+        },
+        Kind::StrList => match v.as_array() {
+            Some(a) if a.iter().all(Value::is_string) => Check::Ok,
+            _ => Check::Wrong("字符串的列表（[\"…\", \"…\"]）"),
+        },
     }
 }
 
@@ -296,6 +404,37 @@ fn check(d: &Def, v: &Value) -> Check {
 /// 要认的边界：字符串里的 `//`（`"http://…"` 不是注释）、字符串里的 `\"`、`/* */` 跨行（换行留着，行号才不乱）。
 /// 没收尾的 `/*` 算语法错 —— 不然它后面的设置全被当成注释吞掉，而你看不出为什么不生效。
 pub(crate) fn strip(text: &str) -> Result<String, Problem> {
+    let mut b = strip_comments(text)?.into_bytes();
+    let n = b.len();
+    // 第二遍：末尾逗号。注释已经是空格了，`,  // 说明\n}` 这种也认得出
+    let mut in_str = false;
+    let mut i = 0;
+    while i < n {
+        let c = b[i];
+        if in_str {
+            match c {
+                b'\\' => i += 1,
+                b'"' => in_str = false,
+                _ => {}
+            }
+        } else if c == b'"' {
+            in_str = true;
+        } else if c == b',' {
+            let next = b[i + 1..].iter().find(|x| !x.is_ascii_whitespace());
+            if matches!(next, Some(b'}') | Some(b']')) {
+                b[i] = b' ';
+            }
+        }
+        i += 1;
+    }
+    // 只把 ASCII 字节换成了空格、整段换掉了多字节字符，结果一定是合法的 UTF-8
+    Ok(String::from_utf8(b).unwrap_or_default())
+}
+
+/// [`strip`] 的第一步：只把注释换成等长的空格，**末尾逗号留着**。设置页定点改写要用它（[`edit`]）：
+/// 改写要知道「这个成员后面原来有没有逗号」，而 `strip` 连末尾逗号也抹成了空格 —— 拿它判，`16,` 会被当成没逗号、再补一个，
+/// 写出 `16,,`（真 .app 验收撞出来的；单元测试的样例最后一项碰巧都没写逗号）
+fn strip_comments(text: &str) -> Result<String, Problem> {
     let mut b = text.as_bytes().to_vec();
     let n = b.len();
     let mut i = 0;
@@ -346,28 +485,6 @@ pub(crate) fn strip(text: &str) -> Result<String, Problem> {
             _ => i += 1,
         }
     }
-    // 第二遍：末尾逗号。注释已经是空格了，`,  // 说明\n}` 这种也认得出
-    let mut in_str = false;
-    let mut i = 0;
-    while i < n {
-        let c = b[i];
-        if in_str {
-            match c {
-                b'\\' => i += 1,
-                b'"' => in_str = false,
-                _ => {}
-            }
-        } else if c == b'"' {
-            in_str = true;
-        } else if c == b',' {
-            let next = b[i + 1..].iter().find(|x| !x.is_ascii_whitespace());
-            if matches!(next, Some(b'}') | Some(b']')) {
-                b[i] = b' ';
-            }
-        }
-        i += 1;
-    }
-    // 只把 ASCII 字节换成了空格、整段换掉了多字节字符，结果一定是合法的 UTF-8
     Ok(String::from_utf8(b).unwrap_or_default())
 }
 
@@ -455,6 +572,214 @@ pub fn template() -> String {
     }
     s.push_str("}\n");
     s
+}
+
+// ─────────────────────────── 设置页写回 settings.json（SETTINGS.md 13.5）───────────────────────────
+
+/// 设置页交来的一个值能不能写：认识这个键、类型对、在范围里。和读文件时用的是同一个 [`check`] —— 写进去的东西读回来一定认
+pub fn validate(key: &str, v: &Value) -> Result<(), String> {
+    let d = def(key).ok_or_else(|| format!("不认识的设置：{key}"))?;
+    match check(d, v) {
+        Check::Ok => Ok(()),
+        Check::Clamp(from, _) => Err(format!("{key} 是 {from}，超出范围")),
+        Check::Wrong(want) => Err(format!("{key} 要是{want}")),
+    }
+}
+
+/// 原文里写了哪些键（设置页上「改过」的标记、「恢复默认」只对它们有意义）。读不懂就当一个都没写
+pub fn written_keys(text: &str) -> Vec<String> {
+    strip(text).map(|c| top_level_keys(&c).into_iter().map(|(k, _)| k).collect()).unwrap_or_default()
+}
+
+/// 一份设置按 [`DEFS`] 的键转成 JSON 值（设置页要显示每一项现在是什么）
+pub fn values(s: &Settings) -> serde_json::Map<String, Value> {
+    let mut m = serde_json::Map::new();
+    for d in DEFS {
+        let v = match d.key {
+            "editor.fontFamily" => Value::from(s.editor_font_family.clone()),
+            "editor.fontSize" => Value::from(s.editor_font_size),
+            "terminal.fontFamily" => Value::from(s.terminal_font_family.clone()),
+            "terminal.fontSize" => Value::from(s.terminal_font_size),
+            "terminal.shell" => Value::from(s.terminal_shell.clone()),
+            "java.jdtlsHome" => Value::from(s.java_jdtls_home.clone()),
+            "java.jdtlsMemory" => Value::from(s.java_jdtls_memory),
+            "java.jdks" => Value::from(s.java_jdks.clone()),
+            "maven.useWrapper" => Value::from(s.maven_use_wrapper),
+            "maven.home" => Value::from(s.maven_home.clone()),
+            "maven.settingsFile" => Value::from(s.maven_settings_file.clone()),
+            "maven.localRepository" => Value::from(s.maven_local_repository.clone()),
+            "maven.extraArgs" => Value::from(s.maven_extra_args.clone()),
+            "maven.opts" => Value::from(s.maven_opts.clone()),
+            _ => continue,
+        };
+        m.insert(d.key.to_string(), v);
+    }
+    m
+}
+
+/// 把一批改动写进 `settings.json` 的原文：`Some(值)` 设成这个值，`None` 恢复默认（删掉这一项）。
+/// **只动那一个值的字符**：你写的注释、空行、键的次序都留着（VS Code 的设置编辑器同一个做法）。
+///
+/// - 已经写了：换值；写了不止一次的，换生效的那个（最后一个）。恢复默认：整行删掉（同一行没别的成员时），连同后面的逗号
+/// - 没写、模板里有它那行注释（`// "key": 默认,`）：插在那行注释后面，和它的说明挨着
+/// - 都没有：插在最后一个 `}` 前面
+/// - 新插的一行末尾带逗号（JSONC 认）；插在一个没带逗号的成员后面时先给它补上逗号
+///
+/// 原文整份读不懂（语法错）就不写，回那条问题：在一份读不懂的文本上动刀，只会把它改得更坏。
+/// 写完再解析一遍，读不懂就不交出去（防自己写错）
+pub fn edit(text: &str, changes: &[(&str, Option<Value>)]) -> Result<String, Problem> {
+    let mut out = text.to_string();
+    if out.trim().is_empty() {
+        out = "{\n}\n".into();
+    }
+    parse(&out)?;
+    for (key, val) in changes {
+        out = edit_one(&out, key, val.as_ref())?;
+    }
+    parse(&out)?;
+    Ok(out)
+}
+
+fn edit_one(text: &str, key: &str, val: Option<&Value>) -> Result<String, Problem> {
+    // 只剥注释、末尾逗号留着（[`strip_comments`]）。真离不开它的是插入（`finish_insert` 要看前一项后面有没有逗号）；
+    // 换值、删除用哪种都对 —— 被剥掉的逗号是空格，删的时候跟着空格一起扫走（验过：这里换回 `strip` 测试照样绿）。和插入用同一份，少一种要想的情况
+    let clean = strip_comments(text)?;
+    let b = clean.as_bytes();
+    let found = top_level_keys(&clean).into_iter().rev().find(|(k, _)| k == key).map(|(_, off)| off);
+    let lit = val.map(|v| serde_json::to_string(v).unwrap_or_else(|_| "null".into()));
+    match (found, lit) {
+        (Some(off), Some(lit)) => {
+            let (vs, ve) = value_span(b, off).ok_or(Problem::NotObject)?;
+            Ok(format!("{}{}{}", &text[..vs], lit, &text[ve..]))
+        }
+        (Some(off), None) => {
+            let (_, ve) = value_span(b, off).ok_or(Problem::NotObject)?;
+            // 往后吃掉空格和逗号
+            let mut end = ve;
+            while end < b.len() && (b[end] == b' ' || b[end] == b'\t') {
+                end += 1;
+            }
+            if end < b.len() && b[end] == b',' {
+                end += 1;
+            }
+            // 这一行在这个成员前后都只有空白（剥过注释的文本上看：行尾的注释也算空白，跟着它一起走）→ 整行删掉
+            let line_start = clean[..off].rfind('\n').map_or(0, |i| i + 1);
+            let line_end = clean[end..].find('\n').map_or(clean.len(), |i| end + i);
+            if clean[line_start..off].trim().is_empty() && clean[end..line_end].trim().is_empty() {
+                let cut_end = (line_end + 1).min(text.len());
+                Ok(format!("{}{}", &text[..line_start], &text[cut_end..]))
+            } else {
+                Ok(format!("{}{}", &text[..off], &text[end..]))
+            }
+        }
+        (None, None) => Ok(text.to_string()),
+        (None, Some(lit)) => {
+            // 模板里它那行注释：`// "key":` 开头的一行（只认原文里整行就是注释的，真设置后面的行尾注释不算）
+            let marker = format!("// \"{key}\":");
+            let mut at_line = None;
+            let mut pos = 0;
+            for line in text.split_inclusive('\n') {
+                if line.trim_start().starts_with(&marker) {
+                    at_line = Some((pos, line));
+                }
+                pos += line.len();
+            }
+            let (insert_at, indent) = match at_line {
+                Some((start, line)) => {
+                    let indent = &line[..line.len() - line.trim_start().len()];
+                    (start + line.len(), indent.to_string())
+                }
+                None => {
+                    // 最外层的收尾 `}`：剥过注释的文本里最后一个非空白字符
+                    let close = clean.trim_end().len().checked_sub(1).filter(|&i| b[i] == b'}').ok_or(Problem::NotObject)?;
+                    let line_start = clean[..close].rfind('\n').map_or(0, |i| i + 1);
+                    if clean[line_start..close].trim().is_empty() {
+                        (line_start, "  ".to_string())
+                    } else {
+                        // `{ "a": 1 }` 写在一行里：在 `}` 前面另起一行
+                        let head = format!("{}\n", &text[..close]);
+                        return finish_insert(&head, head.len(), "  ", key, &lit, &text[close..]);
+                    }
+                }
+            };
+            finish_insert(text, insert_at, &indent, key, &lit, "")
+        }
+    }
+}
+
+/// 在 `text[..at]` 后面插一行 `"key": 值,`，再接 `text[at..]`（`tail` 非空时接它）。插入点前面最后一个真成员没带逗号的，先补上
+fn finish_insert(text: &str, at: usize, indent: &str, key: &str, lit: &str, tail: &str) -> Result<String, Problem> {
+    let clean = strip_comments(text)?;
+    let before = &clean.as_bytes()[..at.min(clean.len())];
+    let mut head = text[..at].to_string();
+    if let Some(i) = before.iter().rposition(|c| !c.is_ascii_whitespace()) {
+        if before[i] != b'{' && before[i] != b',' {
+            head.insert(i + 1, ',');
+        }
+    }
+    let rest = if tail.is_empty() { &text[at..] } else { tail };
+    let key_lit = serde_json::to_string(key).unwrap_or_default();
+    Ok(format!("{head}{indent}{key_lit}: {lit},\n{rest}"))
+}
+
+/// 剥过注释的文本里、从键的引号开始，找到它的值的 [起, 止)。值可能是字符串、数、true / false / null、数组、对象
+fn value_span(b: &[u8], key_off: usize) -> Option<(usize, usize)> {
+    // 跳过键这个字符串
+    let mut i = key_off + 1;
+    while i < b.len() && b[i] != b'"' {
+        if b[i] == b'\\' {
+            i += 1;
+        }
+        i += 1;
+    }
+    i += 1;
+    while i < b.len() && b[i] != b':' {
+        i += 1;
+    }
+    i += 1;
+    while i < b.len() && b[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let start = i;
+    let mut depth = 0usize;
+    let mut in_str = false;
+    while i < b.len() {
+        let c = b[i];
+        if in_str {
+            match c {
+                b'\\' => i += 1,
+                b'"' => {
+                    in_str = false;
+                    if depth == 0 {
+                        return Some((start, i + 1));
+                    }
+                }
+                _ => {}
+            }
+        } else {
+            match c {
+                b'"' => in_str = true,
+                b'{' | b'[' => depth += 1,
+                b'}' | b']' if depth > 0 => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some((start, i + 1));
+                    }
+                }
+                b',' | b'}' | b'\n' if depth == 0 => {
+                    let end = start + clean_trim_end(&b[start..i]);
+                    return Some((start, end));
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn clean_trim_end(s: &[u8]) -> usize {
+    s.iter().rposition(|c| !c.is_ascii_whitespace()).map_or(0, |i| i + 1)
 }
 
 // ─────────────────────────── ui-state.json ───────────────────────────
@@ -649,6 +974,11 @@ impl Store {
         g.ui_fresh = text.is_none();
     }
 
+    /// `settings.json` 里生效的那份（设置页要拿它的原样值，Maven / JDK 那些要下发给各自的使用方）
+    pub fn current(&self) -> Settings {
+        self.lock().parsed.settings.clone()
+    }
+
     /// 当前生效的值和问题
     pub fn view(&self) -> (Effective, Vec<Problem>) {
         let g = self.lock();
@@ -691,6 +1021,112 @@ mod tests {
 
     fn ok(text: &str) -> Parsed {
         parse(text).unwrap_or_else(|p| panic!("整份解析失败：{p:?}\n{text}"))
+    }
+
+    // ── 设置页写回（SETTINGS.md 13.5）──
+
+    fn set(text: &str, key: &str, v: Value) -> String {
+        edit(text, &[(key, Some(v))]).unwrap_or_else(|p| panic!("{p:?}"))
+    }
+
+    #[test]
+    fn 写回_已经写了的只换值_注释和次序都在() {
+        let t = "{\n  // 我平时用 14\n  \"editor.fontSize\": 14, // 投屏时改大\n  \"terminal.shell\": \"/bin/zsh\",\n}\n";
+        let got = set(t, "editor.fontSize", Value::from(16));
+        assert_eq!(got, "{\n  // 我平时用 14\n  \"editor.fontSize\": 16, // 投屏时改大\n  \"terminal.shell\": \"/bin/zsh\",\n}\n");
+        let got = set(t, "terminal.shell", Value::from("/opt/homebrew/bin/fish"));
+        assert!(got.contains("\"terminal.shell\": \"/opt/homebrew/bin/fish\","), "{got}");
+        assert_eq!(ok(&got).settings.terminal_shell, "/opt/homebrew/bin/fish");
+    }
+
+    #[test]
+    fn 写回_模板里注释着的_插在那行注释后面() {
+        let got = set(&template(), "maven.home", Value::from("/opt/maven"));
+        let lines: Vec<&str> = got.lines().collect();
+        let i = lines.iter().position(|l| l.trim_start().starts_with("// \"maven.home\":")).unwrap();
+        assert_eq!(lines[i + 1], "  \"maven.home\": \"/opt/maven\",", "紧挨着它那行注释");
+        assert_eq!(ok(&got).settings.maven_home, "/opt/maven");
+        assert_eq!(ok(&got).problems, vec![]);
+    }
+
+    #[test]
+    fn 写回_都没有就插在最后_前一个没逗号的补上() {
+        let got = set("{\n  \"editor.fontSize\": 14\n}\n", "maven.opts", Value::from("-Xmx2g"));
+        assert_eq!(got, "{\n  \"editor.fontSize\": 14,\n  \"maven.opts\": \"-Xmx2g\",\n}\n");
+        let got = set("{ \"editor.fontSize\": 14 }", "maven.useWrapper", Value::from(false));
+        let p = ok(&got);
+        assert_eq!((p.settings.editor_font_size, p.settings.maven_use_wrapper), (14, false), "写在一行里的也认：{got}");
+        let got = set("", "java.jdks", serde_json::json!(["/opt/jdk-21"]));
+        assert_eq!(ok(&got).settings.java_jdks, vec!["/opt/jdk-21".to_string()], "空文件：{got}");
+    }
+
+    #[test]
+    fn 写回_带中文注释和末尾逗号的文件_插在最后也对() {
+        // 真 .app 验收撞出来的（settings.sh）：这份文件写回时报「第 3 行 key must be a string」
+        let t = "{\n  // 验收\n  \"editor.fontSize\": 16,\n}\n";
+        let got = edit(t, &[("maven.extraArgs", Some(Value::from("-T 2")))]).unwrap_or_else(|p| panic!("{p:?}"));
+        assert_eq!(got, "{\n  // 验收\n  \"editor.fontSize\": 16,\n  \"maven.extraArgs\": \"-T 2\",\n}\n");
+    }
+
+    #[test]
+    fn 写回_同一行里删掉带末尾逗号的最后一项_不留两个逗号() {
+        let got = edit("{ \"editor.fontSize\": 14, \"terminal.fontSize\": 12, }", &[("terminal.fontSize", None)]).unwrap_or_else(|p| panic!("{p:?}"));
+        assert_eq!(ok(&got).settings.editor_font_size, 14, "{got}");
+        assert!(!got.contains(",,") && !got.contains(", ,"), "{got}");
+    }
+
+    #[test]
+    fn 写回_恢复默认整行删掉_行尾注释跟着走_同一行还有别的只删它自己() {
+        let t = "{\n  \"editor.fontSize\": 14, // 投屏\n  \"terminal.shell\": \"/bin/zsh\"\n}\n";
+        let got = edit(t, &[("editor.fontSize", None)]).unwrap();
+        assert_eq!(got, "{\n  \"terminal.shell\": \"/bin/zsh\"\n}\n");
+        let got = edit("{ \"editor.fontSize\": 14, \"terminal.fontSize\": 12 }", &[("editor.fontSize", None)]).unwrap();
+        assert_eq!(ok(&got).settings.terminal_font_size, 12, "{got}");
+        assert_eq!(ok(&got).settings.editor_font_size, FONT_DEFAULT);
+        assert_eq!(edit(t, &[("maven.home", None)]).unwrap(), t, "本来就没写：原样");
+    }
+
+    #[test]
+    fn 写回_值是列表和对象和含逗号的字符串_整个换掉() {
+        let t = "{\n  \"java.jdks\": [\"/a\", \"/b\"],\n  \"maven.extraArgs\": \"-T 4, -U\",\n}\n";
+        let got = set(t, "java.jdks", serde_json::json!(["/c"]));
+        assert!(got.contains("\"java.jdks\": [\"/c\"],"), "{got}");
+        let got = set(t, "maven.extraArgs", Value::from("-o"));
+        assert!(got.contains("\"maven.extraArgs\": \"-o\","), "字符串里的逗号不是值的结尾：{got}");
+    }
+
+    #[test]
+    fn 写回_写了两次的换生效的那个_读不懂的不动刀() {
+        let got = set("{\n  \"editor.fontSize\": 12,\n  \"editor.fontSize\": 14,\n}", "editor.fontSize", Value::from(18));
+        assert_eq!(ok(&got).settings.editor_font_size, 18);
+        assert!(got.contains("\"editor.fontSize\": 12,"), "前面那个不生效的不碰：{got}");
+        assert!(matches!(edit("{ \"editor.fontSize\": 14", &[("editor.fontSize", Some(Value::from(1)))]), Err(Problem::Syntax { .. })));
+    }
+
+    #[test]
+    fn 每个键都能转成值_转回去读得一样() {
+        // values() 是手写的一张对照表：漏了哪个键，设置页上那一项就是空的。这条卡住：每个 DEFS 里的键都在，而且写进文件再读回来一样
+        let mut s = Settings::default();
+        s.maven_home = "/opt/maven".into();
+        s.java_jdks = vec!["/opt/jdk".into()];
+        s.java_jdtls_memory = 2048;
+        let v = values(&s);
+        assert_eq!(v.len(), DEFS.len(), "漏了：{:?}", DEFS.iter().filter(|d| !v.contains_key(d.key)).map(|d| d.key).collect::<Vec<_>>());
+        let text = serde_json::to_string(&v).unwrap();
+        assert_eq!(ok(&text).settings, s);
+        assert!(validate("maven.useWrapper", &Value::from("no")).is_err());
+        assert!(validate("java.jdtlsMemory", &Value::from(100)).is_err(), "设置页交来的越界值不写（读文件时是夹回来，写的时候直接拒）");
+        assert!(validate("x.y", &Value::from(1)).is_err());
+        assert_eq!(written_keys("{\n // \"maven.home\": \"\",\n \"editor.fontSize\": 14 }"), vec!["editor.fontSize".to_string()], "注释掉的不算写了");
+    }
+
+    #[test]
+    fn 新键的类型_布尔和列表写错了只丢这一项() {
+        let p = ok("{ \"maven.useWrapper\": \"no\", \"java.jdks\": \"/opt/jdk\", \"java.jdtlsMemory\": 99999 }");
+        assert!(p.settings.maven_use_wrapper, "写错了用默认（true）");
+        assert!(p.settings.java_jdks.is_empty());
+        assert_eq!(p.settings.java_jdtls_memory, JDTLS_MEMORY_MAX, "超出范围夹回来");
+        assert_eq!(p.problems.len(), 3, "{:?}", p.problems);
     }
 
     // ── 键的定义只有一份，别的都跟着它 ──

@@ -20,8 +20,8 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// jdtls 的堆上限。petclinic（9 个 Maven 项目）实测 RSS 1.1–1.5 GB、没有 OOM（IDEA.md 第 7 节）
-pub const XMX: &str = "1G";
+/// jdtls 的堆上限默认 1 GB（`java.jdtlsMemory`，docs/SETTINGS.md 13.4）。petclinic（9 个 Maven 项目）实测 RSS 1.1–1.5 GB、没有 OOM（IDEA.md 第 7 节）；
+/// 更大的项目在设置页里调
 /// 一个 Java 标签都没开着多久就收掉（第 3 节第 2 条）
 pub const IDLE: Duration = Duration::from_secs(10 * 60);
 /// 一个查询最多等多久。第一次查用法实测最慢 6 秒（冷、要搜全部索引），之后 65 ms
@@ -1009,8 +1009,8 @@ fn find(app: &AppHandle, root: &Path) -> Result<Found, String> {
             (home, label)
         }
     };
-    let settings = std::fs::read_to_string(user.join(".m2/settings.xml")).ok();
-    let lombok = jdtls::lombok_jar(&jdtls::local_repo(&user, settings.as_deref()));
+    // 本地仓库跟着设置走（maven.localRepository / maven.settingsFile，SETTINGS.md 13.4）：和跑 mvn 的是同一个
+    let lombok = jdtls::lombok_jar(&crate::maven::local_repo(&user));
     let workspace = jdtls::workspace_dir(&data.join("jdtls-ws"), root);
     jdtls::prepare_config(&layout, &workspace).map_err(|e| format!("建不了 jdtls 的缓存目录 {}：{e}", workspace.display()))?;
     let debug_jar = inside.as_ref().and_then(|d| debug_jar(&d.join("java-debug")));
@@ -1061,12 +1061,13 @@ impl Java {
                 None => "没找到 Lombok（用 Lombok 的项目会报假错）".into(),
             }
         );
+        let xmx = format!("{}m", app.state::<crate::state::AppState>().settings.current().java_jdtls_memory);
         let spec = jdtls::spec(&jdtls::Launch {
             java_home: &f.java,
             layout: &f.layout,
             workspace: &f.workspace,
             lombok: f.lombok.as_deref(),
-            xmx: XMX,
+            xmx: &xmx,
             root: Path::new(root),
         });
         let shared = Arc::new(Shared {
@@ -1114,7 +1115,8 @@ impl Java {
         }
         emit_status(app, owner, &shared.status());
         let init = Arc::clone(&inst);
-        let mut opts = jdtls::init_options();
+        let mvn_settings = crate::maven::cfg().settings_file;
+        let mut opts = jdtls::init_options(&crate::jdks::all(), Some(&mvn_settings));
         if let Some(j) = &f.debug_jar {
             opts["bundles"] = json!([j]);
         }

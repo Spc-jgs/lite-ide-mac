@@ -321,6 +321,66 @@ export interface DebugVars {
   more: number;
 }
 
+/** 设置对话框要的全部（docs/SETTINGS.md 第 13 节） */
+export interface SettingsPage {
+  defs: SettingDef[];
+  /** 每个键现在生效的值，没写的是默认值 */
+  values: Record<string, unknown>;
+  /** settings.json 里写了的键 */
+  written: string[];
+  path: string;
+  /** settings.json 整份读不懂时为什么（这时不写全局设置） */
+  broken: string | null;
+  jdks: Jdk[];
+  /** 手动加的 JDK 里认不出来的 */
+  badJdks: string[];
+  project: ProjectPage | null;
+}
+
+export interface Jdk {
+  version: number;
+  home: string;
+  /** 设置里手动加的 */
+  manual: boolean;
+}
+
+/** 设置对话框里「此项目」那一栏 */
+export interface ProjectPage {
+  root: string;
+  /** 空 = 按 pom 自动 */
+  jdk: string;
+  /** 自动挑的话挑哪个（给人看的一句） */
+  autoJdk: string;
+  offline: boolean;
+  skipTests: boolean;
+  /** 项目根上有 mvnw */
+  wrapper: boolean;
+}
+
+/** 运行配置对话框要的 */
+export interface RunConfigs {
+  services: RunConfig[];
+  jdks: Jdk[];
+}
+
+/** 一个 Spring 服务的运行配置 */
+export interface RunConfig {
+  name: string;
+  mainClass: string;
+  module: string;
+  profiles: string;
+  vmOptions: string;
+  programArgs: string;
+  env: EnvVar[];
+  /** 空 = 跟项目 */
+  jdk: string;
+}
+
+export interface EnvVar {
+  name: string;
+  value: string;
+}
+
 /** 「重新加载改过的类」的结果（docs/IDEA.md 第 26 节） */
 export interface DebugHotswap {
   kind: "nosession" | "noagent" | "unchanged" | "done" | "failed" | "noreply";
@@ -1014,7 +1074,9 @@ export const adoptUiState = (p: {
 /** 一个设置项的定义（Rust 的 `settings::DEFS`），编辑 `settings.json` 时补全用 */
 export interface SettingDef {
   key: string;
-  kind: "string" | "integer";
+  /** 设置页上那一项的名字 */
+  label: string;
+  kind: "string" | "integer" | "boolean" | "array";
   /** 默认值的 JSON 字面量 */
   default: string;
   doc: string;

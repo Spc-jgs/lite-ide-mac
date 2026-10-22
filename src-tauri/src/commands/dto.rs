@@ -585,7 +585,9 @@ pub struct SettingProblemDto {
 #[serde(rename_all = "camelCase")]
 pub struct SettingDefDto {
     pub key: String,
-    /// `"string"` / `"integer"`
+    /// 设置页上那一项的名字
+    pub label: String,
+    /// `"string"` / `"integer"` / `"boolean"` / `"array"`（字符串列表）
     pub kind: String,
     /// 默认值的 JSON 字面量，原样可以插进文件
     pub default: String,
@@ -1130,6 +1132,80 @@ impl From<crate::debug::Var> for DebugVarDto {
 pub struct DebugVarsDto {
     pub vars: Vec<DebugVarDto>,
     pub more: u32,
+}
+
+/// 设置对话框要的全部（docs/SETTINGS.md 第 13 节）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsPageDto {
+    pub defs: Vec<SettingDefDto>,
+    /// 每个键现在生效的值，没写的是默认值
+    pub values: serde_json::Map<String, serde_json::Value>,
+    /// settings.json 里写了的键
+    pub written: Vec<String>,
+    pub path: String,
+    /// settings.json 整份读不懂时为什么（这时设置页不写全局设置，先修好它）
+    pub broken: Option<String>,
+    pub jdks: Vec<JdkDto>,
+    /// 手动加的 JDK 里认不出来的（目录没了、不是 JDK）
+    pub bad_jdks: Vec<String>,
+    /// 没打开项目时没有
+    pub project: Option<ProjectPageDto>,
+}
+
+/// 一个 JDK
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JdkDto {
+    pub version: u32,
+    pub home: String,
+    /// 设置里手动加的
+    pub manual: bool,
+}
+
+/// 设置对话框里「此项目」那一栏
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPageDto {
+    pub root: String,
+    /// 项目选的 JDK，空 = 按 pom 自动
+    pub jdk: String,
+    /// 自动挑的话挑哪个（给人看的一句）
+    pub auto_jdk: String,
+    pub offline: bool,
+    pub skip_tests: bool,
+    /// 项目根上有 mvnw
+    pub wrapper: bool,
+}
+
+/// 运行配置对话框要的
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunConfigsDto {
+    pub services: Vec<RunConfigDto>,
+    pub jdks: Vec<JdkDto>,
+}
+
+/// 一个 Spring 服务的运行配置
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunConfigDto {
+    pub name: String,
+    pub main_class: String,
+    pub module: String,
+    pub profiles: String,
+    pub vm_options: String,
+    pub program_args: String,
+    pub env: Vec<EnvVarDto>,
+    /// 空 = 跟项目
+    pub jdk: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvVarDto {
+    pub name: String,
+    pub value: String,
 }
 
 /// 「重新加载改过的类」的结果（docs/IDEA.md 第 26 节）。`kind`：nosession / noagent / unchanged / done / failed / noreply

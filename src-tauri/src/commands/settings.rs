@@ -47,3 +47,50 @@ pub async fn adopt_ui_state(
 pub async fn open_settings(app: tauri::AppHandle) -> Result<String, String> {
     blocking(move || crate::settingsctl::open_settings(&app)).await
 }
+
+/// 设置对话框打开时要的全部（docs/SETTINGS.md 第 13 节）。读盘、扫 JDK 目录，走阻塞池
+#[tauri::command]
+pub async fn settings_page(app: tauri::AppHandle, root: Option<String>) -> Result<SettingsPageDto, String> {
+    blocking(move || Ok(crate::settingsctl::page(&app, root.as_deref()))).await
+}
+
+/// 设置对话框的「应用 / 确定」。`global` 里值是 null 的是恢复默认。回应用之后的整页 —— `root` 是这个窗口的项目，
+/// 单独传：只改了全局设置时 `project` 是空的，拿它当根的话回来的页面就没有「此项目」那一类了（浏览器里点「应用」撞见的）
+#[tauri::command]
+pub async fn settings_apply(
+    app: tauri::AppHandle,
+    root: Option<String>,
+    global: serde_json::Map<String, serde_json::Value>,
+    project: Option<crate::settingsctl::ProjectApply>,
+) -> Result<SettingsPageDto, String> {
+    blocking(move || {
+        crate::settingsctl::apply(&app, global, project)?;
+        Ok(crate::settingsctl::page(&app, root.as_deref()))
+    })
+    .await
+}
+
+/// 运行配置对话框：这个项目认出来的 Spring 服务和各自的配置
+#[tauri::command]
+pub async fn run_configs(root: String) -> Result<RunConfigsDto, String> {
+    blocking(move || Ok(crate::settingsctl::run_configs(&root))).await
+}
+
+/// 记下一个服务的运行配置（下次起它时生效）
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn run_config_set(
+    root: String,
+    name: String,
+    profiles: String,
+    vm_options: String,
+    program_args: String,
+    env: Vec<EnvVarDto>,
+    jdk: String,
+) -> Result<(), String> {
+    blocking(move || {
+        let run = crate::projectcfg::RunCfg { profiles, vm_options, program_args, env: env.into_iter().map(|e| (e.name, e.value)).collect(), jdk };
+        crate::settingsctl::set_run_config(&root, &name, run)
+    })
+    .await
+}

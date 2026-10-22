@@ -58,6 +58,7 @@ pub fn init(app: &AppHandle) {
     let st = app.state::<AppState>();
     let sp = settings_path(app);
     st.settings.load_settings(read(&sp), shell_ok);
+    hand_out(&st.settings.current());
     st.settings.load_ui(read(&ui_path(app)).as_deref());
     let (_, problems) = st.settings.view();
     for p in &problems {
@@ -80,10 +81,26 @@ pub fn init(app: &AppHandle) {
 /// 文件监听报「碰过」：重读，真变了才广播（原文没变 `load_settings` 自己会认出来）
 fn reload(app: &AppHandle) {
     let text = read(&settings_path(app));
-    if app.state::<AppState>().settings.load_settings(text, shell_ok) {
+    let st = app.state::<AppState>();
+    if st.settings.load_settings(text, shell_ok) {
+        hand_out(&st.settings.current());
         crate::diag!("settings-changed（文件）");
         broadcast(app);
     }
+}
+
+/// 不在前端用、由 Rust 各处读的那些设置，交给各自的使用方（SETTINGS.md 13.4）：Maven 怎么调。
+/// 交出去而不是让 `maven.rs` 来问 `AppState`：`maven.rs` 不依赖 Tauri，单元测试里直接设
+fn hand_out(s: &settings::Settings) {
+    crate::maven::set_cfg(crate::maven::MavenCfg {
+        use_wrapper: s.maven_use_wrapper,
+        home: s.maven_home.clone(),
+        settings_file: s.maven_settings_file.clone(),
+        local_repo: s.maven_local_repository.clone(),
+        extra_args: s.maven_extra_args.clone(),
+        opts: s.maven_opts.clone(),
+    });
+    crate::jdks::set_user(s.java_jdks.clone());
 }
 
 pub fn broadcast(app: &AppHandle) {
@@ -201,9 +218,12 @@ pub fn schema() -> Vec<crate::commands::SettingDefDto> {
             let (kind, min, max) = match d.kind {
                 settings::Kind::Str { .. } => ("string", None, None),
                 settings::Kind::Int { min, max } => ("integer", Some(min), Some(max)),
+                settings::Kind::Bool => ("boolean", None, None),
+                settings::Kind::StrList => ("array", None, None),
             };
             crate::commands::SettingDefDto {
                 key: d.key.into(),
+                label: d.label.into(),
                 kind: kind.into(),
                 default: d.default.into(),
                 doc: d.doc.into(),
@@ -212,6 +232,147 @@ pub fn schema() -> Vec<crate::commands::SettingDefDto> {
             }
         })
         .collect()
+}
+
+/// JDK 列表转出去：自动找到的 + 手动加的，手动加的标出来
+pub fn jdk_dtos() -> Vec<crate::commands::JdkDto> {
+    let manual: Vec<std::path::PathBuf> = crate::jdks::user().iter().filter_map(|d| crate::jdks::at(d)).map(|(_, h)| real(&h)).collect();
+    crate::jdks::all()
+        .into_iter()
+        .map(|(v, h)| crate::commands::JdkDto { version: v, manual: manual.contains(&real(&h)), home: h.to_string_lossy().into_owned() })
+        .collect()
+}
+
+fn real(p: &std::path::Path) -> PathBuf {
+    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// 设置对话框打开时要的全部（docs/SETTINGS.md 第 13 节）。`root`：这个窗口的项目，没有就不给「此项目」那一栏
+pub fn page(app: &AppHandle, root: Option<&str>) -> crate::commands::SettingsPageDto {
+    let st = app.state::<AppState>();
+    let path = settings_path(app);
+    let text = read(&path).unwrap_or_default();
+    let (_, problems) = st.settings.view();
+    let project = root.filter(|r| !r.is_empty()).map(|r| {
+        let rp = std::path::Path::new(r);
+        let prefs = crate::maven::prefs(rp);
+        crate::commands::ProjectPageDto {
+            root: r.to_string(),
+            jdk: crate::projectcfg::get(rp).jdk,
+            auto_jdk: auto_jdk(rp),
+            offline: prefs.offline,
+            skip_tests: prefs.skip_tests,
+            wrapper: rp.join("mvnw").is_file(),
+        }
+    });
+    crate::commands::SettingsPageDto {
+        defs: schema(),
+        values: settings::values(&st.settings.current()),
+        written: settings::written_keys(&text),
+        path: path.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(),
+        broken: problems.iter().find(|p| p.is_fatal()).map(|p| match p.pos() {
+            Some(pos) => format!("第 {} 行：{}", pos.line, p.text()),
+            None => p.text(),
+        }),
+        jdks: jdk_dtos(),
+        bad_jdks: crate::jdks::user().into_iter().filter(|d| crate::jdks::at(d).is_none()).collect(),
+        project,
+    }
+}
+
+/// 「按 pom 自动挑」的话挑的是哪个，给人看的一句（设置页上「项目 JDK：自动」旁边那句）
+fn auto_jdk(root: &std::path::Path) -> String {
+    let rel = crate::maven::reactors(root).into_iter().next().unwrap_or_default();
+    match crate::maven::module_java(&root.join(&rel), "") {
+        None => "pom 没写 Java 版本：用你默认的那个".into(),
+        Some(want) => match lspsvc::jdtls::pick_jdk(&crate::jdks::all(), want) {
+            Some((v, h)) => format!("pom 要 Java {want} → Java {v}（{}）", h.display()),
+            None => format!("pom 要 Java {want}，这台机器上没有够格的：用你默认的那个"),
+        },
+    }
+}
+
+/// 项目那一栏交回来的
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectApply {
+    pub root: String,
+    pub jdk: String,
+    pub offline: bool,
+    pub skip_tests: bool,
+}
+
+/// 设置对话框的「应用 / 确定」：全局的一批写进 settings.json（值是 null 就是恢复默认），项目的写进各自的地方。
+/// 全局的先全部校验、一个不对一个都不写（同对话框「要么都生效要么都不」的期待）；写完当场重读、广播，不等文件监听
+pub fn apply(app: &AppHandle, global: serde_json::Map<String, serde_json::Value>, project: Option<ProjectApply>) -> Result<(), String> {
+    if !global.is_empty() {
+        for (k, v) in &global {
+            if !v.is_null() {
+                settings::validate(k, v)?;
+            }
+        }
+        let path = settings_path(app).ok_or("找不到应用数据目录")?;
+        ensure_template(&path).map_err(|e| format!("建不了 {}：{e}", path.display()))?;
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("读不了 {}：{e}", path.display()))?;
+        let changes: Vec<(&str, Option<serde_json::Value>)> = global.iter().map(|(k, v)| (k.as_str(), (!v.is_null()).then(|| v.clone()))).collect();
+        let next = settings::edit(&text, &changes).map_err(|p| match p.pos() {
+            Some(pos) => format!("settings.json 第 {} 行有错，先修好它再用设置页：{}", pos.line, p.text()),
+            None => format!("settings.json 读不懂，先修好它再用设置页：{}", p.text()),
+        })?;
+        if next != text {
+            fsservice::write_text(&path, &next).map_err(|e| format!("写不了 {}：{e}", path.display()))?;
+        }
+        reload(app);
+    }
+    if let Some(p) = project {
+        let rp = std::path::Path::new(&p.root);
+        let mut cfg = crate::projectcfg::get(rp);
+        cfg.jdk = p.jdk.trim().to_string();
+        crate::projectcfg::set(rp, cfg).map_err(|e| format!("记不下项目设置：{e}"))?;
+        let mut prefs = crate::maven::prefs(rp);
+        prefs.offline = p.offline;
+        prefs.skip_tests = p.skip_tests;
+        crate::maven::set_prefs(rp, &prefs).map_err(|e| format!("记不下 Maven 的开关：{e}"))?;
+    }
+    Ok(())
+}
+
+/// 运行配置对话框：这个项目认出来的 Spring 服务和各自的配置
+pub fn run_configs(root: &str) -> crate::commands::RunConfigsDto {
+    let rp = std::path::Path::new(root);
+    let cfg = crate::projectcfg::get(rp);
+    let (tasks, _) = crate::taskdefs::spring_tasks(rp);
+    let services = tasks
+        .into_iter()
+        .map(|t| {
+            let r = cfg.runs.get(&t.def.name).cloned().unwrap_or_default();
+            crate::commands::RunConfigDto {
+                main_class: t.app.main_class.clone(),
+                module: match &t.def.source {
+                    crate::taskdefs::Source::Spring { module } => module.clone(),
+                    _ => String::new(),
+                },
+                name: t.def.name,
+                profiles: r.profiles,
+                vm_options: r.vm_options,
+                program_args: r.program_args,
+                env: r.env.into_iter().map(|(name, value)| crate::commands::EnvVarDto { name, value }).collect(),
+                jdk: r.jdk,
+            }
+        })
+        .collect();
+    crate::commands::RunConfigsDto { services, jdks: jdk_dtos() }
+}
+
+/// 记下一个服务的运行配置。环境变量名不像变量名的拒掉（进 shell 会变成别的意思），说清是哪个
+pub fn set_run_config(root: &str, name: &str, run: crate::projectcfg::RunCfg) -> Result<(), String> {
+    if let Some((k, _)) = run.env.iter().find(|(k, _)| !crate::projectcfg::env_name_ok(k)) {
+        return Err(format!("环境变量名「{k}」不行：要字母或下划线开头，后面只有字母、数字、下划线"));
+    }
+    let rp = std::path::Path::new(root);
+    let mut cfg = crate::projectcfg::get(rp);
+    cfg.runs.insert(name.to_string(), run);
+    crate::projectcfg::set(rp, cfg).map_err(|e| format!("记不下运行配置：{e}"))
 }
 
 #[cfg(test)]

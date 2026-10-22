@@ -61,7 +61,7 @@ pub fn resolve(reactor: &Path, prefs: &Prefs, shell: &str, repo: &Path, scratch:
 
 fn run(reactor: &Path, prefs: &Prefs, shell: &str, repo: &Path, scratch: &Path) -> Result<Vec<Resolved>, String> {
     std::fs::create_dir_all(scratch.parent().unwrap_or(scratch)).map_err(|e| format!("建不了临时目录：{e}"))?;
-    let cmd = maven::resolve_command(prefs, scratch, DEPS_FILE);
+    let cmd = maven::resolve_command(prefs, scratch, DEPS_FILE, &maven::invocation(reactor));
     let shell = if shell.is_empty() { std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()) } else { shell.to_string() };
     let mut c = Command::new(&shell);
     c.args(["-ilc", &cmd]).current_dir(reactor);

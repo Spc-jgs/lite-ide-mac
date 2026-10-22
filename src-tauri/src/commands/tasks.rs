@@ -333,8 +333,7 @@ pub async fn maven_resolve(app: tauri::AppHandle, root: String) -> Result<MavenR
         let prefs = crate::maven::prefs(rootp);
         let shell = crate::settingsctl::terminal_shell(&st);
         let user = std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or("找不到用户目录（没有 HOME）")?;
-        let settings = std::fs::read_to_string(user.join(".m2/settings.xml")).ok();
-        let repo = lspsvc::jdtls::local_repo(&user, settings.as_deref());
+        let repo = crate::maven::local_repo(&user);
         let data = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("maven");
         let reactors = crate::maven::reactors(rootp)
             .into_iter()

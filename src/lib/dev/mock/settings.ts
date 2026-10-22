@@ -36,6 +36,51 @@ function view() {
   };
 }
 
+/** 和 Rust 的 `settings::DEFS` 一致（键、类型、默认值、次序）；说明文字简写 */
+const SCHEMA = [
+  { key: "editor.fontFamily", label: "代码字体", kind: "string", default: '"JetBrains Mono"', doc: "代码字体：编辑器、差异、日志视图", min: null, max: null },
+  { key: "editor.fontSize", label: "代码字号", kind: "integer", default: "13", doc: "代码字号（9–28）", min: MIN, max: MAX },
+  { key: "terminal.fontFamily", label: "终端字体", kind: "string", default: '""', doc: "终端字体，空 = 跟编辑器", min: null, max: null },
+  { key: "terminal.fontSize", label: "终端字号", kind: "integer", default: "13", doc: "终端字号（9–28）", min: MIN, max: MAX },
+  { key: "terminal.shell", label: "终端用的 shell", kind: "string", default: '""', doc: "终端用的 shell，空 = $SHELL", min: null, max: null },
+  { key: "java.jdtlsHome", label: "jdtls 的位置", kind: "string", default: '""', doc: "Java 智能用的 jdtls，空 = 内置的那份", min: null, max: null },
+  { key: "java.jdtlsMemory", label: "jdtls 最多用的内存（MB）", kind: "integer", default: "1024", doc: "jdtls 最多用多少内存（MB）", min: 512, max: 16384 },
+  { key: "java.jdks", label: "手动添加的 JDK", kind: "array", default: "[]", doc: "手动添加的 JDK", min: null, max: null },
+  { key: "maven.useWrapper", label: "项目里有 mvnw 就用它", kind: "boolean", default: "true", doc: "项目里有 mvnw 就用它", min: null, max: null },
+  { key: "maven.home", label: "Maven 安装目录", kind: "string", default: '""', doc: "Maven 的安装目录，空 = PATH 里的 mvn", min: null, max: null },
+  { key: "maven.settingsFile", label: "settings.xml", kind: "string", default: '""', doc: "Maven 的 settings.xml，空 = ~/.m2/settings.xml", min: null, max: null },
+  { key: "maven.localRepository", label: "本地仓库", kind: "string", default: '""', doc: "Maven 本地仓库，空 = settings.xml 里写的", min: null, max: null },
+  { key: "maven.extraArgs", label: "每条 mvn 都带的参数", kind: "string", default: '""', doc: "每条 mvn 都带上的参数", min: null, max: null },
+  { key: "maven.opts", label: "MAVEN_OPTS（Maven 自己的 JVM 参数）", kind: "string", default: '""', doc: "MAVEN_OPTS", min: null, max: null },
+];
+
+/** 设置页写过的值（桩里没有 settings.json：写进这张表，读的时候盖在默认值上） */
+const WRITTEN: Record<string, unknown> = {};
+/** 按项目的设置（真实现在 project-settings.json / maven-prefs.json） */
+const PROJ: Record<string, { jdk: string; offline: boolean; skipTests: boolean; runs: Record<string, Record<string, unknown>> }> = {};
+const proj = (root: string) => (PROJ[root] ??= { jdk: "", offline: false, skipTests: false, runs: {} });
+const MOCK_JDKS = [
+  { version: 17, home: "/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home", manual: false },
+  { version: 21, home: "/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home", manual: false },
+];
+
+function page(root: string | null) {
+  const values: Record<string, unknown> = {};
+  for (const d of SCHEMA) values[d.key] = d.key in WRITTEN ? WRITTEN[d.key] : JSON.parse(d.default);
+  const manual = ((values["java.jdks"] as string[]) ?? []).map((home) => ({ version: 11, home, manual: true }));
+  const p = root ? proj(root) : null;
+  return {
+    defs: SCHEMA,
+    values,
+    written: Object.keys(WRITTEN),
+    path: PATH,
+    broken: null,
+    jdks: [...MOCK_JDKS, ...manual],
+    badJdks: [],
+    project: p && root ? { root, jdk: p.jdk, autoJdk: `pom 要 Java 17 → Java 17（${MOCK_JDKS[0].home}）`, offline: p.offline, skipTests: p.skipTests, wrapper: false } : null,
+  };
+}
+
 const KEYS: Record<string, keyof typeof ui> = {
   "editor.minimap": "minimap",
   "tree.compact": "treeCompact",
@@ -49,14 +94,7 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
       return view();
     // 和 Rust 的 settings::DEFS 一致（键、类型、默认值）；说明文字简写
     case "settings_schema":
-      return [
-        { key: "editor.fontFamily", kind: "string", default: '"JetBrains Mono"', doc: "代码字体", min: null, max: null },
-        { key: "editor.fontSize", kind: "integer", default: "13", doc: "代码字号", min: MIN, max: MAX },
-        { key: "terminal.fontFamily", kind: "string", default: '""', doc: "终端字体，空 = 跟编辑器", min: null, max: null },
-        { key: "terminal.fontSize", kind: "integer", default: "13", doc: "终端字号", min: MIN, max: MAX },
-        { key: "terminal.shell", kind: "string", default: '""', doc: "终端用的 shell，空 = $SHELL", min: null, max: null },
-        { key: "java.jdtlsHome", kind: "string", default: '""', doc: "Java 智能用的 jdtls，空 = 内置的那份", min: null, max: null },
-      ];
+      return SCHEMA;
     case "set_ui_state": {
       const k = KEYS[String(a.key)];
       if (!k) throw new Error(`不认识的界面状态：${a.key}`);
@@ -79,6 +117,46 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
         if (a.editorFont != null) ui.offset = clamp(Number(a.editorFont)) - BASE;
       }
       return view();
+    }
+    case "settings_page":
+      return page((a.root as string | null) ?? null);
+    case "settings_apply": {
+      // 同 Rust：先全部校验，一个不对一个都不写
+      const g = (a.global ?? {}) as Record<string, unknown>;
+      for (const [k, v] of Object.entries(g)) if (v !== null && !SCHEMA.some((d) => d.key === k)) throw new Error(`不认识的设置：${k}`);
+      for (const [k, v] of Object.entries(g)) if (v === null) delete WRITTEN[k];
+      else WRITTEN[k] = v;
+      const pr = a.project as { root: string; jdk: string; offline: boolean; skipTests: boolean } | null;
+      if (pr) Object.assign(proj(pr.root), { jdk: pr.jdk, offline: pr.offline, skipTests: pr.skipTests });
+      return page((a.root as string | null) ?? null);
+    }
+    case "run_configs": {
+      const root = String(a.root);
+      const runs = proj(root).runs;
+      const { tasks } = (await import("./tasks")).mockTaskList(root);
+      const services = tasks
+        .filter((t) => t.source === "spring")
+        .map((t) => {
+          const r = runs[t.name] ?? {};
+          return {
+            name: t.name,
+            mainClass: /(\S+)$/.exec(t.command)?.[1] ?? t.name,
+            module: t.module ?? "",
+            profiles: (r.profiles as string) ?? "",
+            vmOptions: (r.vmOptions as string) ?? "",
+            programArgs: (r.programArgs as string) ?? "",
+            env: (r.env as unknown[]) ?? [],
+            jdk: (r.jdk as string) ?? "",
+          };
+        });
+      return { services, jdks: MOCK_JDKS };
+    }
+    case "run_config_set": {
+      const env = (a.env as { name: string }[]) ?? [];
+      const bad = env.find((e) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(e.name));
+      if (bad) throw new Error(`环境变量名「${bad.name}」不行：要字母或下划线开头，后面只有字母、数字、下划线`);
+      proj(String(a.root)).runs[String(a.name)] = { profiles: a.profiles, vmOptions: a.vmOptions, programArgs: a.programArgs, env, jdk: a.jdk };
+      return null;
     }
     case "open_settings":
       // 同 Rust：不存在才建，已经有了不碰

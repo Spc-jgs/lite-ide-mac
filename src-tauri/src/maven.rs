@@ -301,6 +301,85 @@ pub fn set_prefs(root: &Path, p: &Prefs) -> std::io::Result<()> {
     std::fs::rename(&tmp, file)
 }
 
+/// Maven 怎么调（`settings.json` 的 `maven.*`，docs/SETTINGS.md 13.4）。启动时、设置变了时由 `settingsctl` 设进来；没设过（单元测试）就是默认
+#[derive(Clone, Debug, PartialEq)]
+pub struct MavenCfg {
+    /// 项目里有 `mvnw` 就用它
+    pub use_wrapper: bool,
+    /// 安装目录（里面有 `bin/mvn`）；空 = PATH 里的
+    pub home: String,
+    /// `-s`；空 = Maven 的默认
+    pub settings_file: String,
+    /// `-Dmaven.repo.local`；空 = settings.xml 里的
+    pub local_repo: String,
+    /// 每条 mvn 都带的，照 shell 的写法原样放进去
+    pub extra_args: String,
+    /// `MAVEN_OPTS`
+    pub opts: String,
+}
+
+impl Default for MavenCfg {
+    fn default() -> Self {
+        MavenCfg { use_wrapper: true, home: String::new(), settings_file: String::new(), local_repo: String::new(), extra_args: String::new(), opts: String::new() }
+    }
+}
+
+static CFG: std::sync::RwLock<Option<MavenCfg>> = std::sync::RwLock::new(None);
+
+pub fn set_cfg(c: MavenCfg) {
+    *CFG.write().unwrap_or_else(|e| e.into_inner()) = Some(c);
+}
+
+pub fn cfg() -> MavenCfg {
+    CFG.read().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default()
+}
+
+/// 在 `dir`（reactor 根，这条命令在那儿跑）里调 Maven 的开头：`[MAVEN_OPTS=… ]<mvn> -B -ntp[ -s …][ -Dmaven.repo.local=…][ 额外参数]`。
+/// 每条 mvn 命令都从这儿开头 —— 原来五处各写一遍 `mvn -B -ntp`，加一个「用 mvnw」就得改五处。
+///
+/// - **`mvnw`**：Spring Initializr 生成的项目都带，项目要的 Maven 版本写在 `.mvn/wrapper/` 里；原来一律用 PATH 里的 `mvn`，版本可能对不上。
+///   没有执行位的（Windows 上提交的、解压丢了权限）用 `sh ./mvnw`：它是个 POSIX shell 脚本，`$0` 照样是它自己
+/// - ` -B -ntp` 紧跟在 mvn 后面：调试单测往命令里插 `-Dmaven.surefire.debug` 认的就是它（`debug::with_surefire_debug`），
+///   mvn 前面是什么（`./mvnw`、带空格的安装目录、`MAVEN_OPTS=`）都不影响
+pub fn invocation_with(dir: &Path, c: &MavenCfg) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let wrapper = dir.join("mvnw");
+    let exe = match std::fs::metadata(&wrapper) {
+        Ok(m) if c.use_wrapper && m.is_file() => {
+            if m.permissions().mode() & 0o111 != 0 { "./mvnw".to_string() } else { "sh ./mvnw".to_string() }
+        }
+        _ if !c.home.trim().is_empty() => word(&format!("{}/bin/mvn", c.home.trim().trim_end_matches('/'))),
+        _ => "mvn".to_string(),
+    };
+    let opts = if c.opts.trim().is_empty() { String::new() } else { format!("MAVEN_OPTS={} ", word(c.opts.trim())) };
+    let mut s = format!("{opts}{exe} -B -ntp");
+    if !c.settings_file.trim().is_empty() {
+        s.push_str(&format!(" -s {}", word(c.settings_file.trim())));
+    }
+    if !c.local_repo.trim().is_empty() {
+        s.push_str(&format!(" {}", word(&format!("-Dmaven.repo.local={}", c.local_repo.trim()))));
+    }
+    if !c.extra_args.trim().is_empty() {
+        s.push(' ');
+        s.push_str(c.extra_args.trim());
+    }
+    s
+}
+
+pub fn invocation(dir: &Path) -> String {
+    invocation_with(dir, &cfg())
+}
+
+/// 本地仓库在哪（找插件 jar、Lombok 用）：设置里指定的 > settings.xml 里写的（设置里指定的那份，没指定就 `~/.m2/settings.xml`）> `~/.m2/repository`
+pub fn local_repo(user_home: &Path) -> PathBuf {
+    let c = cfg();
+    if !c.local_repo.trim().is_empty() {
+        return PathBuf::from(c.local_repo.trim());
+    }
+    let file = if c.settings_file.trim().is_empty() { user_home.join(".m2/settings.xml") } else { PathBuf::from(c.settings_file.trim()) };
+    lspsvc::jdtls::local_repo(user_home, std::fs::read_to_string(file).ok().as_deref())
+}
+
 /// 能原样放进 mvn 命令行的一个词：阶段、插件目标（`spring-boot:run`、`g:a:v:goal`）、`-Dx=y`、profile 名。
 /// 只许这些字符 —— 没有空格、引号、`;` `$` `|` `&` 这类 shell 认的东西，拼不出第二条命令。原来是 7 个目标的白名单，
 /// 工具窗照 IDEA 做了插件目标和「执行 Maven 目标」（自己敲）之后白名单不够用，换成按字符卡
@@ -315,14 +394,15 @@ fn safe_token(t: &str) -> bool {
 /// IDEA 的 Maven 工具窗能用 `-f`，是因为它的 runner 带「resolve workspace artifacts」—— 那是 IDEA 自己的扩展，普通的 mvn 没有。
 /// 只有 `clean` 的时候例外只带 `-pl`：清这个模块，别把兄弟模块也清了。代价如实说：`test` 带 `-am` 会连兄弟模块的测试一起跑。
 /// 有不安全的词给 None
-pub fn goal_command(module: &str, goals: &str, prefs: &Prefs) -> Option<String> {
+/// `mvn`：这条命令的开头（[`invocation`]）
+pub fn goal_command(module: &str, goals: &str, prefs: &Prefs, mvn: &str) -> Option<String> {
     let toks: Vec<&str> = goals.split_whitespace().collect();
     if toks.is_empty() || !toks.iter().all(|t| safe_token(t)) {
         return None;
     }
     let g = toks.join(" ");
     let skip = if prefs.skip_tests { " -DskipTests" } else { "" };
-    let base = format!("mvn -B -ntp{}{skip}", prefs.flags());
+    let base = format!("{mvn}{}{skip}", prefs.flags());
     Some(if module.is_empty() {
         format!("{base} {g}")
     } else if toks == ["clean"] {
@@ -341,11 +421,11 @@ fn safe_selector(s: &str) -> bool {
 /// 跑单测（docs/IDEA.md 第 17 节）：`-Dtest=类#方法`，在 reactor 根上跑 `-pl 模块 -am test`（兄弟模块不用 install，同 [`goal_command`]）。
 /// `-am` 会把上游模块也跑一遍 test 阶段 —— 它们里面没有这个类，surefire 默认「指定了测试却一个都没跑」就失败，
 /// 所以带 `-Dsurefire.failIfNoSpecifiedTests=false`。带 profile 和离线（同跑目标），**不带跳过测试**（就是来跑测试的）。选择器不安全给 None
-pub fn test_command(module: &str, selector: &str, prefs: &Prefs) -> Option<String> {
+pub fn test_command(module: &str, selector: &str, prefs: &Prefs, mvn: &str) -> Option<String> {
     if !safe_selector(selector) {
         return None;
     }
-    let base = format!("mvn -B -ntp{} -Dtest={} -Dsurefire.failIfNoSpecifiedTests=false", prefs.flags(), word(selector));
+    let base = format!("{mvn}{} -Dtest={} -Dsurefire.failIfNoSpecifiedTests=false", prefs.flags(), word(selector));
     Some(if module.is_empty() { format!("{base} test") } else { format!("{base} -pl {} -am test", word(module)) })
 }
 
@@ -353,25 +433,25 @@ pub fn test_command(module: &str, selector: &str, prefs: &Prefs) -> Option<Strin
 /// 用 Maven 不用 jdtls 的增量构建：「运行」走的是 `mvn compile`，Build 说编得过、运行却编不过就白问了（第 22 节有对照）。
 /// 带 profile 和离线；不带跳过测试（`-DskipTests` 本来也不跳过编译测试）。几个 reactor 都跑完再说结果（IDEA 也是全编完才列错误），
 /// 有一个没过整个算失败。没有 reactor（不是 Maven 项目）给 None
-/// `jdk`：每个 reactor 前面加的那段（「用项目要的那个 JDK」，见 `taskdefs::jdk_prefix`；没有就是空的）
-pub fn build_command(reactors: &[String], prefs: &Prefs, clean: bool, jdk: &dyn Fn(&str) -> String) -> Option<String> {
+/// `jdk`：每个 reactor 前面加的那段（「用项目要的那个 JDK」，见 `taskdefs::jdk_prefix`；没有就是空的）；`mvn`：那个 reactor 里 mvn 怎么开头（[`invocation`]）
+pub fn build_command(reactors: &[String], prefs: &Prefs, clean: bool, jdk: &dyn Fn(&str) -> String, mvn: &dyn Fn(&str) -> String) -> Option<String> {
     let goal = if clean { "clean test-compile" } else { "test-compile" };
-    let one = format!("mvn -B -ntp{} {goal}", prefs.flags());
+    let one = |r: &str| format!("{}{} {goal}", mvn(r), prefs.flags());
     match reactors {
         [] => None,
-        [r] if r.is_empty() => Some(format!("{}{one}", jdk(r))),
+        [r] if r.is_empty() => Some(format!("{}{}", jdk(r), one(r))),
         rs => Some(format!(
             "rc=0; {}exit $rc",
-            rs.iter().map(|r| format!("(cd {} && {}{one}) || rc=1; ", word(if r.is_empty() { "." } else { r }), jdk(r))).collect::<String>()
+            rs.iter().map(|r| format!("(cd {} && {}{}) || rc=1; ", word(if r.is_empty() { "." } else { r }), jdk(r), one(r))).collect::<String>()
         )),
     }
 }
 
 /// 算插件和依赖的那一条（`maven_run.rs`）：有效 POM 写到 `scratch`（绝对路径），依赖树写进各模块的 `deps_file`（相对模块）。
 /// 带离线和 profile（profile 会改插件和依赖），不带跳过测试（这两个目标不跑测试）
-pub fn resolve_command(prefs: &Prefs, scratch: &Path, deps_file: &str) -> String {
+pub fn resolve_command(prefs: &Prefs, scratch: &Path, deps_file: &str, mvn: &str) -> String {
     format!(
-        "mvn -B -ntp -q{} help:effective-pom -Doutput={} dependency:tree -DoutputFile={}",
+        "{mvn} -q{} help:effective-pom -Doutput={} dependency:tree -DoutputFile={}",
         prefs.flags(),
         word(&scratch.to_string_lossy()),
         word(deps_file)
@@ -550,20 +630,85 @@ pub(crate) fn word(s: &str) -> String {
 
 /// 起这个入口的那一行（在 reactor 根上跑）。单模块项目（入口就在根模块）不用 `-pl -am`。
 /// Maven 工具窗勾的 profile、离线开关一起带上（`prefs`）：profile 会改依赖，起服务时不带就和工具窗里看到的不是一回事
-pub fn run_command(app: &BootApp, prefs: &Prefs) -> String {
+pub fn run_command(app: &BootApp, prefs: &Prefs, mvn: &str, run: &crate::projectcfg::RunCfg) -> String {
     let f = prefs.flags();
     let build = if app.module.is_empty() {
-        format!("mvn -B -ntp{f} -DskipTests compile dependency:build-classpath -Dmdep.outputFile={CP_FILE}")
+        format!("{mvn}{f} -DskipTests compile dependency:build-classpath -Dmdep.outputFile={CP_FILE}")
     } else {
-        format!("mvn -B -ntp{f} -pl {} -am -DskipTests compile dependency:build-classpath -Dmdep.outputFile={CP_FILE}", word(&app.module))
+        format!("{mvn}{f} -pl {} -am -DskipTests compile dependency:build-classpath -Dmdep.outputFile={CP_FILE}", word(&app.module))
     };
     let cd = if app.module.is_empty() { String::new() } else { format!("cd {} && ", word(&app.module)) };
-    format!(r#"{build} && {cd}exec java -cp "target/classes:$(cat {CP_FILE})" {}"#, word(&app.main_class))
+    // 运行配置（docs/SETTINGS.md 13.6）：只往我们拼的命令里加东西，`exec java ` 这个形状不变 —— 调试插 JDWP、热替换带代理认的就是它
+    let env: Vec<String> = run.env.iter().filter(|(k, _)| crate::projectcfg::env_name_ok(k)).map(|(k, v)| format!("{k}={}", word(v))).collect();
+    let env = if env.is_empty() { String::new() } else { format!("export {} && ", env.join(" ")) };
+    let vm = if run.vm_options.trim().is_empty() { String::new() } else { format!(" {}", run.vm_options.trim()) };
+    let profiles = crate::projectcfg::profile_names(&run.profiles);
+    let profiles = if profiles.is_empty() { String::new() } else { format!(" {}", word(&format!("-Dspring.profiles.active={}", profiles.join(",")))) };
+    let args = if run.program_args.trim().is_empty() { String::new() } else { format!(" {}", run.program_args.trim()) };
+    format!(r#"{build} && {cd}{env}exec java{vm}{profiles} -cp "target/classes:$(cat {CP_FILE})" {}{args}"#, word(&app.main_class))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 测试里 mvn 的开头：和原来写死的一样，原来的期望值不用改
+    const MVN: &str = "mvn -B -ntp";
+    fn mvn_(_: &str) -> String {
+        MVN.into()
+    }
+
+    #[test]
+    fn 运行配置_环境变量在exec前_vm参数和profile在java后_程序参数在主类后_调试照样插得进() {
+        let run = crate::projectcfg::RunCfg {
+            profiles: "dev, local".into(),
+            vm_options: "-Xmx512m -Dfoo=\"a b\"".into(),
+            program_args: "--server.port=9090".into(),
+            env: vec![("DB_URL".into(), "jdbc:mysql://h/db?x=1&y=2".into()), ("bad-name".into(), "x".into())],
+            jdk: String::new(),
+        };
+        let c = run_command(&BootApp { module: "order".into(), main_class: "o.App".into() }, &Prefs::default(), MVN, &run);
+        assert!(
+            c.ends_with(r#"&& cd order && export DB_URL='jdbc:mysql://h/db?x=1&y=2' && exec java -Xmx512m -Dfoo="a b" -Dspring.profiles.active=dev,local -cp "target/classes:$(cat target/.lite-ide-cp.txt)" o.App --server.port=9090"#),
+            "{c}"
+        );
+        assert!(!c.contains("bad-name"), "不像变量名的环境变量不放进 shell：{c}");
+        let dbg = crate::debug::with_jdwp(&c, None).unwrap();
+        assert!(dbg.contains(&format!("exec java {} -Xmx512m", crate::debug::JDWP)), "JDWP 插在 java 后面、VM 参数前面：{dbg}");
+        let plain = run_command(&BootApp { module: "".into(), main_class: "a.App".into() }, &Prefs::default(), MVN, &Default::default());
+        assert!(plain.ends_with(r#"&& exec java -cp "target/classes:$(cat target/.lite-ide-cp.txt)" a.App"#), "什么都没配：和原来一字不差：{plain}");
+    }
+
+    #[test]
+    fn mvn_的开头_有mvnw用它_没执行位用sh_关了或没有就看安装目录和path_其余参数跟在_b_ntp后面() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = std::env::temp_dir().join(format!("lite-mvnw-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&d);
+        let c = MavenCfg::default();
+        assert_eq!(invocation_with(&d, &c), "mvn -B -ntp", "什么都没设、没有 mvnw：PATH 里的");
+        let w = d.join("mvnw");
+        #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
+        std::fs::write(&w, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&w, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(invocation_with(&d, &c), "sh ./mvnw -B -ntp", "没执行位（解压丢了权限）：sh 跑它");
+        std::fs::set_permissions(&w, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(invocation_with(&d, &c), "./mvnw -B -ntp");
+        let custom = MavenCfg {
+            use_wrapper: false,
+            home: "/opt/my maven/".into(),
+            settings_file: "/w/settings.xml".into(),
+            local_repo: "/repo dir".into(),
+            extra_args: "-T 4 -U".into(),
+            opts: "-Xmx2g -Dfoo=1".into(),
+        };
+        assert_eq!(
+            invocation_with(&d, &custom),
+            "MAVEN_OPTS='-Xmx2g -Dfoo=1' '/opt/my maven/bin/mvn' -B -ntp -s /w/settings.xml '-Dmaven.repo.local=/repo dir' -T 4 -U",
+            "关了 mvnw：用安装目录；带空格的都引起来，额外参数照原样"
+        );
+        #[allow(clippy::disallowed_methods)] // 同上
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn 项目要的_java_版本_按次序找_1点8_是_8_变量解一次_profile_里的不算() {
@@ -580,27 +725,27 @@ mod tests {
     fn 构建_每个_reactor_一遍_test_compile_重新构建先_clean_有一个没过整体失败() {
         let p = Prefs { offline: true, skip_tests: true, profiles: vec!["dev".into()] };
         let none = |_: &str| String::new();
-        assert_eq!(build_command(&[String::new()], &p, false, &none).unwrap(), "mvn -B -ntp -o -P dev test-compile", "跳过测试不带（不该跳过编译测试）");
-        assert_eq!(build_command(&[String::new()], &p, true, &none).unwrap(), "mvn -B -ntp -o -P dev clean test-compile");
+        assert_eq!(build_command(&[String::new()], &p, false, &none, &mvn_).unwrap(), "mvn -B -ntp -o -P dev test-compile", "跳过测试不带（不该跳过编译测试）");
+        assert_eq!(build_command(&[String::new()], &p, true, &none, &mvn_).unwrap(), "mvn -B -ntp -o -P dev clean test-compile");
         // 每个 reactor 各自的 JDK 加在它自己那段里
         let jdk = |r: &str| if r == "api" { "export JAVA_HOME=/j17; ".to_string() } else { String::new() };
-        let two = build_command(&["api".into(), "my svc".into()], &Prefs::default(), false, &jdk).unwrap();
+        let two = build_command(&["api".into(), "my svc".into()], &Prefs::default(), false, &jdk, &mvn_).unwrap();
         assert_eq!(two, "rc=0; (cd api && export JAVA_HOME=/j17; mvn -B -ntp test-compile) || rc=1; (cd 'my svc' && mvn -B -ntp test-compile) || rc=1; exit $rc");
-        assert_eq!(build_command(&[], &p, false, &none), None, "不是 Maven 项目");
+        assert_eq!(build_command(&[], &p, false, &none, &mvn_), None, "不是 Maven 项目");
     }
 
     #[test]
     fn 跑单测_带选择器和放过上游模块的开关_不带跳过测试_内部类加引号_不安全的不拼() {
         let p = Prefs { offline: true, skip_tests: true, profiles: vec!["dev".into()] };
-        let c = test_command("order-service", "com.demo.OrderTest#adds", &p).unwrap();
+        let c = test_command("order-service", "com.demo.OrderTest#adds", &p, MVN).unwrap();
         // `#` 也加了引号（word 的白名单里没有它）：shell 里词中间的 # 本来不是注释，加上同样对
         assert!(c.contains("-Dtest='com.demo.OrderTest#adds'") && c.contains("-pl order-service -am test") && c.contains("-Dsurefire.failIfNoSpecifiedTests=false"), "{c}");
         assert!(c.contains(" -o") && c.contains("-P dev") && !c.contains("skipTests"), "带离线和 profile、不带跳过测试：{c}");
-        assert!(test_command("", "com.demo.OrderTest", &p).unwrap().ends_with("-Dsurefire.failIfNoSpecifiedTests=false test"), "根模块不带 -pl");
-        assert!(test_command("m", "com.demo.Outer$Inner", &p).unwrap().contains("-Dtest='com.demo.Outer$Inner'"), "$ 在 shell 里会展开，要加引号");
-        assert!(test_command("m", "A#x+y,B#z", &p).is_some(), "重跑失败的：几个方法几个类");
+        assert!(test_command("", "com.demo.OrderTest", &p, MVN).unwrap().ends_with("-Dsurefire.failIfNoSpecifiedTests=false test"), "根模块不带 -pl");
+        assert!(test_command("m", "com.demo.Outer$Inner", &p, MVN).unwrap().contains("-Dtest='com.demo.Outer$Inner'"), "$ 在 shell 里会展开，要加引号");
+        assert!(test_command("m", "A#x+y,B#z", &p, MVN).is_some(), "重跑失败的：几个方法几个类");
         for bad in ["A; rm -rf ~", "A`id`", "A#x y", ""] {
-            assert!(test_command("m", bad, &p).is_none(), "{bad:?} 不该拼进命令");
+            assert!(test_command("m", bad, &p, MVN).is_none(), "{bad:?} 不该拼进命令");
         }
     }
 
@@ -689,22 +834,22 @@ mod tests {
     #[test]
     fn 目标_模块带兄弟一起_clean_只清自己_拼不进别的命令() {
         let p = Prefs::default();
-        assert_eq!(goal_command("", "clean", &p).as_deref(), Some("mvn -B -ntp clean"), "根模块：整个 reactor");
-        assert_eq!(goal_command("order", "package", &p).as_deref(), Some("mvn -B -ntp -pl order -am package"), "-f 只构建这一个、兄弟要从本地仓库找（实测失败）");
-        assert_eq!(goal_command("order", "clean", &p).as_deref(), Some("mvn -B -ntp -pl order clean"), "clean 不带 -am：别把兄弟模块也清了");
-        assert_eq!(goal_command("my svc", "install", &p).as_deref(), Some("mvn -B -ntp -pl 'my svc' -am install"));
-        assert_eq!(goal_command("order", "spring-boot:run", &p).as_deref(), Some("mvn -B -ntp -pl order -am spring-boot:run"), "插件目标");
-        assert_eq!(goal_command("", "clean install -DskipTests", &p).as_deref(), Some("mvn -B -ntp clean install -DskipTests"), "自己敲的几个词");
+        assert_eq!(goal_command("", "clean", &p, MVN).as_deref(), Some("mvn -B -ntp clean"), "根模块：整个 reactor");
+        assert_eq!(goal_command("order", "package", &p, MVN).as_deref(), Some("mvn -B -ntp -pl order -am package"), "-f 只构建这一个、兄弟要从本地仓库找（实测失败）");
+        assert_eq!(goal_command("order", "clean", &p, MVN).as_deref(), Some("mvn -B -ntp -pl order clean"), "clean 不带 -am：别把兄弟模块也清了");
+        assert_eq!(goal_command("my svc", "install", &p, MVN).as_deref(), Some("mvn -B -ntp -pl 'my svc' -am install"));
+        assert_eq!(goal_command("order", "spring-boot:run", &p, MVN).as_deref(), Some("mvn -B -ntp -pl order -am spring-boot:run"), "插件目标");
+        assert_eq!(goal_command("", "clean install -DskipTests", &p, MVN).as_deref(), Some("mvn -B -ntp clean install -DskipTests"), "自己敲的几个词");
         for bad in ["clean; rm -rf /", "package && curl x", "$(id)", "a|b", "'x'", ""] {
-            assert_eq!(goal_command("order", bad, &p), None, "{bad:?} 拼得进第二条命令");
+            assert_eq!(goal_command("order", bad, &p, MVN), None, "{bad:?} 拼得进第二条命令");
         }
     }
 
     #[test]
     fn 工具栏的开关和勾的_profile_带进每条命令_起服务也带() {
         let p = Prefs { offline: true, skip_tests: true, profiles: vec!["dev".into(), "local-db".into(), "bad;x".into()] };
-        assert_eq!(goal_command("order", "package", &p).as_deref(), Some("mvn -B -ntp -o -P dev,local-db -DskipTests -pl order -am package"), "不安全的 profile 名丢掉");
-        let run = run_command(&BootApp { module: "order".into(), main_class: "o.App".into() }, &p);
+        assert_eq!(goal_command("order", "package", &p, MVN).as_deref(), Some("mvn -B -ntp -o -P dev,local-db -DskipTests -pl order -am package"), "不安全的 profile 名丢掉");
+        let run = run_command(&BootApp { module: "order".into(), main_class: "o.App".into() }, &p, MVN, &Default::default());
         assert!(run.starts_with("mvn -B -ntp -o -P dev,local-db -pl order -am -DskipTests compile"), "{run}");
     }
 
@@ -755,7 +900,7 @@ mod tests {
     fn 算插件和依赖的命令_带离线和_profile_不带跳过测试_路径套引号() {
         let p = Prefs { offline: true, skip_tests: true, profiles: vec!["dev".into()] };
         assert_eq!(
-            resolve_command(&p, Path::new("/data/my app/eff.xml"), "target/.lite-ide-deps.txt"),
+            resolve_command(&p, Path::new("/data/my app/eff.xml"), "target/.lite-ide-deps.txt", MVN),
             "mvn -B -ntp -q -o -P dev help:effective-pom -Doutput='/data/my app/eff.xml' dependency:tree -DoutputFile=target/.lite-ide-deps.txt"
         );
         assert_eq!(default_prefix("spring-boot-maven-plugin"), "spring-boot");
@@ -791,13 +936,13 @@ mod tests {
 
     #[test]
     fn 起的命令_多模块带_pl_am_单模块不带_怪路径套引号() {
-        let multi = run_command(&BootApp { module: "services/order".into(), main_class: "o.OrderApplication".into() }, &Prefs::default());
+        let multi = run_command(&BootApp { module: "services/order".into(), main_class: "o.OrderApplication".into() }, &Prefs::default(), MVN, &Default::default());
         assert_eq!(
             multi,
             r#"mvn -B -ntp -pl services/order -am -DskipTests compile dependency:build-classpath -Dmdep.outputFile=target/.lite-ide-cp.txt && cd services/order && exec java -cp "target/classes:$(cat target/.lite-ide-cp.txt)" o.OrderApplication"#
         );
-        let single = run_command(&BootApp { module: "".into(), main_class: "a.App".into() }, &Prefs::default());
+        let single = run_command(&BootApp { module: "".into(), main_class: "a.App".into() }, &Prefs::default(), MVN, &Default::default());
         assert!(!single.contains("-pl") && !single.contains("cd ") && single.ends_with(" a.App"));
-        assert!(run_command(&BootApp { module: "my service".into(), main_class: "a.App".into() }, &Prefs::default()).contains("cd 'my service'"));
+        assert!(run_command(&BootApp { module: "my service".into(), main_class: "a.App".into() }, &Prefs::default(), MVN, &Default::default()).contains("cd 'my service'"));
     }
 }
