@@ -9,7 +9,7 @@ import { project } from "./project.svelte";
 import { notify } from "./notify.svelte";
 import { overlay } from "./overlay.svelte";
 import { listenHere, type TaskExit } from "../ipc/commands";
-import { buildProblems, servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, testResults } from "../ipc/tasks";
+import { buildProblems, servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, taskStuck, testResults } from "../ipc/tasks";
 
 let listening: Promise<unknown> | null = null;
 
@@ -262,6 +262,20 @@ export async function stopRun(id: number | null = stopTarget()) {
   // 只在它还「在跑」时标：退得快的（vite 几毫秒）退出事件比这一条的回包先到，已经是「已停止」了，
   // 再标回「正在停」就再也没有事件来改它（tasks-real.sh 在真 .app 上撞见的）
   if (now && got === "stopping" && now.status === "running") now.status = "stopping";
+  // 停不掉要说为什么（#68）：软停的宽限期（tasksvc::GRACE，5 秒）过了、或者强杀之后一会儿，还在「正在停」就问一句组里剩的是谁的。
+  // 只问一次、不轮询：剩下的是 root 的进程时我们什么都做不了，等它自己退（退了状态一变，卡片跟着没）
+  if (got === "stopping" || got === "killed") setTimeout(() => void explainStuck(r.id), got === "stopping" ? STUCK_AFTER_MS : 1500);
+}
+
+/** 软停之后多久还在「正在停」就去问：宽限期 5 秒 + 1 秒余量（SIGKILL 送出去、等待线程回收组长要几百毫秒） */
+const STUCK_AFTER_MS = 6000;
+
+async function explainStuck(id: number) {
+  const r = runs.list.find((t) => t.id === id);
+  if (!r || r.status !== "stopping") return;
+  const stuck = await taskStuck(id).catch(() => []);
+  const now = runs.list.find((t) => t.id === id);
+  if (now && now.status === "stopping") now.stuck = stuck;
 }
 
 /** 关掉一格：还在跑就软停（Rust 那边在后台等宽限期）。关掉最后一格，运行窗跟着收起（同终端，`terms.close`） */

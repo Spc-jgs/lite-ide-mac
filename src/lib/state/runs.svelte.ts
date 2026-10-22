@@ -6,7 +6,7 @@
  *
  * **不进会话快照**：任务是活的子进程，跨进程恢复不了（同终端，`terms.svelte.ts` 头上那条）。
  */
-import type { BuildProblems, DebugState, HttpResponse, PortHolder, TaskStale, TestResults } from "../ipc/commands";
+import type { BuildProblems, DebugState, HttpResponse, PortHolder, StuckProc, TaskStale, TestResults } from "../ipc/commands";
 import type { HttpReq } from "../http/http-file";
 
 export type RunStatus = "running" | "stopping" | "stopped" | "done" | "failed";
@@ -34,6 +34,8 @@ export interface RunTab {
   http: HttpRun | null;
   /** 构建那次（⌘F9，docs/IDEA.md 第 22 节）的编译错误：跑完从输出里认（`javac.rs`）。还在跑、或者不是构建，没有这个字段 */
   problems?: BuildProblems | null;
+  /** 停不掉的（#68）：宽限期过了还在「正在停」时问来的 —— 组里活着、但不归我们管的进程。只在「正在停」时画（RunView 头上那张卡片） */
+  stuck?: StuckProc[] | null;
 }
 
 export interface HttpRun {

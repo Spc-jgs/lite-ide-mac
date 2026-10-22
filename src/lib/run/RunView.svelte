@@ -71,6 +71,20 @@
 
 {#snippet output(h: number)}
   <div class="run">
+    {#if run?.status === "stopping" && run.stuck?.length}
+      {@const s = run.stuck}
+      <!-- 停不掉（#68）：组里剩的是别的用户的进程，我们发不了信号。说清是谁、给一条能抄的命令 —— 别人的东西，人抄了才动（ui.md 第七条） -->
+      <div class="cards">
+        <div class="confirm warn stuck">
+          <span>
+            停不掉：还剩 {s.length} 个 <b>{s[0].user}</b>{s.some((x) => x.user !== s[0].user) ? " 等别的用户" : ""} 的进程，lite-ide 没权限结束它们（多半是 sudo 起的）。等它们自己退，或者在终端里：
+            <code>sudo kill {s.map((x) => x.pid).join(" ")}</code>
+            <span class="procs">{#each s as x (x.pid)}<span>{x.pid} · {x.user} · {x.command}</span>{/each}</span>
+          </span>
+          <button class="btn" onclick={() => void navigator.clipboard.writeText(`sudo kill ${s.map((x) => x.pid).join(" ")}`)}>复制命令</button>
+        </div>
+      </div>
+    {/if}
     <div class="body">
       {#key h}
         <LogPane handle={h} initialFilter={run?.http ? STILL : FOLLOW} onStatus={(s) => (status = s)} />
@@ -109,6 +123,9 @@
   .tests-pane { flex: none; width: 320px; min-height: 0; border-right: 1px solid var(--border-soft); }
   .run { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; }
   .body { flex: 1; min-height: 0; }
+  .cards { flex: none; padding: 8px 10px 0; }
+  .stuck code { font-family: var(--code-font); font-size: var(--fs-sm); padding: 0 4px; border-radius: var(--r-sm); background: var(--hover); user-select: all; }
+  .procs { display: flex; flex-direction: column; margin-top: 4px; font-family: var(--code-font); font-size: var(--fs-xs); color: var(--text-dim); }
   .status {
     flex: none;
     padding: 2px 10px;

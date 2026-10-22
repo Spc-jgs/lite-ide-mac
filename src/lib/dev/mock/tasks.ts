@@ -370,11 +370,15 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       const id = Number(a.id);
       const r = RUNS.get(id);
       if (!r || r.status === "gone") return "gone";
+      // 造一个「停不掉」（#68）：控制台里 `__mockStuck = true` 再停 —— 组里有 root 的进程，软停、强杀都送不到，一直「正在停」
+      const stuck = (globalThis as { __mockStuck?: boolean }).__mockStuck === true;
       if (r.status === "stopping") {
+        if (stuck) return "killed";
         emitExit(id, { code: null, stopped: true });
         return "killed";
       }
       r.status = "stopping";
+      if (stuck) return "stopping";
       // 名字带 quick 的退得快（vite 收到 SIGINT 几毫秒就退）：退出事件比这一条的回包先到 —— 真 .app 上撞见过这个次序
       if (r.name.includes("quick")) {
         emitExit(id, { code: 130, stopped: true });
@@ -383,6 +387,11 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       r.timer = setTimeout(() => emitExit(id, { code: 130, stopped: true }), 600);
       return "stopping";
     }
+    case "task_stuck":
+      // 真实现枚举组员、挑出不归我们的（tasksvc::foreign_members）
+      return (globalThis as { __mockStuck?: boolean }).__mockStuck === true && RUNS.get(Number(a.id))?.status === "stopping"
+        ? [{ pid: 48213, user: "root", command: "/usr/local/bin/nginx" }]
+        : [];
     case "task_free_port": {
       // 真实现要等那个进程收尾、端口空出来 —— 等一会儿，「结束它并重跑」那一下的等待在浏览器里看得见
       await new Promise((r) => setTimeout(r, 400));

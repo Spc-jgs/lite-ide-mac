@@ -1,6 +1,6 @@
 /** 任务（#48）的命令包装：只有任务列表 / 运行工具窗用，它们是懒的（同 ipc/pty.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { BuildProblems, MavenProject, MavenResolved, Service, TaskHeap, TaskList, TaskRun, TaskStale, TestResults } from "./commands";
+import type { BuildProblems, MavenProject, MavenResolved, Service, StuckProc, TaskHeap, TaskList, TaskRun, TaskStale, TestResults } from "./commands";
 
 /** 这个项目的全部任务：`.lite-ide/tasks.json` 里的 + 自动认出的 package.json scripts */
 export const taskList = (root: string) => invoke<TaskList>("task_list", { root });
@@ -13,6 +13,8 @@ export const taskRun = (root: string, name: string, debug = false) => invoke<Tas
 
 /** 停：第一次软停（SIGINT 整组，5 秒后强杀），软停没完再叫一次立刻强杀。"stopping" / "killed" / "gone" */
 export const taskStop = (id: number) => invoke<"stopping" | "killed" | "gone">("task_stop", { id });
+/** 停不掉的那些（#68）：宽限期过了还在「正在停」时问 —— 组里活着、但不归我们管的进程 */
+export const taskStuck = (id: number) => invoke<StuckProc[]>("task_stuck", { id });
 
 /** 关掉标签：从表里摘掉，还在跑就软停 */
 export const taskClose = (id: number) => invoke<void>("task_close", { id });

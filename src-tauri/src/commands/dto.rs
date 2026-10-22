@@ -1188,6 +1188,17 @@ pub struct RunConfigsDto {
     pub idea_problems: Vec<String>,
 }
 
+/// 停不掉的一个进程（#68）：组里活着、但不归我们管
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StuckProcDto {
+    pub pid: i32,
+    /// 用户名（`root`），查不到是 `uid N`
+    pub user: String,
+    /// 可执行文件路径
+    pub command: String,
+}
+
 /// 一个 Spring 服务的运行配置
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

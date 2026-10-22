@@ -148,6 +148,15 @@ pub fn task_stop(id: u32, state: State<'_, AppState>) -> String {
     }
 }
 
+/// 停不掉的那些（#68）：宽限期过了还在「正在停」时界面来问 —— 组里活着、但不归我们管的进程（免密 sudo 的 root）。
+/// 我们发不了信号（EPERM），只能说清是谁、谁的，`sudo kill` 由人自己抄去跑（ui.md 第七条：别人的东西，人点了 / 人抄了才动）。
+/// 枚举组员、查每个进程碰的是内核，量不大，但照规矩不在主线程上
+#[tauri::command]
+pub async fn task_stuck(id: u32, state: State<'_, AppState>) -> Result<Vec<StuckProcDto>, String> {
+    let Some(task) = state.run_task(id) else { return Ok(Vec::new()) };
+    blocking(move || Ok(task.foreign().into_iter().map(|f| StuckProcDto { pid: f.pid, user: f.user, command: f.command }).collect())).await
+}
+
 /// 构建那次（⌘F9）的编译错误：从这次运行的输出里认（`javac.rs`）。`log` 是 `task_run` 回的那个输出文件
 #[tauri::command]
 pub async fn build_problems(log: String) -> Result<BuildProblemsDto, String> {

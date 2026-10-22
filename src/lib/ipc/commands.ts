@@ -365,6 +365,15 @@ export interface RunConfigs {
   ideaProblems: string[];
 }
 
+/** 停不掉的一个进程（#68）：组里活着、但不归我们管（免密 sudo 的 root） */
+export interface StuckProc {
+  pid: number;
+  /** 用户名（`root`），查不到是 `uid N` */
+  user: string;
+  /** 可执行文件路径 */
+  command: string;
+}
+
 /** 一个 Spring 服务的运行配置 */
 export interface RunConfig {
   name: string;

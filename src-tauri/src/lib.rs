@@ -307,6 +307,7 @@ pub fn run() {
             commands::services_list,
             commands::task_ports,
             commands::task_heap,
+            commands::task_stuck,
             commands::settings_page,
             commands::settings_apply,
             commands::run_configs,

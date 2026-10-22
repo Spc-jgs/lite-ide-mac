@@ -159,6 +159,66 @@ fn member(_pid: i32) -> Member {
     Member::Gone
 }
 
+/// 组里停不掉的一个进程（#68）：还活着、但不归我们管 —— 别的用户起的，典型是免密 `sudo` 的 root。
+/// `killpg` 和对它单独发信号都是 EPERM，宽限期过了它照样在；界面要说清是谁、给一条能抄的 `sudo kill`
+#[derive(Clone, Debug, PartialEq)]
+pub struct Foreign {
+    pub pid: i32,
+    /// 真实用户名（`root`）；查不到名字就是 `uid 501` 这样
+    pub user: String,
+    /// 可执行文件的路径；拿不到就是 16 个字以内的进程名
+    pub command: String,
+}
+
+/// 组里停不掉的那些（[`Foreign`]）。只看活着的：僵尸、已经没了的不算
+pub fn foreign_members(pgid: i32) -> Vec<Foreign> {
+    group_members(pgid).into_iter().filter(|&p| member(p) == Member::NotOurs).filter_map(describe).collect()
+}
+
+/// 一个别的用户的进程是谁、谁的。
+///
+/// `proc_pidinfo(PROC_PIDTBSDINFO)`（[`member`] 用的那个）对别人的进程回 EPERM，`proc_name` 也是；
+/// **短的那份（`PROC_PIDT_SHORTBSDINFO`）和 `proc_pidpath` 拿得到**（2026-10-22 对 launchd 实测，`ps` 能列出 root 进程靠的也是不要权限的那几条）
+#[cfg(target_os = "macos")]
+fn describe(pid: i32) -> Option<Foreign> {
+    let mut info: libc::proc_bsdshortinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdshortinfo>() as libc::c_int;
+    // SAFETY: 缓冲区是一个完整的 proc_bsdshortinfo，大小如实告诉内核
+    let n = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDT_SHORTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size) };
+    if n != size {
+        return None;
+    }
+    let mut path = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: 缓冲区大小如实告诉内核；返回的是写进去的字节数
+    let len = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr() as *mut libc::c_void, path.len() as u32) };
+    let command = if len > 0 {
+        String::from_utf8_lossy(&path[..len as usize]).into_owned()
+    } else {
+        let comm: Vec<u8> = info.pbsi_comm.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+        String::from_utf8_lossy(&comm).into_owned()
+    };
+    Some(Foreign { pid, user: user_name(info.pbsi_ruid), command })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn describe(_pid: i32) -> Option<Foreign> {
+    None
+}
+
+/// uid → 用户名（`getpwuid_r`，线程安全那个）；查不到就是 `uid N`
+fn user_name(uid: libc::uid_t) -> String {
+    let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut buf = vec![0 as libc::c_char; 1024];
+    let mut out: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: 结构体、缓冲区、输出指针都是自己的，缓冲区大小如实给
+    let rc = unsafe { libc::getpwuid_r(uid, &mut pw, buf.as_mut_ptr(), buf.len(), &mut out) };
+    if rc != 0 || out.is_null() || pw.pw_name.is_null() {
+        return format!("uid {uid}");
+    }
+    // SAFETY: getpwuid_r 成功时 pw_name 指向 buf 里一个以 NUL 结尾的串
+    unsafe { std::ffi::CStr::from_ptr(pw.pw_name) }.to_string_lossy().into_owned()
+}
+
 fn signal_group(pgid: i32, sig: libc::c_int) {
     // SAFETY: 只对我们自己建的那个组发；组已经没了就是 ESRCH，无害
     unsafe {
@@ -347,6 +407,14 @@ impl Task {
         self.wait_exit(Duration::from_secs(2));
     }
 
+    /// 组里停不掉的那些（#68）：宽限期过了还在「正在停」时界面来问。已经整组没了就是空的（号可能已经是别人的，`alive` 上面那段）
+    pub fn foreign(&self) -> Vec<Foreign> {
+        if self.exited() {
+            return Vec::new();
+        }
+        foreign_members(self.pgid)
+    }
+
     /// 强杀：SIGKILL 整组，不等（软停宽限期里再按一次「停止」走这里，同 IDEA 按钮变成「强制结束」）
     pub fn kill(&self) {
         if self.exited() {
@@ -445,6 +513,15 @@ mod tests {
         let _ = g.kill();
         let _ = g.wait();
         assert!(kinds.contains(&Member::Live) && kinds.contains(&Member::Gone), "组长活着、孩子是僵尸：{kinds:?}");
+    }
+
+    /// 停不掉的那个要说得出是谁：root 的进程（launchd）`proc_pidinfo` 的长版本回 EPERM，短版本和路径拿得到（#68）
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn 别人的进程_说得出是谁_谁的() {
+        assert_eq!(describe(1), Some(Foreign { pid: 1, user: "root".into(), command: "/sbin/launchd".into() }));
+        assert_eq!(user_name(0), "root");
+        assert_eq!(user_name(4_000_000_000), "uid 4000000000");
     }
 
     /// 组里只剩一个没被回收的僵尸：killpg 回 EPERM（第 0 步实测的形状），但不能因为 EPERM 就当它还活着 —— 否则等待线程永远转、任务永远停不完
