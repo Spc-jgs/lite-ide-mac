@@ -361,6 +361,17 @@ pub struct GitStatusDto {
     /// 整个未跟踪的目录（路径以 `/` 结尾）。文件树按前缀匹配用
     pub untracked_dirs: Vec<String>,
     pub truncated: bool,
+    /// 停在哪个操作中间（变基、合并、cherry-pick、回退撞了冲突，docs/TAKEOVER.md G25）；没有是 null
+    pub op: Option<GitOpDto>,
+}
+
+/// 做到一半的操作。`kind`：`rebase` / `merge` / `cherry-pick` / `revert`；`step` / `total` 只有变基有（第几步、共几步）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitOpDto {
+    pub kind: String,
+    pub step: Option<u32>,
+    pub total: Option<u32>,
 }
 
 #[derive(serde::Serialize)]

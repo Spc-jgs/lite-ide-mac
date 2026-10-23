@@ -99,6 +99,7 @@
       branches.pendingCheckout ||
       git.pendingDiscard ||
       git.pendingRevertHunk ||
+      git.pendingOpAbort ||
       (git.trustOpen && git.restricted) ||
       (Bars && (remote.pendingDiverge || remote.pendingPush))
     ),
@@ -309,6 +310,18 @@
           <span class="gap"></span>
           <button class="btn" data-dismiss data-default onclick={() => (git.pendingDiscard = null)}>取消</button>
           <button class="btn danger" onclick={() => void git.discard(ds)}>丢弃</button>
+        </div>
+      </div>
+    {:else if git.pendingOpAbort && git.status?.op}
+      <!-- 放弃做到一半的变基 / 合并（docs/TAKEOVER.md G25）：解决到一半的冲突一起没了，和丢弃同一档 -->
+      {@const name = { rebase: "变基", merge: "合并", "cherry-pick": "cherry-pick", revert: "回退" }[git.status.op.kind]}
+      <div class="dialog" role="alertdialog" aria-label="放弃{name}吗" use:takeFocus>
+        <p class="title">放弃这次{name}？</p>
+        <p class="body">仓库回到{name}开始之前的样子，已经解决的冲突、这期间暂存的改动都不要了。</p>
+        <div class="actions">
+          <span class="gap"></span>
+          <button class="btn" data-dismiss data-default onclick={() => (git.pendingOpAbort = false)}>取消</button>
+          <button class="btn danger" onclick={() => void git.opAction("abort")}>放弃{name}</button>
         </div>
       </div>
     {:else if git.pendingRevertHunk}

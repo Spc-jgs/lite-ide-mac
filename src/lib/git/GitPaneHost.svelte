@@ -19,6 +19,7 @@
   onStage={(paths) => void git.run("暂存失败", () => gitStage(git.repo!, paths), "暂存")}
   onUnstage={(paths) => void git.run("取消暂存失败", () => gitUnstage(git.repo!, paths), "取消暂存")}
   onDiscard={(es) => (git.pendingDiscard = es)}
+  onOp={(a) => (a === "abort" ? (git.pendingOpAbort = true) : void git.opAction(a))}
   onCommit={(m, amend, push) =>
     void git.commit(m, amend).then((ok) => {
       // 提交成功才推；推之前照常走推送确认条（列出要推的提交）

@@ -1323,6 +1323,34 @@ lite_wait "${W}" "return __lite.caretLine() === 2" 8 >/dev/null
 check "$(lite eval "${W}" "return (__lite.tabs.active?.path ?? '').endsWith('/todo/T.java') + ':' + __lite.caretLine()" 2>/dev/null)" "true:2" "点「改成批量查」那行：开 T.java、光标在第 2 行"
 menu close-tab; menu tw-todo; sleep 0.3
 
+say "㊱ 做到一半的操作（docs/TAKEOVER.md G25）：合并撞冲突 → Git 面板里提交框换成「正在合并」，解决、暂存后点「继续」做出合并提交；变基撞冲突 → 「放弃」→ 回到原样"
+OPB=$(git -C "${FIX}" rev-parse --abbrev-ref HEAD)
+HG switch -qc op-side; printf 'side\n' > "${FIX}/op.txt"; HG add op.txt; HG commit -qm "op side"
+HG switch -q "${OPB}"; printf 'main\n' > "${FIX}/op.txt"; HG add op.txt; HG commit -qm "op main"
+HG merge op-side
+# Git 面板没开就点开（导轨上那个按钮是开关：开着再点就收起了）
+lite eval "${W}" "if (!document.querySelector('.git')) [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Git 改动')?.click(); return true" >/dev/null 2>&1
+menu git-refresh
+lite_wait "${W}" "return /正在合并/.test(document.querySelector('.op')?.textContent ?? '')" 10 >/dev/null
+check "$(lite eval "${W}" "return (document.querySelector('.op .op-title')?.textContent ?? '') + '|' + !!document.querySelector('.git .commit textarea') + '|' + document.querySelector('.op button.primary')?.disabled" 2>/dev/null)" "正在合并|false|true" "Git 面板：提交框换成「正在合并」，有冲突时「继续」点不了"
+printf 'both\n' > "${FIX}/op.txt"; HG add op.txt
+menu git-refresh
+lite_wait "${W}" "return document.querySelector('.op button.primary')?.disabled === false" 10 >/dev/null
+lite eval "${W}" "[...document.querySelectorAll('.op button')].find((b) => b.textContent.trim() === '继续').click(); return true" >/dev/null 2>&1
+wait_for 40 '[ "$(git -C "'"${FIX}"'" rev-list --parents -n1 HEAD | wc -w | tr -d " ")" = 3 ]'
+check "$(git -C "${FIX}" rev-list --parents -n1 HEAD | wc -w | tr -d ' ')|$(lite eval "${W}" "return !!document.querySelector('.op')" 2>/dev/null)" "3|false" "点「继续」：做出一个合并提交（两个父）、横幅收起"
+HG switch -qc op-rb op-side; printf 'rb\n' > "${FIX}/op.txt"; HG commit -qam "op rb"
+RB0=$(git -C "${FIX}" rev-parse HEAD)
+HG rebase "${OPB}"
+menu git-refresh
+lite_wait "${W}" "return /正在变基/.test(document.querySelector('.op')?.textContent ?? '')" 10 >/dev/null
+lite eval "${W}" "[...document.querySelectorAll('.op button')].find((b) => b.textContent.includes('放弃')).click(); return true" >/dev/null 2>&1
+lite_wait "${W}" "return !!document.querySelector('.dialog[role=alertdialog]')" 5 >/dev/null
+lite eval "${W}" "[...document.querySelectorAll('.dialog[role=alertdialog] button')].find((b) => b.textContent.includes('放弃')).click(); return true" >/dev/null 2>&1
+wait_for 15 '[ ! -d "'"${FIX}"'/.git/rebase-merge" ] && [ ! -d "'"${FIX}"'/.git/rebase-apply" ]'
+check "$([ "$(git -C "${FIX}" rev-parse HEAD)" = "${RB0}" ] && [ "$(git -C "${FIX}" rev-parse --abbrev-ref HEAD)" = op-rb ] && echo 1)" "1" "变基撞冲突 → 放弃（过一道对话框）：回到变基之前，分支和提交都原样"
+HG switch -q "${OPB}"
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

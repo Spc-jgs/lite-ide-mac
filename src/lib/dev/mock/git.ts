@@ -189,6 +189,8 @@ export async function gitCmd(cmd: string, a: A): Promise<unknown> {
         detached: detachedAt !== null,
         unborn: false,
         truncated: false,
+        // 做到一半的操作（docs/TAKEOVER.md G25）：桩里平时没有；调界面时 `globalThis.__mockGitOp = { kind: "rebase", step: 2, total: 3 }` 造一个
+        op: (globalThis as { __mockGitOp?: unknown }).__mockGitOp ?? null,
         /*
          * 整个未跟踪的目录**不在 entries 里** —— 真实现把它摊成里面的
          * 文件，目录名单独走这一路给文件树。桩要照着摊，否则在浏览器里
@@ -382,6 +384,11 @@ index 1a2b3c4..5d6e7f8 100644
 
     // 造一段带合并的历史，泳道图的分叉与汇合都能看到
     // 真实现：有 path 时 `--follow`、有 lines 时 `git log -L`（docs/TAKEOVER.md G16）。桩里没有真历史：只看几行时给前两条，看得到「列表变短了」
+    // 继续 / 跳过 / 放弃：桩里直接当做完了，那块横幅收起来
+    case "git_op":
+      await sleep(300);
+      (globalThis as { __mockGitOp?: unknown }).__mockGitOp = null;
+      return null;
     case "git_log_entries":
       return a.lines ? MOCK_LOG.slice(0, 2) : MOCK_LOG;
     case "git_commit_files":

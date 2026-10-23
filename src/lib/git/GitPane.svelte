@@ -23,6 +23,7 @@
     onOpenLog,
     ahead = 0,
     behind = 0,
+    onOp,
   }: {
     status: GitStatus | null;
     busy: boolean;
@@ -53,7 +54,11 @@
     /** 只给空态那句「和 origin/x 比落后 N 个」用；拉取 / 推送的入口在标题栏（M9） */
     ahead?: number;
     behind?: number;
+    /** 做到一半的操作：继续 / 跳过这一步 / 放弃（docs/TAKEOVER.md G25）。放弃由上层弹对话框 */
+    onOp?: (action: "continue" | "skip" | "abort") => void;
   } = $props();
+
+  const OP_NAME = { rebase: "变基", merge: "合并", "cherry-pick": "cherry-pick", revert: "回退" } as const;
 
   let message = $state("");
   let amend = $state(false);
@@ -267,7 +272,24 @@
       </button>
     </div>
 
-    {#if status.entries.length === 0 && !composing && message.trim() === ""}
+    {#if status.op}
+      <!--
+        停在变基 / 合并…中间（docs/TAKEOVER.md G25）：这时下一步不是「提交」而是「继续」—— 提交框换成这块。
+        变基中途提交是另一回事（多出一个提交、变基接着停着），提交框留着只会让人点错。合并没有「跳过」
+      -->
+      <div class="op" role="status">
+        <p class="op-title">正在{OP_NAME[status.op.kind]}{#if status.op.step && status.op.total}<span class="op-step">第 {status.op.step} / {status.op.total} 步</span>{/if}</p>
+        <p class="op-sub">
+          {#if conflicts.length > 0}先解决 {conflicts.length} 处冲突（点开文件），暂存（＋）之后点「继续」{:else if unstaged.length > 0}冲突都解决了：把改动暂存（＋），再点「继续」{:else}可以继续了{/if}
+        </p>
+        <div class="op-row">
+          <button class="btn quiet sm" onclick={() => onOp?.("abort")}>放弃{OP_NAME[status.op.kind]}</button>
+          <span class="gap"></span>
+          {#if status.op.kind !== "merge"}<button class="btn sm" disabled={busy} onclick={() => onOp?.("skip")} title="这一个提交不要了，接着做下一个">跳过</button>{/if}
+          <button class="btn primary sm" disabled={busy || conflicts.length > 0} class:busy onclick={() => onOp?.("continue")}>继续</button>
+        </div>
+      </div>
+    {:else if status.entries.length === 0 && !composing && message.trim() === ""}
       <!--
         空态只出现一次。原来「工作区干净」印了两遍 —— 一遍在折叠的提交按钮里、
         一遍在列表的空态里 —— 而下面还剩三百多像素什么都没有。
@@ -646,4 +668,12 @@
   .m.conflict { color: var(--git-conflict); }
 
   .hint { padding: 14px 12px; color: var(--text-faint); font-size: var(--fs-md); }
+  /* 做到一半的操作（G25）：琥珀色 = 要你决定（ui.md 第十四条卡片的色），占提交框的位置 */
+  .op { margin: 0 8px 6px; padding: 10px 12px; border-radius: var(--r-md); background: color-mix(in srgb, var(--lvl-warn) 14%, transparent); }
+  .op-title { margin: 0; font-size: var(--fs-md); font-weight: 600; color: var(--text); display: flex; align-items: baseline; gap: 8px; }
+  .op-step { font-weight: normal; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .op-sub { margin: 4px 0 8px; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); }
+  /* 侧边栏默认 240 宽：三个按钮用小号，还放不下就折行（主动作「继续」在最右，折下去也在右边） */
+  .op-row { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
+  .op-row .gap { flex: 1; }
 </style>

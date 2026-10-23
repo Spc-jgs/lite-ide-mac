@@ -1,5 +1,5 @@
 import { gitStage, readText, writeText, type GitEntry } from "../ipc/commands";
-import { gitDiff, gitCommitDiff, gitCommitVsWorktree, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached, gitApplyWorktree, gitCherryPick, gitFileAt } from "../ipc/git";
+import { gitDiff, gitCommitDiff, gitCommitVsWorktree, gitDiscard, gitCommit, gitStashPush, gitStashPop, gitApplyCached, gitApplyWorktree, gitCherryPick, gitFileAt, gitOp } from "../ipc/git";
 import { notify } from "./notify.svelte";
 import { errText } from "./err-text";
 import { tabs } from "./tabs.svelte";
@@ -78,6 +78,29 @@ export async function run(what: string, fn: () => Promise<unknown>, doing: strin
     notify.doing = "";
     git.release();
   }
+}
+
+/** 做到一半的操作叫什么（横幅、胶囊上的字） */
+export const OP_NAME = { rebase: "变基", merge: "合并", "cherry-pick": "cherry-pick", revert: "回退" } as const;
+
+/**
+ * 做到一半的操作：继续 / 跳过这一步 / 放弃（docs/TAKEOVER.md G25）。做完说结果：继续之后变基可能又停在下一步的冲突上 ——
+ * 读刷新后的状态说「又停住了」，不说「做完了」（ui.md 第十三条：说结果，不说请求）
+ */
+export async function opAction(action: "continue" | "skip" | "abort") {
+  git.pendingOpAbort = false;
+  const repo = git.repo;
+  const op = git.status?.op;
+  if (!repo || !op) return;
+  const name = OP_NAME[op.kind];
+  const label = action === "continue" ? `继续${name}` : action === "skip" ? "跳过这一步" : `放弃${name}`;
+  const ok = await run(`${label}没做成`, () => gitOp(repo, action), label);
+  await worktree.changed();
+  if (!ok) return;
+  const now = git.status?.op;
+  if (action === "abort") notify.ok(`已放弃${name}，回到开始之前的样子`);
+  else if (now) notify.hint(`又停在冲突上了${now.step && now.total ? `（第 ${now.step} / ${now.total} 步）` : ""}：解决、暂存之后再继续`);
+  else notify.ok(`${name}做完了`);
 }
 
 export async function discard(entries: GitEntry[]) {

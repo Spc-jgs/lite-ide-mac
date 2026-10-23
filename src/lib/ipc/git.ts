@@ -43,6 +43,9 @@ export const gitStashPop = (root: string) => invoke<void>("git_stash_pop", { roo
 export const gitDiscard = (root: string, paths: string[], untracked: string[]) =>
   invoke<void>("git_discard", { root, paths, untracked });
 
+/** 做到一半的操作：继续 / 跳过这一步 / 放弃（docs/TAKEOVER.md G25）。停在哪个操作上由 Rust 现读 */
+export const gitOp = (root: string, action: "continue" | "skip" | "abort") => invoke<void>("git_op", { root, action });
+
 export const gitCommit = (root: string, message: string, amend = false) =>
   invoke<string>("git_commit", { root, message, amend });
 

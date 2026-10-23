@@ -378,6 +378,7 @@ pub fn run() {
             commands::grep_project,
             commands::git_root,
             commands::git_status,
+            commands::git_op,
             commands::git_diff,
             commands::git_stage,
             commands::git_unstage,

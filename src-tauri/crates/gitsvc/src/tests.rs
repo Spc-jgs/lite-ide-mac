@@ -1780,3 +1780,91 @@ fn 文件历史跟着改名_选中几行的历史只列动过那几行的() {
     assert_eq!(subjects(log_entries(&dir, 50, false, "New.java", Some((0, 0))).unwrap()), vec!["起头"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 做到一半的操作（docs/TAKEOVER.md G25）：在真仓库里让变基、合并、cherry-pick、回退各停一次冲突，认出来的是对的那个、
+/// 继续前没解决说人话、放弃回到原样、解决后继续做完
+#[test]
+fn 停在冲突上的操作_认得出_放弃回到原样_解决后继续做完() {
+    if !available() {
+        eprintln!("跳过：机器上没有 git");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("gitsvc-ops-{}-{:?}", std::process::id(), std::time::Instant::now()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t.t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t.t")
+            .env("GIT_EDITOR", "true")
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let head = |dir: &Path| run(dir, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(dir.join("a.txt"), "base\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "base"]);
+    git(&["switch", "-qc", "side"]);
+    std::fs::write(dir.join("a.txt"), "side\n").unwrap();
+    git(&["commit", "-qam", "side"]);
+    git(&["switch", "-q", "main"]);
+    std::fs::write(dir.join("a.txt"), "main\n").unwrap();
+    git(&["commit", "-qam", "main"]);
+    assert_eq!(op_state(&dir), None, "干净的仓库：没有做到一半的");
+
+    // 变基：side 变到 main 上，撞冲突
+    git(&["switch", "-q", "side"]);
+    let side0 = head(&dir);
+    git(&["rebase", "main"]);
+    assert_eq!(op_state(&dir), Some(OpState { kind: OpKind::Rebase, step: Some((1, 1)) }), "停在变基第 1 步（共 1 步）");
+    let e = op_run(&dir, OpKind::Rebase, OpAction::Continue).unwrap_err();
+    assert!(e.to_string().contains("还有冲突的文件没解决"), "没解决就继续：说人话：{e}");
+    op_run(&dir, OpKind::Rebase, OpAction::Abort).unwrap();
+    assert_eq!((op_state(&dir), head(&dir)), (None, side0), "放弃：回到变基之前，side 原样");
+
+    // 合并：main 合 side，撞冲突；解决、暂存、继续
+    git(&["switch", "-q", "main"]);
+    git(&["merge", "side"]);
+    assert_eq!(op_state(&dir).map(|s| s.kind), Some(OpKind::Merge));
+    assert!(op_run(&dir, OpKind::Merge, OpAction::Skip).is_err(), "合并没有跳过");
+    std::fs::write(dir.join("a.txt"), "both\n").unwrap();
+    git(&["add", "a.txt"]);
+    op_run(&dir, OpKind::Merge, OpAction::Continue).unwrap();
+    assert_eq!(op_state(&dir), None, "继续：合并做完");
+    assert!(run(&dir, &["rev-list", "--parents", "-n1", "HEAD"]).unwrap().split_whitespace().count() == 3, "做出来的是一个合并提交（两个父）");
+
+    // cherry-pick：把 side 那次搬到一个从 base 起的新分支上（那里 a.txt 是 main 改过的 —— 先改回去造冲突）
+    git(&["switch", "-qc", "pick", "main~1"]);
+    std::fs::write(dir.join("a.txt"), "other\n").unwrap();
+    git(&["commit", "-qam", "other"]);
+    git(&["cherry-pick", "side"]);
+    assert_eq!(op_state(&dir).map(|s| s.kind), Some(OpKind::CherryPick));
+    op_run(&dir, OpKind::CherryPick, OpAction::Abort).unwrap();
+    assert_eq!(op_state(&dir), None);
+
+    // 回退：pick 这条线是 base → main（a = main）→ other（a = other）。回退 main 那次要把 a 改回 base，可 a 现在是 other —— 一定冲突
+    git(&["revert", "--no-edit", "HEAD~1"]);
+    assert_eq!(op_state(&dir).map(|s| s.kind), Some(OpKind::Revert));
+    op_run(&dir, OpKind::Revert, OpAction::Abort).unwrap();
+    assert_eq!(op_state(&dir), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn 工作树的_git_是个文件_照里面那句找到真的目录() {
+    let dir = std::env::temp_dir().join(format!("gitsvc-gitfile-{}-{:?}", std::process::id(), std::time::Instant::now()));
+    std::fs::create_dir_all(dir.join("real/rebase-merge")).unwrap();
+    std::fs::create_dir_all(dir.join("wt")).unwrap();
+    std::fs::write(dir.join("real/rebase-merge/msgnum"), "2\n").unwrap();
+    std::fs::write(dir.join("real/rebase-merge/end"), "3\n").unwrap();
+    std::fs::write(dir.join("wt/.git"), format!("gitdir: {}\n", dir.join("real").display())).unwrap();
+    assert_eq!(op_state(dir.join("wt")), Some(OpState { kind: OpKind::Rebase, step: Some((2, 3)) }));
+    let _ = std::fs::remove_dir_all(&dir);
+}

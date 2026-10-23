@@ -41,12 +41,41 @@ pub async fn git_root(path: String) -> Option<String> {
         .unwrap_or(None)
 }
 
+fn op_dto(s: gitsvc::OpState) -> GitOpDto {
+    let kind = match s.kind {
+        gitsvc::OpKind::Rebase => "rebase",
+        gitsvc::OpKind::Merge => "merge",
+        gitsvc::OpKind::CherryPick => "cherry-pick",
+        gitsvc::OpKind::Revert => "revert",
+    };
+    GitOpDto { kind: kind.into(), step: s.step.map(|(a, _)| a), total: s.step.map(|(_, b)| b) }
+}
+
+/// 做到一半的操作：继续 / 跳过这一步 / 放弃（`action`：`continue` / `skip` / `abort`，docs/TAKEOVER.md G25）。
+/// 停在哪个操作上由这边现读（不信前端传来的）：界面上那块是刷新前的样子，这期间你可能在终端里已经放弃了
+#[tauri::command]
+pub async fn git_op(root: String, action: String) -> Result<(), String> {
+    blocking(move || {
+        let act = match action.as_str() {
+            "continue" => gitsvc::OpAction::Continue,
+            "skip" => gitsvc::OpAction::Skip,
+            "abort" => gitsvc::OpAction::Abort,
+            other => return Err(format!("不认识的动作：{other}")),
+        };
+        let st = gitsvc::op_state(&root).ok_or("仓库现在没有做到一半的操作（可能已经在别处做完或者放弃了）")?;
+        gitsvc::op_run(&root, st.kind, act).map_err(|e| format!("{e}"))
+    })
+    .await
+}
+
 /// 读一次仓库状态。分支、领先落后、变更文件一次拿全。
 #[tauri::command]
 pub async fn git_status(root: String) -> Result<GitStatusDto, String> {
     blocking(move || {
         let st = gitsvc::status_full(&root).map_err(|e| format!("{e}"))?;
+        let op = gitsvc::op_state(&root).map(op_dto);
         Ok(GitStatusDto {
+            op,
             root,
             branch: st.branch,
             upstream: st.upstream,

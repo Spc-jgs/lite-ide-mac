@@ -987,6 +987,15 @@ export interface GitStatus {
    */
   untrackedDirs: string[];
   truncated: boolean;
+  /** 停在哪个操作中间（变基、合并、cherry-pick、回退撞了冲突，docs/TAKEOVER.md G25）；没有是 null */
+  op: GitOp | null;
+}
+
+/** 做到一半的操作。`step` / `total` 只有变基有（第几步、共几步） */
+export interface GitOp {
+  kind: "rebase" | "merge" | "cherry-pick" | "revert";
+  step: number | null;
+  total: number | null;
 }
 
 /** 找路径所属仓库根；不是仓库返回 null（正常情况，Git 功能整体隐身） */

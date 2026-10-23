@@ -35,6 +35,7 @@ mod branch;
 mod changes;
 mod commit;
 mod history;
+mod ops;
 mod status;
 
 pub use blame::*;
@@ -42,6 +43,7 @@ pub use branch::*;
 pub use changes::*;
 pub use commit::*;
 pub use history::*;
+pub use ops::*;
 pub use status::*;
 
 use std::io;

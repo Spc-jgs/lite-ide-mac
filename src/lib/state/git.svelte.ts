@@ -49,6 +49,8 @@ class Git {
   pendingDiscard = $state<GitEntry[] | null>(null);
   /** 待确认撤销的那一块的 patch（issue #38）—— 和丢弃同一档：动的是盘上的文件，不可撤销 */
   pendingRevertHunk = $state<string | null>(null);
+  /** 待确认「放弃变基 / 合并…」（docs/TAKEOVER.md G25）—— 解决到一半的冲突一起没了 */
+  pendingOpAbort = $state(false);
   /**
    * 编辑器里显示注解（blame，issue #33 ⑭）。一个开关管所有标签 —— IDEA 是按文件开的，
    * 但「看谁改的」这个模式一旦进入，换文件多半还想看。只在内存里，重启就关。
@@ -293,6 +295,9 @@ class Git {
   }
   async discard(entries: GitEntry[]) {
     return (await ops()).discard(entries);
+  }
+  async opAction(action: "continue" | "skip" | "abort") {
+    return (await ops()).opAction(action);
   }
   async stashPush(): Promise<boolean> {
     return (await ops()).stashPush();
