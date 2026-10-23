@@ -16,7 +16,8 @@
   import { tabflow } from "../state/tabflow.svelte";
   import { imeKey } from "../shell/ime";
   import Icon from "../shell/Icon.svelte";
-  import { bytes, fitScale, kind, percent, pinch, readImage, step } from "./zoom";
+  import { bytes, fitScale, kind, openInPreview, percent, pinch, readImage, step } from "./zoom";
+  import { notify } from "../state/notify.svelte";
 
   let { tab }: { tab: TabState } = $props();
 
@@ -33,6 +34,12 @@
 
   const mime = $derived(tab.reason || "image/png");
   const svg = $derived(mime === "image/svg+xml");
+  /**
+   * PDF（2026-10-23 定的）：不在页面里画 —— 要放开 CSP 的 object-src / frame-src，那条挡的是「页面里跑别人的东西」，为了预览不开口子。
+   * 认出来（不再是日志模式的乱码）、说一句、给一个按钮交给系统的「预览」
+   */
+  const pdf = $derived(mime === "application/pdf");
+  const preview = () => void openInPreview(tab.path).catch((e) => notify.fail(e instanceof Error ? e.message : String(e)));
   const fit = $derived(fitScale(nw, nh, vw, vh));
   const scale = $derived(zoom ?? fit);
 
@@ -41,6 +48,7 @@
   $effect(() => {
     const path = tab.path;
     void tick;
+    if (pdf) return;
     let dead = false;
     err = "";
     if (path !== shown) {
@@ -103,7 +111,8 @@
     {#if svg}
       <button class="btn sm quiet" title="看 / 改 SVG 的源码（状态栏「编辑模式 ⇄」切回预览）" onclick={() => void tabflow.requestSwitchMode(tab)}>编辑源码</button>
     {/if}
-    <button class="btn sm quiet" title="重新从盘上读一遍" onclick={() => tick++}>重新载入</button>
+    <button class="btn sm quiet" title="交给系统的「预览」打开" onclick={preview}>在「预览」里打开</button>
+    {#if !pdf}<button class="btn sm quiet" title="重新从盘上读一遍" onclick={() => tick++}>重新载入</button>{/if}
     <span class="segs">
       <button class="btn sm" class:on={zoom === null} title="大图缩到放得下，小图原大（F）" onclick={() => (zoom = null)}>适应</button>
       <button class="btn sm" class:on={zoom === 1} title="一个像素对一个像素（0）" onclick={() => (zoom = 1)}>1:1</button>
@@ -115,7 +124,13 @@
   <!-- 拿焦点是为了接 ＋ − 0 F 这几个键（点一下图就能按）；它本身不是控件 -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
   <div class="stage" bind:clientWidth={vw} bind:clientHeight={vh} onwheel={onWheel} onkeydown={onKey} tabindex="0" role="img" aria-label={tab.name}>
-    {#if err}
+    {#if pdf}
+      <div class="empty-msg">
+        PDF 不在这里画
+        <div class="sub">要放开页面的安全策略才画得出来，没为它开口子 —— 交给系统的「预览」看</div>
+        <button class="btn primary open" onclick={preview}>在「预览」里打开</button>
+      </div>
+    {:else if err}
       <div class="empty-msg bad">{err}</div>
     {:else if !src}
       <div class="empty-msg wait"><span class="spinner"></span> 正在读图…</div>
@@ -155,4 +170,5 @@
     box-shadow: 0 0 0 1px var(--border-soft);
   }
   img.pixel { image-rendering: pixelated; }
+  .open { margin-top: 12px; }
 </style>

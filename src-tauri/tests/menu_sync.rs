@@ -138,7 +138,7 @@ fn 菜单项的文案和键位必须和_keymap_ts_一致() {
             panic!("菜单里有 `{id}`，而 keymap.ts 里没有 —— 键位表是唯一出处，先去那儿登记");
         };
         assert!(
-            owner != "cm6" && owner != "xterm",
+            owner != "cm6" && owner != "xterm" && owner != "log",
             "`{id}` 在 keymap.ts 里归 {owner}（控件自己吃键），却出现在菜单里。\n\
              菜单项带 accelerator 会先把键吃掉 —— 这等于把编辑器 / 终端的查找静默抢没了"
         );

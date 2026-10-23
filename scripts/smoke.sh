@@ -1466,6 +1466,43 @@ menu tw-notifications
 menu save; sleep 0.3
 menu close-tab; sleep 0.3
 
+say "㊶ 书签（docs/TAKEOVER.md G18）：F3 在光标那行打、行号旁画出来；上面插两行跟着往下走；⌘F3 的工具窗列出来、点一行跳过去；F3 再按取消"
+W=main
+BMF="${FIX}/bm.txt"
+printf 'one\ntwo\nthree\nfour\n' > "${BMF}"
+is "await __lite.tabflow.openPath($(q "${BMF}"), { preview: false }); return true"
+lite_wait "${W}" "return __lite.tabs.active?.path === $(q "${BMF}") && !!document.querySelector('.cm-content')" 6 >/dev/null
+is "__lite.caret(3, 1); __lite.key('F3'); return true"
+lite_wait "${W}" "return document.querySelectorAll('.cm-lineNumbers .cm-bm-line').length === 1" 5 >/dev/null
+check "$(lite eval "${W}" "return document.querySelector('.cm-lineNumbers .cm-bm-line')?.textContent.trim()" 2>/dev/null)" "3" "F3：第 3 行的行号旁一个书签（行号照样看得见）"
+is "__lite.caret(1, 1); __lite.type('x\n'); __lite.caret(1, 1); __lite.type('y\n'); return true"
+menu tw-bookmarks
+lite_wait "${W}" "return [...document.querySelectorAll('.bms .row .ln')].some((e) => e.textContent.trim() === '5')" 5 >/dev/null
+check "$(lite eval "${W}" "return document.querySelector('.cm-lineNumbers .cm-bm-line')?.textContent.trim() + '|' + [...document.querySelectorAll('.bms .row')].map((r) => r.querySelector('.ln').textContent.trim() + ':' + r.querySelector('.txt').textContent).join(',')" 2>/dev/null)" "5|5:three" "上面插两行：书签跟到第 5 行，⌘F3 的工具窗里也是第 5 行「three」"
+is "__lite.caret(1, 1); return true"
+lite eval "${W}" "document.querySelector('.bms .row').click(); return true" >/dev/null 2>&1
+lite_wait "${W}" "return __lite.caretLine() === 5" 5 >/dev/null
+check "$(lite eval "${W}" "return __lite.caretLine()" 2>/dev/null)" "5" "点工具窗里那一行：光标跳到第 5 行"
+is "__lite.key('F3'); return true"
+lite_wait "${W}" "return document.querySelectorAll('.cm-lineNumbers .cm-bm-line').length === 0 && !document.querySelector('.bms .row')" 5 >/dev/null
+check "$(lite eval "${W}" "return document.querySelectorAll('.cm-lineNumbers .cm-bm-line').length + '|' + document.querySelectorAll('.bms .row').length" 2>/dev/null)" "0|0" "在那一行再按 F3：取消，工具窗里也没了"
+menu tw-bookmarks
+menu save; sleep 0.3
+menu close-tab; sleep 0.3
+
+say "㊷ ⌘O 找类（照 IDEA，docs/TAKEOVER.md I1）：开着项目时打开 ⇧⇧ 的「类」那一页；PDF 认得出、不当日志乱码"
+W=main
+menu quick-class
+lite_wait "${W}" "return !!document.querySelector('.palette input')" 5 >/dev/null
+check "$(lite eval "${W}" "return document.querySelector('.palette input')?.placeholder ?? ''" 2>/dev/null | grep -c '类名')" "1" "⌘O（菜单「找类…」）：开的是找类那一页"
+lite eval "${W}" "document.querySelector('.palette input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null 2>&1
+printf '%%PDF-1.4\n%%\xe2\xe3\xcf\xd3\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%%%EOF\n' > "${FIX}/spec.pdf"
+is "await __lite.tabflow.openPath($(q "${FIX}/spec.pdf"), { preview: false }); return true"
+lite_wait "${W}" "return !!document.querySelector('.image .empty-msg')" 6 >/dev/null
+check "$(lite eval "${W}" "return __lite.tabs.active?.mode + '|' + (document.querySelector('.image .empty-msg')?.textContent.includes('在「预览」里打开') ?? false)" 2>/dev/null)" "image|true" "PDF：不再是日志模式的乱码，说清不在这里画、给一个「在『预览』里打开」"
+menu close-tab; sleep 0.3
+rm -f "${FIX}/spec.pdf" "${BMF}"
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

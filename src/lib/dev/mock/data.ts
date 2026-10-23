@@ -562,6 +562,8 @@ export const GIT_IGNORED = new Set(["dist", "node_modules", "target"]);
  * SVG 是文本、照常在 `FILES` 里（「编辑源码」要读得出来）
  */
 export const IMAGES: Record<string, string> = {
+  // PDF：不画，只认出来（G26 那条），内容随便给一个合法的头
+  "/proj/docs/spec.pdf": "JVBERi0xLjQKJcOkw7zDtsOfCg==",
   "/proj/docs/logo.png":
     "iVBORw0KGgoAAAANSUhEUgAAABgAAAAQCAYAAAAMJL+VAAAAKUlEQVR4nGNgQAOmJR/+I2Nqy49agCk/9Fw8/CwYfj4aehYMPRcPOwsA3KzyEJwWMugAAAAASUVORK5CYII=",
 };
@@ -615,7 +617,7 @@ export const DIRS: Record<string, Array<[string, boolean]>> = {
     ["inventory.log", false],
     ["order-service.log", false],
   ],
-  "/proj/docs": [["ARCHITECTURE.md", false], ["diagram.svg", false], ["logo.png", false]],
+  "/proj/docs": [["ARCHITECTURE.md", false], ["diagram.svg", false], ["logo.png", false], ["spec.pdf", false]],
 };
 
 export const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/"));

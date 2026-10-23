@@ -1081,6 +1081,8 @@ fn 图片_扩展名和文件头都对上才算() {
     assert_eq!(image::sniff("png", b"just some notes\n"), None);
     // 光标文件（类型 2）不是图标
     assert_eq!(image::sniff("ico", b"\0\0\x02\0"), None);
+    assert_eq!(image::sniff("pdf", b"%PDF-1.7\n"), Some("application/pdf"));
+    assert_eq!(image::sniff("pdf", b"not a pdf"), None);
     // 不认识的扩展名，文件头再像也不管
     assert_eq!(image::sniff("dat", b"\x89PNG\r\n\x1a\n"), None);
 }

@@ -8,6 +8,8 @@ import { invoke } from "@tauri-apps/api/core";
  * 多一个懒块共用它，Rollup 就把它拆成单独一块、入口里两张预加载表各多一个文件名（frontend.md「懒块之间新共用一个模块」）
  */
 export const readImage = (path: string) => invoke<ArrayBuffer>("read_image", { path });
+/** 交给系统的「预览」（PDF 不在页面里画；图片也能这么开）。Rust 只开认得出的 PDF / 图片 */
+export const openInPreview = (path: string) => invoke<void>("open_in_preview", { path });
 
 /** 缩放的档位：± 一下跳一档（IDEA 的图片编辑器也是按档跳，不是乘一个固定倍数 —— 乘法从 100% 出发回不到 100%） */
 export const STEPS = [0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32];

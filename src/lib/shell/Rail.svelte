@@ -65,7 +65,7 @@
       - Maven 工具窗（docs/IDEA.md 第 1 步）：Maven 项目才有。IDEA 里它是独立的工具窗，这里也是（抄层级）
       - 结构（⌘7，docs/TAKEOVER.md G17）：图标暂用「按包分组」那个，上游的 structure 图标还没下
     -->
-    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 改动", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "structure", on: true, i: "compact", l: "结构", k: " ⌘7", n: 0 }] as const as b}
+    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 改动", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: " ⌘7", n: 0 }] as const as b}
       {#if b.on}
         <button
           class="ibtn lg rbtn"

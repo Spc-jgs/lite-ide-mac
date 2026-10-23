@@ -70,8 +70,12 @@
     "step-over",
     "step-into",
     "step-out",
-    // 通知记录（docs/TAKEOVER.md I11），自绘暂代
+    // 通知记录（docs/TAKEOVER.md I11）
     "bell",
+    // 结构工具窗（⌘7）、书签（F3 / ⌘F3）：书签工具窗 + 行号旁那个黄色的（彩色）
+    "structure",
+    "bookmarks",
+    "bookmark",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];
@@ -135,6 +139,7 @@
       [data-n="note"],
       [data-n="folder"],
       [data-n="compact"],
+      [data-n="bookmark"],
       [data-n="run"],
       [data-n="stop"],
       [data-n="rerun"],

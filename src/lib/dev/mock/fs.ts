@@ -101,7 +101,7 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
        * （这里照真实现只答体积。名字是日志的小文件照样进日志视图，那是前端 `tabflow.openPath` 按名字定的，2026-10-12）
        */
       // 图片（G26）：抄 `fsservice::image_mime` —— 扩展名对上、内容也像（PNG 在 IMAGES 里，SVG 看有没有 <svg）
-      const img = IMAGES[path] !== undefined ? "image/png" : /\.svg$/i.test(path) && /<svg/i.test(FILES[path] ?? "") ? "image/svg+xml" : "";
+      const img = IMAGES[path] !== undefined ? (path.endsWith(".pdf") ? "application/pdf" : "image/png") : /\.svg$/i.test(path) && /<svg/i.test(FILES[path] ?? "") ? "image/svg+xml" : "";
       if (img) {
         const size = IMAGES[path] ? atob(IMAGES[path]).length : FILES[path].length;
         return { kind: "file", mode: "image", path, name: path.split("/").pop(), size, reason: img };
@@ -128,6 +128,10 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
         reason: isLog ? "文件超过 32MB" : "",
       };
     }
+    // 交给系统的「预览」：浏览器里没有，说一句（真实现起 `open -a Preview`）
+    case "open_in_preview":
+      console.info(`[桩] 用「预览」打开 ${String(a.path)}`);
+      return null;
     case "read_image": {
       const path = String(a.path);
       const b64 = IMAGES[path];

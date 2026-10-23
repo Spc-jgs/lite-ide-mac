@@ -18,6 +18,8 @@ export function toggleToolKey(id: string) {
       return layout.toggleTool("problems");
     case "tw-notifications":
       return layout.toggleTool("notifications");
+    case "tw-bookmarks":
+      return layout.toggleTool("bookmarks");
     case "tw-todo":
       if (!project.root) return void notify.hint("先打开一个项目：TODO 列的是这个项目注释里的 TODO / FIXME");
       return layout.toggleTool("todo");

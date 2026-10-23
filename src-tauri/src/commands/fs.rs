@@ -63,6 +63,12 @@ pub async fn read_image(path: String) -> Result<Response, String> {
     blocking(move || fsservice::read_image(&path).map(Response::new).map_err(|e| format!("{e}"))).await
 }
 
+/// 用系统的「预览」打开（PDF 不在页面里画，G26 那条）。起子进程 → 阻塞池
+#[tauri::command]
+pub async fn open_in_preview(path: String) -> Result<(), String> {
+    blocking(move || fsservice::open_in_preview(Path::new(&path)).map_err(|e| format!("{e}"))).await
+}
+
 /// 列一层目录。不递归 —— 文件树按需展开，大仓库才不会卡。
 ///
 /// 没有 `show_hidden` 这个开关了：点文件一律列，构建产物一律不列。

@@ -10,6 +10,7 @@
   import { ideaBindings, editorDefaults, ideaKeysState, searchDefaults } from "./idea-keys";
   import { idKeymap } from "./id-keys";
   import { stickyLinesExt, stickyTheme } from "./sticky";
+  import { bookmarks } from "./bookmarks-ext";
   import { formatJson } from "./format-json";
   import { notify } from "../state/notify.svelte";
   import { saveHistory, stateWithHistory } from "./undo-store";
@@ -468,6 +469,8 @@
         // 粘性行（docs/TAKEOVER.md G19）：所在的类、方法钉在顶上。设置里能关，关了插件还在、只是不画
         stickyLinesExt,
         stickyTheme,
+        // 书签（F3，docs/TAKEOVER.md G18）：任何文件都能打；草稿本里记在「没项目」那一格
+        ...(histKey && !histKey.startsWith("jdt:") ? [bookmarks(untrack(() => project.root), histKey)] : []),
         EditorView.domEventHandlers({ contextmenu: (e, v) => openContextMenu(e, v) }),
         ideaDarkTheme,
         ideaDarkHighlight,

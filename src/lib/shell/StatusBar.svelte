@@ -224,7 +224,7 @@
         title={active.forced ? "你手动切到了日志模式" : "自动判定的原因"}
       >只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}</span>
     {:else}
-      <span class="cell dim drop-2">{active.mode === "image" ? "图片" : lang.mod ? lang.mod.langLabel(lang.mod.langOf(active.path)) : ""}</span>
+      <span class="cell dim drop-2">{active.mode === "image" ? (active.reason === "application/pdf" ? "PDF" : "图片") : lang.mod ? lang.mod.langLabel(lang.mod.langOf(active.path)) : ""}</span>
     {/if}
     {#if active.mode === "edit"}
       <!-- 缩进 · 换行符。混用的换行符标黄：那是文件坏了，保存时会统一成 LF；点了能改（issue #37） -->

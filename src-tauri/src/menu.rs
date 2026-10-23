@@ -196,7 +196,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         // 紧挨「新建草稿」：一个是「这里多一张」、一个是「去草稿本」（docs/SCRATCH.md 7.3）。去哪个窗口由 Rust 定（winctl::open_scratchbook）
         // id 写字面量不写 `winctl::SCRATCHBOOK`：menu_sync.rs 读源码比对 id，常量它读不出来
         .item(&item(app, "scratchbook", "在草稿本新建", Some("Shift+CmdOrCtrl+N"))?)
-        .item(&item(app, "open-folder", "打开文件夹…", Some("CmdOrCtrl+O"))?)
+        // ⌘O 让给了找类（keymap.ts 里 quick-class 那条，docs/TAKEOVER.md I1）；没开项目时找类那个键就是打开文件夹
+        .item(&item(app, "open-folder", "打开文件夹…", None)?)
         .item(&recent)
         .item(&close_project)
         .item(&item(app, "open-scratch-dir", "在 Finder 中显示草稿目录", None)?)
@@ -246,6 +247,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "tw-git", "Git", Some("CmdOrCtrl+9"))?)
         .item(&item(app, "tw-todo", "TODO", None)?)
         .item(&item(app, "tw-notifications", "通知", None)?)
+        .item(&item(app, "tw-bookmarks", "书签", Some("CmdOrCtrl+F3"))?)
         .build()?;
 
     let view = SubmenuBuilder::new(app, "视图")
@@ -275,6 +277,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "quick-all", "随处搜索（连按两下 ⇧）", None)?)
         // ⌘P 只放标签：挂了 accelerator，终端里的 ⌘P 就被菜单抢走了
         .item(&item(app, "quick-file", "找文件…", Some("Shift+CmdOrCtrl+O"))?)
+        .item(&item(app, "quick-class", "找类…", Some("CmdOrCtrl+O"))?)
         .item(&item(app, "recent-files", "最近文件…", None)?)
         .item(&item(app, "recent-locations", "最近位置…", Some("Shift+CmdOrCtrl+E"))?)
         .item(&item(app, "quick-content", "在项目中搜索…", Some("Shift+CmdOrCtrl+F"))?)

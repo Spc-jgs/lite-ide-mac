@@ -2,6 +2,7 @@
   import Icon from "./Icon.svelte";
   import { imeKey } from "./ime";
   import FileGlyph from "./FileGlyph.svelte";
+  import { rename as bmRename } from "../state/bookmarks";
   import { tick, untrack } from "svelte";
   import { trashEntry, type DirEntry, type GitStatus } from "../ipc/commands";
 import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
@@ -368,6 +369,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     for (const row of m.rows) {
       try {
         const to = await moveEntry(row.path, m.dest);
+        bmRename(root, row.path, to);
         forgetSubtree(row.path);
         invalidate(parentOf(row.path));
         onRenamed?.(row.path, to, row.isDir);
@@ -841,6 +843,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
       if (a.kind === "rename") {
         const from = a.row!.path;
         const to = await renameEntry(from, name);
+        bmRename(root, from, to);
         if (to !== from) {
           // 子树的 key 全变了，父目录也要重列
           forgetSubtree(from);

@@ -19,7 +19,7 @@ const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.er
    * 它们按焦点分派，⌘F 在编辑器里归 CM6、在终端里归 xterm，不会双触发。
    * 例外只到这儿：两条里只要有一条是 menu / key，就还是重复。
    */
-  const widget = new Set(["cm6", "xterm"]);
+  const widget = new Set(["cm6", "xterm", "log"]);
   const withAccel = KEYS.filter((k) => k.accel);
   const dup = withAccel
     .filter((k, i) => withAccel.findIndex((x) => x.accel === k.accel) !== i)
@@ -49,7 +49,7 @@ ok(accelOrderIsApple("⌃⇧`"), "⌃⇧` 是对的");
  * 这里能测的是数据层面的自洽：
  */
 for (const k of KEYS) {
-  if (k.owner === "cm6" || k.owner === "xterm") {
+  if (k.owner === "cm6" || k.owner === "xterm" || k.owner === "log") {
     // ⌘F 进了菜单就等于把 CM6 的查找抢没了，而且是静默的
     ok(k.accel !== undefined, `${k.id} 标了 ${k.owner} 却没写键位，那它凭什么占着这个位置`);
   }

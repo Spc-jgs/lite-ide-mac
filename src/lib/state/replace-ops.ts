@@ -14,6 +14,7 @@ import { replaceApply, replacePending, replacePreview, replaceRecover, replaceSc
 import { applyEdits, buildPicks } from "../search/replace-model";
 import { worktree } from "./worktree.svelte";
 import { git } from "./git.svelte";
+import { rename as bmRename } from "./bookmarks";
 
 /**
  * 此刻开着的编辑标签：路径、编辑器里的实时文本、有没有未保存改动。
@@ -97,7 +98,11 @@ export async function landInTabs(o: ReplaceOutcome) {
   }
   docs.savedTick++;
   // 改了名的（Java 改类名连文件一起改、撤销时改回来）：开着它的标签挪到新路径，文件树重列。和文件树里改名走同一条路
-  for (const r of o.renamed) await worktree.renameOpenTabs(r.from, r.to, false, git.repo);
+  for (const r of o.renamed) {
+    await worktree.renameOpenTabs(r.from, r.to, false, git.repo);
+    // 书签跟着文件走（改类名、移动类、撤销时挪回来）
+    bmRename(project.root, r.from, r.to);
+  }
   if (o.renamed.length) worktree.treeTick++;
   // 改了盘上的文件：git 状态、文件树的颜色跟着刷（和保存之后同一个钩子）
   docs.hooks.afterSave?.();

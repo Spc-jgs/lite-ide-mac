@@ -175,9 +175,10 @@ export const ideaBindings: readonly IdBinding[] = [
 
 /**
  * CM6 的查找键位，摘掉 ⌘F、⌘G（上面按 id 挂了）和 ⌘D（它拿来「选中下一个相同的词」，IDEA 的 ⌘D 是复制行 ——
- * 原来靠 IDEA 那张表排在前面先吃到；你把复制行改到别的键上之后，⌘D 不该悄悄变回 CM6 的意思）。F3 / Esc 照留
+ * 原来靠 IDEA 那张表排在前面先吃到；你把复制行改到别的键上之后，⌘D 不该悄悄变回 CM6 的意思）。
+ * F3 也摘（2026-10-23）：它是 CM6 给 Windows 习惯留的「查找下一处」，IDEA 在 macOS 上 F3 是书签（`bookmark-toggle`），查找下一处是 ⌘G。Esc 照留
  */
-export const searchDefaults: readonly KeyBinding[] = searchKeymap.filter((b) => b.key !== "Mod-f" && b.key !== "Mod-g" && b.key !== "Mod-d");
+export const searchDefaults: readonly KeyBinding[] = searchKeymap.filter((b) => b.key !== "Mod-f" && b.key !== "Mod-g" && b.key !== "Mod-d" && b.key !== "F3");
 
 /**
  * CM6 的默认键位，摘掉 `⌘[` `⌘]`（它拿来减 / 加缩进）—— 那两个键在 IDEA 里是回退 / 前进，

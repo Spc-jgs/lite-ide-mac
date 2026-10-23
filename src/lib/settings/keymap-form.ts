@@ -27,6 +27,7 @@ export function lockedWhy(d: KeyDef): string | null {
   if (editable(d)) return null;
   if (d.gesture) return "这是手势，不是一个键";
   if (d.owner === "xterm") return "终端自己的键";
+  if (d.owner === "log") return "日志视图自己的键（只在日志模式里管用）";
   if (d.owner === "key") return "这个键有特殊处理（终端里让给 shell、按住 ⌃ 连按切标签），不能改";
   return "鼠标手势，不是一个键";
 }

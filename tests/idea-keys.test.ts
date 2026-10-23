@@ -108,7 +108,8 @@ const selText = (st: EditorState) => st.sliceDoc(st.selection.main.from, st.sele
   ok(keys.includes("Mod-f") && keys.includes("Mod-g") && keys.includes("Shift-Mod-g") && keys.includes("Mod-/"), `查找、上下一处、注释按 id 挂上了：${keys.join(" ")}`);
   ok(!editorDefaults.some((b) => b.key === "Mod-/"), "⌘/ 从默认键位里摘掉了");
   ok(!searchDefaults.some((b) => b.key === "Mod-f" || b.key === "Mod-g" || b.key === "Mod-d"), "⌘F ⌘G ⌘D 从查找的默认键位里摘掉了");
-  ok(searchDefaults.some((b) => b.key === "F3") && searchDefaults.some((b) => b.key === "Escape"), "F3、Esc 照留");
+  // F3 在 macOS 的 IDEA 里是书签（2026-10-23 起照它）：CM6 默认表里那条「查找下一处」不摘的话，书签那个键要和它抢
+  ok(!searchDefaults.some((b) => b.key === "F3") && searchDefaults.some((b) => b.key === "Escape"), "F3 摘了（让给书签）、Esc 照留");
 }
 
 console.log(`IDEA 编辑键：${pass} 通过，${fail} 失败`);

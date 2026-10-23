@@ -49,6 +49,9 @@ pub(crate) fn sniff(ext: &str, head: &[u8]) -> Option<&'static str> {
         // ICO 头：保留 0、类型 1（图标）；类型 2 是光标（.cur），不在这里
         "ico" => ("image/x-icon", head.starts_with(b"\x00\x00\x01\x00")),
         "svg" => ("image/svg+xml", has_svg_tag(head)),
+        // PDF（2026-10-23 定的）：不在页面里画 —— 那要放开 CSP 的 object-src / frame-src，而那条挡的是「页面里跑别人的东西」一类的事，
+        // 为了预览不值得开口子。认出来是为了不走日志模式的乱码，预览那边给一个「用『预览』打开」（`open_in_preview`）
+        "pdf" => ("application/pdf", head.starts_with(b"%PDF-")),
         _ => return None,
     };
     ok.then_some(mime)
@@ -56,6 +59,21 @@ pub(crate) fn sniff(ext: &str, head: &[u8]) -> Option<&'static str> {
 
 fn has_svg_tag(head: &[u8]) -> bool {
     head.windows(4).any(|w| w.eq_ignore_ascii_case(b"<svg"))
+}
+
+/// 交给系统的「预览」打开（PDF 和图片，见上面 PDF 那条）。**只开认得出来的**（`image_mime` 两样都对上）：
+/// 不做成「用默认程序打开任意文件」—— 那等于能拉起 `.app`、`.command` 这类会执行东西的文件。`-a Preview` 定死程序，路径前加 `--`
+pub fn open_in_preview(path: &Path) -> io::Result<()> {
+    if image_mime(path).is_none() {
+        return Err(io::Error::other(format!("{} 不是认得出的 PDF / 图片，不交给「预览」", path.display())));
+    }
+    #[allow(clippy::disallowed_methods)] // 只要退出码：open 立刻返回、stdin 接空、不读输出（同 reveal_in_finder）
+    let st = std::process::Command::new("/usr/bin/open").args(["-a", "Preview", "--"]).arg(path).stdin(std::process::Stdio::null()).status()?;
+    if st.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other("「预览」没能打开它"))
+    }
 }
 
 /// 读整张图的字节，带上限（同 `read_text_detect`：边读边卡，多读一个字节分清「正好等于」和「后面还有」）

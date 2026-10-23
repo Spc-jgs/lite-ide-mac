@@ -38,7 +38,12 @@
  * 编辑器里的按 id 挂（`editor/id-keys.ts`）—— 所以 `cm6` 那几行不再只是说明书，键真的从这里取。
  */
 
-export type Owner = "menu" | "key" | "cm6" | "xterm";
+/**
+ * `log`：日志视图自己吃的键（2026-10-23 加的）。它和 `cm6` / `xterm` 一样是「控件按焦点分派」：日志视图挂着的时候编辑器不在那个分组里、
+ * 分屏时编辑器先吃到（`preventDefault`）日志视图就不管 —— 所以 F3 可以同时是编辑器的书签（照 IDEA）和日志的下一处命中，不算撞。
+ * 不进菜单、改不了（写死在 LogPane 里），同 `key`
+ */
+export type Owner = "menu" | "key" | "cm6" | "xterm" | "log";
 
 export interface KeyDef {
   /** 与菜单项 id、随处搜索的 action id 是同一个 */
@@ -91,7 +96,11 @@ export const KEYS: KeyDef[] = [
    * 去哪个窗口由 Rust 定（`winctl::open_scratchbook`），菜单之外还有 Dock 右键和草稿列表顶上那一行
    */
   { id: "scratchbook", label: "在草稿本新建", accel: "⇧⌘N", group: "文件", owner: "menu" },
-  { id: "open-folder", label: "打开文件夹…", accel: "⌘O", group: "文件", owner: "menu" },
+  /*
+   * 2026-10-23 起不挂键（IDEA 的「Open…」在 macOS 默认键位里也没有键）：⌘O 让给了 IDEA 的找类（`quick-class`，docs/TAKEOVER.md I1）。
+   * 没开项目的窗口里 ⌘O 照旧是打开文件夹 —— 那里没有类可找，用了一个多月的手感在最常用的场合还在。想要回原来的，设置 › 键位里改
+   */
+  { id: "open-folder", label: "打开文件夹…", group: "文件", owner: "menu" },
   /*
    * 回到「只有标签、没有项目」的轻窗口（issue #40 第三层）。开一个文件不再自动
    * 把父目录当项目之后，这是唯一能从「有项目」回到「没项目」的路。
@@ -148,6 +157,11 @@ export const KEYS: KeyDef[] = [
    * 原来 ⌘P 留在 keydown 就是因为终端里的 ⌘P 是 zsh 的「历史上一条」
    */
   { id: "quick-file", label: "找文件…", accel: "⇧⌘O", group: "导航", owner: "menu" },
+  /**
+   * 找类：IDEA 的 Navigate › Class（⌘O，docs/TAKEOVER.md I1，2026-10-23 定的：用户把「等我拍板的」交给了我，键位跟 IDEA）。
+   * 开的是 ⇧⇧ 那个面板的「类」一页（问 jdtls，驼峰缩写也认）。**没开项目时是打开文件夹**：那里没有类可找，原来 ⌘O 就是打开文件夹
+   */
+  { id: "quick-class", label: "找类…", accel: "⌘O", group: "导航", owner: "menu" },
   /** IDEA 的 ⌘E：找文件那个面板空着的时候列的就是最近打开的，这条只是那个手势的名字。留 keydown：终端里的 ⌘E 是 shell 的「行尾」 */
   { id: "recent-files", label: "最近文件…", accel: "⌘E", group: "导航", owner: "key" },
   /* IDEA 的 Recent Locations：最近看过 / 跳过的地方，带那一行代码（⌘E 是最近的文件，这个是最近的位置） */
@@ -326,6 +340,8 @@ export const KEYS: KeyDef[] = [
   { id: "tw-todo", label: "TODO", group: "视图", owner: "menu" },
   // 通知记录（docs/TAKEOVER.md I11，IDEA 的 Notifications 工具窗）：IDEA 也没有默认键
   { id: "tw-notifications", label: "通知", group: "视图", owner: "menu" },
+  // IDEA 的 Bookmarks 工具窗（⌘F3）
+  { id: "tw-bookmarks", label: "书签", accel: "⌘F3", group: "视图", owner: "menu" },
   { id: "toggle-minimap", label: "代码缩略图", group: "视图", owner: "menu" },
   /*
    * 按标签切软换行。默认由扩展名定（md / txt / log 换，代码不换，
@@ -404,6 +420,11 @@ export const KEYS: KeyDef[] = [
   { id: "debug-reload", label: "重新加载改过的类", group: "运行", owner: "menu" },
   /** 在光标那行下 / 取消断点（Java 文件）。归 cm6：要读光标在哪一行；点行号是同一件事（java-debug-gutter.ts） */
   { id: "toggle-breakpoint", label: "切换断点（Java）", accel: "⌘F8", group: "运行", owner: "cm6" },
+  /**
+   * 书签（docs/TAKEOVER.md G18，2026-10-23 定的键：照 IDEA 的 macOS 默认）：F3 在光标那行打 / 取消，⌘F3 看全部。
+   * F3 原来在编辑器里还是「查找下一处」的一个别名（CM6 的默认表，⌘G 才是主键）—— 让给了书签；日志视图里的 F3 不受影响（`log` 那类）
+   */
+  { id: "bookmark-toggle", label: "切换书签", accel: "F3", group: "编辑", owner: "cm6" },
   // IDEA 的 View Breakpoints：全部断点、异常断点，改属性、停用、删除（docs/TAKEOVER.md G14）
   { id: "debug-breakpoints", label: "查看断点…", accel: "⇧⌘F8", group: "运行", owner: "menu" },
 
@@ -415,8 +436,8 @@ export const KEYS: KeyDef[] = [
    * 菜单栏跳来跳去 —— 灰掉又占着位置。这类模式内的键位留给 keydown，
    * 由速查表负责说明。
    */
-  { id: "log-next-hit", label: "日志：下一处命中", accel: "F3", group: "导航", owner: "key" },
-  { id: "log-prev-hit", label: "日志：上一处命中", accel: "⇧F3", group: "导航", owner: "key" },
+  { id: "log-next-hit", label: "日志：下一处命中", accel: "F3", group: "导航", owner: "log" },
+  { id: "log-prev-hit", label: "日志：上一处命中", accel: "⇧F3", group: "导航", owner: "log" },
 
   // ── Git ──
   // ⌘K：IDEA 里就是打开提交窗口。原来是 ⇧⌘G，把编辑器的「查找上一处」抢没了（见 cm-find-prev）
@@ -531,7 +552,7 @@ export function conflicts(o: Readonly<Record<string, string>> = over): Record<st
   const out: Record<string, string[]> = {};
   for (const [a, ks] of by) {
     if (ks.length < 2) continue;
-    const widget = ks.every((k) => k.owner === "cm6" || k.owner === "xterm");
+    const widget = ks.every((k) => k.owner === "cm6" || k.owner === "xterm" || k.owner === "log");
     const sameWidget = widget && new Set(ks.map((k) => k.owner)).size < ks.length;
     if (!widget || sameWidget) out[a] = ks.map((k) => k.id);
   }

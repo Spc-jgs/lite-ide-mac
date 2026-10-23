@@ -344,7 +344,8 @@ pub fn open_scratchbook(app: &AppHandle) {
 /// 只有「不需要现有窗口」的几项有意义，其余的此时都是灰的（最后一个窗口销毁时
 /// `lib.rs` 把菜单状态刷成全假）。
 pub fn menu_without_window(app: &AppHandle, id: &str) {
-    if id == "open-folder" {
+    // ⌘O（找类）在没有项目的地方就是打开文件夹（keymap.ts 里 quick-class 那条）—— 一个窗口都没有时更是
+    if id == "open-folder" || id == "quick-class" {
         // 原生面板要阻塞等人选，不能在主线程上等（同 commands::pick_folder 的注释）
         let app = app.clone();
         std::thread::spawn(move || {

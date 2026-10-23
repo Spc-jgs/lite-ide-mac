@@ -80,7 +80,8 @@
     <button class="btn primary" onclick={() => void tabflow.newScratch()}>新建草稿</button>
     {#if accel("new-scratch")}<kbd>{accel("new-scratch")}</kbd>{/if}
     <button class="btn" onclick={() => void tabflow.openFolder()}>打开文件夹…</button>
-    {#if accel("open-folder")}<kbd>{accel("open-folder")}</kbd>{/if}
+    <!-- 没项目时 ⌘O（找类那个键）就是打开文件夹（keymap.ts 里 quick-class 那条）；你在设置里给「打开文件夹」另配了键，就印那个 -->
+    {#if accel("open-folder") || accel("quick-class")}<kbd>{accel("open-folder") || accel("quick-class")}</kbd>{/if}
     <button class="btn" onclick={() => openModal(CloneDialog, { recent: project.recent })}>从 Git 克隆…</button>
   </div>
 

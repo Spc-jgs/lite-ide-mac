@@ -172,6 +172,8 @@ export async function runMenu(id: string, ctx: MenuCtx) {
       return;
     case "quick-all": overlay.openQuick("all"); return;
     case "quick-file": overlay.openQuick("file"); return;
+    // 没开项目没有类可找：照旧打开文件夹（keymap.ts 那条的理由）
+    case "quick-class": return void (project.root ? overlay.openQuick("class") : tabflow.openFolder());
     case "recent-files": overlay.openQuick("file"); return;
     case "quick-content": overlay.openQuick("content"); return;
     case "replace-content": {
@@ -208,7 +210,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "toggle-sidebar": layout.toggleSidebar(project.root !== null); return;
     case "toggle-panel": layout.panel = !layout.panel; return;
     // 工具窗的编号键（⌘4 / ⌘5 / ⌘6 / ⌘8 / ⌘9 / ⌥F12）：逻辑在懒的 tool-keys.ts，这里只交过去
-    case "tw-terminal": case "tw-run": case "tw-debug": case "tw-problems": case "tw-structure": case "tw-services": case "tw-git": case "tw-todo": case "tw-notifications":
+    case "tw-terminal": case "tw-run": case "tw-debug": case "tw-problems": case "tw-structure": case "tw-services": case "tw-git": case "tw-todo": case "tw-notifications": case "tw-bookmarks":
       return void import("./tool-keys").then((m) => m.toggleToolKey(id));
     case "toggle-scratch":
       // 已经在草稿视图上再点一次就收起侧边栏，和导轨上那个按钮同一个手势

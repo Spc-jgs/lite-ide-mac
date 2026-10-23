@@ -103,14 +103,12 @@
    * 原来空态卡片上的「打开文件夹 / 找文件」两条就搬到这儿来。同卡片一样从
    * `keymap.ts` 生成，不手抄第四份。键位表是懒的，没到之前只有前半句。
    */
-  const SCRATCH_HINT_IDS = ["open-folder", "quick-file"];
   let scratchHint = $derived.by(() => {
     const by = byIdFn;
-    const parts = by
-      ? SCRATCH_HINT_IDS.map((id) => by(id))
-          .filter((k) => k?.accel)
-          .map((k) => `${k!.accel} ${k!.label}`)
-      : [];
+    // 没项目时「打开文件夹」的键是找类那个（⌘O，keymap.ts 里 quick-class 那条）；开着项目时 ⌘O 是找类，这一句就不印
+    const open = project.root ? "" : by?.("open-folder")?.accel || by?.("quick-class")?.accel;
+    const file = by?.("quick-file");
+    const parts = [open && `${open} ${by!("open-folder")!.label}`, file?.accel && `${file.accel} ${file.label}`].filter(Boolean);
     return ["记点东西…", ...parts].join("  ·  ");
   });
 

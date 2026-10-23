@@ -214,7 +214,8 @@
    */
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "F3") return;
+      // 分屏时另一组的编辑器先吃到了（F3 在编辑器里是书签，keymap.ts 里 `log` 那类的说明）：不再跳
+      if (e.key !== "F3" || e.defaultPrevented) return;
       e.preventDefault();
       void jumpHit(e.shiftKey ? -1 : 1);
     };

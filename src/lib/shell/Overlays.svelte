@@ -67,7 +67,7 @@
     void import("../state/keymap").then(({ KEYS, byId, onOverrides }) => {
       // 控件自己吃键的那两类（cm6 / xterm）进不了命令面板：面板没法替它们把键送进控件。键位印生效的（你改过的，docs/TAKEOVER.md R3），改了重算
       const build = () =>
-        (actions = KEYS.filter((k) => k.owner !== "cm6" && k.owner !== "xterm").map((d) => {
+        (actions = KEYS.filter((k) => k.owner !== "cm6" && k.owner !== "xterm" && k.owner !== "log").map((d) => {
           const k = byId(d.id) ?? d;
           return {
             id: k.id,
