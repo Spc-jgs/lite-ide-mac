@@ -1067,3 +1067,48 @@ fn 真的把文件移进废纸篓() {
     );
     fs::remove_dir_all(d).ok();
 }
+
+// ── 图片预览（G26）：扩展名和文件头都对上才算图 ──
+
+#[test]
+fn 图片_扩展名和文件头都对上才算() {
+    assert_eq!(image::sniff("png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"), Some("image/png"));
+    assert_eq!(image::sniff("jpeg", b"\xff\xd8\xff\xe0"), Some("image/jpeg"));
+    assert_eq!(image::sniff("gif", b"GIF89a.."), Some("image/gif"));
+    assert_eq!(image::sniff("webp", b"RIFF\x10\0\0\0WEBPVP8 "), Some("image/webp"));
+    assert_eq!(image::sniff("ico", b"\0\0\x01\0\x01\0"), Some("image/x-icon"));
+    // 改了名的文本：扩展名说是图，文件头说不是 —— 交回编辑器
+    assert_eq!(image::sniff("png", b"just some notes\n"), None);
+    // 光标文件（类型 2）不是图标
+    assert_eq!(image::sniff("ico", b"\0\0\x02\0"), None);
+    // 不认识的扩展名，文件头再像也不管
+    assert_eq!(image::sniff("dat", b"\x89PNG\r\n\x1a\n"), None);
+}
+
+#[test]
+fn 图片_svg认标签不认开头() {
+    let head = b"<?xml version=\"1.0\"?>\n<!-- by hand -->\n<SVG xmlns=\"http://www.w3.org/2000/svg\"/>";
+    assert_eq!(image::sniff("svg", head), Some("image/svg+xml"));
+    assert_eq!(image::sniff("svg", b"<html><body>not an svg</body></html>"), None);
+}
+
+#[test]
+fn 图片_大小写扩展名_读盘() {
+    let d = sandbox("image-ext");
+    let f = d.join("Logo.PNG");
+    std::fs::write(&f, b"\x89PNG\r\n\x1a\nrest").unwrap();
+    assert_eq!(image_mime(&f), Some("image/png"));
+    assert_eq!(read_image(&f).unwrap().len(), 12);
+    fs::remove_dir_all(d).ok();
+}
+
+#[test]
+fn 图片_超过上限报错不截断() {
+    let d = sandbox("image-cap");
+    let f = d.join("big.png");
+    std::fs::write(&f, vec![7u8; 101]).unwrap();
+    assert_eq!(image::read_image_capped(&f, 101).unwrap().len(), 101, "正好等于上限要读得出来");
+    let e = image::read_image_capped(&f, 100).unwrap_err();
+    assert!(e.to_string().contains("不预览"), "{e}");
+    fs::remove_dir_all(d).ok();
+}

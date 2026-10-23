@@ -660,7 +660,8 @@ export interface RefreshResult {
 
 export interface PathInfo {
   kind: "file" | "dir";
-  mode: "edit" | "log";
+  /** `image`：认出是一张图（G26，`fsservice::image_mime`），这时 `reason` 是它的 MIME 类型 */
+  mode: "edit" | "log" | "image";
   path: string;
   name: string;
   size: number;

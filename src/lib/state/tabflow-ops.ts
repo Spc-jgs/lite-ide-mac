@@ -197,7 +197,16 @@ export function requestSwitchMode(tab: TabState) {
     notify.fail("有未保存的改动，请先保存（⌘S）再切换模式", 2600);
     return;
   }
-  const to = tab.mode === "edit" ? "log" : "edit";
+  /*
+   * 图片（G26）：SVG 是文本，预览和源码之间来回切（IDEA 的 SVG 编辑器也是这两面）；别的图没有文本可编辑。
+   * 判 SVG 按扩展名就够：能进 image 模式的 .svg 已经由 Rust 看过文件头
+   */
+  const svg = /\.svg$/i.test(tab.path);
+  if (tab.mode === "image" && !svg) {
+    notify.hint("图片只有预览，没有别的模式", 2200);
+    return;
+  }
+  const to = svg && tab.mode !== "log" ? (tab.mode === "image" ? "edit" : "image") : tab.mode === "edit" ? "log" : "edit";
   // 切到日志模式没有风险（mmap，内存与大小无关）；反方向要看体积
   if (to === "edit" && tab.size > CONFIRM_EDIT_BYTES) {
     tabflow.pendingSwitch = tab;
@@ -206,7 +215,7 @@ export function requestSwitchMode(tab: TabState) {
   void tabflow.doSwitch(tab, to);
 }
 
-export async function doSwitch(tab: TabState, to: "edit" | "log") {
+export async function doSwitch(tab: TabState, to: "edit" | "log" | "image") {
   tabflow.pendingSwitch = null;
   notify.clear();
   try {
@@ -216,6 +225,9 @@ export async function doSwitch(tab: TabState, to: "edit" | "log") {
     }
     if (to === "log") {
       tab.handle = (await openLog(tab.path)).handle;
+      tab.content = undefined;
+    } else if (to === "image") {
+      // 预览读的是盘上的字节；没保存的改动上面已经拦了（dirty 不让切）
       tab.content = undefined;
     } else {
       const t = await readText(tab.path, tab.forced ? tab.encoding : undefined);

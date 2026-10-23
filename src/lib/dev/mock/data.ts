@@ -456,6 +456,13 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 `,
+  "/proj/docs/diagram.svg": `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="96" viewBox="0 0 160 96">
+  <rect x="8" y="8" width="64" height="40" rx="6" fill="#3574f0"/>
+  <rect x="88" y="48" width="64" height="40" rx="6" fill="#5fb865"/>
+  <path d="M72 28 H80 V68 H88" stroke="#ced0d6" stroke-width="2" fill="none"/>
+</svg>
+`,
   "/proj/README.md": `# lite-ide
 
 > Mac 上 1 秒打开的个人工作台。
@@ -550,6 +557,15 @@ export const CONTESTED = new Set(["dist", "build", "vendor"]);
  */
 export const GIT_IGNORED = new Set(["dist", "node_modules", "target"]);
 
+/**
+ * 图片预览（G26）用的两张：PNG 是二进制、`FILES` 装不下，单放一张表（base64，24×16 的蓝格子，带透明）；
+ * SVG 是文本、照常在 `FILES` 里（「编辑源码」要读得出来）
+ */
+export const IMAGES: Record<string, string> = {
+  "/proj/docs/logo.png":
+    "iVBORw0KGgoAAAANSUhEUgAAABgAAAAQCAYAAAAMJL+VAAAAKUlEQVR4nGNgQAOmJR/+I2Nqy49agCk/9Fw8/CwYfj4aehYMPRcPOwsA3KzyEJwWMugAAAAASUVORK5CYII=",
+};
+
 export const DIRS: Record<string, Array<[string, boolean]>> = {
   // 应用日志所在的目录。它**不在项目里**，只有「帮助 → 打开应用日志」够得着
   "/Users/you/Library/Logs/com.liteide.app": [["app.log", false]],
@@ -599,7 +615,7 @@ export const DIRS: Record<string, Array<[string, boolean]>> = {
     ["inventory.log", false],
     ["order-service.log", false],
   ],
-  "/proj/docs": [["ARCHITECTURE.md", false]],
+  "/proj/docs": [["ARCHITECTURE.md", false], ["diagram.svg", false], ["logo.png", false]],
 };
 
 export const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/"));

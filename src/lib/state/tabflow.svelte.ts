@@ -159,7 +159,8 @@ class TabFlow {
         tab.handle = (await openLog(info.path)).handle;
         // 日志模式在前端用 TextDecoder 解码，只需要标签
         tab.encoding = await detectEncoding(info.path).catch(() => "UTF-8");
-      } else {
+      } else if (mode !== "image") {
+        // 图片（G26）不读文本：字节由预览自己去拿（懒块里），这里只要标签
         const t = await readText(info.path);
         tab.content = t.content;
         tab.encoding = t.encoding;
@@ -376,7 +377,7 @@ class TabFlow {
   async requestSwitchMode(tab: TabState) {
     return (await ops()).requestSwitchMode(tab);
   }
-  async doSwitch(tab: TabState, to: "edit" | "log") {
+  async doSwitch(tab: TabState, to: "edit" | "log" | "image") {
     return (await ops()).doSwitch(tab, to);
   }
   async closeMany(ids: number[]) {

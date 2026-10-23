@@ -1370,6 +1370,47 @@ check "$(printf '%s' "$(git -C "${FIX}" log -1 --format=%B)" | tr '\n' '|')|$([ 
 check "$(lite eval "${W}" "return !!document.querySelector('.dialog.rebase')" 2>/dev/null)" "false" "做完对话框关掉"
 HG stash pop -q
 
+say "㊳ 图片预览（docs/TAKEOVER.md G26）：PNG 画出来（不再是日志模式的乱码）、尺寸对；改了名的文本照旧进编辑器；SVG 预览 ⇄ 源码；超过 32 MB 说清楚、不硬画"
+mkdir -p "${FIX}/img"
+python3 - "${FIX}/img" <<'PY'
+import sys, zlib, struct
+d = sys.argv[1]
+w, h = 24, 16
+rows = b"".join(b"\x00" + b"".join(bytes([53, 116, 240, 255]) if (x // 4 + y // 4) % 2 else bytes(4) for x in range(w)) for y in range(h))
+chunk = lambda t, b: struct.pack(">I", len(b)) + t + b + struct.pack(">I", zlib.crc32(t + b) & 0xFFFFFFFF)
+png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+open(f"{d}/logo.png", "wb").write(png)
+open(f"{d}/notes.png", "w").write("其实是一段笔记\n")
+open(f"{d}/shape.svg", "w").write('<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><script>alert(1)</script><rect width="40" height="30" fill="#3574f0"/></svg>\n')
+with open(f"{d}/huge.png", "wb") as f:
+    f.write(png[:16]); f.truncate(33 << 20)
+PY
+is "await __lite.tabflow.openPath($(q "${FIX}/img/logo.png"), { preview: false }); return true"
+lite_wait "${W}" "return document.querySelector('.stage img')?.naturalWidth > 0" 8 >/dev/null
+check "$(lite eval "${W}" "return __lite.tabs.active?.mode + '|' + document.querySelector('.stage img')?.naturalWidth + 'x' + document.querySelector('.stage img')?.naturalHeight + '|' + document.querySelector('.image .info')?.textContent.trim()" 2>/dev/null)" "image|24x16|24 × 16 · $(stat -f %z "${FIX}/img/logo.png") B · PNG" "PNG：图片模式、WebKit 真解出 24×16、信息栏尺寸和字节数对"
+lite eval "${W}" "[...document.querySelectorAll('.image .bar button')].find((b) => b.getAttribute('aria-label') === '放大').click(); return true" >/dev/null 2>&1
+check "$(lite eval "${W}" "return document.querySelector('.image .pct')?.textContent + '|' + document.querySelector('.stage img').style.width + '|' + document.querySelector('.stage img').classList.contains('pixel')" 2>/dev/null)" "150%|36px|true" "放大一档：100% → 150%，按像素画（不糊）"
+menu close-tab; sleep 0.3
+is "await __lite.tabflow.openPath($(q "${FIX}/img/notes.png"), { preview: false }); return true"
+lite_wait "${W}" "return !!document.querySelector('.cm-content')" 8 >/dev/null
+check "$(lite eval "${W}" "return __lite.tabs.active?.mode + '|' + document.querySelector('.cm-content')?.textContent" 2>/dev/null)" "edit|其实是一段笔记" "扩展名是 .png、内容是文本：照旧进编辑器（文件头对不上就不当图）"
+menu close-tab; sleep 0.3
+is "await __lite.tabflow.openPath($(q "${FIX}/img/shape.svg"), { preview: false }); return true"
+lite_wait "${W}" "return document.querySelector('.stage img')?.naturalWidth > 0" 8 >/dev/null
+check "$(lite eval "${W}" "return __lite.tabs.active?.mode + '|' + document.querySelector('.image .info')?.textContent.trim().split(' · ')[0] + '|' + document.querySelectorAll('.stage svg, .stage script').length" 2>/dev/null)" "image|40 × 30|0" "SVG：当 <img> 画（里面的 <script> 不进页面）、尺寸 40 × 30"
+lite eval "${W}" "[...document.querySelectorAll('.image .bar button')].find((b) => b.textContent.trim() === '编辑源码').click(); return true" >/dev/null 2>&1
+lite_wait "${W}" "return !!document.querySelector('.cm-content')" 8 >/dev/null
+check "$(lite eval "${W}" "return __lite.tabs.active?.mode + '|' + /<svg/.test(document.querySelector('.cm-content')?.textContent ?? '')" 2>/dev/null)" "edit|true" "「编辑源码」：切到编辑器，正文是 SVG 源码"
+lite eval "${W}" "document.querySelector('.statusbar .cbtn.mode').click(); return true" >/dev/null 2>&1
+lite_wait "${W}" "return __lite.tabs.active?.mode === 'image' && !!document.querySelector('.stage img')" 8 >/dev/null
+check "$(lite eval "${W}" "return __lite.tabs.active?.mode" 2>/dev/null)" "image" "状态栏「编辑模式 ⇄」：切回预览"
+menu close-tab; sleep 0.3
+is "await __lite.tabflow.openPath($(q "${FIX}/img/huge.png"), { preview: false }); return true"
+lite_wait "${W}" "return !!document.querySelector('.image .empty-msg.bad')" 8 >/dev/null
+check "$(lite eval "${W}" "return __lite.tabs.active?.mode + '|' + /超过 32 MB/.test(document.querySelector('.image .empty-msg.bad')?.textContent ?? '')" 2>/dev/null)" "image|true" "33 MB 的 PNG：不硬读，说「超过 32 MB」"
+menu close-tab; sleep 0.3
+rm -rf "${FIX}/img"
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

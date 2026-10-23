@@ -35,8 +35,11 @@ export interface TabState {
   /** 在哪一组。单栏时全是 0 */
   group: Group;
   name: string;
-  /** `class`：jar 里的类（docs/IDEA.md 第 2 步），只读，`path` 是 `jdt://…` —— 存盘、外部改动那几条路都只认 `edit`，碰不到它 */
-  mode: "edit" | "log" | "diff" | "merge" | "class";
+  /**
+   * `class`：jar 里的类（docs/IDEA.md 第 2 步），只读，`path` 是 `jdt://…` —— 存盘、外部改动那几条路都只认 `edit`，碰不到它。
+   * `image`：图片预览（G26），`reason` 是 MIME；没有文本、没有句柄，同样碰不到存盘那几条路
+   */
+  mode: "edit" | "log" | "diff" | "merge" | "class" | "image";
   dirty: boolean;
   /** log 模式的引擎句柄 */
   handle?: number;
@@ -59,7 +62,7 @@ export interface TabState {
   /** 文件字节数，用于判断切到编辑模式是否有风险 */
   size: number;
   /** 用户手动指定过模式；自动判定只是默认值，不该是死判决 */
-  forced?: "edit" | "log";
+  forced?: "edit" | "log" | "image";
   /** 打开或保存时的文件指纹，用来发现外部改动 */
   stamp?: Stamp;
   /** 外部改动了，但本地也有未保存改动 —— 需要用户裁决 */

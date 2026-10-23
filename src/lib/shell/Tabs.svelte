@@ -10,7 +10,7 @@
     id: number;
     path: string;
     name: string;
-    mode: "edit" | "log" | "diff" | "merge" | "class";
+    mode: "edit" | "log" | "diff" | "merge" | "class" | "image";
     dirty: boolean;
     /** 预览标签：名字斜体，双击保留（issue #33 ⑯） */
     preview?: boolean;
@@ -141,6 +141,8 @@
     merge: "冲突",
     // jar 里的类（docs/IDEA.md 第 2 步）：jdtls 给的源码或反编译，打不进字
     class: "只读",
+    // 图片（G26）：文件图标已经说了它是图，不再印一个徽章
+    image: "",
   };
 
   let menu = $state<{ x: number; y: number; tab: Tab; i: number } | null>(null);

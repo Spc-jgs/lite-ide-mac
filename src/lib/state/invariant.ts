@@ -104,7 +104,7 @@ export function invariant(ok: boolean, key: string, detail = ""): boolean {
 export interface TabLike {
   id: number;
   path: string;
-  mode: "edit" | "log" | "diff" | "merge" | "class";
+  mode: "edit" | "log" | "diff" | "merge" | "class" | "image";
   dirty: boolean;
   handle?: number;
   content?: string;

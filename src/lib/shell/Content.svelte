@@ -3,14 +3,13 @@
    * 内容区：活动标签的视图（编辑器 / 日志 / 差异 / 合并），以及一个标签都没有时
    * 的起点卡片。四种视图都是懒加载的（理由各在自己的 lazy 上）。
    *
-   * 从 App.svelte 搬出来（issue #9 第 6 步）。`Merge` / `Diff` 属于 Git 那组
+   * 从 App.svelte 搬出来（issue #9 第 6 步）。差异 / 合并的宿主 `TabView` 属于 Git 那组
    * `lazyGroup`，那组还在 App（侧边栏、面板、确认条也用它），以组件类型传进来。
    * `showMinimap` 是 App 上的偏好，传 prop；
    * 日志视图的状态行和编辑器的大纲往上报，状态栏和大纲浮层要。
    */
   import Crash from "./Crash.svelte";
-  import type MergeView from "../git/MergeView.svelte";
-  import type DiffView from "../git/DiffView.svelte";
+  import type TabViewHost from "../git/TabViewHost.svelte";
   import type { Sym } from "../editor/outline";
   import type { KeyDef } from "../state/keymap";
   import type { TabState } from "../state/tab";
@@ -32,8 +31,7 @@
   let {
     tab,
     focused,
-    Merge,
-    Diff,
+    TabView,
     showMinimap,
     outlineTick,
     onLogStatus,
@@ -53,8 +51,8 @@
      * 一份，状态栏取焦点组那份 —— 在这儿过滤的话非焦点组那份永远是旧的（review 2026-09-21）。
      */
     focused: boolean;
-    Merge: typeof MergeView | undefined;
-    Diff: typeof DiffView | undefined;
+    /** 差异 / 合并标签（Git 那组懒块里的接线宿主，见 `git/TabViewHost.svelte`） */
+    TabView: typeof TabViewHost | undefined;
     showMinimap: boolean;
     /** 大纲浮层里点了一条，让编辑器重算一次符号 */
     outlineTick: number;
@@ -141,12 +139,15 @@
    * （虚拟滚动 + 过滤条 + 8 种格式的解析着色）付钱。
    */
   const logPane = lazy(() => import("../logview/LogPane.svelte"), "日志视图");
+  /** 图片预览（G26）：同上，开到图片标签才拉 */
+  const image = lazy(() => import("../image/ImagePreview.svelte"), "图片预览");
 
   $effect(() => {
     if (tab?.mode === "edit") editor.load();
   });
   $effect(() => {
     if (tab?.mode === "log") logPane.load();
+    else if (tab?.mode === "image") image.load();
   });
   // 焦点组显示的不是编辑器时，状态栏那格行:列要消失 —— 上一个编辑器报的位置不能留着。
   // 非焦点组不管：它显示什么和状态栏无关（issue #35）
@@ -155,7 +156,7 @@
   });
   // 按需加载失败要说出来（App 那张汇总名单的本地版，同 Panel）
   $effect(() => {
-    const e = editor.error || logPane.error;
+    const e = editor.error || logPane.error || image.error;
     if (e) notify.fail(e);
   });
 
@@ -316,34 +317,12 @@
         </div>
       </div>
     </div>
-  {:else if tab.mode === "merge" && Merge}
+  {:else if (tab.mode === "merge" || tab.mode === "diff") && TabView}
     {#key tab.id}
-      <Merge
-        text={tab.mergeText ?? ""}
-        path={tab.rel ?? tab.name}
-        onResolve={(c, r) => void git.resolveMerge(tab, c, r)}
-      />
+      <TabView {tab} />
     {/key}
-  {:else if tab.mode === "merge"}
-    <div class="empty"><p class="wait"><span class="spinner"></span>正在载入合并视图…</p></div>
-  {:else if tab.mode === "diff" && Diff}
-    {#key tab.id}
-      <Diff
-        raw={tab.diffRaw ?? ""}
-        capped={!!tab.diffCapped}
-        path={tab.rel ?? tab.name}
-        staged={!!tab.diffStaged}
-        commit={tab.diffShort ?? ""}
-        toLocal={!!tab.diffToLocal}
-        untracked={!!tab.diffUntracked}
-        onToggleStaged={() => void git.toggleDiffSide(tab.id)}
-        onApplyHunk={(patch, unstage) => void git.applyHunk(patch, unstage)}
-        onRevertHunk={(patch) => (git.pendingRevertHunk = patch)}
-        loadNew={() => git.diffNewText(tab.id)}
-      />
-    {/key}
-  {:else if tab.mode === "diff"}
-    <div class="empty"><p class="wait"><span class="spinner"></span>正在载入差异视图…</p></div>
+  {:else if tab.mode === "merge" || tab.mode === "diff"}
+    <div class="empty"><p class="wait"><span class="spinner"></span>正在载入{tab.mode === "merge" ? "合并" : "差异"}视图…</p></div>
   {:else if tab.mode === "log" && tab.handle !== undefined && logPane.comp}
     {#key tab.id}
       {@const id = tab.id}
@@ -369,6 +348,9 @@
     {/key}
   {:else if tab.mode === "log"}
     <div class="empty"><p class="wait"><span class="spinner"></span>正在载入日志视图…</p></div>
+  {:else if tab.mode === "image"}
+    <!-- 不包 {#key}：预览自己按路径重读、换了图把缩放归回「适应」（省下入口里一个 key 块） -->
+    {#if image.comp}<image.comp {tab} />{/if}
   {:else if editor.comp}
     {#key tab.id}
       <editor.comp

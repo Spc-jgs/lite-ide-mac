@@ -202,10 +202,10 @@
   const gitUi = lazyGroup(
     {
       pane: () => import("./lib/git/GitPaneHost.svelte"),
-      diff: () => import("./lib/git/DiffView.svelte"),
+      // 差异 / 合并标签的接线宿主（Content 只给它一个标签，见 TabViewHost 头上）
+      tabView: () => import("./lib/git/TabViewHost.svelte"),
       log: () => import("./lib/git/GitLog.svelte"),
       branch: () => import("./lib/git/BranchPicker.svelte"),
-      merge: () => import("./lib/git/MergeView.svelte"),
       bars: () => import("./lib/git/RemoteBars.svelte"),
     },
     "Git 面板",
@@ -1104,8 +1104,7 @@
           <Content
             tab={tabs.shownIn(gg)}
             {focused}
-            Merge={gitUi.comps.merge}
-            Diff={gitUi.comps.diff}
+            TabView={gitUi.comps.tabView}
             {showMinimap}
             outlineTick={overlay.outlineTick}
             onLogStatus={(t) => (logStatus[g] = t)}

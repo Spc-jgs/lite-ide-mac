@@ -196,13 +196,14 @@
 
       藏起来不等于做不了 —— 菜单里的「切换编辑 / 日志模式」对任何文件都还在。
     -->
-    {#if (active.mode === "log" || isLogName(active.path)) && !active.merge}
+    <!-- SVG（G26）：预览 ⇄ 源码，同一个按钮 -->
+    {#if (active.mode === "log" || isLogName(active.path) || /\.svg$/i.test(active.path)) && !active.merge}
       <button
         class="cell cbtn mode"
         onclick={onSwitchMode}
-        title={active.mode === "log" ? "切换到编辑模式" : "切换到日志模式（只读，带级别过滤与 tail）"}
+        title={active.mode === "log" ? "切换到编辑模式" : /\.svg$/i.test(active.path) ? "SVG：图片预览 ⇄ 源码" : "切换到日志模式（只读，带级别过滤与 tail）"}
       >
-        {active.mode === "log" ? "日志模式" : "编辑模式"} <Icon name="swap" />
+        {active.mode === "log" ? "日志模式" : active.mode === "image" ? "预览" : "编辑模式"} <Icon name="swap" />
       </button>
       <!--
         **竖线跟着它后面那格一起退场。**
@@ -223,7 +224,7 @@
         title={active.forced ? "你手动切到了日志模式" : "自动判定的原因"}
       >只读 · {active.forced ? "手动切换" : active.reason || "自动判定"}</span>
     {:else}
-      <span class="cell dim drop-2">{lang.mod ? lang.mod.langLabel(lang.mod.langOf(active.path)) : ""}</span>
+      <span class="cell dim drop-2">{active.mode === "image" ? "图片" : lang.mod ? lang.mod.langLabel(lang.mod.langOf(active.path)) : ""}</span>
     {/if}
     {#if active.mode === "edit"}
       <!-- 缩进 · 换行符。混用的换行符标黄：那是文件坏了，保存时会统一成 LF；点了能改（issue #37） -->
@@ -239,6 +240,8 @@
           : "缩进（按文件内容判断）· 换行符（保存时原样写回）—— 点击可改"}
       >{indent} · {eol}</button>
     {/if}
+    <!-- 图片没有编码、没有「改没改」：尺寸和类型在预览自己的那条栏上 -->
+    {#if active.mode !== "image"}
     <span class="vsep" aria-hidden="true"></span>
     <button
       class="cell cbtn enc"
@@ -276,6 +279,7 @@
           {SCRATCH_SAVE_LABEL[st]}
         </span>
       {/if}
+    {/if}
     {/if}
     {#if activeEntry}
       <span class="vsep" aria-hidden="true"></span>

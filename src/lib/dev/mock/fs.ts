@@ -1,5 +1,5 @@
 /** 桩：文件系统：探路径、列目录（含单层目录链）、读写文本、编码、剪贴板、新建 / 改名 / 移动 / 废纸篓、监听。从 `mock-ipc.ts` 拆出来（2026-09-24，纯搬家）。 */
-import { type A, bump, CONTESTED, DIRS, existsInMock, FILES, GENERATED, nameOf, NOT_MINE, parentOf, sleep, stampOf } from "./data";
+import { type A, bump, CONTESTED, DIRS, existsInMock, FILES, GENERATED, IMAGES, nameOf, NOT_MINE, parentOf, sleep, stampOf } from "./data";
 import { mockHistoryRecord } from "./history";
 
 /** 桩里按文件名猜编码，用来在浏览器里把编码相关的界面路径走一遍 */
@@ -100,6 +100,12 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
        * 有就按真大小走真判据，没有的才是那个演示用的 1GB 日志。
        * （这里照真实现只答体积。名字是日志的小文件照样进日志视图，那是前端 `tabflow.openPath` 按名字定的，2026-10-12）
        */
+      // 图片（G26）：抄 `fsservice::image_mime` —— 扩展名对上、内容也像（PNG 在 IMAGES 里，SVG 看有没有 <svg）
+      const img = IMAGES[path] !== undefined ? "image/png" : /\.svg$/i.test(path) && /<svg/i.test(FILES[path] ?? "") ? "image/svg+xml" : "";
+      if (img) {
+        const size = IMAGES[path] ? atob(IMAGES[path]).length : FILES[path].length;
+        return { kind: "file", mode: "image", path, name: path.split("/").pop(), size, reason: img };
+      }
       const known = FILES[path] !== undefined;
       const isLog = path.endsWith(".log") && !known;
       /*
@@ -121,6 +127,13 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
         size: isLog ? 1_073_741_885 : (FILES[path]?.length ?? 0),
         reason: isLog ? "文件超过 32MB" : "",
       };
+    }
+    case "read_image": {
+      const path = String(a.path);
+      const b64 = IMAGES[path];
+      const bytes = b64 ? Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)) : new TextEncoder().encode(FILES[path] ?? "");
+      if (!b64 && FILES[path] === undefined) throw new Error(`No such file or directory (os error 2)`);
+      return bytes.buffer;
     }
     case "list_dir": {
       const path = String(a.path);

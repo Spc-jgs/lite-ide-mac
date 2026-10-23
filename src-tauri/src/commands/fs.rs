@@ -30,6 +30,18 @@ pub async fn probe_path(path: String) -> Result<PathInfo, String> {
             });
         }
 
+        // 图片（G26）在探行数之前认：PNG 里有 NUL，走下去会被判成「二进制文件」进日志模式。`reason` 带 MIME，前端拼 data URL 要它
+        if let Some(mime) = fsservice::image_mime(p) {
+            return Ok(PathInfo {
+                kind: "file",
+                mode: "image",
+                path,
+                name,
+                size: meta.len(),
+                reason: mime.to_string(),
+            });
+        }
+
         let pr = logengine::probe(p).map_err(|e| format!("探测 {path} 失败：{e}"))?;
         crate::diag!("probe {path} -> {:?} ({})", pr.mode, pr.reason);
         Ok(PathInfo {
@@ -42,6 +54,13 @@ pub async fn probe_path(path: String) -> Result<PathInfo, String> {
         })
     })
     .await
+}
+
+/// 图片的原始字节（G26），走二进制回包：base64 进 JSON 要大三分之一、还要在 Rust 里多编一遍。
+/// 页面拿到字节后自己拼 data URL —— CSP 的 `img-src` 只放 `'self' data:`，不用为它放开 `blob:` 或 asset 协议
+#[tauri::command]
+pub async fn read_image(path: String) -> Result<Response, String> {
+    blocking(move || fsservice::read_image(&path).map(Response::new).map_err(|e| format!("{e}"))).await
 }
 
 /// 列一层目录。不递归 —— 文件树按需展开，大仓库才不会卡。

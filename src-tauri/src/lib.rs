@@ -273,6 +273,7 @@ pub fn run() {
             commands::replace_pending,
             commands::replace_recover,
             commands::probe_path,
+            commands::read_image,
             commands::list_dir,
             commands::ignored_dirs,
             commands::read_text,
