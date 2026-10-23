@@ -49,6 +49,8 @@
   const problemsView = lazy(() => import("../run/ProblemsView.svelte"), "问题");
   /** 层级工具窗（⌃⌥H / ⌃H，docs/TAKEOVER.md G10）：按了才拉 */
   const hierView = lazy(() => import("../run/HierarchyView.svelte"), "层级");
+  /** TODO 工具窗（docs/TAKEOVER.md G18）：菜单「视图 › 工具窗 › TODO」点了才拉 */
+  const todoView = lazy(() => import("../run/TodoView.svelte"), "TODO");
   /** 运行窗的动作（停、关、重跑）在懒加载的 runs-ops 里，按一下才拉 */
   const ops = () => import("../state/runs-ops");
 
@@ -57,6 +59,7 @@
     if (layout.panel && panelTool === "services") servicesView.load();
     if (layout.panel && panelTool === "problems") problemsView.load();
     if (layout.panel && panelTool === "hierarchy") hierView.load();
+    if (layout.panel && panelTool === "todo") todoView.load();
   });
 
   /** 状态点说什么（悬停时）。颜色在样式里：跑着绿、停止中琥珀、失败红、结束了灰 */
@@ -82,7 +85,7 @@
    * 两个 lazy 和用它们的地方在同一个文件里，漏不掉。
    */
   $effect(() => {
-    const e = terminal.error || gitcon.error || runView.error || servicesView.error || problemsView.error || hierView.error;
+    const e = terminal.error || gitcon.error || runView.error || servicesView.error || problemsView.error || hierView.error || todoView.error;
     if (e) notify.fail(e);
   });
 
@@ -184,7 +187,7 @@
       面板收起再展开时，第一眼要能认出这是哪个工具窗。
     -->
     <div class="panel-head">
-      <span class="tw-name">{({ term: "终端", run: "运行", services: "Services", git: "Git", problems: "问题", hierarchy: "层级" })[panelTool]}</span>
+      <span class="tw-name">{({ term: "终端", run: "运行", services: "Services", git: "Git", problems: "问题", hierarchy: "层级", todo: "TODO" })[panelTool]}</span>
       {#if panelTool === "run"}
         <!-- 运行窗（#48）：一次运行一格，格子上一个状态点；关掉一格 = 还在跑就软停（同 IDEA 的 Run 工具窗） -->
         <div class="ptabs">
@@ -372,6 +375,11 @@
       {#if layout.panel && panelTool === "problems"}
         <div class="tool-slot">
           {#if problemsView.comp}<problemsView.comp {root} />{:else}{@render loading("正在载入…")}{/if}
+        </div>
+      {/if}
+      {#if layout.panel && panelTool === "todo"}
+        <div class="tool-slot">
+          {#if todoView.comp}<todoView.comp {root} />{:else}{@render loading("正在载入…")}{/if}
         </div>
       {/if}
       {#if layout.panel && panelTool === "hierarchy"}

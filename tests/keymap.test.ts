@@ -172,5 +172,16 @@ ok(!editable(byId("run-last")!) && !editable(byId("term-find")!) && !editable(by
   }
 }
 
+/*
+ * 工具窗的编号键 / 菜单项（`tw-*`）在菜单动作里是一张写明的转交表（`menu-actions.ts` 的那个 case）：
+ * 新加一个工具窗、表里漏了，菜单点了什么都不发生、不报错 —— TODO 工具窗（G18）第一版就是这样，smoke 走真菜单才撞见
+ */
+{
+  const src = readFileSync("src/lib/shell/menu-actions.ts", "utf8");
+  for (const k of KEYS.filter((k) => k.id.startsWith("tw-"))) {
+    ok(src.includes(`case "${k.id}":`), `${k.id} 在 keymap.ts 里有，menu-actions.ts 的转交表里没有它 —— 菜单点了没反应`);
+  }
+}
+
 console.log(fail === 0 ? `✅ 键位表：${pass} 通过，0 失败` : `❌ 键位表：${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

@@ -320,6 +320,8 @@ export const KEYS: KeyDef[] = [
   { id: "tw-structure", label: "结构", accel: "⌘7", group: "视图", owner: "menu" },
   { id: "tw-services", label: "Services", accel: "⌘8", group: "视图", owner: "menu" },
   { id: "tw-git", label: "Git", accel: "⌘9", group: "视图", owner: "menu" },
+  // IDEA 的 TODO 工具窗（docs/TAKEOVER.md G18）：IDEA 在 macOS 上也没有默认键
+  { id: "tw-todo", label: "TODO", group: "视图", owner: "menu" },
   { id: "toggle-minimap", label: "代码缩略图", group: "视图", owner: "menu" },
   /*
    * 按标签切软换行。默认由扩展名定（md / txt / log 换，代码不换，

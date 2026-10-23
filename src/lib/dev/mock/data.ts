@@ -442,13 +442,13 @@ class Order:
     amount: float = 0.0
 
     def total(self) -> float:
-        # 含税总价
+        # 含税总价  TODO: 税率从配置里读（TODO 工具窗的样本，docs/TAKEOVER.md G18）
         return self.amount * 1.13
 
 
 async def main():
     orders = [Order(i, i * 10.0) for i in range(5)]
-    for o in orders:
+    for o in orders:  # FIXME 一条一条打太慢
         print(f"order {o.id}: {o.total():.2f}")
     await asyncio.sleep(0)
 

@@ -16,6 +16,9 @@ export function toggleToolKey(id: string) {
       return layout.toggleTool("term");
     case "tw-problems":
       return layout.toggleTool("problems");
+    case "tw-todo":
+      if (!project.root) return void notify.hint("先打开一个项目：TODO 列的是这个项目注释里的 TODO / FIXME");
+      return layout.toggleTool("todo");
     case "tw-structure":
       // 侧边栏里的（IDEA 也在左边）：开着就收起，否则切过去
       if (!project.root) return void notify.hint("先打开一个项目：结构列的是当前文件的类、方法、字段");

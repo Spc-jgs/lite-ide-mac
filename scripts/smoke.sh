@@ -1311,6 +1311,18 @@ check "$(lite eval "${W}" "return document.querySelector('.tools .cnt')?.textCon
 lite eval "${W}" "document.querySelector('.tools .pin button')?.click(); return true" >/dev/null 2>&1
 menu close-tab; sleep 0.3
 
+say "㉟ TODO 工具窗（docs/TAKEOVER.md G18）：注释里的 TODO / FIXME 按文件列出来，变量名、Markdown 标题不算；点一行跳过去"
+mkdir -p "${FIX}/todo"
+printf 'class T {\n    // TODO: 改成批量查\n    int todoList = 0;\n    /* FIXME 并发不安全 */\n}\n' > "${FIX}/todo/T.java"
+printf '# TODO 这是标题不是待办\n' > "${FIX}/todo/notes.md"
+menu tw-todo
+lite_wait "${W}" "return [...document.querySelectorAll('.todo .file')].some((e) => e.textContent.includes('T.java'))" 10 >/dev/null
+check "$(lite eval "${W}" "return [...document.querySelectorAll('.todo .file')].filter((e) => e.title.startsWith('todo/')).map((e) => e.title + ':' + e.querySelector('.n').textContent).join(',')" 2>/dev/null)" "todo/T.java:2" "todo/ 下只列 T.java 的 2 处（TODO、FIXME）—— todoList 变量名、notes.md 的标题不算"
+lite eval "${W}" "[...document.querySelectorAll('.todo .row')].find((r) => r.textContent.includes('改成批量查')).click(); return true" >/dev/null 2>&1
+lite_wait "${W}" "return __lite.caretLine() === 2" 8 >/dev/null
+check "$(lite eval "${W}" "return (__lite.tabs.active?.path ?? '').endsWith('/todo/T.java') + ':' + __lite.caretLine()" 2>/dev/null)" "true:2" "点「改成批量查」那行：开 T.java、光标在第 2 行"
+menu close-tab; menu tw-todo; sleep 0.3
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）
