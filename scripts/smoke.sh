@@ -1411,6 +1411,43 @@ check "$(lite eval "${W}" "return __lite.tabs.active?.mode + '|' + /超过 32 MB
 menu close-tab; sleep 0.3
 rm -rf "${FIX}/img"
 
+say "㊴ 欢迎页（docs/TAKEOVER.md G27）：没项目、没标签时列出最近的项目（带分支）；「从 Git 克隆…」克隆一个仓库、这个窗口就地变成它"
+CLSRC=$(cd "$(mktemp -d /tmp/lite-ide-clsrc.XXXXXX)" && pwd -P)
+CLDST=$(cd "$(mktemp -d /tmp/lite-ide-cldst.XXXXXX)" && pwd -P)
+git -C "${CLSRC}" init -q -b trunk
+printf 'cloned\n' > "${CLSRC}/hello.txt"
+git -C "${CLSRC}" add hello.txt; git -C "${CLSRC}" -c user.name=t -c user.email=t@t.t commit -qm init
+W=main
+menu scratchbook
+wait_for 10 '[ -n "$(book)" ]'
+WB=$(book)
+if [ -z "${WB}" ]; then
+  bad "找不到没项目的窗口，这一段后面的断言没法做"
+else
+  W="${WB}"
+  # ㉖ 写过字的那张草稿会被这个草稿本窗口恢复出来：一张张关不干净，关掉全部
+  lite_wait "${W}" "return __lite.tabs.list.length > 0" 10 >/dev/null
+  menu close-all-tabs
+  lite_wait "${W}" "return !!document.querySelector('.welcome .row .br')" 10 >/dev/null
+  # 最近的项目只留 8 个，前面几段开过不少项目 —— 不指定是哪个，拿第一个带分支的那行去和 git 对
+  ROW=$(lite eval "${W}" "const r = [...document.querySelectorAll('.welcome .row')].find((x) => x.querySelector('.br')); return r ? r.title + '|' + r.querySelector('.br').textContent.trim() : ''" 2>/dev/null)
+  check "${ROW#*|}" "$(git -C "${ROW%%|*}" rev-parse --abbrev-ref HEAD 2>/dev/null)" "最近的项目后面写着它现在的分支（读 .git/HEAD），和 git 说的一样（${ROW%%|*}）"
+  # 「放到哪儿」上次挑过的记在 localStorage 里 —— 原生的选目录面板在这里点不了，先放好
+  lite eval "${W}" "localStorage.setItem('lite-ide.clone-parent', $(q "${CLDST}")); [...document.querySelectorAll('.welcome .go button')].find((b) => b.textContent.includes('克隆')).click(); return true" >/dev/null 2>&1
+  lite_wait "${W}" "return !!document.querySelector('.dialog.clone')" 5 >/dev/null
+  lite eval "${W}" "const u = document.querySelector('.dialog.clone input'); u.value = $(q "file://${CLSRC}"); u.dispatchEvent(new Event('input', { bubbles: true })); return true" >/dev/null 2>&1
+  lite_wait "${W}" "return document.querySelectorAll('.dialog.clone input')[1].value !== ''" 5 >/dev/null
+  CLNAME=$(basename "${CLSRC}")
+  check "$(lite eval "${W}" "return document.querySelectorAll('.dialog.clone input')[1].value" 2>/dev/null)" "${CLNAME}" "目录名照 git 的规矩从地址猜出来"
+  lite eval "${W}" "document.querySelector('.dialog.clone .btn.primary').click(); return true" >/dev/null 2>&1
+  wait_for 30 '[ "$(win_of "'"${CLDST}/${CLNAME}"'")" = "'"${WB}"'" ]'
+  check "$(win_of "${CLDST}/${CLNAME}")|$(cat "${CLDST}/${CLNAME}/hello.txt" 2>/dev/null)|$(git -C "${CLDST}/${CLNAME}" rev-parse --abbrev-ref HEAD 2>/dev/null)" "${WB}|cloned|trunk" "点「克隆」：克隆到挑的目录、文件和分支都在，这个窗口就地变成它"
+  lite close "${WB}" >/dev/null
+  wait_for 10 '[ -z "$(win_of "'"${CLDST}/${CLNAME}"'")" ]'
+fi
+W=main
+rm -rf "${CLSRC}" "${CLDST}"
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

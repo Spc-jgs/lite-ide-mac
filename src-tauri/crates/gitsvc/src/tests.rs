@@ -1950,3 +1950,102 @@ fn 交互式变基_照计划做完_撞冲突停住_对不上的计划拒绝() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// 欢迎页的分支（docs/TAKEOVER.md G27）：读 HEAD 文件，分支名、分离头指针、工作树的 .git 文件、不是仓库
+#[test]
+fn 欢迎页的分支_读head文件() {
+    let dir = std::env::temp_dir().join(format!("gitsvc-head-{}-{:?}", std::process::id(), std::time::Instant::now()));
+    std::fs::create_dir_all(dir.join("a/.git")).unwrap();
+    std::fs::write(dir.join("a/.git/HEAD"), "ref: refs/heads/feature/login\n").unwrap();
+    assert_eq!(head_branch(dir.join("a")).as_deref(), Some("feature/login"), "带 / 的分支名整个留着");
+    std::fs::create_dir_all(dir.join("b/.git")).unwrap();
+    std::fs::write(dir.join("b/.git/HEAD"), "3f2a9c1d0e8b7a6f5e4d3c2b1a0f9e8d7c6b5a49\n").unwrap();
+    assert_eq!(head_branch(dir.join("b")).as_deref(), Some("3f2a9c1"), "分离头指针给 7 位");
+    std::fs::create_dir_all(dir.join("wt")).unwrap();
+    std::fs::write(dir.join("wt/.git"), format!("gitdir: {}\n", dir.join("a/.git").display())).unwrap();
+    assert_eq!(head_branch(dir.join("wt")).as_deref(), Some("feature/login"), "工作树照 gitdir 那句找");
+    std::fs::create_dir_all(dir.join("plain")).unwrap();
+    assert_eq!(head_branch(dir.join("plain")), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn 克隆的目录名照_git_的规矩猜() {
+    use crate::remote::clone_name;
+    assert_eq!(clone_name("https://github.com/a/lite-ide.git"), "lite-ide");
+    assert_eq!(clone_name("git@github.com:a/b.git"), "b");
+    assert_eq!(clone_name("git@host:repo"), "repo");
+    assert_eq!(clone_name("https://example.com/a/b/"), "b");
+    assert_eq!(clone_name("/srv/git/proj.git"), "proj");
+    assert_eq!(clone_name("https://example.com/.."), "");
+}
+
+/// 克隆一个本地的裸仓库（不走网络）：克隆下来、有进度回调；目标已经在 / 地址像开关 / 名字带路径 —— 一律不跑
+#[test]
+fn 克隆_本地仓库_已有同名_像开关的地址都拒绝() {
+    if !available() {
+        eprintln!("跳过：机器上没有 git");
+        return;
+    }
+    use crate::remote::{clone, RemoteError};
+    let dir = std::env::temp_dir().join(format!("gitsvc-clone-{}-{:?}", std::process::id(), std::time::Instant::now()));
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let git = |cwd: &Path, args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t.t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t.t")
+            .output()
+            .unwrap()
+    };
+    git(&src, &["init", "-q", "-b", "main"]);
+    std::fs::write(src.join("a.txt"), "hello\n").unwrap();
+    git(&src, &["add", "."]);
+    git(&src, &["commit", "-qm", "init"]);
+    let out = dir.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let no_trash = |p: &Path| -> std::io::Result<()> { panic!("成功的克隆不该扔东西：{}", p.display()) };
+    clone(&out, src.to_str().unwrap(), "copy", &cancel, &mut |_| {}, &no_trash).unwrap();
+    assert_eq!(std::fs::read_to_string(out.join("copy/a.txt")).unwrap(), "hello\n");
+    assert_eq!(head_branch(out.join("copy")).as_deref(), Some("main"));
+
+    // 同名的已经在（哪怕是空目录 —— git 自己会接着用空目录）
+    std::fs::create_dir_all(out.join("empty")).unwrap();
+    let e = clone(&out, src.to_str().unwrap(), "empty", &cancel, &mut |_| {}, &no_trash).unwrap_err();
+    assert!(matches!(&e, RemoteError::Other { raw } if raw.contains("已经有")), "{e}");
+    assert_eq!(std::fs::read_dir(out.join("empty")).unwrap().count(), 0, "空目录里不能被克隆进东西");
+
+    // 像开关的地址：`--upload-pack=…` 能让 git 执行命令
+    let e = clone(&out, "--upload-pack=touch pwned", "x", &cancel, &mut |_| {}, &no_trash).unwrap_err();
+    assert!(matches!(&e, RemoteError::Other { raw } if raw.contains("不是一个仓库地址")), "{e}");
+    assert!(!out.join("x").exists() && !out.join("pwned").exists());
+    let e = clone(&out, src.to_str().unwrap(), "../escape", &cancel, &mut |_| {}, &no_trash).unwrap_err();
+    assert!(matches!(&e, RemoteError::Other { .. }), "{e}");
+    assert!(!dir.join("escape").exists());
+
+    // 克隆到一半取消：SIGKILL 的 git 来不及收拾，半截目录交给废纸篓（测试里的「废纸篓」只记一笔、照样删掉）。
+    // 走 file:// 让它真的传对象、报进度；第一次报进度时目录已经建好，这时取消
+    for i in 0..400 {
+        std::fs::write(src.join(format!("f{i}.bin")), (0..8192u32).map(|k| (k.wrapping_mul(2654435761).wrapping_add(i * 7919) >> 13) as u8).collect::<Vec<u8>>()).unwrap();
+    }
+    git(&src, &["add", "."]);
+    git(&src, &["commit", "-qm", "big"]);
+    let trashed = std::cell::RefCell::new(Vec::new());
+    let fake_trash = |p: &Path| -> std::io::Result<()> {
+        trashed.borrow_mut().push(p.to_path_buf());
+        std::fs::remove_dir_all(p)
+    };
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let c2 = cancel.clone();
+    let url = format!("file://{}", src.display());
+    let r = clone(&out, &url, "half", &cancel, &mut |_| c2.store(true, std::sync::atomic::Ordering::Relaxed), &fake_trash);
+    assert!(matches!(r, Err(RemoteError::Cancelled)), "第一次报进度就取消了：{r:?}");
+    assert!(!out.join("half").exists(), "半截目录还在");
+    eprintln!("取消之后扔进废纸篓的：{:?}", trashed.borrow());
+    let _ = std::fs::remove_dir_all(&dir);
+}

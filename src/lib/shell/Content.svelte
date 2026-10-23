@@ -78,10 +78,9 @@
    * **只列此刻按得出效果的**（2026-10-12 打磨）。原来一份表两种空态共用，里面有 ⌘S 保存、⌘W 关闭标签、
    * ⇧⌘O 文件结构、F3 日志下一处 —— 卡片出现时恰恰一个标签都没有，这四个按下去什么都不发生；⌘P 又和上面
    * 「找文件… ⌘P」那个按钮印了两遍（ui.md 第六条）。最近加的主流程「运行任务」反而不在。
-   * 分两份：开着项目的（找东西、看改动、跑任务、开工具窗）、没项目的（找文件、最近、终端）。⌘K 只在是 git 仓库时列
+   * 分两份：开着项目的（找东西、看改动、跑任务、开工具窗）在这里；没项目的（找文件、最近、终端）在欢迎页里（G27）。⌘K 只在是 git 仓库时列
    */
-  const HINT_IDS_PROJECT = ["quick-all", "quick-content", "recent-files", "git-changes", "run-pick", "toggle-sidebar", "toggle-panel"];
-  const HINT_IDS_LOOSE = ["quick-all", "quick-file", "recent-files", "toggle-panel"];
+  const HINT_IDS = ["quick-all", "quick-content", "recent-files", "git-changes", "run-pick", "toggle-sidebar", "toggle-panel"];
   let byIdFn = $state<((id: string) => KeyDef | undefined) | null>(null);
   $effect(() => {
     if (byIdFn || (tab && !project.isScratch(tab.path))) return;
@@ -94,7 +93,8 @@
   let keyHints = $derived.by<KeyDef[]>(() => {
     const by = byIdFn;
     if (!by) return [];
-    const ids = project.root ? HINT_IDS_PROJECT.filter((id) => id !== "git-changes" || git.repo) : HINT_IDS_LOOSE;
+    // 没项目时的那份在欢迎页里（懒块，G27）
+    const ids = HINT_IDS.filter((id) => id !== "git-changes" || git.repo);
     return ids.map((id) => by(id)).filter((k) => k !== undefined);
   });
 
@@ -141,6 +141,11 @@
   const logPane = lazy(() => import("../logview/LogPane.svelte"), "日志视图");
   /** 图片预览（G26）：同上，开到图片标签才拉 */
   const image = lazy(() => import("../image/ImagePreview.svelte"), "图片预览");
+  /** 欢迎页（G27）：没项目、没标签时才拉 */
+  const welcome = lazy(() => import("../welcome/Welcome.svelte"), "欢迎页");
+  $effect(() => {
+    if (!tab && !project.root) welcome.load();
+  });
 
   $effect(() => {
     if (tab?.mode === "edit") editor.load();
@@ -156,7 +161,7 @@
   });
   // 按需加载失败要说出来（App 那张汇总名单的本地版，同 Panel）
   $effect(() => {
-    const e = editor.error || logPane.error || image.error;
+    const e = editor.error || logPane.error || image.error || welcome.error;
     if (e) notify.fail(e);
   });
 
@@ -277,9 +282,9 @@
       拖一个文件进来，把「开项目」当唯一入口正是那种「杀鸡用牛刀」的重量感。
       开着项目、只是没有标签时，下一步是找文件，不是再开一个项目。
     -->
-    <div class="empty">
-      <div class="card">
-        {#if project.root}
+    {#if project.root}
+      <div class="empty">
+        <div class="card">
           <div class="big">{project.root.slice(project.root.lastIndexOf("/") + 1)} —— 没有打开的文件</div>
           <p>单击文件树里的文件是预览（再点别的会顶掉），双击才保留；也可以把文件拖进来</p>
           <div class="go">
@@ -288,35 +293,22 @@
             <button class="btn" onclick={() => void tabflow.newScratch()}>新建草稿</button>
             <kbd>⌘N</kbd>
           </div>
-        {:else}
-          <div class="big">记点东西，或者打开一个项目</div>
-          <p>草稿不用起名、不用保存；文件或文件夹拖进来就开 —— 代码走编辑模式，大文件与日志自动走只读的日志模式</p>
-          <div class="go">
-            <button class="btn primary" onclick={() => void tabflow.newScratch()}>新建草稿</button>
-            <kbd>⌘N</kbd>
-            <button class="btn" onclick={() => void tabflow.openFolder()}>打开文件夹…</button>
-            <kbd>⌘O</kbd>
-            <span class="gap"></span>
-            {#if project.recent.length > 0}
-              <span class="lastly">最近：</span>
-              <button class="link" onclick={() => void tabflow.openRecent(project.recent[0])}>
-                {project.recent[0].slice(project.recent[0].lastIndexOf("/") + 1) || project.recent[0]}
-              </button>
-            {/if}
+          <!--
+            这份表原来是**手抄的第三份**，而且抄错了：⌘⇧F / ⌘⇧O / ⌘⇧G
+            三处修饰键次序都反了（Apple 的次序是 ⌃⌥⇧⌘）。
+            现在从 keymap.ts 渲染 —— 那张表由 tests/keymap.test.ts 卡着次序。
+          -->
+          <div class="keymap">
+            {#each keyHints as k (k.id)}
+              <span><b>{k.gesture ?? k.accel}</b> {k.label}</span>
+            {/each}
           </div>
-        {/if}
-        <!--
-          这份表原来是**手抄的第三份**，而且抄错了：⌘⇧F / ⌘⇧O / ⌘⇧G
-          三处修饰键次序都反了（Apple 的次序是 ⌃⌥⇧⌘）。
-          现在从 keymap.ts 渲染 —— 那张表由 tests/keymap.test.ts 卡着次序。
-        -->
-        <div class="keymap">
-          {#each keyHints as k (k.id)}
-            <span><b>{k.gesture ?? k.accel}</b> {k.label}</span>
-          {/each}
         </div>
       </div>
-    </div>
+    {:else if welcome.comp}
+      <!-- 没项目：欢迎页（G27，最近项目、克隆），懒的 —— 开着项目的窗口用不上它 -->
+      <welcome.comp />
+    {/if}
   {:else if (tab.mode === "merge" || tab.mode === "diff") && TabView}
     {#key tab.id}
       <TabView {tab} />
@@ -472,7 +464,6 @@
     gap: 8px;
     margin-top: 14px;
   }
-  .empty .go .gap { flex: 1; }
   /* 卡片上的两个动作是 `.btn primary` / `.btn`：同一行两个实心按钮就分不出哪个是主的 */
   .empty .go kbd {
     font-family: var(--ui-font);
@@ -481,23 +472,6 @@
     background: transparent;
     padding: 0 2px;
   }
-  .empty .lastly { font-size: var(--fs-sm); color: var(--text-faint); }
-  /* 空态是最需要「最近」的时刻 —— 那时侧边栏还没有任何内容 */
-  .empty .link {
-    background: transparent;
-    border: none;
-    padding: 0;
-    color: var(--accent);
-    font-family: var(--ui-font);
-    font-size: var(--fs-sm);
-    cursor: default;
-    max-width: 160px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .empty .link:hover { text-decoration: underline; }
-  .empty .link:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
   .empty .keymap {
     display: grid;

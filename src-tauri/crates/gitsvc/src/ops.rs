@@ -49,6 +49,19 @@ pub fn git_dir(root: &Path) -> Option<PathBuf> {
     Some(if p.is_absolute() { p.to_path_buf() } else { root.join(p) })
 }
 
+/// 现在在哪个分支（欢迎页的最近项目那一行，docs/TAKEOVER.md G27）：**读 `HEAD` 文件，不起 git** ——
+/// 欢迎页一次列十来个项目，每个起一条 `git` 要几十毫秒，还要先过信任检查（`trust`，别人的目录里 `.git/config` 能让 git 执行命令）。
+/// 读一个文件不执行任何东西。分离头指针给 7 位 sha；不是仓库、读不到都是 None
+pub fn head_branch(root: impl AsRef<Path>) -> Option<String> {
+    let head = std::fs::read_to_string(git_dir(root.as_ref())?.join("HEAD")).ok()?;
+    let head = head.trim();
+    match head.strip_prefix("ref: ") {
+        Some(r) => Some(r.strip_prefix("refs/heads/").unwrap_or(r).to_string()),
+        None if head.len() >= 7 && head.bytes().all(|b| b.is_ascii_hexdigit()) => Some(head[..7].to_string()),
+        None => None,
+    }
+}
+
 fn num(p: &Path) -> Option<u32> {
     std::fs::read_to_string(p).ok()?.trim().parse().ok()
 }

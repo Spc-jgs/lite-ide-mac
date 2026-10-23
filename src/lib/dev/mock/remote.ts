@@ -54,6 +54,37 @@ export async function remoteCmd(cmd: string, a: A): Promise<unknown> {
       }
       return null;
     }
+    /*
+     * 克隆（欢迎页，G27）：和 fetch 一样分段推进度、能取消（桩比真实现快，「克隆中」那个状态不让它慢一点在浏览器里看不见）。
+     * 地址里带 `auth` 的走一次认证失败、带 `fail` 的走一次别的失败，好看两种报错的样子；成功的「克隆」到 /proj（桩里唯一有内容的项目）
+     */
+    case "git_clone": {
+      const ch = a.onProgress as { onmessage?: (p: unknown) => void } | undefined;
+      const id = Number(a.opId);
+      mockCancelled.delete(id);
+      const url = String(a.url);
+      for (const [phase, pct] of [["Cloning into '" + String(a.name) + "'", null], ["Receiving objects", 30], ["Receiving objects", 80], ["Resolving deltas", 100]] as [string, number | null][]) {
+        await sleep(400);
+        if (mockCancelled.has(id)) {
+          mockCancelled.delete(id);
+          throw { kind: "cancelled", message: "已取消", raw: "" };
+        }
+        ch?.onmessage?.({ phase, percent: pct, done: null, total: null, finished: pct === 100 });
+      }
+      if (url.includes("auth")) {
+        throw { kind: "auth-https", message: "这个仓库需要先认证一次", raw: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" };
+      }
+      if (url.includes("fail")) {
+        throw { kind: "other", message: "fatal: repository not found", raw: "fatal: repository not found" };
+      }
+      return "/proj";
+    }
+    // 从地址猜目录名：抄 `gitsvc::remote::clone_name`
+    case "git_clone_name": {
+      const last = String(a.url).trim().replace(/\/+$/, "").split(/[/:]/).pop() ?? "";
+      const n = last.replace(/\.git$/, "");
+      return n === "." || n === ".." ? "" : n;
+    }
     case "git_cancel":
       mockCancelled.add(Number(a.id));
       return true;

@@ -202,14 +202,15 @@ pub fn diag_enabled() -> bool {
 /// 不是主线程 —— 插件内部会把面板调度到主线程，这里阻塞等它就行。
 /// 反过来（在主线程上 blocking）才会死锁。
 #[tauri::command]
-pub async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+pub async fn pick_folder(app: tauri::AppHandle, title: Option<String>, dir: Option<String>) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
     crate::diag!("pick_folder 打开面板");
-    let picked = app
-        .dialog()
-        .file()
-        .set_title("打开文件夹")
-        .blocking_pick_folder();
+    // 克隆框（G27）问的是「克隆到哪儿」，标题和起始目录跟着它
+    let mut d = app.dialog().file().set_title(title.as_deref().unwrap_or("打开文件夹"));
+    if let Some(dir) = dir {
+        d = d.set_directory(dir);
+    }
+    let picked = d.blocking_pick_folder();
     picked.map(|p| p.to_string())
 }
 

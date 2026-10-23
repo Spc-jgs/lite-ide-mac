@@ -315,6 +315,57 @@ pub fn fetch(
     run_streaming(cwd, &["fetch", "--progress", "--prune", remote], https, cancel, on_progress)
 }
 
+/// 克隆（欢迎页的「从 Git 克隆…」，docs/TAKEOVER.md G27）到 `parent/name`。
+///
+/// 地址不能以 `-` 开头（不然就成了 git 的开关，`--upload-pack=…` 能执行命令），参数前照样加 `--`；
+/// `ext::` 协议由 `HARDENING` 的 `protocol.ext.allow=never` 挡着（那条在 `git_cmd` 上，这里不用再写）。
+/// **克隆不带对方的 `.git/config` 和钩子**（`trust.rs` 头上的威胁模型），所以克隆本身不执行仓库里的东西；
+/// 克隆下来的仓库开出来时照常过信任检查。
+///
+/// 目标已经存在就不跑：git 自己也会拒绝（「already exists and is not an empty directory」），但空目录它会接着用 ——
+/// 克隆的意思是「新建一个」，人挑的父目录里正好有个同名的空目录，多半不是他想要的
+///
+/// **取消了要收拾半截目录**：git 自己失败时会删掉它建的目录，但取消是 `killpg` 发 SIGKILL（要杀干净孙进程，见 `run_streaming`），
+/// 被 SIGKILL 的 git 来不及收拾，留下一个半截的仓库。这个目录是这一次刚建的（上面查过原来没有），交给 `trash`（废纸篓）——
+/// gitsvc 不依赖 fsservice，由调用方传进来，同 `discard`
+pub fn clone(
+    parent: impl AsRef<Path>,
+    url: &str,
+    name: &str,
+    cancel: &Cancel,
+    on_progress: &mut dyn FnMut(Progress),
+    trash: &dyn Fn(&Path) -> std::io::Result<()>,
+) -> R<()> {
+    let url = url.trim();
+    if url.is_empty() || url.starts_with('-') {
+        return Err(RemoteError::Other { raw: format!("这不是一个仓库地址：{url}") });
+    }
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
+        return Err(RemoteError::Other { raw: format!("目录名不对：{name}") });
+    }
+    let parent = parent.as_ref();
+    if std::fs::symlink_metadata(parent.join(name)).is_ok() {
+        return Err(RemoteError::Other { raw: format!("{} 里已经有 {name} 了 —— 换个名字", parent.display()) });
+    }
+    let https = !url.starts_with("git@") && !url.starts_with("ssh://");
+    let r = run_streaming(parent, &["clone", "--progress", "--", url, name], https, cancel, on_progress);
+    let target = parent.join(name);
+    if r.is_err() && std::fs::symlink_metadata(&target).is_ok() {
+        if let Err(e) = trash(&target) {
+            return Err(RemoteError::Other { raw: format!("{} —— 半截的 {} 没能扔进废纸篓：{e}", r.unwrap_err(), target.display()) });
+        }
+    }
+    r
+}
+
+/// 从地址猜目录名，同 git 自己的规矩：最后一段、去掉 `.git`。`git@host:a/b.git` → `b`；猜不出来是空串
+pub fn clone_name(url: &str) -> String {
+    let u = url.trim().trim_end_matches('/');
+    let last = u.rsplit(['/', ':']).next().unwrap_or("");
+    let n = last.strip_suffix(".git").unwrap_or(last);
+    if n == "." || n == ".." { String::new() } else { n.to_string() }
+}
+
 /// 本地合并策略。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MergeMode {

@@ -13,7 +13,8 @@ const APP_LOG = "/Users/you/Library/Logs/com.liteide.app/app.log";
  * 「最近打开」（多窗口第 4 步起名单在 Rust）。桩里也留一份，和真实现一样由 `set_window_root`
  * 记 —— 不然浏览器里标题栏的下拉、空态卡片上的「继续上次的项目」永远是空的。
  */
-let mockRecent: string[] = ["/proj", "/Users/you/work/another-repo"];
+// 多放几个：欢迎页（G27）超过 5 个才出筛选框，桩里只有两个的话那条路在浏览器里走不到。只有 /proj 真打得开（别的点了走「目录没了」那条）
+let mockRecent: string[] = ["/proj", "/Users/you/work/another-repo", "/Users/you/work/order-service", "/Users/you/work/gateway", "/Users/you/playground/lite-ide-docs", "/Users/you/work/legacy-billing"];
 let mockRoot = "";
 /** 启动流程走完了没有（取过 `take_start_scratch`）、走完之前有没有人按过「在草稿本新建」—— 同 Rust 的 `Win::settled` / `start_scratch` */
 let scratchSettled = false;
@@ -135,7 +136,11 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
      * 返回一个假目录，至少那条路是通的。
      */
     case "pick_folder":
-      return "/proj";
+      // 克隆框（G27）问的是放到哪儿：给一个父目录
+      return a.title === "克隆到哪个目录" ? "/Users/you/work" : "/proj";
+    // 最近项目在哪个分支：/proj 是桩里的仓库；另一个也给一个，好看到分支那一列
+    case "recent_branch":
+      return String(a.path) === "/proj" ? "m13/git" : String(a.path).includes("another") ? "main" : null;
     // 选文件面板（合并日志时加一份）：浏览器里没有原生面板，给演示里那份只有时分秒的库存日志 —— 「合并…」那条路走得通
     case "pick_files":
       // 日志归类的对比在选基准：给「昨天」那份网关日志

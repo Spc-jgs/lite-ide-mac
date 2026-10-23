@@ -39,6 +39,7 @@ const ALLOW: &[(&str, &str)] = &[
     ("reveal_in_finder", "例外：起 /usr/bin/open -R，毫秒级返回"),
     ("watch_root", "例外：建 FSEvents 监听（系统调用，不遍历目录）"),
     // ── git.rs / remote.rs ──
+    ("git_clone_name", "内存：从地址字符串算目录名"),
     ("clear_git_console", "内存：Git 控制台的记录"),
     ("git_console", "内存：Git 控制台的记录"),
     ("git_cancel", "内存：置取消标记（杀进程组在看门线程里）"),

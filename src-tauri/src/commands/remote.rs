@@ -169,3 +169,44 @@ pub async fn git_outgoing(
     })
     .await
 }
+
+/// 从 Git 克隆（欢迎页，docs/TAKEOVER.md G27）到 `parent/name`，返回克隆下来的目录。和 fetch 同一套：阻塞池、进度走 Channel、
+/// 按 `(窗口, op_id)` 登记好让 `git_cancel` 喊得停。取消后 git 留下的半截目录进废纸篓（`gitsvc::remote::clone` 头上）
+#[tauri::command]
+pub async fn git_clone(
+    parent: String,
+    url: String,
+    name: String,
+    op_id: u32,
+    on_progress: tauri::ipc::Channel<ProgressDto>,
+    window: tauri::Window,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<String, RemoteErrDto> {
+    let id = op_id;
+    let owner = window.label().to_string();
+    let Some(cancel) = state.begin_remote(&owner, id) else {
+        return Err(busy_err_dto(id));
+    };
+    crate::diag!("git_clone id={id} → {parent}/{name}");
+    let target = Path::new(&parent).join(&name).to_string_lossy().into_owned();
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        gitsvc::remote::clone(&parent, &url, &name, &cancel, &mut pump(&on_progress), &|p| fsservice::move_to_trash(p))
+    })
+    .await;
+    state.end_remote(&owner, id);
+    r.map_err(join_err_dto)?.map_err(to_err_dto)?;
+    Ok(target)
+}
+
+/// 从地址猜目录名（git 自己的规矩：最后一段、去掉 `.git`）。克隆框里边贴边填，纯字符串
+#[tauri::command]
+pub fn git_clone_name(url: String) -> String {
+    gitsvc::remote::clone_name(&url)
+}
+
+/// 最近项目现在在哪个分支（欢迎页）：读 `.git/HEAD`，不起 git。碰盘（网络卷上的项目），走阻塞池；一个项目一次调用，
+/// 卡住的那个不拖累别的
+#[tauri::command]
+pub async fn recent_branch(path: String) -> Option<String> {
+    blocking(move || Ok::<_, String>(gitsvc::head_branch(&path))).await.ok().flatten()
+}
