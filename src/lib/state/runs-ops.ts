@@ -156,6 +156,30 @@ async function loadTests(id: number) {
   }
 }
 
+/**
+ * 跑单测的过程中，结果一个类一个类地亮（docs/TAKEOVER.md G15，IDEA 的测试视图是边跑边出的）：surefire 每跑完一个测试类写一份 `TEST-类.xml`，
+ * 这里每秒读一次这次写的报告（Rust 只认写完了的那几份，`junit::results`）。原来要等整个 `mvn test` 跑完才出结果树 —— 一个模块几百个测试、
+ * 前几个类早就挂了，人还要干等几分钟才知道。
+ *
+ * **回包到的时候这次已经跑完了就不写**：跑完那一下 `loadTests` 读的是最终那份，晚到的一次轮询会拿半截的结果把它盖掉
+ */
+async function watchTests(id: number) {
+  let seen = -1;
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, 1000));
+    const r = runs.list.find((t) => t.id === id);
+    if (!r || r.status !== "running") return;
+    // 不往前放宽：跑着的时候，开跑之前那一秒里写的报告（上一次跑的）一定不是这次的
+    const res = await testResults(r.root, r.name, r.startedAt).catch(() => null);
+    const now = runs.list.find((t) => t.id === id);
+    if (!res || !now || now.status !== "running" || res.total === seen) continue;
+    seen = res.total;
+    now.tests = res;
+    const { noteOutcomes } = await import("../run/test-outcomes");
+    noteOutcomes(res.cases);
+  }
+}
+
 /** 跑起来之后亮出它所在的那个工具窗：Spring Boot 服务在 Services，别的在运行窗 */
 function show(service: boolean) {
   layout.panelView = service ? "services" : "run";
@@ -218,6 +242,7 @@ async function start(name: string, root: string, debug: boolean) {
     else runs.list = [...runs.list, tab];
     // 运行窗的「当前格」只指运行窗里的；服务的选中在 Services 工具窗自己那儿
     if (!r.service) runs.activeId = r.id;
+    if (isTestRun(name)) void watchTests(r.id);
     // 调试的状态事件可能比这一格先到（Rust 那边一起来就发）：交给调试那边补上（动态引：静态引会把它的块名带进入口，见 isTestRun 那条）
     if (debug) void import("../debug/debug-ops").then((m) => m.adopt(r.id));
   } catch (e) {

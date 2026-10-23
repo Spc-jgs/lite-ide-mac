@@ -195,7 +195,9 @@ pub async fn test_results(root: String, name: String, since_ms: u64) -> Result<T
     blocking(move || {
         let Some(dir) = crate::taskdefs::test_module_dir(Path::new(&root), &name) else { return Ok(TestResultsDto { cases: Vec::new(), total: 0 }) };
         let since = std::time::UNIX_EPOCH + std::time::Duration::from_millis(since_ms);
-        let (cases, total) = crate::junit::results(&dir, since);
+        // 只留这次选的那几个类的（`junit::in_selector` 头上：背靠背跑两次，上一次的报告会落进宽限里）
+        let sel = name.strip_suffix(']').and_then(|n| n.rsplit_once(" [test ")).map_or("*", |(_, s)| s);
+        let (cases, total) = crate::junit::results(&dir, since, sel);
         let cases = cases
             .into_iter()
             .map(|c| TestCaseDto {

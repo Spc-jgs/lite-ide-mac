@@ -9,7 +9,8 @@
    *     ✗ totals         3ms      ← 点一下：下面展开原因和堆栈；双击：跳到这个方法
    * ```
    *
-   * 结果是 runs-ops 在任务结束后读 surefire 报告填进来的（`run.tests`）；还在跑的时候是「正在跑」，跑完一条都没有就照实说（编译没过多半是这样）。
+   * 结果是 runs-ops 读 surefire 报告填进来的（`run.tests`）：跑的过程中每秒读一次、一个类跑完亮一个（G15），跑完再读一次最终的；
+   * 跑完一条都没有就照实说（编译没过多半是这样）。
    */
   import Icon from "../shell/Icon.svelte";
   import type { RunTab } from "../state/runs.svelte";
@@ -73,7 +74,8 @@
 <div class="tt">
   <div class="bar">
     {#if running}
-      <span class="sum"><span class="spinner sm"></span> 正在跑…</span>
+      <!-- 边跑边出（G15）：一个类跑完亮一个；已经有挂了的就先标红，不用等全跑完 -->
+      <span class="sum" class:bad={nBad > 0}><span class="spinner sm"></span> 正在跑…{cases.length ? ` 已出 ${cases.length} 个：${nOk} 个通过${nBad ? ` · ${nBad} 个没过` : ""}` : ""}</span>
     {:else if cases.length}
       <span class="sum" class:bad={nBad > 0}>
         <span class="ic"><Icon name={nBad ? "error" : "check"} /></span>

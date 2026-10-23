@@ -99,6 +99,8 @@ export function installTestHooks() {
     terms,
     /** 运行窗的那些任务（带 `command`：验 Maven 工具窗的开关真带进了命令行） */
     runs,
+    /** 按名字跑一个任务，同 ⌃R / 任务列表那条路（跑几个测试类的「模块 [test A,B]」界面上要先跑过一次才有重跑按钮，验收直接起） */
+    runTask: async (name: string) => (await import("../state/runs-ops")).runTask(name, project.root),
     /** 浮层（⇧⇧ 直接开到某一页：「连按两下 ⇧」是真输入，测试通道不发） */
     overlay,
     /**

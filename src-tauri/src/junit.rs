@@ -180,7 +180,24 @@ pub fn parse_report(xml: &str) -> Vec<Case> {
 
 /// 一个模块这次跑出来的结果：`target/surefire-reports/TEST-*.xml` 里**改动时间不早于 `since`** 的那些（旧报告不算 —— 上次跑过、这次没跑到的类
 /// 还躺在那儿，算进来就是一份看着完整、其实混着上次结果的东西）。返回 `(前 CASES_MAX 条, 真条数)`
-pub fn results(module_dir: &Path, since: SystemTime) -> (Vec<Case>, usize) {
+/// 这一条结果是不是这次选的那几个测试类里的（`-Dtest` 的选择器：`A,B#m1+m2`）。
+///
+/// 只按时间认报告不够：背靠背跑两次（「重跑没过的」、换一组类再跑），上一次写的那份报告落在「开跑前 1 秒」的宽限里，就混进这一次的结果 ——
+/// 2026-10-23 加边跑边出（G15）时 spring.sh 撞见的：跑 LiveA / LiveB 两个类，结果树里多出上一次的 OrderMathTest。
+/// 选择器写的是全名就比全名，只写了类名（surefire 也认）就比最后一段；带 `*` 的不筛（通配交给 surefire，这里不去学它的规则）。
+/// `@Nested` 的报告类名是 `外层$内层`，按外层算
+pub fn in_selector(selector: &str, class: &str) -> bool {
+    if selector.contains('*') {
+        return true;
+    }
+    let outer = class.split('$').next().unwrap_or(class);
+    selector.split(',').map(|p| p.split('#').next().unwrap_or(p).trim()).any(|p| {
+        !p.is_empty() && (p == outer || (!p.contains('.') && outer.rsplit('.').next() == Some(p)))
+    })
+}
+
+/// `selector`：这次的 `-Dtest` 选择器，只留它选的那几个类的（[`in_selector`]）。先筛再截断，`total` 是筛完的真条数
+pub fn results(module_dir: &Path, since: SystemTime, selector: &str) -> (Vec<Case>, usize) {
     let dir = module_dir.join("target/surefire-reports");
     let Ok(rd) = std::fs::read_dir(&dir) else { return (Vec::new(), 0) };
     let mut files: Vec<_> = rd
@@ -195,8 +212,12 @@ pub fn results(module_dir: &Path, since: SystemTime) -> (Vec<Case>, usize) {
     files.sort();
     let mut all = Vec::new();
     for f in files {
+        // 跑的过程中也来读（docs/TAKEOVER.md G15，一个类跑完亮一个）：surefire 正在写的那份可能只写了一半 ——
+        // 没有收尾的 `</testsuite>` 就先不算，下一次再读。不挡的话写了一半的 testcase 会被当成「通过」列出来
         if let Ok(t) = std::fs::read_to_string(&f) {
-            all.extend(parse_report(&t));
+            if t.trim_end().ends_with("</testsuite>") {
+                all.extend(parse_report(&t).into_iter().filter(|c| in_selector(selector, &c.class)));
+            }
         }
     }
     let total = all.len();
@@ -268,14 +289,28 @@ mod tests {
         let d = std::env::temp_dir().join(format!("junit-{}", std::process::id()));
         let reports = d.join("target/surefire-reports");
         std::fs::create_dir_all(&reports).unwrap();
-        std::fs::write(reports.join("TEST-com.demo.Old.xml"), r#"<testcase name="stale" classname="com.demo.Old"/>"#).unwrap();
+        std::fs::write(reports.join("TEST-com.demo.Old.xml"), r#"<testsuite><testcase name="stale" classname="com.demo.Old"/></testsuite>"#).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         let since = SystemTime::now();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        std::fs::write(reports.join("TEST-com.demo.New.xml"), r#"<testcase name="fresh" classname="com.demo.New"/>"#).unwrap();
+        std::fs::write(reports.join("TEST-com.demo.New.xml"), r#"<testsuite><testcase name="fresh" classname="com.demo.New"/></testsuite>"#).unwrap();
+        // 正在写的那份：testcase 写了、收尾还没写 —— 先不算（跑的过程中每秒读一次，下一次它写完了再算）
+        std::fs::write(reports.join("TEST-com.demo.Half.xml"), r#"<testsuite name="com.demo.Half"><testcase name="half" classname="com.demo.Half" time="0.1">"#).unwrap();
         std::fs::write(reports.join("com.demo.New.txt"), "surefire 的文字报告不读").unwrap();
-        let (cases, total) = results(&d, since);
+        let (cases, total) = results(&d, since, "*");
+        assert!(results(&d, since, "com.demo.Other").0.is_empty(), "选择器里没有的类不算");
         assert_eq!((cases.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), total), (vec!["fresh"], 1), "上次的报告不算");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn 选择器_只认这次选的类() {
+        assert!(in_selector("com.demo.LiveATest,com.demo.LiveBTest", "com.demo.LiveBTest"));
+        assert!(!in_selector("com.demo.LiveATest,com.demo.LiveBTest", "com.demo.OrderMathTest"), "上一次跑的别的类不算");
+        assert!(in_selector("com.demo.OrderMathTest#failsOnPurpose", "com.demo.OrderMathTest"));
+        assert!(in_selector("OrderMathTest", "com.demo.OrderMathTest"), "只写类名也认");
+        assert!(!in_selector("MathTest", "com.demo.OrderMathTest"), "类名要整段对上");
+        assert!(in_selector("com.demo.OuterTest", "com.demo.OuterTest$Inner"), "@Nested 按外层算");
+        assert!(in_selector("com.demo.*Test", "com.demo.Whatever"), "带通配的不筛");
     }
 }

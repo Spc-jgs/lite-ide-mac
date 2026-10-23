@@ -157,6 +157,8 @@ function mockPorts(id: number): number[] {
   return [8080 + Math.max(0, services.findIndex((d) => d.name === r.name))];
 }
 
+/** 桩里跑一个测试类要多久 */
+const CLASS_MS = 1200;
 /** 跑过的单测：任务名 → 选择器（test_results 按它造结果） */
 const TESTS = new Map<string, string>();
 
@@ -345,12 +347,12 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
         const h = { ...HOLDERS.get(8080)!, ours: name.includes("ours") ? "后端" : null };
         run.timer = setTimeout(() => emitExit(id, { code: 1, stopped: false, port: h }), 900);
       }
-      // 跑单测：1.2 秒后结束（真的 mvn 要编译再跑，几秒到几十秒；结果树的「正在跑」要看得见）；有名字带 fail 的方法就是没过（退出码 1）
+      // 跑单测：每个测试类 1.2 秒（真的 mvn 要编译再跑，几秒到几十秒；结果树的「正在跑」、一个类跑完亮一个（G15）要看得见）；有名字带 fail 的方法就是没过（退出码 1）
       const testExit = () => emitExit(id, { code: test && testCases(root, test[2]).some((c) => c.outcome === "failed") ? 1 : 0, stopped: false });
       if (test) {
         TESTS.set(name, test[2]);
         // 调试着跑的：停在断点上那段时间不退（被调试的 JVM 停着），跑完由调试那边说
-        if (!a.debug) run.timer = setTimeout(testExit, 1200);
+        if (!a.debug) run.timer = setTimeout(testExit, CLASS_MS * Math.max(1, new Set(testCases(root, test[2]).map((c) => c.class)).size));
       }
       // 构建：1.5 秒（真的 mvn 起来就要一两秒，「正在构建」要看得见）
       if (built) run.timer = setTimeout(() => emitExit(id, { code: built.failed ? 1 : 0, stopped: false }), 1500);
@@ -385,9 +387,15 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
     case "build_problems":
       return parseProblems(String(FILES[String(a.log)] ?? ""));
     case "test_results": {
-      // 真实现读 surefire 报告；桩按选择器从 FILES 里的测试类造（testCases）
+      // 真实现读 surefire 报告；桩按选择器从 FILES 里的测试类造（testCases）。还在跑的时候同 surefire：跑完一个类才有那个类的报告（G15），
+      // 这里按开跑以来过了几个 CLASS_MS 给前几个类
       const sel = TESTS.get(String(a.name));
-      const cases = sel ? testCases(String(a.root), sel) : [];
+      let cases = sel ? testCases(String(a.root), sel) : [];
+      const live = [...RUNS.values()].find((r) => r.root === String(a.root) && r.name === String(a.name) && r.status === "running");
+      if (live) {
+        const done = new Set([...new Set(cases.map((c) => c.class))].slice(0, Math.floor((Date.now() - (live.at ?? 0)) / CLASS_MS)));
+        cases = cases.filter((c) => done.has(c.class));
+      }
       return { cases, total: cases.length };
     }
     case "task_stop": {

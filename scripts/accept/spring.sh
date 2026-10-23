@@ -102,6 +102,10 @@ public class OrderApplication implements CommandLineRunner {
 EOF
 # 单测（docs/IDEA.md 第 17 节）：一个用到兄弟模块的类（不用 install 就能跑）、一个故意没过
 mkdir -p "${P}/order-service/src/test/java/com/demo/order"
+# 边跑边出（G15）用：两个各跑 5 秒的类 —— surefire 先跑哪个不一定（按目录顺序），各 5 秒的话不管谁先，中间都有 5 秒「一个出了、一个还在跑」
+for c in LiveATest LiveBTest; do
+  printf 'package com.demo.order;\n\nimport org.junit.jupiter.api.Test;\n\nclass %s {\n    @Test\n    void waits() throws Exception { Thread.sleep(5000); }\n}\n' "$c" > "${P}/order-service/src/test/java/com/demo/order/$c.java"
+done
 cat > "${P}/order-service/src/test/java/com/demo/order/OrderMathTest.java" <<'EOF'
 package com.demo.order;
 
@@ -235,7 +239,8 @@ lite_wait main "return document.querySelectorAll('.cm-test-run').length === 3" 1
 ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-test-run').length")" = 3 ] && echo 1)" "测试类和两个测试方法旁边各一个 ▶"
 lite_eval main "const t = __lite.text().split('\\n'); __lite.caret(t.findIndex((x) => x.includes('class OrderMathTest')) + 1, 1); __lite.key('Ctrl-Shift-r'); return true" >/dev/null
 RUN="order-service [test com.demo.order.OrderMathTest]"
-lite_wait main "return __lite.runs.list.some((r) => r.name === '${RUN}' && r.tests)" 240 >/dev/null
+# 跑完才算（G15 起跑着的时候 tests 就有了、是半截的）
+lite_wait main "return __lite.runs.list.some((r) => r.name === '${RUN}' && r.tests && r.status !== 'running' && r.status !== 'stopping')" 240 >/dev/null
 SUM=$(lite_eval main "return document.querySelector('.tt .sum')?.textContent.trim() ?? ''")
 ok "$([ "$(lite_eval main "const r = __lite.runs.list.find((x) => x.name === '${RUN}'); return !!r?.tests && r.tests.cases.map((c) => c.name + ':' + c.outcome).sort().join(',') === 'failsOnPurpose:failed,usesSiblingModule:passed'")" = true ] && echo 1)" "结果树：用到兄弟模块的那个过了（shop-common 没 install）、故意的那个没过：${SUM}"
 CMD=$(lite_eval main "return __lite.runs.list.find((x) => x.name === '${RUN}')?.command ?? ''")
@@ -244,8 +249,18 @@ lite_wait main "return document.querySelectorAll('.cm-test-run.failed').length =
 ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-test-run.failed').length === 2 && document.querySelectorAll('.cm-test-run.passed').length === 1")" = true ] && echo 1)" "行号旁换成结果：类和没过的那个是 ✗、过了的那个是 ✓"
 lite_eval main "document.querySelector('.tt .bar button[aria-label=\"重跑没过的\"]').click(); return true" >/dev/null
 RERUN="order-service [test com.demo.order.OrderMathTest#failsOnPurpose]"
-lite_wait main "return __lite.runs.list.some((r) => r.name === '${RERUN}' && r.tests)" 240 >/dev/null
+# 跑完才算（G15 起跑着的时候 tests 就有了、是半截的）
+lite_wait main "return __lite.runs.list.some((r) => r.name === '${RERUN}' && r.tests && r.status !== 'running' && r.status !== 'stopping')" 240 >/dev/null
 ok "$([ "$(lite_eval main "const r = __lite.runs.list.find((x) => x.name === '${RERUN}'); return !!r?.tests && r.tests.cases.map((c) => c.name + ':' + c.outcome).join(',') === 'failsOnPurpose:failed'")" = true ] && echo 1)" "重跑没过的：任务名是「${RERUN}」，只跑了那一个"
+
+echo "== 单测边跑边出（docs/TAKEOVER.md G15）：两个各跑 5 秒的类，第一个跑完、第二个还在跑的时候，结果树里已经有第一个"
+LIVE="order-service [test com.demo.order.LiveATest,com.demo.order.LiveBTest]"
+lite_eval main "__lite.runTask('${LIVE}'); return true" >/dev/null
+lite_wait main "const r = __lite.runs.list.find((x) => x.name === '${LIVE}'); return !!r && (r.tests?.cases.length ?? 0) > 0" 240 >/dev/null
+MID=$(lite_eval main "const r = __lite.runs.list.find((x) => x.name === '${LIVE}'); return (r?.status ?? '无') + '|' + (r?.tests?.cases.length ?? 0) + '|' + (r?.tests?.cases.map((c) => c.class.split('.').pop() + ':' + c.outcome).join(',') ?? '') + '|' + (document.querySelector('.tt .sum')?.textContent.trim() ?? '')")
+ok "$([ "${MID%%|*}" = running ] && [ "$(echo "${MID}" | cut -d'|' -f2)" = 1 ] && echo "${MID}" | cut -d'|' -f3 | grep -qE '^Live[AB]Test:passed$' && echo 1)" "还在跑的时候结果树里已经有一个类的结果、是这次的（上一次跑的 OrderMathTest 不混进来）：${MID}"
+lite_wait main "const r = __lite.runs.list.find((x) => x.name === '${LIVE}'); return r?.status !== 'running' && r?.tests?.cases.length === 2" 120 >/dev/null
+ok "$([ "$(lite_eval main "const r = __lite.runs.list.find((x) => x.name === '${LIVE}'); return r?.status !== 'running' && r?.tests?.cases.length === 2 && r.tests.cases.every((c) => c.outcome === 'passed')")" = true ] && echo 1)" "跑完：两个类都在、都过了"
 
 echo "== 调试（docs/IDEA.md 第 18 节）：Services 里点虫子 → JVM 停在入口等调试器 → jdtls 里的 java-debug 挂上去 → 停在兄弟模块的断点上；变量带 toString、求值、单步、继续之后照常跑完"
 MONEY="${P}/shop-common/src/main/java/com/demo/common/Money.java"
