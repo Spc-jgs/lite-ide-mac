@@ -70,6 +70,8 @@
     "step-over",
     "step-into",
     "step-out",
+    // 通知记录（docs/TAKEOVER.md I11），自绘暂代
+    "bell",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];

@@ -10,6 +10,7 @@
   import Icon from "./Icon.svelte";
   import { layout, type PanelTool } from "../state/layout.svelte";
   import { runs } from "../state/runs.svelte";
+  import { notify } from "../state/notify.svelte";
   import { files } from "../state/files.svelte";
 
   let {
@@ -141,7 +142,8 @@
     一个永远空着的按钮只是噪音。角标是还活着的几个（跑着 / 正在停），各数各的，全停了就不画 —— 同 Git 改动那个角标的判据。
     两个按钮一个模板：入口包离告警线只剩几百字节，同样的一段写两遍要多付一份（2026-10-19 量的，-284 B）
   -->
-  {#each [{ v: "services", on: runs.services > 0, n: runs.alive(true), l: "Services", k: "" }, { v: "run", on: runs.plain().length > 0, n: runs.alive(), l: "运行", k: " ⌃⌥R" }] as const as b}
+  <!-- 通知记录（I11）：说过一句才出现；角标是上次看过之后又来了几条坏消息（没做成、卡片），看一眼就清 -->
+  {#each [{ v: "services", i: "services", on: runs.services > 0, n: runs.alive(true), l: "Services", k: "" }, { v: "run", i: "run", on: runs.plain().length > 0, n: runs.alive(), l: "运行", k: " ⌃⌥R" }, { v: "notifications", i: "bell", on: notify.log.length > 0, n: notify.unseen, l: "通知", k: "" }] as const as b}
     {#if b.on}
       <button
         class="ibtn lg rbtn"
@@ -150,7 +152,7 @@
         title={b.l + b.k}
         aria-label={b.l}
       >
-        <Icon name={b.v} />
+        <Icon name={b.i} />
         {#if b.n > 0}
           <span class="badge">{b.n}</span>
         {/if}

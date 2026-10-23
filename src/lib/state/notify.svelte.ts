@@ -1,3 +1,4 @@
+import { untrack } from "svelte";
 import { errText } from "./err-text";
 
 /**
@@ -56,7 +57,24 @@ export interface Toast {
   id: number;
 }
 
+/** 通知记录里的一条（docs/TAKEOVER.md I11）：卡片记成 `block`，正文是标题 + 说明 */
+export interface LogItem {
+  id: number;
+  at: number;
+  kind: ToastKind | "block";
+  text: string;
+}
+/** 记录留多少条：一次会话里几百条提示已经翻不过来了，再多只是占内存 */
+const LOG_MAX = 300;
+
 class Notify {
+  /**
+   * 这次会话说过的每一句（I11，IDEA 的 Notifications）：胶囊几秒就走、被没读完的失败压下去的「已保存」根本没露面 ——
+   * 不打断的代价是「错过了」，要能补看。底部工具窗「通知」列它。只在内存里、按窗口各一份
+   */
+  log = $state<LogItem[]>([]);
+  /** 上次看过之后又来了几条坏消息（没做成、卡片）：导轨上那个铃的角标。看一眼就清 */
+  unseen = $state(0);
   /** 此刻胶囊里那一条；没有就是 null */
   toast = $state<Toast | null>(null);
   /** 多行说明，需要用户自己关（卡片） */
@@ -96,7 +114,20 @@ class Notify {
     this.#show("hint", text, ms ?? readMs(text));
   }
 
+  /*
+   * `untrack`：调用方常在 `$effect` 里（「按需加载失败了」那几条），这里要先读一遍 `log` / `unseen` 再写 ——
+   * 不 untrack 的话那个 effect 就依赖上了自己写的东西，一报就停不下来（同 progress.svelte.ts 那次）
+   */
+  #record(kind: LogItem["kind"], text: string) {
+    untrack(() => {
+      this.log = [...this.log.slice(-(LOG_MAX - 1)), { id: ++this.#seq, at: Date.now(), kind, text }];
+      if (kind === "fail" || kind === "block") this.unseen++;
+    });
+  }
+
   #show(kind: ToastKind, text: string, ms: number, act?: ToastAct) {
+    // 先记再判要不要露面：被没读完的失败压下去的那条，正是最需要在记录里补看的
+    this.#record(kind, text);
     const cur = this.toast;
     // 没做成的那条还没读完：做成了 / 提示不顶掉它（新的失败照样顶 —— 那是更新的坏消息）。
     // 带动作的例外：它是人刚做的那一下的结果、上面有人要按的按钮 —— 「没改名：X 已经有了」之后马上换个名字再改，「撤销」不能被吞掉
@@ -141,6 +172,7 @@ class Notify {
     // **不能 String(body)** —— IPC 那层有几条命令 reject 的是结构化对象
     // （`SwitchErr` 那种），String() 出来是 `[object Object]`。见 err-text.ts
     this.banner = { title, body: errText(body) };
+    this.#record("block", `${title}\n${this.banner.body}`);
   }
 
   closeBanner() {

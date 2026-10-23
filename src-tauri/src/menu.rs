@@ -245,6 +245,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "tw-services", "Services", Some("CmdOrCtrl+8"))?)
         .item(&item(app, "tw-git", "Git", Some("CmdOrCtrl+9"))?)
         .item(&item(app, "tw-todo", "TODO", None)?)
+        .item(&item(app, "tw-notifications", "通知", None)?)
         .build()?;
 
     let view = SubmenuBuilder::new(app, "视图")

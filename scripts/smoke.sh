@@ -1448,6 +1448,24 @@ fi
 W=main
 rm -rf "${CLSRC}" "${CLDST}"
 
+say "㊵ 通知记录（docs/TAKEOVER.md I11）：胶囊走了也能翻；面板关着时来了坏消息，导轨上的铃有角标，打开看一眼就清"
+W=main
+NFY="${FIX}/notify-dirty.txt"
+printf 'a\n' > "${NFY}"
+is "await __lite.tabflow.openPath($(q "${NFY}"), { preview: false }); return true"
+lite_wait "${W}" "return __lite.tabs.active?.path === $(q "${NFY}")" 6 >/dev/null
+is "__lite.caret(1, 1); __lite.type('x'); return true"
+sleep 0.3
+menu toggle-mode
+lite_wait "${W}" "return document.querySelector('[aria-label=\"通知\"] .badge')?.textContent === '1'" 5 >/dev/null
+check "$(lite eval "${W}" "return document.querySelector('[aria-label=\"通知\"] .badge')?.textContent ?? '没有角标'" 2>/dev/null)" "1" "改了没存就切模式（没做成）：面板关着，铃上一个角标"
+menu tw-notifications
+lite_wait "${W}" "return !!document.querySelector('.notes .row')" 5 >/dev/null
+check "$(lite eval "${W}" "const t = [...document.querySelectorAll('.notes .row')].map((r) => r.textContent); return [t.some((x) => x.includes('有未保存的改动')), t.some((x) => x.includes('变基做完了')), document.querySelector('.notes .row')?.classList.contains('fail'), !document.querySelector('[aria-label=\"通知\"] .badge')].join('|')" 2>/dev/null)" "true|true|true|true" "记录里有刚才那条（在最上、标成没做成）和 ㊲ 早就走了的「变基做完了」；打开之后角标清了"
+menu tw-notifications
+menu save; sleep 0.3
+menu close-tab; sleep 0.3
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）
