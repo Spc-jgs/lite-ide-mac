@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaGenChoices, JavaHierChildren, JavaHierNode, JavaHighlight, JavaInlay, JavaLocation, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
+import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaGenChoices, JavaHierChildren, JavaHierNode, JavaHighlight, JavaInlay, JavaLocation, JavaMoveDest, JavaMovePreview, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -59,6 +59,11 @@ export const javaPrepareRename = (root: string, path: string, text: string, line
 /** 改名（docs/IDEA.md 第 14 节）：照跨文件替换落盘，结果的形状同替换（开着的标签走同一条路跟上，撤销卡片照样能撤） */
 export const javaRename = (root: string, path: string, text: string, line: number, character: number, newName: string, open: OpenDoc[]) =>
   invoke<ReplaceOutcome>("java_rename", { root, path, text, line, character, newName, open });
+/** 移动类（F6）：能去哪几个包 / 预览要改哪些 / 真改（和预览列的对不上就不做） */
+export const javaMoveDestinations = (root: string, path: string) => invoke<JavaMoveDest[]>("java_move_destinations", { root, path });
+export const javaMovePreview = (root: string, path: string, text: string, dest: string) => invoke<JavaMovePreview>("java_move_preview", { root, path, text, dest });
+export const javaMove = (root: string, path: string, text: string, dest: string, expect: string[], open: OpenDoc[]) =>
+  invoke<ReplaceOutcome>("java_move", { root, path, text, dest, expect, open });
 /** 格式化（⌥⌘L）：要做的改动。`range` 为空 = 整份；缩进照编辑器此刻的设置 */
 export const javaFormat = (
   root: string,

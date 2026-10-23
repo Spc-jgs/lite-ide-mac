@@ -330,6 +330,61 @@ pub async fn java_rename(
     .await
 }
 
+/// 移动类（F6）能去哪几个包
+#[tauri::command]
+pub async fn java_move_destinations(app: tauri::AppHandle, root: String, path: String) -> Result<Vec<JavaMoveDestDto>, String> {
+    blocking(move || {
+        Ok(instance(&app, &root)?
+            .move_destinations(&path)?
+            .into_iter()
+            .map(|d| JavaMoveDestDto { name: d.name, uri: d.uri, project: d.project, here: d.here })
+            .collect())
+    })
+    .await
+}
+
+/// 移动类的预览：问 jdtls 要改哪些（不改），交给前端列出来
+#[tauri::command]
+pub async fn java_move_preview(app: tauri::AppHandle, root: String, path: String, text: String, dest: String) -> Result<JavaMovePreviewDto, String> {
+    blocking(move || {
+        let plan = instance(&app, &root)?.move_plan(&path, &text, &dest)?;
+        Ok(move_preview(&plan, Path::new(&root)))
+    })
+    .await
+}
+
+/// 移动类：再问一次 jdtls（预览和现在之间可能有人改了文件），和预览时列的对不上就不做；对得上照改名那套落盘（`java::apply_rename`：两段提交、能撤销、开着的标签跟上）
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn java_move(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    text: String,
+    dest: String,
+    expect: Vec<String>,
+    open: Vec<super::replace::OpenDocArg>,
+) -> Result<ReplaceOutcomeDto, String> {
+    let journal = super::replace::journal_dir(&app)?;
+    blocking(move || {
+        let plan = instance(&app, &root)?.move_plan(&path, &text, &dest)?;
+        if move_preview(&plan, Path::new(&root)).files != expect {
+            return Err("预览之后有文件变了，要改的和刚才列的不一样 —— 再预览一次".into());
+        }
+        let out = crate::java::apply_rename(&plan, Path::new(&root), &journal, &super::replace::dirty_map(open))?;
+        Ok(super::replace::outcome_dto(out))
+    })
+    .await
+}
+
+fn move_preview(plan: &crate::java::RenamePlan, root: &Path) -> JavaMovePreviewDto {
+    let rel = |p: &str| Path::new(p).strip_prefix(root).map_or_else(|_| p.to_string(), |r| r.to_string_lossy().into_owned());
+    let mut files: Vec<String> = plan.files.iter().map(|(p, _)| rel(p)).collect();
+    files.sort();
+    let (from, to) = plan.renames.first().map(|(f, t)| (rel(f), rel(t))).unwrap_or_default();
+    JavaMovePreviewDto { files, from, to }
+}
+
 /// jar 里一个类的内容（`jdt://…`）：有源码 jar 就是源码，没有就是反编译的
 #[tauri::command]
 pub async fn java_class_contents(app: tauri::AppHandle, root: String, uri: String) -> Result<String, String> {

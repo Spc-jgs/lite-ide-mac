@@ -22,7 +22,7 @@ import { autocompletion, closeCompletion, completeAnyWord, completionStatus, sni
 import { POSTFIX, TEMPLATES, exprStart, templateAt } from "./java-templates";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaOpen, javaOrganizeImports, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaMove, javaOpen, javaOrganizeImports, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { usageHighlight } from "./java-usage-hl";
 import { nameSpot, refactorTitle } from "./refactor";
 import { idKeymap } from "./id-keys";
@@ -925,6 +925,55 @@ async function doRename(view: EditorView, s: Sync, at: { line: number; character
 
 const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
+// ── 移动类（F6，docs/TAKEOVER.md G12） ──
+
+/**
+ * 整个类挪进另一个包：对话框里挑包、看预览、点「移动」（MoveDialog.svelte 头上）。落盘和改名同一套，胶囊上带「撤销」。
+ * **这个文件有没保存的改动就不挪**：落盘时开着的脏标签只改编辑器、不写盘（同改名），而文件本身是要挪的 —— 盘上挪过去的那份没有包声明的改动，
+ * 编辑器里那份又对着已经不在的旧路径。先存了再挪，两样就对得上
+ */
+async function moveClass(view: EditorView): Promise<void> {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) {
+    notify.hint("Java 语言服务器还没起好，移动类要等它");
+    return;
+  }
+  if (tabs.byPath(s.path)?.dirty) {
+    notify.hint("这个文件有没保存的改动：先 ⌘S 再挪");
+    return;
+  }
+  const [{ openModal }, { default: MoveDialog }] = await Promise.all([import("../settings/modal-host"), import("./MoveDialog.svelte")]);
+  const close = openModal(MoveDialog, {
+    root: s.root,
+    path: s.path,
+    text: () => view.state.doc.toString(),
+    onmove: (d, p) => {
+      close();
+      void doMove(view, s, d.name, d.uri, p.files);
+    },
+  });
+}
+
+async function doMove(view: EditorView, s: Sync, pkg: string, dest: string, expect: string[]) {
+  const name = base(s.path);
+  const t = progress.start(`正在把 ${name} 挪到 ${pkg}`);
+  try {
+    const ops = await import("../state/replace-ops");
+    const o = await javaMove(s.root, s.path, view.state.doc.toString(), dest, expect, ops.openDocs());
+    await ops.landInTabs(o);
+    const { replace } = await import("../state/replace.svelte");
+    const hits = o.changed.reduce((n, c) => n + c.count, 0);
+    const label = `已把 ${name} 挪到 ${pkg}：改了 ${o.changed.length} 个文件 ${hits} 处`;
+    replace.done = o.undo ? { root: s.root, files: o.changed.length, hits, label } : null;
+    notify.ok(label, undefined, o.undo ? ops.UNDO : undefined);
+  } catch (e) {
+    notify.fail(`没挪：${e instanceof Error ? e.message : String(e)}`, 8000);
+  } finally {
+    t.end();
+  }
+}
+
 // ── 补全（docs/IDEA.md 第 3 步、第 13 节） ──
 
 /**
@@ -1182,6 +1231,8 @@ export function javaLsp(root: string | null, path: string): Extension {
         { id: "extract-field", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.field", "抽成字段"), true) },
         { id: "extract-method", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.function", "抽成方法"), true) },
         { id: "inline", preventDefault: true, run: (v) => (void refactor(v, "refactor.inline", "内联"), true) },
+        // IDEA 的 Refactor › Move（F6）
+        { id: "move-class", preventDefault: true, run: (v) => (void moveClass(v), true) },
       ]),
     ),
     EditorView.theme({

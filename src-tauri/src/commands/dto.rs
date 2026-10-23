@@ -951,6 +951,26 @@ pub struct JavaRenameTargetDto {
     pub placeholder: Option<String>,
 }
 
+/// 移动类（F6，docs/TAKEOVER.md G12）能去的一个包
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaMoveDestDto {
+    pub name: String,
+    pub uri: String,
+    pub project: String,
+    /// 就是现在在的那个包
+    pub here: bool,
+}
+
+/// 移动类的预览：要改的文件（相对项目根，排好序）、文件从哪挪到哪。点「移动」时 `files` 原样交回来，jdtls 那时给的对不上就不做
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaMovePreviewDto {
+    pub files: Vec<String>,
+    pub from: String,
+    pub to: String,
+}
+
 /// 一条单测的结果（surefire 报告里的一个 testcase）。`outcome`：passed / failed / error / skipped
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

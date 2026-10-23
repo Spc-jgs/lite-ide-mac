@@ -197,6 +197,19 @@ pub struct RenamePlan {
     pub renames: Vec<(String, String)>,
 }
 
+/// 移动类能去的一个包（docs/TAKEOVER.md G12，jdtls 的 `java/getMoveDestinations` 回的 `PackageNode`）
+#[derive(Clone, Debug, PartialEq)]
+pub struct MoveDest {
+    /// 包名（默认包是 jdtls 给的那个显示名）
+    pub name: String,
+    /// 包所在目录的地址：原样交回 `java/move` 当目标
+    pub uri: String,
+    /// 哪个模块（Maven 的 artifactId，jdtls 的项目名）
+    pub project: String,
+    /// 就是这个类现在在的包
+    pub here: bool,
+}
+
 /// 光标底下能不能改名、改的是哪一段（prepareRename）
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenameTarget {
@@ -740,6 +753,24 @@ impl Instance {
         workspace_edit(&r)
     }
 
+    /// 移动类（F6，docs/TAKEOVER.md G12）能去哪几个包：`java/getMoveDestinations`，moveKind 是 `moveResource`（整个文件挪，vscode-java 拖文件进别的包走的也是它）。
+    /// 请求名和参数形状读的 1.61 的字节码（`JDTLanguageServer.getMoveDestinations` / `MoveHandler$MoveParams`）
+    pub fn move_destinations(&self, path: &str) -> Result<Vec<MoveDest>, String> {
+        let r = self.ask("java/getMoveDestinations", json!({ "moveKind": "moveResource", "sourceUris": [uri::from_path(path)] }))?;
+        move_dests(&r)
+    }
+
+    /// 移动类要改哪些：`java/move`（`updateReferences: true`：引用方的 import 跟着改），目标给包目录的地址（`MoveHandler.move` 认字符串或 PackageNode）。
+    /// 回的是 `RefactorWorkspaceEdit`（`edit` / `errorMessage`），拆成和改名一样的 [`RenamePlan`]。只问不改
+    pub fn move_plan(&self, path: &str, text: &str, dest: &str) -> Result<RenamePlan, String> {
+        self.change(path, text);
+        let r = self.ask(
+            "java/move",
+            json!({ "moveKind": "moveResource", "sourceUris": [uri::from_path(path)], "destination": dest, "updateReferences": true }),
+        )?;
+        move_edit(&r)
+    }
+
     /// jdtls 自己拒绝改名时的原话是英文的（`Compilation unit 'Customer.java' already exists`），常见的换成中文，别的原样
     fn rename_refusal(e: String) -> String {
         match e.split_once("Compilation unit '").and_then(|(_, rest)| rest.split_once("' already exists")) {
@@ -1272,6 +1303,42 @@ pub fn rename_target(r: &Value) -> Option<RenameTarget> {
     Some(RenameTarget { range: edit_of(range, ""), placeholder })
 }
 
+/// `java/getMoveDestinations` 的回包 → 能去的包：按模块、包名排，现在在的那个也留着（界面上标「现在在这儿」、不能选）。
+/// 带 `errorMessage` 的是 jdtls 说不行（不在源码目录里的文件之类），原话交出去
+pub fn move_dests(r: &Value) -> Result<Vec<MoveDest>, String> {
+    if let Some(e) = r["errorMessage"].as_str().filter(|e| !e.is_empty()) {
+        return Err(e.to_string());
+    }
+    let mut out: Vec<MoveDest> = r["destinations"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|d| {
+            Some(MoveDest {
+                name: d["displayName"].as_str()?.to_string(),
+                uri: d["uri"].as_str()?.to_string(),
+                project: d["project"].as_str().unwrap_or("").to_string(),
+                here: d["isParentOfSelectedFile"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.project, &a.name).cmp(&(&b.project, &b.name)));
+    Ok(out)
+}
+
+/// `java/move` 的回包（`RefactorWorkspaceEdit`）→ [`RenamePlan`]：`errorMessage` 是 jdtls 说不行；没有改动也算不行（不往盘上做一次空操作）
+pub fn move_edit(r: &Value) -> Result<RenamePlan, String> {
+    if let Some(e) = r["errorMessage"].as_str().filter(|e| !e.is_empty()) {
+        return Err(e.to_string());
+    }
+    let plan = workspace_edit(&r["edit"])?;
+    if plan.renames.is_empty() {
+        return Err("语言服务器没给出挪文件这一步，没动".into());
+    }
+    Ok(plan)
+}
+
 /// jdtls 的 WorkspaceEdit → [`RenamePlan`]。认 `changes`（uri → 改动）和 `documentChanges`（按次序的改动 + 改名），两种可能同时给（实测 `changes` 是空的）。
 /// 拒绝的（整个报错，一处都不改）：新建 / 删除文件（这一版不做；我们向它声明了支持，是因为不声明它连改名都不给）、改到 jar 里、不是 file:// 的地址。
 /// **先改名后又改它**的（改动指向改名后的新路径）换回原路径：执行时是先改全部内容、最后改名
@@ -1784,6 +1851,30 @@ mod tests {
         assert!(workspace_edit(&json!({ "documentChanges": [{ "kind": "delete", "uri": "file:///p/N.java" }] })).unwrap_err().contains("删除"));
         assert!(workspace_edit(&json!({ "changes": { "jdt://contents/x.jar/A.class": [] } })).unwrap_err().contains("jar"));
         assert_eq!(workspace_edit(&Value::Null).unwrap(), RenamePlan::default());
+    }
+
+    /// 移动类的两个回包（形状照 1.61 的 `MoveHandler$PackageNode` / `RefactorWorkspaceEdit` 字段）
+    #[test]
+    fn 移动类_目标包按模块和名字排_拒绝原话交出去_没挪文件不算() {
+        let r = json!({ "destinations": [
+            { "displayName": "com.demo.order", "uri": "file:///p/o/com/demo/order/", "path": "/o", "project": "order-service", "isDefaultPackage": false, "isParentOfSelectedFile": false },
+            { "displayName": "com.demo.common.util", "uri": "file:///p/c/com/demo/common/util/", "project": "shop-common", "isParentOfSelectedFile": false },
+            { "displayName": "com.demo.common", "uri": "file:///p/c/com/demo/common/", "project": "shop-common", "isParentOfSelectedFile": true },
+        ] });
+        let d = move_dests(&r).unwrap();
+        assert_eq!(d.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), ["com.demo.order", "com.demo.common", "com.demo.common.util"]);
+        assert!(d[1].here && !d[0].here);
+        assert_eq!(move_dests(&json!({ "errorMessage": "Failed to list Java packages for source paths." })).unwrap_err(), "Failed to list Java packages for source paths.");
+
+        let e = json!({ "edit": { "documentChanges": [
+            { "textDocument": { "uri": "file:///p/c/com/demo/common/Money.java", "version": null }, "edits": [{ "range": { "start": { "line": 0, "character": 8 }, "end": { "line": 0, "character": 23 } }, "newText": "com.demo.common.util" }] },
+            { "kind": "rename", "oldUri": "file:///p/c/com/demo/common/Money.java", "newUri": "file:///p/c/com/demo/common/util/Money.java" },
+        ] } });
+        let p = move_edit(&e).unwrap();
+        assert_eq!(p.renames, vec![("/p/c/com/demo/common/Money.java".to_string(), "/p/c/com/demo/common/util/Money.java".to_string())]);
+        assert_eq!(p.files.len(), 1);
+        assert!(move_edit(&json!({ "errorMessage": "Cannot enable move operation." })).unwrap_err().contains("Cannot enable"));
+        assert!(move_edit(&json!({ "edit": { "changes": {} } })).unwrap_err().contains("没给出挪文件"));
     }
 
     #[test]

@@ -283,6 +283,8 @@ export const KEYS: KeyDef[] = [
   { id: "extract-field", label: "抽成字段（Java）", accel: "⌥⌘F", group: "编辑", owner: "cm6" },
   { id: "extract-method", label: "抽成方法（Java）", accel: "⌥⌘M", group: "编辑", owner: "cm6" },
   { id: "inline", label: "内联（Java）", accel: "⌥⌘N", group: "编辑", owner: "cm6" },
+  // IDEA 的 Refactor › Move（F6）：整个类挪进另一个包，包声明和引用方的 import 跟着改；先列出要改哪些，点了才改
+  { id: "move-class", label: "移动类（Java）", accel: "F6", group: "编辑", owner: "cm6" },
   { id: "encoding", label: "文件编码…", group: "编辑", owner: "menu" },
   /**
    * 跨文件替换、Java 改名、快速修复做完，胶囊上带一个「撤销」（2026-10-21 起，原来是一张卡片）；胶囊几秒就走，这里是常驻的那条路，

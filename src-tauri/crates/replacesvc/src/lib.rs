@@ -792,7 +792,8 @@ pub fn apply(scan: &Scan, o: &ApplyOpts) -> Result<Outcome, ApplyError> {
     Ok(Outcome { changed, skipped, undo: journaled, renamed: Vec::new() })
 }
 
-/// 改名之前先查一遍（**在改任何内容之前**调）：原文件在、新名字没被占、在同一个目录里、同一个文件不改两次。
+/// 改名之前先查一遍（**在改任何内容之前**调）：原文件在、新名字没被占、同一个文件不改两次；
+/// 换目录的（移动类，docs/TAKEOVER.md G12）只许名字不变、目标目录已经在 —— 「又换目录又换名字」jdtls 不会给，给了就是没想到的情形，不做。
 /// 先查是因为内容已经改了、名字却改不了，留下的就是「类名和文件名对不上」—— 编译不过
 pub fn check_renames(renames: &[(PathBuf, PathBuf)]) -> Result<(), String> {
     let mut seen = std::collections::HashSet::new();
@@ -806,7 +807,12 @@ pub fn check_renames(renames: &[(PathBuf, PathBuf)]) -> Result<(), String> {
             return Err(format!("{} 已经有了，不覆盖", name(to)));
         }
         if from.parent() != to.parent() {
-            return Err(format!("{} → {}：这一版只做同一个目录里的改名", name(from), name(to)));
+            if from.file_name() != to.file_name() {
+                return Err(format!("{} → {}：换目录的同时又换名字，这一版不做", name(from), name(to)));
+            }
+            if !to.parent().is_some_and(Path::is_dir) {
+                return Err(format!("{} 要挪去的目录不在盘上", name(from)));
+            }
         }
         if !seen.insert(from.clone()) || !seen.insert(to.clone()) {
             return Err(format!("{} 被改了两次名", name(from)));
@@ -821,11 +827,9 @@ pub fn rename_files(dir: &Path, renames: &[(PathBuf, PathBuf)]) -> Result<Vec<(P
     check_renames(renames)?;
     let mut done: Vec<(PathBuf, PathBuf)> = Vec::new();
     for (from, to) in renames {
-        let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        if let Err(e) = fsservice::rename_entry(from, &name) {
+        if let Err(e) = relocate(from, to) {
             for (f, t) in done.iter().rev() {
-                let back = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                let _ = fsservice::rename_entry(t, &back);
+                let _ = relocate(t, f);
             }
             return Err(format!("{} 改名失败：{e}（已经改了名的 {} 个改回去了）", from.display(), done.len()));
         }
@@ -836,6 +840,17 @@ pub fn rename_files(dir: &Path, renames: &[(PathBuf, PathBuf)]) -> Result<Vec<(P
         journal::save(dir, &m).map_err(|e| format!("改名成功了，但记进替换日志失败（撤销时改不回名字）：{e}"))?;
     }
     Ok(done)
+}
+
+/// 把 `from` 挪成 `to`，不覆盖：同一个目录里是改名（`rename_entry`），换目录的（名字不变，`check_renames` 查过）是挪（`move_entry`）。
+/// 两条都在 fsservice 里查「新路径被占就报错」；inode 不变，开着的标签按身份认得出来
+fn relocate(from: &Path, to: &Path) -> std::io::Result<()> {
+    if from.parent() == to.parent() {
+        let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        fsservice::rename_entry(from, &name).map(|_| ())
+    } else {
+        fsservice::move_entry(from, to.parent().unwrap_or(Path::new("/"))).map(|_| ())
+    }
 }
 
 /// 此刻开着的标签（撤销时用）：编辑器里的文本、有没有未保存改动
@@ -877,12 +892,11 @@ pub fn undo(dir: &Path, open: &HashMap<PathBuf, OpenNow>) -> Result<Outcome, Str
     for r in m.renames.iter().rev() {
         let (from, to) = (PathBuf::from(&r.from), PathBuf::from(&r.to));
         let rel = from.strip_prefix(&m.root).unwrap_or(&from).to_string_lossy().into_owned();
-        let name = from.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         if fs::symlink_metadata(&to).is_err() || fs::symlink_metadata(&from).is_ok() {
             skipped.push(Skipped { rel, why: Why::NotRenamedBack });
             continue;
         }
-        match fsservice::rename_entry(&to, &name) {
+        match relocate(&to, &from) {
             Ok(_) => renamed.push((to, from)),
             Err(x) => skipped.push(Skipped { rel, why: Why::Unreadable(format!("改不回原来的名字：{x}")) }),
         }

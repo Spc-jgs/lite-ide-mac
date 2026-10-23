@@ -233,6 +233,39 @@ function rename(root: string, path: string, line: number, ch: number, to: string
   return { changed, skipped: [], undo: true, renamed };
 }
 
+/**
+ * 移动类（F6，G12）：桩用正则做个简化版 —— 目标包是桩里 .java 文件所在的那些目录（包名取文件里的 package 行），要改的是这个文件的 package 行
+ * 和 `import 旧包.类名;` 的那几处（真的是 jdtls 算，还会给同包里不带 import 直接用它的文件补 import）
+ */
+function pkgOf(text: string) {
+  return /^package\s+([\w.]+);/m.exec(text)?.[1] ?? "";
+}
+function moveDests(root: string, path: string) {
+  const seen = new Map<string, { name: string; uri: string; project: string; here: boolean }>();
+  for (const p of Object.keys(FILES)) {
+    if (!p.startsWith(`${root}/`) || !p.endsWith(".java") || p.includes("/src/test/")) continue;
+    const dir = p.slice(0, p.lastIndexOf("/"));
+    const name = pkgOf(FILES[p]);
+    if (!name || seen.has(dir)) continue;
+    seen.set(dir, { name, uri: `file://${dir}/`, project: p.slice(root.length + 1).split("/")[0], here: dir === path.slice(0, path.lastIndexOf("/")) });
+  }
+  return [...seen.values()].sort((a, b) => (a.project + a.name).localeCompare(b.project + b.name));
+}
+function movePlan(root: string, path: string, dest: string) {
+  const d = moveDests(root, path).find((x) => x.uri === dest);
+  if (!d) throw new Error("Cannot enable move operation.");
+  const name = path.slice(path.lastIndexOf("/") + 1, -".java".length);
+  const old = pkgOf(FILES[path] ?? "");
+  const to = `${dest.replace(/^file:\/\//, "").replace(/\/$/, "")}/${name}.java`;
+  if (FILES[to] !== undefined) throw new Error(`${name}.java 已经有了，不覆盖`);
+  const edits = new Map<string, string>();
+  edits.set(path, (FILES[path] ?? "").replace(`package ${old};`, `package ${d.name};`));
+  for (const p of Object.keys(FILES)) {
+    if (p !== path && p.startsWith(`${root}/`) && FILES[p].includes(`import ${old}.${name};`)) edits.set(p, FILES[p].replace(`import ${old}.${name};`, `import ${d.name}.${name};`));
+  }
+  return { edits, to, rel: (p: string) => p.slice(root.length + 1) };
+}
+
 /** 要 import 的：插在 package 那一行后面（文件里已经 import 过就不加，同 jdtls） */
 function resolve(raw: string) {
   const it = JSON.parse(raw) as { label: string; path: string; import?: string };
@@ -560,6 +593,34 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       await wait(900);
       docs.set(path, String(a.text ?? ""));
       return rename(root, path, Number(a.line), Number(a.character), String(a.newName), (a.open as unknown as { path: string; text: string; dirty: boolean }[]) ?? []);
+    case "java_move_destinations":
+      await wait(300);
+      return moveDests(root, path);
+    case "java_move_preview": {
+      // 第一次要搜全部索引，真实现会慢：桩也等一会儿，「正在算要改哪些」那一句看得见
+      await wait(700);
+      const m = movePlan(root, path, String(a.dest));
+      return { files: [...m.edits.keys()].map(m.rel).sort(), from: m.rel(path), to: m.rel(m.to) };
+    }
+    case "java_move": {
+      await wait(500);
+      const m = movePlan(root, path, String(a.dest));
+      if (JSON.stringify([...m.edits.keys()].map(m.rel).sort()) !== JSON.stringify(a.expect)) throw new Error("预览之后有文件变了，要改的和刚才列的不一样 —— 再预览一次");
+      const entries = [];
+      const changed = [];
+      for (const [p, out] of m.edits) {
+        const before = FILES[p];
+        FILES[p] = out;
+        bump(p);
+        entries.push({ path: p, rel: m.rel(p), before, after: out });
+        changed.push({ rel: m.rel(p), path: p, count: 1, edits: [{ from: 0, to: before.length, insert: out }], onDisk: true });
+      }
+      FILES[m.to] = FILES[path];
+      delete FILES[path];
+      bump(m.to);
+      recordRename(entries, [{ from: path, to: m.to }]);
+      return { changed, skipped: [], undo: true, renamed: [{ from: path, to: m.to }] };
+    }
     case "java_format": {
       // 桩：只去掉行尾空白、把 `=` 两边补上空格（真的排版是 jdtls 的 Eclipse 格式化器）；位置照真实现是 UTF-16 行列。故意等 120 ms（实测）
       await wait(120);

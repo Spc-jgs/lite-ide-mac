@@ -220,6 +220,22 @@ export interface JavaRenameTarget {
   placeholder: string | null;
 }
 
+/** 移动类（F6，docs/TAKEOVER.md G12）能去的一个包 */
+export interface JavaMoveDest {
+  name: string;
+  uri: string;
+  project: string;
+  /** 就是现在在的那个包 */
+  here: boolean;
+}
+
+/** 移动类的预览：要改的文件（相对项目根）、文件从哪挪到哪。点「移动」时 `files` 原样交回去 */
+export interface JavaMovePreview {
+  files: string[];
+  from: string;
+  to: string;
+}
+
 /** 一条单测的结果（surefire 报告里的一个 testcase） */
 export interface TestCase {
   class: string;

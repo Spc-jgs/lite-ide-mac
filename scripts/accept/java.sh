@@ -86,6 +86,11 @@ printf 'package com.demo.common;\n\npublic class VipRule implements PriceRule {\
 printf 'package com.demo.common;\n\npublic class HalfRule implements PriceRule {\n    @Override\n    public long apply(long cents) { return cents / 2; }\n}\n' > "${C}/HalfRule.java"
 # 同名高亮（G11）用：字段 total 有声明、有写、有读；other() 的参数也叫 total —— 语义的高亮不该标它。twice() 传字面量：参数名提示用
 printf 'package com.demo.common;\n\npublic class Tally {\n    private int total;\n    public int add(int n) {\n        total = total + n;\n        return total;\n    }\n    public int other(int total) { return total; }\n    public int twice() { return add(2) + other(3); }\n}\n' > "${C}/Tally.java"
+# 移动类（G12 的 F6）用：Label 挪进已有的 com.demo.common.util，order-service 里的 LabelUse 引着它
+mkdir -p "${C}/util"
+printf 'package com.demo.common.util;\n\npublic class Util {}\n' > "${C}/util/Util.java"
+printf 'package com.demo.common;\n\npublic class Label {\n    public String text() { return "label"; }\n}\n' > "${C}/Label.java"
+printf 'package com.demo.order;\n\nimport com.demo.common.Label;\n\npublic class LabelUse {\n    String go() { return new Label().text(); }\n}\n' > "${P}/order-service/src/main/java/com/demo/order/LabelUse.java"
 # 代码模板（G21）用：一个空方法体，里面敲模板
 printf 'package com.demo.common;\n\npublic class Tpl {\n    void run(String name) {\n        \n    }\n}\n' > "${C}/Tpl.java"
 # 生成（G5）用：一个普通字段、一个带初值的 final 字段（final 的没有 setter）
@@ -555,6 +560,33 @@ lite_wait main "return !__lite.text().split('\\n').some((l) => l.length > 80)" 1
 WRAP=$(lite_eval main "const t = __lite.text().split('\\n'); const i = t.findIndex((l) => l.includes('System.out.println(')); return t.slice(i, i + 2).map((l) => l.length + ':' + (l.match(/^ */)[0].length)).join(' ')")
 ok "$([ "$(lite_eval main "const t = __lite.text().split('\\n'); const i = t.findIndex((l) => l.includes('System.out.println(')); return t.every((l) => l.length <= 80) && /^ {12}\\S/.test(t[i + 1] ?? '')")" = true ] && echo 1)" "⌥⌘L：没有一行超过 80、折下来那行缩进 8 + 4 = 12（Eclipse 默认是 120 不折、续行 16）（长度:缩进）：${WRAP}"
 lite_eval main "__lite.key('Mod-z'); __lite.key('Mod-z'); return true" >/dev/null
+
+echo "== 移动类（F6，docs/TAKEOVER.md G12）：挑包、先看要改哪些、点「移动」—— 文件挪进 util、包声明和 order-service 里的 import 跟着改、jdtls 不报错；撤销挪回来"
+LUSE="${P}/order-service/src/main/java/com/demo/order/LabelUse.java"
+LABEL0=$(cat "${C}/Label.java"); LUSE0=$(cat "${LUSE}")
+open_file "${C}/Label.java" >/dev/null
+lite_eval main "__lite.caret(3, 2); __lite.key('F6'); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.dialog.move .row').length > 0" 30 >/dev/null
+lite_eval main "__lite.fill('common.util', '.dialog.move .field'); return true" >/dev/null
+sleep 0.3
+ok "$([ "$(lite_eval main "return [...document.querySelectorAll('.dialog.move .row .pkg')].map((e) => e.textContent).join(',')")" = "com.demo.common.util" ] && echo 1)" "F6 列出项目里的包（jdtls 的 java/getMoveDestinations），筛「common.util」剩一个；现在在的 com.demo.common 不在可选里"
+lite_eval main "document.querySelector('.dialog.move .field').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.move .files')" 60 >/dev/null
+PREV=$(lite_eval main "return [...document.querySelectorAll('.dialog.move .files li')].map((e) => e.textContent).join(',')")
+ok "$([ "${PREV}" = "order-service/src/main/java/com/demo/order/LabelUse.java,shop-common/src/main/java/com/demo/common/Label.java" ] && [ "$(cat "${C}/Label.java")" = "${LABEL0}" ] && echo 1)" "预览：要改 Label.java（包声明）和 LabelUse.java（import），盘上一个字还没动：${PREV}"
+lite_eval main "document.querySelector('.dialog.move .btn.primary').click(); return true" >/dev/null
+wait_for 30 "[ -f '${C}/util/Label.java' ]"
+lite_wait main "return __lite.tabs.active?.path === '${C}/util/Label.java'" 10 >/dev/null
+ok "$([ -f "${C}/util/Label.java" ] && [ ! -e "${C}/Label.java" ] && grep -q '^package com.demo.common.util;' "${C}/util/Label.java" && grep -q '^import com.demo.common.util.Label;' "${LUSE}" && echo 1)" "点「移动」：Label.java 挪进 util/、包声明改了、LabelUse 的 import 改成 com.demo.common.util.Label；标签跟着到新路径"
+open_file "${LUSE}" >/dev/null
+sleep 3
+lite_wait main "return document.querySelectorAll('.cm-diag-err').length === 0" 30 >/dev/null
+ok "$([ -z "$(errs)" ] && echo 1)" "LabelUse 里 jdtls 不报错（挪过去的类它认得）（有的话是：$(errs)）"
+# 走菜单那条常驻的路：胶囊上的「撤销」停 10 秒，上面等 jdtls 报错（最多 30 秒）的工夫它早走了 —— 第一版点胶囊，点了个空
+lite menu undo-replace main >/dev/null
+label_back() { [ -f "${C}/Label.java" ] && [ ! -e "${C}/util/Label.java" ] && [ "$(cat "${C}/Label.java")" = "${LABEL0}" ] && [ "$(cat "${LUSE}")" = "${LUSE0}" ]; }
+wait_for 15 label_back
+ok "$(label_back && echo 1)" "「编辑 › 撤销上次的替换 / 改名」：Label.java 挪回 common/、两个文件的内容一字不差$(label_back || echo "；胶囊此刻：$(lite_eval main "return document.querySelector('.toast')?.textContent ?? '（没有）'")；目录：$(ls "${C}" | tr '\n' ' ')")"
 
 echo "== 不往项目里写东西、退出不留 jdtls"
 META=$(cd "${P}" && find . \( -name .project -o -name .classpath -o -name .settings -o -name .factorypath \) | head -5 | tr '\n' ' ')

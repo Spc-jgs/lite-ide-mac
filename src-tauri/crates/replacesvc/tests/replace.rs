@@ -548,8 +548,50 @@ fn 改名_新名字被占或者跨目录_先查出来一个字都不动() {
     assert!(e.contains("已经有了"), "{e}");
     assert_eq!(read(&root.join("Store.java")), "别人的文件\n", "不覆盖");
     assert_eq!(read(&root.join("Shop.java")), "x\n");
-    let e = check_renames(&[(root.join("Shop.java"), root.join("sub/Shop.java"))]).err().unwrap();
-    assert!(e.contains("同一个目录"), "{e}");
+    // 换目录又换名字：jdtls 的移动类不会给这种，给了就不做
+    let e = check_renames(&[(root.join("Shop.java"), root.join("sub/Store.java"))]).err().unwrap();
+    assert!(e.contains("又换名字"), "{e}");
+    let e = check_renames(&[(root.join("Shop.java"), root.join("nowhere/Shop.java"))]).err().unwrap();
+    assert!(e.contains("目录不在盘上"), "{e}");
+    // 换目录、名字不变（移动类）：目标目录里已经有同名的，不覆盖
+    fs::write(root.join("sub/Shop.java"), "别人的 Shop\n").unwrap();
+    let e = rename_files(&d.join("journal"), &[(root.join("Shop.java"), root.join("sub/Shop.java"))]).err().unwrap();
+    assert!(e.contains("已经有了"), "{e}");
+    assert_eq!(read(&root.join("sub/Shop.java")), "别人的 Shop\n");
+    fs::remove_dir_all(d).ok();
+}
+
+/// 移动类（docs/TAKEOVER.md G12）：改内容（包声明、引用方的 import）+ 把文件挪进另一个目录；撤销挪回来、内容也回来
+#[test]
+fn 移动类_改内容再换目录_撤销挪回来() {
+    let d = sandbox("move-class");
+    let root = d.join("proj");
+    fs::create_dir_all(root.join("a")).unwrap();
+    fs::create_dir_all(root.join("b")).unwrap();
+    let from = root.join("a/Shop.java");
+    let to = root.join("b/Shop.java");
+    let usef = root.join("Use.java");
+    fs::write(&from, "package a;\npublic class Shop {}\n").unwrap();
+    fs::write(&usef, "import a.Shop;\nclass Use {}\n").unwrap();
+    let edit = |line, ch, end_ch, text: &str| LineEdit { line, character: ch, end_line: line, end_character: end_ch, text: text.into() };
+    let s = scan_edits(&root, vec![(from.clone(), vec![edit(0, 8, 9, "b")]), (usef.clone(), vec![edit(0, 7, 8, "b")])], &HashMap::new()).unwrap();
+    let renames = vec![(from.clone(), to.clone())];
+    check_renames(&renames).unwrap();
+    let j = d.join("journal");
+    let none = HashMap::new();
+    let picks = all(&s);
+    apply(&s, &opts(&j, "", &picks, &none)).unwrap();
+    assert_eq!(rename_files(&j, &renames).unwrap(), renames);
+    assert!(fs::symlink_metadata(&from).is_err());
+    assert_eq!(read(&to), "package b;\npublic class Shop {}\n");
+    assert_eq!(read(&usef), "import b.Shop;\nclass Use {}\n");
+
+    let out = undo(&j, &HashMap::new()).unwrap();
+    assert_eq!(out.renamed, vec![(to.clone(), from.clone())]);
+    assert!(fs::symlink_metadata(&to).is_err(), "挪回去了");
+    assert_eq!(read(&from), "package a;\npublic class Shop {}\n");
+    assert_eq!(read(&usef), "import a.Shop;\nclass Use {}\n");
+    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
     fs::remove_dir_all(d).ok();
 }
 
