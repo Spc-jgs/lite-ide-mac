@@ -55,6 +55,13 @@
       ...(onCheckout
         ? [{ label: `检出到此提交（游离）`, sep: true, run: () => onCheckout(c.sha) }]
         : []),
+      // IDEA 的 Interactively Rebase from Here（docs/TAKEOVER.md G25）：从这一个（含）到 HEAD 整理一遍。合并提交、不在这条线上的由 Rust 那边拒绝、说为什么
+      {
+        label: "从这里交互式变基…",
+        sep: true,
+        disabled: merge,
+        run: () => void import("./rebase-open").then((m) => m.openRebase(repo, c.sha)),
+      },
       ...(onCherryPick
         ? [{
             label: merge ? "cherry-pick（合并提交不支持）" : "cherry-pick 到当前分支",

@@ -1868,3 +1868,85 @@ fn 工作树的_git_是个文件_照里面那句找到真的目录() {
     assert_eq!(op_state(dir.join("wt")), Some(OpState { kind: OpKind::Rebase, step: Some((2, 3)) }));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 交互式变基（docs/TAKEOVER.md G25）：改顺序、改说明、并进上一个（两种）、丢掉，照计划做完；撞冲突停住、认得出；
+/// 计划和那一段对不上、工作区有改动、第一个就要并进上一个 —— 都拒绝
+#[test]
+fn 交互式变基_照计划做完_撞冲突停住_对不上的计划拒绝() {
+    if !available() {
+        eprintln!("跳过：机器上没有 git");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("gitsvc-rbi-{}-{:?}", std::process::id(), std::time::Instant::now()));
+    let scratch = dir.with_extension("scratch");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t.t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t.t")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    // 仓库里也设一份身份：变基里 exec 的那几条 git commit 要用。环境变量本来也传得进 exec，设在仓库里是不靠这一点
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.name", "t"]);
+    git(&["config", "user.email", "t@t.t"]);
+    std::fs::write(dir.join("base.txt"), "0\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "base"]);
+    for (f, m) in [("a.txt", "加 a"), ("b.txt", "加 b"), ("c.txt", "加 c"), ("d.txt", "加 d")] {
+        std::fs::write(dir.join(f), "x\n").unwrap();
+        git(&["add", f]);
+        git(&["commit", "-qm", m]);
+    }
+    let plan = rebase_plan(&dir, "HEAD~3").unwrap();
+    assert_eq!(plan.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), vec!["加 a", "加 b", "加 c", "加 d"], "从旧到新、含起点那一个");
+    let [a, b, c, d] = [0, 1, 2, 3].map(|i| plan[i].sha.clone());
+
+    // 对不上的计划：少一个
+    assert!(rebase_interactive(&dir, &a, &[Step::Pick(a.clone()), Step::Pick(b.clone())], &scratch).is_err());
+    // 第一个就要并进上一个
+    let e = rebase_interactive(&dir, &a, &[Step::Squash(a.clone()), Step::Pick(b.clone()), Step::Pick(c.clone()), Step::Pick(d.clone())], &scratch).unwrap_err();
+    assert!(e.to_string().contains("前面没有"), "{e}");
+    // 工作区有改动
+    std::fs::write(dir.join("base.txt"), "dirty\n").unwrap();
+    assert!(rebase_interactive(&dir, &a, &[Step::Pick(a.clone()), Step::Pick(b.clone()), Step::Pick(c.clone()), Step::Pick(d.clone())], &scratch).is_err());
+    git(&["checkout", "--", "base.txt"]);
+
+    // 照计划：d 挪到最前、改说明；a 照留；b 并进 a（两段说明接上）；c 丢掉
+    let steps = [Step::Reword(d.clone(), "d 先来\n\n改过的说明".into()), Step::Pick(a.clone()), Step::Squash(b.clone()), Step::Drop(c.clone())];
+    assert_eq!(rebase_interactive(&dir, &a, &steps, &scratch).unwrap(), RebaseOutcome::Done);
+    assert_eq!(op_state(&dir), None);
+    let log = run(&dir, &["log", "--format=%B%x1e", "HEAD~2..HEAD"]).unwrap();
+    let msgs: Vec<&str> = log.split('\u{1e}').map(str::trim).filter(|s| !s.is_empty()).collect();
+    assert_eq!(msgs, vec!["加 a\n\n加 b", "d 先来\n\n改过的说明"], "新到旧：并起来的那个两段说明接上；改过说明的 d 在它前面");
+    assert!(dir.join("a.txt").exists() && dir.join("b.txt").exists() && dir.join("d.txt").exists() && !dir.join("c.txt").exists(), "c 丢掉了、别的都在");
+    assert_eq!(run(&dir, &["rev-list", "--count", "HEAD"]).unwrap().trim(), "3", "base + d + (a+b)");
+
+    // fixup：只留上一个的说明
+    let plan = rebase_plan(&dir, "HEAD~1").unwrap();
+    let [x, y] = [0, 1].map(|i| plan[i].sha.clone());
+    rebase_interactive(&dir, &x, &[Step::Pick(x.clone()), Step::Fixup(y.clone())], &scratch).unwrap();
+    assert_eq!(run(&dir, &["log", "-1", "--format=%s"]).unwrap().trim(), "d 先来");
+
+    // 撞冲突：两个提交改同一行，换顺序
+    std::fs::write(dir.join("base.txt"), "1\n").unwrap();
+    git(&["commit", "-qam", "改成 1"]);
+    std::fs::write(dir.join("base.txt"), "2\n").unwrap();
+    git(&["commit", "-qam", "改成 2"]);
+    let plan = rebase_plan(&dir, "HEAD~1").unwrap();
+    let [p1, p2] = [0, 1].map(|i| plan[i].sha.clone());
+    assert_eq!(rebase_interactive(&dir, &p1, &[Step::Pick(p2), Step::Pick(p1.clone())], &scratch).unwrap(), RebaseOutcome::Stopped);
+    assert_eq!(op_state(&dir).map(|s| s.kind), Some(OpKind::Rebase), "停在冲突上：横幅认得出");
+    // 再来一次不行：先收拾这一个
+    assert!(rebase_interactive(&dir, "HEAD", &[], &scratch).is_err());
+    op_run(&dir, OpKind::Rebase, OpAction::Abort).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&scratch);
+}

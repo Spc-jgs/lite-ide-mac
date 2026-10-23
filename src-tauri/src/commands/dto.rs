@@ -365,6 +365,17 @@ pub struct GitStatusDto {
     pub op: Option<GitOpDto>,
 }
 
+/// 交互式变基计划里的一个提交（从旧到新，docs/TAKEOVER.md G25）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RebaseCommitDto {
+    pub sha: String,
+    pub short: String,
+    pub subject: String,
+    /// 整段提交说明（改说明时预填）
+    pub message: String,
+}
+
 /// 做到一半的操作。`kind`：`rebase` / `merge` / `cherry-pick` / `revert`；`step` / `total` 只有变基有（第几步、共几步）
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

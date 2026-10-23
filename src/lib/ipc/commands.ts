@@ -991,6 +991,15 @@ export interface GitStatus {
   op: GitOp | null;
 }
 
+/** 交互式变基计划里的一个提交（从旧到新，docs/TAKEOVER.md G25） */
+export interface RebaseCommit {
+  sha: string;
+  short: string;
+  subject: string;
+  /** 整段提交说明（改说明时预填） */
+  message: string;
+}
+
 /** 做到一半的操作。`step` / `total` 只有变基有（第几步、共几步） */
 export interface GitOp {
   kind: "rebase" | "merge" | "cherry-pick" | "revert";

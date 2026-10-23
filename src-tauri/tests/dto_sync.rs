@@ -127,6 +127,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("ProjectPageDto", "ProjectPage"),
     ("CodeStyleDto", "CodeStyle"),
     ("GitOpDto", "GitOp"),
+    ("RebaseCommitDto", "RebaseCommit"),
     ("RunConfigsDto", "RunConfigs"),
     ("RunConfigDto", "RunConfig"),
     ("EnvVarDto", "EnvVar"),

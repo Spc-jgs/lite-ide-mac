@@ -1351,6 +1351,25 @@ wait_for 15 '[ ! -d "'"${FIX}"'/.git/rebase-merge" ] && [ ! -d "'"${FIX}"'/.git/
 check "$([ "$(git -C "${FIX}" rev-parse HEAD)" = "${RB0}" ] && [ "$(git -C "${FIX}" rev-parse --abbrev-ref HEAD)" = op-rb ] && echo 1)" "1" "变基撞冲突 → 放弃（过一道对话框）：回到变基之前，分支和提交都原样"
 HG switch -q "${OPB}"
 
+say "㊲ 交互式变基（docs/TAKEOVER.md G25）：提交历史里右键最早那个 →「从这里交互式变基…」，第二个「并入上一个」、第三个「丢掉」→ 两段说明接上、丢掉的文件没了"
+HG stash push -q   # 前面几段留下的没提交改动：变基遇到会拒绝（未跟踪的不算），先收起来、做完放回去
+for n in 1 2 3; do printf "rb$n\n" > "${FIX}/rb$n.txt"; HG add "rb$n.txt"; HG commit -qm "rb-$n"; done
+menu git-log
+lite_wait "${W}" "return [...document.querySelectorAll('.rows > .crow')].some((r) => r.textContent.includes('rb-1'))" 10 >/dev/null
+lite eval "${W}" "const r = [...document.querySelectorAll('.rows > .crow')].find((x) => x.textContent.includes('rb-1')); r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); return true" >/dev/null 2>&1
+lite_wait "${W}" "return [...document.querySelectorAll('[role=menuitem]')].some((m) => m.textContent.includes('交互式变基'))" 5 >/dev/null
+lite eval "${W}" "[...document.querySelectorAll('[role=menuitem]')].find((m) => m.textContent.includes('交互式变基')).click(); return true" >/dev/null 2>&1
+lite_wait "${W}" "return document.querySelectorAll('.dialog.rebase .row').length === 3" 10 >/dev/null
+check "$(lite eval "${W}" "return [...document.querySelectorAll('.dialog.rebase .row .subj')].map((e) => e.textContent).join(',')" 2>/dev/null)" "rb-1,rb-2,rb-3" "对话框列出从它起的 3 个提交，从旧到新"
+lite eval "${W}" "const rows = [...document.querySelectorAll('.dialog.rebase .row')]; const pick = (r, l) => [...r.querySelectorAll('.segs button')].find((b) => b.textContent === l).click(); pick(rows[1], '并入上一个'); pick(rows[2], '丢掉'); return true" >/dev/null 2>&1
+sleep 0.3
+lite eval "${W}" "document.querySelector('.dialog.rebase .actions .btn.primary').click(); return true" >/dev/null 2>&1
+# 说明比的是去掉末尾空行之后的（git log 在整段说明后面还会多打一个空行；$(…) 会去掉末尾的换行）
+wait_for 30 '[ "$(printf "%s" "$(git -C "'"${FIX}"'" log -1 --format=%B)" | tr "\n" "|")" = "rb-1||rb-2" ]'
+check "$(printf '%s' "$(git -C "${FIX}" log -1 --format=%B)" | tr '\n' '|')|$([ -e "${FIX}/rb3.txt" ] && echo 有rb3 || echo 没rb3)|$([ -e "${FIX}/rb2.txt" ] && echo 有rb2)" "rb-1||rb-2|没rb3|有rb2" "做完：rb-2 并进 rb-1（两段说明接上、改动在），rb-3 丢掉（文件没了）"
+check "$(lite eval "${W}" "return !!document.querySelector('.dialog.rebase')" 2>/dev/null)" "false" "做完对话框关掉"
+HG stash pop -q
+
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）

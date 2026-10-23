@@ -7,7 +7,7 @@
  * 调用方走，入口包就不用带它们。DTO 一律还在 `commands.ts`（`dto_sync.rs` 只看那一个文件）。
  */
 import { invoke, type Channel } from "@tauri-apps/api/core";
-import type { GitCmd, GitEntry, DiffText, GitLogEntry, GitBranch, GitWorktree, RemoteProgress } from "./commands";
+import type { GitCmd, GitEntry, DiffText, GitLogEntry, GitBranch, GitWorktree, RemoteProgress, RebaseCommit } from "./commands";
 
 /**
  * 跑过的 git，最新的在前。
@@ -42,6 +42,13 @@ export const gitStashPop = (root: string) => invoke<void>("git_stash_pop", { roo
 /** 不可撤销 —— 调用前必须让用户确认过 */
 export const gitDiscard = (root: string, paths: string[], untracked: string[]) =>
   invoke<void>("git_discard", { root, paths, untracked });
+
+/** 交互式变基：从 `from`（含）到 HEAD 的提交，从旧到新（docs/TAKEOVER.md G25） */
+export const gitRebasePlan = (root: string, from: string) => invoke<RebaseCommit[]>("git_rebase_plan", { root, from });
+export type RebaseAction = "pick" | "reword" | "squash" | "fixup" | "drop";
+/** 照计划做：`done` 做完了，`stopped` 停在冲突上（Git 面板里继续 / 放弃） */
+export const gitRebaseRun = (root: string, from: string, steps: { sha: string; action: RebaseAction; message: string }[]) =>
+  invoke<"done" | "stopped">("git_rebase_run", { root, from, steps });
 
 /** 做到一半的操作：继续 / 跳过这一步 / 放弃（docs/TAKEOVER.md G25）。停在哪个操作上由 Rust 现读 */
 export const gitOp = (root: string, action: "continue" | "skip" | "abort") => invoke<void>("git_op", { root, action });

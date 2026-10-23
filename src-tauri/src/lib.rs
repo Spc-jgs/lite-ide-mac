@@ -379,6 +379,8 @@ pub fn run() {
             commands::git_root,
             commands::git_status,
             commands::git_op,
+            commands::git_rebase_plan,
+            commands::git_rebase_run,
             commands::git_diff,
             commands::git_stage,
             commands::git_unstage,

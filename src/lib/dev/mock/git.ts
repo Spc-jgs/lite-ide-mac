@@ -384,6 +384,17 @@ index 1a2b3c4..5d6e7f8 100644
 
     // 造一段带合并的历史，泳道图的分叉与汇合都能看到
     // 真实现：有 path 时 `--follow`、有 lines 时 `git log -L`（docs/TAKEOVER.md G16）。桩里没有真历史：只看几行时给前两条，看得到「列表变短了」
+    // 交互式变基（docs/TAKEOVER.md G25）：桩里拿提交历史最上面那几条倒过来当计划；照做时等一会、当做完了（真实现会改历史，桩不改）
+    case "git_rebase_plan": {
+      const i = MOCK_LOG.findIndex((c) => c.sha === a.from);
+      if (i < 0) throw new Error("这个提交不在当前分支这条线上，从它变基没有意义");
+      return MOCK_LOG.slice(0, i + 1)
+        .reverse()
+        .map((c) => ({ sha: c.sha, short: c.short, subject: c.subject, message: `${c.subject}\n\n（桩：提交说明的正文）` }));
+    }
+    case "git_rebase_run":
+      await sleep(400);
+      return "done";
     // 继续 / 跳过 / 放弃：桩里直接当做完了，那块横幅收起来
     case "git_op":
       await sleep(300);

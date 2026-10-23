@@ -68,6 +68,51 @@ pub async fn git_op(root: String, action: String) -> Result<(), String> {
     .await
 }
 
+/// 交互式变基（docs/TAKEOVER.md G25）：从 `from`（含）到 HEAD 的提交，从旧到新。不在这条线上、中间有合并提交的报错
+#[tauri::command]
+pub async fn git_rebase_plan(root: String, from: String) -> Result<Vec<RebaseCommitDto>, String> {
+    blocking(move || {
+        let plan = gitsvc::rebase_plan(&root, &from).map_err(|e| format!("{e}"))?;
+        Ok(plan.into_iter().map(|c| RebaseCommitDto { sha: c.sha, short: c.short, subject: c.subject, message: c.message }).collect())
+    })
+    .await
+}
+
+/// 计划里的一步：`action` 是 pick / reword / squash / fixup / drop，`message` 只有 reword 用
+#[derive(serde::Deserialize)]
+pub struct RebaseStepArg {
+    pub sha: String,
+    pub action: String,
+    #[serde(default)]
+    pub message: String,
+}
+
+/// 照计划做交互式变基。回 `done`（做完了）或 `stopped`（停在冲突上，Git 面板里继续 / 放弃）。
+/// 临时文件（todo、说明）放在应用缓存目录里：停在冲突上之后继续时还要用，下一次变基开始时清
+#[tauri::command]
+pub async fn git_rebase_run(app: tauri::AppHandle, root: String, from: String, steps: Vec<RebaseStepArg>) -> Result<String, String> {
+    use tauri::Manager;
+    let scratch = app.path().app_cache_dir().map_err(|e| format!("找不到缓存目录：{e}"))?.join("rebase");
+    blocking(move || {
+        let steps = steps
+            .into_iter()
+            .map(|s| match s.action.as_str() {
+                "pick" => Ok(gitsvc::Step::Pick(s.sha)),
+                "reword" => Ok(gitsvc::Step::Reword(s.sha, s.message)),
+                "squash" => Ok(gitsvc::Step::Squash(s.sha)),
+                "fixup" => Ok(gitsvc::Step::Fixup(s.sha)),
+                "drop" => Ok(gitsvc::Step::Drop(s.sha)),
+                other => Err(format!("不认识的动作：{other}")),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        match gitsvc::rebase_interactive(&root, &from, &steps, &scratch).map_err(|e| format!("{e}"))? {
+            gitsvc::RebaseOutcome::Done => Ok("done".into()),
+            gitsvc::RebaseOutcome::Stopped => Ok("stopped".into()),
+        }
+    })
+    .await
+}
+
 /// 读一次仓库状态。分支、领先落后、变更文件一次拿全。
 #[tauri::command]
 pub async fn git_status(root: String) -> Result<GitStatusDto, String> {

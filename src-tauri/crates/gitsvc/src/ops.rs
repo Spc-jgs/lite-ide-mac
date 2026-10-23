@@ -111,3 +111,173 @@ fn unresolved(raw: &str) -> bool {
     let low = raw.to_ascii_lowercase();
     low.contains("unmerged") || low.contains("needs merge") || low.contains("mark them as resolved") || low.contains("you must edit all merge conflicts")
 }
+
+// ─────────────────── 交互式变基（IDEA 的 Interactively Rebase from Here） ───────────────────
+
+/// 变基计划里的一个提交（从旧到新）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanCommit {
+    pub sha: String,
+    pub short: String,
+    pub subject: String,
+    /// 整段提交说明（改说明、合并说明时要用）
+    pub message: String,
+}
+
+/// 从 `from` 这个提交（含）到 HEAD 的提交，从旧到新。不在当前这条线上、中间有合并提交的拒绝：
+/// 合并提交的变基（`--rebase-merges`）规矩复杂得多，这一版只做直线的（IDEA 的对话框遇到合并提交也是另一套）
+pub fn rebase_plan(root: impl AsRef<Path>, from: &str) -> R<Vec<PlanCommit>> {
+    let root = root.as_ref();
+    if run(root, &["merge-base", "--is-ancestor", from, "HEAD"]).is_err() {
+        return Err(Error::Git("这个提交不在当前分支这条线上，从它变基没有意义".into()));
+    }
+    // 范围：from 本身也要（「从这里」含这一条）。from 是根提交时没有父，用 `HEAD` 往回全列、再截到 from
+    let has_parent = run(root, &["rev-parse", "--verify", "--quiet", &format!("{from}^")]).is_ok();
+    let range = if has_parent { format!("{from}^..HEAD") } else { "HEAD".to_string() };
+    let merges = run(root, &["rev-list", "--merges", &range])?;
+    if !merges.trim().is_empty() {
+        return Err(Error::Git("这一段里有合并提交，这一版只整理一条直线上的提交".into()));
+    }
+    let out = run(root, &["log", "--reverse", "--format=%H%x1f%h%x1f%s%x1f%B%x1e", &range])?;
+    let mut list: Vec<PlanCommit> = out
+        .split('\u{1e}')
+        .filter_map(|rec| {
+            let f: Vec<&str> = rec.trim_start_matches('\n').splitn(4, '\u{1f}').collect();
+            (f.len() == 4 && !f[0].is_empty()).then(|| PlanCommit { sha: f[0].into(), short: f[1].into(), subject: f[2].into(), message: f[3].trim_end().to_string() })
+        })
+        .collect();
+    if !has_parent {
+        let full = run(root, &["rev-parse", from])?;
+        if let Some(i) = list.iter().position(|c| c.sha == full.trim()) {
+            list.drain(..i);
+        }
+    }
+    Ok(list)
+}
+
+/// 对一个提交做什么（`git rebase -i` 的那几个词）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Step {
+    Pick(String),
+    /// 改说明（新的整段说明）
+    Reword(String, String),
+    /// 并进上一个、两段说明接在一起
+    Squash(String),
+    /// 并进上一个、只留上一个的说明
+    Fixup(String),
+    Drop(String),
+}
+
+impl Step {
+    fn sha(&self) -> &str {
+        match self {
+            Step::Pick(s) | Step::Reword(s, _) | Step::Squash(s) | Step::Fixup(s) | Step::Drop(s) => s,
+        }
+    }
+}
+
+/// 变基做完了，还是停在冲突上（那时 [`op_state`] 认得出、界面上出继续 / 放弃）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RebaseOutcome {
+    Done,
+    Stopped,
+}
+
+/// 把单引号包起来给 sh：`'` 换成 `'\''`
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// 计划 → git 的 todo 文件内容，外加要写的说明文件（文件名, 内容）。
+///
+/// **不让 git 弹编辑器**：改说明、合并说明本来要开编辑器让人写。这里改成 `pick` / `fixup` 之后紧跟一行
+/// `exec git commit --amend -F <说明文件>` —— 说明是对话框里写好的、合并说明在这里按次序拼好（上一段 + 空行 + 这一段）。
+/// `--no-verify`：变基自己挑提交时不跑提交钩子，改说明这一下也不该跑（不然一个慢钩子每改一次说明跑一遍）。
+/// exec 里的 git 吃到的是外面那条 git 的 `-c`（git 把它们放进 `GIT_CONFIG_PARAMETERS` 传给子进程），加固照样在
+pub fn rebase_todo(plan: &[PlanCommit], steps: &[Step], msg_dir: &Path) -> R<(String, Vec<(PathBuf, String)>)> {
+    let want: std::collections::HashSet<&str> = plan.iter().map(|c| c.sha.as_str()).collect();
+    let got: std::collections::HashSet<&str> = steps.iter().map(|s| s.sha()).collect();
+    if want != got || steps.len() != plan.len() {
+        return Err(Error::Git("计划和这一段提交对不上（多了或少了），不做 —— 不要的提交请标「丢掉」".into()));
+    }
+    let msg_of = |sha: &str| plan.iter().find(|c| c.sha == sha).map(|c| c.message.clone()).unwrap_or_default();
+    let mut todo = String::new();
+    let mut files = Vec::new();
+    let mut acc: Option<String> = None;
+    let amend = |todo: &mut String, files: &mut Vec<(PathBuf, String)>, text: String| {
+        let p = msg_dir.join(format!("msg-{}.txt", files.len()));
+        todo.push_str(&format!("exec git commit --amend --allow-empty --no-verify -F {}\n", sh_quote(&p.to_string_lossy())));
+        files.push((p, text));
+    };
+    for (i, s) in steps.iter().enumerate() {
+        match s {
+            Step::Pick(sha) => {
+                todo.push_str(&format!("pick {sha}\n"));
+                acc = Some(msg_of(sha));
+            }
+            Step::Reword(sha, m) => {
+                todo.push_str(&format!("pick {sha}\n"));
+                amend(&mut todo, &mut files, m.clone());
+                acc = Some(m.clone());
+            }
+            Step::Squash(sha) | Step::Fixup(sha) => {
+                let Some(prev) = acc.clone() else {
+                    return Err(Error::Git(format!("第 {} 个提交要并进上一个，可它前面没有留下来的提交", i + 1)));
+                };
+                todo.push_str(&format!("fixup {sha}\n"));
+                if matches!(s, Step::Squash(_)) {
+                    let m = format!("{prev}\n\n{}", msg_of(sha));
+                    amend(&mut todo, &mut files, m.clone());
+                    acc = Some(m);
+                }
+            }
+            Step::Drop(sha) => todo.push_str(&format!("drop {sha}\n")),
+        }
+    }
+    Ok((todo, files))
+}
+
+/// 照计划做交互式变基。工作区有没提交的改动（未跟踪的不算）拒绝：变基中途要切提交，改动会挡路或者被卷进去。
+/// `scratch`：放 todo 和说明文件的目录（应用自己的目录）—— 变基停在冲突上、过一会再继续时 exec 那几行还要读说明文件，所以不能用完就删，
+/// 下一次变基开始时清
+pub fn rebase_interactive(root: impl AsRef<Path>, from: &str, steps: &[Step], scratch: &Path) -> R<RebaseOutcome> {
+    let root = root.as_ref();
+    if op_state(root).is_some() {
+        return Err(Error::Git("仓库停在另一个操作中间（变基 / 合并…），先在 Git 面板里继续或者放弃它".into()));
+    }
+    let st = status(root)?;
+    if st.entries.iter().any(|e| !e.untracked) {
+        return Err(Error::Git("有还没提交的改动：先提交或者收进 stash，再变基".into()));
+    }
+    let plan = rebase_plan(root, from)?;
+    #[allow(clippy::disallowed_methods)] // 清的是我们自己上一次变基留下的 todo 和说明文件（目录是调用方给的应用目录）
+    let _ = std::fs::remove_dir_all(scratch);
+    std::fs::create_dir_all(scratch).map_err(|e| Error::Git(format!("建不了临时目录 {}：{e}", scratch.display())))?;
+    let (todo, files) = rebase_todo(&plan, steps, scratch)?;
+    let todo_path = scratch.join("todo.txt");
+    for (p, text) in files.iter().chain(std::iter::once(&(todo_path.clone(), todo))) {
+        #[allow(clippy::disallowed_methods)] // 新建的临时目录里写我们自己的文件
+        std::fs::write(p, text).map_err(|e| Error::Git(format!("写不了 {}：{e}", p.display())))?;
+    }
+    let seq = format!("cp {}", sh_quote(&todo_path.to_string_lossy()));
+    let has_parent = run(root, &["rev-parse", "--verify", "--quiet", &format!("{from}^")]).is_ok();
+    let onto = format!("{from}^");
+    let mut args = vec!["-c", "core.editor=true", "-c"];
+    let seq_cfg = format!("sequence.editor={seq}");
+    args.push(&seq_cfg);
+    args.extend(["rebase", "-i"]);
+    if has_parent {
+        args.push(&onto);
+    } else {
+        args.push("--root");
+    }
+    let (out, _, err, ok) = drain_both(root, &args, MAX_STDOUT_BYTES)?;
+    if op_state(root).is_some() {
+        return Ok(RebaseOutcome::Stopped);
+    }
+    if !ok {
+        let raw = [err.as_str(), String::from_utf8_lossy(&out).trim()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join("\n");
+        return Err(Error::Git(if raw.is_empty() { "变基失败".into() } else { raw }));
+    }
+    Ok(RebaseOutcome::Done)
+}
