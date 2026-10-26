@@ -68,6 +68,7 @@ printf 'package com.demo.common;\n\nimport org.junit.jupiter.api.Test;\nimport s
 printf 'package com.demo.order;\n\nimport com.demo.common.Money;\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class OrderApplication {\n    public static void main(String[] args) throws Exception {\n        SpringApplication.run(OrderApplication.class, args);\n        System.out.println("LITE-GRADLE-PROBE " + Money.cents(2));\n        Thread.sleep(600000);\n    }\n}\n' > "${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
 (cd "${P}" && "${G}" -q wrapper --gradle-version "${GV}" --gradle-distribution-sha256-sum "${GSUM}" </dev/null >/dev/null 2>&1)
 [ -x "${P}/gradlew" ] || { ok 0 "gradle wrapper 没生成 gradlew"; done_; }
+mkdir -p "${P}/order-service/src/main/resources"; printf 'spring:\n  main:\n    banner-mode: off\n' > "${P}/order-service/src/main/resources/application.yml"
 # 生成 wrapper 那一次在项目里留下的（.gradle/、build/）不算我们写的：先记下来
 BEFORE=$(cd "${P}" && find . -path ./.gradle -prune -o -type f -print | sort)
 
@@ -184,6 +185,31 @@ lite_wait main "return !document.querySelector('.toast')" 15 >/dev/null
 lite menu build-project main >/dev/null
 lite_wait main "${B} return !!r && r.status === 'done' && r.problems?.items.length === 0" 240 >/dev/null
 ok "$([ "$(lite_eval main "${B} return r?.status + ':' + r?.problems?.items.length")" = "done:0" ] && echo 1)" "改好了再构建：成功、没有错误"
+
+echo "== Spring Boot 配置文件（docs/TAKEOVER.md G30）：application.yml 里的补全来自 jar 里的配置元数据（问 jdtls 要 classpath）—— 父键底下只给它的子键、接受插相对键；布尔的值给 true / false"
+Y="${P}/order-service/src/main/resources/application.yml"
+mkdir -p "$(dirname "${Y}")"; printf 'spring:\n  main:\n    banner-mode: off\n' > "${Y}"
+lite_eval main "await __lite.tabflow.openPath('${Y}', { preview: false }); return true" >/dev/null
+lite_wait main "return __lite.tabs.active?.path === '${Y}' && !!document.querySelector('.cm-content')" 10 >/dev/null
+lite_eval main "__lite.caret(3, 21); __lite.type('\\n    lazy'); return true" >/dev/null
+lite_wait main "return __lite.completions().labels.includes('lazy-initialization')" 60 >/dev/null
+CL=$(lite_eval main "return __lite.completions().labels.slice(0, 5).join(' / ')")
+ok "$([ "$(lite_eval main "return __lite.completions().labels.includes('lazy-initialization') && !__lite.completions().labels.some((l) => l.startsWith('spring.'))")" = true ] && echo 1)" "spring.main 底下敲 lazy：候选是相对键（不带 spring.main. 前缀）：${CL}"
+sleep 0.2
+lite_eval main "__lite.acceptCompletion(); return true" >/dev/null
+lite_wait main "return __lite.text().includes('    lazy-initialization: ')" 5 >/dev/null
+ok "$(lite_eval main "return __lite.text()" | grep -q '^    lazy-initialization: $' && echo 1)" "接受：插的是「lazy-initialization: 」"
+lite_eval main "__lite.type('t'); return true" >/dev/null
+lite_wait main "return __lite.completions().labels.includes('true')" 10 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.completions().labels.join(',')")" = "true" ] && echo 1)" "布尔的值：敲 t 给 true：$(lite_eval main "return __lite.completions().labels.join(',')")"
+lite_eval main "__lite.setText('logging.char'); return true" >/dev/null
+lite_eval main "__lite.type('s'); return true" >/dev/null
+lite_wait main "return __lite.completions().labels.includes('logging.charset.console')" 10 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.completions().labels.includes('logging.charset.console')")" = true ] && echo 1)" "顶层敲 logging.chars：给整个键名：$(lite_eval main "return __lite.completions().labels.slice(0, 3).join(' / ')")"
+lite_eval main "__lite.setText('spring:\\n  main:\\n    banner-mode: off\\n'); return true" >/dev/null
+lite menu save main >/dev/null
+lite_wait main "return __lite.tabs.byPath('${Y}')?.dirty === false" 10 >/dev/null
+sleep 1
 
 echo "== 不往项目里写东西（build/ 底下的产物除外）：init 脚本在应用数据目录里"
 AFTER=$(cd "${P}" && find . -path ./.gradle -prune -o -path '*/build' -prune -o -type f -print | sort)

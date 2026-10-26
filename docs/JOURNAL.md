@@ -10648,3 +10648,19 @@ JVM 在 5005 上听着了，但「Listening for transport」那一行**不转给
 AGENTS.md 那条「改回来先拷一份备份、再拷回来」防的是 git checkout，防不了「备份之后又改了这个文件」：**改坏验红的那个文件，跑的时候别动它**。
 
 数字：gradle.sh 18 → 23；smoke 151 / 151；新单测：任务报告解析（项目前缀改成都归根项目，红）、调试的命令、Gradle 工具窗的任务名。
+
+## 2026-10-26 · G30 的轻量做法：Spring Boot 配置文件的补全和文档，不起 Spring Tools
+
+TAKEOVER 原来写的是「Spring Tools 语言服务器（又一个 JVM，约 300 MB），后做」。换了条路：Spring Boot 的 jar 自己带着
+`META-INF/spring-configuration-metadata.json`（每个配置键的名字、类型、说明、默认值、可选值），IDEA 读的也是它。classpath 问 jdtls
+（`java.project.getClasspaths`，参数是文件地址 + 一段 JSON 字符串，读的 1.61 `ProjectCommand$ClasspathOptions`），jar 里的文件用系统的 `unzip -p`
+（同 Maven 插件的 plugin.xml），每个 jar 按（路径, 改动时间）缓存。真项目（Gradle、spring-boot-starter）：200 个键，第一次 5.5 秒（含等 jdtls 导入完）、第二次 0.17 秒。
+
+**YAML 里补全给「相对父键的整段」、插带点的键**（`hikari.maximum-pool-size: `）：Spring Boot 认 YAML 里带点的键，不用替人拆成几层缩进 —— 拆的话要去合并已经有的那几层，
+合错了比不拆糟。父键按缩进往上认；列表项和多行字面量里面不认（那不是配置键的一段，认错了给一串不存在的键）。父键可以一行写好几段（`spring.datasource:`），
+切掉的是「段」不是「行」。键名按宽松绑定比（`contextPath` = `context-path`）。
+
+验收里一条红的是自己的：「项目里多出来的文件」查到 `.application.yml.lite-ide-tmp` —— 存盘的临时文件，检查跑在存盘中间。等存完再查就没了，不是泄漏。
+
+**没做的**：枚举类型的可选值（`spring.main.banner-mode` 是 `Banner$Mode`，元数据里没有 hints；IDEA 是反射那个枚举类拿常量 —— 要问 jdtls 类型的成员）；Bean 导航；
+`@ConfigurationProperties` 类上 ⌘B 到配置文件（反过来那条 spring-nav 已经有）。

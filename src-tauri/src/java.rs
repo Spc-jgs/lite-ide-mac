@@ -462,6 +462,18 @@ impl Instance {
         Ok((port, project_of(&mains, main_class)))
     }
 
+    /// 一个文件所在模块的运行 classpath（jar 和输出目录）：`java.project.getClasspaths`（vscode-java 用的那条，Maven / Gradle 一样；
+    /// 参数是文件的地址 + 一段 JSON 字符串 `{"scope":"runtime"}`，读的 1.61 `ProjectCommand$ClasspathOptions`）。要等导入完，最多等 `limit`
+    pub fn classpath(&self, path: &str, limit: Duration) -> Result<Vec<PathBuf>, String> {
+        self.touch();
+        wait_ready(&self.shared.phase, &self.shared.changed, limit, &|| true)?;
+        let r = self
+            .srv
+            .request("workspace/executeCommand", json!({ "command": "java.project.getClasspaths", "arguments": [uri::from_path(path), json!({ "scope": "runtime" }).to_string()] }), ASK)
+            .map_err(|e| format!("Java 语言服务器没答（{e}）"))?;
+        Ok(r["classpaths"].as_array().map(Vec::as_slice).unwrap_or(&[]).iter().filter_map(|c| c.as_str()).map(PathBuf::from).collect())
+    }
+
     /// 改调试插件的全局设置（`vscode.java.updateDebugSettings`，参数是一段 JSON 字符串；插件按 `DebugSettings` 读，没给的字段不动）。
     /// 异常断点「只看哪几种异常」只能从这儿说（docs/TAKEOVER.md G14，`debug::exc_args`）
     pub fn debug_settings(&self, json_text: &str) -> Result<(), String> {

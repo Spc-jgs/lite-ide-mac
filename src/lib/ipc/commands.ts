@@ -251,6 +251,20 @@ export interface JavaSigException {
   handle: string;
 }
 
+/** Spring Boot 配置文件里的一个键（docs/TAKEOVER.md G30，读 jar 里的 spring-configuration-metadata.json）。`deprecated`：过时了换成什么（空串 = 没说），没过时是 null */
+export interface SpringProp {
+  name: string;
+  ty: string;
+  desc: string;
+  default: string;
+  deprecated: string | null;
+  values: SpringValue[];
+}
+export interface SpringValue {
+  value: string;
+  desc: string;
+}
+
 /** Gradle 工具窗（docs/TAKEOVER.md G24）：构建根和模块（读 settings 文件，不跑 Gradle） */
 export interface GradleProject {
   roots: GradleRoot[];

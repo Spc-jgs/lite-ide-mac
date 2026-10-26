@@ -1670,3 +1670,22 @@ pub struct GradleTaskDto {
     pub group: String,
     pub desc: String,
 }
+
+/// Spring Boot 配置文件里的一个键（docs/TAKEOVER.md G30，读 jar 里的 spring-configuration-metadata.json）。`deprecated`：过时了换成什么（空串 = 没说），没过时是 null
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpringPropDto {
+    pub name: String,
+    pub ty: String,
+    pub desc: String,
+    pub default: String,
+    pub deprecated: Option<String>,
+    pub values: Vec<SpringValueDto>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpringValueDto {
+    pub value: String,
+    pub desc: String,
+}

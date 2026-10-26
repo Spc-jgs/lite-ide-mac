@@ -714,6 +714,13 @@
       return;
     }
     const lang = langOf(p);
+    // Spring Boot 的配置文件（docs/TAKEOVER.md G30）：键名补全和悬停文档换成读配置元数据的那一份（它自带补全，通用的不挂，免得一次弹两套）
+    if (/\/(application|bootstrap)[^/]*\.(ya?ml|properties)$/.test(p)) {
+      const [ext, m] = await Promise.all([loadLang(lang), import("./spring-config")]);
+      if (!view) return;
+      view.dispatch({ effects: [langSlot.reconfigure([ext ?? [], m.springConfig(project.root, p)]), completeSlot.reconfigure([])] });
+      return;
+    }
     // Mapper XML 的跳转（docs/IDEA.md 第 24 节）：XML 文件才拉这一块
     const [ext, javaLsp, http, mb] = await Promise.all([loadLang(lang), lang === "java" ? import("./java-lsp") : null, lang === "http" ? import("./http-run") : null, lang === "xml" ? import("./mybatis-gutter") : null]);
     if (!view) return;

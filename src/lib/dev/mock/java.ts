@@ -386,6 +386,23 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
     case "spring_endpoints":
       return springEndpoints(root);
+    /*
+     * Spring Boot 配置文件的键（真实现：commands/java.rs 的 spring_props，规则在 spring_meta.rs，读 jar 里的配置元数据）。桩：写死的几个，
+     * 字段照 spring-boot-autoconfigure 那份；**故意等 0.6 秒**（真的第一次要等 jdtls 导入完）
+     */
+    case "spring_props":
+      await wait(600);
+      return /\/(application|bootstrap)[^/]*\.(ya?ml|properties)$/.test(path)
+        ? [
+            { name: "server.port", ty: "java.lang.Integer", desc: "Server HTTP port.", default: "8080", deprecated: null, values: [] },
+            { name: "server.servlet.context-path", ty: "java.lang.String", desc: "Context path of the application.", default: "", deprecated: null, values: [] },
+            { name: "spring.datasource.url", ty: "java.lang.String", desc: "JDBC URL of the database.", default: "", deprecated: null, values: [] },
+            { name: "spring.datasource.hikari.maximum-pool-size", ty: "java.lang.Integer", desc: "Maximum pool size.", default: "10", deprecated: null, values: [] },
+            { name: "spring.main.banner-mode", ty: "org.springframework.boot.Banner$Mode", desc: "Mode used to display the banner when the application runs.", default: "console", deprecated: null, values: [{ value: "off", desc: "Disable printing of the banner." }, { value: "console", desc: "Print the banner to System.out." }, { value: "log", desc: "Print the banner to the log file." }] },
+            { name: "spring.main.lazy-initialization", ty: "java.lang.Boolean", desc: "Whether initialization should be performed lazily.", default: "false", deprecated: null, values: [] },
+            { name: "server.servlet.path", ty: "java.lang.String", desc: "", default: "", deprecated: "spring.mvc.servlet.path", values: [] },
+          ]
+        : [];
     case "spring_config":
       return springConfig(root, String(a.key));
     case "mybatis_for_java": {

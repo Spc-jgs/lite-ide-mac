@@ -112,6 +112,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("AgentStartedDto", "AgentStarted"),
     ("JavaMethodSigDto", "JavaMethodSig"),
     ("GradleProjectDto", "GradleProject"),
+    ("SpringPropDto", "SpringProp"),
+    ("SpringValueDto", "SpringValue"),
     ("GradleRootDto", "GradleRoot"),
     ("GradleModuleDto", "GradleModule"),
     ("GradleTasksDto", "GradleTasks"),

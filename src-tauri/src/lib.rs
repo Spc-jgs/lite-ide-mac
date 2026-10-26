@@ -11,6 +11,7 @@ mod javac;
 mod javalite;
 mod mybatis;
 mod spring;
+mod spring_meta;
 mod junit;
 pub mod diag;
 pub mod menu;
@@ -450,6 +451,7 @@ pub fn run() {
             commands::java_move_destinations,
             commands::java_move_preview,
             commands::java_move,
+            commands::spring_props,
             commands::gradle_project,
             commands::gradle_tasks,
             commands::java_method_sig,

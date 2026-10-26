@@ -59,6 +59,35 @@ fn instance(app: &tauri::AppHandle, root: &str) -> Result<std::sync::Arc<crate::
     app.state::<AppState>().java.get(root).ok_or_else(|| "这个项目的 Java 语言服务器没在跑".into())
 }
 
+/// 这个 Spring Boot 配置文件（`application*.yml` / `.properties`）能写的键：问 jdtls 要它所在模块的 classpath，读每个 jar 的配置元数据（`spring_meta.rs`）。
+/// jdtls 没起就起它（只开了 yml 没开过 Java 文件也要能补全）；第一次要等导入完（最多 3 分钟），之后 jar 按改动时间缓存
+#[tauri::command]
+pub async fn spring_props(app: tauri::AppHandle, window: tauri::Window, root: String, path: String) -> Result<Vec<SpringPropDto>, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        if !crate::spring_meta::is_config(&path) {
+            return Ok(Vec::new());
+        }
+        let java = app.state::<AppState>().java.ensure(&app, &owner, &root).map_err(|s| match s.phase {
+            crate::java::Phase::Failed(w) => w,
+            _ => "这不是一个 Maven / Gradle 项目，或者 Java 语言服务器起不来".into(),
+        })?;
+        let cp = java.classpath(&path, std::time::Duration::from_secs(180))?;
+        Ok(crate::spring_meta::collect(&cp)
+            .into_iter()
+            .map(|p| SpringPropDto {
+                values: p.values.into_iter().map(|(value, desc)| SpringValueDto { value, desc }).collect(),
+                name: p.name,
+                ty: p.ty,
+                desc: p.desc,
+                default: p.default,
+                deprecated: p.deprecated,
+            })
+            .collect())
+    })
+    .await
+}
+
 /// 跳到定义。位置的行、列从 0 数，列按 UTF-16
 #[tauri::command]
 pub async fn java_definition(app: tauri::AppHandle, root: String, path: String, line: u32, character: u32) -> Result<Vec<JavaLocationDto>, String> {
