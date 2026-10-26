@@ -230,6 +230,27 @@ export interface JavaMoveDest {
 }
 
 /** 移动类的预览：要改的文件（相对项目根）、文件从哪挪到哪。点「移动」时 `files` 原样交回去 */
+/** 改签名（⌘F6）：一个方法的签名。`modifier` 是 jdtls 的写法：public / protected / ""（包内）/ private */
+export interface JavaMethodSig {
+  methodId: string;
+  modifier: string;
+  returnType: string;
+  name: string;
+  params: JavaSigParam[];
+  exceptions: JavaSigException[];
+}
+/** `originalIndex`：原来是第几个（从 0 数），新加的是 -1；`defaultValue`：新加的参数在调用处填什么 */
+export interface JavaSigParam {
+  ty: string;
+  name: string;
+  defaultValue: string;
+  originalIndex: number;
+}
+export interface JavaSigException {
+  ty: string;
+  handle: string;
+}
+
 export interface JavaMovePreview {
   files: string[];
   from: string;

@@ -22,7 +22,7 @@ import { autocompletion, closeCompletion, completeAnyWord, completionStatus, sni
 import { POSTFIX, TEMPLATES, exprStart, templateAt } from "./java-templates";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaCompletionItem, type JavaDiagnostic, type JavaDiagnostics, type JavaEdit, type JavaLocation, type JavaResolved, type JavaStatus } from "../ipc/commands";
-import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaMove, javaOpen, javaOrganizeImports, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
+import { javaApplyAction, javaChange, javaClose, javaCodeActions, javaComplete, javaDefinition, javaFormat, javaGenApply, javaGenStatus, javaHierPrepare, javaHighlights, javaHover, javaInlayHints, javaImplementation, javaMethodSig, javaChangeSignature, javaMove, javaOpen, javaOrganizeImports, javaPrepareRename, javaReferences, javaRename, javaResolve, javaSignature, javaSuper, springConfig } from "../ipc/java";
 import { usageHighlight } from "./java-usage-hl";
 import { nameSpot, refactorTitle } from "./refactor";
 import { idKeymap } from "./id-keys";
@@ -955,6 +955,68 @@ async function moveClass(view: EditorView): Promise<void> {
   });
 }
 
+/**
+ * 改签名（⌘F6，docs/TAKEOVER.md G12）：先问 jdtls 光标那个方法现在的签名，对话框里改（SignatureDialog.svelte 头上），预览之后落盘 ——
+ * 落盘、撤销、开着的标签跟上都同移动类。文件有没保存的改动先存：jdtls 的改动是按盘上那份算位置的
+ */
+async function changeSignature(view: EditorView): Promise<void> {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!usable(s.root)) {
+    notify.hint("Java 语言服务器还没起好，改签名要等它");
+    return;
+  }
+  if (tabs.byPath(s.path)?.dirty) {
+    notify.hint("这个文件有没保存的改动：先 ⌘S 再改签名");
+    return;
+  }
+  const st = view.state;
+  const head = st.selection.main.head;
+  const ln = st.doc.lineAt(head);
+  const at = { line: ln.number - 1, character: head - ln.from };
+  let sig: Awaited<ReturnType<typeof javaMethodSig>>;
+  try {
+    sig = await javaMethodSig(s.root, s.path, st.doc.toString(), at.line, at.character);
+  } catch (e) {
+    notify.hint(`改不了签名：${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  if (!view.dom.isConnected) return;
+  const unit = st.facet(indentUnit);
+  const indent = unit.includes("\t") ? { tabSize: st.tabSize, spaces: false } : { tabSize: unit.length, spaces: true };
+  const [{ openModal }, { default: SignatureDialog }] = await Promise.all([import("../settings/modal-host"), import("./SignatureDialog.svelte")]);
+  const close = openModal(SignatureDialog, {
+    root: s.root,
+    path: s.path,
+    at,
+    text: () => view.state.doc.toString(),
+    sig,
+    indent,
+    onchange: (next: typeof sig, p: { files: string[] }) => {
+      close();
+      void doChangeSig(view, s, at, next, indent, p.files);
+    },
+  });
+}
+
+async function doChangeSig(view: EditorView, s: Sync, at: { line: number; character: number }, sig: Awaited<ReturnType<typeof javaMethodSig>>, indent: { tabSize: number; spaces: boolean }, expect: string[]) {
+  const t = progress.start(`正在改 ${sig.name} 的签名`);
+  try {
+    const ops = await import("../state/replace-ops");
+    const o = await javaChangeSignature(s.root, s.path, view.state.doc.toString(), at.line, at.character, sig, indent.tabSize, indent.spaces, expect, ops.openDocs());
+    await ops.landInTabs(o);
+    const { replace } = await import("../state/replace.svelte");
+    const hits = o.changed.reduce((n, c) => n + c.count, 0);
+    const label = `改了 ${sig.name} 的签名：${o.changed.length} 个文件 ${hits} 处`;
+    replace.done = o.undo ? { root: s.root, files: o.changed.length, hits, label } : null;
+    notify.ok(label, undefined, o.undo ? ops.UNDO : undefined);
+  } catch (e) {
+    notify.fail(`没改签名：${e instanceof Error ? e.message : String(e)}`, 8000);
+  } finally {
+    t.end();
+  }
+}
+
 async function doMove(view: EditorView, s: Sync, pkg: string, dest: string, expect: string[]) {
   const name = base(s.path);
   const t = progress.start(`正在把 ${name} 挪到 ${pkg}`);
@@ -1233,6 +1295,8 @@ export function javaLsp(root: string | null, path: string): Extension {
         { id: "inline", preventDefault: true, run: (v) => (void refactor(v, "refactor.inline", "内联"), true) },
         // IDEA 的 Refactor › Move（F6）
         { id: "move-class", preventDefault: true, run: (v) => (void moveClass(v), true) },
+        { id: "change-signature", preventDefault: true, run: (v) => (void changeSignature(v), true) },
+        { id: "introduce-parameter", preventDefault: true, run: (v) => (void refactor(v, "refactor.introduce.parameter", "引入参数"), true) },
       ]),
     ),
     EditorView.theme({

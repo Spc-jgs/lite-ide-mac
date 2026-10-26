@@ -19,6 +19,7 @@ const TITLES: Record<string, string> = {
   "Inline Method": "内联方法",
   "Inline Constant": "内联常量",
   "Convert local variable to field": "局部变量改成字段",
+  "Introduce Parameter...": "引入参数",
 };
 
 export function refactorTitle(t: string): string {

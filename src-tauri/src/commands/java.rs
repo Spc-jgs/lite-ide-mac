@@ -377,6 +377,61 @@ pub async fn java_move(
     .await
 }
 
+/// 改签名（⌘F6）：光标那个方法现在的签名
+#[tauri::command]
+pub async fn java_method_sig(app: tauri::AppHandle, root: String, path: String, text: String, line: u32, character: u32) -> Result<JavaMethodSigDto, String> {
+    blocking(move || Ok(JavaMethodSigDto::of(instance(&app, &root)?.signature(&path, &text, line, character)?))).await
+}
+
+/// 改签名的预览：改成 `sig` 要动哪些文件（不改）。`tab_size` / `spaces`：编辑器的缩进（新写出来的参数照它排）
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn java_method_sig_preview(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    text: String,
+    line: u32,
+    character: u32,
+    sig: JavaMethodSigDto,
+    tab_size: u32,
+    spaces: bool,
+) -> Result<JavaMovePreviewDto, String> {
+    blocking(move || {
+        let plan = instance(&app, &root)?.signature_plan(&path, &text, line, character, &sig.into_sig(), (tab_size, spaces))?;
+        Ok(move_preview(&plan, Path::new(&root)))
+    })
+    .await
+}
+
+/// 改签名：再问一次 jdtls，和预览时列的文件对不上就不做；对得上照改名那套落盘（同 `java_move`）
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn java_change_signature(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    text: String,
+    line: u32,
+    character: u32,
+    sig: JavaMethodSigDto,
+    tab_size: u32,
+    spaces: bool,
+    expect: Vec<String>,
+    open: Vec<super::replace::OpenDocArg>,
+) -> Result<ReplaceOutcomeDto, String> {
+    let journal = super::replace::journal_dir(&app)?;
+    blocking(move || {
+        let plan = instance(&app, &root)?.signature_plan(&path, &text, line, character, &sig.into_sig(), (tab_size, spaces))?;
+        if move_preview(&plan, Path::new(&root)).files != expect {
+            return Err("预览之后有文件变了，要改的和刚才列的不一样 —— 再预览一次".into());
+        }
+        let out = crate::java::apply_rename(&plan, Path::new(&root), &journal, &super::replace::dirty_map(open))?;
+        Ok(super::replace::outcome_dto(out))
+    })
+    .await
+}
+
 fn move_preview(plan: &crate::java::RenamePlan, root: &Path) -> JavaMovePreviewDto {
     let rel = |p: &str| Path::new(p).strip_prefix(root).map_or_else(|_| p.to_string(), |r| r.to_string_lossy().into_owned());
     let mut files: Vec<String> = plan.files.iter().map(|(p, _)| rel(p)).collect();

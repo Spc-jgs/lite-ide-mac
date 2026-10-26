@@ -1577,3 +1577,55 @@ pub struct AgentStartedDto {
     pub version: String,
     pub modes: serde_json::Value,
 }
+
+/// 改签名（⌘F6，docs/TAKEOVER.md G12）：一个方法的签名。前端改完原样交回（所以也要 Deserialize）
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaMethodSigDto {
+    pub method_id: String,
+    pub modifier: String,
+    pub return_type: String,
+    pub name: String,
+    pub params: Vec<JavaSigParamDto>,
+    pub exceptions: Vec<JavaSigExceptionDto>,
+}
+
+/// `originalIndex`：原来是第几个（从 0 数），新加的是 -1；`defaultValue`：新加的参数在调用处填什么
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaSigParamDto {
+    pub ty: String,
+    pub name: String,
+    pub default_value: String,
+    pub original_index: i32,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaSigExceptionDto {
+    pub ty: String,
+    pub handle: String,
+}
+
+impl JavaMethodSigDto {
+    pub fn of(s: crate::java::MethodSig) -> Self {
+        JavaMethodSigDto {
+            method_id: s.method_id,
+            modifier: s.modifier,
+            return_type: s.return_type,
+            name: s.name,
+            params: s.params.into_iter().map(|p| JavaSigParamDto { ty: p.ty, name: p.name, default_value: p.default_value, original_index: p.original_index }).collect(),
+            exceptions: s.exceptions.into_iter().map(|(ty, handle)| JavaSigExceptionDto { ty, handle }).collect(),
+        }
+    }
+    pub fn into_sig(self) -> crate::java::MethodSig {
+        crate::java::MethodSig {
+            method_id: self.method_id,
+            modifier: self.modifier,
+            return_type: self.return_type,
+            name: self.name,
+            params: self.params.into_iter().map(|p| crate::java::SigParam { ty: p.ty, name: p.name, default_value: p.default_value, original_index: p.original_index }).collect(),
+            exceptions: self.exceptions.into_iter().map(|e| (e.ty, e.handle)).collect(),
+        }
+    }
+}

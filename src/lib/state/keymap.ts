@@ -299,6 +299,10 @@ export const KEYS: KeyDef[] = [
   { id: "inline", label: "内联（Java）", accel: "⌥⌘N", group: "编辑", owner: "cm6" },
   // IDEA 的 Refactor › Move（F6）：整个类挪进另一个包，包声明和引用方的 import 跟着改；先列出要改哪些，点了才改
   { id: "move-class", label: "移动类（Java）", accel: "F6", group: "编辑", owner: "cm6" },
+  // IDEA 的 Refactor › Change Signature（⌘F6）：光标在方法上，改名字 / 返回类型 / 可见性 / 参数（加、删、挪、改名、改类型），调用处跟着改；先列出要改哪些，点了才改
+  { id: "change-signature", label: "改签名（Java）", accel: "⌘F6", group: "编辑", owner: "cm6" },
+  // IDEA 的 Refactor › Introduce Parameter（⌥⌘P）：选中方法体里的一个表达式，变成这个方法的参数，调用处把它传进来；做完接着在新参数名上改名
+  { id: "introduce-parameter", label: "引入参数（Java）", accel: "⌥⌘P", group: "编辑", owner: "cm6" },
   { id: "encoding", label: "文件编码…", group: "编辑", owner: "menu" },
   /**
    * 跨文件替换、Java 改名、快速修复做完，胶囊上带一个「撤销」（2026-10-21 起，原来是一张卡片）；胶囊几秒就走，这里是常驻的那条路，
@@ -446,10 +450,11 @@ export const KEYS: KeyDef[] = [
   { id: "git-changes", label: "改动列表", accel: "⌘K", group: "Git", owner: "menu" },
   /*
    * 拉取 = fetch + 本地合并两步，不是 `git pull`。
-   * 键位照 IDEA：⇧⌘P 更新项目、⌥⌘P 推送。
+   * 键位照 IDEA 的 macOS 默认表：⌘T 更新项目、⇧⌘K 推送（2026-10-26 改；原来写的是 ⇧⌘P / ⌥⌘P、注释说「照 IDEA」—— 不是，
+   * IDEA 里 ⌥⌘P 是「引入参数」，让给了它，docs/TAKEOVER.md D11）
    */
-  { id: "git-pull", label: "拉取", accel: "⇧⌘P", group: "Git", owner: "menu" },
-  { id: "git-push", label: "推送…", accel: "⌥⌘P", group: "Git", owner: "menu" },
+  { id: "git-pull", label: "拉取", accel: "⌘T", group: "Git", owner: "menu" },
+  { id: "git-push", label: "推送…", accel: "⇧⌘K", group: "Git", owner: "menu" },
   { id: "git-fetch", label: "抓取远程", group: "Git", owner: "menu" },
   { id: "git-file-diff", label: "查看当前文件的改动", group: "Git", owner: "menu" },
   { id: "git-blame", label: "显示 / 隐藏注解（blame）", group: "Git", owner: "menu" },

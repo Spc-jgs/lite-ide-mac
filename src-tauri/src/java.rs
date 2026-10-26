@@ -197,6 +197,30 @@ pub struct RenamePlan {
     pub renames: Vec<(String, String)>,
 }
 
+/// 改签名（⌘F6，docs/TAKEOVER.md G12）：一个方法现在的签名，或者改成什么样。形状照 jdtls 1.61 的 `ChangeSignatureInfo`（读的字节码）
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct MethodSig {
+    /// jdtls 认这个方法的句柄（`JavaCore.create` 认的那串），原样交回去
+    pub method_id: String,
+    /// public / protected / private / package-private（jdtls 的写法，原样交回去）
+    pub modifier: String,
+    pub return_type: String,
+    pub name: String,
+    pub params: Vec<SigParam>,
+    /// 抛的异常：（类型名, jdtls 的句柄）。这一版界面上不改，原样带回去
+    pub exceptions: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct SigParam {
+    pub ty: String,
+    pub name: String,
+    /// 新加的参数在调用处填什么（原有的参数用不上）
+    pub default_value: String,
+    /// 原来是第几个（从 0 数）；新加的是 -1
+    pub original_index: i32,
+}
+
 /// 移动类能去的一个包（docs/TAKEOVER.md G12，jdtls 的 `java/getMoveDestinations` 回的 `PackageNode`）
 #[derive(Clone, Debug, PartialEq)]
 pub struct MoveDest {
@@ -709,26 +733,46 @@ impl Instance {
             .get(path)
             .map(|v| v.iter().filter(|d| overlaps(d, &range)).cloned().collect())
             .unwrap_or_default();
-        let r = self.ask(
-            "textDocument/codeAction",
-            json!({
-                "textDocument": { "uri": uri::from_path(path) },
-                "range": { "start": { "line": range.line, "character": range.character }, "end": { "line": range.end_line, "character": range.end_character } },
-                "context": match only {
-                    Some(k) => json!({ "diagnostics": diags, "only": [k], "triggerKind": 1 }),
-                    None => json!({ "diagnostics": diags, "triggerKind": 1 }),
-                },
-            }),
-        )?;
+        let params = json!({
+            "textDocument": { "uri": uri::from_path(path) },
+            "range": { "start": { "line": range.line, "character": range.character }, "end": { "line": range.end_line, "character": range.end_character } },
+            "context": match only {
+                Some(k) => json!({ "diagnostics": diags, "only": [k], "triggerKind": 1 }),
+                None => json!({ "diagnostics": diags, "triggerKind": 1 }),
+            },
+        });
+        let r = self.ask("textDocument/codeAction", params)?;
         Ok(actions_of(&r))
     }
 
     /// 选中的那条修复要改什么（没带改动的先 `codeAction/resolve`）。没有改动、只有命令的（要弹交互框的那种）这一版不做，说清楚
     pub fn resolve_action(&self, raw: &str) -> Result<RenamePlan, String> {
         let item: Value = serde_json::from_str(raw).map_err(|e| format!("修复不是 JSON：{e}"))?;
+        let kind = item["kind"].as_str().unwrap_or("").to_string();
+        // 引入参数（⌥⌘P）这类：jdtls 不给改动、给一个「让客户端再来要」的命令，参数是（重构名, 当时的 CodeActionParams）——
+        // vscode-java 收到它再发 `java/getRefactorEdit`。读的 1.61 `RefactorProposalUtility`（命令 id）和 `GetRefactorEditHandler`（认哪几个名字）。
+        // 动作本身可以就是一个 `Command`（`command` 是字符串），也可以是带 `command` 的 `CodeAction`（LSP 两种都许）；
+        // 命令在**原来那份**上就看：`codeAction/resolve` 回来的不一定还带着它
+        let command_of = |v: &Value| if v["command"].is_string() { v.clone() } else { v["command"].clone() };
+        if item.get("edit").is_none() {
+            if let Some(req) = refactor_request(&command_of(&item)) {
+                return refactor_edit(&self.ask("java/getRefactorEdit", req)?);
+            }
+        }
         let resolved = if item.get("edit").is_some() { item } else { self.ask("codeAction/resolve", item)? };
         if resolved.get("edit").is_none() {
-            let cmd = resolved["command"]["command"].as_str().unwrap_or("");
+            let command = command_of(&resolved);
+            if let Some(req) = refactor_request(&command) {
+                return refactor_edit(&self.ask("java/getRefactorEdit", req)?);
+            }
+            let cmd = command["command"].as_str().unwrap_or("");
+            let raw: String = resolved.to_string().chars().take(600).collect();
+            applog::write(applog::Level::Warn, "java", &format!("修复只给了命令、没给改动，不认：{raw}"));
+            // 引入参数、调用在别的文件里时（2026-10-26 实测 1.61）：resolve 回来既没改动也没命令；照 vscode-java 拿选区去 `java/getRefactorEdit` 要，
+            // 回来的是空的 `changes: {}`（它算了 —— 给了新参数名的位置 —— 但转成改动那一步丢了，是 jdtls 里面的事）。同一个文件里调用的，resolve 直接给改动
+            if kind == "refactor.introduce.parameter" {
+                return Err("这个方法在别的文件里也有调用，Java 语言服务器这时给不出改动。可以先 ⌥⌘V 抽成变量，再 ⌘F6 改签名把它加成参数".into());
+            }
             return Err(format!("这条修复要执行命令{}，这一版还不支持", if cmd.is_empty() { String::new() } else { format!("（{cmd}）") }));
         }
         workspace_edit(&resolved["edit"])
@@ -769,6 +813,28 @@ impl Instance {
             json!({ "moveKind": "moveResource", "sourceUris": [uri::from_path(path)], "destination": dest, "updateReferences": true }),
         )?;
         move_edit(&r)
+    }
+
+    /// 改签名：光标那个方法现在的签名（`java/getChangeSignatureInfo`，带着此刻的全文）
+    pub fn signature(&self, path: &str, text: &str, line: u32, character: u32) -> Result<MethodSig, String> {
+        self.change(path, text);
+        let r = self.ask("java/getChangeSignatureInfo", sig_params(path, line, character))?;
+        signature_of(&r)
+    }
+
+    /// 改签名要改哪些（`java/getRefactorEdit`），拆成和改名一样的 [`RenamePlan`]。只问不改。`indent`：（缩进几格, 用不用空格），同格式化
+    pub fn signature_plan(&self, path: &str, text: &str, line: u32, character: u32, sig: &MethodSig, indent: (u32, bool)) -> Result<RenamePlan, String> {
+        self.change(path, text);
+        let r = self.ask(
+            "java/getRefactorEdit",
+            json!({
+                "command": "changeSignature",
+                "context": sig_params(path, line, character),
+                "options": { "tabSize": indent.0, "insertSpaces": indent.1 },
+                "commandArguments": signature_args(sig),
+            }),
+        )?;
+        refactor_edit(&r)
     }
 
     /// jdtls 自己拒绝改名时的原话是英文的（`Compilation unit 'Customer.java' already exists`），常见的换成中文，别的原样
@@ -1305,6 +1371,24 @@ pub fn rename_target(r: &Value) -> Option<RenameTarget> {
 
 /// `java/getMoveDestinations` 的回包 → 能去的包：按模块、包名排，现在在的那个也留着（界面上标「现在在这儿」、不能选）。
 /// 带 `errorMessage` 的是 jdtls 说不行（不在源码目录里的文件之类），原话交出去
+/// `java.action.applyRefactoringCommand` 的命令 → `java/getRefactorEdit` 的参数（不是这个命令就 None）。`options` 不给：
+/// jdtls 那时用它从 `workspace/configuration` 问来的缩进（[`answer`] 照项目的代码风格答），和别的重构写出来的一样
+pub fn refactor_request(cmd: &Value) -> Option<Value> {
+    if cmd["command"].as_str() != Some("java.action.applyRefactoringCommand") {
+        return None;
+    }
+    let args = cmd["arguments"].as_array()?;
+    let name = args.first()?.as_str()?;
+    let rest: Vec<Value> = args.iter().skip(2).cloned().collect();
+    Some(json!({ "command": name, "context": args.get(1)?.clone(), "commandArguments": rest }))
+}
+
+/// 改签名两步都带的那份 `CodeActionParams`：光标处的空区间
+fn sig_params(path: &str, line: u32, character: u32) -> Value {
+    let at = json!({ "line": line, "character": character });
+    json!({ "textDocument": { "uri": uri::from_path(path) }, "range": { "start": at, "end": at }, "context": { "diagnostics": [], "only": ["refactor.change.signature"], "triggerKind": 1 } })
+}
+
 pub fn move_dests(r: &Value) -> Result<Vec<MoveDest>, String> {
     if let Some(e) = r["errorMessage"].as_str().filter(|e| !e.is_empty()) {
         return Err(e.to_string());
@@ -1325,6 +1409,62 @@ pub fn move_dests(r: &Value) -> Result<Vec<MoveDest>, String> {
         .collect();
     out.sort_by(|a, b| (&a.project, &a.name).cmp(&(&b.project, &b.name)));
     Ok(out)
+}
+
+/// `java/getChangeSignatureInfo` 的回包 → [`MethodSig`]。`errorMessage` 是 jdtls 说这里改不了（光标不在方法上、jar 里的方法）
+pub fn signature_of(r: &Value) -> Result<MethodSig, String> {
+    if let Some(e) = r["errorMessage"].as_str().filter(|e| !e.is_empty()) {
+        return Err(e.to_string());
+    }
+    let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+    let method_id = s(&r["methodIdentifier"]);
+    if method_id.is_empty() {
+        return Err("光标不在方法上（放在方法名或者方法体里再试）".into());
+    }
+    let arr = |k: &str| r[k].as_array().map(Vec::as_slice).unwrap_or(&[]).to_vec();
+    Ok(MethodSig {
+        method_id,
+        modifier: s(&r["modifier"]),
+        return_type: s(&r["returnType"]),
+        name: s(&r["methodName"]),
+        params: arr("parameters")
+            .iter()
+            .map(|p| SigParam { ty: s(&p["type"]), name: s(&p["name"]), default_value: s(&p["defaultValue"]), original_index: p["originalIndex"].as_i64().unwrap_or(-1) as i32 })
+            .collect(),
+        exceptions: arr("exceptions").iter().map(|e| (s(&e["type"]), s(&e["typeHandleIdentifier"]))).collect(),
+    })
+}
+
+/// 交给 `java/getRefactorEdit`（command = `changeSignature`）的那 8 个参数，次序照 1.61 `GetRefactorEditHandler` 的字节码：
+/// 方法句柄、要不要留一个委托（旧签名转调新签名，这一版不留）、名字、可见性、返回类型、参数、异常、预览（false = 要改动）
+pub fn signature_args(sig: &MethodSig) -> Value {
+    json!([
+        sig.method_id,
+        false,
+        sig.name,
+        sig.modifier,
+        sig.return_type,
+        sig.params.iter().map(|p| json!({ "type": p.ty, "name": p.name, "defaultValue": p.default_value, "originalIndex": p.original_index })).collect::<Vec<_>>(),
+        sig.exceptions.iter().map(|(t, h)| json!({ "type": t, "typeHandleIdentifier": h })).collect::<Vec<_>>(),
+        false,
+    ])
+}
+
+/// `java/getRefactorEdit` 的回包（`RefactorWorkspaceEdit`）→ [`RenamePlan`]。没有改动算不行（签名没变，或者 jdtls 什么都没给）
+pub fn refactor_edit(r: &Value) -> Result<RenamePlan, String> {
+    if r.is_null() {
+        return Err("语言服务器没给出改动".into());
+    }
+    if let Some(e) = r["errorMessage"].as_str().filter(|e| !e.is_empty()) {
+        return Err(e.to_string());
+    }
+    let plan = workspace_edit(&r["edit"])?;
+    if plan.files.is_empty() && plan.renames.is_empty() {
+        let raw: String = r.to_string().chars().take(800).collect();
+        applog::write(applog::Level::Warn, "java", &format!("重构没给出改动：{raw}"));
+        return Err("什么都没改（签名和原来一样？）".into());
+    }
+    Ok(plan)
 }
 
 /// `java/move` 的回包（`RefactorWorkspaceEdit`）→ [`RenamePlan`]：`errorMessage` 是 jdtls 说不行；没有改动也算不行（不往盘上做一次空操作）
@@ -1861,6 +2001,50 @@ mod tests {
     }
 
     /// 移动类的两个回包（形状照 1.61 的 `MoveHandler$PackageNode` / `RefactorWorkspaceEdit` 字段）
+    #[test]
+    fn 要客户端再来要的重构命令_转成_get_refactor_edit() {
+        let ctx = json!({ "textDocument": { "uri": "file:///p/A.java" }, "range": { "start": { "line": 3, "character": 27 }, "end": { "line": 3, "character": 30 } } });
+        let r = refactor_request(&json!({ "title": "Introduce Parameter...", "command": "java.action.applyRefactoringCommand", "arguments": ["introduceParameter", ctx] })).unwrap();
+        assert_eq!(r["command"], "introduceParameter");
+        assert_eq!(r["context"], ctx, "当时的选区原样交回去，jdtls 靠它认是哪个表达式");
+        assert_eq!(r["commandArguments"], json!([]));
+        assert!(refactor_request(&json!({ "command": "java.apply.workspaceEdit", "arguments": [] })).is_none(), "别的命令不认");
+    }
+
+    #[test]
+    fn 改签名_读进来的和交回去的次序对得上_jdtls_说不行原话交出去() {
+        // 形状照 1.61 的 ChangeSignatureInfo（字节码里的字段名）
+        let r = json!({
+            "methodIdentifier": "=shop/src<com.demo{OrderService.java[OrderService~pay~QString;~I",
+            "modifier": "public", "returnType": "boolean", "methodName": "pay",
+            "parameters": [
+                { "type": "String", "name": "orderId", "defaultValue": "null", "originalIndex": 0 },
+                { "type": "int", "name": "cents", "defaultValue": "0", "originalIndex": 1 },
+            ],
+            "exceptions": [{ "type": "IOException", "typeHandleIdentifier": "=jdk/<java.io(IOException.class[IOException" }],
+            "errorMessage": null,
+        });
+        let mut s = signature_of(&r).unwrap();
+        assert_eq!((s.name.as_str(), s.return_type.as_str(), s.params.len()), ("pay", "boolean", 2));
+        assert_eq!(s.params[1].original_index, 1);
+        // 对调两个参数、加一个新的：交回去的第 6 个参数里次序就是界面上的次序，新加的 originalIndex 是 -1
+        s.params.swap(0, 1);
+        s.params.push(SigParam { ty: "boolean".into(), name: "dryRun".into(), default_value: "false".into(), original_index: -1 });
+        s.name = "charge".into();
+        let a = signature_args(&s);
+        assert_eq!(a.as_array().unwrap().len(), 8, "1.61 认的是正好 8 个参数，少一个整个不做");
+        assert_eq!(a[0], r["methodIdentifier"]);
+        assert_eq!(a[2], "charge");
+        assert_eq!(a[5].as_array().unwrap().iter().map(|p| p["originalIndex"].as_i64().unwrap()).collect::<Vec<_>>(), [1, 0, -1]);
+        assert_eq!(a[5][2]["defaultValue"], "false");
+        assert_eq!(a[6][0]["typeHandleIdentifier"], r["exceptions"][0]["typeHandleIdentifier"]);
+
+        assert_eq!(signature_of(&json!({ "errorMessage": "Cannot change signature of binary method" })).unwrap_err(), "Cannot change signature of binary method");
+        assert!(signature_of(&json!({ "methodIdentifier": null })).is_err(), "光标不在方法上");
+        assert!(refactor_edit(&json!({ "edit": { "documentChanges": [] } })).is_err(), "没有改动不算");
+        assert!(refactor_edit(&Value::Null).is_err());
+    }
+
     #[test]
     fn 移动类_目标包按模块和名字排_拒绝原话交出去_没挪文件不算() {
         let r = json!({ "destinations": [

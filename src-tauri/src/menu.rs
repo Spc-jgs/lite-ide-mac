@@ -299,8 +299,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&find_word)
         .build()?;
 
-    let git_pull = item(app, "git-pull", "拉取", Some("Shift+CmdOrCtrl+P"))?;
-    let git_push = item(app, "git-push", "推送…", Some("Alt+CmdOrCtrl+P"))?;
+    let git_pull = item(app, "git-pull", "拉取", Some("CmdOrCtrl+T"))?;
+    let git_push = item(app, "git-push", "推送…", Some("Shift+CmdOrCtrl+K"))?;
     let git_fetch = item(app, "git-fetch", "抓取远程", None)?;
 
     let git = SubmenuBuilder::new(app, "Git")

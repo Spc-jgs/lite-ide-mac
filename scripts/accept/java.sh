@@ -91,6 +91,9 @@ mkdir -p "${C}/util"
 printf 'package com.demo.common.util;\n\npublic class Util {}\n' > "${C}/util/Util.java"
 printf 'package com.demo.common;\n\npublic class Label {\n    public String text() { return "label"; }\n}\n' > "${C}/Label.java"
 printf 'package com.demo.order;\n\nimport com.demo.common.Label;\n\npublic class LabelUse {\n    String go() { return new Label().text(); }\n}\n' > "${P}/order-service/src/main/java/com/demo/order/LabelUse.java"
+# 改签名 / 引入参数（G12 的 ⌘F6 / ⌥⌘P）用：Fee.calc 在 order-service 的 FeeUse 里被调用（跨模块）
+printf 'package com.demo.common;\n\npublic class Fee {\n    public long calc(int cents, String code) {\n        return cents * 3 / 100;\n    }\n    private long tax(long v) {\n        return v * 6 / 100;\n    }\n    long total(long v) { return v + tax(v); }\n}\n' > "${C}/Fee.java"
+printf 'package com.demo.order;\n\nimport com.demo.common.Fee;\n\npublic class FeeUse {\n    long go() { return new Fee().calc(500, "A"); }\n}\n' > "${P}/order-service/src/main/java/com/demo/order/FeeUse.java"
 # 代码模板（G21）用：一个空方法体，里面敲模板
 printf 'package com.demo.common;\n\npublic class Tpl {\n    void run(String name) {\n        \n    }\n}\n' > "${C}/Tpl.java"
 # 生成（G5）用：一个普通字段、一个带初值的 final 字段（final 的没有 setter）
@@ -587,6 +590,57 @@ lite menu undo-replace main >/dev/null
 label_back() { [ -f "${C}/Label.java" ] && [ ! -e "${C}/util/Label.java" ] && [ "$(cat "${C}/Label.java")" = "${LABEL0}" ] && [ "$(cat "${LUSE}")" = "${LUSE0}" ]; }
 wait_for 15 label_back
 ok "$(label_back && echo 1)" "「编辑 › 撤销上次的替换 / 改名」：Label.java 挪回 common/、两个文件的内容一字不差$(label_back || echo "；胶囊此刻：$(lite_eval main "return document.querySelector('.toast')?.textContent ?? '（没有）'")；目录：$(ls "${C}" | tr '\n' ' ')")"
+
+echo "== 改签名（⌘F6，docs/TAKEOVER.md G12）：改名、对调两个参数、加一个带默认值的 —— 先列要改哪些、盘上不动；点了之后声明和另一个模块里的调用一起改、jdtls 不报错；撤销回来"
+FUSE="${P}/order-service/src/main/java/com/demo/order/FeeUse.java"
+FEE0=$(cat "${C}/Fee.java"); FUSE0=$(cat "${FUSE}")
+open_file "${C}/Fee.java" >/dev/null
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('calc(')); __lite.caret(l + 1, t[l].indexOf('calc') + 2); __lite.key('Mod-F6'); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.csig #csig-name')" 30 >/dev/null
+ok "$([ "$(lite_eval main "const d = document.querySelector('.csig'); return d.querySelector('#csig-name').value + '|' + [...d.querySelectorAll('.prow')].map((r) => r.querySelector('.ty').value + ' ' + r.querySelector('.nm').value).join(',')")" = "calc|int cents,String code" ] && echo 1)" "⌘F6 弹出改签名，读进来的是 jdtls 给的（java/getChangeSignatureInfo）：calc(int cents, String code)"
+lite_eval main "__lite.fill('fee', '.csig #csig-name'); [...document.querySelectorAll('.csig .prow')][0].querySelector('[aria-label^=\"把 cents 往后\"]').click(); return true" >/dev/null
+sleep 0.2
+lite_eval main "[...document.querySelectorAll('.csig button')].find((b) => b.textContent.includes('加一个')).click(); return true" >/dev/null
+sleep 0.2
+lite_eval main "__lite.fill('boolean', '.csig .prow:nth-child(3) .ty'); return true" >/dev/null
+lite_eval main "__lite.fill('vip', '.csig .prow:nth-child(3) .nm'); return true" >/dev/null
+lite_eval main "__lite.fill('false', '.csig .prow:nth-child(3) .dv'); return true" >/dev/null
+sleep 0.2
+SIGL=$(lite_eval main "return document.querySelector('.csig .sig code')?.textContent ?? ''")
+ok "$([ "${SIGL}" = "public long fee(String code, int cents, boolean vip)" ] && echo 1)" "表里改完，底下那行实时拼出新签名：${SIGL}"
+lite_eval main "[...document.querySelectorAll('.csig button')].find((b) => b.textContent === '下一步').click(); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.csig .files') || !!document.querySelector('.csig .empty-msg.bad')" 60 >/dev/null
+PREV=$(lite_eval main "return [...document.querySelectorAll('.csig .files li')].map((e) => e.textContent).join(',') || document.querySelector('.csig .empty-msg.bad')?.textContent")
+ok "$([ "${PREV}" = "order-service/src/main/java/com/demo/order/FeeUse.java,shop-common/src/main/java/com/demo/common/Fee.java" ] && [ "$(cat "${C}/Fee.java")" = "${FEE0}" ] && echo 1)" "下一步：列出要改 Fee.java（声明）和另一个模块的 FeeUse.java（调用），盘上一个字还没动：${PREV}"
+lite_eval main "[...document.querySelectorAll('.csig button')].find((b) => b.textContent === '改签名').click(); return true" >/dev/null
+sig_done() { grep -q 'public long fee(String code, int cents, boolean vip)' "${C}/Fee.java" && grep -q 'new Fee().fee("A", 500, false)' "${FUSE}"; }
+wait_for 30 sig_done
+ok "$(sig_done && echo 1)" "点「改签名」：声明换了、FeeUse 里的调用跟着换成 fee(\"A\", 500, false)$(sig_done || echo "；此刻 Fee：$(grep -n 'long' "${C}/Fee.java" | tr '\n' ' ')；FeeUse：$(grep -n 'Fee()' "${FUSE}")；胶囊：$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")")"
+open_file "${FUSE}" >/dev/null
+sleep 3
+lite_wait main "return document.querySelectorAll('.cm-diag-err').length === 0" 30 >/dev/null
+ok "$([ -z "$(errs)" ] && echo 1)" "FeeUse 里 jdtls 不报错（有的话是：$(errs)）"
+lite menu undo-replace main >/dev/null
+fee_back() { [ "$(cat "${C}/Fee.java")" = "${FEE0}" ] && [ "$(cat "${FUSE}")" = "${FUSE0}" ]; }
+wait_for 15 fee_back
+ok "$(fee_back && echo 1)" "「编辑 › 撤销上次的替换 / 改名」：两个文件一字不差地回来"
+
+echo "== 引入参数（⌥⌘P，docs/TAKEOVER.md G12）：私有方法 tax 里选中 100 → 多一个参数、本文件的调用传 100、接着改名成 rate；public 的 calc 调用在别的模块：说清做不了、给出路、盘上不动"
+sleep 2
+open_file "${C}/Fee.java" >/dev/null
+lite_wait main "return __lite.text().includes('calc(int cents, String code)')" 10 >/dev/null
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('v * 6 / 100')); const c = t[l].indexOf('100'); __lite.select(l + 1, c + 1, l + 1, c + 4); __lite.key('Alt-Mod-p'); return true" >/dev/null
+RENAME rate
+lite_wait main "return __lite.text().includes('tax(v, 100)') && __lite.text().includes('/ rate')" 20 >/dev/null
+ok "$([ "$(lite_eval main "const t = __lite.text(); return /private long tax\\(long v, int rate\\)/.test(t) && t.includes('v * 6 / rate') && t.includes('tax(v, 100)')")" = true ] && echo 1)" "⌥⌘P：tax(long v, int rate)、方法体里用 rate、total 里的调用传 100；做完改名框直接开着（jdtls 起的是「${N0}」）$([ "$(lite_eval main "return __lite.text().includes('tax(v, 100)')")" = true ] || echo "；此刻：$(lite_eval main "return JSON.stringify(__lite.text().split('\\n').slice(6, 10))")")"
+lite_wait main "return !document.querySelector('.rename')" 10 >/dev/null; sleep 1
+# 放回原样：存一下（引入参数那一笔在编辑器里没存），再把原文写回盘上、等编辑器跟着重读（改名那一笔是落盘的，⌘Z 撤不干净）
+lite menu save main >/dev/null; sleep 1
+printf '%s\n' "${FEE0}" > "${C}/Fee.java"
+lite_wait main "return __lite.text().includes('v * 6 / 100') && !__lite.text().includes('rate')" 15 >/dev/null
+lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('* 3 / 100')); const c = t[l].indexOf('100'); __lite.select(l + 1, c + 1, l + 1, c + 4); __lite.key('Alt-Mod-p'); return true" >/dev/null
+lite_wait main "return __lite.notify.log.some((x) => x.text.includes('别的文件里也有调用'))" 30 >/dev/null
+ok "$([ "$(lite_eval main "return __lite.notify.log.some((x) => x.kind === 'fail' && x.text.includes('⌥⌘V') && x.text.includes('⌘F6'))")" = true ] && [ "$(cat "${FUSE}")" = "${FUSE0}" ] && echo 1)" "public 的 calc（调用在 order-service）：说清这时做不了、给出路（先 ⌥⌘V 再 ⌘F6），FeeUse 一字没动：$(lite_eval main "return __lite.notify.log.at(-1)?.text ?? ''")"
 
 echo "== 不往项目里写东西、退出不留 jdtls"
 META=$(cd "${P}" && find . \( -name .project -o -name .classpath -o -name .settings -o -name .factorypath \) | head -5 | tr '\n' ' ')

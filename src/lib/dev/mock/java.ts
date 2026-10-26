@@ -621,6 +621,51 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       recordRename(entries, [{ from: path, to: m.to }]);
       return { changed, skipped: [], undo: true, renamed: [{ from: path, to: m.to }] };
     }
+    /*
+     * 改签名（⌘F6）。桩：光标那行往上找最近的一个方法声明、用正则拆出签名（真的是 jdtls 认）；预览列出提到 `名字(` 的文件；
+     * 落盘只换声明那一行和各处调用的方法名（真的还会改每一处调用的参数）。故意等一会儿，「正在算」看得见
+     */
+    case "java_method_sig": {
+      await wait(200);
+      const lines = String(a.text ?? "").split("\n");
+      for (let i = Number(a.line); i >= 0; i--) {
+        const m = mockSigRe.exec(lines[i] ?? "");
+        if (!m) continue;
+        const params = m[4].trim() ? m[4].split(",").map((x, j) => {
+          const t = x.trim().split(/\s+/);
+          return { ty: t.slice(0, -1).join(" "), name: t[t.length - 1], defaultValue: "null", originalIndex: j };
+        }) : [];
+        return { methodId: `${path}#${m[3]}`, modifier: m[1] ?? "", returnType: m[2], name: m[3], params, exceptions: [] };
+      }
+      throw new Error("光标不在方法上（放在方法名或者方法体里再试）");
+    }
+    case "java_method_sig_preview": {
+      await wait(600);
+      return { files: mockSigFiles(root, a.sig as unknown as { methodId: string }).map((p) => p.slice(root.length + 1)).sort(), from: "", to: "" };
+    }
+    case "java_change_signature": {
+      await wait(400);
+      const sig = a.sig as unknown as { methodId: string; modifier: string; returnType: string; name: string; params: { ty: string; name: string }[] };
+      const old = sig.methodId.slice(sig.methodId.lastIndexOf("#") + 1);
+      const files = mockSigFiles(root, sig);
+      if (JSON.stringify(files.map((p) => p.slice(root.length + 1)).sort()) !== JSON.stringify(a.expect)) throw new Error("预览之后有文件变了，要改的和刚才列的不一样 —— 再预览一次");
+      const decl = `${sig.modifier ? `${sig.modifier} ` : ""}${sig.returnType} ${sig.name}(${sig.params.map((p) => `${p.ty} ${p.name}`).join(", ")})`;
+      const entries = [];
+      const changed = [];
+      for (const p of files) {
+        const before = FILES[p];
+        const out = before
+          .split("\n")
+          .map((l) => (p === path && mockSigRe.exec(l)?.[3] === old ? l.replace(/(public |protected |private )?[\w<>[\],. ]+\s+\w+\s*\([^)]*\)/, decl) : l.replaceAll(`${old}(`, `${sig.name}(`)))
+          .join("\n");
+        FILES[p] = out;
+        bump(p);
+        entries.push({ path: p, rel: p.slice(root.length + 1), before, after: out });
+        changed.push({ rel: p.slice(root.length + 1), path: p, count: 1, edits: [{ from: 0, to: before.length, insert: out }], onDisk: true });
+      }
+      recordRename(entries, []);
+      return { changed, skipped: [], undo: true, renamed: [] };
+    }
     case "java_format": {
       // 桩：只去掉行尾空白、把 `=` 两边补上空格（真的排版是 jdtls 的 Eclipse 格式化器）；位置照真实现是 UTF-16 行列。故意等 120 ms（实测）
       await wait(120);
@@ -744,4 +789,13 @@ function signature(text: string, line: number, character: number) {
     ? [sig("format(String format, Object... args) : String", ["String format", "Object... args"]), sig("format(Locale l, String format, Object... args) : String", ["Locale l", "String format", "Object... args"])]
     : [sig(`${name}(String a, int b) : void`, ["String a", "int b"])];
   return { signatures: list, active: 0, param: commas, total: list.length };
+}
+
+/** 桩认方法声明的那条正则：可见性、返回类型、名字、参数表（真的是 jdtls 解析） */
+const mockSigRe = /^\s*(public|protected|private)?\s*(?:static\s+|final\s+|synchronized\s+)*([\w<>[\],.]+(?:<[^>]*>)?)\s+(\w+)\s*\(([^)]*)\)\s*(?:throws [\w., ]+)?\s*[{;]/;
+
+/** 提到这个方法名（`名字(`）的文件 */
+function mockSigFiles(root: string, sig: { methodId: string }): string[] {
+  const name = sig.methodId.slice(sig.methodId.lastIndexOf("#") + 1);
+  return Object.keys(FILES).filter((p) => p.startsWith(`${root}/`) && p.endsWith(".java") && FILES[p].includes(`${name}(`));
 }
