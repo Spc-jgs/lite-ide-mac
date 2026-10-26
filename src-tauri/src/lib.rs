@@ -18,6 +18,7 @@ mod open;
 mod owned;
 mod ideacfg;
 mod codestyle;
+mod coverage;
 mod jdks;
 mod projectcfg;
 mod settings;
@@ -436,6 +437,7 @@ pub fn run() {
             commands::watch_root,
             commands::pick_folder,
             commands::git_clone,
+            commands::coverage_report,
             commands::java_move_destinations,
             commands::java_move_preview,
             commands::java_move,

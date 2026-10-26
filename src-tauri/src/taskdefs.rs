@@ -492,7 +492,8 @@ pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
     let prefs = crate::maven::prefs(root);
     // 单测（docs/IDEA.md 第 17 节）：「模块 [test 选择器]」—— 和跑目标同一个名字形状，运行窗、⌃R 重跑、⌘F2 停、同名先停旧的都是现成的
     let mvn = crate::maven::invocation(&root.join(&rel));
-    let command = match goal.strip_prefix("test ") {
+    // 「模块 [cover 选择器]」：带覆盖率跑的单测（docs/TAKEOVER.md G15）—— 命令同 test，代理在 task_run 里挂（要知道 .app 里那个 jar 在哪）
+    let command = match goal.strip_prefix("test ").or_else(|| goal.strip_prefix("cover ")) {
         Some(sel) => crate::maven::test_command(&m.rel, sel.trim(), &prefs, &mvn)?,
         None => crate::maven::goal_command(&m.rel, goal, &prefs, &mvn)?,
     };
@@ -503,7 +504,7 @@ pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
 /// 单测任务（「模块 [test 选择器]」）调试时用的项目名：模块的 artifactId（m2e 默认拿它当项目名，求值要）。不是单测任务给 None
 pub fn test_project(root: &Path, name: &str) -> Option<String> {
     let (artifact, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
-    goal.strip_prefix("test ")?;
+    goal.strip_prefix("test ").or_else(|| goal.strip_prefix("cover "))?;
     Some(find_module(root, artifact)?.1.artifact_id)
 }
 
@@ -526,7 +527,7 @@ fn find_module(root: &Path, token: &str) -> Option<(String, crate::maven::Module
 /// 跑单测那次（「模块 [test 选择器]」）的模块目录（绝对路径）：读它 `target/surefire-reports` 里的结果。不是测试任务给 None
 pub fn test_module_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
     let (token, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
-    goal.strip_prefix("test ")?;
+    goal.strip_prefix("test ").or_else(|| goal.strip_prefix("cover "))?;
     let (rel, m) = find_module(root, token)?;
     Some(root.join(rel).join(m.rel))
 }

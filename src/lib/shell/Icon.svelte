@@ -76,6 +76,9 @@
     "structure",
     "bookmarks",
     "bookmark",
+    // 覆盖率（docs/TAKEOVER.md G15）：带覆盖率跑（彩色）、覆盖率工具窗
+    "run-coverage",
+    "coverage",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];
@@ -140,6 +143,7 @@
       [data-n="folder"],
       [data-n="compact"],
       [data-n="bookmark"],
+      [data-n="run-coverage"],
       [data-n="run"],
       [data-n="stop"],
       [data-n="rerun"],

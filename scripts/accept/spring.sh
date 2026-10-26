@@ -262,6 +262,27 @@ ok "$([ "${MID%%|*}" = running ] && [ "$(echo "${MID}" | cut -d'|' -f2)" = 1 ] &
 lite_wait main "const r = __lite.runs.list.find((x) => x.name === '${LIVE}'); return r?.status !== 'running' && r?.tests?.cases.length === 2" 120 >/dev/null
 ok "$([ "$(lite_eval main "const r = __lite.runs.list.find((x) => x.name === '${LIVE}'); return r?.status !== 'running' && r?.tests?.cases.length === 2 && r.tests.cases.every((c) => c.outcome === 'passed')")" = true ] && echo 1)" "跑完：两个类都在、都过了"
 
+echo "== 覆盖率（docs/TAKEOVER.md G15）：带覆盖率跑 OrderMathTest（JaCoCo 的代理挂在 surefire fork 的 JVM 上）→ 覆盖率工具窗列出兄弟模块的 Money.java，编辑器里跑到的行绿、没跑到的红"
+COV="order-service [cover com.demo.order.OrderMathTest]"
+lite_eval main "__lite.runTask('${COV}'); return true" >/dev/null
+lite_wait main "const r = __lite.runs.list.find((x) => x.name === '${COV}'); return r?.status !== 'running' && !!r?.tests" 240 >/dev/null
+CMD=$(lite_eval main "return __lite.runs.list.find((x) => x.name === '${COV}')?.command ?? ''")
+ok "$(echo "${CMD}" | grep -q "maven.surefire.debug=-javaagent:.*jacocoagent.jar=destfile=" && [ "$(lite_eval main "const r = __lite.runs.list.find((x) => x.name === '${COV}'); return r.tests.cases.map((c) => c.name + ':' + c.outcome).sort().join(',')")" = "failsOnPurpose:failed,usesSiblingModule:passed" ] && echo 1)" "代理挂在 surefire fork 的 JVM 上（借 maven.surefire.debug、不碰 argLine），测试结果照旧 1 过 1 没过"
+lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('行覆盖率')" 60 >/dev/null
+TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")
+lite menu tw-coverage main >/dev/null
+lite_wait main "return [...document.querySelectorAll('.cov .row .name')].some((e) => e.textContent === 'Money.java')" 15 >/dev/null
+ROWS=$(lite_eval main "return [...document.querySelectorAll('.cov .row')].map((r) => r.querySelector('.name').textContent + ' ' + r.querySelector('.pct').textContent).join(', ')")
+ok "$(echo "${ROWS}" | grep -q 'Money.java' && echo "${TOAST}" | grep -q '行覆盖率' && echo 1)" "跑完胶囊说行覆盖率（${TOAST}）；覆盖率工具窗列出兄弟模块 shop-common 的 Money.java：${ROWS}"
+lite_eval main "await __lite.tabflow.openPath('${P}/shop-common/src/main/java/com/demo/common/Money.java', { preview: false }); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-lineNumbers .cm-cov').length > 0" 15 >/dev/null
+GUT=$(lite_eval main "return [...document.querySelectorAll('.cm-lineNumbers .cm-cov')].map((e) => e.textContent.trim() + ':' + (e.classList.contains('cm-cov-hit') ? 'hit' : e.classList.contains('cm-cov-miss') ? 'miss' : 'part')).join(',')")
+ok "$(echo ",${GUT}," | grep -q ',2:hit,' && echo ",${GUT}," | grep -q ',4:miss,' && echo 1)" "Money.java：测试用到的 record 那行（第 2 行）绿、没调到的 show() 里（第 4 行）红：${GUT}"
+lite_eval main "document.querySelector('.cov .bar button')?.click(); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-lineNumbers .cm-cov').length === 0" 5 >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-lineNumbers .cm-cov').length")" = 0 ] && echo 1)" "工具窗里「清掉」：编辑器里的颜色一起收了"
+lite menu tw-coverage main >/dev/null
+
 echo "== 调试（docs/IDEA.md 第 18 节）：Services 里点虫子 → JVM 停在入口等调试器 → jdtls 里的 java-debug 挂上去 → 停在兄弟模块的断点上；变量带 toString、求值、单步、继续之后照常跑完"
 MONEY="${P}/shop-common/src/main/java/com/demo/common/Money.java"
 lite_eval main "await __lite.tabflow.openPath('${MONEY}', { preview: false }); await __lite.debug.breakpoints('${P}', '${MONEY}', [4]); return true" >/dev/null

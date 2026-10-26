@@ -68,7 +68,8 @@
     void nav.openAt(path, line >= 0 ? line + 1 : 1, false);
   }
 
-  const again = (sel: string) => task && void runTask(`${task.module} [test ${sel}]`, run.root);
+  // 重跑照原样：带覆盖率跑的那次重跑还带（G15）
+  const again = (sel: string, cover = task?.cover ?? false) => task && void runTask(`${task.module} [${cover ? "cover" : "test"} ${sel}]`, run.root);
 </script>
 
 <div class="tt">
@@ -87,6 +88,7 @@
     <span class="gap"></span>
     <button class="ibtn" disabled={running || !task} onclick={() => task && again(task.selector)} title="重跑这些测试（⌃R）" aria-label="重跑"><Icon name="rerun" /></button>
     <button class="ibtn" disabled={running || !retry} onclick={() => retry && again(retry)} title="只重跑没过的" aria-label="重跑没过的"><Icon name="run" /></button>
+    <button class="ibtn" disabled={running || !task} onclick={() => task && again(task.selector, true)} title="带覆盖率重跑这些测试（JaCoCo）" aria-label="带覆盖率重跑"><Icon name="run-coverage" /></button>
   </div>
   <div class="tree" role="tree" aria-label="测试结果">
     {#if !running && !cases.length}

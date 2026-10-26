@@ -14,6 +14,8 @@
 | `icons/bell.svg` | `platform/icons/src/expui/toolwindows/notifications_dark.svg`（2026-10-23 换掉自绘的暂代版） |
 | `icons/structure.svg` | `platform/icons/src/expui/toolwindows/structure_dark.svg`（结构工具窗原来暂用 `compact` 那个「按包分组」） |
 | `icons/bookmarks.svg` | `platform/icons/src/expui/toolwindows/bookmarks_dark.svg` |
+| `icons/run-coverage.svg` | `platform/icons/src/expui/run/runWithCoverage_dark.svg` |
+| `icons/coverage.svg` | `platform/icons/src/expui/toolwindows/coverage_dark.svg` |
 | `icons/bookmark.svg` | `platform/icons/src/expui/gutter/bookmark_dark.svg`（14×14，黄色，行号旁的书签） |
 | `icons/tag.svg` | **lite-ide 自绘**：IDEA 新 UI 没有 git 标签的独立图标（提交历史里的标签是代码画的色块，`nodes/tag` 是 XML 标签 `<>`）。描边按新 UI 的 1px 画 |
 | `icons/maven.svg` | `plugins/maven/src/main/resources/images/expui/toolwindow/maven_dark.svg`（Maven 插件的工具窗图标，不在 platform/icons 里） |

@@ -18,6 +18,8 @@ export function toggleToolKey(id: string) {
       return layout.toggleTool("problems");
     case "tw-notifications":
       return layout.toggleTool("notifications");
+    case "tw-coverage":
+      return layout.toggleTool("coverage");
     case "tw-bookmarks":
       return layout.toggleTool("bookmarks");
     case "tw-todo":

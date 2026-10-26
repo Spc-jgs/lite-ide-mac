@@ -248,6 +248,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "tw-todo", "TODO", None)?)
         .item(&item(app, "tw-notifications", "通知", None)?)
         .item(&item(app, "tw-bookmarks", "书签", Some("CmdOrCtrl+F3"))?)
+        .item(&item(app, "tw-coverage", "覆盖率", None)?)
         .build()?;
 
     let view = SubmenuBuilder::new(app, "视图")

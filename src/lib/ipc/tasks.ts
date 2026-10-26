@@ -1,6 +1,6 @@
 /** 任务（#48）的命令包装：只有任务列表 / 运行工具窗用，它们是懒的（同 ipc/pty.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { BuildProblems, MavenProject, MavenResolved, Service, StuckProc, TaskHeap, TaskList, TaskRun, TaskStale, TestResults } from "./commands";
+import type { BuildProblems, Coverage, MavenProject, MavenResolved, Service, StuckProc, TaskHeap, TaskList, TaskRun, TaskStale, TestResults } from "./commands";
 
 /** 这个项目的全部任务：`.lite-ide/tasks.json` 里的 + 自动认出的 package.json scripts */
 export const taskList = (root: string) => invoke<TaskList>("task_list", { root });
@@ -32,6 +32,9 @@ export const taskStaleResolve = (root: string, kill: boolean) => invoke<void>("t
 
 /** 跑单测那次（「模块 [test 选择器]」）的结果：`sinceMs` 之后写的 surefire 报告 */
 export const testResults = (root: string, name: string, sinceMs: number) => invoke<TestResults>("test_results", { root, name, sinceMs });
+
+/** 带覆盖率跑的那次（「模块 [cover …]」）跑完：出报告（G15） */
+export const coverageReport = (root: string, name: string) => invoke<Coverage>("coverage_report", { root, name });
 
 /** 构建（⌘F9）那次的编译错误：从这次运行的输出文件里认 */
 export const buildProblems = (log: string) => invoke<BuildProblems>("build_problems", { log });

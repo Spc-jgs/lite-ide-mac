@@ -186,6 +186,15 @@ pub fn parse_report(xml: &str) -> Vec<Case> {
 /// 2026-10-23 加边跑边出（G15）时 spring.sh 撞见的：跑 LiveA / LiveB 两个类，结果树里多出上一次的 OrderMathTest。
 /// 选择器写的是全名就比全名，只写了类名（surefire 也认）就比最后一段；带 `*` 的不筛（通配交给 surefire，这里不去学它的规则）。
 /// `@Nested` 的报告类名是 `外层$内层`，按外层算
+/// 任务名里的选择器：「模块 [test 选择器]」和带覆盖率的「模块 [cover 选择器]」（G15）。不是测试任务给 `*`（不筛）。
+/// **两种都要认**：覆盖率第一版只认 `[test `，带覆盖率跑的那次就退成「不筛」，上一次跑的别的类的报告又混进来了（2026-10-23 spring.sh 撞见）
+pub fn selector_of(name: &str) -> &str {
+    name.strip_suffix(']')
+        .and_then(|n| n.rsplit_once(" ["))
+        .and_then(|(_, g)| g.strip_prefix("test ").or_else(|| g.strip_prefix("cover ")))
+        .unwrap_or("*")
+}
+
 pub fn in_selector(selector: &str, class: &str) -> bool {
     if selector.contains('*') {
         return true;
@@ -312,5 +321,8 @@ mod tests {
         assert!(!in_selector("MathTest", "com.demo.OrderMathTest"), "类名要整段对上");
         assert!(in_selector("com.demo.OuterTest", "com.demo.OuterTest$Inner"), "@Nested 按外层算");
         assert!(in_selector("com.demo.*Test", "com.demo.Whatever"), "带通配的不筛");
+        assert_eq!(selector_of("order [test com.demo.A#x]"), "com.demo.A#x");
+        assert_eq!(selector_of("order [cover com.demo.A]"), "com.demo.A", "带覆盖率跑的也认");
+        assert_eq!(selector_of("order [package]"), "*");
     }
 }

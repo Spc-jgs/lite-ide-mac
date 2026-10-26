@@ -108,6 +108,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("JavaResolvedDto", "JavaResolved"),
     ("JavaRenameTargetDto", "JavaRenameTarget"),
     ("JavaMoveDestDto", "JavaMoveDest"),
+    ("CoverageDto", "Coverage"),
+    ("CoverageFileDto", "CoverageFile"),
     ("JavaMovePreviewDto", "JavaMovePreview"),
     ("JavaActionDto", "JavaAction"),
     ("TestCaseDto", "TestCase"),

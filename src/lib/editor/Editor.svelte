@@ -11,6 +11,7 @@
   import { idKeymap } from "./id-keys";
   import { stickyLinesExt, stickyTheme } from "./sticky";
   import { bookmarks } from "./bookmarks-ext";
+  import { coverage } from "./coverage-ext";
   import { formatJson } from "./format-json";
   import { notify } from "../state/notify.svelte";
   import { saveHistory, stateWithHistory } from "./undo-store";
@@ -471,6 +472,8 @@
         stickyTheme,
         // 书签（F3，docs/TAKEOVER.md G18）：任何文件都能打；草稿本里记在「没项目」那一格
         ...(histKey && !histKey.startsWith("jdt:") ? [bookmarks(untrack(() => project.root), histKey)] : []),
+        // 覆盖率（docs/TAKEOVER.md G15）：最近一次带覆盖率跑的报告里有这个文件就画
+        ...(histKey ? [coverage(histKey)] : []),
         EditorView.domEventHandlers({ contextmenu: (e, v) => openContextMenu(e, v) }),
         ideaDarkTheme,
         ideaDarkHighlight,

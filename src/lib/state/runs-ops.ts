@@ -7,9 +7,10 @@ import { exitText } from "../run/exit-text";
 import { layout } from "./layout.svelte";
 import { project } from "./project.svelte";
 import { notify } from "./notify.svelte";
+import { progress } from "./progress.svelte";
 import { overlay } from "./overlay.svelte";
 import { listenHere, type TaskExit } from "../ipc/commands";
-import { buildProblems, runCompoundItems, servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, taskStuck, testResults } from "../ipc/tasks";
+import { buildProblems, coverageReport, runCompoundItems, servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, taskStuck, testResults } from "../ipc/tasks";
 
 let listening: Promise<unknown> | null = null;
 
@@ -130,7 +131,7 @@ export async function hotswap(head = "") {
  * 「模块 [test …]」：同 java-tests.ts 的 parseTestTask，这里只要判断。**不引那个模块**：入口里那句 import("runs-ops") 要列出它静态依赖的每个块的文件名，
  * 多引一个就多一个（2026-10-19 量的：+41 B、越过入口包的告警线）
  */
-const isTestRun = (name: string) => /^.+ \[test .+\]$/.test(name);
+const isTestRun = (name: string) => /^.+ \[(test|cover) .+\]$/.test(name);
 
 /**
  * 跑单测那次结束了：读这次写的 surefire 报告（docs/IDEA.md 第 17 节），交给运行窗的结果树和编辑器行号旁的 ✓ / ✗，说一句结果。
@@ -149,6 +150,7 @@ async function loadTests(id: number) {
     const bad = res.cases.filter((c) => c.outcome === "failed" || c.outcome === "error").length;
     const good = res.cases.filter((c) => c.outcome === "passed").length;
     if (!res.cases.length) notify.fail(`「${r.name}」一个测试结果都没有（编译没过、或者没找到这个测试），看输出`, 8000);
+    else if (/ \[cover /.test(r.name)) void loadCoverage(r.root, r.name, good, bad);
     else if (bad) notify.fail(`${good} 个通过 · ${bad} 个没过`);
     else notify.ok(`${good} 个测试全部通过`);
   } catch (e) {
@@ -177,6 +179,28 @@ async function watchTests(id: number) {
     now.tests = res;
     const { noteOutcomes } = await import("../run/test-outcomes");
     noteOutcomes(res.cases);
+  }
+}
+
+/**
+ * 带覆盖率跑的那次（「模块 [cover …]」，docs/TAKEOVER.md G15）跑完：出报告（JaCoCo 的命令行，一两秒）、交给编辑器和覆盖率工具窗，
+ * 胶囊上说一句测试结果和总的行覆盖率，带一个「看覆盖率」。报告和画它的都在懒块里（动态引，同 isTestRun 那条理由）
+ */
+async function loadCoverage(root: string, name: string, good: number, bad: number) {
+  const t = progress.start("正在出覆盖率报告");
+  try {
+    const [rep, cov] = await Promise.all([coverageReport(root, name), import("./coverage")]);
+    cov.setCoverage(name, rep);
+    const { pct, hit, all } = cov.totalPct(rep.files);
+    const tests = bad ? `${good} 个通过 · ${bad} 个没过` : `${good} 个测试全部通过`;
+    const msg = `${tests} · 行覆盖率 ${Math.round(pct * 100)}%（${hit} / ${all} 行）`;
+    const act = { label: "看覆盖率", run: () => layout.toggleTool("coverage") };
+    if (bad) notify.fail(msg, undefined, act);
+    else notify.ok(msg, undefined, act);
+  } catch (e) {
+    notify.fail(`覆盖率报告出不来：${e instanceof Error ? e.message : String(e)}`, 8000);
+  } finally {
+    t.end();
   }
 }
 

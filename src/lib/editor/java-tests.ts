@@ -80,12 +80,13 @@ export function moduleOf(root: string, path: string): string | null {
 }
 
 /** 任务名：`模块 [test 类#方法]`（和 Maven 工具窗跑目标同一个形状，Rust 的 taskdefs 认它） */
-export const testTaskName = (module: string, t: Pick<TestTarget, "cls" | "method">) => `${module} [test ${t.cls}${t.method ? `#${t.method}` : ""}]`;
+export const testTaskName = (module: string, t: Pick<TestTarget, "cls" | "method">, cover = false) => `${module} [${cover ? "cover" : "test"} ${t.cls}${t.method ? `#${t.method}` : ""}]`;
 
 /** 从任务名拆回模块和选择器；不是测试任务给 null */
-export function parseTestTask(name: string): { module: string; selector: string } | null {
-  const m = /^(.+) \[test (.+)\]$/.exec(name);
-  return m ? { module: m[1], selector: m[2] } : null;
+/** 「模块 [test 选择器]」/ 带覆盖率的「模块 [cover 选择器]」（G15）。`cover`：是不是带覆盖率跑的（重跑照原样） */
+export function parseTestTask(name: string): { module: string; selector: string; cover: boolean } | null {
+  const m = /^(.+) \[(test|cover) (.+)\]$/.exec(name);
+  return m ? { module: m[1], selector: m[3], cover: m[2] === "cover" } : null;
 }
 
 /** 重跑失败的：surefire 的选择器 `A#x+y,B#z`（同一个类的几个方法用 `+`，几个类用 `,`）。参数化测试的名字带括号（`adds(int)[1]`），只取括号前那段 */

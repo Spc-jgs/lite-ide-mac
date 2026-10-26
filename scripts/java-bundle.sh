@@ -27,6 +27,13 @@ DEBUG_VERSION=0.53.1
 DEBUG_FILE=com.microsoft.java.debug.plugin-${DEBUG_VERSION}.jar
 DEBUG_URL="https://repo1.maven.org/maven2/com/microsoft/java/com.microsoft.java.debug.plugin/${DEBUG_VERSION}/${DEBUG_FILE}"
 DEBUG_SHA256=4f4778d452a6a0665536f43ce4e32403a24be6593336b80dc85a322912859e24
+# 覆盖率（docs/TAKEOVER.md G15，2026-10-23 定的要做）：JaCoCo 的代理（挂在 surefire fork 的测试 JVM 上记哪些行跑过）和它的命令行（跑完出 XML 报告）。
+# Maven Central 只给 sha1；下面的 sha256 是核过 sha1（agent 14df437c…、cli 1da22eb9…）之后算的。约 300 KB + 600 KB，EPL 2.0
+JACOCO_VERSION=0.8.15
+JACOCO_AGENT_URL="https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/${JACOCO_VERSION}/org.jacoco.agent-${JACOCO_VERSION}-runtime.jar"
+JACOCO_AGENT_SHA256=fb5b0036a0899ea97edfa0fc2c7985b55f3f7c5695028163e5e60d4f3cf6075d
+JACOCO_CLI_URL="https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/${JACOCO_VERSION}/org.jacoco.cli-${JACOCO_VERSION}-nodeps.jar"
+JACOCO_CLI_SHA256=d2b74b20b415163c1f53261e7c5ef4445b788327094208ff821e0c2baf9bc8f1
 # 运行时只给 jdtls 自己跑（项目编译用你机器上的 JDK：jdtls 自己用 `java_home -X` 认得到，lspsvc::jdtls::init_options 那段注释）。挑法和量出来的数在 IDEA.md 第 10 节：
 # java.se 整套（项目找不到匹配的 JDK 时 jdtls 拿它当类库，缺一块就是假报错）+ jdtls 跑起来要的 + 第 5 步调试要的（jdi / jdwp / attach）
 MODULES=java.se,jdk.unsupported,jdk.zipfs,jdk.crypto.ec,jdk.charsets,jdk.management,jdk.jdi,jdk.jdwp.agent,jdk.attach,jdk.net,jdk.naming.dns,jdk.security.auth,jdk.xml.dom,jdk.jfr
@@ -45,7 +52,7 @@ VER=$(jver "${JDK}")
 # 热替换的 agent（docs/IDEA.md 第 26 节）：我们自己的 Java 源码，打包时编。源码一改 stamp 就变、整份重来
 AGENT_SRC=src-tauri/crates/hotswap/agent
 AGENT_SUM=$(find "${AGENT_SRC}" -name '*.java' | sort | xargs cat | shasum -a 256 | cut -c1-16)
-stamp="jdtls=${JDTLS_VERSION} ${JDTLS_SHA256} debug=${DEBUG_VERSION} agent=${AGENT_SUM} java=${VER} modules=${MODULES} arches=${ARCHES[*]}"
+stamp="jdtls=${JDTLS_VERSION} ${JDTLS_SHA256} debug=${DEBUG_VERSION} jacoco=${JACOCO_VERSION} agent=${AGENT_SUM} java=${VER} modules=${MODULES} arches=${ARCHES[*]}"
 if [ -f "${OUT}/.stamp" ] && [ "$(cat "${OUT}/.stamp")" = "${stamp}" ]; then
   echo "java-bundle：没变（${stamp}）"
   exit 0
@@ -71,8 +78,24 @@ if [ ! -f "${dbg}" ] || [ "$(shasum -a 256 "${dbg}" | cut -d' ' -f1)" != "${DEBU
   mv "${dbg}.download" "${dbg}"
 fi
 
+# 下一个 Maven Central 上的 jar 到缓存、核 sha256：fetch <缓存文件名> <地址> <sha256> <说给人听的名字>
+fetch() {
+  local f="${CACHE}/$1"
+  if [ ! -f "${f}" ] || [ "$(shasum -a 256 "${f}" | cut -d' ' -f1)" != "$3" ]; then
+    echo "下载 $4：$2"
+    curl -fL --proto '=https' --proto-redir '=https' -o "${f}.download" "$2"
+    local got; got=$(shasum -a 256 "${f}.download" | cut -d' ' -f1)
+    [ "${got}" = "$3" ] || { rm -f "${f}.download"; echo "$4 的 sha256 对不上：${got}" >&2; exit 1; }
+    mv "${f}.download" "${f}"
+  fi
+}
+fetch "jacocoagent-${JACOCO_VERSION}.jar" "${JACOCO_AGENT_URL}" "${JACOCO_AGENT_SHA256}" "JaCoCo 代理 ${JACOCO_VERSION}（约 300 KB）"
+fetch "jacococli-${JACOCO_VERSION}.jar" "${JACOCO_CLI_URL}" "${JACOCO_CLI_SHA256}" "JaCoCo 命令行 ${JACOCO_VERSION}（约 600 KB）"
+
 rm -rf "${OUT}.partial"
-mkdir -p "${OUT}.partial/jdtls"
+mkdir -p "${OUT}.partial/jdtls" "${OUT}.partial/jacoco"
+cp "${CACHE}/jacocoagent-${JACOCO_VERSION}.jar" "${OUT}.partial/jacoco/jacocoagent.jar"
+cp "${CACHE}/jacococli-${JACOCO_VERSION}.jar" "${OUT}.partial/jacoco/jacococli.jar"
 tar -xzf "${tgz}" -C "${OUT}.partial/jdtls"
 # jdtls 自带的 Python 启动脚本和别的系统的配置用不上（我们自己拼命令行，只在 macOS 上跑），不进包
 rm -rf "${OUT}.partial/jdtls/bin" "${OUT}.partial/jdtls"/config_{linux,linux_arm,win,ss_linux,ss_linux_arm,ss_win,ss_mac,ss_mac_arm}

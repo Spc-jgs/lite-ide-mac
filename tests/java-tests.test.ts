@@ -54,7 +54,10 @@ eq(moduleOf("/p", "/other/src/test/java/A.java"), null, "不在项目里");
 
 eq(testTaskName("order", { cls: "com.demo.OrderTest", method: "adds" }), "order [test com.demo.OrderTest#adds]", "任务名");
 eq(testTaskName(".", { cls: "T", method: null }), ". [test T]", "整个类");
-eq(parseTestTask("order [test com.demo.OrderTest#adds]"), { module: "order", selector: "com.demo.OrderTest#adds" }, "拆回来");
+eq(parseTestTask("order [test com.demo.OrderTest#adds]"), { module: "order", selector: "com.demo.OrderTest#adds", cover: false }, "拆回来");
+// 带覆盖率跑（G15）：「模块 [cover 选择器]」，重跑照原样
+eq(testTaskName("order", { cls: "com.demo.OrderTest", method: null }, true), "order [cover com.demo.OrderTest]", "带覆盖率的任务名");
+eq(parseTestTask("order [cover com.demo.OrderTest]"), { module: "order", selector: "com.demo.OrderTest", cover: true }, "带覆盖率的拆回来");
 eq(parseTestTask("order-service [package]"), null, "跑目标的不是测试");
 
 eq(failedSelector([

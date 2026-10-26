@@ -951,6 +951,23 @@ pub struct JavaRenameTargetDto {
     pub placeholder: Option<String>,
 }
 
+/// 覆盖率报告（docs/TAKEOVER.md G15）：每个源文件哪几行跑到了 / 跑到一部分 / 没跑到。没跑到多的排前面，最多列 `coverage::FILES_MAX` 个，`total` 是真个数
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageDto {
+    pub files: Vec<CoverageFileDto>,
+    pub total: u32,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageFileDto {
+    pub path: String,
+    pub covered: Vec<u32>,
+    pub partial: Vec<u32>,
+    pub missed: Vec<u32>,
+}
+
 /// 移动类（F6，docs/TAKEOVER.md G12）能去的一个包
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

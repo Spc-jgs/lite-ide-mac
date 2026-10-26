@@ -10,7 +10,7 @@
  * 在 0ms 返回的桩上看不见（frontend.md「桩要能停在中间一会儿」）；停止中再停一次立刻报退出（强杀）。
  * 输出不会长（桩的日志源是打开那一刻的快照），跟随在桩上验不到 —— 要在真 .app 上看。
  */
-import { type A, bump, FILES, NOT_MINE } from "./data";
+import { type A, bump, FILES, NOT_MINE, sleep } from "./data";
 import { mockEmit } from "./events";
 import { mockDebugEnd, mockDebugStart } from "./debug";
 import { mockUserConfigs } from "./settings";
@@ -310,7 +310,8 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       const name = String(a.name);
       // Maven 工具窗的「artifactId [目标]」：不在列表里，按名字认（真实现在 taskdefs::maven_goal）。
       // 跑单测的「模块 [test 选择器]」同一个形状（第 17 节），选择器按 maven::safe_selector 的字符卡
-      const test = /^(.+) \[test ([\w.#$*+,]+)\]$/.exec(name);
+      // 带覆盖率的「模块 [cover 选择器]」（G15）同一个形状：命令一样（真实现再挂 JaCoCo 的代理，桩里不挂）
+      const test = /^(.+) \[(?:test|cover) ([\w.#$*+,]+)\]$/.exec(name);
       // 构建（⌘F9，第 22 节）：同 taskdefs::build，有 pom.xml 才认
       const build = (name === "构建项目" || name === "重新构建项目") && FILES[`${root}/pom.xml`] !== undefined;
       const goal = test ? null : /^(.+) \[([^\]]+)\]$/.exec(name);
@@ -386,6 +387,28 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
       });
     case "build_problems":
       return parseProblems(String(FILES[String(a.log)] ?? ""));
+    /*
+     * 覆盖率报告（G15，真实现：JaCoCo 的命令行出 XML、commands/tasks.rs 的 coverage_report）。桩：项目里每个 src/main/java 下的 .java，
+     * 有代码的行一半「跑到了」、名字带 Mapper 的全没跑到、第一个方法那行「跑到一部分」—— 编辑器三种颜色、工具窗的排序都看得到。等 600 ms（真的要起一个 JVM）
+     */
+    case "coverage_report": {
+      await sleep(600);
+      const root = String(a.root);
+      const files = Object.keys(FILES)
+        .filter((p) => p.startsWith(`${root}/`) && p.includes("/src/main/java/") && p.endsWith(".java"))
+        .map((path) => {
+          const code = FILES[path].split("\n").map((l, i) => [i + 1, l.trim()] as const).filter(([, l]) => l && !/^(package|import|\/\/|\*|\/\*|@|\}|\{)/.test(l)).map(([n]) => n);
+          const none = path.includes("Mapper");
+          const covered = none ? [] : code.filter((_, i) => i % 2 === 0);
+          const partial = none || !code.length ? [] : [code[1] ?? code[0]].filter((n) => !covered.includes(n));
+          const missed = code.filter((n) => !covered.includes(n) && !partial.includes(n));
+          return { path, covered, partial, missed };
+        })
+        .filter((f) => f.covered.length + f.partial.length + f.missed.length > 0);
+      const pct = (f: { covered: number[]; partial: number[]; missed: number[] }) => (f.covered.length + f.partial.length) / (f.covered.length + f.partial.length + f.missed.length);
+      files.sort((x, y) => pct(x) - pct(y) || x.path.localeCompare(y.path));
+      return { files, total: files.length };
+    }
     case "test_results": {
       // 真实现读 surefire 报告；桩按选择器从 FILES 里的测试类造（testCases）。还在跑的时候同 surefire：跑完一个类才有那个类的报告（G15），
       // 这里按开跑以来过了几个 CLASS_MS 给前几个类

@@ -86,6 +86,23 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
                 })
             }
         };
+        // 覆盖率（docs/TAKEOVER.md G15）：「模块 [cover …]」在 surefire fork 的测试 JVM 上挂 JaCoCo 的代理（理由在 coverage.rs 头上）
+        if crate::coverage::is_cover_run(&name) {
+            if debug.is_some() {
+                return Err("带覆盖率跑的时候不能同时调试（两样都要借 surefire 的同一个开关）".into());
+            }
+            let (agent, _, _) = crate::java::jacoco(&app).ok_or("这个构建没带 JaCoCo（开发构建）：用 pnpm app:bundle 打的包才有覆盖率")?;
+            let cache = app.path().app_cache_dir().map_err(|e| format!("找不到应用缓存目录：{e}"))?;
+            let exec = crate::coverage::exec_path(&cache, &root, &name);
+            if let Some(d) = exec.parent() {
+                std::fs::create_dir_all(d).map_err(|e| format!("建不了 {}：{e}", d.display()))?;
+            }
+            // 上一次的执行记录先删掉：这次测试一个都没跑起来（编译没过）的话，不能拿上一次的覆盖率冒充这次的
+            #[allow(clippy::disallowed_methods)] // 应用缓存目录里自己生成的执行记录，范围卡死在 coverage/*.exec
+            let _ = std::fs::remove_file(&exec);
+            def.command = crate::coverage::with_agent(&def.command, &agent, &exec)
+                .ok_or("JaCoCo 的路径里有空格（.app 放在带空格的目录里？），surefire 会把它拆开、测试 JVM 起不来 —— 把 lite-ide.app 挪到不带空格的目录")?;
+        }
         // surefire 那条路径带空格时没把代理塞进去：控制目录也就用不上，这次没有热替换
         if hot_dir.is_some() && !def.command.contains("-javaagent:") {
             if let Some(d) = hot_dir.take() {
@@ -196,8 +213,7 @@ pub async fn test_results(root: String, name: String, since_ms: u64) -> Result<T
         let Some(dir) = crate::taskdefs::test_module_dir(Path::new(&root), &name) else { return Ok(TestResultsDto { cases: Vec::new(), total: 0 }) };
         let since = std::time::UNIX_EPOCH + std::time::Duration::from_millis(since_ms);
         // 只留这次选的那几个类的（`junit::in_selector` 头上：背靠背跑两次，上一次的报告会落进宽限里）
-        let sel = name.strip_suffix(']').and_then(|n| n.rsplit_once(" [test ")).map_or("*", |(_, s)| s);
-        let (cases, total) = crate::junit::results(&dir, since, sel);
+        let (cases, total) = crate::junit::results(&dir, since, crate::junit::selector_of(&name));
         let cases = cases
             .into_iter()
             .map(|c| TestCaseDto {
@@ -216,6 +232,29 @@ pub async fn test_results(root: String, name: String, since_ms: u64) -> Result<T
             })
             .collect();
         Ok(TestResultsDto { cases, total: total as u32 })
+    })
+    .await
+}
+
+/// 带覆盖率跑的那次（「模块 [cover …]」）跑完：出报告（docs/TAKEOVER.md G15）。项目里所有模块的类和源码都给 JaCoCo（测试跑到兄弟模块的代码也算）
+#[tauri::command]
+pub async fn coverage_report(app: tauri::AppHandle, root: String, name: String) -> Result<CoverageDto, String> {
+    blocking(move || {
+        let (_, cli, java) = crate::java::jacoco(&app).ok_or("这个构建没带 JaCoCo（开发构建）")?;
+        let cache = app.path().app_cache_dir().map_err(|e| format!("找不到应用缓存目录：{e}"))?;
+        let exec = crate::coverage::exec_path(&cache, &root, &name);
+        let xml = exec.with_extension("xml");
+        let r = Path::new(&root);
+        let modules: Vec<_> = crate::maven::reactors(r)
+            .into_iter()
+            .flat_map(|rel| crate::maven::modules(&r.join(&rel)).into_iter().map(move |m| r.join(&rel).join(&m.rel)))
+            .map(|d| (d.join("target/classes"), d.join("src/main/java")))
+            .collect();
+        let (files, total) = crate::coverage::report(&java, &cli, &exec, &xml, &modules)?;
+        Ok(CoverageDto {
+            files: files.into_iter().map(|f| CoverageFileDto { path: f.path, covered: f.covered, partial: f.partial, missed: f.missed }).collect(),
+            total: total as u32,
+        })
     })
     .await
 }

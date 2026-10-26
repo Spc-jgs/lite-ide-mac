@@ -44,7 +44,7 @@ function markers(view: EditorView) {
   );
 }
 
-async function run(root: string, module: string, t: TestTarget, debug = false) {
+async function run(root: string, module: string, t: TestTarget, debug = false, cover = false) {
   if (debug) {
     // 调试走 debug-ops：先把断点全交给 Rust、没断点时说一句（同 Services 里点虫子）
     const { debugTask } = await import("../debug/debug-ops");
@@ -52,7 +52,7 @@ async function run(root: string, module: string, t: TestTarget, debug = false) {
     return;
   }
   const { runTask } = await import("../state/runs-ops");
-  await runTask(testTaskName(module, t), root);
+  await runTask(testTaskName(module, t, cover), root);
 }
 
 const short = (t: TestTarget) => (t.method ? `${t.cls.slice(t.cls.lastIndexOf(".") + 1)}.${t.method}` : t.cls.slice(t.cls.lastIndexOf(".") + 1));
@@ -80,6 +80,8 @@ async function menu(view: EditorView, x: number, y: number, root: string, module
       items: [
         { label: `运行 '${short(t)}'`, keys: "⌃⇧R", run: () => void run(root, module, t) },
         { label: `调试 '${short(t)}'`, keys: "⌃⇧D", run: () => void run(root, module, t, true) },
+        // IDEA 的 Run with Coverage（docs/TAKEOVER.md G15）：跑完行号旁标出哪些行跑到了，底部「覆盖率」工具窗列每个文件
+        { label: `带覆盖率运行 '${short(t)}'`, run: () => void run(root, module, t, false, true) },
       ],
       onclose: close,
     },

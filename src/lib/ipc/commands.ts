@@ -249,6 +249,18 @@ export interface TestCase {
 }
 
 /** 一次跑单测的结果。`total` 比 `cases` 多 = 截了 */
+/** 覆盖率报告（docs/TAKEOVER.md G15）：每个源文件哪几行跑到了 / 跑到一部分 / 没跑到（行从 1 数）。没跑到多的排前面 */
+export interface Coverage {
+  files: CoverageFile[];
+  total: number;
+}
+export interface CoverageFile {
+  path: string;
+  covered: number[];
+  partial: number[];
+  missed: number[];
+}
+
 export interface TestResults {
   cases: TestCase[];
   total: number;

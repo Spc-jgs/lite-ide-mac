@@ -1505,6 +1505,13 @@ pub fn hotswap_jar(app: &AppHandle) -> Option<PathBuf> {
     bundled(app).map(|d| d.join("hotswap/lite-hotswap.jar")).filter(|p| p.is_file())
 }
 
+/// 覆盖率（docs/TAKEOVER.md G15）：内置的 JaCoCo 代理、命令行（scripts/java-bundle.sh 下的），和跑命令行用的内置 Java。开发构建没有
+pub fn jacoco(app: &AppHandle) -> Option<(PathBuf, PathBuf, PathBuf)> {
+    let d = bundled(app)?;
+    let (agent, cli, java) = (d.join("jacoco/jacocoagent.jar"), d.join("jacoco/jacococli.jar"), d.join(runtime_dir_name()).join("bin/java"));
+    (agent.is_file() && cli.is_file() && java.is_file()).then_some((agent, cli, java))
+}
+
 /// 内置运行时的目录名：一个架构一份（universal 包里两份都有，起的时候挑这台机器的）
 fn runtime_dir_name() -> String {
     format!("runtime-{}", std::env::consts::ARCH)
