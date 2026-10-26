@@ -113,3 +113,12 @@ export const LANE_COLORS = [
 ];
 
 export const laneColor = (i: number) => LANE_COLORS[i % LANE_COLORS.length];
+
+/**
+ * 这一行的图要占几条泳道宽：这一行**真用到的**最右那条 + 1（照 IDEA：标题紧跟在本行的线后面）。
+ * 原来每一行都按整份历史里最多的泳道数（`Graph.width`）给宽 —— 一个分支多的仓库开着「全部分支」，图那一列宽到把标题、作者、时间
+ * 整个挤出行外，每行只剩最左边几条线（2026-10-26 用户截图）
+ */
+export function rowWidth(g: GraphRow): number {
+  return Math.max(g.lane, ...g.ins, ...g.outs, ...g.through) + 1;
+}

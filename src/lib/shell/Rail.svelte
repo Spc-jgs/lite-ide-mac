@@ -31,8 +31,6 @@
     onTogglePanel: (v: PanelTool) => void;
   } = $props();
 
-  /** 侧边栏此刻在不在屏幕上（不是偏好，是判决）：按钮亮不亮、tooltip 说收起还是展开都看它 */
-  let shown = $derived(layout.sideShown(root !== null));
   /** Maven 项目：pom.xml 在项目根或第一层子目录（同 Rust 的 `maven::reactors`）。按 ⌘P 那份文件索引判，不为它多问一次盘 */
   let maven = $derived(files.list.some((p) => p === "pom.xml" || /^[^/]+\/pom\.xml$/.test(p)));
 </script>
@@ -45,17 +43,11 @@
   结果同一个按钮在两个状态间横跳约 290 像素，每次都要重新找它在哪。
   控件的位置必须是肌肉记忆能记住的。
 -->
+<!--
+  顶上原来还有一个「展开 / 收起侧边栏」的开关（2026-10-26 用户问「这个按钮存在的必要」，删了）：
+  点导轨上当前亮着的那个视图就是收起、再点就展开 —— 同一件事印了两遍（ui.md 第六条）。键位（⌘1）和「视图」菜单那一项照旧
+-->
 <nav class="rail" aria-label="侧边栏工具">
-  <button
-    class="ibtn lg rbtn"
-    class:on={shown}
-    onclick={() => layout.toggleSidebar(root !== null)}
-    title={shown ? "收起侧边栏 ⌘1" : "展开侧边栏 ⌘1"}
-    aria-label={shown ? "收起侧边栏" : "展开侧边栏"}
-    aria-expanded={shown}
-  >
-    <Icon name="sidebar" />
-  </button>
   {#if root}
     <!--
       侧边栏的四个视图一个模板（2026-10-22 结构窗 ⌘7 进来时合的，同底部那组 10-19 的做法：同样的一段写四遍要付四份，入口包离告警线只剩几百字节）。
@@ -63,7 +55,7 @@
         IDEA 的提交工具窗图标就是这么标的）。99 封顶：三位数会把 26px 的按钮撑变形，「128 还是 132」在这儿没人要看
       - tooltip 里的 ⌘K、⌘7 是写死的：从 keymap.ts 取（byId）会把整张键位表拽进入口包（2026-09-23 实测 +6.8 KB）。改键位时这里跟着改
       - Maven 工具窗（docs/IDEA.md 第 1 步）：Maven 项目才有。IDEA 里它是独立的工具窗，这里也是（抄层级）
-      - 结构（⌘7，docs/TAKEOVER.md G17）：图标暂用「按包分组」那个，上游的 structure 图标还没下
+      - 结构（⌘7，docs/TAKEOVER.md G17）：上游的 structure 图标（2026-10-23 拉下来的，D11）
     -->
     {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 改动", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: " ⌘7", n: 0 }] as const as b}
       {#if b.on}

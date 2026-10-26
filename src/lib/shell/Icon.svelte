@@ -10,7 +10,6 @@
     "commit",
     "folder",
     "tag",
-    "sidebar",
     "files",
     "git",
     "search",

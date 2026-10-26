@@ -1338,7 +1338,8 @@ menu git-refresh
 lite_wait "${W}" "return document.querySelector('.op button.primary')?.disabled === false" 10 >/dev/null
 lite eval "${W}" "[...document.querySelectorAll('.op button')].find((b) => b.textContent.trim() === '继续').click(); return true" >/dev/null 2>&1
 wait_for 40 '[ "$(git -C "'"${FIX}"'" rev-list --parents -n1 HEAD | wc -w | tr -d " ")" = 3 ]'
-check "$(git -C "${FIX}" rev-list --parents -n1 HEAD | wc -w | tr -d ' ')|$(lite eval "${W}" "return !!document.querySelector('.op')" 2>/dev/null)" "3|false" "点「继续」：做出一个合并提交（两个父）、横幅收起"
+OPDIAG=$(lite eval "${W}" "return 'toast=' + (document.querySelector('.toast')?.textContent ?? '') + ' 横幅=' + (document.querySelector('.op')?.innerText.replace(/\\s+/g, ' ') ?? '无') + ' 对话框=' + (document.querySelector('.dialog, .confirm')?.innerText.replace(/\\s+/g, ' ').slice(0, 80) ?? '无')" 2>/dev/null)
+check "$(git -C "${FIX}" rev-list --parents -n1 HEAD | wc -w | tr -d ' ')|$(lite eval "${W}" "return !!document.querySelector('.op')" 2>/dev/null)" "3|false" "点「继续」：做出一个合并提交（两个父）、横幅收起（${OPDIAG}；git status：$(git -C "${FIX}" status --short | head -3 | tr '\n' ' ')）"
 HG switch -qc op-rb op-side; printf 'rb\n' > "${FIX}/op.txt"; HG commit -qam "op rb"
 RB0=$(git -C "${FIX}" rev-parse HEAD)
 HG rebase "${OPB}"
@@ -1502,6 +1503,22 @@ lite_wait "${W}" "return !!document.querySelector('.image .empty-msg')" 6 >/dev/
 check "$(lite eval "${W}" "return __lite.tabs.active?.mode + '|' + (document.querySelector('.image .empty-msg')?.textContent.includes('在「预览」里打开') ?? false)" 2>/dev/null)" "image|true" "PDF：不再是日志模式的乱码，说清不在这里画、给一个「在『预览』里打开」"
 menu close-tab; sleep 0.3
 rm -f "${FIX}/spec.pdf" "${BMF}"
+
+say "㊸ 提交历史分支多的时候标题照样有位置（2026-10-26 用户截图：开着「全部分支」，图那一列把标题、作者、时间全挤出了行外）"
+W=main
+# 25 条并行的分支，各一个提交 —— 「全部分支」时图要 25 条泳道宽
+LB0=$(git -C "${FIX}" rev-parse --abbrev-ref HEAD)
+# 每条分支各一个提交，不切工作区（commit-tree + update-ref：测试仓库的工作区里还有别的段留下的东西）
+T=$(git -C "${FIX}" rev-parse "${LB0}^{tree}")
+for n in $(seq 1 25); do
+  C=$(git -C "${FIX}" -c user.name=t -c user.email=t@t.t commit-tree "$T" -p "${LB0}" -m "lane commit $n")
+  git -C "${FIX}" update-ref "refs/heads/lanes-$n" "$C"
+done
+menu git-log
+lite_wait "${W}" "return [...document.querySelectorAll('.rows > .crow')].some((r) => r.textContent.includes('lane commit'))" 15 >/dev/null
+check "$(lite eval "${W}" "const rs = [...document.querySelectorAll('.rows > .crow')].slice(0, 30); return rs.length >= 25 && rs.every((r) => r.querySelector('.subject').getBoundingClientRect().width > 80)" 2>/dev/null)" "true" "25 条分支同时活着：前 30 行每一行的标题都还有 80px 以上（图只占本行用到的泳道、最多四成）"
+for n in $(seq 1 25); do git -C "${FIX}" branch -q -D "lanes-$n"; done
+menu git-log; sleep 0.3
 
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"

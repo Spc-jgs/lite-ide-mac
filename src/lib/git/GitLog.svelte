@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { layout, laneColor } from "./graph";
+  import { layout, laneColor, rowWidth } from "./graph";
   import type { GitEntry, GitLogEntry } from "../ipc/commands";
   import { gitLogEntries, gitCommitFiles } from "../ipc/git";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
@@ -279,11 +279,14 @@
             title={c.subject}
           >
             {#if graph && g}
+              {@const w = rowWidth(g) * LANE_W}
+              <!-- 本行用到几条泳道就多宽（graph.ts 的 rowWidth）；再宽也不过一行的四成，超出的那截裁掉 —— 标题永远有位置 -->
+              <span class="gw">
               <svg
                 class="g"
-                width={graph.width * LANE_W}
+                width={w}
                 height={ROW_H}
-                viewBox="0 0 {graph.width * LANE_W} {ROW_H}"
+                viewBox="0 0 {w} {ROW_H}"
                 aria-hidden="true"
               >
                 <!-- 直穿本行、与本提交无关的泳道 -->
@@ -309,6 +312,7 @@
                 <circle cx={x(g.lane)} cy={ROW_H / 2} r={DOT_R}
                         fill="var(--content-bg)" stroke={laneColor(g.lane)} stroke-width="2" />
               </svg>
+              </span>
             {/if}
             <span class="subject">
               {#each c.refs as r}
@@ -496,7 +500,8 @@
   }
   .crow:hover { background: var(--hover); }
   .crow.on { background: var(--selected); color: var(--text); }
-  .g { flex: none; display: block; }
+  .gw { flex: none; display: block; max-width: 40%; overflow: hidden; }
+  .g { display: block; }
   .subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .who { flex: none; width: 110px; color: var(--text-faint); font-size: var(--fs-sm);
          overflow: hidden; text-overflow: ellipsis; }

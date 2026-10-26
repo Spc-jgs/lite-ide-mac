@@ -1,4 +1,4 @@
-import { layout } from "../src/lib/git/graph.ts";
+import { layout, rowWidth } from "../src/lib/git/graph.ts";
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
 const C = (sha: string, ...parents: string[]) => ({ sha, parents });
@@ -47,6 +47,14 @@ ok(g6.rows[0].outs.join() === "0", "父不在列表里时线仍向下延伸");
 const g7 = layout([C("o", "p1", "p2", "p3"), C("p1"), C("p2"), C("p3")]);
 ok(g7.rows[0].outs.length === 3, `章鱼合并该岔出 3 条，实得 ${g7.rows[0].outs.length}`);
 ok(g7.width === 3, "三个父三条泳道");
+
+// 8. 每一行的宽度按本行真用到的泳道算（不是整份历史的最大值）：章鱼合并那一行 3 条，合并完之后剩一条线的那一行只要 1 条宽。
+//    原来每行都按 Graph.width 给宽，分支多的仓库里标题被挤出行外（2026-10-26 用户截图）
+ok(rowWidth(g7.rows[0]) === 3, `章鱼合并那一行 3 条宽，实得 ${rowWidth(g7.rows[0])}`);
+const g8 = layout([C("o", "p1", "p2", "p3"), C("p1", "base"), C("p2", "base"), C("p3", "base"), C("base"), C("root0")]);
+const last = g8.rows[g8.rows.length - 1];
+ok(g8.width >= 3 && rowWidth(last) < g8.width, `历史最宽 ${g8.width} 条，最后一行只用 ${rowWidth(last)} 条`);
+ok(rowWidth({ lane: 4, ins: [], outs: [], through: [] }) === 5, "只有自己那条在第 5 道：宽 5");
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} 泳道布局：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);
