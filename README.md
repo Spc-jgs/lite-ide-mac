@@ -2,14 +2,15 @@
 
 [![CI](https://github.com/Spc-jgs/lite-ide-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/Spc-jgs/lite-ide-mac/actions/workflows/ci.yml)
 
-macOS 上 1 秒打开的个人工作台。GB 级日志秒开不卡，代码高亮够用就停，Markdown 所见即所得。
+macOS 上 1 秒打开的个人工作台：**接住 IDEA 里 Java 后端的日常**（补全、跳转、重构、Maven / Gradle、Spring Boot 服务、断点调试、单测、热替换），
+同时守住 Sublime 的轻 —— 不开 Java 文件就不起 JVM，GB 级日志秒开不卡。
 
-Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研（mmap + 稀疏索引）。
-**没有插件系统、没有遥测、没有更新器。**
+Tauri 2 + Svelte 5 + CodeMirror 6；Java 智能是内置的 jdtls（Eclipse 的语言服务器）+ java-debug；日志引擎自研（mmap + 稀疏索引）。
+**没有遥测，没有「在应用里跑别人代码」的插件。**
 
 > 这是给自己用的工具，公开出来是因为里面几个决定可能对别人有用 ——
-> 尤其是「GB 级文件怎么秒开」和「什么时候该起子进程而不是链库」这两件事。
-> 它没打算成为通用编辑器，也不接受「加个插件市场」这类方向的需求。
+> 尤其是「GB 级文件怎么秒开」「什么时候该起子进程而不是链库」「怎么把语言服务器和调试器接得不卡界面」这几件事。
+> 它不接受「加个插件市场」这类方向的需求（理由在 [docs/TAKEOVER.md](docs/TAKEOVER.md) 第 9 节 D8）。
 
 ![日志：33 万行只看 ERROR，级别计数、过滤、tail 都在一条栏上](docs/screenshots/log.png)
 
@@ -19,7 +20,7 @@ Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研（mmap + 稀疏索引）�
 
 ![草稿：打开就能记，Markdown 所见即所得，标签名是第一行](docs/screenshots/scratch.png)
 
-（示例项目是 `scripts/screenshots.sh` 造的，图也是它拍的 —— 界面改了重跑一遍，图就跟上了。）
+（示例项目是 `scripts/screenshots.sh` 造的，图也是它拍的 —— 界面改了重跑一遍，图就跟上了。这几张是 2026-10-13 拍的，还没有 Java / 调试那一大块的画面。）
 
 ---
 
@@ -29,16 +30,20 @@ Tauri 2 + Svelte 5 + CodeMirror 6，日志引擎自研（mmap + 稀疏索引）�
 Java 服务日志。Chromium 的字符串模型决定了大文件要么卡死要么爆内存。而我为了这件事
 装一个 IDE，代价是空载 300–500MB、冷启动几秒。
 
-定位（2026-09-24 定的，见 [docs/DIRECTION.md](docs/DIRECTION.md)）：**取代 Sublime 的那个位置** —— 随手开、秒开、什么文件都敢打开、占用小；
-Java、Python、前端都要用；看日志是它独有的强项；代码智能现阶段不加码。具体做的事：
+定位：2026-09-24 定的是「取代 Sublime 的那个位置」；2026-10-22 升级成**取代 IDEA（Java 后端为主），同时守住 Sublime 的轻**
+（[docs/TAKEOVER.md](docs/TAKEOVER.md)：四方对照、32 个缺口按多久碰一次排、分期）。键位照 IDEA 的 macOS 默认表。具体做的事：
 
-1. **看 GB 级日志** —— 秒开、按级别过滤、tail、堆栈折叠、堆栈帧跳源码；几个服务的日志按时间合成一条时间线对着看（[docs/MERGE.md](docs/MERGE.md)）；几百万行归成几十类模板，「这一类出现了 2,890 次」，和昨天比哪几类是新出现的（[docs/PATTERNS.md](docs/PATTERNS.md)）
-2. **读改代码** —— 67 种语言的高亮与符号大纲，⇧⌘O 里 `文件@符号` / `文件:行`，跨文件查找替换
-3. **随手记** —— 草稿：打开就能记、不用存，Markdown 所见即所得
-4. **跑命令** —— 真 pty 终端；一个键跑 `mvn spring-boot:run` / `pnpm dev` / `python main.py`，输出进日志视图（[docs/TASKS.md](docs/TASKS.md)）
+1. **Java 后端** —— 补全（自动 import）、参数提示、⌘B / ⌥⌘B / ⌘U / ⌥F7、F1 文档、⇧⇧ 找类（含 jar 里的）、调用 / 类型层级、改名、抽变量 / 方法 / 常量 / 字段、
+   内联、移动类、改签名、生成（⌃↵）、代码模板、照项目的 IDEA 代码风格格式化；**Maven 和 Gradle**：工具窗、Spring Boot 服务（Services，起停、端口、堆用量）、
+   **断点调试**（条件 / 日志 / 异常断点、单步、求值、监视、远程 JVM）、**单测**（结果树、边跑边出、调试单测、覆盖率）、⌘F9 构建、**热替换**、运行配置（能从 IDEA 导入）；
+   `application.yml` 的键名补全和文档；MyBatis 接口 ↔ XML；`.http` 发请求（[docs/IDEA.md](docs/IDEA.md)）
+2. **看 GB 级日志** —— 秒开、按级别过滤、tail、堆栈折叠、堆栈帧跳源码；几个服务的日志按时间合成一条时间线对着看（[docs/MERGE.md](docs/MERGE.md)）；几百万行归成几十类模板，「这一类出现了 2,890 次」，和昨天比哪几类是新出现的（[docs/PATTERNS.md](docs/PATTERNS.md)）
+3. **读改代码** —— 67 种语言的高亮与符号大纲，跨文件查找替换（两段提交、能撤销），本地历史，书签 / TODO
+4. **随手记** —— 草稿：打开就能记、不用存，Markdown 所见即所得
+5. **跑命令** —— 真 pty 终端（能左右拆）；一个键跑任务，输出进日志视图（[docs/TASKS.md](docs/TASKS.md)）
 
-加上一套完整的 Git（改动、历史泳道图、分支、工作树、推拉、双栏差异、冲突解决），一个项目一个窗口，
-以及把选中的代码以 `@文件#行` 送进终端里的 `claude`（⌥⌘K）。
+加上一套完整的 Git（改动、历史泳道图、分支、工作树、推拉、双栏差异、冲突解决、做到一半的变基 / 合并、交互式变基、文件和选中几行的历史），一个项目一个窗口；
+AI 助手（ACP 宿主，接 Claude Code / Codex，第一版，[docs/AI.md](docs/AI.md)）。
 
 ## 实测数字
 
@@ -60,7 +65,8 @@ Java、Python、前端都要用；看日志是它独有的强项；代码智能�
 
 ## 装
 
-需要 macOS、[Rust](https://rustup.rs)、Node 20+、pnpm。
+需要 macOS、[Rust](https://rustup.rs)、Node 20+、pnpm，和一个 JDK 21（打包时用它的 `jlink` 裁出内置的运行时）。
+第一次打包会下内置 Java 智能要的几样（`scripts/java-bundle.sh`：jdtls 约 49 MB、java-debug、JaCoCo，都钉了版本、核 sha256，缓存在 `~/Library/Caches/lite-ide-build/`）。
 
 ```bash
 pnpm install
@@ -119,7 +125,7 @@ worktree、submodule、rename 检测 —— 自己实现永远在追移动靶，
 libgit2 静态链进来要多 2MB。起子进程的那套纪律（两个管道并发读、输出设闸、丢掉就收尸）收在 `crates/procutil` 一处。
 
 **重的东西一律按需加载。** CM6 约 340KB、xterm 约 250KB、Git 那套约 60KB、67 个语言包 ——
-只看日志的人一个都不该付钱。入口包 147 KB（CI 卡 160 KB，超 145 KB 先告警 —— 现在亮着告警，见 #55）——
+只看日志的人一个都不该付钱。入口包 152 KB（CI 卡 160 KB，超 152 KB 先告警；每轮改动都重量一次、记下是谁涨的，[.claude/rules/frontend.md](.claude/rules/frontend.md)）——
 量过启动分段之后这条红线只防退化，不再继续压：它只管启动里 57ms 那一段。
 
 **快照发布，不用读写锁。** 索引在后台线程建，`Mutex<Arc<LineIndex>>` 每次发布一个新快照。
@@ -133,6 +139,8 @@ libgit2 静态链进来要多 2MB。起子进程的那套纪律（两个管道�
 | | 是什么 |
 |---|---|
 | [USAGE.md](docs/USAGE.md) | 怎么装、快捷键速查、每个功能怎么用 |
+| [TAKEOVER.md](docs/TAKEOVER.md) | 取代 IDEA 还缺什么、分几期做、替用户拍板的那几件（D11） |
+| [IDEA.md](docs/IDEA.md) | 接住 IDEA 的 Java 后端日常：语言服务器、Maven、Spring Boot、调试怎么接的，每一步的第 0 步实测 |
 | [DIRECTION.md](docs/DIRECTION.md) | 定位、边界、做到哪了、**接下来的优先级** |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构决策长什么样，以及对原方案的七处修正 |
 | [BENCHMARK.md](docs/BENCHMARK.md) | 性能数字与实现陷阱 |
@@ -165,19 +173,27 @@ src-tauri/
   crates/tasksvc/       任务运行（登录 shell、进程组、先软后硬地停）
   crates/ptysvc/        真 pty（带背压）
   crates/procutil/      起子进程：两个管道并发读、输出设闸、丢掉就收尸
+  crates/lspsvc/        语言服务器（jdtls）：JSON-RPC、进程组、空闲收掉
+  crates/dapsvc/        调试适配器协议（java-debug）
+  crates/hotswap/       热替换（JVM 里的代理 + 盘上 class 的指纹）
+  crates/jvmstat/       读 JVM 的堆用量（Services 工具栏）
+  crates/histsvc/       本地历史（原始字节存、按编码读回来）
+  crates/httpsvc/       `.http` 请求（起 curl）
+  crates/acpsvc/        AI 助手的 agent（ACP：按行 JSON-RPC、进程组）
   crates/applog/ excludes/   应用日志 · 哪些目录不进视野
 ```
 
-十个 crate 都**不依赖 Tauri**，可以脱离 GUI 单测和跑 bench。这是刻意的：
+十七个 crate 都**不依赖 Tauri**，可以脱离 GUI 单测和跑 bench。这是刻意的：
 日志引擎是这个项目唯一的技术未知数，它必须能独立验证；后来的子进程、替换、任务也都照这个办。
 
 ## 测试
 
 ```bash
-cd src-tauri && cargo test --workspace    # Rust 408 条
+cd src-tauri && cargo test --workspace    # Rust 438 条
 pnpm check                                # 类型检查
-pnpm test                                 # 前端 50 个文件、约 1,270 条断言
-scripts/smoke.sh                          # 真 .app 端到端 97 条（测试身份、不抢焦点、不碰真实数据）
+pnpm test                                 # 前端 99 个文件
+scripts/smoke.sh                          # 真 .app 端到端 151 条（测试身份、不抢焦点、不碰真实数据）
+scripts/accept/*.sh                       # 13 份按领域的验收（真 jdtls / mvn / Gradle / java-debug）：java.sh 94 条、spring.sh 109 条、gradle.sh 27 条……
 ```
 
 前端测试不引测试框架：纯函数（diff 解析、双栏对照、泳道布局、冲突解析……）直接跑 `.ts`；
@@ -193,8 +209,9 @@ CI 每次 push 都跑这三样，外加一道**入口包体积门禁**（超过 
 
 ## 状态
 
-v1.3.0，日常在用。立项时的 M0–M16、之后的整理 / 多窗口 / 编辑器基本功 / 任务运行都已做完；
-接下来做什么、按什么顺序，见 [DIRECTION.md 第 7 节](docs/DIRECTION.md#7-接下来的优先级2026-10-10)。不追求功能完备，够自己用就停。
+v1.5.0，日常在用。立项时的 M0–M16、之后的整理 / 多窗口 / 编辑器基本功 / 任务运行做完；取代 IDEA 的分期做到了 MVP-7 的一半
+（MVP-0 到 MVP-5 齐了，AI 助手第一版，Gradle、Spring 配置补全做完；声明式集成包、Python / TS、自动更新器、数据库还没做）。
+做到哪了、接下来按什么顺序，见 [TAKEOVER.md 第 8 节](docs/TAKEOVER.md)。
 
 ## 许可
 
