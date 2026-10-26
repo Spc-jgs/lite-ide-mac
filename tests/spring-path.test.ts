@@ -5,8 +5,9 @@ let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
 const eq = (a: unknown, b: unknown, m: string) => ok(JSON.stringify(a) === JSON.stringify(b), `${m}：${JSON.stringify(a)}`);
 
+// 注释顶格写在 spring: 和 datasource: 中间：它比 datasource 浅，往上找父键时一定会碰到它 —— 不跳过注释就断在这儿
 const yml = `spring:
-  # 数据源
+# 数据源
   datasource:
     url: jdbc:mysql://h/db
 

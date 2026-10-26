@@ -10664,3 +10664,7 @@ TAKEOVER 原来写的是「Spring Tools 语言服务器（又一个 JVM，约 30
 
 **没做的**：枚举类型的可选值（`spring.main.banner-mode` 是 `Banner$Mode`，元数据里没有 hints；IDEA 是反射那个枚举类拿常量 —— 要问 jdtls 类型的成员）；Bean 导航；
 `@ConfigurationProperties` 类上 ⌘B 到配置文件（反过来那条 spring-nav 已经有）。
+
+补一条（同日）：spring-path 的单测提交之后才做改坏验红 —— 把「往上找父键时跳过注释」删掉，**18 条照样全过**。夹具里的注释和 `datasource:` 同一层缩进，
+往上找的循环本来就跳过「不比它浅的行」，注释压根没被看到。注释挪到顶格（比 `datasource:` 浅、一定会碰到）之后改坏红 4 条。
+**验红要在提交前做**：这条测试在仓库里绿了一个提交、什么也没守着。
