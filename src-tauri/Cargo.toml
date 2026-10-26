@@ -16,6 +16,7 @@ members = [
     "crates/histsvc",
     "crates/hotswap",
     "crates/jvmstat",
+    "crates/acpsvc",
 ]
 
 [package]
@@ -57,6 +58,7 @@ serde_json = "1"
 logengine = { path = "crates/logengine" }
 applog = { path = "crates/applog" }
 fsservice = { path = "crates/fsservice" }
+acpsvc = { path = "crates/acpsvc" }
 ptysvc = { path = "crates/ptysvc" }
 searchsvc = { path = "crates/searchsvc" }
 replacesvc = { path = "crates/replacesvc" }

@@ -1566,3 +1566,14 @@ pub struct HistoryEntryDto {
     pub kind: String,
 }
 
+
+/// AI 助手的会话起好了（docs/TAKEOVER.md MVP-6）。`modes` 是 agent 给的会话模式（`{currentModeId, availableModes:[{id,name,description}]}`，没有就 null），原样交给前端
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentStartedDto {
+    pub id: u32,
+    pub session_id: String,
+    pub name: String,
+    pub version: String,
+    pub modes: serde_json::Value,
+}

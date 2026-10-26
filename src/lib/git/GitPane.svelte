@@ -9,6 +9,7 @@
   let {
     status,
     busy,
+    writing = "",
     committing = false,
     committed = false,
     onOpenDiff,
@@ -26,7 +27,10 @@
     onOp,
   }: {
     status: GitStatus | null;
+    /** 后台在读状态（刷新）。**只给刷新按钮转圈用**，不拿来灰掉写操作的按钮 —— 见「继续」那里 */
     busy: boolean;
+    /** 正在跑的写操作（`git.writing`：「继续合并」「提交」…），没有是空串 */
+    writing?: string | null;
     /**
      * 提交在跑（pre-commit 钩子跑什么是仓库说了算，一遍 eslint 三十秒）。
      * 读的是 `git.writing`，不是 `notify.doing` —— 后者 300ms 之后才亮，按钮的 busy 由样式自己延迟
@@ -280,13 +284,18 @@
       <div class="op" role="status">
         <p class="op-title">正在{OP_NAME[status.op.kind]}{#if status.op.step && status.op.total}<span class="op-step">第 {status.op.step} / {status.op.total} 步</span>{/if}</p>
         <p class="op-sub">
-          {#if conflicts.length > 0}先解决 {conflicts.length} 处冲突（点开文件），暂存（＋）之后点「继续」{:else if unstaged.length > 0}冲突都解决了：把改动暂存（＋），再点「继续」{:else}可以继续了{/if}
+          {#if conflicts.length > 0}先解决 {conflicts.length} 处冲突（点开文件），暂存（＋）之后点「继续」{:else if unstaged.some((e) => !e.untracked)}冲突都解决了：把改动暂存（＋），再点「继续」{:else}可以继续了{/if}
         </p>
         <div class="op-row">
           <button class="btn quiet sm" onclick={() => onOp?.("abort")}>放弃{OP_NAME[status.op.kind]}</button>
           <span class="gap"></span>
-          {#if status.op.kind !== "merge"}<button class="btn sm" disabled={busy} onclick={() => onOp?.("skip")} title="这一个提交不要了，接着做下一个">跳过</button>{/if}
-          <button class="btn primary sm" disabled={busy || conflicts.length > 0} class:busy onclick={() => onOp?.("continue")}>继续</button>
+          <!--
+            灰掉看的是「有写操作在跑」，不是「在刷新」（2026-10-26）：原来是 `busy`（后台读状态），而文件一变监听就刷一次 ——
+            正好在那几十毫秒里点「继续」，点在一个灰掉的按钮上、什么都不发生、一句话都没有（smoke ㊱ 间歇红了好几轮的原因）。
+            两个写操作撞车由 `git.claim` 挡着；没暂存的未跟踪文件不挡继续，不提它们
+          -->
+          {#if status.op.kind !== "merge"}<button class="btn sm" disabled={!!writing} onclick={() => onOp?.("skip")} title="这一个提交不要了，接着做下一个">跳过</button>{/if}
+          <button class="btn primary sm" disabled={!!writing || conflicts.length > 0} class:busy={!!writing?.startsWith("继续")} onclick={() => onOp?.("continue")}>继续</button>
         </div>
       </div>
     {:else if status.entries.length === 0 && !composing && message.trim() === ""}

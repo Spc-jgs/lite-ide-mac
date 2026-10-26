@@ -18,6 +18,7 @@
 | `icons/coverage.svg` | `platform/icons/src/expui/toolwindows/coverage_dark.svg` |
 | `icons/bookmark.svg` | `platform/icons/src/expui/gutter/bookmark_dark.svg`（14×14，黄色，行号旁的书签） |
 | `icons/tag.svg` | **lite-ide 自绘**：IDEA 新 UI 没有 git 标签的独立图标（提交历史里的标签是代码画的色块，`nodes/tag` 是 XML 标签 `<>`）。描边按新 UI 的 1px 画 |
+| `icons/ai.svg` | **lite-ide 自绘**（2026-10-26，AI 助手，docs/TAKEOVER.md MVP-6）：IDEA 社区版里没有 AI 助手的图标（AI Assistant 是闭源插件）。两颗四角星，描边 1px 同新 UI |
 | `icons/maven.svg` | `plugins/maven/src/main/resources/images/expui/toolwindow/maven_dark.svg`（Maven 插件的工具窗图标，不在 platform/icons 里） |
 | `icons/maven-project.svg` | `plugins/maven/src/main/resources/images/expui/build/mavenProject_dark.svg`（Maven 工具窗里的项目 / 模块节点（IDEA 的 `MavenIcons.MavenProject`）） |
 | `icons/maven-plugin.svg` | `plugins/maven/src/main/resources/images/expui/build/mavenPlugin_dark.svg`（Plugins 底下的一个插件） |

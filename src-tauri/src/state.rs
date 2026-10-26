@@ -80,6 +80,8 @@ pub struct AppState {
     pub java: crate::java::Java,
     /// 调试会话（docs/IDEA.md 第 18 节）和每个项目的断点
     pub debug: crate::debug::Debugs,
+    /// AI 助手的会话（docs/TAKEOVER.md MVP-6），一个会话一个 agent 进程
+    pub agents: crate::agent::Agents,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
     next_run: AtomicU32,
@@ -593,6 +595,7 @@ impl AppState {
         // 这个窗口的 jdtls：后台按协议收尾，关窗口不用等
         self.java.release(owner);
         self.debug.release(owner);
+        self.agents.release(owner);
 
         // 这个窗口的任务：先礼后兵地停（宽限期在后台线程里等，窗口关掉不用等它们）
         for (_, r) in self.runs.take_owner(owner) {

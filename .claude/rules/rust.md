@@ -120,8 +120,8 @@ CI 只查这一条）：`Command::output / spawn / status`、`File::create`、`f
 stdout 有上限（超了「杀掉」还是「读完不存」由调用方选）、丢掉就杀掉并收尸。下面几节讲的「两个管道要并发读」「读 cap+1 判截断」
 「被掐掉的退出码没有意义」都在它里面、各有一条验过红的测试。**原来这些只写在这份文档里，四个模块各写一遍，
 searchsvc 那份把并发读写反了** —— 读完 stdout 才读 stderr，rg 往 stderr 写满 64KB 就和我们互相等住，搜索永远不回来
-（2026-10-10 整体审核时复现）。不走它的只有三种：任务（`tasksvc::Task`，长期跑、stdout + stderr 合进一根管道流式落盘）、
-git fetch / push（`gitsvc::remote`，边读边解析进度、要能取消）、语言服务器（`lspsvc::Server`，2026-10-15）。
+（2026-10-10 整体审核时复现）。不走它的只有四种：任务（`tasksvc::Task`，长期跑、stdout + stderr 合进一根管道流式落盘）、
+git fetch / push（`gitsvc::remote`，边读边解析进度、要能取消）、语言服务器（`lspsvc::Server`，2026-10-15）、AI 助手的 agent（`acpsvc::process`，2026-10-26，同语言服务器的形状：stdin 是说话的管道、一行一条消息）。
 语言服务器的 stdin 是说话的管道、一直开着，stdout 是一条一条的消息 —— 纪律照守、答案不同：stdout 由 `conn` 的读线程读、
 **单条消息**有上限（`conn::MAX_MESSAGE`，超了读掉丢弃、把「太大」和真字节数交给等它的那个请求）；stderr 另一条线程一直排空、只留尾巴；
 等待线程攥着 `Child` 收尸、退了当场报；停的时候 `killpg` 整组。**服务器问我们的另起一条线程答**：在读线程上答的话，

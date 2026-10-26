@@ -1336,9 +1336,10 @@ check "$(lite eval "${W}" "return (document.querySelector('.op .op-title')?.text
 printf 'both\n' > "${FIX}/op.txt"; HG add op.txt
 menu git-refresh
 lite_wait "${W}" "return document.querySelector('.op button.primary')?.disabled === false" 10 >/dev/null
-lite eval "${W}" "[...document.querySelectorAll('.op button')].find((b) => b.textContent.trim() === '继续').click(); return true" >/dev/null 2>&1
+# 点之前故意起一次刷新、等它画上去再点：文件监听随时会起这么一次。原来「继续」在刷新的那几十毫秒里是灰的，点了什么都不发生（间歇红了几轮）
+lite eval "${W}" "void __lite.git.refresh(); await new Promise((r) => setTimeout(r, 0)); [...document.querySelectorAll('.op button')].find((b) => b.textContent.trim() === '继续').click(); return true" >/dev/null 2>&1
 wait_for 40 '[ "$(git -C "'"${FIX}"'" rev-list --parents -n1 HEAD | wc -w | tr -d " ")" = 3 ]'
-OPDIAG=$(lite eval "${W}" "return 'toast=' + (document.querySelector('.toast')?.textContent ?? '') + ' 横幅=' + (document.querySelector('.op')?.innerText.replace(/\\s+/g, ' ') ?? '无') + ' 对话框=' + (document.querySelector('.dialog, .confirm')?.innerText.replace(/\\s+/g, ' ').slice(0, 80) ?? '无')" 2>/dev/null)
+OPDIAG=$(lite eval "${W}" "return '说过的=' + __lite.notify.log.slice(-3).map((x) => x.kind + ':' + x.text.replace(/\s+/g, ' ').slice(0, 120)).join(' / ') + ' 状态栏=' + __lite.notify.doing + ' toast=' + (document.querySelector('.toast')?.textContent ?? '') + ' 横幅=' + (document.querySelector('.op')?.innerText.replace(/\\s+/g, ' ') ?? '无') + ' 对话框=' + (document.querySelector('.dialog, .confirm')?.innerText.replace(/\\s+/g, ' ').slice(0, 80) ?? '无')" 2>/dev/null)
 check "$(git -C "${FIX}" rev-list --parents -n1 HEAD | wc -w | tr -d ' ')|$(lite eval "${W}" "return !!document.querySelector('.op')" 2>/dev/null)" "3|false" "点「继续」：做出一个合并提交（两个父）、横幅收起（${OPDIAG}；git status：$(git -C "${FIX}" status --short | head -3 | tr '\n' ' ')）"
 HG switch -qc op-rb op-side; printf 'rb\n' > "${FIX}/op.txt"; HG commit -qam "op rb"
 RB0=$(git -C "${FIX}" rev-parse HEAD)
@@ -1519,6 +1520,46 @@ lite_wait "${W}" "return [...document.querySelectorAll('.rows > .crow')].some((r
 check "$(lite eval "${W}" "const rs = [...document.querySelectorAll('.rows > .crow')].slice(0, 30); return rs.length >= 25 && rs.every((r) => r.querySelector('.subject').getBoundingClientRect().width > 80)" 2>/dev/null)" "true" "25 条分支同时活着：前 30 行每一行的标题都还有 80px 以上（图只占本行用到的泳道、最多四成）"
 for n in $(seq 1 25); do git -C "${FIX}" branch -q -D "lanes-$n"; done
 menu git-log; sleep 0.3
+
+say "㊹ AI 助手（docs/TAKEOVER.md MVP-6）：假 agent 走真的 ACP 线 —— 读到编辑器里没保存的那份、越界写被拒、要权限、改动进编辑器不存盘、审阅退回 / 留下、新对话停掉进程"
+W=main
+AR=$(lite eval "${W}" "return __lite.project.root" 2>/dev/null)
+printf 'first line\nsecond\n' > "${AR}/agent-a.txt"
+rm -f "${AR}/NOTES-agent.md" "$(dirname "${AR}")/lite-agent-outside.txt"
+is "await __lite.tabflow.openPath($(q "${AR}/agent-a.txt"), { preview: false }); return true"
+lite_wait "${W}" "return __lite.text()?.startsWith('first line') === true" 10 >/dev/null
+set_text $'UNSAVED_MARK\nsecond\n'
+is "localStorage.setItem('lite.agent.kind', 'claude'); const a = await __lite.agent(); a.reset(); return true"
+lite eval "${W}" "document.querySelector('nav.rail button[aria-label=\"AI 助手\"]').click(); return true" >/dev/null
+lite_wait "${W}" "return !!document.querySelector('.agent textarea')" 10 >/dev/null
+fill $'改 agent-a.txt\n越界' '.agent textarea'
+click "发送 ⌘↵"
+lite_wait "${W}" "return !!document.querySelector('.agent .perm button')" 20 >/dev/null
+check "$(lite eval "${W}" "return document.querySelector('.agent .items').innerText.includes('第一行是：UNSAVED_MARK')" 2>/dev/null)" "true" "agent 读文件拿到的是编辑器里没保存的那份（盘上第一行是 first line）"
+check "$(lite eval "${W}" "return document.querySelector('.agent .items').innerText.includes('越界写被拒：只许改项目里的文件')" 2>/dev/null)" "true" "agent 要写项目外面的文件（带 ..）：Rust 那边当场拒了、原话回给它"
+check "$([ -e "$(dirname "${AR}")/lite-agent-outside.txt" ] && echo 有 || echo 没有)" "没有" "项目外面那个文件没被写出来"
+check "$(pgrep -f fake-acp-agent.py | wc -l | tr -d ' ')" "1" "agent 进程起了一个"
+click "Allow"
+lite_wait "${W}" "return document.querySelector('.agent .items').innerText.includes('改好了')" 10 >/dev/null
+check "$(lite eval "${W}" "return __lite.text()" 2>/dev/null)" $'UNSAVED_MARK\n// agent 加的一行\nsecond' "agent 的改动写进了编辑器（在人没保存的那份上改）"
+check "$(cat "${AR}/agent-a.txt")" $'first line\nsecond' "盘上那份没动（还没审阅）"
+check "$(cat "${AR}/NOTES-agent.md" 2>/dev/null | head -1)" "# 说明" "agent 新建的文件落了盘（新文件没有编辑器可进）"
+click "审阅 2" button prefix
+lite_wait "${W}" "return document.querySelectorAll('.agent .edit').length === 2" 5 >/dev/null
+is "const rows = [...document.querySelectorAll('.agent .edit')]; rows.find((r) => r.innerText.includes('agent-a.txt')).querySelector('button.btn:not(.primary)').click(); return true"
+lite_wait "${W}" "return __lite.text() === 'UNSAVED_MARK\nsecond\n'" 5 >/dev/null
+check "$(lite eval "${W}" "return __lite.text()" 2>/dev/null)" $'UNSAVED_MARK\nsecond' "退回：编辑器换回 agent 改之前那份（人自己没保存的改动还在）"
+is "const rows = [...document.querySelectorAll('.agent .edit')]; rows.find((r) => r.innerText.includes('NOTES-agent.md')).querySelector('button.primary').click(); return true"
+lite_wait "${W}" "return document.querySelector('.agent .edits').innerText.includes('留下了')" 5 >/dev/null
+check "$([ -e "${AR}/NOTES-agent.md" ] && echo 在 || echo 没了)" "在" "留下：新文件还在"
+click "‹ 对话"
+click "新对话"
+for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -f fake-acp-agent.py >/dev/null || break; sleep 0.3; done
+check "$(pgrep -f fake-acp-agent.py | wc -l | tr -d ' ')" "0" "新对话：agent 进程停掉了"
+set_text $'first line\nsecond\n'
+menu save
+rm -f "${AR}/agent-a.txt" "${AR}/NOTES-agent.md"
+lite eval "${W}" "document.querySelector('nav.rail button[aria-label=\"文件树\"]').click(); return true" >/dev/null
 
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"

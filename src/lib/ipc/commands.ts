@@ -261,6 +261,19 @@ export interface CoverageFile {
   missed: number[];
 }
 
+/** AI 助手的会话起好了（docs/TAKEOVER.md MVP-6）。`modes` 是 agent 给的会话模式，原样（`{ currentModeId, availableModes: [{ id, name, description }] }`，没有就 null） */
+export interface AgentStarted {
+  id: number;
+  sessionId: string;
+  name: string;
+  version: string;
+  modes: AgentModes | null;
+}
+export interface AgentModes {
+  currentModeId: string;
+  availableModes: { id: string; name: string; description?: string }[];
+}
+
 export interface TestResults {
   cases: TestCase[];
   total: number;

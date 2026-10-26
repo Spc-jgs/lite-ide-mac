@@ -1,0 +1,13 @@
+[package]
+name = "acpsvc"
+version = "0.1.0"
+edition = "2021"
+description = "Agent Client Protocol 的宿主一侧（零 Tauri 依赖，docs/TAKEOVER.md MVP-6）：起 agent 子进程、一行一条 JSON-RPC、agent 反过来问宿主的请求延后回答"
+
+[dependencies]
+# 消息是 JSON。已经在依赖树里
+serde_json = "1"
+# killpg（停整组）。不是新包：ptysvc、tasksvc、lspsvc 已经直接依赖它
+libc = "0.2"
+# 找 npx 要起一次登录 shell，输出设闸（同仓库）
+procutil = { path = "../procutil" }

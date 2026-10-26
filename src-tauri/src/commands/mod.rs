@@ -13,6 +13,7 @@ use std::path::Path;
 use tauri::ipc::Response;
 use tauri::State;
 
+mod agent;
 mod app;
 mod debug;
 mod dto;
@@ -30,6 +31,7 @@ mod search;
 mod settings;
 mod tasks;
 
+pub use agent::*;
 pub use app::*;
 pub use debug::*;
 pub use dto::*;

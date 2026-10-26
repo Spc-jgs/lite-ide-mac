@@ -193,10 +193,10 @@
     if (layout.sidebar && layout.sideView === "scratch") scratchUi.load();
   });
   /** Maven 工具窗（docs/IDEA.md 第 1 步）：切到它才拉 */
-  // 侧边栏里按需拉的工具窗（Maven、结构 ⌘7）：一个宿主、一个句柄，宿主按 sideView 再拉具体那个
+  // 侧边栏里按需拉的工具窗（Maven、结构 ⌘7、AI 助手）：一个宿主、一个句柄，宿主按 sideView 再拉具体那个
   const mavenUi = lazy(() => import("./lib/shell/SideToolHost.svelte"), "侧边栏工具窗");
   $effect(() => {
-    if (layout.sidebar && (layout.sideView === "maven" || layout.sideView === "structure")) mavenUi.load();
+    if (layout.sidebar && (layout.sideView === "maven" || layout.sideView === "structure" || layout.sideView === "agent")) mavenUi.load();
   });
 
   const gitUi = lazyGroup(

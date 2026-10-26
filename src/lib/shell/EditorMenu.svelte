@@ -47,6 +47,8 @@
       { label: "在项目里找这个名字", disabled: !project.root, run: () => onMenuAction("find-word") },
       // 发的是**右键的这个文件**（分屏时它不一定是活动的那组），所以直接调，不经 onMenuAction
       { label: "发送到终端", keys: byId("send-to-terminal")?.accel, run: () => void sendToTerminal(path) },
+      // 选中的那段（没选就是光标那行）带着位置挂到 AI 助手的输入框上（docs/TAKEOVER.md MVP-6）
+      { label: "发给 AI 助手", disabled: !inProject, run: () => void import("../agent/agent.svelte").then((m) => m.attachSelection(path)) },
       // 剪切 / 复制 / 粘贴走系统的「编辑」菜单（predefined，不在键位表里），键位是 macOS 定死的
       { label: "剪切", keys: "⌘X", sep: true, disabled: !api.hasSelection, run: () => void api.cut() },
       { label: "复制", keys: "⌘C", disabled: !api.hasSelection, run: () => void api.copy() },

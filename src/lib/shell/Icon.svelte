@@ -78,6 +78,8 @@
     // 覆盖率（docs/TAKEOVER.md G15）：带覆盖率跑（彩色）、覆盖率工具窗
     "run-coverage",
     "coverage",
+    // AI 助手（docs/TAKEOVER.md MVP-6）
+    "ai",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];

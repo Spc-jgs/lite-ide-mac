@@ -1,3 +1,4 @@
+mod agent;
 mod budget;
 mod commands;
 mod debug;
@@ -330,6 +331,12 @@ pub fn run() {
             commands::spring_endpoints,
             commands::spring_config,
             commands::debug_state,
+            commands::agent_start,
+            commands::agent_prompt,
+            commands::agent_cancel,
+            commands::agent_set_mode,
+            commands::agent_reply,
+            commands::agent_stop,
             commands::debug_run_to,
             commands::debug_exceptions,
             commands::debug_breakpoints,

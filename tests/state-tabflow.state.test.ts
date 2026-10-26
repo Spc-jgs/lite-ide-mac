@@ -109,7 +109,7 @@ ok(project.root === "/proj", "打开目录 = 设项目根");
   ok(!tabs.active?.dirty, "另存为之后不脏");
   const body = await disk("/proj/docs/grad.md");
   ok(body.startsWith("毕业的正文"), `毕业时锚点头要脱掉，实际开头：${JSON.stringify(body.slice(0, 20))}`);
-  ok(await readText(oldPath).then((r) => r.content.startsWith("// 桩里没有")), "旧草稿进了废纸篓（桩里读不到了）");
+  ok(await readText(oldPath).then(() => false, () => true), "旧草稿进了废纸篓（桩里读不到了）");
   ed.leave();
   tabflow.requestClose(tabs.active!.id);
 }

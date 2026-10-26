@@ -15,6 +15,8 @@ import { nav } from "../state/nav.svelte";
 import { terms } from "../state/terms.svelte";
 import { runs } from "../state/runs.svelte";
 import { overlay } from "../state/overlay.svelte";
+import { notify } from "../state/notify.svelte";
+import { git } from "../state/git.svelte";
 import { acceptCompletion, completionStatus, currentCompletions } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
 
@@ -107,6 +109,12 @@ export function installTestHooks() {
      * 断点调试（docs/IDEA.md 第 18 节）。下断点走的是行号上点一下的同一条路（`breakpoints.ts` 的表 → 编辑器照表画、告诉 Rust）；
      * 点行号本身要真鼠标落在那一行上，测试通道不发真输入。都是动态引：调试那几块是懒的，测试构建也别把它们拽进入口
      */
+    /** 说过的每一句（通知记录，I11）：胶囊几秒就走，验收失败时要回头看「当时说了什么」读这个 */
+    notify,
+    /** git 的状态层：smoke ㊱ 要在点「继续」之前故意起一次刷新（文件监听随时会起的那种），验刷新中按钮照样点得动 */
+    git,
+    /** AI 助手（docs/TAKEOVER.md MVP-6）的状态：审阅单、会话。动态引：AI 那块是懒的 */
+    agent: async () => (await import("../agent/agent.svelte")).agent,
     /** 记着的最近一次替换 / 改名（「编辑 › 撤销上次的替换」撤的就是它）：重启后启动时读回来，smoke ㉓ 等它回来再点菜单。动态引：替换那块是懒的 */
     replaceDone: async () => (await import("../state/replace.svelte")).replace.done,
     /** 本地历史的「恢复」要找的那个编辑器（live-views 的登记表）：是不是屏幕上那个、还在不在页面上 */

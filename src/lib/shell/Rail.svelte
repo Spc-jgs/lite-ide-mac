@@ -56,8 +56,9 @@
       - tooltip 里的 ⌘K、⌘7 是写死的：从 keymap.ts 取（byId）会把整张键位表拽进入口包（2026-09-23 实测 +6.8 KB）。改键位时这里跟着改
       - Maven 工具窗（docs/IDEA.md 第 1 步）：Maven 项目才有。IDEA 里它是独立的工具窗，这里也是（抄层级）
       - 结构（⌘7，docs/TAKEOVER.md G17）：上游的 structure 图标（2026-10-23 拉下来的，D11）
+      - AI 助手（docs/TAKEOVER.md MVP-6）：开着项目就在。图标自绘（IDEA 社区版没有）
     -->
-    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 改动", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: " ⌘7", n: 0 }] as const as b}
+    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 改动", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: " ⌘7", n: 0 }, { v: "agent", on: true, i: "ai", l: "AI 助手", k: "", n: 0 }] as const as b}
       {#if b.on}
         <button
           class="ibtn lg rbtn"

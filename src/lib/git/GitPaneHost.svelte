@@ -13,6 +13,7 @@
 <GitPane
   status={git.status}
   busy={git.busy}
+  writing={git.writing}
   committing={git.writing === "提交"}
   committed={git.justDone === "提交"}
   onOpenDiff={(e, staged) => void (e.conflicted ? git.openMerge(e) : git.openDiff(e, staged))}

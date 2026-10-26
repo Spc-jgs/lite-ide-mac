@@ -93,6 +93,8 @@ lite_launch() {
   local prev
   prev=$(lite_front_id)
   # -g：后台起。--env 只给这一个进程，不改你的环境。
+  # LITE_AGENT_CMD：AI 助手起的不是真的 Claude Code / Codex，是按剧本回话的 scripts/fake-acp-agent.py（不花钱、不要网、每次说的一样）。
+  # 要在测试应用里试真的，先 `export LITE_AGENT_CMD=`（空串 = 用真的，见 src-tauri/src/commands/agent.rs）
   # ZDOTDIR 指到一个空目录：测试应用里开的终端是你的登录 zsh，不隔开的话它读你的 .zshrc、往你的 ~/.zsh_history 里写
   # （2026-10-09 smoke ㉔ 的 `cd "sp dir"` 就这么写进去了十条）。zsh 的配置和历史都跟着 ZDOTDIR 走（/etc/zshrc 里
   # HISTFILE=${ZDOTDIR:-$HOME}/.zsh_history），这一项让它们都落在临时目录里；顺带测试不再受你 rc 的快慢影响
@@ -108,6 +110,7 @@ lite_launch() {
   # tasks-real.sh「从 Finder 起也找得到 mvn」那条成了空的。`open --env` 只能覆盖、不能删，LANG 这类终端有、Finder 没有的还是会带过去
   open -g --env PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     --env LITE_IDE_TEST_SOCK="${LITE_TEST_SOCK}" --env LITE_IDE_DEBUG=1 ${zdot[@]+"${zdot[@]}"} \
+    --env LITE_AGENT_CMD="${LITE_AGENT_CMD-/usr/bin/python3 -I '${LITE_ROOT}/scripts/fake-acp-agent.py'}" \
     --stderr "${LITE_LOG}" -a "${LITE_APP}" "$@"
   lite_wait main "return true" 20 || { echo "20 秒内 main 窗口没回话（日志 ${LITE_LOG}）" >&2; return 1; }
   # **启动时那一下抢焦点关不掉**：tao（Tauri 底下的窗口库）在「启动完成」里无条件 activateIgnoringOtherApps，

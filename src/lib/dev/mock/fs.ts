@@ -182,8 +182,10 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
       // 形状必须与 Rust 侧 TextDto 一致，否则桩就失去了验证价值
       const p = String(a.path);
       const enc = (a.label as string) || encOf(p);
+      // 没有的文件报错，同真实现（原来给一句占位的字：AI 助手判「agent 要新建的文件原来有没有」靠这个报错，桩上一直判成「有」，2026-10-26）
+      if (FILES[p] === undefined) throw new Error(`读不到 ${p}：No such file or directory (os error 2)`);
       return {
-        content: FILES[p] ?? "// 桩里没有这个文件\n",
+        content: FILES[p],
         encoding: enc,
         bom: p.includes("bom"),
         // 桩里模拟「按 UTF-8 读一个 GBK 文件」的乱码情形：

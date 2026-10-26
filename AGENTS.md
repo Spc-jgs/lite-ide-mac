@@ -27,7 +27,7 @@ scripts/accept/spring-nav.sh   # Spring 接口搜索和配置跳转（8 条，�
 scripts/accept/http.sh         # `.http` 发请求（17 条，真 curl + 脚本自己的回显服务）：没选环境不发、私有环境盖公开的、头和体逐字对、按原样次序排 JSON、< 文件、重定向、4xx 标红、3 MB、取消后 curl 没了、`< 项目外面的文件` 不发、不往项目里写
 scripts/accept/history.sh      # 本地历史（9 条）：GBK + CRLF 存的是原始字节、读回来解得对；外面改过补记一版；面板里恢复是编辑器里的一笔修改（不写盘）；不往项目里写
 scripts/accept/java.sh         # Java 智能（86 条，内置的 jdtls + Java 21）：跑的是 .app 里那份、Lombok 不报假错、实时报错、补全（自动 import、方法带括号）、参数提示（换参数、出了括号收起、⌘P 手动弹）、改名（文件跟着改名、jdtls 从文件监听知道、撤销、撞名不动）、格式化（照编辑器的缩进、一笔撤销、只排选中的）、快速修复（import 候选的次序、补上后波浪线消失）、⌘B 进兄弟模块 / jar / JDK 源码、⌥F7、⌥⌘B 跳到实现、⌘U 父方法（进 JDK 的 Object）、F1 快速文档（Javadoc 的 HTML 不当 HTML 画）、同名高亮（读写分色、同名的别的变量不标）、参数名提示（只给字面量、不进正文、设置里关掉当场收）、生成 ⌃↵（Getter 和 Setter 里 final 的没有 setter、toString、构造器、equals / hashCode、覆盖方法默认不勾）、调用 / 类型层级（调用方带调用那一行、↵ 跳到调用处、接口上 ⌃H 列实现、⌃H 不再删字）、⇧⇧ 找类（驼峰缩写、默认只找项目的、含 jar 里的、停在声明那行、p95 延迟）、代码模板（sout + Tab 展开、jdtls 的 .var 整行换掉、补上的 .sout）、代码风格照 IDEA（项目的 .idea/codeStyles：⌃⌥O 合成 .*、static 排最后，⌥⌘L 照行宽折行、续行缩进）、重构（⌥⌘V 几种做法挑、抽完接着改名、抽出来是空格不是 Tab；⌥⌘M / ⌥⌘C 同样；⌥⌘N 内联回去）、移动类（F6：列的包、先预览盘上不动、挪进去之后 import 跟着改、jdtls 不报错、撤销挪回来）、不往项目里写、退出不留。JDTLS_HOME=… 验「用自己那份」
-scripts/smoke.sh               # 发版前的端到端清单（141 条，约 100 秒），同样走测试通道，先打测试 .app
+scripts/smoke.sh               # 发版前的端到端清单（151 条，约 100 秒），同样走测试通道，先打测试 .app
 ```
 
 ## 验证纪律
@@ -68,7 +68,7 @@ macOS 自带的 bash 3.2 在双引号里的 `$(…)` 里照样做花括号展开
 **一律要做：**
 
 - 起子进程走 `crates/procutil`（`spawn` / `run_capped`）：stdin 接空、两个管道并发读、输出设闸、丢掉就收尸。
-  先问「它的输出有上限吗」—— 不走它的只有任务（`tasksvc`）、git fetch / push、语言服务器（`lspsvc`），理由在 rust.md。
+  先问「它的输出有上限吗」—— 不走它的只有任务（`tasksvc`）、git fetch / push、语言服务器（`lspsvc`）、AI 助手的 agent（`acpsvc`），理由在 rust.md。
   **clippy 卡着**（`src-tauri/clippy.toml` 的 `disallowed-methods`，连同会吞文件的 `File::create` / `fs::write` / `fs::rename` 和直接删文件）：
   有意要用的标 `#[allow(clippy::disallowed_methods)]`、同一行写为什么
 - 碰盘、碰子进程、碰网络的命令写成 `async` + `commands::blocking`；真要留在主线程的写进 `src-tauri/tests/main_thread.rs` 的白名单、写清理由
@@ -124,6 +124,7 @@ macOS 自带的 bash 3.2 在双引号里的 `$(…)` 里照样做花括号展开
 | 下一阶段的总图：取代 IDEA 还缺什么、分几期做 | [docs/TAKEOVER.md](docs/TAKEOVER.md) —— 四方对照（IDEA / VS Code / Sublime / Lithe）、32 个缺口按多久碰一次排、15 条交互、设置树、四处大修、MVP-0 到 MVP-8 |
 | 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位；第 7 节是优先级 |
 | 踩过的坑的全过程 | [docs/JOURNAL.md](docs/JOURNAL.md) |
+| AI 助手（ACP 宿主：Claude Code / Codex） | [docs/AI.md](docs/AI.md) —— 改动先进编辑器不落盘、问人的不超时、写只许写项目里的；第 0 步实测；测试通道里起的是假 agent |
 | 想照别的项目的做法改 | [docs/research/codex.md](docs/research/codex.md) —— 读 Codex 的五个主题：对照结论、学了什么、为什么不学 |
 | 体验好不好、该先补哪个缺口 | [docs/research/editor-standards.md](docs/research/editor-standards.md) —— 用「编辑器为什么被骂、为什么成名」的七条审过一遍，每条有证据 |
 | 发版 / CI | [docs/RELEASE.md](docs/RELEASE.md) |
