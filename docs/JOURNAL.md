@@ -10601,3 +10601,30 @@ java.sh 有两次一开头 jdtls 就没起来（状态一直是 none），紧接
 **键位**：推送原来是 ⌥⌘P、拉取 ⇧⌘P，注释说「照 IDEA」—— 查 IDEA 的 macOS 默认表不是：⌥⌘P 是引入参数、⌘T 更新项目、⇧⌘K 推送。照「键位跟 IDEA」改了（TAKEOVER D11 记着、设置里能改回去）。
 
 数字：java.sh 86 → 94 全过；smoke 151 / 151；入口包 155,353 B 不变（对话框、键位接线都在懒块里）。
+
+## 2026-10-26 · G24 Gradle 第一步：服务、调试、单测、构建；jdtls 导入 Gradle 当场失败的原因是我们自己的 JVM
+
+**第 0 步**（Gradle 9.8.1 —— 当天最新的 9.8.2 才一周，挑了上一个；发行包 165 MB 进 `~/.gradle`、wrapper 按官方 sha256 校验；wrapper jar 从 gradle 仓库
+v9.8.1 标签拿，它的 sha256 正好是官方发布的 9.8.0 那份 —— 仓库里提交的 wrapper 是上一版生成的，jar 和发行包版本无关）：
+- `bootRun` 起的应用 JVM **是 Gradle daemon 的子进程**、进程组也是 daemon 的。给 gradlew 那一组发 INT / TERM，Gradle 取消构建、把它停掉（0.42 秒）；
+  KILL 掉 gradlew，daemon 发现客户端没了也停（0.03 秒）。靠的是 Gradle 的取消，不是我们的整组杀
+- 单测报告是 JUnit XML（`build/test-results/test/`），surefire 那个解析器原样认；javac 的错误是 `路径:行: 错误: 消息`（没有列、级别词跟系统语言、整段在失败摘要里多缩进两格再出现一遍）
+- 冷 daemon 跑一个模块的单测 39 秒、热的 1 秒
+
+**起服务不用 bootRun**，同 Maven 不用 `spring-boot:run`：`exec java` 这个形状让调试插 JDWP、热替换挂代理。classpath 由一段 init 脚本算（放在应用数据目录，
+`--init-script` 传进去，不写进项目）—— 给每个 Java 模块加一个依赖 `runtimeClasspath` 的任务，于是兄弟模块的 jar 顺带编好；配置缓存开着也能跑。
+应用于是是我们的子进程，上面那条「靠 Gradle 取消」就不用指望了（gradle.sh 验了：⌘F2 之后 JVM 没了、父进程不是 daemon）。
+
+**调试第一次停下了、帧却没有文件路径**：java-debug 找源码靠 jdtls 的项目，jdtls 的 ⌘B 也什么都回不来。jdtls 日志里：
+`Toolchain installation '…/lite-ide-mwtest.app/…/runtime-aarch64' does not provide the required capabilities: [JAVA_COMPILER]` ——
+jdtls 用 Gradle tooling API 导入时，Gradle 默认用 jdtls 自己跑的那个 JVM，**那是我们 .app 里 jlink 裁过的 Java 21，没有 javac**。Maven（m2e）不要编译器，所以一直没撞上。
+给 jdtls 配 `java.import.gradle.java.home`：机器上有 javac 的 JDK，先挑 21、再 17、都没有挑最高的（最高的不一定被这个 Gradle 认）。之后导入 22 秒、⌘B 进依赖 jar 和兄弟模块的源码、调试的帧带路径。
+单测里没有 javac 的 21 排除掉、改成不查 javac 就红。
+
+**验收脚本自己绊的两跤**：调试直接 `invoke('task_run')`，前端的运行表里没有这次运行，调试状态一直是空的（等满 300 秒）—— 要走 `debug-ops.debugTask`，测试通道加了这个口子；
+探针脚本里 `grep 一个找不到的东西 && python 改文件`，前面的 grep 失败、后面的改动根本没跑，一度以为改上了。
+
+**没做的**：Gradle 工具窗（任务列表）；调试单测（测试 JVM 是 daemon 起的、不在我们的进程组里，「问进程组谁在听调试端口」够不着 —— 现在说一句「这一版还没做」，不是原来的「不是单测」）；
+覆盖率（同理，说一句不跑）；热替换没在 Gradle 上验（形状是对的：本模块的 classes 是目录、在 classpath 上）。
+
+数字：gradle.sh 18 / 18；回归 spring.sh 109 / 109、java.sh 94 / 94、smoke 151 / 151；新单测 7 条（Gradle 的命令 4、javac 格式 1、jdtls 的 Gradle JDK 1、taskdefs 1），各自改坏验红。

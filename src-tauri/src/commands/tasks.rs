@@ -78,6 +78,9 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
                 Some(if let Some(main) = crate::taskdefs::java_main(Path::new(&root), &name) {
                     def.command = crate::debug::with_jdwp(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 java 起的，调试不了"))?;
                     crate::debug::Who::Main(main)
+                } else if crate::taskdefs::is_gradle_test(Path::new(&root), &name) {
+                    // 测试的 JVM 是 Gradle daemon 起的、不在我们的进程组里，「问进程组里谁在听调试端口」那条够不着它（gradle.rs 头上）
+                    return Err("Gradle 项目调试单测这一版还没做（能直接运行；Maven 项目能调试）".into());
                 } else if let Some(project) = crate::taskdefs::test_project(Path::new(&root), &name).filter(|_| matches!(def.source, crate::taskdefs::Source::Goal { .. })) {
                     def.command = crate::debug::with_surefire_debug(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 mvn 起的，调试不了"))?;
                     crate::debug::Who::Project(project)

@@ -321,10 +321,23 @@ pub fn init_options(runtimes: &[(u32, PathBuf)], maven_settings: Option<&str>) -
         .collect();
     let mut o = init_options_base();
     o["settings"]["java"]["configuration"] = json!({ "runtimes": rts });
+    // Gradle 项目（docs/TAKEOVER.md G24）：jdtls 导入时 Gradle 默认用 jdtls 自己跑的那个 JVM —— 那是 .app 里裁过的 Java 21，**没有 javac**，
+    // Gradle 的 java 插件要编译器，导入当场失败（2026-10-26 实测：`Toolchain installation '…/runtime-aarch64' does not provide the required
+    // capabilities: [JAVA_COMPILER]`），补全、跳转、调试找源码全没有。给它这台机器上的一个真 JDK
+    if let Some(h) = gradle_jdk(runtimes) {
+        o["settings"]["java"]["import"]["gradle"]["java"] = json!({ "home": h.to_string_lossy() });
+    }
     if let Some(s) = maven_settings.filter(|s| !s.trim().is_empty()) {
         o["settings"]["java"]["configuration"]["maven"] = json!({ "userSettings": s.trim() });
     }
     o
+}
+
+/// 给 Gradle 用的 JDK：要有 `bin/javac`（Gradle 的 java 插件要编译器），版本 ≥ 17（Gradle 9 自己要）。先挑长期支持的 21、再 17，都没有就挑最高的 ——
+/// 最高的不一定被这个 Gradle 支持（新 JDK 出得比 Gradle 认它快），所以不先挑它
+pub fn gradle_jdk(runtimes: &[(u32, PathBuf)]) -> Option<&PathBuf> {
+    let ok: Vec<&(u32, PathBuf)> = runtimes.iter().filter(|(v, h)| *v >= 17 && h.join("bin/javac").is_file()).collect();
+    [21, 17].iter().find_map(|w| ok.iter().find(|(v, _)| v == w)).or_else(|| ok.iter().max_by_key(|(v, _)| *v)).map(|(_, h)| h)
 }
 
 fn init_options_base() -> Value {
@@ -352,6 +365,29 @@ fn init_options_base() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gradle_用的_jdk_要有_javac_先挑_21() {
+        let d = std::env::temp_dir().join(format!("lite-gradle-jdk-{}", std::process::id()));
+        let mk = |n: &str, javac: bool| {
+            let h = d.join(n);
+            std::fs::create_dir_all(h.join("bin")).unwrap();
+            if javac {
+                #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
+                std::fs::write(h.join("bin/javac"), "").unwrap();
+            }
+            h
+        };
+        let (j11, jre21, j17, j25) = (mk("j11", true), mk("jre21", false), mk("j17", true), mk("j25", true));
+        assert_eq!(gradle_jdk(&[(11, j11.clone()), (21, jre21.clone()), (17, j17.clone()), (25, j25.clone())]), Some(&j17), "21 只有 JRE（没 javac）不算；有 17 先挑 17、不挑最高的 25");
+        assert_eq!(gradle_jdk(&[(11, j11.clone()), (25, j25.clone())]), Some(&j25), "没有 21 / 17：最高的");
+        assert_eq!(gradle_jdk(&[(11, j11)]), None, "低于 17 的 Gradle 9 跑不了");
+        let o = init_options(&[(25, j25.clone())], None);
+        assert_eq!(o["settings"]["java"]["import"]["gradle"]["java"]["home"], j25.to_string_lossy().as_ref());
+        assert_eq!(o["settings"]["java"]["import"]["gradle"]["enabled"], true, "加 java.home 没把 enabled 盖掉");
+        #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     /// 造一个假 JDK：`release` 文件 + `bin/java`
     fn fake_jdk(home: &Path, ver: &str) {

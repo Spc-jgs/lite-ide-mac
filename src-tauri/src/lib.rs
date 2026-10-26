@@ -4,6 +4,7 @@ mod commands;
 mod debug;
 mod history;
 pub mod java;
+mod gradle;
 mod maven;
 mod maven_run;
 mod javac;
@@ -216,6 +217,7 @@ pub fn run() {
             if let Ok(dir) = app.path().app_data_dir() {
                 // Maven 工具窗的开关（离线、跳过测试、勾的 profile），按项目记（maven.rs 的 Prefs）
                 maven::set_prefs_file(dir.join("maven-prefs.json"));
+                gradle::set_init_file(dir.join("lite-ide-init.gradle"));
                 projectcfg::set_file(dir.join("project-settings.json"));
                 let runs = dir.join("runs");
                 st.init_live(runs.join("live.json"));

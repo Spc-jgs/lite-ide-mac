@@ -178,7 +178,7 @@ pub fn parse_report(xml: &str) -> Vec<Case> {
     out
 }
 
-/// 一个模块这次跑出来的结果：`target/surefire-reports/TEST-*.xml` 里**改动时间不早于 `since`** 的那些（旧报告不算 —— 上次跑过、这次没跑到的类
+/// 一个模块这次跑出来的结果：`target/surefire-reports/TEST-*.xml`（Gradle 是 `build/test-results/test/`）里**改动时间不早于 `since`** 的那些（旧报告不算 —— 上次跑过、这次没跑到的类
 /// 还躺在那儿，算进来就是一份看着完整、其实混着上次结果的东西）。返回 `(前 CASES_MAX 条, 真条数)`
 /// 这一条结果是不是这次选的那几个测试类里的（`-Dtest` 的选择器：`A,B#m1+m2`）。
 ///
@@ -207,9 +207,11 @@ pub fn in_selector(selector: &str, class: &str) -> bool {
 
 /// `selector`：这次的 `-Dtest` 选择器，只留它选的那几个类的（[`in_selector`]）。先筛再截断，`total` 是筛完的真条数
 pub fn results(module_dir: &Path, since: SystemTime, selector: &str) -> (Vec<Case>, usize) {
-    let dir = module_dir.join("target/surefire-reports");
-    let Ok(rd) = std::fs::read_dir(&dir) else { return (Vec::new(), 0) };
-    let mut files: Vec<_> = rd
+    // Maven（surefire）和 Gradle（`test` 任务）各写各的地方，格式一样。两处都看：一个模块只会是其中一种，另一处没有就是空的
+    let mut files: Vec<_> = [module_dir.join("target/surefire-reports"), module_dir.join(crate::gradle::REPORTS)]
+        .iter()
+        .filter_map(|d| std::fs::read_dir(d).ok())
+        .flatten()
         .flatten()
         .filter(|e| {
             let n = e.file_name();

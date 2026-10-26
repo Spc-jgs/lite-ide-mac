@@ -103,6 +103,8 @@ export function installTestHooks() {
     runs,
     /** 按名字跑一个任务，同 ⌃R / 任务列表那条路（跑几个测试类的「模块 [test A,B]」界面上要先跑过一次才有重跑按钮，验收直接起） */
     runTask: async (name: string) => (await import("../state/runs-ops")).runTask(name, project.root),
+    /** 按名字调试一个任务，同 Services 里点虫子、⌃⇧D 那条路（直接 invoke task_run 的话前端的运行表里没有它，调试状态看不见） */
+    debugTask: async (name: string) => (await import("../debug/debug-ops")).debugTask(name, project.root),
     /** 浮层（⇧⇧ 直接开到某一页：「连按两下 ⇧」是真输入，测试通道不发） */
     overlay,
     /**

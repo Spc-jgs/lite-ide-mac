@@ -3,7 +3,7 @@
 //! 纯函数 + 读盘，不碰进程（起和停在 `tasksvc`）。放在主 crate 里、挨着 `settings.rs`：`tasks.json` 和 `settings.json` 是同一种 JSONC
 //! （注释、末尾逗号），用的是同一个 [`crate::settings::strip`] —— 一种格式一个解析器，不另写一份。
 //!
-//! **为什么不自动认 Gradle / Python**：Python 跑哪个入口，猜错比不猜糟（Q2）。
+//! **为什么不自动认 Python**：Python 跑哪个入口，猜错比不猜糟（Q2）。（Gradle 项目里的 Spring Boot 应用 2026-10-26 起认了，同 Maven，见 `gradle.rs`）
 //! package.json 不一样：`scripts` 就是作者自己写下的「这个项目能跑什么」，照着列出来不算猜。
 //! **Spring Boot 应用自动认**（2026-10-14，docs/IDEA.md 第 1 步）：`@SpringBootApplication` + `main` 同样是作者写下的声明，
 //! 不带 profile 起（IDEA 的默认）—— Q2 当初担心的「要不要带 profile」由 tasks.json 里同名的任务回答。怎么认、怎么起在 `maven.rs`
@@ -439,6 +439,21 @@ pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
         problems.extend(ps);
         apps.extend(found_apps.into_iter().map(|a| (rel.clone(), a)));
     }
+    // Gradle 的（docs/TAKEOVER.md G24）：入口照样按 `@SpringBootApplication` + `main` 认（同一个函数），命令换成 Gradle 的。
+    // 记下哪几个是 Gradle 的（构建根, 模块目录）→ Gradle 项目路径
+    let mut gradle: Vec<(String, String, String)> = Vec::new();
+    for rel in crate::gradle::roots(root) {
+        let r = root.join(&rel);
+        let mods = crate::gradle::modules(&r);
+        let (found_apps, ps) = crate::maven::boot_apps(&r, &mods);
+        problems.extend(ps);
+        for a in found_apps {
+            if let Some(m) = mods.iter().find(|m| m.rel == a.module) {
+                gradle.push((rel.clone(), a.module.clone(), m.artifact_id.clone()));
+            }
+            apps.push((rel.clone(), a));
+        }
+    }
     let out = apps
         .iter()
         .map(|(rel, app)| {
@@ -448,11 +463,12 @@ pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
             let name = if dup { format!("{module}/{short}") } else { short.to_string() };
             // 运行配置（docs/SETTINGS.md 13.6）：按任务名存，Services 和 ⌃⌥R 里看到的就是这个名字
             let run = crate::projectcfg::run(root, &name);
-            let command = format!(
-                "{}{}",
-                jdk_prefix_for(root, &rel, &app.module, &run.jdk),
-                crate::maven::run_command(app, &prefs, &crate::maven::invocation(&root.join(&rel)), &run)
-            );
+            let launch = match gradle.iter().find(|(r, m, _)| r == rel && *m == app.module) {
+                Some((_, _, project)) => crate::gradle::run_command(project, &app.module, &app.main_class, &crate::gradle::invocation(&root.join(rel)), &run)
+                    .unwrap_or_else(|| "echo '[lite-ide] 写不了 Gradle 的 init 脚本（应用数据目录）'; exit 1".into()),
+                None => crate::maven::run_command(app, &prefs, &crate::maven::invocation(&root.join(rel)), &run),
+            };
+            let command = format!("{}{launch}", jdk_prefix_for(root, rel, &app.module, &run.jdk));
             SpringTask {
                 def: Def { name, command, cwd: rel.clone(), env: Vec::new(), source: Source::Spring { module } },
                 app: app.clone(),
@@ -488,7 +504,7 @@ fn spring_apps(root: &Path, found: &mut Found) {
 /// 但 `task_run` 按名字认得它 —— 于是运行窗、⌃R 重跑、⌘F2 停、同名先停旧的全是现成的。目标里每个词都要过 `maven::goal_command` 的字符检查
 pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
     let (artifact, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
-    let (rel, m) = find_module(root, artifact)?;
+    let Some((rel, m)) = find_module(root, artifact) else { return gradle_goal(root, artifact, goal, name) };
     let prefs = crate::maven::prefs(root);
     // 单测（docs/IDEA.md 第 17 节）：「模块 [test 选择器]」—— 和跑目标同一个名字形状，运行窗、⌃R 重跑、⌘F2 停、同名先停旧的都是现成的
     let mvn = crate::maven::invocation(&root.join(&rel));
@@ -499,6 +515,40 @@ pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
     };
     let command = format!("{}{command}", jdk_prefix(root, &rel, &m.rel));
     Some(Def { name: name.to_string(), command, cwd: rel, env: Vec::new(), source: Source::Goal { module: m.rel } })
+}
+
+/// Gradle 模块的「模块 [test 选择器]」（测试旁边的 ▶、⌃⇧R、重跑没过的都是这个名字形状）：`gradlew :模块:test --tests …`。
+/// 带覆盖率（`[cover …]`）这一版不做：不悄悄退成不带覆盖率跑，在运行窗里说一句、不跑
+fn gradle_goal(root: &Path, token: &str, goal: &str, name: &str) -> Option<Def> {
+    let (rel, m) = find_gradle_module(root, token)?;
+    let command = if let Some(sel) = goal.strip_prefix("test ") {
+        crate::gradle::test_command(&m.artifact_id, sel.trim(), &crate::gradle::invocation(&root.join(&rel)))?
+    } else if goal.starts_with("cover ") {
+        "echo '[lite-ide] Gradle 项目带覆盖率跑单测还没做（Maven 项目可以）。先用普通的运行'; exit 2".to_string()
+    } else {
+        return None;
+    };
+    Some(Def { name: name.to_string(), command, cwd: rel, env: Vec::new(), source: Source::Goal { module: m.rel } })
+}
+
+/// 是不是 Gradle 模块的单测任务（调试那里要单独说一句：这一版还调试不了）
+pub fn is_gradle_test(root: &Path, name: &str) -> bool {
+    let Some((token, goal)) = name.strip_suffix(']').and_then(|n| n.rsplit_once(" [")) else { return false };
+    (goal.starts_with("test ") || goal.starts_with("cover ")) && find_module(root, token).is_none() && find_gradle_module(root, token).is_some()
+}
+
+/// 任务名里的模块那一段 → Gradle 的（构建根相对项目根, 模块）。认模块目录相对项目根的路径（测试旁边的 ▶ 起的）、Gradle 的项目路径（`:a:b`），根项目写 `.`
+fn find_gradle_module(root: &Path, token: &str) -> Option<(String, crate::maven::Module)> {
+    for rel in crate::gradle::roots(root) {
+        let hit = crate::gradle::modules(&root.join(&rel)).into_iter().find(|m| {
+            let dir = [rel.as_str(), m.rel.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("/");
+            m.artifact_id == token || (!dir.is_empty() && dir == token) || (dir.is_empty() && token == ".")
+        });
+        if let Some(m) = hit {
+            return Some((rel, m));
+        }
+    }
+    None
 }
 
 /// 单测任务（「模块 [test 选择器]」）调试时用的项目名：模块的 artifactId（m2e 默认拿它当项目名，求值要）。不是单测任务给 None
@@ -528,7 +578,7 @@ fn find_module(root: &Path, token: &str) -> Option<(String, crate::maven::Module
 pub fn test_module_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
     let (token, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
     goal.strip_prefix("test ").or_else(|| goal.strip_prefix("cover "))?;
-    let (rel, m) = find_module(root, token)?;
+    let (rel, m) = find_module(root, token).or_else(|| find_gradle_module(root, token))?;
     Some(root.join(rel).join(m.rel))
 }
 
@@ -589,7 +639,9 @@ fn build(root: &Path, name: &str) -> Option<Def> {
     if !is_build(name) {
         return None;
     }
-    let command = crate::maven::build_command(&crate::maven::reactors(root), &crate::maven::prefs(root), name == REBUILD, &|r| jdk_prefix(root, r, ""), &|r| crate::maven::invocation(&root.join(r)))?;
+    // 没有 Maven 的 reactor 就看 Gradle 的构建根（docs/TAKEOVER.md G24）
+    let command = crate::maven::build_command(&crate::maven::reactors(root), &crate::maven::prefs(root), name == REBUILD, &|r| jdk_prefix(root, r, ""), &|r| crate::maven::invocation(&root.join(r)))
+        .or_else(|| crate::gradle::build_command(&crate::gradle::roots(root), name == REBUILD, &|r| crate::gradle::invocation(&root.join(r))))?;
     Some(Def { name: name.to_string(), command, cwd: String::new(), env: Vec::new(), source: Source::Goal { module: String::new() } })
 }
 
@@ -637,6 +689,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn gradle_项目_服务单测构建都走_gradle_的命令_同时有_pom_的照旧按_maven() {
+        let root = tmp("gradle");
+        crate::gradle::set_init_file(std::env::temp_dir().join(format!("lite-ide-taskdefs-init-{}.gradle", std::process::id())));
+        let app = root.join("order-service/src/main/java/com/demo/order");
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::create_dir_all(root.join("shop-common/src/test/java")).unwrap();
+        std::fs::write(root.join("settings.gradle.kts"), "include(\"shop-common\", \"order-service\")\n").unwrap();
+        std::fs::write(root.join("build.gradle.kts"), "").unwrap();
+        std::fs::write(root.join("gradlew"), "#!/bin/sh\n").unwrap();
+        std::fs::write(app.join("OrderApplication.java"), "package com.demo.order;\n@SpringBootApplication\npublic class OrderApplication { public static void main(String[] a) {} }\n").unwrap();
+
+        let (tasks, _) = spring_tasks(&root);
+        assert_eq!(tasks.len(), 1, "{:?}", tasks.iter().map(|t| &t.def).collect::<Vec<_>>());
+        assert_eq!(tasks[0].def.name, "OrderApplication");
+        assert!(tasks[0].def.command.contains(":order-service:liteIdeClasspath && cd order-service && exec java"), "{}", tasks[0].def.command);
+        assert!(!tasks[0].def.command.contains("mvn"), "{}", tasks[0].def.command);
+
+        let t = resolve(&root, "shop-common [test com.demo.MoneyTest#ok]").unwrap();
+        assert_eq!(t.command, "sh ./gradlew --console=plain :shop-common:test --tests com.demo.MoneyTest.ok", "gradlew 没执行位：sh 跑它");
+        assert!(resolve(&root, "shop-common [cover com.demo.MoneyTest]").unwrap().command.contains("还没做"), "覆盖率不悄悄退成普通跑");
+        assert!(is_gradle_test(&root, "shop-common [test com.demo.MoneyTest]"));
+        assert_eq!(test_module_dir(&root, "shop-common [test X]").unwrap(), root.join("shop-common"));
+        assert_eq!(resolve(&root, BUILD).unwrap().command, "sh ./gradlew --console=plain --continue classes testClasses");
+
+        // 迁移到一半、两个都有：按 Maven（不出两份一样的服务）
+        std::fs::write(root.join("pom.xml"), "<project><modules><module>order-service</module></modules></project>").unwrap();
+        assert!(crate::gradle::roots(&root).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
