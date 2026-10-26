@@ -252,6 +252,25 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
      * 解析插件和依赖**故意等 1.5 秒**：真实现要跑一次 mvn（几秒到几十秒），围着「正在解析」做的那两个节点在 0ms 的桩上看不见
      * （frontend.md「桩要能停在中间一会儿」）。开关存在内存里（真实现在 maven-prefs.json），刷新页面就没了
      */
+    /*
+     * Gradle 工具窗（真实现：commands/tasks.rs 的 gradle_project / gradle_tasks，规则在 gradle.rs）。桩：项目根有 settings 文件且没有 pom.xml 才算
+     * （同 gradle::roots），include 用一条正则认；任务是写死的几组。列任务**故意等 0.8 秒**：真实现要跑一次 gradlew，「正在列任务」那一句要看得见
+     */
+    case "gradle_project": {
+      const root = String(a.root);
+      const settings = FILES[`${root}/settings.gradle.kts`] ?? FILES[`${root}/settings.gradle`];
+      if (settings === undefined || FILES[`${root}/pom.xml`] !== undefined) return { roots: [] };
+      const inc = [...settings.matchAll(/["']:?([\w-]+)["']/g)].map((m) => m[1]).filter((n) => !/^(shopdemo)$/.test(n));
+      const name = /rootProject\.name\s*=\s*["']([^"']+)/.exec(settings)?.[1] ?? root.split("/").pop()!;
+      return { roots: [{ rel: "", name, modules: [{ path: ":", dir: "" }, ...inc.map((n) => ({ path: `:${n}`, dir: n }))] }] };
+    }
+    case "gradle_tasks":
+      return new Promise((r) =>
+        setTimeout(() => {
+          const t = (project: string, name: string, group: string, desc = "") => ({ project, name, group, desc });
+          r({ tasks: [t(":", "wrapper", "Build Setup", "Generates Gradle wrapper files."), t(":order-service", "bootRun", "Application", "Runs this project as a Spring Boot application."), t(":order-service", "build", "Build", "Assembles and tests this project."), t(":shop-common", "build", "Build", "Assembles and tests this project."), t(":shop-common", "test", "Verification", "Runs the test suite.")], truncated: false });
+        }, 800),
+      );
     case "maven_project": {
       const root = String(a.root);
       const prefs = MVN_PREFS.get(root) ?? { offline: false, skipTests: false, profiles: [] as string[] };

@@ -450,6 +450,8 @@ pub fn run() {
             commands::java_move_destinations,
             commands::java_move_preview,
             commands::java_move,
+            commands::gradle_project,
+            commands::gradle_tasks,
             commands::java_method_sig,
             commands::java_method_sig_preview,
             commands::java_change_signature,

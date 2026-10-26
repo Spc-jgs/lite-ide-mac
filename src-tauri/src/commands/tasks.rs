@@ -78,9 +78,11 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
                 Some(if let Some(main) = crate::taskdefs::java_main(Path::new(&root), &name) {
                     def.command = crate::debug::with_jdwp(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 java 起的，调试不了"))?;
                     crate::debug::Who::Main(main)
-                } else if crate::taskdefs::is_gradle_test(Path::new(&root), &name) {
-                    // 测试的 JVM 是 Gradle daemon 起的、不在我们的进程组里，「问进程组里谁在听调试端口」那条够不着它（gradle.rs 头上）
-                    return Err("Gradle 项目调试单测这一版还没做（能直接运行；Maven 项目能调试）".into());
+                } else if let Some(project) = crate::taskdefs::gradle_test_project(Path::new(&root), &name) {
+                    // 测试的 JVM 是 Gradle daemon 起的、不在我们的进程组里，「问进程组里谁在听调试端口」那条够不着它：端口我们定（gradle.rs）
+                    let port = std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).map_err(|e| format!("找不到空着的调试端口：{e}"))?;
+                    def.command = crate::gradle::with_debug(&def.command, port).ok_or_else(|| format!("「{name}」的命令不是我们拼的 Gradle 单测，调试不了"))?;
+                    crate::debug::Who::Port(project, port)
                 } else if let Some(project) = crate::taskdefs::test_project(Path::new(&root), &name).filter(|_| matches!(def.source, crate::taskdefs::Source::Goal { .. })) {
                     def.command = crate::debug::with_surefire_debug(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 mvn 起的，调试不了"))?;
                     crate::debug::Who::Project(project)
@@ -335,6 +337,41 @@ pub async fn task_stale_resolve(root: String, kill: bool, app: tauri::AppHandle)
     .await
 }
 
+
+/// Gradle 工具窗（docs/TAKEOVER.md G24）：构建根和模块，读 settings 文件（不跑 Gradle，打开工具窗当场画得出来）
+#[tauri::command]
+pub async fn gradle_project(root: String) -> Result<GradleProjectDto, String> {
+    blocking(move || {
+        let rootp = Path::new(&root);
+        let roots = crate::gradle::roots(rootp)
+            .into_iter()
+            .map(|rel| {
+                let dir = rootp.join(&rel);
+                GradleRootDto {
+                    name: crate::gradle::root_name(&dir),
+                    modules: crate::gradle::modules(&dir).into_iter().map(|m| GradleModuleDto { path: m.artifact_id, dir: m.rel }).collect(),
+                    rel,
+                }
+            })
+            .collect();
+        Ok(GradleProjectDto { roots })
+    })
+    .await
+}
+
+/// 一个构建根的任务：跑一次 `gradlew tasks --all`（热的不到 1 秒，冷 daemon 十几秒），前端先画模块、任务回来再填
+#[tauri::command]
+pub async fn gradle_tasks(app: tauri::AppHandle, root: String, rel: String) -> Result<GradleTasksDto, String> {
+    blocking(move || {
+        let shell = crate::settingsctl::terminal_shell(&app.state::<AppState>());
+        let (tasks, truncated) = crate::gradle::list_tasks(&Path::new(&root).join(&rel), &shell)?;
+        Ok(GradleTasksDto {
+            tasks: tasks.into_iter().map(|t| GradleTaskDto { project: t.project, name: t.name, group: t.group, desc: t.desc }).collect(),
+            truncated,
+        })
+    })
+    .await
+}
 
 /// Maven 工具窗：模块树、每个模块里认出来的 Spring Boot 应用（带任务名 —— 点运行和 ⌃⌥R 里选它是同一个任务）。读盘，走阻塞池
 #[tauri::command]

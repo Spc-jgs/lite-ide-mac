@@ -80,6 +80,8 @@
     "coverage",
     // AI 助手（docs/TAKEOVER.md MVP-6）
     "ai",
+    // Gradle 工具窗（docs/TAKEOVER.md G24）
+    "gradle",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Gradle 项目（docs/TAKEOVER.md G24）在真 .app + 真 Gradle 上验：认出 Spring Boot 服务、起（兄弟模块的类、classpath 拼对）、⌘F2 停干净、
-# 单测（结果树、行号旁 ✓✗、命令是 Gradle 的 --tests）、⌘F9 构建（javac 的错误按文件列、Gradle 打两遍只算一条）、不往项目里写东西。
+# 单测（结果树、行号旁 ✓✗、命令是 Gradle 的 --tests、没改过也真跑）、调试单测（停在测试的断点上）、⌘F9 构建（javac 的错误按文件列、Gradle 打两遍只算一条）、不往项目里写东西。
 # 走测试通道：不发全局按键、不抢焦点（scripts/lib/bridge.sh）。
 #
 # 要一份 Gradle 9.8.1 的发行包在 ~/.gradle/wrapper/dists 里（165 MB）：没有就记「未验」，不替你下 —— 下的话：
@@ -128,11 +128,47 @@ RUN="shop-common [test com.demo.common.MoneyTest]"
 lite_wait main "return __lite.runs.list.some((r) => r.name === '${RUN}' && r.tests && r.status !== 'running' && r.status !== 'stopping')" 240 >/dev/null
 ok "$([ "$(lite_eval main "$(R "${RUN}") return !!r?.tests && r.tests.cases.map((c) => c.name + ':' + c.outcome).sort().join(',') === 'bad():failed,ok():passed' || r?.tests?.cases.map((c) => c.name + ':' + c.outcome).sort().join(',') === 'bad:failed,ok:passed'")" = true ] && echo 1)" "结果树（读的是 build/test-results/test）：$(lite_eval main "$(R "${RUN}") return JSON.stringify(r?.tests?.cases.map((c) => c.name + ':' + c.outcome))")"
 TC=$(lite_eval main "$(R "${RUN}") return r?.command ?? ''")
-ok "$([ "${TC}" = "./gradlew --console=plain :shop-common:test --tests com.demo.common.MoneyTest" ] && echo 1)" "命令：${TC}"
+ok "$(echo "${TC}" | grep -q '^\./gradlew --console=plain --init-script .* :shop-common:test --rerun --tests com\.demo\.common\.MoneyTest$' && echo 1)" "命令（带 --rerun：上次过了、没改过，Gradle 会说 UP-TO-DATE 不跑）：${TC}"
 lite_wait main "return document.querySelectorAll('.cm-test-run.failed').length === 2 && document.querySelectorAll('.cm-test-run.passed').length === 1" 10 >/dev/null
 ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-test-run.failed').length === 2 && document.querySelectorAll('.cm-test-run.passed').length === 1")" = true ] && echo 1)" "行号旁：类和没过的是 ✗、过了的是 ✓"
-DBG=$(lite_eval main "try { await window.__TAURI_INTERNALS__.invoke('task_run', { root: '${P}', name: '${RUN}', debug: true }); return 'started' } catch (e) { return String(e) }")
-ok "$(echo "${DBG}" | grep -q 'Gradle 项目调试单测这一版还没做' && echo 1)" "调试单测：说清这一版还不行（不是「不是单测」）：${DBG}"
+# 只跑过得了的那个方法、跑两遍：第二遍什么都没改，没有 --rerun 的话 Gradle 说 UP-TO-DATE 不跑（没过的测试不会 UP-TO-DATE，所以挑过得了的验）
+OKRUN="shop-common [test com.demo.common.MoneyTest#ok]"
+OKLOG='shop-common__test_com.demo.common.MoneyTest_ok_'
+for _ in 1 2; do
+  lite_eval main "__lite.runTask('${OKRUN}'); return true" >/dev/null
+  sleep 1
+  lite_wait main "return __lite.runs.list.some((r) => r.name === '${OKRUN}' && r.status !== 'running' && r.status !== 'stopping')" 120 >/dev/null
+done
+ok "$(logtext "${OKLOG}" | grep -q '> Task :shop-common:test$' && echo 1)" "过得了的方法、什么都没改再跑一遍：test 任务真跑了（不是 UP-TO-DATE）：$(logtext "${OKLOG}" | grep ':shop-common:test' | tail -1)"
+
+echo "== 调试单测：测试的 JVM 是 Gradle daemon 起的（不在我们的进程组里）—— 端口我们定、init 脚本交给它；停在测试里的断点上，F9 之后照常跑完、结果树出来"
+lite_eval main "await __lite.debug.breakpoints('${P}', '${TEST}', [7]); return true" >/dev/null
+lite_eval main "await __lite.debugTask('${RUN}'); return true" >/dev/null
+TD="const r = __lite.runs.list.find((x) => x.name === '${RUN}'); const d = r?.debug;"
+T0=$(date +%s)
+lite_wait main "${TD} return d?.phase === 'paused' || d?.phase === 'ended'" 240 >/dev/null
+TF=$(lite_eval main "${TD} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.name + '@' + (f.path ?? '').split('/').pop() + ':' + f.line).join('') + ' ' + (d?.note ?? '')")
+ok "$(echo "${TF}" | grep -q '^paused MoneyTest.ok()@MoneyTest.java:7' && echo 1)" "停在 MoneyTest.java:7（$(( $(date +%s) - T0 )) 秒）：${TF}"
+ok "$(lite_eval main "${TD} return r?.command ?? ''" | grep -q -- '--rerun .*-PliteIdeJdwp=-agentlib:jdwp=.*address=127.0.0.1:[0-9]' && echo 1)" "命令带 --rerun（没改过也要真跑）和我们定的调试端口"
+lite_eval main "await __lite.debug.breakpoints('${P}', '${TEST}', []); return true" >/dev/null
+lite menu debug-resume main >/dev/null
+lite_wait main "${TD} return r?.status !== 'running' && r?.status !== 'stopping' && !!r?.tests && d?.phase === 'ended'" 120 >/dev/null
+ok "$([ "$(lite_eval main "${TD} return d?.phase + ':' + r?.tests?.cases.map((c) => c.name + ':' + c.outcome).sort().join(',')")" = "ended:bad():failed,ok():passed" ] && echo 1)" "F9 之后跑完：调试会话结束、结果树照常出来：$(lite_eval main "${TD} return d?.phase + ':' + r?.tests?.cases.map((c) => c.name + ':' + c.outcome).sort().join(',')")"
+
+echo "== Gradle 工具窗（照 IDEA）：导轨上有它；构建根 → 子项目 → Tasks → 组 → 任务（gradlew tasks --all 列的）；双击 shop-common 的 jar → 运行窗里跑、出 jar"
+lite_eval main "document.querySelector('nav.rail button[aria-label=\"Gradle\"]').click(); return true" >/dev/null
+lite_wait main "return [...document.querySelectorAll('.gradle .row')].some((r) => r.innerText.trim() === 'shop-common')" 20 >/dev/null
+lite_eval main "const r = [...document.querySelectorAll('.gradle .row')].find((x) => x.innerText.trim() === 'shop-common'); r.click(); return true" >/dev/null
+lite_eval main "const r = [...document.querySelectorAll('.gradle .row')].filter((x) => x.innerText.trim() === 'Tasks').pop(); r.click(); return true" >/dev/null
+lite_wait main "return [...document.querySelectorAll('.gradle .row')].some((r) => r.innerText.trim() === 'build')" 60 >/dev/null
+GROWS=$(lite_eval main "return [...document.querySelectorAll('.gradle .row')].map((r) => r.innerText.split('\\n')[0].trim()).join(',')")
+ok "$(echo "${GROWS}" | grep -q 'shopdemo' && echo "${GROWS}" | grep -q 'order-service' && echo "${GROWS}" | grep -q 'shop-common,Tasks' && echo "${GROWS}" | grep -q 'build' && echo "${GROWS}" | grep -q 'verification' && echo 1)" "树：${GROWS}"
+lite_eval main "const r = [...document.querySelectorAll('.gradle .row')].filter((x) => x.innerText.trim() === 'build').pop(); r.click(); return true" >/dev/null
+lite_wait main "return [...document.querySelectorAll('.gradle .row')].some((r) => r.innerText.split('\\n')[0].trim() === 'jar')" 10 >/dev/null
+lite_eval main "const r = [...document.querySelectorAll('.gradle .row')].find((x) => x.innerText.split('\\n')[0].trim() === 'jar'); r.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return true" >/dev/null
+JR=$(R ':shop-common [jar]')
+lite_wait main "${JR} return !!r && r.status !== 'running' && r.status !== 'stopping'" 120 >/dev/null
+ok "$([ "$(lite_eval main "${JR} return r?.status + '|' + r?.command")" = "done|./gradlew --console=plain :shop-common:jar" ] && [ -f "${P}/shop-common/build/libs/shop-common.jar" ] && echo 1)" "双击 jar：运行窗里跑完、出了 build/libs/shop-common.jar：$(lite_eval main "${JR} return r?.status + '|' + r?.command")"
 
 echo "== ⌘F9 构建：Gradle 的 classes testClasses；javac 的错误（中文、没有列、打两遍）按文件列、只算一条；改好了再构建成功"
 cp "${MONEY}" "${P}/Money.java.bak"

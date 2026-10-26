@@ -34,8 +34,15 @@ const BUILD: [&str; 2] = ["build.gradle.kts", "build.gradle"];
 
 /// 给每个用了 java 插件的模块加一个算 classpath 的任务（`plugins.withId`：没用 java 插件的模块不加，不报错）。
 /// 不碰 `project`（Gradle 9 的配置缓存不许在执行阶段碰它），要的东西在配置阶段拿成 provider / 文件集
-const INIT_SCRIPT: &str = r#"// lite-ide 加的（docs/TAKEOVER.md G24）：算一个模块的运行 classpath，写进它的 build/.lite-ide-cp.txt。不写进你的项目
+const INIT_SCRIPT: &str = r#"// lite-ide 加的（docs/TAKEOVER.md G24）：算一个模块的运行 classpath，写进它的 build/.lite-ide-cp.txt；
+// 调试单测时把调试参数交给测试的 JVM（-PliteIdeJdwp=…）。不写进你的项目
 allprojects {
+    def jdwp = providers.gradleProperty('liteIdeJdwp')
+    tasks.withType(Test).configureEach {
+        if (jdwp.isPresent()) {
+            jvmArgs(jdwp.get())
+        }
+    }
     plugins.withId('java') {
         def cp = sourceSets.main.runtimeClasspath
         def out = layout.buildDirectory.file('.lite-ide-cp.txt')
@@ -98,6 +105,14 @@ pub fn roots(root: &Path) -> Vec<String> {
         .collect();
     subs.sort();
     subs
+}
+
+/// 构建根显示的名字：settings 里的 `rootProject.name`，没写就是目录名（同 Gradle）
+pub fn root_name(dir: &Path) -> String {
+    let declared = SETTINGS.iter().find_map(|f| std::fs::read_to_string(dir.join(f)).ok()).and_then(|t| {
+        t.lines().find_map(|l| l.trim().strip_prefix("rootProject.name").map(|r| r.trim_start_matches([' ', '=']).trim().trim_matches(['"', '\'']).to_string()))
+    });
+    declared.filter(|n| !n.is_empty()).unwrap_or_else(|| dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
 }
 
 /// settings 文件里 `include` 的项目路径（`:a`、`:a:b`，没写冒号的补上）。认 Kotlin 和 Groovy 两种写法：
@@ -178,7 +193,10 @@ pub fn run_command(project: &str, module_rel: &str, main_class: &str, gradle: &s
 }
 
 /// 跑单测：选择器是 Maven 那种（`com.demo.OrderTest`、`A#x+y,B#z`，测试旁边的 ▶ 和「重跑没过的」给的就是它），翻成 Gradle 的
-/// `--tests`：一个类一个，一个方法一个（`A.x`）。没带包名的类名（Maven 工具窗那种）前面加 `*.`。选择器有别的字符给 None
+/// `--tests`：一个类一个，一个方法一个（`A.x`）。没带包名的类名（Maven 工具窗那种）前面加 `*.`。选择器有别的字符给 None。
+///
+/// **带 `--rerun`**：上次过了、这次什么都没改，Gradle 说 `test UP-TO-DATE` 就不跑了（2026-10-26 实测）—— 人按 ⌃⇧R 就是要它跑，
+/// 不跑的话没有新报告、结果树是空的，调试时更是等不来那个 JVM。带 init 脚本：调试时它把调试参数交给测试的 JVM（[`with_debug`]）
 pub fn test_command(project: &str, selector: &str, gradle: &str) -> Option<String> {
     if selector.is_empty() || !selector.chars().all(|c| c.is_ascii_alphanumeric() || "_.#$*+,".contains(c)) {
         return None;
@@ -194,7 +212,19 @@ pub fn test_command(project: &str, selector: &str, gradle: &str) -> Option<Strin
         }
     }
     let tests: String = filters.iter().map(|f| format!(" --tests {}", word(f))).collect();
-    Some(format!("{gradle} {}{tests}", task(project, "test")))
+    let init = init_script().map(|p| format!(" --init-script {}", word(&p.to_string_lossy()))).unwrap_or_default();
+    Some(format!("{gradle}{init} {} --rerun{tests}", task(project, "test")))
+}
+
+/// 调试单测：测试的 JVM 是 Gradle daemon 起的，不在我们的进程组里（第 0 步实测），输出里也等不到「Listening for transport」那一行
+/// （Gradle 的 `--debug-jvm` 实测：JVM 在 5005 上听着了，客户端的输出停在 testClasses）。所以端口由我们定、交给 init 脚本，调试器就等这个端口。
+/// 不是我们拼的单测命令（没有 init 脚本）给 None
+pub fn with_debug(command: &str, port: u16) -> Option<String> {
+    if !command.contains(" --init-script ") || !command.contains(" --rerun") {
+        return None;
+    }
+    let jdwp = format!("-PliteIdeJdwp=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:{port}");
+    Some(format!("{command} {}", word(&jdwp)))
 }
 
 /// 构建项目（⌘F9）：每个构建根 `classes testClasses`（IDEA 的 Build 连测试一起编）；重新构建前面加 `clean`。`--continue`：一个模块编不过，
@@ -212,9 +242,118 @@ pub fn build_command(roots: &[String], clean: bool, gradle: &dyn Fn(&str) -> Str
     }
 }
 
+/// Gradle 工具窗里的一个任务（`gradlew tasks --all` 列出来的）
+#[derive(Clone, Debug, PartialEq)]
+pub struct GTask {
+    /// Gradle 项目路径：根项目 `:`，子项目 `:order-service`
+    pub project: String,
+    pub name: String,
+    /// 分组（Build、Verification、Application…；没分组的在 Other）
+    pub group: String,
+    pub desc: String,
+}
+
+/// 列任务的那一条：`tasks --all`（子项目的也列上、没分组的也列上）。`-q` 不打构建的进度，报告本身照打（实测热的 0.6 秒）
+pub fn tasks_command(gradle: &str) -> String {
+    format!("{gradle} -q tasks --all")
+}
+
+/// `tasks --all` 的报告 → 任务。认结构：一行标题、下一行同样长的 `-`，之后到空行为止每行 `[项目:]任务[ - 说明]`。
+/// 「Tasks runnable from …」那个大标题、「Rules」（规则不是任务：`clean<TaskName>`）不算
+pub fn parse_tasks(text: &str) -> Vec<GTask> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 1 < lines.len() {
+        let (title, rule) = (lines[i].trim_end(), lines[i + 1].trim_end());
+        let is_head = !title.is_empty() && !rule.is_empty() && rule.chars().all(|c| c == '-') && rule.chars().count() == title.chars().count();
+        if !is_head || title.starts_with("Tasks runnable") || title == "Rules" {
+            i += 1;
+            continue;
+        }
+        let group = title.strip_suffix(" tasks").unwrap_or(title).to_string();
+        i += 2;
+        while i < lines.len() && !lines[i].trim().is_empty() {
+            let l = lines[i].trim();
+            let (name, desc) = l.split_once(" - ").unwrap_or((l, ""));
+            let (project, task) = match name.rsplit_once(':') {
+                Some((p, t)) => (format!(":{}", p.trim_start_matches(':')), t),
+                None => (":".to_string(), name),
+            };
+            if !task.is_empty() && task.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+                out.push(GTask { project, name: task.to_string(), group: group.clone(), desc: desc.trim().to_string() });
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
+/// 跑一次 `tasks --all`（在构建根上、登录 shell 里 —— 同 Maven 工具窗算插件那条，PATH、JAVA_HOME 照你的 rc 文件）。
+/// 输出设闸（rust.md 第一问）：几十个模块的项目报告也就几十 KB，读前 256 KB；读满了交回 `true`（少列了任务，界面上说一句），不悄悄截
+pub fn list_tasks(dir: &Path, shell: &str) -> Result<(Vec<GTask>, bool), String> {
+    const CAP: usize = 256 << 10;
+    let shell = if shell.is_empty() { std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()) } else { shell.to_string() };
+    let mut c = std::process::Command::new(&shell);
+    c.args(["-ilc", &tasks_command(&invocation(dir))]).current_dir(dir);
+    let out = procutil::run_capped(&mut c, CAP, procutil::ERR_CAP, procutil::Overflow::Drain).map_err(|e| format!("起不了 Gradle：{e}"))?;
+    if !out.status.success() {
+        // Gradle 失败时最有用的是「What went wrong」那一段，在 stderr 里
+        let err = String::from_utf8_lossy(&out.stderr);
+        let why: Vec<&str> = err.lines().skip_while(|l| !l.contains("What went wrong")).skip(1).take_while(|l| !l.starts_with("* Try")).filter(|l| !l.trim().is_empty()).take(8).collect();
+        return Err(if why.is_empty() { format!("Gradle 失败了（{}）：{}", out.status, err.lines().last().unwrap_or("")) } else { why.join("\n") });
+    }
+    Ok((parse_tasks(&String::from_utf8_lossy(&out.stdout)), out.truncated))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 2026-10-26 真 Gradle 9.8.1 的 `tasks --all`，节选（两个子项目、Spring Boot 插件）
+    const TASKS: &str = "
+------------------------------------------------------------
+Tasks runnable from root project 'shopdemo'
+------------------------------------------------------------
+
+Application tasks
+-----------------
+order-service:bootRun - Runs this project as a Spring Boot application.
+
+Build tasks
+-----------
+order-service:build - Assembles and tests this project.
+shop-common:build - Assembles and tests this project.
+
+Build Setup tasks
+-----------------
+wrapper - Generates Gradle wrapper files.
+
+Verification tasks
+------------------
+shop-common:test - Runs the test suite.
+
+Other tasks
+-----------
+prepareKotlinBuildScriptModel
+order-service:compileJava - Compiles main Java source.
+
+Rules
+-----
+Pattern: clean<TaskName>: Cleans the output files of a task.
+";
+
+    #[test]
+    fn tasks_报告_按组拆_带项目前缀的归子项目_没说明的也认_大标题和规则不算() {
+        let t = parse_tasks(TASKS);
+        let row = |p: &str, n: &str| t.iter().find(|x| x.project == p && x.name == n).map(|x| (x.group.as_str(), x.desc.as_str()));
+        assert_eq!(row(":order-service", "bootRun"), Some(("Application", "Runs this project as a Spring Boot application.")));
+        assert_eq!(row(":shop-common", "build").map(|r| r.0), Some("Build"));
+        assert_eq!(row(":", "wrapper").map(|r| r.0), Some("Build Setup"), "没前缀的是根项目的");
+        assert_eq!(row(":", "prepareKotlinBuildScriptModel"), Some(("Other", "")), "没说明的照列");
+        assert_eq!(t.len(), 7, "{t:?}");
+        assert!(!t.iter().any(|x| x.name.contains('<') || x.name.starts_with("Pattern")), "规则不是任务");
+    }
 
     #[test]
     fn settings_里的_include_两种写法都认_注释和拼变量的不认() {
@@ -226,8 +365,10 @@ mod tests {
 
     #[test]
     fn 单测选择器翻成_tests_一个类一个_一个方法一个_没包名的加通配() {
-        assert_eq!(test_command(":shop-common", "com.demo.MoneyTest", "./gradlew --console=plain").unwrap(), "./gradlew --console=plain :shop-common:test --tests com.demo.MoneyTest");
-        assert_eq!(test_command(":", "A#x+y,b.B#z", "g").unwrap(), "g :test --tests '*.A.x' --tests '*.A.y' --tests b.B.z");
+        // 没设 init 脚本的路径（这条测试单独跑时）就不带它；设了的样子见下面「起应用」那条
+        let c = test_command(":shop-common", "com.demo.MoneyTest", "./gradlew --console=plain").unwrap();
+        assert!(c.starts_with("./gradlew --console=plain") && c.ends_with(" :shop-common:test --rerun --tests com.demo.MoneyTest"), "{c}");
+        assert!(test_command(":", "A#x+y,b.B#z", "g").unwrap().ends_with(" :test --rerun --tests '*.A.x' --tests '*.A.y' --tests b.B.z"));
         assert!(test_command(":a", "A; rm -rf ~", "g").is_none());
     }
 
@@ -239,9 +380,15 @@ mod tests {
         let c = run_command(":order-service", "order-service", "com.demo.order.OrderApplication", "./gradlew --console=plain", &run).unwrap();
         assert!(c.starts_with("./gradlew --console=plain -q --init-script "), "{c}");
         assert!(c.contains(" :order-service:liteIdeClasspath && cd order-service && exec java -Xmx256m -Dspring.profiles.active=dev -cp \"$(cat build/.lite-ide-cp.txt)\" com.demo.order.OrderApplication"), "{c}");
-        assert_eq!(std::fs::read_to_string(d.join("lite-ide-init.gradle")).unwrap(), INIT_SCRIPT, "init 脚本写进了应用数据目录");
+        // 路径是进程里第一个设的那个（并行跑的别的测试可能先设了）：读真正生效的那个
+        assert_eq!(std::fs::read_to_string(INIT_FILE.get().unwrap()).unwrap(), INIT_SCRIPT, "init 脚本写进了应用数据目录");
         let dbg = crate::debug::with_jdwp(&c, None).unwrap();
         assert!(dbg.contains(&format!("exec java {} -Xmx256m", crate::debug::JDWP)), "{dbg}");
+        // 调试单测：命令带着 init 脚本和 --rerun，端口是我们定的
+        let t = test_command(":shop-common", "com.demo.MoneyTest", "./gradlew").unwrap();
+        assert!(t.contains(" --init-script ") && t.contains(" --rerun"), "{t}");
+        assert_eq!(with_debug(&t, 50123).unwrap(), format!("{t} -PliteIdeJdwp=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:50123"));
+        assert!(with_debug("./gradlew test", 1).is_none(), "不是我们拼的命令不猜");
         #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
         let _ = std::fs::remove_dir_all(&d);
     }

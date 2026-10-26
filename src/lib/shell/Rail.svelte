@@ -33,6 +33,8 @@
 
   /** Maven 项目：pom.xml 在项目根或第一层子目录（同 Rust 的 `maven::reactors`）。按 ⌘P 那份文件索引判，不为它多问一次盘 */
   let maven = $derived(files.list.some((p) => p === "pom.xml" || /^[^/]+\/pom\.xml$/.test(p)));
+  /** Gradle 项目：settings / build 文件在项目根或第一层子目录；项目根有 pom.xml 的按 Maven 算（同 Rust 的 `gradle::roots`） */
+  let gradle = $derived(!files.list.includes("pom.xml") && files.list.some((p) => /^([^/]+\/)?(settings|build)\.gradle(\.kts)?$/.test(p)));
 </script>
 
 <!--
@@ -58,7 +60,7 @@
       - 结构（⌘7，docs/TAKEOVER.md G17）：上游的 structure 图标（2026-10-23 拉下来的，D11）
       - AI 助手（docs/TAKEOVER.md MVP-6）：开着项目就在。图标自绘（IDEA 社区版没有）
     -->
-    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 改动", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: " ⌘7", n: 0 }, { v: "agent", on: true, i: "ai", l: "AI 助手", k: "", n: 0 }] as const as b}
+    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 改动", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "gradle", on: gradle, i: "gradle", l: "Gradle", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: " ⌘7", n: 0 }, { v: "agent", on: true, i: "ai", l: "AI 助手", k: "", n: 0 }] as const as b}
       {#if b.on}
         <button
           class="ibtn lg rbtn"

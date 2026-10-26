@@ -63,7 +63,7 @@
       {@render gitPane()}
     {:else if layout.sideView === "git" && repo}
       <div class="no-root"><span class="spinner sm"></span> 正在载入 Git 面板…</div>
-    {:else if layout.sideView === "maven" || layout.sideView === "structure" || layout.sideView === "agent"}
+    {:else if layout.sideView === "maven" || layout.sideView === "structure" || layout.sideView === "agent" || layout.sideView === "gradle"}
       {@render mavenView()}
     {:else}
       {@render fileTree()}

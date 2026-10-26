@@ -11,7 +11,8 @@
   const maven = lazy(() => import("../run/MavenView.svelte"), "Maven 工具窗");
   const structure = lazy(() => import("../search/StructureView.svelte"), "结构");
   const agent = lazy(() => import("../agent/AgentPane.svelte"), "AI 助手");
-  const cur = $derived(layout.sideView === "structure" ? structure : layout.sideView === "agent" ? agent : maven);
+  const gradle = lazy(() => import("../run/GradleView.svelte"), "Gradle 工具窗");
+  const cur = $derived(layout.sideView === "structure" ? structure : layout.sideView === "agent" ? agent : layout.sideView === "gradle" ? gradle : maven);
   $effect(() => cur.load());
 </script>
 

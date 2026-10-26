@@ -10628,3 +10628,23 @@ jdtls 用 Gradle tooling API 导入时，Gradle 默认用 jdtls 自己跑的那�
 覆盖率（同理，说一句不跑）；热替换没在 Gradle 上验（形状是对的：本模块的 classes 是目录、在 classpath 上）。
 
 数字：gradle.sh 18 / 18；回归 spring.sh 109 / 109、java.sh 94 / 94、smoke 151 / 151；新单测 7 条（Gradle 的命令 4、javac 格式 1、jdtls 的 Gradle JDK 1、taskdefs 1），各自改坏验红。
+
+## 2026-10-26 · Gradle 第二步：调试单测、没改过也真跑、Gradle 工具窗
+
+**调试单测**：测试的 JVM 是 daemon 起的（不在任务的进程组里），Maven 那条「问进程组里谁在听调试端口」够不着。Gradle 自带的 `--debug-jvm` 实测：
+JVM 在 5005 上听着了，但「Listening for transport」那一行**不转给客户端**（输出停在 testClasses）—— 从输出等也等不到；固定 5005 两个窗口同时调试还会撞。
+改成端口我们定：起之前绑一个 0 端口拿到号、放掉，`-PliteIdeJdwp=-agentlib:jdwp=…address=127.0.0.1:<端口>` 交给 init 脚本，它塞进 Test 任务的 `jvmArgs`；
+调试器等这个端口有一个**带调试代理的** JVM 在听（`lsof` + 看命令行，不去连它试 —— JDWP 只认第一个连上来的）。2 秒停在测试的断点上、F9 之后结果树照常出。
+
+**顺手发现的真 bug：上次过了、没改过，Gradle 说 `test UP-TO-DATE` 就不跑**（实测）。人按 ⌃⇧R 就是要它跑：不跑的话没有新报告、结果树是空的，调试时等不来 JVM。
+加 `--rerun`。验收先写了个没用的检查：拿整个 MoneyTest 跑两遍 —— 它有一个故意没过的测试，**失败过的任务本来就不会 UP-TO-DATE**，这条检查永远绿。
+改成只跑过得了的那个方法跑两遍；去掉 `--rerun` 那一版是 `> Task :shop-common:test UP-TO-DATE`、红。
+
+**Gradle 工具窗**：照 IDEA，构建根 → 子项目 → Tasks → 组 → 任务；模块读 settings 当场画，任务跑一次 `gradlew -q tasks --all`（热的 0.6 秒）在后台填，按项目根记住。
+报告的格式认结构（标题 + 一样长的 `-`），「Rules」那段不是任务。双击跑任务名「:模块 [任务]」，运行窗、⌃R、⌘F2 都是现成的；任务名只许字母数字 `-` `_`（拼进命令行）。
+入口 +235 B（导轨一项、图标名、几处认 `gradle`）。
+
+**又踩了一次「改坏 → 跑 → 拷回」的坑**：验 `--rerun` 那一轮跑了十分钟，这期间我往同一个 `gradle.rs` 里加了解析任务报告的代码，跑完拷回备份 —— 新加的全没了。
+AGENTS.md 那条「改回来先拷一份备份、再拷回来」防的是 git checkout，防不了「备份之后又改了这个文件」：**改坏验红的那个文件，跑的时候别动它**。
+
+数字：gradle.sh 18 → 23；smoke 151 / 151；新单测：任务报告解析（项目前缀改成都归根项目，红）、调试的命令、Gradle 工具窗的任务名。

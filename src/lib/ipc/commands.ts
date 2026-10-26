@@ -251,6 +251,33 @@ export interface JavaSigException {
   handle: string;
 }
 
+/** Gradle 工具窗（docs/TAKEOVER.md G24）：构建根和模块（读 settings 文件，不跑 Gradle） */
+export interface GradleProject {
+  roots: GradleRoot[];
+}
+/** `rel`：构建根相对项目根（"" = 项目根）；`name`：rootProject.name，没写就是目录名 */
+export interface GradleRoot {
+  rel: string;
+  name: string;
+  modules: GradleModule[];
+}
+/** `path`：Gradle 的项目路径（`:`、`:order-service`）；`dir`：目录，相对构建根 */
+export interface GradleModule {
+  path: string;
+  dir: string;
+}
+/** 一个构建根的任务（`gradlew tasks --all`）。`truncated`：报告读满上限、后面的没列 */
+export interface GradleTasks {
+  tasks: GradleTask[];
+  truncated: boolean;
+}
+export interface GradleTask {
+  project: string;
+  name: string;
+  group: string;
+  desc: string;
+}
+
 export interface JavaMovePreview {
   files: string[];
   from: string;

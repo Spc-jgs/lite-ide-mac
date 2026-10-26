@@ -1,6 +1,6 @@
 /** 任务（#48）的命令包装：只有任务列表 / 运行工具窗用，它们是懒的（同 ipc/pty.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { BuildProblems, Coverage, MavenProject, MavenResolved, Service, StuckProc, TaskHeap, TaskList, TaskRun, TaskStale, TestResults } from "./commands";
+import type { BuildProblems, Coverage, GradleProject, GradleTasks, MavenProject, MavenResolved, Service, StuckProc, TaskHeap, TaskList, TaskRun, TaskStale, TestResults } from "./commands";
 
 /** 这个项目的全部任务：`.lite-ide/tasks.json` 里的 + 自动认出的 package.json scripts */
 export const taskList = (root: string) => invoke<TaskList>("task_list", { root });
@@ -49,6 +49,10 @@ export const taskHeap = (ids: number[]) => invoke<TaskHeap[]>("task_heap", { ids
 
 /** Maven 工具窗：读 pom 就有的（模块树、阶段、profile、工具栏开关） */
 export const mavenProject = (root: string) => invoke<MavenProject>("maven_project", { root });
+/** Gradle 工具窗：构建根和模块（读盘，不跑 Gradle） */
+export const gradleProject = (root: string) => invoke<GradleProject>("gradle_project", { root });
+/** 一个构建根的任务：跑一次 `gradlew tasks --all`（热的不到 1 秒，冷 daemon 十几秒） */
+export const gradleTasks = (root: string, rel: string) => invoke<GradleTasks>("gradle_tasks", { root, rel });
 /** 插件和依赖：每个 reactor 跑一次 mvn，会等到跑完 */
 export const mavenResolve = (root: string) => invoke<MavenResolved>("maven_resolve", { root });
 /** 工具栏的开关、勾的 profile（按项目记，跑目标和起服务都带上） */

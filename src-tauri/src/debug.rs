@@ -430,6 +430,21 @@ fn jdwp_in(command: &str) -> bool {
     command.split_whitespace().any(|w| w.starts_with("-agentlib:jdwp="))
 }
 
+/// Gradle 的单测：等我们定的那个端口有一个**带调试代理的** JVM 在听（不是随便哪个占着这个端口的进程）。
+/// **不去连它试**：JDWP 只认第一个连上来的、握手不对它就不再等了。一个测试任务里先后起的 JVM（`forkEvery`）照样用这个端口，挂完一个接着等下一个
+fn wait_listen(port: u16, alive: impl Fn() -> bool, poll: Duration) -> Result<u16, String> {
+    loop {
+        let running = alive();
+        if tasksvc::port::holders(port).iter().any(|h| tasksvc::port::command_of(h.pid).is_some_and(|c| jdwp_in(&c))) {
+            return Ok(port);
+        }
+        if !running {
+            return Err("还没开调试端口就退出了（多半是编译没过，原因在输出里）".into());
+        }
+        std::thread::sleep(poll);
+    }
+}
+
 /// 调试单测：在任务的进程组里等一个**还没挂过的**、带调试代理的 JVM 开好端口。
 ///
 /// **为什么不读输出**（2026-10-20 真 JVM 上卡死过）：surefire fork 的 JVM 确实打了「Listening for transport…」，
@@ -765,6 +780,9 @@ pub enum Who {
     Main(String),
     /// 单测：测试类没有 main，问不出来 —— 直接用模块的 artifactId（m2e 默认拿它当项目名）
     Project(String),
+    /// Gradle 的单测（docs/TAKEOVER.md G24）：项目名（Buildship 拿 Gradle 的项目名当它）+ 我们定的调试端口。测试的 JVM 是 daemon 起的、
+    /// 不在任务的进程组里，[`wait_jdwp`] 那条够不着；端口由我们交给它（`gradle::with_debug`），就等这个端口有人听（[`wait_listen`]）
+    Port(String, u16),
     /// 远程 JVM 调试（docs/TAKEOVER.md G23）：别处起的 JVM，在 host:port 上等调试器（它自己带着 `-agentlib:jdwp=…server=y…`）。
     /// 任务只是占位的那一格：挂一次，断了（对面退了 / 网络断了）就把那一格停掉
     Remote(String, u16),
@@ -816,6 +834,7 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
         let mut next_port = || match &who {
             Who::Main(_) => wait_port(&log, &mut from, || t2.alive(), Duration::from_millis(150)),
             Who::Project(_) => wait_jdwp(pgid, &mut seen, || t2.alive(), Duration::from_millis(300)),
+            Who::Port(_, p) => wait_listen(*p, || t2.alive(), Duration::from_millis(300)),
             // 远程：端口是填的，只挂一次
             Who::Remote(_, p) if !remote_used => {
                 remote_used = true;
@@ -903,7 +922,7 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u
     *d.hold.lock().unwrap_or_else(|e| e.into_inner()) = Some(java.hold());
     let (dap_port, project) = match who {
         Who::Main(c) => java.debug_session(Some(c), READY_WAIT, alive)?,
-        Who::Project(p) => (java.debug_session(None, READY_WAIT, alive)?.0, Some(p.clone())),
+        Who::Project(p) | Who::Port(p, _) => (java.debug_session(None, READY_WAIT, alive)?.0, Some(p.clone())),
         // 远程：不知道对面跑的是哪个主类，不带项目名（求值在只认得 JDK 的类时照样能用；用到项目里的类时插件会说要项目名）
         Who::Remote(..) => (java.debug_session(None, READY_WAIT, alive)?.0, None),
     };

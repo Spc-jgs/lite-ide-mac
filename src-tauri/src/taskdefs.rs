@@ -526,15 +526,30 @@ fn gradle_goal(root: &Path, token: &str, goal: &str, name: &str) -> Option<Def> 
     } else if goal.starts_with("cover ") {
         "echo '[lite-ide] Gradle 项目带覆盖率跑单测还没做（Maven 项目可以）。先用普通的运行'; exit 2".to_string()
     } else {
-        return None;
+        // Gradle 工具窗里双击的任务（「:模块 [任务 …]」）：任务名只许字母数字和 `-` `_`（同 Maven 目标的字符检查，名字拼进命令行）
+        let toks: Vec<&str> = goal.split_whitespace().collect();
+        if toks.is_empty() || !toks.iter().all(|t| t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')) {
+            return None;
+        }
+        let tasks: Vec<String> = toks.iter().map(|t| if m.artifact_id == ":" { format!(":{t}") } else { format!("{}:{t}", m.artifact_id) }).collect();
+        format!("{} {}", crate::gradle::invocation(&root.join(&rel)), tasks.join(" "))
     };
     Some(Def { name: name.to_string(), command, cwd: rel, env: Vec::new(), source: Source::Goal { module: m.rel } })
 }
 
-/// 是不是 Gradle 模块的单测任务（调试那里要单独说一句：这一版还调试不了）
-pub fn is_gradle_test(root: &Path, name: &str) -> bool {
-    let Some((token, goal)) = name.strip_suffix(']').and_then(|n| n.rsplit_once(" [")) else { return false };
-    (goal.starts_with("test ") || goal.starts_with("cover ")) && find_module(root, token).is_none() && find_gradle_module(root, token).is_some()
+/// Gradle 模块的单测任务（「模块 [test …]」）调试时用的项目名：Buildship 拿 Gradle 的项目名当 Eclipse 的项目名 —— 子项目是路径的最后一段，
+/// 根项目是 `rootProject.name`（没写就是目录名）。不是 Gradle 的单测给 None
+pub fn gradle_test_project(root: &Path, name: &str) -> Option<String> {
+    let (token, goal) = name.strip_suffix(']')?.rsplit_once(" [")?;
+    goal.strip_prefix("test ")?;
+    if find_module(root, token).is_some() {
+        return None;
+    }
+    let (rel, m) = find_gradle_module(root, token)?;
+    if m.artifact_id != ":" {
+        return m.artifact_id.rsplit(':').next().map(str::to_string);
+    }
+    Some(crate::gradle::root_name(&root.join(&rel)))
 }
 
 /// 任务名里的模块那一段 → Gradle 的（构建根相对项目根, 模块）。认模块目录相对项目根的路径（测试旁边的 ▶ 起的）、Gradle 的项目路径（`:a:b`），根项目写 `.`
@@ -710,11 +725,17 @@ mod tests {
         assert!(!tasks[0].def.command.contains("mvn"), "{}", tasks[0].def.command);
 
         let t = resolve(&root, "shop-common [test com.demo.MoneyTest#ok]").unwrap();
-        assert_eq!(t.command, "sh ./gradlew --console=plain :shop-common:test --tests com.demo.MoneyTest.ok", "gradlew 没执行位：sh 跑它");
+        assert!(t.command.starts_with("sh ./gradlew --console=plain "), "gradlew 没执行位：sh 跑它：{}", t.command);
+        assert!(t.command.ends_with(" :shop-common:test --rerun --tests com.demo.MoneyTest.ok"), "{}", t.command);
         assert!(resolve(&root, "shop-common [cover com.demo.MoneyTest]").unwrap().command.contains("还没做"), "覆盖率不悄悄退成普通跑");
-        assert!(is_gradle_test(&root, "shop-common [test com.demo.MoneyTest]"));
+        assert_eq!(gradle_test_project(&root, "shop-common [test com.demo.MoneyTest]").as_deref(), Some("shop-common"), "调试时的项目名：Gradle 的项目名");
+        std::fs::write(root.join("settings.gradle.kts"), "rootProject.name = \"shopdemo\"\ninclude(\"shop-common\", \"order-service\")\n").unwrap();
+        std::fs::create_dir_all(root.join("src/test/java")).unwrap();
+        assert_eq!(gradle_test_project(&root, ". [test com.demo.RootTest]").as_deref(), Some("shopdemo"), "根项目：rootProject.name");
         assert_eq!(test_module_dir(&root, "shop-common [test X]").unwrap(), root.join("shop-common"));
         assert_eq!(resolve(&root, BUILD).unwrap().command, "sh ./gradlew --console=plain --continue classes testClasses");
+        assert_eq!(resolve(&root, ":order-service [bootJar]").unwrap().command, "sh ./gradlew --console=plain :order-service:bootJar", "Gradle 工具窗双击的任务");
+        assert!(resolve(&root, ":order-service [x;rm]").is_none(), "任务名里的怪字符拼不进命令行");
 
         // 迁移到一半、两个都有：按 Maven（不出两份一样的服务）
         std::fs::write(root.join("pom.xml"), "<project><modules><module>order-service</module></modules></project>").unwrap();

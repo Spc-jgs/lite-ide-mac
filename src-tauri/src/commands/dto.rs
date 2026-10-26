@@ -1629,3 +1629,44 @@ impl JavaMethodSigDto {
         }
     }
 }
+
+/// Gradle 工具窗（docs/TAKEOVER.md G24）：项目里的构建根和各自的模块（读 settings 文件，不跑 Gradle）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradleProjectDto {
+    pub roots: Vec<GradleRootDto>,
+}
+
+/// `rel`：构建根相对项目根（"" = 项目根）；`name`：显示的名字（`rootProject.name`，没写就是目录名）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradleRootDto {
+    pub rel: String,
+    pub name: String,
+    pub modules: Vec<GradleModuleDto>,
+}
+
+/// `path`：Gradle 的项目路径（`:`、`:order-service`）；`dir`：目录，相对构建根
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradleModuleDto {
+    pub path: String,
+    pub dir: String,
+}
+
+/// 一个构建根的任务（跑一次 `gradlew tasks --all`）。`truncated`：报告读满了上限、后面的没列
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradleTasksDto {
+    pub tasks: Vec<GradleTaskDto>,
+    pub truncated: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradleTaskDto {
+    pub project: String,
+    pub name: String,
+    pub group: String,
+    pub desc: String,
+}
