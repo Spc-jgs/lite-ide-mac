@@ -1,0 +1,11 @@
+[package]
+name = "updsvc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde_json = "1"
+base64 = "0.22"
+# minisign 的作者写的校验（纯 Rust、零依赖）；Tauri 自己的更新插件用的也是它（^0.2）。钉死版本：校验签名的代码不该悄悄换
+minisign-verify = "=0.2.5"
+procutil = { path = "../procutil" }
