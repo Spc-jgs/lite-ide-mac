@@ -56,6 +56,23 @@ public final class Main {
     private static long nextCursor = 1;
     /** 正在导出的语句（按连接）：取消时一起停。导出不占「一个连接一个游标」那个位置 —— 你正在看的结果导出完还能接着往下滚 */
     private static final Map<String, Statement> EXPORTS = new ConcurrentHashMap<>();
+    /**
+     * 叫停了的导出：写盘的循环每行看一眼。光靠 Statement.cancel() 停不下来 —— 分批取的时候语句在服务器上早就执行完了
+     * （MySQL 结果在临时表里、PostgreSQL 停在游标上），两批之间服务器是空闲的，KILL QUERY / cancel request 落了空，
+     * 导出照样写完（2026-10-28 连真库撞的；H2 的懒执行每产一行都查取消标志，所以 db.sh 一直是绿的）
+     */
+    private static final java.util.Set<Statement> STOP = ConcurrentHashMap.newKeySet();
+    /** 怎么连上的（按连接）：取消之后要换一个新连接时照原样再连一次 */
+    private static final Map<String, Reopen> ARGS = new ConcurrentHashMap<>();
+    /**
+     * 取消过语句、不能再用的 MySQL 连接：下一次用到时先换一个新的（{@link #conn}）。
+     * Connector/J 9.1 用服务器端游标（useCursorFetch）跑的语句被 KILL QUERY 打断之后，收发差了一拍：
+     * 接下来每条语句读到的都是上一步的应答（2026-10-28 连真 MySQL 8.4 撞的：之后的 select 1 回「影响了 2 行」—— 2 是服务器给新预编译语句的编号）。
+     * 不开服务器端游标时取消是干净的，但那样十万行要整个读进内存；改用流式结果的话，关一个没读完的结果驱动要把剩下的行全读完
+     */
+    private static final java.util.Set<String> STALE = ConcurrentHashMap.newKeySet();
+
+    private record Reopen(Driver driver, String url, Properties props) {}
 
     /** 一条查询：语句、结果（没有结果集的语句 rs 是 null）、PostgreSQL 为分批取临时关掉的自动提交 */
     private static final class Cursor {
@@ -172,7 +189,7 @@ public final class Main {
         // 懒执行是边取边算；URL 里自己写了的不盖
         if (str(p, "driver").startsWith("org.h2.") && !str(p, "url").toUpperCase().contains("LAZY_QUERY_EXECUTION")) props.setProperty("LAZY_QUERY_EXECUTION", "TRUE");
         // 改单元格（apply）一律用 setString 传值：PostgreSQL 默认把它当 varchar 发，往 integer 列里写会报类型不符；unspecified 让服务器自己按列的类型转。
-        // 没连过真 PostgreSQL 验（本机没有服务器）
+        // 2026-10-28 连真 PostgreSQL 17 验过（scripts/accept/db-real.sh：往 numeric 列写 '9.99'）
         if (str(p, "driver").startsWith("org.postgresql.") && !str(p, "url").contains("stringtype")) props.setProperty("stringtype", "unspecified");
         // SQLite 默认「文件不存在就建一个」：路径写错一个字，连一下就在你的项目里多出一个空库。只开已有的（读写、不建）；
         // 真要新建的在 URL 里自己写 ?open_mode=6。值是 SQLite 的打开标志位（READWRITE = 2），2026-10-27 拿 3.53.4.0 探过：不存在的报 SQLITE_CANTOPEN、文件没被建出来
@@ -182,6 +199,8 @@ public final class Main {
         Connection c = d.connect(str(p, "url"), props);
         if (c == null) throw new IllegalArgumentException("驱动 " + str(p, "driver") + " 不接受这个 URL：" + str(p, "url"));
         Connection old = CONNS.put(key, c);
+        ARGS.put(key, new Reopen(d, str(p, "url"), props));
+        STALE.remove(key);
         if (old != null) {
             try { old.close(); } catch (SQLException ignored) {}
         }
@@ -196,10 +215,40 @@ public final class Main {
         return r;
     }
 
-    private static Connection conn(Map<String, Object> p) {
-        Connection c = CONNS.get(str(p, "conn"));
+    private static Connection conn(Map<String, Object> p) throws SQLException {
+        String key = str(p, "conn");
+        if (STALE.contains(key)) reopen(key);
+        Connection c = CONNS.get(key);
         if (c == null) throw new IllegalArgumentException("连接未打开");
         return c;
+    }
+
+    /** 换掉取消过语句的连接（{@link #STALE}）。连不上就留着标记，下一次再试 */
+    private static void reopen(String key) throws SQLException {
+        // 锁 STALE 不锁 Main.class：连不上的服务器要等到连接超时，别让别的连接分配游标号时跟着等
+        synchronized (STALE) {
+            reopen0(key);
+        }
+    }
+
+    private static void reopen0(String key) throws SQLException {
+        if (!STALE.contains(key)) return;
+        Reopen a = ARGS.get(key);
+        if (a == null) return;
+        Connection fresh = a.driver().connect(a.url(), a.props());
+        if (fresh == null) throw new IllegalArgumentException("无法重新连接");
+        closeCursor(key);
+        Connection old = CONNS.put(key, fresh);
+        STALE.remove(key);
+        if (old != null) {
+            try { old.close(); } catch (SQLException ignored) {}
+        }
+    }
+
+    /** 取消了的语句报的错，带上「这个连接要换了」（MySQL） */
+    private static SQLException noteStale(String key, SQLException e) {
+        if (!STALE.contains(key)) return e;
+        return new SQLException(e.getMessage() + "。下次执行时将重新连接：未提交的事务会回滚，会话变量和临时表需重新设置", e.getSQLState(), e.getErrorCode(), e);
     }
 
     /**
@@ -275,6 +324,8 @@ public final class Main {
     private static Object close(Map<String, Object> p) throws SQLException {
         closeCursor(str(p, "conn"));
         Connection c = CONNS.remove(str(p, "conn"));
+        ARGS.remove(str(p, "conn"));
+        STALE.remove(str(p, "conn"));
         if (c != null) c.close();
         return Boolean.TRUE;
     }
@@ -330,7 +381,7 @@ public final class Main {
             return r;
         } catch (SQLException e) {
             closeIf(key, cur);
-            throw e;
+            throw noteStale(key, e);
         }
     }
 
@@ -422,8 +473,11 @@ public final class Main {
         }
         Statement ex = EXPORTS.get(str(p, "conn"));
         if (ex != null) {
+            STOP.add(ex);
             try { ex.cancel(); } catch (SQLException ignored) {}
         }
+        Reopen a = ARGS.get(str(p, "conn"));
+        if ((cur != null || ex != null) && a != null && a.driver().getClass().getName().startsWith("com.mysql.")) STALE.add(str(p, "conn"));
         return cur != null || ex != null;
     }
 
@@ -496,6 +550,7 @@ public final class Main {
                     w.write("[");
                 }
                 while (rs.next()) {
+                    if (STOP.contains(st)) throw new SQLException("已取消导出");
                     String[] v = new String[n];
                     for (int i = 0; i < n; i++) v[i] = full(rs, i + 1, types[i]);
                     if ("csv".equals(format)) {
@@ -519,9 +574,10 @@ public final class Main {
             Files.move(part, out, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (Exception e) {
             Files.deleteIfExists(part);
-            throw e;
+            throw e instanceof SQLException se ? noteStale(key, se) : e;
         } finally {
             EXPORTS.remove(key, st);
+            STOP.remove(st);
             try { st.close(); } catch (SQLException ignored) {}
             if (restore) {
                 try { c.commit(); c.setAutoCommit(true); } catch (SQLException ignored) {}

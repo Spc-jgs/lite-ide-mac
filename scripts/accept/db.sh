@@ -246,7 +246,8 @@ lite_eval main "$(echo "${SLOW}" | sed -e "s|ROOT_|'${P}'|" -e "s|ID_|'${ID}'|" 
 sleep 1.5
 inv "'db_cancel', { root: '${P}', id: '${ID}' }" >/dev/null
 EC=$(lite_eval main "return await window.__exp")
-ok "$(echo "${EC}" | grep -q 57014 && [ "$(cat "${LITE_WORK}/导出/keep.csv")" = old ] && [ ! -e "${LITE_WORK}/导出/keep.csv.part" ] && echo 1)" "导出到一半取消：停了（$(echo "${EC}" | cut -c1-60)）、原来那个文件还是原样、没留 .part"
+# 谁先看到叫停都算：导出循环每行查的标记（「已取消导出」），或者 H2 产行时查的取消标志（57014）
+ok "$(echo "${EC}" | grep -qE '已取消导出|57014' && [ "$(cat "${LITE_WORK}/导出/keep.csv")" = old ] && [ ! -e "${LITE_WORK}/导出/keep.csv.part" ] && echo 1)" "导出到一半取消：停了（$(echo "${EC}" | cut -c1-60)）、原来那个文件还是原样、没留 .part"
 
 echo "== 改单元格（DB-3）：双击改、先给人看 UPDATE、一个事务提交；被别人删了的行整笔回滚"
 HRUN='const q = await __lite.dbResults(); const a = q.active; await q.run(a.root, a.conn, "验收 H2", [SQL_]); return q.active.status + ":" + JSON.stringify(q.active.rows)'
