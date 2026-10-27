@@ -1,4 +1,5 @@
 mod agent;
+mod askpass_ui;
 mod budget;
 mod commands;
 mod debug;
@@ -362,6 +363,7 @@ pub fn run() {
             commands::http_envs,
             commands::http_send,
             commands::http_cancel,
+            commands::git_askpass_answer,
             commands::http_cookies,
             commands::http_cookies_clear,
             commands::history_list,

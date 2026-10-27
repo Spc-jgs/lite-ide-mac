@@ -1766,6 +1766,15 @@ pub struct HttpPartDto {
     pub file: Option<String>,
 }
 
+/// git 要凭据（#62，`git-askpass` 事件）：`prompt` 是 git 给的那句（`Username for 'https://…':`），`secret` = 问的是密码一类、输入框不回显
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GitAskpassDto {
+    pub id: u32,
+    pub prompt: String,
+    pub secret: bool,
+}
+
 /// Cookie 罐里的一条（#75）。不带值：值是登录态，界面上只要知道「记着哪些」
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

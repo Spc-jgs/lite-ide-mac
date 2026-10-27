@@ -3,7 +3,6 @@ import { type RemoteProgress, type RemoteErr } from "../ipc/commands";
 import { gitFetch, gitPush, gitMergeUpstream, gitCancel, gitOutgoing } from "../ipc/git";
 import { notify } from "./notify.svelte";
 import { git } from "./git.svelte";
-import { project } from "./project.svelte";
 import { worktree } from "./worktree.svelte";
 import { remote } from "./remote.svelte";
 
@@ -32,9 +31,8 @@ let nextOpId = 0;
  * **但原话要留着能展开**：转译错了的时候人得有办法绕过我们。
  */
 async function toHint(e: RemoteErr): Promise<string> {
-  if (e.kind === "auth-https") {
-    return `在终端里跑一次，输一遍账号密码，之后就一直有效：\n  git -C ${project.root} fetch`;
-  }
+  // 账号密码由 git 问到界面上（#62，git/askpass.ts）：走到这儿是答错了或者点了取消，再做一次就会再问
+  if (e.kind === "auth-https") return "重新执行此操作时将再次询问账号和密码。远程使用访问令牌（GitHub、GitLab）时，在密码处填写令牌";
   if (e.kind === "auth-ssh") {
     return "把私钥加进 ssh-agent：\n  ssh-add --apple-use-keychain ~/.ssh/id_ed25519";
   }
@@ -68,6 +66,7 @@ export async function fetch(what: "pull" | "fetch"): Promise<boolean> {
   const opId = ++nextOpId;
   remote.syncing = { what, id: opId, phase: "正在连接…", percent: null };
   try {
+    await (await import("../git/askpass")).ensureAskpass();
     await gitFetch(git.repo, "origin", opId, progressChannel(what));
     await git.refresh();
     return true;
@@ -188,6 +187,7 @@ export async function push() {
   const opId = ++nextOpId;
   remote.syncing = { what: "push", id: opId, phase: "正在连接…", percent: null };
   try {
+    await (await import("../git/askpass")).ensureAskpass();
     await gitPush(git.repo, "origin", req.branch, req.setUpstream, opId, progressChannel("push"));
     await git.refresh();
     notify.ok("已推送");

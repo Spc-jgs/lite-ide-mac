@@ -63,7 +63,7 @@
 
   function hint(e: RemoteErr): string {
     // ls-remote 只问一下远程有哪些分支、不往盘上写东西，认证那一步和克隆一样 —— 输过一次钥匙串就记住了
-    if (e.kind === "auth-https") return `此仓库需要先完成认证。请在终端中运行\n  git ls-remote ${url.trim()}\n并输入一次账号密码（钥匙串将记住凭据），之后即可在此克隆`;
+    if (e.kind === "auth-https") return "重新执行此操作时将再次询问账号和密码。远程使用访问令牌（GitHub、GitLab）时，在密码处填写令牌";
     if (e.kind === "auth-ssh") return "ssh-agent 中没有可用的密钥，请运行：\n  ssh-add --apple-use-keychain ~/.ssh/id_ed25519";
     return e.message;
   }
@@ -78,6 +78,7 @@
     const ch = new Channel<RemoteProgress>();
     ch.onmessage = (p) => (phase = p.percent === null ? p.phase : `${p.phase} ${p.percent}%`);
     try {
+      await (await import("../git/askpass")).ensureAskpass();
       const target = await gitClone(parent, url.trim(), name, opId, ch);
       busy = false;
       try {

@@ -151,3 +151,6 @@ export const gitCancel = (id: number) => invoke<boolean>("git_cancel", { id });
 /** 推上去会送出哪些提交。照 IDEA：列出提交，不是只给计数 */
 export const gitOutgoing = (root: string, upstream: string, branch: string) =>
   invoke<string[]>("git_outgoing", { root, upstream, branch });
+
+/** 答 git 的凭据提问（#62）。`value` 为 null = 取消。返回 false = 那边已经不等了 */
+export const gitAskpassAnswer = (id: number, value: string | null) => invoke<boolean>("git_askpass_answer", { id, value });

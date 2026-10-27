@@ -777,7 +777,7 @@ fn 仓库自带的_ext_传输不许被执行() {
 
     // 走真实的拉取路径（`remote.rs` 也经过 `git_cmd`），不是通用的 run
     let cancel: crate::remote::Cancel = Default::default();
-    let _ = crate::remote::fetch(&dir, "evil", &cancel, &mut |_| {});
+    let _ = crate::remote::fetch(&dir, "evil", &cancel, None, &mut |_| {});
 
     assert!(
         !marker.exists(),
@@ -2010,21 +2010,21 @@ fn 克隆_本地仓库_已有同名_像开关的地址都拒绝() {
     std::fs::create_dir_all(&out).unwrap();
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let no_trash = |p: &Path| -> std::io::Result<()> { panic!("成功的克隆不该扔东西：{}", p.display()) };
-    clone(&out, src.to_str().unwrap(), "copy", &cancel, &mut |_| {}, &no_trash).unwrap();
+    clone(&out, src.to_str().unwrap(), "copy", &cancel, None, &mut |_| {}, &no_trash).unwrap();
     assert_eq!(std::fs::read_to_string(out.join("copy/a.txt")).unwrap(), "hello\n");
     assert_eq!(head_branch(out.join("copy")).as_deref(), Some("main"));
 
     // 同名的已经在（哪怕是空目录 —— git 自己会接着用空目录）
     std::fs::create_dir_all(out.join("empty")).unwrap();
-    let e = clone(&out, src.to_str().unwrap(), "empty", &cancel, &mut |_| {}, &no_trash).unwrap_err();
+    let e = clone(&out, src.to_str().unwrap(), "empty", &cancel, None, &mut |_| {}, &no_trash).unwrap_err();
     assert!(matches!(&e, RemoteError::Other { raw } if raw.contains("已存在")), "{e}");
     assert_eq!(std::fs::read_dir(out.join("empty")).unwrap().count(), 0, "空目录里不能被克隆进东西");
 
     // 像开关的地址：`--upload-pack=…` 能让 git 执行命令
-    let e = clone(&out, "--upload-pack=touch pwned", "x", &cancel, &mut |_| {}, &no_trash).unwrap_err();
+    let e = clone(&out, "--upload-pack=touch pwned", "x", &cancel, None, &mut |_| {}, &no_trash).unwrap_err();
     assert!(matches!(&e, RemoteError::Other { raw } if raw.contains("不是有效的仓库地址")), "{e}");
     assert!(!out.join("x").exists() && !out.join("pwned").exists());
-    let e = clone(&out, src.to_str().unwrap(), "../escape", &cancel, &mut |_| {}, &no_trash).unwrap_err();
+    let e = clone(&out, src.to_str().unwrap(), "../escape", &cancel, None, &mut |_| {}, &no_trash).unwrap_err();
     assert!(matches!(&e, RemoteError::Other { .. }), "{e}");
     assert!(!dir.join("escape").exists());
 
@@ -2043,7 +2043,7 @@ fn 克隆_本地仓库_已有同名_像开关的地址都拒绝() {
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let c2 = cancel.clone();
     let url = format!("file://{}", src.display());
-    let r = clone(&out, &url, "half", &cancel, &mut |_| c2.store(true, std::sync::atomic::Ordering::Relaxed), &fake_trash);
+    let r = clone(&out, &url, "half", &cancel, None, &mut |_| c2.store(true, std::sync::atomic::Ordering::Relaxed), &fake_trash);
     assert!(matches!(r, Err(RemoteError::Cancelled)), "第一次报进度就取消了：{r:?}");
     assert!(!out.join("half").exists(), "半截目录还在");
     eprintln!("取消之后扔进废纸篓的：{:?}", trashed.borrow());

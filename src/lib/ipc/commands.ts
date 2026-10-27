@@ -475,6 +475,13 @@ export interface HttpResponse {
   finalUrl: string;
 }
 
+/** git 要凭据（#62，`git-askpass` 事件）：`prompt` 是 git 给的那句，`secret` = 问的是密码一类、输入框不回显 */
+export interface GitAskpass {
+  id: number;
+  prompt: string;
+  secret: boolean;
+}
+
 /** multipart 请求体的一段（#77）：`text` 和 `file` 有且只有一个；`file` 是绝对路径 */
 export interface HttpPart {
   text: string | null;

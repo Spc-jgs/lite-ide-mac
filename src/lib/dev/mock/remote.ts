@@ -1,5 +1,10 @@
 /** 桩：Git 拉取与推送：进度一条条推、可取消。从 `mock-ipc.ts` 拆出来（2026-09-24，纯搬家）。 */
 import { type A, NOT_MINE, sleep } from "./data";
+import { mockEmit } from "./events";
+
+/** 凭据提问（#62）：控制台里 `__mockAskpass = true` 再拉取 / 推送，先弹一次「Username for …」，答了才接着走、取消就是认证失败 */
+const ASKS = new Map<number, (v: string | null) => void>();
+let askSeq = 0;
 
 /** 远程操作的假 id，和被取消的那些 */
 let mockRemoteId = 0;
@@ -21,6 +26,14 @@ export async function remoteCmd(cmd: string, a: A): Promise<unknown> {
       // id 由调用方给（真实现同理），桩要照做，否则取消对不上号
       const id = Number(a.opId ?? ++mockRemoteId);
       mockCancelled.delete(id);
+      if ((globalThis as { __mockAskpass?: boolean }).__mockAskpass) {
+        const q = ++askSeq;
+        const v = await new Promise<string | null>((res) => {
+          ASKS.set(q, res);
+          mockEmit("git-askpass", { id: q, prompt: "Username for 'https://git.example.com':", secret: false });
+        });
+        if (v === null) throw { kind: "auth-https", message: "认证失败：账号或密码错误，或已取消输入", raw: "fatal: could not read Username for 'https://git.example.com': terminal prompts disabled" };
+      }
       const phases: [string, number][] = [
         ["Enumerating objects", 1248],
         ["Counting objects", 1248],
@@ -72,7 +85,7 @@ export async function remoteCmd(cmd: string, a: A): Promise<unknown> {
         ch?.onmessage?.({ phase, percent: pct, done: null, total: null, finished: pct === 100 });
       }
       if (url.includes("auth")) {
-        throw { kind: "auth-https", message: "此仓库需要先完成认证", raw: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" };
+        throw { kind: "auth-https", message: "认证失败：账号或密码错误，或已取消输入", raw: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" };
       }
       if (url.includes("fail")) {
         throw { kind: "other", message: "fatal: repository not found", raw: "fatal: repository not found" };
@@ -84,6 +97,12 @@ export async function remoteCmd(cmd: string, a: A): Promise<unknown> {
       const last = String(a.url).trim().replace(/\/+$/, "").split(/[/:]/).pop() ?? "";
       const n = last.replace(/\.git$/, "");
       return n === "." || n === ".." ? "" : n;
+    }
+    case "git_askpass_answer": {
+      const f = ASKS.get(Number(a.id));
+      ASKS.delete(Number(a.id));
+      f?.((a.value as string | null) ?? null);
+      return !!f;
     }
     case "git_cancel":
       mockCancelled.add(Number(a.id));

@@ -22,6 +22,7 @@
 //!    `GIT_OPTIONAL_LOCKS=0` 让 `status` 不去抢 index 锁（用户正在终端里
 //!    跑 `git rebase` 时，我们的后台刷新不该把它顶失败 —— VSCode 同款处理）。
 
+pub mod askpass;
 pub mod progress;
 pub mod remote;
 pub mod trust;

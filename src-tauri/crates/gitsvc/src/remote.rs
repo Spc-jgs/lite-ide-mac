@@ -25,13 +25,9 @@
 //! 「关掉提问」和「拿得到凭据」根本不冲突 —— 实测：精简环境
 //! （模拟从访达启动）+ `GIT_TERMINAL_PROMPT=0` 的 fetch **退出码 0**。
 //!
-//! **② 还没做**，它服务的是「第一次连一个新远程」——
-//! VS Code 和 IDEA 都是生成一个临时脚本、让它通过 IPC 把提示串送回应用弹框。
-//! 口子留在这儿：加的时候只要给 `git_cmd` 多设一个 `GIT_ASKPASS` 环境变量，
-//! 这个文件里别的地方一行都不用动。
-//!
-//! 在那之前拿不到凭据就走 [`RemoteError::Auth`]，**清清楚楚地失败**
-//! —— 而不是挂在那儿等一个永远不会来的输入。
+//! **②（2026-10-28，#62）**：服务的是「第一次连一个新远程」。`fetch` / `push` / `clone` 带一个 [`crate::askpass::Askpass`]，
+//! 它的几个环境变量设到这条 git 上（[`run_streaming`]）：git 要凭据时执行应用自己的可执行文件、把提示串送回应用弹框。
+//! 不带（`None`）或者人点了取消：拿不到凭据就走 [`RemoteError::Auth`]，**清清楚楚地失败** —— 而不是挂在那儿等一个永远不会来的输入。
 
 use crate::progress::{Progress, Splitter, Throttle};
 use std::io::Read;
@@ -67,7 +63,7 @@ pub enum RemoteError {
 impl std::fmt::Display for RemoteError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RemoteError::Auth { https: true, .. } => write!(f, "此仓库需要先完成认证"),
+            RemoteError::Auth { https: true, .. } => write!(f, "认证失败：账号或密码错误，或已取消输入"),
             RemoteError::Auth { https: false, .. } => write!(f, "ssh-agent 中没有可用的密钥"),
             RemoteError::Cancelled => write!(f, "已取消"),
             RemoteError::Rejected { .. } => write!(f, "远程包含本地没有的提交，推送被拒绝"),
@@ -152,6 +148,7 @@ fn run_streaming(
     args: &[&str],
     https: bool,
     cancel: &Cancel,
+    askpass: Option<&crate::askpass::Askpass>,
     on_progress: &mut dyn FnMut(Progress),
 ) -> R<()> {
     /*
@@ -165,6 +162,9 @@ fn run_streaming(
      */
     let mut cmd = crate::git_cmd(cwd, args);
     cmd.stdout(Stdio::null()).stderr(Stdio::piped());
+    if let Some(a) = askpass {
+        cmd.envs(a.env());
+    }
     // Git 控制台（issue #29）。远程操作走的是自己这条流式路径，
     // 和 `run_capped_raw` 那条各记各的 —— 而**远程正是最常失败的那类**
     let argv = crate::argv_of(&cmd);
@@ -308,11 +308,12 @@ pub fn fetch(
     cwd: impl AsRef<Path>,
     remote: &str,
     cancel: &Cancel,
+    askpass: Option<&crate::askpass::Askpass>,
     on_progress: &mut dyn FnMut(Progress),
 ) -> R<()> {
     let cwd = cwd.as_ref();
     let https = is_https(cwd, remote);
-    run_streaming(cwd, &["fetch", "--progress", "--prune", remote], https, cancel, on_progress)
+    run_streaming(cwd, &["fetch", "--progress", "--prune", remote], https, cancel, askpass, on_progress)
 }
 
 /// 克隆（欢迎页的「从 Git 克隆…」，docs/TAKEOVER.md G27）到 `parent/name`。
@@ -333,6 +334,7 @@ pub fn clone(
     url: &str,
     name: &str,
     cancel: &Cancel,
+    askpass: Option<&crate::askpass::Askpass>,
     on_progress: &mut dyn FnMut(Progress),
     trash: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> R<()> {
@@ -348,7 +350,7 @@ pub fn clone(
         return Err(RemoteError::Other { raw: format!("{} 中已存在 {name}，请使用其他名称", parent.display()) });
     }
     let https = !url.starts_with("git@") && !url.starts_with("ssh://");
-    let r = run_streaming(parent, &["clone", "--progress", "--", url, name], https, cancel, on_progress);
+    let r = run_streaming(parent, &["clone", "--progress", "--", url, name], https, cancel, askpass, on_progress);
     let target = parent.join(name);
     if r.is_err() && std::fs::symlink_metadata(&target).is_ok() {
         if let Err(e) = trash(&target) {
@@ -415,6 +417,7 @@ pub fn push(
     branch: &str,
     opts: PushOpts,
     cancel: &Cancel,
+    askpass: Option<&crate::askpass::Askpass>,
     on_progress: &mut dyn FnMut(Progress),
 ) -> R<()> {
     let cwd = cwd.as_ref();
@@ -425,7 +428,7 @@ pub fn push(
     }
     args.push(remote);
     args.push(branch);
-    run_streaming(cwd, &args, https, cancel, on_progress)
+    run_streaming(cwd, &args, https, cancel, askpass, on_progress)
 }
 
 /// 「推上去会送出哪些提交」的标题列表。
@@ -549,6 +552,7 @@ mod tests {
             &["clone", "--progress", "https://192.0.2.1/nope.git", &name],
             true,
             &cancel,
+            None,
             &mut |_| {},
         );
         let took = t0.elapsed();

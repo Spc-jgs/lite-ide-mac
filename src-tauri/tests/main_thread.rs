@@ -43,6 +43,7 @@ const ALLOW: &[(&str, &str)] = &[
     ("clear_git_console", "内存：Git 控制台的记录"),
     ("git_console", "内存：Git 控制台的记录"),
     ("git_cancel", "内存：置取消标记（杀进程组在看门线程里）"),
+    ("git_askpass_answer", "只动内存里一张表：把答案交给等着的那条线程（mpsc），不碰盘不碰子进程"),
     // ── http.rs ──
     ("http_cancel", "例外：给 curl 发一个 SIGKILL（系统调用，瞬间返回），不等它退"),
     // ── log.rs：读行、过滤都是 mmap 上的内存操作（首屏 50 行 0.008ms）；open_log / log_refresh 碰盘，已挪走 ──

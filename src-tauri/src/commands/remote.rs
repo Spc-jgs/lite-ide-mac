@@ -75,8 +75,9 @@ pub async fn git_fetch(
         return Err(busy_err_dto(id));
     };
     crate::diag!("git_fetch id={id} remote={remote}");
+    let ask = crate::askpass_ui::for_window(tauri::Manager::app_handle(&window), &owner);
     let r = tauri::async_runtime::spawn_blocking(move || {
-        gitsvc::remote::fetch(&root, &remote, &cancel, &mut pump(&on_progress))
+        gitsvc::remote::fetch(&root, &remote, &cancel, ask.as_ref(), &mut pump(&on_progress))
     })
     .await;
     // end_remote 必须无论如何都跑到 —— 漏一次，那个 id 就永远留在表里，
@@ -108,8 +109,9 @@ pub async fn git_push(
     };
     crate::diag!("git_push id={id} remote={remote} branch={branch} set_upstream={set_upstream}");
     let opts = gitsvc::remote::PushOpts { set_upstream };
+    let ask = crate::askpass_ui::for_window(tauri::Manager::app_handle(&window), &owner);
     let r = tauri::async_runtime::spawn_blocking(move || {
-        gitsvc::remote::push(&root, &remote, &branch, opts, &cancel, &mut pump(&on_progress))
+        gitsvc::remote::push(&root, &remote, &branch, opts, &cancel, ask.as_ref(), &mut pump(&on_progress))
     })
     .await;
     state.end_remote(&owner, id);
@@ -189,8 +191,9 @@ pub async fn git_clone(
     };
     crate::diag!("git_clone id={id} → {parent}/{name}");
     let target = Path::new(&parent).join(&name).to_string_lossy().into_owned();
+    let ask = crate::askpass_ui::for_window(tauri::Manager::app_handle(&window), &owner);
     let r = tauri::async_runtime::spawn_blocking(move || {
-        gitsvc::remote::clone(&parent, &url, &name, &cancel, &mut pump(&on_progress), &|p| fsservice::move_to_trash(p))
+        gitsvc::remote::clone(&parent, &url, &name, &cancel, ask.as_ref(), &mut pump(&on_progress), &|p| fsservice::move_to_trash(p))
     })
     .await;
     state.end_remote(&owner, id);
@@ -209,4 +212,10 @@ pub fn git_clone_name(url: String) -> String {
 #[tauri::command]
 pub async fn recent_branch(path: String) -> Option<String> {
     blocking(move || Ok::<_, String>(gitsvc::head_branch(&path))).await.ok().flatten()
+}
+
+/// 答 git 的凭据提问（#62，`git-askpass` 事件的那个号）。`value` 为 null = 取消。只动内存里的一张表，留在主线程
+#[tauri::command]
+pub fn git_askpass_answer(id: u32, value: Option<String>, state: tauri::State<'_, crate::state::AppState>) -> bool {
+    state.askpass_answer(id, value)
 }

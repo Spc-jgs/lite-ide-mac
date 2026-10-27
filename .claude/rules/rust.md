@@ -450,9 +450,11 @@ M7（拉取推送）加了 `crates/gitsvc/src/{progress,remote}.rs`。三条判�
 `GIT_TERMINAL_PROMPT=0` 的 fetch **退出码 0**。`SSH_AUTH_SOCK` 在 launchd 里，
 和终端是同一个 socket。
 
-② 还没做 —— 它服务的是「第一次连一个新远程」，VS Code 和 IDEA 都是生成一个
-临时脚本让它 IPC 回来弹框。**口子留在 `git_cmd` 上**：加的时候多设一个
-`GIT_ASKPASS` 环境变量就行，`remote.rs` 一行不用动。
+② 2026-10-28 做了（#62，`gitsvc::askpass`）：服务的是「第一次连一个新远程」。`GIT_ASKPASS` 指到**应用自己的可执行文件**
+（`main.rs` 一开头认 `LITE_ASKPASS_SOCK`：带着它起来的不起界面，问一句、答案打到 stdout 就退），不往盘上写脚本；
+通道是每次远程操作一个 Unix socket（目录 0700）+ 随机口令。问人的请求不设超时，操作结束时通道析构、还在问的那一头读到 EOF。
+验收 `scripts/accept/git-auth.sh` **不碰你的钥匙串**：macOS 的 git 默认 `credential.helper=osxkeychain`（Xcode 那份系统级配置），
+脚本设 `GIT_CONFIG_NOSYSTEM=1` 和临时的 `GIT_CONFIG_GLOBAL`，`open` 把这两个带给测试应用。
 
 **二、进度是 `\r` 分隔的，不是 `\n`。** 同一份真实 stderr：按 `\n` 分得到
 **7 段**（全在结尾），按 `\r` 分得到 **411 段**。**按行读等于读不到进度** ——

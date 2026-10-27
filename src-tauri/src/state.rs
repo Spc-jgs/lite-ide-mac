@@ -53,6 +53,10 @@ pub struct AppState {
     remotes: Owned<(String, u32), gitsvc::remote::Cancel>,
     /// 正在发的 HTTP 请求（docs/IDEA.md 第 19 节）：(窗口, 前端给的操作号) → 取消开关。号由前端发，理由同 `remotes`（rust.md「操作 id 由谁发」）
     http: Owned<(String, u32), Arc<httpsvc::Handle>>,
+    /// git 问凭据、正在等人答的（#62，`askpass_ui`）：id → 把答案送回去的那一头。关窗口时整张摘掉、发送端一 drop，
+    /// 等着的那边读到「断开」当成取消 —— 不然那条拉取 / 推送在一个没人看得见的对话框上一直等
+    askpass: Owned<u32, std::sync::mpsc::Sender<Option<String>>>,
+    next_askpass: AtomicU32,
     /// 项目根上的文件系统监听（issue #33 ⑳），**每个窗口最多一个**：换项目根就换掉，
     /// 旧的 drop 即停。原来整个进程只有一个槽位，第二个窗口打开项目会把第一个的顶掉。
     /// **先摘出来再在锁外 drop**，同 pty 那条 —— drop 要等防抖线程退出，
@@ -505,6 +509,24 @@ impl AppState {
         })
     }
 
+    /// 登记一次凭据提问（#62），拿到它的号和收答案的那一头
+    pub fn askpass_begin(&self, owner: &str) -> (u32, std::sync::mpsc::Receiver<Option<String>>) {
+        let id = self.next_askpass.fetch_add(1, Ordering::Relaxed) + 1;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.askpass.insert(owner, id, tx);
+        (id, rx)
+    }
+
+    /// 界面答了（`None` = 取消）。找不到 = 已经不等了（操作结束、窗口关了），不算错
+    pub fn askpass_answer(&self, id: u32, value: Option<String>) -> bool {
+        self.askpass.remove(&id).is_some_and(|tx| tx.send(value).is_ok())
+    }
+
+    /// 不等了（操作结束）：划掉
+    pub fn askpass_end(&self, id: u32) {
+        self.askpass.remove(&id);
+    }
+
     /// 操作结束（成功、失败、被取消都算）时把登记划掉。
     pub fn end_remote(&self, owner: &str, id: u32) {
         self.remotes.remove(&(owner.to_string(), id));
@@ -619,6 +641,8 @@ impl AppState {
         for (_, h) in self.http.take_owner(owner) {
             h.cancel();
         }
+        // 在那个窗口上等人答凭据的：发送端 drop，等着的那边当成取消（askpass 字段那段）
+        drop(self.askpass.take_owner(owner));
     }
 }
 
