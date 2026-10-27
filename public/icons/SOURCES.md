@@ -9,7 +9,7 @@
 | `icons/push.svg` | `platform/icons/src/expui/vcs/push_dark.svg` |
 | `icons/commit.svg` | `platform/icons/src/expui/vcs/commit_dark.svg` |
 | `icons/folder.svg` | `platform/icons/src/expui/nodes/folder_dark.svg` |
-| `icons/to-xml.svg` | `platform/icons/src/expui/gutter/implementingMethod_dark.svg`（MyBatis：接口方法旁边，点了跳到 XML 里那段 SQL —— IDEA 用它表示「这个方法有实现，跳过去」） |
+| `icons/to-xml.svg` | `platform/icons/src/expui/gutter/implementingMethod_dark.svg`（也用在 Spring 注入点旁边：点了跳到被注入的 Bean —— IDEA 的 Spring 图标在 Ultimate 里、社区版没有，借这个「有实现，点了跳过去」。MyBatis：接口方法旁边，点了跳到 XML 里那段 SQL —— IDEA 用它表示「这个方法有实现，跳过去」） |
 | `icons/to-java.svg` | `platform/icons/src/expui/gutter/implementedMethod_dark.svg`（MyBatis：XML 语句旁边，点了跳回接口方法 —— IDEA 用它表示「跳回声明」） |
 | `icons/bell.svg` | `platform/icons/src/expui/toolwindows/notifications_dark.svg`（2026-10-23 换掉自绘的暂代版） |
 | `icons/structure.svg` | `platform/icons/src/expui/toolwindows/structure_dark.svg`（结构工具窗原来暂用 `compact` 那个「按包分组」） |

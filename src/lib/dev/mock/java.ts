@@ -405,6 +405,20 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
             { name: "server.servlet.path", ty: "java.lang.String", desc: "", default: "", deprecated: "spring.mvc.servlet.path", values: [] },
           ]
         : [];
+    /*
+     * Spring 注入点 → Bean（真实现：commands/java.rs 的 spring_beans，规则在 spring_beans.rs，读整个项目的 .java）。
+     * 桩：只认 `@Autowired` 下一行的字段，配一个同名去掉 I、加 Impl 的假 Bean，指到项目根的 README（桩里没有真的 Bean 文件）
+     */
+    case "spring_beans": {
+      const lines = String(a.text).split("\n");
+      const out: { line: number; ty: string; beans: { label: string; path: string; line: number }[] }[] = [];
+      lines.forEach((l, i) => {
+        if (!/@Autowired\b/.test(l)) return;
+        const m = /^\s*(?:private\s+|protected\s+)?(\w+)(?:<[^>]*>)?\s+\w+\s*;/.exec(lines[i + 1] ?? "");
+        if (m) out.push({ line: i + 2, ty: m[1], beans: [{ label: `${m[1]}Impl`, path: `${root}/README.md`, line: 1 }] });
+      });
+      return out;
+    }
     /* 枚举的常量（真实现：spring_meta::enum_values，读 classpath 上那个类文件）。桩：认得的一个 */
     case "spring_enum":
       await wait(200);

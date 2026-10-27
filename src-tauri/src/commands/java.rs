@@ -545,6 +545,31 @@ pub async fn mybatis_for_java(root: String, text: String) -> Result<MybatisLinks
     .await
 }
 
+/// Spring 的注入点 → Bean（`spring_beans.rs`）：编辑器里此刻的文本（没保存的也算）里每个注入点，和项目里配得上的 Bean（绝对路径 + 行号）。
+/// 一个都配不上的注入点不回 —— 前端只给配上了的画图标
+#[tauri::command]
+pub async fn spring_beans(root: String, text: String) -> Result<Vec<SpringInjectDto>, String> {
+    blocking(move || {
+        let injects = crate::spring_beans::injects(&text);
+        if injects.is_empty() {
+            return Ok(Vec::new());
+        }
+        let files = searchsvc::list_files(&root, &super::search::skip_for(&root)).unwrap_or_default();
+        let all = crate::spring_beans::project_beans(Path::new(&root), &files);
+        Ok(injects
+            .into_iter()
+            .filter_map(|i| {
+                let beans: Vec<SpringBeanDto> = all
+                    .iter()
+                    .flat_map(|(p, bs)| bs.iter().filter(|b| crate::spring_beans::matches(b, &i.ty)).map(move |b| SpringBeanDto { label: b.label.clone(), path: p.display().to_string(), line: b.line }))
+                    .collect();
+                (!beans.is_empty()).then_some(SpringInjectDto { line: i.line, ty: i.ty, beans })
+            })
+            .collect())
+    })
+    .await
+}
+
 /// MyBatis：打开的 Mapper XML → `here` 是它的语句（行号），`there` 是 namespace 那个接口的方法（绝对路径 + 行号）。不是 Mapper XML、找不到接口都是空的
 #[tauri::command]
 pub async fn mybatis_for_xml(root: String, text: String) -> Result<MybatisLinksDto, String> {

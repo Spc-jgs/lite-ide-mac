@@ -286,6 +286,28 @@ pub struct ScratchDto {
     pub anchor: Option<AnchorDto>,
 }
 
+/// Spring 注入点配上的一个 Bean（`spring_beans`）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpringBeanDto {
+    /// 类名，或者 `配置类.方法()`
+    pub label: String,
+    pub path: String,
+    /// 从 1 数
+    pub line: u32,
+}
+
+/// 一个注入点（`@Autowired` 字段、构造器参数……）和它配上的 Bean
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpringInjectDto {
+    /// 从 1 数
+    pub line: u32,
+    /// 要的类型（简单类名）
+    pub ty: String,
+    pub beans: Vec<SpringBeanDto>,
+}
+
 /// 自动更新的状态（docs/TAKEOVER.md MVP-8）
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]

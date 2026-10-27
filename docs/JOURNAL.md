@@ -10746,3 +10746,14 @@ IDEA 是解析那个枚举类。我们也读类文件，但不经过 jdtls：类
 测试夹具是 `javac --release 17` 编的两个类文件（tests/fixtures/spring），嵌套枚举里故意放了 static final String（带 ConstantValue 属性，要能跳过）、实例字段、static double；
 改坏成「收所有 static 字段」红两条（多出 NOTE、ratio、`$VALUES`）。截断的类文件任何长度都不崩；截在字段表之后照样拿得到常量 —— 方法表本来就不读，这不是 bug。
 gradle.sh 加一条：真 Spring Boot 4 的 jar，`banner-mode: ` 后敲 C 给 CONSOLE。
+
+## 2026-10-27 · Spring Bean 导航：注入点旁边一个图标，跳到被注入的 Bean（读文本，不等 jdtls）
+
+IDEA Ultimate 行号旁那个图标：`@Autowired private OrderService orders;` 点了跳到 `@Service class OrderServiceImpl implements OrderService`。
+做法同 MyBatis 跳转：Rust 用 `javalite` 分词读文本（`spring_beans.rs`）。注入点认三种（注解字段、Bean 类的构造器参数、Lombok `@RequiredArgsConstructor` 的非 static final 字段），
+Bean 认三种（`@Component` 一族的类，类名一样或直接 implements / extends；`@Bean` 方法的返回类型；`@Mapper` 接口）。项目的 `.java` 按（路径, 改动时间）缓存，
+先按字面筛（不含那几个注解名的不分词）。只按简单类名配、不认 `@Qualifier` 和隔代继承 —— 认不全的宁可多列几个让人挑，不猜。
+
+**验收里撞见一个「后台窗口量不准」**：图标明明画在第 7 行，量出来是第 5 行，点上去也点到别的行。测试应用的窗口在后台、没有帧，CM6 的 requestMeasure 不跑，
+行号旁那几列还按估的行高（14px）摆、正文已经是真行高（20px）—— 越往下差得越多。真用的时候窗口在前台、每帧都量，不会这样。改在测试钩子：
+`lineOfGutter` 量之前先让 CM6 同步 `measure()` 一次（脚本按屏幕坐标点图标之前也先调它）。MyBatis 那份验收用同一个钩子，原来没撞上是碰巧量的时候已经量过了。

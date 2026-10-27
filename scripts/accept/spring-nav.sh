@@ -53,6 +53,34 @@ cp "${CTL}" "${M}/target/generated-sources/com/demo/order/web/OrderController.ja
 printf 'server:\n  port: 8080\ndemo:\n  greeting-text: hello\n' > "${M}/src/main/resources/application.yml"
 printf 'demo:\n  greeting_text: 你好（dev）\n' > "${M}/src/main/resources/application-dev.yml"
 printf 'demo.greeting-text=prod 的\n' > "${M}/src/main/resources/application-prod.properties"
+# Bean 导航（docs/TAKEOVER.md G30）用的几个类：接口 + 实现、测试里的假实现（不该列）、一个接口两个实现、@Bean 方法、@Mapper 接口，和注入它们的 OrderFacade
+J="${M}/src/main/java/com/demo/order"
+mkdir -p "${J}/service" "${J}/pay" "${J}/cfg" "${J}/mapper" "${M}/src/test/java/com/demo/order/service"
+printf 'package com.demo.order.service;\n\npublic interface OrderService {\n    String find(long id);\n}\n' > "${J}/service/OrderService.java"
+printf 'package com.demo.order.service;\n\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class OrderServiceImpl implements OrderService {\n    public String find(long id) { return ""; }\n}\n' > "${J}/service/OrderServiceImpl.java"
+printf 'package com.demo.order.service;\n\n@Service\nclass FakeOrderService implements OrderService {\n    public String find(long id) { return "fake"; }\n}\n' > "${M}/src/test/java/com/demo/order/service/FakeOrderService.java"
+printf 'package com.demo.order.pay;\n\npublic interface PayGateway {}\n' > "${J}/pay/PayGateway.java"
+printf 'package com.demo.order.pay;\n\n@Component\npublic class AliPay implements PayGateway {}\n' > "${J}/pay/AliPay.java"
+printf 'package com.demo.order.pay;\n\n@Component\npublic class WxPay implements PayGateway {}\n' > "${J}/pay/WxPay.java"
+printf 'package com.demo.order.cfg;\n\n@Configuration\npublic class AppConfig {\n    @Bean\n    public RestTemplate restTemplate() { return new RestTemplate(); }\n}\n' > "${J}/cfg/AppConfig.java"
+printf 'package com.demo.order.mapper;\n\n@Mapper\npublic interface OrderMapper {}\n' > "${J}/mapper/OrderMapper.java"
+FAC="${J}/OrderFacade.java"
+cat > "${FAC}" <<'F'
+package com.demo.order;
+
+@Service
+@RequiredArgsConstructor
+public class OrderFacade {
+    private static final String NAME = "facade";
+    private final OrderService orders;
+    private final PayGateway pay;
+    private final OrderMapper mapper;
+    private String note;
+
+    @Autowired
+    private RestTemplate rest;
+}
+F
 BEFORE=$(cd "${P}" && find . -type f | sort | md5)
 
 lite_clean_data
@@ -95,6 +123,27 @@ lite_eval main "await __lite.tabflow.openPath('${CTL}', { preview: false }); ret
 cfg 17 18
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('demo.nowhere')" 5 >/dev/null
 ok "$(lite_eval main "return __lite.tabs.active?.path === '${CTL}' && (document.querySelector('.toast')?.textContent ?? '').includes('未在配置文件中找到 demo.nowhere')" | grep -q true && echo 1)" "没有：留在原地，说「配置文件里没有 demo.nowhere」"
+
+echo "== Bean 导航（docs/TAKEOVER.md G30）：注入点旁边一个图标，点了跳到被注入的 Bean；配上两个的弹列表挑；测试里的假实现不列"
+lite_eval main "await __lite.tabflow.openPath('${FAC}', { preview: false }); return true" >/dev/null
+lite_wait main "return __lite.tabs.active?.path === '${FAC}' && document.querySelectorAll('.cm-sb').length >= 4" 15 >/dev/null
+SB=$(lite_eval main "return [...document.querySelectorAll('.cm-sb')].map((m) => __lite.lineOfGutter(m)).join(',')")
+ok "$([ "${SB}" = "7,8,9,13" ] && echo 1)" "画在第 7、8、9（Lombok 的 final 字段）和 13 行（@Autowired），static final 和普通字段不画：${SB}"
+ok "$(lite_eval main "return document.querySelectorAll('.cm-sb')[0].title" | grep -q '转到注入的 Bean：OrderServiceImpl' && echo 1)" "OrderService 只配上 OrderServiceImpl（src/test 里的 FakeOrderService 不列）：$(lite_eval main "return document.querySelectorAll('.cm-sb')[0].title")"
+# 点之前先让 CM6 量一次（lineOfGutter 里做）：窗口在后台时没有帧，行号旁那一列按估的行高摆，按屏幕坐标点会点到别的行
+CLICK='const click = (i) => { const m = document.querySelectorAll(".cm-sb")[i]; __lite.lineOfGutter(m); const r = m.getBoundingClientRect(); m.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, clientX: r.left + 3, clientY: r.top + 3, button: 0 })); };'
+lite_eval main "${CLICK} click(0); return true" >/dev/null
+lite_wait main "return (__lite.tabs.active?.path ?? '').endsWith('/OrderServiceImpl.java')" 5 >/dev/null
+ok "$(lite_eval main "return (__lite.tabs.active?.path ?? '').endsWith('/service/OrderServiceImpl.java')" | grep -q true && echo 1)" "点 OrderService 那个：直接跳到 OrderServiceImpl.java"
+lite_eval main "await __lite.tabflow.openPath('${FAC}', { preview: false }); return true" >/dev/null
+lite_wait main "return __lite.tabs.active?.path === '${FAC}' && document.querySelectorAll('.cm-sb').length >= 4" 10 >/dev/null
+lite_eval main "${CLICK} click(1); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.usages [role=option]').length > 0" 5 >/dev/null
+PG=$(lite_eval main "return [...document.querySelectorAll('.usages [role=option]')].map((o) => o.innerText.replace(/\\s+/g, ' ').trim().split(/[ :]/)[0]).sort().join(',')")
+ok "$([ "${PG}" = "AliPay,WxPay" ] && echo 1)" "PayGateway 两个实现：弹列表挑：${PG}"
+lite_eval main "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
+ok "$(lite_eval main "return document.querySelectorAll('.cm-sb')[3].title" | grep -q 'AppConfig.restTemplate()' && echo 1)" "@Autowired 的 RestTemplate 配上 @Bean 方法 AppConfig.restTemplate()"
+ok "$(lite_eval main "return document.querySelectorAll('.cm-sb')[2].title" | grep -q 'OrderMapper' && echo 1)" "OrderMapper 配上 @Mapper 接口"
 
 echo "== 没有副作用"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（不建索引文件）"

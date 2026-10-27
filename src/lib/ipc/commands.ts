@@ -887,6 +887,23 @@ export interface ScratchEntry {
 }
 
 /** 「安装命令行工具…」的结果（issue #40） */
+/** Spring 注入点配上的一个 Bean */
+export interface SpringBean {
+  /** 类名，或者 `配置类.方法()` */
+  label: string;
+  path: string;
+  /** 从 1 数 */
+  line: number;
+}
+
+/** 一个注入点和它配上的 Bean */
+export interface SpringInject {
+  /** 从 1 数 */
+  line: number;
+  ty: string;
+  beans: SpringBean[];
+}
+
 /** 自动更新的状态（docs/TAKEOVER.md MVP-8） */
 export interface UpdateInfo {
   phase: "idle" | "checking" | "downloading" | "ready" | "latest" | "failed" | "unsupported";

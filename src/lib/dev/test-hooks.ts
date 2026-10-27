@@ -173,6 +173,9 @@ export function installTestHooks() {
     /** 行号旁那一列里的一个图标画在第几行（按它在屏幕上的高度问编辑器）：验「图标画在了哪一行」，不靠 DOM 次序猜 */
     lineOfGutter: (el: Element) => {
       const v = mustEditor();
+      // 测试应用的窗口在后台时没有帧，CM6 的 requestMeasure 不跑：行号旁那几列还按估的行高（14px）摆，正文已经是真行高 ——
+      // 图标看着偏了几行（2026-10-27 Bean 导航的验收撞见：第 7 行的图标量成第 5 行）。量之前先让 CM6 同步量一次、写回 DOM
+      (v as unknown as { measure?: (flush?: boolean) => void }).measure?.();
       const r = el.getBoundingClientRect();
       return v.state.doc.lineAt(v.lineBlockAtHeight(r.top + r.height / 2 - v.documentTop).from).number;
     },

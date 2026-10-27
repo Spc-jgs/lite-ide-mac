@@ -3,7 +3,7 @@
  * 行、列从 0 数，列按 UTF-16 —— LSP 的默认，正好是 CM6 / JS 字符串的下标。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { SpringProp, JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaGenChoices, JavaHierChildren, JavaHierNode, JavaHighlight, JavaInlay, JavaLocation, JavaMethodSig, JavaMoveDest, JavaMovePreview, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, JavaSignatures } from "./commands";
+import type { SpringProp, JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaGenChoices, JavaHierChildren, JavaHierNode, JavaHighlight, JavaInlay, JavaLocation, JavaMethodSig, JavaMoveDest, JavaMovePreview, JavaRefs, JavaTypes, JavaRenameTarget, JavaResolved, JavaStatus, MybatisLinks, ReplaceOutcome, SpringConfigHit, SpringEndpoint, SpringInject, JavaSignatures } from "./commands";
 import type { OpenDoc } from "./replace";
 
 /** 打开了一个 Java 文件：jdtls 没有就起（不等它起好），登记这份文档。返回当时的状态 */
@@ -63,6 +63,8 @@ export const javaRename = (root: string, path: string, text: string, line: numbe
 export const javaMoveDestinations = (root: string, path: string) => invoke<JavaMoveDest[]>("java_move_destinations", { root, path });
 /** Spring Boot 配置文件能写的键（读这个文件所在模块 classpath 上的配置元数据；第一次要等 jdtls 导入完） */
 export const springProps = (root: string, path: string) => invoke<SpringProp[]>("spring_props", { root, path });
+/** Spring 注入点 → Bean：编辑器此刻的文本里每个配得上的注入点 */
+export const springBeans = (root: string, text: string) => invoke<SpringInject[]>("spring_beans", { root, text });
 /** 配置键的值是枚举时（元数据没给可选值），那个枚举的常量 */
 export const springEnum = (root: string, path: string, ty: string) => invoke<string[]>("spring_enum", { root, path, ty });
 /** 改签名（⌘F6）：光标那个方法现在的签名 */

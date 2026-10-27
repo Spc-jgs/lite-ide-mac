@@ -36,6 +36,7 @@ import QuickFixPopup from "./QuickFixPopup.svelte";
 import { javaTestGutter } from "./java-test-gutter";
 import { javaDebugGutter } from "./java-debug-gutter";
 import { mybatisGutter } from "./mybatis-gutter";
+import { springBeansGutter } from "./spring-beans-gutter";
 import { signatureHelp } from "./java-signature";
 import { notify } from "../state/notify.svelte";
 import { layout } from "../state/layout.svelte";
@@ -1240,6 +1241,7 @@ export function javaLsp(root: string | null, path: string): Extension {
     javaDebugGutter(root, path),
     // MyBatis 的 Mapper 接口 → XML（第 24 节）：同样不靠语言服务器
     mybatisGutter(root, path),
+    springBeansGutter(root, path),
     // 参数提示：敲 ( 或 , 时弹，⇧⌘Space 手动弹
     signatureHelp((text, line, character) => javaSignature(root, path, text, line, character)),
     // 换掉通用的「文档里的词」：Java 文件里由 javaSource 说了算（它自己会在 jdtls 没起好时退回去）。和 Editor 里那份 autocompletion() 的配置合并

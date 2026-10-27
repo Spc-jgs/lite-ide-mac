@@ -71,6 +71,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("AnchorDto", "ScratchAnchor"),
     ("CliInstallDto", "CliInstall"),
     ("UpdateDto", "UpdateInfo"),
+    ("SpringBeanDto", "SpringBean"),
+    ("SpringInjectDto", "SpringInject"),
     ("ReplaceHitDto", "ReplaceHit"),
     ("ReplaceFileDto", "ReplaceFile"),
     ("ReplaceSkipDto", "ReplaceSkip"),
