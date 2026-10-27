@@ -389,7 +389,7 @@
           {/if}
         {:else if ocur}
           <h3>{ocur.name}</h3>
-          <p class="doc">{ocur.source === "package" ? "自动列出的 package.json scripts" : "定义在 tasks.json 中"}，请在该文件中修改</p>
+          <p class="doc">{ocur.source === "package" ? "自动列出的 package.json scripts，请在该文件中修改" : ocur.source === "pack" ? "由语言包声明，可在应用数据目录的 packs 中用同 id 的语言包覆盖" : "定义在 tasks.json 中，请在该文件中修改"}</p>
           <div class="lab">命令</div>
           <pre class="cmd">{ocur.command}</pre>
           {#if ocur.source === "file"}

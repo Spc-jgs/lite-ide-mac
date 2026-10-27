@@ -8,5 +8,16 @@
   "server": {
     "command": ["rust-analyzer"],
     "install": "rustup component add rust-analyzer"
+  },
+  "tasks": {
+    "group": "Cargo",
+    "marker": "Cargo.toml",
+    "items": [
+      { "name": "cargo build", "command": "cargo build" },
+      { "name": "cargo run", "command": "cargo run" },
+      { "name": "cargo test", "command": "cargo test" },
+      { "name": "cargo check", "command": "cargo check" },
+      { "name": "cargo clippy", "command": "cargo clippy" }
+    ]
   }
 }

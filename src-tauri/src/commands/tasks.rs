@@ -19,12 +19,18 @@ pub async fn task_list(root: String) -> Result<TaskListDto, String> {
                     source: match d.source {
                         crate::taskdefs::Source::File => "file",
                         crate::taskdefs::Source::Package { .. } => "package",
+                        crate::taskdefs::Source::Pack { .. } => "pack",
                         crate::taskdefs::Source::Spring { .. } => "spring",
                         crate::taskdefs::Source::Goal { .. } => "goal",
                         crate::taskdefs::Source::User { .. } => "user",
                     }
                     .into(),
-                    kind: if let crate::taskdefs::Source::User { kind, .. } = &d.source { kind.clone() } else { String::new() },
+                    kind: match &d.source {
+                        crate::taskdefs::Source::User { kind, .. } => kind.clone(),
+                        // 语言包的任务：组名（「Cargo」），运行列表按它分组
+                        crate::taskdefs::Source::Pack { group, .. } => group.clone(),
+                        _ => String::new(),
+                    },
                     items: if let crate::taskdefs::Source::User { items, .. } = d.source { items } else { Vec::new() },
                 })
                 .collect(),

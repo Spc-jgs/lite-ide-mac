@@ -417,6 +417,7 @@ pub fn run_configs(root: &str) -> crate::commands::RunConfigsDto {
         .iter()
         .filter_map(|d| match d.source {
             crate::taskdefs::Source::Package { .. } => Some("package"),
+            crate::taskdefs::Source::Pack { .. } => Some("pack"),
             crate::taskdefs::Source::File => Some("file"),
             _ => None,
         }.map(|s| crate::commands::OtherRunDto { name: d.name.clone(), source: s.into(), command: d.command.clone() }))

@@ -995,9 +995,9 @@ pub struct TaskDefDto {
     pub command: String,
     /// 相对项目根；"" = 根
     pub cwd: String,
-    /// "file"（`.lite-ide/tasks.json`）/ "package"（自动认出来的 package.json scripts）/ "spring" / "goal" / "user"（你建的运行配置）
+    /// "file"（`.lite-ide/tasks.json`）/ "package"（自动认出来的 package.json scripts）/ "pack"（语言包声明的）/ "spring" / "goal" / "user"（你建的运行配置）
     pub source: String,
-    /// 你建的那种是哪一类：application / maven / shell / compound；别的来源是空串
+    /// 你建的那种是哪一类：application / maven / shell / compound；语言包的是组名（「Cargo」）；别的来源是空串
     pub kind: String,
     /// compound：一起起的那几份的名字；别的是空的
     pub items: Vec<String>,
@@ -1642,7 +1642,7 @@ pub struct UserConfigDto {
 #[serde(rename_all = "camelCase")]
 pub struct OtherRunDto {
     pub name: String,
-    /// "package" / "file"
+    /// "package" / "pack" / "file"
     pub source: String,
     pub command: String,
 }

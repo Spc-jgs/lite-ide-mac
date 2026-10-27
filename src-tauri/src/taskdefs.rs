@@ -1,4 +1,5 @@
-//! 任务从哪来（#48 第 2 步，docs/TASKS.md Q2）：项目里的 `.lite-ide/tasks.json`，加上自动认出来的 `package.json` scripts。
+//! 任务从哪来（#48 第 2 步，docs/TASKS.md Q2）：项目里的 `.lite-ide/tasks.json`，加上自动认出来的 `package.json` scripts、
+//! 语言包声明的任务（docs/LANGPACK.md 第 7 节，比如 Rust 包的 `cargo test`）。
 //!
 //! 纯函数 + 读盘，不碰进程（起和停在 `tasksvc`）。放在主 crate 里、挨着 `settings.rs`：`tasks.json` 和 `settings.json` 是同一种 JSONC
 //! （注释、末尾逗号），用的是同一个 [`crate::settings::strip`] —— 一种格式一个解析器，不另写一份。
@@ -24,6 +25,8 @@ pub enum Source {
     File,
     /// 某个 `package.json` 的 scripts；`dir` 相对项目根（根目录是 ""）
     Package { dir: String },
+    /// 语言包声明的（`langs::PackTasks`，docs/LANGPACK.md 第 7 节）：`group` 是运行列表里那一组的名字（「Cargo」），`dir` 同上
+    Pack { group: String, dir: String },
     /// Maven 项目里认出来的 Spring Boot 应用（`maven.rs`）；`module` 相对项目根。在 Services 工具窗里跑（同 IDEA），不进运行窗
     Spring { module: String },
     /// Maven 工具窗里点的目标（「artifactId [目标]」）：在运行窗里跑。和 `Spring` 分开，是因为两种跑起来去的工具窗不一样
@@ -281,20 +284,9 @@ pub fn discover(root: &Path) -> Found {
         }
     }
 
-    // 根目录 + 一层子目录。不往下翻：monorepo 的包一般就在第一层（apps/、packages/ 底下那一层是例外，第一版不管）；
-    // node_modules、隐藏目录不进
-    let mut dirs: Vec<PathBuf> = vec![root.to_path_buf()];
-    if let Ok(rd) = std::fs::read_dir(root) {
-        let mut subs: Vec<PathBuf> = rd
-            .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-            .map(|e| e.path())
-            .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| !n.starts_with('.') && n != "node_modules"))
-            .collect();
-        subs.sort();
-        dirs.extend(subs);
-    }
-    for dir in dirs {
+    // 根目录 + 一层子目录。不往下翻：monorepo 的包一般就在第一层（apps/、packages/ 底下那一层是例外，第一版不管）
+    let subs = first_level(root);
+    for dir in std::iter::once(root.to_path_buf()).chain(subs.iter().cloned()) {
         let rel = dir.strip_prefix(root).map(|r| r.to_string_lossy().into_owned()).unwrap_or_default();
         let pj = dir.join("package.json");
         let (scripts, declared) = match read_capped(&pj) {
@@ -329,9 +321,47 @@ pub fn discover(root: &Path) -> Found {
             });
         }
     }
+    pack_tasks(root, &subs, &mut found);
     spring_apps(root, &mut found);
     user_configs(root, &mut found);
     found
+}
+
+/// 第一层子目录，按名字排；node_modules、隐藏目录（`.git`、`target` 不算隐藏，但它底下不会有标记文件）不进
+fn first_level(root: &Path) -> Vec<PathBuf> {
+    let mut subs: Vec<PathBuf> = std::fs::read_dir(root)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                .map(|e| e.path())
+                .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| !n.starts_with('.') && n != "node_modules"))
+                .collect()
+        })
+        .unwrap_or_default();
+    subs.sort();
+    subs
+}
+
+/// 语言包声明的任务（docs/LANGPACK.md 第 7 节）。标记文件在根上就只列根上的一份 —— Cargo 工作区在根上 `cargo test` 就是全部成员，
+/// 每个成员 crate 再列一份是噪音；根上没有才看第一层子目录（一个仓库里前后端各一个工程）。同名的让给 tasks.json、scripts
+fn pack_tasks(root: &Path, subs: &[PathBuf], found: &mut Found) {
+    for p in crate::langs::all_packs().0 {
+        let Some(t) = p.tasks else { continue };
+        let dirs: Vec<String> = if root.join(&t.marker).is_file() {
+            vec![String::new()]
+        } else {
+            subs.iter().filter(|d| d.join(&t.marker).is_file()).filter_map(|d| d.strip_prefix(root).ok()).map(|r| r.to_string_lossy().into_owned()).collect()
+        };
+        for rel in dirs {
+            for it in &t.items {
+                let name = if rel.is_empty() { it.name.clone() } else { format!("{rel}/{}", it.name) };
+                if found.defs.iter().any(|d| d.name == name) {
+                    continue;
+                }
+                found.defs.push(Def { name, command: it.command.clone(), cwd: rel.clone(), env: Vec::new(), source: Source::Pack { group: t.group.clone(), dir: rel.clone() } });
+            }
+        }
+    }
 }
 
 /// 一个模块目录（相对项目根）→（它在哪个 reactor 下、相对那个 reactor 的路径）。命令要在 reactor 根上跑（`-pl 模块 -am`），
@@ -800,6 +830,32 @@ mod tests {
         .unwrap();
         assert_eq!(s, ["dev", "build", "test:unit", "preview"], "preview 不是 view 的钩子（没有 view 这个 script），要留着");
         assert_eq!(pm.as_deref(), Some("pnpm"));
+    }
+
+    #[test]
+    fn 语言包的任务_根上有标记只列根上的_没有才看子目录_同名让给_tasks_json() {
+        let root = tmp("pack-tasks");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"core\"]\n").unwrap();
+        std::fs::create_dir_all(root.join("core")).unwrap();
+        std::fs::write(root.join("core/Cargo.toml"), "[package]\nname = \"core\"\n").unwrap();
+        std::fs::create_dir_all(root.join(".lite-ide")).unwrap();
+        std::fs::write(root.join(FILE), r#"[{ "name": "cargo test", "command": "cargo test --workspace -q" }]"#).unwrap();
+        let f = discover(&root);
+        let cargo: Vec<&Def> = f.defs.iter().filter(|d| matches!(&d.source, Source::Pack { group, .. } if group == "Cargo")).collect();
+        assert_eq!(cargo.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["cargo build", "cargo run", "cargo check", "cargo clippy"], "工作区只列根上一份、成员不重复列；cargo test 让给 tasks.json");
+        assert!(cargo.iter().all(|d| d.cwd.is_empty()));
+        assert_eq!(f.defs.iter().find(|d| d.name == "cargo test").unwrap().command, "cargo test --workspace -q", "同名的以 tasks.json 为准");
+
+        let two = tmp("pack-tasks-sub");
+        for d in ["api", "worker"] {
+            std::fs::create_dir_all(two.join(d)).unwrap();
+            std::fs::write(two.join(d).join("Cargo.toml"), "[package]\n").unwrap();
+        }
+        std::fs::create_dir_all(two.join("web")).unwrap();
+        let f = discover(&two);
+        let run: Vec<(&str, &str)> = f.defs.iter().filter(|d| d.name.ends_with("cargo run")).map(|d| (d.name.as_str(), d.cwd.as_str())).collect();
+        assert_eq!(run, [("api/cargo run", "api"), ("worker/cargo run", "worker")], "根上没有：第一层子目录里有的各一份，在那个目录里跑");
+        assert!(discover(&tmp("pack-tasks-none")).defs.is_empty(), "没有 Cargo.toml 一条都不列");
     }
 
     #[test]

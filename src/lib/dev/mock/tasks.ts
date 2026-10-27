@@ -28,7 +28,7 @@ const TEMPLATE = `// lite-ide 的任务（docs/USAGE.md「任务」）。⌃⌥R
 `;
 const LIFECYCLE = new Set(["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare", "prepublishOnly", "prepack", "postpack", "publish", "postpublish", "preversion", "version", "postversion", "dependencies"]);
 
-type Def = { name: string; command: string; cwd: string; source: "file" | "package" | "spring" | "goal" | "user"; module?: string; kind?: string; items?: string[] };
+type Def = { name: string; command: string; cwd: string; source: "file" | "package" | "pack" | "spring" | "goal" | "user"; module?: string; kind?: string; items?: string[] };
 /** Lifecycle 底下的阶段（同 Rust 的 maven::PHASES） */
 const PHASES = ["clean", "validate", "compile", "test", "package", "verify", "install", "site", "deploy"];
 /** 能放进 mvn 命令行的词（同 Rust 的 maven::safe_token） */
@@ -93,6 +93,15 @@ function list(root: string) {
     for (const s of names.filter((k) => !LIFECYCLE.has(k) && !hook(k))) {
       const name = rel ? `${rel}/${s}` : s;
       if (!defs.some((d) => d.name === name)) defs.push({ name, command: `${pm} run ${word(s)}`, cwd: rel, source: "package" });
+    }
+  }
+  // 语言包声明的任务（真实现在 taskdefs.rs 的 pack_tasks，内置的只有 Rust 包的 Cargo 那几条）：标记在根上只列根上的，没有才看第一层子目录
+  const CARGO = ["cargo build", "cargo run", "cargo test", "cargo check", "cargo clippy"];
+  const cargoDirs = `${root}/Cargo.toml` in FILES ? [""] : Object.keys(FILES).filter((p) => new RegExp(`^${root}/[^/.][^/]*/Cargo\\.toml$`).test(p)).map((p) => p.slice(root.length + 1, -"/Cargo.toml".length)).sort();
+  for (const rel of cargoDirs) {
+    for (const c of CARGO) {
+      const name = rel ? `${rel}/${c}` : c;
+      if (!defs.some((d) => d.name === name)) defs.push({ name, command: c, cwd: rel, source: "pack", kind: "Cargo" });
     }
   }
   // Spring Boot 入口（真实现在 maven.rs）：项目根有 pom.xml 时，各模块 src/main/java 里带 @SpringBootApplication 又有 main 的类。

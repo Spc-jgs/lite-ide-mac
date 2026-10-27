@@ -101,7 +101,9 @@
     }
   }
 
-  const GROUP: Record<TaskDef["source"], string> = { file: "tasks.json", package: "package.json", spring: "Spring Boot", goal: "Maven", user: "你建的" };
+  const GROUP: Record<TaskDef["source"], string> = { file: "tasks.json", package: "package.json", pack: "", spring: "Spring Boot", goal: "Maven", user: "你建的" };
+  // 语言包的任务按包里写的组名分（「Cargo」），两个包挨着也分得开
+  const groupOf = (d: TaskDef) => (d.source === "pack" ? d.kind : GROUP[d.source]);
   const STATUS: Partial<Record<RunStatus, string>> = { running: "在跑", stopping: "正在停" };
 </script>
 
@@ -122,8 +124,8 @@
     {/if}
     <div class="results" role="listbox">
       {#each rows as r, i (r.kind === "task" ? `t:${r.def.name}` : "file")}
-        {#if r.kind === "task" && (i === 0 || (rows[i - 1].kind === "task" && (rows[i - 1] as { def: TaskDef }).def.source !== r.def.source))}
-          <div class="group">{GROUP[r.def.source]}</div>
+        {#if r.kind === "task" && (i === 0 || (rows[i - 1].kind === "task" && groupOf((rows[i - 1] as { def: TaskDef }).def) !== groupOf(r.def)))}
+          <div class="group">{groupOf(r.def)}</div>
         {:else if r.kind === "file" && i > 0}
           <div class="sep"></div>
         {/if}

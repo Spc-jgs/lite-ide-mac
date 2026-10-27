@@ -47,14 +47,14 @@
     menu = { x: r.left, y: r.bottom + 4 };
   }
 
-  const GROUP: Record<TaskDef["source"], string> = { spring: "Spring Boot", user: "你建的", package: "package.json", file: "tasks.json", goal: "Maven" };
+  const GROUP: Record<TaskDef["source"], string> = { spring: "Spring Boot", user: "你建的", package: "package.json", pack: "", file: "tasks.json", goal: "Maven" };
   const items = $derived.by<MenuItem[]>(() => {
     const out: MenuItem[] = [];
     let group = "";
     // 按组排：常起的（Spring 服务、你建的）在上，脚本类在下；组内保持列表原来的次序
-    const order: TaskDef["source"][] = ["spring", "user", "package", "file", "goal"];
+    const order: TaskDef["source"][] = ["spring", "user", "package", "pack", "file", "goal"];
     for (const t of [...list].sort((a, b) => order.indexOf(a.source) - order.indexOf(b.source))) {
-      const g = GROUP[t.source];
+      const g = t.source === "pack" ? t.kind : GROUP[t.source];
       out.push({ label: t.name, run: () => (picked = { ...picked, [root]: t.name }), sep: !!out.length && g !== group, checked: t.name === current });
       group = g;
     }

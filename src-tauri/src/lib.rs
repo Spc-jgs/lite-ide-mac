@@ -226,6 +226,7 @@ pub fn run() {
                 // Maven 工具窗的开关（离线、跳过测试、勾的 profile），按项目记（maven.rs 的 Prefs）
                 maven::set_prefs_file(dir.join("maven-prefs.json"));
                 gradle::set_init_file(dir.join("lite-ide-init.gradle"));
+                langs::set_packs_dir(dir.join("packs"));
                 projectcfg::set_file(dir.join("project-settings.json"));
                 let runs = dir.join("runs");
                 st.init_live(runs.join("live.json"));

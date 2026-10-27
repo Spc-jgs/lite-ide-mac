@@ -56,6 +56,26 @@ pub struct Pack {
     #[serde(default)]
     pub npm: Option<String>,
     pub server: PackServer,
+    /// 这种项目能跑什么（docs/LANGPACK.md 第 7 节）：运行列表里和 package.json scripts 同一个待遇
+    #[serde(default)]
+    pub tasks: Option<PackTasks>,
+}
+
+/// 包声明的任务：项目里有 `marker`（Cargo.toml）就列出 `items`。命令照原样交给登录 shell，和 tasks.json 里写的一样 ——
+/// 包是你装的（内置的、或者你放进应用数据目录的），信任模型同 tasks.json：写的人就是要跑它的人
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct PackTasks {
+    /// 运行列表里那一组的名字（「Cargo」）
+    pub group: String,
+    /// 只认文件名：根上有就只列根上的（Cargo 工作区在根上跑就是全部成员），没有才看第一层子目录
+    pub marker: String,
+    pub items: Vec<PackTask>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct PackTask {
+    pub name: String,
+    pub command: String,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
@@ -93,6 +113,15 @@ pub fn parse_pack(text: &str) -> Result<Pack, String> {
     if p.id.is_empty() || p.files.is_empty() || p.server.command.is_empty() {
         return Err("缺少 id、files 或 server.command".into());
     }
+    if let Some(t) = &p.tasks {
+        // 标记只许是一个文件名：带 `/` 或 `..` 的会让「项目里有没有它」去看项目外面
+        if t.group.trim().is_empty() || t.marker.is_empty() || t.marker.contains(['/', '\\']) || t.marker == "." || t.marker == ".." {
+            return Err("tasks 需要 group，marker 只能是文件名".into());
+        }
+        if t.items.iter().any(|i| i.name.trim().is_empty() || i.name.contains(['\n', '\r']) || i.command.trim().is_empty()) {
+            return Err("tasks.items 的每一项都要有 name 和 command".into());
+        }
+    }
     Ok(p)
 }
 
@@ -104,11 +133,27 @@ fn merge(out: &mut Vec<Pack>, p: Pack) {
     }
 }
 
+static PACKS_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// 启动时设：你自己的包放在应用数据目录的 `packs/` 里。列任务（`taskdefs::discover`）手里没有 AppHandle，从这儿取
+pub fn set_packs_dir(p: PathBuf) {
+    let _ = PACKS_DIR.set(p);
+}
+
 /// 内置的 + 你自己的（同 id 盖过内置的）。第二个是认不得的包文件，一条一句
 pub fn packs(app: &AppHandle) -> (Vec<Pack>, Vec<String>) {
+    load(app.path().app_data_dir().ok().map(|d| d.join("packs")))
+}
+
+/// 同 [`packs`]，目录用启动时设的那个（没设过：单元测试，只有内置的）
+pub fn all_packs() -> (Vec<Pack>, Vec<String>) {
+    load(PACKS_DIR.get().cloned())
+}
+
+fn load(dir: Option<PathBuf>) -> (Vec<Pack>, Vec<String>) {
     let mut out: Vec<Pack> = BUILTIN.iter().filter_map(|t| parse_pack(t).ok()).collect();
     let mut problems = Vec::new();
-    if let Ok(dir) = app.path().app_data_dir().map(|d| d.join("packs")) {
+    if let Some(dir) = dir {
         let mut files: Vec<PathBuf> = std::fs::read_dir(&dir).map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect()).unwrap_or_default();
         files.sort();
         for f in files {
@@ -588,6 +633,26 @@ mod tests {
         assert_eq!((ts.id.as_str(), ts.lang_of("/p/web/App.tsx"), ts.lang_of("/p/a.ts"), ts.lang_of("/p/a.js")), ("typescript", "typescriptreact".into(), "typescript".into(), "javascript".into()));
         assert!(pack_for(&packs, "/p/README.md").is_none());
         assert!(pack_for(&packs, "/p/.rs").is_none(), "只有扩展名、没有名字的不算");
+    }
+
+    #[test]
+    fn 包声明的任务_标记只许是文件名() {
+        let rust = parse_pack(BUILTIN[0]).unwrap();
+        let t = rust.tasks.expect("内置的 Rust 包带 Cargo 的任务");
+        assert_eq!((t.group.as_str(), t.marker.as_str(), t.items[0].command.as_str()), ("Cargo", "Cargo.toml", "cargo build"));
+        let with = |tasks: &str| parse_pack(&format!(r#"{{"schema":1,"id":"x","name":"X","files":["*.x"],"languageId":"x","server":{{"command":["x"]}},"tasks":{tasks}}}"#));
+        assert!(with(r#"{"group":"X","marker":"x.toml","items":[{"name":"a","command":"b"}]}"#).is_ok());
+        for bad in [
+            r#"{"group":"X","marker":"../x.toml","items":[]}"#,
+            r#"{"group":"X","marker":"sub/x.toml","items":[]}"#,
+            r#"{"group":"X","marker":"..","items":[]}"#,
+            r#"{"group":"","marker":"x.toml","items":[]}"#,
+            r#"{"group":"X","marker":"x.toml","items":[{"name":"a","command":" "}]}"#,
+            r#"{"group":"X","marker":"x.toml","items":[{"name":"a
+b","command":"c"}]}"#,
+        ] {
+            assert!(with(bad).is_err(), "该不认：{bad}");
+        }
     }
 
     #[test]

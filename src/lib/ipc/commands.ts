@@ -581,7 +581,7 @@ export interface UserConfig {
 /** 别的能跑的一份（只列、不改） */
 export interface OtherRun {
   name: string;
-  source: "package" | "file";
+  source: "package" | "pack" | "file";
   command: string;
 }
 
@@ -1705,9 +1705,9 @@ export interface TaskDef {
   command: string;
   /** 相对项目根；"" = 根 */
   cwd: string;
-  /** "file" = `.lite-ide/tasks.json` 里写的；"package" = 自动认出来的 package.json scripts；"spring" = 认出来的 Spring Boot 应用（docs/IDEA.md）；"user" = 你建的运行配置（docs/TAKEOVER.md R1） */
-  source: "file" | "package" | "spring" | "goal" | "user";
-  /** 你建的那种是哪一类：application / maven / shell / compound；别的来源是空串 */
+  /** "file" = `.lite-ide/tasks.json` 里写的；"package" = 自动认出来的 package.json scripts；"pack" = 语言包声明的（docs/LANGPACK.md 第 7 节）；"spring" = 认出来的 Spring Boot 应用（docs/IDEA.md）；"user" = 你建的运行配置（docs/TAKEOVER.md R1） */
+  source: "file" | "package" | "pack" | "spring" | "goal" | "user";
+  /** 你建的那种是哪一类：application / maven / shell / compound；语言包的是组名（「Cargo」）；别的来源是空串 */
   kind: string;
   /** compound：一起起的那几份的名字 */
   items: string[];

@@ -55,7 +55,10 @@ trap cleanup EXIT
 
 lite_clean_data
 mkdir -p "${LITE_DATA}/packs"
-python3 -I -c 'import json,sys; json.dump({"schema": 1, "id": "rust", "name": "Rust（验收）", "files": ["*.rs"], "languageId": "rust", "roots": ["Cargo.toml"], "server": {"command": [sys.argv[1]]}}, open(sys.argv[2], "w"), ensure_ascii=False)' "${RA}" "${LITE_DATA}/packs/rust.json"
+# 包里顺带声明任务（docs/LANGPACK.md 第 7 节），同样写 cargo 的绝对路径：验「你自己的包声明的任务进运行列表、真跑得起来」
+CARGO="$(dirname "${RA}")/cargo"
+python3 -I -c 'import json,sys; json.dump({"schema": 1, "id": "rust", "name": "Rust（验收）", "files": ["*.rs"], "languageId": "rust", "roots": ["Cargo.toml"], "server": {"command": [sys.argv[1]]},
+  "tasks": {"group": "Cargo（验收）", "marker": "Cargo.toml", "items": [{"name": "cargo test", "command": "\"" + sys.argv[3] + "\" test"}]}}, open(sys.argv[2], "w"), ensure_ascii=False)' "${RA}" "${LITE_DATA}/packs/rust.json" "${CARGO}"
 # 测试应用的登录 shell 不读你的 rc：node / npm（一键装 Python 的语言服务器要它们）在哪，直接告诉它（测试构建才认 LITE_LOGIN_PATH）
 NODE=$(command -v node || true); NPM=$(command -v npm || true)
 export LITE_LOGIN_PATH="${NODE:+$(dirname "${NODE}"):}${NPM:+$(dirname "${NPM}"):}/usr/bin:/bin:/usr/sbin:/sbin"
@@ -174,6 +177,17 @@ else
   ok "$(echo "${PYD}" | grep -q '"a"' && pgrep -P "$(lite_pid)" -f basedpyright >/dev/null && echo 1)" "装好之后打开 .py：basedpyright 起了（测试应用的子进程），类型错的那一处出波浪线（${PYD}）"
   PYPID=$(pgrep -P "$(lite_pid)" -f basedpyright | head -1)
 fi
+
+echo "== 语言包声明的任务（docs/LANGPACK.md 第 7 节）：⌃⌥R 的列表里有「Cargo（验收）」那一组，选了真跑"
+lite menu run-pick main >/dev/null
+lite_wait main "return !!document.querySelector('.picker .row')" 8 >/dev/null
+GRP=$(lite_eval main "return [...document.querySelectorAll('.picker .group')].map((g) => g.innerText).join('|') + ' / ' + [...document.querySelectorAll('.picker .row .name')].map((x) => x.innerText).join('|')")
+lite_eval main "const r = [...document.querySelectorAll('.picker .row')].find((x) => x.querySelector('.name')?.innerText === 'cargo test'); r?.click(); return !!r" >/dev/null
+ok "$(echo "${GRP}" | grep -q 'Cargo（验收）' && echo "${GRP}" | grep -q 'cargo test' && echo 1)" "列表里按包里写的组名分组：${GRP}"
+# 这个 crate 里故意留着一处类型错（上面验波浪线用的），cargo test 编不过 —— 正好：任务的输出和编辑器的波浪线说的是同一处
+CLOG() { cat "$(find "${LITE_DATA}/runs" -name 'cargo_test-*.log' 2>/dev/null | head -1)" 2>/dev/null; }
+wait_for 90 'CLOG | grep -q "could not compile"'
+ok "$(CLOG | grep -q 'error\[E0308\]' && CLOG | grep -q 'could not compile `probe`' && echo 1)" "选了就在项目根上真跑：cargo 报出和波浪线同一处的 $(CLOG | grep -o 'error\[E0308\]: [^|]*' | head -1)$(CLOG | grep -q . || echo "（没有它的日志：$(find "${LITE_DATA}/runs" -type f 2>/dev/null | head -5 | tr '\n' ' ')）")"
 
 echo "== 退出不留"
 lite_quit
