@@ -1,6 +1,6 @@
 /** 数据库客户端（docs/DATABASE.md）的命令包装：只有数据库工具窗用，它是懒的（同 ipc/agent.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { DbConn, DbEdit, DbExport, DbHist, DbInfo, DbNode, DbOutline, DbResult } from "./commands";
+import type { DbConn, DbEdit, DbExport, DbHist, DbIdeaList, DbInfo, DbNode, DbOutline, DbResult } from "./commands";
 
 export const dbList = (root: string) => invoke<DbConn[]>("db_list", { root });
 /** `password`：非空存进钥匙串、空串删掉、null 不动 */
@@ -31,3 +31,7 @@ export const pickExportPath = (dir: string | null, name: string) => invoke<strin
 export const dbApply = (root: string, id: string, edit: DbEdit) => invoke<number>("db_apply", { root, id, edit });
 /** 控制台补全用的表和列 */
 export const dbOutline = (root: string, id: string) => invoke<DbOutline>("db_outline", { root, id });
+/** 项目里 IDEA 存的数据源（导入前给人挑） */
+export const dbIdeaList = (root: string) => invoke<DbIdeaList>("db_idea_list", { root });
+/** 导入选中的那几个（按 uuid），回导进来了几个。密码不带 */
+export const dbIdeaImport = (root: string, uuids: string[]) => invoke<number>("db_idea_import", { root, uuids });

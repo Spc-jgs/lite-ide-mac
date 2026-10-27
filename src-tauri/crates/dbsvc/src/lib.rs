@@ -61,13 +61,25 @@ pub const DRIVERS: &[DriverDef] = &[
         license: "MPL-2.0 / EPL-1.0",
         default_port: 0,
     },
+    // DB-4（2026-10-27）：IDEA 的数据源里实际见到的。Central 直接给了 sha256，和本地算的、sha1 都核过。12 MB 是因为里面带着各平台的原生库
+    // （macOS 的 aarch64 / x86_64 各一份 dylib，驱动用的时候解到临时目录再加载）
+    DriverDef {
+        kind: "sqlite",
+        name: "SQLite",
+        class: "org.sqlite.JDBC",
+        path: "org/xerial/sqlite-jdbc/3.53.4.0/sqlite-jdbc-3.53.4.0.jar",
+        sha256: "bcb1f51e36f940867e83342f9efbf5968ac44a6bef4d397bb4af7b17b45cd2fb",
+        size: 12_002_370,
+        license: "Apache-2.0",
+        default_port: 0,
+    },
 ];
 
 pub fn driver(kind: &str) -> Option<&'static DriverDef> {
     DRIVERS.iter().find(|d| d.kind == kind)
 }
 
-/// 连接串：MySQL / PostgreSQL 按主机、端口、库拼；H2 和「自己写 URL」的直接用写的那个
+/// 连接串：MySQL / PostgreSQL 按主机、端口、库拼；H2、SQLite 和「自己写 URL」的直接用写的那个
 pub fn jdbc_url(kind: &str, host: &str, port: u16, database: &str, url: &str) -> String {
     if !url.trim().is_empty() {
         return url.trim().to_string();

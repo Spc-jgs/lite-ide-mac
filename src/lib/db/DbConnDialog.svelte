@@ -14,6 +14,7 @@
     { id: "mysql", label: "MySQL", port: 3306 },
     { id: "postgresql", label: "PostgreSQL", port: 5432 },
     { id: "h2", label: "H2", port: 0 },
+    { id: "sqlite", label: "SQLite", port: 0 },
   ] as const;
 
   // 编辑的是打开那一刻的一份拷贝：取消就是什么都不动（`untrack`：有意只取初值）
@@ -23,8 +24,11 @@
   let busy = $state(false);
   let result = $state<{ ok: boolean; text: string } | null>(null);
 
-  const isH2 = $derived(c.kind === "h2");
-  const problem = $derived(!c.name.trim() ? "请填写名称" : isH2 && !c.url.trim() ? "H2 需要填写完整的 JDBC URL" : !isH2 && !c.url.trim() && !c.host.trim() ? "请填写主机" : "");
+  /** H2、SQLite 没有主机端口，只填完整的连接串 */
+  const urlOnly = $derived(c.kind === "h2" || c.kind === "sqlite");
+  const problem = $derived(
+    !c.name.trim() ? "请填写名称" : urlOnly && !c.url.trim() ? `${c.kind === "sqlite" ? "SQLite" : "H2"} 需要填写完整的 JDBC URL` : !urlOnly && !c.url.trim() && !c.host.trim() ? "请填写主机" : "",
+  );
 
   function kind(k: DbConn["kind"]) {
     const was = KINDS.find((x) => x.id === c.kind);
@@ -103,7 +107,7 @@
         {/each}
       </span>
     </div>
-    {#if !isH2}
+    {#if !urlOnly}
       <div class="row">
         <span class="lab">主机</span>
         <input class="field" spellcheck="false" bind:value={c.host} aria-label="主机" />
@@ -125,7 +129,7 @@
     </label>
     <label class="row">
       <span class="lab">URL</span>
-      <input class="field mono" spellcheck="false" placeholder={isH2 ? "jdbc:h2:~/data/app" : "可选：自定义 JDBC URL（填写后忽略主机和端口）"} bind:value={c.url} />
+      <input class="field mono" spellcheck="false" placeholder={c.kind === "sqlite" ? "jdbc:sqlite:/path/to/app.db（只打开已有的文件）" : urlOnly ? "jdbc:h2:~/data/app" : "可选：自定义 JDBC URL（填写后忽略主机和端口）"} bind:value={c.url} />
     </label>
     <label class="row check">
       <span class="lab"></span>

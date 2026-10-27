@@ -16,7 +16,9 @@
   import type { IconName } from "../shell/Icon.svelte";
   import { imeKey } from "../shell/ime";
   import type { DbConn, DbNode } from "../ipc/commands";
-  import { dbClose, dbConsole, dbList, dbMeta } from "../ipc/db";
+  import { dbClose, dbConsole, dbIdeaList, dbList, dbMeta } from "../ipc/db";
+  import type { DbIdeaList } from "../ipc/commands";
+  import DbImportDialog from "./DbImportDialog.svelte";
   import { notify } from "../state/notify.svelte";
   import { tabflow } from "../state/tabflow.svelte";
   import { openModal } from "../settings/modal-host";
@@ -32,6 +34,9 @@
   let sel = $state("");
   let treeEl = $state<HTMLDivElement | null>(null);
 
+  /** 项目里 IDEA 存的数据源（DB-4）：有才在头上放「从 IDEA 导入」 */
+  let idea = $state<DbIdeaList | null>(null);
+
   async function load() {
     error = "";
     try {
@@ -39,6 +44,14 @@
     } catch (e) {
       error = String(e);
     }
+    idea = await dbIdeaList(root).catch(() => null);
+  }
+
+  const importable = $derived((idea?.found ?? []).filter((d) => d.kind && !d.exists).length);
+
+  function importIdea() {
+    if (!idea) return;
+    openModal(DbImportDialog, { root, found: idea.found, problems: idea.problems, ondone: () => void load() });
   }
   void load();
 
@@ -63,7 +76,7 @@
     const out: Row[] = [];
     for (const c of conns ?? []) {
       const ck = `c\n${c.id}`;
-      const where = c.kind === "h2" ? c.url : `${c.host}:${c.port}${c.database ? `/${c.database}` : ""}`;
+      const where = c.kind === "h2" || c.kind === "sqlite" ? c.url : `${c.host}:${c.port}${c.database ? `/${c.database}` : ""}`;
       out.push({ key: ck, depth: 0, label: c.name, note: where, icon: "database", parent: true, conn: c, prod: c.prod, ask: () => dbMeta(root, c.id, "schemas", null, null) });
       if (!open.has(ck)) continue;
       const children = (key: string, depth: number, make: (n: DbNode) => Row) => {
@@ -195,6 +208,9 @@
     <span class="title">数据库</span>
     <span class="gap"></span>
     <button class="ibtn" onclick={() => edit(null)} title="新建连接" aria-label="新建连接"><Icon name="plus" /></button>
+    {#if idea?.found.length}
+      <button class="ibtn" onclick={importIdea} title="从 IDEA 导入连接（{importable} 个可导入）" aria-label="从 IDEA 导入连接"><Icon name="pull" /></button>
+    {/if}
     <button class="ibtn" disabled={!selConn} onclick={() => selConn && void openConsole(selConn)} title="打开查询控制台" aria-label="打开查询控制台"><Icon name="terminal" /></button>
     <button class="ibtn" disabled={!selConn} onclick={() => selConn && edit(selConn)} title="编辑连接" aria-label="编辑连接"><Icon name="more-h" /></button>
     <button class="ibtn" onclick={refresh} title="刷新（关闭连接并重新读取）" aria-label="刷新"><Icon name="refresh" /></button>
@@ -205,7 +221,11 @@
     {:else if !conns}
       <div class="empty-msg wait"><span class="spinner sm"></span> 正在读取连接…</div>
     {:else if conns.length === 0}
-      <div class="empty-msg">此项目尚无数据库连接<span class="sub">点击右上角的 ＋ 新建（MySQL、PostgreSQL、H2）</span></div>
+      <div class="empty-msg">
+        此项目尚无数据库连接
+        <span class="sub">点击右上角的 ＋ 新建（MySQL、PostgreSQL、H2、SQLite）</span>
+        {#if importable}<span class="sub"><button class="btn sm" onclick={importIdea}>从 IDEA 导入 {importable} 个连接</button></span>{/if}
+      </div>
     {:else}
       {#each rows as row (row.key)}
         <div

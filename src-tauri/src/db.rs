@@ -209,6 +209,29 @@ pub fn delete(app: &AppHandle, root: &str, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// IDEA 里的数据源（`ideads`）+ 这个项目里是不是已经有同名的连接了
+pub fn idea_candidates(app: &AppHandle, root: &str) -> (Vec<(crate::ideads::IdeaDs, bool)>, Vec<String>) {
+    let have = list(app, root);
+    let (found, problems) = crate::ideads::read(std::path::Path::new(root));
+    (found.into_iter().map(|d| { let exists = have.iter().any(|c| c.name == d.name); (d, exists) }).collect(), problems)
+}
+
+/// 导入选中的几个（按 uuid）：同名已有的、认不得的跳过。密码不带（在 IDEA 自己的钥匙串条目里，不去读）。回导进来了几个
+pub fn import_idea(app: &AppHandle, root: &str, uuids: &[String]) -> Result<usize, String> {
+    let (cands, _) = idea_candidates(app, root);
+    let mut n = 0;
+    for (d, exists) in cands {
+        if exists || !uuids.contains(&d.uuid) {
+            continue;
+        }
+        let Some(kind) = d.kind else { continue };
+        let port = if d.port == 0 { dbsvc::driver(kind).map_or(0, |x| x.default_port) } else { d.port };
+        save(app, root, Conf { id: String::new(), name: d.name, kind: kind.into(), host: d.host, port, database: d.database, user: d.user, url: d.url, prod: false }, None)?;
+        n += 1;
+    }
+    Ok(n)
+}
+
 impl Db {
     /// 边车：没起、或者死了就起一个。开发构建没有内置的 Java 和 lite-db.jar
     fn sidecar(&self, app: &AppHandle) -> Result<Arc<dbsvc::Sidecar>, String> {

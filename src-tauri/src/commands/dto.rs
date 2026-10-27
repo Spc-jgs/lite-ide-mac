@@ -364,6 +364,29 @@ pub struct DbResultDto {
     pub table: Option<DbTableDto>,
 }
 
+/// IDEA 里的一个数据源（`db_idea_list`），导入前给人挑
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbIdeaDto {
+    pub uuid: String,
+    pub name: String,
+    /// 认得的种类；认不得是 None（导不了，`note` 说为什么）
+    pub kind: Option<String>,
+    pub url: String,
+    pub user: String,
+    pub note: Option<String>,
+    /// 这个项目里已经有同名的连接了（不重复导）
+    pub exists: bool,
+}
+
+/// `db_idea_list` 的结果：数据源，和读不了的文件（一条一句）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbIdeaListDto {
+    pub found: Vec<DbIdeaDto>,
+    pub problems: Vec<String>,
+}
+
 /// 补全用的一列（`db_outline`）
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

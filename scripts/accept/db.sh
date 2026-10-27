@@ -31,6 +31,15 @@ if [ -f "${H2C}" ]; then
   cp "${H2C}" "${LITE_WORK}/m2/com/h2database/h2/2.3.232/h2-2.3.232.jar"
   export LITE_DB_MAVEN="file://${LITE_WORK}/m2"
 fi
+# SQLite 的驱动（DB-4）同样：本机缓存里有就当本机仓库里的一份（没有的话这一轮应用会真的去 Maven Central 下 12 MB）
+SQC="${HOME}/Library/Caches/lite-ide-build/sqlite-jdbc-3.53.4.0.jar"
+if [ -f "${SQC}" ] && [ -n "${LITE_DB_MAVEN:-}" ]; then
+  mkdir -p "${LITE_WORK}/m2/org/xerial/sqlite-jdbc/3.53.4.0"
+  cp "${SQC}" "${LITE_WORK}/m2/org/xerial/sqlite-jdbc/3.53.4.0/sqlite-jdbc-3.53.4.0.jar"
+fi
+# SQLite 的库文件放在临时目录、不放项目里（「项目里一个文件都没多」那条要照样成立）
+SQDB="${LITE_WORK}/app.db"
+python3 -I -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("create table goods(id integer primary key, title text)"); c.execute("insert into goods(title) values (?)", ("书",)); c.commit()' "${SQDB}"
 INIT="${LITE_WORK}/init.sql"
 # INIT 每次连都跑（内存库 DB_CLOSE_DELAY=-1 一直在）：测试连接建过一次、点开树又连一次 —— 写成 if not exists
 printf "create schema if not exists shop;\ncreate table if not exists shop.orders(id bigint primary key, amount decimal(12,2) not null, note varchar(200));\ncomment on table shop.orders is '订单';\n" > "${INIT}"
@@ -38,6 +47,43 @@ URL="jdbc:h2:mem:acc;DB_CLOSE_DELAY=-1;INIT=RUNSCRIPT FROM '${INIT}'"
 # 导出时的保存面板：测试构建里 LITE_SAVE_PATH 就是「选好的路径」（原生面板是真窗口，测试通道点不了）
 export LITE_SAVE_PATH="${LITE_WORK}/导出/big.csv"
 mkdir -p "${LITE_WORK}/导出"
+# IDEA 的数据源（DB-4 导入用）：一个 H2 内存库（能导、导完真连得上）、一个 MySQL（能导，连接串里有 &amp;）、一个 SQLite（认不得）、一个和已有连接同名的。
+# 「项目里一个文件都没多」那条照样比：导入只读 .idea，不往里写
+mkdir -p "${P}/.idea"
+cat > "${P}/.idea/dataSources.xml" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
+    <data-source source="LOCAL" name="IDEA 里的 H2" uuid="imp-h2">
+      <driver-ref>h2.unified</driver-ref>
+      <jdbc-driver>org.h2.Driver</jdbc-driver>
+      <jdbc-url>jdbc:h2:mem:imported;DB_CLOSE_DELAY=-1</jdbc-url>
+    </data-source>
+    <data-source source="LOCAL" name="shop@localhost" uuid="imp-my">
+      <jdbc-url>jdbc:mysql://localhost:3306/shop?useSSL=false&amp;serverTimezone=Asia/Shanghai</jdbc-url>
+    </data-source>
+    <data-source source="LOCAL" name="本地缓存" uuid="imp-sqlite">
+      <jdbc-url>jdbc:sqlite:SQLITE_PATH_</jdbc-url>
+    </data-source>
+    <data-source source="LOCAL" name="报表库" uuid="imp-ora">
+      <jdbc-url>jdbc:oracle:thin:@db.example:1521/ORCL</jdbc-url>
+    </data-source>
+    <data-source source="LOCAL" name="验收 H2" uuid="imp-dup">
+      <jdbc-url>jdbc:h2:mem:dup</jdbc-url>
+    </data-source>
+  </component>
+</project>
+EOF
+sed -i '' -e "s|SQLITE_PATH_|${SQDB}|" "${P}/.idea/dataSources.xml"
+cat > "${P}/.idea/dataSources.local.xml" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="dataSourceStorageLocal" created-in="IU-261">
+    <data-source name="IDEA 里的 H2" uuid="imp-h2"><user-name>sa</user-name></data-source>
+    <data-source name="shop@localhost" uuid="imp-my"><user-name>root</user-name></data-source>
+  </component>
+</project>
+EOF
 BEFORE=$(cd "${P}" && find . -type f | sort | md5)
 
 lite_clean_data
@@ -269,6 +315,33 @@ lite_wait main "${Q} return !!a && a.sql.startsWith('create table FRESH') && a.s
 sleep 0.5
 C4=$(comp "select * from " "FRE")
 ok "$(echo "${C4}" | cut -d, -f1 | grep -qx FRESH_TBL && echo 1)" "控制台里建了表：不用重开、马上补得出来：FRE → ${C4}"
+
+echo "== 从 IDEA 导入（DB-4）：读 .idea/dataSources.xml + .local.xml；认不得的、同名的列着不导；密码不带"
+lite_wait main "return !!document.querySelector('.db button[aria-label=\"从 IDEA 导入连接\"]')" 10 >/dev/null
+lite_eval main "document.querySelector('.db button[aria-label=\"从 IDEA 导入连接\"]').click(); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.dbimport .item').length === 5" 10 >/dev/null
+ITEMS=$(lite_eval main "return [...document.querySelectorAll('.dbimport .item')].map((i) => (i.querySelector('input').checked ? '勾' : '空') + (i.querySelector('input').disabled ? '灰' : '') + ':' + i.querySelector('.name').firstChild.textContent + (i.querySelector('.why') ? '(' + i.querySelector('.why').textContent + ')' : '')).join(' | ')")
+ok "$(echo "${ITEMS}" | grep -q '勾:IDEA 里的 H2' && echo "${ITEMS}" | grep -q '勾:shop@localhost' && echo "${ITEMS}" | grep -q '勾:本地缓存' && echo "${ITEMS}" | grep -q '空灰:报表库(暂不支持 oracle' && echo "${ITEMS}" | grep -q '空灰:验收 H2(已存在同名连接)' && echo 1)" "列出 5 个：能导的默认勾上、Oracle 和同名的灰着说为什么：${ITEMS}"
+lite_eval main "[...document.querySelectorAll('.dbimport button')].find((b) => b.textContent.startsWith('导入')).click(); return true" >/dev/null
+lite_wait main "return !document.querySelector('.dbimport')" 10 >/dev/null
+L=$(inv "'db_list', { root: '${P}' }")
+ok "$(echo "${L}" | python3 -c '
+import json,sys
+c={x["name"]:x for x in json.load(sys.stdin)}
+h=c.get("IDEA 里的 H2",{}); m=c.get("shop@localhost",{})
+print(1 if h.get("kind")=="h2" and h.get("user")=="sa" and not h.get("hasPassword") and m.get("url")=="jdbc:mysql://localhost:3306/shop?useSSL=false&serverTimezone=Asia/Shanghai" and m.get("user")=="root" and (m.get("host"),m.get("port"),m.get("database"))==("localhost",3306,"shop") and c.get("本地缓存",{}).get("kind")=="sqlite" and "报表库" not in c else 0)')" "导进来三个：H2 用户名 sa、没有密码；MySQL 的连接串参数一个不丢（&amp; 解回 &）、主机端口库名拆出来了；SQLite；Oracle 没导"
+IMP=$(echo "${L}" | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin) if x["name"]=="IDEA 里的 H2"))')
+ok "$(inv "'db_meta', { root: '${P}', id: '${IMP}', what: 'schemas', catalog: null, schema: null, table: null }" | grep -q '"PUBLIC"' && echo 1)" "导进来的 H2 真连得上：表结构树能展开（库里有 PUBLIC）"
+ok "$([ "$(grep -c 'data-source' "${P}/.idea/dataSources.xml")" = 10 ] && echo 1)" "IDEA 的文件原样没动（导入只读）"
+SQID=$(echo "${L}" | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin) if x["name"]=="本地缓存"))')
+SQT=$(inv "'db_meta', { root: '${P}', id: '${SQID}', what: 'schemas', catalog: null, schema: null, table: null }")
+SQT2=$(inv "'db_meta', { root: '${P}', id: '${SQID}', what: 'tables', catalog: null, schema: null, table: null }")
+ok "$(echo "${SQT}" | grep -q '"main"' && echo "${SQT2}" | grep -q '"goods"' && echo 1)" "SQLite（驱动带着原生库，在 .app 里那份 Java 上加载）：树的第一层是 main、下面有 goods 表"
+SQR=$(lite_eval main "const q = await __lite.dbResults(); await q.run('${P}', '${SQID}', '本地缓存', ['select title from goods']); return q.active.status + ':' + JSON.stringify(q.active.rows)")
+ok "$([ "${SQR}" = 'done:[["书"]]' ] && echo 1)" "SQLite 上查询：${SQR}"
+NOPE=$(python3 -I -c 'import json,sys; print(json.dumps({"id": "", "name": "x", "kind": "sqlite", "host": "", "port": 0, "database": "", "user": "", "url": "jdbc:sqlite:" + sys.argv[1], "hasPassword": False, "prod": False}))' "${LITE_WORK}/写错了.db")
+SQX=$(lite_eval main "try { await window.__TAURI_INTERNALS__.invoke('db_test', { conn: ${NOPE}, password: null }); return '连上了' } catch (e) { return String(e) }")
+ok "$(echo "${SQX}" | grep -q 'SQLITE_CANTOPEN' && [ ! -e "${LITE_WORK}/写错了.db" ] && echo 1)" "SQLite 路径写错：报打不开、不在那儿建一个空库（$(echo "${SQX}" | cut -c1-70)）"
 
 echo "== 没有副作用、退出不留"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（连接配置在应用数据目录里）"

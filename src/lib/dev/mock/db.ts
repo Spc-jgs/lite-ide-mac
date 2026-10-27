@@ -167,6 +167,24 @@ export function dbCmd(cmd: string, a: A): unknown {
         return e.rows.length;
       });
     }
+    case "db_idea_list": {
+      // 项目里 IDEA 的数据源：一个能导的 MySQL、一个认不得的 SQLite（同真实现：列出来、说清为什么）、一个和已有连接同名的
+      const has = (n: string) => list().some((c) => c.name === n);
+      return [
+        { uuid: "u-1", name: "shop@localhost", kind: "mysql", url: "jdbc:mysql://localhost:3306/shop?useSSL=false", user: "root", note: null, exists: has("shop@localhost") },
+        { uuid: "u-2", name: "本地缓存", kind: null, url: "jdbc:sqlite:/Users/you/proj/cache.db", user: "", note: "暂不支持 sqlite（没有它的驱动）", exists: false },
+        { uuid: "u-3", name: "订单库（本地）", kind: "mysql", url: "jdbc:mysql://localhost:3306/orders", user: "root", note: null, exists: has("订单库（本地）") },
+      ].reduce((acc, d) => (acc.found.push(d), acc), { found: [] as unknown[], problems: [] as string[] });
+    }
+    case "db_idea_import": {
+      const uuids = a.uuids as string[];
+      let n = 0;
+      if (uuids.includes("u-1") && !list().some((c) => c.name === "shop@localhost")) {
+        CONNS.set(root, [...list(), { id: `c${Date.now().toString(16)}`, name: "shop@localhost", kind: "mysql", host: "localhost", port: 3306, database: "shop", user: "root", url: "jdbc:mysql://localhost:3306/shop?useSSL=false", hasPassword: false, prod: false }]);
+        n++;
+      }
+      return n;
+    }
     case "db_history":
       return HIST.get(String(a.id)) ?? [];
     default:

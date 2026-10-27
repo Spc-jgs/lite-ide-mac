@@ -174,6 +174,9 @@ public final class Main {
         // 改单元格（apply）一律用 setString 传值：PostgreSQL 默认把它当 varchar 发，往 integer 列里写会报类型不符；unspecified 让服务器自己按列的类型转。
         // 没连过真 PostgreSQL 验（本机没有服务器）
         if (str(p, "driver").startsWith("org.postgresql.") && !str(p, "url").contains("stringtype")) props.setProperty("stringtype", "unspecified");
+        // SQLite 默认「文件不存在就建一个」：路径写错一个字，连一下就在你的项目里多出一个空库。只开已有的（读写、不建）；
+        // 真要新建的在 URL 里自己写 ?open_mode=6。值是 SQLite 的打开标志位（READWRITE = 2），2026-10-27 拿 3.53.4.0 探过：不存在的报 SQLITE_CANTOPEN、文件没被建出来
+        if (str(p, "driver").startsWith("org.sqlite.") && !str(p, "url").contains("open_mode")) props.setProperty("open_mode", "2");
         if (str(p, "user") != null) props.setProperty("user", str(p, "user"));
         if (str(p, "password") != null) props.setProperty("password", str(p, "password"));
         Connection c = d.connect(str(p, "url"), props);
@@ -219,6 +222,8 @@ public final class Main {
                     while (r.next()) out.add(node(r.getString("TABLE_CAT"), r.getString("TABLE_CAT"), null));
                 }
             }
+            // SQLite：schema、catalog 都没有，树的第一层就空着、点不进去了。给一个 main（SQLite 自己对主库的叫法），表照 catalog / schema 都是 null 去取
+            if (out.isEmpty()) out.add(node("main", null, null));
         } else if ("tables".equals(what)) {
             try (ResultSet r = m.getTables(catalog, schema, "%", new String[] {"TABLE", "VIEW", "BASE TABLE"})) {
                 while (r.next()) {

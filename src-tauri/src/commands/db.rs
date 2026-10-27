@@ -196,3 +196,25 @@ pub async fn db_outline(app: tauri::AppHandle, window: tauri::Window, root: Stri
     })
     .await
 }
+
+/// 项目里 IDEA 存的数据源（`.idea/dataSources.xml` + `.local.xml`），导入前给人挑。只读
+#[tauri::command]
+pub async fn db_idea_list(app: tauri::AppHandle, root: String) -> Result<DbIdeaListDto, String> {
+    blocking(move || {
+        let (found, problems) = crate::db::idea_candidates(&app, &root);
+        Ok(DbIdeaListDto {
+            found: found
+                .into_iter()
+                .map(|(d, exists)| DbIdeaDto { uuid: d.uuid, name: d.name, kind: d.kind.map(str::to_string), url: d.url, user: d.user, note: d.note, exists })
+                .collect(),
+            problems,
+        })
+    })
+    .await
+}
+
+/// 导入选中的那几个（按 uuid），回导进来了几个。密码不带
+#[tauri::command]
+pub async fn db_idea_import(app: tauri::AppHandle, root: String, uuids: Vec<String>) -> Result<usize, String> {
+    blocking(move || crate::db::import_idea(&app, &root, &uuids)).await
+}

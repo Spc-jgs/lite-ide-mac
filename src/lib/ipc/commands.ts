@@ -891,7 +891,7 @@ export interface ScratchEntry {
 export interface DbConn {
   id: string;
   name: string;
-  kind: "mysql" | "postgresql" | "h2";
+  kind: "mysql" | "postgresql" | "h2" | "sqlite";
   host: string;
   port: number;
   database: string;
@@ -945,6 +945,25 @@ export interface DbResult {
   cursor: number;
   /** 结果来自哪张表（能不能改格子）：多表、表达式列是 null；主键不全在结果里时 pk 是空的 */
   table: DbTable | null;
+}
+
+/** IDEA 里的一个数据源，导入前给人挑 */
+export interface DbIdea {
+  uuid: string;
+  name: string;
+  /** 认得的种类；认不得是 null（导不了，note 说为什么） */
+  kind: string | null;
+  url: string;
+  user: string;
+  note: string | null;
+  /** 这个项目里已经有同名的连接了 */
+  exists: boolean;
+}
+
+export interface DbIdeaList {
+  found: DbIdea[];
+  /** 读不了的文件，一条一句 */
+  problems: string[];
 }
 
 /** 补全用的一列 */
