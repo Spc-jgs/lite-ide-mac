@@ -65,7 +65,7 @@ EOF
 MONEY="${P}/shop-common/src/main/java/com/demo/common/Money.java"
 printf 'package com.demo.common;\n\npublic class Money {\n    public static long cents(long yuan) { return yuan * 100; }\n}\n' > "${MONEY}"
 printf 'package com.demo.common;\n\nimport org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.*;\n\nclass MoneyTest {\n    @Test void ok() { assertEquals(300, Money.cents(3)); }\n    @Test void bad() { assertEquals(1, Money.cents(3)); }\n}\n' > "${P}/shop-common/src/test/java/com/demo/common/MoneyTest.java"
-printf 'package com.demo.order;\n\nimport com.demo.common.Money;\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class OrderApplication {\n    public static void main(String[] args) throws Exception {\n        SpringApplication.run(OrderApplication.class, args);\n        System.out.println("LITE-GRADLE-PROBE " + Money.cents(2));\n        Thread.sleep(600000);\n    }\n}\n' > "${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
+printf 'package com.demo.order;\n\nimport com.demo.common.Money;\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class OrderApplication {\n    public static void main(String[] args) throws Exception {\n        SpringApplication.run(OrderApplication.class, args);\n        for (int i = 0; i < 1200; i++) {\n            System.out.println("LITE-GRADLE-PROBE " + Money.cents(2));\n            Thread.sleep(500);\n        }\n    }\n}\n' > "${P}/order-service/src/main/java/com/demo/order/OrderApplication.java"
 (cd "${P}" && "${G}" -q wrapper --gradle-version "${GV}" --gradle-distribution-sha256-sum "${GSUM}" </dev/null >/dev/null 2>&1)
 [ -x "${P}/gradlew" ] || { ok 0 "gradle wrapper 没生成 gradlew"; done_; }
 mkdir -p "${P}/order-service/src/main/resources"; printf 'spring:\n  main:\n    banner-mode: off\n' > "${P}/order-service/src/main/resources/application.yml"
@@ -114,10 +114,23 @@ T0=$(date +%s)
 lite_wait main "${DBG} return d?.phase === 'paused' || d?.phase === 'ended'" 300 >/dev/null
 FR=$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 2).map((f) => f.name + '@' + (f.path ?? '').split('/').pop() + ':' + f.line).join(' | ') + ' ' + (d?.note ?? '')")
 ok "$(echo "${FR}" | grep -q '^paused Money.cents(long)@Money.java:4 | OrderApplication.main(String\[\])@OrderApplication.java:' && echo 1)" "停在 shop-common 的 Money.java:4、调用者是入口类（点了调试 $(( $(date +%s) - T0 )) 秒）：${DS} ${FR}"
-lite menu debug-resume main >/dev/null
-ok "$(wait_for 60 "logtext OrderApplication | tail -20 | grep -q 'LITE-GRADLE-PROBE 200'" && echo 1)" "F9 继续：照常跑，输出里有探针那行"
+# 热替换（docs/IDEA.md 第 26 节）：停着的时候把 * 100 改成 * 1000、⌘S → 自动构建（Gradle 的 classes）→ 换进 JVM。
+# 热替换要知道去 build/classes/java/main 找改过的类（hotswap::class_dirs 原来只认 Maven 的 target/classes）
+echo "== 热替换：停在断点时改方法体、⌘S → 自己构建、换进 JVM；继续之后下一次调用是新的，不用重启"
+lite_eval main "__lite.setText(__lite.text().replace('yuan * 100', 'yuan * 1000')); return true" >/dev/null
+lite menu save main >/dev/null
+lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 180 >/dev/null
+HS=$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")
+ok "$(echo "${HS}" | grep -q '已热替换 Money' && echo 1)" "存盘后自己构建、换上：${HS}"
 lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
+lite menu debug-resume main >/dev/null
+ok "$(wait_for 60 "logtext OrderApplication | tail -20 | grep -q 'LITE-GRADLE-PROBE 200$'" && echo 1)" "F9 继续：停着的那一帧跑完旧的（200）"
+ok "$(wait_for 60 "logtext OrderApplication | tail -5 | grep -q 'LITE-GRADLE-PROBE 2000'" && echo 1)" "下一次调用跑的是新代码（2000），没重启：$(logtext OrderApplication | grep LITE-GRADLE-PROBE | uniq -c | tr '\n' ' ')"
 lite menu run-stop main >/dev/null
+# 改回去（后面的单测要 cents(3) == 300）
+lite_eval main "__lite.setText(__lite.text().replace('yuan * 1000', 'yuan * 100')); return true" >/dev/null
+lite menu save main >/dev/null
+lite_wait main "return __lite.tabs.byPath('${MONEY}')?.dirty === false" 10 >/dev/null
 wait_for 10 "! pgrep -f com.demo.order.OrderApplication"
 
 echo "== 单测：⌃⇧R 跑整个类 → Gradle 的 --tests；结果树 1 过 1 没过、行号旁 ✓ / ✗"

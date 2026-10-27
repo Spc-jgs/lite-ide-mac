@@ -51,9 +51,10 @@ pub struct Change {
     pub same_lines: bool,
 }
 
-/// 项目里所有 Maven 模块的输出目录（`target/classes`、`target/test-classes`）。
-/// 不读 pom：模块就是带 pom.xml 的目录，往下找到 `target` 为止 —— 读 `<modules>` 要处理 profile 里的模块、聚合和继承分开的写法，
-/// 而「目录里有 pom.xml、旁边有 target」这件事不会错。往下最多 8 层，跳过隐藏目录、`node_modules`、`src`
+/// 项目里所有模块的输出目录：Maven 的 `target/classes`、`target/test-classes`，Gradle 的 `build/classes/java/main`、`build/classes/java/test`。
+/// 不读 pom / settings.gradle：模块就是带 pom.xml / build.gradle(.kts) 的目录，往下找到输出目录为止 —— 读 `<modules>` 要处理 profile 里的模块、聚合和继承分开的写法，
+/// 而「目录里有构建文件、旁边有输出」这件事不会错。往下最多 8 层，跳过隐藏目录、`node_modules`、`src`、`target`、`build`
+/// （Gradle 这半原来没有：Gradle 项目调试时存了盘、构建也编好了，热替换却说「没有修改过的类」—— 它压根不知道去 build/ 底下找，2026-10-27 补的）
 pub fn class_dirs(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     walk_modules(root, 0, &mut out);
@@ -61,12 +62,17 @@ pub fn class_dirs(root: &Path) -> Vec<PathBuf> {
 }
 
 fn walk_modules(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
-    if dir.join("pom.xml").is_file() {
-        for sub in ["target/classes", "target/test-classes"] {
-            let d = dir.join(sub);
-            if d.is_dir() {
-                out.push(d);
-            }
+    let maven = dir.join("pom.xml").is_file();
+    let gradle = dir.join("build.gradle").is_file() || dir.join("build.gradle.kts").is_file();
+    let subs: &[&str] = match (maven, gradle) {
+        (true, _) => &["target/classes", "target/test-classes"],
+        (false, true) => &["build/classes/java/main", "build/classes/java/test"],
+        _ => &[],
+    };
+    for sub in subs {
+        let d = dir.join(sub);
+        if d.is_dir() {
+            out.push(d);
         }
     }
     if depth >= 8 {
@@ -77,7 +83,7 @@ fn walk_modules(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
         .flatten()
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .map(|e| e.path())
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| !n.starts_with('.') && !matches!(n, "node_modules" | "src" | "target")))
+        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| !n.starts_with('.') && !matches!(n, "node_modules" | "src" | "target" | "build")))
         .collect();
     kids.sort();
     for k in kids {
@@ -471,6 +477,21 @@ mod tests {
         put(&d.join("web/node_modules/x/target/classes/Y.class"), b"a");
         let got: Vec<String> = class_dirs(&d).iter().map(|p| p.strip_prefix(&d).unwrap().display().to_string()).collect();
         assert_eq!(got, vec!["order/target/test-classes", "shop-common/target/classes"]);
+    }
+
+    #[test]
+    fn gradle_模块的输出目录_build_底下的不当模块() {
+        let d = tmp("gradle-dirs");
+        put(&d.join("settings.gradle.kts"), b"");
+        put(&d.join("shop-common/build.gradle.kts"), b"");
+        put(&d.join("shop-common/build/classes/java/main/com/demo/Money.class"), b"a");
+        put(&d.join("order-service/build.gradle"), b"");
+        put(&d.join("order-service/build/classes/java/test/com/demo/OrderTest.class"), b"a");
+        // build 底下生成的东西就算带 build.gradle 也不是模块
+        put(&d.join("order-service/build/tmp/x/build.gradle"), b"");
+        put(&d.join("order-service/build/tmp/x/build/classes/java/main/Y.class"), b"a");
+        let got: Vec<String> = class_dirs(&d).iter().map(|p| p.strip_prefix(&d).unwrap().display().to_string()).collect();
+        assert_eq!(got, vec!["order-service/build/classes/java/test", "shop-common/build/classes/java/main"]);
     }
 
     #[test]
