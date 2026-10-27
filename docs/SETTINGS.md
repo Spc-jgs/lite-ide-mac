@@ -115,6 +115,7 @@ issue 原来的想法是把 5 个偏好都迁进 `settings.json`。问题在于�
 |---|---|---|---|---|
 | `editor.fontFamily` | 字符串 | `"JetBrains Mono"` | 编辑器、差异、日志视图（`--code-font`） | 立刻 |
 | `editor.fontSize` | 整数 9–28 | 13 | 同上，加上 ⌘= 的偏移 | 立刻 |
+| `editor.tabLimit` | 整数 0–100 | 10（IDEA 的默认值） | 一组里最多几个标签页，超了关最久没看的；改过没保存的、固定的不关（docs/TAKEOVER.md I10）。0 = 不限 | 下一次开标签时（不回头收已经开着的） |
 | `terminal.fontFamily` | 字符串 | 跟 `editor.fontFamily` | 终端（xterm 要具体字体名，见 `TERM_FONT` 那段注释） | 立刻（开着的终端也换） |
 | `terminal.fontSize` | 整数 9–28 | 13 | 终端 | 立刻 |
 | `terminal.shell` | 路径 | 空 = 用 `$SHELL` | 新开的终端 | **只对新开的终端**；开着的不动（换 shell 等于杀掉重开，会丢你正在跑的东西） |

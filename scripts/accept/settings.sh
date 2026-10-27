@@ -110,6 +110,21 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(lite accel save)" = "Ctrl+CmdOrCtrl+S" ] 
 ok "$([ "$(lite accel save)" = "Ctrl+CmdOrCtrl+S" ] && [ "$(lite_eval main "__lite.caret(1, 1); const a = __lite.text().split('\\n').length; __lite.key('Mod-d'); const b = __lite.text().split('\\n').length; __lite.key('Mod-z'); return b - a")" = 1 ] && echo 1)" "手改 keymap.json：菜单换成 ⌃⌘S，删掉的那条（复制行）回到 ⌘D —— 不用重启"
 note_front
 
+echo "== 标签页上限（docs/TAKEOVER.md I10）：手改 settings.json 设成 2，开第 3 个关掉最久没看的那个，改过没保存的不关"
+echo "charlie" > "${B}/c.txt"; echo "delta" > "${B}/d.txt"; echo "echo" > "${B}/e.txt"
+printf '{\n  "editor.tabLimit": 2,\n}\n' > "${LITE_DATA}/settings.json"
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(lite_eval w-1 "return __lite.settings.v.editorTabLimit")" = 2 ] && break; sleep 0.3; done
+TL='const W = (ms) => new Promise((r) => setTimeout(r, ms)); const op = async (p) => { await __lite.tabflow.openPath(p, { preview: false }); await W(300); }; const names = () => __lite.tabs.list.map((t) => t.name).join(",");'
+lite_eval w-1 "${TL} for (const t of [...__lite.tabs.list]) __lite.tabflow.doClose(t); await op('${B}/b.txt'); await op('${B}/c.txt'); __lite.tabs.show(__lite.tabs.byPath('${B}/b.txt').id); await op('${B}/d.txt'); return true" >/dev/null
+T1=$(lite_eval w-1 "return __lite.tabs.list.map((t) => t.name).join(',')")
+ok "$([ "${T1}" = "b.txt,d.txt" ] && echo 1)" "上限 2：开 d 时关掉的是最久没看的 c，刚看过的 b 留着：${T1}"
+lite_eval w-1 "__lite.tabs.show(__lite.tabs.byPath('${B}/b.txt').id); await new Promise((r) => setTimeout(r, 300)); __lite.type('X'); return true" >/dev/null
+lite_eval w-1 "${TL} __lite.tabs.show(__lite.tabs.byPath('${B}/d.txt').id); await op('${B}/e.txt'); return true" >/dev/null
+T2=$(lite_eval w-1 "return __lite.tabs.list.map((t) => t.name + (t.dirty ? '*' : '')).join(',')")
+ok "$([ "${T2}" = "b.txt*,e.txt" ] && echo 1)" "b 改过没保存、比 d 还久没看：不关它、关 d：${T2}"
+lite_eval w-1 "__lite.key('Mod-z'); return true" >/dev/null
+note_front
+
 lite_quit
 echo "== 焦点"
 ok "$([ "${STOLEN}" = 0 ] && echo 1)" "起来之后测试应用一次都没跑到最前面（采样到它在最前 ${STOLEN} 次）—— 你可以照常用电脑"

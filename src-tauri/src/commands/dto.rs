@@ -828,6 +828,8 @@ pub struct SettingsDto {
     pub editor_inlay_hints: bool,
     /// 粘性行开不开（docs/TAKEOVER.md G19）
     pub editor_sticky_lines: bool,
+    /// 一组里最多几个标签（docs/TAKEOVER.md I10），0 = 不限
+    pub editor_tab_limit: i64,
     /// 调试时存盘自动构建、热替换（docs/TAKEOVER.md I6）
     pub java_hotswap_on_save: bool,
     /// 已经换算过：没写就是编辑器那个

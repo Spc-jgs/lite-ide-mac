@@ -91,6 +91,14 @@ pub const DEFS: &[Def] = &[
         default: "true",
         doc: "滚到一个长方法中间时，它所在的类、方法、if / for / try 那一行钉在编辑器顶上，点一下跳过去（IDEA 的 Sticky Lines）。最多 4 行",
     },
+    // 标签上限（docs/TAKEOVER.md I10）：照 IDEA 默认 10
+    Def {
+        key: "editor.tabLimit",
+        label: "标签页上限",
+        kind: Kind::Int { min: 0, max: 100 },
+        default: "10",
+        doc: "一组里标签页超过这个数，关掉最久没看的那个（IDEA 的 Tab limit）。改过没保存的、固定的不关；⇧⌘T 能重新打开。0 = 不限",
+    },
     Def {
         key: "terminal.fontFamily",
         label: "终端字体",
@@ -208,6 +216,8 @@ pub struct Settings {
     pub editor_highlight_usages: bool,
     pub editor_inlay_hints: bool,
     pub editor_sticky_lines: bool,
+    /// 0 = 不限
+    pub editor_tab_limit: i64,
     /// 空 = 跟编辑器
     pub terminal_font_family: String,
     pub terminal_font_size: i64,
@@ -236,6 +246,7 @@ impl Default for Settings {
             editor_highlight_usages: true,
             editor_inlay_hints: true,
             editor_sticky_lines: true,
+            editor_tab_limit: 10,
             terminal_font_family: String::new(),
             terminal_font_size: FONT_DEFAULT,
             terminal_shell: String::new(),
@@ -267,6 +278,7 @@ impl Settings {
             "editor.highlightUsages" => self.editor_highlight_usages = b(),
             "editor.inlayHints" => self.editor_inlay_hints = b(),
             "editor.stickyLines" => self.editor_sticky_lines = b(),
+            "editor.tabLimit" => self.editor_tab_limit = v.as_i64().unwrap_or(10),
             "terminal.fontFamily" => self.terminal_font_family = s(),
             "terminal.fontSize" => self.terminal_font_size = n(),
             "terminal.shell" => self.terminal_shell = s(),
@@ -653,6 +665,7 @@ pub fn values(s: &Settings) -> serde_json::Map<String, Value> {
             "editor.highlightUsages" => Value::from(s.editor_highlight_usages),
             "editor.inlayHints" => Value::from(s.editor_inlay_hints),
             "editor.stickyLines" => Value::from(s.editor_sticky_lines),
+            "editor.tabLimit" => Value::from(s.editor_tab_limit),
             "terminal.fontFamily" => Value::from(s.terminal_font_family.clone()),
             "terminal.fontSize" => Value::from(s.terminal_font_size),
             "terminal.shell" => Value::from(s.terminal_shell.clone()),
@@ -946,6 +959,7 @@ pub struct Effective {
     pub editor_highlight_usages: bool,
     pub editor_inlay_hints: bool,
     pub editor_sticky_lines: bool,
+    pub editor_tab_limit: i64,
     pub java_hotswap_on_save: bool,
     pub terminal_font_family: String,
     pub terminal_font_size: i64,
@@ -967,6 +981,7 @@ pub fn effective(s: &Settings, u: &UiState) -> Effective {
         editor_highlight_usages: s.editor_highlight_usages,
         editor_inlay_hints: s.editor_inlay_hints,
         editor_sticky_lines: s.editor_sticky_lines,
+        editor_tab_limit: s.editor_tab_limit,
         java_hotswap_on_save: s.java_hotswap_on_save,
         terminal_font_family: if s.terminal_font_family.trim().is_empty() {
             s.editor_font_family.clone()

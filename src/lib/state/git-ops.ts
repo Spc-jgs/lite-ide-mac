@@ -267,6 +267,9 @@ export async function reloadDiff(id: number) {
   }
 }
 
+/** 标签上限（I10）：差异标签也算数（IDEA 的差异也开在编辑器标签里） */
+const trim = (id: number) => void import("./tabflow-ops").then((o) => o.trimTabs(id));
+
 /** 打开（或复用）一个差异标签 */
 export async function openDiff(e: GitEntry, staged: boolean) {
   if (!git.repo) return;
@@ -288,6 +291,7 @@ export async function openDiff(e: GitEntry, staged: boolean) {
   tab.diffStaged = staged;
   tab.diffUntracked = e.untracked && !staged;
   tabs.show(id);
+  trim(id);
   await reloadDiff(id);
 }
 
@@ -327,6 +331,7 @@ export async function openCommitDiff(sha: string, short: string, rel: string, to
     });
   }
   tabs.show(id);
+  trim(id);
   await reloadDiff(id);
 }
 

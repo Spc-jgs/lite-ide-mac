@@ -183,7 +183,11 @@ class TabFlow {
       const id = tabs.add(tab, prev ? tabs.list.indexOf(prev) : undefined);
       if (prev) this.doClose(prev);
       // 恢复期不抢：见 `restoringTabs` 上面那段
-      if (!this.restoringTabs) tabs.show(id);
+      if (!this.restoringTabs) {
+        tabs.show(id);
+        // 标签上限（I10）：逻辑在懒块里，入口只留这一句
+        void ops().then((o) => o.trimTabs(id));
+      }
       /*
        * **开一个文件不再把它的父目录顶成项目根**（issue #40 第三层，2026-09-16）。
        *

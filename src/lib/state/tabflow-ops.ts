@@ -7,6 +7,7 @@ import { scratches } from "./scratches.svelte";
 import { files } from "./files.svelte";
 import { tabflow, CONFIRM_EDIT_BYTES } from "./tabflow.svelte";
 import type { TabState } from "./tab";
+import { settings } from "./settings.svelte";
 
 /**
  * 标签流程里的**动作**：开文件夹 / 最近项目、关项目、切模式、批量关闭、草稿进废纸篓。
@@ -39,6 +40,34 @@ export async function reopenClosed() {
   if (!p) return void notify.hint("没有可重新打开的标签页");
   tabflow.closed = tabflow.closed.filter((x) => x !== p);
   await tabflow.openPath(p, { preview: false });
+}
+
+/**
+ * 标签上限（docs/TAKEOVER.md I10，IDEA 的 Tab limit）：刚开的 `keep` 那一组超过 `editor.tabLimit`，关掉最久没看的那几个。
+ * 不关的：刚开的、固定的、有没保存改动的（连同外部改动待裁决、草稿保存失败的）、三方合并（解到一半的冲突在它的状态里，不在盘上）。
+ * 都不能关就超着 —— 宁可多一个标签，不替人丢东西（IDEA 同样先关没改过的）。关掉的记进 ⇧⌘T，第一次说一句为什么少了一个
+ */
+let trimSaid = false;
+export function trimTabs(keep: number) {
+  const limit = settings.v.editorTabLimit;
+  const t = tabs.byId(keep);
+  if (!limit || !t) return;
+  const over = tabs.inGroup(t.group).length - limit;
+  if (over <= 0) return;
+  // `byRecent` 新的在前；从没切到过的（会话恢复开的）垫在最后 —— 反过来，最久没看的在前
+  const victims = tabs
+    .byRecent()
+    .reverse()
+    .filter((x) => x.group === t.group && x.id !== keep && !x.pinned && !x.dirty && !x.conflict && !x.saveFailed && x.mode !== "merge")
+    .slice(0, over);
+  for (const v of victims) {
+    if (v.path.startsWith("/")) tabflow.closed = [...tabflow.closed.filter((p) => p !== v.path).slice(-29), v.path];
+    tabflow.doClose(v);
+  }
+  if (victims.length && !trimSaid) {
+    trimSaid = true;
+    notify.hint(`标签页已达上限 ${limit} 个，已关闭最久未查看的「${victims[0].name}」。⇧⌘T 可重新打开，上限可在设置中调整`, 8000);
+  }
 }
 
 export function closeProject() {
@@ -177,6 +206,7 @@ export async function openClass(uri: string, label: string): Promise<boolean> {
   );
   if (prev) tabflow.doClose(prev);
   tabs.show(id);
+  trimTabs(id);
   return true;
 }
 

@@ -1497,6 +1497,8 @@ export interface Settings {
   editorInlayHints: boolean;
   /** 粘性行开不开（docs/TAKEOVER.md G19） */
   editorStickyLines: boolean;
+  /** 一组里最多几个标签（docs/TAKEOVER.md I10），0 = 不限 */
+  editorTabLimit: number;
   /** 调试时存盘自动构建、热替换（docs/TAKEOVER.md I6） */
   javaHotswapOnSave: boolean;
   terminalFontFamily: string;

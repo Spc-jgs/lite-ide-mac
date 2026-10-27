@@ -141,6 +141,7 @@ pub fn dto(app: &AppHandle) -> crate::commands::SettingsDto {
         editor_highlight_usages: e.editor_highlight_usages,
         editor_inlay_hints: e.editor_inlay_hints,
         editor_sticky_lines: e.editor_sticky_lines,
+        editor_tab_limit: e.editor_tab_limit,
         java_hotswap_on_save: e.java_hotswap_on_save,
         terminal_font_family: e.terminal_font_family,
         terminal_font_size: e.terminal_font_size,
