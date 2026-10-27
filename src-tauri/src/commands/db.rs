@@ -109,6 +109,7 @@ fn result_of(v: serde_json::Value) -> DbResultDto {
         count: v["count"].as_i64(),
         ms: v["ms"].as_u64().unwrap_or(0),
         cursor: v["cursor"].as_u64().unwrap_or(0),
+        table: serde_json::from_value(v["table"].clone()).ok(),
     }
 }
 
@@ -167,4 +168,15 @@ pub async fn db_export(app: tauri::AppHandle, window: tauri::Window, root: Strin
 pub async fn db_scalar(app: tauri::AppHandle, window: tauri::Window, root: String, id: String, sql: String, seconds: u32) -> Result<Option<String>, String> {
     let owner = window.label().to_string();
     blocking(move || app.state::<AppState>().db.scalar(&app, &owner, &root, &id, &sql, seconds)).await
+}
+
+/// 提交改过的格子：一个事务，每条正好改 1 行，不是就整笔回滚。回改了几行
+#[tauri::command]
+pub async fn db_apply(app: tauri::AppHandle, window: tauri::Window, root: String, id: String, edit: DbEditDto) -> Result<u64, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        let v = app.state::<AppState>().db.apply(&app, &owner, &root, &id, serde_json::to_value(&edit).map_err(|e| e.to_string())?)?;
+        Ok(v["applied"].as_u64().unwrap_or(0))
+    })
+    .await
 }

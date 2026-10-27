@@ -202,6 +202,53 @@ inv "'db_cancel', { root: '${P}', id: '${ID}' }" >/dev/null
 EC=$(lite_eval main "return await window.__exp")
 ok "$(echo "${EC}" | grep -q 57014 && [ "$(cat "${LITE_WORK}/导出/keep.csv")" = old ] && [ ! -e "${LITE_WORK}/导出/keep.csv.part" ] && echo 1)" "导出到一半取消：停了（$(echo "${EC}" | cut -c1-60)）、原来那个文件还是原样、没留 .part"
 
+echo "== 改单元格（DB-3）：双击改、先给人看 UPDATE、一个事务提交；被别人删了的行整笔回滚"
+HRUN='const q = await __lite.dbResults(); const a = q.active; await q.run(a.root, a.conn, "验收 H2", [SQL_]); return q.active.status + ":" + JSON.stringify(q.active.rows)'
+hrun() { lite_eval main "${HRUN/SQL_/$1}"; }
+# 不写字符串字面量（SQL 的单引号在 bash 单引号、${…/…/…} 替换、JS 字符串几层里两次被提前收掉）：备注是 x 转成的字，第 3 行是 NULL
+hrun '"insert into shop.orders select x, x * 1.5, case when x = 3 then null else cast(x as varchar) end from system_range(1, 3)"' >/dev/null
+hrun '"select * from shop.orders order by id"' >/dev/null
+TBL=$(lite_eval main "${Q} return a.table ? a.table.name + ' pk=' + JSON.stringify(a.table.pk) + ' cols=' + a.table.cols.join(',') : 'null'")
+ok "$([ "${TBL}" = "ORDERS pk=[0] cols=ID,AMOUNT,NOTE" ] && echo 1)" "单表、主键在结果里：知道是哪张表、主键是第几列（${TBL}）"
+EDIT='const row = [...document.querySelectorAll(".dbres .row")].find((x) => x.querySelector(".gut")?.textContent === ROW_); row.querySelectorAll(".cell")[COL_].dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 50)); const inp = document.querySelector(".dbres .ed"); if (!inp) return "没进编辑";
+if (VAL_ === null) { document.querySelector(".dbres .nullb").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); return "null"; }
+inp.value = VAL_; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return "ok"'
+cell() { lite_eval main "$(echo "${EDIT}" | sed -e "s|ROW_|\"$1\"|" -e "s|COL_|$2|" -e "s|VAL_|$3|g")"; }
+cell 2 1 '"9.99"' >/dev/null
+cell 1 2 null >/dev/null
+PEND=$(lite_eval main "return document.querySelector('.dbres .pend')?.textContent ?? '无'")
+NEDIT=$(lite_eval main "${Q} return Object.keys(a.edits).length")
+ok "$([ "${PEND}" = "2 处更改未提交" ] && [ "${NEDIT}" = 2 ] && echo 1)" "双击改两格（一格改值、一格设成 NULL）：${PEND}；库里还没动"
+lite_eval main "[...document.querySelectorAll('.dbres .bar button')].find((b) => b.textContent.includes('提交')).click(); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.dbapply')" 5 >/dev/null
+PRE=$(lite_eval main "return document.querySelector('.dbapply .sqls').textContent")
+ok "$(echo "${PRE}" | grep -q "SET AMOUNT = '9.99' WHERE ID = '2'" && echo "${PRE}" | grep -q "SET NOTE = NULL WHERE ID = '1'" && echo 1)" "提交前列出要执行的 UPDATE：$(echo "${PRE}" | tr '\n' ' ')"
+lite_eval main "[...document.querySelectorAll('.dbapply button')].find((b) => b.textContent === '提交').click(); return true" >/dev/null
+lite_wait main "return __lite.notify.log.some((x) => x.text.startsWith('已提交'))" 10 >/dev/null
+lite_eval main "${Q} a.pinned = true; return true" >/dev/null
+AFTER=$(hrun '"select id, amount, note from shop.orders order by id"' | cut -d: -f2-)
+ok "$([ "${AFTER}" = '[["1","1.50",null],["2","9.99","2"],["3","4.50",null]]' ] && echo 1)" "库里真改了：${AFTER}"
+# 回到那个钉住的结果；第 3 行在背后被删掉，再改两格（第 1 行、第 3 行）提交 —— 第 3 行那条改 0 行，整笔回滚、第 1 行也不能动
+lite_eval main 'const q = await __lite.dbResults(); q.activeId = q.list.find((x) => x.pinned).id; return true' >/dev/null
+hrun '"delete from shop.orders where id = 3"' >/dev/null
+lite_eval main 'const q = await __lite.dbResults(); q.activeId = q.list.find((x) => x.pinned).id; return true' >/dev/null
+sleep 0.3
+cell 1 1 '"7.77"' >/dev/null
+cell 3 1 '"5.55"' >/dev/null
+lite_eval main "[...document.querySelectorAll('.dbres .bar button')].find((b) => b.textContent.includes('提交')).click(); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.dbapply')" 5 >/dev/null
+lite_eval main "[...document.querySelectorAll('.dbapply button')].find((b) => b.textContent === '提交').click(); return true" >/dev/null
+lite_wait main "return __lite.notify.log.some((x) => x.text.startsWith('提交失败'))" 10 >/dev/null
+FAILMSG=$(lite_eval main "return __lite.notify.log.findLast((x) => x.text.startsWith('提交失败'))?.text ?? ''")
+STILL=$(lite_eval main "${Q} return Object.keys(a.edits).length")
+lite_eval main 'const q = await __lite.dbResults(); q.list.find((x) => x.pinned).pinned = false; return true' >/dev/null
+AFTER2=$(hrun '"select id, amount from shop.orders order by id"' | cut -d: -f2-)
+ok "$(echo "${FAILMSG}" | grep -q '第 2 处更改影响了 0 行' && [ "${STILL}" = 2 ] && [ "${AFTER2}" = '[["1","1.50"],["2","9.99"]]' ] && echo 1)" "被删的那行改了 0 行：整笔回滚（第 1 行没动：${AFTER2}）、改动还攒着、说清楚：${FAILMSG}"
+hrun '"select id, amount * 2 as twice from shop.orders"' >/dev/null
+cell 1 1 '"1"' >/dev/null
+ok "$(lite_eval main "return __lite.notify.log.findLast(() => true)?.text ?? ''" | grep -q '计算列，无法直接修改' && [ -z "$(lite_eval main "return document.querySelector('.dbres .ed') ? 'x' : ''")" ] && echo 1)" "有计算列的结果：双击不进编辑、说清为什么：$(lite_eval main "return __lite.notify.log.findLast(() => true)?.text ?? ''")"
+
 echo "== 没有副作用、退出不留"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（连接配置在应用数据目录里）"
 lite_quit

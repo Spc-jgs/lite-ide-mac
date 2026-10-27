@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.Driver;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
@@ -35,7 +36,7 @@ import java.util.concurrent.Executors;
  * 驱动按 jar 装：同一组 jar 一个 ClassLoader，直接调 {@link Driver#connect} —— DriverManager 只认它自己的 ClassLoader 装进来的驱动，
  * 别的 ClassLoader 里的驱动它看不见（JDBC 的老规矩，DBeaver、IDEA 也是绕开它）。
  *
- * 连接和表结构：connect / meta / close / ping（DB-1）；查询：query / fetch / cancel / closeCursor（DB-2）；导出、单值查询：export / scalar（DB-3）。
+ * 连接和表结构：connect / meta / close / ping（DB-1）；查询：query / fetch / cancel / closeCursor（DB-2）；导出、单值查询、改单元格：export / scalar / apply（DB-3）。
  *
  * 查询的结果不一次取完（docs/DATABASE.md 第 3 节）：开着的 ResultSet 当游标留在这里，界面滚到底再要下一批。
  * **一个连接最多一个开着的游标**：新查询先关掉上一个 —— 结果标签可以开很多个，但每个开着的游标在 MySQL / PostgreSQL 那边都攥着资源
@@ -105,11 +106,15 @@ public final class Main {
                 case "closeCursor": closeCursor(str(p, "conn")); result = Boolean.TRUE; break;
                 case "export": result = export(p); break;
                 case "scalar": result = scalar(p); break;
+                case "apply": result = apply(p); break;
                 default: throw new IllegalArgumentException("未知的方法：" + method);
             }
             reply(id, result, null);
         } catch (SQLException e) {
             reply(id, null, describe(e));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            // 我们自己写的那几句（「结果集已关闭…」「第 2 处更改影响了 0 行…」）：原话就是给人看的，不带 Java 的类名
+            reply(id, null, e.getMessage());
         } catch (Throwable e) {
             reply(id, null, e.getClass().getSimpleName() + "：" + e.getMessage());
         }
@@ -165,6 +170,9 @@ public final class Main {
         // H2 同理：默认把整个结果算进内存才给第一行（十万乘十万的交叉连接直接把堆撑爆、连库一起关掉 —— 2026-10-27 探针撞的）。
         // 懒执行是边取边算；URL 里自己写了的不盖
         if (str(p, "driver").startsWith("org.h2.") && !str(p, "url").toUpperCase().contains("LAZY_QUERY_EXECUTION")) props.setProperty("LAZY_QUERY_EXECUTION", "TRUE");
+        // 改单元格（apply）一律用 setString 传值：PostgreSQL 默认把它当 varchar 发，往 integer 列里写会报类型不符；unspecified 让服务器自己按列的类型转。
+        // 没连过真 PostgreSQL 验（本机没有服务器）
+        if (str(p, "driver").startsWith("org.postgresql.") && !str(p, "url").contains("stringtype")) props.setProperty("stringtype", "unspecified");
         if (str(p, "user") != null) props.setProperty("user", str(p, "user"));
         if (str(p, "password") != null) props.setProperty("password", str(p, "password"));
         Connection c = d.connect(str(p, "url"), props);
@@ -305,6 +313,7 @@ public final class Main {
                 }
                 r.put("kind", "rows");
                 r.put("cols", cols);
+                r.put("table", editTarget(c, md));
                 batch(cur, r);
             } else {
                 r.put("kind", "count");
@@ -550,5 +559,131 @@ public final class Main {
                 return rs.next() ? rs.getString(1) : null;
             }
         }
+    }
+
+    /**
+     * 这个结果能不能改、改的是哪张表（DB-3 改单元格）：每一列都来自同一张表，才算。回 {catalog, schema, name, cols, pk}：
+     * cols 是每一列在表里的真名（列标签可能是别名，SET 要用真名），pk 是主键列在结果里是第几列 —— 主键不全在结果里就是空的，界面说「不能改」。
+     * 多表、表达式列（表名是空的）回 null
+     */
+    private static Object editTarget(Connection c, ResultSetMetaData md) {
+        try {
+            int n = md.getColumnCount();
+            String table = null, schema = null, catalog = null;
+            List<Object> cols = new ArrayList<>();
+            for (int i = 1; i <= n; i++) {
+                String t = tableName(md, i);
+                if (t == null || t.isEmpty() || (table != null && !table.equals(t))) return null;
+                table = t;
+                schema = md.getSchemaName(i);
+                catalog = md.getCatalogName(i);
+                cols.add(md.getColumnName(i));
+            }
+            List<String> pk = new ArrayList<>();
+            try (ResultSet r = c.getMetaData().getPrimaryKeys(empty(catalog), empty(schema), table)) {
+                while (r.next()) pk.add(r.getString("COLUMN_NAME"));
+            }
+            List<Object> at = new ArrayList<>();
+            for (String k : pk) {
+                int idx = -1;
+                for (int i = 0; i < cols.size(); i++) if (k.equalsIgnoreCase((String) cols.get(i))) idx = i;
+                if (idx < 0) {
+                    at.clear();
+                    break;
+                }
+                at.add((long) idx);
+            }
+            Map<String, Object> t = new LinkedHashMap<>();
+            t.put("catalog", empty(catalog));
+            t.put("schema", empty(schema));
+            t.put("name", table);
+            t.put("cols", cols);
+            t.put("pk", at);
+            return t;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private static String empty(String s) {
+        return s == null || s.isEmpty() ? null : s;
+    }
+
+    /**
+     * 列来自哪张表。先问标准的 getTableName；空的话再试驱动自己的 getBaseTableName（PostgreSQL 的驱动有这个方法）。
+     * 两个各家驱动给的是不是真表名（还是别名）没有逐家读源码确认 —— 给错了 UPDATE 会报「表不存在」、整笔回滚，不会改错地方
+     */
+    private static String tableName(ResultSetMetaData md, int i) throws SQLException {
+        String t = md.getTableName(i);
+        if (t != null && !t.isEmpty()) return t;
+        try {
+            Object b = md.getClass().getMethod("getBaseTableName", int.class).invoke(md, i);
+            return b == null ? null : b.toString();
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
+    }
+
+    /**
+     * 提交改过的格子（DB-3）：一行一条 `UPDATE 表 SET 列 = ? … WHERE 主键 = ? …`，参数化（值不拼进 SQL），全在一个事务里。
+     * **每条必须正好改 1 行**，不是就整笔回滚、说清是第几条：0 行 = 这行已经被别人改了主键或者删了；多于 1 行 = 「主键」其实不唯一 —— 两种都不能悄悄提交。
+     * 先关掉这个连接开着的游标（PostgreSQL 分批取开着的事务要先提交掉，不然这里的提交会把它一起带走）
+     */
+    @SuppressWarnings("unchecked")
+    private static Object apply(Map<String, Object> p) throws SQLException {
+        String key = str(p, "conn");
+        Connection c = conn(p);
+        closeCursor(key);
+        DatabaseMetaData dm = c.getMetaData();
+        String q = dm.getIdentifierQuoteString();
+        q = q == null || q.isBlank() ? "" : q.trim();
+        String name = (str(p, "schema") != null ? quote(q, str(p, "schema")) + "." : str(p, "catalog") != null ? quote(q, str(p, "catalog")) + "." : "") + quote(q, str(p, "table"));
+        List<Object> rows = (List<Object>) p.get("rows");
+        boolean ac = c.getAutoCommit();
+        long t0 = System.nanoTime();
+        c.setAutoCommit(false);
+        try {
+            int k = 0;
+            for (Object o : rows) {
+                k++;
+                Map<String, Object> row = (Map<String, Object>) o;
+                List<Object> set = (List<Object>) row.get("set");
+                List<Object> where = (List<Object>) row.get("key");
+                StringBuilder sql = new StringBuilder("UPDATE ").append(name).append(" SET ");
+                for (int i = 0; i < set.size(); i++) sql.append(i > 0 ? ", " : "").append(quote(q, (String) ((Map<String, Object>) set.get(i)).get("col"))).append(" = ?");
+                sql.append(" WHERE ");
+                for (int i = 0; i < where.size(); i++) sql.append(i > 0 ? " AND " : "").append(quote(q, (String) ((Map<String, Object>) where.get(i)).get("col"))).append(" = ?");
+                try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
+                    int i = 1;
+                    for (Object x : set) bind(ps, i++, ((Map<String, Object>) x).get("value"));
+                    for (Object x : where) bind(ps, i++, ((Map<String, Object>) x).get("value"));
+                    int n = ps.executeUpdate();
+                    if (n != 1) {
+                        throw new IllegalStateException("第 " + k + " 处更改影响了 " + n + " 行（应为 1 行）"
+                            + (n == 0 ? "：该行可能已被修改或删除" : "：主键不唯一") + "，全部更改已撤回");
+                    }
+                }
+            }
+            c.commit();
+        } catch (SQLException | RuntimeException e) {
+            try { c.rollback(); } catch (SQLException ignored) {}
+            throw e;
+        } finally {
+            try { c.setAutoCommit(ac); } catch (SQLException ignored) {}
+        }
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("applied", (long) rows.size());
+        r.put("ms", (System.nanoTime() - t0) / 1_000_000L);
+        return r;
+    }
+
+    private static void bind(PreparedStatement ps, int i, Object v) throws SQLException {
+        if (v == null) ps.setNull(i, Types.VARCHAR);
+        else ps.setString(i, v.toString());
+    }
+
+    /** 名字加上这个库的引号（MySQL 是反引号、别的是双引号），名字里的引号写两遍 */
+    private static String quote(String q, String name) {
+        return q.isEmpty() ? name : q + name.replace(q, q + q) + q;
     }
 }

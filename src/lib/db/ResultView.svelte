@@ -9,6 +9,9 @@
    *
    * 「导出」（DB-3）：CSV / JSON / INSERT，导出的是**整条查询的全部结果**、不是已经取到界面上的那几批 —— 边车把这条 SQL 再跑一遍、直接写盘，
    * 几百万行也不经过这里。进度在状态栏的进度格（ui.md 十一：后台在跑的只画在那一格），点那一格的取消就停
+   *
+   * 改格子（DB-3）：双击一格就地改，↵ 攒下、Esc 不改、点别处也攒下；「NULL」设成 NULL。攒下的格子带底色，工具条上「提交…」先给人看 UPDATE。
+   * 只有单表、主键在结果里的才让改（同 IDEA）：不然没法确定改的是哪一行；双击时说清为什么不能改
    */
   import Icon from "../shell/Icon.svelte";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
@@ -17,6 +20,8 @@
   import { notify } from "../state/notify.svelte";
   import { progress } from "../state/progress.svelte";
   import { results, type DbRes } from "./results.svelte";
+  import { cellKey, whyNotEditable } from "./edits";
+  import { imeKey } from "../shell/ime";
 
   let { r }: { r: DbRes } = $props();
 
@@ -89,6 +94,47 @@
     }
   }
 
+  let editing = $state<{ row: number; col: number; value: string | null } | null>(null);
+  const pending = $derived(Object.keys(r.edits).length);
+
+  function startEdit(row: number, col: number) {
+    const why = whyNotEditable(r.table);
+    if (why) {
+      notify.hint(why);
+      return;
+    }
+    const k = cellKey(row, col);
+    editing = { row, col, value: k in r.edits ? r.edits[k] : r.rows[row][col] };
+  }
+
+  /** 攒下这一格。点 NULL、↵、点别处都走这里；只认一次（↵ 之后输入框没了还会来一下 blur） */
+  function finish(value: string | null) {
+    const e = editing;
+    if (!e) return;
+    editing = null;
+    results.stage(r, e.row, e.col, value);
+    scroller?.focus({ preventScroll: true });
+  }
+
+  function editKey(e: KeyboardEvent) {
+    e.stopPropagation();
+    if (imeKey(e)) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish(editing?.value ?? null);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      editing = null;
+      scroller?.focus({ preventScroll: true });
+    }
+  }
+
+  /** 拿焦点、全选（一打字就是换掉原值）。全选要等一拍：`bind:value` 往框里写值在 action 之后，先选的话写值时选区就没了（浏览器里撞见的：打出来是「3.008.88」） */
+  function grab(el: HTMLInputElement) {
+    el.focus({ preventScroll: true });
+    queueMicrotask(() => el.select());
+  }
+
   let menu = $state<{ x: number; y: number } | null>(null);
   let exporting = $state(false);
   /** 导出成 INSERT 时用的表名：语句里最外层 FROM 后面那个（认不出就是 t，导出完自己改） */
@@ -140,6 +186,11 @@
     {/if}
     {#if r.fetching}<span class="wait"><span class="spinner sm"></span></span>{/if}
     <span class="gap"></span>
+    {#if pending}
+      <span class="pend">{pending} 处更改未提交</span>
+      <button class="btn sm quiet" disabled={r.committing} onclick={() => results.discard(r)} title="放弃所有未提交的更改">放弃</button>
+      <button class="btn sm primary" class:busy={r.committing} disabled={r.committing} onclick={() => void results.commit(r)} title="先列出要执行的 UPDATE，确认后在一个事务中提交">提交…</button>
+    {/if}
     <span class="conn" title={r.sql}>{r.connName}</span>
     {#if r.status === "running"}
       <button class="ibtn" onclick={() => results.cancel(r)} title="取消执行" aria-label="取消执行"><Icon name="stop" /></button>
@@ -183,8 +234,35 @@
           {@const i = first + k}
           <div class="row" class:on={i >= lo && i <= hi} style:top="{(i + 1) * ROW}px" style:width="{total}px" role="row" tabindex="-1" aria-rowindex={i + 1} onpointerdown={(e) => pick(i, e)}>
             <span class="num gut" style:width="{gutter}px">{i + 1}</span>
-            {#each row as v, j (j)}
-              <span class="cell" class:right={r.cols[j]?.num} class:null={v === null} style:width="{widths[j]}px" title={v !== null && v.length > 40 ? v.slice(0, 2000) : undefined}>{v === null ? "<null>" : v}</span>
+            {#each row as v0, j (j)}
+              {@const k = cellKey(i, j)}
+              {@const staged = k in r.edits}
+              {@const v = staged ? r.edits[k] : v0}
+              {#if editing && editing.row === i && editing.col === j}
+                <span class="cell editing" style:width="{widths[j]}px">
+                  <input
+                    class="ed"
+                    spellcheck="false"
+                    aria-label="编辑 {r.cols[j]?.name}"
+                    use:grab
+                    bind:value={() => editing?.value ?? "", (x) => editing && (editing.value = x)}
+                    onkeydown={editKey}
+                    onblur={() => finish(editing?.value ?? null)}
+                  />
+                  <button class="nullb" tabindex="-1" onpointerdown={(e) => (e.preventDefault(), finish(null))} title="设为 NULL">NULL</button>
+                </span>
+              {:else}
+                <span
+                  class="cell"
+                  class:right={r.cols[j]?.num}
+                  class:null={v === null}
+                  class:edited={staged}
+                  style:width="{widths[j]}px"
+                  ondblclick={() => startEdit(i, j)}
+                  role="gridcell"
+                  tabindex="-1"
+                  title={staged ? `已修改，原值：${v0 ?? "NULL"}` : v !== null && v.length > 40 ? v.slice(0, 2000) : undefined}>{v === null ? "<null>" : v}</span>
+              {/if}
             {/each}
           </div>
         {/each}
@@ -218,6 +296,12 @@
   .hcell .ty { margin-left: 6px; font-weight: 400; color: var(--text-faint); font-size: var(--fs-xs); }
   .right { text-align: right; font-variant-numeric: tabular-nums; }
   .cell.null { color: var(--text-faint); font-style: italic; }
+  /* 攒着没提交的那几格：淡强调色底（同编辑器里「有改动」的那一类颜色），悬停说原值 */
+  .cell.edited { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .cell.editing { display: flex; align-items: center; gap: 2px; padding: 0 2px; }
+  .ed { flex: 1; min-width: 0; height: 20px; padding: 0 4px; border: 1px solid var(--accent); border-radius: var(--r-xs); background: var(--field-bg); color: var(--text); font: inherit; outline: none; }
+  .nullb { flex: none; height: 18px; padding: 0 4px; border: none; border-radius: var(--r-xs); background: var(--hover); color: var(--text-muted); font: inherit; font-size: var(--fs-xs); cursor: pointer; }
+  .pend { color: var(--accent); white-space: nowrap; }
   .gut { position: sticky; left: 0; z-index: 1; text-align: right; color: var(--text-faint); background: var(--content-solid); font-variant-numeric: tabular-nums; }
   .hrow .gut { z-index: 2; }
 </style>

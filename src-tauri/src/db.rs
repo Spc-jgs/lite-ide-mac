@@ -309,6 +309,15 @@ impl Db {
         self.sidecar(app)?.export(&key, sql, std::path::Path::new(path), format, table)
     }
 
+    /// 提交改过的格子（DB-3）
+    pub fn apply(&self, app: &AppHandle, owner: &str, root: &str, id: &str, edit: Value) -> Result<Value, String> {
+        let key = Self::key(owner, root, id);
+        if self.open.get(&key, |_| ()).is_none() {
+            self.open(app, owner, root, id)?;
+        }
+        self.sidecar(app)?.apply(&key, edit)
+    }
+
     /// 第一行第一格（生产库保护数影响的行数），有时限
     pub fn scalar(&self, app: &AppHandle, owner: &str, root: &str, id: &str, sql: &str, seconds: u32) -> Result<Option<String>, String> {
         let key = Self::key(owner, root, id);

@@ -80,6 +80,29 @@ await new Promise((r) => setTimeout(r, 300));
 ok(asked.length === 1, "生产库的结果「重新运行」照样要过确认");
 results.confirm = async () => true;
 
+// 改格子（DB-3）：攒着、给人看、提交；不提交不动
+await run("select * from orders");
+const g = results.active!;
+ok(g.table?.name === "orders", "单表的结果知道是哪张表");
+results.stage(g, 0, 1, "9.99");
+results.stage(g, 1, 1, "1.50");
+results.stage(g, 1, 1, g.rows[1][1]);
+ok(JSON.stringify(Object.keys(g.edits)) === JSON.stringify(["0\n1"]), `改回原值的不算改动：${JSON.stringify(g.edits)}`);
+let shown: string[] = [];
+let go = false;
+results.previewApply = async (q) => ((shown = q.sqls), go);
+await results.commit(g);
+ok(shown.length === 1 && shown[0].includes("amount = '9.99'") && shown[0].includes("WHERE id = '1'"), `提交前给人看 UPDATE：${shown[0]}`);
+ok(g.rows[0][1] === "1.50" && Object.keys(g.edits).length === 1, "答「取消」：表格里还是原值、改动还攒着");
+go = true;
+await results.commit(g);
+ok(g.rows[0][1] === "9.99" && Object.keys(g.edits).length === 0, "提交成功：表格里换成新值、攒着的清空");
+ok(g.stale, "提交关掉了这个连接的游标：这个结果取不了下一批了");
+results.stage(g, 2, 0, "4");
+g.rows = g.rows.map((r, i) => (i === 2 ? ["999", ...r.slice(1)] : r));
+await results.commit(g);
+ok(Object.keys(g.edits).length === 1 && notify.log.some((x) => x.text.startsWith("提交失败") && x.text.includes("全部更改已撤回")), "整笔回滚：改动留着、说清楚");
+
 // 关掉最后一个：工具窗收起（不切到终端 —— 那会顺手起一个 shell）
 for (const r of [...results.list]) results.close(r.id);
 ok(results.list.length === 0 && !layout.panel && layout.panelView === "db", `全关了：工具窗收起、不切到别的工具窗（panel=${layout.panel} view=${layout.panelView}）`);

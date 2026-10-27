@@ -250,6 +250,12 @@ impl Sidecar {
         Ok(v.as_str().map(str::to_string))
     }
 
+    /// 提交改过的格子（`edit` 是 `{catalog, schema, table, rows: [{set, key}]}`）：一个事务、每条正好改 1 行，不是就整笔回滚。回 `{applied, ms}`
+    pub fn apply(&self, conn: &str, mut edit: Value) -> Result<Value, String> {
+        edit["conn"] = json!(conn);
+        self.call("apply", edit, Some(META_WAIT))
+    }
+
     /// 结果标签关了：开着的游标关掉（PostgreSQL 为分批取开着的事务跟着提交）
     pub fn close_cursor(&self, conn: &str) {
         let _ = self.call("closeCursor", json!({ "conn": conn }), Some(Duration::from_secs(5)));

@@ -943,6 +943,38 @@ export interface DbResult {
   count: number | null;
   ms: number;
   cursor: number;
+  /** 结果来自哪张表（能不能改格子）：多表、表达式列是 null；主键不全在结果里时 pk 是空的 */
+  table: DbTable | null;
+}
+
+/** 结果背后的那张表 */
+export interface DbTable {
+  catalog: string | null;
+  schema: string | null;
+  name: string;
+  /** 每一列在表里的真名 */
+  cols: string[];
+  /** 主键列在结果里是第几列 */
+  pk: number[];
+}
+
+/** 一格的新值 / 定位用的主键值；null 是 NULL */
+export interface DbCell {
+  col: string;
+  value: string | null;
+}
+
+export interface DbRowEdit {
+  set: DbCell[];
+  key: DbCell[];
+}
+
+/** 一次提交：一个事务 */
+export interface DbEdit {
+  catalog: string | null;
+  schema: string | null;
+  table: string;
+  rows: DbRowEdit[];
 }
 
 /** 导出完了 */

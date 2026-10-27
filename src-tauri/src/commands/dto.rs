@@ -360,6 +360,47 @@ pub struct DbResultDto {
     pub ms: u64,
     /// 下一批要带着它取；同一连接又跑了新查询，旧的就作废了
     pub cursor: u64,
+    /// 结果来自哪张表（能不能改格子）：多表、表达式列是 None；主键不全在结果里时 `pk` 是空的
+    pub table: Option<DbTableDto>,
+}
+
+/// 结果背后的那张表（DB-3 改单元格）
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbTableDto {
+    pub catalog: Option<String>,
+    pub schema: Option<String>,
+    pub name: String,
+    /// 每一列在表里的真名（列标签可能是别名）
+    pub cols: Vec<String>,
+    /// 主键列在结果里是第几列
+    pub pk: Vec<u32>,
+}
+
+/// 一格的新值（或者用来定位那一行的主键值）。`value` 是 None 就是 NULL
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbCellDto {
+    pub col: String,
+    pub value: Option<String>,
+}
+
+/// 一行的改动：改哪几格、按哪几个主键值定位
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbRowEditDto {
+    pub set: Vec<DbCellDto>,
+    pub key: Vec<DbCellDto>,
+}
+
+/// 一次提交（`db_apply`）：一个事务
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbEditDto {
+    pub catalog: Option<String>,
+    pub schema: Option<String>,
+    pub table: String,
+    pub rows: Vec<DbRowEditDto>,
 }
 
 /// 导出完了（`db_export`）

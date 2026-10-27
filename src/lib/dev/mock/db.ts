@@ -101,7 +101,7 @@ export function dbCmd(cmd: string, a: A): unknown {
       return sleep(120).then(() => {
         if (/^(update|delete|insert)\b/i.test(sql)) {
           note(true, 3, null);
-          return { kind: "count", cols: [], rows: [], more: false, count: 3, ms: 4, cursor: nextCursor++ };
+          return { kind: "count", cols: [], rows: [], more: false, count: 3, ms: 4, cursor: nextCursor++, table: null };
         }
         if (!/^select\b/i.test(sql)) {
           const e = `You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '${sql.slice(0, 20)}' at line 1（SQLState 42000，错误码 1064）`;
@@ -111,7 +111,9 @@ export function dbCmd(cmd: string, a: A): unknown {
         const cursor = nextCursor++;
         CURSOR.set(key, { id: cursor, at: 0, total: /orders/i.test(sql) ? 100_000 : 3 });
         note(true, null, null);
-        return { kind: "rows", cols: COLS, ...batch(key), count: null, ms: 18, cursor };
+        // 只查 orders 一张表的结果能改格子（同真实现：单表、主键在结果里）
+        const table = /^select \* from orders\b/i.test(sql) && !/join|,/i.test(sql) ? { catalog: "shop", schema: null, name: "orders", cols: ["id", "amount", "created_at"], pk: [0] } : null;
+        return { kind: "rows", cols: COLS, ...batch(key), count: null, ms: 18, cursor, table };
       });
     }
     case "db_fetch": {
@@ -120,7 +122,7 @@ export function dbCmd(cmd: string, a: A): unknown {
       // 同真实现：慢一点（真的要从数据库再取一批）
       return sleep(60).then(() => {
         if (!c || c.id !== Number(a.cursor)) throw "结果集已关闭：同一连接上已执行新的查询，请重新运行此查询";
-        return { kind: "rows", cols: [], ...batch(key), count: null, ms: 0, cursor: c.id };
+        return { kind: "rows", cols: [], ...batch(key), count: null, ms: 0, cursor: c.id, table: null };
       });
     }
     case "db_cancel": {
@@ -146,6 +148,16 @@ export function dbCmd(cmd: string, a: A): unknown {
           clearTimeout(t);
           rej("Query execution was interrupted（SQLState 70100，错误码 1317）");
         });
+      });
+    }
+    case "db_apply": {
+      // 主键值是 999 的那一行「已经被别人删了」：演示整笔回滚那条路
+      const e = a.edit as { rows: { key: { value: string | null }[] }[] };
+      CURSOR.delete(`${root}\n${String(a.id)}`);
+      return sleep(300).then(() => {
+        const bad = e.rows.findIndex((r) => r.key.some((k) => k.value === "999"));
+        if (bad >= 0) throw `第 ${bad + 1} 处更改影响了 0 行（应为 1 行）：该行可能已被修改或删除，全部更改已撤回`;
+        return e.rows.length;
       });
     }
     case "db_history":

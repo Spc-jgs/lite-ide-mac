@@ -477,6 +477,7 @@ pub fn run() {
             commands::db_history,
             commands::db_export,
             commands::db_scalar,
+            commands::db_apply,
             commands::gradle_project,
             commands::gradle_tasks,
             commands::java_method_sig,
