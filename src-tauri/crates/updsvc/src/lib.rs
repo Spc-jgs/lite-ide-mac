@@ -5,7 +5,8 @@
 //! 下载    curl 把 .app.tar.gz 下到应用缓存目录（设上限）
 //! 校验    minisign 签名，公钥编在应用里 —— 包和 latest.json 都可能被换（下载地址、中间人），只有签名说了算
 //! 装      解到 .app 旁边的临时目录（同一个卷，改名是原子的）→ 认一认是不是我们（CFBundleIdentifier）→ 旧的改名挪开、新的改名进来
-//!         （第二步失败就挪回去）→ 旧的扔进废纸篓（能找回来）
+//!         （第二步失败就挪回去）。旧的留在旁边一个带 pid 的隐藏名字下，新版本起来之后扔进废纸篓（[`leftovers`]）——
+//!         这时旧进程已经退了：扔一个还在跑的应用要靠 Finder 认不认（没实测，不去赌），等它退了再扔就不用问这个
 //! ```
 //!
 //! 为什么不用 Tauri 的更新插件：它带进来 reqwest + 一整套 TLS（正式包变大），2.13 起还要 Tauri ^2.12（我们在 2.11）。
@@ -31,12 +32,13 @@ pub fn target() -> &'static str {
     if cfg!(target_arch = "aarch64") { "darwin-aarch64" } else { "darwin-x86_64" }
 }
 
-/// latest.json → 这台机器的那一份。先找本机架构的，没有找 `darwin-universal`（universal 包两种机器都能装）
-pub fn parse_manifest(text: &str, target: &str) -> Result<Release, String> {
+/// latest.json → 这台机器的那一份。先找本机架构的，没有找 `darwin-universal`（universal 包两种机器都能装）。
+/// `allow_file`：包的地址许 `file://`（只给测试通道：验收脚本用本机文件当发布）
+pub fn parse_manifest(text: &str, target: &str, allow_file: bool) -> Result<Release, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| format!("更新信息不是 JSON：{e}"))?;
     let version = v["version"].as_str().ok_or("更新信息里没有版本号")?.trim_start_matches('v').to_string();
     let p = [target, "darwin-universal"].iter().map(|k| &v["platforms"][*k]).find(|p| p.is_object()).ok_or_else(|| format!("这次发布没有给 {target} 的包"))?;
-    let url = p["url"].as_str().filter(|u| u.starts_with("https://")).ok_or("包的地址不是 https 的")?.to_string();
+    let url = p["url"].as_str().filter(|u| u.starts_with("https://") || (allow_file && u.starts_with("file://"))).ok_or("包的地址不是 https 的")?.to_string();
     let signature = p["signature"].as_str().filter(|s| !s.is_empty()).ok_or("这次发布的包没有签名")?.to_string();
     Ok(Release { version, notes: v["notes"].as_str().unwrap_or("").to_string(), url, signature })
 }
@@ -56,13 +58,35 @@ pub fn newer(a: &str, b: &str) -> bool {
 
 /// 校验签名：`signature`、`pubkey` 都是 Tauri 签名工具写的 base64（里面是 minisign 的文本格式）
 pub fn verify(data: &[u8], signature: &str, pubkey: &str) -> Result<(), String> {
+    let (key, sig) = decode(signature, pubkey)?;
+    key.verify(data, &sig, true).map_err(|_| "签名对不上：这个包不是我们发的，或者下载坏了 —— 没装".to_string())
+}
+
+/// 校验盘上的一个文件（包几百 MB，按块喂给校验器，不整个读进内存）。Tauri 签名工具签的是预哈希的那种，流式校验认得
+pub fn verify_file(path: &Path, signature: &str, pubkey: &str) -> Result<(), String> {
+    use std::io::Read;
+    let (key, sig) = decode(signature, pubkey)?;
+    let mut v = key.verify_stream(&sig).map_err(|e| format!("签名格式不对：{e}"))?;
+    let mut f = std::fs::File::open(path).map_err(|e| format!("读不了下载的包：{e}"))?;
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| format!("读不了下载的包：{e}"))?;
+        if n == 0 {
+            break;
+        }
+        v.update(&buf[..n]);
+    }
+    v.finalize().map_err(|_| "签名对不上：这个包不是我们发的，或者下载坏了 —— 没装".to_string())
+}
+
+fn decode(signature: &str, pubkey: &str) -> Result<(minisign_verify::PublicKey, minisign_verify::Signature), String> {
     let b64 = |s: &str| -> Result<String, String> {
         let raw = base64::engine::general_purpose::STANDARD.decode(s.trim()).map_err(|e| format!("签名 / 公钥不是 base64：{e}"))?;
         String::from_utf8(raw).map_err(|_| "签名 / 公钥解出来不是文本".to_string())
     };
     let key = minisign_verify::PublicKey::decode(&b64(pubkey)?).map_err(|e| format!("公钥不对：{e}"))?;
     let sig = minisign_verify::Signature::decode(&b64(signature)?).map_err(|e| format!("签名格式不对：{e}"))?;
-    key.verify(data, &sig, true).map_err(|_| "签名对不上：这个包不是我们发的，或者下载坏了 —— 没装".to_string())
+    Ok((key, sig))
 }
 
 /// 读 latest.json（小文件，读前 64 KB）
@@ -97,9 +121,10 @@ pub fn bundle_id(app: &Path) -> Option<String> {
     Some(rest[a..a + b].trim().to_string())
 }
 
-/// 装：`tarball` 解到 `app` 旁边的临时目录，认过身份，换掉 `app`。旧的交给 `trash`（扔进废纸篓，能找回来）。
+/// 装：`tarball` 解到 `app` 旁边的临时目录，认过身份，换掉 `app`。返回旧的挪到了哪（`.lite-ide-old-<pid>.app`）——
+/// 这时它还在跑（就是我们自己），等新版本起来、它退了再扔（[`leftovers`]）。
 /// 每一步失败都停在「旧的还在原处」的样子：解不开 / 身份不对 → 不动；新的挪不进来 → 旧的挪回去
-pub fn install(app: &Path, tarball: &Path, trash: &dyn Fn(&Path) -> Result<(), String>) -> Result<(), String> {
+pub fn install(app: &Path, tarball: &Path) -> Result<PathBuf, String> {
     let id = bundle_id(app).ok_or("认不出现在这个应用（不是从 .app 里跑的？）")?;
     let dir = app.parent().ok_or("找不到应用所在的目录")?;
     let staging = dir.join(format!(".lite-ide-update-{}", std::process::id()));
@@ -130,15 +155,29 @@ pub fn install(app: &Path, tarball: &Path, trash: &dyn Fn(&Path) -> Result<(), S
             let _ = std::fs::rename(&old, app);
             return Err(format!("新版本挪不进去，已经换回原来的：{e}"));
         }
-        // 旧的进废纸篓：万一新版本有问题，能从废纸篓里拖回来
-        if let Err(e) = trash(&old) {
-            return Err(format!("装好了，但旧版本没扔进废纸篓（在 {}，可以自己删）：{e}", old.display()));
-        }
-        Ok(())
+        Ok(old)
     })();
     // 临时目录这时应该是空的（新的 .app 挪走了）；不空就是失败了一半，留着里面的东西给人看，不递归删
     let _ = std::fs::remove_dir(&staging);
     r
+}
+
+/// `app` 旁边上一次更新换下来的旧版本（[`install`] 起的名字），不算 pid 是 `me` 的那个（我们自己刚换下来、还在跑）。
+/// 新版本起来之后交给废纸篓：万一新版本有问题，能从废纸篓里拖回来
+pub fn leftovers(app: &Path, me: u32) -> Vec<PathBuf> {
+    let Some(dir) = app.parent() else { return Vec::new() };
+    let mine = format!(".lite-ide-old-{me}.app");
+    std::fs::read_dir(dir)
+        .map(|r| {
+            r.flatten()
+                .filter(|e| {
+                    let n = e.file_name().to_string_lossy().into_owned();
+                    n != mine && n.strip_prefix(".lite-ide-old-").and_then(|x| x.strip_suffix(".app")).is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()))
+                })
+                .map(|e| e.path())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -161,6 +200,22 @@ mod tests {
         assert!(verify(PAYLOAD, SIG, other).unwrap_err().contains("签名对不上"), "是真的另一把钥匙（不是格式坏了）");
     }
 
+    #[test]
+    #[allow(clippy::disallowed_methods)] // 测试自己的临时文件
+    fn 盘上的包_流式校验_和整个读进来的结论一样() {
+        let d = std::env::temp_dir().join(format!("lite-upd-file-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&d);
+        let (good, bad) = (d.join("good.bin"), d.join("bad.bin"));
+        std::fs::write(&good, PAYLOAD).unwrap();
+        let mut b = PAYLOAD.to_vec();
+        b[3] ^= 1;
+        std::fs::write(&bad, &b).unwrap();
+        verify_file(&good, SIG, PUB).unwrap();
+        assert!(verify_file(&bad, SIG, PUB).unwrap_err().contains("签名对不上"));
+        assert!(verify_file(&d.join("没有.bin"), SIG, PUB).is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     /// 造一个假的 .app：目录 + Info.plist（只有 CFBundleIdentifier）+ 一个标记文件
     #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
     fn fake_app(at: &Path, id: &str, mark: &str) {
@@ -170,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn 装_换成新的_旧的交给废纸篓_包里的应用不是这个就不动() {
+    fn 装_换成新的_旧的挪到旁边_包里的应用不是这个就不动() {
         let d = std::env::temp_dir().join(format!("lite-upd-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&d);
         let app = d.join("dir/lite-ide.app");
@@ -180,16 +235,14 @@ mod tests {
         fake_app(&src.join("lite-ide.app"), "com.liteide.app", "new");
         let tgz = d.join("new.tar.gz");
         assert!(Command::new("/usr/bin/tar").arg("-czf").arg(&tgz).arg("-C").arg(&src).arg("lite-ide.app").status().unwrap().success());
-        let trashed = std::sync::Mutex::new(Vec::<PathBuf>::new());
-        install(&app, &tgz, &|p| {
-            trashed.lock().unwrap().push(p.to_path_buf());
-            Ok(())
-        })
-        .unwrap();
+        let old = install(&app, &tgz).unwrap();
         assert_eq!(std::fs::read_to_string(app.join("Contents/mark")).unwrap(), "new", "原来的位置上是新版本");
-        let t = trashed.lock().unwrap().clone();
-        assert_eq!(t.len(), 1);
-        assert_eq!(std::fs::read_to_string(t[0].join("Contents/mark")).unwrap(), "old", "旧的交给了废纸篓（没自己删）");
+        assert_eq!(std::fs::read_to_string(old.join("Contents/mark")).unwrap(), "old", "旧的挪到了旁边（没删）");
+        // 新版本起来时（pid 不一样）认得出它；换下它的那个进程自己不认（它还在跑）
+        assert_eq!(leftovers(&app, std::process::id()), Vec::<PathBuf>::new());
+        assert_eq!(leftovers(&app, 1), vec![old.clone()]);
+        fake_app(&d.join("dir/.lite-ide-old-x.app"), "com.liteide.app", "不是我们起的名字");
+        assert_eq!(leftovers(&app, 1), vec![old.clone()], "名字不是 .lite-ide-old-<数字>.app 的不碰");
         assert!(std::fs::read_dir(d.join("dir")).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with(".lite-ide-update")), "临时目录收掉了");
 
         // 包里的应用不是这个：一个字都不动
@@ -197,7 +250,7 @@ mod tests {
         fake_app(&other.join("lite-ide.app"), "com.evil.app", "evil");
         let tgz2 = d.join("evil.tar.gz");
         assert!(Command::new("/usr/bin/tar").arg("-czf").arg(&tgz2).arg("-C").arg(&other).arg("lite-ide.app").status().unwrap().success());
-        let e = install(&app, &tgz2, &|_| Ok(())).unwrap_err();
+        let e = install(&app, &tgz2).unwrap_err();
         assert!(e.contains("不是这个"), "{e}");
         assert_eq!(std::fs::read_to_string(app.join("Contents/mark")).unwrap(), "new", "没动");
         #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
@@ -218,10 +271,13 @@ mod tests {
         let j = r#"{ "version": "v1.6.0", "notes": "改了些东西", "platforms": {
             "darwin-aarch64": { "url": "https://github.com/x/y/releases/download/v1.6.0/lite-ide.app.tar.gz", "signature": "sig-a" },
             "darwin-universal": { "url": "https://github.com/x/y/releases/download/v1.6.0/lite-ide-universal.app.tar.gz", "signature": "sig-u" } } }"#;
-        let r = parse_manifest(j, "darwin-aarch64").unwrap();
+        let r = parse_manifest(j, "darwin-aarch64", false).unwrap();
         assert_eq!((r.version.as_str(), r.signature.as_str(), r.notes.as_str()), ("1.6.0", "sig-a", "改了些东西"));
-        assert_eq!(parse_manifest(j, "darwin-x86_64").unwrap().signature, "sig-u");
+        assert_eq!(parse_manifest(j, "darwin-x86_64", false).unwrap().signature, "sig-u");
         let http = j.replace("https://github.com/x/y/releases/download/v1.6.0/lite-ide.app", "http://evil/lite-ide.app");
-        assert!(parse_manifest(&http, "darwin-aarch64").is_err(), "明文 http 的不认（签名照样会挡，但没必要去下）");
+        assert!(parse_manifest(&http, "darwin-aarch64", false).is_err(), "明文 http 的不认（签名照样会挡，但没必要去下）");
+        let file = j.replace("https://github.com/x/y/releases/download/v1.6.0/lite-ide.app", "file:///tmp/lite-ide.app");
+        assert!(parse_manifest(&file, "darwin-aarch64", false).is_err(), "正式包不认本机文件");
+        assert!(parse_manifest(&file, "darwin-aarch64", true).is_ok(), "测试通道认");
     }
 }

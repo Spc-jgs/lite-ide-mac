@@ -55,7 +55,7 @@ SD='const d = document.querySelector(".dialog.settings"); const cat = (n) => [..
 lite menu open-settings main >/dev/null
 lite_wait main "return !!document.querySelector('.dialog.settings .row')" 10 >/dev/null
 CATS=$(lite_eval main "${SD} return [...d.querySelectorAll('.cat')].map((c) => c.innerText.replace(/\n/g, ' ')).join('|')")
-ok "$([ "${CATS}" = "外观|键位|终端|Java 与 JDK|Maven|此项目 $(basename "${A}")" ] && echo 1)" "⌘, 开的是对话框，有「此项目」那一类：${CATS}"
+ok "$([ "${CATS}" = "外观|键位|终端|Java 与 JDK|Maven|更新|此项目 $(basename "${A}")" ] && echo 1)" "⌘, 开的是对话框，有「此项目」那一类：${CATS}"
 lite menu toggle-sidebar main >/dev/null; sleep 0.2
 ok "$([ "$(lite_eval main "return document.querySelector('.dialog.settings')?.classList.contains('nudge') ?? false")" = true ] && echo 1)" "对话框开着时点菜单：被挡下、对话框顶一下（真模态）"
 lite_eval main "${SD} cat('Maven').click(); await new Promise((r) => setTimeout(r, 150)); put(rowOf('maven.extraArgs').querySelector('input'), '-T 2'); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null

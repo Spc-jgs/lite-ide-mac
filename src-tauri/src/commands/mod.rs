@@ -30,6 +30,7 @@ mod scratch;
 mod search;
 mod settings;
 mod tasks;
+mod update;
 
 pub use agent::*;
 pub use app::*;
@@ -48,6 +49,7 @@ pub use scratch::*;
 pub use search::*;
 pub use settings::*;
 pub use tasks::*;
+pub use update::*;
 
 /// 把一段**会阻塞**的活挪到 tokio 的阻塞池上。
 ///

@@ -887,6 +887,17 @@ export interface ScratchEntry {
 }
 
 /** 「安装命令行工具…」的结果（issue #40） */
+/** 自动更新的状态（docs/TAKEOVER.md MVP-8） */
+export interface UpdateInfo {
+  phase: "idle" | "checking" | "downloading" | "ready" | "latest" | "failed" | "unsupported";
+  /** 新版本号；latest 时是现在的版本 */
+  version: string;
+  /** 现在跑的版本 */
+  current: string;
+  notes: string;
+  error: string;
+}
+
 export interface CliInstall {
   /** 脚本真身的路径 */
   script: string;

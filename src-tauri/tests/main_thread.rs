@@ -75,6 +75,8 @@ const ALLOW: &[(&str, &str)] = &[
     ("task_close", "内存：摘表，收尾在后台线程里"),
     ("task_stale", "例外：proc_pidinfo 核对组长还在不在（系统调用，不碰盘）"),
     ("task_stop", "内存：发信号，等待在后台线程里"),
+    // ── update.rs ──
+    ("update_status", "内存：读更新的状态"),
 ];
 
 /// 源码里同步的命令：`#[tauri::command]` 后面（跳过属性和文档注释）是 `pub fn`（不是 `pub async fn`）

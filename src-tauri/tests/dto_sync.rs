@@ -70,6 +70,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("ScratchDto", "ScratchEntry"),
     ("AnchorDto", "ScratchAnchor"),
     ("CliInstallDto", "CliInstall"),
+    ("UpdateDto", "UpdateInfo"),
     ("ReplaceHitDto", "ReplaceHit"),
     ("ReplaceFileDto", "ReplaceFile"),
     ("ReplaceSkipDto", "ReplaceSkip"),

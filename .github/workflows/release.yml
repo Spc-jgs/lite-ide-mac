@@ -83,12 +83,30 @@ jobs:
       - name: 打 universal 包
         run: pnpm tauri build --target universal-apple-darwin --config src-tauri/tauri.java.json
 
+      # 自动更新的包（docs/TAKEOVER.md MVP-8）：.app.tar.gz + 签名 + latest.json。私钥只在仓库的 Actions secret 里
+      # （TAURI_SIGNING_PRIVATE_KEY，生成时没设密码的话 _PASSWORD 不用配）；没配就跳过，这次发布只有 .dmg、装了的人收不到更新。
+      # latest.json 跟着草稿一起传，点了 Publish 才对外可见 —— 应用读的是「最新一个 Release」的下载地址（src-tauri/src/update.rs 的 MANIFEST）
+      - name: 打自动更新的包
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning::没配 TAURI_SIGNING_PRIVATE_KEY：这次发布不带自动更新的包（docs/RELEASE.md「自动更新」）"
+            exit 0
+          fi
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          scripts/update-pack.sh src-tauri/target/universal-apple-darwin/release/bundle/macos/lite-ide.app "$tag" \
+            "https://github.com/${{ github.repository }}/releases/download/$tag/lite-ide.app.tar.gz" update-out
+
       - name: 建草稿 Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ github.event.inputs.tag || github.ref_name }}"
           dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          assets=("$dmg")
+          [ -f update-out/latest.json ] && assets+=(update-out/lite-ide.app.tar.gz update-out/latest.json)
           echo "产物：$dmg ($(du -h "$dmg" | cut -f1))"
           cat > notes.md <<'NOTES'
           ## 安装
@@ -110,7 +128,7 @@ jobs:
 
           变化见下（发布前请补充）。
           NOTES
-          gh release create "$tag" "$dmg" \
+          gh release create "$tag" "${assets[@]}" \
             --title "$tag" \
             --notes-file notes.md \
             --draft

@@ -288,6 +288,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "quit": return void requestQuit().catch(() => {});
     // 设置对话框（docs/SETTINGS.md 第 13 节）。原来 ⌘, 直接开 settings.json；文件还在，对话框底下「打开 settings.json」
     case "open-settings": return void import("../settings/open").then((m) => m.openSettingsDialog(project.root));
+    case "check-update": return void import("../update/check").then((m) => m.checkUpdate());
     case "debug-breakpoints":
       if (!project.root) return notify.hint("先打开一个项目：断点是按项目的");
       return void import("../settings/open").then((m) => m.openBreakpoints(project.root!));

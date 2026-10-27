@@ -215,6 +215,29 @@ pnpm tauri build --target universal-apple-darwin
 
 注意 universal 包大约是单架构的两倍大。日常自用没必要，`pnpm app:bundle` 就够。
 
+## 自动更新（docs/TAKEOVER.md MVP-8）
+
+装了的应用启动 30 秒后、之后每 12 小时读 `https://github.com/Spc-jgs/lite-ide-mac/releases/latest/download/latest.json`，
+版本比自己新就后台下 `lite-ide.app.tar.gz`、拿编在应用里的公钥验签，验过了状态栏出「重启更新到 x.y.z」。
+
+**要你做一次的**：把私钥加成仓库的 Actions secret。私钥在生成它的那台机器上 `~/.tauri/lite-ide.key`（2026-10-27 生成，没设密码）：
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/lite-ide.key
+```
+
+（或者网页上 Settings › Secrets and variables › Actions › New repository secret，名字 `TAURI_SIGNING_PRIVATE_KEY`，值是那个文件的全部内容。）
+**私钥丢了就再也发不出装着的应用认的更新**，备份一份到你的密码管理器里。
+
+配好之后 `release.yml` 每次发版多传两个文件：`lite-ide.app.tar.gz`（`.app` 打的包，`scripts/update-pack.sh` 签名）和 `latest.json`。
+没配的话那一步跳过、打一条警告，发布照常只有 `.dmg`。**草稿不算发布**：latest.json 跟着草稿传上去，点了 Publish 才是「最新一个 Release」，装着的应用才看得到。
+
+几条：
+
+- 只认 `https://` 的包地址；包和清单都可能被换，签名对不上一律不装（`scripts/accept/update.sh` 里有一条「改一个字节」）
+- 应用装在没写权限的地方（别的用户的 `/Applications`）换不了，状态栏点了会说原因、不退出
+- 带 Gatekeeper 的那个隔离属性只在浏览器下载时加；curl 下的包没有它，换上去的新版本不会再被拦一次
+
 ## CI 在做什么
 
 `.github/workflows/ci.yml`，每次 push 和 PR 都跑：

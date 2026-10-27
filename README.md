@@ -180,6 +180,7 @@ src-tauri/
   crates/histsvc/       本地历史（原始字节存、按编码读回来）
   crates/httpsvc/       `.http` 请求（起 curl）
   crates/acpsvc/        AI 助手的 agent（ACP：按行 JSON-RPC、进程组）
+  crates/updsvc/        自动更新（读 latest.json、minisign 验签、换 .app；下载走 curl）
   crates/applog/ excludes/   应用日志 · 哪些目录不进视野
 ```
 
@@ -193,7 +194,7 @@ cd src-tauri && cargo test --workspace    # Rust 438 条
 pnpm check                                # 类型检查
 pnpm test                                 # 前端 99 个文件
 scripts/smoke.sh                          # 真 .app 端到端 151 条（测试身份、不抢焦点、不碰真实数据）
-scripts/accept/*.sh                       # 13 份按领域的验收（真 jdtls / mvn / Gradle / java-debug）：java.sh 94 条、spring.sh 109 条、gradle.sh 27 条……
+scripts/accept/*.sh                       # 14 份按领域的验收（真 jdtls / mvn / Gradle / java-debug）：java.sh 94 条、spring.sh 109 条、gradle.sh 27 条……
 ```
 
 前端测试不引测试框架：纯函数（diff 解析、双栏对照、泳道布局、冲突解析……）直接跑 `.ts`；
@@ -210,7 +211,7 @@ CI 每次 push 都跑这三样，外加一道**入口包体积门禁**（超过 
 ## 状态
 
 v1.5.0，日常在用。立项时的 M0–M16、之后的整理 / 多窗口 / 编辑器基本功 / 任务运行做完；取代 IDEA 的分期做到了 MVP-7 的一半
-（MVP-0 到 MVP-5 齐了，AI 助手第一版，Gradle、Spring 配置补全做完；声明式集成包、Python / TS、自动更新器、数据库还没做）。
+（MVP-0 到 MVP-5 齐了，AI 助手第一版，Gradle、Spring 配置补全、自动更新器做完；声明式集成包、Python / TS、数据库还没做）。
 做到哪了、接下来按什么顺序，见 [TAKEOVER.md 第 8 节](docs/TAKEOVER.md)。
 
 ## 许可

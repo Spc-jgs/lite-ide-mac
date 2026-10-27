@@ -19,6 +19,7 @@
   import { scratchSaveState, SCRATCH_SAVE_LABEL } from "../state/autosave";
   import type { GitEntry } from "../ipc/commands";
   import { settings } from "../state/settings.svelte";
+  import { lazy } from "../lazy/lazy.svelte";
 
   let {
     active,
@@ -51,6 +52,10 @@
     onSetIndent: (ind: "tab" | number) => void;
     onSetEol: (eol: "LF" | "CRLF") => void;
   } = $props();
+
+  // 首屏画完再拉：Rust 最早也是启动 30 秒后才去查（update.rs），新开的窗口拉到时问一次现状
+  const updateCell = lazy(() => import("../update/UpdateCell.svelte"), "更新提示");
+  setTimeout(() => updateCell.load(), 1500);
 
   let crumbs = $derived(active ? crumbsOf(root, active.path, active.name) : []);
 
@@ -135,6 +140,9 @@
     >设置有 {ps.length} 处问题</button>
     <span class="vsep" aria-hidden="true"></span>
   {/if}
+
+  <!-- 新版下好了、验过签名（docs/TAKEOVER.md MVP-8）：「重启更新到 x.y.z」那一格，懒的（只在下好了才有东西画，update/UpdateCell.svelte） -->
+  {#if updateCell.comp}<updateCell.comp />{/if}
 
   <!--
     后台任务的进度格（照 IDEA 右下角）：文字 · 3px 条 · 百分比 · 取消。只画最新的一个，

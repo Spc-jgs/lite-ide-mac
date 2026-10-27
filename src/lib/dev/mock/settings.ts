@@ -73,6 +73,7 @@ const SCHEMA = [
   { key: "maven.localRepository", label: "本地仓库", kind: "string", default: '""', doc: "Maven 本地仓库，空 = settings.xml 里写的", min: null, max: null },
   { key: "maven.extraArgs", label: "每条 mvn 都带的参数", kind: "string", default: '""', doc: "每条 mvn 都带上的参数", min: null, max: null },
   { key: "maven.opts", label: "MAVEN_OPTS（Maven 自己的 JVM 参数）", kind: "string", default: '""', doc: "MAVEN_OPTS", min: null, max: null },
+  { key: "update.check", label: "自动检查更新", kind: "boolean", default: "true", doc: "启动后和之后每 12 小时看一眼有没有新版", min: null, max: null },
 ];
 
 /** 设置页写过的值（桩里没有 settings.json：写进这张表，读的时候盖在默认值上） */

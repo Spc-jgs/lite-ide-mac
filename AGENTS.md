@@ -17,6 +17,7 @@ scripts/build-test-app.sh      # 带测试通道的临时身份 .app（验收用
 scripts/ls-clean.sh            # 注销系统登记里已经不在盘上的 lite-ide（打 .dmg 挂载的临时卷每次留一条）；app:bundle 末尾自动跑
 python3 design/icon/make_icon.py # 重新生成应用图标（Assets.car + icon.icns + 几张 PNG，要 Xcode 26+）。改图标只改这个脚本，产物都提交
 scripts/accept/settings.sh     # 走测试通道的真 .app 验收样板：不发按键、不读 AX、不截图、不抢焦点。设置对话框（写回 settings.json 注释还在、恢复默认、写坏了不动刀、真模态、此项目）；键位可改（22 条：录键时摘掉菜单的键、keymap.json 只存改过的、菜单和两个窗口里开着的编辑器当场换、手改文件不用重启）
+scripts/accept/update.sh       # 自动更新从头走到尾（15 条，不上网：「发布」是本机文件、密钥现生成、装的是测试应用的拷贝）：比现在旧的不下、包改了一个字节不认、真新版下好验过签名状态栏出「重启更新」、点了换 .app 退出起新的、新的起来后旧的清走
 scripts/accept/tasks.sh        # 任务运行的机制（39 条，含日志跟随时往上翻不被拽回去）；quit.sh 是 Dock 右键退出那条路（6 条）
 scripts/accept/tasks-real.sh   # 你机器上的真 mvn / pnpm / python（缺哪样哪段记「未验」）
 scripts/accept/merge.sh        # 几份日志按时间合并（15 条）：顺序、堆栈不拆散、过滤、偏移、跨块、会话恢复
@@ -128,7 +129,7 @@ macOS 自带的 bash 3.2 在双引号里的 `$(…)` 里照样做花括号展开
 | AI 助手（ACP 宿主：Claude Code / Codex） | [docs/AI.md](docs/AI.md) —— 改动先进编辑器不落盘、问人的不超时、写只许写项目里的；第 0 步实测；测试通道里起的是假 agent |
 | 想照别的项目的做法改 | [docs/research/codex.md](docs/research/codex.md) —— 读 Codex 的五个主题：对照结论、学了什么、为什么不学 |
 | 体验好不好、该先补哪个缺口 | [docs/research/editor-standards.md](docs/research/editor-standards.md) —— 用「编辑器为什么被骂、为什么成名」的七条审过一遍，每条有证据 |
-| 发版 / CI | [docs/RELEASE.md](docs/RELEASE.md) |
+| 发版 / CI / 自动更新 | [docs/RELEASE.md](docs/RELEASE.md) —— 自动更新的包由 release.yml 签名（私钥只在 Actions secret 里），应用里编着公钥（`src-tauri/src/update.rs`） |
 
 Claude Code 会在读到匹配文件时自动加载 `.claude/rules/*.md`（靠 frontmatter 里的
 `paths:`），别的 agent 按上表自己打开。

@@ -144,6 +144,8 @@ export const KEYS: KeyDef[] = [
    * 在应用菜单里（macOS 惯例：「关于」下面），⌘, 是 macOS 和 IDEA 共同的设置键。没有窗口时也能点（开一个窗口打开它）
    */
   { id: "open-settings", label: "设置…", accel: "⌘,", group: "文件", owner: "menu" },
+  /* 自动更新（docs/TAKEOVER.md MVP-8）：应用菜单里、「设置…」下面，同 IDEA 的 Check for Updates…。手动查一次、说结果；设置里关了自动查也能用 */
+  { id: "check-update", label: "检查更新…", group: "文件", owner: "menu" },
 
   // ── 导航 ──
   /*

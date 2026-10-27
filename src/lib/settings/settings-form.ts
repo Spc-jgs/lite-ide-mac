@@ -4,7 +4,7 @@
  */
 import type { SettingDef, SettingsPage } from "../ipc/commands";
 
-export type Cat = "appearance" | "terminal" | "java" | "maven" | "project" | "keymap";
+export type Cat = "appearance" | "terminal" | "java" | "maven" | "system" | "project" | "keymap";
 
 /** 左边那一列。「此项目」只在打开了项目时出现（调用方过滤） */
 export const CATS: { id: Cat; label: string }[] = [
@@ -14,14 +14,17 @@ export const CATS: { id: Cat; label: string }[] = [
   { id: "terminal", label: "终端" },
   { id: "java", label: "Java 与 JDK" },
   { id: "maven", label: "Maven" },
+  // IDEA 的 Appearance & Behavior › System Settings › Updates：放最后、在「此项目」前（它是全局的）
+  { id: "system", label: "更新" },
   { id: "project", label: "此项目" },
 ];
 
-/** 一个键归哪一类：按键名的前缀（`editor.` `terminal.` `java.` `maven.`），和 settings.json 里的写法一个分法 */
+/** 一个键归哪一类：按键名的前缀（`editor.` `terminal.` `java.` `maven.` `update.`），和 settings.json 里的写法一个分法 */
 export function catOf(key: string): Cat {
   if (key.startsWith("terminal.")) return "terminal";
   if (key.startsWith("java.")) return "java";
   if (key.startsWith("maven.")) return "maven";
+  if (key.startsWith("update.")) return "system";
   return "appearance";
 }
 

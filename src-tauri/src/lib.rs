@@ -27,6 +27,7 @@ mod projectcfg;
 mod settings;
 mod settingsctl;
 mod taskdefs;
+mod update;
 #[cfg(feature = "test-bridge")]
 mod testbridge;
 
@@ -191,6 +192,8 @@ pub fn run() {
 
             // 设置在任何窗口的前端开口要它之前读好（前端挂载前就 await settings()，见 settingsctl::init）
             settingsctl::init(app.handle());
+            // 自动更新：30 秒后清掉上一版、按设置查（update.rs）
+            update::start(app.handle());
             #[cfg(feature = "test-bridge")]
             {
                 testbridge::start(app.handle());
@@ -294,6 +297,9 @@ pub fn run() {
             commands::create_scratch,
             commands::list_scratches,
             commands::install_cli,
+            commands::update_status,
+            commands::update_check,
+            commands::update_apply,
             commands::discard_empty_scratch,
             commands::move_entry,
             commands::rename_entry,
@@ -517,6 +523,8 @@ pub fn run() {
                 tauri::Manager::state::<state::AppState>(app).kill_all_runs();
                 // jdtls 同理：退出流程里按协议说过再见了（winctl::quit），还没走的强杀
                 tauri::Manager::state::<state::AppState>(app).java.kill_all();
+                // 点过「重启更新」：新的已经换进来了，起它（update.rs）
+                update::relaunch_on_exit();
             }
             _ => {}
         });

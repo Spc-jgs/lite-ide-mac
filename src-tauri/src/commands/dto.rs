@@ -286,6 +286,20 @@ pub struct ScratchDto {
     pub anchor: Option<AnchorDto>,
 }
 
+/// 自动更新的状态（docs/TAKEOVER.md MVP-8）
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDto {
+    /// idle / checking / downloading / ready / latest / failed / unsupported
+    pub phase: String,
+    /// 新版本号（downloading / ready）；latest 时是现在的版本
+    pub version: String,
+    /// 现在跑的版本
+    pub current: String,
+    pub notes: String,
+    pub error: String,
+}
+
 /// 「安装命令行工具…」的结果（issue #40）。
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

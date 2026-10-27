@@ -183,6 +183,13 @@ pub const DEFS: &[Def] = &[
         default: "\"\"",
         doc: "MAVEN_OPTS：跑 Maven 本身的 JVM 的参数（如 \"-Xmx2g\"）。不是你程序的 JVM 参数 —— 那个在运行配置里",
     },
+    Def {
+        key: "update.check",
+        label: "自动检查更新",
+        kind: Kind::Bool,
+        default: "true",
+        doc: "启动后和之后每 12 小时去 GitHub Release 看一眼有没有新版；有就在后台下好、验过签名，状态栏出一个「重启更新」，点了才换。不发任何关于你的信息（只是下载一个公开文件）。关掉后菜单「检查更新…」照样能手动查",
+    },
 ];
 
 /// jdtls 内存的范围（MB）
@@ -218,6 +225,7 @@ pub struct Settings {
     pub maven_local_repository: String,
     pub maven_extra_args: String,
     pub maven_opts: String,
+    pub update_check: bool,
 }
 
 impl Default for Settings {
@@ -241,6 +249,7 @@ impl Default for Settings {
             maven_local_repository: String::new(),
             maven_extra_args: String::new(),
             maven_opts: String::new(),
+            update_check: true,
         }
     }
 }
@@ -266,6 +275,7 @@ impl Settings {
             "java.jdks" => self.java_jdks = list(),
             "java.hotswapOnSave" => self.java_hotswap_on_save = b(),
             "maven.useWrapper" => self.maven_use_wrapper = b(),
+            "update.check" => self.update_check = b(),
             "maven.home" => self.maven_home = s(),
             "maven.settingsFile" => self.maven_settings_file = s(),
             "maven.localRepository" => self.maven_local_repository = s(),
@@ -656,6 +666,7 @@ pub fn values(s: &Settings) -> serde_json::Map<String, Value> {
             "maven.localRepository" => Value::from(s.maven_local_repository.clone()),
             "maven.extraArgs" => Value::from(s.maven_extra_args.clone()),
             "maven.opts" => Value::from(s.maven_opts.clone()),
+            "update.check" => Value::from(s.update_check),
             _ => continue,
         };
         m.insert(d.key.to_string(), v);

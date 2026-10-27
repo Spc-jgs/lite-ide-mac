@@ -381,6 +381,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .about_with_text("关于 lite-ide", None)
         .separator()
         .item(&item(app, "open-settings", "设置…", Some("CmdOrCtrl+,"))?)
+        .item(&item(app, "check-update", "检查更新…", None)?)
         .separator()
         .services_with_text("服务")
         .separator()
