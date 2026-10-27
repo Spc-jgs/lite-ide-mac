@@ -126,14 +126,20 @@ pub fn pack_for<'a>(packs: &'a [Pack], path: &str) -> Option<&'a Pack> {
     packs.iter().find(|p| p.files.iter().any(|pat| name_matches(pat, name)))
 }
 
-/// 这个文件归哪个根：从它所在的目录往上，第一层有包里 `roots` 列的文件的；到项目根还没有就是项目根
+/// 这个文件归哪个根：从它所在的目录往上，第一层有包里 `roots` 列的文件的；到项目根还没有就是项目根。
+/// **项目外的文件（⌘B 跳进标准库、依赖的源码）直接归项目根**：先判「还在不在项目里」再找 `Cargo.toml` —— 反过来的话，
+/// 跳进一个就挨着 `Cargo.toml` 的文件（标准库的 `library/std/build.rs`、依赖 crate 根上的 `build.rs`）时那一层会被认成根，
+/// 为看一眼源码再起一个以它为根的 rust-analyzer（项目的那个本来就索引了它）。`src/` 底下的文件碰不上：第一层就出了项目、停了
 pub fn root_for(pack: &Pack, project_root: &Path, path: &Path) -> PathBuf {
     let mut dir = path.parent();
     while let Some(d) = dir {
+        if !d.starts_with(project_root) {
+            break;
+        }
         if pack.roots.iter().any(|r| d.join(r).exists()) {
             return d.to_path_buf();
         }
-        if d == project_root || !d.starts_with(project_root) {
+        if d == project_root {
             break;
         }
         dir = d.parent();
@@ -646,6 +652,13 @@ mod tests {
         let rust = parse_pack(BUILTIN[0]).unwrap();
         assert_eq!(root_for(&rust, &d, &d.join("crates/a/src/lib.rs")), d.join("crates/a"));
         assert_eq!(root_for(&rust, &d, &d.join("scripts/x.rs")), d, "到项目根还没有：项目根");
+        // 项目外、就挨着 Cargo.toml 的文件（标准库的 library/std/build.rs）：还是项目根，不另起一个
+        let ext = std::env::temp_dir().join(format!("langs-ext-{}", std::process::id()));
+        std::fs::create_dir_all(ext.join("std/src")).unwrap();
+        std::fs::write(ext.join("std/Cargo.toml"), "").unwrap();
+        assert_eq!(root_for(&rust, &d.join("crates/a"), &ext.join("std/build.rs")), d.join("crates/a"), "项目外、挨着 Cargo.toml 的文件归项目根");
+        assert_eq!(root_for(&rust, &d.join("crates/a"), &ext.join("std/src/vec.rs")), d.join("crates/a"), "项目外 src/ 底下的也归项目根");
+        let _ = std::fs::remove_dir_all(&ext);
         let _ = std::fs::remove_dir_all(&d);
     }
 

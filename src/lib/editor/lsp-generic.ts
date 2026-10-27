@@ -268,11 +268,13 @@ function wordAt(doc: Text, pos: number): { from: number; to: number } | null {
   return { from: line.from + a, to: line.from + b };
 }
 
-/** 落点 → 跳到哪。项目外的（标准库、依赖的源码）这一版不跳：nav 只认项目里的路径 */
+/**
+ * 落点 → 跳到哪。项目外的（标准库、依赖的源码）开成只读标签：`uri` 给绝对路径，`tabflow.openClass` 认 `/` 开头的读盘（同 jar 里的类那条路）
+ */
 function targetOf(loc: JavaLocation, root: string, self: string): JumpHit["target"] | null {
   if (!loc.path) return null;
   if (loc.path === self) return { rel: "", line: loc.line + 1, col: loc.character + 1, why: "语言服务器" };
-  if (!loc.path.startsWith(`${root}/`)) return null;
+  if (!loc.path.startsWith(`${root}/`)) return { rel: "", uri: loc.path, label: loc.path.slice(loc.path.lastIndexOf("/") + 1), line: loc.line + 1, col: loc.character + 1, why: "语言服务器" };
   return { rel: loc.path.slice(root.length + 1), line: loc.line + 1, col: loc.character + 1, why: "语言服务器" };
 }
 
@@ -592,8 +594,9 @@ async function source(ctx: CompletionContext): Promise<CompletionResult | null> 
   };
 }
 
+/** 项目外的文件（⌘B 跳进来的标准库源码，只读标签）也接上：在里面接着 ⌘B、F1、⌥F7 —— 服务器还是项目的那个（`langs::root_for`） */
 export function lspGeneric(root: string | null, path: string, pack: LspPack): Extension {
-  if (!root || !path.startsWith(`${root}/`)) return [];
+  if (!root) return [];
   wire();
   return [
     // 编辑器上标一下「接着哪个语言包」：验收（lsp.sh）等它出现再按键 —— 这个扩展是问完包的列表才装上的，开文件当场就按键会落空

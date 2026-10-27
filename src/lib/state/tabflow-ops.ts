@@ -139,7 +139,10 @@ export async function trashScratch(path: string) {
 
 /**
  * jar 里的类（docs/IDEA.md 第 2 步）：jdtls 给的内容（依赖带源码 jar 就是源码，没有就是反编译的），开成只读标签。
- * 预览标签（同 ⌘B 跳进项目里的文件）：沿着 ⌘B 追进好几个 jar 不该留下一排标签。返回开没开成
+ * 预览标签（同 ⌘B 跳进项目里的文件）：沿着 ⌘B 追进好几个 jar 不该留下一排标签。返回开没开成。
+ *
+ * `uri` 是 `/` 开头的绝对路径时是**项目外的文件**（语言包的 ⌘B 跳进标准库、依赖的源码，docs/LANGPACK.md）：读盘、同样开成只读 ——
+ * `~/.rustup`、`node_modules` 里的源码手滑改一个字，所有项目都受影响。只读标签不进会话快照、没有存盘那条路
  */
 /** 百分号解码；编码坏了（半截的 `%E5`）就原样用，不抛 */
 const decoded = (s: string) => {
@@ -160,7 +163,7 @@ export async function openClass(uri: string, label: string): Promise<boolean> {
   if (!root) return false;
   let content: string;
   try {
-    content = await (await import("../ipc/java")).javaClassContents(root, uri);
+    content = uri.startsWith("/") ? (await readText(uri)).content : await (await import("../ipc/java")).javaClassContents(root, uri);
   } catch (e) {
     notify.fail(`无法打开 ${label}：${e}`);
     return false;
@@ -185,7 +188,7 @@ export async function openMergedPath(path: string, opts: { quiet?: boolean } = {
 export function requestSwitchMode(tab: TabState) {
   // jar 里的类不是盘上的文件：没有日志模式可切，也没有「编辑」可言
   if (tab.mode === "class") {
-    notify.hint("jar 中的类为只读，不支持切换模式", 2200);
+    notify.hint("只读文件不支持切换模式", 2200);
     return;
   }
   // 合并标签背后是几份文件，没有「一份文本」可编辑

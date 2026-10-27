@@ -103,6 +103,22 @@ USES=$(lite_eval main "return [...document.querySelectorAll('.usages .row')].map
 ok "$(echo "${USES}" | grep -q 'main.rs' && echo 1)" "⌥F7 在 yuan 的声明上：列出 main.rs 里的调用（${USES}）"
 lite_eval main "document.querySelector('.usages')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
 
+echo "== ⌘B 跳进标准库：开成只读标签、不另起一个 rust-analyzer"
+if ! ls "$(dirname "$(dirname "${RA}")")"/../.rustup/toolchains/*/lib/rustlib/src/rust/library/std/src/macros.rs >/dev/null 2>&1 && ! rustup component list --installed 2>/dev/null | grep -q rust-src; then
+  echo "  未验：没装 rust-src（rustup component add rust-src）"
+else
+  open_ready "${P}/src/main.rs"
+  lite_eval main "${LINE_OF} const l = at('println'); __lite.caret(l, t[l - 1].indexOf('println') + 2); __lite.key('Mod-b'); return true" >/dev/null
+  lite_wait main "return (__lite.tabs.active?.path ?? '').includes('/rustlib/src/')" 30 >/dev/null
+  STD=$(lite_eval main "const a = __lite.tabs.active; return a.mode + '|' + a.name + '|' + __lite.where()")
+  ok "$(echo "${STD}" | grep -q '^class|macros.rs|' && echo 1)" "⌘B 在 println! 上：开了标准库的 macros.rs，只读标签（${STD}）"
+  BEFORE_T=$(lite_eval main "return __lite.text().length")
+  lite_eval main "__lite.type('手滑'); return true" >/dev/null 2>&1
+  ok "$([ "$(lite_eval main "return __lite.text().length")" = "${BEFORE_T}" ] && echo 1)" "只读：打字进不去（标准库的源码一个字没动）"
+  sleep 2
+  ok "$([ "$(pgrep -P "$(lite_pid)" -f rust-analyzer | wc -l | tr -d ' ')" = 1 ] && echo 1)" "rust-analyzer 还是一个（标准库那份 Cargo.toml 没被认成另一个根）"
+fi
+
 echo "== ⇧F6 重命名（跨文件、盘上真改了）、⌥⌘L 格式化、⌥↵ 快速修复"
 # 先把 main.rs 放回原样（上面补全那段打的半行留着会让 rust-analyzer 报错，改名的结果不好对）、存盘
 lite_eval main "await __lite.tabflow.openPath('${P}/src/main.rs', { preview: false }); return true" >/dev/null
