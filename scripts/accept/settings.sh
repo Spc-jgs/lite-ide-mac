@@ -105,6 +105,10 @@ for w in main w-1; do
   R=$(lite_eval "${w}" "__lite.caret(1, 1); const n = () => __lite.text().split('\\n').length; const a = n(); __lite.key('Mod-d'); const b = n(); __lite.key('Mod-Alt-d'); const c = n(); __lite.key('Mod-z'); return [a, b, c].join(',')")
   ok "$(python3 -c 'import sys; a,b,c=map(int,sys.argv[1].split(",")); print(1 if a==b and c==a+1 else 0)' "${R}" 2>/dev/null)" "${w} 里开着的编辑器当场换键（行数：原来,按 ⌘D,再按 ⌥⌘D）：${R}"
 done
+# 编辑器里的「保存」也跟着换（#53 顺带查出来的：原来编辑器写死了 Mod-s，改了键位焦点在编辑器里 ⌘S 照样存）
+SV=$(lite_eval main "const W = (ms) => new Promise((r) => setTimeout(r, ms)); __lite.caret(1, 1); __lite.type('Z'); await W(200); __lite.key('Mod-s'); await W(400); const a = __lite.tabs.active.dirty; __lite.key('Mod-Alt-s'); await W(600); const b = __lite.tabs.active.dirty; return a + ',' + b")
+ok "$([ "${SV}" = "true,false" ] && grep -q '^Z' "${A}/a.txt" && echo 1)" "改成 ⌥⌘S 之后，编辑器里按 ⌘S 不再存、按 ⌥⌘S 存上了（存前,存后的「未保存」：${SV}）"
+lite_eval main "const W = (ms) => new Promise((r) => setTimeout(r, ms)); __lite.key('Mod-z'); await W(200); __lite.key('Mod-Alt-s'); await W(600); return true" >/dev/null
 printf '{\n  "save": "⌃⌘S"\n}\n' > "${LITE_DATA}/keymap.json"
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(lite accel save)" = "Ctrl+CmdOrCtrl+S" ] && break; sleep 0.3; done
 ok "$([ "$(lite accel save)" = "Ctrl+CmdOrCtrl+S" ] && [ "$(lite_eval main "__lite.caret(1, 1); const a = __lite.text().split('\\n').length; __lite.key('Mod-d'); const b = __lite.text().split('\\n').length; __lite.key('Mod-z'); return b - a")" = 1 ] && echo 1)" "手改 keymap.json：菜单换成 ⌃⌘S，删掉的那条（复制行）回到 ⌘D —— 不用重启"

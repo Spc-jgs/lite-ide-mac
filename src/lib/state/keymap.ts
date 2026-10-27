@@ -13,10 +13,13 @@
  *
  * # `owner` 这一列是判据，不是注释
  *
- * macOS 的菜单项一旦带上 accelerator，AppKit 会**先把键吃掉**，
- * webview 收不到。所以同一个键位不能两边都接：
+ * 带 accelerator 的菜单项和页面里的 keydown 抢的是同一个键。**谁先拿到**，实测过的只有一种情形（2026-10-08，JOURNAL「⌘S 那一条」）：
+ * 焦点在编辑器里按 ⌘S，**网页先拿到**；网页 `preventDefault` 了，WKWebView 当它处理过，不再交给菜单栏，菜单事件一个都没有。
+ * （原来这里写的是「AppKit 先把键吃掉，webview 收不到」—— 和实测相反，#53。网页没处理时是不是一定轮到菜单、焦点在终端 / 文件树里是不是同样，还没真按键测过。）
+ * 不管谁先，同一个键位都不能两边都接：
  *
- * - 两边都接 → 双触发（⌘W 一下关掉两个标签）
+ * - 两边都接、网页不 `preventDefault` → 双触发（⌘W 一下关掉两个标签）
+ * - 两边都接、网页 `preventDefault` → 焦点在网页里时菜单那边的动作永远不跑
  * - 两边都不接 → 按了没反应
  *
  * **两种都不报错。** 于是 `owner` 决定了两件事，缺一不可：
@@ -124,6 +127,10 @@ export const KEYS: KeyDef[] = [
    * 把那句 sudo 摆出来，不提权。
    */
   { id: "install-cli", label: "安装命令行工具…", group: "文件", owner: "menu" },
+  /**
+   * 例外：编辑器也按这个 id 挂了一份（Editor.svelte，带 `preventDefault`）—— 焦点在编辑器里时网页先拿到 ⌘S（见文件头），编辑器存它自己那份文本；
+   * 别处（文件树、空白处）由菜单存当前标签。两条路存的是同一个标签，`preventDefault` 保证不会存两次
+   */
   { id: "save", label: "保存", accel: "⌘S", group: "文件", owner: "menu" },
   /** 草稿「毕业」成真文件、普通文件另存一份。原生面板，默认目录是项目根 */
   { id: "save-as", label: "另存为…", accel: "⇧⌘S", group: "文件", owner: "menu" },

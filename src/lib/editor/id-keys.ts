@@ -13,7 +13,7 @@ import { KEYS, accelOf, onOverrides, toCmKey } from "../state/keymap";
 import "../state/keys-live";
 
 export interface IdBinding {
-  /** `keymap.ts` 里的 id（owner 是 cm6） */
+  /** `keymap.ts` 里的 id（owner 是 cm6；`save` 是例外，见 keymap.ts 那一行） */
   id: string;
   run: Command;
   /** 同 `KeyBinding.shift`：按着 ⇧ 时跑这个（查找下一处 / 上一处共用一个键） */

@@ -478,16 +478,21 @@
         EditorView.domEventHandlers({ contextmenu: (e, v) => openContextMenu(e, v) }),
         ideaDarkTheme,
         ideaDarkHighlight,
-        keymap.of([
-          // ⌘S 存盘。放在最前面，别被默认键位截胡
+        /*
+         * 存盘。放在最前面，别被默认键位截胡。按 id 挂（键位从 keymap.ts 取）：原来写死 `Mod-s`，
+         * 你在设置里把「保存」改成别的键、把 ⌘S 给了别的命令，焦点在编辑器里时 ⌘S 照样存盘、那个命令收不到
+         */
+        idKeymap([
           {
-            key: "Mod-s",
+            id: "save",
             preventDefault: true,
             run: (v) => {
               onSave(v.state.doc.toString());
               return true;
             },
           },
+        ]),
+        keymap.of([
           /*
            * 配对和补全的键在 defaultKeymap 前面：Backspace 删配对的两个字符、
            * 补全弹层里的 ↑↓↵ / Esc 都得先于默认键位吃到，否则 ↵ 变成换行、Esc 落空
