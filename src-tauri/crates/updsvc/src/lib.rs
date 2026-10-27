@@ -35,11 +35,11 @@ pub fn target() -> &'static str {
 /// latest.json → 这台机器的那一份。先找本机架构的，没有找 `darwin-universal`（universal 包两种机器都能装）。
 /// `allow_file`：包的地址许 `file://`（只给测试通道：验收脚本用本机文件当发布）
 pub fn parse_manifest(text: &str, target: &str, allow_file: bool) -> Result<Release, String> {
-    let v: Value = serde_json::from_str(text).map_err(|e| format!("更新信息不是 JSON：{e}"))?;
-    let version = v["version"].as_str().ok_or("更新信息里没有版本号")?.trim_start_matches('v').to_string();
-    let p = [target, "darwin-universal"].iter().map(|k| &v["platforms"][*k]).find(|p| p.is_object()).ok_or_else(|| format!("这次发布没有给 {target} 的包"))?;
-    let url = p["url"].as_str().filter(|u| u.starts_with("https://") || (allow_file && u.starts_with("file://"))).ok_or("包的地址不是 https 的")?.to_string();
-    let signature = p["signature"].as_str().filter(|s| !s.is_empty()).ok_or("这次发布的包没有签名")?.to_string();
+    let v: Value = serde_json::from_str(text).map_err(|e| format!("更新清单格式无效：{e}"))?;
+    let version = v["version"].as_str().ok_or("更新清单缺少版本号")?.trim_start_matches('v').to_string();
+    let p = [target, "darwin-universal"].iter().map(|k| &v["platforms"][*k]).find(|p| p.is_object()).ok_or_else(|| format!("此版本未提供 {target} 平台的安装包"))?;
+    let url = p["url"].as_str().filter(|u| u.starts_with("https://") || (allow_file && u.starts_with("file://"))).ok_or("安装包地址必须为 HTTPS")?.to_string();
+    let signature = p["signature"].as_str().filter(|s| !s.is_empty()).ok_or("安装包缺少签名")?.to_string();
     Ok(Release { version, notes: v["notes"].as_str().unwrap_or("").to_string(), url, signature })
 }
 
@@ -59,33 +59,33 @@ pub fn newer(a: &str, b: &str) -> bool {
 /// 校验签名：`signature`、`pubkey` 都是 Tauri 签名工具写的 base64（里面是 minisign 的文本格式）
 pub fn verify(data: &[u8], signature: &str, pubkey: &str) -> Result<(), String> {
     let (key, sig) = decode(signature, pubkey)?;
-    key.verify(data, &sig, true).map_err(|_| "签名对不上：这个包不是我们发的，或者下载坏了 —— 没装".to_string())
+    key.verify(data, &sig, true).map_err(|_| "签名校验失败：安装包已损坏或并非官方发布，未安装".to_string())
 }
 
 /// 校验盘上的一个文件（包几百 MB，按块喂给校验器，不整个读进内存）。Tauri 签名工具签的是预哈希的那种，流式校验认得
 pub fn verify_file(path: &Path, signature: &str, pubkey: &str) -> Result<(), String> {
     use std::io::Read;
     let (key, sig) = decode(signature, pubkey)?;
-    let mut v = key.verify_stream(&sig).map_err(|e| format!("签名格式不对：{e}"))?;
-    let mut f = std::fs::File::open(path).map_err(|e| format!("读不了下载的包：{e}"))?;
+    let mut v = key.verify_stream(&sig).map_err(|e| format!("签名格式无效：{e}"))?;
+    let mut f = std::fs::File::open(path).map_err(|e| format!("无法读取下载的安装包：{e}"))?;
     let mut buf = vec![0u8; 1 << 20];
     loop {
-        let n = f.read(&mut buf).map_err(|e| format!("读不了下载的包：{e}"))?;
+        let n = f.read(&mut buf).map_err(|e| format!("无法读取下载的安装包：{e}"))?;
         if n == 0 {
             break;
         }
         v.update(&buf[..n]);
     }
-    v.finalize().map_err(|_| "签名对不上：这个包不是我们发的，或者下载坏了 —— 没装".to_string())
+    v.finalize().map_err(|_| "签名校验失败：安装包已损坏或并非官方发布，未安装".to_string())
 }
 
 fn decode(signature: &str, pubkey: &str) -> Result<(minisign_verify::PublicKey, minisign_verify::Signature), String> {
     let b64 = |s: &str| -> Result<String, String> {
-        let raw = base64::engine::general_purpose::STANDARD.decode(s.trim()).map_err(|e| format!("签名 / 公钥不是 base64：{e}"))?;
-        String::from_utf8(raw).map_err(|_| "签名 / 公钥解出来不是文本".to_string())
+        let raw = base64::engine::general_purpose::STANDARD.decode(s.trim()).map_err(|e| format!("签名或公钥编码无效：{e}"))?;
+        String::from_utf8(raw).map_err(|_| "签名或公钥编码无效".to_string())
     };
-    let key = minisign_verify::PublicKey::decode(&b64(pubkey)?).map_err(|e| format!("公钥不对：{e}"))?;
-    let sig = minisign_verify::Signature::decode(&b64(signature)?).map_err(|e| format!("签名格式不对：{e}"))?;
+    let key = minisign_verify::PublicKey::decode(&b64(pubkey)?).map_err(|e| format!("公钥无效：{e}"))?;
+    let sig = minisign_verify::Signature::decode(&b64(signature)?).map_err(|e| format!("签名格式无效：{e}"))?;
     Ok((key, sig))
 }
 
@@ -93,9 +93,9 @@ fn decode(signature: &str, pubkey: &str) -> Result<(minisign_verify::PublicKey, 
 pub fn fetch_text(url: &str) -> Result<String, String> {
     let mut c = Command::new("/usr/bin/curl");
     c.args(["-fsSL", "--max-time", "20", "--proto", "=https,file", "--max-filesize", "65536", "--", url]);
-    let o = procutil::run_capped(&mut c, 64 << 10, procutil::ERR_CAP, procutil::Overflow::Kill).map_err(|e| format!("起不了 curl：{e}"))?;
+    let o = procutil::run_capped(&mut c, 64 << 10, procutil::ERR_CAP, procutil::Overflow::Kill).map_err(|e| format!("无法启动 curl：{e}"))?;
     if !o.status.success() || o.truncated {
-        return Err(format!("读不到更新信息：{}", String::from_utf8_lossy(&o.stderr).trim()));
+        return Err(format!("无法获取更新清单：{}", String::from_utf8_lossy(&o.stderr).trim()));
     }
     Ok(String::from_utf8_lossy(&o.stdout).into_owned())
 }
@@ -104,9 +104,9 @@ pub fn fetch_text(url: &str) -> Result<String, String> {
 pub fn download(url: &str, dest: &Path, max_bytes: u64) -> Result<(), String> {
     let mut c = Command::new("/usr/bin/curl");
     c.args(["-fsSL", "--proto", "=https,file", "--max-filesize", &max_bytes.to_string(), "-o"]).arg(dest).arg("--").arg(url);
-    let o = procutil::run_capped(&mut c, 16 << 10, procutil::ERR_CAP, procutil::Overflow::Kill).map_err(|e| format!("起不了 curl：{e}"))?;
+    let o = procutil::run_capped(&mut c, 16 << 10, procutil::ERR_CAP, procutil::Overflow::Kill).map_err(|e| format!("无法启动 curl：{e}"))?;
     if !o.status.success() {
-        return Err(format!("下载没成：{}", String::from_utf8_lossy(&o.stderr).trim()));
+        return Err(format!("下载失败：{}", String::from_utf8_lossy(&o.stderr).trim()));
     }
     Ok(())
 }
@@ -125,35 +125,35 @@ pub fn bundle_id(app: &Path) -> Option<String> {
 /// 这时它还在跑（就是我们自己），等新版本起来、它退了再扔（[`leftovers`]）。
 /// 每一步失败都停在「旧的还在原处」的样子：解不开 / 身份不对 → 不动；新的挪不进来 → 旧的挪回去
 pub fn install(app: &Path, tarball: &Path) -> Result<PathBuf, String> {
-    let id = bundle_id(app).ok_or("认不出现在这个应用（不是从 .app 里跑的？）")?;
-    let dir = app.parent().ok_or("找不到应用所在的目录")?;
+    let id = bundle_id(app).ok_or("无法识别当前应用（未从 .app 运行）")?;
+    let dir = app.parent().ok_or("无法确定应用所在目录")?;
     let staging = dir.join(format!(".lite-ide-update-{}", std::process::id()));
     // 自己建的临时目录：上次崩在半路留下的同名目录只会是我们的（名字带 pid，基本撞不上）
-    std::fs::create_dir(&staging).map_err(|e| format!("在 {} 里建不了临时目录（没有写权限？装在 /Applications 的话要你自己换）：{e}", dir.display()))?;
+    std::fs::create_dir(&staging).map_err(|e| format!("无法在 {} 中创建临时目录（可能没有写入权限，请手动安装新版本）：{e}", dir.display()))?;
     let r = (|| {
         let mut c = Command::new("/usr/bin/tar");
         c.arg("-xzf").arg(tarball).arg("-C").arg(&staging);
-        let o = procutil::run_capped(&mut c, 64 << 10, procutil::ERR_CAP, procutil::Overflow::Kill).map_err(|e| format!("起不了 tar：{e}"))?;
+        let o = procutil::run_capped(&mut c, 64 << 10, procutil::ERR_CAP, procutil::Overflow::Kill).map_err(|e| format!("无法启动 tar：{e}"))?;
         if !o.status.success() {
-            return Err(format!("包解不开：{}", String::from_utf8_lossy(&o.stderr).trim()));
+            return Err(format!("无法解压安装包：{}", String::from_utf8_lossy(&o.stderr).trim()));
         }
         let new_app: PathBuf = std::fs::read_dir(&staging)
             .map_err(|e| format!("{e}"))?
             .flatten()
             .map(|e| e.path())
             .find(|p| p.extension().is_some_and(|x| x == "app"))
-            .ok_or("包里没有 .app")?;
+            .ok_or("安装包中没有应用")?;
         if bundle_id(&new_app).as_deref() != Some(id.as_str()) {
-            return Err(format!("包里的应用不是这个（{} ≠ {id}），没装", bundle_id(&new_app).unwrap_or_default()));
+            return Err(format!("安装包中的应用标识不匹配（{} ≠ {id}），未安装", bundle_id(&new_app).unwrap_or_default()));
         }
         let old = dir.join(format!(".lite-ide-old-{}.app", std::process::id()));
         #[allow(clippy::disallowed_methods)] // 挪开我们自己（目标是自己起的、带 pid 的名字，不会盖掉别的东西）
-        std::fs::rename(app, &old).map_err(|e| format!("挪不开现在这个应用：{e}"))?;
+        std::fs::rename(app, &old).map_err(|e| format!("无法移动当前应用：{e}"))?;
         #[allow(clippy::disallowed_methods)] // 新的挪进原来的位置：原来那个刚挪走，这个路径此刻是空的
         if let Err(e) = std::fs::rename(&new_app, app) {
             #[allow(clippy::disallowed_methods)] // 新的没挪进来：把旧的挪回原处（同一个空位置）
             let _ = std::fs::rename(&old, app);
-            return Err(format!("新版本挪不进去，已经换回原来的：{e}"));
+            return Err(format!("无法放置新版本，已恢复原版本：{e}"));
         }
         Ok(old)
     })();
@@ -194,10 +194,10 @@ mod tests {
         verify(PAYLOAD, SIG, PUB).unwrap();
         let mut bad = PAYLOAD.to_vec();
         bad[0] ^= 1;
-        assert!(verify(&bad, SIG, PUB).unwrap_err().contains("签名对不上"));
+        assert!(verify(&bad, SIG, PUB).unwrap_err().contains("签名校验失败"));
         // 别的密钥对的公钥（同一个工具另生成的）
         let other = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCMDM3MTJFMTY4MkQzNDcKUldSSDA0SVdMbkVESytyYS96SEhTWEZXSnhaZW9PZGI2emxBekd4MUlwTTFhK01NNXBBTjgrcVoK";
-        assert!(verify(PAYLOAD, SIG, other).unwrap_err().contains("签名对不上"), "是真的另一把钥匙（不是格式坏了）");
+        assert!(verify(PAYLOAD, SIG, other).unwrap_err().contains("签名校验失败"), "是真的另一把钥匙（不是格式坏了）");
     }
 
     #[test]
@@ -211,7 +211,7 @@ mod tests {
         b[3] ^= 1;
         std::fs::write(&bad, &b).unwrap();
         verify_file(&good, SIG, PUB).unwrap();
-        assert!(verify_file(&bad, SIG, PUB).unwrap_err().contains("签名对不上"));
+        assert!(verify_file(&bad, SIG, PUB).unwrap_err().contains("签名校验失败"));
         assert!(verify_file(&d.join("没有.bin"), SIG, PUB).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -251,7 +251,7 @@ mod tests {
         let tgz2 = d.join("evil.tar.gz");
         assert!(Command::new("/usr/bin/tar").arg("-czf").arg(&tgz2).arg("-C").arg(&other).arg("lite-ide.app").status().unwrap().success());
         let e = install(&app, &tgz2).unwrap_err();
-        assert!(e.contains("不是这个"), "{e}");
+        assert!(e.contains("标识不匹配"), "{e}");
         assert_eq!(std::fs::read_to_string(app.join("Contents/mark")).unwrap(), "new", "没动");
         #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
         let _ = std::fs::remove_dir_all(&d);

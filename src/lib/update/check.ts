@@ -10,12 +10,12 @@ export async function checkUpdate() {
   const t = progress.start("检查更新");
   try {
     const u = await updateCheck();
-    if (u.phase === "ready") notify.ok(`新版 ${u.version} 已下好：点状态栏的「重启更新」换上`, 6000);
-    else if (u.phase === "latest") notify.ok(`已经是最新的（${u.current}）`);
-    else if (u.phase === "downloading" || u.phase === "checking") notify.hint("正在查 / 下载，好了状态栏会出「重启更新」");
-    else notify.fail(u.error || "没查成");
+    if (u.phase === "ready") notify.ok(`新版本 ${u.version} 已就绪，可在状态栏中重启以完成更新`, 6000);
+    else if (u.phase === "latest") notify.ok(`已是最新版本（${u.current}）`);
+    else if (u.phase === "downloading" || u.phase === "checking") notify.hint("正在检查或下载更新，完成后将在状态栏中提示");
+    else notify.fail(u.error ? `检查更新失败：${u.error}` : "检查更新失败");
   } catch (e) {
-    notify.fail(`没查成：${String(e)}`);
+    notify.fail(`检查更新失败：${String(e)}`);
   } finally {
     t.end();
   }

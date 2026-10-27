@@ -26,11 +26,11 @@ export function updateCmd(cmd: string, _a: A): unknown {
         await sleep(600);
         set({ phase: "downloading", version: "1.6.0" });
         await sleep(1500);
-        set({ phase: "ready", notes: "桩里的新版：改了些东西" });
+        set({ phase: "ready", notes: "桩：新版本说明" });
         return st;
       })();
     case "update_apply":
-      return Promise.reject("浏览器里没有 .app 可换（桩）");
+      return Promise.reject("浏览器中无法安装更新（桩）");
     default:
       return NOT_MINE;
   }

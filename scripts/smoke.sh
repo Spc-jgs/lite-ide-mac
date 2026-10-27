@@ -907,9 +907,9 @@ else
   if wait_exists "Git 未启用" button contains 10; then
     ok "受限：挂件写着「Git 未启用」"
     [ ! -e "${PWNED}" ] && ok "config 里那条命令没被执行" || bad "config 里的命令被执行了 —— 白名单没拦住"
-    if click "Git 未启用" button contains && wait_exists "信任这个仓库" button exact 5; then
+    if click "Git 未启用" button contains && wait_exists "信任此仓库" button exact 5; then
       ok "点开是确认卡片"
-      if click "信任这个仓库" && wait_exists "Git 改动" button exact 10; then
+      if click "信任此仓库" && wait_exists "Git 改动" button exact 10; then
         ok "信任之后 Git 出来了"
       else
         bad "点了信任，Git 没出来"
@@ -1011,7 +1011,7 @@ is "__lite.caret(1, 1); __lite.type('X'); return true"
 lite_wait "${W}" "return __lite.tabs.byPath($(q "${MOD}"))?.dirty === true" 4 >/dev/null || bad "modal.txt 没变脏（这一段的前提没做成）"
 N0=$(lite eval "${W}" "return __lite.tabs.list.length" 2>/dev/null)
 menu close-tab
-if wait_has "要保存对 modal.txt 的改动吗" 5; then
+if wait_has "是否保存对 modal.txt 的更改" 5; then
   is "const a = __lite.tabs.activeId; __lite.key('Ctrl-Tab'); await new Promise(r => setTimeout(r, 200)); return __lite.tabs.activeId === a && !!document.querySelector('.layer .dialog.nudge')" \
     && ok "⌃Tab 被挡住、对话框顶了一下" || bad "对话框开着时 ⌃Tab 照样切了标签（或者没有「顶一下」）"
   is "for (let i = 0; i < 2; i++) { document.activeElement.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', bubbles: true })); await new Promise(r => setTimeout(r, 80)); } await new Promise(r => setTimeout(r, 300)); return !document.querySelector('[aria-label=\"随处搜索\"]')" \
@@ -1323,7 +1323,7 @@ lite_wait "${W}" "return __lite.caretLine() === 2" 8 >/dev/null
 check "$(lite eval "${W}" "return (__lite.tabs.active?.path ?? '').endsWith('/todo/T.java') + ':' + __lite.caretLine()" 2>/dev/null)" "true:2" "点「改成批量查」那行：开 T.java、光标在第 2 行"
 menu close-tab; menu tw-todo; sleep 0.3
 
-say "㊱ 做到一半的操作（docs/TAKEOVER.md G25）：合并撞冲突 → Git 面板里提交框换成「正在合并」，解决、暂存后点「继续」做出合并提交；变基撞冲突 → 「放弃」→ 回到原样"
+say "㊱ 做到一半的操作（docs/TAKEOVER.md G25）：合并撞冲突 → Git 面板里提交框换成「正在合并」，解决、暂存后点「继续」做出合并提交；变基撞冲突 → 「中止」→ 回到原样"
 OPB=$(git -C "${FIX}" rev-parse --abbrev-ref HEAD)
 HG switch -qc op-side; printf 'side\n' > "${FIX}/op.txt"; HG add op.txt; HG commit -qm "op side"
 HG switch -q "${OPB}"; printf 'main\n' > "${FIX}/op.txt"; HG add op.txt; HG commit -qm "op main"
@@ -1346,14 +1346,14 @@ RB0=$(git -C "${FIX}" rev-parse HEAD)
 HG rebase "${OPB}"
 menu git-refresh
 lite_wait "${W}" "return /正在变基/.test(document.querySelector('.op')?.textContent ?? '')" 10 >/dev/null
-lite eval "${W}" "[...document.querySelectorAll('.op button')].find((b) => b.textContent.includes('放弃')).click(); return true" >/dev/null 2>&1
+lite eval "${W}" "[...document.querySelectorAll('.op button')].find((b) => b.textContent.includes('中止')).click(); return true" >/dev/null 2>&1
 lite_wait "${W}" "return !!document.querySelector('.dialog[role=alertdialog]')" 5 >/dev/null
-lite eval "${W}" "[...document.querySelectorAll('.dialog[role=alertdialog] button')].find((b) => b.textContent.includes('放弃')).click(); return true" >/dev/null 2>&1
+lite eval "${W}" "[...document.querySelectorAll('.dialog[role=alertdialog] button')].find((b) => b.textContent.includes('中止')).click(); return true" >/dev/null 2>&1
 wait_for 15 '[ ! -d "'"${FIX}"'/.git/rebase-merge" ] && [ ! -d "'"${FIX}"'/.git/rebase-apply" ]'
-check "$([ "$(git -C "${FIX}" rev-parse HEAD)" = "${RB0}" ] && [ "$(git -C "${FIX}" rev-parse --abbrev-ref HEAD)" = op-rb ] && echo 1)" "1" "变基撞冲突 → 放弃（过一道对话框）：回到变基之前，分支和提交都原样"
+check "$([ "$(git -C "${FIX}" rev-parse HEAD)" = "${RB0}" ] && [ "$(git -C "${FIX}" rev-parse --abbrev-ref HEAD)" = op-rb ] && echo 1)" "1" "变基撞冲突 → 中止（过一道对话框）：回到变基之前，分支和提交都原样"
 HG switch -q "${OPB}"
 
-say "㊲ 交互式变基（docs/TAKEOVER.md G25）：提交历史里右键最早那个 →「从这里交互式变基…」，第二个「并入上一个」、第三个「丢掉」→ 两段说明接上、丢掉的文件没了"
+say "㊲ 交互式变基（docs/TAKEOVER.md G25）：提交历史里右键最早那个 →「从这里交互式变基…」，第二个「合并到上一个」、第三个「删除」→ 两段说明接上、丢掉的文件没了"
 HG stash push -q   # 前面几段留下的没提交改动：变基遇到会拒绝（未跟踪的不算），先收起来、做完放回去
 for n in 1 2 3; do printf "rb$n\n" > "${FIX}/rb$n.txt"; HG add "rb$n.txt"; HG commit -qm "rb-$n"; done
 menu git-log
@@ -1363,7 +1363,7 @@ lite_wait "${W}" "return [...document.querySelectorAll('[role=menuitem]')].some(
 lite eval "${W}" "[...document.querySelectorAll('[role=menuitem]')].find((m) => m.textContent.includes('交互式变基')).click(); return true" >/dev/null 2>&1
 lite_wait "${W}" "return document.querySelectorAll('.dialog.rebase .row').length === 3" 10 >/dev/null
 check "$(lite eval "${W}" "return [...document.querySelectorAll('.dialog.rebase .row .subj')].map((e) => e.textContent).join(',')" 2>/dev/null)" "rb-1,rb-2,rb-3" "对话框列出从它起的 3 个提交，从旧到新"
-lite eval "${W}" "const rows = [...document.querySelectorAll('.dialog.rebase .row')]; const pick = (r, l) => [...r.querySelectorAll('.segs button')].find((b) => b.textContent === l).click(); pick(rows[1], '并入上一个'); pick(rows[2], '丢掉'); return true" >/dev/null 2>&1
+lite eval "${W}" "const rows = [...document.querySelectorAll('.dialog.rebase .row')]; const pick = (r, l) => [...r.querySelectorAll('.segs button')].find((b) => b.textContent === l).click(); pick(rows[1], '合并到上一个'); pick(rows[2], '删除'); return true" >/dev/null 2>&1
 sleep 0.3
 lite eval "${W}" "document.querySelector('.dialog.rebase .actions .btn.primary').click(); return true" >/dev/null 2>&1
 # 说明比的是去掉末尾空行之后的（git log 在整段说明后面还会多打一个空行；$(…) 会去掉末尾的换行）
@@ -1463,7 +1463,7 @@ lite_wait "${W}" "return document.querySelector('[aria-label=\"通知\"] .badge'
 check "$(lite eval "${W}" "return document.querySelector('[aria-label=\"通知\"] .badge')?.textContent ?? '没有角标'" 2>/dev/null)" "1" "改了没存就切模式（没做成）：面板关着，铃上一个角标"
 menu tw-notifications
 lite_wait "${W}" "return !!document.querySelector('.notes .row')" 5 >/dev/null
-check "$(lite eval "${W}" "const t = [...document.querySelectorAll('.notes .row')].map((r) => r.textContent); return [t.some((x) => x.includes('有未保存的改动')), t.some((x) => x.includes('变基做完了')), document.querySelector('.notes .row')?.classList.contains('fail'), !document.querySelector('[aria-label=\"通知\"] .badge')].join('|')" 2>/dev/null)" "true|true|true|true" "记录里有刚才那条（在最上、标成没做成）和 ㊲ 早就走了的「变基做完了」；打开之后角标清了"
+check "$(lite eval "${W}" "const t = [...document.querySelectorAll('.notes .row')].map((r) => r.textContent); return [t.some((x) => x.includes('有未保存的改动')), t.some((x) => x.includes('变基已完成')), document.querySelector('.notes .row')?.classList.contains('fail'), !document.querySelector('[aria-label=\"通知\"] .badge')].join('|')" 2>/dev/null)" "true|true|true|true" "记录里有刚才那条（在最上、标成没做成）和 ㊲ 早就走了的「变基已完成」；打开之后角标清了"
 menu tw-notifications
 menu save; sleep 0.3
 menu close-tab; sleep 0.3
@@ -1521,6 +1521,9 @@ check "$(lite eval "${W}" "const rs = [...document.querySelectorAll('.rows > .cr
 for n in $(seq 1 25); do git -C "${FIX}" branch -q -D "lanes-$n"; done
 menu git-log; sleep 0.3
 
+# ㊹ AI 助手默认不跑（2026-10-27 用户：AI 先不关注，专注编辑器和代码开发工具；docs/TAKEOVER.md MVP-6 停在第一版）。
+# 不删、不注释成死代码：LITE_SMOKE_AI=1 照样跑，改到 AI 那块时打开验一遍
+if [ "${LITE_SMOKE_AI:-}" = 1 ]; then
 say "㊹ AI 助手（docs/TAKEOVER.md MVP-6）：假 agent 走真的 ACP 线 —— 读到编辑器里没保存的那份、越界写被拒、要权限、改动进编辑器不存盘、审阅退回 / 留下、新对话停掉进程"
 W=main
 AR=$(lite eval "${W}" "return __lite.project.root" 2>/dev/null)
@@ -1560,6 +1563,7 @@ set_text $'first line\nsecond\n'
 menu save
 rm -f "${AR}/agent-a.txt" "${AR}/NOTES-agent.md"
 lite eval "${W}" "document.querySelector('nav.rail button[aria-label=\"文件树\"]').click(); return true" >/dev/null
+fi
 
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"

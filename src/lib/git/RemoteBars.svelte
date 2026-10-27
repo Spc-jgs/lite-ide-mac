@@ -60,13 +60,13 @@
 
 {#if part === "ask" && diverge}
   <!-- 不设默认按钮（上面「三条各是什么」）：合并和变基后果不一样，回车不该替人选 —— 焦点给「取消」 -->
-  <div class="dialog" role="alertdialog" aria-label="本地和远程分岔了" use:takeFocus>
-    <p class="title">本地和 {diverge.upstream} 分岔了</p>
-    <p class="body">快进不了，得选一种：合并会多一个合并提交；变基把你的提交挪到它们后面，历史是一条线。</p>
+  <div class="dialog" role="alertdialog" aria-label="本地与远程分支已分叉" use:takeFocus>
+    <p class="title">本地分支与 {diverge.upstream} 已分叉</p>
+    <p class="body">无法快进，请选择更新方式：合并将生成一个合并提交；变基将本地提交移到远程提交之后，保持线性历史。</p>
     <div class="actions">
       <label class="remember">
         <input type="checkbox" bind:checked={remember} />
-        记住这次的选择
+        记住此选择
       </label>
       <span class="gap"></span>
       <button class="btn" data-dismiss data-default onclick={() => onDismiss("diverge")}>取消</button>
@@ -75,10 +75,10 @@
     </div>
   </div>
 {:else if part === "ask" && push}
-  <div class="dialog" role="alertdialog" aria-label="推送吗" use:takeFocus>
+  <div class="dialog" role="alertdialog" aria-label="推送" use:takeFocus>
     {#if push.setUpstream}
       <p class="title">推送并在远程新建 origin/{push.branch}？</p>
-      <p class="body">这个分支还没有上游。推送会在远程新建它，并把本地这条跟过去。</p>
+      <p class="body">该分支尚未设置上游。推送将在远程创建同名分支，并将本地分支设为跟踪它。</p>
     {:else}
       <p class="title">推送 {push.commits.length || ahead} 个提交到 {upstream}？</p>
     {/if}
@@ -105,7 +105,7 @@
     </div>
     <span class="gap"></span>
     {#if err.raw}
-      <button class="btn" onclick={() => (rawOpen = !rawOpen)}>{rawOpen ? "收起" : "看 git 的原话"}</button>
+      <button class="btn" onclick={() => (rawOpen = !rawOpen)}>{rawOpen ? "收起详情" : "显示 Git 输出"}</button>
     {/if}
     <button
       class="btn"
@@ -113,10 +113,10 @@
       onclick={() => {
         rawOpen = false;
         onDismiss("err");
-      }}>知道了</button>
+      }}>好</button>
     {#if err.kind === "rejected"}
       <!-- 给下一步，不是给句号 —— 它是主动作，排最右 -->
-      <button class="btn primary" onclick={onPull}>先拉取</button>
+      <button class="btn primary" onclick={onPull}>拉取</button>
     {/if}
   </div>
 {/if}

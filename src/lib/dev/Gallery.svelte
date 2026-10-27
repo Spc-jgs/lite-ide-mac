@@ -110,14 +110,14 @@
     <h2>对话框 <code>.dialog</code> <small>你刚做的那个动作引起的选择题：编辑岛压暗、标题是问句、一句后果；会丢东西的（不是你点的那个）最左红字，取消挨着主按钮，主按钮最右。焦点给 <code>data-default</code></small></h2>
     <div class="cards">
       <div class="dialog">
-        <p class="title">要保存对 README.md 的改动吗？</p>
-        <p class="body">不保存的话，这次的改动会丢掉。</p>
+        <p class="title">是否保存对 README.md 的更改？</p>
+        <p class="body">如果不保存，更改将丢失。</p>
         <div class="actions"><button class="btn destructive">不保存</button><span class="gap"></span><button class="btn">取消</button><button class="btn primary">保存</button></div>
       </div>
       <div class="dialog">
-        <p class="title">丢弃 src/App.svelte 的改动？</p>
-        <p class="body">改过的文件回到上次提交的样子，<b>这一步不可撤销</b>。</p>
-        <div class="actions"><span class="gap"></span><button class="btn">取消</button><button class="btn danger">丢弃</button></div>
+        <p class="title">放弃 src/App.svelte 的更改？</p>
+        <p class="body">已修改的文件将还原为上次提交的版本，<b>此操作无法撤销</b>。</p>
+        <div class="actions"><span class="gap"></span><button class="btn">取消</button><button class="btn danger">放弃更改</button></div>
       </div>
     </div>
   </section>
@@ -125,8 +125,8 @@
   <section>
     <h2>卡片 <code>.confirm</code> <small>要读几行、或者要你选的（不压暗）。<code>warn</code> = 要你决定；<code>bad</code> = 出错 / 没做成。做完了附一条退路的不是卡片，是胶囊上的动作（见下）</small></h2>
     <div class="cards">
-      <div class="confirm warn"><span><b>README.md</b> 在编辑器外被改过，而你这边也有未保存的改动</span><span class="gap"></span><button class="btn">用磁盘上的</button><button class="btn primary">保留我的</button></div>
-      <div class="confirm bad"><span><b>推送被拒了：远程有你本地没有的提交</b></span><span class="gap"></span><button class="btn">知道了</button><button class="btn primary">先拉取</button></div>
+      <div class="confirm warn"><span><b>README.md</b> 已在编辑器外被修改，且编辑器中有未保存的更改</span><span class="gap"></span><button class="btn">使用磁盘版本</button><button class="btn primary">保留编辑器版本</button></div>
+      <div class="confirm bad"><span><b>推送被拒绝：远程包含本地没有的提交</b></span><span class="gap"></span><button class="btn">好</button><button class="btn primary">拉取</button></div>
     </div>
   </section>
 

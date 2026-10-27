@@ -20,9 +20,9 @@
   <!-- 通用的 `.btn.sm.quiet` 就是状态栏一格的样子（24 高、小一号字、悬停有底）：状态栏的 `.cbtn` 是它自己的局部样式，懒加载的组件够不着 -->
   <button
     class="btn sm quiet upd"
-    title={`现在是 ${u.current}${u.notes ? `\n\n${u.notes}` : ""}\n\n点一下：存好现场、换成新版、重启`}
+    title={`当前版本 ${u.current}，新版本 ${u.version} 已下载并通过签名校验${u.notes ? `\n\n${u.notes}` : ""}\n\n单击以安装并重启。未保存的内容将自动保存，打开的标签页将在重启后恢复`}
     onclick={() => restartToUpdate(u.version)}
-  >重启更新到 {u.version}</button>
+  >重启以更新到 {u.version}</button>
   <span class="sep" aria-hidden="true"></span>
 {/if}
 

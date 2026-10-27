@@ -69,22 +69,22 @@ ok "$([ -z "$(ls "${CACHE}" 2>/dev/null | grep '\.tar\.gz$')" ] && echo 1)" "没
 echo "▸ 包被换过：不认"
 manifest 99.0.0 bad.tar.gz
 R=$(st update_check)
-ok "$([[ "${R}" == failed* && "${R}" == *签名对不上* ]] && echo 1)" "签名对不上就不认（${R%%|*}：${R##*|}）"
+ok "$([[ "${R}" == failed* && "${R}" == *签名校验失败* ]] && echo 1)" "签名对不上就不认（${R%%|*}：${R##*|}）"
 ok "$([ ! -f "${CACHE}/lite-ide-99.0.0.app.tar.gz" ] && echo 1)" "没留下一个「下好了」的包"
-ok "$(lite_eval main "return __lite.has('重启更新到')" | grep -q false && echo 1)" "状态栏上什么都没出"
+ok "$(lite_eval main "return __lite.has('重启以更新到')" | grep -q false && echo 1)" "状态栏上什么都没出"
 
 echo "▸ 真的新版：下好、验过，状态栏出「重启更新」"
 manifest 99.0.0 lite-ide.app.tar.gz
 R=$(st update_check)
 ok "$([[ "${R}" == ready\|99.0.0* ]] && echo 1)" "下好了、验过签名（${R}）"
 ok "$([ -f "${CACHE}/lite-ide-99.0.0.app.tar.gz" ] && [ ! -f "${CACHE}/lite-ide-99.0.0.app.tar.gz.part" ] && echo 1)" "包在应用缓存目录里，下了一半的那份收掉了"
-wait_for 5 'lite_eval main "return __lite.has(\"重启更新到 99.0.0\")" | grep -q true'
-ok "$(lite_eval main "return __lite.has('重启更新到 99.0.0')" | grep -q true && echo 1)" "状态栏：「重启更新到 99.0.0」"
+wait_for 5 'lite_eval main "return __lite.has(\"重启以更新到 99.0.0\")" | grep -q true'
+ok "$(lite_eval main "return __lite.has('重启以更新到 99.0.0')" | grep -q true && echo 1)" "状态栏：「重启以更新到 99.0.0」"
 ok "$([ ! -f "${INST}/Contents/Resources/upd-marker" ] && echo 1)" "点之前一个字节都没换"
 
 echo "▸ 点「重启更新」：换、退、起新的"
 OLD=$(pgrep -f "${INST}/Contents/MacOS" | head -1)
-lite_eval main "__lite.click('重启更新到 99.0.0'); return true" >/dev/null
+lite_eval main "__lite.click('重启以更新到 99.0.0'); return true" >/dev/null
 wait_for 15 '! kill -0 '"${OLD}"
 ok "$(! kill -0 "${OLD}" 2>/dev/null && echo 1)" "旧的进程退了（照 ⌘Q 的路：存好现场）"
 wait_for 20 '[ -n "$(pgrep -f "${INST}/Contents/MacOS")" ]'

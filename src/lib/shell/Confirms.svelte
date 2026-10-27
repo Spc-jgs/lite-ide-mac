@@ -220,12 +220,12 @@
         `takeFocus` 不会再跑 —— 把 id 传进去，换了人它在 update 里把焦点放回「保存」（code review 2026-10-13：
         原来焦点停在上一下按过的「不保存」上，接着按回车就把 B 也丢了）
       -->
-      <div class="dialog" role="alertdialog" aria-label="要保存改动吗" use:takeFocus={tabflow.pendingClose.id}>
-        <p class="title">要保存对 {tabflow.pendingClose.name} 的改动吗？</p>
+      <div class="dialog" role="alertdialog" aria-label="保存更改" use:takeFocus={tabflow.pendingClose.id}>
+        <p class="title">是否保存对 {tabflow.pendingClose.name} 的更改？</p>
         <p class="body">
-          不保存的话，这次的改动会丢掉。
+          如果不保存，更改将丢失。
           <!-- 批量关闭时要说清后面还有几个，否则人不知道这个框还要弹几次 -->
-          {#if tabflow.closeQueue.length}后面还有 {tabflow.closeQueue.length} 个没保存的标签。{/if}
+          {#if tabflow.closeQueue.length}另有 {tabflow.closeQueue.length} 个标签页包含未保存的更改。{/if}
         </p>
         <div class="actions">
           <button class="btn destructive" onclick={() => void tabflow.resolveClose("discard")}>不保存</button>
@@ -235,20 +235,20 @@
         </div>
       </div>
     {:else if tabflow.pendingSwitch}
-      <div class="dialog" role="alertdialog" aria-label="用编辑模式打开吗" use:takeFocus>
-        <p class="title">用编辑模式打开 {tabflow.pendingSwitch.name}？</p>
-        <p class="body">它有 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)} MB，编辑模式会把全文读进内存，可能明显卡顿。</p>
+      <div class="dialog" role="alertdialog" aria-label="以编辑模式打开" use:takeFocus>
+        <p class="title">以编辑模式打开 {tabflow.pendingSwitch.name}？</p>
+        <p class="body">该文件大小为 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)} MB。编辑模式将全文载入内存，可能导致明显卡顿。</p>
         <div class="actions">
           <span class="gap"></span>
           <button class="btn" data-dismiss onclick={() => (tabflow.pendingSwitch = null)}>取消</button>
-          <button class="btn primary" data-default onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍然编辑</button>
+          <button class="btn primary" data-default onclick={() => tabflow.doSwitch(tabflow.pendingSwitch!, "edit")}>仍要编辑</button>
         </div>
       </div>
     {:else if branches.pendingWtRemove}
       {@const w = branches.pendingWtRemove}
-      <div class="dialog" role="alertdialog" aria-label="移除工作树吗" use:takeFocus>
+      <div class="dialog" role="alertdialog" aria-label="移除工作树" use:takeFocus>
         <p class="title">移除工作树 {w.path.slice(w.path.lastIndexOf("/") + 1)}？</p>
-        <p class="body"><b>{w.path}</b> 这个目录会被删掉，里面没提交的改动会一起没了。</p>
+        <p class="body">将删除目录 <b>{w.path}</b>，其中未提交的更改将丢失。</p>
         <div class="actions">
           <button class="btn destructive" onclick={() => branches.removeWorktree(w, true)}>强制移除</button>
           <span class="gap"></span>
@@ -258,18 +258,18 @@
       </div>
     {:else if branches.pendingBranchDelete}
       {@const d = branches.pendingBranchDelete}
-      <div class="dialog" role="alertdialog" aria-label="删除分支吗" use:takeFocus>
+      <div class="dialog" role="alertdialog" aria-label="删除分支" use:takeFocus>
         {#if d.notMerged}
-          <p class="title">仍然删除分支 {d.name}？</p>
-          <p class="body">它上面还有没合进别处的提交，git 拦下了。删了的话<b>那些提交会丢</b>。</p>
+          <p class="title">仍要删除分支 {d.name}？</p>
+          <p class="body">该分支包含尚未合并的提交，Git 已阻止删除。继续删除将<b>丢失这些提交</b>。</p>
         {:else}
           <p class="title">删除分支 {d.name}？</p>
-          <p class="body">这一步不可撤销。</p>
+          <p class="body">此操作无法撤销。</p>
         {/if}
         <div class="actions">
           <span class="gap"></span>
           <button class="btn" data-dismiss data-default onclick={() => (branches.pendingBranchDelete = null)}>取消</button>
-          <button class="btn danger" onclick={() => branches.deleteBranch(d.name, d.notMerged)}>{d.notMerged ? "仍然删除" : "删除"}</button>
+          <button class="btn danger" onclick={() => branches.deleteBranch(d.name, d.notMerged)}>{d.notMerged ? "仍要删除" : "删除"}</button>
         </div>
       </div>
     {:else if branches.pendingCheckout}
@@ -278,17 +278,17 @@
         这不是错误，是一个选择题：git 拒绝切分支这件事本身没什么可报的，
         真正要说的是「这几个文件挡着，你打算怎么办」（ui.md 第十三条第三档）
       -->
-      <div class="dialog wide" role="alertdialog" aria-label="切分支会覆盖改动" use:takeFocus>
-        <p class="title">切到 {c.name} 会覆盖 {c.files.length} 个文件的改动</p>
+      <div class="dialog wide" role="alertdialog" aria-label="签出将覆盖本地更改" use:takeFocus>
+        <p class="title">签出 {c.name} 将覆盖 {c.files.length} 个文件的本地更改</p>
         <p class="body">{c.files.slice(0, 3).join("、")}{c.files.length > 3 ? ` 等 ${c.files.length} 个` : ""}</p>
         <div class="actions">
           <!-- 越不可逆越靠左：丢东西的排最左，IDEA 的 Smart Checkout（收进 stash、切过去、再放回来）在它右边 -->
-          <button class="btn destructive" onclick={() => void branches.discardThenCheckout()}>丢弃这些改动并切换</button>
+          <button class="btn destructive" onclick={() => void branches.discardThenCheckout()}>放弃更改并签出</button>
           <button
             class="btn"
             onclick={() => void branches.stashThenCheckout()}
-            title="改动收进 stash → 切过去 → 再取回来。取回时撞上冲突会留在改动列表里"
-          >stash 再切换</button>
+            title="先储藏（stash）更改，签出后再恢复。恢复时如有冲突，冲突文件将保留在更改列表中"
+          >储藏并签出</button>
           <span class="gap"></span>
           <button class="btn" data-dismiss onclick={() => (branches.pendingCheckout = null)}>取消</button>
           <button
@@ -298,41 +298,41 @@
               branches.pendingCheckout = null;
               layout.showSide("git");
             }}
-          >去提交</button>
+          >提交更改</button>
         </div>
       </div>
     {:else if git.pendingDiscard}
       {@const ds = git.pendingDiscard}
-      <div class="dialog" role="alertdialog" aria-label="丢弃改动吗" use:takeFocus>
-        <p class="title">丢弃 {ds.length === 1 ? ds[0].path : `${ds.length} 个文件`} 的改动？</p>
-        <p class="body">改过的文件回到上次提交的样子，<b>这一步不可撤销</b>；未跟踪的文件移进废纸篓。</p>
+      <div class="dialog" role="alertdialog" aria-label="放弃更改" use:takeFocus>
+        <p class="title">放弃 {ds.length === 1 ? ds[0].path : `${ds.length} 个文件`} 的更改？</p>
+        <p class="body">已修改的文件将还原为上次提交的版本，<b>此操作无法撤销</b>；未跟踪的文件将移到废纸篓。</p>
         <div class="actions">
           <span class="gap"></span>
           <button class="btn" data-dismiss data-default onclick={() => (git.pendingDiscard = null)}>取消</button>
-          <button class="btn danger" onclick={() => void git.discard(ds)}>丢弃</button>
+          <button class="btn danger" onclick={() => void git.discard(ds)}>放弃更改</button>
         </div>
       </div>
     {:else if git.pendingOpAbort && git.status?.op}
       <!-- 放弃做到一半的变基 / 合并（docs/TAKEOVER.md G25）：解决到一半的冲突一起没了，和丢弃同一档 -->
       {@const name = { rebase: "变基", merge: "合并", "cherry-pick": "cherry-pick", revert: "回退" }[git.status.op.kind]}
-      <div class="dialog" role="alertdialog" aria-label="放弃{name}吗" use:takeFocus>
-        <p class="title">放弃这次{name}？</p>
-        <p class="body">仓库回到{name}开始之前的样子，已经解决的冲突、这期间暂存的改动都不要了。</p>
+      <div class="dialog" role="alertdialog" aria-label="中止{name}" use:takeFocus>
+        <p class="title">中止{name}？</p>
+        <p class="body">仓库将恢复到{name}开始前的状态，已解决的冲突和期间暂存的更改将全部丢失。</p>
         <div class="actions">
           <span class="gap"></span>
           <button class="btn" data-dismiss data-default onclick={() => (git.pendingOpAbort = false)}>取消</button>
-          <button class="btn danger" onclick={() => void git.opAction("abort")}>放弃{name}</button>
+          <button class="btn danger" onclick={() => void git.opAction("abort")}>中止{name}</button>
         </div>
       </div>
     {:else if git.pendingRevertHunk}
       <!-- 撤销一块（issue #38）：和上面那条同一档 —— 动盘上的文件，不可撤销 -->
-      <div class="dialog" role="alertdialog" aria-label="撤销这一块吗" use:takeFocus>
-        <p class="title">撤销这一块改动？</p>
-        <p class="body">工作区里这几行的改动会被丢掉，<b>这一步不可撤销</b>。</p>
+      <div class="dialog" role="alertdialog" aria-label="回滚更改" use:takeFocus>
+        <p class="title">回滚此处更改？</p>
+        <p class="body">工作区中这几行的更改将被放弃，<b>此操作无法撤销</b>。</p>
         <div class="actions">
           <span class="gap"></span>
           <button class="btn" data-dismiss data-default onclick={() => (git.pendingRevertHunk = null)}>取消</button>
-          <button class="btn danger" onclick={() => void git.revertHunk(git.pendingRevertHunk!)}>撤销这一块</button>
+          <button class="btn danger" onclick={() => void git.revertHunk(git.pendingRevertHunk!)}>回滚此块</button>
         </div>
       </div>
     {:else if git.trustOpen && git.restricted}
@@ -341,20 +341,20 @@
         仓库信任（issue #24）。列的是白名单外的键 —— 人看的就是「它想跑什么」，所以值一定要露出来，
         origin 只在被 include 进来时才显示（那时危险在另一个文件里）。默认按钮是「先不动 git」：回车不该替人信任
       -->
-      <div class="dialog wide" role="alertdialog" aria-label="信任这个仓库吗" use:takeFocus>
-        <p class="title">这个仓库会让 git 执行命令，Git 功能先没启用</p>
-        <p class="body">它的 .git/config 里有 {r.suspects.length} 条这样的配置：</p>
+      <div class="dialog wide" role="alertdialog" aria-label="信任此仓库" use:takeFocus>
+        <p class="title">此仓库的配置可执行外部命令，Git 功能已暂停</p>
+        <p class="body">.git/config 中包含 {r.suspects.length} 条可执行命令的配置：</p>
         <pre class="code">{r.suspects
             .map((x) => `${x.key} = ${x.value}${x.origin && !x.origin.endsWith(".git/config") ? `   （${x.origin}）` : ""}`)
             .join("\n")}</pre>
         <p class="body">
-          {#if r.hooks.length}另外 .git/hooks 里有 {r.hooks.join("、")}，提交 / 检出时会执行。{/if}
-          信任 = 按这份内容记住这个仓库；config 再变会重新问。
+          {#if r.hooks.length}此外，.git/hooks 中包含 {r.hooks.join("、")}，将在提交或签出时执行。{/if}
+          信任后将按当前配置内容记住此仓库；配置发生变化时将再次询问。
         </p>
         <div class="actions">
           <span class="gap"></span>
-          <button class="btn" data-dismiss data-default onclick={() => (git.trustOpen = false)}>先不动 git</button>
-          <button class="btn primary" onclick={() => void git.trust()}>信任这个仓库</button>
+          <button class="btn" data-dismiss data-default onclick={() => (git.trustOpen = false)}>暂不启用</button>
+          <button class="btn primary" onclick={() => void git.trust()}>信任此仓库</button>
         </div>
       </div>
     {:else if Bars}
@@ -375,7 +375,7 @@
       <b>{notify.banner.title}</b>
       <span class="bbody">{notify.banner.body}</span>
     </span>
-    <button class="btn" data-dismiss onclick={() => notify.closeBanner()}>知道了</button>
+    <button class="btn" data-dismiss onclick={() => notify.closeBanner()}>好</button>
   </div>
 {/if}
 
@@ -386,9 +386,9 @@
 
 {#if tabs.active?.conflict && showCard("conflict")}
   <div class="confirm warn" out:cardOut>
-    <span><b>{tabs.active.name}</b> 在编辑器外被改过，而你这边也有未保存的改动</span>
-    <button class="btn" onclick={() => docs.resolveConflict(tabs.active!, "disk")}>用磁盘上的</button>
-    <button class="btn primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留我的</button>
+    <span><b>{tabs.active.name}</b> 已在编辑器外被修改，且编辑器中有未保存的更改</span>
+    <button class="btn" onclick={() => docs.resolveConflict(tabs.active!, "disk")}>使用磁盘版本</button>
+    <button class="btn primary" onclick={() => docs.resolveConflict(tabs.active!, "mine")}>保留编辑器版本</button>
   </div>
 {/if}
 
@@ -399,9 +399,9 @@
     默认动作（最右、primary）是退回改前：一个「改了一半」的仓库比哪边都糟。没有「知道了」—— 两条路必须选一条
   -->
   <div class="confirm warn" out:cardOut>
-    <span>上次的替换中途中断了：<b>已改 {p.changed} 个文件</b>，共 {p.files} 个</span>
-    <button class="btn" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(false))}>保留现状</button>
-    <button class="btn primary" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(true))}>全部退回改前</button>
+    <span>上次替换未完成：<b>已修改 {p.changed} 个文件</b>，共 {p.files} 个</span>
+    <button class="btn" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(false))}>保留当前状态</button>
+    <button class="btn primary" onclick={() => void replaceOps().then((m) => m.resolveInterrupted(true))}>全部还原</button>
   </div>
 {/if}
 
@@ -413,11 +413,11 @@
   -->
   <div class="confirm warn tall stale" out:cardOut>
     <div class="btext">
-      <span>上次 lite-ide 没正常退出，它起的 <b>{s.list.length} 个任务</b>还在跑（可能占着端口）</span>
+      <span>lite-ide 上次未正常退出，其启动的 <b>{s.list.length} 个任务</b>仍在运行（可能占用端口）</span>
       <span class="rest">{s.list.map((l) => `${l.name}：${l.command}`).join("　·　")}</span>
     </div>
-    <button class="btn" onclick={() => void import("../state/runs-ops").then((m) => m.resolveStale(false))}>留着</button>
-    <button class="btn primary" onclick={() => void import("../state/runs-ops").then((m) => m.resolveStale(true))}>结束它们</button>
+    <button class="btn" onclick={() => void import("../state/runs-ops").then((m) => m.resolveStale(false))}>保留</button>
+    <button class="btn primary" onclick={() => void import("../state/runs-ops").then((m) => m.resolveStale(true))}>结束任务</button>
   </div>
 {/if}
 

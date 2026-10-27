@@ -136,10 +136,10 @@ fn check_now(app: &AppHandle) -> Status {
         Status { phase: Phase::Failed, error, ..Default::default() }
     };
     if bundle().is_none() {
-        return Status { phase: Phase::Unsupported, error: "开发构建（不是从 .app 里跑的）不自动更新".into(), ..Default::default() };
+        return Status { phase: Phase::Unsupported, error: "开发构建不支持自动更新".into(), ..Default::default() };
     }
     let Some((url, key, allow_file)) = source() else {
-        return Status { phase: Phase::Unsupported, error: "测试构建没设 LITE_UPDATE_URL，不查".into(), ..Default::default() };
+        return Status { phase: Phase::Unsupported, error: "测试构建未设置 LITE_UPDATE_URL".into(), ..Default::default() };
     };
     set(app, Status { phase: Phase::Checking, ..Default::default() });
     let rel = match updsvc::fetch_text(&url).and_then(|t| updsvc::parse_manifest(&t, updsvc::target(), allow_file)) {
@@ -150,9 +150,9 @@ fn check_now(app: &AppHandle) -> Status {
     if !updsvc::newer(&rel.version, &now) {
         return Status { phase: Phase::Latest, version: now, ..Default::default() };
     }
-    let Ok(dir) = app.path().app_cache_dir().map(|d| d.join("updates")) else { return fail("取不到应用缓存目录".into()) };
+    let Ok(dir) = app.path().app_cache_dir().map(|d| d.join("updates")) else { return fail("无法获取应用缓存目录".into()) };
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        return fail(format!("建不了 {}：{e}", dir.display()));
+        return fail(format!("无法创建 {}：{e}", dir.display()));
     }
     let name = format!("lite-ide-{}.app.tar.gz", rel.version);
     let file = dir.join(&name);
@@ -166,7 +166,7 @@ fn check_now(app: &AppHandle) -> Status {
         }
         #[allow(clippy::disallowed_methods)] // 改名我们自己下的文件：目标是缓存目录里自己起的名字，旧的那份刚验过签名不对
         if let Err(e) = std::fs::rename(&part, &file) {
-            return fail(format!("下好了但存不进缓存目录：{e}"));
+            return fail(format!("无法保存下载的安装包：{e}"));
         }
     }
     applog::write(applog::Level::Info, "update", &format!("新版 {} 就绪（现在 {now}）", rel.version));
@@ -189,8 +189,8 @@ fn prune(dir: &std::path::Path, keep: &str) {
 /// 点了「重启更新」：换 .app，照 ⌘Q 的路退出，退出最后一刻起新的。换失败就不退、把原因交回去
 pub fn apply(app: &AppHandle) -> Result<(), String> {
     let s = status();
-    let (Phase::Ready, Some(tarball)) = (&s.phase, &s.tarball) else { return Err("还没有下好的新版本".into()) };
-    let bundle = bundle().ok_or("开发构建不自动更新")?;
+    let (Phase::Ready, Some(tarball)) = (&s.phase, &s.tarball) else { return Err("没有已下载的新版本".into()) };
+    let bundle = bundle().ok_or("开发构建不支持自动更新")?;
     let old = updsvc::install(&bundle, tarball)?;
     applog::write(applog::Level::Info, "update", &format!("换成 {}，旧的在 {}，退出后重启", s.version, old.display()));
     *RELAUNCH.lock().unwrap_or_else(|e| e.into_inner()) = Some(bundle);
@@ -235,10 +235,10 @@ mod tests {
 
     #[test]
     fn 编进去的公钥是一把能用的钥匙() {
-        // 拿别的钥匙签的名去验：对得上公钥的格式，才会走到「签名对不上」；公钥本身坏了是「公钥不对」
+        // 拿别的钥匙签的名去验：对得上公钥的格式，才会走到「签名校验失败」；公钥本身坏了是「公钥无效」
         let other_sig = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVVVySlVwWHhzbkplcWMySUxpNU1jcDZzZ2J1Z3FwTGtoUFUzU2p4blp1elVaamRybmxBWW5vaU9EcDVvU09YQVRIRkxrVlZ5QmwyZ21IS3FjOG5ITitqdTEvblF0dWc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMDA1ODEyCWZpbGU6cGF5bG9hZC5iaW4KUEtScVBQeDFXR0VkbG5FVHpvc2Y2R3c2VzFsdkZhSndNeHVSanNEa3piSGh6ZSt0WnpKUzNTMGlRVVc2WVNWTFg2bnZXZTVvN0UxR2tINjVVUndLREE9PQo=";
         let e = updsvc::verify(b"lite-ide update payload\n", other_sig, PUBKEY).unwrap_err();
-        assert!(e.contains("签名对不上"), "{e}");
+        assert!(e.contains("签名校验失败"), "{e}");
         assert!(MANIFEST.starts_with("https://github.com/") && MANIFEST.ends_with("/releases/latest/download/latest.json"));
     }
 }

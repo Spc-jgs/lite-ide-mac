@@ -153,8 +153,8 @@
   let menuItems = $derived.by((): MenuItem[] => [
     { label: grouped ? "平铺显示" : "按目录分组", run: toggleGrouped },
     // 收进 stash 和丢弃是同一档 ——「把改动从工作区拿走」，只是一个还能拿回来
-    { label: "收进 stash", sep: true, run: () => onStash?.(), disabled: !status || status.entries.length === 0 },
-    ...(stashCount > 0 ? [{ label: `取回 stash (${stashCount})`, run: () => onUnstash?.() }] : []),
+    { label: "储藏更改", sep: true, run: () => onStash?.(), disabled: !status || status.entries.length === 0 },
+    ...(stashCount > 0 ? [{ label: `恢复储藏 (${stashCount})`, run: () => onUnstash?.() }] : []),
   ]);
   function openMenu(e: MouseEvent) {
     e.preventDefault();
@@ -168,7 +168,7 @@
    */
   let wmenu = $state<{ x: number; y: number } | null>(null);
   let wmenuItems = $derived.by((): MenuItem[] => [
-    { label: "全部丢弃…", danger: true, run: () => onDiscard(unstaged) },
+    { label: "全部放弃…", danger: true, run: () => onDiscard(unstaged) },
   ]);
   function openWorkMenu(e: MouseEvent) {
     e.preventDefault();
@@ -214,7 +214,7 @@
     {#if side === "index"}
       <button class="ibtn sm rowact" onclick={() => onUnstage([e.path])} title="取消暂存" aria-label="取消暂存"><Icon name="minus" /></button>
     {:else}
-      <button class="ibtn sm rowact" onclick={() => onDiscard([e])} title="丢弃改动" aria-label="丢弃改动"><Icon name="undo" /></button>
+      <button class="ibtn sm rowact" onclick={() => onDiscard([e])} title="放弃更改" aria-label="放弃更改"><Icon name="undo" /></button>
       <button class="ibtn sm rowact" onclick={() => onStage([e.path])} title="暂存" aria-label="暂存"><Icon name="plus" /></button>
     {/if}
   </div>
@@ -254,7 +254,7 @@
 <div class="git">
   {#if !status}
     <!-- 空态要给下一步（ui.md 第六条）。`.git` 一出现文件监听就报、git.onGitDirChanged 重新找仓库 —— 「自己出现」是真的（2026-10-13） -->
-    <div class="empty-msg">这个目录还不是 Git 仓库<br /><span class="sub">在终端里（⌘J）<code>git init</code>，这里会自己出现</span></div>
+    <div class="empty-msg">此目录不是 Git 仓库<br /><span class="sub">在终端（⌘J）中执行 <code>git init</code> 后将自动显示</span></div>
   {:else}
     <!--
       面板头（M9）：和文件树的头同一形状 —— 标题 + 计数 + 两个 24px 工具按钮，38 高。
@@ -263,9 +263,9 @@
       同步胶囊搬去了标题栏（`TitleBar` 的 `SyncPill`），进度卡片跟着走 `RemoteBars`。
     -->
     <div class="head">
-      <span class="title">改动</span>
+      <span class="title">更改</span>
       {#if status.entries.length > 0}<span class="hcnt">{status.entries.length}</span>{/if}
-      {#if status.detached}<span class="tagx">游离</span>{/if}
+      {#if status.detached}<span class="tagx">游离 HEAD</span>{/if}
       {#if status.unborn}<span class="tagx">尚无提交</span>{/if}
       <span class="gap"></span>
       <button class="ibtn" onclick={onRefresh} title="刷新状态" aria-label="刷新" class:busy={busy}>
@@ -287,14 +287,14 @@
           {#if conflicts.length > 0}先解决 {conflicts.length} 处冲突（点开文件），暂存（＋）之后点「继续」{:else if unstaged.some((e) => !e.untracked)}冲突都解决了：把改动暂存（＋），再点「继续」{:else}可以继续了{/if}
         </p>
         <div class="op-row">
-          <button class="btn quiet sm" onclick={() => onOp?.("abort")}>放弃{OP_NAME[status.op.kind]}</button>
+          <button class="btn quiet sm" onclick={() => onOp?.("abort")}>中止{OP_NAME[status.op.kind]}</button>
           <span class="gap"></span>
           <!--
             灰掉看的是「有写操作在跑」，不是「在刷新」（2026-10-26）：原来是 `busy`（后台读状态），而文件一变监听就刷一次 ——
             正好在那几十毫秒里点「继续」，点在一个灰掉的按钮上、什么都不发生、一句话都没有（smoke ㊱ 间歇红了好几轮的原因）。
             两个写操作撞车由 `git.claim` 挡着；没暂存的未跟踪文件不挡继续，不提它们
           -->
-          {#if status.op.kind !== "merge"}<button class="btn sm" disabled={!!writing} onclick={() => onOp?.("skip")} title="这一个提交不要了，接着做下一个">跳过</button>{/if}
+          {#if status.op.kind !== "merge"}<button class="btn sm" disabled={!!writing} onclick={() => onOp?.("skip")} title="跳过当前提交，继续下一个">跳过</button>{/if}
           <button class="btn primary sm" disabled={!!writing || conflicts.length > 0} class:busy={!!writing?.startsWith("继续")} onclick={() => onOp?.("continue")}>继续</button>
         </div>
       </div>
@@ -306,17 +306,17 @@
       -->
       <div class="empty">
         <span class="emark"><Icon name="check" /></span>
-        <span class="etitle">工作区干净</span>
+        <span class="etitle">工作区没有更改</span>
         {#if behind || ahead}
           <span class="esub">
             和 <span class="mono">{status.upstream}</span> 比{#if behind}落后 {behind} 个{/if}{#if behind && ahead}、{/if}{#if ahead}领先 {ahead} 个{/if}提交
           </span>
         {:else if status.upstream}
-          <span class="esub">和 <span class="mono">{status.upstream}</span> 一致</span>
+          <span class="esub">与 <span class="mono">{status.upstream}</span> 同步</span>
         {/if}
-        <button class="btn" onclick={onOpenLog}>看提交历史</button>
+        <button class="btn" onclick={onOpenLog}>查看提交历史</button>
         {#if stashCount > 0}
-          <button class="btn" onclick={() => onUnstash?.()}>取回 stash ({stashCount})</button>
+          <button class="btn" onclick={() => onUnstash?.()}>恢复储藏 ({stashCount})</button>
         {/if}
       </div>
     {:else}
@@ -324,7 +324,7 @@
       <textarea
         bind:value={message}
         onkeydown={onKey}
-        placeholder={amend ? "改写上一条提交信息…" : "提交信息（⌘↵ 提交）"}
+        placeholder={amend ? "修改上一次提交的信息…" : "提交信息（⌘↵ 提交）"}
         rows="2"
       ></textarea>
       <!--
@@ -334,7 +334,7 @@
         而且这句话正是那一刻最要紧的信息，值得一整行。
       -->
       {#if conflicts.length > 0}
-        <p class="blocked">先解决 {conflicts.length} 处冲突</p>
+        <p class="blocked">请先解决 {conflicts.length} 处冲突</p>
       {/if}
       <div class="crow">
         <label class="amend" class:off={!canAmend}>
@@ -372,12 +372,12 @@
     <div class="list">
       {#if conflicts.length > 0}
         <div class="sec">
-          <span class="sname">冲突中</span>
+          <span class="sname">冲突</span>
           <span class="cnt">{conflicts.length}</span>
         </div>
         {#each conflicts as e (e.path)}
           <div class="frow-wrap">
-            <button class="frow" onclick={() => onOpenDiff(e, false)} title="{e.path}（点开解决冲突）">
+            <button class="frow" onclick={() => onOpenDiff(e, false)} title="{e.path}（点击以解决冲突）">
               <span class="m conflict">!</span>
               <span class="fname">{baseName(e.path)}</span>
               <span class="fdir">{dirName(e.path)}</span>
@@ -391,7 +391,7 @@
           <span class="sname">已暂存</span>
           <span class="cnt">{staged.length}</span>
           <span class="gap"></span>
-          <button class="btn sm quiet" onclick={() => onUnstage(staged.map((e) => e.path))}>全部取消</button>
+          <button class="btn sm quiet" onclick={() => onUnstage(staged.map((e) => e.path))}>全部取消暂存</button>
         </div>
         {@render fileList(staged, "index")}
       {/if}
@@ -418,17 +418,17 @@
         一句和眼前列表对不上的话。
       -->
       {#if status.truncated}
-        <div class="hint">改动过多，只列出了前 {status.entries.length} 条</div>
+        <div class="hint">更改过多，仅显示前 {status.entries.length} 条</div>
       {/if}
     </div>
   {/if}
 </div>
 
 {#if menu}
-  <ContextMenu x={menu.x} y={menu.y} label="改动面板的操作" items={menuItems} onclose={() => (menu = null)} />
+  <ContextMenu x={menu.x} y={menu.y} label="更改面板操作" items={menuItems} onclose={() => (menu = null)} />
 {/if}
 {#if wmenu}
-  <ContextMenu x={wmenu.x} y={wmenu.y} label="改动的操作" items={wmenuItems} onclose={() => (wmenu = null)} />
+  <ContextMenu x={wmenu.x} y={wmenu.y} label="更改操作" items={wmenuItems} onclose={() => (wmenu = null)} />
 {/if}
 {#if cmenu}
   <ContextMenu x={cmenu.x} y={cmenu.y} label="提交方式" items={cmenuItems} onclose={() => (cmenu = null)} />

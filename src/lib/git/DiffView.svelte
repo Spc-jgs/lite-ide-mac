@@ -219,18 +219,18 @@
     try {
       if (!newText) {
         const t = await loadNew();
-        if (!t) return notify.fail("拿不到这个文件的全文，展开不了");
-        if (t.truncated) return notify.fail("文件太大（超过 1MB），只拿到前半截，展开不了");
+        if (!t) return notify.fail("无法展开：未能读取文件全文");
+        if (t.truncated) return notify.fail("无法展开：文件超过 1 MB");
         newText = t.text.split("\n");
       }
       const g = gapLines(files[0].lines, k, newText);
       if (!g) {
         newText = null;
-        return notify.fail("文件在这份差异之后又改过了 —— 刷新差异再展开");
+        return notify.fail("无法展开：文件在生成差异后已被修改，请刷新后重试");
       }
       opened = new Map(opened).set(k, g);
     } catch (e) {
-      notify.fail(`展开不了：${e}`);
+      notify.fail(`无法展开：${e}`);
     } finally {
       expanding = -1;
     }
@@ -475,7 +475,7 @@
 <!-- 块头上的「N 行未改动」：能展开时是个按钮（点了从新侧全文补进来，照 IDEA），不能时就是一句话 -->
 {#snippet fold(n: number, k: number)}
   {#if canExpand}
-    <button class="hcount act" disabled={expanding >= 0} onclick={() => void expand(k)} title="把这 {n} 行显示出来">{n} 行未改动 · 展开</button>
+    <button class="hcount act" disabled={expanding >= 0} onclick={() => void expand(k)} title="显示这 {n} 行">{n} 行未改动 · 展开</button>
   {:else}
     <span class="hcount">{n} 行未改动</span>
   {/if}
@@ -495,19 +495,19 @@
     {/if}
     <!-- 整个文件新增 / 删除是这份 diff 最要紧的一句话，比 `+70 −0` 好读 -->
     {#if oneSided === "add"}
-      <span class="tag add">新增的文件</span>
+      <span class="tag add">新文件</span>
     {:else if oneSided === "del"}
-      <span class="tag del">删除的文件</span>
+      <span class="tag del">已删除的文件</span>
     {/if}
     <span class="gap"></span>
     <span class="stat"><b class="a">+{adds}</b> <b class="d">−{dels}</b></span>
 
     {#if blocks.length > 0}
       <span class="nav">
-        <button class="ibtn sm" onclick={() => jump(-1)} title="上一处改动 ⇧F7" aria-label="上一处改动"><Icon name="chevron-up" /></button>
+        <button class="ibtn sm" onclick={() => jump(-1)} title="上一处更改 ⇧F7" aria-label="上一处更改"><Icon name="chevron-up" /></button>
         <!-- 还没跳过时说「3 处」，跳过才说「1/3」—— 「—/3」读不出是什么 -->
         <span class="pos">{cur < 0 ? `${blocks.length} 处` : `${cur + 1}/${blocks.length}`}</span>
-        <button class="ibtn sm" onclick={() => jump(1)} title="下一处改动 F7" aria-label="下一处改动"><Icon name="chevron-down" /></button>
+        <button class="ibtn sm" onclick={() => jump(1)} title="下一处更改 F7" aria-label="下一处更改"><Icon name="chevron-down" /></button>
       </span>
     {/if}
 
@@ -518,31 +518,31 @@
         disabled={narrow || !!oneSided}
         onclick={() => (side = true)}
         title={oneSided === "add"
-          ? "整个文件是新增的，没有旧版可对照"
+          ? "新文件，没有可对照的旧版本"
           : oneSided === "del"
-            ? "整个文件被删了，没有新版可对照"
+            ? "文件已删除，没有可对照的新版本"
             : narrow
-              ? "窗口太窄，双栏每列放不下一行代码；拉宽就会自动切回来"
+              ? "窗口过窄，无法双栏显示；加宽窗口后将自动切换"
               : "左右分栏对照"}
       >双栏</button>
-      <button class="btn sm" class:on={!sideOn} onclick={() => (side = false)} title="统一视图（窄窗口更合适）">统一</button>
+      <button class="btn sm" class:on={!sideOn} onclick={() => (side = false)} title="统一视图（适合窄窗口）">统一</button>
     </span>
 
     <button
       class="btn sm"
       class:on={wrap}
       onclick={() => (wrap = !wrap)}
-      title="软换行 ⌥Z —— 长行折进列宽，不用横向滚"
+      title="软换行 ⌥Z：长行在列宽内折行显示"
       aria-pressed={wrap}
     >换行</button>
 
     {#if commit}
-      <span class="sha" title={toLocal ? "那次提交到现在工作区的差异（中间的提交和没提交的都算），只读" : "这是历史提交里的差异，只读"}>
+      <span class="sha" title={toLocal ? "该提交与当前工作区之间的差异（含其后的提交和未提交的更改），只读" : "历史提交中的差异，只读"}>
         {toLocal ? `${commit} → 本地` : commit}
       </span>
     {:else}
       <button class="btn sm" onclick={onToggleStaged} title="在「已暂存 ↔ 未暂存」之间切换">
-        {staged ? "已暂存的改动" : "未暂存的改动"} <Icon name="swap" />
+        {staged ? "已暂存的更改" : "未暂存的更改"} <Icon name="swap" />
       </button>
     {/if}
   </div>
@@ -568,17 +568,17 @@
               {#if r.kind === "hunk" && r.hidden}{@render fold(r.hidden, sideHunk[i])}{/if}
               <span class="htxt">{r.text}</span>
               {#if r.kind === "hunk" && selHunk === sideHunk[i]}
-                <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
+                <button class="btn sm primary hsel" onclick={applySel} title="仅暂存选中的行（Esc 取消选择）">
                   {staged ? "取消暂存" : "暂存"}选中的 {sel.size} 行
                 </button>
               {/if}
               {#if r.kind === "hunk" && canApply}
                 <button class="btn sm hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, sideHunk[i]), staged)}>
-                  {staged ? "取消暂存这一块" : "暂存这一块"}
+                  {staged ? "取消暂存此块" : "暂存此块"}
                 </button>
               {/if}
               {#if r.kind === "hunk" && canRevert}
-                <button class="btn sm danger hbtn" onclick={() => onRevertHunk?.(hunkPatch(patches, sideHunk[i]))}>撤销这一块</button>
+                <button class="btn sm danger hbtn" onclick={() => onRevertHunk?.(hunkPatch(patches, sideHunk[i]))}>回滚此块</button>
               {/if}
             </div>
           {:else}
@@ -621,17 +621,17 @@
               <span class="sign fold" aria-hidden="true">{#if l.kind === "hunk"}<Icon name="more-h" />{/if}</span>
               <span class="txt">{#if l.kind === "hunk" && l.hidden}{@render fold(l.hidden, uniHunk[i])}{/if}{l.text}</span>
               {#if l.kind === "hunk" && selHunk === uniHunk[i]}
-                <button class="btn sm primary hsel" onclick={applySel} title="只暂存选中的那几行（Esc 取消选中）">
+                <button class="btn sm primary hsel" onclick={applySel} title="仅暂存选中的行（Esc 取消选择）">
                   {staged ? "取消暂存" : "暂存"}选中的 {sel.size} 行
                 </button>
               {/if}
               {#if l.kind === "hunk" && canApply}
                 <button class="btn sm hbtn" onclick={() => onApplyHunk?.(hunkPatch(patches, uniHunk[i]), staged)}>
-                  {staged ? "取消暂存这一块" : "暂存这一块"}
+                  {staged ? "取消暂存此块" : "暂存此块"}
                 </button>
               {/if}
               {#if l.kind === "hunk" && canRevert}
-                <button class="btn sm danger hbtn" onclick={() => onRevertHunk?.(hunkPatch(patches, uniHunk[i]))}>撤销这一块</button>
+                <button class="btn sm danger hbtn" onclick={() => onRevertHunk?.(hunkPatch(patches, uniHunk[i]))}>回滚此块</button>
               {/if}
             </div>
           {:else}
@@ -652,7 +652,7 @@
         —— 完整内容请用 <code>git diff</code> 看
       </div>
     {:else if truncated}
-      <div class="empty-msg">差异太长，只显示了前 {MAX_ROWS} 行（共 {total} 行）</div>
+      <div class="empty-msg">差异过长，仅显示前 {MAX_ROWS} 行（共 {total} 行）</div>
     {/if}
   </div>
 </div>

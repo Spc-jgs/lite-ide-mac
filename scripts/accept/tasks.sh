@@ -228,8 +228,8 @@ lite_launch "${P}" >/dev/null || exit 1
 lite_wait main "return __lite.project.root === '${P}'" 15
 ok "$(lite_wait main "return !!document.querySelector('.confirm.stale')" 8 && echo 1)" \
   "重开出了卡片：$(lite_eval main "return document.querySelector('.confirm.stale .btext span')?.innerText ?? ''" 2>/dev/null)"
-lite_eval main "return __lite.click('结束它们')" >/dev/null
-ok "$(wait_for 8 '! listening && [ "$(procs)" = 0 ]' && echo 1)" "点了「结束它们」：端口空了、srv 一个不剩"
+lite_eval main "return __lite.click('结束任务')" >/dev/null
+ok "$(wait_for 8 '! listening && [ "$(procs)" = 0 ]' && echo 1)" "点了「结束任务」：端口空了、srv 一个不剩"
 ok "$(grep -q '收尾' "${P}/bye.txt" 2>/dev/null && echo 1)" "结束时给了它收尾的机会（软停；证据是它收到 SIGINT 时落的文件，输出管道早就断了）"
 lite_quit >/dev/null
 

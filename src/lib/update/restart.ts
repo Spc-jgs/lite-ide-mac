@@ -10,7 +10,7 @@ import { updateApply } from "../ipc/update";
 export function restartToUpdate(version: string) {
   const n = runs.alive() + runs.alive(true);
   if (n > 0) {
-    notify.fail(`有 ${n} 个任务在跑：重启更新会停掉它们`, 8000, { label: "仍然重启", run: () => void go(version) });
+    notify.fail(`${n} 个任务正在运行，重启将终止这些任务`, 8000, { label: "仍要重启", run: () => void go(version) });
     return;
   }
   void go(version);
@@ -19,8 +19,8 @@ export function restartToUpdate(version: string) {
 async function go(version: string) {
   try {
     await updateApply();
-    notify.ok(`正在换成 ${version}，存好现场就重启…`, 6000);
+    notify.ok(`正在安装 ${version}，即将重启…`, 6000);
   } catch (e) {
-    notify.fail(`没换成：${String(e)}`);
+    notify.fail(`安装更新失败：${String(e)}`);
   }
 }

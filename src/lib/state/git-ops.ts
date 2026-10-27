@@ -93,14 +93,14 @@ export async function opAction(action: "continue" | "skip" | "abort") {
   const op = git.status?.op;
   if (!repo || !op) return;
   const name = OP_NAME[op.kind];
-  const label = action === "continue" ? `继续${name}` : action === "skip" ? "跳过这一步" : `放弃${name}`;
-  const ok = await run(`${label}没做成`, () => gitOp(repo, action), label);
+  const label = action === "continue" ? `继续${name}` : action === "skip" ? "跳过此步" : `中止${name}`;
+  const ok = await run(`${label}失败`, () => gitOp(repo, action), label);
   await worktree.changed();
   if (!ok) return;
   const now = git.status?.op;
-  if (action === "abort") notify.ok(`已放弃${name}，回到开始之前的样子`);
-  else if (now) notify.hint(`又停在冲突上了${now.step && now.total ? `（第 ${now.step} / ${now.total} 步）` : ""}：解决、暂存之后再继续`);
-  else notify.ok(`${name}做完了`);
+  if (action === "abort") notify.ok(`已中止${name}，仓库已恢复到开始前的状态`);
+  else if (now) notify.hint(`遇到冲突${now.step && now.total ? `（第 ${now.step} / ${now.total} 步）` : ""}：请解决并暂存后继续`);
+  else notify.ok(`${name}已完成`);
 }
 
 export async function discard(entries: GitEntry[]) {
@@ -111,16 +111,16 @@ export async function discard(entries: GitEntry[]) {
   const tracked = entries.filter((e) => !e.untracked).map((e) => e.path);
   const untracked = entries.filter((e) => e.untracked).map((e) => e.path);
   await run(
-    "丢弃失败",
+    "放弃更改失败",
     async () => {
       await gitDiscard(repo, tracked, untracked);
       // **只有这一条补了成功回执，暂存/取消暂存没补。**
       // 判据是「结果看不看得见」：暂存之后文件当场移到已暂存区，
       // 界面自己说清楚了，再弹一句是噪声；而丢弃是不可逆的那一档，
       // 文件直接从改动列表里消失，不说一句就分不清「丢掉了」和「没点中」。
-      notify.ok(`已丢弃 ${entries.length} 个文件的改动`, 3000);
+      notify.ok(`已放弃 ${entries.length} 个文件的更改`, 3000);
     },
-    "丢弃改动",
+    "放弃更改",
   );
   await worktree.changed();
 }
@@ -132,21 +132,21 @@ export async function discard(entries: GitEntry[]) {
  * 盘上的文件变了，两条都要 `worktree.changed()`。
  */
 export async function stashPush(): Promise<boolean> {
-  const ok = await run("收进 stash 失败", async () => {
+  const ok = await run("储藏失败", async () => {
     await gitStashPush(git.repo!);
-    notify.ok("已收进 stash，工作区回到 HEAD", 3000);
-  }, "收进 stash");
+    notify.ok("已储藏更改，工作区已还原为 HEAD", 3000);
+  }, "储藏更改");
   await worktree.changed();
   return ok;
 }
 
 export async function stashPop(): Promise<boolean> {
-  const ok = await run("取回 stash 失败", async () => {
+  const ok = await run("恢复储藏失败", async () => {
     await gitStashPop(git.repo!);
-    notify.ok("已取回 stash", 3000);
-  }, "取回 stash");
+    notify.ok("已恢复储藏的更改", 3000);
+  }, "恢复储藏");
   // `run` 失败不刷新，而 pop 撞上冲突时盘上**已经**变了 —— 冲突得让人看见
-  if (!ok) await conflictOrRaw("取回 stash");
+  if (!ok) await conflictOrRaw("恢复储藏");
   await worktree.changed();
   return ok;
 }
@@ -165,10 +165,10 @@ async function conflictOrRaw(what: string) {
   // run 那里可能已经弹了一句一行的胶囊：冲突的说明更完整，收掉它
   notify.dismiss();
   notify.block(
-    `${what} 撞上冲突，没有回滚`,
-    `${files.length} 个文件冲突中：${files.join("、")}\n` +
-      "在「改动」里点开逐个解决，保存即标记为已解决；全部解决后正常提交。" +
-      (raw ? `\n\ngit 的原话：${raw}` : ""),
+    `${what}时发生冲突`,
+    `${files.length} 个文件存在冲突：${files.join("、")}\n` +
+      "请在「更改」中逐个打开并解决，保存后即标记为已解决；全部解决后提交即可。" +
+      (raw ? `\n\nGit 输出：${raw}` : ""),
   );
 }
 
@@ -178,7 +178,7 @@ async function conflictOrRaw(what: string) {
  * 就从这一侧消失、出现在另一侧。
  */
 export function applyHunk(patch: string, unstage: boolean): Promise<boolean> {
-  return run(unstage ? "取消暂存这一块失败" : "暂存这一块失败", async () => {
+  return run(unstage ? "取消暂存失败" : "暂存失败", async () => {
     await gitApplyCached(git.repo!, patch, unstage);
   }, unstage ? "取消暂存" : "暂存");
 }
@@ -191,10 +191,10 @@ export function applyHunk(patch: string, unstage: boolean): Promise<boolean> {
  */
 export async function revertHunk(patch: string): Promise<boolean> {
   git.pendingRevertHunk = null;
-  const ok = await run("撤销这一块失败", async () => {
+  const ok = await run("回滚更改失败", async () => {
     await gitApplyWorktree(git.repo!, patch, true);
-    notify.ok("已撤销这一块", 3000);
-  }, "撤销这一块");
+    notify.ok("已回滚此处更改", 3000);
+  }, "回滚更改");
   await worktree.changed();
   return ok;
 }
@@ -336,9 +336,9 @@ export async function openCommitDiff(sha: string, short: string, rel: string, to
  * 不然冲突文件在界面上看不见。盘上变了，`worktree.changed()` 让开着的编辑器重读。
  */
 export async function cherryPick(sha: string, short: string): Promise<boolean> {
-  const ok = await run("cherry-pick 失败", async () => {
+  const ok = await run("拣选失败", async () => {
     await gitCherryPick(git.repo!, sha);
-    notify.ok(`已把 ${short} cherry-pick 到当前分支`, 3000);
+    notify.ok(`已将 ${short} 拣选到当前分支`, 3000);
   }, "cherry-pick");
   if (!ok) await conflictOrRaw(`cherry-pick ${short}`);
   await worktree.changed();
@@ -411,7 +411,7 @@ export async function resolveMerge(tab: TabState, content: string, resolved: boo
       tabflow.doClose(tab);
     } else {
       tab.mergeText = content;
-      notify.ok(`${tab.name} 进度已保存`);
+      notify.ok(`已保存 ${tab.name} 的冲突解决进度`);
     }
     await git.refresh();
   } catch (e) {

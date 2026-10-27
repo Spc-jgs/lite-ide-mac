@@ -31,19 +31,19 @@
   });
 
   const ACTIONS: { id: RebaseAction; label: string; title: string }[] = [
-    { id: "pick", label: "保留", title: "照原样留着（pick）" },
-    { id: "reword", label: "改说明", title: "留着、换一段提交说明（reword）" },
-    { id: "squash", label: "并入上一个", title: "改动并进上一个，两段说明接在一起（squash）" },
-    { id: "fixup", label: "只并改动", title: "改动并进上一个，只留上一个的说明（fixup）" },
-    { id: "drop", label: "丢掉", title: "这个提交不要了（drop）" },
+    { id: "pick", label: "保留", title: "保留此提交（pick）" },
+    { id: "reword", label: "改写说明", title: "保留此提交并修改提交说明（reword）" },
+    { id: "squash", label: "合并到上一个", title: "将更改合并到上一个提交，并合并两段提交说明（squash）" },
+    { id: "fixup", label: "仅合并更改", title: "将更改合并到上一个提交，仅保留上一个提交的说明（fixup）" },
+    { id: "drop", label: "删除", title: "删除此提交（drop）" },
   ];
 
   /** 第一个不是「丢掉」的那行要是「并入」，前面没东西可并 */
   const problem = $derived.by(() => {
     const first = rows.find((r) => r.action !== "drop");
-    if (!first) return "全丢掉的话，用不着变基 —— 至少留一个";
-    if (first.action === "squash" || first.action === "fixup") return `「${first.subject}」是留下来的第一个，前面没有可以并进去的提交`;
-    if (rows.some((r) => r.action === "reword" && !r.text.trim())) return "改说明的那一行说明是空的";
+    if (!first) return "至少需要保留一个提交";
+    if (first.action === "squash" || first.action === "fixup") return `「${first.subject}」是保留的第一个提交，之前没有可合并的提交`;
+    if (rows.some((r) => r.action === "reword" && !r.text.trim())) return "改写说明的提交不能使用空说明";
     return "";
   });
   /** 已经推上去的有几个：有上游时，领先的那几个是没推的，其余都推过 —— 变基之后要强推（这里没有强推） */
@@ -67,9 +67,9 @@
       onclose();
       await git.refresh();
       await worktree.changed();
-      if (r === "done") notify.ok(`变基做完了：${rows.length} 个提交 → ${after} 个`);
+      if (r === "done") notify.ok(`变基已完成：${rows.length} 个提交 → ${after} 个`);
       else {
-        notify.hint("停在冲突上了：Git 面板里解决、暂存之后点「继续」，或者放弃");
+        notify.hint("变基因冲突暂停：请在 Git 面板中解决并暂存后点击「继续」，或中止变基");
         layout.sideView = "git";
         layout.sidebar = true;
       }
@@ -96,24 +96,24 @@
 <div class="layer" role="presentation">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="dialog rebase" role="dialog" aria-label="交互式变基" tabindex="-1" onkeydown={onKey}>
-    <p class="title">交互式变基{#if rows.length}<span class="sub">从 {rows[0].short} 起的 {rows.length} 个提交</span>{/if}</p>
-    <p class="body">从旧到新（和 git 的次序一样）。给每个提交选做什么、↑↓ 挪次序，「开始变基」照着做；撞了冲突停住，在 Git 面板里继续或者放弃。</p>
+    <p class="title">交互式变基{#if rows.length}<span class="sub">自 {rows[0].short} 起的 {rows.length} 个提交</span>{/if}</p>
+    <p class="body">按从旧到新排列（与 Git 一致）。为每个提交选择操作，用 ↑↓ 调整次序，然后点击「开始变基」。如遇冲突将暂停，可在 Git 面板中继续或中止。</p>
     {#if pushed > 0}
-      <p class="warn">其中 {pushed} 个已经推到 {git.status?.upstream} 了：变基之后和远程分叉，要强推才推得上去（这里没有强推）—— 只整理还没推的那几个更省事</p>
+      <p class="warn">其中 {pushed} 个提交已推送到 {git.status?.upstream}。变基后将与远程分叉，需要强制推送（此处不提供）。建议仅整理尚未推送的提交。</p>
     {/if}
     <div class="list">
       {#if loadErr}
         <div class="empty-msg bad">{loadErr}</div>
       {:else if !rows.length}
-        <div class="empty-msg wait"><span class="spinner sm"></span> 正在读提交…</div>
+        <div class="empty-msg wait"><span class="spinner sm"></span> 正在读取提交…</div>
       {:else}
         {#each rows as r, i (r.sha)}
           <div class="row" class:dropped={r.action === "drop"}>
             <span class="mv">
-              <button class="ibtn xs" aria-label="往前挪" title="往前挪（更早）" disabled={i === 0} onclick={() => move(i, -1)}><Icon name="chevron-up" /></button>
-              <button class="ibtn xs" aria-label="往后挪" title="往后挪（更晚）" disabled={i === rows.length - 1} onclick={() => move(i, 1)}><Icon name="chevron-down" /></button>
+              <button class="ibtn xs" aria-label="上移" title="上移（更早）" disabled={i === 0} onclick={() => move(i, -1)}><Icon name="chevron-up" /></button>
+              <button class="ibtn xs" aria-label="下移" title="下移（更晚）" disabled={i === rows.length - 1} onclick={() => move(i, 1)}><Icon name="chevron-down" /></button>
             </span>
-            <span class="segs" role="radiogroup" aria-label="{r.short} 做什么">
+            <span class="segs" role="radiogroup" aria-label="{r.short} 的操作">
               {#each ACTIONS as a (a.id)}
                 <button class="btn sm" class:on={r.action === a.id} role="radio" aria-checked={r.action === a.id} title={a.title} onclick={() => (r.action = a.id)}>{a.label}</button>
               {/each}
