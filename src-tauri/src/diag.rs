@@ -11,6 +11,11 @@ pub fn enabled() -> bool {
     *ON.get_or_init(|| std::env::var_os("LITE_IDE_DEBUG").is_some())
 }
 
+/// 此刻的 Unix 毫秒：要和别处（验收脚本、前端的时间线）对时刻的诊断行带上它
+pub fn now_ms() -> u128 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis())
+}
+
 /// 诊断输出。默认静默，`LITE_IDE_DEBUG=1` 打开。
 #[macro_export]
 macro_rules! diag {

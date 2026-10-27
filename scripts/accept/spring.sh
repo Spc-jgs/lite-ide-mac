@@ -504,9 +504,13 @@ echo "== 构建（⌘F9，docs/IDEA.md 第 22 节）：每个 reactor 一遍 tes
 cp "${MONEY}" "${P}/Money.java.bak"
 python3 -c 'import sys; p=sys.argv[1]; s=open(p).read(); open(p,"w").write(s.replace("return s;", "return s + nosuch;"))' "${MONEY}"
 B="const r = __lite.runs.list.find((x) => x.name === '构建项目');"
+TCLICK=$(python3 -c 'import time; print(int(time.time() * 1000))')
 lite menu build-project main >/dev/null
 lite_wait main "${B} return !!r && r.status !== 'running' && !!r.problems" 240 >/dev/null
-ok "$([ "$(lite_eval main "${B} return r?.command.replace(/^export [^;]*; /, '') + '|' + r?.status")" = "mvn -B -ntp -P probe test-compile|failed" ] && echo 1)" "菜单「构建项目」：带上勾的 profile 跑 test-compile、失败了（JDK 那段见下一节）：$(lite_eval main "${B} return r?.command + '|' + r?.status")$([ "$(lite_eval main "${B} return r?.status")" = running ] && printf ' —— 240 秒还在跑，输出最后几行：%s；那时的进程（找卡在哪）：%s' "$(logtext '构建项目' | tail -4 | tr '\n' ' ')" "$(ps -axo pid,ppid,pgid,lstart,stat,command | grep -E 'java|mvn|zsh' | grep -v grep | cut -c1-200 | tr '\n' ';')；日志 $(lite_eval main "${B} return r?.log ?? ''" | xargs -I{} sh -c 'ls -l "{}" 2>&1' | cut -c1-200)；现在 $(date '+%H:%M:%S')")"
+# 卡在哪一步（2026-10-28 抓到 Rust 真起进程是在等满 240 秒那一刻）：前端起任务那条路的时间线、Rust 那边命令进来 / 进阻塞池 / 起进程的时刻，都是 Unix 毫秒
+TRACE=$(lite_eval main "return (await __lite.runTrace()).slice(-8).map((x) => x[0] + ' ' + x[1]).join(' / ')" 2>&1)
+RUSTLOG=$(grep -E '@[0-9]+ (task_run|run_compound_items)' "${LITE_LOG}" 2>/dev/null | tail -8 | tr '\n' '/')
+ok "$([ "$(lite_eval main "${B} return r?.command.replace(/^export [^;]*; /, '') + '|' + r?.status")" = "mvn -B -ntp -P probe test-compile|failed" ] && echo 1)" "菜单「构建项目」：带上勾的 profile 跑 test-compile、失败了（JDK 那段见下一节）：$(lite_eval main "${B} return r?.command + '|' + r?.status")$([ "$(lite_eval main "${B} return r?.status")" = running ] && printf ' —— 240 秒还在跑，输出最后几行：%s；那时的进程（找卡在哪）：%s' "$(logtext '构建项目' | tail -4 | tr '\n' ' ')" "$(ps -axo pid,ppid,pgid,lstart,stat,command | grep -E 'java|mvn|zsh' | grep -v grep | cut -c1-200 | tr '\n' ';')；日志 $(lite_eval main "${B} return r?.log ?? ''" | xargs -I{} sh -c 'ls -l "{}" 2>&1' | cut -c1-200)；现在 $(date '+%H:%M:%S')；点菜单 @${TCLICK}；前端：${TRACE}；Rust：${RUSTLOG}")"
 ok "$(lite_eval main "${B} const p = r?.problems?.items ?? []; return p.length + ' ' + p.map((x) => x.path.split('/').pop() + ':' + x.line + ':' + x.message.split('\\n')[0]).join(',')" | grep -q '^1 Money.java:5:' && echo 1)" "错误树里正好一条、在 Money.java 第 5 行（Maven 把它打了两遍）：$(lite_eval main "${B} const p = r?.problems?.items ?? []; return p.length + ' ' + p.map((x) => x.path.split('/').pop() + ':' + x.line + ':' + x.message.split('\\n')[0]).join(',')")"
 mv "${P}/Money.java.bak" "${MONEY}"; touch "${MONEY}"
 # 上一次「构建失败」那条提示没读完时，做成了的不会把它顶掉（ui.md 第三条「坏消息不被好消息顶掉」）—— 等它自己走了再构建，像人看完了那样

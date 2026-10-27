@@ -214,16 +214,28 @@ function show(service: boolean) {
  * 跑一个任务。同名的还在跑：Rust 那边先停它、等进程组真没了再起（端口要先空出来）——
  * 这段可能要几秒（软停的宽限期），所以先把旧的那一格标成「停止中」，人看得见在等什么
  */
+/**
+ * 起任务那条路上每一步的时刻（Unix 毫秒），最近 50 条：spring.sh「构建项目」间歇 240 秒才起（2026-10-28 抓到：Rust 那边真起进程是在验收等满 240 秒那一刻），
+ * 卡在前端哪一步还是 Rust 哪一步，靠这个和 Rust 的诊断行（`@毫秒`）对。只是一张数组，测试通道读（`__lite.runTrace`）
+ */
+export const runTrace: [number, string][] = [];
+const trace = (what: string) => {
+  runTrace.push([Date.now(), what]);
+  if (runTrace.length > 50) runTrace.shift();
+};
+
 export async function runTask(name: string, root: string | null = project.root, debug = false) {
+  trace(`runTask 进来 ${name}`);
   if (!root) return;
   // 同一个正在起（重跑要等旧的软停，最多 5 秒，人看着没动静会再按一次 ⌃R）：第二下不再发。
   // Rust 那边也挡（`begin_run` 的认领），这里先挡住是为了不弹那句「正在起」—— 人只是按急了（code review 2026-10-10）
   const key = `${root}\n${name}`;
-  if (starting.has(key)) return;
+  if (starting.has(key)) return void trace(`runTask ${name}：同名的正在起，这一下不发`);
   starting.add(key);
   try {
     // 组合配置（docs/TAKEOVER.md R1）：没有自己的命令，一份份起；⌃R 记的是组合的名字，重跑还是整组
     const items = await runCompoundItems(root, name).catch(() => null);
+    trace(`run_compound_items 回来 ${name}`);
     if (items) {
       if (!items.length) return void notify.hint(`组合配置「${name}」中没有可运行的配置，请在「编辑配置…」中添加`);
       for (const it of items) await runTask(it, root, debug);
@@ -242,6 +254,7 @@ const starting = new Set<string>();
 
 async function start(name: string, root: string, debug: boolean) {
   await listen();
+  trace(`listen 完、要调 task_run ${name}`);
   last[root] = name;
   lastDebug[root] = debug;
   const old = runs.list.find((t) => t.root === root && t.name === name);
@@ -251,6 +264,7 @@ async function start(name: string, root: string, debug: boolean) {
   if (old) show(old.service);
   try {
     const r = await taskRun(root, name, debug);
+    trace(`task_run 回来 ${name}`);
     // 远程 JVM 调试那种只能调试：▶ 也是挂上去（Rust 说了算，docs/TAKEOVER.md G23）
     debug = r.debug;
     lastDebug[root] = debug;

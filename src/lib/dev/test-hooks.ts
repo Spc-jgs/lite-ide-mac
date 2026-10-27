@@ -121,6 +121,8 @@ export function installTestHooks() {
     replaceDone: async () => (await import("../state/replace.svelte")).replace.done,
     /** 数据库的查询结果（docs/DATABASE.md DB-2）：验收把十万行取完不靠滚（后台窗口的定时器一秒一次，滚两百次要几分钟），滚动那条路另外验几批。动态引：结果那块是懒的 */
     dbResults: async () => (await import("../db/results.svelte")).results,
+    /** 起任务那条路上每一步的时刻（runs-ops 的 runTrace）：「构建项目」间歇 240 秒才起，卡在哪一步靠它和 Rust 的诊断行对 */
+    runTrace: async () => (await import("../state/runs-ops")).runTrace,
     /** 本地历史的「恢复」要找的那个编辑器（live-views 的登记表）：是不是屏幕上那个、还在不在页面上 */
     liveView: async (path: string) => {
       const v = (await import("../editor/live-views")).viewOf(path);

@@ -51,7 +51,9 @@ pub async fn task_new_file(root: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String, name: String, debug: Option<bool>) -> Result<TaskRunDto, String> {
     let owner = window.label().to_string();
+    crate::diag!("@{} task_run 进来 {name}", crate::diag::now_ms());
     blocking(move || {
+        crate::diag!("@{} task_run 在阻塞池里 {name}", crate::diag::now_ms());
         let st = app.state::<AppState>();
         let mut def = crate::taskdefs::resolve(Path::new(&root), &name).ok_or_else(|| format!("任务「{name}」不存在（tasks.json 可能已修改）"))?;
         // 组合配置没有自己的命令：前端先问 `run_compound_items`、一份份起。走到这儿是前端漏了那一步
@@ -128,7 +130,7 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
             cap: tasksvc::LOG_CAP,
         };
         let task = std::sync::Arc::new(tasksvc::Task::start(&spec).map_err(|e| format!("无法启动「{name}」：{e}"))?);
-        crate::diag!("task_run {name} pgid={} log={}", task.pgid(), spec.log.display());
+        crate::diag!("@{} task_run {name} pgid={} log={}", crate::diag::now_ms(), task.pgid(), spec.log.display());
         st.live_add(tasksvc::live::Live {
             pgid: task.pgid(),
             started_us: task.started_us().unwrap_or(0),
@@ -168,7 +170,13 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
 /// 组合配置（compound）的那几份；不是组合配置回 null（docs/TAKEOVER.md R1）。⌃R / ▶ 之前问一句：只读应用自己的那份文件，不扫项目
 #[tauri::command]
 pub async fn run_compound_items(root: String, name: String) -> Result<Option<Vec<String>>, String> {
-    blocking(move || Ok(crate::taskdefs::compound_items(Path::new(&root), &name))).await
+    // 时刻诊断（spring.sh「构建项目」间歇 240 秒才起的那个，2026-10-28）：命令进来、进阻塞池、回去各一行，和前端的时间线对得上
+    crate::diag!("@{} run_compound_items 进来 {name}", crate::diag::now_ms());
+    blocking(move || {
+        crate::diag!("@{} run_compound_items 在阻塞池里 {name}", crate::diag::now_ms());
+        Ok(crate::taskdefs::compound_items(Path::new(&root), &name))
+    })
+    .await
 }
 
 /// 停。第一次软停（SIGINT 整组，宽限期后 SIGKILL）；软停还没完再叫一次 → 立刻强杀（同 IDEA 按钮变「强制结束」）。
