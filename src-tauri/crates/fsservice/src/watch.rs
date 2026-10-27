@@ -87,9 +87,7 @@ pub struct Watch {
 
 impl Drop for Watch {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        // 叫醒防抖线程，让它看到停止位；它可能正卡在 wait 上
-        self.wake.1.notify_all();
+        halt(&self.stop, &self.wake);
     }
 }
 
@@ -171,8 +169,7 @@ pub struct FileWatch {
 
 impl Drop for FileWatch {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        self.wake.1.notify_all();
+        halt(&self.stop, &self.wake);
     }
 }
 
@@ -260,8 +257,7 @@ pub struct PathWatch {
 
 impl Drop for PathWatch {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        self.wake.1.notify_all();
+        halt(&self.stop, &self.wake);
     }
 }
 
@@ -342,6 +338,20 @@ pub fn watch_paths(
 /// 而系统事件什么时候送到是 FSEvents 的事：CI 的慢机器上它会迟到、会把 20 次写拆成隔了 300ms 以上的两批，于是
 /// 「单文件_一阵写只合成一条」间歇红（`ac41149` 那次）。那条测试断言的其实是 FSEvents 的时机，不是我们的代码。
 /// 现在「一阵只发一条」在这里用人造的信号确定地测；真写文件的那几条只断言「收得到、合并过」
+/**
+ * 叫停防抖线程：置停止位、叫醒它。**中间要拿一下那把锁**。
+ *
+ * 防抖线程是拿着锁查停止位、再 `wait`（wait 时才放锁）。不拿锁的话有一个空当：它刚查完「没停」、还没进 wait，
+ * 这边置位、`notify` —— 那时没有人在等，这一声就丢了，它随后进 wait、永远等下去（线程和它攥着的回调一起漏掉）。
+ * 拿一下锁就把空当堵上：拿得到，说明它要么已经在 wait 里（会被叫醒），要么还没查（会看到停止位）。
+ * CI 上 `防抖_一阵信号只发一次` 撞过一次「stop 之后防抖线程没退出」，就是这个（2026-10-27）
+ */
+fn halt<T>(stop: &AtomicBool, wake: &(Mutex<T>, Condvar)) {
+    stop.store(true, Ordering::SeqCst);
+    drop(wake.0.lock().unwrap_or_else(|e| e.into_inner()));
+    wake.1.notify_all();
+}
+
 fn debounce<T: Default>(wake: &(Mutex<T>, Condvar), stop: &AtomicBool, idle: impl Fn(&T) -> bool, mut fire: impl FnMut(T)) {
     let (lock, cv) = wake;
     loop {
@@ -663,13 +673,36 @@ mod tests {
         poke();
         until(before + 1);
         assert_eq!(n.load(Ordering::SeqCst), before + 1, "之后再来一下要再发一条");
-        stop.store(true, Ordering::SeqCst);
-        wake.1.notify_all();
+        halt(&stop, &wake);
         let t0 = std::time::Instant::now();
         while !t.is_finished() && t0.elapsed() < Duration::from_secs(2) {
             thread::sleep(Duration::from_millis(20));
         }
         assert!(t.is_finished(), "stop 之后防抖线程没退出");
+    }
+
+    #[test]
+    fn 叫停不能丢_刚查完停止位还没进_wait_的那一下() {
+        // 起了就叫停，重复很多次：叫停的那一声总有几次正好落在「查完停止位、还没进 wait」的空当里
+        let mut stuck = 0;
+        for _ in 0..3000 {
+            let wake = Arc::new((Mutex::new(false), Condvar::new()));
+            let stop = Arc::new(AtomicBool::new(false));
+            let (w, s2) = (Arc::clone(&wake), Arc::clone(&stop));
+            let t = thread::spawn(move || debounce(&w, &s2, |hit| !*hit, |_| {}));
+            thread::yield_now();
+            halt(&stop, &wake);
+            let t0 = std::time::Instant::now();
+            while !t.is_finished() && t0.elapsed() < Duration::from_millis(200) {
+                thread::yield_now();
+            }
+            if !t.is_finished() {
+                stuck += 1;
+                // 漏掉的那个线程收不回来了：再叫一次把它放走，免得测试进程退不掉
+                wake.1.notify_all();
+            }
+        }
+        assert_eq!(stuck, 0, "3000 次里有 {stuck} 次叫停丢了，防抖线程一直等下去");
     }
 
 }
