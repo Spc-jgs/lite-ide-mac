@@ -6,7 +6,8 @@
 //!   包里写绝对路径的照用（测试构建的 shell 不读你的 rc，验收用它）
 //! - **一个服务器管一个根**：从文件往上找包里 `roots` 列的文件（`Cargo.toml`），找到的第一层就是根，到项目根还没有就用项目根。按 `窗口 × 根 × 包` 一个，`Owned` 登记，关窗口收；
 //!   没有开着的文档、闲了 [`IDLE`] 就收掉（同 jdtls）
-//! - 请求和解析照 Java 那边（`java::locations` / `completion_items` / `hover_markdown` 都是纯 LSP 的），DTO 也用同一套，前端画法共用
+//! - 请求和解析照 Java 那边（`java::locations` / `completion_items` / `hover_markdown` / `workspace_edit` 都是纯 LSP 的），DTO 也用同一套，前端画法共用；
+//!   改名、改到别的文件的快速修复照跨文件替换那套落盘（`java::apply_rename`：撤销日志、开着的标签跟上）
 
 use crate::owned::Owned;
 use lspsvc::server::{Server, Spec};
@@ -149,6 +150,8 @@ fn parse_locate(out: &str) -> Option<(PathBuf, String)> {
 struct Inst {
     srv: Server,
     pack: Pack,
+    /// 服务器报的诊断原样（快速修复要把和这几行重叠的原样带回去当上下文）
+    raw_diags: Arc<Mutex<HashMap<String, Vec<Value>>>>,
     /// 打开的文档 → 版本号
     docs: Mutex<HashMap<String, i64>>,
     last_used: Mutex<Instant>,
@@ -246,11 +249,14 @@ impl Langs {
             .map_err(|e| format!("{e}：{} 的语言服务器未安装或不在 PATH 中{}", pack.name, if pack.server.install.is_empty() { String::new() } else { format!("（安装：{}）", pack.server.install) }))?;
         let spec = Spec { program, args: pack.server.command[1..].to_vec(), cwd: root.to_path_buf(), env: vec![("PATH".into(), path_env)] };
         let (app2, owner2, root2) = (app.clone(), owner.to_string(), root.to_string_lossy().into_owned());
+        let raw_diags: Arc<Mutex<HashMap<String, Vec<Value>>>> = Arc::default();
+        let raw2 = Arc::clone(&raw_diags);
         let on_notify: lspsvc::conn::OnNotify = Box::new(move |method, p| {
             if method != "textDocument/publishDiagnostics" {
                 return;
             }
             let Some(path) = p["uri"].as_str().and_then(uri::to_path) else { return };
+            raw2.lock().unwrap_or_else(|e| e.into_inner()).insert(path.clone(), p["diagnostics"].as_array().map(|a| a.iter().take(500).cloned().collect()).unwrap_or_default());
             let (items, total) = crate::java::diagnostics(&p["diagnostics"]);
             let _ = app2.emit_to(
                 owner2.as_str(),
@@ -272,6 +278,9 @@ impl Langs {
                 "hover": { "contentFormat": ["markdown", "plaintext"] },
                 "definition": { "linkSupport": true },
                 "references": {},
+                "rename": { "prepareSupport": true },
+                "formatting": {},
+                "codeAction": { "codeActionLiteralSupport": { "codeActionKind": { "valueSet": ["quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source"] } }, "resolveSupport": { "properties": ["edit"] } },
                 "publishDiagnostics": {}
             },
             "workspace": { "configuration": true, "workspaceFolders": true }
@@ -284,7 +293,7 @@ impl Langs {
         })?;
         applog::write(applog::Level::Info, "lsp", &format!("{} 起了（{}）", pack.name, root.display()));
         spawn_reaper(app.clone());
-        Ok(Inst { srv, pack: pack.clone(), docs: Mutex::new(HashMap::new()), last_used: Mutex::new(Instant::now()) })
+        Ok(Inst { srv, pack: pack.clone(), raw_diags, docs: Mutex::new(HashMap::new()), last_used: Mutex::new(Instant::now()) })
     }
 
     /// 打开或更新一个文档（全文）。不是任何包认的文件什么都不做；回这个文件归哪个包（`None` = 没有）
@@ -339,6 +348,62 @@ impl Langs {
         let mut p = Inst::at(path, line, character);
         p["context"] = json!({ "triggerKind": 1 });
         Ok(crate::java::completion_items(&i.ask("textDocument/completion", p)?))
+    }
+
+    /// 光标底下能不能改名（先同步此刻的全文）。null = 这里不能
+    pub fn prepare_rename(&self, app: &AppHandle, owner: &str, root: &str, path: &str, text: &str, line: u32, character: u32) -> Result<Option<crate::java::RenameTarget>, String> {
+        let i = self.need(app, owner, root, path)?;
+        i.open(path, text);
+        Ok(crate::java::rename_target(&i.ask("textDocument/prepareRename", Inst::at(path, line, character))?))
+    }
+
+    /// 改名要改哪些（只问不改，落盘在命令那层走 `java::apply_rename`）
+    pub fn rename(&self, app: &AppHandle, owner: &str, root: &str, path: &str, text: &str, line: u32, character: u32, new_name: &str) -> Result<crate::java::RenamePlan, String> {
+        let i = self.need(app, owner, root, path)?;
+        i.open(path, text);
+        let mut p = Inst::at(path, line, character);
+        p["newName"] = json!(new_name);
+        let r = i.ask("textDocument/rename", p)?;
+        if r.is_null() {
+            return Err(format!("{} 语言服务器未返回更改（光标处可能无法重命名）", i.pack.name));
+        }
+        crate::java::workspace_edit(&r)
+    }
+
+    /// 格式化整份（缩进照编辑器对这个文件的判断给）。回改动，前端一笔做
+    pub fn format(&self, app: &AppHandle, owner: &str, root: &str, path: &str, text: &str, tab_size: u32, spaces: bool) -> Result<Vec<crate::java::Edit>, String> {
+        let i = self.need(app, owner, root, path)?;
+        i.open(path, text);
+        let r = i.ask("textDocument/formatting", json!({ "textDocument": { "uri": uri::from_path(path) }, "options": { "tabSize": tab_size, "insertSpaces": spaces } }))?;
+        Ok(r.as_array().map(|a| a.iter().filter_map(|e| e["newText"].as_str().map(|t| crate::java::edit_of(&e["range"], t))).collect()).unwrap_or_default())
+    }
+
+    /// 光标那儿（或选中的那几行）能做的修复：把和这几行重叠的诊断原样带上
+    pub fn code_actions(&self, app: &AppHandle, owner: &str, root: &str, path: &str, text: &str, range: crate::java::Edit) -> Result<Vec<crate::java::Action>, String> {
+        let i = self.need(app, owner, root, path)?;
+        i.open(path, text);
+        let diags: Vec<Value> = i.raw_diags.lock().unwrap_or_else(|e| e.into_inner()).get(path).map(|v| v.iter().filter(|d| crate::java::overlaps(d, &range)).cloned().collect()).unwrap_or_default();
+        let r = i.ask(
+            "textDocument/codeAction",
+            json!({
+                "textDocument": { "uri": uri::from_path(path) },
+                "range": { "start": { "line": range.line, "character": range.character }, "end": { "line": range.end_line, "character": range.end_character } },
+                "context": { "diagnostics": diags, "triggerKind": 1 },
+            }),
+        )?;
+        Ok(crate::java::actions_of(&r))
+    }
+
+    /// 选中的那条修复要改什么：带着改动的直接用，没带的先 `codeAction/resolve`；还没有改动、只有命令的（要服务器再做一步的那种）这一版不做，说清楚
+    pub fn resolve_action(&self, app: &AppHandle, owner: &str, root: &str, path: &str, raw: &str) -> Result<crate::java::RenamePlan, String> {
+        let i = self.need(app, owner, root, path)?;
+        let item: Value = serde_json::from_str(raw).map_err(|e| format!("快速修复格式无效：{e}"))?;
+        let resolved = if item.get("edit").is_some() { item } else { i.ask("codeAction/resolve", item)? };
+        if resolved.get("edit").is_none() {
+            let cmd = if resolved["command"].is_string() { &resolved["command"] } else { &resolved["command"]["command"] };
+            return Err(format!("此修复需要{} 语言服务器执行命令{}，当前版本暂不支持", i.pack.name, cmd.as_str().map(|c| format!("（{c}）")).unwrap_or_default()));
+        }
+        crate::java::workspace_edit(&resolved["edit"])
     }
 
     /// 关窗口：它起的服务器都停掉（在别的线程上，shutdown 要等一会儿）

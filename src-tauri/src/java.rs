@@ -1202,7 +1202,7 @@ pub(crate) fn diagnostics(v: &Value) -> (Vec<Diagnostic>, usize) {
     (all, total)
 }
 
-fn edit_of(range: &Value, text: &str) -> Edit {
+pub(crate) fn edit_of(range: &Value, text: &str) -> Edit {
     Edit {
         line: num(&range["start"]["line"]),
         character: num(&range["start"]["character"]),
@@ -1326,7 +1326,7 @@ pub fn resolved(r: &Value) -> Resolved {
 }
 
 /// 一条报错和这一段（按行）有没有重叠。按行不按列：工作区构建出来的那批报错只有行号、列是 0（探针实测），按列判会漏
-fn overlaps(d: &Value, r: &Edit) -> bool {
+pub(crate) fn overlaps(d: &Value, r: &Edit) -> bool {
     let (a, b) = (num(&d["range"]["start"]["line"]), num(&d["range"]["end"]["line"]));
     a <= r.end_line && b >= r.line
 }

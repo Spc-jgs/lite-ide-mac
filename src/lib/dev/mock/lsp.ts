@@ -47,6 +47,16 @@ export function lspCmd(cmd: string, a: A): unknown {
         incomplete: false,
         total: 3,
       };
+    // 改名、格式化、快速修复：桩里不演（要真改文件、真跨文件），说一句、不装作做成了；这几样在 scripts/accept/lsp.sh 上用真 rust-analyzer 验
+    case "lsp_prepare_rename":
+      return { line: Number(a.line), character: Number(a.character), endLine: Number(a.line), endCharacter: Number(a.character) + 4, placeholder: null };
+    case "lsp_rename":
+    case "lsp_apply_action":
+      return Promise.reject("开发桩不演示此操作，请在真 .app 上使用");
+    case "lsp_format":
+      return [];
+    case "lsp_code_actions":
+      return [];
     default:
       return NOT_MINE;
   }

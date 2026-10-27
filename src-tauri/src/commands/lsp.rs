@@ -71,3 +71,69 @@ pub async fn lsp_packs(app: tauri::AppHandle) -> Result<LspPacksDto, String> {
     })
     .await
 }
+
+/// 光标底下能不能改名（⇧F6 先问这个：不能改的地方不弹输入框）。null = 这里不能
+#[tauri::command]
+pub async fn lsp_prepare_rename(app: tauri::AppHandle, window: tauri::Window, root: String, path: String, text: String, line: u32, character: u32) -> Result<Option<JavaRenameTargetDto>, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        Ok(app.state::<AppState>().langs.prepare_rename(&app, &owner, &root, &path, &text, line, character)?.map(|t| JavaRenameTargetDto {
+            line: t.range.line,
+            character: t.range.character,
+            end_line: t.range.end_line,
+            end_character: t.range.end_character,
+            placeholder: t.placeholder,
+        }))
+    })
+    .await
+}
+
+/// 改名：问语言服务器要改哪些，照跨文件替换那套落盘（`java::apply_rename`：撤销日志、开着的标签跟上）。结果的形状同替换
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn lsp_rename(app: tauri::AppHandle, window: tauri::Window, root: String, path: String, text: String, line: u32, character: u32, new_name: String, open: Vec<super::replace::OpenDocArg>) -> Result<ReplaceOutcomeDto, String> {
+    let owner = window.label().to_string();
+    let journal = super::replace::journal_dir(&app)?;
+    blocking(move || {
+        let plan = app.state::<AppState>().langs.rename(&app, &owner, &root, &path, &text, line, character, &new_name)?;
+        let out = crate::java::apply_rename(&plan, std::path::Path::new(&root), &journal, &super::replace::dirty_map(open))?;
+        Ok(super::replace::outcome_dto(out))
+    })
+    .await
+}
+
+/// 格式化整份：回改动，前端一笔做（⌘Z 能撤，不写盘）
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn lsp_format(app: tauri::AppHandle, window: tauri::Window, root: String, path: String, text: String, tab_size: u32, insert_spaces: bool) -> Result<Vec<JavaEditDto>, String> {
+    let owner = window.label().to_string();
+    blocking(move || Ok(app.state::<AppState>().langs.format(&app, &owner, &root, &path, &text, tab_size, insert_spaces)?.into_iter().map(Into::into).collect())).await
+}
+
+/// 光标那儿（或选中的那几行）能做的修复（⌥↵）
+#[tauri::command]
+pub async fn lsp_code_actions(app: tauri::AppHandle, window: tauri::Window, root: String, path: String, text: String, range: JavaRangeArg) -> Result<Vec<JavaActionDto>, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        let r = crate::java::Edit { line: range.line, character: range.character, end_line: range.end_line, end_character: range.end_character, text: String::new() };
+        Ok(app.state::<AppState>().langs.code_actions(&app, &owner, &root, &path, &text, r)?.into_iter().map(|a| JavaActionDto { title: a.title, kind: a.kind, raw: a.raw }).collect())
+    })
+    .await
+}
+
+/// 做选中的那条修复：只改这一个文件的交回编辑器（不写盘，⌘Z 能撤）；改到别的文件的照改名那套落盘
+#[tauri::command]
+pub async fn lsp_apply_action(app: tauri::AppHandle, window: tauri::Window, root: String, path: String, raw: String, open: Vec<super::replace::OpenDocArg>) -> Result<JavaActionResultDto, String> {
+    let owner = window.label().to_string();
+    let journal = super::replace::journal_dir(&app)?;
+    blocking(move || {
+        let plan = app.state::<AppState>().langs.resolve_action(&app, &owner, &root, &path, &raw)?;
+        if plan.renames.is_empty() && plan.files.iter().all(|(p, _)| *p == path) {
+            let edits = plan.files.into_iter().flat_map(|(_, e)| e).map(Into::into).collect();
+            return Ok(JavaActionResultDto { edits, outcome: None });
+        }
+        let out = crate::java::apply_rename(&plan, std::path::Path::new(&root), &journal, &super::replace::dirty_map(open))?;
+        Ok(JavaActionResultDto { edits: Vec::new(), outcome: Some(super::replace::outcome_dto(out)) })
+    })
+    .await
+}

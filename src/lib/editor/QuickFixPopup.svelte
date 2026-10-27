@@ -80,7 +80,7 @@
       >{a.title}</button>
     {/each}
   </div>
-  <div class="foot">↑↓ 选 · ↵ 做 · Esc 关</div>
+  <div class="foot">↑↓ 选择 · ↵ 执行 · Esc 关闭</div>
 </div>
 
 <style>

@@ -1,5 +1,6 @@
 /**
- * Java 以外的语言服务器的编辑器那一半（docs/LANGPACK.md）：实时报错、补全、F1 文档、⌘B / ⌘Click 跳定义、⌥F7 查用法。
+ * Java 以外的语言服务器的编辑器那一半（docs/LANGPACK.md）：实时报错、补全、F1 文档、⌘B / ⌘Click 跳定义、⌥F7 查用法、
+ * ⇧F6 改名、⌥⌘L 格式化、⌥↵ 快速修复。
  * 哪些文件有语言服务器由「语言包」说（内置的 + 你自己的，Rust 侧 `langs.rs`）；跟着语言包懒加载，不打开那种文件一个字节不付。
  *
  * 形状照 `java-lsp.ts`（那边的注释是来龙去脉）：编辑器建好时 didOpen、标签没了才 didClose（编辑器 `{#key}` 重建只是切走）；
@@ -8,10 +9,11 @@
  */
 import { Decoration, EditorView, ViewPlugin, hoverTooltip, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { Prec, StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
+import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaDiagnostic, type JavaDiagnostics, type JavaLocation, type LspPack } from "../ipc/commands";
-import { lspClose, lspComplete, lspDefinition, lspHover, lspOpen, lspPacks, lspReferences } from "../ipc/lsp";
+import { lspApplyAction, lspClose, lspCodeActions, lspComplete, lspDefinition, lspFormat, lspHover, lspOpen, lspPacks, lspPrepareRename, lspReferences, lspRename } from "../ipc/lsp";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { idKeymap } from "./id-keys";
 import { nav } from "../state/nav.svelte";
@@ -20,6 +22,8 @@ import { problems } from "../state/problems.svelte";
 import { progress } from "../state/progress.svelte";
 import { tabs } from "../state/tabs.svelte";
 import UsagesPopup from "./UsagesPopup.svelte";
+import RenamePopup from "./RenamePopup.svelte";
+import QuickFixPopup from "./QuickFixPopup.svelte";
 import type { JumpHit } from "./jump";
 
 const DEBOUNCE = 250;
@@ -363,6 +367,157 @@ async function quickDoc(view: EditorView) {
   });
 }
 
+// ── 改名（⇧F6）、格式化（⌥⌘L）、快速修复（⌥↵）：照 java-lsp 那几段，落盘走跨文件替换那套 ──
+
+/** 跨文件的改动落了盘：开着的标签跟上、记下「撤销上次的替换 / 改名」、胶囊上带撤销（同 Java 的改名） */
+async function landed(root: string, label: string, o: import("../ipc/commands").ReplaceOutcome) {
+  const ops = await import("../state/replace-ops");
+  await ops.landInTabs(o);
+  const { replace } = await import("../state/replace.svelte");
+  const hits = o.changed.reduce((n, c) => n + c.count, 0);
+  const text = `${label}：${o.changed.length} 个文件 ${hits} 处`;
+  replace.done = o.undo ? { root, files: o.changed.length, hits, label: text } : null;
+  notify.ok(text, undefined, o.undo ? ops.UNDO : undefined);
+}
+
+async function renameAt(view: EditorView) {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!s.ready) return void notify.hint(`${s.pack.name} 语言服务器尚未就绪，暂时无法重命名`);
+  const head = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(head);
+  const at = { line: line.number - 1, character: head - line.from };
+  let target: Awaited<ReturnType<typeof lspPrepareRename>>;
+  try {
+    target = await lspPrepareRename(s.root, s.path, view.state.doc.toString(), at.line, at.character);
+  } catch (e) {
+    return void notify.fail(`无法重命名：${e}`);
+  }
+  if (!target) return void notify.hint("光标处的元素不支持重命名");
+  if (!view.dom.isConnected) return;
+  const from = offset(view.state.doc, target.line, target.character);
+  const name = target.placeholder ?? view.state.doc.sliceString(from, offset(view.state.doc, target.endLine, target.endCharacter));
+  const c = view.coordsAtPos(from);
+  closePopup();
+  popup = mount(RenamePopup, {
+    target: document.body,
+    props: {
+      name,
+      x: c?.left ?? 200,
+      y: c?.bottom ?? 200,
+      onclose: () => {
+        closePopup();
+        view.focus();
+      },
+      onrename: (to: string) => {
+        closePopup();
+        view.focus();
+        void (async () => {
+          const t = progress.start(`正在将 ${name} 重命名为 ${to}`);
+          try {
+            const ops = await import("../state/replace-ops");
+            const o = await lspRename(s.root, s.path, view.state.doc.toString(), at.line, at.character, to, ops.openDocs());
+            await landed(s.root, `已将 ${name} 重命名为 ${to}`, o);
+          } catch (e) {
+            notify.fail(`重命名失败：${e instanceof Error ? e.message : String(e)}`, 8000);
+          } finally {
+            t.end();
+          }
+        })();
+      },
+    },
+  });
+}
+
+/** 改动交回编辑器，一笔事务（⌘Z 能撤，不写盘）。问的时候和回来的时候文本变了就不放：位置是在旧文本上算的 */
+function putEdits(view: EditorView, edits: { line: number; character: number; endLine: number; endCharacter: number; text: string }[], gen: number, what: string, userEvent: string): boolean | null {
+  if (!view.dom.isConnected) return null;
+  if ((view.state.field(genField, false) ?? 0) !== gen) {
+    notify.hint(`文件在${what}期间已被修改，未应用更改，请重试`);
+    return null;
+  }
+  const doc = view.state.doc;
+  const changes = edits
+    .map((e) => ({ from: offset(doc, e.line, e.character), to: offset(doc, e.endLine, e.endCharacter), insert: e.text }))
+    .filter((c) => c.insert !== doc.sliceString(c.from, c.to))
+    .sort((a, b) => a.from - b.from || a.to - b.to);
+  if (!changes.length) return false;
+  view.dispatch({ changes, userEvent, scrollIntoView: true });
+  return true;
+}
+
+async function formatDoc(view: EditorView) {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!s.ready) return void notify.hint(`${s.pack.name} 语言服务器尚未就绪，暂时无法格式化`);
+  const st = view.state;
+  const unit = st.facet(indentUnit);
+  const tabs = unit.includes("\t");
+  const gen = st.field(genField, false) ?? 0;
+  let edits: Awaited<ReturnType<typeof lspFormat>>;
+  try {
+    edits = await lspFormat(s.root, s.path, st.doc.toString(), tabs ? st.tabSize : unit.length, !tabs);
+  } catch (e) {
+    return void notify.fail(`格式化失败：${e instanceof Error ? e.message : String(e)}`);
+  }
+  const done = putEdits(view, edits, gen, "格式化", "input.format");
+  if (done === false) notify.hint("代码格式无需调整");
+  else if (done) notify.ok("已格式化");
+}
+
+async function quickFix(view: EditorView) {
+  const s = syncs.get(view);
+  if (!s) return;
+  if (!s.ready) return void notify.hint(`${s.pack.name} 语言服务器尚未就绪，暂时无法快速修复`);
+  const st = view.state;
+  const sel = st.selection.main;
+  const a = st.doc.lineAt(sel.from);
+  const b = st.doc.lineAt(sel.to);
+  const range = { line: a.number - 1, character: sel.from - a.from, endLine: b.number - 1, endCharacter: sel.to - b.from };
+  let items: Awaited<ReturnType<typeof lspCodeActions>>;
+  try {
+    items = await lspCodeActions(s.root, s.path, st.doc.toString(), range);
+  } catch (e) {
+    return void notify.fail(`无法获取快速修复：${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (!view.dom.isConnected) return;
+  if (!items.length) return void notify.hint("此处没有可用的快速修复");
+  const gen = view.state.field(genField, false) ?? 0;
+  const c = view.coordsAtPos(sel.head);
+  closePopup();
+  popup = mount(QuickFixPopup, {
+    target: document.body,
+    props: {
+      items,
+      x: c?.left ?? 200,
+      y: c?.bottom ?? 200,
+      onclose: () => {
+        closePopup();
+        view.focus();
+      },
+      onpick: (it: { title: string; raw: string }) => {
+        closePopup();
+        view.focus();
+        void (async () => {
+          const t = progress.start(`正在执行：${it.title}`);
+          try {
+            const ops = await import("../state/replace-ops");
+            const r = await lspApplyAction(s.root, s.path, it.raw, ops.openDocs());
+            if (r.outcome) return void (await landed(s.root, it.title, r.outcome));
+            const done = putEdits(view, r.edits, gen, "修复", "input.fix");
+            if (done === false) notify.hint(`「${it.title}」未产生更改`);
+            else if (done) notify.ok(it.title);
+          } catch (e) {
+            notify.fail(`「${it.title}」失败：${e instanceof Error ? e.message : String(e)}`, 8000);
+          } finally {
+            t.end();
+          }
+        })();
+      },
+    },
+  });
+}
+
 // ── 补全 ──
 
 /** 补全源。语言服务器没起好时退回「文档里出现过的词」；只在第一个字和 `.` / `:` 后面问，之后在已有的里面筛（除非服务器说它截了） */
@@ -408,6 +563,8 @@ export function lspGeneric(root: string | null, path: string, pack: LspPack): Ex
   if (!root || !path.startsWith(`${root}/`)) return [];
   wire();
   return [
+    // 编辑器上标一下「接着哪个语言包」：验收（lsp.sh）等它出现再按键 —— 这个扩展是问完包的列表才装上的，开文件当场就按键会落空
+    EditorView.editorAttributes.of({ "data-lsp": pack.id }),
     genField,
     diagField,
     diagHover,
@@ -417,6 +574,10 @@ export function lspGeneric(root: string | null, path: string, pack: LspPack): Ex
       idKeymap([
         { id: "find-usages", preventDefault: true, run: (v) => (void findUsages(v), true) },
         { id: "quick-doc", preventDefault: true, run: (v) => (void quickDoc(v), true) },
+        { id: "rename", preventDefault: true, run: (v) => (void renameAt(v), true) },
+        { id: "quick-fix", preventDefault: true, run: (v) => (void quickFix(v), true) },
+        // ⌥⌘L：同 Java 那边挂在「格式化 JSON」那一行上（keymap.ts 里是同一行，说明写了两种），Prec.high 排在 Editor 里那条前面
+        { id: "cm-format-json", preventDefault: true, run: (v) => (void formatDoc(v), true) },
       ]),
     ),
     EditorView.theme({

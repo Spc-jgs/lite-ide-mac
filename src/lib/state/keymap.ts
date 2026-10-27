@@ -200,19 +200,19 @@ export const KEYS: KeyDef[] = [
    * 那个工具窗还没有，两个先都开列表 —— 按惯了 ⌥F7 的人按下去有东西，比没反应好。归 cm6：要读光标底下的词。
    * ⌥⌘F7 不写成 `alias`：别名的意思是「菜单一项只挂得下一个」（keymap.test.ts 卡着），这里不进菜单；它在 java-lsp.ts 的键位里
    */
-  { id: "find-usages", label: "查找用法（Java）", accel: "⌥F7", group: "导航", owner: "cm6" },
+  { id: "find-usages", label: "查找用法", accel: "⌥F7", group: "导航", owner: "cm6" },
   { id: "goto-impl", label: "转到实现（Java）", accel: "⌥⌘B", group: "导航", owner: "cm6" },
   { id: "goto-super", label: "转到父方法（Java）", accel: "⌘U", group: "导航", owner: "cm6" },
-  { id: "quick-doc", label: "快速文档（Java）", accel: "F1", group: "导航", owner: "cm6" },
+  { id: "quick-doc", label: "快速文档", accel: "F1", group: "导航", owner: "cm6" },
   // IDEA 的 Generate：macOS 键位是 ⌘N 和 ⌃↵ 两个，⌘N 在这里是「新建草稿」（菜单的），先只挂 ⌃↵
   { id: "generate", label: "生成…（Java：构造器、Getter / Setter、toString…）", accel: "⌃↵", group: "编辑", owner: "cm6" },
   // IDEA 的 Call Hierarchy / Type Hierarchy（macOS 键位）。⌃H 在 CM6 里是「往回删一个字」（emacs 那套），Java 文件里照 IDEA 盖掉
   { id: "call-hierarchy", label: "调用层次结构（Java）", accel: "⌃⌥H", group: "导航", owner: "cm6" },
   { id: "type-hierarchy", label: "类型层次结构（Java）", accel: "⌃H", group: "导航", owner: "cm6" },
   /** 改名（docs/IDEA.md 第 14 节，Java 文件、jdtls 起好之后）：IDEA 的 Refactor → Rename。归 cm6：要读光标底下的词 */
-  { id: "rename", label: "重命名（Java）", accel: "⇧F6", group: "编辑", owner: "cm6" },
+  { id: "rename", label: "重命名", accel: "⇧F6", group: "编辑", owner: "cm6" },
   /** 快速修复（docs/IDEA.md 第 16 节）：IDEA 的 Show Context Actions。归 cm6：要读光标在哪 */
-  { id: "quick-fix", label: "快速修复（Java）", accel: "⌥↵", group: "编辑", owner: "cm6" },
+  { id: "quick-fix", label: "快速修复", accel: "⌥↵", group: "编辑", owner: "cm6" },
   /** 跑光标所在的测试方法 / 类（docs/IDEA.md 第 17 节）：IDEA 的 Run context configuration。归 cm6：要读光标在哪 */
   /** `.http` 文件里是发光标所在的请求（docs/IDEA.md 第 19 节）：IDEA 里每个请求是一个临时运行配置，⌃⇧R 就是通用的「运行光标这儿的」 */
   /** 参数提示（Java），照 IDEA 是 ⌘P；敲 ( 或 , 时自己会弹。归 cm6：终端里的 ⌘P 照样交给 shell */
@@ -289,7 +289,7 @@ export const KEYS: KeyDef[] = [
   { id: "cm-all-occ", label: "选中所有相同项", accel: "⌃⌘G", group: "编辑", owner: "cm6" },
   { id: "cm-case", label: "切换大小写", accel: "⇧⌘U", group: "编辑", owner: "cm6" },
   /** Java 文件（语言服务器起好之后）交给 jdtls 格式化整份 / 选中的几行（java-lsp.ts，docs/IDEA.md 第 15 节）；别的文件照旧只认 JSON */
-  { id: "cm-format-json", label: "重新格式化代码（Java：整个文件或选区；其他：JSON）", accel: "⌥⌘L", group: "编辑", owner: "cm6" },
+  { id: "cm-format-json", label: "重新格式化代码（有语言服务器的文件；JSON 文件格式化 JSON）", accel: "⌥⌘L", group: "编辑", owner: "cm6" },
   /** IDEA 的 Optimize Imports（docs/TAKEOVER.md G22）：删没用的、补齐、按 IDEA 代码风格里的次序排、到阈值合成 `.*`。Java 文件里 jdtls 起好之后才有 */
   { id: "optimize-imports", label: "优化 import（Java）", accel: "⌃⌥O", group: "编辑", owner: "cm6" },
   /*

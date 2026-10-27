@@ -33,7 +33,7 @@
 
   /** Java 的标识符：字母（含中文）、下划线、$ 开头，后面再加数字。不合法的当场说，不发给 jdtls 绕一圈 */
   const ID = /^[\p{L}_$][\p{L}\p{N}_$]*$/u;
-  let problem = $derived(value === "" ? "" : !ID.test(value) ? "不是合法的 Java 名字（字母、下划线、$ 开头，后面可以有数字）" : "");
+  let problem = $derived(value === "" ? "" : !ID.test(value) ? "不是有效的标识符（以字母、下划线或 $ 开头，后面可包含数字）" : "");
 
   $effect(() => {
     const e = el;
@@ -62,13 +62,13 @@
 </script>
 
 <div class="scrim" onclick={onclose} role="presentation"></div>
-<div class="popup palette s rename" bind:this={el} role="dialog" aria-label="把 {name} 改名为">
-  <div class="title">把 <b>{name}</b> 改名为</div>
-  <input class="field" bind:this={input} bind:value spellcheck="false" autocomplete="off" aria-label="新名字" onkeydown={onKey} />
+<div class="popup palette s rename" bind:this={el} role="dialog" aria-label="重命名 {name}">
+  <div class="title">重命名 <b>{name}</b></div>
+  <input class="field" bind:this={input} bind:value spellcheck="false" autocomplete="off" aria-label="新名称" onkeydown={onKey} />
   {#if problem}
     <div class="hint bad">{problem}</div>
   {:else}
-    <div class="hint">↵ 改名 · Esc 取消 —— 用到它的地方一起改，类名连文件名一起改；改完卡片上能撤销</div>
+    <div class="hint">↵ 重命名 · Esc 取消。所有引用一并更新（Java 类名同时重命名文件），完成后可撤销</div>
   {/if}
 </div>
 

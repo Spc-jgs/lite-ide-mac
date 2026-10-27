@@ -71,6 +71,12 @@ ok "$(grep -rq 'Rust（验收） 起了' "${HOME}/Library/Logs/${LITE_ID}" 2>/de
 
 echo "== 补全、F1 文档、⌘B 跳到别的文件、⌥F7 查用法"
 LINE_OF='const t = __lite.text().split("\n"); const at = (s) => t.findIndex((x) => x.includes(s)) + 1;'
+# 开一个文件、等通用的语言服务器那一层装上（编辑器上的 data-lsp）、服务器那边登记好这份文档（再等半秒）：开完当场按键会落空
+open_ready() {
+  lite_eval main "await __lite.tabflow.openPath('$1', { preview: false }); return true" >/dev/null
+  lite_wait main "return !!document.querySelector('.cm-editor[data-lsp]') && __lite.tabs.active?.path === '$1'" 15 >/dev/null
+  sleep 0.5
+}
 lite_eval main "${LINE_OF} const l = at('m.yuan()'); __lite.caret(l, t[l - 1].indexOf('yuan') + 3); __lite.key('F1'); return true" >/dev/null
 lite_wait main "return !!document.querySelector('.popup.doc')" 15 >/dev/null
 DOC=$(lite_eval main "return document.querySelector('.popup.doc')?.textContent ?? ''")
@@ -89,6 +95,33 @@ lite_wait main "return document.querySelectorAll('.usages .row').length > 0" 20 
 USES=$(lite_eval main "return [...document.querySelectorAll('.usages .row')].map((r) => r.innerText.replace(/\\s+/g, ' ')).join(' | ')")
 ok "$(echo "${USES}" | grep -q 'main.rs' && echo 1)" "⌥F7 在 yuan 的声明上：列出 main.rs 里的调用（${USES}）"
 lite_eval main "document.querySelector('.usages')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
+
+echo "== ⇧F6 重命名（跨文件、盘上真改了）、⌥⌘L 格式化、⌥↵ 快速修复"
+# 先把 main.rs 放回原样（上面补全那段打的半行留着会让 rust-analyzer 报错，改名的结果不好对）、存盘
+lite_eval main "await __lite.tabflow.openPath('${P}/src/main.rs', { preview: false }); return true" >/dev/null
+MAIN0=$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' "${P}/src/main.rs")
+lite_eval main "__lite.setText(${MAIN0}); return true" >/dev/null
+lite_menu_save() { lite menu save main >/dev/null; }
+lite_menu_save
+lite_wait main "return __lite.tabs.active?.dirty === false" 10 >/dev/null
+open_ready "${P}/src/money.rs"
+lite_eval main "${LINE_OF} const l = at('pub fn yuan'); __lite.caret(l, t[l - 1].indexOf('yuan') + 2); __lite.key('Shift-F6'); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.rename input')" 15 >/dev/null
+ok "$([ "$(lite_eval main "return document.querySelector('.rename .title')?.textContent + '|' + document.querySelector('.rename input')?.value")" = "重命名 yuan|yuan" ] && echo 1)" "⇧F6 弹出重命名框，带着原名"
+lite_eval main "__lite.fill('to_yuan', '.rename input'); document.querySelector('.rename input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); return true" >/dev/null
+lite_wait main "return __lite.notify.log.some((x) => x.text.startsWith('已将 yuan 重命名为 to_yuan'))" 20 >/dev/null
+ok "$(grep -q 'pub fn to_yuan' "${P}/src/money.rs" && grep -q 'm.to_yuan()' "${P}/src/main.rs" && ! grep -q 'yuan()' <(grep -v to_yuan "${P}/src/main.rs" "${P}/src/money.rs") && echo 1)" "重命名跨两个文件、盘上真改了：$(lite_eval main "return __lite.notify.log.findLast((x) => x.text.startsWith('已将')).text")"
+lite_eval main "${LINE_OF} const l = at('pub cents'); __lite.editLine(l, 'pub cents: i64,', 'pub   cents :i64 ,'); __lite.caret(1, 1); __lite.key('Alt-Mod-l'); return true" >/dev/null
+lite_wait main "return __lite.text().includes('pub cents: i64,')" 15 >/dev/null
+ok "$(lite_eval main "return __lite.text().includes('pub cents: i64,') && !__lite.text().includes('pub   cents')" | grep -qx true && echo 1)" "⌥⌘L：rust-analyzer 交给 rustfmt 排回 pub cents: i64,（是编辑器里的一笔修改，⌘Z 可撤销）"
+open_ready "${P}/src/main.rs"
+lite_eval main "${LINE_OF} const l = at('let m ='); __lite.caret(l, t[l - 1].indexOf('m =') + 1); __lite.key('Alt-Enter'); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.fixes [role=option], .fixes .row').length > 0" 15 >/dev/null
+FIXES=$(lite_eval main "return [...document.querySelectorAll('.fixes [role=option], .fixes .row')].map((r) => r.textContent.trim()).join(' | ')")
+ok "$(echo "${FIXES}" | grep -qi 'type' && echo 1)" "⌥↵ 在 let m 上：列出 rust-analyzer 的改法（${FIXES}）"
+lite_eval main "const r = [...document.querySelectorAll('.fixes [role=option], .fixes .row')].find((x) => /explicit type/i.test(x.textContent)); if (!r) return false; r.click(); return true" >/dev/null
+lite_wait main "return __lite.text().includes('let m: Money')" 15 >/dev/null
+ok "$(lite_eval main "return __lite.text().includes('let m: Money = Money::new(150);')" | grep -qx true && echo 1)" "选「插入显式类型」：要的改动先 resolve 再放进编辑器 → let m: Money = Money::new(150);"
 
 echo "== 没装的语言：说一次、带怎么装；不是包认的文件不起服务器"
 lite_eval main "await __lite.tabflow.openPath('${P}/tool.py', { preview: false }); return true" >/dev/null
