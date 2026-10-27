@@ -18,6 +18,7 @@ P=$(cd "$(mktemp -d /tmp/acT.XXXX)" && pwd -P)
 freeport() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])'; }
 PORT=$(freeport)
 PORT2=$(freeport)
+PORT3=$(freeport)
 MARK="t48srv-$$"
 cleanup() { pkill -KILL -f "${MARK}" 2>/dev/null; [ -n "${SQUAT:-}" ] && kill -KILL "${SQUAT}" 2>/dev/null; lite_teardown; rm -rf "${P}"; }
 trap cleanup EXIT
@@ -60,8 +61,24 @@ cat > "${P}/.lite-ide/tasks.json" <<EOF
   { "name": "srv", "command": "/usr/bin/python3 srv.py ${MARK}" },
   { "name": "busy", "command": "/usr/bin/python3 srv.py ${MARK} ${PORT2}" },
   { "name": "stub", "command": "trap '' INT; /usr/bin/python3 -c 'import time; time.sleep(999)' ${MARK}-stub" },
-  { "name": "chatty", "command": "/usr/bin/python3 -u chatty.py ${MARK}-chatty" }
+  { "name": "chatty", "command": "/usr/bin/python3 -u chatty.py ${MARK}-chatty" },
+  { "name": "escape", "command": "/usr/bin/python3 -u escape.py ${PORT3} ${MARK}-escape" }
 ]
+EOF
+# 逃出进程组的那种（#59）：两次 fork + setsid 起一个监听进程（Gradle 守护进程起的 JVM、setsid 起的都是这个形状），宣告端口，自己留在前台等着。
+# 整组 SIGINT 够不着那个监听进程：停完它还占着端口
+cat > "${P}/escape.py" <<'EOF'
+import os, socket, sys, time
+port = int(sys.argv[1])
+if os.fork() == 0:
+    os.setsid()
+    if os.fork() == 0:
+        s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", port)); s.listen()
+        time.sleep(300)
+    os._exit(0)
+time.sleep(0.5)
+print(f"Listening on http://127.0.0.1:{port}/", flush=True)
+time.sleep(300)
 EOF
 
 listening() { lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; }
@@ -76,6 +93,7 @@ pick_srv() {
   lite_eval main "const r = [...document.querySelectorAll('.picker .row')].find((x) => x.querySelector('.name')?.innerText === '${name}'); r?.click(); return !!r" 2>/dev/null
 }
 listening2() { lsof -nP -iTCP:"${PORT2}" -sTCP:LISTEN -t >/dev/null 2>&1; }
+listening3() { lsof -nP -iTCP:"${PORT3}" -sTCP:LISTEN -t >/dev/null 2>&1; }
 
 lite_clean_data
 # 任务输出的清理（tasksvc::prune）：启动前放一个 30 天没跑过的项目、一个昨天跑过的，起来之后旧的那个该没了、新的留着
@@ -213,6 +231,19 @@ sleep 2
 ok "$([ "$(lite_eval main "${VP} return dist() <= 40")" = true ] && echo 1)" "翻回底部之后又跟上了：新行来了还贴着底（离底部 $(lite_eval main "${VP} return Math.round(dist())")px）"
 lite_eval main "return __lite.click('关闭并停止 chatty') || __lite.click('关闭 chatty')" >/dev/null
 wait_for 6 '! pgrep -f "${MARK}-chatty" >/dev/null'   # 下一段按标记数进程，chatty 得先没了
+
+echo "== 停完端口还被逃出进程组的进程占着（#59）：「已停止」之后同一格出卡片，「结束进程」只结束它"
+pick_srv escape >/dev/null
+ok "$(wait_for 10 listening3 && echo 1)" "escape 起来了，setsid 出去的那个占上了 ${PORT3}"
+sleep 1
+lite menu run-stop main >/dev/null
+ok "$(lite_wait main "return (document.querySelector('.run-cards .confirm')?.innerText ?? '').includes('已停止') && (document.querySelector('.run-cards .confirm')?.innerText ?? '').includes('${PORT3}')" 10 && echo 1)" \
+  "停完同一格出卡片：$(lite_eval main "return document.querySelector('.run-cards .confirm span')?.innerText ?? ''" 2>/dev/null)"
+ok "$([ "$(lite_eval main "return [...document.querySelectorAll('.run-cards .btn')].map((b) => b.textContent.trim() + (b.classList.contains('danger') ? '(danger)' : '')).join(',')")" = "忽略,结束进程(danger)" ] && echo 1)" "按钮：忽略、结束进程（红，不带「重新运行」）"
+lite_eval main "return __lite.click('结束进程')" >/dev/null
+ok "$(wait_for 10 '! listening3' && [ -z "$(pgrep -f "${MARK}-escape")" ] && echo 1)" "点了「结束进程」：${PORT3} 空了、escape 的进程一个不剩"
+ok "$(lite_wait main "return !document.querySelector('.run-cards .confirm')" 5 && [ "$(lite_eval main "return __lite.runs.list.filter((r) => r.name === 'escape').map((r) => r.status).join(',')")" = stopped ] && echo 1)" "卡片收起，那一格还是「已停止」（没有重新运行）"
+lite_eval main "return __lite.click('关闭 escape')" >/dev/null
 
 echo "== 应用崩了（kill -9），任务还在跑 → 重开出卡片 → 结束它们，端口空了"
 pick_srv >/dev/null

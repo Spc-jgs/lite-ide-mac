@@ -166,6 +166,17 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
                 None
             };
             let _ = app2.emit_to(owner.as_str(), "task-exit", TaskExitDto { id, code, signal, stopped, failed, port });
+            // 我们停的（#59）：它宣告过的端口还被它派生、逃出了进程组的进程占着（Gradle 守护进程起的 JVM、setsid 起的），停完说一句。
+            // 等一秒再查：给逃出去的进程一点自己退的时间（父进程没了它跟着收尾的，不该报）；不拖退出事件 —— 「已停止」照常立刻出来，卡片晚一秒
+            if stopped {
+                if let Some(since) = task.started_us() {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if let Some((port, h)) = tasksvc::port::lingering(&log, since) {
+                        let holder = PortHolderDto { port, pid: h.pid, ours: st.task_named_by_group(h.pgid), command: h.command };
+                        let _ = app2.emit_to(owner.as_str(), "task-linger", TaskLingerDto { id, holder });
+                    }
+                }
+            }
         });
         let service = matches!(def.source, crate::taskdefs::Source::Spring { .. });
         Ok(TaskRunDto { id, name, command: def.command, log: spec.log.to_string_lossy().into_owned(), service, debug: is_debug })

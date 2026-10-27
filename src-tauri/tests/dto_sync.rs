@@ -176,6 +176,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("HttpEnvsDto", "HttpEnvs"),
     ("HttpCookieDto", "HttpCookie"),
     ("HttpPartDto", "HttpPart"),
+    ("TaskLingerDto", "TaskLinger"),
     ("JavaParamDto", "JavaParam"),
     ("JavaSignatureDto", "JavaSignature"),
     ("JavaSignaturesDto", "JavaSignatures"),

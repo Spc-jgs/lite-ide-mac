@@ -23,6 +23,8 @@ export interface RunTab {
   code: number | null;
   /** 失败是因为端口被占：谁占着（运行窗上方那张卡片） */
   holder: PortHolder | null;
+  /** `holder` 是停完以后还占着端口的那个（#59）：卡片说「已停止，但…」、按钮只结束它、不重新运行 */
+  lingering?: boolean;
   /** Spring Boot 服务：在 Services 工具窗里，不进运行窗的标签（同 IDEA） */
   service: boolean;
   /** 什么时候起的（毫秒）：跑单测的只认这之后写的报告 */

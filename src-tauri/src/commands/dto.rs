@@ -1055,6 +1055,14 @@ pub struct TaskExitDto {
     pub port: Option<PortHolderDto>,
 }
 
+/// 停完以后端口还被占着（#59，`task-linger` 事件）：占着的进程是任务启动之后才起来、不在任务进程组里的
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskLingerDto {
+    pub id: u32,
+    pub holder: PortHolderDto,
+}
+
 /// 一个跑着的 JVM 此刻的堆（docs/IDEA.md 第 27 节），字节
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

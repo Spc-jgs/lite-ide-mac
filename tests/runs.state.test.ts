@@ -28,6 +28,7 @@ FILES["/proj/.lite-ide/tasks.json"] = `[
   { "name": "后端", "command": "mvn spring-boot:run" },
   { "name": "fail-boot", "command": "mvn -q spring-boot:run" },
   { "name": "quick-web", "command": "pnpm dev" },
+  { "name": "linger-boot", "command": "./gradlew bootRun" },
 ]`;
 
 // ── ⌃R 一个都没跑过：开任务列表，不是没反应 ──
@@ -166,6 +167,30 @@ ops.closeRun(a);
 ok(runs.list.length === 1 && runs.activeId === b, "关掉当前格，当前格挪到剩下那个");
 ops.closeRun(b);
 ok(runs.list.length === 0 && !layout.panel && layout.panelView === "term", "关掉最后一格，运行窗收起、偏好回到终端");
+
+// ── 停完还占着端口（#59）：「已停止」照常先出来，一秒后同一格摆卡片；「结束进程」只结束它、不重新运行；被重跑换掉的那格不摆 ──
+await ops.runTask("linger-boot");
+const lg = runs.list.find((r) => r.name === "linger-boot")!.id;
+await ops.stopRun(lg);
+await sleep(700);
+const lgr = () => runs.list.find((r) => r.id === lg);
+ok(lgr()?.status === "stopped" && !lgr()?.holder, `已停止先出来、卡片还没到：${lgr()?.status} ${JSON.stringify(lgr()?.holder)}`);
+// 桩：停后 600ms 退出、再一秒报占用
+await sleep(1100);
+ok(lgr()?.lingering === true && lgr()?.holder?.port === 8080, `一秒后同一格摆上「仍被占用」的卡片：${JSON.stringify(lgr()?.holder)}`);
+const before = runs.list.length;
+await ops.freeLingering(lg);
+ok(!lgr()?.holder && runs.list.length === before && lgr()?.status === "stopped", "结束进程：卡片收起、没有重新运行");
+await ops.runTask("linger-boot");
+const lg2 = runs.list.find((r) => r.name === "linger-boot")!.id;
+await ops.stopRun(lg2);
+await sleep(650);
+await ops.runTask("linger-boot");
+await sleep(1000);
+const now = runs.list.find((r) => r.name === "linger-boot")!;
+ok(now.id !== lg2 && now.status === "running" && !now.holder, `停完马上重跑：卡片不摆到新的那格上（${now.status} ${JSON.stringify(now.holder)}）`);
+await ops.stopRun(now.id);
+await sleep(1700);
 
 console.log(`${fail === 0 ? "✅" : "❌"} 运行窗状态层：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

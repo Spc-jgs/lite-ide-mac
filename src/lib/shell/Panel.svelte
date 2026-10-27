@@ -378,14 +378,23 @@
             -->
             <div class="run-cards">
               <div class="confirm warn">
-                <span>
-                  端口 <b>{h.port}</b> 被 <b>{h.command}</b>（PID {h.pid}）占用{h.ours ? `，为之前运行的「${h.ours}」，未完全停止` : ""}
-                </span>
-                <button class="btn" onclick={() => void ops().then((m) => m.dismissHolder(id))}>忽略</button>
-                <button
-                  class="btn {h.ours ? 'primary' : 'danger'}"
-                  onclick={() => void ops().then((m) => m.freePortAndRerun(id))}
-                >结束进程并重新运行</button>
+                {#if activeRun.lingering}
+                  <!-- 停完以后还占着（#59）：任务派生出去、逃出了进程组的那个（Gradle 守护进程起的 JVM、setsid 起的）。只结束它，不重新运行 -->
+                  <span>
+                    已停止，但端口 <b>{h.port}</b> 仍被 <b>{h.command}</b>（PID {h.pid}）占用：该进程由任务启动，不在任务的进程组中，停止时未被结束
+                  </span>
+                  <button class="btn" onclick={() => void ops().then((m) => m.dismissHolder(id))}>忽略</button>
+                  <button class="btn danger" onclick={() => void ops().then((m) => m.freeLingering(id))}>结束进程</button>
+                {:else}
+                  <span>
+                    端口 <b>{h.port}</b> 被 <b>{h.command}</b>（PID {h.pid}）占用{h.ours ? `，为之前运行的「${h.ours}」，未完全停止` : ""}
+                  </span>
+                  <button class="btn" onclick={() => void ops().then((m) => m.dismissHolder(id))}>忽略</button>
+                  <button
+                    class="btn {h.ours ? 'primary' : 'danger'}"
+                    onclick={() => void ops().then((m) => m.freePortAndRerun(id))}
+                  >结束进程并重新运行</button>
+                {/if}
               </div>
             </div>
           {/if}

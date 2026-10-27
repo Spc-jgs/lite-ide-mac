@@ -1772,6 +1772,12 @@ export interface TaskExit {
   port: PortHolder | null;
 }
 
+/** 停完以后端口还被占着（#59，`task-linger` 事件）：占着的进程是任务启动之后才起来、不在任务进程组里的 */
+export interface TaskLinger {
+  id: number;
+  holder: PortHolder;
+}
+
 /** 一个跑着的 JVM 此刻的堆（docs/IDEA.md 第 27 节），字节 */
 export interface TaskHeap {
   id: number;

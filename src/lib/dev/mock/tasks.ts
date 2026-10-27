@@ -202,6 +202,8 @@ function emitExit(id: number, x: { code: number | null; stopped: boolean; port?:
   mockDebugEnd(id);
   const payload = { id, code: x.code, signal: x.stopped ? 2 : null, stopped: x.stopped, failed: !x.stopped && x.code !== 0, port: x.port ?? null };
   mockEmit("task-exit", payload);
+  // 停完还占着端口（#59，真实现在 tasksvc::port::lingering）：名字带 linger 的任务停完一秒后报一次，浏览器里看得到那张卡片
+  if (x.stopped && r.name.includes("linger")) setTimeout(() => mockEmit("task-linger", { id, holder: { port: 8080, pid: 4242, command: "java", ours: null } }), 1000);
 }
 
 /**

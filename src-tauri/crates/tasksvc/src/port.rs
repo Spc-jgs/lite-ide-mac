@@ -174,6 +174,67 @@ pub fn from_log(log: &Path) -> Option<(u16, Holder)> {
     Some((port, holders(port).into_iter().next()?))
 }
 
+/// 服务器在输出里**宣告自己在听**的端口（#59），按出现次序、去重。只认宣告的说法，不认输出里随便一个 `localhost:端口`：
+/// Spring 应用的日志里满是它要去**连**的别的本地服务（`http://localhost:8761/eureka`、`jdbc:postgresql://localhost:5432`），
+/// 那些端口停完以后当然还被占着，报出来就是一张带「结束进程」的假卡片。
+///
+/// 认的写法（测试里一条一条对着）：
+/// - Spring Boot：`Tomcat started on port 8080 (http)`、`Tomcat started on port(s): 8080 (http)`（Netty / Undertow / Jetty 同）
+/// - vite / Next：`➜  Local:   http://localhost:5173/`、`- Local: http://localhost:3000`
+/// - uvicorn / Flask / http-server：`Uvicorn running on http://127.0.0.1:8000`、`Running on http://127.0.0.1:5000`、`Server running at http://localhost:8080/`
+/// - Node 常见的：`Listening on port 3000`、`listening on http://0.0.0.0:3000`
+pub fn announced(text: &str) -> Vec<u16> {
+    const LOCAL: [&str; 5] = ["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "[::]"];
+    const SAYS: [&str; 7] = ["local:", "running on", "running at", "listening on", "listening at", "serving on", "available on"];
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let l = line.to_ascii_lowercase();
+        let mut found = None;
+        if let Some(i) = l.find("started on port") {
+            let rest = l[i + "started on port".len()..].trim_start_matches("(s)").trim_start_matches(':').trim_start();
+            found = leading_port(rest);
+        } else if SAYS.iter().any(|s| l.contains(s)) {
+            if let Some(i) = l.find("listening on port ") {
+                found = leading_port(&l[i + "listening on port ".len()..]);
+            }
+            for (i, _) in l.match_indices("://") {
+                if found.is_some() || !(l[..i].ends_with("http") || l[..i].ends_with("https")) {
+                    continue;
+                }
+                let rest = &l[i + 3..];
+                if let Some(h) = LOCAL.iter().find(|h| rest.starts_with(**h)) {
+                    found = rest[h.len()..].strip_prefix(':').and_then(leading_port);
+                }
+            }
+        }
+        if let Some(p) = found.filter(|p| !out.contains(p)) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// 停完以后（#59）：任务宣告过的端口还被占着，**而且占着的进程是任务启动之后才起来的** —— 多半是它派生出来、逃出了进程组的
+/// （`./gradlew bootRun` 的应用 JVM 是 Gradle 守护进程起的、`setsid` 起的另开一组），整组 SIGINT 够不着。
+/// 早就在的进程（你另起的服务、Docker 的端口代理）不算：不是这次任务的，报出来就是在劝人结束别人的进程。
+/// 读输出的开头 1 MB（启动时宣告）和结尾 256 KB（devtools 重启后再宣告一次）：日志可能有 1GB
+pub fn lingering(log: &Path, since_us: u64) -> Option<(u16, Holder)> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(log).ok()?;
+    let len = f.metadata().ok()?.len();
+    let mut head = Vec::new();
+    (&mut f).take(1 << 20).read_to_end(&mut head).ok()?;
+    let mut tail = Vec::new();
+    if len > 1 << 20 {
+        f.seek(SeekFrom::Start(len.saturating_sub(256 << 10).max(1 << 20))).ok()?;
+        f.take(256 << 10).read_to_end(&mut tail).ok()?;
+    }
+    let text = format!("{}\n{}", String::from_utf8_lossy(&head), String::from_utf8_lossy(&tail));
+    announced(&text).into_iter().find_map(|port| {
+        holders(port).into_iter().find(|h| crate::live::start_time_us(h.pid).is_some_and(|t| t >= since_us)).map(|h| (port, h))
+    })
+}
+
 /// 结束占着 `port` 的**所有**进程并等端口空出来（最多 `grace` 多一秒）。**会阻塞**，调用方放线程里。
 ///
 /// 动手前**再查一次**是谁：卡片出来到人点按钮之间可能过了几分钟，原来那个进程早退了、号被别人复用了 —— 拿旧的 pid 去杀就杀错了人。
@@ -229,6 +290,66 @@ fn end(h: &Holder, grace: Duration, ours: &impl Fn(i32) -> Option<Arc<Task>>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn 宣告的端口_只认服务器说自己在听的_不认它要去连的() {
+        let log = "\
+2026-10-28 10:00:01.002  INFO 1 --- [main] o.s.b.w.e.tomcat.TomcatWebServer : Tomcat started on port 8080 (http) with context path '/'
+2026-10-28 10:00:01.003  INFO 1 --- [main] o.s.b.w.e.tomcat.TomcatWebServer : Tomcat started on port(s): 8081 (http)
+  ➜  Local:   http://localhost:5173/
+  - Local:        http://localhost:3000
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+ * Running on http://127.0.0.1:5000
+Listening on port 4000
+server listening on http://[::1]:4001
+2026-10-28 INFO DiscoveryClient : Registering application with eureka at http://localhost:8761/eureka
+2026-10-28 INFO HikariPool : Added connection jdbc:postgresql://localhost:5432/shop
+Fetching config from server at : http://localhost:8888
+  ➜  Network: http://192.168.1.5:5173/
+Tomcat started on port 8080 (http) with context path '/'
+";
+        assert_eq!(announced(log), [8080, 8081, 5173, 3000, 8000, 5000, 4000, 4001], "去重、按出现次序；Eureka / JDBC / 配置中心那几个要去连的不算，局域网地址不算");
+        assert!(announced("").is_empty());
+    }
+
+    /// 逃出进程组的那种（`setsid` / Gradle 守护进程起的 JVM）：两次 fork + setsid 的监听进程，宣告了端口。
+    /// 任务启动时刻在它之前 → 认出来；在它之后（早就在的进程）→ 不认
+    #[test]
+    fn 停完还占着端口的_只认任务启动之后才起来的进程() {
+        let dir = std::env::temp_dir().join(format!("tasksvc-linger-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("out.log");
+        let pidf = dir.join("pid");
+        let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u64;
+        let py = r#"
+import os, socket, sys, time
+if os.fork(): sys.exit(0)
+os.setsid()
+if os.fork(): sys.exit(0)
+s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen()
+open(sys.argv[2], "w").write(str(os.getpid()))
+open(sys.argv[1], "w").write("Listening on http://127.0.0.1:%d/\n" % s.getsockname()[1])
+time.sleep(30)
+"#;
+        let st = std::process::Command::new("python3").args(["-I", "-c", py]).arg(&log).arg(&pidf).status().unwrap();
+        assert!(st.success());
+        let t = std::time::Instant::now();
+        while !(pidf.exists() && log.exists() && std::fs::metadata(&log).map(|m| m.len() > 0).unwrap_or(false)) && t.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let pid: i32 = std::fs::read_to_string(&pidf).unwrap().trim().parse().unwrap();
+        let got = lingering(&log, before);
+        let later = lingering(&log, u64::MAX);
+        // SAFETY: 测试自己起的那个监听进程
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        let (port, h) = got.expect("任务启动之后起来、还占着宣告的端口：认出来");
+        assert_eq!(h.pid, pid, "是那个逃出去的进程（端口 {port}）");
+        assert_ne!(h.pgid, std::process::id() as i32, "确实不在我们的进程组里");
+        assert!(later.is_none(), "比任务还早就在的：不认");
+    }
+
     #[test]
     fn 听的端口_ipv4_ipv6_同一个只算一次_排好() {
         // 9090 只在 IPv6 上听：地址里自己带冒号，端口要从最后一个冒号后面取（只有 8080 那种 v4 / v6 都有的，切错了也看不出来）

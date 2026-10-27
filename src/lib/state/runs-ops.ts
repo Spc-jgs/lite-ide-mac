@@ -9,7 +9,7 @@ import { project } from "./project.svelte";
 import { notify } from "./notify.svelte";
 import { progress } from "./progress.svelte";
 import { overlay } from "./overlay.svelte";
-import { listenHere, type TaskExit } from "../ipc/commands";
+import { listenHere, type TaskExit, type TaskLinger } from "../ipc/commands";
 import { buildProblems, coverageReport, runCompoundItems, servicesList, taskClose, taskFreePort, taskNewFile, taskRun, taskStale, taskStaleResolve, taskStop, taskStuck, testResults } from "../ipc/tasks";
 
 let listening: Promise<unknown> | null = null;
@@ -22,7 +22,7 @@ export const last: Record<string, string> = {};
 
 /** 听「任务退出了」。第一次跑任务时挂上，之后一直挂着（一个窗口一份，Rust 只发给起它的窗口） */
 function listen() {
-  listening ??= listenHere<TaskExit>("task-exit", (e) => exited(e.payload));
+  listening ??= Promise.all([listenHere<TaskExit>("task-exit", (e) => exited(e.payload)), listenHere<TaskLinger>("task-linger", (e) => lingered(e.payload))]);
   return listening;
 }
 
@@ -33,6 +33,7 @@ export function exited(x: TaskExit) {
   r.status = x.stopped ? "stopped" : x.failed ? "failed" : "done";
   r.code = x.code;
   r.holder = x.port;
+  r.lingering = false;
   // 端口被占有自己的卡片（说清是谁、给出路），不再另弹一句「退出了」。跑单测的失败由结果那句说（「3 通过 · 1 没过」比「退出码 1」有用）
   if (isTestRun(r.name)) void loadTests(r.id);
   else if (isBuildRun(r.name)) void loadProblems(r.id);
@@ -416,6 +417,30 @@ export async function freePortAndRerun(id: number) {
   const now = runs.list.find((t) => t.id === id);
   if (now) now.holder = null;
   await runTask(r.name, r.root);
+}
+
+/** 停完以后端口还被派生出去的进程占着（#59）：同一格摆一张卡片。那一格已经被重跑换掉了（id 不同）就不摆 —— 新的那次会自己撞上端口被占 */
+export function lingered(x: TaskLinger) {
+  const r = runs.list.find((t) => t.id === x.id);
+  if (!r || r.status !== "stopped") return;
+  r.holder = x.holder;
+  r.lingering = true;
+}
+
+/** 「结束进程」（#59 那张卡片）：只结束占着端口的那个，不重新运行 —— 人点的是「停」 */
+export async function freeLingering(id: number) {
+  const r = runs.list.find((t) => t.id === id);
+  if (!r?.holder) return;
+  const { port, command } = r.holder;
+  try {
+    await taskFreePort(port);
+  } catch (e) {
+    notify.fail(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  const now = runs.list.find((t) => t.id === id);
+  if (now) now.holder = null;
+  notify.ok(`已结束占用端口 ${port} 的 ${command}`);
 }
 
 /** 卡片上的「不管它」：只收起卡片，不动那个进程 */
