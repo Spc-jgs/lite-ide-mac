@@ -581,7 +581,7 @@
         </label>
         <label>
           <span>分支</span>
-          <input class="fi" bind:value={wtBranch} placeholder="留空则用目录名，分支不存在就新建" spellcheck="false" onkeydown={(e) => e.key === "Enter" && !imeKey(e) && submitWorktree()} />
+          <input class="fi" bind:value={wtBranch} placeholder="留空则使用目录名；分支不存在时将新建" spellcheck="false" onkeydown={(e) => e.key === "Enter" && !imeKey(e) && submitWorktree()} />
         </label>
         <div class="frow">
           <button class="btn" onclick={() => (mode = "list")}>返回</button>

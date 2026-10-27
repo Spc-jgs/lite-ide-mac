@@ -55,8 +55,8 @@
   </div>
   {#if resp && (resp.truncated || h.req.handler)}
     <div class="notes">
-      {#if resp.truncated}<div>响应体太大：收到了 {size(resp.bytes)} 以上，只存了前 32 MB</div>{/if}
-      {#if h.req.handler}<div>这个请求写了响应处理脚本（<code>&gt; &#123;% … %&#125;</code>），当前版本不执行：这需要在应用中执行文件自带的代码</div>{/if}
+      {#if resp.truncated}<div>响应体过大：已接收超过 {size(resp.bytes)}，仅保存前 32 MB</div>{/if}
+      {#if h.req.handler}<div>此请求包含响应处理脚本（<code>&gt; &#123;% … %&#125;</code>），当前版本不执行：这需要在应用中执行文件自带的代码</div>{/if}
     </div>
   {/if}
   <div class="pages">

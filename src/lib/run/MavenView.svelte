@@ -400,7 +400,7 @@
           }
         }}
       />
-      <span class="where" title="在这个模块上跑（-pl 它 -am）">{exec.module}</span>
+      <span class="where" title="在此模块上执行（-pl 模块 -am）">{exec.module}</span>
     </div>
   {/if}
   <div class="tree" role="tree" aria-label="Maven 项目" tabindex="0" bind:this={treeEl} onkeydown={onKey}>
@@ -409,7 +409,7 @@
     {:else if !data}
       <div class="empty-msg wait"><span class="spinner sm"></span> 正在读 pom…</div>
     {:else if data.reactors.length === 0}
-      <div class="empty-msg">这个项目里没有 pom.xml（项目根和第一层子目录里都没找到）</div>
+      <div class="empty-msg">此项目中没有 pom.xml（已搜索项目根目录及第一层子目录）</div>
     {:else}
       {#each rows as row, i (row.key)}
         {@const st = row.task ? status(row.task) : undefined}

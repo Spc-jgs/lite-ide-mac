@@ -127,10 +127,10 @@ export const KEYS: KeyDef[] = [
   { id: "save", label: "保存", accel: "⌘S", group: "文件", owner: "menu" },
   /** 草稿「毕业」成真文件、普通文件另存一份。原生面板，默认目录是项目根 */
   { id: "save-as", label: "另存为…", accel: "⇧⌘S", group: "文件", owner: "menu" },
-  { id: "close-tab", label: "关闭标签", accel: "⌘W", group: "文件", owner: "menu" },
-  { id: "close-all-tabs", label: "关闭所有标签", group: "文件", owner: "menu" },
+  { id: "close-tab", label: "关闭标签页", accel: "⌘W", group: "文件", owner: "menu" },
+  { id: "close-all-tabs", label: "关闭所有标签页", group: "文件", owner: "menu" },
   /* IDEA 的 Reopen Closed Tab（同 Chrome / VS Code 的 ⇧⌘T）：一层层往回开你亲手关掉的标签 */
-  { id: "reopen-tab", label: "重新打开关掉的标签", accel: "⇧⌘T", group: "文件", owner: "menu" },
+  { id: "reopen-tab", label: "重新打开已关闭的标签页", accel: "⇧⌘T", group: "文件", owner: "menu" },
   /** 本地历史（docs/IDEA.md 第 21 节，IDEA 的 Local History → Show History）。IDEA 默认没给它键位，这里也不给；编辑器右键里也有 */
   { id: "local-history", label: "本地历史…", group: "文件", owner: "menu" },
   /*
@@ -158,12 +158,12 @@ export const KEYS: KeyDef[] = [
    * ⌘P 让给了 IDEA 的参数提示（`param-info`）。归菜单：⇧⌘O 在终端里没人用，挂进菜单不会抢走 shell 的键 ——
    * 原来 ⌘P 留在 keydown 就是因为终端里的 ⌘P 是 zsh 的「历史上一条」
    */
-  { id: "quick-file", label: "找文件…", accel: "⇧⌘O", group: "导航", owner: "menu" },
+  { id: "quick-file", label: "查找文件…", accel: "⇧⌘O", group: "导航", owner: "menu" },
   /**
    * 找类：IDEA 的 Navigate › Class（⌘O，docs/TAKEOVER.md I1，2026-10-23 定的：用户把「等我拍板的」交给了我，键位跟 IDEA）。
    * 开的是 ⇧⇧ 那个面板的「类」一页（问 jdtls，驼峰缩写也认）。**没开项目时是打开文件夹**：那里没有类可找，原来 ⌘O 就是打开文件夹
    */
-  { id: "quick-class", label: "找类…", accel: "⌘O", group: "导航", owner: "menu" },
+  { id: "quick-class", label: "查找类…", accel: "⌘O", group: "导航", owner: "menu" },
   /** IDEA 的 ⌘E：找文件那个面板空着的时候列的就是最近打开的，这条只是那个手势的名字。留 keydown：终端里的 ⌘E 是 shell 的「行尾」 */
   { id: "recent-files", label: "最近文件…", accel: "⌘E", group: "导航", owner: "key" },
   /* IDEA 的 Recent Locations：最近看过 / 跳过的地方，带那一行代码（⌘E 是最近的文件，这个是最近的位置） */
@@ -172,9 +172,9 @@ export const KEYS: KeyDef[] = [
    * 切标签（2026-09-23 之前一个键都没有）。归 keydown 不归菜单：⌃Tab 要「松开 ⌃ 才选定」，
    * 菜单项只有按下没有松开；⌘⇧[ ⌘⇧] 跟着它一起，省得一对键分两处接。终端里 xterm 已经放行。
    */
-  { id: "tab-prev", label: "上一个标签", accel: "⇧⌘[", group: "导航", owner: "key" },
-  { id: "tab-next", label: "下一个标签", accel: "⇧⌘]", group: "导航", owner: "key" },
-  { id: "tab-recent", label: "按最近使用切标签（按住 ⌃ 连按往回翻）", accel: "⌃Tab", group: "导航", owner: "key" },
+  { id: "tab-prev", label: "上一个标签页", accel: "⇧⌘[", group: "导航", owner: "key" },
+  { id: "tab-next", label: "下一个标签页", accel: "⇧⌘]", group: "导航", owner: "key" },
+  { id: "tab-recent", label: "切换到最近使用的标签页（按住 ⌃ 连续切换）", accel: "⌃Tab", group: "导航", owner: "key" },
   {
     id: "quick-content",
     label: "在项目中搜索…",
@@ -194,23 +194,23 @@ export const KEYS: KeyDef[] = [
    * 而菜单栏的 accelerator 是不看焦点的，挂上去等于在日志视图里按 ⌘B
    * 也会触发一个够不着编辑器的命令。同 ⌘F 那两条的判据。
    */
-  { id: "jump-decl", label: "跳到声明（⌘Click 同）", accel: "⌘B", group: "导航", owner: "cm6" },
+  { id: "jump-decl", label: "转到声明（⌘ 单击）", accel: "⌘B", group: "导航", owner: "cm6" },
   /*
    * 查找用法（docs/IDEA.md 第 2 步，Java 文件、jdtls 起好之后）。IDEA 的 ⌥F7 开「Find」工具窗、⌥⌘F7 开挂在光标底下的列表；
    * 那个工具窗还没有，两个先都开列表 —— 按惯了 ⌥F7 的人按下去有东西，比没反应好。归 cm6：要读光标底下的词。
    * ⌥⌘F7 不写成 `alias`：别名的意思是「菜单一项只挂得下一个」（keymap.test.ts 卡着），这里不进菜单；它在 java-lsp.ts 的键位里
    */
   { id: "find-usages", label: "查找用法（Java）", accel: "⌥F7", group: "导航", owner: "cm6" },
-  { id: "goto-impl", label: "跳到实现（Java）", accel: "⌥⌘B", group: "导航", owner: "cm6" },
-  { id: "goto-super", label: "跳到父方法（Java）", accel: "⌘U", group: "导航", owner: "cm6" },
+  { id: "goto-impl", label: "转到实现（Java）", accel: "⌥⌘B", group: "导航", owner: "cm6" },
+  { id: "goto-super", label: "转到父方法（Java）", accel: "⌘U", group: "导航", owner: "cm6" },
   { id: "quick-doc", label: "快速文档（Java）", accel: "F1", group: "导航", owner: "cm6" },
   // IDEA 的 Generate：macOS 键位是 ⌘N 和 ⌃↵ 两个，⌘N 在这里是「新建草稿」（菜单的），先只挂 ⌃↵
   { id: "generate", label: "生成…（Java：构造器、Getter / Setter、toString…）", accel: "⌃↵", group: "编辑", owner: "cm6" },
   // IDEA 的 Call Hierarchy / Type Hierarchy（macOS 键位）。⌃H 在 CM6 里是「往回删一个字」（emacs 那套），Java 文件里照 IDEA 盖掉
-  { id: "call-hierarchy", label: "调用层级（Java）", accel: "⌃⌥H", group: "导航", owner: "cm6" },
-  { id: "type-hierarchy", label: "类型层级（Java）", accel: "⌃H", group: "导航", owner: "cm6" },
+  { id: "call-hierarchy", label: "调用层次结构（Java）", accel: "⌃⌥H", group: "导航", owner: "cm6" },
+  { id: "type-hierarchy", label: "类型层次结构（Java）", accel: "⌃H", group: "导航", owner: "cm6" },
   /** 改名（docs/IDEA.md 第 14 节，Java 文件、jdtls 起好之后）：IDEA 的 Refactor → Rename。归 cm6：要读光标底下的词 */
-  { id: "rename", label: "改名（Java）", accel: "⇧F6", group: "编辑", owner: "cm6" },
+  { id: "rename", label: "重命名（Java）", accel: "⇧F6", group: "编辑", owner: "cm6" },
   /** 快速修复（docs/IDEA.md 第 16 节）：IDEA 的 Show Context Actions。归 cm6：要读光标在哪 */
   { id: "quick-fix", label: "快速修复（Java）", accel: "⌥↵", group: "编辑", owner: "cm6" },
   /** 跑光标所在的测试方法 / 类（docs/IDEA.md 第 17 节）：IDEA 的 Run context configuration。归 cm6：要读光标在哪 */
@@ -224,15 +224,15 @@ export const KEYS: KeyDef[] = [
    * IDEA 的 ⌘L。归菜单：它跳的是活动编辑器，但判「有没有编辑器」在 App 里
    * （没有就什么都不做），不需要读编辑器内部状态，和 ⌘B 那种 cm6 的不一样。
    */
-  { id: "goto-line", label: "跳到行…", accel: "⌘L", group: "导航", owner: "menu" },
+  { id: "goto-line", label: "转到行…", accel: "⌘L", group: "导航", owner: "menu" },
   // ⌘[ / ⌘] 是 IDEA 的主键位，菜单一项只挂得下一个，别名走 App.svelte 的 keydown
-  { id: "nav-back", label: "回到上一个位置", accel: "⌥⌘←", alias: "⌘[", group: "导航", owner: "menu" },
-  { id: "nav-fwd", label: "再回来", accel: "⌥⌘→", alias: "⌘]", group: "导航", owner: "menu" },
+  { id: "nav-back", label: "后退", accel: "⌥⌘←", alias: "⌘[", group: "导航", owner: "menu" },
+  { id: "nav-fwd", label: "前进", accel: "⌥⌘→", alias: "⌘]", group: "导航", owner: "menu" },
   /*
    * 跳转够不着时的退路。**名字上就不叫跳转** —— 它是拿光标下那个词
    * 跑一次全局搜索，给的是候选不是答案。省掉的只是「选中、复制、⇧⌘F、粘贴」。
    */
-  { id: "find-word", label: "在项目里找这个名字", group: "导航", owner: "menu" },
+  { id: "find-word", label: "在项目中查找此名称", group: "导航", owner: "menu" },
 
   // ── 编辑 ──
   /*
@@ -257,12 +257,12 @@ export const KEYS: KeyDef[] = [
    */
   {
     id: "cm-multi-cursor",
-    label: "多光标：加一个光标（有下划线的词上则是跳转）",
+    label: "添加光标（在带下划线的标识符上为跳转）",
     accel: "⌘Click",
     group: "编辑",
     owner: "cm6",
   },
-  { id: "cm-find", label: "在当前文件里查找", accel: "⌘F", group: "编辑", owner: "cm6" },
+  { id: "cm-find", label: "在当前文件中查找", accel: "⌘F", group: "编辑", owner: "cm6" },
   { id: "cm-replace", label: "查找并替换", accel: "⌘R", group: "编辑", owner: "cm6" },
   /*
    * 查找面板开着时的上 / 下一处。CM6 的 `searchKeymap` 本来就有，**登记在这儿是为了让测试看得见**：
@@ -277,17 +277,17 @@ export const KEYS: KeyDef[] = [
    */
   { id: "cm-comment", label: "注释 / 取消注释", accel: "⌘/", group: "编辑", owner: "cm6" },
   { id: "cm-block-comment", label: "块注释", accel: "⌥⌘/", group: "编辑", owner: "cm6" },
-  { id: "cm-duplicate", label: "复制行（有选区时复制选区）", accel: "⌘D", group: "编辑", owner: "cm6" },
+  { id: "cm-duplicate", label: "复制行或选区", accel: "⌘D", group: "编辑", owner: "cm6" },
   { id: "cm-delete-line", label: "删除行", accel: "⌘⌫", group: "编辑", owner: "cm6" },
   { id: "cm-move-up", label: "上移行", accel: "⌥⇧↑", group: "编辑", owner: "cm6" },
   { id: "cm-move-down", label: "下移行", accel: "⌥⇧↓", group: "编辑", owner: "cm6" },
   { id: "cm-extend", label: "扩大选区", accel: "⌥↑", group: "编辑", owner: "cm6" },
   { id: "cm-shrink", label: "缩小选区", accel: "⌥↓", group: "编辑", owner: "cm6" },
-  { id: "cm-next-occ", label: "再选中下一个相同的词", accel: "⌃G", group: "编辑", owner: "cm6" },
-  { id: "cm-all-occ", label: "选中所有相同的词", accel: "⌃⌘G", group: "编辑", owner: "cm6" },
+  { id: "cm-next-occ", label: "选中下一个相同项", accel: "⌃G", group: "编辑", owner: "cm6" },
+  { id: "cm-all-occ", label: "选中所有相同项", accel: "⌃⌘G", group: "编辑", owner: "cm6" },
   { id: "cm-case", label: "切换大小写", accel: "⇧⌘U", group: "编辑", owner: "cm6" },
   /** Java 文件（语言服务器起好之后）交给 jdtls 格式化整份 / 选中的几行（java-lsp.ts，docs/IDEA.md 第 15 节）；别的文件照旧只认 JSON */
-  { id: "cm-format-json", label: "重新格式化（Java：整份或选中的；别的文件：JSON）", accel: "⌥⌘L", group: "编辑", owner: "cm6" },
+  { id: "cm-format-json", label: "重新格式化代码（Java：整个文件或选区；其他：JSON）", accel: "⌥⌘L", group: "编辑", owner: "cm6" },
   /** IDEA 的 Optimize Imports（docs/TAKEOVER.md G22）：删没用的、补齐、按 IDEA 代码风格里的次序排、到阈值合成 `.*`。Java 文件里 jdtls 起好之后才有 */
   { id: "optimize-imports", label: "优化 import（Java）", accel: "⌃⌥O", group: "编辑", owner: "cm6" },
   /*
@@ -302,7 +302,7 @@ export const KEYS: KeyDef[] = [
   // IDEA 的 Refactor › Move（F6）：整个类挪进另一个包，包声明和引用方的 import 跟着改；先列出要改哪些，点了才改
   { id: "move-class", label: "移动类（Java）", accel: "F6", group: "编辑", owner: "cm6" },
   // IDEA 的 Refactor › Change Signature（⌘F6）：光标在方法上，改名字 / 返回类型 / 可见性 / 参数（加、删、挪、改名、改类型），调用处跟着改；先列出要改哪些，点了才改
-  { id: "change-signature", label: "改签名（Java）", accel: "⌘F6", group: "编辑", owner: "cm6" },
+  { id: "change-signature", label: "更改签名（Java）", accel: "⌘F6", group: "编辑", owner: "cm6" },
   // IDEA 的 Refactor › Introduce Parameter（⌥⌘P）：选中方法体里的一个表达式，变成这个方法的参数，调用处把它传进来；做完接着在新参数名上改名
   { id: "introduce-parameter", label: "引入参数（Java）", accel: "⌥⌘P", group: "编辑", owner: "cm6" },
   { id: "encoding", label: "文件编码…", group: "编辑", owner: "menu" },
@@ -310,7 +310,7 @@ export const KEYS: KeyDef[] = [
    * 跨文件替换、Java 改名、快速修复做完，胶囊上带一个「撤销」（2026-10-21 起，原来是一张卡片）；胶囊几秒就走，这里是常驻的那条路，
    * 应用重启过也撤得了（替换日志在盘上）。一直亮着：灰不灰要把替换的状态拽进入口包，没东西可撤时说一句为什么
    */
-  { id: "undo-replace", label: "撤销上次的替换 / 改名", group: "编辑", owner: "menu" },
+  { id: "undo-replace", label: "撤销上次的替换 / 重命名", group: "编辑", owner: "menu" },
   { id: "toggle-mode", label: "切换编辑 / 日志模式", group: "编辑", owner: "menu" },
 
   // ── 视图 ──
@@ -370,8 +370,8 @@ export const KEYS: KeyDef[] = [
    * 分屏时前者固定往右、后者往对面。
    */
   { id: "split-right", label: "向右分屏", accel: "⌘\\", group: "视图", owner: "menu" },
-  { id: "move-to-other-group", label: "移到另一组", accel: "⌃⌘→", group: "视图", owner: "menu" },
-  { id: "focus-other-group", label: "切到另一组", accel: "⌥Tab", group: "视图", owner: "menu" },
+  { id: "move-to-other-group", label: "移动到另一组", accel: "⌃⌘→", group: "视图", owner: "menu" },
+  { id: "focus-other-group", label: "切换到另一组", accel: "⌥Tab", group: "视图", owner: "menu" },
   { id: "unsplit", label: "合并分屏", group: "视图", owner: "menu" },
 
   // ── 终端 ──
@@ -381,7 +381,7 @@ export const KEYS: KeyDef[] = [
    */
   { id: "new-terminal", label: "新建终端", accel: "⌃⇧`", group: "终端", owner: "menu" },
   /** 焦点在终端里的 ⌘F（issue #34）。归 xterm，理由见文件头 owner 那张表 */
-  { id: "term-find", label: "在终端里查找", accel: "⌘F", group: "终端", owner: "xterm" },
+  { id: "term-find", label: "在终端中查找", accel: "⌘F", group: "终端", owner: "xterm" },
   { id: "close-terminal", label: "关闭当前终端", group: "终端", owner: "menu" },
   /* 拆分终端（#34 后半）：不占键 —— VS Code 的 ⌘\ 在这个应用里是编辑器的向右分屏，菜单的键不看焦点，挂上去两边会打架 */
   { id: "split-terminal", label: "向右拆分终端", group: "终端", owner: "menu" },
@@ -402,7 +402,7 @@ export const KEYS: KeyDef[] = [
    * ⌃R 归 key，**不能进菜单**：终端里的 ⌃R 是 shell 的「搜历史」，菜单 accelerator 会被 AppKit 先吃掉，
    * 终端里就再也搜不了历史。App.svelte 的 keydown 接它，焦点在 xterm 里时放过（同 ⌘P 那条）
    */
-  { id: "run-last", label: "再跑上一个任务", accel: "⌃R", group: "运行", owner: "key" },
+  { id: "run-last", label: "重新运行上一个任务", accel: "⌃R", group: "运行", owner: "key" },
   { id: "run-pick", label: "运行任务…", accel: "⌃⌥R", group: "运行", owner: "menu" },
   /** 第一下软停（SIGINT 整组，5 秒后强杀），正在软停时再按一下立刻强杀 —— 同 IDEA 的停止按钮 */
   { id: "run-stop", label: "停止任务", accel: "⌘F2", group: "运行", owner: "menu" },
@@ -425,7 +425,7 @@ export const KEYS: KeyDef[] = [
   { id: "debug-run-to", label: "运行到光标", accel: "⌥F9", group: "运行", owner: "menu" },
   { id: "debug-pause", label: "暂停程序", group: "运行", owner: "menu" },
   /** 热替换（docs/IDEA.md 第 26 节）：IDEA 的 Reload Changed Classes，默认也没有键位。构建（⌘F9）成功后自动做一次，这是手动那条路 */
-  { id: "debug-reload", label: "重新加载改过的类", group: "运行", owner: "menu" },
+  { id: "debug-reload", label: "重新加载已更改的类", group: "运行", owner: "menu" },
   /** 在光标那行下 / 取消断点（Java 文件）。归 cm6：要读光标在哪一行；点行号是同一件事（java-debug-gutter.ts） */
   { id: "toggle-breakpoint", label: "切换断点（Java）", accel: "⌘F8", group: "运行", owner: "cm6" },
   /**
@@ -457,13 +457,13 @@ export const KEYS: KeyDef[] = [
    */
   { id: "git-pull", label: "拉取", accel: "⌘T", group: "Git", owner: "menu" },
   { id: "git-push", label: "推送…", accel: "⇧⌘K", group: "Git", owner: "menu" },
-  { id: "git-fetch", label: "抓取远程", group: "Git", owner: "menu" },
+  { id: "git-fetch", label: "获取", group: "Git", owner: "menu" },
   { id: "git-file-diff", label: "查看当前文件的更改", group: "Git", owner: "menu" },
   { id: "git-blame", label: "显示 / 隐藏注解（blame）", group: "Git", owner: "menu" },
   { id: "git-log", label: "提交历史", group: "Git", owner: "menu" },
   // IDEA 的 Show History / Show History for Selection（docs/TAKEOVER.md G16）：提交历史那个工具窗只列这个文件 / 这几行的，跟着改名往前找
   { id: "git-file-history", label: "当前文件的历史", group: "Git", owner: "menu" },
-  { id: "git-selection-history", label: "选中几行的历史", group: "Git", owner: "menu" },
+  { id: "git-selection-history", label: "所选行的历史", group: "Git", owner: "menu" },
   { id: "git-console", label: "Git 控制台", group: "Git", owner: "menu" },
   { id: "git-branches", label: "分支与工作树…", group: "Git", owner: "menu" },
   { id: "git-refresh", label: "刷新状态", group: "Git", owner: "menu" },

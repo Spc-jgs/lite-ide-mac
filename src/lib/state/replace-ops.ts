@@ -136,7 +136,7 @@ export async function apply(allowNoUndo = false) {
     replace.unchecked = new Set();
     overlay.replaceOpen = false;
     const text = `已替换 ${o.changed.length} 个文件 ${hits} 处${skippedText(o.skipped)}`;
-    // 撤销的退路就在这一句后面（2026-10-21：原来另有一张卡片把同一句话再说一遍）。胶囊走了还能从「编辑 › 撤销上次的替换 / 改名」撤
+    // 撤销的退路就在这一句后面（2026-10-21：原来另有一张卡片把同一句话再说一遍）。胶囊走了还能从「编辑 › 撤销上次的替换 / 重命名」撤
     const act = o.undo ? UNDO : undefined;
     if (o.skipped.length) notify.fail(text, 8000, act);
     else notify.ok(text, undefined, act);
@@ -153,7 +153,7 @@ export async function apply(allowNoUndo = false) {
 export const UNDO = { label: "撤销", run: () => void undo() };
 
 /**
- * 「编辑 › 撤销上次的替换 / 改名」：胶囊走了以后的那条路，应用重启过也在（替换日志落在盘上，`checkPending` 启动时读回 `replace.done`）。
+ * 「编辑 › 撤销上次的替换 / 重命名」：胶囊走了以后的那条路，应用重启过也在（替换日志落在盘上，`checkPending` 启动时读回 `replace.done`）。
  * 菜单项一直亮着（灰不灰要把替换的状态拽进入口包）：没东西可撤时说一句为什么
  */
 export function undoFromMenu() {
@@ -189,7 +189,7 @@ export async function undo() {
  * 窗口开了一个项目：看看有没有上次留下的替换日志（docs/REPLACE.md 12.1 / 12.2）。
  * - 准备中断的：原文件一个没动，悄悄收拾掉临时文件
  * - 提交中断的、是这个项目的：卡片上问「退回 / 保留现状」（要你选，留卡片）
- * - 做完了的、是这个项目的：记下来，「编辑 › 撤销上次的替换 / 改名」能撤（应用重启了也能撤）。**不弹**：
+ * - 做完了的、是这个项目的：记下来，「编辑 › 撤销上次的替换 / 重命名」能撤（应用重启了也能撤）。**不弹**：
  *   原来启动时给一张「上次的替换还能撤销」卡片 —— 启动时冒出来的、不要你选的东西就是噪声（ui.md 第二之二条）
  */
 export async function checkPending(root: string) {

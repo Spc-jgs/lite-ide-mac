@@ -183,7 +183,7 @@
     {:else if !data}
       <div class="empty-msg wait"><span class="spinner sm"></span> 正在读 settings…</div>
     {:else if data.roots.length === 0}
-      <div class="empty-msg">这个项目里没有 Gradle 的构建文件<span class="sub">项目根和第一层子目录里都没找到 settings.gradle / build.gradle（有 pom.xml 的按 Maven 算）</span></div>
+      <div class="empty-msg">此项目中没有 Gradle 构建文件<span class="sub">项目根和第一层子目录里都没找到 settings.gradle / build.gradle（有 pom.xml 的按 Maven 算）</span></div>
     {:else}
       {#each rows as row (row.key)}
         {@const st = row.task ? status(row.task) : undefined}

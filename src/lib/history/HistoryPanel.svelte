@@ -181,7 +181,7 @@
     </div>
   </div>
   <div class="foot">
-    <span class="hint">左边是那一版，右边是现在（编辑器里此刻的，没保存的也算）。↑↓ 换一版，↵ 恢复</span>
+    <span class="hint">左侧为所选版本，右侧为当前内容（含编辑器中未保存的更改）。↑↓ 切换版本，↵ 恢复</span>
     <span class="gap"></span>
     <button class="btn" onclick={onclose}>关闭</button>
     <button class="btn primary" disabled={text === null || !diff} onclick={restore} title="在编辑器中恢复为此版本（可用 ⌘Z 撤销，尚未保存）">恢复为此版本</button>

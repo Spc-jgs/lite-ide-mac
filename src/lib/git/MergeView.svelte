@@ -119,7 +119,7 @@
       {/if}
     {/each}
     {#if conflicts.length === 0}
-      <div class="empty-msg">这个文件里没有冲突标记了 —— 可能已经解决过。直接保存即可标记为已解决。</div>
+      <div class="empty-msg">此文件中已没有冲突标记，可能已解决。保存即可标记为已解决。</div>
     {/if}
   </div>
 </div>

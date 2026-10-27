@@ -99,7 +99,7 @@
 
     <div class="list">
       {#if groups.length === 0}
-        <div class="empty-msg">没有匹配的键位 —— 按功能名（保存）或键名（⌘S）都能搜</div>
+        <div class="empty-msg">没有匹配的快捷键，可按功能名（保存）或按键（⌘S）搜索</div>
       {/if}
       {#each groups as g (g.name)}
         <div class="sec">{g.name}</div>

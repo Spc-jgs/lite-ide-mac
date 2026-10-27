@@ -129,9 +129,9 @@
         <label class="bom"><input type="checkbox" bind:checked={withBom} /> 带 BOM</label>
       {/if}
       <span class="gap"></span>
-      <button class="btn" onclick={reopen} title="按这个编码重新解码文件内容">重新打开 ↵</button>
+      <button class="btn" onclick={reopen} title="以此编码重新解码文件内容">重新打开 ↵</button>
       {#if !readonly}
-        <button class="btn primary" onclick={saveAs} title="下次保存时按这个编码写回">以此编码保存</button>
+        <button class="btn primary" onclick={saveAs} title="下次保存时以此编码写入">以此编码保存</button>
       {/if}
     </div>
   </div>

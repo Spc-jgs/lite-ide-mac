@@ -232,11 +232,11 @@
         </span>
       {/if}
       <span class="gap"></span>
-      <span><kbd>↵</kbd> 按这一类过滤</span>
+      <span><kbd>↵</kbd> 按此类别过滤</span>
       {#if !base}
         <button class="btn sm quiet" onclick={() => void startCompare()} title="与昨天或上线前的日志比较：新增了哪些类别、哪些类别增多、哪些类别消失">和另一份比…</button>
       {/if}
-      <button class="btn sm quiet" disabled={!data?.done} onclick={() => void load(true)} title="日志长了、或者想从头再归一遍">重新归类</button>
+      <button class="btn sm quiet" disabled={!data?.done} onclick={() => void load(true)} title="日志有新增内容或需要重新归类时使用">重新归类</button>
     </div>
   </div>
 </div>

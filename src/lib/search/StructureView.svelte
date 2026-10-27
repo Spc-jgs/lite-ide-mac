@@ -79,9 +79,9 @@
   </div>
   <div class="body" bind:this={list} aria-label="结构">
     {#if !path}
-      <div class="empty-msg">没有打开的文件 —— 打开一个，这里列出它的类、方法、字段</div>
+      <div class="empty-msg">没有打开的文件。打开文件后将在此列出其类、方法和字段</div>
     {:else if syms.length === 0 && !busy}
-      <div class="empty-msg">这个文件没有可列的结构<span class="sub">只有带语法树的语言才有（Java、Python、TS、Rust、Go…）</span></div>
+      <div class="empty-msg">此文件没有可显示的结构<span class="sub">只有带语法树的语言才有（Java、Python、TS、Rust、Go…）</span></div>
     {/if}
     {#each syms as s, i (`${s.line}:${s.kind}:${s.name}`)}
       <button class="srow" class:here={i === here} aria-current={i === here ? "location" : undefined} style:padding-left="{10 + Math.min(s.depth, 8) * 14}px" onclick={() => go(s)} title="第 {s.line} 行">

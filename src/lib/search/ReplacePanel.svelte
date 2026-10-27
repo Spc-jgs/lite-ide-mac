@@ -172,7 +172,7 @@
 
     <div class="list" bind:this={listEl} bind:clientHeight={viewH} onscroll={() => (scrollTop = listEl?.scrollTop ?? 0)}>
       {#if replace.scan && rows.length === 0 && !replace.scanning}
-        <div class="empty-msg">没有找到 —— 换个词，或者看看上面三个开关</div>
+        <div class="empty-msg">未找到匹配项，请更换关键词或检查上方的三个选项</div>
       {/if}
       <div class="inner" style:height="{rows.length * ROW}px">
         {#each rows.slice(range[0], range[1]) as row, k (row.kind === "file" ? `f${row.fi}` : row.kind === "hit" ? `h${row.fi}:${row.hi}` : `b${range[0] + k}`)}

@@ -92,7 +92,7 @@
       {:else if symbols.length === 0}
         <div class="empty-msg">没找到符号</div>
       {:else if rows.length === 0}
-        <div class="empty-msg">没有叫这个名的符号 —— 清空输入看全部结构</div>
+        <div class="empty-msg">没有匹配的符号，清空输入可查看全部结构</div>
       {/if}
       {#each rows as row, i (row.sym.kind + row.sym.name + row.sym.line)}
         <button

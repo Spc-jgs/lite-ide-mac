@@ -248,7 +248,7 @@
         <!-- 只看一个文件 / 几行（菜单、编辑器右键进来的）：说清看的是什么，✕ 回到整个仓库 -->
         <span class="pin" title={pinned.rel}>
           只看 {pinned.rel.slice(pinned.rel.lastIndexOf("/") + 1)}{#if pinned.lines}{pinned.lines[0] === pinned.lines[1] ? ` 第 ${pinned.lines[0]} 行` : ` 第 ${pinned.lines[0]}–${pinned.lines[1]} 行`}{/if}
-          <button class="ibtn xs" aria-label="不只看它了" title="回到整个仓库的历史" onclick={() => (logFilter.v = null)}><Icon name="x" /></button>
+          <button class="ibtn xs" aria-label="清除筛选" title="回到整个仓库的历史" onclick={() => (logFilter.v = null)}><Icon name="x" /></button>
         </span>
       {:else}
         <label class="chk" class:off={!filePath} title="只看当前文件">

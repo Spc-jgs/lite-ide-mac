@@ -93,7 +93,7 @@ REC="$(lite accel save)/$(lite accel close-tab)"
 lite_eval main "__lite.key('Mod-Alt-s'); return true" >/dev/null; sleep 0.3
 BACK=$(lite accel save)
 ok "$([ "${REC}" = "null/null" ] && [ "${BACK}" = "CmdOrCtrl+S" ] && echo 1)" "录键时菜单上的键全摘掉（AppKit 先吃菜单的键，不摘 ⌘S 这种录不进来）、录完挂回去（还没应用，挂的还是默认）：录时 ${REC}，录完 ${BACK}"
-CAPS=$(lite_eval main "${KM} krow('复制行（有选区时复制选区）').querySelector('.cap').click(); await W(150); __lite.key('Mod-Alt-d'); await W(150); return krow('保存').querySelector('.cap').textContent + ' ' + krow('复制行（有选区时复制选区）').querySelector('.cap').textContent")
+CAPS=$(lite_eval main "${KM} krow('复制行或选区').querySelector('.cap').click(); await W(150); __lite.key('Mod-Alt-d'); await W(150); return krow('保存').querySelector('.cap').textContent + ' ' + krow('复制行或选区').querySelector('.cap').textContent")
 ok "$([ "${CAPS}" = "⌥⌘S ⌥⌘D" ] && echo 1)" "录到的键（按 e.code 认，⌥ 不会把 S 变成别的字）：${CAPS}"
 lite_eval main "document.querySelector('.dialog.settings [data-default]').click(); return true" >/dev/null
 lite_wait main "return !document.querySelector('.dialog.settings')" 5 >/dev/null; sleep 0.3

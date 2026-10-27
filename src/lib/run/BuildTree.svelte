@@ -98,7 +98,7 @@
             onclick={() => (sel = sel === p ? null : p)}
             ondblclick={() => void nav.openAt(p.path, p.line, false, p.col)}
             onkeydown={() => {}}
-            title="双击跳到这一行"
+            title="双击转到此行"
           >
             <span class="ic"><Icon name={p.error ? "error" : "warn"} /></span>
             <span class="name">{first(p.message)}</span>

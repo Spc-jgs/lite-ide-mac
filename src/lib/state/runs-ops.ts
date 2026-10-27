@@ -115,7 +115,7 @@ export async function hotswap(head = "") {
       case "failed":
         return notify.fail(`${pre}但热替换失败：${r.message}（${classNames(r.classes)}）。需重新调试才能生效`, 10000);
       case "noreply":
-        return notify.fail(`${pre}但热替换未响应：程序整体暂停时无法热替换，请继续运行后选择「运行 › 重新加载改过的类」`, 10000);
+        return notify.fail(`${pre}但热替换未响应：程序整体暂停时无法热替换，请继续运行后选择「运行 › 重新加载已更改的类」`, 10000);
       case "noagent":
         return notify.hint(`${pre}当前构建不支持热替换（开发构建），需重新调试才能生效`);
       case "nosession":

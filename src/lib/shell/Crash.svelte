@@ -65,20 +65,19 @@
   <div class="box">
     <div class="head">
       <Icon name="warn" />
-      <span>{scope}出错了</span>
+      <span>{scope}发生错误</span>
     </div>
 
     <p class="msg">{message}</p>
     <p class="hint">
-      其余部分应该还能用。{#if onReset}可以先重试这一块；{/if}实在不行就重载窗口 ——
-      <b>未保存的更改将丢失</b>。
+      其余部分仍可正常使用。{#if onReset}可先重试此区域；{/if}如仍无法恢复，请重新载入窗口（<b>未保存的更改将丢失</b>）。
     </p>
 
     <pre>{detail}</pre>
 
     <div class="row">
       {#if onReset}
-        <button class="btn primary" onclick={onReset}>重试这一块</button>
+        <button class="btn primary" onclick={onReset}>重试</button>
       {/if}
       <button class="btn" onclick={copy}>{copied ? "已复制" : "复制详情"}</button>
       <span class="gap"></span>

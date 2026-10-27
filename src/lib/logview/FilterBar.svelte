@@ -82,7 +82,7 @@
         class="chip {c.key}"
         class:off={!active(c.bit)}
         onclick={() => toggle(c.bit)}
-        title="点击只看这一级，再点复原"
+        title="单击仅显示此级别，再次单击恢复"
       >
         <i class="dot"></i>
         <span class="lbl">{c.label}</span>
@@ -175,7 +175,7 @@
   {/if}
 
   {#if canTail}
-    <button class="tail" class:on={tailing} onclick={() => (tailing = !tailing)} title="跟随尾部：文件长了就贴到最新一行" aria-label="跟随尾部">
+    <button class="tail" class:on={tailing} onclick={() => (tailing = !tailing)} title="跟随尾部：文件增长时自动滚动到最新一行" aria-label="跟随尾部">
       <i class="live"></i><span class="txt">跟随尾部</span>
     </button>
   {/if}

@@ -127,17 +127,17 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let save_as = item(app, "save-as", "另存为…", Some("Shift+CmdOrCtrl+S"))?;
     // 本地历史（docs/IDEA.md 第 21 节）：要有一个打开的文件
     let local_history = item(app, "local-history", "本地历史…", None)?;
-    let close_tab = item(app, "close-tab", "关闭标签", Some("CmdOrCtrl+W"))?;
-    let close_all = item(app, "close-all-tabs", "关闭所有标签", None)?;
+    let close_tab = item(app, "close-tab", "关闭标签页", Some("CmdOrCtrl+W"))?;
+    let close_all = item(app, "close-all-tabs", "关闭所有标签页", None)?;
     let encoding = item(app, "encoding", "文件编码…", None)?;
     let toggle_mode = item(app, "toggle-mode", "切换编辑 / 日志模式", None)?;
     let outline = item(app, "outline", "文件结构…", Some("CmdOrCtrl+F12"))?;
     // 三条都要跟着「有没有打开的标签」变灰：没有标签时既没有位置可回，
     // 也没有光标可取词
-    let goto_line = item(app, "goto-line", "跳到行…", Some("CmdOrCtrl+L"))?;
-    let nav_back = item(app, "nav-back", "回到上一个位置", Some("Alt+CmdOrCtrl+Left"))?;
-    let nav_fwd = item(app, "nav-fwd", "再回来", Some("Alt+CmdOrCtrl+Right"))?;
-    let find_word = item(app, "find-word", "在项目里找这个名字", None)?;
+    let goto_line = item(app, "goto-line", "转到行…", Some("CmdOrCtrl+L"))?;
+    let nav_back = item(app, "nav-back", "后退", Some("Alt+CmdOrCtrl+Left"))?;
+    let nav_fwd = item(app, "nav-fwd", "前进", Some("Alt+CmdOrCtrl+Right"))?;
+    let find_word = item(app, "find-word", "在项目中查找此名称", None)?;
 
     let git_changes = item(app, "git-changes", "更改列表", Some("CmdOrCtrl+K"))?;
     let git_file_diff = item(app, "git-file-diff", "查看当前文件的更改", None)?;
@@ -145,14 +145,14 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let git_log = item(app, "git-log", "提交历史", None)?;
     // IDEA 的 Git › Show History / Show History for Selection（docs/TAKEOVER.md G16）：要一个打开的文件，同「查看当前文件的改动」
     let git_file_history = item(app, "git-file-history", "当前文件的历史", None)?;
-    let git_selection_history = item(app, "git-selection-history", "选中几行的历史", None)?;
+    let git_selection_history = item(app, "git-selection-history", "所选行的历史", None)?;
     let git_console = item(app, "git-console", "Git 控制台", None)?;
     let git_branches = item(app, "git-branches", "分支与工作树…", None)?;
     let git_refresh = item(app, "git-refresh", "刷新状态", None)?;
 
     let close_terminal = item(app, "close-terminal", "关闭当前终端", None)?;
     // #48：任务属于项目，没项目时都灰。「再跑上一个」归 key（终端里的 ⌃R 是 shell 的搜历史），菜单项不挂键位
-    let run_last = item(app, "run-last", "再跑上一个任务", None)?;
+    let run_last = item(app, "run-last", "重新运行上一个任务", None)?;
     let run_pick = item(app, "run-pick", "运行任务…", Some("Ctrl+Alt+R"))?;
     let run_stop = item(app, "run-stop", "停止任务", Some("CmdOrCtrl+F2"))?;
     let tasks_file = item(app, "tasks-file", "打开 tasks.json", None)?;
@@ -170,7 +170,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     // IDEA 的 Run to Cursor（docs/TAKEOVER.md G14）：停着时跑到光标那一行再停
     let debug_run_to = item(app, "debug-run-to", "运行到光标", Some("Alt+F9"))?;
     // 热替换（docs/IDEA.md 第 26 节）：IDEA 的 Run › Debugging Actions › Reload Changed Classes。构建（⌘F9）成功后自动做一次，这一项是手动的那条路
-    let debug_reload = item(app, "debug-reload", "重新加载改过的类", None)?;
+    let debug_reload = item(app, "debug-reload", "重新加载已更改的类", None)?;
     for it in [&debug_resume, &debug_over, &debug_into, &debug_out, &debug_run_to, &debug_pause, &debug_reload] {
         it.set_enabled(false)?;
     }
@@ -178,15 +178,15 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let send_to_terminal = item(app, "send-to-terminal", "发送到终端", Some("Alt+CmdOrCtrl+K"))?;
     // 分屏（issue #35）。键位的取舍见 keymap.ts 那段
     let split_right = item(app, "split-right", "向右分屏", Some("CmdOrCtrl+\\"))?;
-    let move_other = item(app, "move-to-other-group", "移到另一组", Some("Ctrl+CmdOrCtrl+Right"))?;
-    let focus_other = item(app, "focus-other-group", "切到另一组", Some("Alt+TAB"))?;
+    let move_other = item(app, "move-to-other-group", "移动到另一组", Some("Ctrl+CmdOrCtrl+Right"))?;
+    let focus_other = item(app, "focus-other-group", "切换到另一组", Some("Alt+TAB"))?;
     let unsplit = item(app, "unsplit", "合并分屏", None)?;
     let close_project = item(app, "close-project", "关闭项目", None)?;
     let toggle_wrap = item(app, "toggle-wrap", "自动换行", None)?;
 
     // ── 最近打开：内容由前端启动后灌进来，先摆禁用占位 ──
     let recent = SubmenuBuilder::with_id(app, "recent", "最近打开")
-        .item(&MenuItemBuilder::with_id(RECENT_EMPTY, "（还没有）").enabled(false).build(app)?)
+        .item(&MenuItemBuilder::with_id(RECENT_EMPTY, "（无）").enabled(false).build(app)?)
         .build()?;
 
     let file = SubmenuBuilder::new(app, "文件")
@@ -210,7 +210,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .separator()
         .item(&close_tab)
         .item(&close_all)
-        .item(&item(app, "reopen-tab", "重新打开关掉的标签", Some("Shift+CmdOrCtrl+T"))?)
+        .item(&item(app, "reopen-tab", "重新打开已关闭的标签页", Some("Shift+CmdOrCtrl+T"))?)
         .separator()
         .item(&local_history)
         .separator()
@@ -228,7 +228,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let edit = SubmenuBuilder::new(app, "编辑")
         .undo_with_text("撤销")
         .redo_with_text("重做")
-        .item(&item(app, "undo-replace", "撤销上次的替换 / 改名", None)?)
+        .item(&item(app, "undo-replace", "撤销上次的替换 / 重命名", None)?)
         .separator()
         .cut_with_text("剪切")
         .copy_with_text("复制")
@@ -277,8 +277,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         // 手势写进标签 —— 没有别的地方会告诉你它存在
         .item(&item(app, "quick-all", "随处搜索（连按两下 ⇧）", None)?)
         // ⌘P 只放标签：挂了 accelerator，终端里的 ⌘P 就被菜单抢走了
-        .item(&item(app, "quick-file", "找文件…", Some("Shift+CmdOrCtrl+O"))?)
-        .item(&item(app, "quick-class", "找类…", Some("CmdOrCtrl+O"))?)
+        .item(&item(app, "quick-file", "查找文件…", Some("Shift+CmdOrCtrl+O"))?)
+        .item(&item(app, "quick-class", "查找类…", Some("CmdOrCtrl+O"))?)
         .item(&item(app, "recent-files", "最近文件…", None)?)
         .item(&item(app, "recent-locations", "最近位置…", Some("Shift+CmdOrCtrl+E"))?)
         .item(&item(app, "quick-content", "在项目中搜索…", Some("Shift+CmdOrCtrl+F"))?)
@@ -301,7 +301,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
 
     let git_pull = item(app, "git-pull", "拉取", Some("CmdOrCtrl+T"))?;
     let git_push = item(app, "git-push", "推送…", Some("Shift+CmdOrCtrl+K"))?;
-    let git_fetch = item(app, "git-fetch", "抓取远程", None)?;
+    let git_fetch = item(app, "git-fetch", "获取", None)?;
 
     let git = SubmenuBuilder::new(app, "Git")
         .item(&git_changes)
@@ -452,7 +452,7 @@ pub fn refresh_recent(app: &AppHandle<Wry>, paths: &[String]) -> tauri::Result<(
         menu.remove(&it)?;
     }
     if paths.is_empty() {
-        menu.append(&MenuItemBuilder::with_id(RECENT_EMPTY, "（还没有）").enabled(false).build(app)?)?;
+        menu.append(&MenuItemBuilder::with_id(RECENT_EMPTY, "（无）").enabled(false).build(app)?)?;
         return Ok(());
     }
     for p in paths.iter().take(RECENT_MAX) {

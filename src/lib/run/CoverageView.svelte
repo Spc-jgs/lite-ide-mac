@@ -26,19 +26,19 @@
       <span class="sum">没有覆盖率报告</span>
     {/if}
     <span class="gap"></span>
-    <button class="btn sm quiet" disabled={!rep} onclick={clearCoverage} title="编辑器里行号旁的颜色一起收掉">清掉</button>
+    <button class="btn sm quiet" disabled={!rep} onclick={clearCoverage} title="同时清除编辑器行号旁的覆盖率颜色">清掉</button>
   </div>
   <div class="list" role="list">
     {#if !rep}
       <div class="empty-msg">尚无覆盖率数据<span class="sub">点击测试旁的 ▶ 并选择「带覆盖率运行」，或使用运行窗口中测试结果上方的按钮。完成后将在此列出各文件，编辑器行号旁绿色表示已覆盖、红色表示未覆盖</span></div>
     {:else if !rep.files.length}
-      <div class="empty-msg">报告里一个源文件都没有<span class="sub">测试跑到的代码都不在这个项目的 src/main/java 里？</span></div>
+      <div class="empty-msg">报告里一个源文件都没有<span class="sub">测试覆盖的代码均不在此项目的 src/main/java 中</span></div>
     {:else}
       {#each rep.files as f (f.path)}
         {@const p = filePct(f)}
         {@const miss = firstMiss(f)}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <div class="row" role="listitem" title="{rel(f.path)}：点了跳到第一处没跑到的行" onclick={() => void nav.openAt(f.path, miss === Number.MAX_SAFE_INTEGER ? 1 : miss, false)} onkeydown={() => {}} tabindex="-1">
+        <div class="row" role="listitem" title="{rel(f.path)}：单击转到第一处未覆盖的行" onclick={() => void nav.openAt(f.path, miss === Number.MAX_SAFE_INTEGER ? 1 : miss, false)} onkeydown={() => {}} tabindex="-1">
           <span class="name">{base(f.path)}</span>
           <span class="dir">{rel(f.path).slice(0, -base(f.path).length).replace(/\/$/, "")}</span>
           <span class="gap"></span>

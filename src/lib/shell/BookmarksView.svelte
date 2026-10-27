@@ -45,7 +45,7 @@
           <button
             class="ibtn sm x"
             aria-label="删掉第 {e.line} 行的书签"
-            title="删掉这个书签"
+            title="删除此书签"
             onclick={(ev) => {
               ev.stopPropagation();
               remove(e);
@@ -53,7 +53,7 @@
         </div>
       {/each}
     {:else}
-      <div class="empty-msg">此项目尚无书签<span class="sub">编辑器里按 F3 在光标那一行打一个，这里会列出来；点一行跳过去</span></div>
+      <div class="empty-msg">此项目尚无书签<span class="sub">在编辑器中按 F3 为光标所在行添加书签，书签将列在此处；单击即可跳转</span></div>
     {/each}
   </div>
 </div>

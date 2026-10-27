@@ -94,7 +94,7 @@
         <button
           class="name"
           onclick={() => (mask = toggleSource(mask, i, n))}
-          title={`${s.path}\n点击只看这一份，再点复原`}
+          title={`${s.path}\n单击仅显示此日志，再次单击恢复`}
         >
           <i class="dot"></i>{names[i]}
         </button>
@@ -141,7 +141,7 @@
     {#if edit.error}
       <div class="perr">{edit.error}</div>
     {:else}
-      <div class="phint">合并前将此日志的时间整体加上该偏移。例如一份为 UTC、其余为北京时间时，给 UTC 那份设置 +8h。偏移后行号会变化，过滤将按原条件重新执行。</div>
+      <div class="phint">合并前将此日志的时间整体加上该偏移。例如一份为 UTC、其余为北京时间时，为 UTC 日志设置 +8h。偏移后行号会变化，过滤将按原条件重新执行。</div>
     {/if}
     <div class="prow">
       <button class="btn" onclick={() => (edit = null)}>取消</button>

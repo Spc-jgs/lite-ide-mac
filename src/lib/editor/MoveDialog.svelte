@@ -130,7 +130,7 @@
           <ul class="files">
             {#each preview.files as f (f)}<li>{f}</li>{/each}
           </ul>
-          <p class="note">完成后可撤销（提示中的「撤销」，或「编辑 › 撤销上次的替换 / 改名」）</p>
+          <p class="note">完成后可撤销（提示中的「撤销」，或「编辑 › 撤销上次的替换 / 重命名」）</p>
         {/if}
       </div>
       <div class="actions">
