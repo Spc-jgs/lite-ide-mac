@@ -47,7 +47,7 @@
     menu = { x: r.left, y: r.bottom + 4 };
   }
 
-  const GROUP: Record<TaskDef["source"], string> = { spring: "Spring Boot", user: "你建的", package: "package.json", pack: "", file: "tasks.json", goal: "Maven" };
+  const GROUP: Record<TaskDef["source"], string> = { spring: "Spring Boot", user: "自定义", package: "package.json", pack: "", file: "tasks.json", goal: "Maven" };
   const items = $derived.by<MenuItem[]>(() => {
     const out: MenuItem[] = [];
     let group = "";
@@ -73,7 +73,7 @@
     <span class="wlabel">{current || "运行配置"}</span>
     <Icon name="chevron-down" />
   </button>
-  <button class="ibtn" disabled={!current} onclick={() => void runTask(current, root)} title={live.length ? `重跑「${current}」（⌃R）` : `运行「${current}」`} aria-label="运行">
+  <button class="ibtn" disabled={!current} onclick={() => void runTask(current, root)} title={live.length ? `重新运行「${current}」（⌃R）` : `运行「${current}」`} aria-label="运行">
     <Icon name={live.length ? "rerun" : "run"} />
   </button>
   <button class="ibtn" disabled={!debuggable} onclick={() => void runTask(current, root, true)} title={debuggable ? `调试「${current}」（⌃D）` : "此配置不是 Java 程序，无法调试"} aria-label="调试">

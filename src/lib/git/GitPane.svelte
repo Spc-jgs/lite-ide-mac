@@ -284,7 +284,7 @@
       <div class="op" role="status">
         <p class="op-title">正在{OP_NAME[status.op.kind]}{#if status.op.step && status.op.total}<span class="op-step">第 {status.op.step} / {status.op.total} 步</span>{/if}</p>
         <p class="op-sub">
-          {#if conflicts.length > 0}先解决 {conflicts.length} 处冲突（点开文件），暂存（＋）之后点「继续」{:else if unstaged.some((e) => !e.untracked)}冲突都解决了：把改动暂存（＋），再点「继续」{:else}可以继续了{/if}
+          {#if conflicts.length > 0}请先解决 {conflicts.length} 处冲突（打开文件），暂存（＋）后点击「继续」{:else if unstaged.some((e) => !e.untracked)}冲突已全部解决：暂存更改（＋）后点击「继续」{:else}可以继续{/if}
         </p>
         <div class="op-row">
           <button class="btn quiet sm" onclick={() => onOp?.("abort")}>中止{OP_NAME[status.op.kind]}</button>

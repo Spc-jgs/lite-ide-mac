@@ -63,7 +63,7 @@
     {#if h.error}
       <div class="empty-msg" class:bad={h.error !== "已取消"}>
         {h.error === "已取消" ? "取消了，没等到响应" : h.error}
-        {#if h.error !== "已取消"}<div class="sub">点右上角的重跑再发一次；请求照文件此刻的样子</div>{/if}
+        {#if h.error !== "已取消"}<div class="sub">点击右上角的「重新发送」，将按文件当前内容再次发送请求</div>{/if}
       </div>
     {:else if sending}
       <div class="empty-msg wait"><span class="spinner sm"></span> 等服务器回话…（停在断点上的服务会一直等，点「取消」不等了）</div>

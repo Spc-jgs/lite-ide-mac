@@ -136,7 +136,7 @@ pub fn stash_list(root: impl AsRef<Path>) -> R<Vec<Stash>> {
 pub fn stash_push(root: impl AsRef<Path>) -> R<()> {
     let out = run(root.as_ref(), &["stash", "push"])?;
     if out.contains("No local changes to save") {
-        return Err(Error::Git("没有可以收进 stash 的改动（未跟踪的文件不算）".into()));
+        return Err(Error::Git("没有可储藏的更改（未跟踪的文件除外）".into()));
     }
     Ok(())
 }

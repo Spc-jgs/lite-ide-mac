@@ -101,7 +101,7 @@
     }
   }
 
-  const GROUP: Record<TaskDef["source"], string> = { file: "tasks.json", package: "package.json", pack: "", spring: "Spring Boot", goal: "Maven", user: "你建的" };
+  const GROUP: Record<TaskDef["source"], string> = { file: "tasks.json", package: "package.json", pack: "", spring: "Spring Boot", goal: "Maven", user: "自定义" };
   // 语言包的任务按包里写的组名分（「Cargo」），两个包挨着也分得开
   const groupOf = (d: TaskDef) => (d.source === "pack" ? d.kind : GROUP[d.source]);
   const STATUS: Partial<Record<RunStatus, string>> = { running: "在跑", stopping: "正在停" };
@@ -155,7 +155,7 @@
       {/if}
     </div>
     <div class="foot">
-      <span><kbd>↵</kbd> {rows[sel]?.kind === "file" ? "打开" : rows[sel]?.kind === "task" && statusOf((rows[sel] as { def: TaskDef }).def.name) === "running" ? "重跑" : "运行"}</span>
+      <span><kbd>↵</kbd> {rows[sel]?.kind === "file" ? "打开" : rows[sel]?.kind === "task" && statusOf((rows[sel] as { def: TaskDef }).def.name) === "running" ? "重新运行" : "运行"}</span>
       <span><kbd>⌃R</kbd> 再跑上一个</span>
       <span><kbd>⌘F2</kbd> 停止</span>
     </div>

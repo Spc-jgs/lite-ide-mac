@@ -251,7 +251,7 @@ export async function gitCmd(cmd: string, a: A): Promise<unknown> {
       await sleep(120);
       const tracked = ["src/OrderService.java", "src/App.svelte", "README.md", "docs/old.md", "src/renamed.ts"]
         .filter((f) => !discarded.has(f) && !stashed.has(f));
-      if (tracked.length === 0) throw "没有可以收进 stash 的改动（未跟踪的文件不算）";
+      if (tracked.length === 0) throw "没有可储藏的更改（未跟踪的文件除外）";
       for (const f of tracked) stashed.add(f);
       stashes.unshift({ index: 0, message: `WIP on ${curBranch}: a1b2c3d 上一条提交` });
       stashes.forEach((x, i) => (x.index = i));

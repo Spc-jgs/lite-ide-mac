@@ -41,7 +41,7 @@
      * 这是个未跟踪（新增）的文件。
      *
      * 用来把两种「什么都没有」分开：新增的**空文件**本来就没有内容可显示，
-     * 和「这一侧没有改动」是完全不同的两件事，却都渲染成一片空白。
+     * 和「此侧没有更改」是完全不同的两件事，却都渲染成一片空白。
      */
     untracked?: boolean;
     /**
@@ -475,9 +475,9 @@
 <!-- 块头上的「N 行未改动」：能展开时是个按钮（点了从新侧全文补进来，照 IDEA），不能时就是一句话 -->
 {#snippet fold(n: number, k: number)}
   {#if canExpand}
-    <button class="hcount act" disabled={expanding >= 0} onclick={() => void expand(k)} title="显示这 {n} 行">{n} 行未改动 · 展开</button>
+    <button class="hcount act" disabled={expanding >= 0} onclick={() => void expand(k)} title="显示这 {n} 行">{n} 行未更改 · 展开</button>
   {:else}
-    <span class="hcount">{n} 行未改动</span>
+    <span class="hcount">{n} 行未更改</span>
   {/if}
 {/snippet}
 
@@ -550,7 +550,7 @@
   <div class="body" bind:this={box}>
     {#if files.length === 0}
       <div class="empty-msg">
-        {#if untracked}新增的文件，内容为空{:else}这一侧没有改动{/if}
+        {#if untracked}新增的文件，内容为空{:else}此侧没有更改{/if}
       </div>
     {:else if files[0].binary}
       <div class="empty-msg">二进制文件，不显示差异</div>

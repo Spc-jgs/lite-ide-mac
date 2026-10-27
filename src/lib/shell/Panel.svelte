@@ -300,8 +300,8 @@
         <button
           class="ibtn"
           onclick={() => void ops().then((m) => m.rerun(r.id))}
-          title={r.http ? `重发「${r.name}」` : `重跑「${r.name}」⌃R`}
-          aria-label="重跑"
+          title={r.http ? `重新发送「${r.name}」` : `重新运行「${r.name}」⌃R`}
+          aria-label="重新运行"
         ><Icon name="rerun" /></button>
         <button
           class="ibtn"
