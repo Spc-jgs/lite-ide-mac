@@ -311,3 +311,32 @@ fn cookie_罐_登录拿到的下一个请求带上_不记的不带也不写_文�
     clear_cookies(&jar).unwrap();
     assert!(cookies(&jar).is_empty() && clear_cookies(&jar).is_ok(), "清掉了；再清一次不算错");
 }
+
+#[test]
+fn multipart_文字段和文件按次序拼_二进制原样_项目外的文件不发() {
+    let (port, rx) = serve(|_, _| resp("200 OK", &[], b"{}"));
+    let root = tmp("multipart");
+    let png: Vec<u8> = vec![0x89, b'P', b'N', b'G', 0, 0xff, 0xfe, b'\r', b'\n', 0x1a];
+    std::fs::write(root.join("logo.png"), &png).unwrap();
+    let dir = root.join(".out");
+    let head = b"--B\r\nContent-Disposition: form-data; name=\"file\"; filename=\"logo.png\"\r\nContent-Type: image/png\r\n\r\n".to_vec();
+    let tail = b"\r\n--B--\r\n".to_vec();
+    let r = Request {
+        headers: vec![("Content-Type".into(), "multipart/form-data; boundary=B".into())],
+        parts: Some(vec![Part::Text(head.clone()), Part::File(root.join("logo.png")), Part::Text(tail.clone())]),
+        root: root.clone(),
+        ..req("POST", format!("http://127.0.0.1:{port}/upload"))
+    };
+    send(Path::new(CURL), &r, &dir, next_seq(), &Handle::default()).unwrap();
+    let got = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(got.body, [head, png, tail].concat(), "按次序拼、文件的字节原样（\\0、非 UTF-8、自带的 CRLF 都不动）");
+    assert_eq!(got.header("content-type"), Some("multipart/form-data; boundary=B"), "Content-Type 照文件里写的（带 boundary），curl 不另加");
+
+    let outside = tmp("multipart-outside").join("secret.txt");
+    std::fs::write(&outside, "secret").unwrap();
+    let leak = Request { parts: Some(vec![Part::Text(b"--B\r\n\r\n".to_vec()), Part::File(outside)]), root: root.clone(), ..req("POST", format!("http://127.0.0.1:{port}/upload")) };
+    assert!(matches!(send(Path::new(CURL), &leak, &dir, next_seq(), &Handle::default()), Err(Error::Invalid(m)) if m.contains("项目之外")), "项目外的文件：不发");
+    let gone = Request { parts: Some(vec![Part::File(root.join("nope.png"))]), root: root.clone(), ..req("POST", format!("http://127.0.0.1:{port}/upload")) };
+    assert!(matches!(send(Path::new(CURL), &gone, &dir, next_seq(), &Handle::default()), Err(Error::Invalid(m)) if m.contains("nope.png")), "文件不在：说是哪个");
+    assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "后两个服务端一个都没收到");
+}

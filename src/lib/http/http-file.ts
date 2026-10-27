@@ -240,6 +240,35 @@ export function resolve(req: HttpReq, fileVars: Record<string, string>, env: unk
   return missing.size ? { ok: false, missing: [...missing] } : { ok: true, req: out };
 }
 
+/**
+ * multipart（#77）：Content-Type 是 `multipart/*` 时，请求体按行切成「文字段 + 文件」交给 Rust 拼。
+ * - 行与行之间是 **CRLF**（RFC 7578；Tomcat / commons-fileupload 的解析器找的是 `\r\n--边界`，只有 LF 的整个请求体认不出一段）。
+ *   文件里写的是 LF，发出去之前换掉 —— IDEA 也是这么发的
+ * - `< ./logo.png` 那一行换成那个文件的全部字节（`abs` 按 `.http` 所在目录解析路径）。文件内容不转换换行（图片、压缩包原样）
+ * 返回 null = 不是 multipart，照原来的走
+ */
+export function multipartParts(contentType: string, body: string | null, abs: (rel: string) => string): { text: string | null; file: string | null }[] | null {
+  if (body === null || !/^\s*multipart\//i.test(contentType)) return null;
+  const out: { text: string | null; file: string | null }[] = [];
+  let text = "";
+  body.split("\n").forEach((raw, i) => {
+    const l = raw.replace(/\r$/, "");
+    if (i > 0) text += "\r\n";
+    const f = /^<\s+(\S.*?)\s*$/.exec(l);
+    if (!f) {
+      text += l;
+      return;
+    }
+    if (text) out.push({ text, file: null });
+    out.push({ text: null, file: abs(f[1]) });
+    text = "";
+  });
+  // 收尾的边界行（`--边界--`）后面补一个 CRLF：请求体以行尾结束，和别的行一个样子
+  if (!text.endsWith("\r\n")) text += "\r\n";
+  out.push({ text, file: null });
+  return out;
+}
+
 /** 运行窗那一格叫什么：有名字用名字，没有就是「方法 + 路径」（不带主机：一排格子里主机都一样） */
 export function tabName(req: HttpReq): string {
   if (req.name) return req.name;

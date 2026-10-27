@@ -2,7 +2,7 @@
  * `.http` 文件里不碰编辑器的那一半（src/lib/http/http-file.ts）：切出每个请求、名字、头和体、`< 文件`、响应处理脚本、变量替换。
  * 每一条都是「发出去的东西和文件里写的不一样」的一种形状 —— 那种错不报错，只是服务器回一个莫名其妙的 400。
  */
-import { parseHttp, requestAt, resolve, dynamic, tabName } from "../src/lib/http/http-file.ts";
+import { parseHttp, requestAt, resolve, dynamic, tabName, multipartParts } from "../src/lib/http/http-file.ts";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -122,6 +122,31 @@ eq([sc[2].handler, sc[2].scriptFile, sc[2].script], [true, "./handler.js", null]
 const pri = parseHttp("@who = file\nGET http://a/{{token}}/{{who}}/{{sku}}\n");
 const rp = resolve(pri.requests[0], pri.vars, { token: "old", who: "env", sku: "S" }, { token: "new", who: "global" });
 eq(rp.ok ? rp.req.url : rp, "http://a/new/file/S", "优先级：文件变量 > 脚本存的 > 环境");
+
+// multipart（#77）：行之间是 CRLF、`< 文件` 换成文件、文件前后的 CRLF 都在
+const up = parseHttp(`### 上传
+POST http://a/upload
+Content-Type: multipart/form-data; boundary=B
+
+--B
+Content-Disposition: form-data; name="note"
+
+你好
+--B
+Content-Disposition: form-data; name="file"; filename="logo.png"
+
+< ./img/logo.png
+--B--
+`).requests[0];
+eq(up.bodyFile, null, "< 不在第一行：不是「整个体从文件读」");
+const mp = multipartParts(up.headers[0][1], up.body, (rel) => "/proj/api/" + rel.replace(/^\.\//, ""));
+eq(mp, [
+  { text: '--B\r\nContent-Disposition: form-data; name="note"\r\n\r\n你好\r\n--B\r\nContent-Disposition: form-data; name="file"; filename="logo.png"\r\n\r\n', file: null },
+  { text: null, file: "/proj/api/img/logo.png" },
+  { text: "\r\n--B--\r\n", file: null },
+], "按段切：CRLF、文件换成路径（按 .http 所在目录解析）");
+eq(multipartParts("application/json", up.body, (x) => x), null, "不是 multipart：照原来的走");
+eq(multipartParts("multipart/form-data; boundary=B", "--B\r\n\r\nx\r\n--B--", (x) => x), [{ text: "--B\r\n\r\nx\r\n--B--\r\n", file: null }], "文件里本来就是 CRLF 的不变成 CR CR LF");
 
 eq([tabName(get), tabName({ ...get, name: null }), tabName({ ...bare, name: null })], ["查订单", "GET /orders?status=PAID&page=1", "GET /health"], "运行窗那一格的名字");
 

@@ -45,12 +45,22 @@ pub struct Request {
     pub body: Option<Vec<u8>>,
     /// `< ./file.json`：从文件读请求体（绝对路径，前端按 `.http` 所在目录解析好了）。必须在 `root` 底下（[`body_file_inside`]）
     pub body_file: Option<PathBuf>,
+    /// multipart（#77）：请求体由文字段和文件按次序拼成（文字段里的换行前端已经换成 CRLF）。每个文件同 `body_file`，只许在项目里
+    pub parts: Option<Vec<Part>>,
     /// 项目根：`body_file` 只许在它底下
     pub root: PathBuf,
     /// 跟着重定向走（IDEA 默认跟；`# @no-redirect` 不跟）
     pub follow: bool,
     /// Cookie 罐（[`jar_path`]）；`# @no-cookie-jar` 的请求是 None：不带、也不记
     pub cookie_jar: Option<PathBuf>,
+}
+
+/// multipart 请求体的一段
+#[derive(Clone, Debug, PartialEq)]
+pub enum Part {
+    Text(Vec<u8>),
+    /// 整个文件的字节原样拼进去（图片、压缩包都行）
+    File(PathBuf),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -140,7 +150,7 @@ pub fn validate(r: &Request) -> Result<(), Error> {
             return Err(Error::Invalid(format!("请求头「{k}」的值包含换行（变量值可能含换行）")));
         }
     }
-    if r.body.is_some() && r.body_file.is_some() {
+    if [r.body.is_some(), r.body_file.is_some(), r.parts.is_some()].iter().filter(|x| **x).count() > 1 {
         return Err(Error::Invalid("请求体不能同时内联书写并从文件读取".into()));
     }
     Ok(())
@@ -188,7 +198,7 @@ pub fn curl_args(r: &Request, f: &Files) -> Vec<String> {
     if r.follow {
         a.extend(["-L", "--max-redirs", "10"].map(String::from));
     }
-    let body = r.body.as_ref().map(|_| f.body_in.clone()).or_else(|| r.body_file.clone());
+    let body = (r.body.is_some() || r.parts.is_some()).then(|| f.body_in.clone()).or_else(|| r.body_file.clone());
     match r.method.as_str() {
         // HEAD 要用 -I：`-X HEAD` 会让 curl 等一个永远不来的响应体
         "HEAD" => a.push("-I".into()),
@@ -283,6 +293,11 @@ pub fn send_capped(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, c
     if let Some(f) = &r.body_file {
         body_file_inside(&r.root, f)?;
     }
+    for p in r.parts.iter().flatten() {
+        if let Part::File(f) = p {
+            body_file_inside(&r.root, f)?;
+        }
+    }
     // 统计写进 `%output{路径}`：curl 读到第一个 `}` 就当路径结束了，带 `}` 的目录会让统计悄悄写丢（测试的临时目录名撞上过）
     if dir.to_string_lossy().contains('}') {
         return Err(Error::Io(format!("响应目录名包含「}}」，curl 无法写入统计信息：{}", dir.display())));
@@ -370,6 +385,9 @@ fn send_inner(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, f: &Fi
     if let Some(b) = &r.body {
         write_new(&f.body_in, b)?;
     }
+    if let Some(parts) = &r.parts {
+        write_parts(&f.body_in, parts)?;
+    }
     if h.is_cancelled() {
         return Err(Error::Cancelled);
     }
@@ -441,6 +459,25 @@ fn send_inner(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, f: &Fi
         redirects: stats["num_redirects"].as_u64().unwrap_or(0) as u32,
         final_url: stats["url_effective"].as_str().unwrap_or(&r.url).to_string(),
     })
+}
+
+/// 把 multipart 的几段按次序写进请求体文件：文件是流式拷进去的（几百 MB 的上传包不进内存）。
+/// 文件不在 / 读不了在这儿就报，说是哪个文件 —— 交给 curl 的话只剩一句「读不了请求体的文件」，看不出是第几个
+fn write_parts(p: &Path, parts: &[Part]) -> Result<(), Error> {
+    use std::io::Write;
+    #[allow(clippy::disallowed_methods)] // 应用数据目录里我们自己的临时请求体（名字带序号），同 write_new
+    let mut out = std::io::BufWriter::new(std::fs::File::create(p).map_err(|e| Error::Io(format!("无法写入 {}：{e}", p.display())))?);
+    let io = |e: std::io::Error| Error::Io(format!("无法写入 {}：{e}", p.display()));
+    for part in parts {
+        match part {
+            Part::Text(t) => out.write_all(t).map_err(io)?,
+            Part::File(f) => {
+                let mut src = std::fs::File::open(f).map_err(|e| Error::Invalid(format!("无法读取请求体中引用的文件 {}：{e}", f.display())))?;
+                std::io::copy(&mut src, &mut out).map_err(io)?;
+            }
+        }
+    }
+    out.flush().map_err(io)
 }
 
 /// 写我们自己的文件：名字带序号，正常不会已经存在；万一在（序号从头数了），也是我们上次写的那份，覆盖掉

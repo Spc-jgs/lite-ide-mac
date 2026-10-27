@@ -16,19 +16,31 @@ trap 'lite_teardown; [ -n "${SRV_PID}" ] && kill "${SRV_PID}" 2>/dev/null; rm -r
 
 # ── 回显服务：/redirect 302 到 /echo，/slow 不回话（像停在断点上的服务），/big 回 3 MB，/status/N 回 N；别的回收到的东西 ──
 cat > "${SRV}/echo.py" <<'EOF'
-import json, sys, time
+import hashlib, json, sys, time
+from email import policy
+from email.parser import BytesParser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 log = open(sys.argv[2], "a", buffering=1)
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def handle_one(self):
         n = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(n).decode("utf-8", "replace") if n else None
+        raw = self.rfile.read(n) if n else b""
+        body = raw.decode("utf-8", "replace") if n else None
         log.write(f"{self.command} {self.path}\n")
         if self.path.startswith("/slow"):
             time.sleep(60); return
         if self.path.startswith("/redirect"):
             self.send_response(302); self.send_header("Location", "/echo?from=redirect"); self.send_header("Content-Length", "0"); self.end_headers(); return
+        if self.path.startswith("/upload"):
+            # 用标准库的 MIME 解析器拆：每一段的名字、文件名、长度、sha256；再数原始字节里边界行前面是不是都是 CRLF
+            msg = BytesParser(policy=policy.HTTP).parsebytes(b"Content-Type: " + self.headers["Content-Type"].encode() + b"\r\n\r\n" + raw)
+            parts = []
+            for p in msg.iter_parts():
+                data = p.get_payload(decode=True) or b""
+                parts.append({"name": p.get_param("name", header="content-disposition"), "filename": p.get_filename(), "len": len(data), "sha": hashlib.sha256(data).hexdigest(), "text": data.decode("utf-8", "replace") if p.get_filename() is None else None})
+            out = json.dumps({"parts": parts, "lf": raw.count(b"\n--B"), "crlf": raw.count(b"\r\n--B")}, ensure_ascii=False).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out); return
         if self.path.startswith("/login"):
             out = json.dumps({"code": 0, "data": {"token": "tok-xyz"}}).encode()
             self.send_response(200); self.send_header("Set-Cookie", "SESSION=s-xyz; Path=/; HttpOnly"); self.send_header("Content-Type", "application/json")
@@ -117,6 +129,25 @@ Authorization: Bearer {{token}}
 ### 不带 Cookie
 # @no-cookie-jar
 GET {{base}}/echo/anon
+EOF
+# multipart（#77）：一个文字段 + 一个 4 KB 随机字节的二进制文件（\0、0xff、裸 \r\n 都可能有）
+mkdir -p "${P}/api/img"
+python3 -c 'import os,sys; open(sys.argv[1], "wb").write(os.urandom(4096))' "${P}/api/img/logo.bin"
+cat > "${P}/api/upload.http" <<'EOF'
+### 上传
+POST http://{{host}}/upload
+Content-Type: multipart/form-data; boundary=B
+
+--B
+Content-Disposition: form-data; name="note"
+
+你好
+--B
+Content-Disposition: form-data; name="file"; filename="logo.bin"
+Content-Type: application/octet-stream
+
+< ./img/logo.bin
+--B--
 EOF
 BEFORE=$(cd "${P}" && find . -type f | sort | md5)
 F="${P}/api/orders.http"
@@ -223,6 +254,14 @@ OLD=$(lite_eval main "${R} return r('我的订单').id")
 send 15
 lite_wait main "${R} return !!r('我的订单') && r('我的订单').id !== ${OLD} && r('我的订单').status !== 'running'" 15 >/dev/null
 ok "$(python3 -c 'import json,sys; h={k.lower() for k in json.load(open(sys.argv[1]))["headers"]}; print(0 if "cookie" in h else 1)' "$(body 我的订单)" 2>/dev/null)" "点「清除 Cookie」之后再发：不带了"
+
+echo "== multipart 上传（#77）：文字段 + 二进制文件，服务端用标准库的 MIME 解析器拆得开、字节一个不差，边界前都是 CRLF"
+lite_eval main "await __lite.tabflow.openPath('${P}/api/upload.http', { preview: false }); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-http-send').length === 1" 15 >/dev/null
+send 2; done_ 上传
+UP=$(body 上传)
+WANT=$(shasum -a 256 "${P}/api/img/logo.bin" | cut -d' ' -f1)
+ok "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); p=d["parts"]; print(1 if [x["name"] for x in p]==["note","file"] and p[0]["text"]=="你好" and p[1]["filename"]=="logo.bin" and p[1]["len"]==4096 and p[1]["sha"]==sys.argv[2] and d["lf"]==d["crlf"]==2 else 0)' "${UP}" "${WANT}" 2>/dev/null)" "服务端拆出两段：note=你好、logo.bin 4096 字节 sha256 对得上，第一条边界在最开头，后两条前面都是 CRLF、没有光秃秃的 LF：$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(d, ensure_ascii=False)[:500])' "${UP}" 2>&1 | head -c 600)"
 
 echo "== 没有副作用"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（响应体在应用数据目录里，不像 IDEA 那样写进 .idea/httpRequests）"

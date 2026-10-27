@@ -67,6 +67,10 @@ export function httpCmd(cmd: string, a: A): unknown {
       const url = String(a.url);
       if (!/^https?:\/\//i.test(url)) throw new Error(`仅支持 http:// 和 https:// 请求：${url}`);
       // 同 httpsvc::body_file_inside：`< 文件` 只许在项目里（桩不解软链，只比路径）
+      const parts = (a.parts as { text: string | null; file: string | null }[] | null) ?? null;
+      for (const p of parts ?? []) if (p.file && !p.file.startsWith(`${String(a.root)}/`)) throw new Error(`请求体文件位于项目之外（${p.file}），未发送：.http 文件随项目分发，读取项目之外的文件可能泄露私钥或配置。如需发送，请将文件移入项目`);
+      // 同 httpsvc：multipart 按段拼，文件那段换成文件内容
+      const sent = parts ? parts.map((p) => (p.file ? (FILES[p.file] ?? "") : (p.text ?? ""))).join("") : ((a.body as string | null) ?? null);
       if (a.bodyFile && !String(a.bodyFile).startsWith(`${String(a.root)}/`)) throw new Error(`请求体文件位于项目之外（${String(a.bodyFile)}），未发送：.http 文件随项目分发，读取项目之外的文件可能泄露私钥或配置。如需发送，请将文件移入项目`);
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -83,7 +87,7 @@ export function httpCmd(cmd: string, a: A): unknown {
             ? "<!doctype html>\n<html><body><h1>Whitelabel Error Page</h1></body></html>\n"
             : login
               ? JSON.stringify({ token: `tok-${n}`, user: { id: 7, name: "admin" } }, null, 2)
-              : JSON.stringify({ zeta: "原样的次序", id: n, items: [{ sku: "A-1", qty: 2 }], echo: { method: a.method, url, headers: a.headers ?? [], cookie, body: a.body ?? null, bodyFile: a.bodyFile ?? null } }, null, 2);
+              : JSON.stringify({ zeta: "原样的次序", id: n, items: [{ sku: "A-1", qty: 2 }], echo: { method: a.method, url, headers: a.headers ?? [], cookie, body: sent, bodyFile: a.bodyFile ?? null } }, null, 2);
           const path = `/mock-http/resp-${n}.${html ? "html" : "json"}`;
           FILES[path] = body;
           bump(path);

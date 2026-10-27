@@ -475,6 +475,12 @@ export interface HttpResponse {
   finalUrl: string;
 }
 
+/** multipart 请求体的一段（#77）：`text` 和 `file` 有且只有一个；`file` 是绝对路径 */
+export interface HttpPart {
+  text: string | null;
+  file: string | null;
+}
+
 /** Cookie 罐里的一条（#75）。不带值：值是登录态 */
 export interface HttpCookie {
   domain: string;

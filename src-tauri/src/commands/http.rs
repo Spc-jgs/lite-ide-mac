@@ -41,6 +41,7 @@ pub async fn http_send(
     follow: bool,
     env: Option<String>,
     cookies: bool,
+    parts: Option<Vec<HttpPartDto>>,
 ) -> Result<HttpResponseDto, String> {
     let owner = window.label().to_string();
     blocking(move || {
@@ -49,7 +50,15 @@ pub async fn http_send(
         let h = st.begin_http(&owner, op).ok_or("该请求正在发送")?;
         // Cookie 罐按「项目 + 环境」一个（同 IDEA）；`# @no-cookie-jar` 的请求不带也不记
         let cookie_jar = cookies.then(|| httpsvc::jar_path(&dir, &root, env.as_deref()));
-        let req = httpsvc::Request { method, url, headers, body: body.map(String::into_bytes), body_file: body_file.map(Into::into), root: root.into(), follow, cookie_jar };
+        let parts = parts.map(|ps| {
+            ps.into_iter()
+                .map(|p| match p.file {
+                    Some(f) => httpsvc::Part::File(f.into()),
+                    None => httpsvc::Part::Text(p.text.unwrap_or_default().into_bytes()),
+                })
+                .collect()
+        });
+        let req = httpsvc::Request { method, url, headers, body: body.map(String::into_bytes), body_file: body_file.map(Into::into), parts, root: root.into(), follow, cookie_jar };
         let r = httpsvc::send(Path::new(CURL), &req, &dir, httpsvc::next_seq(), &h);
         st.end_http(&owner, op);
         httpsvc::prune(&dir, KEEP);

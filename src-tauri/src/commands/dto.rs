@@ -1750,6 +1750,14 @@ pub struct HttpResponseDto {
     pub final_url: String,
 }
 
+/// multipart 请求体的一段（#77，前端发过来的）：`text` 和 `file` 有且只有一个。`file` 是绝对路径，Rust 再查一遍在不在项目里
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpPartDto {
+    pub text: Option<String>,
+    pub file: Option<String>,
+}
+
 /// Cookie 罐里的一条（#75）。不带值：值是登录态，界面上只要知道「记着哪些」
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

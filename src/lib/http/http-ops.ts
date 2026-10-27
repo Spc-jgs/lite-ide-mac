@@ -12,7 +12,7 @@ import { tabs } from "../state/tabs.svelte";
 import { docs } from "../state/docs.svelte";
 import { readText } from "../ipc/commands";
 import { httpCancel, httpEnvs, httpSend } from "../ipc/http";
-import { parseHttp, requestAt, resolve, tabName, type HttpFile, type HttpReq } from "./http-file";
+import { multipartParts, parseHttp, requestAt, resolve, tabName, type HttpFile, type HttpReq } from "./http-file";
 import { runScript } from "./http-script";
 
 const KEY = "lite-ide.http-env";
@@ -133,12 +133,14 @@ async function send(root: string, path: string, f: HttpFile, req: HttpReq) {
   runs.activeId = id;
   layout.panelView = "run";
   layout.panel = true;
+  const parts = multipartParts(r.req.headers.find(([k]) => k.toLowerCase() === "content-type")?.[1] ?? "", r.req.body, (rel) => absPath(path, rel));
   try {
     const resp = await httpSend(op, root, {
       method: r.req.method,
       url: r.req.url,
       headers: r.req.headers,
-      body: r.req.body,
+      body: parts ? null : r.req.body,
+      parts,
       bodyFile: req.bodyFile ? absPath(path, req.bodyFile) : null,
       follow: req.follow,
       env,
