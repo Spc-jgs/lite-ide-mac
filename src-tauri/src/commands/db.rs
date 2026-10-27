@@ -180,3 +180,19 @@ pub async fn db_apply(app: tauri::AppHandle, window: tauri::Window, root: String
     })
     .await
 }
+
+/// 控制台补全用的表和列（当前库每张表的每一列；系统库不收；最多 5 万列，多了 `truncated`）
+#[tauri::command]
+pub async fn db_outline(app: tauri::AppHandle, window: tauri::Window, root: String, id: String) -> Result<DbOutlineDto, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        let v = app.state::<AppState>().db.outline(&app, &owner, &root, &id)?;
+        let s = |x: &serde_json::Value, k: &str| x[k].as_str().map(str::to_string);
+        Ok(DbOutlineDto {
+            default_schema: s(&v, "defaultSchema"),
+            cols: v["cols"].as_array().map(|a| a.iter().map(|c| DbOutColDto { schema: s(c, "schema"), table: s(c, "table").unwrap_or_default(), name: s(c, "name").unwrap_or_default(), ty: s(c, "type").unwrap_or_default() }).collect()).unwrap_or_default(),
+            truncated: v["truncated"].as_bool().unwrap_or(false),
+        })
+    })
+    .await
+}

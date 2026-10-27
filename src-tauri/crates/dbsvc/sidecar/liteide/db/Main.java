@@ -36,7 +36,7 @@ import java.util.concurrent.Executors;
  * 驱动按 jar 装：同一组 jar 一个 ClassLoader，直接调 {@link Driver#connect} —— DriverManager 只认它自己的 ClassLoader 装进来的驱动，
  * 别的 ClassLoader 里的驱动它看不见（JDBC 的老规矩，DBeaver、IDEA 也是绕开它）。
  *
- * 连接和表结构：connect / meta / close / ping（DB-1）；查询：query / fetch / cancel / closeCursor（DB-2）；导出、单值查询、改单元格：export / scalar / apply（DB-3）。
+ * 连接和表结构：connect / meta / close / ping（DB-1）；查询：query / fetch / cancel / closeCursor（DB-2）；导出、单值查询、改单元格、补全用的表和列：export / scalar / apply / outline（DB-3）。
  *
  * 查询的结果不一次取完（docs/DATABASE.md 第 3 节）：开着的 ResultSet 当游标留在这里，界面滚到底再要下一批。
  * **一个连接最多一个开着的游标**：新查询先关掉上一个 —— 结果标签可以开很多个，但每个开着的游标在 MySQL / PostgreSQL 那边都攥着资源
@@ -107,6 +107,7 @@ public final class Main {
                 case "export": result = export(p); break;
                 case "scalar": result = scalar(p); break;
                 case "apply": result = apply(p); break;
+                case "outline": result = outline(p); break;
                 default: throw new IllegalArgumentException("未知的方法：" + method);
             }
             reply(id, result, null);
@@ -685,5 +686,45 @@ public final class Main {
     /** 名字加上这个库的引号（MySQL 是反引号、别的是双引号），名字里的引号写两遍 */
     private static String quote(String q, String name) {
         return q.isEmpty() ? name : q + name.replace(q, q + q) + q;
+    }
+
+    private static final int OUTLINE_MAX = 50_000;
+    private static final java.util.Set<String> SYSTEM_SCHEMAS = java.util.Set.of("information_schema", "pg_catalog", "pg_toast", "mysql", "performance_schema", "sys");
+
+    /**
+     * 控制台里补全表名、列名用的（DB-3）：当前库里每张表的每一列，一次 getColumns 拿完（一张表一次的话几百张表就是几百个来回）。
+     * 系统库不收（H2 的 INFORMATION_SCHEMA 一个就几百列，补全里全是它）。最多 5 万列，多了就停、说截断了（不悄悄少一截）。
+     * 回 {defaultSchema, cols: [{schema, table, name, type}], truncated}：MySQL 没有 schema，库名（catalog）当 schema 用
+     */
+    private static Object outline(Map<String, Object> p) throws SQLException {
+        Connection c = conn(p);
+        DatabaseMetaData m = c.getMetaData();
+        String cat = c.getCatalog();
+        String sch = null;
+        try { sch = c.getSchema(); } catch (Throwable ignored) {}
+        List<Object> cols = new ArrayList<>();
+        boolean truncated = false;
+        try (ResultSet r = m.getColumns(cat, null, "%", "%")) {
+            while (r.next()) {
+                String schema = r.getString("TABLE_SCHEM");
+                if (schema == null) schema = r.getString("TABLE_CAT");
+                if (schema != null && SYSTEM_SCHEMAS.contains(schema.toLowerCase())) continue;
+                if (cols.size() >= OUTLINE_MAX) {
+                    truncated = true;
+                    break;
+                }
+                Map<String, Object> n = new LinkedHashMap<>();
+                n.put("schema", schema);
+                n.put("table", r.getString("TABLE_NAME"));
+                n.put("name", r.getString("COLUMN_NAME"));
+                n.put("type", r.getString("TYPE_NAME"));
+                cols.add(n);
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("defaultSchema", sch != null ? sch : cat);
+        out.put("cols", cols);
+        out.put("truncated", truncated);
+        return out;
     }
 }

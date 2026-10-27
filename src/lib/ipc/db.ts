@@ -1,6 +1,6 @@
 /** 数据库客户端（docs/DATABASE.md）的命令包装：只有数据库工具窗用，它是懒的（同 ipc/agent.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { DbConn, DbEdit, DbExport, DbHist, DbInfo, DbNode, DbResult } from "./commands";
+import type { DbConn, DbEdit, DbExport, DbHist, DbInfo, DbNode, DbOutline, DbResult } from "./commands";
 
 export const dbList = (root: string) => invoke<DbConn[]>("db_list", { root });
 /** `password`：非空存进钥匙串、空串删掉、null 不动 */
@@ -29,3 +29,5 @@ export const dbScalar = (root: string, id: string, sql: string, seconds: number)
 export const pickExportPath = (dir: string | null, name: string) => invoke<string | null>("pick_save_path", { dir, name, title: "导出查询结果" });
 /** 提交改过的格子：一个事务、每条正好改 1 行，不是就整笔回滚。回改了几行 */
 export const dbApply = (root: string, id: string, edit: DbEdit) => invoke<number>("db_apply", { root, id, edit });
+/** 控制台补全用的表和列 */
+export const dbOutline = (root: string, id: string) => invoke<DbOutline>("db_outline", { root, id });

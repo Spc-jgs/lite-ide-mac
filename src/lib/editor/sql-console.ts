@@ -4,16 +4,21 @@
  * - ⌘↵ 执行光标所在的那条（按 `;` 和空行切，`db/sql-split.ts`），选中了就执行选中的那几条；执行的那段闪一下底色，看得出跑的是哪段
  * - 顶上一条：连的是哪个库、「执行」「历史」「结果」
  * - 历史（`db/HistoryPopup.svelte`）选一条，插到光标处
+ * - 表名、列名补全（DB-3）：打开时在后台取一次当前库的表和列（`db_outline`，`db/outline.ts` 拼成命名空间），补全用 lang-sql 的 `schemaCompletionSource`
+ *   （`schema.表`、`表.列`、别名都认）。执行成功一条 DDL（建表、改表）就重取，刚建的表马上补得出来
  *
  * 认文件靠路径（`project.dbConsole`：应用数据目录里的），不靠扩展名：项目里的 `.sql` 文件不是控制台、不知道该连哪个库。
  * 存盘同草稿，自己存（`project.autosaves`）
  */
-import { Decoration, EditorView, showPanel, type DecorationSet, type Panel } from "@codemirror/view";
-import { Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { Decoration, EditorView, ViewPlugin, showPanel, type DecorationSet, type Panel } from "@codemirror/view";
+import { Compartment, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { StandardSQL, schemaCompletionSource } from "@codemirror/lang-sql";
 import { mount, unmount } from "svelte";
 import { idKeymap } from "./id-keys";
 import { statementAt, statementsIn } from "../db/sql-split";
-import { dbList } from "../ipc/db";
+import { dbList, dbOutline } from "../ipc/db";
+import { namespaceOf } from "../db/outline";
+import { writeKind } from "../db/sql-guard";
 import { layout } from "../state/layout.svelte";
 import { project } from "../state/project.svelte";
 import { notify } from "../state/notify.svelte";
@@ -36,6 +41,40 @@ async function infoOf(root: string, conn: string): Promise<{ name: string; prod:
   return { name: c?.name ?? conn, prod: c?.prod ?? false };
 }
 
+/** 补全用的表和列：每个连接一份，取过的不再取（执行了 DDL 才作废） */
+const outlines = new Map<string, Promise<{ ext: Extension; note: string }>>();
+/** 开着的控制台：DDL 之后要它们重装补全 */
+const live = new Set<{ root: string; conn: string; reload: () => void }>();
+
+function outline(root: string, conn: string) {
+  const k = `${root}\n${conn}`;
+  let p = outlines.get(k);
+  if (!p) {
+    p = dbOutline(root, conn).then(
+      (o) => {
+        const b = namespaceOf(o);
+        const ext = StandardSQL.language.data.of({ autocomplete: schemaCompletionSource({ schema: b.schema, defaultSchema: b.defaultSchema, dialect: StandardSQL }) });
+        // 截断了要说出来、给真数字（AGENTS.md）
+        const note = o.truncated ? `补全：前 ${b.columns.toLocaleString("en-US")} 列（列太多，其余未收录）` : `补全：${b.tables} 张表`;
+        return { ext, note };
+      },
+      (e) => {
+        outlines.delete(k);
+        return { ext: [], note: `无法读取表结构：${String(e).slice(0, 60)}` };
+      },
+    );
+    outlines.set(k, p);
+  }
+  return p;
+}
+
+/** 执行成功的里面有 DDL：这个连接的补全作废、开着的控制台重装 */
+function afterRun(root: string, conn: string, sqls: string[]) {
+  if (!sqls.some((s) => writeKind(s) === "ddl")) return;
+  outlines.delete(`${root}\n${conn}`);
+  for (const l of live) if (l.root === root && l.conn === conn) l.reload();
+}
+
 async function run(root: string, conn: string, view: EditorView) {
   const sel = view.state.selection.main;
   const text = view.state.doc.toString();
@@ -47,7 +86,11 @@ async function run(root: string, conn: string, view: EditorView) {
   view.dispatch({ effects: setFlash.of({ from: stmts[0].from, to: stmts[stmts.length - 1].to }) });
   setTimeout(() => view.dispatch({ effects: setFlash.of(null) }), 700);
   const [{ name, prod }, { results }] = await Promise.all([infoOf(root, conn), import("../db/results.svelte")]);
+  const t0 = Date.now();
   await results.run(root, conn, name, stmts.map((s) => s.sql), prod);
+  // 只看这一次跑成的（列表里还留着以前的结果）
+  const done = results.list.filter((r) => r.conn === conn && r.root === root && r.status === "done" && r.started >= t0).map((r) => r.sql);
+  afterRun(root, conn, done);
 }
 
 function history(root: string, conn: string, view: EditorView) {
@@ -105,6 +148,13 @@ function bar(root: string, conn: string) {
     const keys = document.createElement("span");
     keys.className = "keys";
     keys.textContent = "⌘↵ 执行光标所在的语句";
+    // 补全读到了几张表（或者没读到、为什么），说在键位提示前面
+    const info = document.createElement("span");
+    info.className = "info";
+    const showInfo = () => void outline(root, conn).then((o) => (info.textContent = o.note));
+    showInfo();
+    const off = { root, conn, reload: showInfo };
+    live.add(off);
     dom.append(
       who,
       btn("执行", "执行光标所在的语句，选中时执行所选语句（⌘↵）", () => void run(root, conn, view)),
@@ -113,16 +163,37 @@ function bar(root: string, conn: string) {
         layout.panelView = "db";
         layout.panel = true;
       }),
+      info,
       keys,
     );
-    return { dom, top: true };
+    return { dom, top: true, destroy: () => live.delete(off) };
   };
 }
 
 export function sqlConsole(root: string | null, path: string): Extension {
   const conn = project.dbConsole(path);
   if (!root || !conn) return [];
+  const complete = new Compartment();
+  // 补全来源在后台取：取到了再装（控制台先能用、补全晚一拍到）；DDL 之后作废了就重取重装
+  const loader = ViewPlugin.define((view) => {
+    let dead = false;
+    const load = () =>
+      void outline(root, conn).then((o) => {
+        if (!dead) view.dispatch({ effects: complete.reconfigure(o.ext) });
+      });
+    const me = { root, conn, reload: load };
+    live.add(me);
+    load();
+    return {
+      destroy() {
+        dead = true;
+        live.delete(me);
+      },
+    };
+  });
   return [
+    complete.of([]),
+    loader,
     flashField,
     showPanel.of(bar(root, conn)),
     Prec.high(
@@ -140,7 +211,8 @@ export function sqlConsole(root: string | null, path: string): Extension {
     EditorView.baseTheme({
       ".cm-sql-bar": { display: "flex", alignItems: "center", gap: "4px", height: "34px", padding: "0 10px", borderBottom: "1px solid var(--border-soft)", fontFamily: "var(--ui-font)", fontSize: "var(--fs-sm)", color: "var(--text-dim)" },
       ".cm-sql-bar .who": { marginRight: "6px", color: "var(--text)", fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-      ".cm-sql-bar .keys": { marginLeft: "auto", color: "var(--text-faint)", fontSize: "var(--fs-xs)", whiteSpace: "nowrap" },
+      ".cm-sql-bar .info": { marginLeft: "auto", color: "var(--text-faint)", fontSize: "var(--fs-xs)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+      ".cm-sql-bar .keys": { marginLeft: "12px", color: "var(--text-faint)", fontSize: "var(--fs-xs)", whiteSpace: "nowrap" },
       ".cm-sql-bar.prod": { background: "color-mix(in srgb, var(--lvl-error) 14%, transparent)" },
       ".cm-sql-bar.prod .who": { color: "var(--lvl-error)" },
       ".cm-sql-running": { background: "color-mix(in srgb, var(--accent) 22%, transparent)" },

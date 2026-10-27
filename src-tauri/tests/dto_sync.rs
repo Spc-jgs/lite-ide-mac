@@ -83,6 +83,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("DbCellDto", "DbCell"),
     ("DbRowEditDto", "DbRowEdit"),
     ("DbEditDto", "DbEdit"),
+    ("DbOutColDto", "DbOutCol"),
+    ("DbOutlineDto", "DbOutline"),
     ("SpringInjectDto", "SpringInject"),
     ("ReplaceHitDto", "ReplaceHit"),
     ("ReplaceFileDto", "ReplaceFile"),

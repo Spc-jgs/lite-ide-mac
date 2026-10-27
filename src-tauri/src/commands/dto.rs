@@ -364,6 +364,27 @@ pub struct DbResultDto {
     pub table: Option<DbTableDto>,
 }
 
+/// 补全用的一列（`db_outline`）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbOutColDto {
+    pub schema: Option<String>,
+    pub table: String,
+    pub name: String,
+    pub ty: String,
+}
+
+/// 控制台里补全表名、列名用的：当前库每张表的每一列（`db_outline`）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbOutlineDto {
+    /// 不写库名时默认在哪个 schema（MySQL 是库名）
+    pub default_schema: Option<String>,
+    pub cols: Vec<DbOutColDto>,
+    /// 列太多（超过 5 万）只收了前面那些
+    pub truncated: bool,
+}
+
 /// 结果背后的那张表（DB-3 改单元格）
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

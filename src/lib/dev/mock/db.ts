@@ -150,6 +150,13 @@ export function dbCmd(cmd: string, a: A): unknown {
         });
       });
     }
+    case "db_outline":
+      // 同真实现的形状：当前库每张表的每一列（MySQL：库名当 schema）
+      return sleep(150).then(() => ({
+        defaultSchema: "shop",
+        truncated: false,
+        cols: Object.entries(TABLES).flatMap(([t, cols]) => cols.map((c) => ({ schema: "shop", table: t, name: c.name, ty: c.ty ?? "" }))),
+      }));
     case "db_apply": {
       // 主键值是 999 的那一行「已经被别人删了」：演示整笔回滚那条路
       const e = a.edit as { rows: { key: { value: string | null }[] }[] };

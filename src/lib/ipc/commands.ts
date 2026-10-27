@@ -947,6 +947,23 @@ export interface DbResult {
   table: DbTable | null;
 }
 
+/** 补全用的一列 */
+export interface DbOutCol {
+  schema: string | null;
+  table: string;
+  name: string;
+  ty: string;
+}
+
+/** 控制台补全表名、列名用的：当前库每张表的每一列 */
+export interface DbOutline {
+  /** 不写库名时默认在哪个 schema（MySQL 是库名） */
+  defaultSchema: string | null;
+  cols: DbOutCol[];
+  /** 列太多（超过 5 万）只收了前面那些 */
+  truncated: boolean;
+}
+
 /** 结果背后的那张表 */
 export interface DbTable {
   catalog: string | null;

@@ -256,6 +256,11 @@ impl Sidecar {
         self.call("apply", edit, Some(META_WAIT))
     }
 
+    /// 补全用的表和列：当前库每张表的每一列（系统库不收、最多 5 万列）。回 `{defaultSchema, cols: [{schema, table, name, type}], truncated}`
+    pub fn outline(&self, conn: &str) -> Result<Value, String> {
+        self.call("outline", json!({ "conn": conn }), Some(META_WAIT))
+    }
+
     /// 结果标签关了：开着的游标关掉（PostgreSQL 为分批取开着的事务跟着提交）
     pub fn close_cursor(&self, conn: &str) {
         let _ = self.call("closeCursor", json!({ "conn": conn }), Some(Duration::from_secs(5)));

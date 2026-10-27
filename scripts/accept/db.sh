@@ -249,6 +249,27 @@ hrun '"select id, amount * 2 as twice from shop.orders"' >/dev/null
 cell 1 1 '"1"' >/dev/null
 ok "$(lite_eval main "return __lite.notify.log.findLast(() => true)?.text ?? ''" | grep -q '计算列，无法直接修改' && [ -z "$(lite_eval main "return document.querySelector('.dbres .ed') ? 'x' : ''")" ] && echo 1)" "有计算列的结果：双击不进编辑、说清为什么：$(lite_eval main "return __lite.notify.log.findLast(() => true)?.text ?? ''")"
 
+echo "== 表名、列名补全（DB-3）：打开控制台时取一次表和列；schema 前缀、别名都认；建了表马上补得出来"
+INFO=$(lite_eval main "return document.querySelector('.cm-sql-bar .info')?.textContent ?? ''")
+ok "$(echo "${INFO}" | grep -q '补全：[0-9]* 张表' && echo 1)" "控制台顶上说补全读到了几张表：${INFO}"
+# 打一段字、等补全框出来、读候选（`__lite.type` 是一次真的输入事件，补全照常被它叫起来）
+COMP='__lite.setText(PRE_); const n = PRE_.length; __lite.caret(1, n + 1); __lite.type(TYPED_);
+for (let i = 0; i < 40 && __lite.completions().status !== "active"; i++) await new Promise((r) => setTimeout(r, 50));
+return __lite.completions().labels.slice(0, 5).join(",")'
+comp() { lite_eval main "$(echo "${COMP}" | sed -e "s|PRE_|\"$1\"|g" -e "s|TYPED_|\"$2\"|")"; }
+C1=$(comp "select * from SHOP." "ORD")
+ok "$(echo "${C1}" | cut -d, -f1 | grep -qx ORDERS && echo 1)" "schema 前缀之后补表名：SHOP.ORD → ${C1}"
+C2=$(comp "select * from " "BI")
+ok "$(echo "${C2}" | cut -d, -f1 | grep -qx BIG && echo 1)" "不写前缀补默认 schema 里的表：BI → ${C2}"
+C3=$(comp "select * from SHOP.ORDERS o where o." "AM")
+ok "$(echo "${C3}" | cut -d, -f1 | grep -qx AMOUNT && echo 1)" "别名之后补列名：o.AM → ${C3}"
+lite_eval main "__lite.setText(\"create table FRESH_TBL(id int)\"); return true" >/dev/null
+run_line 1
+lite_wait main "${Q} return !!a && a.sql.startsWith('create table FRESH') && a.status !== 'running'" 15 >/dev/null
+sleep 0.5
+C4=$(comp "select * from " "FRE")
+ok "$(echo "${C4}" | cut -d, -f1 | grep -qx FRESH_TBL && echo 1)" "控制台里建了表：不用重开、马上补得出来：FRE → ${C4}"
+
 echo "== 没有副作用、退出不留"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（连接配置在应用数据目录里）"
 lite_quit
