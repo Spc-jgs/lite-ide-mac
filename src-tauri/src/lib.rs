@@ -362,6 +362,8 @@ pub fn run() {
             commands::http_envs,
             commands::http_send,
             commands::http_cancel,
+            commands::http_cookies,
+            commands::http_cookies_clear,
             commands::history_list,
             commands::history_read,
             commands::java_open,

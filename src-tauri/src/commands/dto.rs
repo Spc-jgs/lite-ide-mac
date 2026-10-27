@@ -1750,6 +1750,18 @@ pub struct HttpResponseDto {
     pub final_url: String,
 }
 
+/// Cookie 罐里的一条（#75）。不带值：值是登录态，界面上只要知道「记着哪些」
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpCookieDto {
+    pub domain: String,
+    pub path: String,
+    pub name: String,
+    /// Unix 秒；0 = 会话 Cookie（清除前一直在）
+    pub expires: u64,
+    pub http_only: bool,
+}
+
 impl From<httpsvc::Response> for HttpResponseDto {
     fn from(r: httpsvc::Response) -> Self {
         HttpResponseDto {

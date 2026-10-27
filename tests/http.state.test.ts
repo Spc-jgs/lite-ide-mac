@@ -68,7 +68,7 @@ ok(tab("查订单")!.id !== firstId && tab("查订单")!.status === "done", `留
 
 // ── 连不上 / 500：红点，原因或状态码 ──
 await m.sendAt(ROOT, FILE, text, 21);
-ok(tab("连不上")?.status === "failed" && tab("连不上")!.http!.error.startsWith("连不上"), `连不上：${tab("连不上")?.http?.error}`);
+ok(tab("连不上")?.status === "failed" && tab("连不上")!.http!.error.startsWith("无法连接"), `连不上：${tab("连不上")?.http?.error}`);
 await m.sendAt(ROOT, FILE, text, 24);
 ok(tab("500")?.status === "failed" && tab("500")?.code === 500, "500 是红点");
 
@@ -96,6 +96,35 @@ const id = tab("下单")!.id;
 ops.closeRun(id);
 await p2;
 ok(!runs.list.some((r) => r.id === id), "关掉了");
+
+// ── 登录（#75 #76）：脚本存下的 token 进下一个请求的 {{token}}（盖过环境里的），Cookie 带上；@no-cookie-jar 的不带；换环境是另一个罐子 ──
+const AUTH = `### 登录
+POST http://{{host}}/login
+
+> {% client.global.set("token", response.body.token); %}
+
+### 我
+GET http://{{host}}/me
+Authorization: Bearer {{token}}
+
+### 匿名
+# @no-cookie-jar
+GET http://{{host}}/anon
+`;
+await m.sendAt(ROOT, "/proj/api/auth.http", AUTH, 2);
+const tok = m.globalsOf(ROOT).token;
+ok(/^tok-\d+$/.test(tok ?? "") && tab("登录")?.http?.script?.set[0]?.[0] === "token", `登录：token 存下了（${tok}）、那一格记着设了什么`);
+await m.sendAt(ROOT, "/proj/api/auth.http", AUTH, 7);
+const me = JSON.parse(FILES[tab("我")!.log]).echo;
+ok(me.headers.some(([k, v]: [string, string]) => k === "Authorization" && v === `Bearer ${tok}`), `{{token}} 用的是登录拿到的：${JSON.stringify(me.headers)}`);
+ok(/^SESSION=s-\d+$/.test(me.cookie ?? ""), `Cookie 带上了：${me.cookie}`);
+await m.sendAt(ROOT, "/proj/api/auth.http", AUTH, 12);
+ok(JSON.parse(FILES[tab("匿名")!.log]).echo.cookie === null, "@no-cookie-jar 的不带");
+m.setEnv(ROOT, "test");
+await m.sendAt(ROOT, "/proj/api/auth.http", AUTH, 7);
+const other = tab("我")!;
+ok(other.http?.env === "test" && other.status === "done" && JSON.parse(FILES[other.log]).echo.cookie === null, `换个环境是另一个罐子：dev 登录拿到的 Cookie 不带到 test（${other.http?.env} ${other.status}）`);
+m.setEnv(ROOT, "dev");
 
 console.log(`${fail === 0 ? "✅" : "❌"} HTTP 请求（状态层）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

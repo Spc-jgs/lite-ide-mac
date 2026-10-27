@@ -14,13 +14,37 @@
   import Icon from "../shell/Icon.svelte";
   import type { RunTab } from "../state/runs.svelte";
   import { openRunLog } from "../state/runs-ops";
+  import { notify } from "../state/notify.svelte";
+  import type { HttpCookie } from "../ipc/commands";
 
   let { run, body }: { run: RunTab; body: Snippet } = $props();
 
-  let page = $state<"body" | "headers">("body");
+  let page = $state<"body" | "headers" | "cookies">("body");
   let h = $derived(run.http!);
   let resp = $derived(h.resp);
   let sending = $derived(run.status === "running");
+  let sc = $derived(h.script ?? null);
+
+  /** Cookie 罐（#75）：这个项目、这次用的环境记着的。响应回来时问一次（登录之后多出来的看得见），清掉之后再问 */
+  let jar = $state<HttpCookie[] | null>(null);
+  async function loadJar() {
+    const { httpCookies } = await import("../ipc/http");
+    jar = await httpCookies(run.root, h.env).catch(() => null);
+  }
+  $effect(() => {
+    if (resp) void loadJar();
+  });
+  async function clearJar() {
+    const { httpCookiesClear } = await import("../ipc/http");
+    try {
+      await httpCookiesClear(run.root, h.env);
+      notify.ok(h.env ? `已清除环境「${h.env}」的 Cookie` : "已清除 Cookie");
+    } catch (e) {
+      notify.fail(`无法清除 Cookie：${e instanceof Error ? e.message : String(e)}`);
+    }
+    await loadJar();
+  }
+  const until = (s: number) => (s === 0 ? "会话结束" : new Date(s * 1000).toLocaleString());
 
   const size = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`);
   /** 状态码的颜色：2xx 绿、3xx 中性、4xx 琥珀、5xx 红（IDEA 也是按段上色） */
@@ -36,7 +60,7 @@
   <div class="bar">
     <span class="req" title={`${h.method} ${h.url}`}><b>{h.method}</b> {h.url}</span>
     {#if sending}
-      <span class="note wait"><span class="spinner sm"></span> 正在发…</span>
+      <span class="note wait"><span class="spinner sm"></span> 正在发送…</span>
       <button class="btn sm" onclick={() => void cancel()}>取消</button>
     {:else if resp}
       <span class="status {tone(resp.status)}">{resp.status}{resp.reason ? ` ${resp.reason}` : ""}</span>
@@ -49,28 +73,36 @@
       <div class="segs" role="tablist">
         <button class="btn sm" role="tab" aria-selected={page === "body"} class:on={page === "body"} onclick={() => (page = "body")}>响应体</button>
         <button class="btn sm" role="tab" aria-selected={page === "headers"} class:on={page === "headers"} onclick={() => (page = "headers")}>响应头 {resp.headers.length}</button>
+        <button class="btn sm" role="tab" aria-selected={page === "cookies"} class:on={page === "cookies"} onclick={() => ((page = "cookies"), void loadJar())}>Cookie {jar?.length ?? ""}</button>
       </div>
       <button class="ibtn" onclick={() => void openRunLog(run.id)} title="在编辑区打开响应体（语法着色、折叠、和别的文件并排）" aria-label="在编辑区打开"><Icon name="expand" /></button>
     {/if}
   </div>
-  {#if resp && (resp.truncated || h.req.handler)}
+  {#if resp && sc?.set.length}
+    <div class="notes ok">已设置变量：{sc.set.map(([k]) => k).join("、")}（后续请求可通过 <code>&#123;&#123;{sc.set[0][0]}&#125;&#125;</code> 引用，重启应用后清除）</div>
+  {/if}
+  {#if resp && (resp.truncated || h.req.scriptFile || sc?.skipped.length || sc?.errors.length)}
     <div class="notes">
       {#if resp.truncated}<div>响应体过大：已接收超过 {size(resp.bytes)}，仅保存前 32 MB</div>{/if}
-      {#if h.req.handler}<div>此请求包含响应处理脚本（<code>&gt; &#123;% … %&#125;</code>），当前版本不执行：这需要在应用中执行文件自带的代码</div>{/if}
+      {#each sc?.errors ?? [] as e, i (i)}<div>{e}</div>{/each}
+      {#if sc?.skipped.length}
+        <div>以下语句未执行（响应处理脚本仅支持 <code>client.global.set(名称, 取值)</code>，不执行文件自带的代码）：<code>{sc.skipped.join("；")}</code></div>
+      {/if}
+      {#if h.req.scriptFile}<div>不支持响应处理脚本文件（<code>&gt; {h.req.scriptFile}</code>），未执行：请改为写在请求下方的 <code>client.global.set</code> 语句</div>{/if}
     </div>
   {/if}
   <div class="pages">
     {#if h.error}
       <div class="empty-msg" class:bad={h.error !== "已取消"}>
-        {h.error === "已取消" ? "取消了，没等到响应" : h.error}
+        {h.error === "已取消" ? "已取消，未收到响应" : h.error}
         {#if h.error !== "已取消"}<div class="sub">点击右上角的「重新发送」，将按文件当前内容再次发送请求</div>{/if}
       </div>
     {:else if sending}
-      <div class="empty-msg wait"><span class="spinner sm"></span> 等服务器回话…（停在断点上的服务会一直等，点「取消」不等了）</div>
+      <div class="empty-msg wait"><span class="spinner sm"></span> 正在等待响应…（服务停在断点上时会一直等待，可点击「取消」）</div>
     {:else if resp}
       <div class="page" class:hidden={page !== "body"}>
         {#if resp.bytes === 0}
-          <div class="empty-msg">没有响应体</div>
+          <div class="empty-msg">无响应体</div>
         {:else}
           {@render body()}
         {/if}
@@ -80,7 +112,20 @@
         {#each resp.headers as x, i (i)}
           <div class="hrow"><span class="hn">{x.name}</span><span class="hv">{x.value}</span></div>
         {/each}
-        {#if resp.finalUrl !== h.url}<div class="hrow"><span class="hn">最后落在</span><span class="hv">{resp.finalUrl}</span></div>{/if}
+        {#if resp.finalUrl !== h.url}<div class="hrow"><span class="hn">最终地址</span><span class="hv">{resp.finalUrl}</span></div>{/if}
+      </div>
+      <div class="page heads" class:hidden={page !== "cookies"}>
+        {#if !jar?.length}
+          <div class="empty-msg">
+            {h.req.cookies ? "暂无 Cookie" : "此请求标记了 # @no-cookie-jar，不发送也不保存 Cookie"}
+            <div class="sub">同一项目、同一环境的请求共用 Cookie：登录接口返回的 Set-Cookie 会自动带到后续请求</div>
+          </div>
+        {:else}
+          <div class="hrow first"><span class="hn">{h.env ? `环境「${h.env}」` : "未选择环境"} · {jar.length} 个</span><span class="hv"><button class="btn sm quiet" onclick={() => void clearJar()}>清除 Cookie</button></span></div>
+          {#each jar as c, i (i)}
+            <div class="hrow"><span class="hn">{c.name}</span><span class="hv">{c.domain}{c.path} · 过期：{until(c.expires)}{c.httpOnly ? " · HttpOnly" : ""}</span></div>
+          {/each}
+        {/if}
       </div>
     {/if}
   </div>
@@ -101,6 +146,7 @@
   .note { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--text-faint); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
   .notes { flex: none; padding: 4px 10px; color: var(--lvl-warn); font-size: var(--fs-sm); border-bottom: 1px solid var(--border-soft); }
   .notes code { font-family: var(--code-font); }
+  .notes.ok { color: var(--text-dim); }
   .pages { flex: 1; min-height: 0; position: relative; }
   .page { position: absolute; inset: 0; }
   .page.hidden { visibility: hidden; pointer-events: none; }

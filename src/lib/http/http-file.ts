@@ -16,8 +16,10 @@
  * { "sku": "{{sku}}", "id": "{{$uuid}}" }
  * ```
  *
- * 请求体可以是 `< ./body.json`（从文件读）。响应处理脚本（`> {% … %}`、`> handler.js`）**这一版不跑**：
- * 那是在我们进程里执行文件里带来的 JavaScript —— 认出来、从请求体里摘掉、在运行窗里说一句。
+ * 请求体可以是 `< ./body.json`（从文件读）。`# @no-cookie-jar`：这个请求不带、也不记 Cookie（#75）。
+ *
+ * 响应处理脚本（`> {% … %}`）**不当 JavaScript 跑**：那是在我们进程里执行文件里带来的代码（#76）。摘出来交给 `http-script.ts`，
+ * 它只认「登录拿 token」那一种写法（`client.global.set("token", response.body.token)`），别的语句不执行、说清楚。`> handler.js` 那种外面的文件不认。
  */
 
 export interface HttpReq {
@@ -31,8 +33,14 @@ export interface HttpReq {
   /** `< ./file`：相对 `.http` 所在目录的路径（原样，发的时候再解析） */
   bodyFile: string | null;
   follow: boolean;
-  /** 写了响应处理脚本（没跑） */
+  /** `# @no-cookie-jar` 的是 false */
+  cookies: boolean;
+  /** 写了响应处理脚本（`> {% %}` 或 `> 文件`） */
   handler: boolean;
+  /** `> {% … %}` 里的文本（几段的话接起来）；没有是 null */
+  script: string | null;
+  /** `> handler.js`：外面的脚本文件（不认，要说一句） */
+  scriptFile: string | null;
 }
 
 export interface HttpFile {
@@ -56,6 +64,7 @@ export function parseHttp(text: string): HttpFile {
     while (end < lines.length && !lines[end].startsWith("###")) end++;
     let name: string | null = null;
     let follow = true;
+    let cookies = true;
     let j = i;
     if (lines[j].startsWith("###")) {
       name = lines[j].replace(/^#+/, "").trim() || null;
@@ -70,6 +79,7 @@ export function parseHttp(text: string): HttpFile {
         const tag = /^\s*(?:#|\/\/)\s*@([\w-]+)\s*(.*)$/.exec(l);
         if (tag?.[1] === "name" && tag[2].trim()) name = tag[2].trim();
         if (tag?.[1] === "no-redirect") follow = false;
+        if (tag?.[1] === "no-cookie-jar") cookies = false;
         continue;
       }
       const fv = FILE_VAR.exec(l);
@@ -80,35 +90,47 @@ export function parseHttp(text: string): HttpFile {
       const m = METHODS.exec(l.trim());
       const bare = /^(https?:\/\/|\{\{)\S*$/.test(l.trim());
       if (!m && !bare) break; // 认不出的行：这一块不是请求（散文、半截的），不猜
-      req = { line: j + 1, name, method: m ? m[1] : "GET", url: m ? m[2] : l.trim(), headers: [], body: null, bodyFile: null, follow, handler: false };
+      req = { line: j + 1, name, method: m ? m[1] : "GET", url: m ? m[2] : l.trim(), headers: [], body: null, bodyFile: null, follow, cookies, handler: false, script: null, scriptFile: null };
       j++;
       break;
     }
     if (req) {
       // URL 接续行：缩进的、以 ? 或 & 开头
       while (j < end && /^\s+[?&]/.test(lines[j])) req.url += lines[j++].trim();
-      // 头：到空行为止（中间的注释跳过）
+      // 头：到空行为止（中间的注释跳过）。`>` 开头的是响应处理脚本：GET 这种没有体的，IDEA 许它紧跟在请求行 / 头下面、不空一行
+      let toScript = false;
       for (; j < end && lines[j].trim(); j++) {
+        if (/^>\s*\S/.test(lines[j])) {
+          toScript = true;
+          break;
+        }
         if (COMMENT.test(lines[j])) continue;
         const h = /^([^:\s]+)\s*:\s*(.*?)\s*$/.exec(lines[j]);
         if (h) req.headers.push([h[1], h[2]]);
       }
       // 体：空行之后到块尾。`< 文件`、响应处理脚本、`<>` 上次的响应 都摘出来
       const body: string[] = [];
+      const script: string[] = [];
       let inScript = false;
-      for (j++; j < end; j++) {
+      for (j = toScript ? j : j + 1; j < end; j++) {
         const l = lines[j];
         if (inScript) {
-          if (l.includes("%}")) inScript = false;
+          const k = l.indexOf("%}");
+          script.push(k < 0 ? l : l.slice(0, k));
+          if (k >= 0) inScript = false;
           continue;
         }
         if (/^>\s*\{%/.test(l)) {
           req.handler = true;
-          inScript = !l.includes("%}");
+          const rest = l.replace(/^>\s*\{%/, "");
+          const k = rest.indexOf("%}");
+          script.push(k < 0 ? rest : rest.slice(0, k));
+          inScript = k < 0;
           continue;
         }
         if (/^>\s*\S/.test(l)) {
           req.handler = true;
+          req.scriptFile = l.replace(/^>\s*/, "").trim();
           continue;
         }
         if (/^<>\s/.test(l)) continue;
@@ -122,6 +144,7 @@ export function parseHttp(text: string): HttpFile {
       while (body.length && !body[body.length - 1].trim()) body.pop();
       while (body.length && !body[0].trim()) body.shift();
       if (body.length && !req.bodyFile) req.body = body.join("\n");
+      if (script.some((x) => x.trim())) req.script = script.join("\n").trim();
       requests.push(req);
     }
     i = end;
@@ -187,14 +210,16 @@ export interface Resolved {
 }
 
 /**
- * 把 `{{名字}}` 换掉：先动态变量，再文件里的 `@变量`（它的值里也能引用环境里的，展开一层），再选中的环境。
+ * 把 `{{名字}}` 换掉：先动态变量，再文件里的 `@变量`（它的值里也能引用环境里的，展开一层），再响应脚本存下的（`client.global.set`，`globals`），最后选中的环境。
+ * 脚本存的排在环境前面：环境文件里写着一个过期的 `token`，登录之后拿到的新的要能盖过它
  * 有没定义的就**不发**，把名字全列出来 —— 发一个带着 `{{host}}` 的请求出去，回来的错只会让人更糊涂
  */
-export function resolve(req: HttpReq, fileVars: Record<string, string>, env: unknown): { ok: true; req: Resolved } | { ok: false; missing: string[] } {
+export function resolve(req: HttpReq, fileVars: Record<string, string>, env: unknown, globals: Record<string, string> = {}): { ok: true; req: Resolved } | { ok: false; missing: string[] } {
   const missing = new Set<string>();
   const one = (name: string, depth: number): string | undefined => {
     if (name.startsWith("$")) return dynamic(name);
     if (name in fileVars) return depth > 0 ? fileVars[name] : sub(fileVars[name], depth + 1);
+    if (Object.hasOwn(globals, name)) return globals[name];
     return lookup(env, name);
   };
   const sub = (s: string, depth = 0): string =>

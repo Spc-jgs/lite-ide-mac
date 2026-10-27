@@ -13,8 +13,16 @@ import { docs } from "../state/docs.svelte";
 import { readText } from "../ipc/commands";
 import { httpCancel, httpEnvs, httpSend } from "../ipc/http";
 import { parseHttp, requestAt, resolve, tabName, type HttpFile, type HttpReq } from "./http-file";
+import { runScript } from "./http-script";
 
 const KEY = "lite-ide.http-env";
+
+/**
+ * 响应脚本存下的变量（`client.global.set`，#76），按项目一份。**只在内存里**：多半是登录拿到的 token，
+ * 不写 localStorage（那是盘上的明文）；重启之后重新登录一次。IDEA 也是按项目、不跟环境走
+ */
+const GLOBALS = new Map<string, Record<string, string>>();
+export const globalsOf = (root: string): Record<string, string> => GLOBALS.get(root) ?? {};
 const subs = new Set<() => void>();
 
 function table(): Record<string, string> {
@@ -91,7 +99,7 @@ async function send(root: string, path: string, f: HttpFile, req: HttpReq) {
   }
   let env = envOf(root);
   if (env && !(env in envs)) env = null;
-  const r = resolve(req, f.vars, env ? envs[env] : null);
+  const r = resolve(req, f.vars, env ? envs[env] : null, globalsOf(root));
   if (!r.ok) {
     const why = env ? `（环境「${env}」里没有）` : names.length ? "（尚未选择环境，请在编辑器顶部选择）" : "（没有 http-client.env.json，也没在文件里用 @名字 = 值 定义）";
     notify.fail(`未定义的变量：${r.missing.map((m) => `{{${m}}}`).join("、")}${why}，请求未发送`, 8000);
@@ -133,9 +141,15 @@ async function send(root: string, path: string, f: HttpFile, req: HttpReq) {
       body: r.req.body,
       bodyFile: req.bodyFile ? absPath(path, req.bodyFile) : null,
       follow: req.follow,
+      env,
+      cookies: req.cookies,
     });
+    // 响应脚本：IDEA 不管状态码都跑（登录失败时 token 取不到，会记成「未设置」说出来）
+    const script = req.script ? runScript(req.script, { headers: resp.headers, body: await readText(resp.body).then((t) => t.content).catch(() => "") }) : null;
+    if (script?.set.length) GLOBALS.set(root, { ...globalsOf(root), ...Object.fromEntries(script.set) });
     const now = tab(id);
     if (!now?.http) return;
+    now.http.script = script;
     now.http.resp = resp;
     now.log = resp.body;
     now.code = resp.status;

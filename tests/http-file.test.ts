@@ -94,6 +94,35 @@ ok(n >= 5 && n < 7, `$random.integer(5, 7)：${n}`);
 ok(/^[0-9a-f]{6}$/.test(dynamic("$random.hexadecimal(6)") ?? ""), "$random.hexadecimal(6)");
 eq(dynamic("$random.integer(a, 2)"), undefined, "参数不对的不算");
 
+// Cookie 罐的开关、响应脚本摘出来交给 http-script（#75 #76）
+const sc = parseHttp(`### 登录
+# @no-cookie-jar
+POST http://a/login
+Content-Type: application/json
+
+{"u": "admin"}
+
+> {%
+  client.global.set("token", response.body.token);
+%}
+
+### 一行的
+GET http://a/me
+> {% client.global.set("me", response.body.id); %}
+
+### 外面的脚本文件
+GET http://a/x
+> ./handler.js
+`).requests;
+eq(sc.map((r) => r.cookies), [false, true, true], "# @no-cookie-jar 只管它那一个");
+eq(sc.map((r) => r.script), ['client.global.set("token", response.body.token);', 'client.global.set("me", response.body.id);', null], "脚本的文本摘出来（多行的、一行的）");
+eq(sc[0].body, '{"u": "admin"}', "脚本不进请求体");
+eq([sc[2].handler, sc[2].scriptFile, sc[2].script], [true, "./handler.js", null], "> 文件：认出来、不认它的内容");
+// 脚本存下的变量排在环境前面：环境里那个过期的 token 要被登录拿到的盖过；文件里的 @变量 还是最先
+const pri = parseHttp("@who = file\nGET http://a/{{token}}/{{who}}/{{sku}}\n");
+const rp = resolve(pri.requests[0], pri.vars, { token: "old", who: "env", sku: "S" }, { token: "new", who: "global" });
+eq(rp.ok ? rp.req.url : rp, "http://a/new/file/S", "优先级：文件变量 > 脚本存的 > 环境");
+
 eq([tabName(get), tabName({ ...get, name: null }), tabName({ ...bare, name: null })], ["查订单", "GET /orders?status=PAID&page=1", "GET /health"], "运行窗那一格的名字");
 
 console.log(`${fail === 0 ? "✅" : "❌"} .http 文件：${pass} 通过，${fail} 失败`);

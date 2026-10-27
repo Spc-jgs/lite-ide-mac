@@ -8,6 +8,7 @@
  */
 import type { BuildProblems, DebugState, HttpResponse, PortHolder, StuckProc, TaskStale, TestResults } from "../ipc/commands";
 import type { HttpReq } from "../http/http-file";
+import type { ScriptResult } from "../http/http-script";
 
 export type RunStatus = "running" | "stopping" | "stopped" | "done" | "failed";
 
@@ -53,6 +54,8 @@ export interface HttpRun {
   resp: HttpResponse | null;
   /** 没发成（连不上、超时、取消）的原因 */
   error: string;
+  /** 响应处理脚本跑出来的（`http/http-script.ts`）：设了哪些变量、哪几句没执行、哪些取不到。没写脚本是 null */
+  script?: ScriptResult | null;
 }
 
 class Runs {

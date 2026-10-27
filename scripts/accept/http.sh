@@ -29,6 +29,10 @@ class H(BaseHTTPRequestHandler):
             time.sleep(60); return
         if self.path.startswith("/redirect"):
             self.send_response(302); self.send_header("Location", "/echo?from=redirect"); self.send_header("Content-Length", "0"); self.end_headers(); return
+        if self.path.startswith("/login"):
+            out = json.dumps({"code": 0, "data": {"token": "tok-xyz"}}).encode()
+            self.send_response(200); self.send_header("Set-Cookie", "SESSION=s-xyz; Path=/; HttpOnly"); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out); return
         if self.path.startswith("/big"):
             data = b"x" * (3 << 20)
             self.send_response(200); self.send_header("Content-Type", "text/plain"); self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data); return
@@ -91,6 +95,29 @@ printf '\n### 项目外的文件\nPOST {{base}}/leak\n\n< %s/secret.txt\n' "${SR
 printf '{ "sku": "B-2", "qty": 1 }\n' > "${P}/api/body.json"
 printf '{ "$shared": { "client": { "id": 7 } }, "local": { "host": "127.0.0.1:%s", "token": "public-token" } }\n' "${PORT}" > "${P}/http-client.env.json"
 printf '{ "local": { "token": "secret-private" } }\n' > "${P}/http-client.private.env.json"
+# 登录拿 token 和 Cookie（#75 #76）。单独一个文件：orders.http 是按行号发的，往里插会让上面每一条都挪位置
+cat > "${P}/api/auth.http" <<'EOF'
+@base = http://{{host}}
+
+### 登录
+POST {{base}}/login
+Content-Type: application/json
+
+{"user": "admin"}
+
+> {%
+  client.global.set("token", response.body.data.token);
+  client.test("登录成功", function () { client.assert(response.status === 200); });
+%}
+
+### 我的订单
+GET {{base}}/echo/me
+Authorization: Bearer {{token}}
+
+### 不带 Cookie
+# @no-cookie-jar
+GET {{base}}/echo/anon
+EOF
 BEFORE=$(cd "${P}" && find . -type f | sort | md5)
 F="${P}/api/orders.http"
 
@@ -166,7 +193,36 @@ ok "$([ "$(hits)" = "${N0}" ] && [ -z "$(lite_eval main "${R} return r('没定�
 echo "== < 项目外面的文件：不发，说清为什么"
 N0=$(hits)
 send 40; done_ 项目外的文件
-ok "$([ "$(hits)" = "${N0}" ] && lite_eval main "${R} return r('项目外的文件')?.status + ':' + r('项目外的文件')?.http?.error" | grep -q '^failed:请求体的文件在项目外面' && echo 1)" "服务端一个请求都没收到，那一格写着：$(lite_eval main "${R} return (r('项目外的文件')?.http?.error ?? '').slice(0, 40)")"
+ok "$([ "$(hits)" = "${N0}" ] && lite_eval main "${R} return r('项目外的文件')?.status + ':' + r('项目外的文件')?.http?.error" | grep -q '^failed:请求体文件位于项目之外' && echo 1)" "服务端一个请求都没收到，那一格写着：$(lite_eval main "${R} return (r('项目外的文件')?.http?.error ?? '').slice(0, 40)")"
+
+echo "== 登录拿 token 和 Cookie（#75 #76）：脚本只认 client.global.set，别的不执行、说出来；后面的请求自动带 Cookie、{{token}} 用登录拿到的"
+A="${P}/api/auth.http"
+lite_eval main "await __lite.tabflow.openPath('${A}', { preview: false }); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-http-send').length === 3" 15 >/dev/null
+send 4; done_ 登录
+SC=$(lite_eval main "${R} const s = r('登录')?.http?.script; return JSON.stringify(s)")
+ok "$(echo "${SC}" | python3 -c 'import json,sys; s=json.load(sys.stdin); print(1 if s["set"]==[["token","tok-xyz"]] and len(s["skipped"])==1 and s["skipped"][0].startswith("client.test(") and not s["errors"] else 0)' 2>/dev/null)" "脚本：token 取到了，client.test 那句没执行、列出来：${SC}"
+ok "$(lite_eval main "return document.querySelector('.http .notes.ok')?.textContent ?? ''" | grep -q '已设置变量：token' && echo 1)" "结果上方说一句：$(lite_eval main "return (document.querySelector('.http .notes.ok')?.textContent ?? '').slice(0, 40)")"
+send 15; done_ 我的订单
+ME=$(body 我的订单)
+ok "$(python3 -c 'import json,sys; h={k.lower():v for k,v in json.load(open(sys.argv[1]))["headers"].items()}; print(1 if h.get("cookie")=="SESSION=s-xyz" and h.get("authorization")=="Bearer tok-xyz" else 0)' "${ME}" 2>/dev/null)" "下一个请求：Cookie 自动带上、{{token}} 是登录拿到的（盖过环境文件里那个）：$(python3 -c 'import json,sys; h=json.load(open(sys.argv[1]))["headers"]; print({k: v for k, v in h.items() if k.lower() in ("cookie", "authorization")})' "${ME}" 2>/dev/null)"
+send 20; done_ "不带 Cookie"
+ok "$(python3 -c 'import json,sys; h={k.lower() for k in json.load(open(sys.argv[1]))["headers"]}; print(0 if "cookie" in h else 1)' "$(body '不带 Cookie')" 2>/dev/null)" "# @no-cookie-jar 的那个不带"
+JAR=$(ls "${LITE_DATA}/http/cookies/"*.txt 2>/dev/null | head -1)
+ok "$([ -n "${JAR}" ] && [ "$(stat -f %Lp "${JAR}")" = 600 ] && [ "$(stat -f %Lp "$(dirname "${JAR}")")" = 700 ] && echo 1)" "Cookie 罐在应用数据目录、只有自己能读（文件 $(stat -f %Lp "${JAR}" 2>/dev/null)、目录 $(stat -f %Lp "$(dirname "${JAR}")" 2>/dev/null)）"
+lite_eval main "${R} __lite.runs.activeId = r('我的订单').id; return true" >/dev/null
+sleep 0.3
+lite_eval main "[...document.querySelectorAll('.http .segs button')].find((b) => b.textContent.startsWith('Cookie'))?.click(); return true" >/dev/null
+lite_wait main "return [...document.querySelectorAll('.http .heads .hn')].some((x) => x.textContent === 'SESSION')" 5 >/dev/null
+CK=$(lite_eval main "return [...document.querySelectorAll('.http .page:not(.hidden) .hrow')].map((x) => x.textContent).join(' | ')")
+ok "$(echo "${CK}" | grep -q 'SESSION' && ! echo "${CK}" | grep -q 's-xyz' && echo 1)" "Cookie 页列出名字和域名，不显示值：${CK}"
+lite_eval main "[...document.querySelectorAll('.http .page:not(.hidden) button')].find((b) => b.textContent === '清除 Cookie')?.click(); return true" >/dev/null
+sleep 1
+# 同名的旧格子已经是「完成」：等新的那次换上来再判（原地换掉的是 id）
+OLD=$(lite_eval main "${R} return r('我的订单').id")
+send 15
+lite_wait main "${R} return !!r('我的订单') && r('我的订单').id !== ${OLD} && r('我的订单').status !== 'running'" 15 >/dev/null
+ok "$(python3 -c 'import json,sys; h={k.lower() for k in json.load(open(sys.argv[1]))["headers"]}; print(0 if "cookie" in h else 1)' "$(body 我的订单)" 2>/dev/null)" "点「清除 Cookie」之后再发：不带了"
 
 echo "== 没有副作用"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（响应体在应用数据目录里，不像 IDEA 那样写进 .idea/httpRequests）"

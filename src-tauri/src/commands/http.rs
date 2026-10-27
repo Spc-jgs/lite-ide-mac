@@ -39,19 +39,43 @@ pub async fn http_send(
     body: Option<String>,
     body_file: Option<String>,
     follow: bool,
+    env: Option<String>,
+    cookies: bool,
 ) -> Result<HttpResponseDto, String> {
     let owner = window.label().to_string();
     blocking(move || {
         let st = app.state::<AppState>();
-        let dir = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("http");
-        let h = st.begin_http(&owner, op).ok_or("这个请求已经在发了")?;
-        let req = httpsvc::Request { method, url, headers, body: body.map(String::into_bytes), body_file: body_file.map(Into::into), root: root.into(), follow };
+        let dir = http_dir(&app)?;
+        let h = st.begin_http(&owner, op).ok_or("该请求正在发送")?;
+        // Cookie 罐按「项目 + 环境」一个（同 IDEA）；`# @no-cookie-jar` 的请求不带也不记
+        let cookie_jar = cookies.then(|| httpsvc::jar_path(&dir, &root, env.as_deref()));
+        let req = httpsvc::Request { method, url, headers, body: body.map(String::into_bytes), body_file: body_file.map(Into::into), root: root.into(), follow, cookie_jar };
         let r = httpsvc::send(Path::new(CURL), &req, &dir, httpsvc::next_seq(), &h);
         st.end_http(&owner, op);
         httpsvc::prune(&dir, KEEP);
         r.map(Into::into).map_err(|e| e.to_string())
     })
     .await
+}
+
+fn http_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("http"))
+}
+
+/// 这个项目、这个环境记着的 Cookie（只给域名、名字、过期时间，不给值：值是登录态）
+#[tauri::command]
+pub async fn http_cookies(app: tauri::AppHandle, root: String, env: Option<String>) -> Result<Vec<HttpCookieDto>, String> {
+    blocking(move || {
+        let jar = httpsvc::jar_path(&http_dir(&app)?, &root, env.as_deref());
+        Ok(httpsvc::cookies(&jar).into_iter().map(|c| HttpCookieDto { domain: c.domain, path: c.path, name: c.name, expires: c.expires, http_only: c.http_only }).collect())
+    })
+    .await
+}
+
+/// 清掉这个项目、这个环境的 Cookie
+#[tauri::command]
+pub async fn http_cookies_clear(app: tauri::AppHandle, root: String, env: Option<String>) -> Result<(), String> {
+    blocking(move || httpsvc::clear_cookies(&httpsvc::jar_path(&http_dir(&app)?, &root, env.as_deref())).map_err(|e| e.to_string())).await
 }
 
 /// 取消正在发的那个（找不到 = 已经回来了，不算错）

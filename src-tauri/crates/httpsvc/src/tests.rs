@@ -174,7 +174,7 @@ fn 不对的请求不发_只许_http_https_值里不许换行() {
     //（第一版就是这么写的，验红时发现它是一条空断言）；ftp 是 curl 默认允许跟过去的
     let (port, _rx) = serve(|_, _| resp("302 Found", &[("Location", "ftp://127.0.0.1:1/x")], b""));
     let got = send(Path::new(CURL), &req("GET", format!("http://127.0.0.1:{port}/")), &dir, 10, &h);
-    assert!(matches!(&got, Err(Error::Curl(m)) if m.starts_with("协议不支持")), "跟着重定向去了 ftp://：{got:?}");
+    assert!(matches!(&got, Err(Error::Curl(m)) if m.starts_with("协议不受支持")), "跟着重定向去了 ftp://：{got:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -184,7 +184,7 @@ fn 连不上说人话() {
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let dir = tmp("refused");
     let e = send(Path::new(CURL), &req("GET", format!("http://127.0.0.1:{port}/")), &dir, 11, &Handle::default()).unwrap_err();
-    assert!(matches!(&e, Error::Curl(m) if m.starts_with("连不上")), "{e:?}");
+    assert!(matches!(&e, Error::Curl(m) if m.starts_with("无法连接")), "{e:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -263,7 +263,7 @@ fn 请求体的文件只许在项目里_软链出去的也不行() {
     }
     std::os::unix::fs::symlink(base.join("secret.txt"), root.join("api/link.txt")).unwrap();
     assert_eq!(body_file_inside(&root, &root.join("api/body.json")), Ok(()), "项目里的");
-    assert!(matches!(body_file_inside(&root, &root.join("api/../../secret.txt")), Err(Error::Invalid(m)) if m.contains("项目外面")), "../ 出去的");
+    assert!(matches!(body_file_inside(&root, &root.join("api/../../secret.txt")), Err(Error::Invalid(m)) if m.contains("项目之外")), "../ 出去的");
     assert!(matches!(body_file_inside(&root, &base.join("secret.txt")), Err(Error::Invalid(_))), "绝对路径指到外面的");
     assert!(matches!(body_file_inside(&root, &root.join("api/link.txt")), Err(Error::Invalid(_))), "项目里一个软链指到外面：按解开之后的路径算");
     assert_eq!(body_file_inside(&root, &root.join("api/nope.json")), Ok(()), "不存在的交给 curl 报「读不了」");
@@ -273,6 +273,41 @@ fn 请求体的文件只许在项目里_软链出去的也不行() {
     r.root = root.clone();
     r.body_file = Some(root.join("api/link.txt"));
     let out = send(Path::new(CURL), &r, &base.join("out"), next_seq(), &Handle::default());
-    assert!(matches!(out, Err(Error::Invalid(ref m)) if m.contains("项目外面")), "{out:?}");
+    assert!(matches!(out, Err(Error::Invalid(ref m)) if m.contains("项目之外")), "{out:?}");
     let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn cookie_罐_登录拿到的下一个请求带上_不记的不带也不写_文件只有自己能读() {
+    let (port, rx) = serve(|i, _| {
+        if i == 0 {
+            resp("200 OK", &[("Set-Cookie", "SESSION=abc123; Path=/; HttpOnly"), ("Set-Cookie", "theme=dark; Path=/; Max-Age=3600")], b"{}")
+        } else {
+            resp("200 OK", &[], b"{}")
+        }
+    });
+    let dir = tmp("jar");
+    let jar = jar_path(&dir, "/proj", Some("dev"));
+    let url = |p: &str| format!("http://127.0.0.1:{port}{p}");
+    let with = |p: &str, j: Option<PathBuf>| Request { cookie_jar: j, ..req("GET", url(p)) };
+    send(Path::new(CURL), &with("/login", Some(jar.clone())), &dir, next_seq(), &Handle::default()).unwrap();
+    assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().header("cookie").is_none(), "第一次罐子是空的");
+    send(Path::new(CURL), &with("/orders", Some(jar.clone())), &dir, next_seq(), &Handle::default()).unwrap();
+    let got = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let sent = got.header("cookie").unwrap_or_default().to_string();
+    assert!(sent.contains("SESSION=abc123") && sent.contains("theme=dark"), "下一个请求带上了登录拿到的：{sent}");
+    send(Path::new(CURL), &with("/public", None), &dir, next_seq(), &Handle::default()).unwrap();
+    assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().header("cookie").is_none(), "@no-cookie-jar 的不带");
+
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!((mode(&jar), mode(jar.parent().unwrap())), (0o600, 0o700), "里面是登录态：只有自己能读");
+    let mut list = cookies(&jar);
+    list.sort_by(|a, b| a.name.cmp(&b.name));
+    assert_eq!(list.iter().map(|c| (c.name.as_str(), c.http_only, c.expires > 0)).collect::<Vec<_>>(), [("SESSION", true, false), ("theme", false, true)], "{list:?}");
+    assert!(list.iter().all(|c| c.domain.contains("127.0.0.1") && c.path == "/"));
+    assert_ne!(jar, jar_path(&dir, "/proj", Some("prod")), "换个环境是另一个罐子");
+    assert_ne!(jar, jar_path(&dir, "/other", Some("dev")), "换个项目也是");
+    clear_cookies(&jar).unwrap();
+    assert!(cookies(&jar).is_empty() && clear_cookies(&jar).is_ok(), "清掉了；再清一次不算错");
 }

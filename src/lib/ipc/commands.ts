@@ -475,6 +475,16 @@ export interface HttpResponse {
   finalUrl: string;
 }
 
+/** Cookie 罐里的一条（#75）。不带值：值是登录态 */
+export interface HttpCookie {
+  domain: string;
+  path: string;
+  name: string;
+  /** Unix 秒；0 = 会话 Cookie（清除前一直在） */
+  expires: number;
+  httpOnly: boolean;
+}
+
 /** `.http` 文件能用的环境。`json`：环境名 → 变量（合并好的）的 JSON 文本；`problems`：读坏了的环境文件 */
 export interface HttpEnvs {
   names: string[];

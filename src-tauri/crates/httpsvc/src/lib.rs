@@ -14,6 +14,9 @@
 //!
 //! 响应体走 procutil 的上限（[`BODY_MAX`]），超了照实说截断；头和统计写进两个小临时文件（`-D`、`%output{}`），用完删。
 //! 取消：另一条线程按 pid 发 SIGKILL（[`Handle::cancel`]）。pid 在收尸之前摘掉 —— 没收尸之前它还是我们的僵尸，不会被系统分给别人。
+//!
+//! Cookie 罐（#75，同 IDEA）：按「项目 + 环境」一个文件（[`jar_path`]），交给 curl 自己的 `-b` / `-c` 读写（Netscape 格式，过期的 curl 自己丢）。
+//! 里面是登录态：目录 0700、文件 0600，不进日志；界面上只列域名、名字、过期时间（[`cookies`]），不给值。
 
 pub mod env;
 pub mod json;
@@ -46,6 +49,8 @@ pub struct Request {
     pub root: PathBuf,
     /// 跟着重定向走（IDEA 默认跟；`# @no-redirect` 不跟）
     pub follow: bool,
+    /// Cookie 罐（[`jar_path`]）；`# @no-cookie-jar` 的请求是 None：不带、也不记
+    pub cookie_jar: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -151,7 +156,7 @@ pub fn body_file_inside(root: &Path, file: &Path) -> Result<(), Error> {
         return Ok(());
     }
     Err(Error::Invalid(format!(
-        "请求体的文件在项目外面（{}），没发：.http 是项目带来的文件，从项目外面读文件发出去可能把你的私钥、配置发给别人。要发就把文件放进项目里",
+        "请求体文件位于项目之外（{}），未发送：.http 文件随项目分发，读取项目之外的文件可能泄露私钥或配置。如需发送，请将文件移入项目",
         f.display()
     )))
 }
@@ -191,6 +196,9 @@ pub fn curl_args(r: &Request, f: &Files) -> Vec<String> {
         "GET" => {}
         "POST" if body.is_some() => {}
         m => a.extend(["-X".to_string(), m.to_string()]),
+    }
+    if let Some(j) = &r.cookie_jar {
+        a.extend(["-b".to_string(), j.display().to_string(), "-c".to_string(), j.display().to_string()]);
     }
     a.extend(["-D".to_string(), f.headers.display().to_string()]);
     a.extend(["-w".to_string(), format!("%output{{{}}}%{{json}}", f.stats.display())]);
@@ -236,16 +244,16 @@ pub fn parse_headers(raw: &str) -> Option<(String, u16, String, Vec<(String, Str
 /// curl 退出码 → 人话（带上 curl 自己的原话，查问题要它）
 fn explain(code: i64, msg: &str) -> String {
     let what = match code {
-        6 => "解析不了主机名",
-        7 => "连不上（服务没起？端口不对？）",
-        28 => "超时了",
-        35 | 60 | 77 | 58 | 59 | 80 | 83 | 90 | 91 => "TLS / 证书出问题了",
-        47 => "重定向太多（超过 10 次）",
-        52 => "服务器没回任何东西就断了",
-        56 => "收数据的时候连接断了",
-        1 => "协议不支持（只发 http / https）",
-        3 => "URL 写得不对",
-        26 => "读不了请求体的文件",
+        6 => "无法解析主机名",
+        7 => "无法连接（服务未启动或端口错误）",
+        28 => "请求超时",
+        35 | 60 | 77 | 58 | 59 | 80 | 83 | 90 | 91 => "TLS / 证书错误",
+        47 => "重定向次数过多（超过 10 次）",
+        52 => "服务器未返回任何数据即断开连接",
+        56 => "接收数据时连接中断",
+        1 => "协议不受支持（仅支持 http / https）",
+        3 => "URL 格式错误",
+        26 => "无法读取请求体文件",
         _ => "请求失败",
     };
     if msg.is_empty() {
@@ -280,10 +288,82 @@ pub fn send_capped(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, c
         return Err(Error::Io(format!("响应目录名包含「}}」，curl 无法写入统计信息：{}", dir.display())));
     }
     std::fs::create_dir_all(dir).map_err(|e| Error::Io(format!("无法创建 {}：{e}", dir.display())))?;
+    if let Some(j) = &r.cookie_jar {
+        prepare_jar(j)?;
+    }
     let f = Files::new(dir, seq);
     let res = send_inner(curl, r, dir, seq, h, &f, cap);
     f.remove();
+    if let Some(j) = &r.cookie_jar {
+        // 兜底。2026-10-28 拿系统的 curl 8.7.1 实测：罐子已在、是 0600 时，curl 写新文件再改名（inode 变了）、沿用原来的 0600；
+        // 罐子不在、由 curl 新建时是 0644（跟 umask）—— 所以真正管用的是 prepare_jar 先建一个 0600 的空文件，这一句防的是别的版本的行为
+        let _ = set_mode(j, 0o600);
+    }
     res
+}
+
+/// 这个项目、这个环境的 Cookie 罐。文件名是两段 FNV 指纹：项目路径和环境名（可能是中文）都不直接进文件名
+pub fn jar_path(dir: &Path, root: &str, env: Option<&str>) -> PathBuf {
+    dir.join("cookies").join(format!("{:016x}-{:016x}.txt", fnv(root), fnv(env.unwrap_or(""))))
+}
+
+fn fnv(s: &str) -> u64 {
+    s.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
+}
+
+fn set_mode(p: &Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode))
+}
+
+/// 罐子的目录 0700、文件 0600。没有就先建一个 0600 的空文件：由 curl 的 `-c` 新建的话是 0644（跟 umask，实测），别的用户读得到登录态
+fn prepare_jar(j: &Path) -> Result<(), Error> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let io = |e: std::io::Error| Error::Io(format!("无法准备 Cookie 文件 {}：{e}", j.display()));
+    if let Some(d) = j.parent() {
+        std::fs::create_dir_all(d).map_err(io)?;
+        set_mode(d, 0o700).map_err(io)?;
+    }
+    if !j.exists() {
+        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(j).map_err(io)?;
+    }
+    set_mode(j, 0o600).map_err(io)
+}
+
+/// 罐子里的一条（不带值：值是登录态）
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cookie {
+    pub domain: String,
+    pub path: String,
+    pub name: String,
+    /// Unix 秒；0 = 会话 Cookie（浏览器关掉就没，在这里是「清除前一直在」）
+    pub expires: u64,
+    pub http_only: bool,
+}
+
+/// 读罐子（Netscape 格式：七列、Tab 分开；`#HttpOnly_` 开头的是 HttpOnly 的那种，别的 `#` 开头是注释）
+pub fn cookies(jar: &Path) -> Vec<Cookie> {
+    read_small(jar)
+        .lines()
+        .filter_map(|l| {
+            let (http_only, l) = match l.strip_prefix("#HttpOnly_") {
+                Some(rest) => (true, rest),
+                None if l.starts_with('#') => return None,
+                None => (false, l),
+            };
+            let c: Vec<&str> = l.split('\t').collect();
+            (c.len() >= 7).then(|| Cookie { domain: c[0].to_string(), path: c[2].to_string(), name: c[5].to_string(), expires: c[4].parse().unwrap_or(0), http_only })
+        })
+        .collect()
+}
+
+/// 清空罐子。是我们自己的文件（名字是 [`jar_path`] 算出来的），直接删
+pub fn clear_cookies(jar: &Path) -> Result<(), Error> {
+    #[allow(clippy::disallowed_methods)] // 应用数据目录里我们自己的 Cookie 罐，范围卡死在 jar_path 算出来的名字上
+    match std::fs::remove_file(jar) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(Error::Io(format!("无法清除 Cookie：{e}"))),
+        _ => Ok(()),
+    }
 }
 
 fn send_inner(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, f: &Files, cap: usize) -> Result<Response, Error> {
