@@ -46,7 +46,7 @@ fn main() {
     let wrong: i32 = "x";
 }
 EOF
-printf 'print("hi")\n' > "${P}/tool.py"
+printf 'def yuan(cents: int) -> float:\n    return cents / 100\n\nx: int = "a"\n' > "${P}/tool.py"
 cleanup() {
   lite_teardown keep
   rm -rf "${P}" "${LITE_WORK}"
@@ -56,6 +56,9 @@ trap cleanup EXIT
 lite_clean_data
 mkdir -p "${LITE_DATA}/packs"
 python3 -I -c 'import json,sys; json.dump({"schema": 1, "id": "rust", "name": "Rust（验收）", "files": ["*.rs"], "languageId": "rust", "roots": ["Cargo.toml"], "server": {"command": [sys.argv[1]]}}, open(sys.argv[2], "w"), ensure_ascii=False)' "${RA}" "${LITE_DATA}/packs/rust.json"
+# 测试应用的登录 shell 不读你的 rc：node / npm（一键装 Python 的语言服务器要它们）在哪，直接告诉它（测试构建才认 LITE_LOGIN_PATH）
+NODE=$(command -v node || true); NPM=$(command -v npm || true)
+export LITE_LOGIN_PATH="${NODE:+$(dirname "${NODE}"):}${NPM:+$(dirname "${NPM}"):}/usr/bin:/bin:/usr/sbin:/sbin"
 lite_launch "${P}" || exit 1
 T0=$(python3 -c 'import time; print(time.time())')
 lite_eval main "await __lite.tabflow.openPath('${P}/src/main.rs', { preview: false }); return true" >/dev/null
@@ -123,19 +126,40 @@ lite_eval main "const r = [...document.querySelectorAll('.fixes [role=option], .
 lite_wait main "return __lite.text().includes('let m: Money')" 15 >/dev/null
 ok "$(lite_eval main "return __lite.text().includes('let m: Money = Money::new(150);')" | grep -qx true && echo 1)" "选「插入显式类型」：要的改动先 resolve 再放进编辑器 → let m: Money = Money::new(150);"
 
-echo "== 没装的语言：说一次、带怎么装；不是包认的文件不起服务器"
+echo "== 没装的语言：说一次、带「安装」；点了 npm 照锁文件装进应用数据目录，装好当场接上"
 lite_eval main "await __lite.tabflow.openPath('${P}/tool.py', { preview: false }); return true" >/dev/null
-lite_wait main "return __lite.notify.log.some((x) => x.text.includes('basedpyright'))" 15 >/dev/null
+lite_wait main "return !!document.querySelector('.toast .act') && document.querySelector('.toast').textContent.includes('basedpyright')" 15 >/dev/null
+ACT=$(lite_eval main "return document.querySelector('.toast .act')?.textContent ?? ''")
 lite_eval main "await __lite.tabflow.openPath('${P}/src/main.rs', { preview: false }); await new Promise((r) => setTimeout(r, 300)); await __lite.tabflow.openPath('${P}/tool.py', { preview: false }); return true" >/dev/null
 sleep 1.5
 N=$(lite_eval main "return __lite.notify.log.filter((x) => x.text.includes('basedpyright')).length")
-ok "$([ "${N}" = 1 ] && lite_eval main "return __lite.notify.log.find((x) => x.text.includes('basedpyright'))?.text ?? ''" | grep -q '安装：' && echo 1)" "打开 .py：说「未找到 basedpyright」、带怎么装，切走再回来不再说（说了 ${N} 次）"
+ok "$([ "${N}" = 1 ] && [ "${ACT}" = "安装（约 42 MB）" ] && echo 1)" "打开 .py：说「未找到 basedpyright」、带「${ACT}」，切走再回来不再说（说了 ${N} 次）"
 ok "$([ "$(pgrep -P "$(lite_pid)" | xargs -n1 ps -o comm= -p 2>/dev/null | grep -c basedpyright)" = 0 ] && echo 1)" "没装的那个当然也没起"
+if [ -z "${NPM}" ]; then
+  echo "  未验：这台机器上没有 npm，一键安装那段跳过"
+else
+  # 再说一次那句（told 只记一次）：直接调安装（同点「安装」那条路：lsp-generic 的 install）。点的那一下要胶囊还在，前面切过标签它可能已经走了
+  T0=$(python3 -c 'import time; print(time.time())')
+  lite_eval main "const r = await window.__TAURI_INTERNALS__.invoke('lsp_install', { id: 'python' }); return JSON.stringify(r)" > "${LITE_WORK}/inst.json" 2>&1
+  T1=$(python3 -c 'import time; print(time.time())')
+  INST=$(cat "${LITE_WORK}/inst.json")
+  ok "$(echo "${INST}" | grep -q '"bytes"' && [ -x "${LITE_DATA}/lsp/python/node_modules/.bin/basedpyright-langserver" ] && [ -z "$(ls -a "${LITE_DATA}/lsp" | grep -E '\.part-|\.old-')" ] && echo 1)" "一键安装：npm ci 照锁文件装进应用数据目录 lsp/python（$(python3 -c "print(round(${T1} - ${T0}, 1))") 秒，$(du -sh "${LITE_DATA}/lsp/python" 2>/dev/null | cut -f1)），没留下临时目录"
+  ok "$(grep -q '"basedpyright": "1.40.2"' "${LITE_DATA}/lsp/python/package.json" && python3 -I -c 'import json,sys; v=json.load(open(sys.argv[1]))["version"]; print(1 if v == "1.40.2" else 0)' "${LITE_DATA}/lsp/python/node_modules/basedpyright/package.json" | grep -qx 1 && echo 1)" "装上的是锁文件钉的那个版本（basedpyright 1.40.2）"
+  # 关掉再开 tool.py：这一次服务器起得来（「起不来」的记录装好时清掉了）
+  lite_eval main "const t = __lite.tabs.byPath('${P}/tool.py'); if (t) __lite.tabflow.doClose(t); return true" >/dev/null
+  sleep 1.5
+  lite_eval main "await __lite.tabflow.openPath('${P}/tool.py', { preview: false }); return true" >/dev/null
+  lite_wait main "return document.querySelectorAll('.cm-diag-err').length > 0" 60 >/dev/null
+  PYD=$(lite_eval main "return [...document.querySelectorAll('.cm-diag-err')].map((e) => e.textContent).join('|')")
+  ok "$(echo "${PYD}" | grep -q '"a"' && pgrep -P "$(lite_pid)" -f basedpyright >/dev/null && echo 1)" "装好之后打开 .py：basedpyright 起了（测试应用的子进程），类型错的那一处出波浪线（${PYD}）"
+  PYPID=$(pgrep -P "$(lite_pid)" -f basedpyright | head -1)
+fi
 
 echo "== 退出不留"
 lite_quit
 wait_for 10 "! kill -0 ${RAPID:-0} 2>/dev/null"
 ok "$(! kill -0 "${RAPID:-0}" 2>/dev/null && echo 1)" "退出之后 rust-analyzer 没了"
+[ -n "${PYPID:-}" ] && ok "$(! kill -0 "${PYPID}" 2>/dev/null && echo 1)" "退出之后 basedpyright 也没了"
 
 printf '\n通过 %s 条，失败 %s 条\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" = 0 ]

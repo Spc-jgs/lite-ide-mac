@@ -82,4 +82,26 @@
 没带改动的先 `codeAction/resolve` —— rust-analyzer 的「插入显式类型」这类全走这一步，验收把这一步去掉只红这一条；只给命令、要服务器再做一步的说清楚暂不支持）。
 lsp.sh 15 条。顺手：重命名框、修复列表的字原来是 Java 专用的口语（「把 X 改名为」「不是合法的 Java 名字」「↵ 做」），改成通用的产品话。
 
-**还没做**：参数提示、跳进项目外的文件（标准库源码）；Python / TS 的服务器下载（要 Node，先量、核来源）；把 Java 搬到通用客户端上。
+**还没做**：参数提示、跳进项目外的文件（标准库源码）；把 Java 搬到通用客户端上。
+
+## 6. 一键安装 Python / TS 的语言服务器（2026-10-28）
+
+两个都是 Node 程序（basedpyright 在 npm 上也有，同 pyright 的发法），所以走 npm 自己的完整性校验，不自己下 tarball：
+
+- **锁文件编进应用**（`src-tauri/packs/npm/<套>/package.json + package-lock.json`）：每个包钉版本、带 sha512、`resolved` 是 `registry.npmjs.org`。
+  单元测试卡着这三样 —— 国内常配镜像，在镜像下生成的锁文件 `resolved` 是 `registry.npmmirror.com`，改一处那条就红
+- **装**：`npm ci --ignore-scripts --no-audit --no-fund --prefer-offline`，装进应用数据目录 `lsp/<套>/`。`npm ci` 照锁文件装、核每个包的 sha512（亲手验过：改一个 integrity，`EINTEGRITY`、一个包都不装）；
+  `--ignore-scripts`：哪个包的安装脚本都不跑（basedpyright 带的可选依赖 `fsevents` 有安装脚本）。先装进临时目录、成了再改名过去，失败了临时目录清掉、原来那份不动
+- **找**：应用装的那份优先（它是 Node 脚本，`#!/usr/bin/env node`：PATH 里要有 node 所在的目录，从登录 shell 找），没有再找你自己全局装的；都没有，那句「未安装」上带「安装（约 N MB）」
+- 装好了把「起不来」的记录清掉，开着的那种文件当场接上；npm 失败给错误码和原话（第一版取了最后一行，那是「完整日志在 …」，等于没说）
+
+**版本**（2026-10-28 挑的，都是发布满两周的）：
+
+| | 版本 | 为什么 |
+|---|---|---|
+| typescript-language-server | 6.0.2（10-09） | 最新；要 Node ≥ 22.22.2 |
+| typescript | **6.0.3**，不是最新的 7.0.2 | 7 是原生重写：包里只有 `tsc`、没有 `tsserver`，而 typescript-language-server 要的就是 tsserver。项目自己的 `node_modules/typescript` 在的话它优先用项目的 |
+| basedpyright | 1.40.2（10-04） | 发布满两周的里面最新的 |
+
+第 0 步实测（scratchpad 里的小工程）：TS 装 1 秒 26 MB、起 0.32 秒、第一条诊断 0.69 秒、补全 20 → 1 ms、常驻 63 MB；
+Python 装 2 秒 42 MB、起 0.23 秒、第一条诊断 0.41 秒、补全 259 → 3 ms、常驻 354 MB。lsp.sh 在真 .app 上装 Python 那一套：1.8 秒（npm 缓存里已有）。

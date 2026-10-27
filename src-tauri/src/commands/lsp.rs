@@ -67,7 +67,14 @@ pub async fn lsp_complete(app: tauri::AppHandle, window: tauri::Window, root: St
 pub async fn lsp_packs(app: tauri::AppHandle) -> Result<LspPacksDto, String> {
     blocking(move || {
         let (packs, problems) = crate::langs::packs(&app);
-        Ok(LspPacksDto { packs: packs.into_iter().map(|p| LspPackDto { id: p.id, name: p.name, files: p.files }).collect(), problems })
+        let packs = packs
+            .into_iter()
+            .map(|p| {
+                let install_size = p.npm.as_deref().and_then(crate::langs::npm_set).map(|x| x.2.to_string());
+                LspPackDto { id: p.id, name: p.name, files: p.files, install_size }
+            })
+            .collect();
+        Ok(LspPacksDto { packs, problems })
     })
     .await
 }
@@ -134,6 +141,16 @@ pub async fn lsp_apply_action(app: tauri::AppHandle, window: tauri::Window, root
         }
         let out = crate::java::apply_rename(&plan, std::path::Path::new(&root), &journal, &super::replace::dirty_map(open))?;
         Ok(JavaActionResultDto { edits: Vec::new(), outcome: Some(super::replace::outcome_dto(out)) })
+    })
+    .await
+}
+
+/// 一键装语言服务器（npm 照编进应用的锁文件装进应用数据目录，核每个包的 sha512、不跑安装脚本）。要上网、几秒到几十秒，放阻塞池
+#[tauri::command]
+pub async fn lsp_install(app: tauri::AppHandle, id: String) -> Result<LspInstallDto, String> {
+    blocking(move || {
+        let (path, bytes) = app.state::<AppState>().langs.install(&app, &id)?;
+        Ok(LspInstallDto { path: path.to_string_lossy().into_owned(), bytes })
     })
     .await
 }

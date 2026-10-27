@@ -495,6 +495,7 @@ pub fn run() {
             commands::lsp_format,
             commands::lsp_code_actions,
             commands::lsp_apply_action,
+            commands::lsp_install,
             commands::gradle_project,
             commands::gradle_tasks,
             commands::java_method_sig,

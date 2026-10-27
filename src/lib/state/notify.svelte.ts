@@ -109,9 +109,9 @@ class Notify {
     this.#show("fail", text, Math.max(ms ?? 0, readMs(text, FAIL_FLOOR)), act);
   }
 
-  /** 什么都没发生，说一句为什么 */
-  hint(text: string, ms?: number) {
-    this.#show("hint", text, ms ?? readMs(text));
+  /** 什么都没发生，说一句为什么。`act`：下一步（「安装」） */
+  hint(text: string, ms?: number, act?: ToastAct) {
+    this.#show("hint", text, ms ?? readMs(text), act);
   }
 
   /*

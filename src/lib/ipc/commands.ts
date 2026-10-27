@@ -952,6 +952,14 @@ export interface LspPack {
   id: string;
   name: string;
   files: string[];
+  /** 能一键安装语言服务器时，装完大概多大；不能是 null */
+  installSize: string | null;
+}
+
+/** 一键装好了 */
+export interface LspInstall {
+  path: string;
+  bytes: number;
 }
 
 export interface LspPacks {

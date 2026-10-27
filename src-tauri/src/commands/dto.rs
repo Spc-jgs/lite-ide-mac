@@ -372,6 +372,16 @@ pub struct LspPackDto {
     pub name: String,
     /// `*.rs` 这种：只认 `*.扩展名` 和完整文件名
     pub files: Vec<String>,
+    /// 能一键安装语言服务器（npm 装进应用数据目录）时，装完大概多大；不能是 None
+    pub install_size: Option<String>,
+}
+
+/// 一键装好了（`lsp_install`）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspInstallDto {
+    pub path: String,
+    pub bytes: u64,
 }
 
 #[derive(serde::Serialize)]

@@ -13,7 +13,7 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaDiagnostic, type JavaDiagnostics, type JavaLocation, type LspPack } from "../ipc/commands";
-import { lspApplyAction, lspClose, lspCodeActions, lspComplete, lspDefinition, lspFormat, lspHover, lspOpen, lspPacks, lspPrepareRename, lspReferences, lspRename } from "../ipc/lsp";
+import { lspApplyAction, lspClose, lspCodeActions, lspComplete, lspDefinition, lspFormat, lspHover, lspInstall, lspOpen, lspPacks, lspPrepareRename, lspReferences, lspRename } from "../ipc/lsp";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { idKeymap } from "./id-keys";
 import { nav } from "../state/nav.svelte";
@@ -153,6 +153,29 @@ const diagHover = hoverTooltip((view, pos) => {
 // ── 文档同步 ──
 
 const syncs = new WeakMap<EditorView, Sync>();
+/** 开着的（装好语言服务器之后要它们重连） */
+const live = new Set<Sync>();
+let installing = false;
+
+/**
+ * 一键装语言服务器（npm 照编进应用的锁文件装进应用数据目录，Rust 那边 `langs::install`）。装好了，开着的这种文件当场接上，不用重开
+ */
+async function install(pack: LspPack) {
+  if (installing) return;
+  installing = true;
+  const t = progress.start(`正在安装 ${pack.name} 语言服务器（${pack.installSize}，来自 npm 官方源）`);
+  try {
+    const r = await lspInstall(pack.id);
+    told.delete(pack.id);
+    notify.ok(`已安装 ${pack.name} 语言服务器（${(r.bytes / (1 << 20)).toFixed(0)} MB）`);
+    for (const s of live) if (s.pack.id === pack.id) s.connect();
+  } catch (e) {
+    notify.fail(`安装 ${pack.name} 语言服务器失败：${e instanceof Error ? e.message : String(e)}`, 10_000);
+  } finally {
+    installing = false;
+    t.end();
+  }
+}
 
 class Sync {
   timer: ReturnType<typeof setTimeout> | null = null;
@@ -173,6 +196,13 @@ class Sync {
     viewsOf.set(path, vs);
     const have = diagsOf.get(path);
     if (have) queueMicrotask(() => syncs.get(view) === this && view.dispatch({ effects: setDiags.of(have) }));
+    live.add(this);
+    this.connect();
+  }
+
+  /** 登记这份文档（服务器没起的起）。没装：只说一次；能一键装的，那句话上带「安装」 */
+  connect() {
+    const { root, path, pack, view } = this;
     // 第一次要起服务器（rust-analyzer 0.4 秒、索引更久）：进度格说一句在干什么（150 ms 之内回来的它自己不出现）
     const task = progress.start(`正在启动 ${pack.name} 语言服务器`);
     void lspOpen(root, path, view.state.doc.toString())
@@ -184,7 +214,8 @@ class Sync {
       .catch((e) => {
         if (told.has(pack.id)) return;
         told.add(pack.id);
-        notify.hint(String(e), 10_000);
+        if (pack.installSize) notify.hint(String(e), 15_000, { label: `安装（${pack.installSize}）`, run: () => void install(pack) });
+        else notify.hint(String(e), 10_000);
       })
       .finally(() => task.end());
   }
@@ -205,6 +236,7 @@ class Sync {
 
   destroy() {
     this.flush();
+    live.delete(this);
     viewsOf.get(this.path)?.delete(this.view);
     syncs.delete(this.view);
   }

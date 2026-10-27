@@ -6,6 +6,7 @@
   "languageId": "typescript",
   "languageIds": { "tsx": "typescriptreact", "js": "javascript", "jsx": "javascriptreact", "mjs": "javascript", "cjs": "javascript" },
   "roots": ["tsconfig.json", "jsconfig.json", "package.json"],
+  "npm": "typescript",
   "server": {
     "command": ["typescript-language-server", "--stdio"],
     "install": "npm i -g typescript typescript-language-server"

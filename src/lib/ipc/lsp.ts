@@ -1,6 +1,6 @@
 /** Java 以外的语言服务器（docs/LANGPACK.md）的命令包装：只有通用的语言服务器客户端（editor/lsp-generic.ts）用，它是懒的 */
 import { invoke } from "@tauri-apps/api/core";
-import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, LspPacks, ReplaceOutcome } from "./commands";
+import type { JavaAction, JavaActionResult, JavaCompletion, JavaEdit, JavaLocation, JavaRefs, JavaRenameTarget, LspInstall, LspPacks, ReplaceOutcome } from "./commands";
 import type { OpenDoc } from "./replace";
 
 export const lspPacks = () => invoke<LspPacks>("lsp_packs");
@@ -21,3 +21,5 @@ export const lspFormat = (root: string, path: string, text: string, tabSize: num
 type Range = { line: number; character: number; endLine: number; endCharacter: number };
 export const lspCodeActions = (root: string, path: string, text: string, range: Range) => invoke<JavaAction[]>("lsp_code_actions", { root, path, text, range });
 export const lspApplyAction = (root: string, path: string, raw: string, open: OpenDoc[]) => invoke<JavaActionResult>("lsp_apply_action", { root, path, raw, open });
+/** 一键装语言服务器（npm 照锁文件装进应用数据目录） */
+export const lspInstall = (id: string) => invoke<LspInstall>("lsp_install", { id });

@@ -4,6 +4,9 @@
 //! - **找服务器**：包里写的是命令名（`rust-analyzer`）。从访达起的应用没有你 shell 里的 PATH，所以起一次交互式登录 shell、按标记取 `command -v` 和 `$PATH`
 //!   （同 `acpsvc::find_npx`：rc 文件自己往 stdout 打的字不算）；服务器本身**直接起**、不经过 shell —— 它的 stdout 是说话的管道，shell 打一个字就把协议搅乱了。
 //!   包里写绝对路径的照用（测试构建的 shell 不读你的 rc，验收用它）
+//! - **装语言服务器**（Python / TS 那两个是 Node 程序）：包里写 `"npm": "<套>"`，那一套的 `package.json` + `package-lock.json` 编进应用（`packs/npm/<套>/`，
+//!   每个包钉版本、带 sha512）。点「安装」时 `npm ci --ignore-scripts` 装进应用数据目录 `lsp/<套>/` —— npm 照锁文件核每个包的 sha512、对不上就失败；
+//!   `--ignore-scripts`：哪个包的安装脚本都不跑。先装进临时目录、成了再改名过去。找服务器时先找这里装的，再找你自己全局装的
 //! - **一个服务器管一个根**：从文件往上找包里 `roots` 列的文件（`Cargo.toml`），找到的第一层就是根，到项目根还没有就用项目根。按 `窗口 × 根 × 包` 一个，`Owned` 登记，关窗口收；
 //!   没有开着的文档、闲了 [`IDLE`] 就收掉（同 jdtls）
 //! - 请求和解析照 Java 那边（`java::locations` / `completion_items` / `hover_markdown` / `workspace_edit` 都是纯 LSP 的），DTO 也用同一套，前端画法共用；
@@ -25,6 +28,17 @@ const INIT: Duration = Duration::from_secs(60);
 
 const BUILTIN: &[&str] = &[include_str!("../packs/rust.json"), include_str!("../packs/python.json"), include_str!("../packs/typescript.json")];
 
+/// 能一键装的那几套：（套名, package.json, package-lock.json, 装完大概多大）。版本、sha512 在锁文件里；挑版本的理由在 docs/LANGPACK.md 第 6 节
+const NPM: &[(&str, &str, &str, &str)] = &[
+    ("typescript", include_str!("../packs/npm/typescript/package.json"), include_str!("../packs/npm/typescript/package-lock.json"), "约 26 MB"),
+    ("python", include_str!("../packs/npm/python/package.json"), include_str!("../packs/npm/python/package-lock.json"), "约 42 MB"),
+];
+
+/// 一键装的那一套：（package.json, 锁文件, 大小）
+pub fn npm_set(id: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    NPM.iter().find(|x| x.0 == id).map(|x| (x.1, x.2, x.3))
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pack {
@@ -38,6 +52,9 @@ pub struct Pack {
     pub language_ids: HashMap<String, String>,
     #[serde(default)]
     pub roots: Vec<String>,
+    /// 能一键装：`NPM` 里那一套的名字（只认内置的那几套：锁文件编在应用里，你自己的包写了也不认）
+    #[serde(default)]
+    pub npm: Option<String>,
     pub server: PackServer,
 }
 
@@ -124,8 +141,15 @@ pub fn root_for(pack: &Pack, project_root: &Path, path: &Path) -> PathBuf {
     project_root.to_path_buf()
 }
 
-/// 命令名 → 绝对路径和该带的 PATH。写了绝对路径的照用（PATH 只加它所在的目录）
+/// 命令名 → 绝对路径和该带的 PATH。写了绝对路径的照用（PATH 只加它所在的目录）。
+/// 测试构建可以直接给一个 PATH（`LITE_LOGIN_PATH`）：测试应用的 shell 不读你的 rc，node、rust-analyzer 它都找不到
 fn locate(shell: &str, program: &str) -> Result<(PathBuf, String), String> {
+    #[cfg(feature = "test-bridge")]
+    if let Ok(path) = std::env::var("LITE_LOGIN_PATH") {
+        if !program.starts_with('/') {
+            return path.split(':').map(|d| Path::new(d).join(program)).find(|p| p.is_file()).map(|p| (p, path.clone())).ok_or_else(|| format!("未找到 {program}"));
+        }
+    }
     if program.starts_with('/') {
         let p = PathBuf::from(program);
         let dir = p.parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
@@ -245,8 +269,24 @@ impl Langs {
 
     fn start(&self, app: &AppHandle, owner: &str, pack: &Pack, root: &Path) -> Result<Inst, String> {
         let shell = crate::settingsctl::terminal_shell(&app.state::<crate::state::AppState>());
-        let (program, path_env) = locate(&shell, &pack.server.command[0])
-            .map_err(|e| format!("{e}：{} 的语言服务器未安装或不在 PATH 中{}", pack.name, if pack.server.install.is_empty() { String::new() } else { format!("（安装：{}）", pack.server.install) }))?;
+        let (program, path_env) = match managed_bin(app, pack) {
+            // 应用装的那份（Node 程序）：脚本头是 `#!/usr/bin/env node`，PATH 里要有 node
+            Some(bin) => {
+                let (node, path) = locate(&shell, "node").map_err(|_| format!("{} 的语言服务器需要 Node.js，但未找到 node", pack.name))?;
+                let dir = node.parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
+                (bin, format!("{dir}:{path}"))
+            }
+            None => locate(&shell, &pack.server.command[0]).map_err(|e| {
+                let how = if pack.npm.as_deref().and_then(npm_set).is_some() {
+                    String::from("（可一键安装）")
+                } else if pack.server.install.is_empty() {
+                    String::new()
+                } else {
+                    format!("（安装：{}）", pack.server.install)
+                };
+                format!("{e}：{} 的语言服务器未安装{how}", pack.name)
+            })?,
+        };
         let spec = Spec { program, args: pack.server.command[1..].to_vec(), cwd: root.to_path_buf(), env: vec![("PATH".into(), path_env)] };
         let (app2, owner2, root2) = (app.clone(), owner.to_string(), root.to_string_lossy().into_owned());
         let raw_diags: Arc<Mutex<HashMap<String, Vec<Value>>>> = Arc::default();
@@ -406,6 +446,53 @@ impl Langs {
         crate::java::workspace_edit(&resolved["edit"])
     }
 
+    /// 一键装（`npm ci --ignore-scripts`，照编进应用的锁文件）。装好了把「起不来」的记录清掉，下次打开那种文件就起。回（装在哪, 多少字节）
+    pub fn install(&self, app: &AppHandle, pack_id: &str) -> Result<(PathBuf, u64), String> {
+        let (packs, _) = packs(app);
+        let pack = packs.iter().find(|p| p.id == pack_id).ok_or_else(|| format!("没有语言包 {pack_id}"))?;
+        let set = pack.npm.as_deref().ok_or_else(|| format!("{} 的语言服务器不支持一键安装", pack.name))?;
+        let (manifest, lock, _) = npm_set(set).ok_or_else(|| format!("{} 的语言服务器不支持一键安装", pack.name))?;
+        let shell = crate::settingsctl::terminal_shell(&app.state::<crate::state::AppState>());
+        let (npm, path) = locate(&shell, "npm").map_err(|_| "安装需要 Node.js 和 npm，但未找到 npm（可先安装 Node.js：brew install node）".to_string())?;
+        let base = app.path().app_data_dir().map_err(|e| format!("无法获取应用数据目录：{e}"))?.join("lsp");
+        let dest = base.join(set);
+        let tmp = base.join(format!(".{set}.part-{}", std::process::id()));
+        // 上一次装到一半的临时目录（应用自己建的、名字卡死在 `.<套>.part-*`）：先清掉
+        #[allow(clippy::disallowed_methods)] // 应用自己生成的临时目录，范围卡死在 lsp/.<套>.part-<pid>
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).map_err(|e| format!("无法创建 {}：{e}", tmp.display()))?;
+        fsservice::write_text(&tmp.join("package.json"), manifest).map_err(|e| format!("无法写入 package.json：{e}"))?;
+        fsservice::write_text(&tmp.join("package-lock.json"), lock).map_err(|e| format!("无法写入 package-lock.json：{e}"))?;
+        let mut cmd = std::process::Command::new(&npm);
+        cmd.args(["ci", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline", "--loglevel=error"]).current_dir(&tmp).env("PATH", &path);
+        let out = procutil::run_capped(&mut cmd, 256 << 10, 64 << 10, procutil::Overflow::Drain).map_err(|e| format!("无法启动 npm：{e}"))?;
+        if !out.status.success() {
+            #[allow(clippy::disallowed_methods)] // 同上：装失败的临时目录
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Err(format!("npm 安装失败：{}", npm_reason(&String::from_utf8_lossy(&out.stderr))));
+        }
+        // 装好的换上去：原来有一份（重装）先挪开再改名，改名失败就把原来那份放回去
+        let old = base.join(format!(".{set}.old-{}", std::process::id()));
+        let had = dest.exists();
+        #[allow(clippy::disallowed_methods)] // 应用自己装的那份，挪到旁边的临时名
+        if had {
+            std::fs::rename(&dest, &old).map_err(|e| format!("无法替换原来的安装：{e}"))?;
+        }
+        #[allow(clippy::disallowed_methods)] // 刚装好的临时目录改名成正式的；目标此刻不存在（原来那份刚挪开）
+        if let Err(e) = std::fs::rename(&tmp, &dest) {
+            #[allow(clippy::disallowed_methods)] // 放回原来那份
+            if had {
+                let _ = std::fs::rename(&old, &dest);
+            }
+            return Err(format!("无法完成安装：{e}"));
+        }
+        #[allow(clippy::disallowed_methods)] // 被换下来的旧安装（应用自己装的）
+        let _ = std::fs::remove_dir_all(&old);
+        self.failed.lock().unwrap_or_else(|e| e.into_inner()).retain(|k, _| !k.ends_with(&format!("\n{pack_id}")));
+        applog::write(applog::Level::Info, "lsp", &format!("装好了 {}（{}）", pack.name, dest.display()));
+        Ok((dest.clone(), dir_size(&dest)))
+    }
+
     /// 关窗口：它起的服务器都停掉（在别的线程上，shutdown 要等一会儿）
     pub fn release(&self, owner: &str) {
         let gone = self.all.take_owner(owner);
@@ -430,6 +517,37 @@ impl Langs {
             }
         }
     }
+}
+
+/// 应用装的那份（`lsp/<套>/node_modules/.bin/<命令>`），没装是 None
+fn managed_bin(app: &AppHandle, pack: &Pack) -> Option<PathBuf> {
+    let set = pack.npm.as_deref()?;
+    let bin = app.path().app_data_dir().ok()?.join("lsp").join(set).join("node_modules").join(".bin").join(&pack.server.command[0]);
+    bin.is_file().then_some(bin)
+}
+
+/// npm 失败时给人看的原因：前两条有内容的 `npm error`（错误码、原话）。最后一行是「完整日志在 …」，拿它当原因等于什么都没说
+fn npm_reason(stderr: &str) -> String {
+    let lines: Vec<&str> = stderr
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("npm error").or_else(|| l.trim().strip_prefix("npm ERR!")))
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.contains("A complete log of this run"))
+        .take(2)
+        .collect();
+    let s = if lines.is_empty() { stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("（无输出）").trim().to_string() } else { lines.join("；") };
+    s.chars().take(300).collect()
+}
+
+fn dir_size(p: &Path) -> u64 {
+    let Ok(rd) = std::fs::read_dir(p) else { return 0 };
+    rd.flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => dir_size(&e.path()),
+            Ok(t) if t.is_file() => e.metadata().map_or(0, |m| m.len()),
+            _ => 0,
+        })
+        .sum()
 }
 
 /// 收闲着的服务器：每分钟看一眼。整个进程一条，第一次起服务器时才起（同 jdtls 那条）
@@ -468,6 +586,38 @@ mod tests {
         assert_eq!(pack_for(&packs, "/p/main.rs").map(|p| p.server.command[0].as_str()), Some("/opt/ra"), "认 .rs 的是你那份");
         assert_eq!(packs.iter().filter(|p| p.id == "rust").count(), 1, "不留两份");
         assert_eq!(pack_for(&packs, "/p/main.go").map(|p| p.name.as_str()), Some("Go"));
+    }
+
+    #[test]
+    fn 一键装的那几套_锁文件里每个包都钉了版本_带_sha512_只从官方源下() {
+        for (id, manifest, lock, _) in NPM {
+            let m: Value = serde_json::from_str(manifest).unwrap();
+            let l: Value = serde_json::from_str(lock).unwrap();
+            let pkgs = l["packages"].as_object().unwrap();
+            for (name, want) in m["dependencies"].as_object().unwrap() {
+                let got = &pkgs[&format!("node_modules/{name}")];
+                assert_eq!(got["version"], *want, "{id}：{name} 在锁文件里的版本和 package.json 钉的不一样");
+            }
+            for (k, v) in pkgs.iter().filter(|(k, _)| !k.is_empty()) {
+                assert!(v["integrity"].as_str().is_some_and(|s| s.starts_with("sha512-")), "{id}：{k} 没有 sha512");
+                assert!(v["resolved"].as_str().is_some_and(|s| s.starts_with("https://registry.npmjs.org/")), "{id}：{k} 不是从 npm 官方源下的");
+            }
+        }
+        // 内置包里写的 npm 套都在表里
+        for t in BUILTIN {
+            let p = parse_pack(t).unwrap();
+            if let Some(s) = p.npm.as_deref() {
+                assert!(npm_set(s).is_some(), "{} 写的 npm 套 {s} 没编进应用", p.id);
+            }
+        }
+    }
+
+    #[test]
+    fn npm_失败的原因取错误码和原话_不取最后那句日志在哪() {
+        let err = "npm error code EINTEGRITY\nnpm error sha512-AAA== integrity checksum failed when using sha512\nnpm error A complete log of this run can be found in: /Users/x/.npm/_logs/1.log\n";
+        assert_eq!(npm_reason(err), "code EINTEGRITY；sha512-AAA== integrity checksum failed when using sha512");
+        assert_eq!(npm_reason("npm ERR! code ENOTFOUND\n"), "code ENOTFOUND", "老版本 npm 的写法");
+        assert_eq!(npm_reason("something odd\n"), "something odd");
     }
 
     #[test]
