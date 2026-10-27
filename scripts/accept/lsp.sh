@@ -90,6 +90,10 @@ lite_eval main "__lite.type('yu'); return true" >/dev/null
 lite_wait main "return __lite.completions().labels.some((l) => l.startsWith('yuan'))" 15 >/dev/null
 ok "$(lite_eval main "return __lite.completions().labels.slice(0, 5).join(',')" | grep -q 'yuan' && echo 1)" "补全：m.yu → $(lite_eval main "return __lite.completions().labels.slice(0, 5).join(',')")"
 lite_eval main "document.querySelector('.cm-content').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true" >/dev/null
+SIG='const on = () => [...document.querySelectorAll(".cm-java-sig .row.on b")].map((b) => b.textContent).join();'
+lite_eval main "${LINE_OF} const l = at('let _y'); __lite.caret(l, t[l - 1].length + 1); __lite.type('\n    let _n = Money::new('); return true" >/dev/null
+lite_wait main "${SIG} return on() === 'cents: i64'" 15 >/dev/null
+ok "$([ "$(lite_eval main "${SIG} return on()")" = "cents: i64" ] && echo 1)" "参数提示：敲 Money::new( 弹出签名、当前参数 cents: i64（$(lite_eval main "return document.querySelector('.cm-java-sig')?.innerText.split('\\n')[0] ?? '没弹'")）"
 lite_eval main "${LINE_OF} const l = at('Money::new'); __lite.caret(l, t[l - 1].indexOf('Money::new') + 2); __lite.key('Mod-b'); return true" >/dev/null
 lite_wait main "return __lite.tabs.active?.path.endsWith('/money.rs')" 15 >/dev/null
 ok "$([ "$(lite_eval main "return __lite.tabs.active?.path.endsWith('/money.rs') + ':' + __lite.where().split(':')[0]")" = "true:1" ] && echo 1)" "⌘B 在 Money 上：跳到 money.rs 第 1 行 struct Money（$(lite_eval main "return __lite.tabs.active?.name + ' ' + __lite.where()")）"

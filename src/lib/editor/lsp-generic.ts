@@ -1,6 +1,6 @@
 /**
  * Java 以外的语言服务器的编辑器那一半（docs/LANGPACK.md）：实时报错、补全、F1 文档、⌘B / ⌘Click 跳定义、⌥F7 查用法、
- * ⇧F6 改名、⌥⌘L 格式化、⌥↵ 快速修复。
+ * ⇧F6 改名、⌥⌘L 格式化、⌥↵ 快速修复、参数提示（敲 `(` / `,` 时弹，⌘P 手动弹；画法是 Java 那份 `java-signature.ts`）。
  * 哪些文件有语言服务器由「语言包」说（内置的 + 你自己的，Rust 侧 `langs.rs`）；跟着语言包懒加载，不打开那种文件一个字节不付。
  *
  * 形状照 `java-lsp.ts`（那边的注释是来龙去脉）：编辑器建好时 didOpen、标签没了才 didClose（编辑器 `{#key}` 重建只是切走）；
@@ -13,7 +13,8 @@ import { indentUnit } from "@codemirror/language";
 import { autocompletion, completeAnyWord, snippet, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { mount, unmount } from "svelte";
 import { listenHere, type JavaDiagnostic, type JavaDiagnostics, type JavaLocation, type LspPack } from "../ipc/commands";
-import { lspApplyAction, lspClose, lspCodeActions, lspComplete, lspDefinition, lspFormat, lspHover, lspInstall, lspOpen, lspPacks, lspPrepareRename, lspReferences, lspRename } from "../ipc/lsp";
+import { lspApplyAction, lspClose, lspCodeActions, lspComplete, lspDefinition, lspFormat, lspHover, lspInstall, lspOpen, lspPacks, lspPrepareRename, lspReferences, lspRename, lspSignature } from "../ipc/lsp";
+import { signatureHelp } from "./java-signature";
 import { boostOf, kindType, lspSnippet, offsetOf } from "./java-complete";
 import { idKeymap } from "./id-keys";
 import { nav } from "../state/nav.svelte";
@@ -602,6 +603,7 @@ export function lspGeneric(root: string | null, path: string, pack: LspPack): Ex
     diagHover,
     autocompletion({ override: [source] }),
     ViewPlugin.define((view) => new Sync(view, root, path, pack)),
+    signatureHelp((text, line, character) => lspSignature(root, path, text, line, character)),
     Prec.high(
       idKeymap([
         { id: "find-usages", preventDefault: true, run: (v) => (void findUsages(v), true) },

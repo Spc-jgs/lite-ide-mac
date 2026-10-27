@@ -154,3 +154,19 @@ pub async fn lsp_install(app: tauri::AppHandle, id: String) -> Result<LspInstall
     })
     .await
 }
+
+/// 参数提示（敲 `(` / `,` 时、⌘P 手动弹）。同 `java_signature` 的形状
+#[tauri::command]
+pub async fn lsp_signature(app: tauri::AppHandle, window: tauri::Window, root: String, path: String, text: String, line: u32, character: u32) -> Result<JavaSignaturesDto, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        let s = app.state::<AppState>().langs.signature_help(&app, &owner, &root, &path, &text, line, character)?;
+        Ok(JavaSignaturesDto {
+            signatures: s.list.into_iter().map(|x| JavaSignatureDto { label: x.label, params: x.params.into_iter().map(|(start, end)| JavaParamDto { start, end }).collect(), doc: x.doc }).collect(),
+            active: s.active,
+            param: s.param,
+            total: s.total,
+        })
+    })
+    .await
+}

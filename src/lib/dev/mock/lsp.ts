@@ -60,6 +60,8 @@ export function lspCmd(cmd: string, a: A): unknown {
     case "lsp_rename":
     case "lsp_apply_action":
       return Promise.reject("开发桩不演示此操作，请在真 .app 上使用");
+    case "lsp_signature":
+      return { signatures: [{ label: "fn new(cents: i64) -> Money", params: [{ start: 7, end: 17 }], doc: "" }], active: 0, param: 0, total: 1 };
     case "lsp_format":
       return [];
     case "lsp_code_actions":

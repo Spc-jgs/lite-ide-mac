@@ -319,6 +319,7 @@ impl Langs {
                 "definition": { "linkSupport": true },
                 "references": {},
                 "rename": { "prepareSupport": true },
+                "signatureHelp": { "signatureInformation": { "parameterInformation": { "labelOffsetSupport": true }, "activeParameterSupport": true } },
                 "formatting": {},
                 "codeAction": { "codeActionLiteralSupport": { "codeActionKind": { "valueSet": ["quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source"] } }, "resolveSupport": { "properties": ["edit"] } },
                 "publishDiagnostics": {}
@@ -388,6 +389,13 @@ impl Langs {
         let mut p = Inst::at(path, line, character);
         p["context"] = json!({ "triggerKind": 1 });
         Ok(crate::java::completion_items(&i.ask("textDocument/completion", p)?))
+    }
+
+    /// 参数提示（敲 `(` / `,` 时）。先同步此刻的全文再问；解析同 Java（`java::signatures`：参数位置按字符下标）
+    pub fn signature_help(&self, app: &AppHandle, owner: &str, root: &str, path: &str, text: &str, line: u32, character: u32) -> Result<crate::java::Signatures, String> {
+        let i = self.need(app, owner, root, path)?;
+        i.open(path, text);
+        Ok(crate::java::signatures(&i.ask("textDocument/signatureHelp", Inst::at(path, line, character))?))
     }
 
     /// 光标底下能不能改名（先同步此刻的全文）。null = 这里不能
