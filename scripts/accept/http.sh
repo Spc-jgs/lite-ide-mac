@@ -189,6 +189,9 @@ print(1 if ok else 0)' "${B}" 2>/dev/null)" "服务端收到的：POST /orders�
 ok "$(head -c 14 "${B}" | grep -q '^{$' && sed -n 2p "${B}" | grep -q '^  "method": "POST",$' && echo 1)" "响应体按原样的次序排好了（method 在第一个）：$(head -2 "${B}" | tr '\n' ' ')"
 # 别在 $(…) 里写 case：bash 3.2 把模式后面那个 `)` 当成 $( 的结尾（第一次跑就红在这儿，路径其实是对的）
 ok "$([[ "${B}" == "${LITE_DATA}/http/"* ]] && echo 1)" "响应体存在应用数据目录里：${B/#$HOME/~}"
+# JSON 着色（#77）：响应体是排好的 JSON 文档，日志视图认成「JSON」、键 / 字符串 / 数字各一色（色值同编辑器里看 .json）
+JC=$(lite_eval main "await new Promise((x) => setTimeout(x, 400)); const k = [...document.querySelectorAll('.http .p[data-cls=jkey]')]; const s = document.querySelector('.http .p[data-cls=jstr]'); return k.length + '|' + (k[0] ? getComputedStyle(k[0]).color : '') + '|' + (s ? getComputedStyle(s).color : '')")
+ok "$(echo "${JC}" | grep -qE '^[1-9][0-9]*\|rgb\(199, 125, 187\)\|rgb\(106, 171, 115\)$' && echo 1)" "响应体按 JSON 上色：键紫、字符串绿（${JC}）"
 
 echo "== < ./body.json、跟重定向、@no-redirect、4xx 标红"
 send 15; done_ 从文件读请求体

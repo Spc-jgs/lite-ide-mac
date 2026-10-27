@@ -22,6 +22,10 @@ export type PartClass =
   | "meta" // IP、方法、状态码之类的附属信息
   | "msg" // 正文
   | "dim" // 分隔符等次要内容
+  | "jkey" // JSON 文档：键（下面三个同编辑器里 JSON 的颜色，theme-idea-dark.ts 的 HIGHLIGHT_SPEC）
+  | "jstr" // JSON 文档：字符串
+  | "jnum" // JSON 文档：数字
+  | "jlit" // JSON 文档：true / false / null
   | "link"; // 堆栈帧里能跳到项目源码的「文件:行号」—— 不是解析器产的，LogView 叠上去的（stack-frame.ts）
 
 export interface Part {
@@ -45,6 +49,7 @@ export type LogFormat =
   | "nginx" // 1.2.3.4 - - [24/Aug/2026:14:03:21 +0800] "GET /x HTTP/1.1" 200 1234
   | "syslog" // Aug 24 14:03:21 host proc[123]: msg
   | "iso" // 2026-08-24T14:03:21.442Z ERROR msg
+  | "jsondoc" // 排好缩进的 JSON 文档（HTTP 响应体）：第一行是 { 或 [，下面是 `  "键": 值,`
   | "plain";
 
 export const FORMAT_LABEL: Record<LogFormat, string> = {
@@ -56,6 +61,7 @@ export const FORMAT_LABEL: Record<LogFormat, string> = {
   nginx: "Nginx / Apache",
   syslog: "syslog",
   iso: "ISO 时间戳",
+  jsondoc: "JSON",
   plain: "纯文本",
 };
 
@@ -123,6 +129,10 @@ export function formatOfLine(line: string): LogFormat | null {
  * 只看一行很容易被带偏。
  */
 export function detectFormat(lines: string[]): LogFormat {
+  // 排好缩进的 JSON 文档（`.http` 的响应体，docs/IDEA.md 第 19 节）：不是一行一条的日志，不投票 ——
+  // 开头单独一个 { / [，下一行是缩进的 `"键":` 或缩进的值。一行一个对象的 JSON 日志开头是 `{"`，碰不上
+  const body = lines.filter((l) => l.trim());
+  if (body.length >= 2 && /^[[{]$/.test(body[0].trim()) && /^\s+("(?:[^"\\]|\\.)*"\s*:|[[{"\d-]|true|false|null)/.test(body[1])) return "jsondoc";
   const votes = new Map<LogFormat, number>();
   let counted = 0;
   for (const line of lines) {
@@ -399,6 +409,29 @@ function parseGeneric(line: string): Segments {
   };
 }
 
+/**
+ * 排好缩进的 JSON 文档的一行：键、字符串、数字、true / false / null、标点各一色（同编辑器里看 .json）。
+ * 按词切，不解析整份（只对看得见的几十行调用，每行单独看）：字符串后面跟着 `:` 的是键
+ */
+const JSON_TOKEN = /"(?:[^"\\]|\\.)*"?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b|\s+|[^"\s\d-]+|./g;
+function parseJsonDoc(line: string): Segments {
+  const parts: Part[] = [];
+  for (const m of line.matchAll(JSON_TOKEN)) {
+    const t = m[0];
+    const end = m.index + t.length;
+    // 标点和空白是正文色（IDEA 里 JSON 的括号、逗号不淡化）
+    let cls: PartClass = "msg";
+    if (t[0] === '"') cls = /^\s*:/.test(line.slice(end)) ? "jkey" : "jstr";
+    else if (/^-?\d/.test(t)) cls = "jnum";
+    else if (t === "true" || t === "false" || t === "null") cls = "jlit";
+    // 相邻同色的并成一段：少画几个 span
+    const last = parts[parts.length - 1];
+    if (last && last.cls === cls) last.text += t;
+    else parts.push({ text: t, cls });
+  }
+  return { lvl: null, stack: false, parts };
+}
+
 const PARSERS: Record<LogFormat, (line: string) => Segments> = {
   java: parseJava,
   python: parsePython,
@@ -408,12 +441,15 @@ const PARSERS: Record<LogFormat, (line: string) => Segments> = {
   nginx: parseNginx,
   syslog: parseSyslog,
   iso: parseIso,
+  jsondoc: parseJsonDoc,
   plain: parseGeneric,
 };
 
 /** 按指定格式解析一行 */
 export function parse(line: string, fmt: LogFormat = "java"): Segments {
   if (line.length === 0) return plain(line);
+  // JSON 文档的每一行都是这一份 JSON 的一部分，没有「堆栈续行」这回事，直接分词
+  if (fmt === "jsondoc") return parseJsonDoc(line);
   // 堆栈续行不属于任何格式，先拦下来
   if (isStackLine(line)) return plain(line, null, true);
   return PARSERS[fmt](line);

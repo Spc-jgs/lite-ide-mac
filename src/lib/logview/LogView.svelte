@@ -480,6 +480,12 @@
   .p[data-cls="key"] { color: var(--lvl-warn); }
   .p[data-cls="meta"] { color: var(--text-dim); }
   .p[data-cls="dim"] { color: var(--text-faint); }
+  /* JSON 文档（HTTP 响应体）：色值同编辑器里看 .json —— theme-idea-dark.ts 的 HIGHLIGHT_SPEC（propertyName / string / number / bool·null）。
+     CSS 引不到那份 TS 常量，改那边要连这里一起改 */
+  .p[data-cls="jkey"] { color: #c77dbb; }
+  .p[data-cls="jstr"] { color: #6aab73; }
+  .p[data-cls="jnum"] { color: #2aacb8; }
+  .p[data-cls="jlit"] { color: #cf8e6d; }
   /*
    * 能跳到项目源码的帧：一直带下划线（IDEA 的控制台也是），不用悬停才出现 ——
    * 一眼扫下来哪几帧是自己的代码，这本身就是信息。跳不了的（jar 里的）不画，所以链接
