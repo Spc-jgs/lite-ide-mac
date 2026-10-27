@@ -10736,3 +10736,13 @@ CRLF 的每行尾巴挂着 `\r`，插进 CM6 时单个 `\r` 也被当成换行�
 和文案无关，没去改；记在这儿：**最前面是访达时这条可能红，先看前台切换记录里是「从谁手里拿走的」**。
 （同日晚些再撞一次，**还是那两段**：⑯ `open -g -a` 送文件、㊴ 欢迎页，都是「从访达手里拿走」。三次 smoke 里两次 —— 不是偶发，是「最前面是访达时」这个条件下稳定出现。
 没查完，先记着：两段的共同点可能是「测试应用开新窗口 / 把窗口排到前面」，访达是前台而且没有窗口时系统把激活交了过来。下一步是在这两段前后用 frontlog 精确到哪一个调用。）
+
+## 2026-10-27 · Spring 配置的值是枚举时也给候选：读那个枚举的类文件，不问 jdtls
+
+G30 第一版留了一个洞：`spring.main.banner-mode` 的类型是 `Banner$Mode`，元数据里没写 `hints`，敲值时什么都不给（IDEA 给 OFF / CONSOLE / LOG）。
+IDEA 是解析那个枚举类。我们也读类文件，但不经过 jdtls：类文件格式是定死的（JVMS 第 4 章），走完常量池、看类的 `ACC_ENUM`、挑带 `ACC_ENUM` 的字段，六十来行；
+问 jdtls 要先等它导入、还要一次往返。`unzip -p` 在 classpath 的 jar 里挨个找那个 `.class`，按类型缓存（找不到的也记着），写值时才问。
+
+测试夹具是 `javac --release 17` 编的两个类文件（tests/fixtures/spring），嵌套枚举里故意放了 static final String（带 ConstantValue 属性，要能跳过）、实例字段、static double；
+改坏成「收所有 static 字段」红两条（多出 NOTE、ratio、`$VALUES`）。截断的类文件任何长度都不崩；截在字段表之后照样拿得到常量 —— 方法表本来就不读，这不是 bug。
+gradle.sh 加一条：真 Spring Boot 4 的 jar，`banner-mode: ` 后敲 C 给 CONSOLE。

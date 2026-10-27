@@ -399,10 +399,16 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
             { name: "spring.datasource.url", ty: "java.lang.String", desc: "JDBC URL of the database.", default: "", deprecated: null, values: [] },
             { name: "spring.datasource.hikari.maximum-pool-size", ty: "java.lang.Integer", desc: "Maximum pool size.", default: "10", deprecated: null, values: [] },
             { name: "spring.main.banner-mode", ty: "org.springframework.boot.Banner$Mode", desc: "Mode used to display the banner when the application runs.", default: "console", deprecated: null, values: [{ value: "off", desc: "Disable printing of the banner." }, { value: "console", desc: "Print the banner to System.out." }, { value: "log", desc: "Print the banner to the log file." }] },
+            // 类型是枚举、元数据没给可选值的（同真的那份）：值的候选要再问 spring_enum
+            { name: "spring.main.web-application-type", ty: "org.springframework.boot.WebApplicationType", desc: "Flag to explicitly request a specific type of web application.", default: "", deprecated: null, values: [] },
             { name: "spring.main.lazy-initialization", ty: "java.lang.Boolean", desc: "Whether initialization should be performed lazily.", default: "false", deprecated: null, values: [] },
             { name: "server.servlet.path", ty: "java.lang.String", desc: "", default: "", deprecated: "spring.mvc.servlet.path", values: [] },
           ]
         : [];
+    /* 枚举的常量（真实现：spring_meta::enum_values，读 classpath 上那个类文件）。桩：认得的一个 */
+    case "spring_enum":
+      await wait(200);
+      return String(a.ty) === "org.springframework.boot.WebApplicationType" ? ["NONE", "SERVLET", "REACTIVE"] : [];
     case "spring_config":
       return springConfig(root, String(a.key));
     case "mybatis_for_java": {

@@ -88,6 +88,21 @@ pub async fn spring_props(app: tauri::AppHandle, window: tauri::Window, root: St
     .await
 }
 
+/// Spring Boot 配置键的值是枚举时（元数据没给 `hints`），那个枚举的常量（`spring_meta::enum_values`）。写值时才问，前端按类型记住
+#[tauri::command]
+pub async fn spring_enum(app: tauri::AppHandle, window: tauri::Window, root: String, path: String, ty: String) -> Result<Vec<String>, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        let java = app.state::<AppState>().java.ensure(&app, &owner, &root).map_err(|s| match s.phase {
+            crate::java::Phase::Failed(w) => w,
+            _ => "此项目不是 Maven / Gradle 项目，或 Java 语言服务器无法启动".into(),
+        })?;
+        let cp = java.classpath(&path, std::time::Duration::from_secs(180))?;
+        Ok(crate::spring_meta::enum_values(&cp, &ty))
+    })
+    .await
+}
+
 /// 跳到定义。位置的行、列从 0 数，列按 UTF-16
 #[tauri::command]
 pub async fn java_definition(app: tauri::AppHandle, root: String, path: String, line: u32, character: u32) -> Result<Vec<JavaLocationDto>, String> {

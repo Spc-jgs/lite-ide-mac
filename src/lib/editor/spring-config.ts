@@ -15,7 +15,7 @@ import { autocompletion, completeAnyWord, type Completion, type CompletionContex
 import { EditorView, hoverTooltip } from "@codemirror/view";
 import { EditorState, type Extension } from "@codemirror/state";
 import type { SpringProp } from "../ipc/commands";
-import { springProps } from "../ipc/java";
+import { springEnum, springProps } from "../ipc/java";
 import { normKey, propsKeyAt, propsSpot, yamlKeyAt, yamlParents, yamlSpot } from "./spring-path";
 
 const loaded = new Map<string, Promise<SpringProp[]>>();
@@ -41,10 +41,30 @@ function info(p: SpringProp): string {
   return lines.join("\n");
 }
 
-function valuesOf(p: SpringProp | undefined): { value: string; desc: string }[] {
+/** 枚举类型的常量，按类型记住（同一个类型在几个文件里只问一次）；出错当没有，下次再问 */
+const enums = new Map<string, Promise<string[]>>();
+function enumOf(root: string, path: string, ty: string): Promise<string[]> {
+  let p = enums.get(ty);
+  if (!p) {
+    p = springEnum(root, path, ty).catch(() => {
+      enums.delete(ty);
+      return [];
+    });
+    enums.set(ty, p);
+  }
+  return p;
+}
+
+/**
+ * 写值时的候选：元数据给了可选值（`hints`）用它的；布尔给 true / false；类型是个类（不是 `java.*`、不带泛型）的，可能是枚举 ——
+ * 问 Rust 读那个类文件拿常量（`spring.main.web-application-type` → NONE / SERVLET / REACTIVE，元数据里没写 hints，IDEA 也是读枚举类）。
+ * Spring 认值时不分大小写、`-` `_` 也宽松，列的是常量原样（同 IDEA）
+ */
+async function valuesOf(root: string, path: string, p: SpringProp | undefined): Promise<{ value: string; desc: string }[]> {
   if (!p) return [];
   if (p.values.length) return p.values;
   if (/^(java\.lang\.)?Boolean$|^boolean$/.test(p.ty)) return [{ value: "true", desc: "" }, { value: "false", desc: "" }];
+  if (/^[a-z][\w$]*(\.[\w$]+)+$/.test(p.ty) && !p.ty.startsWith("java.")) return (await enumOf(root, path, p.ty)).map((value) => ({ value, desc: "" }));
   return [];
 }
 
@@ -82,7 +102,7 @@ function source(root: string, path: string, yaml: boolean) {
       return { from: ctx.pos - spot.typed.length, options, validFor: /^[\w.\-[\]]*$/ };
     }
     const full = normKey(yaml ? `${pre}${spot.key}` : spot.key);
-    const vals = valuesOf(props.find((p) => normKey(p.name) === full));
+    const vals = await valuesOf(root, path, props.find((p) => normKey(p.name) === full));
     if (!vals.length) return null;
     return { from: ctx.pos - spot.typed.length, options: vals.map((v) => ({ label: v.value, info: v.desc || undefined, type: "enum" })), validFor: /^\S*$/ };
   };

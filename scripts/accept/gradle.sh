@@ -206,6 +206,11 @@ lite_eval main "__lite.setText('logging.char'); return true" >/dev/null
 lite_eval main "__lite.type('s'); return true" >/dev/null
 lite_wait main "return __lite.completions().labels.includes('logging.charset.console')" 10 >/dev/null
 ok "$([ "$(lite_eval main "return __lite.completions().labels.includes('logging.charset.console')")" = true ] && echo 1)" "顶层敲 logging.chars：给整个键名：$(lite_eval main "return __lite.completions().labels.slice(0, 3).join(' / ')")"
+# 值是枚举、元数据没给可选值（Banner$Mode）：读 classpath 上 spring-boot.jar 里那个类文件拿常量（spring_meta::enum_values）
+lite_eval main "__lite.setText('spring:\\n  main:\\n    banner-mode: '); __lite.caret(3, 18); __lite.type('C'); return true" >/dev/null
+lite_wait main "return __lite.completions().labels.includes('CONSOLE')" 20 >/dev/null
+EN=$(lite_eval main "return __lite.completions().labels.join(',')")
+ok "$([ "${EN}" = "CONSOLE" ] && echo 1)" "值是枚举（spring.main.banner-mode → Banner\$Mode，元数据里没写可选值）：敲 C 给 CONSOLE：${EN}"
 lite_eval main "__lite.setText('spring:\\n  main:\\n    banner-mode: off\\n'); return true" >/dev/null
 lite menu save main >/dev/null
 lite_wait main "return __lite.tabs.byPath('${Y}')?.dirty === false" 10 >/dev/null

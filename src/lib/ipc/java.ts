@@ -63,6 +63,8 @@ export const javaRename = (root: string, path: string, text: string, line: numbe
 export const javaMoveDestinations = (root: string, path: string) => invoke<JavaMoveDest[]>("java_move_destinations", { root, path });
 /** Spring Boot 配置文件能写的键（读这个文件所在模块 classpath 上的配置元数据；第一次要等 jdtls 导入完） */
 export const springProps = (root: string, path: string) => invoke<SpringProp[]>("spring_props", { root, path });
+/** 配置键的值是枚举时（元数据没给可选值），那个枚举的常量 */
+export const springEnum = (root: string, path: string, ty: string) => invoke<string[]>("spring_enum", { root, path, ty });
 /** 改签名（⌘F6）：光标那个方法现在的签名 */
 export const javaMethodSig = (root: string, path: string, text: string, line: number, character: number) =>
   invoke<JavaMethodSig>("java_method_sig", { root, path, text, line, character });

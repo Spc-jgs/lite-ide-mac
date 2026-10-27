@@ -105,6 +105,94 @@ pub fn collect(entries: &[PathBuf]) -> Vec<Prop> {
     all
 }
 
+/// 一个 `.class` 文件里的枚举常量（按声明次序）；不是枚举给 None。
+///
+/// 为什么要它：元数据只给写了 `hints` 的键列可选值，类型是枚举的（`spring.main.banner-mode` 是 `Banner$Mode`）没写 —— IDEA 是读那个枚举类拿常量。
+/// 不问 jdtls：类文件的格式是定死的（JVMS 第 4 章），常量池走完、看类的 `ACC_ENUM`、再挑带 `ACC_ENUM` 的字段，几十行；问 jdtls 要先等它导入、还要一次往返
+pub fn enum_constants(b: &[u8]) -> Option<Vec<String>> {
+    const ACC_ENUM: u16 = 0x4000;
+    let u2 = |i: usize| -> Option<u16> { Some(u16::from_be_bytes([*b.get(i)?, *b.get(i + 1)?])) };
+    let u4 = |i: usize| -> Option<u32> { Some(u32::from_be_bytes([*b.get(i)?, *b.get(i + 1)?, *b.get(i + 2)?, *b.get(i + 3)?])) };
+    if u4(0)? != 0xCAFE_BABE {
+        return None;
+    }
+    let count = u2(8)? as usize;
+    // 常量池：只记 Utf8 的位置（字段名要从这儿取），别的按类型跳过
+    let mut utf8: HashMap<usize, (usize, usize)> = HashMap::new();
+    let (mut i, mut k) = (10usize, 1usize);
+    while k < count {
+        let tag = *b.get(i)?;
+        let (len, slots) = match tag {
+            1 => (3 + u2(i + 1)? as usize, 1),
+            3 | 4 | 9 | 10 | 11 | 12 | 17 | 18 => (5, 1),
+            5 | 6 => (9, 2),
+            7 | 8 | 16 | 19 | 20 => (3, 1),
+            15 => (4, 1),
+            _ => return None,
+        };
+        if tag == 1 {
+            utf8.insert(k, (i + 3, len - 3));
+        }
+        i += len;
+        k += slots;
+    }
+    if u2(i)? & ACC_ENUM == 0 {
+        return None;
+    }
+    i += 6; // access_flags、this_class、super_class
+    i += 2 + 2 * u2(i)? as usize; // interfaces
+    let fields = u2(i)?;
+    i += 2;
+    let mut out = Vec::new();
+    for _ in 0..fields {
+        let (flags, name) = (u2(i)?, u2(i + 2)? as usize);
+        let attrs = u2(i + 6)?;
+        i += 8;
+        for _ in 0..attrs {
+            i += 6 + u4(i + 2)? as usize;
+        }
+        if flags & ACC_ENUM != 0 {
+            let (s, n) = *utf8.get(&name)?;
+            out.push(String::from_utf8_lossy(b.get(s..s + n)?).into_owned());
+        }
+    }
+    Some(out)
+}
+
+static ENUMS: Mutex<Option<HashMap<String, Vec<String>>>> = Mutex::new(None);
+
+/// 类型 `ty`（元数据里的写法：`org.springframework.boot.Banner$Mode`，嵌套类用 `$`）的枚举常量；找不到、不是枚举给空的。
+/// 按类型缓存（找不到的也记着）：一个类型要在几十个 jar 里挨个找，第一次几百毫秒，之后不再找。JDK 自己的类型（`java.*`）不找 —— 不在 classpath 的 jar 里
+pub fn enum_values(entries: &[PathBuf], ty: &str) -> Vec<String> {
+    if ty.starts_with("java.") || !ty.contains('.') || ty.contains(['<', '[']) {
+        return Vec::new();
+    }
+    if let Some(v) = ENUMS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(ty)) {
+        return v.clone();
+    }
+    let rel = format!("{}.class", ty.replace('.', "/"));
+    let mut found = Vec::new();
+    for e in entries {
+        let bytes = if e.is_dir() {
+            std::fs::read(e.join(&rel)).ok()
+        } else if e.extension().is_some_and(|x| x == "jar") {
+            let mut c = std::process::Command::new("/usr/bin/unzip");
+            c.arg("-p").arg(e).arg(&rel);
+            // 一个类文件几 KB 到几十 KB；没有这个条目 unzip 退 11，不算错
+            procutil::run_capped(&mut c, 4 << 20, procutil::ERR_CAP, procutil::Overflow::Kill).ok().filter(|o| o.status.success() && !o.truncated).map(|o| o.stdout)
+        } else {
+            None
+        };
+        // 找到了这个类就停：是枚举拿常量，不是枚举（`Duration`、`DataSize` 这种）就是空的
+        if let Some(b) = bytes {
+            found = enum_constants(&b).unwrap_or_default();
+            break;
+        }
+    }
+    ENUMS.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(ty.to_string(), found.clone());
+    found
+}
+
 /// 是不是 Spring Boot 的配置文件（补全只挂在这几种上）：`application*` / `bootstrap*` 的 yml、yaml、properties
 pub fn is_config(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
@@ -114,6 +202,7 @@ pub fn is_config(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     /// spring-boot-autoconfigure 4.0 那份的样子（节选，字段原样）
     const META: &str = r#"{
@@ -138,6 +227,44 @@ mod tests {
         assert_eq!(p[2].deprecated.as_deref(), Some("spring.mvc.servlet.path"));
         assert_eq!(p[0].deprecated, None);
         assert!(parse("不是 JSON").is_empty());
+    }
+
+    /// tests/fixtures/spring 下两个类文件：`javac --release 17` 编的（源码在注释里），Banner$Mode 是嵌套枚举，带一个 static final String（ConstantValue 属性）、
+    /// 一个实例字段、一个 static double —— 都不是枚举常量
+    const MODE: &[u8] = include_bytes!("../tests/fixtures/spring/Banner-Mode.class");
+    const NOT_ENUM: &[u8] = include_bytes!("../tests/fixtures/spring/Banner.class");
+
+    #[test]
+    fn 枚举常量_照声明次序_别的字段不算_不是枚举给_none_坏的不崩() {
+        assert_eq!(enum_constants(MODE), Some(vec!["OFF".to_string(), "CONSOLE".to_string(), "LOG".to_string()]));
+        assert_eq!(enum_constants(NOT_ENUM), None, "普通类（有 static final 字段）不是枚举");
+        assert_eq!(enum_constants(b"not a class"), None);
+        // 任何长度截断都不崩；截在常量池 / 字段表里给 None（字段表之后的方法表不读，截在那儿照样拿得到常量）
+        for n in 0..MODE.len() {
+            let _ = enum_constants(&MODE[..n]);
+        }
+        for n in [4, 10, 100, 400] {
+            assert_eq!(enum_constants(&MODE[..n]), None, "截断在 {n} 字节：给 None");
+        }
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
+    fn 枚举的值_在目录和_jar_里都找得到_jdk_的类型不找() {
+        let d = std::env::temp_dir().join(format!("lite-spring-enum-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("classes/demo")).unwrap();
+        std::fs::write(d.join("classes/demo/Banner$Mode.class"), MODE).unwrap();
+        let want = vec!["OFF".to_string(), "CONSOLE".to_string(), "LOG".to_string()];
+        assert_eq!(enum_values(&[d.join("nothing.jar"), d.join("classes")], "demo.Banner$Mode"), want, "输出目录里的");
+        // jar 里的（同 spring-boot.jar 里的 Banner$Mode）：换个包名，免得撞上上一条的缓存
+        std::fs::create_dir_all(d.join("j/other")).unwrap();
+        std::fs::write(d.join("j/other/Banner$Mode.class"), MODE).unwrap();
+        assert!(Command::new("/usr/bin/zip").arg("-qr").arg(d.join("lib.jar")).arg("other").current_dir(d.join("j")).status().unwrap().success());
+        assert_eq!(enum_values(&[d.join("classes"), d.join("lib.jar")], "other.Banner$Mode"), want, "jar 里的");
+        assert!(enum_values(&[d.join("lib.jar")], "java.time.Duration").is_empty(), "JDK 的类型不找");
+        assert!(enum_values(&[d.join("lib.jar")], "other.Nope").is_empty(), "找不到给空的");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
