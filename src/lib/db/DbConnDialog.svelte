@@ -18,7 +18,7 @@
 
   // 编辑的是打开那一刻的一份拷贝：取消就是什么都不动（`untrack`：有意只取初值）
   const init = untrack(() => conn);
-  let c = $state<DbConn>(init ? { ...init } : { id: "", name: "", kind: "mysql", host: "localhost", port: 3306, database: "", user: "root", url: "", hasPassword: false });
+  let c = $state<DbConn>(init ? { ...init } : { id: "", name: "", kind: "mysql", host: "localhost", port: 3306, database: "", user: "root", url: "", hasPassword: false, prod: false });
   let password = $state("");
   let busy = $state(false);
   let result = $state<{ ok: boolean; text: string } | null>(null);
@@ -127,6 +127,11 @@
       <span class="lab">URL</span>
       <input class="field mono" spellcheck="false" placeholder={isH2 ? "jdbc:h2:~/data/app" : "可选：自定义 JDBC URL（填写后忽略主机和端口）"} bind:value={c.url} />
     </label>
+    <label class="row check">
+      <span class="lab"></span>
+      <input type="checkbox" bind:checked={c.prod} />
+      <span>生产环境<span class="hint">：执行修改数据的语句前确认，并显示受影响的行数</span></span>
+    </label>
     {#if result}<p class="result" class:bad={!result.ok}>{result.text}</p>{/if}
     <p class="note">首次连接某种数据库时，将从 Maven Central 下载对应驱动并校验后使用。连接配置保存在本机，不写入项目。</p>
     <div class="actions">
@@ -154,4 +159,6 @@
   .result.bad { color: var(--lvl-error); }
   .note { margin: 0; font-size: var(--fs-sm); color: var(--text-faint); }
   .why { font-size: var(--fs-sm); color: var(--text-muted); white-space: nowrap; }
+  .check { font-size: var(--fs-md); color: var(--text); }
+  .check .hint { color: var(--text-faint); font-size: var(--fs-sm); }
 </style>

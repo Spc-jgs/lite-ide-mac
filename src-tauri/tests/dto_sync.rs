@@ -78,6 +78,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("DbColDto", "DbCol"),
     ("DbResultDto", "DbResult"),
     ("DbHistDto", "DbHist"),
+    ("DbExportDto", "DbExport"),
     ("SpringInjectDto", "SpringInject"),
     ("ReplaceHitDto", "ReplaceHit"),
     ("ReplaceFileDto", "ReplaceFile"),

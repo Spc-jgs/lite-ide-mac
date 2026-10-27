@@ -303,6 +303,9 @@ pub struct DbConnDto {
     /// 钥匙串里存了密码没有（只读，存的时候忽略）
     #[serde(default)]
     pub has_password: bool,
+    /// 生产库：执行改数据的语句前先确认
+    #[serde(default)]
+    pub prod: bool,
 }
 
 /// 连上之后数据库报的自己
@@ -357,6 +360,15 @@ pub struct DbResultDto {
     pub ms: u64,
     /// 下一批要带着它取；同一连接又跑了新查询，旧的就作废了
     pub cursor: u64,
+}
+
+/// 导出完了（`db_export`）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbExportDto {
+    pub rows: u64,
+    pub bytes: u64,
+    pub ms: u64,
 }
 
 /// 查询历史的一条（`db_history`），最近的在前

@@ -6,9 +6,16 @@
    * 列宽按列名和第一批里的字数估一次（之后不再变 —— 滚着滚着列宽跳，眼睛就跟丢了）。
    * 格子用等宽字（ui.md 八之二：原样的数据）；NULL 画成灰的 `<null>`，和空串分得开；数字右对齐。
    * 选中按行：单击选一行、⇧ 单击连选、↑↓ 挪；⌘C 复制成制表符分隔（贴进表格软件就是一行一行）
+   *
+   * 「导出」（DB-3）：CSV / JSON / INSERT，导出的是**整条查询的全部结果**、不是已经取到界面上的那几批 —— 边车把这条 SQL 再跑一遍、直接写盘，
+   * 几百万行也不经过这里。进度在状态栏的进度格（ui.md 十一：后台在跑的只画在那一格），点那一格的取消就停
    */
   import Icon from "../shell/Icon.svelte";
+  import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
+  import { revealInFinder } from "../ipc/commands";
+  import { dbCancel, dbExport, pickExportPath } from "../ipc/db";
   import { notify } from "../state/notify.svelte";
+  import { progress } from "../state/progress.svelte";
   import { results, type DbRes } from "./results.svelte";
 
   let { r }: { r: DbRes } = $props();
@@ -82,6 +89,36 @@
     }
   }
 
+  let menu = $state<{ x: number; y: number } | null>(null);
+  let exporting = $state(false);
+  /** 导出成 INSERT 时用的表名：语句里最外层 FROM 后面那个（认不出就是 t，导出完自己改） */
+  const tableOf = (sql: string) => /\bfrom\s+([A-Za-z0-9_$."`]+)/i.exec(sql)?.[1] ?? "t";
+  const FORMATS: { f: "csv" | "json" | "sql"; label: string; ext: string }[] = [
+    { f: "csv", label: "CSV", ext: "csv" },
+    { f: "json", label: "JSON", ext: "json" },
+    { f: "sql", label: "SQL INSERT 语句", ext: "sql" },
+  ];
+  const menuItems = $derived<MenuItem[]>(FORMATS.map((x) => ({ label: `导出为 ${x.label}…`, run: () => void exportAs(x.f, x.ext) })));
+
+  async function exportAs(format: "csv" | "json" | "sql", ext: string) {
+    const table = tableOf(r.sql);
+    const path = await pickExportPath(r.root, `${table.replace(/[`"]/g, "").split(".").pop() || "result"}.${ext}`).catch(() => null);
+    if (!path) return;
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    exporting = true;
+    const task = progress.start(`正在导出 ${name}`, { cancel: () => void dbCancel(r.root, r.conn).catch(() => {}) });
+    try {
+      const done = await dbExport(r.root, r.conn, r.sql, path, format, table);
+      const mb = done.bytes >= 1 << 20 ? `${(done.bytes / (1 << 20)).toFixed(1)} MB` : `${Math.ceil(done.bytes / 1024)} KB`;
+      notify.ok(`已导出 ${done.rows.toLocaleString("en-US")} 行到 ${name}（${mb}，${done.ms} ms）`, 10_000, { label: "在访达中显示", run: () => void revealInFinder(path) });
+    } catch (e) {
+      notify.fail(`导出失败：${String(e)}`);
+    } finally {
+      task.end();
+      exporting = false;
+    }
+  }
+
   const status = $derived.by(() => {
     if (r.status === "running") return "";
     if (r.status === "cancelled") return r.error.startsWith("前一条") ? r.error : `已取消 · ${r.ms} ms`;
@@ -107,6 +144,17 @@
     {#if r.status === "running"}
       <button class="ibtn" onclick={() => results.cancel(r)} title="取消执行" aria-label="取消执行"><Icon name="stop" /></button>
     {:else}
+      {#if r.kind === "rows" && r.cols.length}
+        <button
+          class="btn sm quiet"
+          class:busy={exporting}
+          disabled={exporting}
+          onclick={(e) => {
+            const b = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            menu = { x: b.left, y: b.bottom + 2 };
+          }}
+          title="将全部结果导出为文件（重新执行此查询，直接写入文件）">导出…</button>
+      {/if}
       <button class="ibtn" onclick={() => results.rerun(r)} title="重新运行" aria-label="重新运行"><Icon name="rerun" /></button>
     {/if}
   </div>
@@ -144,6 +192,10 @@
     </div>
   {/if}
 </div>
+
+{#if menu}
+  <ContextMenu x={menu.x} y={menu.y} label="导出格式" items={menuItems} onclose={() => (menu = null)} />
+{/if}
 
 <style>
   .dbres { display: flex; flex-direction: column; height: 100%; min-height: 0; }

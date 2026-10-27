@@ -900,6 +900,8 @@ export interface DbConn {
   url: string;
   /** 钥匙串里存了密码没有 */
   hasPassword: boolean;
+  /** 生产库：执行改数据的语句前先确认 */
+  prod: boolean;
 }
 
 /** 连上之后数据库报的自己 */
@@ -941,6 +943,13 @@ export interface DbResult {
   count: number | null;
   ms: number;
   cursor: number;
+}
+
+/** 导出完了 */
+export interface DbExport {
+  rows: number;
+  bytes: number;
+  ms: number;
 }
 
 /** 查询历史的一条（最近的在前） */

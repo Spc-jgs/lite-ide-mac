@@ -4,6 +4,10 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
@@ -31,7 +35,7 @@ import java.util.concurrent.Executors;
  * 驱动按 jar 装：同一组 jar 一个 ClassLoader，直接调 {@link Driver#connect} —— DriverManager 只认它自己的 ClassLoader 装进来的驱动，
  * 别的 ClassLoader 里的驱动它看不见（JDBC 的老规矩，DBeaver、IDEA 也是绕开它）。
  *
- * 连接和表结构：connect / meta / close / ping（DB-1）；查询：query / fetch / cancel / closeCursor（DB-2）。
+ * 连接和表结构：connect / meta / close / ping（DB-1）；查询：query / fetch / cancel / closeCursor（DB-2）；导出、单值查询：export / scalar（DB-3）。
  *
  * 查询的结果不一次取完（docs/DATABASE.md 第 3 节）：开着的 ResultSet 当游标留在这里，界面滚到底再要下一批。
  * **一个连接最多一个开着的游标**：新查询先关掉上一个 —— 结果标签可以开很多个，但每个开着的游标在 MySQL / PostgreSQL 那边都攥着资源
@@ -49,6 +53,8 @@ public final class Main {
     /** 一格最多给界面多少字：CLOB / 大 JSON 列一格几 MB，表格里只看得见开头 */
     private static final int CELL_CHARS = 10_000;
     private static long nextCursor = 1;
+    /** 正在导出的语句（按连接）：取消时一起停。导出不占「一个连接一个游标」那个位置 —— 你正在看的结果导出完还能接着往下滚 */
+    private static final Map<String, Statement> EXPORTS = new ConcurrentHashMap<>();
 
     /** 一条查询：语句、结果（没有结果集的语句 rs 是 null）、PostgreSQL 为分批取临时关掉的自动提交 */
     private static final class Cursor {
@@ -97,6 +103,8 @@ public final class Main {
                 case "fetch": result = fetch(p); break;
                 case "cancel": result = cancel(p); break;
                 case "closeCursor": closeCursor(str(p, "conn")); result = Boolean.TRUE; break;
+                case "export": result = export(p); break;
+                case "scalar": result = scalar(p); break;
                 default: throw new IllegalArgumentException("未知的方法：" + method);
             }
             reply(id, result, null);
@@ -154,6 +162,9 @@ public final class Main {
         Properties props = new Properties();
         // MySQL 不开这个就把整个结果读进内存再给第一行（setFetchSize 只在它开着时生效）；URL 里自己写了的不盖
         if (str(p, "driver").startsWith("com.mysql.") && !str(p, "url").contains("useCursorFetch")) props.setProperty("useCursorFetch", "true");
+        // H2 同理：默认把整个结果算进内存才给第一行（十万乘十万的交叉连接直接把堆撑爆、连库一起关掉 —— 2026-10-27 探针撞的）。
+        // 懒执行是边取边算；URL 里自己写了的不盖
+        if (str(p, "driver").startsWith("org.h2.") && !str(p, "url").toUpperCase().contains("LAZY_QUERY_EXECUTION")) props.setProperty("LAZY_QUERY_EXECUTION", "TRUE");
         if (str(p, "user") != null) props.setProperty("user", str(p, "user"));
         if (str(p, "password") != null) props.setProperty("password", str(p, "password"));
         Connection c = d.connect(str(p, "url"), props);
@@ -389,14 +400,16 @@ public final class Main {
     }
 
     private static Object cancel(Map<String, Object> p) {
+        // 驱动不支持取消、或者语句刚好跑完：没什么可做的，界面照样把这个结果标成已取消
         Cursor cur = CURSORS.get(str(p, "conn"));
-        if (cur == null) return Boolean.FALSE;
-        try {
-            cur.st.cancel();
-        } catch (SQLException ignored) {
-            // 驱动不支持取消、或者语句刚好跑完：没什么可做的，界面照样把这个结果标成已取消
+        if (cur != null) {
+            try { cur.st.cancel(); } catch (SQLException ignored) {}
         }
-        return Boolean.TRUE;
+        Statement ex = EXPORTS.get(str(p, "conn"));
+        if (ex != null) {
+            try { ex.cancel(); } catch (SQLException ignored) {}
+        }
+        return cur != null || ex != null;
     }
 
     /**
@@ -424,6 +437,118 @@ public final class Main {
                     c.setAutoCommit(true);
                 }
             } catch (SQLException ignored) {}
+        }
+    }
+
+    /**
+     * 把一条查询的结果整个写进文件（docs/DATABASE.md 第 3 节：边车直接写盘、不经过 IPC，几百万行也不撑内存）。
+     * 先写 `<path>.part`，写完再改名过去：中途取消、出错，原来那个文件（保存面板里确认过覆盖的）不会只剩半截。
+     * 格子不截短（表格里那个一万字的上限只管显示），NULL：CSV 是空、JSON 是 null、INSERT 是 NULL
+     */
+    private static Object export(Map<String, Object> p) throws Exception {
+        String key = str(p, "conn");
+        Connection c = conn(p);
+        String sql = str(p, "sql");
+        String format = str(p, "format");
+        Path out = Path.of(str(p, "path"));
+        Path part = out.resolveSibling(out.getFileName() + ".part");
+        long t0 = System.nanoTime();
+        long rows = 0;
+        boolean restore = false;
+        Statement st = c.createStatement();
+        EXPORTS.put(key, st);
+        try {
+            st.setFetchSize(BATCH);
+            // 同 query：PostgreSQL 只在事务里分批取。已经在事务里（结果标签开着游标）就不碰，提交会把那个游标一起关掉
+            if (c.getAutoCommit() && c.getMetaData().getDatabaseProductName().toLowerCase().contains("postgres") && readsOnly(sql)) {
+                c.setAutoCommit(false);
+                restore = true;
+            }
+            try (ResultSet rs = st.executeQuery(sql); Writer w = Files.newBufferedWriter(part, StandardCharsets.UTF_8)) {
+                ResultSetMetaData md = rs.getMetaData();
+                int n = md.getColumnCount();
+                String[] names = new String[n];
+                int[] types = new int[n];
+                for (int i = 0; i < n; i++) {
+                    names[i] = md.getColumnLabel(i + 1);
+                    types[i] = md.getColumnType(i + 1);
+                }
+                String table = str(p, "table");
+                if ("csv".equals(format)) {
+                    for (int i = 0; i < n; i++) w.write((i > 0 ? "," : "") + csv(names[i]));
+                    w.write("\r\n");
+                } else if ("json".equals(format)) {
+                    w.write("[");
+                }
+                while (rs.next()) {
+                    String[] v = new String[n];
+                    for (int i = 0; i < n; i++) v[i] = full(rs, i + 1, types[i]);
+                    if ("csv".equals(format)) {
+                        for (int i = 0; i < n; i++) w.write((i > 0 ? "," : "") + (v[i] == null ? "" : csv(v[i])));
+                        w.write("\r\n");
+                    } else if ("json".equals(format)) {
+                        Map<String, Object> o = new LinkedHashMap<>();
+                        for (int i = 0; i < n; i++) o.put(names[i], v[i]);
+                        w.write((rows > 0 ? ",\n" : "\n") + Json.write(o));
+                    } else {
+                        StringBuilder b = new StringBuilder("INSERT INTO ").append(table == null || table.isBlank() ? "t" : table).append(" (");
+                        for (int i = 0; i < n; i++) b.append(i > 0 ? ", " : "").append(names[i]);
+                        b.append(") VALUES (");
+                        for (int i = 0; i < n; i++) b.append(i > 0 ? ", " : "").append(v[i] == null ? "NULL" : numeric(types[i]) ? v[i] : "'" + v[i].replace("'", "''") + "'");
+                        w.write(b.append(");\n").toString());
+                    }
+                    rows++;
+                }
+                if ("json".equals(format)) w.write(rows > 0 ? "\n]\n" : "]\n");
+            }
+            Files.move(part, out, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (Exception e) {
+            Files.deleteIfExists(part);
+            throw e;
+        } finally {
+            EXPORTS.remove(key, st);
+            try { st.close(); } catch (SQLException ignored) {}
+            if (restore) {
+                try { c.commit(); c.setAutoCommit(true); } catch (SQLException ignored) {}
+            }
+        }
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("rows", rows);
+        r.put("bytes", Files.size(out));
+        r.put("ms", (System.nanoTime() - t0) / 1_000_000L);
+        return r;
+    }
+
+    /** 导出用的一格：同 {@link #cell}，但不截短 */
+    private static String full(ResultSet rs, int i, int type) throws SQLException {
+        if (type == Types.BINARY || type == Types.VARBINARY || type == Types.LONGVARBINARY || type == Types.BLOB) {
+            byte[] b = rs.getBytes(i);
+            if (b == null) return null;
+            StringBuilder h = new StringBuilder("0x");
+            for (byte x : b) h.append(String.format("%02X", x));
+            return h.toString();
+        }
+        return rs.getString(i);
+    }
+
+    /** RFC 4180：有逗号、引号、换行的才加引号，引号写两遍 */
+    private static String csv(String v) {
+        if (v.indexOf(',') < 0 && v.indexOf('"') < 0 && v.indexOf('\n') < 0 && v.indexOf('\r') < 0) return v;
+        return '"' + v.replace("\"", "\"\"") + '"';
+    }
+
+    /**
+     * 一条查询的第一行第一格（生产库保护：先数一数「这条 UPDATE / DELETE 会动几行」）。
+     * 有时限（`seconds`）：生产库上一个没索引的 COUNT 可能扫很久，数不出来就说数不出来，不能让确认框一直转着
+     */
+    private static Object scalar(Map<String, Object> p) throws SQLException {
+        Connection c = conn(p);
+        try (Statement st = c.createStatement()) {
+            Object sec = p.get("seconds");
+            if (sec instanceof Number) st.setQueryTimeout(((Number) sec).intValue());
+            try (ResultSet rs = st.executeQuery(str(p, "sql"))) {
+                return rs.next() ? rs.getString(1) : null;
+            }
         }
     }
 }

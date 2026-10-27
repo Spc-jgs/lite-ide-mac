@@ -30,10 +30,10 @@ const flashField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-/** 连接名（结果标签、历史上要写）：配置里查，查不到用 id */
-async function nameOf(root: string, conn: string): Promise<string> {
-  const list = await dbList(root).catch(() => []);
-  return list.find((c) => c.id === conn)?.name ?? conn;
+/** 连接的名字（结果标签、历史上要写）和是不是生产库：每次执行时现查配置（对话框里刚改的当场生效），查不到用 id */
+async function infoOf(root: string, conn: string): Promise<{ name: string; prod: boolean }> {
+  const c = (await dbList(root).catch(() => [])).find((x) => x.id === conn);
+  return { name: c?.name ?? conn, prod: c?.prod ?? false };
 }
 
 async function run(root: string, conn: string, view: EditorView) {
@@ -46,12 +46,12 @@ async function run(root: string, conn: string, view: EditorView) {
   }
   view.dispatch({ effects: setFlash.of({ from: stmts[0].from, to: stmts[stmts.length - 1].to }) });
   setTimeout(() => view.dispatch({ effects: setFlash.of(null) }), 700);
-  const [name, { results }] = await Promise.all([nameOf(root, conn), import("../db/results.svelte")]);
-  await results.run(root, conn, name, stmts.map((s) => s.sql));
+  const [{ name, prod }, { results }] = await Promise.all([infoOf(root, conn), import("../db/results.svelte")]);
+  await results.run(root, conn, name, stmts.map((s) => s.sql), prod);
 }
 
 function history(root: string, conn: string, view: EditorView) {
-  void Promise.all([nameOf(root, conn), import("../db/HistoryPopup.svelte")]).then(([name, m]) => {
+  void Promise.all([infoOf(root, conn), import("../db/HistoryPopup.svelte")]).then(([{ name }, m]) => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const close = () => {
@@ -89,7 +89,11 @@ function bar(root: string, conn: string) {
     const who = document.createElement("span");
     who.className = "who";
     who.textContent = "数据库控制台";
-    void nameOf(root, conn).then((n) => (who.textContent = n));
+    // 生产库：顶上这一条整条染红、名字后面写「生产」（DATABASE.md 第 4 节：一眼看得出连的是哪种库）
+    void infoOf(root, conn).then(({ name, prod }) => {
+      who.textContent = prod ? `${name} · 生产` : name;
+      dom.classList.toggle("prod", prod);
+    });
     const btn = (label: string, title: string, f: () => void) => {
       const b = document.createElement("button");
       b.className = "btn sm quiet";
@@ -137,6 +141,8 @@ export function sqlConsole(root: string | null, path: string): Extension {
       ".cm-sql-bar": { display: "flex", alignItems: "center", gap: "4px", height: "34px", padding: "0 10px", borderBottom: "1px solid var(--border-soft)", fontFamily: "var(--ui-font)", fontSize: "var(--fs-sm)", color: "var(--text-dim)" },
       ".cm-sql-bar .who": { marginRight: "6px", color: "var(--text)", fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
       ".cm-sql-bar .keys": { marginLeft: "auto", color: "var(--text-faint)", fontSize: "var(--fs-xs)", whiteSpace: "nowrap" },
+      ".cm-sql-bar.prod": { background: "color-mix(in srgb, var(--lvl-error) 14%, transparent)" },
+      ".cm-sql-bar.prod .who": { color: "var(--lvl-error)" },
       ".cm-sql-running": { background: "color-mix(in srgb, var(--accent) 22%, transparent)" },
     }),
   ];

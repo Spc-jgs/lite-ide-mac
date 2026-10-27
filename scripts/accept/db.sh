@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 数据库客户端 DB-1 / DB-2（docs/DATABASE.md）的真 .app 验收，走测试通道（scripts/lib/bridge.sh）：不发全局按键、不抢焦点。
+# 数据库客户端 DB-1 / DB-2 / DB-3（docs/DATABASE.md）的真 .app 验收，走测试通道（scripts/lib/bridge.sh）：不发全局按键、不抢焦点。
 # 先 scripts/build-test-app.sh 打一份测试 .app（要带内置的 Java 和 lite-db.jar：scripts/java-bundle.sh 准备的）。
 #
 # 用 H2 的内存库（不要数据库服务器）：连接串里 INIT=RUNSCRIPT 让 H2 连上时自己建表。
@@ -35,6 +35,9 @@ INIT="${LITE_WORK}/init.sql"
 # INIT 每次连都跑（内存库 DB_CLOSE_DELAY=-1 一直在）：测试连接建过一次、点开树又连一次 —— 写成 if not exists
 printf "create schema if not exists shop;\ncreate table if not exists shop.orders(id bigint primary key, amount decimal(12,2) not null, note varchar(200));\ncomment on table shop.orders is '订单';\n" > "${INIT}"
 URL="jdbc:h2:mem:acc;DB_CLOSE_DELAY=-1;INIT=RUNSCRIPT FROM '${INIT}'"
+# 导出时的保存面板：测试构建里 LITE_SAVE_PATH 就是「选好的路径」（原生面板是真窗口，测试通道点不了）
+export LITE_SAVE_PATH="${LITE_WORK}/导出/big.csv"
+mkdir -p "${LITE_WORK}/导出"
 BEFORE=$(cd "${P}" && find . -type f | sort | md5)
 
 lite_clean_data
@@ -139,6 +142,65 @@ echo "== 历史：每条都记，失败、取消也记；不进项目"
 H=$(inv "'db_history', { id: '${ID}' }")
 ok "$(echo "${H}" | python3 -c 'import json,sys; h=json.load(sys.stdin); s=[x["sql"][:12] for x in h]; print(1 if len(h)>=4 and s[0].startswith("select 1") and any(not x["ok"] and x["sql"].startswith("select count") for x in h) else 0)')" "历史 $(echo "${H}" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))') 条，最近的在前、取消的那条记成失败"
 ok "$([ -f "${LITE_DATA}/db/history/${ID}.jsonl" ] && ! grep -q s3cret "${LITE_DATA}/db/history/${ID}.jsonl" && echo 1)" "历史在应用数据目录 db/history/<连接>.jsonl，里面没有密码"
+
+echo "== 执行前确认（DB-3）：生产库改数据先问、说清动几行；答「取消」一行都不动"
+inv "'db_save', { root: '${P}', conn: { ...${CONN}, id: '${ID}', prod: true }, password: null }" >/dev/null
+GUARD_TEXT=$(cat <<'EOF'
+delete from big where id <= 10;
+
+update big set name = 'x';
+
+select * from big order by id;
+EOF
+)
+lite_eval main "__lite.setText($(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "${GUARD_TEXT}")); return true" >/dev/null
+COUNT_BIG='const q = await __lite.dbResults(); await q.run(q.active.root, q.active.conn, "x", ["select count(*) from big"]); return q.active.rows[0][0]'
+run_line 1
+lite_wait main "return !!document.querySelector('.dbconfirm') && !document.querySelector('.dbconfirm .spinner')" 10 >/dev/null
+DLG=$(lite_eval main "return document.querySelector('.dbconfirm .title').textContent + ' | ' + [...document.querySelectorAll('.dbconfirm .what')].map((e) => e.textContent.trim()).join(' / ') + ' | 默认：' + document.activeElement?.textContent")
+ok "$(echo "${DLG}" | grep -q '在生产库「验收 H2」上执行？' && echo "${DLG}" | grep -q '将删除 big 中的 10 行' && echo "${DLG}" | grep -q '默认：取消' && echo 1)" "生产库上 DELETE 先问、数出来的行数对、默认按钮是取消：${DLG}"
+lite_eval main "[...document.querySelectorAll('.dbconfirm button')].find((b) => b.textContent === '取消').click(); return true" >/dev/null
+sleep 0.5
+ok "$([ "$(lite_eval main "${COUNT_BIG}")" = 100000 ] && echo 1)" "答「取消」：一行都没删（还是 100000 行）"
+run_line 1
+lite_wait main "return !!document.querySelector('.dbconfirm') && !document.querySelector('.dbconfirm .spinner')" 10 >/dev/null
+lite_eval main "[...document.querySelectorAll('.dbconfirm button')].find((b) => b.textContent === '执行').click(); return true" >/dev/null
+lite_wait main "${Q} return !!a && a.sql.startsWith('delete') && a.status !== 'running'" 15 >/dev/null
+ok "$([ "$(lite_eval main "${Q} return a.status + ':' + a.count")" = done:10 ] && [ "$(lite_eval main "${COUNT_BIG}")" = 99990 ] && echo 1)" "答「执行」：删了 10 行，和确认框里数的一样（剩 99990）"
+inv "'db_save', { root: '${P}', conn: { ...${CONN}, id: '${ID}', prod: false }, password: null }" >/dev/null
+run_line 3
+lite_wait main "return !!document.querySelector('.dbconfirm') && !document.querySelector('.dbconfirm .spinner')" 10 >/dev/null
+DLG2=$(lite_eval main "return (document.querySelector('.dbconfirm .title')?.textContent ?? '没有对话框') + ' | ' + [...document.querySelectorAll('.dbconfirm .what')].map((e) => e.textContent.trim()).join(' / ')")
+ok "$(echo "${DLG2}" | grep -q '执行不带 WHERE 条件的语句？' && echo "${DLG2}" | grep -q '全部 99,990 行' && echo 1)" "不是生产库：不带 WHERE 的 UPDATE 照样先问：${DLG2}"
+lite_eval main "[...document.querySelectorAll('.dbconfirm button')].find((b) => b.textContent === '取消').click(); return true" >/dev/null
+sleep 0.3
+
+echo "== 导出（DB-3）：整条查询的全部结果、边车直接写盘；取消了原文件不动"
+run_line 5
+lite_wait main "${Q} return !!a && a.sql.startsWith('select * from big') && a.status === 'done'" 15 >/dev/null
+lite_eval main "[...document.querySelectorAll('.dbres .bar button')].find((b) => b.textContent.includes('导出')).click(); return true" >/dev/null
+lite_wait main "return !!document.querySelector('[role=menuitem]')" 5 >/dev/null
+lite_eval main "[...document.querySelectorAll('[role=menuitem]')].find((x) => x.textContent.includes('CSV')).click(); return true" >/dev/null
+OUT="${LITE_SAVE_PATH}"
+wait_for 30 '[ -f "${OUT}" ]'
+lite_wait main "return __lite.notify.log.some((x) => x.text.startsWith('已导出'))" 30 >/dev/null
+ok "$([ "$(wc -l < "${OUT}" | tr -d ' ')" = 99991 ] && [ "$(head -1 "${OUT}" | tr -d '\r')" = "ID,NAME,AMT,MAYBE" ] && [ ! -e "${OUT}.part" ] && echo 1)" "点「导出…」→ CSV：$(wc -l < "${OUT}" | tr -d ' ') 行（表头 + 99990）、表头 $(head -1 "${OUT}" | tr -d '\r')、没留 .part（取到界面上的只有 $(lite_eval main "${Q} return a.rows.length") 行，导出的是全部）"
+# 1–10 删掉了：第 2 行是 id 11，第 5 行是 id 14（14 能被 7 整除，MAYBE 是 NULL）
+ok "$(sed -n 5p "${OUT}" | tr -d '\r' | grep -qx '14,n-14,21.00,' && echo 1)" "NULL 导出成空、DECIMAL 照原样：id 14 那行 $(sed -n 5p "${OUT}" | tr -d '\r')"
+ok "$(lite_eval main "return __lite.notify.log.findLast((x) => x.text.startsWith('已导出'))?.text ?? ''" | grep -q '99,990 行到 big.csv' && echo 1)" "说出导出了几行、到哪：$(lite_eval main "return __lite.notify.log.findLast((x) => x.text.startsWith('已导出'))?.text ?? ''")"
+PID_DB=$(pgrep -f lite-db.jar | head -1)
+R0=$(ps -o rss= -p "${PID_DB}" | tr -d ' ')
+EXP='const r = await window.__TAURI_INTERNALS__.invoke("db_export", { root: ROOT_, id: ID_, sql: "select x as id, x * 3 as triple, cast(x as varchar) as txt from system_range(1, 1000000)", path: PATH_, format: "csv", table: "t" }); return JSON.stringify(r)'
+E1=$(lite_eval main "$(echo "${EXP}" | sed -e "s|ROOT_|'${P}'|" -e "s|ID_|'${ID}'|" -e "s|PATH_|'${LITE_WORK}/导出/m.csv'|")" 2>&1)
+R1=$(ps -o rss= -p "${PID_DB}" | tr -d ' ')
+ok "$(echo "${E1}" | grep -q '"rows":1000000' && [ $(( (R1 - R0) / 1024 )) -lt 120 ] && echo 1)" "导出一百万行：${E1}；边车 $((R0 / 1024)) → $((R1 / 1024)) MB（线：涨不过 120 MB，堆的上限 256）"
+printf 'old' > "${LITE_WORK}/导出/keep.csv"
+SLOW='window.__exp = window.__TAURI_INTERNALS__.invoke("db_export", { root: ROOT_, id: ID_, sql: "select a.x, b.x from system_range(1, 100000) a, system_range(1, 100000) b", path: PATH_, format: "csv", table: "t" }).then(() => "完成了", (e) => String(e)); return true'
+lite_eval main "$(echo "${SLOW}" | sed -e "s|ROOT_|'${P}'|" -e "s|ID_|'${ID}'|" -e "s|PATH_|'${LITE_WORK}/导出/keep.csv'|")" >/dev/null
+sleep 1.5
+inv "'db_cancel', { root: '${P}', id: '${ID}' }" >/dev/null
+EC=$(lite_eval main "return await window.__exp")
+ok "$(echo "${EC}" | grep -q 57014 && [ "$(cat "${LITE_WORK}/导出/keep.csv")" = old ] && [ ! -e "${LITE_WORK}/导出/keep.csv.part" ] && echo 1)" "导出到一半取消：停了（$(echo "${EC}" | cut -c1-60)）、原来那个文件还是原样、没留 .part"
 
 echo "== 没有副作用、退出不留"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（连接配置在应用数据目录里）"

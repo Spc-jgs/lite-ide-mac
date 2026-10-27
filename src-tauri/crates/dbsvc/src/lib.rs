@@ -239,6 +239,17 @@ impl Sidecar {
         let _ = self.call("cancel", json!({ "conn": conn }), Some(Duration::from_secs(5)));
     }
 
+    /// 把一条查询的结果写进文件（csv / json / sql）。边车直接写盘、先写 `.part` 再改名；停它走 [`Sidecar::cancel`]。回 `{rows, bytes, ms}`
+    pub fn export(&self, conn: &str, sql: &str, path: &Path, format: &str, table: &str) -> Result<Value, String> {
+        self.call("export", json!({ "conn": conn, "sql": sql, "path": path, "format": format, "table": table }), None)
+    }
+
+    /// 第一行第一格，`seconds` 秒内没出来就报错（生产库保护：先数会动几行）
+    pub fn scalar(&self, conn: &str, sql: &str, seconds: u32) -> Result<Option<String>, String> {
+        let v = self.call("scalar", json!({ "conn": conn, "sql": sql, "seconds": seconds }), Some(Duration::from_secs(u64::from(seconds) + 10)))?;
+        Ok(v.as_str().map(str::to_string))
+    }
+
     /// 结果标签关了：开着的游标关掉（PostgreSQL 为分批取开着的事务跟着提交）
     pub fn close_cursor(&self, conn: &str) {
         let _ = self.call("closeCursor", json!({ "conn": conn }), Some(Duration::from_secs(5)));

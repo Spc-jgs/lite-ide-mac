@@ -475,6 +475,8 @@ pub fn run() {
             commands::db_cancel,
             commands::db_close_cursor,
             commands::db_history,
+            commands::db_export,
+            commands::db_scalar,
             commands::gradle_project,
             commands::gradle_tasks,
             commands::java_method_sig,

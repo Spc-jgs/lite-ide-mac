@@ -4,12 +4,12 @@ use super::*;
 use tauri::Manager;
 
 fn conf_of(d: DbConnDto) -> crate::db::Conf {
-    crate::db::Conf { id: d.id, name: d.name, kind: d.kind, host: d.host, port: d.port, database: d.database, user: d.user, url: d.url }
+    crate::db::Conf { id: d.id, name: d.name, kind: d.kind, host: d.host, port: d.port, database: d.database, user: d.user, url: d.url, prod: d.prod }
 }
 
 fn dto_of(app: &tauri::AppHandle, c: crate::db::Conf) -> DbConnDto {
     let has_password = crate::db::keychain(app).get(&c.id).is_some_and(|p| !p.is_empty());
-    DbConnDto { id: c.id, name: c.name, kind: c.kind, host: c.host, port: c.port, database: c.database, user: c.user, url: c.url, has_password }
+    DbConnDto { id: c.id, name: c.name, kind: c.kind, host: c.host, port: c.port, database: c.database, user: c.user, url: c.url, has_password, prod: c.prod }
 }
 
 fn info_of(v: serde_json::Value) -> DbInfoDto {
@@ -149,4 +149,22 @@ pub async fn db_close_cursor(app: tauri::AppHandle, window: tauri::Window, root:
 #[tauri::command]
 pub async fn db_history(app: tauri::AppHandle, id: String) -> Result<Vec<DbHistDto>, String> {
     blocking(move || Ok(crate::db::history(&app, &id).into_iter().map(|h| DbHistDto { sql: h.sql, at: h.at, ms: h.ms, ok: h.ok, count: h.count, error: h.error }).collect())).await
+}
+
+/// 把一条查询的结果导出到 `path`（csv / json / sql；sql 是 INSERT，表名用 `table`）。边车直接写盘，不经过界面
+#[tauri::command]
+pub async fn db_export(app: tauri::AppHandle, window: tauri::Window, root: String, id: String, sql: String, path: String, format: String, table: String) -> Result<DbExportDto, String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        let v = app.state::<AppState>().db.export(&app, &owner, &root, &id, &sql, &path, &format, &table)?;
+        Ok(DbExportDto { rows: v["rows"].as_u64().unwrap_or(0), bytes: v["bytes"].as_u64().unwrap_or(0), ms: v["ms"].as_u64().unwrap_or(0) })
+    })
+    .await
+}
+
+/// 第一行第一格，`seconds` 秒内出不来就报错（生产库保护：先数 UPDATE / DELETE 会动几行）。不记历史
+#[tauri::command]
+pub async fn db_scalar(app: tauri::AppHandle, window: tauri::Window, root: String, id: String, sql: String, seconds: u32) -> Result<Option<String>, String> {
+    let owner = window.label().to_string();
+    blocking(move || app.state::<AppState>().db.scalar(&app, &owner, &root, &id, &sql, seconds)).await
 }

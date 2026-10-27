@@ -1,6 +1,6 @@
 /** 数据库客户端（docs/DATABASE.md）的命令包装：只有数据库工具窗用，它是懒的（同 ipc/agent.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { DbConn, DbHist, DbInfo, DbNode, DbResult } from "./commands";
+import type { DbConn, DbExport, DbHist, DbInfo, DbNode, DbResult } from "./commands";
 
 export const dbList = (root: string) => invoke<DbConn[]>("db_list", { root });
 /** `password`：非空存进钥匙串、空串删掉、null 不动 */
@@ -20,3 +20,10 @@ export const dbFetch = (root: string, id: string, cursor: number) => invoke<DbRe
 export const dbCancel = (root: string, id: string) => invoke<void>("db_cancel", { root, id });
 export const dbCloseCursor = (root: string, id: string) => invoke<void>("db_close_cursor", { root, id });
 export const dbHistory = (id: string) => invoke<DbHist[]>("db_history", { id });
+/** 导出一条查询的结果（边车直接写盘）。`table` 是导出成 INSERT 时的表名 */
+export const dbExport = (root: string, id: string, sql: string, path: string, format: "csv" | "json" | "sql", table: string) =>
+  invoke<DbExport>("db_export", { root, id, sql, path, format, table });
+/** 第一行第一格，`seconds` 秒内出不来就报错（生产库保护数影响的行数）。不记历史 */
+export const dbScalar = (root: string, id: string, sql: string, seconds: number) => invoke<string | null>("db_scalar", { root, id, sql, seconds });
+/** 导出的保存面板（同「另存为」那个，标题不同）。这个包装不放进 commands.ts：那个文件在入口包里 */
+export const pickExportPath = (dir: string | null, name: string) => invoke<string | null>("pick_save_path", { dir, name, title: "导出查询结果" });

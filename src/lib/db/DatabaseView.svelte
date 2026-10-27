@@ -50,6 +50,8 @@
     icon?: IconName;
     parent: boolean;
     conn?: DbConn;
+    /** 生产库：名字后面一个红的「生产」 */
+    prod?: boolean;
     info?: "wait" | "bad";
     /** 展开它要问什么 */
     ask?: () => Promise<DbNode[]>;
@@ -62,7 +64,7 @@
     for (const c of conns ?? []) {
       const ck = `c\n${c.id}`;
       const where = c.kind === "h2" ? c.url : `${c.host}:${c.port}${c.database ? `/${c.database}` : ""}`;
-      out.push({ key: ck, depth: 0, label: c.name, note: where, icon: "database", parent: true, conn: c, ask: () => dbMeta(root, c.id, "schemas", null, null) });
+      out.push({ key: ck, depth: 0, label: c.name, note: where, icon: "database", parent: true, conn: c, prod: c.prod, ask: () => dbMeta(root, c.id, "schemas", null, null) });
       if (!open.has(ck)) continue;
       const children = (key: string, depth: number, make: (n: DbNode) => Row) => {
         const k = kids[key];
@@ -236,6 +238,7 @@
             <span class="ic"><Icon name={row.icon} /></span>
           {/if}
           <span class="name">{row.label}</span>
+          {#if row.prod}<span class="prod" title="生产环境：执行修改数据的语句前确认">生产</span>{/if}
           {#if row.note}<span class="note">{row.note}</span>{/if}
         </div>
       {/each}
@@ -284,5 +287,6 @@
   .chev-gap { flex: none; width: 16px; }
   .ic { flex: none; display: inline-flex; margin-right: 2px; }
   .name { flex: 0 0 auto; max-width: 75%; overflow: hidden; text-overflow: ellipsis; }
+  .prod { flex: none; margin-left: 6px; padding: 0 5px; border-radius: var(--r-xs); background: color-mix(in srgb, var(--lvl-error) 18%, transparent); color: var(--lvl-error); font-size: var(--fs-xs); line-height: 16px; }
   .note { flex: 1 1 0; min-width: 0; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); font-size: var(--fs-xs); }
 </style>

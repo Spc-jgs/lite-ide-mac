@@ -4,11 +4,13 @@
  * - **同一个连接再跑，没钉住的旧标签换掉**（同 DataGrip：控制台里改一改再 ⌘↵ 是常态，一次一个新标签很快就是几十个）。钉住的留着
  * - **一个连接只有一个开着的游标**（边车那头的规矩）：新查询一开，同一连接上旧结果就取不了下一批了（`stale`），已经取到的照旧看
  * - 同一个连接上还有一条在跑：不再发第二条，说一句（JDBC 的连接不能两条语句同时用；边车会把前一条的语句关掉，那条就以一句莫名其妙的错收场）
+ * - 执行前先过一道（DB-3，`sql-guard.ts`）：生产库上改数据的、任何库上不带 WHERE 的 UPDATE / DELETE，先弹对话框（`DbConfirm`），说清会动几行
  *
  * 行是 `$state.raw`：十万行每格都包一层响应式代理是几十 MB 和几百毫秒；追加一批就换一个新数组，表格按引用变了重画
  */
 import type { DbCol } from "../ipc/commands";
 import { dbCancel, dbCloseCursor, dbFetch, dbQuery } from "../ipc/db";
+import { needsConfirm } from "./sql-guard";
 import { layout } from "../state/layout.svelte";
 import { notify } from "../state/notify.svelte";
 
@@ -22,6 +24,8 @@ export class DbRes {
   readonly conn: string;
   readonly connName: string;
   readonly sql: string;
+  /** 生产库：重新运行时照样要过确认 */
+  readonly prod: boolean;
   status = $state<DbResStatus>("running");
   kind = $state<"rows" | "count" | null>(null);
   cols = $state.raw<DbCol[]>([]);
@@ -38,11 +42,12 @@ export class DbRes {
   cancelling = false;
   readonly started = Date.now();
 
-  constructor(root: string, conn: string, connName: string, sql: string) {
+  constructor(root: string, conn: string, connName: string, sql: string, prod: boolean) {
     this.root = root;
     this.conn = conn;
     this.connName = connName;
     this.sql = sql;
+    this.prod = prod;
   }
 
   /** 标签上的字：第一行、去掉多余空白，长了截短 */
@@ -52,25 +57,45 @@ export class DbRes {
   }
 }
 
+export interface ConfirmAsk {
+  root: string;
+  conn: string;
+  connName: string;
+  prod: boolean;
+  sqls: string[];
+}
+
+/** 弹确认对话框，等人回答。状态层测试换成直接给答案的（裸 node 里挂不了组件） */
+async function askInDialog(q: ConfirmAsk): Promise<boolean> {
+  const [{ openModal }, m] = await Promise.all([import("../settings/modal-host"), import("./DbConfirm.svelte")]);
+  return new Promise((done) => {
+    let answered = false;
+    openModal(m.default, { ...q, onanswer: (go: boolean) => ((answered = true), done(go)) }, () => !answered && done(false));
+  });
+}
+
 class Results {
   list = $state<DbRes[]>([]);
   activeId = $state<number | null>(null);
+  confirm: (q: ConfirmAsk) => Promise<boolean> = askInDialog;
 
   get active(): DbRes | null {
     return this.list.find((r) => r.id === this.activeId) ?? null;
   }
 
   /** 跑几条（控制台里选中了好几条就是好几条，一条一个标签，按次序一条跑完再跑下一条） */
-  async run(root: string, conn: string, connName: string, sqls: string[]) {
+  async run(root: string, conn: string, connName: string, sqls: string[], prod = false) {
     if (!sqls.length) return;
     if (this.list.some((r) => r.conn === conn && r.root === root && r.status === "running")) {
       notify.hint(`「${connName}」上的查询仍在执行，请先取消或等待完成`);
       return;
     }
+    const risky = sqls.filter((s) => needsConfirm(s, prod));
+    if (risky.length && !(await this.confirm({ root, conn, connName, prod, sqls: risky }))) return;
     // 换掉这个连接没钉住的旧标签；钉住的留着，但它的游标要被新查询关掉了
     for (const r of this.list.filter((x) => x.conn === conn && x.root === root && !x.pinned)) this.drop(r, false);
     for (const r of this.list) if (r.conn === conn && r.root === root) r.stale = true;
-    const made = sqls.map((s) => new DbRes(root, conn, connName, s));
+    const made = sqls.map((s) => new DbRes(root, conn, connName, s, prod));
     this.list = [...this.list, ...made];
     this.activeId = made[0].id;
     layout.panelView = "db";
@@ -132,7 +157,7 @@ class Results {
   }
 
   rerun(r: DbRes) {
-    void this.run(r.root, r.conn, r.connName, [r.sql]);
+    void this.run(r.root, r.conn, r.connName, [r.sql], r.prod);
   }
 
   close(id: number) {

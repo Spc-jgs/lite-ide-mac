@@ -226,14 +226,19 @@ pub async fn pick_files(app: tauri::AppHandle, title: String, dir: Option<String
     d.blocking_pick_files().unwrap_or_default().into_iter().map(|p| p.to_string()).collect()
 }
 
-/// 「另存为…」的原生保存面板。返回选中的完整路径；取消是 None。
+/// 原生保存面板（「另存为…」、导出查询结果）。返回选中的完整路径；取消是 None。
 ///
 /// 覆盖确认由面板自己做（macOS 会问「x 已存在，要替换吗」），这里不再问第二遍。
-/// `dir` 是默认目录：有项目就是项目根 —— 草稿「毕业」多半是进当前项目。
+/// `dir` 是默认目录：有项目就是项目根 —— 草稿「毕业」多半是进当前项目。`title` 不给就是「另存为」。
+/// 测试构建里 `LITE_SAVE_PATH` 直接当成选好的路径：原生面板是真窗口，测试通道点不了（验收导出用）
 #[tauri::command]
-pub async fn pick_save_path(app: tauri::AppHandle, dir: Option<String>, name: String) -> Option<String> {
+pub async fn pick_save_path(app: tauri::AppHandle, dir: Option<String>, name: String, title: Option<String>) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    let mut d = app.dialog().file().set_title("另存为").set_file_name(&name);
+    #[cfg(feature = "test-bridge")]
+    if let Ok(p) = std::env::var("LITE_SAVE_PATH") {
+        return Some(p);
+    }
+    let mut d = app.dialog().file().set_title(title.as_deref().unwrap_or("另存为")).set_file_name(&name);
     if let Some(dir) = dir {
         d = d.set_directory(dir);
     }

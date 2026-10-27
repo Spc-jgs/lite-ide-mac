@@ -4,6 +4,9 @@
  *
  * 查询（DB-2）：`select … from orders` 回 10 万行、一批 500（滚到底再要）；带 `sleep` 的**一直等到取消**（演示忙碌态和取消）；
  * `update` / `delete` 回影响的行数；别的语法回 MySQL 那种报错。每次执行记一条历史
+ *
+ * DB-3：`db_scalar`（生产库确认框数行数）**故意等一会儿**（演示「正在统计」），没 WHERE 的数成 100,000、有的数成 3；
+ * `db_export` 等 1.5 秒（演示状态栏的进度格和取消），名字里带 fail 的路径报错
  */
 import type { DbConn, DbHist, DbNode, DbResult } from "../../ipc/commands";
 import { type A, FILES, NOT_MINE } from "./data";
@@ -129,6 +132,22 @@ export function dbCmd(cmd: string, a: A): unknown {
     case "db_close_cursor":
       CURSOR.delete(`${root}\n${String(a.id)}`);
       return null;
+    case "db_scalar":
+      return sleep(600).then(() => (/\bwhere\b/i.test(String(a.sql)) ? "3" : "100000"));
+    case "db_export": {
+      const key = `${root}\n${String(a.id)}`;
+      return new Promise((res, rej) => {
+        const t = setTimeout(() => {
+          RUNNING.delete(key);
+          if (String(a.path).includes("fail")) rej("无法写入文件：Permission denied");
+          else res({ rows: /orders/i.test(String(a.sql)) ? 100_000 : 3, bytes: 2_734_112, ms: 1480 });
+        }, 1500);
+        RUNNING.set(key, () => {
+          clearTimeout(t);
+          rej("Query execution was interrupted（SQLState 70100，错误码 1317）");
+        });
+      });
+    }
     case "db_history":
       return HIST.get(String(a.id)) ?? [];
     default:

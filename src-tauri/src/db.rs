@@ -26,6 +26,9 @@ pub struct Conf {
     pub user: String,
     /// 自己写的连接串（H2 必填；MySQL / PG 写了就不按主机端口拼）
     pub url: String,
+    /// 标成生产库：执行改数据的语句前先确认（DB-3，docs/DATABASE.md 第 4 节）。旧配置里没有这个字段，读出来是 false
+    #[serde(default)]
+    pub prod: bool,
 }
 
 #[derive(Default)]
@@ -294,6 +297,27 @@ impl Db {
         r
     }
 
+    /// 导出一条查询的结果到 `path`（保存面板选的，确认过覆盖）。连接没开的先开
+    pub fn export(&self, app: &AppHandle, owner: &str, root: &str, id: &str, sql: &str, path: &str, format: &str, table: &str) -> Result<Value, String> {
+        if !matches!(format, "csv" | "json" | "sql") {
+            return Err(format!("不支持的导出格式：{format}"));
+        }
+        let key = Self::key(owner, root, id);
+        if self.open.get(&key, |_| ()).is_none() {
+            self.open(app, owner, root, id)?;
+        }
+        self.sidecar(app)?.export(&key, sql, std::path::Path::new(path), format, table)
+    }
+
+    /// 第一行第一格（生产库保护数影响的行数），有时限
+    pub fn scalar(&self, app: &AppHandle, owner: &str, root: &str, id: &str, sql: &str, seconds: u32) -> Result<Option<String>, String> {
+        let key = Self::key(owner, root, id);
+        if self.open.get(&key, |_| ()).is_none() {
+            self.open(app, owner, root, id)?;
+        }
+        self.sidecar(app)?.scalar(&key, sql, seconds)
+    }
+
     pub fn fetch(&self, app: &AppHandle, owner: &str, root: &str, id: &str, cursor: u64) -> Result<Value, String> {
         self.sidecar(app)?.fetch(&Self::key(owner, root, id), cursor)
     }
@@ -345,11 +369,14 @@ mod tests {
 
     #[test]
     fn 存盘的配置里没有密码这个字段() {
-        let c = Conf { id: "c1".into(), name: "订单库".into(), kind: "mysql".into(), host: "h".into(), port: 3306, database: "shop".into(), user: "u".into(), url: String::new() };
+        let c = Conf { id: "c1".into(), name: "订单库".into(), kind: "mysql".into(), host: "h".into(), port: 3306, database: "shop".into(), user: "u".into(), url: String::new(), prod: true };
         let t = serde_json::to_string(&c).unwrap();
         assert!(!t.to_lowercase().contains("password") && !t.contains("pw"), "{t}");
         let back: Conf = serde_json::from_str(&t).unwrap();
         assert_eq!(back, c);
+        // DB-1 存下的配置没有 prod 这个字段：照样读得出来，当成不是生产库
+        let old: Conf = serde_json::from_str(r#"{"id":"c1","name":"a","kind":"h2","host":"","port":0,"database":"","user":"sa","url":"jdbc:h2:mem:x"}"#).unwrap();
+        assert!(!old.prod);
     }
 
     #[test]

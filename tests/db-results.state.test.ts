@@ -59,6 +59,27 @@ ok(bad.status === "failed" && skipped.status === "cancelled" && skipped.error.st
 await run("update orders set amount = 0 where id < 4");
 ok(results.active!.kind === "count" && results.active!.count === 3, `更新回影响的行数：${results.active!.kind} ${results.active!.count}`);
 
+// 执行前确认（DB-3）：答「取消」就一条都不跑；不是生产库只拦不带 WHERE 的
+const asked: { prod: boolean; sqls: string[] }[] = [];
+let answer = false;
+results.confirm = async (q) => (asked.push({ prod: q.prod, sqls: q.sqls }), answer);
+let n0 = results.list.length;
+await run("delete from orders where id = 1");
+ok(asked.length === 0 && results.list.length >= n0, "不是生产库、带 WHERE：不问、照常执行");
+const atStart = results.list.map((r) => r.id).join();
+await run("select * from orders", "delete from orders");
+ok(asked.length === 1 && JSON.stringify(asked[0].sqls) === '["delete from orders"]', `不带 WHERE 的 DELETE：问一次、只列这一条：${JSON.stringify(asked)}`);
+ok(results.list.map((r) => r.id).join() === atStart, "答「取消」：一条都不跑（同一批里的 SELECT 也不跑，不留半截）");
+answer = true;
+await results.run(ROOT, "c1", "订单库", ["update orders set amount = 0 where id < 4"], true);
+ok(asked.length === 2 && asked[1].prod, "生产库：带 WHERE 的 UPDATE 也问");
+ok(results.active!.status === "done" && results.active!.prod, "答「执行」：执行了，结果记着是生产库");
+asked.length = 0;
+results.rerun(results.active!);
+await new Promise((r) => setTimeout(r, 300));
+ok(asked.length === 1, "生产库的结果「重新运行」照样要过确认");
+results.confirm = async () => true;
+
 // 关掉最后一个：工具窗收起（不切到终端 —— 那会顺手起一个 shell）
 for (const r of [...results.list]) results.close(r.id);
 ok(results.list.length === 0 && !layout.panel && layout.panelView === "db", `全关了：工具窗收起、不切到别的工具窗（panel=${layout.panel} view=${layout.panelView}）`);
