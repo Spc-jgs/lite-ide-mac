@@ -449,7 +449,7 @@ export const KEYS: KeyDef[] = [
 
   // ── Git ──
   // ⌘K：IDEA 里就是打开提交窗口。原来是 ⇧⌘G，把编辑器的「查找上一处」抢没了（见 cm-find-prev）
-  { id: "git-changes", label: "改动列表", accel: "⌘K", group: "Git", owner: "menu" },
+  { id: "git-changes", label: "更改列表", accel: "⌘K", group: "Git", owner: "menu" },
   /*
    * 拉取 = fetch + 本地合并两步，不是 `git pull`。
    * 键位照 IDEA 的 macOS 默认表：⌘T 更新项目、⇧⌘K 推送（2026-10-26 改；原来写的是 ⇧⌘P / ⌥⌘P、注释说「照 IDEA」—— 不是，
@@ -458,7 +458,7 @@ export const KEYS: KeyDef[] = [
   { id: "git-pull", label: "拉取", accel: "⌘T", group: "Git", owner: "menu" },
   { id: "git-push", label: "推送…", accel: "⇧⌘K", group: "Git", owner: "menu" },
   { id: "git-fetch", label: "抓取远程", group: "Git", owner: "menu" },
-  { id: "git-file-diff", label: "查看当前文件的改动", group: "Git", owner: "menu" },
+  { id: "git-file-diff", label: "查看当前文件的更改", group: "Git", owner: "menu" },
   { id: "git-blame", label: "显示 / 隐藏注解（blame）", group: "Git", owner: "menu" },
   { id: "git-log", label: "提交历史", group: "Git", owner: "menu" },
   // IDEA 的 Show History / Show History for Selection（docs/TAKEOVER.md G16）：提交历史那个工具窗只列这个文件 / 这几行的，跟着改名往前找

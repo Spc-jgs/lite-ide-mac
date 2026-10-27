@@ -41,8 +41,8 @@ fn read(p: &Path) -> Result<Option<Map<String, Value>>, String> {
     }
     match serde_json::from_slice::<Value>(&buf) {
         Ok(Value::Object(m)) => Ok(Some(m)),
-        Ok(_) => Err(format!("{}：最外层得是一个对象（环境名 → 变量）", p.display())),
-        Err(e) => Err(format!("{}：不是合法的 JSON（{e}）", p.display())),
+        Ok(_) => Err(format!("{}：顶层必须是对象（环境名 → 变量）", p.display())),
+        Err(e) => Err(format!("{}：JSON 格式无效（{e}）", p.display())),
     }
 }
 
@@ -75,7 +75,7 @@ pub fn load(root: &Path, dir: &Path) -> Envs {
                     out.files.push(p);
                     for (env, vars) in m {
                         let Value::Object(vars) = vars else {
-                            out.problems.push(format!("{}：「{env}」底下得是一个对象（变量名 → 值）", d.join(name).display()));
+                            out.problems.push(format!("{}：「{env}」的值必须是对象（变量名 → 值）", d.join(name).display()));
                             continue;
                         };
                         let slot = raw.entry(env).or_insert_with(|| Value::Object(Map::new()));
@@ -147,7 +147,7 @@ mod tests {
         put(&root.join(PRIVATE), r#"{ "dev": "不是对象" }"#);
         let e = load(&root, &root);
         assert_eq!(e.problems.len(), 2, "{:?}", e.problems);
-        assert!(e.problems[0].contains("不是合法的 JSON"), "{:?}", e.problems);
+        assert!(e.problems[0].contains("JSON 格式无效"), "{:?}", e.problems);
         assert!(!e.envs.contains_key("outside"), "项目根外面的环境文件被读进来了：{:?}", e.envs);
         let _ = std::fs::remove_dir_all(&above);
     }

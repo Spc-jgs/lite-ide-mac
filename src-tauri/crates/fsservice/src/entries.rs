@@ -13,23 +13,23 @@ const MAX_NAME_BYTES: usize = 255;
 pub fn validate_name(name: &str) -> Result<(), String> {
     if name.trim().is_empty() {
         // 全是空白的名字在文件树里就是一行空的，点不着也删不掉 —— 一定是手滑
-        return Err("名字不能为空".into());
+        return Err("名称不能为空".into());
     }
     if name.contains('/') {
         // macOS 上 `/` 是路径分隔符（Finder 里显示成 `:` 是另一回事）。
         // 放它过去，「新建 a/b」就变成了往别的目录里写东西
-        return Err("名字里不能有 /".into());
+        return Err("名称中不能包含 /".into());
     }
     if name.contains('\0') {
         // 到不了系统调用就会被 Rust 挡下，但错误是英文的 NulError
-        return Err("名字里不能有空字符".into());
+        return Err("名称中不能包含空字符".into());
     }
     if name == "." || name == ".." {
-        return Err("不能叫 . 或 ..".into());
+        return Err("名称不能为 . 或 ..".into());
     }
     if name.len() > MAX_NAME_BYTES {
         return Err(format!(
-            "名字太长（上限 {MAX_NAME_BYTES} 字节，这个 {} 字节）",
+            "名称过长（上限 {MAX_NAME_BYTES} 字节，当前 {} 字节）",
             name.len()
         ));
     }
@@ -59,7 +59,7 @@ pub fn create_entry(dir: impl AsRef<Path>, name: &str, is_dir: bool) -> io::Resu
     if fs::symlink_metadata(&path).is_ok() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            format!("这里已经有一个叫「{name}」的了"),
+            format!("已存在名为「{name}」的项目"),
         ));
     }
 
@@ -117,7 +117,7 @@ pub fn rename_entry(path: impl AsRef<Path>, new_name: &str) -> io::Result<PathBu
         if !same_entry(&to_meta, &from_meta) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
-                format!("这里已经有一个叫「{new_name}」的了"),
+                format!("已存在名为「{new_name}」的项目"),
             ));
         }
     }
@@ -148,18 +148,18 @@ pub fn move_entry(path: impl AsRef<Path>, dest_dir: impl AsRef<Path>) -> io::Res
     }
     let name = path
         .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "这个路径没有名字，挪不了"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "此路径没有名称，无法移动"))?;
     let to = dest.join(name);
     if to == path {
         return Ok(to); // 拖到了它原来的目录里
     }
     if from_meta.is_dir() && dest.starts_with(path) {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "不能把目录移到它自己里面"));
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "不能将目录移动到其自身内部"));
     }
     if fs::symlink_metadata(&to).is_ok() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            format!("{} 里已经有一个叫「{}」的了", dest.display(), name.to_string_lossy()),
+            format!("{} 中已存在名为「{}」的项目", dest.display(), name.to_string_lossy()),
         ));
     }
     fs::rename(path, &to)?;

@@ -68,7 +68,7 @@ const FLAT = 1.5;
  */
 export function changeLabel(count: number, base: number, lines: number, baseLines: number): { text: string; kind: "new" | "gone" | "up" | "down" | "flat" } {
   if (base === 0) return { text: "新出现", kind: "new" };
-  if (count === 0) return { text: "没了", kind: "gone" };
+  if (count === 0) return { text: "已消失", kind: "gone" };
   const r = count / Math.max(1, lines) / (base / Math.max(1, baseLines));
   if (r >= FLAT) return { text: `×${r >= 10 ? Math.round(r) : r.toFixed(1)}`, kind: "up" };
   if (r <= 1 / FLAT) return { text: `÷${1 / r >= 10 ? Math.round(1 / r) : (1 / r).toFixed(1)}`, kind: "down" };

@@ -30,7 +30,7 @@
   </div>
   <div class="list" role="list">
     {#if !rep}
-      <div class="empty-msg">还没带覆盖率跑过<span class="sub">点测试旁边的 ▶ 选「带覆盖率运行」，或者运行窗里测试结果上面那个按钮 —— 跑完这里列每个文件，编辑器行号旁绿的跑到了、红的没跑到</span></div>
+      <div class="empty-msg">尚无覆盖率数据<span class="sub">点击测试旁的 ▶ 并选择「带覆盖率运行」，或使用运行窗口中测试结果上方的按钮。完成后将在此列出各文件，编辑器行号旁绿色表示已覆盖、红色表示未覆盖</span></div>
     {:else if !rep.files.length}
       <div class="empty-msg">报告里一个源文件都没有<span class="sub">测试跑到的代码都不在这个项目的 src/main/java 里？</span></div>
     {:else}

@@ -307,7 +307,7 @@ sleep 2.5
 shot log
 
 # ③ Git 改动 + 双栏差异
-[ "$(ax click AXButton "Git 改动")" = "OK" ] || true
+[ "$(ax click AXButton "Git 更改")" = "OK" ] || true
 sleep 0.8
 ax "click~" AXButton "OrderService.java" >/dev/null
 wait_has AXStaticText "ofMillis(500)" 6 || echo "  （差异没出来）"

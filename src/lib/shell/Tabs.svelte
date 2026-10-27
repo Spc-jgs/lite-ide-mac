@@ -129,8 +129,8 @@
    */
   function dotOf(tab: Tab): { on: boolean; warn: boolean; title: string } {
     const st = scratchSaveState({ scratch: isScratch(tab.path), dirty: tab.dirty, failed: !!tab.saveFailed });
-    if (st === null) return { on: tab.dirty, warn: false, title: "有未保存的改动（关闭前会问）" };
-    if (st === "failed") return { on: true, warn: true, title: "自动保存失败 —— 改动还在编辑器里，⌘S 重试" };
+    if (st === null) return { on: tab.dirty, warn: false, title: "有未保存的更改（关闭前将询问）" };
+    if (st === "failed") return { on: true, warn: true, title: "自动保存失败，更改仍保留在编辑器中，按 ⌘S 重试" };
     return { on: false, warn: false, title: "" };
   }
 

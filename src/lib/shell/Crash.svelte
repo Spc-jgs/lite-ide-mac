@@ -71,7 +71,7 @@
     <p class="msg">{message}</p>
     <p class="hint">
       其余部分应该还能用。{#if onReset}可以先重试这一块；{/if}实在不行就重载窗口 ——
-      <b>未保存的改动会丢</b>。
+      <b>未保存的更改将丢失</b>。
     </p>
 
     <pre>{detail}</pre>

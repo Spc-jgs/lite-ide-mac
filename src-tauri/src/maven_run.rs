@@ -50,7 +50,7 @@ pub fn resolve(reactor: &Path, prefs: &Prefs, shell: &str, repo: &Path, scratch:
     {
         let mut b = BUSY.lock().unwrap_or_else(|e| e.into_inner());
         if b.contains(&key) {
-            return Err("正在解析，等这一次跑完".into());
+            return Err("正在解析，请等待当前解析完成".into());
         }
         b.push(key.clone());
     }
@@ -60,20 +60,20 @@ pub fn resolve(reactor: &Path, prefs: &Prefs, shell: &str, repo: &Path, scratch:
 }
 
 fn run(reactor: &Path, prefs: &Prefs, shell: &str, repo: &Path, scratch: &Path) -> Result<Vec<Resolved>, String> {
-    std::fs::create_dir_all(scratch.parent().unwrap_or(scratch)).map_err(|e| format!("建不了临时目录：{e}"))?;
+    std::fs::create_dir_all(scratch.parent().unwrap_or(scratch)).map_err(|e| format!("无法创建临时目录：{e}"))?;
     let cmd = maven::resolve_command(prefs, scratch, DEPS_FILE, &maven::invocation(reactor));
     let shell = if shell.is_empty() { std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()) } else { shell.to_string() };
     let mut c = Command::new(&shell);
     c.args(["-ilc", &cmd]).current_dir(reactor);
-    let out = procutil::run_capped(&mut c, OUT_CAP, procutil::ERR_CAP, procutil::Overflow::Drain).map_err(|e| format!("起不了 mvn：{e}"))?;
+    let out = procutil::run_capped(&mut c, OUT_CAP, procutil::ERR_CAP, procutil::Overflow::Drain).map_err(|e| format!("无法启动 mvn：{e}"))?;
     if !out.status.success() {
         let text = String::from_utf8_lossy(&out.stdout);
         // -q 下 stdout 只剩报错；挑 [ERROR] 那几行，没有就整段（多半是 shell 找不到 mvn）
         let errs: Vec<&str> = text.lines().filter(|l| l.contains("[ERROR]")).take(8).collect();
         let why = if errs.is_empty() { format!("{}{}", text.trim(), String::from_utf8_lossy(&out.stderr).trim()) } else { errs.join("\n") };
-        return Err(if why.is_empty() { format!("mvn 失败了（{}）", out.status) } else { why });
+        return Err(if why.is_empty() { format!("mvn 执行失败（{}）", out.status) } else { why });
     }
-    let eff = std::fs::read_to_string(scratch).map_err(|e| format!("读不到有效 POM：{e}"))?;
+    let eff = std::fs::read_to_string(scratch).map_err(|e| format!("无法读取有效 POM：{e}"))?;
     let projects = maven::parse_effective(&eff);
     let mods = maven::modules(reactor);
     let mut res = Vec::new();

@@ -14,19 +14,19 @@ pub async fn install_cli(app: tauri::AppHandle) -> Result<CliInstallDto, String>
 
 fn install_cli_now(app: &tauri::AppHandle) -> Result<CliInstallDto, String> {
     use tauri::Manager;
-    let exe = std::env::current_exe().map_err(|e| format!("取不到可执行文件路径：{e}"))?;
+    let exe = std::env::current_exe().map_err(|e| format!("无法获取可执行文件路径：{e}"))?;
     let bundle = fsservice::bundle_from_exe(&exe).ok_or_else(|| {
-        "只有打包后的 .app 才能安装命令行工具（现在跑的是开发构建）".to_string()
+        "仅打包后的 .app 支持安装命令行工具（当前为开发构建）".to_string()
     })?;
     let script = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("取不到应用数据目录：{e}"))?
+        .map_err(|e| format!("无法获取应用数据目录：{e}"))?
         .join("bin")
         .join("lite");
     let link = Path::new("/usr/local/bin/lite");
     let r = fsservice::install_cli(&script, &fsservice::cli_script(&bundle), link)
-        .map_err(|e| format!("写不了 {}：{e}", script.display()))?;
+        .map_err(|e| format!("无法写入 {}：{e}", script.display()))?;
     applog::write(applog::Level::Info, "cli", &format!("install_cli script={} replaced={} link={:?}", r.script.display(), r.replaced, r.link));
     Ok(CliInstallDto {
         link_cmd: r.link.fix_cmd(&r.script, link).unwrap_or_default(),
@@ -350,7 +350,7 @@ pub fn open_external(url: String) -> Result<(), String> {
     // 这两个都只会交给浏览器。http 是 2026-09-23 为终端里的链接放开的 ——
     // 最常点的恰恰是 `http://localhost:8080`（src/lib/terminal/links.ts）
     if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err(format!("只允许 http / https 链接，实得：{url}"));
+        return Err(format!("仅支持 http / https 链接：{url}"));
     }
     crate::diag!("open_external {url}");
     #[allow(clippy::disallowed_methods)] // 只要退出码：open 立刻返回、不读输出
@@ -358,10 +358,10 @@ pub fn open_external(url: String) -> Result<(), String> {
         .arg("--")
         .arg(&url)
         .status()
-        .map_err(|e| format!("起不来 open：{e}"))?;
+        .map_err(|e| format!("无法启动 open：{e}"))?;
     if st.success() {
         Ok(())
     } else {
-        Err(format!("打不开 {url}"))
+        Err(format!("无法打开 {url}"))
     }
 }

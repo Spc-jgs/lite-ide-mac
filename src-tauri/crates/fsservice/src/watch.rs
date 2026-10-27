@@ -143,11 +143,11 @@ pub fn watch(
         pend.files |= files;
         cv.notify_one();
     })
-    .map_err(|e| format!("起不了文件监听：{e}"))?;
+    .map_err(|e| format!("无法启动文件监听：{e}"))?;
 
     watcher
         .watch(root.as_ref(), RecursiveMode::Recursive)
-        .map_err(|e| format!("监听不了 {}：{e}", root.as_ref().display()))?;
+        .map_err(|e| format!("无法监听 {}：{e}", root.as_ref().display()))?;
 
     // 防抖线程：等第一条，再等 DEBOUNCE，然后把攒下的合成一条发出去
     let w3 = Arc::clone(&wake);
@@ -157,7 +157,7 @@ pub fn watch(
         .spawn(move || {
             debounce(&w3, &s3, |p| !p.git && !p.files, |taken| on_change(if taken.files { Change::Files } else { Change::Git }))
         })
-        .map_err(|e| format!("起不了防抖线程：{e}"))?;
+        .map_err(|e| format!("无法创建防抖线程：{e}"))?;
 
     Ok(Watch { _watcher: watcher, stop, wake })
 }
@@ -192,7 +192,7 @@ impl Drop for FileWatch {
 pub fn watch_file(path: impl AsRef<Path>, on_change: impl Fn() + Send + 'static) -> Result<FileWatch, String> {
     let path = path.as_ref();
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
-        return Err(format!("{} 不是一个文件路径", path.display()));
+        return Err(format!("{} 不是文件路径", path.display()));
     };
     let name = name.to_os_string();
     let wake: Arc<(Mutex<bool>, Condvar)> = Arc::new((Mutex::new(false), Condvar::new()));
@@ -211,17 +211,17 @@ pub fn watch_file(path: impl AsRef<Path>, on_change: impl Fn() + Send + 'static)
         *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
         cv.notify_one();
     })
-    .map_err(|e| format!("起不了文件监听：{e}"))?;
+    .map_err(|e| format!("无法启动文件监听：{e}"))?;
     watcher
         .watch(dir, RecursiveMode::NonRecursive)
-        .map_err(|e| format!("监听不了 {}：{e}", dir.display()))?;
+        .map_err(|e| format!("无法监听 {}：{e}", dir.display()))?;
 
     let w3 = Arc::clone(&wake);
     let s3 = Arc::clone(&stop);
     thread::Builder::new()
         .name("file-watch-debounce".into())
         .spawn(move || debounce(&w3, &s3, |hit| !*hit, |_| on_change()))
-        .map_err(|e| format!("起不了防抖线程：{e}"))?;
+        .map_err(|e| format!("无法创建防抖线程：{e}"))?;
 
     Ok(FileWatch { _watcher: watcher, stop, wake })
 }
@@ -323,16 +323,16 @@ pub fn watch_paths(
             cv.notify_one();
         }
     })
-    .map_err(|e| format!("起不了文件监听：{e}"))?;
+    .map_err(|e| format!("无法启动文件监听：{e}"))?;
     watcher
         .watch(root.as_ref(), RecursiveMode::Recursive)
-        .map_err(|e| format!("监听不了 {}：{e}", root.as_ref().display()))?;
+        .map_err(|e| format!("无法监听 {}：{e}", root.as_ref().display()))?;
     let w3 = Arc::clone(&wake);
     let s3 = Arc::clone(&stop);
     thread::Builder::new()
         .name("path-watch-debounce".into())
         .spawn(move || debounce(&w3, &s3, |p: &PathPending| p.seen.is_empty() && !p.overflow, |taken| on_batch(classify(taken, |p| p.symlink_metadata().is_ok()))))
-        .map_err(|e| format!("起不了防抖线程：{e}"))?;
+        .map_err(|e| format!("无法创建防抖线程：{e}"))?;
     Ok(PathWatch { _watcher: watcher, stop, wake })
 }
 

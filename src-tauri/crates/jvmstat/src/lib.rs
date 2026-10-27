@@ -38,10 +38,10 @@ pub fn perf_file(tmp: &Path, pid: u32) -> Option<PathBuf> {
 
 /// 读一个 JVM 的堆。文件只读不写；JVM 在一直改它，读到的是那一刻的值
 pub fn read(tmp: &Path, pid: u32) -> Result<Heap, String> {
-    let f = perf_file(tmp, pid).ok_or("找不到它的性能计数（不是 JVM，或者带了 -XX:-UsePerfData）")?;
-    let bytes = std::fs::read(&f).map_err(|e| format!("读不了 {}：{e}", f.display()))?;
-    let c = parse(&bytes).ok_or("性能计数的格式认不出来")?;
-    heap_of(&c).ok_or_else(|| "性能计数里没有堆的数（不是 HotSpot 的分代收集器？）".into())
+    let f = perf_file(tmp, pid).ok_or("未找到性能计数器（不是 JVM，或启用了 -XX:-UsePerfData）")?;
+    let bytes = std::fs::read(&f).map_err(|e| format!("无法读取 {}：{e}", f.display()))?;
+    let c = parse(&bytes).ok_or("无法识别性能计数器的格式")?;
+    heap_of(&c).ok_or_else(|| "性能计数器中没有堆数据（可能不是 HotSpot 的分代收集器）".into())
 }
 
 /// 一个 JVM 的计数：数字的和字符串的

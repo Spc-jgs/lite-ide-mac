@@ -1825,7 +1825,7 @@ fn 停在冲突上的操作_认得出_放弃回到原样_解决后继续做完()
     git(&["rebase", "main"]);
     assert_eq!(op_state(&dir), Some(OpState { kind: OpKind::Rebase, step: Some((1, 1)) }), "停在变基第 1 步（共 1 步）");
     let e = op_run(&dir, OpKind::Rebase, OpAction::Continue).unwrap_err();
-    assert!(e.to_string().contains("还有冲突的文件没解决"), "没解决就继续：说人话：{e}");
+    assert!(e.to_string().contains("仍有未解决的冲突"), "没解决就继续：说人话：{e}");
     op_run(&dir, OpKind::Rebase, OpAction::Abort).unwrap();
     assert_eq!((op_state(&dir), head(&dir)), (None, side0), "放弃：回到变基之前，side 原样");
 
@@ -1913,7 +1913,7 @@ fn 交互式变基_照计划做完_撞冲突停住_对不上的计划拒绝() {
     assert!(rebase_interactive(&dir, &a, &[Step::Pick(a.clone()), Step::Pick(b.clone())], &scratch).is_err());
     // 第一个就要并进上一个
     let e = rebase_interactive(&dir, &a, &[Step::Squash(a.clone()), Step::Pick(b.clone()), Step::Pick(c.clone()), Step::Pick(d.clone())], &scratch).unwrap_err();
-    assert!(e.to_string().contains("前面没有"), "{e}");
+    assert!(e.to_string().contains("前面没有保留的提交"), "{e}");
     // 工作区有改动
     std::fs::write(dir.join("base.txt"), "dirty\n").unwrap();
     assert!(rebase_interactive(&dir, &a, &[Step::Pick(a.clone()), Step::Pick(b.clone()), Step::Pick(c.clone()), Step::Pick(d.clone())], &scratch).is_err());
@@ -2017,12 +2017,12 @@ fn 克隆_本地仓库_已有同名_像开关的地址都拒绝() {
     // 同名的已经在（哪怕是空目录 —— git 自己会接着用空目录）
     std::fs::create_dir_all(out.join("empty")).unwrap();
     let e = clone(&out, src.to_str().unwrap(), "empty", &cancel, &mut |_| {}, &no_trash).unwrap_err();
-    assert!(matches!(&e, RemoteError::Other { raw } if raw.contains("已经有")), "{e}");
+    assert!(matches!(&e, RemoteError::Other { raw } if raw.contains("已存在")), "{e}");
     assert_eq!(std::fs::read_dir(out.join("empty")).unwrap().count(), 0, "空目录里不能被克隆进东西");
 
     // 像开关的地址：`--upload-pack=…` 能让 git 执行命令
     let e = clone(&out, "--upload-pack=touch pwned", "x", &cancel, &mut |_| {}, &no_trash).unwrap_err();
-    assert!(matches!(&e, RemoteError::Other { raw } if raw.contains("不是一个仓库地址")), "{e}");
+    assert!(matches!(&e, RemoteError::Other { raw } if raw.contains("不是有效的仓库地址")), "{e}");
     assert!(!out.join("x").exists() && !out.join("pwned").exists());
     let e = clone(&out, src.to_str().unwrap(), "../escape", &cancel, &mut |_| {}, &no_trash).unwrap_err();
     assert!(matches!(&e, RemoteError::Other { .. }), "{e}");

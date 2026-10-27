@@ -622,7 +622,7 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
     case "java_move": {
       await wait(500);
       const m = movePlan(root, path, String(a.dest));
-      if (JSON.stringify([...m.edits.keys()].map(m.rel).sort()) !== JSON.stringify(a.expect)) throw new Error("预览之后有文件变了，要改的和刚才列的不一样 —— 再预览一次");
+      if (JSON.stringify([...m.edits.keys()].map(m.rel).sort()) !== JSON.stringify(a.expect)) throw new Error("预览后有文件发生变化，需要修改的内容与预览不一致，请重新预览");
       const entries = [];
       const changed = [];
       for (const [p, out] of m.edits) {
@@ -665,7 +665,7 @@ export async function javaCmd(cmd: string, a: A): Promise<unknown> {
       const sig = a.sig as unknown as { methodId: string; modifier: string; returnType: string; name: string; params: { ty: string; name: string }[] };
       const old = sig.methodId.slice(sig.methodId.lastIndexOf("#") + 1);
       const files = mockSigFiles(root, sig);
-      if (JSON.stringify(files.map((p) => p.slice(root.length + 1)).sort()) !== JSON.stringify(a.expect)) throw new Error("预览之后有文件变了，要改的和刚才列的不一样 —— 再预览一次");
+      if (JSON.stringify(files.map((p) => p.slice(root.length + 1)).sort()) !== JSON.stringify(a.expect)) throw new Error("预览后有文件发生变化，需要修改的内容与预览不一致，请重新预览");
       const decl = `${sig.modifier ? `${sig.modifier} ` : ""}${sig.returnType} ${sig.name}(${sig.params.map((p) => `${p.ty} ${p.name}`).join(", ")})`;
       const entries = [];
       const changed = [];

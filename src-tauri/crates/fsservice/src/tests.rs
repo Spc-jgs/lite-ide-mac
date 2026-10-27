@@ -65,7 +65,7 @@ fn move_entry_四条判据() {
     assert_eq!(fs::read_to_string(d.join("b/f.txt")).unwrap(), "y", "被拒绝就不能动人家的文件");
 
     let err = move_entry(d.join("a"), d.join("a/deep")).expect_err("目录不能挪进自己");
-    assert!(err.to_string().contains("自己"), "{err}");
+    assert!(err.to_string().contains("自身"), "{err}");
 
     assert_eq!(move_entry(d.join("b/f.txt"), d.join("b")).unwrap(), d.join("b/f.txt"), "挪回原处是空操作");
     let err = move_entry(d.join("b/f.txt"), d.join("b/f.txt")).expect_err("目标不是目录");
@@ -574,7 +574,7 @@ fn 名字校验挡住五类坏名字() {
     let bad = |n: &str| validate_name(n).unwrap_err();
     assert!(bad("").contains("不能为空"));
     assert!(bad("   ").contains("不能为空"), "全空白的名字在树里就是一行空的");
-    assert!(bad("a/b").contains("不能有 /"), "放它过去就是往别的目录写东西");
+    assert!(bad("a/b").contains("不能包含 /"), "放它过去就是往别的目录写东西");
     assert!(bad("a\0b").contains("空字符"));
     assert!(bad(".").contains(". 或 .."));
     assert!(bad("..").contains(". 或 .."));
@@ -604,7 +604,7 @@ fn 新建文件绝不截断已有文件() {
     write_text(&keep, "别动我").unwrap();
     let e = create_entry(&d, "keep.txt", false).unwrap_err();
     assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
-    assert!(e.to_string().contains("已经有一个叫"), "实得：{e}");
+    assert!(e.to_string().contains("已存在名为"), "实得：{e}");
     assert_eq!(read_text(&keep).unwrap(), "别动我");
 
     // 正常路径：新文件是空的，路径带回来
@@ -902,11 +902,11 @@ fn 新建撞的是一个文件还是目录都要拦() {
     // 本来就会 EEXIST，只断言"报错了"的话，把预检查改成只在同类之间比
     // 也照样绿（试过）
     let e = create_entry(&d, "x", false).unwrap_err();
-    assert!(e.to_string().contains("已经有一个叫"), "同名目录占着，实得：{e}");
+    assert!(e.to_string().contains("已存在名为"), "同名目录占着，实得：{e}");
 
     write_text(d.join("y"), "内容").unwrap();
     let e = create_entry(&d, "y", true).unwrap_err();
-    assert!(e.to_string().contains("已经有一个叫"), "同名文件占着，实得：{e}");
+    assert!(e.to_string().contains("已存在名为"), "同名文件占着，实得：{e}");
     assert_eq!(read_text(d.join("y")).unwrap(), "内容");
     fs::remove_dir_all(d).ok();
 }

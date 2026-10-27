@@ -120,7 +120,7 @@ import { gitConsole, clearGitConsole } from "../ipc/git";
     </label>
     <span class="gap"></span>
     <button class="btn sm" onclick={() => void refresh()} title="刷新">刷新</button>
-    <button class="btn sm" onclick={() => void wipe()} title="清空（只是内存里那份）">清空</button>
+    <button class="btn sm" onclick={() => void wipe()} title="清空（仅清除内存中的记录）">清空</button>
   </div>
 
   {#if shown.length === 0}

@@ -42,7 +42,7 @@ eq(templateShown("[<*>] boom"), "boom", "方括号包着的序号也算没字");
 
 // 对比的说法：按频率不按次数（今天的日志长了一倍，次数翻倍不算涨）
 eq(changeLabel(3, 0, 100, 100), { text: "新出现", kind: "new" }, "基准没有");
-eq(changeLabel(0, 5, 100, 100), { text: "没了", kind: "gone" }, "这边没有");
+eq(changeLabel(0, 5, 100, 100), { text: "已消失", kind: "gone" }, "这边没有");
 eq(changeLabel(200, 100, 2000, 1000), { text: "持平", kind: "flat" }, "次数翻倍、总行数也翻倍：持平");
 eq(changeLabel(80, 10, 283, 115), { text: "×3.3", kind: "up" }, "涨了三倍多");
 eq(changeLabel(100, 100, 400, 200), { text: "÷2.0", kind: "down" }, "次数没动、总行数翻倍：频率降一半");

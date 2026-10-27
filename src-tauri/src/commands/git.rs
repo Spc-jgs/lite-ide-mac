@@ -60,9 +60,9 @@ pub async fn git_op(root: String, action: String) -> Result<(), String> {
             "continue" => gitsvc::OpAction::Continue,
             "skip" => gitsvc::OpAction::Skip,
             "abort" => gitsvc::OpAction::Abort,
-            other => return Err(format!("不认识的动作：{other}")),
+            other => return Err(format!("未知的操作：{other}")),
         };
-        let st = gitsvc::op_state(&root).ok_or("仓库现在没有做到一半的操作（可能已经在别处做完或者放弃了）")?;
+        let st = gitsvc::op_state(&root).ok_or("仓库当前没有进行中的操作（可能已在其他位置完成或中止）")?;
         gitsvc::op_run(&root, st.kind, act).map_err(|e| format!("{e}"))
     })
     .await
@@ -92,7 +92,7 @@ pub struct RebaseStepArg {
 #[tauri::command]
 pub async fn git_rebase_run(app: tauri::AppHandle, root: String, from: String, steps: Vec<RebaseStepArg>) -> Result<String, String> {
     use tauri::Manager;
-    let scratch = app.path().app_cache_dir().map_err(|e| format!("找不到缓存目录：{e}"))?.join("rebase");
+    let scratch = app.path().app_cache_dir().map_err(|e| format!("无法获取缓存目录：{e}"))?.join("rebase");
     blocking(move || {
         let steps = steps
             .into_iter()
@@ -102,7 +102,7 @@ pub async fn git_rebase_run(app: tauri::AppHandle, root: String, from: String, s
                 "squash" => Ok(gitsvc::Step::Squash(s.sha)),
                 "fixup" => Ok(gitsvc::Step::Fixup(s.sha)),
                 "drop" => Ok(gitsvc::Step::Drop(s.sha)),
-                other => Err(format!("不认识的动作：{other}")),
+                other => Err(format!("未知的操作：{other}")),
             })
             .collect::<Result<Vec<_>, _>>()?;
         match gitsvc::rebase_interactive(&root, &from, &steps, &scratch).map_err(|e| format!("{e}"))? {
@@ -189,7 +189,7 @@ pub async fn git_discard(
     untracked: Vec<String>,
 ) -> Result<(), String> {
     crate::diag!("git_discard {} 个跟踪 + {} 个未跟踪", paths.len(), untracked.len());
-    blocking(move || gitsvc::discard(&root, &paths, &untracked, fsservice::move_all_to_trash).map_err(|e| format!("丢弃失败：{e}"))).await
+    blocking(move || gitsvc::discard(&root, &paths, &untracked, fsservice::move_all_to_trash).map_err(|e| format!("放弃更改失败：{e}"))).await
 }
 
 /// 提交。**这条是最该挪出主线程的一条** —— `pre-commit` 钩子跑什么
@@ -209,7 +209,7 @@ pub async fn git_log_entries(
     lines: Option<(u32, u32)>,
 ) -> Result<Vec<LogEntryDto>, String> {
     blocking(move || {
-        let es = gitsvc::log_entries(&root, limit, all, &path, lines).map_err(|e| format!("读历史失败：{e}"))?;
+        let es = gitsvc::log_entries(&root, limit, all, &path, lines).map_err(|e| format!("读取历史失败：{e}"))?;
         Ok(es
             .into_iter()
             .map(|c| LogEntryDto {
@@ -231,7 +231,7 @@ pub async fn git_log_entries(
 #[tauri::command]
 pub async fn git_commit_files(root: String, sha: String) -> Result<Vec<GitEntryDto>, String> {
     blocking(move || {
-        let es = gitsvc::commit_files(&root, &sha).map_err(|e| format!("读提交内容失败：{e}"))?;
+        let es = gitsvc::commit_files(&root, &sha).map_err(|e| format!("读取提交内容失败：{e}"))?;
         Ok(es
             .into_iter()
             .map(|e| GitEntryDto {
@@ -373,7 +373,7 @@ pub async fn git_cherry_pick(root: String, sha: String) -> Result<String, String
 #[tauri::command]
 pub async fn git_branches(root: String) -> Result<Vec<BranchDto>, String> {
     blocking(move || {
-        let bs = gitsvc::branches(&root).map_err(|e| format!("读分支失败：{e}"))?;
+        let bs = gitsvc::branches(&root).map_err(|e| format!("读取分支失败：{e}"))?;
         Ok(bs
             .into_iter()
             .map(|b| BranchDto {
@@ -407,7 +407,7 @@ pub async fn git_switch(
     match r {
         Err(e) => Err(SwitchErrDto {
             kind: "other".into(),
-            message: format!("后台任务没跑完：{e}"),
+            message: format!("后台任务未完成：{e}"),
             files: Vec::new(),
             raw: String::new(),
         }),
@@ -430,7 +430,7 @@ pub async fn git_switch(
 #[tauri::command]
 pub async fn git_worktrees(root: String) -> Result<Vec<WorktreeDto>, String> {
     blocking(move || {
-        let ws = gitsvc::worktrees(&root).map_err(|e| format!("读工作树失败：{e}"))?;
+        let ws = gitsvc::worktrees(&root).map_err(|e| format!("读取工作树失败：{e}"))?;
         Ok(ws
             .into_iter()
             .map(|w| WorktreeDto {
@@ -467,7 +467,7 @@ pub async fn git_branch_delete(root: String, name: String, force: bool) -> Resul
     crate::diag!("git_branch_delete {name} force={force}");
     let r = tauri::async_runtime::spawn_blocking(move || gitsvc::branch_delete(&root, &name, force)).await;
     match r {
-        Err(e) => Err(BranchErrDto { kind: "other".into(), message: format!("后台任务没跑完：{e}"), raw: String::new() }),
+        Err(e) => Err(BranchErrDto { kind: "other".into(), message: format!("后台任务未完成：{e}"), raw: String::new() }),
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(BranchErrDto {
             kind: if matches!(e, gitsvc::Error::NotMerged { .. }) { "not-merged" } else { "other" }.into(),
@@ -489,7 +489,7 @@ fn trust_file(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     app.path()
         .app_data_dir()
         .map(|d| d.join("trust.json"))
-        .map_err(|e| format!("取不到应用数据目录：{e}"))
+        .map_err(|e| format!("无法获取应用数据目录：{e}"))
 }
 
 /// 扫一遍仓库的 config。只跑 `git config --list` 和 `rev-parse`，两条都不执行配置
@@ -504,7 +504,7 @@ pub async fn git_trust_scan(app: tauri::AppHandle, root: String) -> Result<Trust
             applog::write(
                 applog::Level::Warn,
                 "trust",
-                &format!("{root} 的 .git/config 有 {} 条会执行命令的配置，Git 未启用", s.suspects.len()),
+                &format!("{root} 的 .git/config 包含 {} 条可执行命令的配置，Git 未启用", s.suspects.len()),
             );
         }
         Ok(TrustScanDto {
@@ -527,5 +527,5 @@ pub async fn git_trust_scan(app: tauri::AppHandle, root: String) -> Result<Trust
 pub async fn git_trust_grant(app: tauri::AppHandle, root: String, fingerprint: String) -> Result<(), String> {
     let file = trust_file(&app)?;
     crate::diag!("git_trust_grant {root}");
-    blocking(move || crate::trust_store::grant(&file, &root, &fingerprint).map_err(|e| format!("记不下信任：{e}"))).await
+    blocking(move || crate::trust_store::grant(&file, &root, &fingerprint).map_err(|e| format!("无法保存信任设置：{e}"))).await
 }

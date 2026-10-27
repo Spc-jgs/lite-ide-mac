@@ -53,7 +53,7 @@ echo "== 面板：菜单「本地历史…」打开，选最早那版，恢复"
 lite menu local-history main >/dev/null
 # 只找版本列表里的行：差异视图的行也叫 .row（第一版用 `.hist .row` 点「最后一行」，点到的是差异里的一行，选中一直是最新那版 —— 「恢复」了却一个字没变）
 lite_wait main "return document.querySelectorAll('.hist .list .row').length === 5" 10 >/dev/null
-ok "$([ "$(lite_eval main "return [...document.querySelectorAll('.hist .list .row .kind')].map((k) => k.textContent).join(',')")" = "已保存,外部改动,已保存,已保存,改之前" ] && echo 1)" "列表：$(lite_eval main "return [...document.querySelectorAll('.hist .list .row .kind')].map((k) => k.textContent).join(',')")"
+ok "$([ "$(lite_eval main "return [...document.querySelectorAll('.hist .list .row .kind')].map((k) => k.textContent).join(',')")" = "已保存,外部修改,已保存,已保存,修改前" ] && echo 1)" "列表：$(lite_eval main "return [...document.querySelectorAll('.hist .list .row .kind')].map((k) => k.textContent).join(',')")"
 lite_eval main "const r = document.querySelectorAll('.hist .list .row'); r[r.length - 1].click(); return true" >/dev/null
 lite_wait main "return !!document.querySelector('.hist .diff .body')" 10 >/dev/null
 lite_eval main "[...document.querySelectorAll('.hist .foot button')].find((b) => b.textContent.includes('恢复')).click(); return true" >/dev/null

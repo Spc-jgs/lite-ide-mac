@@ -174,7 +174,7 @@
   }
 
   function waitRow(key: string, depth: number): Row {
-    return { key, depth, icon: null, label: resolving ? "正在跑 mvn 算插件和依赖…" : "还没算（点工具栏的重新加载）", info: "wait" };
+    return { key, depth, icon: null, label: resolving ? "正在跑 mvn 算插件和依赖…" : "尚未解析（点击工具栏中的重新加载）", info: "wait" };
   }
 
   /** 依赖树：深度 0 是直接依赖，展开一个才露出它底下那一截（同 IDEA） */
@@ -364,7 +364,7 @@
     <button class="ibtn" class:busy={loading || resolving} disabled={loading || resolving} onclick={() => void load(true)} title="重新加载所有 Maven 项目（重读 pom、重算插件和依赖）" aria-label="重新加载">
       <Icon name="refresh" />
     </button>
-    <button class="ibtn" onclick={() => (exec = { module: moduleOfSel(), text: "" })} title="执行 Maven 目标…（在选中的那个模块上）" aria-label="执行 Maven 目标">
+    <button class="ibtn" onclick={() => (exec = { module: moduleOfSel(), text: "" })} title="执行 Maven 目标…（作用于所选模块）" aria-label="执行 Maven 目标">
       <Icon name="run-anything" />
     </button>
     <button class="ibtn" disabled={!selTask} onclick={() => selTask && run(selTask)} title="运行选中的目标" aria-label="运行选中的目标">

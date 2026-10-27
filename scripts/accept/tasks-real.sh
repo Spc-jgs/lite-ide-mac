@@ -167,14 +167,14 @@ else
     lite_eval main "__lite.key('Ctrl-r'); return true" >/dev/null
     SAW=0
     for ((i = 0; i < 80; i++)); do
-      [ "$(lite_eval main "return __lite.has('退出了')" 2>/dev/null)" = true ] && SAW=1
+      [ "$(lite_eval main "return __lite.has('已退出')" 2>/dev/null)" = true ] && SAW=1
       listening "${VP}" && [ "$(pgid_of "${VP}")" != "${VG}" ] && break
       sleep 0.5
     done
     ok "$( [ "$(pgid_of "${VP}")" != "${VG}" ] && listening "${VP}" && echo 1)" "⌃R 重跑起来了（新的进程组 $(pgid_of "${VP}")）"
     sleep 2   # 报错要是有，也是旧的那次退出时弹的；新的起来之后再多看两秒
-    [ "$(lite_eval main "return __lite.has('退出了')" 2>/dev/null)" = true ] && SAW=1
-    ok "$( [ "${SAW}" = 0 ] && echo 1)" "重跑时旧的那次没报「退出了」—— 是我们停的，不是失败"
+    [ "$(lite_eval main "return __lite.has('已退出')" 2>/dev/null)" = true ] && SAW=1
+    ok "$( [ "${SAW}" = 0 ] && echo 1)" "重跑时旧的那次没报「已退出」—— 是我们停的，不是失败"
     VG=$(pgid_of "${VP}"); GROUPS_SEEN+=("${VG}")
     stop_and_check "${VP}" "${VG}" "前端"
   else

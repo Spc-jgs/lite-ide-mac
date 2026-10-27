@@ -88,7 +88,7 @@
     <input bind:this={input} bind:value={q} class="q" placeholder="按文件名、代码筛" spellcheck="false" aria-label="筛最近位置" onkeydown={onKey} />
   </div>
   {#if !spots.length}
-    <div class="empty-msg">还没有去过别的地方（⌘B 跳过去、点搜索结果、换文件看过之后，这里会有）</div>
+    <div class="empty-msg">尚无最近位置（通过 ⌘B 跳转、点击搜索结果或切换文件后将显示在此）</div>
   {:else if !shown.length}
     <div class="empty-msg">没有对得上「{q}」的</div>
   {:else}

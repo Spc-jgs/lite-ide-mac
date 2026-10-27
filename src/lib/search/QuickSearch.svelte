@@ -564,7 +564,7 @@
           class:on={libs}
           disabled={jtypes === null}
           aria-pressed={libs}
-          title={jtypes === null ? "Java 语言服务器没在跑，jar 里的找不了（打开一个 .java 文件它就起）" : "连依赖的 jar 和 JDK 里的一起找"}
+          title={jtypes === null ? "Java 语言服务器未运行，无法搜索 jar 中的类（打开任一 .java 文件即可启动）" : "连依赖的 jar 和 JDK 里的一起找"}
           onclick={() => {
             libs = !libs;
             input?.focus();
@@ -578,7 +578,7 @@
           {#if searchErr && (scope === "content" || scope === "all")}<span class="err">{searchErr}</span>
           {:else if scope === "class" && !query.trim()}输入类名 —— 驼峰缩写也行（<kbd>OC</kbd> 找 OrderController）
           {:else if scope === "class" && (jWait || jtypes === undefined)}<span class="wait"><span class="spinner"></span>找类…</span>
-          {:else if scope === "class" && jtypes === null}没有叫这个的 .java 文件 —— Java 语言服务器没在跑，只按文件名找（打开一个 .java 文件它就起）
+          {:else if scope === "class" && jtypes === null}没有匹配的 .java 文件。Java 语言服务器未运行，仅按文件名查找（打开任一 .java 文件即可启动）
           {:else if scope === "class" && !libs}项目里没有叫这个的类 —— 点「含 jar 里的」连依赖和 JDK 一起找
           {:else if scope === "class"}没有叫这个的类
           {:else if goto.kind === "symbol" && !target}{#if goto.file}没有匹配的文件{:else}没有打开的文件 —— 在 <kbd>@</kbd> 前面写文件名{/if}
@@ -689,7 +689,7 @@
       {/if}
       <span class="gap"></span>
       {#if scope === "class" && jtypes === null && query.trim()}
-        <span class="note">按文件名找的：Java 语言服务器没在跑</span>
+        <span class="note">按文件名查找：Java 语言服务器未运行</span>
       {:else if scope === "class" && jtypes?.truncated}
         <span class="trunc">太多了，只列了一部分 —— 再打几个字</span>
       {/if}

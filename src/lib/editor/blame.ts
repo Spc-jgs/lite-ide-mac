@@ -33,7 +33,7 @@ class BlameMarker extends GutterMarker {
     el.className = `cm-blame${this.first ? " first" : ""}${uncommitted ? " wip" : ""}`;
     if (this.first) {
       el.textContent = uncommitted ? "未提交" : `${h.author} · ${ago(h.time)}`;
-      el.title = uncommitted ? "工作区里还没提交的改动" : `${h.short} · ${h.summary}\n${new Date(h.time * 1000).toLocaleString()}`;
+      el.title = uncommitted ? "工作区中尚未提交的更改" : `${h.short} · ${h.summary}\n${new Date(h.time * 1000).toLocaleString()}`;
       if (!uncommitted) {
         el.onclick = () => this.onPick(h);
         el.style.cursor = "pointer";

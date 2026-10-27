@@ -124,7 +124,7 @@ pub fn install_cli(script: &Path, content: &str, link: &Path) -> io::Result<CliI
                     CliLink::Taken(format!("一个指向 {} 的软链", t.display()))
                 }
             }
-            Err(_) => CliLink::Taken("一个读不出指向的软链".into()),
+            Err(_) => CliLink::Taken("一个无法读取目标的软链".into()),
         },
         Ok(m) if m.is_dir() => CliLink::Taken("一个目录".into()),
         Ok(_) => CliLink::Taken("一个文件".into()),

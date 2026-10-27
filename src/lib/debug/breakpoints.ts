@@ -75,7 +75,7 @@ export function bpTitle(b: Omit<Bp, "line">): string {
   if (b.log) what.push(`日志断点：不停，打「${b.log}」`);
   if (b.cond) what.push(`${b.cond} 为真才${b.log ? "打" : "停"}`);
   if (b.hit) what.push(`第 ${b.hit} 次走到才${b.log ? "打" : "停"}`);
-  return `${what.length ? what.join("；") : "断点"}（点一下取消，⌘F8；右键改属性）`;
+  return `${what.length ? what.join("；") : "断点"}（单击或按 ⌘F8 移除，右键单击编辑属性）`;
 }
 
 /** 两个断点一样不一样（行之外的那几样也比） */

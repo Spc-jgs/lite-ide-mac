@@ -56,7 +56,7 @@ pub async fn java_close(app: tauri::AppHandle, root: String, path: String) -> Re
 }
 
 fn instance(app: &tauri::AppHandle, root: &str) -> Result<std::sync::Arc<crate::java::Instance>, String> {
-    app.state::<AppState>().java.get(root).ok_or_else(|| "这个项目的 Java 语言服务器没在跑".into())
+    app.state::<AppState>().java.get(root).ok_or_else(|| "此项目的 Java 语言服务器未运行".into())
 }
 
 /// 这个 Spring Boot 配置文件（`application*.yml` / `.properties`）能写的键：问 jdtls 要它所在模块的 classpath，读每个 jar 的配置元数据（`spring_meta.rs`）。
@@ -70,7 +70,7 @@ pub async fn spring_props(app: tauri::AppHandle, window: tauri::Window, root: St
         }
         let java = app.state::<AppState>().java.ensure(&app, &owner, &root).map_err(|s| match s.phase {
             crate::java::Phase::Failed(w) => w,
-            _ => "这不是一个 Maven / Gradle 项目，或者 Java 语言服务器起不来".into(),
+            _ => "此项目不是 Maven / Gradle 项目，或 Java 语言服务器无法启动".into(),
         })?;
         let cp = java.classpath(&path, std::time::Duration::from_secs(180))?;
         Ok(crate::spring_meta::collect(&cp)
@@ -157,7 +157,7 @@ pub async fn java_gen_apply(app: tauri::AppHandle, root: String, path: String, t
     blocking(move || {
         let plan = instance(&app, &root)?.gen_apply(&path, &text, line, character, &what, &picked)?;
         if !plan.renames.is_empty() || plan.files.iter().any(|(p, _)| *p != path) {
-            return Err("生成的改动落到了别的文件上，这一版不接（只改光标所在的这个文件）".into());
+            return Err("生成的更改涉及其他文件，当前版本不支持（仅支持修改光标所在的文件）".into());
         }
         Ok(JavaActionResultDto { edits: plan.files.into_iter().flat_map(|(_, e)| e).map(Into::into).collect(), outcome: None })
     })
@@ -398,7 +398,7 @@ pub async fn java_move(
     blocking(move || {
         let plan = instance(&app, &root)?.move_plan(&path, &text, &dest)?;
         if move_preview(&plan, Path::new(&root)).files != expect {
-            return Err("预览之后有文件变了，要改的和刚才列的不一样 —— 再预览一次".into());
+            return Err("预览后有文件发生变化，需要修改的内容与预览不一致，请重新预览".into());
         }
         let out = crate::java::apply_rename(&plan, Path::new(&root), &journal, &super::replace::dirty_map(open))?;
         Ok(super::replace::outcome_dto(out))
@@ -453,7 +453,7 @@ pub async fn java_change_signature(
     blocking(move || {
         let plan = instance(&app, &root)?.signature_plan(&path, &text, line, character, &sig.into_sig(), (tab_size, spaces))?;
         if move_preview(&plan, Path::new(&root)).files != expect {
-            return Err("预览之后有文件变了，要改的和刚才列的不一样 —— 再预览一次".into());
+            return Err("预览后有文件发生变化，需要修改的内容与预览不一致，请重新预览".into());
         }
         let out = crate::java::apply_rename(&plan, Path::new(&root), &journal, &super::replace::dirty_map(open))?;
         Ok(super::replace::outcome_dto(out))

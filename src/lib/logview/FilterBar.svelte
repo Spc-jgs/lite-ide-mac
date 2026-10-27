@@ -157,7 +157,7 @@
         const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
         onPatterns({ x: r.left, y: r.bottom });
       }}
-      title="把这份日志的记录归成几类模板：都发生了些什么、各多少。点一类就按它过滤"
+      title="将此日志的记录归纳为若干模板类别，显示各类别的数量。单击类别即按其过滤"
     >归类</button>
   {/if}
 
@@ -171,7 +171,7 @@
   </button>
 
   {#if onMerge}
-    <button class="fold merge" onclick={onMerge} title="再选几份日志，和这一份按时间交织成一条时间线（网关、服务、数据库的日志对着看）">合并…</button>
+    <button class="fold merge" onclick={onMerge} title="选择其他日志，与此日志按时间合并为一条时间线（便于对照网关、服务、数据库等日志）">合并…</button>
   {/if}
 
   {#if canTail}

@@ -60,7 +60,7 @@
     if (!e) return;
     const ms = parseOffset(e.text);
     if (ms === null) {
-      edit = { ...e, error: "读不懂。写成 +8h、-350ms、+1m30s 这样" };
+      edit = { ...e, error: "格式无效，请写成 +8h、-350ms、+1m30s 等形式" };
       return;
     }
     const offsets = info.sources.map((s, i) => (i === e.i ? ms : s.offsetMs));
@@ -103,7 +103,7 @@
           class:set={s.offsetMs !== 0}
           disabled={merging}
           onclick={(e) => openEdit(i, e)}
-          title="时钟偏移：这一份的时间整体挪多少再合（时区不同、机器钟不准时用）"
+          title="时钟偏移：合并前将此日志的时间整体平移（用于时区不同或机器时钟不准）"
           aria-label="{names[i]} 的时钟偏移"
         >{s.offsetMs !== 0 ? fmtOffset(s.offsetMs) : "±"}</button>
       </div>
@@ -119,7 +119,7 @@
     </span>
   {/if}
   {#if !notes.length}<span class="gap"></span>{/if}
-  <button class="btn sm" disabled={merging} onclick={onAdd} title="再选几份日志一起合（新开一个标签，这一个关掉）">加一份…</button>
+  <button class="btn sm" disabled={merging} onclick={onAdd} title="添加更多日志一起合并（将在新标签页中打开，并关闭当前标签页）">加一份…</button>
 </div>
 
 {#if edit}
@@ -134,14 +134,14 @@
       class="pinput"
       bind:value={edit.text}
       oninput={() => edit && (edit.error = "")}
-      placeholder="+8h、-350ms、+1m30s，0 是不挪"
+      placeholder="+8h、-350ms、+1m30s，0 表示不偏移"
       spellcheck="false"
       autocomplete="off"
     />
     {#if edit.error}
       <div class="perr">{edit.error}</div>
     {:else}
-      <div class="phint">这一份的时间整体加上它再合。一份 UTC、别的是北京时间：给 UTC 那份 +8h。挪完行号会变，过滤会按原条件重跑。</div>
+      <div class="phint">合并前将此日志的时间整体加上该偏移。例如一份为 UTC、其余为北京时间时，给 UTC 那份设置 +8h。偏移后行号会变化，过滤将按原条件重新执行。</div>
     {/if}
     <div class="prow">
       <button class="btn" onclick={() => (edit = null)}>取消</button>

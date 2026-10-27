@@ -148,11 +148,11 @@
       {#if err}
         <div class="empty-msg bad">{err}</div>
       {:else if !list}
-        <div class="empty-msg wait"><span class="spinner sm"></span> 正在读…</div>
+        <div class="empty-msg wait"><span class="spinner sm"></span> 正在读取…</div>
       {:else if list.length === 0}
         <div class="empty-msg">
-          还没有存过的版本
-          <div class="sub">每次保存（⌘S、自动保存）都会留一份，30 天、最多 200 版；改之前的样子在第一次保存时一起留下</div>
+          尚无保存的版本
+          <div class="sub">每次保存（⌘S 或自动保存）都会保留一个版本，最多保留 30 天、200 个版本；首次保存时将同时保留修改前的版本</div>
         </div>
       {:else}
         {#each list as e, i (e.hash + e.ms + e.kind)}
@@ -160,7 +160,7 @@
             <span class="t">{when(e.ms)}</span>
             <span class="ago">{ago(e.ms)}</span>
             <!-- 保存前盘上那份：最早那条是「改之前的样子」（第一次在这儿保存时留的）；夹在两次保存中间的才是外面改过（git 切分支、别的编辑器） -->
-            <span class="kind" class:ext={e.kind === "before" && i < list.length - 1}>{e.kind === "saved" ? "已保存" : i === list.length - 1 ? "改之前" : "外部改动"}</span>
+            <span class="kind" class:ext={e.kind === "before" && i < list.length - 1}>{e.kind === "saved" ? "已保存" : i === list.length - 1 ? "修改前" : "外部修改"}</span>
             <span class="sz">{size(e.size)}</span>
           </div>
         {/each}
@@ -170,11 +170,11 @@
       {#if readErr}
         <div class="empty-msg bad">{readErr}</div>
       {:else if list?.length && text === null}
-        <div class="empty-msg wait"><span class="spinner sm"></span> 正在读这一版…</div>
+        <div class="empty-msg wait"><span class="spinner sm"></span> 正在读取此版本…</div>
       {:else if text !== null && diff === ""}
         <div class="empty-msg">和现在一样<div class="sub">选下面更早的一版看改了什么</div></div>
       {:else if text !== null && diff === null}
-        <div class="empty-msg">两边差得太多（几万行整个重写），这里比不了<div class="sub">恢复照样能做：恢复之后 ⌘Z 撤得回</div></div>
+        <div class="empty-msg">两个版本差异过大（数万行被整体重写），无法在此比较<div class="sub">恢复照样能做：恢复之后 ⌘Z 撤得回</div></div>
       {:else if diff}
         <DiffView raw={diff} path={rel} staged={false} commit="本地历史" onToggleStaged={() => {}} />
       {/if}
@@ -184,7 +184,7 @@
     <span class="hint">左边是那一版，右边是现在（编辑器里此刻的，没保存的也算）。↑↓ 换一版，↵ 恢复</span>
     <span class="gap"></span>
     <button class="btn" onclick={onclose}>关闭</button>
-    <button class="btn primary" disabled={text === null || !diff} onclick={restore} title="在编辑器里换成这一版：⌘Z 撤得回，还没保存">恢复成这一版</button>
+    <button class="btn primary" disabled={text === null || !diff} onclick={restore} title="在编辑器中恢复为此版本（可用 ⌘Z 撤销，尚未保存）">恢复为此版本</button>
   </div>
 </div>
 

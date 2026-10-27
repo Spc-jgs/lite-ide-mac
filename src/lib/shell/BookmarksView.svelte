@@ -53,7 +53,7 @@
         </div>
       {/each}
     {:else}
-      <div class="empty-msg">这个项目还没有书签<span class="sub">编辑器里按 F3 在光标那一行打一个，这里会列出来；点一行跳过去</span></div>
+      <div class="empty-msg">此项目尚无书签<span class="sub">编辑器里按 F3 在光标那一行打一个，这里会列出来；点一行跳过去</span></div>
     {/each}
   </div>
 </div>

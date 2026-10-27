@@ -82,7 +82,7 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
       };
     }
     case "replace_preview": {
-      if (!last) throw new Error("没有扫描结果，先搜一次");
+      if (!last) throw new Error("没有扫描结果，请先搜索");
       const repl = String(a.replacement);
       return last.files.map((f) =>
         f.hits.map((h) => {
@@ -95,8 +95,8 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
       );
     }
     case "replace_apply": {
-      if (!last) throw { code: "failed", message: "没有扫描结果，先搜一次", bytes: 0 };
-      if (last.files.reduce((n, f) => n + f.hits.length, 0) > 5000) throw { code: "truncated", message: "命中太多，缩小范围再替换", bytes: 0 };
+      if (!last) throw { code: "failed", message: "没有扫描结果，请先搜索", bytes: 0 };
+      if (last.files.reduce((n, f) => n + f.hits.length, 0) > 5000) throw { code: "truncated", message: "匹配项过多，请缩小范围后再替换", bytes: 0 };
       const repl = String(a.replacement);
       const picks = a.picks as unknown as { rel: string; hits: number[] }[];
       const changed = [];

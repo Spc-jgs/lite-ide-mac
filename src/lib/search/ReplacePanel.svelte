@@ -192,7 +192,7 @@
               />
               <FileGlyph name={nameOf(f.rel)} />
               <span class="fname">{nameOf(f.rel)}</span>
-              {#if f.editor}<span class="tag" title="这个文件开着、有没存的改动：替换只改编辑器里那份，不存盘">未保存</span>{/if}
+              {#if f.editor}<span class="tag" title="此文件已打开且有未保存的更改：替换仅修改编辑器中的内容，不写入磁盘">未保存</span>{/if}
               <span class="side">{dirOf(f.rel)}</span>
               <span class="cnt">{f.hits.length}</span>
             </div>
@@ -227,7 +227,7 @@
 
     <div class="foot">
       {#if replace.askNoUndo !== null}
-        <span class="ask">这次要改的文件合起来 {mb(replace.askNoUndo)} MB，超过替换日志的上限 —— <b>撤销和中断恢复都做不了</b></span>
+        <span class="ask">这次要改的文件合起来 {mb(replace.askNoUndo)} MB，超过替换日志的上限 —— <b>将无法撤销，也无法在中断后恢复</b></span>
         <span class="gap"></span>
         <button class="btn sm" onclick={() => (replace.askNoUndo = null)}>取消</button>
         <button class="btn sm danger" onclick={() => void ops.apply(true)}>仍然替换</button>

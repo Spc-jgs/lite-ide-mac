@@ -270,7 +270,7 @@
       {@const st = scratchSaveState({ scratch: activeScratch, dirty: active.dirty, failed: !!active.saveFailed })}
       {#if st === null}
         <span class="cell drop-2" class:accent={active.dirty}>
-          {active.dirty ? "已修改" : "无改动"}
+          {active.dirty ? "已修改" : "无更改"}
         </span>
       {:else}
         <!--
@@ -282,7 +282,7 @@
           class="cell drop-2"
           class:bad={st === "failed"}
           class:dim={st === "pending"}
-          title={st === "failed" ? "改动还在编辑器里，⌘S 重试" : "草稿停止输入半秒后自动落盘，关闭前也会存"}
+          title={st === "failed" ? "更改仍保留在编辑器中，按 ⌘S 重试" : "草稿停止输入半秒后自动落盘，关闭前也会存"}
         >
           {SCRATCH_SAVE_LABEL[st]}
         </span>
@@ -294,7 +294,7 @@
       <button
         class="cell cbtn git"
         onclick={onOpenDiff}
-        title="查看这个文件的改动"
+        title="查看此文件的更改"
       >
         <!--
           这里说的是「相对 git 有没有未提交的改动」，跟左边那格的

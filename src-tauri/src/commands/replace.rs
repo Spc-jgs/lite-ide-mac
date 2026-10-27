@@ -119,7 +119,7 @@ pub async fn replace_preview(
     state: State<'_, AppState>,
     replacement: String,
 ) -> Result<Vec<Vec<ReplaceAfterDto>>, String> {
-    let scan = state.scan(window.label()).ok_or("没有扫描结果，先搜一次")?;
+    let scan = state.scan(window.label()).ok_or("没有扫描结果，请先搜索")?;
     blocking(move || {
         Ok(scan
             .after(&replacement)
@@ -142,7 +142,7 @@ pub async fn replace_apply(
     allow_no_undo: bool,
 ) -> Result<ReplaceOutcomeDto, ReplaceErrorDto> {
     let err = |code: &str, message: String| ReplaceErrorDto { code: code.into(), message, bytes: 0 };
-    let scan = state.scan(window.label()).ok_or_else(|| err("failed", "没有扫描结果，先搜一次".into()))?;
+    let scan = state.scan(window.label()).ok_or_else(|| err("failed", "没有扫描结果，请先搜索".into()))?;
     let dir = journal_dir(&app).map_err(|e| err("failed", e))?;
     let out = blocking(move || {
         let picks: Vec<replacesvc::Pick> = picks.into_iter().map(|p| replacesvc::Pick { rel: p.rel, hits: p.hits }).collect();
@@ -163,10 +163,10 @@ pub async fn replace_apply(
     state.set_scan(window.label(), None);
     match out {
         Ok(o) => Ok(outcome_dto(o)),
-        Err(replacesvc::ApplyError::Truncated) => Err(err("truncated", "命中太多，缩小范围再替换".into())),
-        Err(replacesvc::ApplyError::Pending) => Err(err("pending", "上一次替换中断了还没处理".into())),
+        Err(replacesvc::ApplyError::Truncated) => Err(err("truncated", "匹配项过多，请缩小范围后再替换".into())),
+        Err(replacesvc::ApplyError::Pending) => Err(err("pending", "上次替换未完成，尚未处理".into())),
         Err(replacesvc::ApplyError::TooBigForUndo { bytes }) => {
-            Err(ReplaceErrorDto { code: "too-big".into(), message: "这次改动太大，撤销和中断恢复都做不了".into(), bytes })
+            Err(ReplaceErrorDto { code: "too-big".into(), message: "此次更改过大，将无法撤销，也无法在中断后恢复".into(), bytes })
         }
         Err(replacesvc::ApplyError::Failed { rel, msg }) => {
             Err(err("failed", if rel.is_empty() { msg } else { format!("{rel}：{msg}") }))

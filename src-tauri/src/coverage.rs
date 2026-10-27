@@ -113,7 +113,7 @@ pub fn pct(f: &FileCov) -> f64 {
 /// 测试跑到了兄弟模块里的代码也算（IDEA 也是整个项目算）
 pub fn report(java: &Path, cli: &Path, exec: &Path, out_xml: &Path, modules: &[(PathBuf, PathBuf)]) -> Result<(Vec<FileCov>, usize), String> {
     if !exec.is_file() {
-        return Err("这次没有记下覆盖率（测试一个都没跑起来？看输出）".into());
+        return Err("未记录到覆盖率（可能没有测试被执行，请查看输出）".into());
     }
     let mut cmd = std::process::Command::new(java);
     cmd.arg("-jar").arg(cli).arg("report").arg(exec);
@@ -128,15 +128,15 @@ pub fn report(java: &Path, cli: &Path, exec: &Path, out_xml: &Path, modules: &[(
         }
     }
     if !any {
-        return Err("找不到编译出来的类（target/classes），出不了报告".into());
+        return Err("未找到编译后的类（target/classes），无法生成报告".into());
     }
     cmd.arg("--xml").arg(out_xml).arg("--quiet");
     // `--quiet` 之后 stdout 没东西；出错的话话在 stderr，两边都设闸（rust.md「子进程输出必须设闸」）
-    let out = procutil::run_capped(&mut cmd, 64 << 10, 64 << 10, procutil::Overflow::Drain).map_err(|e| format!("起不来 JaCoCo 的命令行：{e}"))?;
+    let out = procutil::run_capped(&mut cmd, 64 << 10, 64 << 10, procutil::Overflow::Drain).map_err(|e| format!("无法启动 JaCoCo 命令行：{e}"))?;
     if !out.status.success() {
-        return Err(format!("JaCoCo 出报告失败：{}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!("JaCoCo 生成报告失败：{}", String::from_utf8_lossy(&out.stderr).trim()));
     }
-    let bytes = std::fs::read(out_xml).map_err(|e| format!("读不到报告：{e}"))?;
+    let bytes = std::fs::read(out_xml).map_err(|e| format!("无法读取报告：{e}"))?;
     if bytes.len() > XML_CAP {
         return Err(format!("报告大小为 {} MB，超出上限，未读取", bytes.len() >> 20));
     }

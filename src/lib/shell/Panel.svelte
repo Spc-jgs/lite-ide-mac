@@ -121,7 +121,7 @@
       const id = runs.activeId;
       const r = runs.list.find((x) => x.id === id);
       return [
-        { label: "在编辑区打开这份输出", run: () => void ops().then((m) => m.openRunLog(id)) },
+        { label: "在编辑器中打开此输出", run: () => void ops().then((m) => m.openRunLog(id)) },
         { label: "打开 tasks.json", run: () => void ops().then((m) => m.openTasksFile(r?.root ?? root)) },
       ];
     }

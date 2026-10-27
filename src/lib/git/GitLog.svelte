@@ -87,7 +87,7 @@
     const c = picked;
     if (!f || !c) return [];
     return [
-      { label: "查看这次提交的改动", run: () => onOpenCommitDiff(c.sha, c.short, f.path) },
+      { label: "查看此提交的更改", run: () => onOpenCommitDiff(c.sha, c.short, f.path) },
       { label: "和本地比较", run: () => onOpenCommitDiff(c.sha, c.short, f.path, true) },
     ];
   });
@@ -265,7 +265,7 @@
       {#if err}
         <div class="msg err">{err}</div>
       {:else if !loading && commits.length === 0}
-        <div class="msg">还没有提交</div>
+        <div class="msg">尚无提交</div>
       {:else}
         {#each shown as c, i (c.sha)}
           {@const g = graph?.rows[i]}

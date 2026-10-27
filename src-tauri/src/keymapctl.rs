@@ -65,9 +65,9 @@ fn changed(app: &AppHandle) {
 /// 设置里「应用 / 确定」：整张覆盖表换掉、写盘。认不了的一条都不收（前端已经判过，这里是最后一道）
 pub fn set(app: &AppHandle, map: BTreeMap<String, String>) -> Result<(), String> {
     if let Some((id, a)) = map.iter().find(|(_, a)| !keymap::accel_ok(a)) {
-        return Err(format!("`{id}` 的键位 {a} 认不了"));
+        return Err(format!("`{id}` 的快捷键 {a} 无效"));
     }
-    let p = path(app).ok_or("找不到应用数据目录")?;
+    let p = path(app).ok_or("无法获取应用数据目录")?;
     if let Some(d) = p.parent() {
         let _ = std::fs::create_dir_all(d);
     }
@@ -76,7 +76,7 @@ pub fn set(app: &AppHandle, map: BTreeMap<String, String>) -> Result<(), String>
     let old = std::mem::replace(&mut *keymap::OVERRIDES.lock().unwrap_or_else(|e| e.into_inner()), map);
     if let Err(e) = fsservice::write_text(&p, &text) {
         *keymap::OVERRIDES.lock().unwrap_or_else(|e| e.into_inner()) = old;
-        return Err(format!("写不了 {}：{e}", p.display()));
+        return Err(format!("无法写入 {}：{e}", p.display()));
     }
     changed(app);
     Ok(())

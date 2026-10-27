@@ -93,7 +93,7 @@ async function send(root: string, path: string, f: HttpFile, req: HttpReq) {
   if (env && !(env in envs)) env = null;
   const r = resolve(req, f.vars, env ? envs[env] : null);
   if (!r.ok) {
-    const why = env ? `（环境「${env}」里没有）` : names.length ? "（还没选环境：编辑器顶上那一条里选）" : "（没有 http-client.env.json，也没在文件里用 @名字 = 值 定义）";
+    const why = env ? `（环境「${env}」里没有）` : names.length ? "（尚未选择环境，请在编辑器顶部选择）" : "（没有 http-client.env.json，也没在文件里用 @名字 = 值 定义）";
     notify.fail(`未定义的变量：${r.missing.map((m) => `{{${m}}}`).join("、")}${why}，请求未发送`, 8000);
     return;
   }

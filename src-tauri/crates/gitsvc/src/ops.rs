@@ -101,7 +101,7 @@ pub fn op_run(root: impl AsRef<Path>, kind: OpKind, action: OpAction) -> R<()> {
         OpAction::Abort => "--abort",
     };
     if kind == OpKind::Merge && action == OpAction::Skip {
-        return Err(Error::Git("合并没有「跳过」：解决冲突后继续，或者放弃合并".into()));
+        return Err(Error::Git("合并不支持「跳过」：请解决冲突后继续，或中止合并".into()));
     }
     // 两路都读：「还有冲突没解决」那句 git 写在 stdout 里、stderr 是空的（单测撞见：只读 stderr 时报出来的是一句「git -c 失败」）；
     // 继续时还可能跑提交钩子、话多 —— 照提交那样读完不杀（`drain_both`）
@@ -111,7 +111,7 @@ pub fn op_run(root: impl AsRef<Path>, kind: OpKind, action: OpAction) -> R<()> {
     }
     let raw = [err.as_str(), String::from_utf8_lossy(&out).trim()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join("\n");
     Err(Error::Git(if unresolved(&raw) {
-        "还有冲突的文件没解决：解决完、暂存（＋）之后再继续".into()
+        "仍有未解决的冲突：请解决并暂存（＋）后再继续".into()
     } else if raw.is_empty() {
         format!("git {} {flag} 失败", kind.verb())
     } else {
@@ -142,14 +142,14 @@ pub struct PlanCommit {
 pub fn rebase_plan(root: impl AsRef<Path>, from: &str) -> R<Vec<PlanCommit>> {
     let root = root.as_ref();
     if run(root, &["merge-base", "--is-ancestor", from, "HEAD"]).is_err() {
-        return Err(Error::Git("这个提交不在当前分支这条线上，从它变基没有意义".into()));
+        return Err(Error::Git("此提交不在当前分支的历史上，无法从此处变基".into()));
     }
     // 范围：from 本身也要（「从这里」含这一条）。from 是根提交时没有父，用 `HEAD` 往回全列、再截到 from
     let has_parent = run(root, &["rev-parse", "--verify", "--quiet", &format!("{from}^")]).is_ok();
     let range = if has_parent { format!("{from}^..HEAD") } else { "HEAD".to_string() };
     let merges = run(root, &["rev-list", "--merges", &range])?;
     if !merges.trim().is_empty() {
-        return Err(Error::Git("这一段里有合并提交，这一版只整理一条直线上的提交".into()));
+        return Err(Error::Git("此范围包含合并提交，当前版本仅支持整理线性历史".into()));
     }
     let out = run(root, &["log", "--reverse", "--format=%H%x1f%h%x1f%s%x1f%B%x1e", &range])?;
     let mut list: Vec<PlanCommit> = out
@@ -211,7 +211,7 @@ pub fn rebase_todo(plan: &[PlanCommit], steps: &[Step], msg_dir: &Path) -> R<(St
     let want: std::collections::HashSet<&str> = plan.iter().map(|c| c.sha.as_str()).collect();
     let got: std::collections::HashSet<&str> = steps.iter().map(|s| s.sha()).collect();
     if want != got || steps.len() != plan.len() {
-        return Err(Error::Git("计划和这一段提交对不上（多了或少了），不做 —— 不要的提交请标「丢掉」".into()));
+        return Err(Error::Git("变基计划与提交范围不一致（多出或缺少提交），未执行。如需删除提交，请将其标记为「删除」".into()));
     }
     let msg_of = |sha: &str| plan.iter().find(|c| c.sha == sha).map(|c| c.message.clone()).unwrap_or_default();
     let mut todo = String::new();
@@ -235,7 +235,7 @@ pub fn rebase_todo(plan: &[PlanCommit], steps: &[Step], msg_dir: &Path) -> R<(St
             }
             Step::Squash(sha) | Step::Fixup(sha) => {
                 let Some(prev) = acc.clone() else {
-                    return Err(Error::Git(format!("第 {} 个提交要并进上一个，可它前面没有留下来的提交", i + 1)));
+                    return Err(Error::Git(format!("第 {} 个提交需要合并到上一个提交，但其前面没有保留的提交", i + 1)));
                 };
                 todo.push_str(&format!("fixup {sha}\n"));
                 if matches!(s, Step::Squash(_)) {
@@ -256,21 +256,21 @@ pub fn rebase_todo(plan: &[PlanCommit], steps: &[Step], msg_dir: &Path) -> R<(St
 pub fn rebase_interactive(root: impl AsRef<Path>, from: &str, steps: &[Step], scratch: &Path) -> R<RebaseOutcome> {
     let root = root.as_ref();
     if op_state(root).is_some() {
-        return Err(Error::Git("仓库停在另一个操作中间（变基 / 合并…），先在 Git 面板里继续或者放弃它".into()));
+        return Err(Error::Git("仓库有进行中的操作（变基或合并等），请先在 Git 面板中继续或中止".into()));
     }
     let st = status(root)?;
     if st.entries.iter().any(|e| !e.untracked) {
-        return Err(Error::Git("有还没提交的改动：先提交或者收进 stash，再变基".into()));
+        return Err(Error::Git("存在未提交的更改，请先提交或储藏后再变基".into()));
     }
     let plan = rebase_plan(root, from)?;
     #[allow(clippy::disallowed_methods)] // 清的是我们自己上一次变基留下的 todo 和说明文件（目录是调用方给的应用目录）
     let _ = std::fs::remove_dir_all(scratch);
-    std::fs::create_dir_all(scratch).map_err(|e| Error::Git(format!("建不了临时目录 {}：{e}", scratch.display())))?;
+    std::fs::create_dir_all(scratch).map_err(|e| Error::Git(format!("无法创建临时目录 {}：{e}", scratch.display())))?;
     let (todo, files) = rebase_todo(&plan, steps, scratch)?;
     let todo_path = scratch.join("todo.txt");
     for (p, text) in files.iter().chain(std::iter::once(&(todo_path.clone(), todo))) {
         #[allow(clippy::disallowed_methods)] // 新建的临时目录里写我们自己的文件
-        std::fs::write(p, text).map_err(|e| Error::Git(format!("写不了 {}：{e}", p.display())))?;
+        std::fs::write(p, text).map_err(|e| Error::Git(format!("无法写入 {}：{e}", p.display())))?;
     }
     let seq = format!("cp {}", sh_quote(&todo_path.to_string_lossy()));
     let has_parent = run(root, &["rev-parse", "--verify", "--quiet", &format!("{from}^")]).is_ok();

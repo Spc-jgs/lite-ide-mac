@@ -269,8 +269,8 @@ fi
 
 say "① 提交：3000 行的 pre-commit 钩子不能把它挂住"
 MSG="smoke: commit through the real app"
-if ! click "Git 改动"; then
-  bad "点不到「Git 改动」"
+if ! click "Git 更改"; then
+  bad "点不到「Git 更改」"
 elif ! wait_exists "全部暂存" button exact 10; then
   bad "Git 面板没渲染出来"
 elif ! fill "${MSG}" ".commit textarea" || ! wait_has "${MSG}" 3; then
@@ -909,7 +909,7 @@ else
     [ ! -e "${PWNED}" ] && ok "config 里那条命令没被执行" || bad "config 里的命令被执行了 —— 白名单没拦住"
     if click "Git 未启用" button contains && wait_exists "信任此仓库" button exact 5; then
       ok "点开是确认卡片"
-      if click "信任此仓库" && wait_exists "Git 改动" button exact 10; then
+      if click "信任此仓库" && wait_exists "Git 更改" button exact 10; then
         ok "信任之后 Git 出来了"
       else
         bad "点了信任，Git 没出来"
@@ -1329,7 +1329,7 @@ HG switch -qc op-side; printf 'side\n' > "${FIX}/op.txt"; HG add op.txt; HG comm
 HG switch -q "${OPB}"; printf 'main\n' > "${FIX}/op.txt"; HG add op.txt; HG commit -qm "op main"
 HG merge op-side
 # Git 面板没开就点开（导轨上那个按钮是开关：开着再点就收起了）
-lite eval "${W}" "if (!document.querySelector('.git')) [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Git 改动')?.click(); return true" >/dev/null 2>&1
+lite eval "${W}" "if (!document.querySelector('.git')) [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Git 更改')?.click(); return true" >/dev/null 2>&1
 menu git-refresh
 lite_wait "${W}" "return /正在合并/.test(document.querySelector('.op')?.textContent ?? '')" 10 >/dev/null
 check "$(lite eval "${W}" "return (document.querySelector('.op .op-title')?.textContent ?? '') + '|' + !!document.querySelector('.git .commit textarea') + '|' + document.querySelector('.op button.primary')?.disabled" 2>/dev/null)" "正在合并|false|true" "Git 面板：提交框换成「正在合并」，有冲突时「继续」点不了"

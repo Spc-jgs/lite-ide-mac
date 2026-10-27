@@ -240,7 +240,7 @@ pub fn notes(s: &Style) -> Vec<String> {
     // Eclipse 每两组之间都空一行；IDEA 里两组之间没写空行的（默认的 javax 和 java）转过去会多一行
     let pkgs: Vec<usize> = s.imports.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Pkg { .. })).map(|(i, _)| i).collect();
     if pkgs.windows(2).any(|w| !s.imports[w[0]..w[1]].contains(&Entry::Blank)) {
-        out.push("import 每两组之间都会空一行（Eclipse 的规矩），IDEA 里挨着的两组（比如 javax 和 java）这里中间多一行".to_string());
+        out.push("import 各分组之间将空一行（Eclipse 规则），IDEA 中相邻的分组（如 javax 和 java）之间会多出一个空行".to_string());
     }
     if !s.skipped.is_empty() {
         let mut names = s.skipped.clone();
@@ -248,7 +248,7 @@ pub fn notes(s: &Style) -> Vec<String> {
         names.dedup();
         let shown: Vec<&str> = names.iter().take(6).map(String::as_str).collect();
         let more = if names.len() > 6 { format!(" 等 {} 项", names.len()) } else { String::new() };
-        out.push(format!("这几项没转（jdtls 的格式化器没有对应的，照它的默认排）：{}{more}", shown.join("、")));
+        out.push(format!("以下各项未转换（jdtls 格式化器不支持，将使用其默认设置）：{}{more}", shown.join("、")));
     }
     out
 }

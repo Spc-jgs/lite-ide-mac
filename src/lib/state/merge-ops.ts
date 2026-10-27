@@ -84,7 +84,7 @@ export async function openMergedPath(path: string, opts: { quiet?: boolean } = {
  */
 export async function pickAndMerge(base: string[], replace?: number) {
   const dir = base[0] ? base[0].slice(0, base[0].lastIndexOf("/")) || "/" : project.root;
-  const picked = await pickFiles(base.length > 1 ? "再加几份日志一起合" : "选几份日志和它按时间合并", dir).catch(() => [] as string[]);
+  const picked = await pickFiles(base.length > 1 ? "添加日志一起合并" : "选择日志与其按时间合并", dir).catch(() => [] as string[]);
   if (picked.length === 0) return;
   await openMerged([...base, ...picked], { replace });
 }

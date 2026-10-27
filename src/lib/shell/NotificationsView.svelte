@@ -37,7 +37,7 @@
         <span class="txt">{#if nl >= 0}<b>{n.text.slice(0, nl)}</b>{"\n" + n.text.slice(nl + 1)}{:else}{n.text}{/if}</span>
       </div>
     {:else}
-      <div class="empty-msg">这次打开以来还没有消息<span class="sub">做完的、没做成的、什么都没发生的那几句提示都会记在这里 —— 胶囊走了也能回来看</span></div>
+      <div class="empty-msg">自本次启动以来没有消息<span class="sub">操作成功、失败及无变化的提示都会记录在此，提示消失后仍可查看</span></div>
     {/each}
   </div>
 </div>

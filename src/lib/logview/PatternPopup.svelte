@@ -130,7 +130,7 @@
 
   /** 选基准、开始对比；取消面板就什么都不变 */
   async function startCompare() {
-    const picked = await pickFiles("和哪份比？选昨天的、上线前的那份（可以多选）", dir).catch(() => [] as string[]);
+    const picked = await pickFiles("选择用于比较的基准日志（例如昨天或上线前的日志，可多选）", dir).catch(() => [] as string[]);
     if (picked.length === 0) return;
     base = picked;
     data = null;
@@ -220,7 +220,7 @@
       {#if error}
         <div class="empty-msg bad">{error}</div>
       {:else if data && data.done && rows.length === 0}
-        <div class="empty-msg">{q ? "没有含这几个字的模板。换个词，或者清掉再看" : "这份日志里没有能归类的行（空的，或者只有堆栈）"}</div>
+        <div class="empty-msg">{q ? "没有含这几个字的模板。换个词，或者清掉再看" : "此日志中没有可归类的行（为空或仅包含堆栈）"}</div>
       {:else if !data}
         <div class="empty-msg wait"><span class="spinner"></span>正在归类…</div>
       {/if}
@@ -234,7 +234,7 @@
       <span class="gap"></span>
       <span><kbd>↵</kbd> 按这一类过滤</span>
       {#if !base}
-        <button class="btn sm quiet" onclick={() => void startCompare()} title="和昨天的、上线前的日志比：新出现了哪几类、哪一类涨了、哪一类没了">和另一份比…</button>
+        <button class="btn sm quiet" onclick={() => void startCompare()} title="与昨天或上线前的日志比较：新增了哪些类别、哪些类别增多、哪些类别消失">和另一份比…</button>
       {/if}
       <button class="btn sm quiet" disabled={!data?.done} onclick={() => void load(true)} title="日志长了、或者想从头再归一遍">重新归类</button>
     </div>

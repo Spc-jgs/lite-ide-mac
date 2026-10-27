@@ -118,25 +118,25 @@ fn token(s: &str) -> bool {
 
 pub fn validate(r: &Request) -> Result<(), Error> {
     if !token(&r.method) {
-        return Err(Error::Invalid(format!("方法「{}」不对", r.method)));
+        return Err(Error::Invalid(format!("方法「{}」无效", r.method)));
     }
     let lower = r.url.to_ascii_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) {
-        return Err(Error::Invalid(format!("只发 http:// 和 https:// 的请求：{}", r.url)));
+        return Err(Error::Invalid(format!("仅支持 http:// 和 https:// 请求：{}", r.url)));
     }
     if r.url.chars().any(|c| c.is_control() || c == ' ') {
-        return Err(Error::Invalid(format!("URL 里有空格或控制字符（变量的值带了换行？）：{}", r.url.escape_debug())));
+        return Err(Error::Invalid(format!("URL 包含空格或控制字符（变量值可能含换行）：{}", r.url.escape_debug())));
     }
     for (k, v) in &r.headers {
         if !token(k) {
-            return Err(Error::Invalid(format!("头的名字「{k}」不对")));
+            return Err(Error::Invalid(format!("请求头名称「{k}」无效")));
         }
         if v.chars().any(|c| c == '\r' || c == '\n' || c == '\0') {
-            return Err(Error::Invalid(format!("头「{k}」的值里有换行（变量的值带了换行？）")));
+            return Err(Error::Invalid(format!("请求头「{k}」的值包含换行（变量值可能含换行）")));
         }
     }
     if r.body.is_some() && r.body_file.is_some() {
-        return Err(Error::Invalid("请求体写了一份、又从文件读一份".into()));
+        return Err(Error::Invalid("请求体不能同时内联书写并从文件读取".into()));
     }
     Ok(())
 }
@@ -146,7 +146,7 @@ pub fn validate(r: &Request) -> Result<(), Error> {
 /// 项目根解析不出来就不发（加固出错往「不做」那边倒，rust.md）
 pub fn body_file_inside(root: &Path, file: &Path) -> Result<(), Error> {
     let Ok(f) = file.canonicalize() else { return Ok(()) };
-    let r = root.canonicalize().map_err(|e| Error::Invalid(format!("找不到项目根（{}：{e}），没发带文件的请求", root.display())))?;
+    let r = root.canonicalize().map_err(|e| Error::Invalid(format!("无法确定项目根目录（{}：{e}），未发送引用文件的请求", root.display())))?;
     if f.starts_with(&r) {
         return Ok(());
     }
@@ -277,9 +277,9 @@ pub fn send_capped(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, c
     }
     // 统计写进 `%output{路径}`：curl 读到第一个 `}` 就当路径结束了，带 `}` 的目录会让统计悄悄写丢（测试的临时目录名撞上过）
     if dir.to_string_lossy().contains('}') {
-        return Err(Error::Io(format!("放响应的目录名里有「}}」，curl 的统计写不进去：{}", dir.display())));
+        return Err(Error::Io(format!("响应目录名包含「}}」，curl 无法写入统计信息：{}", dir.display())));
     }
-    std::fs::create_dir_all(dir).map_err(|e| Error::Io(format!("建不了 {}：{e}", dir.display())))?;
+    std::fs::create_dir_all(dir).map_err(|e| Error::Io(format!("无法创建 {}：{e}", dir.display())))?;
     let f = Files::new(dir, seq);
     let res = send_inner(curl, r, dir, seq, h, &f, cap);
     f.remove();
@@ -296,7 +296,7 @@ fn send_inner(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, f: &Fi
     let mut cmd = Command::new(curl);
     cmd.args(curl_args(r, f));
     let t0 = Instant::now();
-    let mut run = procutil::spawn(&mut cmd, 64 << 10).map_err(|e| Error::Io(format!("起不了 curl（{}）：{e}", curl.display())))?;
+    let mut run = procutil::spawn(&mut cmd, 64 << 10).map_err(|e| Error::Io(format!("无法启动 curl（{}）：{e}", curl.display())))?;
     *h.pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(run.id());
     // 登记 pid 和取消之间有空档：取消先到的话这里补一刀
     if h.is_cancelled() {
@@ -322,7 +322,7 @@ fn send_inner(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, f: &Fi
     }
     // 收尸之前摘掉 pid（见文件头）
     h.pid.lock().unwrap_or_else(|e| e.into_inner()).take();
-    let fin = run.finish().map_err(|e| Error::Io(format!("等 curl 退出时出错：{e}")))?;
+    let fin = run.finish().map_err(|e| Error::Io(format!("等待 curl 退出时出错：{e}")))?;
     let ms = t0.elapsed().as_millis() as u64;
     if h.is_cancelled() {
         return Err(Error::Cancelled);
@@ -340,7 +340,7 @@ fn send_inner(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, f: &Fi
         let msg = stats["errormsg"].as_str().map(str::to_owned).unwrap_or_else(|| String::from_utf8_lossy(&fin.stderr).trim().trim_start_matches("curl: ").to_string());
         return Err(Error::Curl(explain(code, &msg)));
     }
-    let (version, status, reason, headers) = parse_headers(&read_small(&f.headers)).ok_or_else(|| Error::Curl("没收到响应头".into()))?;
+    let (version, status, reason, headers) = parse_headers(&read_small(&f.headers)).ok_or_else(|| Error::Curl("未收到响应头".into()))?;
     let ctype = headers.iter().rev().find(|(k, _)| k.eq_ignore_ascii_case("content-type")).map(|(_, v)| v.to_ascii_lowercase()).unwrap_or_default();
     let looks_json = ctype.contains("json") || matches!(out.iter().find(|b| !b.is_ascii_whitespace()), Some(b'{' | b'['));
     let pretty = if looks_json && !truncated && out.len() <= PRETTY_MAX { json::reindent(&out) } else { None };
@@ -366,7 +366,7 @@ fn send_inner(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, f: &Fi
 /// 写我们自己的文件：名字带序号，正常不会已经存在；万一在（序号从头数了），也是我们上次写的那份，覆盖掉
 fn write_new(p: &Path, data: &[u8]) -> Result<(), Error> {
     #[allow(clippy::disallowed_methods)] // 应用数据目录里我们自己的临时文件 / 响应体（名字带序号），不是用户的
-    std::fs::write(p, data).map_err(|e| Error::Io(format!("写不了 {}：{e}", p.display())))
+    std::fs::write(p, data).map_err(|e| Error::Io(format!("无法写入 {}：{e}", p.display())))
 }
 
 /// 下一个序号：临时文件和响应体的名字带着它。从「现在的毫秒数」起往上数 —— 重启之后接着往上，[`prune`] 按序号删旧的才对

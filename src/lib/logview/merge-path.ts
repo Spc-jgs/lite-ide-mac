@@ -100,6 +100,6 @@ export function toggleSource(mask: number, i: number, n: number): number {
 export function clockNote(clock: string, fillDate: string | null): string {
   if (clock === "timeOnly") return fillDate ? `只有时分秒，按 ${fillDate} 对齐` : "只有时分秒";
   if (clock === "noYear") return fillDate ? `没有年份，按 ${fillDate.slice(0, 4)} 年对齐` : "没有年份";
-  if (clock === "none") return "开头 2000 行没认出时间戳，整份排在最前";
+  if (clock === "none") return "前 2000 行未识别到时间戳，整份日志排在最前";
   return "";
 }

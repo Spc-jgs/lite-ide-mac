@@ -305,7 +305,7 @@
       <div class="frames" role="listbox" aria-label="调用栈">
         {#if !paused}
           <div class="empty-msg">
-            {d?.phase === "running" ? "程序在跑" : d?.phase === "ended" ? "调试结束了" : "还没挂上"}
+            {d?.phase === "running" ? "程序在跑" : d?.phase === "ended" ? "调试结束了" : "尚未连接"}
             <div class="sub">{d?.phase === "running" ? "撞上断点时停在这里；也可以点 ⏸ 暂停" : d?.phase === "ended" ? "重跑：Services 里的虫子，或者 ⌃D" : "挂上之后断点才生效"}</div>
           </div>
         {:else}

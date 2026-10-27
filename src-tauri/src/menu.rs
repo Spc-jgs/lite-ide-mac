@@ -139,8 +139,8 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
     let nav_fwd = item(app, "nav-fwd", "再回来", Some("Alt+CmdOrCtrl+Right"))?;
     let find_word = item(app, "find-word", "在项目里找这个名字", None)?;
 
-    let git_changes = item(app, "git-changes", "改动列表", Some("CmdOrCtrl+K"))?;
-    let git_file_diff = item(app, "git-file-diff", "查看当前文件的改动", None)?;
+    let git_changes = item(app, "git-changes", "更改列表", Some("CmdOrCtrl+K"))?;
+    let git_file_diff = item(app, "git-file-diff", "查看当前文件的更改", None)?;
     let git_blame = item(app, "git-blame", "显示 / 隐藏注解（blame）", None)?;
     let git_log = item(app, "git-log", "提交历史", None)?;
     // IDEA 的 Git › Show History / Show History for Selection（docs/TAKEOVER.md G16）：要一个打开的文件，同「查看当前文件的改动」

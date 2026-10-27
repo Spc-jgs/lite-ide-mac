@@ -40,12 +40,12 @@ function mockChain(dir: string): string[] {
  * 分叉之后前端的错误提示就是在浏览器里对着一份假规则调的。
  */
 function checkName(name: string): string | null {
-  if (name.trim() === "") return "名字不能为空";
-  if (name.includes("/")) return "名字里不能有 /";
-  if (name.includes("\0")) return "名字里不能有空字符";
-  if (name === "." || name === "..") return "不能叫 . 或 ..";
+  if (name.trim() === "") return "名称不能为空";
+  if (name.includes("/")) return "名称中不能包含 /";
+  if (name.includes("\0")) return "名称中不能包含空字符";
+  if (name === "." || name === "..") return "名称不能为 . 或 ..";
   const bytes = new TextEncoder().encode(name).length;
-  if (bytes > 255) return `名字太长（上限 255 字节，这个 ${bytes} 字节）`;
+  if (bytes > 255) return `名称过长（上限 255 字节，当前 ${bytes} 字节）`;
   return null;
 }
 
@@ -237,7 +237,7 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
       const bad = checkName(name);
       if (bad) throw new Error(bad);
       const path = `${dir}/${name}`;
-      if (existsInMock(path)) throw new Error(`这里已经有一个叫「${name}」的了`);
+      if (existsInMock(path)) throw new Error(`已存在名为「${name}」的项目`);
       DIRS[dir] = [...(DIRS[dir] ?? []), [name, isDir]];
       if (isDir) DIRS[path] = [];
       else {
@@ -256,7 +256,7 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
       const parent = parentOf(path);
       const to = `${parent}/${name}`;
       if (to === path) return to;
-      if (existsInMock(to)) throw new Error(`这里已经有一个叫「${name}」的了`);
+      if (existsInMock(to)) throw new Error(`已存在名为「${name}」的项目`);
       const wasDir = DIRS[path] !== undefined;
       movePrefix(path, to);
       const old = nameOf(path);

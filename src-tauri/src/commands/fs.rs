@@ -17,7 +17,7 @@ pub async fn probe_path(path: String) -> Result<PathInfo, String> {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.clone());
-        let meta = std::fs::metadata(p).map_err(|e| format!("读不到 {path}：{e}"))?;
+        let meta = std::fs::metadata(p).map_err(|e| format!("无法读取 {path}：{e}"))?;
 
         if meta.is_dir() {
             return Ok(PathInfo {
@@ -42,7 +42,7 @@ pub async fn probe_path(path: String) -> Result<PathInfo, String> {
             });
         }
 
-        let pr = logengine::probe(p).map_err(|e| format!("探测 {path} 失败：{e}"))?;
+        let pr = logengine::probe(p).map_err(|e| format!("无法检测 {path}：{e}"))?;
         crate::diag!("probe {path} -> {:?} ({})", pr.mode, pr.reason);
         Ok(PathInfo {
             kind: "file",
@@ -76,7 +76,7 @@ pub async fn open_in_preview(path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
     blocking(move || {
-        let entries = fsservice::list_dir(&path).map_err(|e| format!("列目录失败：{e}"))?;
+        let entries = fsservice::list_dir(&path).map_err(|e| format!("读取目录失败：{e}"))?;
         Ok(entries
             .into_iter()
             .map(|e| DirEntryDto {
@@ -124,7 +124,7 @@ pub async fn detect_encoding(path: String) -> Result<String, String> {
 fn detect_encoding_now(path: &str) -> Result<String, String> {
     use std::io::Read;
     const SAMPLE: usize = 256 << 10;
-    let mut f = std::fs::File::open(&path).map_err(|e| format!("读不到 {path}：{e}"))?;
+    let mut f = std::fs::File::open(&path).map_err(|e| format!("无法读取 {path}：{e}"))?;
     let mut buf = vec![0u8; SAMPLE];
     let n = f.read(&mut buf).map_err(|e| format!("{e}"))?;
     buf.truncate(n);

@@ -67,13 +67,13 @@ pub enum RemoteError {
 impl std::fmt::Display for RemoteError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RemoteError::Auth { https: true, .. } => write!(f, "这个仓库需要先认证一次"),
-            RemoteError::Auth { https: false, .. } => write!(f, "ssh-agent 里没有可用的钥匙"),
+            RemoteError::Auth { https: true, .. } => write!(f, "此仓库需要先完成认证"),
+            RemoteError::Auth { https: false, .. } => write!(f, "ssh-agent 中没有可用的密钥"),
             RemoteError::Cancelled => write!(f, "已取消"),
-            RemoteError::Rejected { .. } => write!(f, "远程比你多了东西，推不上去"),
-            RemoteError::Conflict { .. } => write!(f, "有冲突要先解决"),
+            RemoteError::Rejected { .. } => write!(f, "远程包含本地没有的提交，推送被拒绝"),
+            RemoteError::Conflict { .. } => write!(f, "存在冲突，请先解决"),
             RemoteError::Other { raw } => write!(f, "{raw}"),
-            RemoteError::NoGit(e) => write!(f, "找不到 git 命令：{e}"),
+            RemoteError::NoGit(e) => write!(f, "未找到 git 命令：{e}"),
         }
     }
 }
@@ -338,21 +338,21 @@ pub fn clone(
 ) -> R<()> {
     let url = url.trim();
     if url.is_empty() || url.starts_with('-') {
-        return Err(RemoteError::Other { raw: format!("这不是一个仓库地址：{url}") });
+        return Err(RemoteError::Other { raw: format!("不是有效的仓库地址：{url}") });
     }
     if name.is_empty() || name == "." || name == ".." || name.contains('/') {
-        return Err(RemoteError::Other { raw: format!("目录名不对：{name}") });
+        return Err(RemoteError::Other { raw: format!("目录名无效：{name}") });
     }
     let parent = parent.as_ref();
     if std::fs::symlink_metadata(parent.join(name)).is_ok() {
-        return Err(RemoteError::Other { raw: format!("{} 里已经有 {name} 了 —— 换个名字", parent.display()) });
+        return Err(RemoteError::Other { raw: format!("{} 中已存在 {name}，请使用其他名称", parent.display()) });
     }
     let https = !url.starts_with("git@") && !url.starts_with("ssh://");
     let r = run_streaming(parent, &["clone", "--progress", "--", url, name], https, cancel, on_progress);
     let target = parent.join(name);
     if r.is_err() && std::fs::symlink_metadata(&target).is_ok() {
         if let Err(e) = trash(&target) {
-            return Err(RemoteError::Other { raw: format!("{} —— 半截的 {} 没能扔进废纸篓：{e}", r.unwrap_err(), target.display()) });
+            return Err(RemoteError::Other { raw: format!("{}；未完成的 {} 无法移到废纸篓：{e}", r.unwrap_err(), target.display()) });
         }
     }
     r

@@ -38,7 +38,7 @@ async function toHint(e: RemoteErr): Promise<string> {
   if (e.kind === "auth-ssh") {
     return "把私钥加进 ssh-agent：\n  ssh-add --apple-use-keychain ~/.ssh/id_ed25519";
   }
-  if (e.kind === "rejected") return "远程上有你本地还没有的提交。先拉下来，再推。";
+  if (e.kind === "rejected") return "远程包含本地没有的提交，请先拉取再推送。";
   return "";
 }
 

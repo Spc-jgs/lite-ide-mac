@@ -74,7 +74,7 @@
     ];
     if (git.repo && inProject) {
       out.push(
-        { label: "查看这个文件的改动", sep: true, run: () => onMenuAction("git-file-diff") },
+        { label: "查看此文件的更改", sep: true, run: () => onMenuAction("git-file-diff") },
         { label: "显示 / 隐藏注解（blame）", run: () => onMenuAction("git-blame") },
         // IDEA 右键 › Git › Show History / Show History for Selection（docs/TAKEOVER.md G16）
         { label: "这个文件的历史", run: () => onMenuAction("git-file-history") },

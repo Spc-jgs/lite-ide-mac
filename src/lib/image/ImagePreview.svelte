@@ -143,7 +143,7 @@
         style:width={nw ? `${nw * scale}px` : null}
         style:height={nh ? `${nh * scale}px` : null}
         onload={loaded}
-        onerror={() => (err = svg ? "这份 SVG 画不出来 —— 多半是写坏了，点「编辑源码」看看" : "这张图解不出来 —— 文件可能不完整")}
+        onerror={() => (err = svg ? "无法渲染此 SVG，文件可能已损坏，请点击「编辑源码」检查" : "这张图解不出来 —— 文件可能不完整")}
       />
     {/if}
   </div>

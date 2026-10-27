@@ -168,7 +168,7 @@
         项目窗口里才有这一行（docs/SCRATCH.md 7.3）：正在翻草稿的人，下一步多半是再写一张 —— 头上的 ＋ 是「这个窗口里多一张」（带锚点），
         这一行是「去草稿本开一张白纸」。已经在草稿本里时两件事是同一件，只留 ＋（ui.md 第六条：同一个信息只印一遍）
       -->
-      <button class="gobook" onclick={() => void openScratchbook()} title="去没有项目的那个窗口开一张白纸">
+      <button class="gobook" onclick={() => void openScratchbook()} title="在草稿本窗口中新建草稿">
         <span class="ic"><Icon name="note" /></span>
         <span class="glabel">在草稿本新建</span>
         <span class="gkey">⇧⌘N</span>
@@ -176,7 +176,7 @@
     {/if}
     {#if scratches.loaded && scratches.list.length === 0}
       <!-- 空态要给下一步，不是给句号（ui.md 第六条） -->
-      <div class="empty-msg">还没有草稿 —— ⌘N 记第一条</div>
+      <div class="empty-msg">暂无草稿，按 ⌘N 新建</div>
     {/if}
     {#each groups as g (g.label)}
       {#if g.label}

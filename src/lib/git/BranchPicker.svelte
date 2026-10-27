@@ -574,7 +574,7 @@
     {:else if mode === "newWorktree"}
       <div class="form">
         <div class="ftitle">新建工作树</div>
-        <p class="fdesc">工作树是同一个仓库的第二个检出目录 —— 可以在不打断当前改动的前提下，把另一个分支同时摊开在磁盘上。</p>
+        <p class="fdesc">工作树是同一仓库的另一个签出目录，可在不影响当前更改的情况下，同时在磁盘上签出另一个分支。</p>
         <label>
           <span>目录</span>
           <input class="fi" bind:value={wtDir} placeholder="../lite-ide-hotfix 或绝对路径" spellcheck="false" onkeydown={(e) => e.key === "Enter" && !imeKey(e) && submitWorktree()} />
@@ -597,7 +597,7 @@
           {:else}检出标签或提交{/if}
         </div>
         {#if mode === "rename"}
-          <p class="fdesc">只改本地的名字；上游跟踪配置会跟着走，远程那条不动。</p>
+          <p class="fdesc">仅重命名本地分支；上游跟踪配置将随之更新，远程分支保持不变。</p>
         {:else if mode === "newBranch"}
           <p class="fdesc">新分支从 {formBase || "当前 HEAD"} 的最新提交分出，建好之后直接切过去。</p>
         {:else}

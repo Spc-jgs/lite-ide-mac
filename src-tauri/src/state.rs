@@ -399,7 +399,7 @@ impl AppState {
     pub fn begin_run(&self, owner: &str, root: &str, name: &str) -> Result<RunClaim<'_>, String> {
         let key = (owner.to_string(), root.to_string(), name.to_string());
         if !self.starting.lock().expect("起任务的认领表锁被毒化").insert(key.clone()) {
-            return Err(format!("「{name}」正在起，等它起来再按"));
+            return Err(format!("「{name}」正在启动，请等待启动完成"));
         }
         let claim = RunClaim { st: self, key };
         if let Some((old, task)) = self.find_run(owner, root, name) {

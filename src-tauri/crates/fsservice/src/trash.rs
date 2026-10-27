@@ -47,7 +47,7 @@ pub fn move_all_to_trash(paths: &[PathBuf]) -> Result<(), String> {
         .collect();
     match failed.len() {
         0 => Ok(()),
-        n if n <= 5 => Err(format!("没扔进废纸篓：{}", failed.join("；"))),
-        n => Err(format!("{n} 个没扔进废纸篓，比如：{}", failed[..5].join("；"))),
+        n if n <= 5 => Err(format!("未能移到废纸篓：{}", failed.join("；"))),
+        n => Err(format!("{n} 个项目未能移到废纸篓，例如：{}", failed[..5].join("；"))),
     }
 }

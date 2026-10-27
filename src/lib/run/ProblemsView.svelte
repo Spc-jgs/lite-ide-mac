@@ -87,11 +87,11 @@
         {/if}
       </div>
       {#if !build}
-        <div class="none">还没构建过 —— 没开的文件里有没有编译错误，要构建一次才知道（⌘F9）</div>
+        <div class="none">尚未构建。未打开文件中的编译错误需构建后才能显示（⌘F9）</div>
       {:else if build.status === "running"}
         <div class="none"><span class="spinner sm"></span> 正在构建</div>
       {:else if !buildByFile.length}
-        <div class="none">{build.status === "failed" ? "构建失败了，但没认出编译错误 —— 看运行窗里的输出（⌘4）" : "上次构建没有编译错误"}</div>
+        <div class="none">{build.status === "failed" ? "构建失败，但未识别到编译错误，请查看运行窗口中的输出（⌘4）" : "上次构建没有编译错误"}</div>
       {:else}
         {#each buildByFile as [path, items] (path)}
           {@render list(path, items, items.length, true)}

@@ -48,7 +48,7 @@ export async function remoteCmd(cmd: string, a: A): Promise<unknown> {
       if (cmd === "git_push" && a.branch === "rejected-demo") {
         throw {
           kind: "rejected",
-          message: "远程比你多了东西，推不上去",
+          message: "远程包含本地没有的提交，推送被拒绝",
           raw: "! [rejected]  dev -> dev (non-fast-forward)",
         };
       }
@@ -72,7 +72,7 @@ export async function remoteCmd(cmd: string, a: A): Promise<unknown> {
         ch?.onmessage?.({ phase, percent: pct, done: null, total: null, finished: pct === 100 });
       }
       if (url.includes("auth")) {
-        throw { kind: "auth-https", message: "这个仓库需要先认证一次", raw: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" };
+        throw { kind: "auth-https", message: "此仓库需要先完成认证", raw: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" };
       }
       if (url.includes("fail")) {
         throw { kind: "other", message: "fatal: repository not found", raw: "fatal: repository not found" };
@@ -93,7 +93,7 @@ export async function remoteCmd(cmd: string, a: A): Promise<unknown> {
       if (a.mode === "ff-only") {
         throw {
           kind: "conflict",
-          message: "有冲突要先解决",
+          message: "存在冲突，请先解决",
           raw: "fatal: Not possible to fast-forward, aborting.",
         };
       }
