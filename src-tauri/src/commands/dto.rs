@@ -364,6 +364,24 @@ pub struct DbResultDto {
     pub table: Option<DbTableDto>,
 }
 
+/// 一个语言包（`lsp_packs`）：认哪些文件
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspPackDto {
+    pub id: String,
+    pub name: String,
+    /// `*.rs` 这种：只认 `*.扩展名` 和完整文件名
+    pub files: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspPacksDto {
+    pub packs: Vec<LspPackDto>,
+    /// 认不得的包文件，一条一句
+    pub problems: Vec<String>,
+}
+
 /// IDEA 里的一个数据源（`db_idea_list`），导入前给人挑
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

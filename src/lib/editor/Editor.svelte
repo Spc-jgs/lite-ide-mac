@@ -316,7 +316,8 @@
   const symbolsOf = symbolCache();
 
   /** Java 语言服务器那一层（docs/IDEA.md 第 2 步）。打开 .java 时才加载；其余时候是 null，跳转只走 Lezer 那几层 */
-  let lsp: typeof JavaLsp | null = null;
+  /** 跳转那一层问的语言服务器：Java 的（jdtls）或通用的（docs/LANGPACK.md），两边都给这两个口子 */
+  let lsp: Pick<typeof JavaLsp, "lspResolve" | "lspSettle"> | null = null;
   const recheck = () => view?.dispatch({ effects: recheckJump.of(null) });
 
   const jumpHooks = {
@@ -723,17 +724,19 @@
     }
     // Mapper XML 的跳转（docs/IDEA.md 第 24 节）：XML 文件才拉这一块
     // 数据库控制台（docs/DATABASE.md DB-2）：应用数据目录里那几个 .sql 才拉
-    const [ext, javaLsp, http, mb, sqlc] = await Promise.all([
+    const [ext, javaLsp, http, mb, sqlc, gen] = await Promise.all([
       loadLang(lang),
       lang === "java" ? import("./java-lsp") : null,
       lang === "http" ? import("./http-run") : null,
       lang === "xml" ? import("./mybatis-gutter") : null,
       project.dbConsole(p) ? import("./sql-console") : null,
+      // Java 以外的语言服务器（docs/LANGPACK.md）：文件名对得上某个语言包才接（包的列表问一次，见 lsp-generic 的 packFor）
+      lang !== "java" ? import("./lsp-generic").then(async (m) => ((pk) => (pk ? { m, pk } : null))(await m.packFor(p))) : null,
     ]);
     if (!view) return;
-    lsp = javaLsp;
+    lsp = javaLsp ?? gen?.m ?? null;
     // `.http`：行号旁的 ▶、⌃⇧R 发请求、顶上的运行环境（docs/IDEA.md 第 19 节）
-    const extra = javaLsp ? javaLsp.javaLsp(project.root, p) : http ? http.httpRun(project.root, p) : mb ? mb.mybatisGutter(project.root, p) : sqlc ? sqlc.sqlConsole(project.root, p) : [];
+    const extra = javaLsp ? javaLsp.javaLsp(project.root, p) : http ? http.httpRun(project.root, p) : mb ? mb.mybatisGutter(project.root, p) : sqlc ? sqlc.sqlConsole(project.root, p) : gen ? gen.m.lspGeneric(project.root, p, gen.pk) : [];
     view.dispatch({ effects: [langSlot.reconfigure([ext ?? [], extra]), completeSlot.reconfigure(completionFor(lang))] });
   }
 

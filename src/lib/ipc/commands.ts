@@ -947,6 +947,19 @@ export interface DbResult {
   table: DbTable | null;
 }
 
+/** 一个语言包：认哪些文件（`*.rs` 这种） */
+export interface LspPack {
+  id: string;
+  name: string;
+  files: string[];
+}
+
+export interface LspPacks {
+  packs: LspPack[];
+  /** 认不得的包文件，一条一句 */
+  problems: string[];
+}
+
 /** IDEA 里的一个数据源，导入前给人挑 */
 export interface DbIdea {
   uuid: string;

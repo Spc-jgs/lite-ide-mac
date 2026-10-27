@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "typescript",
+  "name": "TypeScript / JavaScript",
+  "files": ["*.ts", "*.tsx", "*.js", "*.jsx", "*.mts", "*.cts", "*.mjs", "*.cjs"],
+  "languageId": "typescript",
+  "languageIds": { "tsx": "typescriptreact", "js": "javascript", "jsx": "javascriptreact", "mjs": "javascript", "cjs": "javascript" },
+  "roots": ["tsconfig.json", "jsconfig.json", "package.json"],
+  "server": {
+    "command": ["typescript-language-server", "--stdio"],
+    "install": "npm i -g typescript typescript-language-server"
+  }
+}

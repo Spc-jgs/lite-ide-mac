@@ -1180,7 +1180,7 @@ pub fn locations(r: &Value) -> Vec<Location> {
 }
 
 /// 诊断列表，最多 [`DIAG_MAX`] 条（先错误、再警告，截掉的是最不要紧的那些），返回 `(留下的, 真条数)`
-fn diagnostics(v: &Value) -> (Vec<Diagnostic>, usize) {
+pub(crate) fn diagnostics(v: &Value) -> (Vec<Diagnostic>, usize) {
     let mut all: Vec<Diagnostic> = v
         .as_array()
         .map(|a| {

@@ -84,6 +84,8 @@ pub struct AppState {
     pub agents: crate::agent::Agents,
     /// 数据库客户端（docs/DATABASE.md）：边车和按窗口登记的连接，`release_window` 里 `db.release` 收
     pub db: crate::db::Db,
+    /// Java 以外的语言服务器（docs/LANGPACK.md）：按窗口登记，关窗口收
+    pub langs: crate::langs::Langs,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
     next_run: AtomicU32,
@@ -599,6 +601,7 @@ impl AppState {
         self.debug.release(owner);
         self.agents.release(owner);
         self.db.release(owner);
+        self.langs.release(owner);
 
         // 这个窗口的任务：先礼后兵地停（宽限期在后台线程里等，窗口关掉不用等它们）
         for (_, r) in self.runs.take_owner(owner) {

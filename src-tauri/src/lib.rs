@@ -23,6 +23,7 @@ mod open;
 mod owned;
 mod ideacfg;
 mod ideads;
+mod langs;
 mod codestyle;
 mod coverage;
 mod jdks;
@@ -482,6 +483,13 @@ pub fn run() {
             commands::db_outline,
             commands::db_idea_list,
             commands::db_idea_import,
+            commands::lsp_open,
+            commands::lsp_close,
+            commands::lsp_definition,
+            commands::lsp_references,
+            commands::lsp_hover,
+            commands::lsp_complete,
+            commands::lsp_packs,
             commands::gradle_project,
             commands::gradle_tasks,
             commands::java_method_sig,

@@ -87,6 +87,8 @@ const PAIRS: &[(&str, &str)] = &[
     ("DbOutlineDto", "DbOutline"),
     ("DbIdeaDto", "DbIdea"),
     ("DbIdeaListDto", "DbIdeaList"),
+    ("LspPackDto", "LspPack"),
+    ("LspPacksDto", "LspPacks"),
     ("SpringInjectDto", "SpringInject"),
     ("ReplaceHitDto", "ReplaceHit"),
     ("ReplaceFileDto", "ReplaceFile"),

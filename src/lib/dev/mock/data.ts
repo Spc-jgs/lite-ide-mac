@@ -432,6 +432,17 @@ public class LegacyOrder {
   "/proj/src/big5-notes.txt": `訂單處理失敗，重試中
 第二行：庫存不足
 `,
+  // 通用语言服务器（docs/LANGPACK.md）的桩：有 bad 那一行会报一条诊断（mock/lsp.ts）
+  "/proj/src/money.rs": `pub struct Money {
+    cents: i64,
+}
+
+impl Money {
+    pub fn yuan(&self) -> f64 {
+        self.cents as f64 / 100.0 + bad
+    }
+}
+`,
   "/proj/src/main.py": `import asyncio
 from dataclasses import dataclass
 
@@ -583,7 +594,7 @@ export const DIRS: Record<string, Array<[string, boolean]>> = {
   "/proj/dist": [["bundle.js", false]],
   "/proj/.github": [["workflows", true]],
   "/proj/.github/workflows": [["ci.yml", false]],
-  "/proj/src": [["OrderService.java", false], ["main.py", false], ["gbk-legacy.java", false], ["big5-notes.txt", false], ["long.ts", false]],
+  "/proj/src": [["OrderService.java", false], ["main.py", false], ["money.rs", false], ["gbk-legacy.java", false], ["big5-notes.txt", false], ["long.ts", false]],
   // 跳转用的那对 Java（见 FILES 里的说明）。目录一层层列出来，
   // 否则文件树点不进去，而 ⌘P 又能搜到 —— 两边对不上就是桩在骗人
   // 模块底下有 pom.xml —— 不放的话「合并单层目录」会把 moduleA/src/main 并成一行，真项目里不会这样

@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "rust",
+  "name": "Rust",
+  "files": ["*.rs"],
+  "languageId": "rust",
+  "roots": ["Cargo.toml"],
+  "server": {
+    "command": ["rust-analyzer"],
+    "install": "rustup component add rust-analyzer"
+  }
+}

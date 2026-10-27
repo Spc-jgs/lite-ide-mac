@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "python",
+  "name": "Python",
+  "files": ["*.py", "*.pyi"],
+  "languageId": "python",
+  "roots": ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"],
+  "server": {
+    "command": ["basedpyright-langserver", "--stdio"],
+    "install": "pip install basedpyright（或 npm i -g basedpyright）"
+  }
+}
