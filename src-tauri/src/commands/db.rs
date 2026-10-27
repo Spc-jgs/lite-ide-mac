@@ -1,4 +1,4 @@
-//! 数据库客户端（docs/DATABASE.md DB-1）：连接配置的增删改、测试连接、表结构树。规则在 `crate::db`，边车 / 驱动 / 钥匙串在 `dbsvc`
+//! 数据库客户端（docs/DATABASE.md）：连接配置的增删改、测试连接、表结构树（DB-1）；控制台、查询、取消、历史（DB-2）。规则在 `crate::db`，边车 / 驱动 / 钥匙串在 `dbsvc`
 
 use super::*;
 use tauri::Manager;
@@ -87,4 +87,66 @@ pub async fn db_close(app: tauri::AppHandle, window: tauri::Window, root: String
         Ok(())
     })
     .await
+}
+
+/// 这个连接的控制台文件（没有就建一个空的），前端当普通文件打开
+#[tauri::command]
+pub async fn db_console(app: tauri::AppHandle, root: String, id: String) -> Result<String, String> {
+    blocking(move || Ok(crate::db::console(&app, &root, &id)?.to_string_lossy().into_owned())).await
+}
+
+fn result_of(v: serde_json::Value) -> DbResultDto {
+    let cols = v["cols"]
+        .as_array()
+        .map(|a| a.iter().map(|c| DbColDto { name: c["name"].as_str().unwrap_or("").to_string(), ty: c["type"].as_str().unwrap_or("").to_string(), num: c["num"].as_bool().unwrap_or(false) }).collect())
+        .unwrap_or_default();
+    let rows = v["rows"].as_array().map(|a| a.iter().map(|r| r.as_array().map(|r| r.iter().map(|c| c.as_str().map(str::to_string)).collect()).unwrap_or_default()).collect()).unwrap_or_default();
+    DbResultDto {
+        kind: v["kind"].as_str().unwrap_or("rows").to_string(),
+        cols,
+        rows,
+        more: v["more"].as_bool().unwrap_or(false),
+        count: v["count"].as_i64(),
+        ms: v["ms"].as_u64().unwrap_or(0),
+        cursor: v["cursor"].as_u64().unwrap_or(0),
+    }
+}
+
+/// 跑一条 SQL。不设超时：慢查询停它走 `db_cancel`
+#[tauri::command]
+pub async fn db_query(app: tauri::AppHandle, window: tauri::Window, root: String, id: String, sql: String) -> Result<DbResultDto, String> {
+    let owner = window.label().to_string();
+    blocking(move || Ok(result_of(app.state::<AppState>().db.query(&app, &owner, &root, &id, &sql)?))).await
+}
+
+#[tauri::command]
+pub async fn db_fetch(app: tauri::AppHandle, window: tauri::Window, root: String, id: String, cursor: u64) -> Result<DbResultDto, String> {
+    let owner = window.label().to_string();
+    blocking(move || Ok(result_of(app.state::<AppState>().db.fetch(&app, &owner, &root, &id, cursor)?))).await
+}
+
+#[tauri::command]
+pub async fn db_cancel(app: tauri::AppHandle, window: tauri::Window, root: String, id: String) -> Result<(), String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        app.state::<AppState>().db.cancel(&owner, &root, &id);
+        Ok(())
+    })
+    .await
+}
+
+/// 结果标签关了：边车里那个游标关掉
+#[tauri::command]
+pub async fn db_close_cursor(app: tauri::AppHandle, window: tauri::Window, root: String, id: String) -> Result<(), String> {
+    let owner = window.label().to_string();
+    blocking(move || {
+        app.state::<AppState>().db.close_cursor(&owner, &root, &id);
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn db_history(app: tauri::AppHandle, id: String) -> Result<Vec<DbHistDto>, String> {
+    blocking(move || Ok(crate::db::history(&app, &id).into_iter().map(|h| DbHistDto { sql: h.sql, at: h.at, ms: h.ms, ok: h.ok, count: h.count, error: h.error }).collect())).await
 }

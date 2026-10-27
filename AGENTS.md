@@ -25,7 +25,7 @@ scripts/accept/patterns.sh     # 日志归类（8 条）：次数对得上、点
 scripts/accept/spring.sh       # 认出 Spring Boot 并照 IDEA 那样起 + Services 工具窗 + Maven 工具窗 + 跑单测 + 断点调试 + 构建 + 热替换 + 堆用量 + 运行配置（109 条，真 mvn / java / jdtls / java-debug / JaCoCo）：兄弟模块不用 install、web 服务停干净；Services 里分组、端口、⌘F2 / 双击 / 工具栏起停；工具窗的嵌套 / Profiles / 9 个阶段 / 真插件和依赖、勾的 profile 和跳过测试带进命令、双击 package 出 jar；单测的 ▶ / ⌃⇧R、结果树、行号旁 ✓✗、重跑没过的、边跑边出（一个类跑完亮一个、上一次的报告不混进来）、带覆盖率跑（代理挂在 surefire fork 的 JVM 上、兄弟模块的文件也列、编辑器绿红、「清掉」收颜色）；调试停在兄弟模块的断点上、变量带 toString、求值、F8 单步、F9 继续之后照常跑完；条件断点为假不停、为真照停、写错了照样停并说清为什么；日志断点不停、那句打进运行窗（插在行首）、命中次数没到不停、异常断点停在被接住的那个异常上并说出抛的是什么；运行到光标、行内变量值、监视；调试单测（⌃⇧D）停在测试里、求值用得到兄弟模块、跑完结果树照常出来；⌘F9 构建：编译错误按文件列出、同一条只列一次；pom 要 21、默认是 17 时用 21 编；Services 选中的服务、工具栏上的堆三个数对得上；热替换：停在断点上改了 ⌘S 就自己构建、换进去（设置里关掉就不自动）、停着那一帧跑完旧的、下一次调用是新的、断点照停，行号变了的断点这次不停、说清楚，加了方法的一个都不换；运行配置的 profile / VM 参数 / 环境变量真到了 JVM，从 IDEA 的 workspace.xml 导入的也是、自己建的应用配置也是、IDEA 的文件一个字节不动；项目有 mvnw 用 mvnw；远程 JVM 调试：挂上别人起的 JVM、停在断点上、⌘F2 断开之后那个 JVM 照常在跑、对面退了这边自己结束
 scripts/accept/gradle.sh       # Gradle 项目（33 条，真 gradlew 9.8.1 + Spring Boot 4，要 ~/.gradle 里有那个发行包、没有记「未验」）：jdtls 导入（⌘B 进依赖 jar 和兄弟模块、不报错）、认出服务、`exec java` 起（JVM 是我们的子进程、⌘F2 停干净）、调试停在兄弟模块的断点上、单测结果树和 ✓✗（没改过也真跑：--rerun）、调试单测（端口我们定）、带覆盖率跑单测（代理经 init 脚本交给测试 JVM、报告读 build/classes）、热替换（停着时改、⌘S 自己构建换进去，下一次调用是新的）、Gradle 工具窗（树、双击跑任务）、⌘F9 的错误树（Gradle 打两遍只算一条）、application.yml 的键名 / 值补全（读 jar 里的配置元数据；值是枚举的读那个类文件）、不往项目里写
 scripts/accept/mybatis.sh      # MyBatis 接口 ↔ XML 跳转（7 条，读文本、不要 mvn / jdtls）：图标画在哪几行（注释、MyBatis-Plus 那种方法、匿名类不算）、进 src 的 XML 不进 target 的、回 main 的接口不回 test 的、没保存的也算
-scripts/accept/db.sh           # 数据库 DB-1（10 条，H2 内存库、不要服务器不上网、临时钥匙串）：测试连接、驱动 sha256、密码只进钥匙串（应用数据目录里 grep 不到）、密码错报 SQLState、库 → 表 → 列的树、边车只有一个、退出不留
+scripts/accept/db.sh           # 数据库 DB-1 / DB-2（24 条，H2 内存库、不要服务器不上网、临时钥匙串）：测试连接、驱动 sha256、密码只进钥匙串（应用数据目录里 grep 不到）、密码错报 SQLState、库 → 表 → 列的树、边车只有一个；控制台在应用数据目录、⌘↵ 执行光标所在的那条、十万行首屏 < 300 ms、只画看得见的行、滚到底取下一批、NULL / DECIMAL 原样、取消 1 秒内停且连接照常能用、历史（失败的也记、没有密码）、退出不留
 scripts/accept/spring-nav.sh   # Spring 接口搜索、配置跳转、Bean 导航（14 条，读文本）：「接口」范围列全、target 里的不算、常量照原名；粘真 URL 对上 {id}、写死的排在 {id} 前面；@Value 上 ⌘B 宽松绑定、三份配置都列、一处直接跳、没有说一句；注入点旁的图标画在哪几行、一个候选直接跳、两个弹列表、src/test 里的不列
 scripts/accept/http.sh         # `.http` 发请求（17 条，真 curl + 脚本自己的回显服务）：没选环境不发、私有环境盖公开的、头和体逐字对、按原样次序排 JSON、< 文件、重定向、4xx 标红、3 MB、取消后 curl 没了、`< 项目外面的文件` 不发、不往项目里写
 scripts/accept/history.sh      # 本地历史（9 条）：GBK + CRLF 存的是原始字节、读回来解得对；外面改过补记一版；面板里恢复是编辑器里的一笔修改（不写盘）；不往项目里写
@@ -124,11 +124,10 @@ macOS 自带的 bash 3.2 在双引号里的 `$(…)` 里照样做花括号展开
 | 几份日志按时间合并 | [docs/MERGE.md](docs/MERGE.md) —— k 路归并、一行一字节的合并索引、没时间戳的行跟着上一行走、借日期要说出来 |
 | 日志归类 | [docs/PATTERNS.md](docs/PATTERNS.md) —— Drain 改了两处（按段换变量、相似度只数常量词）、只归记录头、点一类 = 常量词当过滤条件、对比时两边放进同一棵树 |
 | 接住 IDEA 的 Java 后端日常（语言服务器、Maven、Spring Boot、调试） | [docs/IDEA.md](docs/IDEA.md) —— 本心的硬约束（秒开不等、独立进程可关、不打断、正式包不变大），每一步都要过它的审；第 7 节 jdtls 实测、第 9 节语言服务器怎么接的 |
-| 数据库客户端（MVP-9） | [docs/DATABASE.md](docs/DATABASE.md) —— JDBC 边车跑在内置的 Java 21 上、驱动按需下且钉 sha256、密码只进钥匙串；第 6.5 节第 0 步实测 |
+| 数据库客户端（MVP-9） | [docs/DATABASE.md](docs/DATABASE.md) —— JDBC 边车跑在内置的 Java 21 上、驱动按需下且钉 sha256、密码只进钥匙串；第 6.5 节第 0 步实测，6.6 节 DB-2 的取舍（一个连接一个游标、格子都是字符串、MySQL / PG 怎么才真分批） |
 | 下一阶段的总图：取代 IDEA 还缺什么、分几期做 | [docs/TAKEOVER.md](docs/TAKEOVER.md) —— 四方对照（IDEA / VS Code / Sublime / Lithe）、32 个缺口按多久碰一次排、15 条交互、设置树、四处大修、MVP-0 到 MVP-8 |
 | 定位、边界、接下来往哪走 | [docs/DIRECTION.md](docs/DIRECTION.md) —— PLAN 里哪些前提已经变了；加功能前先对一下 D1 那句定位；第 7 节是优先级 |
 | 踩过的坑的全过程 | [docs/JOURNAL.md](docs/JOURNAL.md) |
-| 数据库客户端（MVP-9，还没写代码） | [docs/DATABASE.md](docs/DATABASE.md) —— 驱动走 JDBC 边车（内置的 Java 21）、密码进钥匙串、结果分批取；先做第 0 步实测，数字不达标换路 |
 | AI 助手（ACP 宿主：Claude Code / Codex） | [docs/AI.md](docs/AI.md) —— 改动先进编辑器不落盘、问人的不超时、写只许写项目里的；第 0 步实测；测试通道里起的是假 agent |
 | 想照别的项目的做法改 | [docs/research/codex.md](docs/research/codex.md) —— 读 Codex 的五个主题：对照结论、学了什么、为什么不学 |
 | 体验好不好、该先补哪个缺口 | [docs/research/editor-standards.md](docs/research/editor-standards.md) —— 用「编辑器为什么被骂、为什么成名」的七条审过一遍，每条有证据 |

@@ -170,7 +170,7 @@ pub struct Sidecar {
     exited: std::sync::Arc<Mutex<Option<String>>>,
 }
 
-/// 连接（登录、握手）最多等多久；查询不设（DB-2：靠取消）
+/// 连接（登录、握手）最多等多久；查询不设（靠取消）
 pub const CONNECT_WAIT: Duration = Duration::from_secs(15);
 const META_WAIT: Duration = Duration::from_secs(60);
 
@@ -194,10 +194,11 @@ impl Sidecar {
         self.agent.alive() && !self.conn.is_closed()
     }
 
-    fn call(&self, method: &str, params: Value, wait: Duration) -> Result<Value, String> {
-        self.conn.request(method, params, Some(wait)).map_err(|e| match e {
+    fn call(&self, method: &str, params: Value, wait: impl Into<Option<Duration>>) -> Result<Value, String> {
+        let wait = wait.into();
+        self.conn.request(method, params, wait).map_err(|e| match e {
             ConnError::Rpc { message, .. } => message,
-            ConnError::Timeout => format!("数据库服务 {} 秒内未响应", wait.as_secs()),
+            ConnError::Timeout => format!("数据库服务 {} 秒内未响应", wait.map_or(0, |w| w.as_secs())),
             ConnError::Closed => {
                 let why = self.exited.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 let tail = self.agent.stderr_tail();
@@ -220,6 +221,27 @@ impl Sidecar {
     pub fn meta(&self, conn: &str, what: &str, catalog: Option<&str>, schema: Option<&str>, table: Option<&str>) -> Result<Vec<Value>, String> {
         let v = self.call("meta", json!({ "conn": conn, "what": what, "catalog": catalog, "schema": schema, "table": table }), META_WAIT)?;
         Ok(v.as_array().cloned().unwrap_or_default())
+    }
+
+    /// 跑一条 SQL：有结果集回 `{kind: "rows", cols, rows, more, cursor, ms}`，没有回 `{kind: "count", count, ms}`。
+    /// **不设超时**（docs/DATABASE.md 第 3 节：慢查询本来就要等），停它靠 [`Sidecar::cancel`]
+    pub fn query(&self, conn: &str, sql: &str) -> Result<Value, String> {
+        self.call("query", json!({ "conn": conn, "sql": sql }), None)
+    }
+
+    /// 结果的下一批（界面滚到底时要）。`cursor` 是 query 回的那个：同一连接上又跑了新查询的话，旧的那个已经关了、报错说清楚
+    pub fn fetch(&self, conn: &str, cursor: u64) -> Result<Value, String> {
+        self.call("fetch", json!({ "conn": conn, "cursor": cursor }), Some(META_WAIT))
+    }
+
+    /// 停这个连接上正在跑的语句（JDBC 的 `Statement.cancel()`，从另一条线程发）。跑着的那个 query 随即带着数据库的原话报错回来
+    pub fn cancel(&self, conn: &str) {
+        let _ = self.call("cancel", json!({ "conn": conn }), Some(Duration::from_secs(5)));
+    }
+
+    /// 结果标签关了：开着的游标关掉（PostgreSQL 为分批取开着的事务跟着提交）
+    pub fn close_cursor(&self, conn: &str) {
+        let _ = self.call("closeCursor", json!({ "conn": conn }), Some(Duration::from_secs(5)));
     }
 
     pub fn close(&self, conn: &str) {

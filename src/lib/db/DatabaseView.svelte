@@ -9,14 +9,16 @@
    *       id   BIGINT · 主键  列
    * ```
    *
-   * 每一层展开时才问（`db_meta`，连接没开的先开）：库多、表多的时候不一次拉全。连接配置和密码的存法见 db.rs；
-   * 查询、结果表格是 DB-2 的事，这一步只有连接和表结构
+   * 每一层展开时才问（`db_meta`，连接没开的先开）：库多、表多的时候不一次拉全。连接配置和密码的存法见 db.rs。
+   * 「打开查询控制台」开的是这个连接的 `.sql`（DB-2，editor/sql-console.ts）；还没有快捷键
    */
   import Icon from "../shell/Icon.svelte";
   import type { IconName } from "../shell/Icon.svelte";
   import { imeKey } from "../shell/ime";
   import type { DbConn, DbNode } from "../ipc/commands";
-  import { dbClose, dbList, dbMeta } from "../ipc/db";
+  import { dbClose, dbConsole, dbList, dbMeta } from "../ipc/db";
+  import { notify } from "../state/notify.svelte";
+  import { tabflow } from "../state/tabflow.svelte";
   import { openModal } from "../settings/modal-host";
   import DbConnDialog from "./DbConnDialog.svelte";
 
@@ -152,7 +154,19 @@
     void load();
   }
 
-  const selConn = $derived(rows.find((r) => r.key === sel)?.conn ?? null);
+  /** 选中的那一行属于哪个连接（选中表、列也算它那个连接） */
+  const selConn = $derived.by(() => {
+    const id = sel.split("\n")[1];
+    return id === undefined ? null : ((conns ?? []).find((c) => c.id === id) ?? null);
+  });
+
+  async function openConsole(c: DbConn) {
+    try {
+      await tabflow.openPath(await dbConsole(root, c.id), { preview: false });
+    } catch (e) {
+      notify.fail(`无法打开控制台：${String(e)}`);
+    }
+  }
 
   function onKey(e: KeyboardEvent) {
     if (imeKey(e)) return;
@@ -179,6 +193,7 @@
     <span class="title">数据库</span>
     <span class="gap"></span>
     <button class="ibtn" onclick={() => edit(null)} title="新建连接" aria-label="新建连接"><Icon name="plus" /></button>
+    <button class="ibtn" disabled={!selConn} onclick={() => selConn && void openConsole(selConn)} title="打开查询控制台" aria-label="打开查询控制台"><Icon name="terminal" /></button>
     <button class="ibtn" disabled={!selConn} onclick={() => selConn && edit(selConn)} title="编辑连接" aria-label="编辑连接"><Icon name="more-h" /></button>
     <button class="ibtn" onclick={refresh} title="刷新（关闭连接并重新读取）" aria-label="刷新"><Icon name="refresh" /></button>
   </div>

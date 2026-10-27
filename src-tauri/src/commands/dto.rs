@@ -332,6 +332,46 @@ pub struct DbNodeDto {
     pub pk: bool,
 }
 
+/// 结果的一列
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbColDto {
+    pub name: String,
+    pub ty: String,
+    /// 数字类型：表格里右对齐
+    pub num: bool,
+}
+
+/// 一条 SQL 的结果（`db_query`）或下一批（`db_fetch`，只有 rows / more 有意义）。
+/// 格子一律是字符串（BIGINT、DECIMAL 过 JSON 会丢精度），NULL 是 null —— 和空串分开
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbResultDto {
+    /// rows：有结果集；count：更新 / DDL，只有影响的行数
+    pub kind: String,
+    pub cols: Vec<DbColDto>,
+    pub rows: Vec<Vec<Option<String>>>,
+    /// 还有没取的行（滚到底时 `db_fetch`）
+    pub more: bool,
+    pub count: Option<i64>,
+    pub ms: u64,
+    /// 下一批要带着它取；同一连接又跑了新查询，旧的就作废了
+    pub cursor: u64,
+}
+
+/// 查询历史的一条（`db_history`），最近的在前
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbHistDto {
+    pub sql: String,
+    /// Unix 毫秒
+    pub at: u64,
+    pub ms: u64,
+    pub ok: bool,
+    pub count: Option<i64>,
+    pub error: Option<String>,
+}
+
 /// Spring 注入点配上的一个 Bean（`spring_beans`）
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

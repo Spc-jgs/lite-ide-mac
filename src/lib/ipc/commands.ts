@@ -924,6 +924,36 @@ export interface DbNode {
   pk: boolean;
 }
 
+/** 结果的一列 */
+export interface DbCol {
+  name: string;
+  ty: string;
+  /** 数字类型：右对齐 */
+  num: boolean;
+}
+
+/** 一条 SQL 的结果，或下一批（只看 rows / more）。格子是字符串，NULL 是 null */
+export interface DbResult {
+  kind: "rows" | "count";
+  cols: DbCol[];
+  rows: (string | null)[][];
+  more: boolean;
+  count: number | null;
+  ms: number;
+  cursor: number;
+}
+
+/** 查询历史的一条（最近的在前） */
+export interface DbHist {
+  sql: string;
+  /** Unix 毫秒 */
+  at: number;
+  ms: number;
+  ok: boolean;
+  count: number | null;
+  error: string | null;
+}
+
 /** Spring 注入点配上的一个 Bean */
 export interface SpringBean {
   /** 类名，或者 `配置类.方法()` */

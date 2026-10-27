@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 数据库客户端 DB-1（docs/DATABASE.md）的真 .app 验收，走测试通道（scripts/lib/bridge.sh）：不发全局按键、不抢焦点。
+# 数据库客户端 DB-1 / DB-2（docs/DATABASE.md）的真 .app 验收，走测试通道（scripts/lib/bridge.sh）：不发全局按键、不抢焦点。
 # 先 scripts/build-test-app.sh 打一份测试 .app（要带内置的 Java 和 lite-db.jar：scripts/java-bundle.sh 准备的）。
 #
 # 用 H2 的内存库（不要数据库服务器）：连接串里 INIT=RUNSCRIPT 让 H2 连上时自己建表。
@@ -69,6 +69,76 @@ lite_wait main "${ROW} return rows().some((r) => r.querySelector('.name')?.textC
 TREE=$(lite_eval main "return [...document.querySelectorAll('.db .row')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim()).join(' | ')")
 ok "$(echo "${TREE}" | grep -q 'ORDERS 订单' && echo "${TREE}" | grep -q 'ID BIGINT · 主键' && echo "${TREE}" | grep -q 'AMOUNT DECIMAL(12) · 非空' && echo 1)" "库 → 表（带注释）→ 列（类型、主键、非空）：${TREE}"
 ok "$([ "$(pgrep -f 'lite-db.jar' | wc -l | tr -d ' ')" = 1 ] && echo 1)" "数据库服务进程只有一个（边车）"
+
+echo "== 查询控制台（DB-2）：每个连接一份 .sql，在应用数据目录里"
+lite_eval main "${ROW} click('验收 H2'); return true" >/dev/null
+lite_eval main "document.querySelector('.db button[aria-label=\"打开查询控制台\"]').click(); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.cm-sql-bar')" 15 >/dev/null
+CF=$(ls "${LITE_DATA}/db/console/${ID}/"*.sql 2>/dev/null | head -1)
+ok "$([ "$(basename "${CF:-无}")" = "验收 H2.sql" ] && echo 1)" "控制台文件：应用数据目录 db/console/<连接>/$(basename "${CF:-无}")"
+ok "$(lite_eval main "return document.querySelector('.cm-sql-bar .who')?.textContent" | grep -q '验收 H2' && echo 1)" "控制台顶上写着连的是哪个库"
+# 花括号一律放在单引号的变量里（AGENTS.md：bash 3.2 在 "$(…)" 里照样做花括号展开）
+CONSOLE_TEXT=$(cat <<'EOF'
+create table if not exists big as select x as id, 'n-' || x as name, cast(x * 1.5 as decimal(20, 2)) as amt, case when mod(x, 7) = 0 then null else x end as maybe from system_range(1, 100000);
+
+select * from big order by id;
+
+select count(*) from system_range(1, 100000) a, system_range(1, 100000) b where a.x + b.x = 7;
+
+select 1 as one;
+EOF
+)
+lite_eval main "__lite.setText($(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "${CONSOLE_TEXT}")); return true" >/dev/null
+Q='const q = await __lite.dbResults(); const a = q.active;'
+run_line() { lite_eval main "__lite.caret($1, 1); __lite.key('Mod-Enter'); return true" >/dev/null; }
+run_line 1
+lite_wait main "${Q} return !!a && a.sql.startsWith('create') && a.status !== 'running'" 60 >/dev/null
+ok "$([ "$(lite_eval main "${Q} return a.status")" = done ] && echo 1)" "⌘↵ 执行光标所在的那条（建十万行的表）：$(lite_eval main "${Q} return a.status + ' · ' + a.ms + ' ms · ' + (a.error || '')")"
+
+echo "== 结果表格：十万行，首屏、按需取、NULL 和 DECIMAL"
+FIRST='const t0 = performance.now(); __lite.caret(3, 1); __lite.key("Mod-Enter");
+const ready = () => !!document.querySelector(".dbres .row") && (document.querySelector(".panel-head .ptab.on")?.textContent ?? "").includes("select * from big");
+await new Promise((res) => { if (ready()) return res(); const mo = new MutationObserver(() => { if (ready()) { mo.disconnect(); res(); } }); mo.observe(document.body, { childList: true, subtree: true }); });
+return Math.round(performance.now() - t0)'
+FS=$(lite_eval main "${FIRST}")
+ok "$([ -n "${FS}" ] && [ "${FS}" -lt 300 ] 2>/dev/null && echo 1)" "⌘↵ 到表格画出第一屏：${FS} ms（线是 300 ms）"
+DOMN=$(lite_eval main "return document.querySelectorAll('.dbres .row').length")
+ok "$([ "${DOMN}" -gt 0 ] && [ "${DOMN}" -lt 120 ] && echo 1)" "页面里只画看得见的那几十行：${DOMN} 个行元素（取到 $(lite_eval main "${Q} return a.rows.length") 行）"
+CELLS='const r = [...document.querySelectorAll(".dbres .row")].find((x) => x.querySelector(".gut")?.textContent === "7"); return r ? [...r.querySelectorAll(".cell")].map((c) => c.textContent + (c.classList.contains("null") ? "(null)" : "")).join("|") : "没有第 7 行"'
+C7=$(lite_eval main "${CELLS}")
+ok "$([ "${C7}" = "7|n-7|10.50|<null>(null)" ] && echo 1)" "第 7 行：${C7}（DECIMAL 原样两位小数、NULL 和空串分得开）"
+SCROLL='const g = document.querySelector(".dbres .grid"); g.scrollTop = g.scrollHeight; g.dispatchEvent(new Event("scroll")); return true'
+for i in 1 2 3 4; do lite_eval main "${SCROLL}" >/dev/null; sleep 0.4; done
+N1=$(lite_eval main "${Q} return a.rows.length")
+ok "$([ "${N1}" -ge 2000 ] && echo 1)" "滚到底就取下一批：滚四次之后取到 ${N1} 行"
+DRAIN='const q = await __lite.dbResults(); const a = q.active; const t0 = performance.now(); let n = 0; while (a.more && n < 400) { await q.fetchMore(a); n++; }
+return a.rows.length + " " + n + " " + Math.round(performance.now() - t0) + " " + a.rows.filter((r) => r[3] === null).length + " " + a.more'
+D=$(lite_eval main "${DRAIN}")
+read -r DN DB DMS DNULL DMORE <<< "${D}"
+ok "$([ "${DN}" = 100000 ] && [ "${DMORE}" = false ] && [ "${DNULL}" = 14285 ] && echo 1)" "取完：${DN} 行（再取 ${DB} 批、${DMS} ms），NULL ${DNULL} 个（每七行一个）"
+STAT=$(lite_eval main "return document.querySelector('.dbres .stat')?.textContent")
+ok "$(echo "${STAT}" | grep -q '共 100,000 行' && echo 1)" "工具条：${STAT}"
+RSS=$(ps -o rss= -p "$(pgrep -f lite-db.jar | head -1)" 2>/dev/null | tr -d ' ')
+ok "$([ -n "${RSS}" ] && [ "${RSS}" -lt 409600 ] && echo 1)" "取完十万行之后边车常驻 $((${RSS:-0} / 1024)) MB（H2 内存库的数据也在它的堆里；线 400 MB）"
+
+echo "== 取消：慢查询点取消 1 秒内停，连接照常能用"
+run_line 5
+lite_wait main "${Q} return !!a && a.sql.startsWith('select count') && a.status === 'running'" 10 >/dev/null
+sleep 1
+T0=$(python3 -c 'import time; print(time.time())')
+lite_eval main "document.querySelector('.dbres button[aria-label=\"取消执行\"]').click(); return true" >/dev/null
+for i in $(seq 1 100); do [ "$(lite_eval main "${Q} return a.status")" != running ] && break; done
+T1=$(python3 -c 'import time; print(time.time())')
+CMS=$(python3 -c "print(int((${T1} - ${T0}) * 1000))")
+ok "$([ "$(lite_eval main "${Q} return a.status")" = cancelled ] && [ "${CMS}" -lt 1000 ] && echo 1)" "点取消到停下：${CMS} ms（含测试通道往返），结果标成已取消：$(lite_eval main "${Q} return a.error.slice(0, 80)")"
+run_line 7
+lite_wait main "${Q} return !!a && a.sql.startsWith('select 1') && a.status !== 'running'" 15 >/dev/null
+ok "$([ "$(lite_eval main "${Q} return a.status + ':' + JSON.stringify(a.rows)")" = 'done:[["1"]]' ] && echo 1)" "取消之后同一个连接照常能用：select 1 → $(lite_eval main "${Q} return JSON.stringify(a.rows)")"
+
+echo "== 历史：每条都记，失败、取消也记；不进项目"
+H=$(inv "'db_history', { id: '${ID}' }")
+ok "$(echo "${H}" | python3 -c 'import json,sys; h=json.load(sys.stdin); s=[x["sql"][:12] for x in h]; print(1 if len(h)>=4 and s[0].startswith("select 1") and any(not x["ok"] and x["sql"].startswith("select count") for x in h) else 0)')" "历史 $(echo "${H}" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))') 条，最近的在前、取消的那条记成失败"
+ok "$([ -f "${LITE_DATA}/db/history/${ID}.jsonl" ] && ! grep -q s3cret "${LITE_DATA}/db/history/${ID}.jsonl" && echo 1)" "历史在应用数据目录 db/history/<连接>.jsonl，里面没有密码"
 
 echo "== 没有副作用、退出不留"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（连接配置在应用数据目录里）"

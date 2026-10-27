@@ -39,6 +39,21 @@ class Project {
   isScratch(path: string): boolean {
     return this.scratchRoot !== null && path.startsWith(`${this.scratchRoot}/`);
   }
+
+  /**
+   * 数据库控制台（docs/DATABASE.md DB-2）是哪个连接的：应用数据目录（草稿目录的上一层）里 `db/console/<连接 id>/x.sql`，不是就 null。
+   * 只认应用数据目录底下的 —— 项目里碰巧同样层级的 .sql 不是控制台
+   */
+  dbConsole(path: string): string | null {
+    const r = this.scratchRoot;
+    const base = r && `${r.slice(0, r.lastIndexOf("/"))}/db/console/`;
+    return (base && path.startsWith(base) && /^(c[0-9a-f]+)\/[^/]+\.sql$/.exec(path.slice(base.length))?.[1]) || null;
+  }
+
+  /** 自己存、不用 ⌘S 的：草稿，和数据库控制台（同 IDEA 的控制台。它不是草稿：标签名是连接名、不收进草稿本、空了也不删） */
+  autosaves(path: string): boolean {
+    return this.isScratch(path) || this.dbConsole(path) !== null;
+  }
 }
 
 export const project = new Project();

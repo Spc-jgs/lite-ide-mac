@@ -18,6 +18,7 @@
   import { layout, type PanelTool } from "../state/layout.svelte";
   import { terms } from "../state/terms.svelte";
   import { runs, type RunStatus } from "../state/runs.svelte";
+  import { results as dbResults } from "../db/results.svelte";
 
   let {
     root,
@@ -57,6 +58,8 @@
   const bmView = lazy(() => import("./BookmarksView.svelte"), "书签");
   /** 覆盖率（docs/TAKEOVER.md G15）：带覆盖率跑完胶囊上「看覆盖率」、菜单「视图 › 工具窗 › 覆盖率」 */
   const covView = lazy(() => import("../run/CoverageView.svelte"), "覆盖率");
+  /** 数据库的结果（docs/DATABASE.md DB-2）：控制台里 ⌘↵ 跑过才有。标签在这里画（同运行窗），表格在懒块里 */
+  const dbView = lazy(() => import("../db/ResultView.svelte"), "查询结果");
   /** 运行窗的动作（停、关、重跑）在懒加载的 runs-ops 里，按一下才拉 */
   const ops = () => import("../state/runs-ops");
 
@@ -69,6 +72,7 @@
     if (layout.panel && panelTool === "notifications") noteView.load();
     if (layout.panel && panelTool === "bookmarks") bmView.load();
     if (layout.panel && panelTool === "coverage") covView.load();
+    if (layout.panel && panelTool === "db") dbView.load();
   });
 
   /** 状态点说什么（悬停时）。颜色在样式里：跑着绿、停止中琥珀、失败红、结束了灰 */
@@ -94,7 +98,7 @@
    * 两个 lazy 和用它们的地方在同一个文件里，漏不掉。
    */
   $effect(() => {
-    const e = terminal.error || gitcon.error || runView.error || servicesView.error || problemsView.error || hierView.error || todoView.error || noteView.error || bmView.error || covView.error;
+    const e = terminal.error || gitcon.error || runView.error || servicesView.error || problemsView.error || hierView.error || todoView.error || noteView.error || bmView.error || covView.error || dbView.error;
     if (e) notify.fail(e);
   });
 
@@ -196,7 +200,7 @@
       面板收起再展开时，第一眼要能认出这是哪个工具窗。
     -->
     <div class="panel-head">
-      <span class="tw-name">{({ term: "终端", run: "运行", services: "Services", git: "Git", problems: "问题", hierarchy: "层级", todo: "TODO", notifications: "通知", bookmarks: "书签", coverage: "覆盖率" })[panelTool]}</span>
+      <span class="tw-name">{({ term: "终端", run: "运行", services: "Services", git: "Git", problems: "问题", hierarchy: "层级", todo: "TODO", notifications: "通知", bookmarks: "书签", coverage: "覆盖率", db: "数据库" })[panelTool]}</span>
       {#if panelTool === "run"}
         <!-- 运行窗（#48）：一次运行一格，格子上一个状态点；关掉一格 = 还在跑就软停（同 IDEA 的 Run 工具窗） -->
         <div class="ptabs">
@@ -211,6 +215,19 @@
                 aria-label="关闭 {r.name}"
                 title={r.status === "running" || r.status === "stopping" ? `关闭并停止 ${r.name}` : `关闭 ${r.name}`}
               ><Icon name="x" /></button>
+            </div>
+          {/each}
+        </div>
+      {:else if panelTool === "db"}
+        <!-- 一条语句一格（docs/DATABASE.md DB-2）：状态点同运行窗；钉住的不会被同一连接上的下一次执行换掉 -->
+        <div class="ptabs">
+          {#each dbResults.list as q (q.id)}
+            <div class="ptab" class:on={q.id === dbResults.activeId}>
+              <button class="pt-label" onclick={() => (dbResults.activeId = q.id)} title="{q.connName}：{q.sql}">
+                <span class="dot {q.status === 'running' ? 'running' : q.status === 'failed' ? 'failed' : ''}"></span>{q.title}
+              </button>
+              <button class="ibtn xs pt-x" class:on={q.pinned} onclick={() => (q.pinned = !q.pinned)} aria-label={q.pinned ? "取消固定" : "固定"} title={q.pinned ? "取消固定（再次执行时将被替换）" : "固定（再次执行时保留此结果）"}><Icon name="pin" /></button>
+              <button class="ibtn xs pt-x" onclick={() => dbResults.close(q.id)} aria-label="关闭 {q.title}" title={q.status === "running" ? "取消执行并关闭" : "关闭"}><Icon name="x" /></button>
             </div>
           {/each}
         </div>
@@ -384,6 +401,11 @@
       {#if layout.panel && panelTool === "problems"}
         <div class="tool-slot">
           {#if problemsView.comp}<problemsView.comp {root} />{:else}{@render loading("正在载入…")}{/if}
+        </div>
+      {/if}
+      {#if layout.panel && panelTool === "db"}
+        <div class="tool-slot">
+          {#if dbView.comp && dbResults.active}{#key dbResults.active.id}<dbView.comp r={dbResults.active} />{/key}{:else if !dbView.comp}{@render loading("正在载入…")}{/if}
         </div>
       {/if}
       {#if layout.panel && panelTool === "coverage"}
@@ -574,6 +596,8 @@
   .pt-x { margin-right: 3px; opacity: 0; }
   .ptab:hover .pt-x, .ptab.on .pt-x { opacity: 1; }
   .pt-x:focus-visible { opacity: 1; }
+  /* 钉住的结果：图钉常亮（不看会出错：再执行一次它不会被换掉，ui.md 第三条） */
+  .pt-x.on { opacity: 1; }
 
   /* 工具页整块叠在一起，只切可见性 —— 终端不能卸载 */
   .tool-slot { position: absolute; inset: 0; }

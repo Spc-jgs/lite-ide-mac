@@ -1077,7 +1077,7 @@
               activeId={tabs.shown[g]}
               dim={tabs.split && !focused}
               root={project.root ?? ""}
-              isScratch={(p) => project.isScratch(p)}
+              isScratch={(p) => project.autosaves(p)}
               onSelect={(id) => {
                 tabs.show(id);
                 tabs.audit("切标签");
@@ -1143,7 +1143,7 @@
 
   <StatusBar
     active={tabs.active}
-    activeScratch={tabs.active ? project.isScratch(tabs.active.path) : false}
+    activeScratch={tabs.active ? project.autosaves(tabs.active.path) : false}
     activeEntry={git.activeEntry}
     root={project.root}
     logStatus={logStatus[tabs.activeGroup]}

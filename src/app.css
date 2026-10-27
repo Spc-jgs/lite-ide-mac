@@ -853,7 +853,8 @@ html, body {
  * 列表里（搜索没结果）和占一块区域的（Git 栏、差异视图）都是它；要在一块区域里上下居中，外面那层自己管。
  */
 .empty-msg { padding: 20px 16px; color: var(--text-faint); font-size: var(--fs-md); line-height: 1.7; text-align: center; overflow-wrap: anywhere; }
-.empty-msg .sub { font-size: var(--fs-sm); }
+/* 第二行：独占一行（原来没写 display，书签、通知、数据库工具窗里 `<span class="sub">` 和第一句挤在同一行，2026-10-27 才看出来） */
+.empty-msg .sub { display: block; font-size: var(--fs-sm); }
 .empty-msg code { font-family: var(--code-font); font-size: 0.95em; color: var(--text-muted); }
 .empty-msg.bad { color: var(--lvl-error); font-family: var(--code-font); text-align: left; }
 .empty-msg.wait, .empty-msg .wait { display: flex; justify-content: center; align-items: center; gap: 8px; }

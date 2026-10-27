@@ -140,7 +140,7 @@ class Docs {
     Object.assign(t, stashed(t, text));
     this.retitle(t, text);
     // 编辑器刚交出草稿 = 人切走了。草稿在这一刻落盘，不等空闲期
-    if (t.dirty && project.isScratch(path)) void this.autosaveSweep(true);
+    if (t.dirty && project.autosaves(path)) void this.autosaveSweep(true);
   }
 
   /**
@@ -310,7 +310,7 @@ class Docs {
       const edited = this.#lastEdit.get(tab.path);
       const failed = this.#lastFail.get(tab.path);
       const due = autosaveDue({
-        scratch: project.isScratch(tab.path),
+        scratch: project.autosaves(tab.path),
         editing: tab.mode === "edit",
         dirty: tab.dirty,
         conflict: tab.conflict === true,
@@ -351,7 +351,7 @@ class Docs {
    * 非草稿一律 false —— 它们从来就该问。
    */
   async autosaveBeforeClose(tab: TabState): Promise<boolean> {
-    if (!project.isScratch(tab.path) || tab.mode !== "edit" || !tab.dirty) return false;
+    if (!project.autosaves(tab.path) || tab.mode !== "edit" || !tab.dirty) return false;
     if (tab.conflict) return false;
     try {
       await this.saveTab(tab, this.liveText(tab), { quiet: true });

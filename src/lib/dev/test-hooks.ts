@@ -119,6 +119,8 @@ export function installTestHooks() {
     agent: async () => (await import("../agent/agent.svelte")).agent,
     /** 记着的最近一次替换 / 改名（「编辑 › 撤销上次的替换」撤的就是它）：重启后启动时读回来，smoke ㉓ 等它回来再点菜单。动态引：替换那块是懒的 */
     replaceDone: async () => (await import("../state/replace.svelte")).replace.done,
+    /** 数据库的查询结果（docs/DATABASE.md DB-2）：验收把十万行取完不靠滚（后台窗口的定时器一秒一次，滚两百次要几分钟），滚动那条路另外验几批。动态引：结果那块是懒的 */
+    dbResults: async () => (await import("../db/results.svelte")).results,
     /** 本地历史的「恢复」要找的那个编辑器（live-views 的登记表）：是不是屏幕上那个、还在不在页面上 */
     liveView: async (path: string) => {
       const v = (await import("../editor/live-views")).viewOf(path);
