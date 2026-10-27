@@ -142,6 +142,8 @@ in_results() { is "return !!document.querySelector('.popup .results')?.innerText
 wait_results() { lite_wait "${W}" "return !!document.querySelector('.popup .results')?.innerText.includes($(q "$1"))" "${2:-8}"; }
 # 菜单项：和点原生菜单走同一个处理函数（winctl::menu_event），只发给 ${W}
 menu()     { lite menu "$1" "${W}" >/dev/null; }
+# 会开出新窗口的菜单动作（在草稿本新建、开项目）：系统可能把前台交给新窗口，盯一下、还回去（bridge.sh 的 lite_give_back）
+menu_win() { local prev; prev=$(lite_front_id); lite_mark "[新窗口：$1]"; menu "$1"; lite_give_back "${prev}"; }
 active()   { lite eval "${W}" "return __lite.tabs.active?.path ?? ''" 2>/dev/null; }
 
 # 轮询等一个 shell 条件成立，超时返回 1
@@ -872,7 +874,7 @@ say "⑯ 系统送来的文件（open -a）：进已开着的窗口，不起第�
 # 事件里是 `file://` 百分号编码，解错了就是「文件不存在」。
 mkdir -p "${FIX}/odoc 目录"
 printf 'odoc probe\n' > "${FIX}/odoc 目录/系统送来 的.txt"
-open -g -a "${LITE_APP}" "${FIX}/odoc 目录/系统送来 的.txt"
+lite_open "${FIX}/odoc 目录/系统送来 的.txt"
 if wait_exists "关闭 系统送来 的.txt" button exact 8; then
   ok "open -a 送来的文件开成了标签"
 else
@@ -894,7 +896,7 @@ git -C "${TRAP}" config filter.evil.clean "touch '${PWNED}'; cat"
 printf '*.txt filter=evil\n' > "${TRAP}/.gitattributes"
 printf 'bait\n' > "${TRAP}/bait.txt"
 rm -f "${PWNED}"
-open -g -a "${LITE_APP}" "${TRAP}"
+lite_open "${TRAP}"
 # 主窗口已经开着一个项目，再送一个目录进来是**开新窗口**，不是在原窗口里换项目
 wait_for 10 '[ -n "$(win_of "'"${TRAP}"'")" ]'
 TRAPWIN=$(win_of "${TRAP}")
@@ -933,7 +935,7 @@ say "⑲ 两个窗口：送来别的项目开新窗口，文件进它自己的�
 # 同时开着才会出错的：路由（文件进项目包含它的那个窗口）、去重（同一个项目不开第二个窗口）、
 # 资源归属（关掉一个窗口只收它自己的终端 —— 原来是关任何一个窗口就杀掉所有终端）。
 FIX2="${WORK}/second-proj"; mkdir -p "${FIX2}"; printf 'second\n' > "${FIX2}/f2.txt"
-open -g -a "${LITE_APP}" "${FIX2}"
+lite_open "${FIX2}"
 wait_for 10 '[ -n "$(win_of "'"${FIX2}"'")" ]'
 W2=$(win_of "${FIX2}")
 check "$(nwin)" "2" "送来另一个项目：开了第二个窗口"
@@ -941,12 +943,12 @@ if [ -z "${W2}" ]; then
   bad "找不到项目根是 second-proj 的窗口，这一段后面的断言没法做"
 else
   lite_wait "${W2}" "return true" 10
-  open -g -a "${LITE_APP}" "${FIX2}/f2.txt"
+  lite_open "${FIX2}/f2.txt"
   W="${W2}"
   if wait_exists "关闭 f2.txt" button exact 8; then ok "那个项目里的文件进了它自己的窗口"; else bad "f2.txt 没开在 ${W2} 的窗口里"; fi
   W=main
   exists "关闭 f2.txt" button exact && bad "f2.txt 也开在了主窗口里（路由没生效）" || ok "主窗口里没有它"
-  open -g -a "${LITE_APP}" "${FIX2}"; sleep 1.5
+  lite_open "${FIX2}"; sleep 1.5
   check "$(nwin)" "2" "再送一次同一个项目：回到那个窗口，不开第三个"
   # 主窗口开一个终端，再关掉第二个窗口：主窗口的终端要还在
   menu new-terminal
@@ -971,7 +973,7 @@ say "㉖ 草稿本：在项目窗口里「在草稿本新建」开一个没项�
 book() { lite windows | python3 -c 'import json,sys; w=[x["label"] for x in json.load(sys.stdin) if not x.get("root")]; print(w[0] if w else "")'; }
 W=main
 BEFORE=$(nwin)
-menu scratchbook
+menu_win scratchbook
 wait_for 10 '[ -n "$(book)" ]'
 WB=$(book)
 check "$(nwin)" "$((BEFORE + 1))" "开了一个没项目的窗口"
@@ -982,14 +984,14 @@ else
   W="${WB}"
   is "return __lite.tabs.active?.path?.includes('/scratches/') ?? false" && ok "落在一张草稿里" || bad "草稿本里当前不是草稿"
   W=main
-  menu scratchbook; sleep 1.5
+  menu_win scratchbook; sleep 1.5
   check "$(nwin)" "$((BEFORE + 1))" "再按一次：切回那个窗口，不开第二个"
   W="${WB}"
   is "return __lite.tabs.list.length === 1" && ok "当前那张还空着：就用它，不多开一张" || bad "空草稿也多开了一张"
   is "__lite.focus(); __lite.type('记一句'); return true"
   sleep 0.8
   W=main
-  menu scratchbook; sleep 1.5
+  menu_win scratchbook; sleep 1.5
   W="${WB}"
   is "return __lite.tabs.list.length === 2" && ok "写了字再按：开一张新的" || bad "写了字的那张被复用了（$(lite eval "${WB}" 'return __lite.tabs.list.length') 张）"
   lite close "${WB}" >/dev/null
@@ -1423,7 +1425,7 @@ git -C "${CLSRC}" init -q -b trunk
 printf 'cloned\n' > "${CLSRC}/hello.txt"
 git -C "${CLSRC}" add hello.txt; git -C "${CLSRC}" -c user.name=t -c user.email=t@t.t commit -qm init
 W=main
-menu scratchbook
+menu_win scratchbook
 wait_for 10 '[ -n "$(book)" ]'
 WB=$(book)
 if [ -z "${WB}" ]; then
@@ -1571,7 +1573,16 @@ fi
 say "⑳ 焦点：测试应用起来之后一次都没跑到最前面"
 check "${STOLEN}" "0" "每段开头采样，测试应用在最前 ${STOLEN} 次${STOLEN_AT:+（${STOLEN_AT} 开头）} —— 你可以照常用电脑"
 # 采样只说「到哪一段开头时已经被抢了」；前台切换记录说是哪一刻、从谁手里拿走的（#54）
-lite_frontlog_report
+# **判据以前台切换记录为准**：采样问的是 System Events 的 frontmost，新窗口那种情形它一直说是访达、其实测试应用已经拿走了前台（2026-10-27 逐 0.1 秒对过），
+# 只看采样会漏。记录里启动、送文件、开新窗口之后很快还回去的算已知（bridge.sh 的 lite_give_back），别的一次都不该有
+REPORT=$(lite_frontlog_report)
+echo "${REPORT}"
+OTHER=$(echo "${REPORT}" | sed -n 's/.*别的 \([0-9]*\) 次.*/\1/p')
+if [ -n "${OTHER}" ]; then
+  check "${OTHER}" "0" "前台切换记录：启动、送文件、开新窗口之后很快还回去的以外，测试应用一次都没拿走过前台"
+else
+  echo "  （没有前台切换记录，这一条没法判）"
+fi
 
 [ "${TRASHED:-0}" = 1 ] && echo "  （⑨ 往废纸篓里放了 ${TRASH_NAME}，脚本不动它 —— 自己清或者放回原处）"
 

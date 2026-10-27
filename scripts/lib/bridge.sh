@@ -122,6 +122,40 @@ lite_launch() {
   fi
 }
 
+# **系统还会在两种时刻把前台交给测试应用**（2026-10-27 实测，前台是访达时间歇出现）：`open -g -a` 给已经在跑的它送文件 / 目录，
+# 和它开出一个新窗口。应用自己什么都没要 —— 送文件那条路上的 set_focus 在测试构建里关着（may_take_focus），新窗口 tao 只 orderFront 不 activate
+# （读过 tao 0.35.3 的 window.rs）—— 是系统自己激活的，`-g` 对已经在跑的应用不总是管用。smoke 里撞见过一次占了 31 秒，那 31 秒你敲的字全进了测试应用。
+# 和启动那一下同样处理：这两种操作之后盯 1 秒左右，测试应用跑到前面就把前台还给原来的应用。
+# 标记用方括号起头（frontlog-report.py 认这个）：这几个时刻很快还回去的算「已知」，别的时刻跑到前面照样列出来、照样红
+#
+# **谁在前台，问 frontlog 记的最后一次激活，不问 System Events**：新窗口那种情形，系统的激活通知说测试应用拿走了前台、占了 30 秒，
+# 同一段时间里 System Events 的 `frontmost` 一直说是访达（2026-10-27 逐 0.1 秒对过）—— 键盘跟的是激活的那个。第一版问 System Events，新窗口那次就没还回去。
+# 顺带快：一次 osascript 要 0.4 秒，读文件末行不到 1 毫秒。没起 frontlog 的脚本退回问 System Events
+lite_front_now() {
+  if [ -s "${LITE_WORK}/front.tsv" ]; then tail -1 "${LITE_WORK}/front.tsv" | cut -f2; else lite_front_id; fi
+}
+
+lite_give_back() {
+  local prev="$1" i
+  if [ -z "${prev}" ] || [ "${prev}" = "${LITE_ID}" ]; then return 0; fi
+  for i in $(seq 1 15); do
+    sleep 0.1
+    if [ "$(lite_front_now)" = "${LITE_ID}" ]; then
+      osascript -e "tell application id \"${prev}\" to activate" >/dev/null 2>&1
+      return 0
+    fi
+  done
+}
+
+# 用系统那条路（LaunchServices 的 odoc，同 Finder 双击）给测试应用送文件 / 目录
+lite_open() {
+  local prev
+  prev=$(lite_front_id)
+  lite_mark "[系统送来：open -g]"
+  open -g -a "${LITE_APP}" "$@"
+  lite_give_back "${prev}"
+}
+
 lite_quit() {
   lite menu quit >/dev/null 2>&1
   local i

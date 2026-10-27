@@ -5,6 +5,7 @@
   front.tsv：<毫秒>\t<bundle id>\t<名字>\t<pid>（frontlog.swift 写的）
 
 lite_launch 起应用那一下抢焦点是已知的（tao 无条件 activate，bridge.sh 里那段），之后立刻还回去 —— 标成「启动」，不算数。
+同样已知的还有系统转交的那两种时刻（`open -g` 送文件、开新窗口，bridge.sh 的 lite_give_back）：标记用方括号起头的都算，**很快还回去才算**。
 
 **分不出「程序拉到前台」和「人点过去 / ⌘Tab 过去」**：系统的激活通知两种都发。所以每条都说「从谁手里拿走、之后给了谁」，
 读的人对一下自己那时候在不在动电脑。
@@ -44,9 +45,9 @@ def main():
         # 「启动那一下」只有**很快还回去**才算已知的：lite_launch 起来后会把焦点还给原来的应用，正常是零点几秒。
         # 占了好几秒、或者一直没还的，照样列出来 —— 第一版只看「是不是刚启动」，㉓ 重启后焦点一直没还回去，被归进了「已知」里（2026-10-10）
         quick = nxt is not None and nxt[0] - t < 2000
-        is_launch = mark and mark[1] == "[启动测试应用]" and t - mark[0] < 5000
+        is_launch = mark and mark[1].startswith("[") and t - mark[0] < 5000
         (launch if is_launch and quick else other).append(line)
-    print(f"  测试应用跑到前台 {len(launch) + len(other)} 次：启动那一下、很快还回去的 {len(launch)} 次（已知），别的 {len(other)} 次")
+    print(f"  测试应用跑到前台 {len(launch) + len(other)} 次：启动、系统转交（送文件、新窗口）之后很快还回去的 {len(launch)} 次（已知），别的 {len(other)} 次")
     for line in other:
         print(f"    · {line}")
 

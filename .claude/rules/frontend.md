@@ -723,6 +723,10 @@ AX 树读不全，两种都实测骗过人。按窗口 id `screencapture -l`（�
 - **测试终端不碰你的 shell 配置和历史**：`lite_launch` 带 `ZDOTDIR=<临时目录>`（smoke 曾把 `cd` 写进用户的 `~/.zsh_history`）。
   唯一的例外是 `scripts/accept/tasks-real.sh`（`LITE_USER_SHELL=1`）：它要验的就是「任务的登录 shell 读你的 `.zshrc`、找得到 mvn / pnpm」。
   它不开终端（任务是 `-ilc`，命令不进历史），并且前后比对历史文件
+- **系统还会在两种时刻把前台交给测试应用**（2026-10-27）：`open -g -a` 给已经在跑的它送文件、它开出新窗口。应用自己没要（`may_take_focus` 关着、tao 只 orderFront），
+  是系统激活的，前台是访达时几乎每次都有（实测 4 / 4）。和启动那一下一样处理：`lite_open` / smoke 的 `menu_win` 之后盯 1.5 秒、跑到前面就还回去（`lite_give_back`）。
+  **问谁在前台，读前台切换记录、不问 System Events**：新窗口那种情形，激活通知说测试应用拿走了前台、占了 30 秒，同一段时间 `frontmost` 一直说是访达 ——
+  键盘跟的是激活的那个。⑳ 的判据也换成了记录里「别的 N 次」（原来的采样问 System Events，会漏）
 - **焦点被抢查「谁、哪一刻」用前台切换记录器**（#54，2026-10-10）：`lite_frontlog_start` 起一个只读的 `frontlog.swift`（订阅系统的激活通知），
   `lite_mark` 打段落标记，`lite_frontlog_report` 按时间对上。smoke 已经接上（⑳ 那里出报告）。它分不出「程序拉的」「人点的」和「系统转交的」（上一条）
 - **它验不到的**：走的是应用内部的路，`macOS 把按键交给谁`、`WebKit 在真右键时把焦点给谁`这一层验不到（#53、#50）——
