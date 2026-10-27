@@ -105,7 +105,9 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
             // 上一次的执行记录先删掉：这次测试一个都没跑起来（编译没过）的话，不能拿上一次的覆盖率冒充这次的
             #[allow(clippy::disallowed_methods)] // 应用缓存目录里自己生成的执行记录，范围卡死在 coverage/*.exec
             let _ = std::fs::remove_file(&exec);
-            def.command = crate::coverage::with_agent(&def.command, &agent, &exec)
+            // Gradle 的单测命令（带 init 脚本）经 init 脚本交给测试 JVM；Maven 的经 surefire 的开关
+            let with = if def.command.contains(" --init-script ") { crate::gradle::with_coverage(&def.command, &agent, &exec) } else { crate::coverage::with_agent(&def.command, &agent, &exec) };
+            def.command = with
                 .ok_or("JaCoCo 路径中包含空格（lite-ide.app 位于含空格的目录中），测试 JVM 将无法启动。请将 lite-ide.app 移动到不含空格的目录")?;
         }
         // surefire 那条路径带空格时没把代理塞进去：控制目录也就用不上，这次没有热替换
@@ -250,11 +252,18 @@ pub async fn coverage_report(app: tauri::AppHandle, root: String, name: String) 
         let exec = crate::coverage::exec_path(&cache, &root, &name);
         let xml = exec.with_extension("xml");
         let r = Path::new(&root);
-        let modules: Vec<_> = crate::maven::reactors(r)
+        // Maven 的模块（target/classes）和 Gradle 的模块（build/classes/java/main）都给：哪种项目都是同一个报告
+        let mut modules: Vec<_> = crate::maven::reactors(r)
             .into_iter()
             .flat_map(|rel| crate::maven::modules(&r.join(&rel)).into_iter().map(move |m| r.join(&rel).join(&m.rel)))
             .map(|d| (d.join("target/classes"), d.join("src/main/java")))
             .collect();
+        modules.extend(
+            crate::gradle::roots(r)
+                .into_iter()
+                .flat_map(|rel| crate::gradle::modules(&r.join(&rel)).into_iter().map(move |m| r.join(&rel).join(&m.rel)))
+                .map(|d| (d.join("build/classes/java/main"), d.join("src/main/java"))),
+        );
         let (files, total) = crate::coverage::report(&java, &cli, &exec, &xml, &modules)?;
         Ok(CoverageDto {
             files: files.into_iter().map(|f| CoverageFileDto { path: f.path, covered: f.covered, partial: f.partial, missed: f.missed }).collect(),

@@ -35,12 +35,16 @@ const BUILD: [&str; 2] = ["build.gradle.kts", "build.gradle"];
 /// 给每个用了 java 插件的模块加一个算 classpath 的任务（`plugins.withId`：没用 java 插件的模块不加，不报错）。
 /// 不碰 `project`（Gradle 9 的配置缓存不许在执行阶段碰它），要的东西在配置阶段拿成 provider / 文件集
 const INIT_SCRIPT: &str = r#"// lite-ide 加的（docs/TAKEOVER.md G24）：算一个模块的运行 classpath，写进它的 build/.lite-ide-cp.txt；
-// 调试单测时把调试参数交给测试的 JVM（-PliteIdeJdwp=…）。不写进你的项目
+// 调试单测时把调试参数交给测试的 JVM（-PliteIdeJdwp=…）、带覆盖率跑时把 JaCoCo 的代理交给它（-PliteIdeJacoco=…）。不写进你的项目
 allprojects {
     def jdwp = providers.gradleProperty('liteIdeJdwp')
+    def jacoco = providers.gradleProperty('liteIdeJacoco')
     tasks.withType(Test).configureEach {
         if (jdwp.isPresent()) {
             jvmArgs(jdwp.get())
+        }
+        if (jacoco.isPresent()) {
+            jvmArgs(jacoco.get())
         }
     }
     plugins.withId('java') {
@@ -237,6 +241,19 @@ pub fn with_debug(command: &str, port: u16) -> Option<String> {
     Some(format!("{command} {}", word(&jdwp)))
 }
 
+/// 带覆盖率跑单测（docs/TAKEOVER.md G15）：测试的 JVM 是 Gradle 的 daemon 起的，代理同调试那样经 init 脚本交给它（`-PliteIdeJacoco=-javaagent:…`）。
+/// 只认我们拼的单测命令（带 init 脚本和 `--rerun`）；路径带空格、引号、`,` `=` 的不挂（同 Maven 那边：代理的参数按 `,` `=` 拆）
+pub fn with_coverage(command: &str, agent: &Path, exec: &Path) -> Option<String> {
+    if !command.contains(" --init-script ") || !command.contains(" --rerun") {
+        return None;
+    }
+    let (a, e) = (agent.to_str()?, exec.to_str()?);
+    if [a, e].iter().any(|s| s.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == ',' || c == '=')) {
+        return None;
+    }
+    Some(format!("{command} {}", word(&format!("-PliteIdeJacoco=-javaagent:{a}=destfile={e},append=false"))))
+}
+
 /// 构建项目（⌘F9）：每个构建根 `classes testClasses`（IDEA 的 Build 连测试一起编）；重新构建前面加 `clean`。`--continue`：一个模块编不过，
 /// 别的模块照样编完，错误一次列全（同 Maven 那边几个 reactor 都跑完再说）。没有构建根给 None
 pub fn build_command(roots: &[String], clean: bool, gradle: &dyn Fn(&str) -> String) -> Option<String> {
@@ -396,6 +413,18 @@ Pattern: clean<TaskName>: Cleans the output files of a task.
         }
         #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn 带覆盖率_代理经_init_脚本交给测试_jvm_路径怪的不挂() {
+        let t = "./gradlew --console=plain --init-script /d/i.gradle :m:test --rerun --tests a.B";
+        assert_eq!(
+            with_coverage(t, Path::new("/app/jacocoagent.jar"), Path::new("/cache/x.exec")).unwrap(),
+            format!("{t} -PliteIdeJacoco=-javaagent:/app/jacocoagent.jar=destfile=/cache/x.exec,append=false")
+        );
+        assert!(with_coverage(t, Path::new("/my app/jacocoagent.jar"), Path::new("/c/x.exec")).is_none(), "路径带空格不挂（说为什么的是调用方）");
+        assert!(with_coverage("./gradlew test", Path::new("/a.jar"), Path::new("/x.exec")).is_none(), "不是我们拼的命令不猜");
+        assert!(INIT_SCRIPT.contains("providers.gradleProperty('liteIdeJacoco')"), "init 脚本认这个属性");
     }
 
     #[test]

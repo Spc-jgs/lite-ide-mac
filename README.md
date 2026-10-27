@@ -194,7 +194,7 @@ cd src-tauri && cargo test --workspace    # Rust 438 条
 pnpm check                                # 类型检查
 pnpm test                                 # 前端 99 个文件
 scripts/smoke.sh                          # 真 .app 端到端 141 条（测试身份、不抢焦点、不碰真实数据）
-scripts/accept/*.sh                       # 14 份按领域的验收（真 jdtls / mvn / Gradle / java-debug）：java.sh 94 条、spring.sh 109 条、gradle.sh 28 条……
+scripts/accept/*.sh                       # 14 份按领域的验收（真 jdtls / mvn / Gradle / java-debug）：java.sh 94 条、spring.sh 109 条、gradle.sh 31 条……
 ```
 
 前端测试不引测试框架：纯函数（diff 解析、双栏对照、泳道布局、冲突解析……）直接跑 `.ts`；

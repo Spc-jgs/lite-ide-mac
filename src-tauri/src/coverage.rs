@@ -128,7 +128,7 @@ pub fn report(java: &Path, cli: &Path, exec: &Path, out_xml: &Path, modules: &[(
         }
     }
     if !any {
-        return Err("未找到编译后的类（target/classes），无法生成报告".into());
+        return Err("未找到编译后的类（target/classes 或 build/classes/java/main），无法生成报告".into());
     }
     cmd.arg("--xml").arg(out_xml).arg("--quiet");
     // `--quiet` 之后 stdout 没东西；出错的话话在 stderr，两边都设闸（rust.md「子进程输出必须设闸」）

@@ -10757,3 +10757,16 @@ Bean 认三种（`@Component` 一族的类，类名一样或直接 implements / 
 **验收里撞见一个「后台窗口量不准」**：图标明明画在第 7 行，量出来是第 5 行，点上去也点到别的行。测试应用的窗口在后台、没有帧，CM6 的 requestMeasure 不跑，
 行号旁那几列还按估的行高（14px）摆、正文已经是真行高（20px）—— 越往下差得越多。真用的时候窗口在前台、每帧都量，不会这样。改在测试钩子：
 `lineOfGutter` 量之前先让 CM6 同步 `measure()` 一次（脚本按屏幕坐标点图标之前也先调它）。MyBatis 那份验收用同一个钩子，原来没撞上是碰巧量的时候已经量过了。
+
+## 2026-10-27 · Gradle 项目也能带覆盖率跑单测
+
+原来 Gradle 项目的「带覆盖率运行」在运行窗里说一句「暂不支持」。Maven 那边的代理借 `maven.surefire.debug` 挂在 surefire fork 的 JVM 上；
+Gradle 的测试 JVM 是 daemon 起的，同调试单测那条路：init 脚本里多认一个属性 `-PliteIdeJacoco=-javaagent:…=destfile=…`，`tasks.withType(Test)` 里交给 `jvmArgs`。
+报告那头原来只收 Maven 模块的 `target/classes`，加上 Gradle 模块的 `build/classes/java/main`。`--rerun` 照旧（没改过也真跑，不然没有执行记录）。
+
+gradle.sh 3 条：命令末尾带着 `-PliteIdeJacoco`、覆盖率工具窗列出 Money.java、行号旁第 4 行绿。第一次断言写的是「Money.java 100%」，实际 50% ——
+第 3 行是隐式构造器，测试没 new 过它，JaCoCo 照实算（IDEA 一样）。是断言想错了，不是实现错了。
+
+**一个还没查清的间歇**：spring.sh「构建项目」那步今天五次里两次「240 秒还在跑、一个字没输出」，紧接着的「改好了再构建」1.1 秒就完。命令每次一样。
+没有输出就没有线索，先让脚本在超时那一刻把相关进程（mvn / plexus-classworlds / 登录 shell）连 ppid、运行时长、状态一起打出来 —— 下次撞上就知道是卡在 shell 起来、
+mvn 起来、还是解析依赖（`-ntp` 把下载进度藏了，卡在网络上时就是一个字都没有）。

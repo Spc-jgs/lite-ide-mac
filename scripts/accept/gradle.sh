@@ -142,6 +142,26 @@ for _ in 1 2; do
 done
 ok "$(logtext "${OKLOG}" | grep -q '> Task :shop-common:test$' && echo 1)" "过得了的方法、什么都没改再跑一遍：test 任务真跑了（不是 UP-TO-DATE）：$(logtext "${OKLOG}" | grep ':shop-common:test' | tail -1)"
 
+echo "== 带覆盖率跑单测（docs/TAKEOVER.md G15）：JaCoCo 的代理经 init 脚本交给 Gradle daemon 起的测试 JVM（-PliteIdeJacoco）→ 覆盖率工具窗列出 Money.java、行号旁跑到的行绿"
+COV="shop-common [cover com.demo.common.MoneyTest]"
+lite_eval main "__lite.runTask('${COV}'); return true" >/dev/null
+sleep 1
+lite_wait main "const r = __lite.runs.list.find((x) => x.name === '${COV}'); return !!r && r.status !== 'running' && r.status !== 'stopping'" 240 >/dev/null
+CCMD=$(lite_eval main "return __lite.runs.list.find((x) => x.name === '${COV}')?.command ?? ''")
+ok "$(echo "${CCMD}" | grep -q -- "--rerun --tests com.demo.common.MoneyTest -PliteIdeJacoco=-javaagent:.*jacocoagent.jar=destfile=.*,append=false" && echo 1)" "命令同单测、末尾多一个 -PliteIdeJacoco（init 脚本交给测试 JVM）：$(echo "${CCMD}" | sed 's/.*--init-script [^ ]* //')"
+lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('行覆盖率')" 60 >/dev/null
+CTOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")
+lite menu tw-coverage main >/dev/null
+lite_wait main "return [...document.querySelectorAll('.cov .row .name')].some((e) => e.textContent === 'Money.java')" 15 >/dev/null
+CROWS=$(lite_eval main "return [...document.querySelectorAll('.cov .row')].map((r) => r.querySelector('.name').textContent + ' ' + r.querySelector('.pct').textContent).join(', ')")
+# Money.java 是 50%：第 3 行是隐式的构造器，测试没 new 过它（JaCoCo 照实算，同 IDEA）
+ok "$(echo "${CROWS}" | grep -q 'Money.java [0-9]*%' && echo "${CTOAST}" | grep -q '行覆盖率' && echo 1)" "跑完说行覆盖率（${CTOAST}）；覆盖率工具窗列出 Money.java（读 build/classes/java/main）：${CROWS}"
+lite_eval main "await __lite.tabflow.openPath('${MONEY}', { preview: false }); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-lineNumbers .cm-cov').length > 0" 15 >/dev/null
+CGUT=$(lite_eval main "return [...document.querySelectorAll('.cm-lineNumbers .cm-cov')].map((e) => e.textContent.trim() + ':' + (e.classList.contains('cm-cov-hit') ? 'hit' : e.classList.contains('cm-cov-miss') ? 'miss' : 'part')).join(',')")
+ok "$(echo "${CGUT}" | grep -q '4:hit' && echo 1)" "Money.java 第 4 行（cents）行号旁是绿的：${CGUT}"
+lite menu tw-coverage main >/dev/null
+
 echo "== 调试单测：测试的 JVM 是 Gradle daemon 起的（不在我们的进程组里）—— 端口我们定、init 脚本交给它；停在测试里的断点上，F9 之后照常跑完、结果树出来"
 lite_eval main "await __lite.debug.breakpoints('${P}', '${TEST}', [7]); return true" >/dev/null
 lite_eval main "await __lite.debugTask('${RUN}'); return true" >/dev/null

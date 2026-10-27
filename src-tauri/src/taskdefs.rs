@@ -518,13 +518,11 @@ pub fn maven_goal(root: &Path, name: &str) -> Option<Def> {
 }
 
 /// Gradle 模块的「模块 [test 选择器]」（测试旁边的 ▶、⌃⇧R、重跑没过的都是这个名字形状）：`gradlew :模块:test --tests …`。
-/// 带覆盖率（`[cover …]`）这一版不做：不悄悄退成不带覆盖率跑，在运行窗里说一句、不跑
+/// 带覆盖率（`[cover …]`）的命令同单测，代理在 task_run 里挂（`gradle::with_coverage`，同 Maven 那边）
 fn gradle_goal(root: &Path, token: &str, goal: &str, name: &str) -> Option<Def> {
     let (rel, m) = find_gradle_module(root, token)?;
-    let command = if let Some(sel) = goal.strip_prefix("test ") {
+    let command = if let Some(sel) = goal.strip_prefix("test ").or_else(|| goal.strip_prefix("cover ")) {
         crate::gradle::test_command(&m.artifact_id, sel.trim(), &crate::gradle::invocation(&root.join(&rel)))?
-    } else if goal.starts_with("cover ") {
-        "echo '[lite-ide] 暂不支持对 Gradle 项目运行覆盖率测试（Maven 项目已支持），请使用普通运行'; exit 2".to_string()
     } else {
         // Gradle 工具窗里双击的任务（「:模块 [任务 …]」）：任务名只许字母数字和 `-` `_`（同 Maven 目标的字符检查，名字拼进命令行）
         let toks: Vec<&str> = goal.split_whitespace().collect();
@@ -727,7 +725,8 @@ mod tests {
         let t = resolve(&root, "shop-common [test com.demo.MoneyTest#ok]").unwrap();
         assert!(t.command.starts_with("sh ./gradlew --console=plain "), "gradlew 没执行位：sh 跑它：{}", t.command);
         assert!(t.command.ends_with(" :shop-common:test --rerun --tests com.demo.MoneyTest.ok"), "{}", t.command);
-        assert!(resolve(&root, "shop-common [cover com.demo.MoneyTest]").unwrap().command.contains("暂不支持"), "覆盖率不悄悄退成普通跑");
+        let cover = resolve(&root, "shop-common [cover com.demo.MoneyTest]").unwrap().command;
+        assert!(cover.contains(":shop-common:test --rerun --tests com.demo.MoneyTest"), "带覆盖率的命令同单测（代理在 task_run 里挂）：{cover}");
         assert_eq!(gradle_test_project(&root, "shop-common [test com.demo.MoneyTest]").as_deref(), Some("shop-common"), "调试时的项目名：Gradle 的项目名");
         std::fs::write(root.join("settings.gradle.kts"), "rootProject.name = \"shopdemo\"\ninclude(\"shop-common\", \"order-service\")\n").unwrap();
         std::fs::create_dir_all(root.join("src/test/java")).unwrap();
