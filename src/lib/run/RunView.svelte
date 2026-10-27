@@ -77,7 +77,7 @@
       <div class="cards">
         <div class="confirm warn stuck">
           <span>
-            停不掉：还剩 {s.length} 个 <b>{s[0].user}</b>{s.some((x) => x.user !== s[0].user) ? " 等别的用户" : ""} 的进程，lite-ide 没权限结束它们（多半是 sudo 起的）。等它们自己退，或者在终端里：
+            停不掉：还剩 {s.length} 个 <b>{s[0].user}</b>{s.some((x) => x.user !== s[0].user) ? " 等其他用户" : ""} 的进程，lite-ide 没权限结束它们（多半是 sudo 起的）。等它们自己退，或者在终端里：
             <code>sudo kill {s.map((x) => x.pid).join(" ")}</code>
             <span class="procs">{#each s as x (x.pid)}<span>{x.pid} · {x.user} · {x.command}</span>{/each}</span>
           </span>

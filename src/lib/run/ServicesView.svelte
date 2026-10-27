@@ -181,7 +181,7 @@
   });
   const mb = (n: number) => `${Math.round(n / 1048576)} MB`;
   const heapTip = (h: TaskHeap) =>
-    `堆：用了 ${mb(h.used)}，向系统要了 ${mb(h.committed)}，最多能到 ${mb(h.max)}\nGC ${h.gcCount} 次，一共 ${h.gcMs} ms\n曲线是最近两分钟的用量（每 2 秒一个点）`;
+    `堆：已用 ${mb(h.used)}，已分配 ${mb(h.committed)}，上限 ${mb(h.max)}\nGC ${h.gcCount} 次，共 ${h.gcMs} ms\n曲线为最近两分钟的用量（每 2 秒采样一次）`;
   /** 小曲线的点：最新的在最右，高度按这段时间里最大的「向系统要了」算 —— 用量贴着它就是快满了 */
   function spark(hs: TaskHeap[]): string {
     const top = Math.max(...hs.map((h) => h.committed), 1);
@@ -247,7 +247,7 @@
     const all = row.svc ? [row.svc] : (row.members ?? []);
     const r = row.svc ? runOf(row.svc) : undefined;
     const items: MenuItem[] = [
-      { label: row.svc ? (alive(r) ? "重跑" : "启动") : "全部启动", disabled: !row.svc && all.every((s) => alive(runOf(s))), run: () => start(all) },
+      { label: row.svc ? (alive(r) ? "重新运行" : "启动") : "全部启动", disabled: !row.svc && all.every((s) => alive(runOf(s))), run: () => start(all) },
       { label: row.svc ? "停止" : "全部停止", disabled: !all.some((s) => alive(runOf(s))), run: () => stop(all) },
     ];
     if (row.svc) {
@@ -255,7 +255,7 @@
       items.splice(1, 0, { label: "调试", run: () => debug(s) });
       // 运行配置（docs/SETTINGS.md 13.6）：VM 参数、Spring profile、环境变量、JDK。IDEA 是在运行配置下拉里的 Edit Configurations…
       items.push({ label: "编辑配置…", sep: true, run: () => void import("../settings/open").then((m) => m.openRunConfigs(root, s.task)) });
-      items.push({ label: "跳到入口类", run: () => void nav.openAt(sourceOf(s), 1, false) });
+      items.push({ label: "转到入口类", run: () => void nav.openAt(sourceOf(s), 1, false) });
       if (r) items.push({ label: "在编辑器中打开此输出", run: () => void openRunLog(r.id) });
     }
     items.push({ label: "重新识别服务", sep: true, run: () => void refresh() });
@@ -267,13 +267,13 @@
 <div class="svc">
   <div class="left">
     <div class="bar">
-      <button class="ibtn" disabled={!canStart} onclick={() => start(targets)} title={selSvc ? (alive(selRun) ? `重跑「${short(selSvc)}」` : `启动「${short(selSvc)}」`) : "启动这一组里没在跑的"} aria-label="启动">
+      <button class="ibtn" disabled={!canStart} onclick={() => start(targets)} title={selSvc ? (alive(selRun) ? `重新运行「${short(selSvc)}」` : `启动「${short(selSvc)}」`) : "启动此组中未运行的服务"} aria-label="启动">
         <Icon name={selSvc && alive(selRun) ? "rerun" : "run"} />
       </button>
-      <button class="ibtn" disabled={!selSvc} onclick={() => selSvc && debug(selSvc)} title={selSvc ? `调试「${short(selSvc)}」（⌃D 再调试一次）` : "选一个服务调试"} aria-label="调试">
+      <button class="ibtn" disabled={!selSvc} onclick={() => selSvc && debug(selSvc)} title={selSvc ? `调试「${short(selSvc)}」（⌃D 再次调试）` : "请选择要调试的服务"} aria-label="调试">
         <Icon name="debug" />
       </button>
-      <button class="ibtn" disabled={!canStop} onclick={() => stop(targets)} title={selSvc ? `停止「${short(selSvc)}」` : "停止这一组里在跑的"} aria-label="停止">
+      <button class="ibtn" disabled={!canStop} onclick={() => stop(targets)} title={selSvc ? `停止「${short(selSvc)}」` : "停止此组中正在运行的服务"} aria-label="停止">
         <Icon name="stop" />
       </button>
       <span class="gap"></span>
@@ -287,7 +287,7 @@
           ><svg class="spark" viewBox="0 0 {HEAP_KEEP} 12" preserveAspectRatio="none" aria-hidden="true"><polyline points={spark(hs)} /></svg>{mb(hs[hs.length - 1].used)}</span
         >
       {/if}
-      <button class="ibtn" onclick={() => void refresh()} title="重新识别服务（改了 pom、加了入口类之后）" aria-label="重新识别服务">
+      <button class="ibtn" onclick={() => void refresh()} title="重新识别服务（修改 pom 或新增入口类后使用）" aria-label="重新识别服务">
         <Icon name="refresh" />
       </button>
     </div>
@@ -295,11 +295,11 @@
       {#if error}
         <div class="empty-msg bad">{error}</div>
       {:else if !list}
-        <div class="empty-msg wait"><span class="spinner sm"></span> 正在找 Spring Boot 应用…</div>
+        <div class="empty-msg wait"><span class="spinner sm"></span> 正在查找 Spring Boot 应用…</div>
       {:else if list.length === 0}
         <div class="empty-msg">
           没认出 Spring Boot 应用
-          <div class="sub">各模块 src/main/java 里带 @SpringBootApplication、又有 main 方法的类会出现在这里</div>
+          <div class="sub">各模块 src/main/java 中带有 @SpringBootApplication 注解且包含 main 方法的类将显示在此</div>
         </div>
       {:else}
         {#each rows as row, i (row.key)}
@@ -341,8 +341,8 @@
               <span class="ic"><Icon name={row.icon} /></span>
             {/if}
             <span class="name">{row.label}</span>
-            {#if r?.debug && alive(r) && (r.debug.phase === "paused" || r.debug.phase === "running")}<span class="dbg-note" class:paused={r.debug.phase === "paused"}>{r.debug.phase === "paused" ? "停在断点" : "调试中"}</span>{/if}
-            {#if row.port}<span class="port">{row.port}</span>{:else if r?.status === "running"}<span class="note">正在起…</span>{:else if r?.status === "stopping"}<span class="note">正在停</span>{/if}
+            {#if r?.debug && alive(r) && (r.debug.phase === "paused" || r.debug.phase === "running")}<span class="dbg-note" class:paused={r.debug.phase === "paused"}>{r.debug.phase === "paused" ? "已在断点处暂停" : "调试中"}</span>{/if}
+            {#if row.port}<span class="port">{row.port}</span>{:else if r?.status === "running"}<span class="note">正在启动…</span>{:else if r?.status === "stopping"}<span class="note">正在停止</span>{/if}
             {#if row.note && !row.port && r?.status !== "running" && r?.status !== "stopping"}<span class="note">{row.note}</span>{/if}
             {#if row.members && row.depth === 1}<span class="count">{row.members.length}</span>{/if}
           </div>
@@ -358,9 +358,9 @@
         <!-- 端口被占：同运行窗那张卡片（ui.md 第十三条第三档） -->
         <div class="cards">
           <div class="confirm warn">
-            <span>端口 <b>{h.port}</b> 被 <b>{h.command}</b>（PID {h.pid}）占着{h.ours ? ` —— 是你之前跑的「${h.ours}」，没停干净` : ""}</span>
-            <button class="btn" onclick={() => dismissHolder(run.id)}>不管它</button>
-            <button class="btn {h.ours ? 'primary' : 'danger'}" onclick={() => void freePortAndRerun(run.id)}>结束它并重跑</button>
+            <span>端口 <b>{h.port}</b> 被 <b>{h.command}</b>（PID {h.pid}）占着{h.ours ? `，为之前运行的「${h.ours}」，未完全停止` : ""}</span>
+            <button class="btn" onclick={() => dismissHolder(run.id)}>忽略</button>
+            <button class="btn {h.ours ? 'primary' : 'danger'}" onclick={() => void freePortAndRerun(run.id)}>结束进程并重新运行</button>
           </div>
         </div>
       {/if}
@@ -370,10 +370,10 @@
     {:else if selSvc}
       <div class="empty-msg">
         「{short(selSvc)}」还没跑过
-        <div class="sub">双击它、或者点左上角的 ▶ 启动；输出会在这里</div>
+        <div class="sub">双击服务或点击左上角的 ▶ 启动，输出将显示在此</div>
       </div>
     {:else if list && list.length > 0}
-      <div class="empty-msg">选一个服务看它的输出</div>
+      <div class="empty-msg">选择服务以查看其输出</div>
     {/if}
   </div>
 </div>

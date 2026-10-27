@@ -187,8 +187,8 @@ wait_for 5 listening2
 pick_srv busy >/dev/null
 ok "$(lite_wait main "return (document.querySelector('.run-cards .confirm')?.innerText ?? '').includes('${PORT2}')" 15 && echo 1)" \
   "卡片出来了：$(lite_eval main "return document.querySelector('.run-cards .confirm span')?.innerText ?? ''" 2>/dev/null)"
-ok "$(lite_eval main "return document.querySelector('.run-cards .btn.danger') ? 1 : 0" 2>/dev/null)" "占着的不是我们起的任务：「结束它并重跑」是 danger（红）"
-lite_eval main "return __lite.click('结束它并重跑')" >/dev/null
+ok "$(lite_eval main "return document.querySelector('.run-cards .btn.danger') ? 1 : 0" 2>/dev/null)" "占着的不是我们起的任务：「结束进程并重新运行」是 danger（红）"
+lite_eval main "return __lite.click('结束进程并重新运行')" >/dev/null
 ok "$(wait_for 10 '! kill -0 ${SQUAT}' && echo 1)" "占端口的那个进程没了（PID ${SQUAT}）"
 ok "$(wait_for 15 'listening2 && [ "$(lsof -nP -iTCP:${PORT2} -sTCP:LISTEN -Fc | grep -c "^cPython")" -ge 1 ] && pgrep -f "${MARK} ${PORT2}" >/dev/null' && echo 1)" "busy 重跑起来、自己占上了 ${PORT2}"
 ok 1 "脚本自己还活着（没被「整组结束」波及 —— 走到这一行就是证据）"

@@ -76,25 +76,25 @@
   <div class="bar">
     {#if running}
       <!-- 边跑边出（G15）：一个类跑完亮一个；已经有挂了的就先标红，不用等全跑完 -->
-      <span class="sum" class:bad={nBad > 0}><span class="spinner sm"></span> 正在跑…{cases.length ? ` 已出 ${cases.length} 个：${nOk} 个通过${nBad ? ` · ${nBad} 个没过` : ""}` : ""}</span>
+      <span class="sum" class:bad={nBad > 0}><span class="spinner sm"></span> 正在跑…{cases.length ? ` 已完成 ${cases.length} 个：${nOk} 个通过${nBad ? ` · ${nBad} 个失败` : ""}` : ""}</span>
     {:else if cases.length}
       <span class="sum" class:bad={nBad > 0}>
         <span class="ic"><Icon name={nBad ? "error" : "check"} /></span>
-        {nOk} 个通过{nBad ? ` · ${nBad} 个没过` : ""}{nSkip ? ` · 跳过 ${nSkip}` : ""}{run.tests && run.tests.total > cases.length ? `（只列了前 ${cases.length} / ${run.tests.total}）` : ""}
+        {nOk} 个通过{nBad ? ` · ${nBad} 个失败` : ""}{nSkip ? ` · 跳过 ${nSkip}` : ""}{run.tests && run.tests.total > cases.length ? `（仅显示前 ${cases.length} / ${run.tests.total} 个）` : ""}
       </span>
     {:else}
       <span class="sum bad">没有测试结果</span>
     {/if}
     <span class="gap"></span>
-    <button class="ibtn" disabled={running || !task} onclick={() => task && again(task.selector)} title="重跑这些测试（⌃R）" aria-label="重跑"><Icon name="rerun" /></button>
-    <button class="ibtn" disabled={running || !retry} onclick={() => retry && again(retry)} title="只重跑没过的" aria-label="重跑没过的"><Icon name="run" /></button>
-    <button class="ibtn" disabled={running || !task} onclick={() => task && again(task.selector, true)} title="带覆盖率重跑这些测试（JaCoCo）" aria-label="带覆盖率重跑"><Icon name="run-coverage" /></button>
+    <button class="ibtn" disabled={running || !task} onclick={() => task && again(task.selector)} title="重新运行这些测试（⌃R）" aria-label="重新运行"><Icon name="rerun" /></button>
+    <button class="ibtn" disabled={running || !retry} onclick={() => retry && again(retry)} title="仅重新运行失败的测试" aria-label="重新运行失败的测试"><Icon name="run" /></button>
+    <button class="ibtn" disabled={running || !task} onclick={() => task && again(task.selector, true)} title="带覆盖率重新运行这些测试（JaCoCo）" aria-label="带覆盖率重新运行"><Icon name="run-coverage" /></button>
   </div>
   <div class="tree" role="tree" aria-label="测试结果">
     {#if !running && !cases.length}
       <div class="empty-msg">
         这次一个测试都没跑起来
-        <div class="sub">多半是编译没过，或者没找到这个测试 —— 原因在右边的输出里</div>
+        <div class="sub">可能是编译失败或未找到测试，请查看右侧的输出</div>
       </div>
     {/if}
     {#each groups as [cls, list] (cls)}
@@ -116,7 +116,7 @@
             onclick={() => (sel = sel === c ? null : c)}
             ondblclick={() => void jump(c)}
             onkeydown={() => {}}
-            title="双击跳到这个方法"
+            title="双击转到此方法"
           >
             <span class="ic" class:ok={c.outcome === "passed"} class:skip={c.outcome === "skipped"}><Icon name={icon(c.outcome)} /></span>
             <span class="name">{c.name}</span>

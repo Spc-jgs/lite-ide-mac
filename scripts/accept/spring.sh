@@ -174,7 +174,7 @@ if wait_for 120 "listening ${UP}"; then
   lite_eval main "${SVC} row('UserApplication').click(); return true" >/dev/null
   lite_wait main "return !!document.querySelector('.svc .bar .heap polyline')" 10 >/dev/null
   HEAP=$(lite_eval main "const h = document.querySelector('.svc .bar .heap'); const t = h?.title ?? ''; const n = [...t.matchAll(/(\\d+) MB/g)].map((m) => +m[1]); return (n.length === 3 && n[0] > 0 && n[0] <= n[1] && n[1] <= n[2] ? 'ok ' : 'bad ') + h?.textContent + ' | ' + t.split('\\n')[0]")
-  ok "$(echo "${HEAP}" | grep -qE '^ok [0-9]+ MB \| 堆：用了' && echo 1)" "选中它，工具栏上带着它的堆和小曲线（读 JVM 自己的性能计数，不起子进程）：${HEAP}"
+  ok "$(echo "${HEAP}" | grep -qE '^ok [0-9]+ MB \| 堆：已用' && echo 1)" "选中它，工具栏上带着它的堆和小曲线（读 JVM 自己的性能计数，不起子进程）：${HEAP}"
   lite menu run-stop main >/dev/null
   ok "$(wait_for 15 "! listening ${UP} && [ \"\$(group_left ${G})\" = 0 ]" && echo 1)" "⌘F2 停的是 Services 里选中的它：端口空了、组里剩 $(group_left "${G}") 个"
   lite_wait main "${SVC} return grp('UserApplication') === 'Finished'" 10 >/dev/null
@@ -247,7 +247,7 @@ CMD=$(lite_eval main "return __lite.runs.list.find((x) => x.name === '${RUN}')?.
 ok "$(echo "${CMD}" | grep -q -- '-P probe' && ! echo "${CMD}" | grep -q -- 'skipTests' && echo "${CMD}" | grep -q -- '-pl order-service -am' && echo 1)" "命令带上了 profile、没带跳过测试（Maven 窗里那个开着）：${CMD}"
 lite_wait main "return document.querySelectorAll('.cm-test-run.failed').length === 2 && document.querySelectorAll('.cm-test-run.passed').length === 1" 10 >/dev/null
 ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-test-run.failed').length === 2 && document.querySelectorAll('.cm-test-run.passed').length === 1")" = true ] && echo 1)" "行号旁换成结果：类和没过的那个是 ✗、过了的那个是 ✓"
-lite_eval main "document.querySelector('.tt .bar button[aria-label=\"重跑没过的\"]').click(); return true" >/dev/null
+lite_eval main "document.querySelector('.tt .bar button[aria-label=\"重新运行失败的测试\"]').click(); return true" >/dev/null
 RERUN="order-service [test com.demo.order.OrderMathTest#failsOnPurpose]"
 # 跑完才算（G15 起跑着的时候 tests 就有了、是半截的）
 lite_wait main "return __lite.runs.list.some((r) => r.name === '${RERUN}' && r.tests && r.status !== 'running' && r.status !== 'stopping')" 240 >/dev/null
@@ -302,7 +302,7 @@ ok "$([ "$(lite_eval main "${DBG} return d?.phase")" = paused ] && echo 1)" "停
 ok "$(lite_eval main "${DBG} return r?.command ?? ''" | grep -qE -- 'exec java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0 (-javaagent:[^ ]* )?-cp' && echo 1)" "命令里 java 带上了调试代理（端口 0、先停在入口等调试器）"
 FR=$(lite_eval main "${DBG} return (d?.frames ?? []).slice(0, 2).map((f) => f.name + '@' + f.path.split('/').pop() + ':' + f.line).join(' | ')")
 ok "$(echo "${FR}" | grep -q '^Money.show()@Money.java:4 | OrderApplication.run(String\[\])@OrderApplication.java:' && echo 1)" "停在兄弟模块（shop-common 没 install）的第 4 行，调用者是入口类：${FR}"
-ok "$([ "$(lite_eval main "${SVC} return row('OrderApplication')?.querySelector('.dbg-note')?.textContent ?? ''")" = 停在断点 ] && echo 1)" "Services 那一行写着「停在断点」"
+ok "$([ "$(lite_eval main "${SVC} return row('OrderApplication')?.querySelector('.dbg-note')?.textContent ?? ''")" = 已在断点处暂停 ] && echo 1)" "Services 那一行写着「停在断点」"
 EP=$(lite_eval main "const e = await __lite.debug.exec(); return e ? e.path.split('/').pop() + ':' + e.line : 'null'")
 ok "$([ "${EP}" = "Money.java:4" ] && [ "$(lite_eval main "return __lite.tabs.active?.path === '${MONEY}' && document.querySelectorAll('.cm-exec-line').length === 1")" = true ] && echo 1)" "编辑区开着 Money.java、第 4 行标成执行点：${EP}"
 VARS='const vs = () => [...document.querySelectorAll(".dbg .vrow")].map((v) => v.innerText.replace(/\s+/g, " ").trim());'

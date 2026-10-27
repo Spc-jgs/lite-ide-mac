@@ -51,9 +51,9 @@
   let frame = $derived(paused ? (d?.frames[sel] ?? null) : null);
   let where = $derived.by(() => {
     if (!d) return "";
-    if (d.phase === "waiting") return d.note || "正在挂上调试器…";
-    if (d.phase === "running") return "在跑";
-    if (d.phase === "ended") return d.note ? `调试结束了：${d.note}` : "调试结束了";
+    if (d.phase === "waiting") return d.note || "正在连接调试器…";
+    if (d.phase === "running") return "运行中";
+    if (d.phase === "ended") return d.note ? `调试已结束：${d.note}` : "调试已结束";
     const f = d.frames[0];
     const file = f ? (f.path ? f.path.slice(f.path.lastIndexOf("/") + 1).replace(/\?.*$/, "").replace(/\.class$/, ".java") : f.name) : "";
     const why = d.reason === "breakpoint" ? "断点" : d.reason === "step" ? "单步" : d.reason === "exception" ? "异常" : d.reason === "pause" ? "暂停" : d.reason;
@@ -271,9 +271,9 @@
   <cmenu.comp
     x={threadMenu.x}
     y={threadMenu.y}
-    title="停着的线程"
+    title="已暂停的线程"
     label="线程"
-    items={d.threads.map((t) => ({ label: t.id === d.thread ? `${t.name}（正在看）` : t.name, run: () => void pickThread(t.id) }))}
+    items={d.threads.map((t) => ({ label: t.id === d.thread ? `${t.name}（当前）` : t.name, run: () => void pickThread(t.id) }))}
     onclose={() => (threadMenu = null)}
   />
 {/if}
@@ -290,7 +290,7 @@
       {where}
     </span>
     {#if d && d.threads.length > 1}
-      <button class="btn sm quiet threads" onclick={openThreads} title="停着的线程（{d.threads.length} 个）">
+      <button class="btn sm quiet threads" onclick={openThreads} title="已暂停的线程（{d.threads.length} 个）">
         {d.threads.find((t) => t.id === d.thread)?.name ?? "线程"} <Icon name="chevron-down" />
       </button>
     {/if}
@@ -305,12 +305,12 @@
       <div class="frames" role="listbox" aria-label="调用栈">
         {#if !paused}
           <div class="empty-msg">
-            {d?.phase === "running" ? "程序在跑" : d?.phase === "ended" ? "调试结束了" : "尚未连接"}
-            <div class="sub">{d?.phase === "running" ? "撞上断点时停在这里；也可以点 ⏸ 暂停" : d?.phase === "ended" ? "重跑：Services 里的虫子，或者 ⌃D" : "挂上之后断点才生效"}</div>
+            {d?.phase === "running" ? "程序正在运行" : d?.phase === "ended" ? "调试已结束" : "尚未连接"}
+            <div class="sub">{d?.phase === "running" ? "命中断点时将在此暂停，也可点击 ⏸ 手动暂停" : d?.phase === "ended" ? "重新调试：Services 中的调试按钮或 ⌃D" : "连接后断点才会生效"}</div>
           </div>
         {:else}
           {#each d?.frames ?? [] as f, i (f.id)}
-            <div class="frow" class:on={i === sel} class:dim={!f.path} role="option" aria-selected={i === sel} tabindex="-1" onclick={() => pick(i)} onkeydown={() => {}} title={f.path ? `${f.name}\n${f.label || f.path}:${f.line}` : `${f.name}（没有源码）`}>
+            <div class="frow" class:on={i === sel} class:dim={!f.path} role="option" aria-selected={i === sel} tabindex="-1" onclick={() => pick(i)} onkeydown={() => {}} title={f.path ? `${f.name}\n${f.label || f.path}:${f.line}` : `${f.name}（无源代码）`}>
               <span class="fn">{f.name}</span>
               {#if f.path}<span class="ff">{fileOf(f.path)}{f.line > 0 ? `:${f.line}` : ""}</span>{/if}
             </div>
@@ -321,7 +321,7 @@
       <div class="vars" role="tree" aria-label="变量">
         {#if paused}
           <div class="eval">
-            <input class="expr" placeholder="求值：输入表达式，↵ 算一次 · ⇧↵ 加到监视" spellcheck="false" bind:value={expr} onkeydown={onEvalKey} />
+            <input class="expr" placeholder="求值：输入表达式，↵ 求值 · ⇧↵ 添加到监视" spellcheck="false" bind:value={expr} onkeydown={onEvalKey} />
             {#if evaluating}<span class="wait-ring"><span class="spinner sm"></span></span>{/if}
           </div>
           {#if evalErr}<div class="vmsg bad">{evalErr}</div>{/if}
@@ -339,17 +339,17 @@
                   {#if r === null}<span class="vmsg wait"><span class="spinner sm"></span></span>{:else}<span class="vv bad">{r}</span>{/if}
                 </div>
               {/if}
-              <button class="ibtn xs wx" title="不监视了" aria-label="不监视 {w}" onclick={() => removeWatch(w)}><Icon name="x" /></button>
+              <button class="ibtn xs wx" title="移除监视" aria-label="移除监视 {w}" onclick={() => removeWatch(w)}><Icon name="x" /></button>
             </div>
           {/each}
           {#if varsErr}
             <div class="vmsg bad">{varsErr}</div>
           {:else if vars}
             {@render tree(vars, 0)}
-            {#if vars.length === 0}<div class="vmsg">这一帧没有局部变量</div>{/if}
+            {#if vars.length === 0}<div class="vmsg">此栈帧没有局部变量</div>{/if}
             {#if varsMore > 0}<div class="vmsg">还有 {varsMore} 个没列出来</div>{/if}
           {:else}
-            <div class="vmsg wait"><span class="spinner sm"></span> 正在读变量…</div>
+            <div class="vmsg wait"><span class="spinner sm"></span> 正在读取变量…</div>
           {/if}
         {/if}
       </div>

@@ -105,9 +105,9 @@
    */
   let projTip = $derived(
     [
-      root ?? "草稿本：不属于任何项目的草稿和散文件（点开可以打开项目）",
+      root ?? "草稿本：不属于任何项目的草稿和单独文件（单击可打开项目）",
       `lite-ide · 构建于 ${__BUILD_TIME__}`,
-      ...(devtools ? ["⚠︎ 调试版：带 Web Inspector，别拿它当正式版用"] : []),
+      ...(devtools ? ["⚠︎ 调试版：包含 Web Inspector，请勿作为正式版使用"] : []),
     ].join("\n"),
   );
   $effect(() => {
@@ -155,7 +155,7 @@
   </button>
   {#if restricted}
     <!-- 和分支挂件同一个位置：它回答的还是「Git 在哪」—— 答案是「没启用，点我看为什么」 -->
-    <button class="twidget warn" onclick={onOpenTrust} title="这个仓库的 .git/config 里有会执行命令的配置，Git 功能没启用 —— 点开看是哪几条">
+    <button class="twidget warn" onclick={onOpenTrust} title="此仓库的 .git/config 包含可执行命令的配置，Git 功能未启用。单击查看详情">
       <Icon name="git" />
       <span class="wlabel">Git 未启用</span>
     </button>
@@ -168,7 +168,7 @@
       title="切换分支 / 工作树"
     >
       <Icon name="git" />
-      <span class="wlabel">{gitSt.branch || "游离"}</span>
+      <span class="wlabel">{gitSt.branch || "游离 HEAD"}</span>
       {#if gitSt.ahead}<span class="ab">↑{gitSt.ahead}</span>{/if}
       {#if gitSt.behind}<span class="ab">↓{gitSt.behind}</span>{/if}
       <Icon name="chevron-down" />

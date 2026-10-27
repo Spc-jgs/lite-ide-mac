@@ -362,13 +362,13 @@
             <div class="run-cards">
               <div class="confirm warn">
                 <span>
-                  端口 <b>{h.port}</b> 被 <b>{h.command}</b>（PID {h.pid}）占着{h.ours ? ` —— 是你之前跑的「${h.ours}」，没停干净` : ""}
+                  端口 <b>{h.port}</b> 被 <b>{h.command}</b>（PID {h.pid}）占用{h.ours ? `，为之前运行的「${h.ours}」，未完全停止` : ""}
                 </span>
-                <button class="btn" onclick={() => void ops().then((m) => m.dismissHolder(id))}>不管它</button>
+                <button class="btn" onclick={() => void ops().then((m) => m.dismissHolder(id))}>忽略</button>
                 <button
                   class="btn {h.ours ? 'primary' : 'danger'}"
                   onclick={() => void ops().then((m) => m.freePortAndRerun(id))}
-                >结束它并重跑</button>
+                >结束进程并重新运行</button>
               </div>
             </div>
           {/if}

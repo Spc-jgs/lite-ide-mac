@@ -74,8 +74,8 @@
 </script>
 
 <div class="welcome">
-  <div class="big">记点东西，或者打开一个项目</div>
-  <p class="sub">草稿不用起名、不用保存；文件或文件夹拖进来就开 —— 代码走编辑模式，大文件与日志自动走只读的日志模式</p>
+  <div class="big">新建草稿，或打开项目</div>
+  <p class="sub">草稿无需命名和保存；可将文件或文件夹拖入窗口打开。代码以编辑模式打开，大文件和日志自动以只读的日志模式打开</p>
   <div class="go">
     <button class="btn primary" onclick={() => void tabflow.newScratch()}>新建草稿</button>
     {#if accel("new-scratch")}<kbd>{accel("new-scratch")}</kbd>{/if}
@@ -113,8 +113,8 @@
           </span>
           <button
             class="ibtn sm x"
-            aria-label="从最近的项目里拿掉 {baseName(p)}"
-            title="从最近的项目里拿掉（不动盘上的文件）"
+            aria-label="从最近的项目中移除 {baseName(p)}"
+            title="从最近的项目中移除（不影响磁盘上的文件）"
             onclick={(e) => {
               e.stopPropagation();
               void forget(p);
