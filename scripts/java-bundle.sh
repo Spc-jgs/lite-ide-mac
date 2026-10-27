@@ -52,7 +52,10 @@ VER=$(jver "${JDK}")
 # 热替换的 agent（docs/IDEA.md 第 26 节）：我们自己的 Java 源码，打包时编。源码一改 stamp 就变、整份重来
 AGENT_SRC=src-tauri/crates/hotswap/agent
 AGENT_SUM=$(find "${AGENT_SRC}" -name '*.java' | sort | xargs cat | shasum -a 256 | cut -c1-16)
-stamp="jdtls=${JDTLS_VERSION} ${JDTLS_SHA256} debug=${DEBUG_VERSION} jacoco=${JACOCO_VERSION} agent=${AGENT_SUM} java=${VER} modules=${MODULES} arches=${ARCHES[*]}"
+# 数据库的边车（docs/DATABASE.md 第 3 节）：同上，我们自己的 Java 源码，打包时编
+DB_SRC=src-tauri/crates/dbsvc/sidecar
+DB_SUM=$(find "${DB_SRC}" -name '*.java' | sort | xargs cat | shasum -a 256 | cut -c1-16)
+stamp="jdtls=${JDTLS_VERSION} ${JDTLS_SHA256} debug=${DEBUG_VERSION} jacoco=${JACOCO_VERSION} agent=${AGENT_SUM} db=${DB_SUM} java=${VER} modules=${MODULES} arches=${ARCHES[*]}"
 if [ -f "${OUT}/.stamp" ] && [ "$(cat "${OUT}/.stamp")" = "${stamp}" ]; then
   echo "java-bundle：没变（${stamp}）"
   exit 0
@@ -109,6 +112,13 @@ mkdir -p "${OUT}.partial/hotswap/classes"
 printf 'Premain-Class: liteide.hotswap.Agent\nCan-Redefine-Classes: true\n' > "${OUT}.partial/hotswap/MANIFEST.MF"
 "${JDK}/bin/jar" cfm "${OUT}.partial/hotswap/lite-hotswap.jar" "${OUT}.partial/hotswap/MANIFEST.MF" -C "${OUT}.partial/hotswap/classes" .
 rm -rf "${OUT}.partial/hotswap/classes" "${OUT}.partial/hotswap/MANIFEST.MF"
+
+# ── 数据库的边车：--release 21，跑在内置的运行时上（它带 java.sql）──
+mkdir -p "${OUT}.partial/db/classes"
+"${JDK}/bin/javac" --release 21 -d "${OUT}.partial/db/classes" $(find "${DB_SRC}" -name '*.java')
+printf 'Main-Class: liteide.db.Main\n' > "${OUT}.partial/db/MANIFEST.MF"
+"${JDK}/bin/jar" cfm "${OUT}.partial/db/lite-db.jar" "${OUT}.partial/db/MANIFEST.MF" -C "${OUT}.partial/db/classes" .
+rm -rf "${OUT}.partial/db/classes" "${OUT}.partial/db/MANIFEST.MF"
 
 # ── 运行时：一个架构一份 ──
 for arch in "${ARCHES[@]}"; do

@@ -1657,6 +1657,13 @@ pub fn hotswap_jar(app: &AppHandle) -> Option<PathBuf> {
     bundled(app).map(|d| d.join("hotswap/lite-hotswap.jar")).filter(|p| p.is_file())
 }
 
+/// 数据库的边车（docs/DATABASE.md）：内置的 Java 和 scripts/java-bundle.sh 编的 lite-db.jar。开发构建没有
+pub fn db_sidecar(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
+    let d = bundled(app)?;
+    let (java, jar) = (d.join(runtime_dir_name()).join("bin/java"), d.join("db/lite-db.jar"));
+    (java.is_file() && jar.is_file()).then_some((java, jar))
+}
+
 /// 覆盖率（docs/TAKEOVER.md G15）：内置的 JaCoCo 代理、命令行（scripts/java-bundle.sh 下的），和跑命令行用的内置 Java。开发构建没有
 pub fn jacoco(app: &AppHandle) -> Option<(PathBuf, PathBuf, PathBuf)> {
     let d = bundled(app)?;

@@ -13,6 +13,7 @@ mod mybatis;
 mod spring;
 mod spring_meta;
 mod spring_beans;
+mod db;
 mod junit;
 pub mod diag;
 pub mod menu;
@@ -461,6 +462,13 @@ pub fn run() {
             commands::spring_props,
             commands::spring_enum,
             commands::spring_beans,
+            commands::db_list,
+            commands::db_save,
+            commands::db_delete,
+            commands::db_test,
+            commands::db_open,
+            commands::db_meta,
+            commands::db_close,
             commands::gradle_project,
             commands::gradle_tasks,
             commands::java_method_sig,

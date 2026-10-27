@@ -1,0 +1,12 @@
+[package]
+name = "dbsvc"
+version = "0.1.0"
+edition = "2021"
+description = "数据库客户端的 Rust 一侧（零 Tauri 依赖，docs/DATABASE.md）：起 JDBC 边车（内置的 Java 21）、驱动按需下（钉版本、核 sha256）、密码进钥匙串"
+
+[dependencies]
+serde_json = "1"
+# 边车的线和进程：一行一条 JSON-RPC、进程组、stderr 留尾巴 —— 和 AI 助手的 agent 同一个形状，复用（同仓库）
+acpsvc = { path = "../acpsvc" }
+# 起 curl / shasum / security，输出设闸（同仓库）
+procutil = { path = "../procutil" }

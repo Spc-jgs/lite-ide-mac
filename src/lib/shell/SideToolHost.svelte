@@ -12,7 +12,8 @@
   const structure = lazy(() => import("../search/StructureView.svelte"), "结构");
   const agent = lazy(() => import("../agent/AgentPane.svelte"), "AI 助手");
   const gradle = lazy(() => import("../run/GradleView.svelte"), "Gradle 工具窗");
-  const cur = $derived(layout.sideView === "structure" ? structure : layout.sideView === "agent" ? agent : layout.sideView === "gradle" ? gradle : maven);
+  const db = lazy(() => import("../db/DatabaseView.svelte"), "数据库工具窗");
+  const cur = $derived(layout.sideView === "structure" ? structure : layout.sideView === "agent" ? agent : layout.sideView === "gradle" ? gradle : layout.sideView === "db" ? db : maven);
   $effect(() => cur.load());
 </script>
 

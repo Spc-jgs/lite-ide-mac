@@ -887,6 +887,43 @@ export interface ScratchEntry {
 }
 
 /** 「安装命令行工具…」的结果（issue #40） */
+/** 一个数据库连接的配置（没有密码：密码在钥匙串里） */
+export interface DbConn {
+  id: string;
+  name: string;
+  kind: "mysql" | "postgresql" | "h2";
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  /** 自己写的连接串（H2 必填） */
+  url: string;
+  /** 钥匙串里存了密码没有 */
+  hasPassword: boolean;
+}
+
+/** 连上之后数据库报的自己 */
+export interface DbInfo {
+  product: string;
+  version: string;
+  catalog: string;
+  schema: string;
+}
+
+/** 表结构树的一个节点（库 / schema、表、列） */
+export interface DbNode {
+  name: string;
+  kind: string | null;
+  catalog: string | null;
+  schema: string | null;
+  ty: string | null;
+  size: number | null;
+  nullable: boolean | null;
+  default: string | null;
+  remarks: string | null;
+  pk: boolean;
+}
+
 /** Spring 注入点配上的一个 Bean */
 export interface SpringBean {
   /** 类名，或者 `配置类.方法()` */

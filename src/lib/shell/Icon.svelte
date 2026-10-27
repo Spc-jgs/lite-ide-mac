@@ -82,6 +82,8 @@
     "ai",
     // Gradle 工具窗（docs/TAKEOVER.md G24）
     "gradle",
+    // 数据库工具窗（docs/DATABASE.md）
+    "database",
   ] as const;
 
   export type IconName = (typeof ICON_NAMES)[number];

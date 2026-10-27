@@ -82,6 +82,8 @@ pub struct AppState {
     pub debug: crate::debug::Debugs,
     /// AI 助手的会话（docs/TAKEOVER.md MVP-6），一个会话一个 agent 进程
     pub agents: crate::agent::Agents,
+    /// 数据库客户端（docs/DATABASE.md）：边车和按窗口登记的连接，`release_window` 里 `db.release` 收
+    pub db: crate::db::Db,
     next_handle: AtomicU32,
     next_pty: AtomicU32,
     next_run: AtomicU32,
@@ -596,6 +598,7 @@ impl AppState {
         self.java.release(owner);
         self.debug.release(owner);
         self.agents.release(owner);
+        self.db.release(owner);
 
         // 这个窗口的任务：先礼后兵地停（宽限期在后台线程里等，窗口关掉不用等它们）
         for (_, r) in self.runs.take_owner(owner) {

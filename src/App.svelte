@@ -196,7 +196,7 @@
   // 侧边栏里按需拉的工具窗（Maven、结构 ⌘7、AI 助手）：一个宿主、一个句柄，宿主按 sideView 再拉具体那个
   const mavenUi = lazy(() => import("./lib/shell/SideToolHost.svelte"), "侧边栏工具窗");
   $effect(() => {
-    if (layout.sidebar && (layout.sideView === "maven" || layout.sideView === "structure" || layout.sideView === "agent" || layout.sideView === "gradle")) mavenUi.load();
+    if (layout.sidebar && (layout.sideView === "maven" || layout.sideView === "structure" || layout.sideView === "agent" || layout.sideView === "gradle" || layout.sideView === "db")) mavenUi.load();
   });
 
   const gitUi = lazyGroup(

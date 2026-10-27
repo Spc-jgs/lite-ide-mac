@@ -15,6 +15,7 @@ use tauri::State;
 
 mod agent;
 mod app;
+mod db;
 mod debug;
 mod dto;
 mod fs;
@@ -34,6 +35,7 @@ mod update;
 
 pub use agent::*;
 pub use app::*;
+pub use db::*;
 pub use debug::*;
 pub use dto::*;
 pub use fs::*;

@@ -60,7 +60,7 @@
       - 结构（⌘7，docs/TAKEOVER.md G17）：上游的 structure 图标（2026-10-23 拉下来的，D11）
       - AI 助手（docs/TAKEOVER.md MVP-6）：开着项目就在。图标自绘（IDEA 社区版没有）
     -->
-    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 更改", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "gradle", on: gradle, i: "gradle", l: "Gradle", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: " ⌘7", n: 0 }, { v: "agent", on: true, i: "ai", l: "AI 助手", k: "", n: 0 }] as const as b}
+    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 更改", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "gradle", on: gradle, i: "gradle", l: "Gradle", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: " ⌘7", n: 0 }, { v: "db", on: true, i: "database", l: "数据库", k: "", n: 0 }, { v: "agent", on: true, i: "ai", l: "AI 助手", k: "", n: 0 }] as const as b}
       {#if b.on}
         <button
           class="ibtn lg rbtn"

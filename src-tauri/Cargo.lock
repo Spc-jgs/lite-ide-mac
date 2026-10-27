@@ -536,6 +536,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbsvc"
+version = "0.1.0"
+dependencies = [
+ "acpsvc",
+ "procutil",
+ "serde_json",
+]
+
+[[package]]
 name = "dbus"
 version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1906,6 +1915,7 @@ dependencies = [
  "acpsvc",
  "applog",
  "dapsvc",
+ "dbsvc",
  "fsservice",
  "gitsvc",
  "histsvc",

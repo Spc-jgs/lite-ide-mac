@@ -18,6 +18,7 @@ members = [
     "crates/jvmstat",
     "crates/acpsvc",
     "crates/updsvc",
+    "crates/dbsvc",
 ]
 
 [package]
@@ -61,6 +62,7 @@ applog = { path = "crates/applog" }
 fsservice = { path = "crates/fsservice" }
 acpsvc = { path = "crates/acpsvc" }
 updsvc = { path = "crates/updsvc" }
+dbsvc = { path = "crates/dbsvc" }
 ptysvc = { path = "crates/ptysvc" }
 searchsvc = { path = "crates/searchsvc" }
 replacesvc = { path = "crates/replacesvc" }

@@ -286,6 +286,52 @@ pub struct ScratchDto {
     pub anchor: Option<AnchorDto>,
 }
 
+/// 一个数据库连接的配置（没有密码：密码在钥匙串里）
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbConnDto {
+    pub id: String,
+    pub name: String,
+    /// mysql / postgresql / h2
+    pub kind: String,
+    pub host: String,
+    pub port: u16,
+    pub database: String,
+    pub user: String,
+    /// 自己写的连接串（H2 必填）
+    pub url: String,
+    /// 钥匙串里存了密码没有（只读，存的时候忽略）
+    #[serde(default)]
+    pub has_password: bool,
+}
+
+/// 连上之后数据库报的自己
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbInfoDto {
+    pub product: String,
+    pub version: String,
+    pub catalog: String,
+    pub schema: String,
+}
+
+/// 表结构树的一个节点（库 / schema、表、列）。列才有类型那几项
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbNodeDto {
+    pub name: String,
+    /// 表的种类（TABLE / VIEW）
+    pub kind: Option<String>,
+    pub catalog: Option<String>,
+    pub schema: Option<String>,
+    pub ty: Option<String>,
+    pub size: Option<u32>,
+    pub nullable: Option<bool>,
+    pub default: Option<String>,
+    pub remarks: Option<String>,
+    pub pk: bool,
+}
+
 /// Spring 注入点配上的一个 Bean（`spring_beans`）
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
