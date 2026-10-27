@@ -93,15 +93,15 @@
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="dialog wide move" role="dialog" aria-label="移动类" tabindex="-1" onkeydown={onKey}>
     {#if !pick}
-      <p class="title">把 {file} 挪到哪个包{#if here}<span class="sub">现在在 {here.name}</span>{/if}</p>
+      <p class="title">将 {file} 移动到{#if here}<span class="sub">当前位于 {here.name}</span>{/if}</p>
       <input class="field" use:focusIn placeholder="筛选包名…" spellcheck="false" bind:value={q} aria-label="筛选包" />
       <div class="list" role="listbox" aria-label="目标包">
         {#if err}
           <div class="empty-msg bad">{err}</div>
         {:else if dests === null}
-          <div class="empty-msg wait"><span class="spinner sm"></span> 正在问 Java 语言服务器有哪些包…</div>
+          <div class="empty-msg wait"><span class="spinner sm"></span> 正在从 Java 语言服务器获取包列表…</div>
         {:else if !list.length}
-          <div class="empty-msg">{q ? `没有带「${q}」的包` : "这个项目里没有别的包可以挪"}<span class="sub">只能挪进已经有的包；新包先在文件树里建好目录</span></div>
+          <div class="empty-msg">{q ? `没有包含「${q}」的包` : "此项目中没有其他可用的包"}<span class="sub">仅支持移动到已有的包；如需新包，请先在文件树中创建目录</span></div>
         {:else}
           {#each list as d, i (d.uri)}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -118,19 +118,19 @@
         <button class="btn primary" data-default disabled={!list[sel]} onclick={() => list[sel] && void choose(list[sel])}>下一步</button>
       </div>
     {:else}
-      <p class="title">把 {file} 挪到 {pick.name}</p>
+      <p class="title">将 {file} 移动到 {pick.name}</p>
       <div class="list">
         {#if err}
           <div class="empty-msg bad">{err}</div>
         {:else if !preview}
-          <div class="empty-msg wait"><span class="spinner sm"></span> 正在算要改哪些（第一次要搜全部索引，会慢一点）…</div>
+          <div class="empty-msg wait"><span class="spinner sm"></span> 正在分析需要修改的位置（首次搜索全部索引可能较慢）…</div>
         {:else}
           <p class="body">文件 <code>{preview.from}</code> → <code>{preview.to}</code></p>
-          <p class="body">改 {preview.files.length} 个文件（包声明、引用它的 import）：</p>
+          <p class="body">将修改 {preview.files.length} 个文件（包声明及引用它的 import）：</p>
           <ul class="files">
             {#each preview.files as f (f)}<li>{f}</li>{/each}
           </ul>
-          <p class="note">做完能撤销（胶囊上的「撤销」，或者「编辑 › 撤销上次的替换 / 改名」）</p>
+          <p class="note">完成后可撤销（提示中的「撤销」，或「编辑 › 撤销上次的替换 / 改名」）</p>
         {/if}
       </div>
       <div class="actions">

@@ -37,7 +37,7 @@ fn read(p: &Path) -> Result<Option<Map<String, Value>>, String> {
     // 读 cap+1：超了要报出来，不能悄悄拿一份截断的去解析（rust.md「读 cap+1 判截断」）
     f.take(FILE_MAX + 1).read_to_end(&mut buf).map_err(|e| format!("{}：{e}", p.display()))?;
     if buf.len() as u64 > FILE_MAX {
-        return Err(format!("{} 超过 {} MB，没读", p.display(), FILE_MAX >> 20));
+        return Err(format!("{} 超过 {} MB，未读取", p.display(), FILE_MAX >> 20));
     }
     match serde_json::from_slice::<Value>(&buf) {
         Ok(Value::Object(m)) => Ok(Some(m)),

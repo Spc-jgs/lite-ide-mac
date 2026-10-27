@@ -331,7 +331,7 @@ pub fn log_patterns(handle: u32, limit: u32, restart: bool, state: State<'_, App
         Some(m) => m.maps(),
         None => vec![state.get(handle).ok_or("句柄已失效")?.mapped()],
     };
-    let task = state.patterns(handle, restart, || logengine::pattern::spawn(maps)).map_err(|e| format!("归类起不来：{e}"))?;
+    let task = state.patterns(handle, restart, || logengine::pattern::spawn(maps)).map_err(|e| format!("无法启动日志归类：{e}"))?;
     Ok(patterns_dto(&task, limit))
 }
 

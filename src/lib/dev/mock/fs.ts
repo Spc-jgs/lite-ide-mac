@@ -220,7 +220,7 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
     case "reveal_in_finder": {
       const path = String(a.path);
       if (!DIRS[path] && FILES[path] === undefined) {
-        throw new Error(`${path} 不在盘上了`);
+        throw new Error(`${path} 已不存在`);
       }
       console.info(`[mock] 在 Finder 中显示 ${path}`);
       return null;
@@ -252,7 +252,7 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
       // 校验顺序跟着 Rust 侧走：先看名字，再看源在不在
       const bad = checkName(name);
       if (bad) throw new Error(bad);
-      if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
+      if (!existsInMock(path)) throw new Error(`${path} 已不存在`);
       const parent = parentOf(path);
       const to = `${parent}/${name}`;
       if (to === path) return to;
@@ -270,7 +270,7 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
       // 判据跟着 Rust 侧：源在不在、目标是不是目录、同名、目录进自己、挪回原处
       const path = String(a.path);
       const dest = String(a.dest);
-      if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
+      if (!existsInMock(path)) throw new Error(`${path} 已不存在`);
       if (DIRS[dest] === undefined) throw new Error(`${dest} 不是目录`);
       const name = nameOf(path);
       const to = `${dest}/${name}`;
@@ -287,7 +287,7 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
     }
     case "trash_entry": {
       const path = String(a.path);
-      if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
+      if (!existsInMock(path)) throw new Error(`${path} 已不存在`);
       // 故意慢：废纸篓走的是 Finder（NSWorkspace），Finder 忙的时候真会等上一秒。
       // 弹窗里主动作按钮的 busy 态（`.btn.busy`）只在这条路上能在浏览器里看到
       await sleep(800);

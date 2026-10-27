@@ -72,7 +72,7 @@ export async function sendAt(root: string, path: string, text: string, line: num
   const f = parseHttp(text);
   const req = requestAt(f, line);
   if (!req) {
-    notify.hint("这个文件里没有请求（请求行是「方法 URL」，比如 GET http://localhost:8080/api）");
+    notify.hint("此文件中没有请求（请求行格式为「方法 URL」，例如 GET http://localhost:8080/api）");
     return;
   }
   await send(root, path, f, req);
@@ -85,16 +85,16 @@ async function send(root: string, path: string, f: HttpFile, req: HttpReq) {
     const e = await httpEnvs(root, path);
     envs = JSON.parse(e.json);
     names = e.names;
-    if (e.problems.length) notify.fail(`环境文件读坏了：${e.problems[0]}`, 8000);
+    if (e.problems.length) notify.fail(`环境文件格式错误：${e.problems[0]}`, 8000);
   } catch (e) {
-    notify.fail(`读不了环境文件：${e instanceof Error ? e.message : String(e)}`);
+    notify.fail(`无法读取环境文件：${e instanceof Error ? e.message : String(e)}`);
   }
   let env = envOf(root);
   if (env && !(env in envs)) env = null;
   const r = resolve(req, f.vars, env ? envs[env] : null);
   if (!r.ok) {
     const why = env ? `（环境「${env}」里没有）` : names.length ? "（还没选环境：编辑器顶上那一条里选）" : "（没有 http-client.env.json，也没在文件里用 @名字 = 值 定义）";
-    notify.fail(`没定义的变量：${r.missing.map((m) => `{{${m}}}`).join("、")}${why}，没发`, 8000);
+    notify.fail(`未定义的变量：${r.missing.map((m) => `{{${m}}}`).join("、")}${why}，请求未发送`, 8000);
     return;
   }
   const name = tabName(req);

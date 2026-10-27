@@ -45,7 +45,7 @@ export async function reopenWith(label: string) {
       return;
     }
     if (tab.dirty) {
-      notify.fail("有未保存的改动，请先保存（⌘S）再换编码重新打开", 3000);
+      notify.fail("有未保存的更改，请先保存（⌘S）再以其他编码重新打开", 3000);
       return;
     }
     const t = await readText(tab.path, label);
@@ -55,7 +55,7 @@ export async function reopenWith(label: string) {
     tab.lossy = t.lossy;
     tab.eol = t.eol;
     docs.savedTick++;
-    notify.ok(`已按 ${t.encoding} 重新打开${t.lossy ? "（仍有解不出的字节）" : ""}`, 3000);
+    notify.ok(`已以 ${t.encoding} 重新打开${t.lossy ? "（仍有无法解码的字节）" : ""}`, 3000);
   } catch (e) {
     notify.fail(String(e));
   }
@@ -73,7 +73,7 @@ export function setEol(eol: "LF" | "CRLF") {
   tab.fmt = true;
   tab.dirty = true;
   tabs.keep(tab.id);
-  notify.ok(`下次保存将用 ${eol} 换行，按 ⌘S 生效`, 3600);
+  notify.ok(`换行符将改为 ${eol}，保存（⌘S）后生效`, 3600);
 }
 
 /** 只改「将来存成什么编码」，不动当前内容 */
@@ -87,5 +87,5 @@ export function saveAsEncoding(label: string, bom: boolean) {
   tab.fmt = true;
   tab.dirty = true;
   tabs.keep(tab.id);
-  notify.ok(`下次保存将写成 ${label}${bom ? " + BOM" : ""}，按 ⌘S 生效`, 3600);
+  notify.ok(`编码将改为 ${label}${bom ? " + BOM" : ""}，保存（⌘S）后生效`, 3600);
 }

@@ -8,7 +8,7 @@ let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
 const eq = (a: unknown, b: unknown, m: string) => ok(JSON.stringify(a) === JSON.stringify(b), `${m}：${JSON.stringify(a)}，应为 ${JSON.stringify(b)}`);
 
-eq(refactorTitle("Extract to local variable (replace all occurrences)"), "抽成局部变量（替换所有相同的）", "标题换中文");
+eq(refactorTitle("Extract to local variable (replace all occurrences)"), "引入局部变量（替换所有匹配项）", "标题换中文");
 eq(refactorTitle("Add final modifier"), "Add final modifier", "表里没有的原样");
 
 // 抽变量：声明一笔、原处换成名字一笔 —— 名字在第二笔开头

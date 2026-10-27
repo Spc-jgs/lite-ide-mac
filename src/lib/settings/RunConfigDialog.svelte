@@ -21,11 +21,11 @@
 
   const KIND_LABEL: Record<UserKind, string> = { application: "应用", maven: "Maven", shell: "Shell", compound: "组合", remote: "远程 JVM 调试" };
   const KIND_DOC: Record<UserKind, string> = {
-    application: "跑一个 main 方法（不是 Spring Boot 的也行）：先编译它在的模块，再 java 起它；调试、热替换照常",
-    maven: "在一个模块上跑几个 Maven 目标（clean package、spring-boot:build-image …），带上 Maven 工具窗里勾的 profile 和开关",
-    shell: "一行命令，交给你的登录 shell（和在终端里敲一样，和 tasks.json 同一种）",
-    compound: "几份一起起（前后端、几个微服务）：⌃R 重跑也是一起",
-    remote: "挂到别处起的 JVM 上调试（测试环境、容器里、自己在终端起的）：▶ 就是挂上去，⌘F2 断开 —— 只断开，不停那个 JVM",
+    application: "运行一个 main 方法（不限于 Spring Boot）：先编译所在模块，再用 java 启动；支持调试和热替换",
+    maven: "在模块上执行 Maven 目标（clean package、spring-boot:build-image 等），并带上 Maven 工具窗中选中的 profile 和选项",
+    shell: "一行命令，由登录 shell 执行（与在终端中输入相同，格式同 tasks.json）",
+    compound: "同时启动多个配置（前后端、多个微服务），⌃R 重新运行时也一并重启",
+    remote: "附加到其他位置启动的 JVM 进行调试（测试环境、容器或终端中启动的）：▶ 附加，⌘F2 断开（仅断开，不终止该 JVM）",
   };
 
   let data = $state<RunConfigs | null>(null);
@@ -170,7 +170,7 @@
       took = null;
       if (thenClose) {
         onclose();
-        if (changed) notify.ok(`运行配置已保存，下次启动时生效（正在跑的要重跑）`);
+        if (changed) notify.ok(`运行配置已保存，下次启动时生效（正在运行的需重新运行）`);
       } else {
         applied = true;
         setTimeout(() => (applied = false), 1400);
@@ -204,29 +204,29 @@
   <div class="env">
     {#each env as v, i (i)}
       <div class="kv">
-        <input class="field mono k" placeholder="名字" spellcheck="false" aria-label="环境变量名"
+        <input class="field mono k" placeholder="名称" spellcheck="false" aria-label="环境变量名"
           bind:value={() => v.name, (s) => setEnv(env.map((x, j) => (j === i ? { ...x, name: s } : x)))} />
         <span class="eq">=</span>
         <input class="field mono" placeholder="值" spellcheck="false" aria-label="环境变量的值"
           bind:value={() => v.value, (s) => setEnv(env.map((x, j) => (j === i ? { ...x, value: s } : x)))} />
-        <button class="ibtn sm" title="删掉这一个" aria-label="删掉 {v.name || '这一行'}" onclick={() => setEnv(env.filter((_, j) => j !== i))}><Icon name="x" /></button>
+        <button class="ibtn sm" title="删除" aria-label="删除 {v.name || '此行'}" onclick={() => setEnv(env.filter((_, j) => j !== i))}><Icon name="x" /></button>
       </div>
     {/each}
-    <button class="btn sm" onclick={() => setEnv([...env, { name: "", value: "" }])}><Icon name="plus" /> 加一个</button>
+    <button class="btn sm" onclick={() => setEnv([...env, { name: "", value: "" }])}><Icon name="plus" /> 添加</button>
   </div>
-  {#if badEnv}<p class="ferr">「{badEnv.name}」不能当变量名：要字母或下划线开头，后面只有字母、数字、下划线</p>{/if}
+  {#if badEnv}<p class="ferr">「{badEnv.name}」不是有效的变量名：须以字母或下划线开头，仅包含字母、数字和下划线</p>{/if}
 {/snippet}
 
 {#snippet jdkPicker(jdk: string)}
   <div class="lab">JDK</div>
-  <div class="choices" role="radiogroup" aria-label="用哪个 JDK">
+  <div class="choices" role="radiogroup" aria-label="JDK">
     <button class="choice" role="radio" aria-checked={jdk === ""} onclick={() => setJdk("")}>
-      <span class="dot" class:on={jdk === ""}></span><span class="what">跟项目</span><span class="where">设置 › 此项目 里选的；没选就按 pom 自动挑</span>
+      <span class="dot" class:on={jdk === ""}></span><span class="what">项目默认</span><span class="where">使用「设置 › 此项目」中选择的 JDK；未选择时根据 pom 自动选择</span>
     </button>
     {#if jdk && !data!.jdks.some((j) => j.home === jdk)}
       <!-- 选的这个不在列表里（导入的 IDEA 配置指的、或者存过之后挪走了）：照样列出来，别让人以为什么都没选 -->
       <button class="choice" role="radio" aria-checked="true">
-        <span class="dot on"></span><span class="what">不在列表里</span><span class="where">{jdk}</span>
+        <span class="dot on"></span><span class="what">未列出的 JDK</span><span class="where">{jdk}</span>
       </button>
     {/if}
     {#each data!.jdks as j (j.home)}
@@ -240,9 +240,9 @@
 {#snippet modulePicker(module: string)}
   <div class="lab">模块</div>
   {#if !data!.modules.length}
-    <p class="ferr">这个项目里没找到 pom.xml：应用 / Maven 配置要在一个 Maven 模块上跑</p>
+    <p class="ferr">此项目中未找到 pom.xml：应用和 Maven 配置需要在 Maven 模块上运行</p>
   {:else}
-    <div class="choices" role="radiogroup" aria-label="哪个 Maven 模块">
+    <div class="choices" role="radiogroup" aria-label="Maven 模块">
       {#each data!.modules as m (m)}
         <button class="choice" role="radio" aria-checked={module === m} onclick={() => upatch({ module: m })}>
           <span class="dot" class:on={module === m}></span><span class="what">{m || "（项目根）"}</span>
@@ -258,11 +258,11 @@
     <div class="main">
       <nav class="list" aria-label="运行配置">
         <div class="tools">
-          <button class="ibtn sm" title="新建一份运行配置" aria-label="新建" aria-expanded={adding} onclick={() => (adding = !adding)}><Icon name="plus" /></button>
-          <button class="ibtn sm" title="删掉这一份（只有你建的能删）" aria-label="删除" disabled={!ucur} onclick={remove}><Icon name="minus" /></button>
+          <button class="ibtn sm" title="新建运行配置" aria-label="新建" aria-expanded={adding} onclick={() => (adding = !adding)}><Icon name="plus" /></button>
+          <button class="ibtn sm" title="删除（仅限自建的配置）" aria-label="删除" disabled={!ucur} onclick={remove}><Icon name="minus" /></button>
         </div>
         {#if adding}
-          <div class="addmenu" role="menu" aria-label="新建哪一种">
+          <div class="addmenu" role="menu" aria-label="配置类型">
             {#each Object.keys(KIND_LABEL) as k (k)}
               <button class="svc" role="menuitem" onclick={() => add(k as UserKind)} title={KIND_DOC[k as UserKind]}>{KIND_LABEL[k as UserKind]}</button>
             {/each}
@@ -272,15 +272,15 @@
           <div class="head">Spring Boot</div>
           {#each data.services as s (s.name)}
             <button class="svc" class:on={sel === `svc:${s.name}`} onclick={() => (sel = `svc:${s.name}`)} title={s.mainClass}>
-              {s.name}{#if svcDirty.includes(s.name)}<span class="mod" title="改了还没应用">•</span>{/if}
+              {s.name}{#if svcDirty.includes(s.name)}<span class="mod" title="已修改，尚未应用">•</span>{/if}
             </button>
           {/each}
         {/if}
         {#if ulist.some((x) => !x.gone)}
-          <div class="head">你建的</div>
+          <div class="head">自定义</div>
           {#each ulist.filter((x) => !x.gone) as x (x.key)}
             <button class="svc" class:on={sel === `user:${x.key}`} onclick={() => (sel = `user:${x.key}`)} title={KIND_LABEL[x.cfg.kind]}>
-              <span class="kind">{KIND_LABEL[x.cfg.kind]}</span>{x.cfg.name || "（没名字）"}{#if userDirty(x)}<span class="mod" title="改了还没应用">•</span>{/if}
+              <span class="kind">{KIND_LABEL[x.cfg.kind]}</span>{x.cfg.name || "（未命名）"}{#if userDirty(x)}<span class="mod" title="已修改，尚未应用">•</span>{/if}
             </button>
           {/each}
         {/if}
@@ -295,20 +295,20 @@
         {#if loadError}
           <div class="empty-msg bad">{loadError}</div>
         {:else if !data}
-          <div class="empty-msg wait"><span class="spinner sm"></span> 正在列运行配置…</div>
+          <div class="empty-msg wait"><span class="spinner sm"></span> 正在加载运行配置…</div>
         {:else if cur}
           <h3>{cur.name}</h3>
-          <p class="doc">{cur.mainClass}{cur.module ? `（${cur.module}）` : ""} · 认出来的 Spring Boot 应用</p>
+          <p class="doc">{cur.mainClass}{cur.module ? `（${cur.module}）` : ""} · 自动识别的 Spring Boot 应用</p>
           {#if cur.idea.length}
             <div class="idea">
-              <span class="idea-lab">IDEA 里配过</span>
+              <span class="idea-lab">IDEA 中的配置</span>
               {#each cur.idea as r (r.name)}
-                <button class="btn sm" onclick={() => takeIdea(r)} title="把它的 profile、VM 参数、程序参数、环境变量、JDK 换进下面（点「确定」才存）">从「{r.name}」导入</button>
+                <button class="btn sm" onclick={() => takeIdea(r)} title="将其 profile、VM 参数、程序参数、环境变量和 JDK 填入下方（点击「确定」后保存）">从「{r.name}」导入</button>
               {/each}
             </div>
             {#if took?.svc === cur.name}
               <div class="took">
-                已把「{took.from}」填进下面，点「确定」才存{took.notes.length ? `；有 ${took.notes.length} 处带不过来：` : "。"}
+                已将「{took.from}」填入下方，点击「确定」后保存{took.notes.length ? `；${took.notes.length} 项无法导入：` : "。"}
                 {#if took.notes.length}<ul>{#each took.notes as n (n)}<li>{n}</li>{/each}</ul>{/if}
               </div>
             {/if}
@@ -316,42 +316,42 @@
 
           <label class="lab" for="rc-profiles">Spring profile</label>
           <input id="rc-profiles" class="field" bind:value={() => cur!.profiles, (v) => patch({ profiles: v })} placeholder="dev, local" spellcheck="false" />
-          <p class="doc">逗号或空格隔开，起的时候带 -Dspring.profiles.active=…（IDEA 的 Active profiles）</p>
+          <p class="doc">以逗号或空格分隔，启动时传入 -Dspring.profiles.active=…（对应 IDEA 的 Active profiles）</p>
 
           <label class="lab" for="rc-vm">VM 参数</label>
           <input id="rc-vm" class="field mono" bind:value={() => cur!.vmOptions, (v) => patch({ vmOptions: v })} placeholder="-Xmx512m -Dfoo=bar" spellcheck="false" />
-          <p class="doc">照 shell 的写法原样放在 java 后面，带空格的值自己加引号</p>
+          <p class="doc">按 shell 语法原样放在 java 之后，含空格的值需加引号</p>
 
           <label class="lab" for="rc-args">程序参数</label>
           <input id="rc-args" class="field mono" bind:value={() => cur!.programArgs, (v) => patch({ programArgs: v })} placeholder="--server.port=9090" spellcheck="false" />
-          <p class="doc">放在主类后面，同上</p>
+          <p class="doc">放在主类之后，语法同上</p>
 
           {@render envEditor(cur.env)}
           {@render jdkPicker(cur.jdk)}
         {:else if ucur}
           {@const c = ucur.cfg}
-          <label class="lab first" for="rc-name">名字</label>
+          <label class="lab first" for="rc-name">名称</label>
           <input id="rc-name" class="field" bind:value={() => c.name, (v) => upatch({ name: v })} spellcheck="false" />
           <p class="doc">{KIND_LABEL[c.kind]} · {KIND_DOC[c.kind]}</p>
 
           {#if c.kind === "application"}
             <label class="lab" for="rc-main">主类</label>
             <input id="rc-main" class="field mono" bind:value={() => c.mainClass, (v) => upatch({ mainClass: v })} placeholder="com.demo.Tool" spellcheck="false" />
-            <p class="doc">全名，带包名；有 main 方法的那个类</p>
+            <p class="doc">包含 main 方法的类的完整类名</p>
             {@render modulePicker(c.module)}
             <label class="lab" for="rc-uvm">VM 参数</label>
             <input id="rc-uvm" class="field mono" bind:value={() => c.vmOptions, (v) => upatch({ vmOptions: v })} placeholder="-Xmx512m -Dfoo=bar" spellcheck="false" />
             <label class="lab" for="rc-uargs">程序参数</label>
             <input id="rc-uargs" class="field mono" bind:value={() => c.programArgs, (v) => upatch({ programArgs: v })} spellcheck="false" />
             <label class="lab" for="rc-uprof">Spring profile（可选）</label>
-            <input id="rc-uprof" class="field" bind:value={() => c.profiles, (v) => upatch({ profiles: v })} placeholder="不是 Spring 应用就空着" spellcheck="false" />
+            <input id="rc-uprof" class="field" bind:value={() => c.profiles, (v) => upatch({ profiles: v })} placeholder="非 Spring 应用请留空" spellcheck="false" />
             {@render envEditor(c.env)}
             {@render jdkPicker(c.jdk)}
           {:else if c.kind === "maven"}
             {@render modulePicker(c.module)}
             <label class="lab" for="rc-goals">目标</label>
             <input id="rc-goals" class="field mono" bind:value={() => c.goals, (v) => upatch({ goals: v })} placeholder="clean package" spellcheck="false" />
-            <p class="doc">空格隔开；Maven 工具窗里勾的 profile、离线、跳过测试会一起带上</p>
+            <p class="doc">以空格分隔；Maven 工具窗中选中的 profile、离线和跳过测试选项将一并带上</p>
             {@render envEditor(c.env)}
             {@render jdkPicker(c.jdk)}
           {:else if c.kind === "remote"}
@@ -360,23 +360,23 @@
             <input id="rc-host" class="field mono" bind:value={() => c.host, (v) => upatch({ host: v })} placeholder="localhost" spellcheck="false" />
             <label class="lab" for="rc-port">端口</label>
             <input id="rc-port" class="field mono num" bind:value={() => String(c.port || ""), (v) => upatch({ port: /^\d{1,5}$/.test(v.trim()) ? Number(v.trim()) : 0 })} placeholder="5005" inputmode="numeric" spellcheck="false" />
-            <div class="lab">那个 JVM 起的时候要带上（IDEA 的 Remote JVM Debug 也是这一句）</div>
+            <div class="lab">目标 JVM 的启动参数（与 IDEA 的 Remote JVM Debug 相同）</div>
             <pre class="cmd">{jdwp}</pre>
             <button class="btn sm" onclick={() => void navigator.clipboard.writeText(jdwp).then(() => notify.ok("已复制"))}>复制</button>
-            <p class="doc">JDK 9 之后 address 要写 *:端口 才收得到别的机器的连接（只写端口只听本机）。断点、日志断点、异常断点照常；热替换不行（代理塞不进别人起的 JVM）</p>
+            <p class="doc">JDK 9 及以上版本需将 address 写为 *:端口 才能接受其他机器的连接（仅写端口时只监听本机）。支持断点、日志断点和异常断点；不支持热替换。</p>
           {:else if c.kind === "shell"}
             <label class="lab" for="rc-cmd">命令</label>
             <input id="rc-cmd" class="field mono" bind:value={() => c.command, (v) => upatch({ command: v })} placeholder="pnpm dev" spellcheck="false" />
             <label class="lab" for="rc-cwd">工作目录</label>
             <input id="rc-cwd" class="field mono" bind:value={() => c.cwd, (v) => upatch({ cwd: v })} placeholder="（项目根）" spellcheck="false" />
-            <p class="doc">相对项目根</p>
+            <p class="doc">相对于项目根目录</p>
             {@render envEditor(c.env)}
           {:else}
-            <div class="lab">一起起这几份</div>
+            <div class="lab">同时启动的配置</div>
             {#if !runnable.length}
-              <p class="ferr">还没有别的运行配置可选</p>
+              <p class="ferr">没有其他可选的运行配置</p>
             {:else}
-              <div class="choices" role="group" aria-label="一起起这几份">
+              <div class="choices" role="group" aria-label="同时启动的配置">
                 {#each runnable as n (n)}
                   {@const on = c.items.includes(n)}
                   <button class="choice" role="checkbox" aria-checked={on} onclick={() => upatch({ items: on ? c.items.filter((x) => x !== n) : [...c.items, n] })}>
@@ -384,12 +384,12 @@
                   </button>
                 {/each}
               </div>
-              <p class="doc">按列出的次序起；⌃R 重跑、⌘F2 停也是一起</p>
+              <p class="doc">按列出的顺序启动；⌃R 重新运行和 ⌘F2 停止时也一并处理</p>
             {/if}
           {/if}
         {:else if ocur}
           <h3>{ocur.name}</h3>
-          <p class="doc">{ocur.source === "package" ? "package.json 里的 scripts，自动列出来的" : "tasks.json 里写的"} —— 改它去改那个文件</p>
+          <p class="doc">{ocur.source === "package" ? "自动列出的 package.json scripts" : "定义在 tasks.json 中"}，请在该文件中修改</p>
           <div class="lab">命令</div>
           <pre class="cmd">{ocur.command}</pre>
           {#if ocur.source === "file"}
@@ -398,13 +398,13 @@
         {:else}
           <div class="empty-msg">
             还没有运行配置
-            <div class="sub">左上角「＋」新建一份；认出来的 Spring Boot 应用、package.json 的 scripts、tasks.json 里的会自动列在左边</div>
+            <div class="sub">点击左上角「＋」新建；自动识别的 Spring Boot 应用、package.json scripts 和 tasks.json 任务将列在左侧</div>
           </div>
         {/if}
       </section>
     </div>
     <div class="actions">
-      <span class="note">{data?.problems.length ? data.problems.join("；") : data?.ideaProblems.length ? data.ideaProblems.join("；") : "只存在你这台机器上，不往项目里写"}</span>
+      <span class="note">{data?.problems.length ? data.problems.join("；") : data?.ideaProblems.length ? data.ideaProblems.join("；") : "仅保存在本机，不写入项目"}</span>
       <span class="gap"></span>
       {#if error}<span class="err">{error}</span>{:else if applied}<span class="ok">已应用</span>{/if}
       <button class="btn" data-dismiss onclick={onclose}>取消</button>

@@ -65,7 +65,7 @@ export async function scratchCmd(cmd: string, a: A): Promise<unknown> {
       const path = String(a.path);
       // 判据照着 Rust 侧抄一遍。桩里少一条，浏览器上就走得通而真机上走不通
       if (!path.startsWith(`${SCRATCH_DIR}/`)) throw new Error("不在草稿目录里");
-      if (!existsInMock(path)) throw new Error(`${path} 不在盘上了`);
+      if (!existsInMock(path)) throw new Error(`${path} 已不存在`);
       // 「空」= 正文空；带头没正文的也算（同 Rust 侧）
       if ((FILES[path] ?? "").slice(splitFrontmatter(FILES[path] ?? "")[1]).trim() !== "") throw new Error("这份草稿里有东西，不能这么丢");
       delete FILES[path];

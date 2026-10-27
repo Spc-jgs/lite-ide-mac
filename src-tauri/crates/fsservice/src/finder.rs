@@ -48,7 +48,7 @@ pub fn reveal_in_finder(path: impl AsRef<Path>) -> io::Result<()> {
     if !exists_for_reveal(path) {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("{} 不在盘上了", path.display()),
+            format!("{} 已不存在", path.display()),
         ));
     }
 

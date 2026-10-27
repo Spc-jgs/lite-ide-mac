@@ -48,7 +48,7 @@ const isBuildRun = (name: string) => name === BUILD || name === REBUILD;
 export async function buildProject(clean: boolean) {
   const root = project.root;
   if (!root) {
-    notify.hint("先打开一个项目：构建是对整个项目的");
+    notify.hint("请先打开项目：构建针对整个项目");
     return;
   }
   await runTask(clean ? REBUILD : BUILD, root);
@@ -69,12 +69,12 @@ async function loadProblems(id: number) {
     now.problems = res;
     const errs = res.items.filter((p) => p.error).length;
     if (now.status === "stopped") return;
-    if (errs) notify.fail(`构建失败：${res.total > res.items.length ? `${res.total} 条里列了 ${res.items.length} 条，` : ""}${errs} 个错误`);
-    else if (now.status === "failed") notify.fail("构建失败了，但不是编译错误（依赖、pom、插件），看输出", 8000);
+    if (errs) notify.fail(`构建失败：${res.total > res.items.length ? `共 ${res.total} 条，显示 ${res.items.length} 条，` : ""}${errs} 个错误`);
+    else if (now.status === "failed") notify.fail("构建失败（非编译错误，可能是依赖、pom 或插件问题），请查看输出", 8000);
     else if (debugging(now.root)) await hotswap(`构建完成（${secs} 秒）`);
-    else notify.ok(`构建完成，用了 ${secs} 秒`);
+    else notify.ok(`构建完成，耗时 ${secs} 秒`);
   } catch (e) {
-    notify.fail(`读不到构建结果：${e instanceof Error ? e.message : String(e)}`);
+    notify.fail(`无法读取构建结果：${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
@@ -106,24 +106,24 @@ export async function hotswap(head = "") {
         // 行号变了的类，这次调试里它的断点下不了（照旧表下会下错地方）：不说的话，人只会觉得「断点怎么不停了」
         if (r.lost.length) {
           const files = r.lost.map((p) => p.slice(p.lastIndexOf("/") + 1)).join("、");
-          return notify.ok(`${pre}已热替换 ${classNames(r.classes)}。${files} 的行号变了，里面的断点这次调试不再停，重新调试就回来`, 10000);
+          return notify.ok(`${pre}已热替换 ${classNames(r.classes)}。${files} 的行号已变化，其中的断点在本次调试中不再生效，重新调试后恢复`, 10000);
         }
-        return notify.ok(`${pre}已热替换 ${classNames(r.classes)}${paused ? "（停着的那一帧跑完旧的，下次调用起是新的）" : ""}`);
+        return notify.ok(`${pre}已热替换 ${classNames(r.classes)}${paused ? "（当前暂停的栈帧仍执行旧代码，下次调用起生效）" : ""}`);
       case "unchanged":
-        if (head) return notify.ok(`${head}，没有要热替换的类`);
-        return notify.hint("没有改过的类：和调试开始时一样（改完先构建 ⌘F9）");
+        if (head) return notify.ok(`${head}，没有需要热替换的类`);
+        return notify.hint("没有修改过的类（修改后请先构建 ⌘F9）");
       case "failed":
-        return notify.fail(`${pre}但没热替换：${r.message}（${classNames(r.classes)}）。要生效得重新调试`, 10000);
+        return notify.fail(`${pre}但热替换失败：${r.message}（${classNames(r.classes)}）。需重新调试才能生效`, 10000);
       case "noreply":
-        return notify.fail(`${pre}但热替换没回话：整个程序暂停着时它也停着，继续之后再点「运行 › 重新加载改过的类」`, 10000);
+        return notify.fail(`${pre}但热替换未响应：程序整体暂停时无法热替换，请继续运行后选择「运行 › 重新加载改过的类」`, 10000);
       case "noagent":
-        return notify.hint(`${pre}这个构建没带热替换（开发构建）：要生效得重新调试`);
+        return notify.hint(`${pre}当前构建不支持热替换（开发构建），需重新调试才能生效`);
       case "nosession":
         if (head) return notify.ok(head);
-        return notify.hint("没在调试：热替换是给调试中的程序用的");
+        return notify.hint("热替换仅适用于正在调试的程序");
     }
   } catch (e) {
-    notify.fail(`热替换出错：${e instanceof Error ? e.message : String(e)}`);
+    notify.fail(`热替换失败：${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
@@ -149,12 +149,12 @@ async function loadTests(id: number) {
     noteOutcomes(res.cases);
     const bad = res.cases.filter((c) => c.outcome === "failed" || c.outcome === "error").length;
     const good = res.cases.filter((c) => c.outcome === "passed").length;
-    if (!res.cases.length) notify.fail(`「${r.name}」一个测试结果都没有（编译没过、或者没找到这个测试），看输出`, 8000);
+    if (!res.cases.length) notify.fail(`「${r.name}」没有测试结果（编译失败或未找到测试），请查看输出`, 8000);
     else if (/ \[cover /.test(r.name)) void loadCoverage(r.root, r.name, good, bad);
-    else if (bad) notify.fail(`${good} 个通过 · ${bad} 个没过`);
+    else if (bad) notify.fail(`${good} 个通过 · ${bad} 个失败`);
     else notify.ok(`${good} 个测试全部通过`);
   } catch (e) {
-    notify.fail(`读不到测试结果：${e instanceof Error ? e.message : String(e)}`);
+    notify.fail(`无法读取测试结果：${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
@@ -187,18 +187,18 @@ async function watchTests(id: number) {
  * 胶囊上说一句测试结果和总的行覆盖率，带一个「看覆盖率」。报告和画它的都在懒块里（动态引，同 isTestRun 那条理由）
  */
 async function loadCoverage(root: string, name: string, good: number, bad: number) {
-  const t = progress.start("正在出覆盖率报告");
+  const t = progress.start("正在生成覆盖率报告");
   try {
     const [rep, cov] = await Promise.all([coverageReport(root, name), import("./coverage")]);
     cov.setCoverage(name, rep);
     const { pct, hit, all } = cov.totalPct(rep.files);
-    const tests = bad ? `${good} 个通过 · ${bad} 个没过` : `${good} 个测试全部通过`;
+    const tests = bad ? `${good} 个通过 · ${bad} 个失败` : `${good} 个测试全部通过`;
     const msg = `${tests} · 行覆盖率 ${Math.round(pct * 100)}%（${hit} / ${all} 行）`;
-    const act = { label: "看覆盖率", run: () => layout.toggleTool("coverage") };
+    const act = { label: "查看覆盖率", run: () => layout.toggleTool("coverage") };
     if (bad) notify.fail(msg, undefined, act);
     else notify.ok(msg, undefined, act);
   } catch (e) {
-    notify.fail(`覆盖率报告出不来：${e instanceof Error ? e.message : String(e)}`, 8000);
+    notify.fail(`无法生成覆盖率报告：${e instanceof Error ? e.message : String(e)}`, 8000);
   } finally {
     t.end();
   }
@@ -225,7 +225,7 @@ export async function runTask(name: string, root: string | null = project.root, 
     // 组合配置（docs/TAKEOVER.md R1）：没有自己的命令，一份份起；⌃R 记的是组合的名字，重跑还是整组
     const items = await runCompoundItems(root, name).catch(() => null);
     if (items) {
-      if (!items.length) return void notify.hint(`组合配置「${name}」里一份都没有了（被删了），去「编辑配置…」里加`);
+      if (!items.length) return void notify.hint(`组合配置「${name}」中没有可运行的配置，请在「编辑配置…」中添加`);
       for (const it of items) await runTask(it, root, debug);
       last[root] = name;
       lastDebug[root] = debug;
@@ -287,7 +287,7 @@ export function rerunLast(debug = false) {
   const name = last[root];
   if (debug) {
     if (name) void import("../debug/debug-ops").then((m) => m.debugTask(name, root));
-    else notify.hint("先在 Services 里调试一个 Spring Boot 服务（工具栏上的虫子），之后 ⌃D 调试同一个");
+    else notify.hint("请先在 Services 中调试一个 Spring Boot 服务，之后可用 ⌃D 再次调试");
   } else if (name) void runTask(name, root, lastDebug[root] ?? false);
   else overlay.taskPicker = true;
 }
@@ -442,7 +442,7 @@ export async function resolveStale(kill: boolean) {
   runs.stale = null;
   try {
     await taskStaleResolve(s.root, kill);
-    if (kill) notify.ok(`上次没停干净的 ${s.list.length} 个任务已经结束`);
+    if (kill) notify.ok(`已结束上次遗留的 ${s.list.length} 个任务`);
   } catch (e) {
     notify.fail(e instanceof Error ? e.message : String(e));
   }

@@ -80,21 +80,21 @@
 </script>
 
 <div class="bar">
-  <input class="field" placeholder="按名字或键位找" spellcheck="false" bind:value={() => q, (v) => ((q = v), (exact = null))} aria-label="搜索键位" />
+  <input class="field" placeholder="按名称或快捷键搜索" spellcheck="false" bind:value={() => q, (v) => ((q = v), (exact = null))} aria-label="搜索键位" />
   {#if rec === "?find"}
-    <button class="btn sm recording" use:focusNow onkeydown={(e) => onRecKey(e, null)} onblur={() => record(null)}>按下要找的键…</button>
+    <button class="btn sm recording" use:focusNow onkeydown={(e) => onRecKey(e, null)} onblur={() => record(null)}>请按下要查找的快捷键…</button>
   {:else if exact}
-    <button class="btn sm" title="不按键找了" onclick={() => (exact = null)}>找 {exact} ✕</button>
+    <button class="btn sm" title="清除快捷键筛选" onclick={() => (exact = null)}>{exact} ✕</button>
   {:else}
-    <button class="btn sm" title="按一下键，列出用着它的（IDEA 的 Find Shortcut）" onclick={() => record("?find")}>按键找</button>
+    <button class="btn sm" title="按下快捷键，列出使用它的操作（对应 IDEA 的 Find Shortcut）" onclick={() => record("?find")}>按快捷键查找</button>
   {/if}
   <span class="gap"></span>
   {#if changedCount}
-    <span class="count">改过 {changedCount} 个</span>
-    <button class="btn quiet sm" title="这一页全回到默认（应用之后才生效）" onclick={onresetall}>全部恢复默认</button>
+    <span class="count">已修改 {changedCount} 项</span>
+    <button class="btn quiet sm" title="将本页全部恢复为默认值（应用后生效）" onclick={onresetall}>全部恢复默认</button>
   {/if}
 </div>
-<p class="doc">点键帽，按下新的键（Esc 取消）。菜单和编辑器里的键都改得了，改了当场生效、开着的编辑器也是；存在应用目录的 keymap.json，只存改过的。</p>
+<p class="doc">点击快捷键后按下新的组合键（Esc 取消）。菜单和编辑器中的快捷键均可修改，修改立即生效，包括已打开的编辑器。设置保存在应用目录的 keymap.json 中，仅记录修改过的项。</p>
 
 {#each GROUPS as g (g)}
   {@const rows = shown.filter((k) => k.group === g)}
@@ -110,23 +110,23 @@
         {#if locked}
           <span class="cap locked" title={locked}>{d.gesture ?? d.accel ?? "—"}</span>
         {:else if rec === d.id}
-          <button class="cap recording" use:focusNow onkeydown={(e) => onRecKey(e, d)} onblur={() => record(null)}>按下新的键…</button>
+          <button class="cap recording" use:focusNow onkeydown={(e) => onRecKey(e, d)} onblur={() => record(null)}>请按下新的快捷键…</button>
         {:else}
-          <button class="cap" class:none={!a} class:bad={others.length > 0} title="点了按下新的键" onclick={() => record(d.id)}>{a ?? "—"}</button>
+          <button class="cap" class:none={!a} class:bad={others.length > 0} title="点击以设置新的快捷键" onclick={() => record(d.id)}>{a ?? "—"}</button>
         {/if}
         <span class="acts">
-          {#if !locked && a}<button class="btn quiet sm" title="这个动作不要键位" onclick={() => onedit(d.id, "")}>不要键位</button>{/if}
-          {#if changed}<button class="btn quiet sm" title="回到 {d.accel ?? "没有键位"}" onclick={() => onedit(d.id, null)}>恢复默认</button>{/if}
+          {#if !locked && a}<button class="btn quiet sm" title="移除此操作的快捷键" onclick={() => onedit(d.id, "")}>移除快捷键</button>{/if}
+          {#if changed}<button class="btn quiet sm" title="恢复为 {d.accel ?? "无快捷键"}" onclick={() => onedit(d.id, null)}>恢复默认</button>{/if}
         </span>
         {#if why?.id === d.id}<p class="msg">{why.text}</p>{/if}
-        {#if others.length}<p class="msg">和「{others.join("」「")}」撞了：菜单的键会先被吃掉，编辑器里两个只有一个能用。改掉一个才能应用</p>{/if}
+        {#if others.length}<p class="msg">与「{others.join("」「")}」冲突：菜单快捷键会优先触发，编辑器中只有一个能生效。请修改其中一个后再应用</p>{/if}
         {#if locked && !d.gesture}<p class="note">{locked}</p>{/if}
       </div>
     {/each}
   {/if}
 {/each}
 {#if shown.length === 0 && (q.trim() || exact)}
-  <div class="empty-msg">{exact ? `没有动作用着 ${exact}` : `没有名字或键位里带「${q.trim()}」的`}</div>
+  <div class="empty-msg">{exact ? `没有操作使用 ${exact}` : `没有名称或快捷键包含「${q.trim()}」的操作`}</div>
 {/if}
 
 <style>

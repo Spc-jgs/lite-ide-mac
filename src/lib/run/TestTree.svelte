@@ -60,7 +60,7 @@
     try {
       text = (await readText(path)).content;
     } catch {
-      notify.hint(`找不到 ${classFile(c.class).split("/").pop()}（模块按 artifactId 起的？从测试文件旁边的 ▶ 起的才认得出目录）`);
+      notify.hint(`未找到 ${classFile(c.class).split("/").pop()}（如果模块目录名与 artifactId 不同，请从测试文件行号旁的 ▶ 运行）`);
       return;
     }
     const name = c.name.replace(/[(\[].*$/, "");

@@ -218,8 +218,8 @@ fn save_ui_locked(app: &AppHandle, text: &str) {
 
 /// 「设置…」：`settings.json` 不存在就建一份模板（`settings::template`），返回它的路径，前端在当前窗口打开。
 pub fn open_settings(app: &AppHandle) -> Result<String, String> {
-    let p = settings_path(app).ok_or("找不到应用数据目录")?;
-    ensure_template(&p).map_err(|e| format!("建不了设置文件 {}：{e}", p.display()))?;
+    let p = settings_path(app).ok_or("无法获取应用数据目录")?;
+    ensure_template(&p).map_err(|e| format!("无法创建设置文件 {}：{e}", p.display()))?;
     Ok(p.to_string_lossy().into_owned())
 }
 
@@ -314,10 +314,10 @@ pub fn page(app: &AppHandle, root: Option<&str>) -> crate::commands::SettingsPag
 fn auto_jdk(root: &std::path::Path) -> String {
     let rel = crate::maven::reactors(root).into_iter().next().unwrap_or_default();
     match crate::maven::module_java(&root.join(&rel), "") {
-        None => "pom 没写 Java 版本：用你默认的那个".into(),
+        None => "pom 未指定 Java 版本：使用默认 JDK".into(),
         Some(want) => match lspsvc::jdtls::pick_jdk(&crate::jdks::all(), want) {
-            Some((v, h)) => format!("pom 要 Java {want} → Java {v}（{}）", h.display()),
-            None => format!("pom 要 Java {want}，这台机器上没有够格的：用你默认的那个"),
+            Some((v, h)) => format!("pom 要求 Java {want} → Java {v}（{}）", h.display()),
+            None => format!("pom 要求 Java {want}，本机没有满足要求的 JDK：使用默认 JDK"),
         },
     }
 }
@@ -341,16 +341,16 @@ pub fn apply(app: &AppHandle, global: serde_json::Map<String, serde_json::Value>
                 settings::validate(k, v)?;
             }
         }
-        let path = settings_path(app).ok_or("找不到应用数据目录")?;
-        ensure_template(&path).map_err(|e| format!("建不了 {}：{e}", path.display()))?;
-        let text = std::fs::read_to_string(&path).map_err(|e| format!("读不了 {}：{e}", path.display()))?;
+        let path = settings_path(app).ok_or("无法获取应用数据目录")?;
+        ensure_template(&path).map_err(|e| format!("无法创建 {}：{e}", path.display()))?;
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("无法读取 {}：{e}", path.display()))?;
         let changes: Vec<(&str, Option<serde_json::Value>)> = global.iter().map(|(k, v)| (k.as_str(), (!v.is_null()).then(|| v.clone()))).collect();
         let next = settings::edit(&text, &changes).map_err(|p| match p.pos() {
-            Some(pos) => format!("settings.json 第 {} 行有错，先修好它再用设置页：{}", pos.line, p.text()),
-            None => format!("settings.json 读不懂，先修好它再用设置页：{}", p.text()),
+            Some(pos) => format!("settings.json 第 {} 行有错误，请先修复后再使用设置页：{}", pos.line, p.text()),
+            None => format!("settings.json 格式无效，请先修复后再使用设置页：{}", p.text()),
         })?;
         if next != text {
-            fsservice::write_text(&path, &next).map_err(|e| format!("写不了 {}：{e}", path.display()))?;
+            fsservice::write_text(&path, &next).map_err(|e| format!("无法写入 {}：{e}", path.display()))?;
         }
         reload(app);
     }
@@ -358,11 +358,11 @@ pub fn apply(app: &AppHandle, global: serde_json::Map<String, serde_json::Value>
         let rp = std::path::Path::new(&p.root);
         let mut cfg = crate::projectcfg::get(rp);
         cfg.jdk = p.jdk.trim().to_string();
-        crate::projectcfg::set(rp, cfg).map_err(|e| format!("记不下项目设置：{e}"))?;
+        crate::projectcfg::set(rp, cfg).map_err(|e| format!("无法保存项目设置：{e}"))?;
         let mut prefs = crate::maven::prefs(rp);
         prefs.offline = p.offline;
         prefs.skip_tests = p.skip_tests;
-        crate::maven::set_prefs(rp, &prefs).map_err(|e| format!("记不下 Maven 的开关：{e}"))?;
+        crate::maven::set_prefs(rp, &prefs).map_err(|e| format!("无法保存 Maven 选项：{e}"))?;
     }
     Ok(())
 }
@@ -481,63 +481,63 @@ fn host_ok(h: &str) -> bool {
 fn check_user(root: &std::path::Path, old: &str, u: &crate::projectcfg::UserCfg) -> Result<(), String> {
     let name = u.name.as_str();
     if name.is_empty() || name.contains(['\n', '\r']) {
-        return Err("名字不能空着".into());
+        return Err("名称不能为空".into());
     }
     if !crate::projectcfg::KINDS.contains(&u.kind.as_str()) {
-        return Err(format!("不认识的运行配置类型：{}", u.kind));
+        return Err(format!("未知的运行配置类型：{}", u.kind));
     }
     // 名字要和列出来的都不一样（认出来的、tasks.json 里的、你建的别的）；改的是自己就不算撞
     let found = crate::taskdefs::discover(root);
     let taken = |n: &str| found.defs.iter().any(|d| d.name == n && !(n == old && matches!(d.source, crate::taskdefs::Source::User { .. })));
     if taken(name) {
-        return Err(format!("已经有一份叫「{name}」的了"));
+        return Err(format!("已存在名为「{name}」的运行配置"));
     }
     if let Some((k, _)) = u.run.env.iter().find(|(k, _)| !crate::projectcfg::env_name_ok(k)) {
-        return Err(format!("环境变量名「{k}」不行：要字母或下划线开头，后面只有字母、数字、下划线"));
+        return Err(format!("环境变量名「{k}」无效：须以字母或下划线开头，仅包含字母、数字和下划线"));
     }
     let module_ok = |m: &str| root.join(m).join("pom.xml").is_file();
     match u.kind.as_str() {
         "application" => {
             if !crate::projectcfg::main_class_ok(&u.main_class) {
-                return Err("主类要写全名（com.demo.Tool）".into());
+                return Err("主类须填写完整类名（例如 com.demo.Tool）".into());
             }
             if !module_ok(&u.module) {
-                return Err(format!("「{}」底下没有 pom.xml：要选一个 Maven 模块（主类在它的 src/main/java 里）", if u.module.is_empty() { "项目根" } else { &u.module }));
+                return Err(format!("「{}」下没有 pom.xml：请选择主类所在的 Maven 模块", if u.module.is_empty() { "项目根" } else { &u.module }));
             }
         }
         "maven" => {
             if !module_ok(&u.module) {
-                return Err(format!("「{}」底下没有 pom.xml", if u.module.is_empty() { "项目根" } else { &u.module }));
+                return Err(format!("「{}」下没有 pom.xml", if u.module.is_empty() { "项目根" } else { &u.module }));
             }
             if crate::maven::goal_command("", &u.goals, &crate::maven::Prefs::default(), "mvn").is_none() {
-                return Err("目标要填（空格隔开，比如 clean package），只能有字母、数字和 - _ . : = , / @ 这几个符号".into());
+                return Err("请填写目标（以空格分隔，例如 clean package），仅允许字母、数字及 - _ . : = , / @".into());
             }
         }
         "shell" => {
             if u.command.trim().is_empty() {
-                return Err("命令不能空着".into());
+                return Err("命令不能为空".into());
             }
         }
         "remote" => {
             if !host_ok(&u.host) {
-                return Err("主机要填（localhost、IP 或者主机名）".into());
+                return Err("请填写主机（localhost、IP 地址或主机名）".into());
             }
             if u.port == 0 || u.port > 65535 {
-                return Err("端口要在 1–65535 之间（对面 JVM 的 address=*:5005 里那个数）".into());
+                return Err("端口须在 1–65535 之间（即目标 JVM 参数 address=*:5005 中的端口）".into());
             }
         }
         _ => {
             if u.items.is_empty() {
-                return Err("组合配置至少要选一份".into());
+                return Err("组合配置至少需要选择一个配置".into());
             }
             for it in &u.items {
                 if it == name {
-                    return Err("组合配置不能包含它自己".into());
+                    return Err("组合配置不能包含自身".into());
                 }
                 match found.defs.iter().find(|d| &d.name == it) {
-                    None => return Err(format!("没有叫「{it}」的运行配置")),
+                    None => return Err(format!("不存在名为「{it}」的运行配置")),
                     // 套组合会转圈（a 套 b、b 又套 a），IDEA 也不让
-                    Some(d) if matches!(&d.source, crate::taskdefs::Source::User { kind, .. } if kind == "compound") => return Err(format!("「{it}」本身是组合配置，组合里不能再套组合")),
+                    Some(d) if matches!(&d.source, crate::taskdefs::Source::User { kind, .. } if kind == "compound") => return Err(format!("「{it}」是组合配置，组合配置不能嵌套")),
                     _ => {}
                 }
             }
@@ -567,7 +567,7 @@ pub fn set_user_config(root: &str, old: &str, mut u: crate::projectcfg::UserCfg)
             }
         }
     }
-    crate::projectcfg::set(rp, cfg).map_err(|e| format!("记不下运行配置：{e}"))
+    crate::projectcfg::set(rp, cfg).map_err(|e| format!("无法保存运行配置：{e}"))
 }
 
 /// 删一份你建的运行配置；组合配置里写着它的也拿掉（拿空了的组合留着，界面上会说它空了）
@@ -578,18 +578,18 @@ pub fn delete_user_config(root: &str, name: &str) -> Result<(), String> {
     for c in &mut cfg.configs {
         c.items.retain(|it| it != name);
     }
-    crate::projectcfg::set(rp, cfg).map_err(|e| format!("记不下运行配置：{e}"))
+    crate::projectcfg::set(rp, cfg).map_err(|e| format!("无法保存运行配置：{e}"))
 }
 
 /// 记下一个服务的运行配置。环境变量名不像变量名的拒掉（进 shell 会变成别的意思），说清是哪个
 pub fn set_run_config(root: &str, name: &str, run: crate::projectcfg::RunCfg) -> Result<(), String> {
     if let Some((k, _)) = run.env.iter().find(|(k, _)| !crate::projectcfg::env_name_ok(k)) {
-        return Err(format!("环境变量名「{k}」不行：要字母或下划线开头，后面只有字母、数字、下划线"));
+        return Err(format!("环境变量名「{k}」无效：须以字母或下划线开头，仅包含字母、数字和下划线"));
     }
     let rp = std::path::Path::new(root);
     let mut cfg = crate::projectcfg::get(rp);
     cfg.runs.insert(name.to_string(), run);
-    crate::projectcfg::set(rp, cfg).map_err(|e| format!("记不下运行配置：{e}"))
+    crate::projectcfg::set(rp, cfg).map_err(|e| format!("无法保存运行配置：{e}"))
 }
 
 #[cfg(test)]
@@ -612,20 +612,20 @@ mod tests {
         let app = |name: &str, main: &str, module: &str| UserCfg { name: name.into(), kind: "application".into(), main_class: main.into(), module: module.into(), ..Default::default() };
         let err = |u: UserCfg| check_user(&d, "", &u).err().unwrap_or_default();
         assert_eq!(check_user(&d, "", &app("工具", "com.demo.Tool", "order")), Ok(()));
-        assert!(err(app("后端", "a.B", "order")).contains("已经有一份叫「后端」"), "和 tasks.json 里的撞名");
-        assert!(err(app("工具", "com.demo.", "order")).contains("全名"), "主类没写全");
-        assert!(err(app("工具", "1x.Tool", "order")).contains("全名"));
+        assert!(err(app("后端", "a.B", "order")).contains("已存在名为「后端」"), "和 tasks.json 里的撞名");
+        assert!(err(app("工具", "com.demo.", "order")).contains("完整类名"), "主类没写全");
+        assert!(err(app("工具", "1x.Tool", "order")).contains("完整类名"));
         assert!(err(app("工具", "a.B", "nope")).contains("没有 pom.xml"), "模块底下没 pom");
         // 空白名字由 set_user_config 先 trim 成空串再交过来
-        assert!(err(app("", "a.B", "order")).contains("名字"), "名字空着");
+        assert!(err(app("", "a.B", "order")).contains("名称"), "名字空着");
         let mvn = |goals: &str| UserCfg { name: "打包".into(), kind: "maven".into(), module: "order".into(), goals: goals.into(), ..Default::default() };
         assert_eq!(check_user(&d, "", &mvn("clean package -DskipTests")), Ok(()));
         assert!(err(mvn("clean && rm -rf ~")).contains("目标"), "目标带 shell 特殊字符");
         assert!(err(mvn("")).contains("目标"));
         let comp = |items: &[&str]| UserCfg { name: "全部".into(), kind: "compound".into(), items: items.iter().map(|s| s.to_string()).collect(), ..Default::default() };
         assert_eq!(check_user(&d, "", &comp(&["后端"])), Ok(()));
-        assert!(err(comp(&["全部"])).contains("它自己"));
-        assert!(err(comp(&["没这个"])).contains("没有叫「没这个」"));
+        assert!(err(comp(&["全部"])).contains("自身"));
+        assert!(err(comp(&["没这个"])).contains("不存在名为「没这个」"));
         assert!(err(comp(&[])).contains("至少"));
         let shell = UserCfg { name: "脚本".into(), kind: "shell".into(), command: "echo hi".into(), run: RunCfg { env: vec![("bad-name".into(), "x".into())], ..Default::default() }, ..Default::default() };
         assert!(err(shell).contains("环境变量名「bad-name」"));

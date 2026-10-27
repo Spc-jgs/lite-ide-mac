@@ -319,15 +319,15 @@ fn wait_ready(phase: &Mutex<Phase>, changed: &Condvar, limit: Duration, alive: &
         match &*p {
             Phase::Ready => return Ok(()),
             Phase::Failed(why) => return Err(why.clone()),
-            Phase::Stopped => return Err("Java 语言服务器已经收掉了".into()),
+            Phase::Stopped => return Err("Java 语言服务器已停止".into()),
             Phase::Starting | Phase::Importing(_) => {}
         }
         if !alive() {
-            return Err("程序已经停了，不再等 Java 语言服务器".into());
+            return Err("应用正在退出，已停止等待 Java 语言服务器".into());
         }
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
-            return Err(format!("Java 语言服务器 {} 分钟还没导入完", limit.as_secs() / 60));
+            return Err(format!("Java 语言服务器在 {} 分钟内未完成导入", limit.as_secs() / 60));
         }
         p = changed.wait_timeout(p, left.min(ALIVE_POLL)).unwrap_or_else(|e| e.into_inner()).0;
     }
@@ -428,12 +428,12 @@ impl Instance {
             match &*p {
                 Phase::Importing(_) | Phase::Ready => return Ok(()),
                 Phase::Failed(why) => return Err(why.clone()),
-                Phase::Stopped => return Err("Java 语言服务器已经收掉了".into()),
+                Phase::Stopped => return Err("Java 语言服务器已停止".into()),
                 Phase::Starting => {}
             }
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                return Err("Java 语言服务器还没起好".into());
+                return Err("Java 语言服务器尚未就绪".into());
             }
             p = self.shared.changed.wait_timeout(p, left).unwrap_or_else(|e| e.into_inner()).0;
         }
@@ -445,15 +445,15 @@ impl Instance {
     /// 等导入完的时候 `alive` 说被调试的程序还在不在：人在等的时候把它停了，就不再等（见 [`wait_ready`]）
     pub fn debug_session(&self, main_class: Option<&str>, limit: Duration, alive: &dyn Fn() -> bool) -> Result<(u16, Option<String>), String> {
         if !self.shared.debuggable {
-            return Err("这个构建没带调试插件（开发构建）：用 pnpm app:bundle 打的包".into());
+            return Err("当前构建未包含调试插件（开发构建），请使用 pnpm app:bundle 打包的版本".into());
         }
         self.touch();
         wait_ready(&self.shared.phase, &self.shared.changed, limit, alive)?;
         let r = self
             .srv
             .request("workspace/executeCommand", json!({ "command": "vscode.java.startDebugSession", "arguments": [] }), ASK)
-            .map_err(|e| format!("调试插件没答（{e}）"))?;
-        let port = r.as_u64().and_then(|p| u16::try_from(p).ok()).ok_or_else(|| format!("调试插件回的不是端口：{r}"))?;
+            .map_err(|e| format!("调试插件未响应（{e}）"))?;
+        let port = r.as_u64().and_then(|p| u16::try_from(p).ok()).ok_or_else(|| format!("调试插件返回了无效的端口：{r}"))?;
         let Some(main_class) = main_class else { return Ok((port, None)) };
         let mains = self
             .srv
@@ -470,7 +470,7 @@ impl Instance {
         let r = self
             .srv
             .request("workspace/executeCommand", json!({ "command": "java.project.getClasspaths", "arguments": [uri::from_path(path), json!({ "scope": "runtime" }).to_string()] }), ASK)
-            .map_err(|e| format!("Java 语言服务器没答（{e}）"))?;
+            .map_err(|e| format!("Java 语言服务器未响应（{e}）"))?;
         Ok(r["classpaths"].as_array().map(Vec::as_slice).unwrap_or(&[]).iter().filter_map(|c| c.as_str()).map(PathBuf::from).collect())
     }
 
@@ -480,7 +480,7 @@ impl Instance {
         self.srv
             .request("workspace/executeCommand", json!({ "command": "vscode.java.updateDebugSettings", "arguments": [json_text] }), ASK)
             .map(|_| ())
-            .map_err(|e| format!("调试插件没答（{e}）"))
+            .map_err(|e| format!("调试插件未响应（{e}）"))
     }
 
     /// 调试期间攥着它（见 `holds`）。guard 丢了就放开
@@ -493,7 +493,7 @@ impl Instance {
         self.touch();
         self.wait_usable()?;
         let r = self.srv.request(method, params, ASK).map_err(|e| match e {
-            Error::Timeout => format!("Java 语言服务器 {} 秒没回答（可能还在导入）", ASK.as_secs()),
+            Error::Timeout => format!("Java 语言服务器 {} 秒内未响应（可能仍在导入）", ASK.as_secs()),
             e => e.to_string(),
         });
         // 记下来：补全失败时前端是悄悄退回空列表的（不为一次补全弹红字），不记的话「补全怎么没东西」查无可查（2026-10-19 验收撞见）
@@ -590,13 +590,13 @@ impl Instance {
 
     /// 一个节点的下一层，返回 `(前 HIER_MAX 个, 真个数)`。`dir`：`in` 谁调了它 / `out` 它调了谁 / `super` 父类型 / `sub` 子类型。`raw` 是那个节点原样的 JSON
     pub fn hier_children(&self, raw: &str, dir: &str) -> Result<(Vec<HierNode>, usize), String> {
-        let item: Value = serde_json::from_str(raw).map_err(|e| format!("层级节点读不懂：{e}"))?;
+        let item: Value = serde_json::from_str(raw).map_err(|e| format!("无法解析层次结构节点：{e}"))?;
         let method = match dir {
             "in" => "callHierarchy/incomingCalls",
             "out" => "callHierarchy/outgoingCalls",
             "super" => "typeHierarchy/supertypes",
             "sub" => "typeHierarchy/subtypes",
-            _ => return Err(format!("不认识的方向：{dir}")),
+            _ => return Err(format!("未知的方向：{dir}")),
         };
         let r = self.ask(method, json!({ "item": item }))?;
         let all = hier_children_of(&r, dir);
@@ -624,7 +624,7 @@ impl Instance {
                 self.ask("java/resolveUnimplementedAccessors", p)?
             }
             "override" => self.ask("java/listOverridableMethods", ctx)?,
-            _ => return Err(format!("不认识的生成：{what}")),
+            _ => return Err(format!("未知的生成类型：{what}")),
         };
         Ok(gen_choices_of(what, &r))
     }
@@ -633,13 +633,13 @@ impl Instance {
     pub fn gen_apply(&self, path: &str, text: &str, line: u32, character: u32, what: &str, picked: &[String]) -> Result<RenamePlan, String> {
         self.change(path, text);
         let ctx = gen_ctx(path, line, character);
-        let picked: Vec<Value> = picked.iter().map(|s| serde_json::from_str(s).map_err(|e| format!("选中的那一项读不懂：{e}"))).collect::<Result<_, _>>()?;
+        let picked: Vec<Value> = picked.iter().map(|s| serde_json::from_str(s).map_err(|e| format!("无法解析所选项：{e}"))).collect::<Result<_, _>>()?;
         // 构造器要带「调父类的哪个构造器」：第一步没让人选（几乎总是只有一个），这里再问一次、用第一个
         let supers = if what == "constructor" { self.ask("java/checkConstructorsStatus", ctx.clone())?["constructors"].as_array().and_then(|a| a.first().cloned()) } else { None };
         let (method, params) = gen_params(what, ctx, picked, supers)?;
         let r = self.ask(method, params)?;
         if r.is_null() {
-            return Err("jdtls 没有给出改动（光标可能不在类里）".into());
+            return Err("Java 语言服务器未返回更改（光标可能不在类中）".into());
         }
         workspace_edit(&r)
     }
@@ -659,7 +659,7 @@ impl Instance {
     /// jar 里一个类的内容：有源码 jar 就是源码，没有就是 jdtls 反编译的
     pub fn class_contents(&self, jdt_uri: &str) -> Result<String, String> {
         let r = self.ask("java/classFileContents", json!({ "uri": jdt_uri }))?;
-        r.as_str().map(str::to_owned).ok_or_else(|| "这个类拿不到内容（jdtls 没有回源码，也没有反编译）".into())
+        r.as_str().map(str::to_owned).ok_or_else(|| "无法获取此类的内容（Java 语言服务器未返回源代码或反编译结果）".into())
     }
 
     /// 补全。带着编辑器里**此刻**的全文：前端改动是去抖 250ms 才发的，刚敲的那个点 jdtls 还没看到 ——
@@ -682,7 +682,7 @@ impl Instance {
 
     /// 选中一项之后要的：自动 import（`additionalTextEdits`）和说明文字。`raw` 是补全时那一项的原样
     pub fn resolve(&self, raw: &str) -> Result<Resolved, String> {
-        let item: Value = serde_json::from_str(raw).map_err(|e| format!("补全项不是 JSON：{e}"))?;
+        let item: Value = serde_json::from_str(raw).map_err(|e| format!("补全项格式无效：{e}"))?;
         let r = self.ask("completionItem/resolve", item)?;
         Ok(resolved(&r))
     }
@@ -759,7 +759,7 @@ impl Instance {
 
     /// 选中的那条修复要改什么（没带改动的先 `codeAction/resolve`）。没有改动、只有命令的（要弹交互框的那种）这一版不做，说清楚
     pub fn resolve_action(&self, raw: &str) -> Result<RenamePlan, String> {
-        let item: Value = serde_json::from_str(raw).map_err(|e| format!("修复不是 JSON：{e}"))?;
+        let item: Value = serde_json::from_str(raw).map_err(|e| format!("快速修复格式无效：{e}"))?;
         let kind = item["kind"].as_str().unwrap_or("").to_string();
         // 引入参数（⌥⌘P）这类：jdtls 不给改动、给一个「让客户端再来要」的命令，参数是（重构名, 当时的 CodeActionParams）——
         // vscode-java 收到它再发 `java/getRefactorEdit`。读的 1.61 `RefactorProposalUtility`（命令 id）和 `GetRefactorEditHandler`（认哪几个名字）。
@@ -783,9 +783,9 @@ impl Instance {
             // 引入参数、调用在别的文件里时（2026-10-26 实测 1.61）：resolve 回来既没改动也没命令；照 vscode-java 拿选区去 `java/getRefactorEdit` 要，
             // 回来的是空的 `changes: {}`（它算了 —— 给了新参数名的位置 —— 但转成改动那一步丢了，是 jdtls 里面的事）。同一个文件里调用的，resolve 直接给改动
             if kind == "refactor.introduce.parameter" {
-                return Err("这个方法在别的文件里也有调用，Java 语言服务器这时给不出改动。可以先 ⌥⌘V 抽成变量，再 ⌘F6 改签名把它加成参数".into());
+                return Err("此方法在其他文件中也有调用，Java 语言服务器无法提供此重构的更改。可先用 ⌥⌘V 引入变量，再用 ⌘F6 更改签名将其添加为参数".into());
             }
-            return Err(format!("这条修复要执行命令{}，这一版还不支持", if cmd.is_empty() { String::new() } else { format!("（{cmd}）") }));
+            return Err(format!("此修复需要执行命令{}，当前版本暂不支持", if cmd.is_empty() { String::new() } else { format!("（{cmd}）") }));
         }
         workspace_edit(&resolved["edit"])
     }
@@ -852,7 +852,7 @@ impl Instance {
     /// jdtls 自己拒绝改名时的原话是英文的（`Compilation unit 'Customer.java' already exists`），常见的换成中文，别的原样
     fn rename_refusal(e: String) -> String {
         match e.split_once("Compilation unit '").and_then(|(_, rest)| rest.split_once("' already exists")) {
-            Some((name, _)) => format!("{name} 已经有了，不覆盖"),
+            Some((name, _)) => format!("{name} 已存在，未覆盖"),
             None => e,
         }
     }
@@ -999,10 +999,10 @@ pub fn gen_choices_of(what: &str, r: &Value) -> GenChoices {
     match what {
         "tostring" | "equals" | "constructor" => {
             let note = if what == "tostring" && r["exists"].as_bool() == Some(true) {
-                "这个类已经有 toString() 了：生成会替换掉它".to_string()
+                "此类已包含 toString()，生成将替换现有方法".to_string()
             } else if what == "equals" && !arr(&r["existingMethods"]).is_empty() {
                 let m: Vec<String> = arr(&r["existingMethods"]).iter().filter_map(|x| x.as_str().map(str::to_owned)).collect();
-                format!("这个类已经有 {} 了：生成会替换掉", m.join("、"))
+                format!("此类已包含 {}，生成将替换现有方法", m.join("、"))
             } else {
                 String::new()
             };
@@ -1061,7 +1061,7 @@ pub fn gen_params(what: &str, ctx: Value, picked: Vec<Value>, supers: Option<Val
             ("java/generateAccessors", json!({ "context": ctx, "accessors": accessors }))
         }
         "override" => ("java/addOverridableMethods", json!({ "context": ctx, "overridableMethods": picked })),
-        _ => return Err(format!("不认识的生成：{what}")),
+        _ => return Err(format!("未知的生成类型：{what}")),
     })
 }
 
@@ -1431,7 +1431,7 @@ pub fn signature_of(r: &Value) -> Result<MethodSig, String> {
     let s = |v: &Value| v.as_str().unwrap_or("").to_string();
     let method_id = s(&r["methodIdentifier"]);
     if method_id.is_empty() {
-        return Err("光标不在方法上（放在方法名或者方法体里再试）".into());
+        return Err("光标不在方法上（请将光标置于方法名或方法体中）".into());
     }
     let arr = |k: &str| r[k].as_array().map(Vec::as_slice).unwrap_or(&[]).to_vec();
     Ok(MethodSig {
@@ -1465,7 +1465,7 @@ pub fn signature_args(sig: &MethodSig) -> Value {
 /// `java/getRefactorEdit` 的回包（`RefactorWorkspaceEdit`）→ [`RenamePlan`]。没有改动算不行（签名没变，或者 jdtls 什么都没给）
 pub fn refactor_edit(r: &Value) -> Result<RenamePlan, String> {
     if r.is_null() {
-        return Err("语言服务器没给出改动".into());
+        return Err("Java 语言服务器未返回更改".into());
     }
     if let Some(e) = r["errorMessage"].as_str().filter(|e| !e.is_empty()) {
         return Err(e.to_string());
@@ -1474,7 +1474,7 @@ pub fn refactor_edit(r: &Value) -> Result<RenamePlan, String> {
     if plan.files.is_empty() && plan.renames.is_empty() {
         let raw: String = r.to_string().chars().take(800).collect();
         applog::write(applog::Level::Warn, "java", &format!("重构没给出改动：{raw}"));
-        return Err("什么都没改（签名和原来一样？）".into());
+        return Err("未产生更改（签名与原签名相同）".into());
     }
     Ok(plan)
 }
@@ -1486,7 +1486,7 @@ pub fn move_edit(r: &Value) -> Result<RenamePlan, String> {
     }
     let plan = workspace_edit(&r["edit"])?;
     if plan.renames.is_empty() {
-        return Err("语言服务器没给出挪文件这一步，没动".into());
+        return Err("Java 语言服务器未返回移动文件的操作，未作修改".into());
     }
     Ok(plan)
 }
@@ -1497,7 +1497,7 @@ pub fn move_edit(r: &Value) -> Result<RenamePlan, String> {
 pub fn workspace_edit(r: &Value) -> Result<RenamePlan, String> {
     let mut plan = RenamePlan::default();
     let path_of = |u: &str| -> Result<String, String> {
-        uri::to_path(u).ok_or_else(|| format!("改动落在 {u}（不在工作区的文件里，比如 jar），这一版不做"))
+        uri::to_path(u).ok_or_else(|| format!("更改涉及工作区以外的文件 {u}（例如 jar 中的文件），当前版本不支持"))
     };
     let mut new_to_old: HashMap<String, String> = HashMap::new();
     let add = |plan: &mut RenamePlan, path: String, edits: Vec<Edit>| {
@@ -1528,7 +1528,7 @@ pub fn workspace_edit(r: &Value) -> Result<RenamePlan, String> {
                 new_to_old.insert(to.clone(), from.clone());
                 plan.renames.push((from, to));
             }
-            Some(k) => return Err(format!("这次改动要{}文件，这一版还不支持（只改已有文件的内容、给文件改名）", if k == "create" { "新建" } else if k == "delete" { "删除" } else { k })),
+            Some(k) => return Err(format!("此次更改需要{}文件，当前版本暂不支持（仅支持修改已有文件内容和重命名文件）", if k == "create" { "新建" } else if k == "delete" { "删除" } else { k })),
         }
     }
     plan.files.retain(|(_, e)| !e.is_empty());
@@ -1544,7 +1544,7 @@ pub fn workspace_edit(r: &Value) -> Result<RenamePlan, String> {
 /// `dirty`：开着、有未保存改动的标签（它们只改编辑器，同查找替换）。成了的话这一次就是「最近一次替换」，撤销卡片照样能撤（名字一起改回去）
 pub fn apply_rename(plan: &RenamePlan, root: &Path, journal: &Path, dirty: &HashMap<PathBuf, String>) -> Result<replacesvc::Outcome, String> {
     if plan.files.is_empty() && plan.renames.is_empty() {
-        return Err("语言服务器说这里没有要改的".into());
+        return Err("Java 语言服务器报告此处没有需要修改的内容".into());
     }
     let renames: Vec<(PathBuf, PathBuf)> = plan.renames.iter().map(|(f, t)| (PathBuf::from(f), PathBuf::from(t))).collect();
     replacesvc::check_renames(&renames)?;
@@ -1562,25 +1562,25 @@ pub fn apply_rename(plan: &RenamePlan, root: &Path, journal: &Path, dirty: &Hash
     let scan = replacesvc::scan_edits(root, files, dirty)?;
     if !scan.skipped.is_empty() {
         let head: Vec<String> = scan.skipped.iter().take(3).map(|k| format!("{}：{}", k.rel, k.why.text())).collect();
-        return Err(format!("有 {} 个文件改不了，整个没改（少改一处就编译不过）—— {}", scan.skipped.len(), head.join("；")));
+        return Err(format!("{} 个文件无法修改，已取消全部更改（部分修改会导致编译失败）：{}", scan.skipped.len(), head.join("；")));
     }
     let picks: Vec<replacesvc::Pick> = scan.files.iter().map(|f| replacesvc::Pick { rel: f.rel.clone(), hits: (0..f.hits.len()).collect() }).collect();
     let o = replacesvc::ApplyOpts { journal, replacement: "", picks: &picks, dirty_now: dirty, allow_no_undo: false, crash_after: None, journal_cap: None };
     let mut out = replacesvc::apply(&scan, &o).map_err(|e| match e {
-        replacesvc::ApplyError::Pending => "上一次替换中断了还没处理：先在启动时的卡片上处理它".to_string(),
-        replacesvc::ApplyError::TooBigForUndo { bytes } => format!("这次改名要改的文件太大（{} MB），撤销不了，没改", bytes >> 20),
-        replacesvc::ApplyError::Truncated => "要改的地方太多，没改".to_string(),
+        replacesvc::ApplyError::Pending => "上次替换未完成，请先在启动时显示的卡片中处理".to_string(),
+        replacesvc::ApplyError::TooBigForUndo { bytes } => format!("需要修改的文件过大（{} MB），无法支持撤销，未作修改", bytes >> 20),
+        replacesvc::ApplyError::Truncated => "需要修改的位置过多，未作修改".to_string(),
         replacesvc::ApplyError::Failed { rel, msg } => if rel.is_empty() { msg } else { format!("{rel}：{msg}") },
     })?;
     // 撤回去只碰盘上的：只改在编辑器里的那些，改动还没交给前端（这里报错就不交），本来就没生效
     let roll_back = |why: String| -> String {
         match replacesvc::undo(journal, &HashMap::new()) {
-            Ok(_) => format!("{why}，改了的已经撤回去了"),
-            Err(e) => format!("{why}；撤回去也失败了：{e}（替换卡片上还能再撤一次）"),
+            Ok(_) => format!("{why}，已还原已修改的文件"),
+            Err(e) => format!("{why}；还原也失败：{e}（可在替换卡片中重试）"),
         }
     };
     if !out.skipped.is_empty() {
-        return Err(roll_back(format!("{} 刚刚被改过", out.skipped[0].rel)));
+        return Err(roll_back(format!("{} 刚被修改过", out.skipped[0].rel)));
     }
     out.renamed = replacesvc::rename_files(journal, &renames).map_err(roll_back)?;
     Ok(out)
@@ -1675,17 +1675,17 @@ fn debug_jar(dir: &Path) -> Option<PathBuf> {
 }
 
 fn find(app: &AppHandle, root: &Path) -> Result<Found, String> {
-    let user = std::env::var_os("HOME").map(PathBuf::from).ok_or("找不到用户目录（没有 HOME）")?;
-    let data = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?;
+    let user = std::env::var_os("HOME").map(PathBuf::from).ok_or("无法确定用户目录（未设置 HOME）")?;
+    let data = app.path().app_data_dir().map_err(|e| format!("无法获取应用数据目录：{e}"))?;
     let inside = bundled(app);
     // jdtls：设置里指的（想用自己那份的人）→ 内置的 → 都没有（开发构建）就照实说
     let set = app.state::<crate::state::AppState>().settings.view().0.java_jdtls_home;
     let layout = if !set.trim().is_empty() {
-        jdtls::layout(Path::new(set.trim())).map_err(|e| format!("settings.json 的 java.jdtlsHome 指的不是 jdtls（{e}）"))?
+        jdtls::layout(Path::new(set.trim())).map_err(|e| format!("settings.json 中的 java.jdtlsHome 不是有效的 jdtls 目录（{e}）"))?
     } else if let Some(d) = &inside {
-        jdtls::layout(&d.join("jdtls")).map_err(|e| format!("内置的 jdtls 坏了（{e}）：重装 lite-ide"))?
+        jdtls::layout(&d.join("jdtls")).map_err(|e| format!("内置的 jdtls 已损坏（{e}），请重新安装 lite-ide"))?
     } else {
-        return Err("这个构建没带内置的 jdtls（开发构建）：用 pnpm app:bundle 打的包，或者在 settings.json 写 java.jdtlsHome".into());
+        return Err("当前构建未包含内置的 jdtls（开发构建）。请使用 pnpm app:bundle 打包的版本，或在 settings.json 中设置 java.jdtlsHome".into());
     };
     // 跑 jdtls 的 Java：内置的 → 机器上的 JDK 21+（开发构建、或者内置的那份被删了）
     let rt = inside.as_ref().map(|d| d.join(runtime_dir_name())).filter(|r| r.join("bin/java").is_file());
@@ -1693,7 +1693,7 @@ fn find(app: &AppHandle, root: &Path) -> Result<Found, String> {
         Some(r) => (r, "Java 21（内置）".to_string()),
         None => {
             let (v, home) = jdtls::find_jdk(&jdtls::default_jdk_dirs(&user), jdtls::MIN_JAVA)
-                .ok_or("没有能跑 jdtls 的 Java：这个构建没带内置的 Java 21，机器上也没有 JDK 21+（brew install --cask temurin@21）")?;
+                .ok_or("未找到可运行 jdtls 的 Java：当前构建未包含内置的 Java 21，本机也没有 JDK 21 或更高版本（可通过 brew install --cask temurin@21 安装）")?;
             let label = format!("JDK {v}（{}）", home.display());
             (home, label)
         }
@@ -1701,7 +1701,7 @@ fn find(app: &AppHandle, root: &Path) -> Result<Found, String> {
     // 本地仓库跟着设置走（maven.localRepository / maven.settingsFile，SETTINGS.md 13.4）：和跑 mvn 的是同一个
     let lombok = jdtls::lombok_jar(&crate::maven::local_repo(&user));
     let workspace = jdtls::workspace_dir(&data.join("jdtls-ws"), root);
-    jdtls::prepare_config(&layout, &workspace).map_err(|e| format!("建不了 jdtls 的缓存目录 {}：{e}", workspace.display()))?;
+    jdtls::prepare_config(&layout, &workspace).map_err(|e| format!("无法创建 jdtls 缓存目录 {}：{e}", workspace.display()))?;
     let debug_jar = inside.as_ref().and_then(|d| debug_jar(&d.join("java-debug")));
     Ok(Found { java, java_label, layout, lombok, workspace, debug_jar })
 }
@@ -1747,7 +1747,7 @@ impl Java {
             f.java_label,
             match &f.lombok {
                 Some(j) => format!("Lombok {}", j.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
-                None => "没找到 Lombok（用 Lombok 的项目会报假错）".into(),
+                None => "未找到 Lombok（使用 Lombok 的项目可能出现误报）".into(),
             }
         );
         let xmx = format!("{}m", app.state::<crate::state::AppState>().settings.current().java_jdtls_memory);
@@ -1784,11 +1784,11 @@ impl Java {
                     let tail: Vec<&str> = e.stderr_tail.lines().rev().take(6).collect();
                     let tail: Vec<&str> = tail.into_iter().rev().collect();
                     applog::write(applog::Level::Warn, "java", &format!("jdtls 自己退了（{}）：{}", e.status, tail.join(" | ")));
-                    on_exit.set(Phase::Failed(format!("Java 语言服务器退出了（{}）{}", e.status, tail.last().map(|l| format!("：{l}")).unwrap_or_default())));
+                    on_exit.set(Phase::Failed(format!("Java 语言服务器已退出（{}）{}", e.status, tail.last().map(|l| format!("：{l}")).unwrap_or_default())));
                 }
             }),
         )
-        .map_err(|e| fail(format!("起不了 jdtls：{e}")))?;
+        .map_err(|e| fail(format!("无法启动 jdtls：{e}")))?;
         let inst = Arc::new(Instance { shared: Arc::clone(&shared), srv, watch: Mutex::new(None), holds: Default::default(), style });
         // 盘上的变化告诉 jdtls（`on_disk_changes`）。拿弱引用：监听活在实例里，强引用就是互相攥着、谁也收不掉。起不来只记一句，Java 智能照常
         let weak = Arc::downgrade(&inst);
@@ -1833,10 +1833,10 @@ impl Java {
                         }
                         d.synced = true;
                     }
-                    Err(e) => init.shared.set(Phase::Failed(format!("jdtls 没有完成初始化：{e}"))),
+                    Err(e) => init.shared.set(Phase::Failed(format!("jdtls 初始化失败：{e}"))),
                 }
             })
-            .map_err(|e| fail(format!("起不了线程：{e}")))?;
+            .map_err(|e| fail(format!("无法创建线程：{e}")))?;
         Ok(inst)
     }
 
@@ -1934,7 +1934,7 @@ mod tests {
 
     #[test]
     fn 等导入完时程序被停了_不等满截止时间() {
-        let phase = Mutex::new(Phase::Importing("导入中".into()));
+        let phase = Mutex::new(Phase::Importing("正在导入".into()));
         let changed = Condvar::new();
         let alive = std::sync::atomic::AtomicBool::new(true);
         let t0 = Instant::now();
@@ -1944,7 +1944,7 @@ mod tests {
                 alive.store(false, std::sync::atomic::Ordering::SeqCst);
             });
             let r = wait_ready(&phase, &changed, Duration::from_secs(30), &|| alive.load(std::sync::atomic::Ordering::SeqCst));
-            assert!(r.unwrap_err().contains("程序已经停了"));
+            assert!(r.unwrap_err().contains("应用正在退出"));
         });
         assert!(t0.elapsed() < Duration::from_secs(2), "停了之后最多再等一个 ALIVE_POLL：{:?}", t0.elapsed());
         // 导入完了照常回
@@ -2077,12 +2077,12 @@ mod tests {
         assert_eq!(p.renames, vec![("/p/c/com/demo/common/Money.java".to_string(), "/p/c/com/demo/common/util/Money.java".to_string())]);
         assert_eq!(p.files.len(), 1);
         assert!(move_edit(&json!({ "errorMessage": "Cannot enable move operation." })).unwrap_err().contains("Cannot enable"));
-        assert!(move_edit(&json!({ "edit": { "changes": {} } })).unwrap_err().contains("没给出挪文件"));
+        assert!(move_edit(&json!({ "edit": { "changes": {} } })).unwrap_err().contains("未返回移动文件"));
     }
 
     #[test]
     fn 改名_jdtls_拒绝的英文原话换成中文_别的原样() {
-        assert_eq!(Instance::rename_refusal("Compilation unit 'Customer.java' already exists".into()), "Customer.java 已经有了，不覆盖");
+        assert_eq!(Instance::rename_refusal("Compilation unit 'Customer.java' already exists".into()), "Customer.java 已存在，未覆盖");
         assert_eq!(Instance::rename_refusal("别的错".into()), "别的错");
     }
 
@@ -2235,7 +2235,7 @@ mod tests {
         let ts = json!({ "type": "Tally", "exists": true, "fields": [{ "bindingKey": "k1", "name": "total", "type": "int", "isField": true, "isSelected": false }] });
         let c = gen_choices_of("tostring", &ts);
         assert_eq!((c.type_name.as_str(), c.items[0].label.as_str(), c.items[0].detail.as_str(), c.items[0].checked), ("Tally", "total", "int", true));
-        assert!(c.note.contains("已经有 toString()"), "{}", c.note);
+        assert!(c.note.contains("已包含 toString()"), "{}", c.note);
         assert!(c.items[0].raw.contains("\"bindingKey\":\"k1\""), "原样留着，第二步交回去");
         let acc = json!([
             { "fieldName": "a", "isStatic": false, "generateGetter": true, "generateSetter": false, "typeName": "int" },

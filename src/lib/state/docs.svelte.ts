@@ -337,7 +337,7 @@ class Docs {
         if (!this.#warnedFail.has(tab.path)) {
           this.#warnedFail.add(tab.path);
           const what = project.isScratch(tab.path) ? "草稿" : tab.name;
-          notify.fail(`${what} 自动保存失败：${String(e)} —— 已保留在编辑器里，可 ⌘S 重试`, 6000);
+          notify.fail(`${what} 自动保存失败：${String(e)}。内容仍保留在编辑器中，可按 ⌘S 重试`, 6000);
         }
       } finally {
         this.#saving.delete(tab.path);

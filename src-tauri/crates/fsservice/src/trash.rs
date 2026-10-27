@@ -24,7 +24,7 @@ pub fn move_to_trash(path: impl AsRef<Path>) -> io::Result<()> {
     if fs::symlink_metadata(path).is_err() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("{} 不在盘上了", path.display()),
+            format!("{} 已不存在", path.display()),
         ));
     }
     ::trash::delete(path).map_err(|e| io::Error::other(format!("移到废纸篓失败：{e}")))

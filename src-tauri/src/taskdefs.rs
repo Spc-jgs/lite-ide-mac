@@ -71,7 +71,7 @@ pub fn template() -> &'static str {
 pub fn parse_file(text: &str) -> (Vec<Def>, Vec<String>) {
     let clean = match crate::settings::strip(text) {
         Ok(c) => c,
-        Err(p) => return (Vec::new(), vec![format!("{FILE} 写错了：{}", p.text())]),
+        Err(p) => return (Vec::new(), vec![format!("{FILE} 格式错误：{}", p.text())]),
     };
     if clean.trim().is_empty() {
         return (Vec::new(), Vec::new());
@@ -81,35 +81,35 @@ pub fn parse_file(text: &str) -> (Vec<Def>, Vec<String>) {
         Err(e) => {
             let pos = crate::settings::pos_of_line_byte(text, e.line(), e.column());
             let msg = if e.classify() == serde_json::error::Category::Eof {
-                "没写完，可能少了 ] 或者引号没收尾".to_string()
+                "内容不完整，可能缺少 ] 或引号未闭合".to_string()
             } else {
                 e.to_string().split(" at line ").next().unwrap_or_default().to_string()
             };
-            return (Vec::new(), vec![format!("{FILE} 第 {} 行写错了：{msg}", pos.line)]);
+            return (Vec::new(), vec![format!("{FILE} 第 {} 行有错误：{msg}", pos.line)]);
         }
     };
     let Value::Array(items) = value else {
-        return (Vec::new(), vec![format!("{FILE} 最外层要是 [ … ]（任务的列表）")]);
+        return (Vec::new(), vec![format!("{FILE} 的顶层必须是数组 [ … ]（任务列表）")]);
     };
     let mut defs: Vec<Def> = Vec::new();
     let mut problems = Vec::new();
     for (i, item) in items.iter().enumerate() {
         let n = i + 1;
         let Value::Object(o) = item else {
-            problems.push(format!("{FILE} 第 {n} 个任务要是 {{ … }}，跳过了"));
+            problems.push(format!("{FILE} 中第 {n} 个任务必须是对象 {{ … }}，已跳过"));
             continue;
         };
         let name = o.get("name").and_then(Value::as_str).map(str::trim).unwrap_or("");
         let command = o.get("command").and_then(Value::as_str).map(str::trim).unwrap_or("");
         if name.is_empty() || command.is_empty() {
-            problems.push(format!("{FILE} 第 {n} 个任务缺 name 或 command（都要是非空的字符串），跳过了"));
+            problems.push(format!("{FILE} 中第 {n} 个任务缺少 name 或 command（须为非空字符串），已跳过"));
             continue;
         }
-        let who = format!("{FILE} 里的「{name}」");
+        let who = format!("{FILE} 中的「{name}」");
         for k in o.keys() {
             if !matches!(k.as_str(), "name" | "command" | "cwd" | "env") {
                 // 拼错时（`cmd`、`dir`）这是唯一的线索 —— 不说的话它照样跑，只是没在你以为的目录里
-                problems.push(format!("{who}：不认识的键 {k}（认 name、command、cwd、env）"));
+                problems.push(format!("{who}：未知的键 {k}（支持 name、command、cwd、env）"));
             }
         }
         let cwd = match o.get("cwd") {
@@ -117,12 +117,12 @@ pub fn parse_file(text: &str) -> (Vec<Def>, Vec<String>) {
             Some(Value::String(s)) => match inside(s) {
                 Some(c) => c,
                 None => {
-                    problems.push(format!("{who}：cwd 要是项目里的相对路径（不能是绝对路径、不能用 .. 出去），跳过了"));
+                    problems.push(format!("{who}：cwd 须为项目内的相对路径（不能为绝对路径或包含 ..），已跳过"));
                     continue;
                 }
             },
             Some(_) => {
-                problems.push(format!("{who}：cwd 要是字符串，跳过了"));
+                problems.push(format!("{who}：cwd 须为字符串，已跳过"));
                 continue;
             }
         };
@@ -133,14 +133,14 @@ pub fn parse_file(text: &str) -> (Vec<Def>, Vec<String>) {
                 for (k, v) in m {
                     match v.as_str() {
                         Some(v) => env.push((k.clone(), v.to_string())),
-                        None => problems.push(format!("{who}：env 里的 {k} 要是字符串，没带上")),
+                        None => problems.push(format!("{who}：env 中的 {k} 须为字符串，已忽略")),
                     }
                 }
             }
-            Some(_) => problems.push(format!("{who}：env 要是 {{ \"名字\": \"值\" }}，没带上")),
+            Some(_) => problems.push(format!("{who}：env 须为 {{ \"名称\": \"值\" }} 格式，已忽略")),
         }
         if defs.iter().any(|d| d.name == name) {
-            problems.push(format!("{who} 重名了，用的是前面那个"));
+            problems.push(format!("{who} 名称重复，使用第一个"));
             continue;
         }
         defs.push(Def { name: name.to_string(), command: command.to_string(), cwd, env, source: Source::File });
@@ -258,7 +258,7 @@ fn read_capped(p: &Path) -> Option<Result<String, String>> {
         return None;
     }
     if meta.len() > MAX_BYTES {
-        return Some(Err(format!("超过 {} KB，没读", MAX_BYTES / 1024)));
+        return Some(Err(format!("超过 {} KB，未读取", MAX_BYTES / 1024)));
     }
     Some(std::fs::read_to_string(p).map_err(|e| e.to_string()))
 }
@@ -271,7 +271,7 @@ pub fn discover(root: &Path) -> Found {
         None => {}
         Some(Err(e)) => {
             found.file = true;
-            found.problems.push(format!("{FILE} 读不了：{e}"));
+            found.problems.push(format!("无法读取 {FILE}：{e}"));
         }
         Some(Ok(text)) => {
             found.file = true;
@@ -300,13 +300,13 @@ pub fn discover(root: &Path) -> Found {
         let (scripts, declared) = match read_capped(&pj) {
             None => continue,
             Some(Err(e)) => {
-                found.problems.push(format!("{} 读不了：{e}", shown(&rel, "package.json")));
+                found.problems.push(format!("无法读取 {}：{e}", shown(&rel, "package.json")));
                 continue;
             }
             Some(Ok(text)) => match package_scripts(&text) {
                 Ok(x) => x,
                 Err(e) => {
-                    found.problems.push(format!("{} 解析不了：{e}", shown(&rel, "package.json")));
+                    found.problems.push(format!("无法解析 {}：{e}", shown(&rel, "package.json")));
                     continue;
                 }
             },
@@ -368,7 +368,7 @@ fn user_defs(root: &Path, configs: Vec<crate::projectcfg::UserCfg>, found: &mut 
     let prefs = crate::maven::prefs(root);
     for u in configs {
         if found.defs.iter().any(|d| d.name == u.name) {
-            found.problems.push(format!("你建的运行配置「{}」和别处的同名，没列 —— 改个名", u.name));
+            found.problems.push(format!("运行配置「{}」与其他配置重名，未列出，请重命名", u.name));
             continue;
         }
         let (command, cwd, env) = match u.kind.as_str() {
@@ -382,7 +382,7 @@ fn user_defs(root: &Path, configs: Vec<crate::projectcfg::UserCfg>, found: &mut 
                 let (r, m) = split_module(root, &u.module);
                 let mvn = crate::maven::invocation(&root.join(&r));
                 let Some(c) = crate::maven::goal_command(&m, &u.goals, &prefs, &mvn) else {
-                    found.problems.push(format!("运行配置「{}」的 Maven 目标里有认不出的字符，没列", u.name));
+                    found.problems.push(format!("运行配置「{}」的 Maven 目标包含无效字符，未列出", u.name));
                     continue;
                 };
                 (format!("{}{c}", jdk_prefix_for(root, &r, &m, &u.run.jdk)), r, u.run.env.clone())
@@ -402,7 +402,7 @@ fn user_defs(root: &Path, configs: Vec<crate::projectcfg::UserCfg>, found: &mut 
 /// host 只认主机名 / IP 的字符（配置里已经校验过），拼进 printf 的参数里也不会被当成命令
 fn remote_command(host: &str, port: u32) -> String {
     let h: String = host.chars().filter(|c| c.is_ascii_alphanumeric() || ".-:_[]".contains(*c)).collect();
-    format!("printf '挂到 %s:%s 的 JVM 上调试（⌘F2 断开，不会停掉那个 JVM）\\n' '{h}' '{port}'; exec tail -f /dev/null")
+    format!("printf '正在调试 %s:%s 上的 JVM（⌘F2 断开，不会终止该 JVM）\\n' '{h}' '{port}'; exec tail -f /dev/null")
 }
 
 /// 远程调试的配置要挂到哪（`remote` 那种）；不是远程调试 → None。⌃R / ▶ 时 `task_run` 问一句
@@ -465,7 +465,7 @@ pub fn spring_tasks(root: &Path) -> (Vec<SpringTask>, Vec<String>) {
             let run = crate::projectcfg::run(root, &name);
             let launch = match gradle.iter().find(|(r, m, _)| r == rel && *m == app.module) {
                 Some((_, _, project)) => crate::gradle::run_command(project, &app.module, &app.main_class, &crate::gradle::invocation(&root.join(rel)), &run)
-                    .unwrap_or_else(|| "echo '[lite-ide] 写不了 Gradle 的 init 脚本（应用数据目录）'; exit 1".into()),
+                    .unwrap_or_else(|| "echo '[lite-ide] 无法写入 Gradle init 脚本（应用数据目录）'; exit 1".into()),
                 None => crate::maven::run_command(app, &prefs, &crate::maven::invocation(&root.join(rel)), &run),
             };
             let command = format!("{}{launch}", jdk_prefix_for(root, rel, &app.module, &run.jdk));
@@ -524,7 +524,7 @@ fn gradle_goal(root: &Path, token: &str, goal: &str, name: &str) -> Option<Def> 
     let command = if let Some(sel) = goal.strip_prefix("test ") {
         crate::gradle::test_command(&m.artifact_id, sel.trim(), &crate::gradle::invocation(&root.join(&rel)))?
     } else if goal.starts_with("cover ") {
-        "echo '[lite-ide] Gradle 项目带覆盖率跑单测还没做（Maven 项目可以）。先用普通的运行'; exit 2".to_string()
+        "echo '[lite-ide] 暂不支持对 Gradle 项目运行覆盖率测试（Maven 项目已支持），请使用普通运行'; exit 2".to_string()
     } else {
         // Gradle 工具窗里双击的任务（「:模块 [任务 …]」）：任务名只许字母数字和 `-` `_`（同 Maven 目标的字符检查，名字拼进命令行）
         let toks: Vec<&str> = goal.split_whitespace().collect();
@@ -626,7 +626,7 @@ pub fn jdk_prefix_for(root: &Path, reactor: &str, module: &str, chosen: &str) ->
     }
     match crate::jdks::at(&pick) {
         Some((_, h)) => export_jdk(&h),
-        None => format!("echo {}; {}", crate::maven::word(&format!("[lite-ide] 设置里选的 JDK {pick} 找不到了（或者不是 JDK），按 pom 自动挑")), auto()),
+        None => format!("echo {}; {}", crate::maven::word(&format!("[lite-ide] 未找到设置中选择的 JDK {pick}（或不是有效的 JDK），将根据 pom 自动选择")), auto()),
     }
 }
 
@@ -638,7 +638,7 @@ fn export_jdk(h: &Path) -> String {
 fn jdk_prefix_from(want: u32, jdks: &[(u32, PathBuf)]) -> String {
     match lspsvc::jdtls::pick_jdk(jdks, want) {
         Some((_, h)) => export_jdk(&h),
-        None => format!("echo {}; ", crate::maven::word(&format!("[lite-ide] 项目要 Java {want}，这台机器上没找到够格的 JDK，用的是你默认的那个"))),
+        None => format!("echo {}; ", crate::maven::word(&format!("[lite-ide] 项目要求 Java {want}，本机未找到满足要求的 JDK，使用默认 JDK"))),
     }
 }
 
@@ -690,11 +690,11 @@ mod tests {
 
     #[test]
     fn 远程调试的占位命令_主机名里的怪字符拼不进去() {
-        assert_eq!(remote_command("10.0.0.5", 5005), "printf '挂到 %s:%s 的 JVM 上调试（⌘F2 断开，不会停掉那个 JVM）\\n' '10.0.0.5' '5005'; exec tail -f /dev/null");
+        assert_eq!(remote_command("10.0.0.5", 5005), "printf '正在调试 %s:%s 上的 JVM（⌘F2 断开，不会终止该 JVM）\\n' '10.0.0.5' '5005'; exec tail -f /dev/null");
         // 校验在配置那头（settingsctl::host_ok）；万一绕过了，这里也只留主机名的字符 —— 单引号、分号进不去
         assert_eq!(
             remote_command("a'; rm -rf ~; '", 1),
-            "printf '挂到 %s:%s 的 JVM 上调试（⌘F2 断开，不会停掉那个 JVM）\\n' 'arm-rf' '1'; exec tail -f /dev/null",
+            "printf '正在调试 %s:%s 上的 JVM（⌘F2 断开，不会终止该 JVM）\\n' 'arm-rf' '1'; exec tail -f /dev/null",
             "引号、分号、空格、~ 都去掉了：拼进单引号里也闭合不了它"
         );
     }
@@ -727,7 +727,7 @@ mod tests {
         let t = resolve(&root, "shop-common [test com.demo.MoneyTest#ok]").unwrap();
         assert!(t.command.starts_with("sh ./gradlew --console=plain "), "gradlew 没执行位：sh 跑它：{}", t.command);
         assert!(t.command.ends_with(" :shop-common:test --rerun --tests com.demo.MoneyTest.ok"), "{}", t.command);
-        assert!(resolve(&root, "shop-common [cover com.demo.MoneyTest]").unwrap().command.contains("还没做"), "覆盖率不悄悄退成普通跑");
+        assert!(resolve(&root, "shop-common [cover com.demo.MoneyTest]").unwrap().command.contains("暂不支持"), "覆盖率不悄悄退成普通跑");
         assert_eq!(gradle_test_project(&root, "shop-common [test com.demo.MoneyTest]").as_deref(), Some("shop-common"), "调试时的项目名：Gradle 的项目名");
         std::fs::write(root.join("settings.gradle.kts"), "rootProject.name = \"shopdemo\"\ninclude(\"shop-common\", \"order-service\")\n").unwrap();
         std::fs::create_dir_all(root.join("src/test/java")).unwrap();
@@ -777,7 +777,7 @@ mod tests {
         assert_eq!(defs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["好的", "拼错"]);
         assert_eq!(defs[0].command, "echo ok", "重名用前面那个");
         let all = problems.join("\n");
-        for want in ["第 2 个任务缺 name 或 command", "「出去了」：cwd", "「绝对路径」：cwd", "不认识的键 cmd", "「好的」 重名了"] {
+        for want in ["第 2 个任务缺少 name 或 command", "「出去了」：cwd", "「绝对路径」：cwd", "未知的键 cmd", "「好的」 名称重复"] {
             assert!(all.contains(want), "少了「{want}」：\n{all}");
         }
     }
@@ -788,7 +788,7 @@ mod tests {
         assert!(defs.is_empty());
         assert!(problems[0].contains("第 3 行"), "{problems:?}");
         let (_, problems) = parse_file("{ \"name\": \"a\" }");
-        assert!(problems[0].contains("最外层要是 ["), "{problems:?}");
+        assert!(problems[0].contains("顶层必须是数组 ["), "{problems:?}");
     }
 
     /// 这条测试存在的理由：serde_json 的 Map 按键名排序，`dev` 会跑到 `build` 后面
@@ -911,7 +911,7 @@ mod tests {
         assert_eq!(by("全部").source, Source::User { kind: "compound".into(), items: vec!["Tool".into(), "前端".into()] });
         assert!(!f.defs.iter().any(|x| x.name == "坏目标") && f.problems.iter().any(|p| p.contains("坏目标")), "{:?}", f.problems);
         assert_eq!(f.defs.iter().filter(|x| x.name == "已有的").count(), 1, "同名的不列第二份");
-        assert!(f.problems.iter().any(|p| p.contains("「已有的」和别处的同名")), "{:?}", f.problems);
+        assert!(f.problems.iter().any(|p| p.contains("「已有的」与其他配置重名")), "{:?}", f.problems);
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -921,7 +921,7 @@ mod tests {
         let jdks = vec![(17, PathBuf::from("/L/temurin-17.jdk/Contents/Home")), (21, PathBuf::from("/L/my jdk 21/Contents/Home"))];
         assert_eq!(jdk_prefix_from(17, &jdks), "export JAVA_HOME=/L/temurin-17.jdk/Contents/Home PATH=/L/temurin-17.jdk/Contents/Home/bin:\"$PATH\"; ");
         assert_eq!(jdk_prefix_from(21, &jdks), "export JAVA_HOME='/L/my jdk 21/Contents/Home' PATH='/L/my jdk 21/Contents/Home/bin':\"$PATH\"; ", "带空格的路径要引号");
-        assert!(jdk_prefix_from(25, &jdks).starts_with("echo '[lite-ide] 项目要 Java 25"), "没有够格的：说一句");
+        assert!(jdk_prefix_from(25, &jdks).starts_with("echo '[lite-ide] 项目要求 Java 25"), "没有够格的：说一句");
         // pom 没写版本：不加任何东西（taskdefs 的其余测试的 pom 都没写，命令照旧）
         let d = tmp("jdkprefix");
         #[allow(clippy::disallowed_methods)] // 测试自己的临时目录

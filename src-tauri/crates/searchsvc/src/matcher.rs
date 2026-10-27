@@ -62,7 +62,7 @@ impl Matcher {
             // 不开这个，`foo$` 替换配得上、搜索配不上
             .crlf(true)
             .build()
-            .map_err(|e| format!("正则写错了：{}", first_line(&e.to_string())))?;
+            .map_err(|e| format!("正则表达式无效：{}", first_line(&e.to_string())))?;
         Ok(Matcher {
             re,
             word: q.word,
@@ -332,7 +332,7 @@ mod tests {
     #[test]
     fn 正则写错了给一句人话() {
         let e = Matcher::new(&Query { pattern: "(ab".into(), regex: true, ..Default::default() }).err().unwrap();
-        assert!(e.starts_with("正则写错了"), "{e}");
+        assert!(e.starts_with("正则表达式无效"), "{e}");
         assert!(!e.contains('\n'), "一行放得下：{e}");
         assert!(Matcher::new(&Query::literal("")).is_err());
     }

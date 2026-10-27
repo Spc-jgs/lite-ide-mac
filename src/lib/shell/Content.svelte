@@ -233,12 +233,12 @@
       .then((b) => {
         if (dead) return;
         blame = b.hunks;
-        if (b.truncated) notify.hint("文件太大，后半段没有注解");
+        if (b.truncated) notify.hint("文件过大，后半部分未显示注解");
       })
       .catch((e) => {
         if (dead) return;
         blame = null;
-        notify.fail(`注解拉不到：${e}`, 3000);
+        notify.fail(`无法获取注解：${e}`, 3000);
       });
     return () => {
       dead = true;
@@ -267,7 +267,7 @@
   都不该把整个外壳一起带走 —— 文件树、终端、状态栏还得能用。
   boundary 的 reset 会重建这棵子树，多数一次性的渲染错误重试一下就好了。
 -->
-<svelte:boundary onerror={(e) => notify.fail(`内容区出错：${e}`)}>
+<svelte:boundary onerror={(e) => notify.fail(`内容区发生错误：${e}`)}>
 <div class="content">
   {#if !tab}
     <!--

@@ -52,15 +52,15 @@ async function installCliTool() {
   try {
     const r = await installCli();
     if (r.linked) {
-      notify.ok(`${r.replaced ? "已重新安装" : "已安装"} lite 命令 —— 终端里 lite <路径> 就能开`, 5000);
+      notify.ok(`${r.replaced ? "已重新安装" : "已安装"} lite 命令，可在终端中使用 lite <路径> 打开`, 5000);
     } else if (r.taken) {
       notify.block(
-        `/usr/local/bin/lite 已经是${r.taken}，不是 lite-ide 的，没动它。脚本已写好在下面这里，想用的话软链到 PATH 里另一个名字：`,
+        `/usr/local/bin/lite 已被占用（${r.taken}），未作修改。脚本已生成在以下位置，如需使用，请将其链接到 PATH 中的其他名称：`,
         r.script,
       );
     } else {
       notify.block(
-        "脚本已写好，但 /usr/local/bin 写不进去 —— 在终端里跑这一句补上软链：",
+        "脚本已生成，但没有写入 /usr/local/bin 的权限。请在终端中运行以下命令创建链接：",
         r.linkCmd,
       );
     }
@@ -89,7 +89,7 @@ export async function openSettingsFile(line?: number) {
   try {
     path = await openSettings();
   } catch (e) {
-    notify.fail(`打不开设置文件：${e}`);
+    notify.fail(`无法打开设置文件：${e}`);
     return;
   }
   await nav.openAt(path, line, false);
@@ -101,7 +101,7 @@ async function openAppLog() {
     path = await appLogPath();
     await probePath(path);
   } catch (e) {
-    notify.fail(`应用日志没装上：${e}`);
+    notify.fail(`无法打开应用日志：${e}`);
     return;
   }
   await tabflow.openPath(path);
@@ -121,14 +121,14 @@ async function clearLog() {
     await worktree.changed();
     notify.ok("应用日志已清空");
   } catch (e) {
-    notify.fail(`清不掉应用日志：${e}`);
+    notify.fail(`无法清空应用日志：${e}`);
   }
 }
 
 /** 项目主页。交给系统默认浏览器 —— 这个应用自己不开网页 */
 async function openRepoPage() {
   await openExternal("https://github.com/Spc-jgs/lite-ide-mac").catch(() => {
-    notify.fail("打不开项目主页", 2600);
+    notify.fail("无法打开项目主页", 2600);
   });
 }
 
@@ -254,19 +254,19 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "git-file-diff": {
       const en = git.activeEntry;
       if (en) void git.openDiff(en, false);
-      else notify.hint("当前文件没有未提交的改动");
+      else notify.hint("当前文件没有未提交的更改");
       return;
     }
     case "git-blame":
       git.blameOn = !git.blameOn;
-      if (git.blameOn && tabs.active?.mode !== "edit") notify.ok("注解已打开，打开一个仓库里的文件就能看到", 2600);
+      if (git.blameOn && tabs.active?.mode !== "edit") notify.ok("已开启注解，打开仓库中的文件即可查看", 2600);
       return;
     case "git-log": layout.openGitTab("log"); return;
     case "git-file-history":
     case "git-selection-history": {
       // 提交历史那个工具窗只列这个文件 / 这几行的（docs/TAKEOVER.md G16）。没选东西时「选中几行」用光标那一行（IDEA 也是）
       const t = tabs.active;
-      if (!t || t.mode !== "edit") return void notify.hint("先打开一个仓库里的文件");
+      if (!t || t.mode !== "edit") return void notify.hint("请先打开仓库中的文件");
       const spans = id === "git-selection-history" ? docs.selectedLines(t.path) : [];
       const lines: [number, number] | null =
         id !== "git-selection-history" ? null : spans.length ? [spans[0].from, spans[spans.length - 1].to] : [nav.caret?.line ?? 1, nav.caret?.line ?? 1];
@@ -290,10 +290,10 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "open-settings": return void import("../settings/open").then((m) => m.openSettingsDialog(project.root));
     case "check-update": return void import("../update/check").then((m) => m.checkUpdate());
     case "debug-breakpoints":
-      if (!project.root) return notify.hint("先打开一个项目：断点是按项目的");
+      if (!project.root) return notify.hint("请先打开项目：断点按项目保存");
       return void import("../settings/open").then((m) => m.openBreakpoints(project.root!));
     case "run-configs":
-      if (!project.root) return notify.hint("先打开一个项目：运行配置是按项目的");
+      if (!project.root) return notify.hint("请先打开项目：运行配置按项目保存");
       return void import("../settings/open").then((m) => m.openRunConfigs(project.root!));
     default:
       diag(`菜单项 ${id} 没有对应的处理`);

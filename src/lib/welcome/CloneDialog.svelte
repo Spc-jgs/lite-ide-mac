@@ -57,14 +57,14 @@
   });
 
   async function choose() {
-    const d = await pickDir("克隆到哪个目录", parent || null).catch(() => null);
+    const d = await pickDir("选择克隆目标目录", parent || null).catch(() => null);
     if (d) parent = d;
   }
 
   function hint(e: RemoteErr): string {
     // ls-remote 只问一下远程有哪些分支、不往盘上写东西，认证那一步和克隆一样 —— 输过一次钥匙串就记住了
-    if (e.kind === "auth-https") return `这个仓库要先认证一次：在终端里跑一遍\n  git ls-remote ${url.trim()}\n输过一次账号密码（钥匙串会记住），这里就能克隆了`;
-    if (e.kind === "auth-ssh") return "ssh-agent 里没有能用的钥匙：\n  ssh-add --apple-use-keychain ~/.ssh/id_ed25519";
+    if (e.kind === "auth-https") return `此仓库需要先完成认证。请在终端中运行\n  git ls-remote ${url.trim()}\n并输入一次账号密码（钥匙串将记住凭据），之后即可在此克隆`;
+    if (e.kind === "auth-ssh") return "ssh-agent 中没有可用的密钥，请运行：\n  ssh-add --apple-use-keychain ~/.ssh/id_ed25519";
     return e.message;
   }
 
@@ -118,12 +118,12 @@
   <div class="dialog clone" role="dialog" aria-label="从 Git 克隆" tabindex="-1" onkeydown={onKey}>
     <p class="title">从 Git 克隆</p>
     <label class="row">
-      <span class="lab">地址</span>
+      <span class="lab">URL</span>
       <input class="field" use:focusIn placeholder="https://github.com/… 或 git@github.com:…" spellcheck="false" disabled={busy} bind:value={url} />
     </label>
     <div class="row">
-      <span class="lab">放到</span>
-      <span class="dir" class:empty={!parent} title={parent}>{parent ? tildify(parent) : "还没选"}</span>
+      <span class="lab">位置</span>
+      <span class="dir" class:empty={!parent} title={parent}>{parent ? tildify(parent) : "未选择"}</span>
       <button class="btn sm" disabled={busy} onclick={() => void choose()}>选择…</button>
     </div>
     <label class="row">
@@ -133,7 +133,7 @@
     {#if err}
       <div class="err">
         <pre>{hint(err)}</pre>
-        {#if err.raw && err.raw !== err.message}<details><summary>git 的原话</summary><pre>{err.raw}</pre></details>{/if}
+        {#if err.raw && err.raw !== err.message}<details><summary>Git 输出</summary><pre>{err.raw}</pre></details>{/if}
       </div>
     {/if}
     <div class="actions">

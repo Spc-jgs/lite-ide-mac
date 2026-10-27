@@ -36,7 +36,7 @@ ok(layout.panel && layout.panelView === "problems", "终端开着时按 ⌘6：�
 layout.panel = false;
 runs.list = [];
 toggleToolKey("tw-run");
-ok(!layout.panel && notify.toast?.text.includes("还没跑过任务"), `⌘4 没跑过：不开、说为什么（${notify.toast?.text}）`);
+ok(!layout.panel && notify.toast?.text.includes("尚未运行任务"), `⌘4 没跑过：不开、说为什么（${notify.toast?.text}）`);
 
 // Git：不是仓库 → 说一句
 git.repo = null;
@@ -55,7 +55,7 @@ ok(layout.panel && layout.panelView === "run" && runs.activeId === 1, `⌘5：�
 runs.list = [tab(3, {})];
 layout.panel = false;
 toggleToolKey("tw-debug");
-ok(!layout.panel && notify.toast?.text.includes("没有在调试"), "⌘5 没有在调试的：说一句");
+ok(!layout.panel && notify.toast?.text.includes("没有正在调试"), "⌘5 没有在调试的：说一句");
 
 console.log(`${fail === 0 ? "✅" : "❌"} 工具窗的编号键：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

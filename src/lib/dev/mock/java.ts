@@ -205,7 +205,7 @@ function rename(root: string, path: string, line: number, ch: number, to: string
   // 类改名：声明它的那个 W.java 跟着改名。先查新名字有没有被占
   const decl = java.find((p) => p.endsWith(`/${w}.java`) && new RegExp(`(class|interface|record|enum)\\s+${w}\\b`).test(dirty.get(p) ?? FILES[p]));
   const moveTo = decl ? `${decl.slice(0, decl.lastIndexOf("/"))}/${to}.java` : null;
-  if (moveTo && FILES[moveTo] !== undefined) throw new Error(`${moveTo.slice(moveTo.lastIndexOf("/") + 1)} 已经有了，不覆盖`);
+  if (moveTo && FILES[moveTo] !== undefined) throw new Error(`${moveTo.slice(moveTo.lastIndexOf("/") + 1)} 已存在，未覆盖`);
   const re = new RegExp(`\\b${w.replace(/\$/g, "\\$")}\\b`, "g");
   const entries = [];
   const changed = [];
@@ -257,7 +257,7 @@ function movePlan(root: string, path: string, dest: string) {
   const name = path.slice(path.lastIndexOf("/") + 1, -".java".length);
   const old = pkgOf(FILES[path] ?? "");
   const to = `${dest.replace(/^file:\/\//, "").replace(/\/$/, "")}/${name}.java`;
-  if (FILES[to] !== undefined) throw new Error(`${name}.java 已经有了，不覆盖`);
+  if (FILES[to] !== undefined) throw new Error(`${name}.java 已存在，未覆盖`);
   const edits = new Map<string, string>();
   edits.set(path, (FILES[path] ?? "").replace(`package ${old};`, `package ${d.name};`));
   for (const p of Object.keys(FILES)) {

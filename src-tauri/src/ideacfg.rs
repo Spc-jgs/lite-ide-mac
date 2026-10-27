@@ -53,12 +53,12 @@ pub fn read(root: &Path) -> (Vec<IdeaRun>, Vec<String>) {
         let file = dir.join(".idea").join("workspace.xml");
         let Ok(meta) = std::fs::metadata(&file) else { continue };
         if meta.len() > MAX_BYTES {
-            problems.push(format!("{} 有 {} MB，超过 {} MB 没读", file.display(), meta.len() >> 20, MAX_BYTES >> 20));
+            problems.push(format!("{} 大小为 {} MB，超过 {} MB 上限，未读取", file.display(), meta.len() >> 20, MAX_BYTES >> 20));
             continue;
         }
         match std::fs::read(&file) {
             Ok(b) => runs.extend(parse(&String::from_utf8_lossy(&b), &dir, &home)),
-            Err(e) => problems.push(format!("{} 读不了：{e}", file.display())),
+            Err(e) => problems.push(format!("无法读取 {}：{e}", file.display())),
         }
     }
     (runs, problems)

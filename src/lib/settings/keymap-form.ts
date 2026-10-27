@@ -25,18 +25,18 @@ export function staged(over: Readonly<Record<string, string>>, edits: KeyEdits):
 /** 一行为什么不能改（能改是 null）。说清理由：灰着又不说为什么，人会以为是坏了 */
 export function lockedWhy(d: KeyDef): string | null {
   if (editable(d)) return null;
-  if (d.gesture) return "这是手势，不是一个键";
-  if (d.owner === "xterm") return "终端自己的键";
-  if (d.owner === "log") return "日志视图自己的键（只在日志模式里管用）";
-  if (d.owner === "key") return "这个键有特殊处理（终端里让给 shell、按住 ⌃ 连按切标签），不能改";
-  return "鼠标手势，不是一个键";
+  if (d.gesture) return "此操作为手势，不可设置快捷键";
+  if (d.owner === "xterm") return "终端内置快捷键，不可修改";
+  if (d.owner === "log") return "日志视图内置快捷键（仅在日志模式下生效），不可修改";
+  if (d.owner === "key") return "此快捷键有特殊行为（在终端中交由 shell 处理、按住 ⌃ 连续切换标签页），不可修改";
+  return "鼠标手势，不可设置快捷键";
 }
 
 /** 录到的一下收不收：收就给键位，不收给一句为什么 */
 export function judge(accel: string): { accel: string } | { why: string } {
-  if (!splitAccel(accel)) return { why: `${accel} 当不了快捷键：要带 ⌘ ⌥ ⌃ 之一（F1–F20 可以不带）` };
+  if (!splitAccel(accel)) return { why: `${accel} 不能用作快捷键：须包含 ⌘、⌥ 或 ⌃ 之一（F1–F20 除外）` };
   const sys = RESERVED[accel];
-  if (sys) return { why: `${accel} 是系统的「${sys}」，改到它上面会被系统吃掉、或者把${sys}弄没` };
+  if (sys) return { why: `${accel} 是系统快捷键「${sys}」，设置后可能被系统拦截或使「${sys}」失效` };
   return { accel };
 }
 

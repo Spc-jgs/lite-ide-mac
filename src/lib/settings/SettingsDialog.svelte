@@ -110,7 +110,7 @@
   async function apply(thenClose: boolean) {
     if (!page) return;
     if (Object.keys(errs).length) {
-      error = "有填错的项，改好再应用";
+      error = "存在无效的设置项，请修正后再应用";
       return;
     }
     if (!dirty) {
@@ -120,7 +120,7 @@
     // 键位撞了不让应用：菜单的键会先被吃掉、编辑器里两个只有一个能用 —— 应用出去就是「按了没反应」，不报错
     const clash = Object.keys(conflicts(keyNext));
     if (keyDirty && clash.length) {
-      error = `键位 ${clash.join(" ")} 撞了，改掉一个再应用`;
+      error = `快捷键 ${clash.join(" ")} 冲突，请修改其中一个后再应用`;
       cat = "keymap";
       q = "";
       return;
@@ -141,7 +141,7 @@
       }
       if (thenClose) {
         onclose();
-        notify.ok(restart ? "设置已保存。Java 智能下次启动时用新的（这个项目的 Java 文件都关掉、过一会再开）" : "设置已保存");
+        notify.ok(restart ? "设置已保存。Java 语言服务器将在下次启动时应用新设置（关闭此项目的所有 Java 文件，稍后重新打开即可）" : "设置已保存");
       } else {
         applied = true;
         setTimeout(() => (applied = false), 1400);
@@ -183,11 +183,11 @@
       <span class="name">{d.label}</span>
       <span class="key">{d.key}</span>
       {#if page && isSet(page, edits, d.key) && !locked}
-        <button class="btn quiet sm reset" onclick={() => reset(d.key)} title="删掉 settings.json 里的这一项，回到默认值">恢复默认</button>
+        <button class="btn quiet sm reset" onclick={() => reset(d.key)} title="从 settings.json 中删除此项，恢复默认值">恢复默认</button>
       {/if}
     </div>
     {#if d.kind === "boolean"}
-      <label class="check"><input type="checkbox" bind:checked={() => v === true, (c) => set(d.key, c)} disabled={locked} /> {v === true ? "开" : "关"}</label>
+      <label class="check"><input type="checkbox" bind:checked={() => v === true, (c) => set(d.key, c)} disabled={locked} /> {v === true ? "开启" : "关闭"}</label>
     {:else if d.kind === "integer"}
       <input class="field num" bind:value={() => String(v ?? ""), (t) => setInt(d, t)} disabled={locked} aria-label={d.label} />
     {:else}
@@ -214,17 +214,17 @@
         {#if loadError}
           <div class="empty-msg bad">{loadError}</div>
         {:else if !page}
-          <div class="empty-msg wait"><span class="spinner sm"></span> 正在读设置…</div>
+          <div class="empty-msg wait"><span class="spinner sm"></span> 正在加载设置…</div>
         {:else}
           {#if page.broken && cat !== "project" && cat !== "keymap"}
             <div class="banner">
               <Icon name="warn" />
-              <span>settings.json {page.broken}。先修好它，设置页才能改全局设置（在一份读不懂的文件上改，只会改得更坏）</span>
+              <span>settings.json {page.broken}。请先修复该文件，才能在此修改全局设置</span>
               <button class="btn sm" onclick={openFile}>打开 settings.json</button>
             </div>
           {/if}
           {#if q.trim()}
-            {#each fields as d (d.key)}{@render field(d)}{:else}<div class="empty-msg">没有名字或说明里带「{q.trim()}」的设置</div>{/each}
+            {#each fields as d (d.key)}{@render field(d)}{:else}<div class="empty-msg">没有名称或说明包含「{q.trim()}」的设置</div>{/each}
           {:else if cat === "keymap"}
             <KeymapPane
               over={keyOver}
@@ -233,11 +233,11 @@
               onresetall={() => (keyEdits = Object.fromEntries(Object.keys(keyNext).map((id) => [id, null])))}
             />
           {:else if cat === "project" && page.project && projNow}
-            <h3>项目 JDK <span class="scope">只对 {projName}</span></h3>
-            <p class="doc">运行、构建、跑单测用哪个 JDK。运行配置里还能给单个服务另选</p>
+            <h3>项目 JDK <span class="scope">仅对 {projName}</span></h3>
+            <p class="doc">运行、构建和测试使用的 JDK。可在运行配置中为单个服务另行指定</p>
             <div class="choices" role="radiogroup" aria-label="项目 JDK">
               <button class="choice" role="radio" aria-checked={projNow.jdk === ""} onclick={() => setProj({ jdk: "" })}>
-                <span class="dot" class:on={projNow.jdk === ""}></span><span class="what">按 pom 自动</span><span class="where">{page.project.autoJdk}</span>
+                <span class="dot" class:on={projNow.jdk === ""}></span><span class="what">根据 pom 自动选择</span><span class="where">{page.project.autoJdk}</span>
               </button>
               {#each page.jdks as j (j.home)}
                 <button class="choice" role="radio" aria-checked={projNow.jdk === j.home} onclick={() => setProj({ jdk: j.home })}>
@@ -245,23 +245,23 @@
                 </button>
               {/each}
               {#if projNow.jdk && !page.jdks.some((j) => j.home === projNow.jdk)}
-                <div class="choice gone"><span class="dot on"></span><span class="what">找不到了</span><span class="where">{projNow.jdk} —— 运行时会退回按 pom 自动挑</span></div>
+                <div class="choice gone"><span class="dot on"></span><span class="what">未找到</span><span class="where">{projNow.jdk}（运行时将根据 pom 自动选择）</span></div>
               {/if}
             </div>
-            <h3>Maven <span class="scope">只对 {projName}</span></h3>
+            <h3>Maven <span class="scope">仅对 {projName}</span></h3>
             <label class="check"><input type="checkbox" bind:checked={() => projNow!.offline, (c) => setProj({ offline: c })} /> 离线（-o）</label>
-            <label class="check"><input type="checkbox" bind:checked={() => projNow!.skipTests, (c) => setProj({ skipTests: c })} /> 跳过测试（跑 Maven 目标时 -DskipTests）</label>
+            <label class="check"><input type="checkbox" bind:checked={() => projNow!.skipTests, (c) => setProj({ skipTests: c })} /> 跳过测试（执行 Maven 目标时添加 -DskipTests）</label>
             <p class="doc">
-              {#if page.project.wrapper}项目根上有 mvnw：{page.values["maven.useWrapper"] ? "用它（版本写在 .mvn/wrapper/ 里）" : "没用它（「Maven」一类里关了）"}{:else}项目根上没有 mvnw：用「Maven」一类里设的 Maven{/if}。
+              {#if page.project.wrapper}项目根目录包含 mvnw：{page.values["maven.useWrapper"] ? "已使用（版本由 .mvn/wrapper/ 指定）" : "未使用（已在「Maven」类别中关闭）"}{:else}项目根目录没有 mvnw：使用「Maven」类别中设置的 Maven{/if}。
               勾哪些 profile 在 Maven 工具窗里；每个服务的 VM 参数、Spring profile、环境变量在「运行 › 编辑配置…」
             </p>
             {@const cs = page.project.codeStyle}
-            <h3>Java 代码风格 <span class="scope">照 IDEA，{cs.origin}</span></h3>
+            <h3>Java 代码风格 <span class="scope">与 IDEA 一致，{cs.origin}</span></h3>
             <dl class="style">
               <dt>缩进 / 续行</dt><dd>{cs.indent} / {cs.cont} 个空格</dd>
               <dt>行宽</dt><dd>{cs.margin}</dd>
-              <dt>import 次序</dt><dd>{cs.imports}</dd>
-              <dt>合成 .*</dt><dd>同一个包 {cs.star} 个类、static {cs.staticStar} 个成员</dd>
+              <dt>import 顺序</dt><dd>{cs.imports}</dd>
+              <dt>合并为 .*</dt><dd>同一包中 {cs.star} 个类、static {cs.staticStar} 个成员</dd>
             </dl>
             <p class="doc">
               ⌥⌘L 格式化、⌃⌥O 优化 import、补全时自动加的 import 都照它。要改就在 IDEA 里改（项目的方案提交在 .idea/codeStyles/ 里，团队共用），
@@ -270,16 +270,16 @@
           {:else}
             {#each fields as d (d.key)}{@render field(d)}{/each}
             {#if cat === "java"}
-              <h3>JDK <span class="scope">这台机器上的</span></h3>
-              <p class="doc">自动找的：系统、~/Library/Java、Homebrew、sdkman、asdf、jenv、mise。找不到的在下面手动加（JAVA_HOME 目录）</p>
+              <h3>JDK <span class="scope">本机</span></h3>
+              <p class="doc">自动检测：系统、~/Library/Java、Homebrew、sdkman、asdf、jenv、mise。未检测到的可在下方手动添加（JAVA_HOME 目录）</p>
               <div class="jdks">
                 {#each page.jdks as j (j.home)}
-                  <div class="jdk"><span class="ver">Java {j.version}</span><span class="where">{j.home}</span>{#if j.manual}<span class="tag">手动加的</span>{/if}</div>
+                  <div class="jdk"><span class="ver">Java {j.version}</span><span class="where">{j.home}</span>{#if j.manual}<span class="tag">手动添加</span>{/if}</div>
                 {/each}
                 {#each jdkList as d (d)}
                   {#if !page.jdks.some((j) => j.home === d || j.home.startsWith(d.replace(/\/$/, "") + "/"))}
                     <div class="jdk pending" class:bad={page.badJdks.includes(d)}>
-                      <span class="ver">{page.badJdks.includes(d) ? "认不出" : "待应用"}</span><span class="where">{d}</span>
+                      <span class="ver">{page.badJdks.includes(d) ? "无法识别" : "待应用"}</span><span class="where">{d}</span>
                     </div>
                   {/if}
                 {/each}
@@ -287,13 +287,13 @@
               <div class="add">
                 <input class="field" placeholder="/opt/jdk-21" spellcheck="false" bind:value={newJdk} disabled={locked}
                   onkeydown={(e) => { if (imeKey(e)) return; if (e.key === "Enter") { e.preventDefault(); addJdk(); } }}
-                  aria-label="添加 JDK 的目录" />
+                  aria-label="JDK 目录" />
                 <button class="btn" disabled={locked || !newJdk.trim()} onclick={addJdk}>添加</button>
               </div>
               {#if jdkList.length}
                 <div class="manual">
                   {#each jdkList as d (d)}
-                    <span class="chip">{d}<button class="ibtn xs" title="不要这个了" aria-label="去掉 {d}" disabled={locked} onclick={() => set("java.jdks", jdkList.filter((x) => x !== d))}><Icon name="x" /></button></span>
+                    <span class="chip">{d}<button class="ibtn xs" title="移除" aria-label="移除 {d}" disabled={locked} onclick={() => set("java.jdks", jdkList.filter((x) => x !== d))}><Icon name="x" /></button></span>
                   {/each}
                 </div>
               {/if}

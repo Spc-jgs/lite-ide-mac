@@ -44,7 +44,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::Timeout => write!(f, "调试器没回答"),
             Error::Closed => write!(f, "调试会话已经结束了"),
-            Error::TooLarge(n) => write!(f, "调试器回的太大（{} MB），没读", n >> 20),
+            Error::TooLarge(n) => write!(f, "调试器返回的数据过大（{} MB），未读取", n >> 20),
             Error::Failed(m) => write!(f, "{m}"),
         }
     }

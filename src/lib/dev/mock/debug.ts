@@ -141,7 +141,7 @@ export function debugCmd(cmd: string, a: A): unknown {
       const live = lines.filter((_, i) => (conds[i] ?? "").trim() !== "false" && !(logs[i] ?? "").trim());
       lines.forEach((l, i) => {
         const c = (conds[i] ?? "").trim();
-        if (c.includes("nosuch")) WARN.set(`${String(a.path)}:${l}`, `条件 ${c} 算不了，照样停下了：编译不过：nosuch cannot be resolved to a variable`);
+        if (c.includes("nosuch")) WARN.set(`${String(a.path)}:${l}`, `条件 ${c} 无法求值，已暂停：编译错误：nosuch cannot be resolved to a variable`);
         else WARN.delete(`${String(a.path)}:${l}`);
       });
       const m = BPS.get(root) ?? new Map<string, number[]>();

@@ -175,7 +175,7 @@ const FILE = "/proj/moduleB/src/main/java/com/demo/core/OrderServiceApplication.
   await dbg.debugTask("OrderServiceApplication", ROOT);
   const r = () => runs.list.find((t) => t.name === "OrderServiceApplication");
   ok(await until(() => r()?.debug?.phase === "paused"), `照样停下：${r()?.debug?.phase}`);
-  ok(r()?.debug?.note.startsWith("条件 nosuch == 1 算不了，照样停下了"), `停下时带着提醒：${r()?.debug?.note}`);
+  ok(r()?.debug?.note.startsWith("条件 nosuch == 1 无法求值，已暂停"), `停下时带着提醒：${r()?.debug?.note}`);
   await ops.stopRun(r()!.id);
   await until(() => r()?.debug?.phase === "ended");
   bp.setLines(ROOT, FILE, []);

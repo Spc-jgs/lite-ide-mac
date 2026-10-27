@@ -91,7 +91,7 @@ pub fn rename_entry(path: impl AsRef<Path>, new_name: &str) -> io::Result<PathBu
     let from_meta = fs::symlink_metadata(path).map_err(|_| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            format!("{} 不在盘上了", path.display()),
+            format!("{} 已不存在", path.display()),
         )
     })?;
     let parent = path.parent().ok_or_else(|| {
@@ -142,7 +142,7 @@ pub fn move_entry(path: impl AsRef<Path>, dest_dir: impl AsRef<Path>) -> io::Res
     let path = path.as_ref();
     let dest = dest_dir.as_ref();
     let from_meta = fs::symlink_metadata(path)
-        .map_err(|_| io::Error::new(io::ErrorKind::NotFound, format!("{} 不在盘上了", path.display())))?;
+        .map_err(|_| io::Error::new(io::ErrorKind::NotFound, format!("{} 已不存在", path.display())))?;
     if !dest.is_dir() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{} 不是目录", dest.display())));
     }

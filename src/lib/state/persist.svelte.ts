@@ -501,7 +501,7 @@ class Persist {
       if (this.#warnedBig.has(t.path)) continue;
       if (docs.liveText(t).length <= session.MAX_DRAFT_CHARS) continue;
       this.#warnedBig.add(t.path);
-      notify.fail(`${t.name} 太大，未保存的改动不会被记住 —— 请 ⌘S 保存`, 6000);
+      notify.fail(`${t.name} 过大，未保存的更改无法在重启后恢复，请按 ⌘S 保存`, 6000);
     }
     this.schedule();
   }

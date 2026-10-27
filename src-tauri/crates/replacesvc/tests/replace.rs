@@ -455,7 +455,7 @@ fn 超长的跨行命中_预览中间折叠() {
     assert_eq!(h.lines, 302);
     let b = h.block.as_deref().unwrap();
     assert_eq!(b.lines().count(), 41, "头 20 + 一行说明 + 尾 20");
-    assert!(b.contains("中间 262 行没显示"), "{b}");
+    assert!(b.contains("省略 262 行"), "{b}");
     fs::remove_dir_all(d).ok();
 }
 
@@ -490,13 +490,13 @@ fn 给定改动_位置对不上或者重叠_整个报错() {
     fs::write(root.join("A.java"), "class A {}\n").unwrap();
     let none = HashMap::new();
     let e = scan_edits(&root, vec![(root.join("A.java"), vec![le(5, 0, 5, 1, "x")])], &none).err().unwrap();
-    assert!(e.contains("对不上"), "{e}");
+    assert!(e.contains("不一致"), "{e}");
     let e = scan_edits(&root, vec![(root.join("A.java"), vec![le(0, 0, 0, 30, "x")])], &none).err().unwrap();
-    assert!(e.contains("对不上"), "列越过行尾也算对不上：{e}");
+    assert!(e.contains("不一致"), "列越过行尾也算对不上：{e}");
     let e = scan_edits(&root, vec![(root.join("A.java"), vec![le(0, 0, 0, 5, "x"), le(0, 3, 0, 7, "y")])], &none).err().unwrap();
     assert!(e.contains("重叠"), "{e}");
     let e = scan_edits(&root, vec![(d.join("外面.java"), vec![le(0, 0, 0, 1, "x")])], &none).err().unwrap();
-    assert!(e.contains("不在项目里"), "{e}");
+    assert!(e.contains("不在项目中"), "{e}");
     fs::remove_dir_all(d).ok();
 }
 
@@ -543,20 +543,20 @@ fn 改名_新名字被占或者跨目录_先查出来一个字都不动() {
     fs::write(root.join("Shop.java"), "x\n").unwrap();
     fs::write(root.join("Store.java"), "别人的文件\n").unwrap();
     let e = check_renames(&[(root.join("Shop.java"), root.join("Store.java"))]).err().unwrap();
-    assert!(e.contains("已经有了"), "{e}");
+    assert!(e.contains("已存在"), "{e}");
     let e = rename_files(&d.join("journal"), &[(root.join("Shop.java"), root.join("Store.java"))]).err().unwrap();
-    assert!(e.contains("已经有了"), "{e}");
+    assert!(e.contains("已存在"), "{e}");
     assert_eq!(read(&root.join("Store.java")), "别人的文件\n", "不覆盖");
     assert_eq!(read(&root.join("Shop.java")), "x\n");
     // 换目录又换名字：jdtls 的移动类不会给这种，给了就不做
     let e = check_renames(&[(root.join("Shop.java"), root.join("sub/Store.java"))]).err().unwrap();
-    assert!(e.contains("又换名字"), "{e}");
+    assert!(e.contains("同时移动并重命名"), "{e}");
     let e = check_renames(&[(root.join("Shop.java"), root.join("nowhere/Shop.java"))]).err().unwrap();
-    assert!(e.contains("目录不在盘上"), "{e}");
+    assert!(e.contains("目标目录不存在"), "{e}");
     // 换目录、名字不变（移动类）：目标目录里已经有同名的，不覆盖
     fs::write(root.join("sub/Shop.java"), "别人的 Shop\n").unwrap();
     let e = rename_files(&d.join("journal"), &[(root.join("Shop.java"), root.join("sub/Shop.java"))]).err().unwrap();
-    assert!(e.contains("已经有了"), "{e}");
+    assert!(e.contains("已存在"), "{e}");
     assert_eq!(read(&root.join("sub/Shop.java")), "别人的 Shop\n");
     fs::remove_dir_all(d).ok();
 }

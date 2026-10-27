@@ -108,7 +108,7 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
         if (!f) continue;
         const now = f.editor ? f.text : FILES[f.path];
         if (now !== f.text) {
-          skipped.push({ rel: f.rel, why: "changed", text: "预览之后被改过，没动它" });
+          skipped.push({ rel: f.rel, why: "changed", text: "预览后文件已被修改，已跳过" });
           continue;
         }
         const idx = [...new Set(p.hits)].filter((i) => i < f.hits.length).sort((x, y) => x - y);
@@ -134,7 +134,7 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
       return { changed, skipped, undo: true, renamed: [] };
     }
     case "replace_undo": {
-      if (!journal) throw new Error("没有可以撤销的替换");
+      if (!journal) throw new Error("没有可撤销的替换");
       const open = new Map((a.open as unknown as { path: string; text: string; dirty: boolean }[]).map((d) => [d.path, d]));
       const changed = [];
       const skipped = [];
@@ -144,7 +144,7 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
       const tabAt = new Map<string, string>();
       for (const r of [...renames].reverse()) {
         if (FILES[r.to] === undefined || FILES[r.from] !== undefined) {
-          skipped.push({ rel: r.from.slice(ROOT.length), why: "not-renamed-back", text: "改过名的文件不在新名字上了、或者原来的名字被占了，没改回去" });
+          skipped.push({ rel: r.from.slice(ROOT.length), why: "not-renamed-back", text: "重命名后的文件已不存在，或原名称已被占用，未能还原名称" });
           continue;
         }
         FILES[r.from] = FILES[r.to];
@@ -161,7 +161,7 @@ export async function replaceCmd(cmd: string, a: A): Promise<unknown> {
         const o = open.get(e.path);
         const now = o ? o.text : FILES[e.path];
         if (now !== e.after) {
-          skipped.push({ rel: e.rel, why: "edited-since", text: "替换之后又改过，没动它" });
+          skipped.push({ rel: e.rel, why: "edited-since", text: "替换后文件已被修改，已跳过" });
           continue;
         }
         const onDisk = !o || !o.dirty;

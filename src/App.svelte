@@ -422,7 +422,7 @@
     try {
       m = await menuActions();
     } catch (e) {
-      notify.fail(`菜单动作载入失败：${e}`);
+      notify.fail(`菜单操作加载失败：${e}`);
       return;
     }
     await m.runMenu(id, {

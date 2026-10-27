@@ -110,7 +110,7 @@
         <button class="it" class:on={cur === 0} role="option" aria-selected={cur === 0} onclick={() => (cur = 0)}>
           <input type="checkbox" bind:checked={() => exc.uncaught || exc.caught, () => {}} disabled tabindex="-1" />
           <span class="nm">Java 异常断点</span>
-          <span class="sm">{exc.uncaught || exc.caught ? (exc.types.length ? exc.types.map((t) => t.slice(t.lastIndexOf(".") + 1)).join("、") : "全部异常") : "关"}</span>
+          <span class="sm">{exc.uncaught || exc.caught ? (exc.types.length ? exc.types.map((t) => t.slice(t.lastIndexOf(".") + 1)).join("、") : "全部异常") : "关闭"}</span>
         </button>
         {#each files as [path, bps] (path)}
           <div class="file" title={rel(path)}>{name(path)}</div>
@@ -124,15 +124,15 @@
           {/each}
         {/each}
         {#if count === 0}
-          <div class="empty-msg">还没有断点 —— 在 Java 文件里点行号、或者 ⌘F8 下一个</div>
+          <div class="empty-msg">尚无断点<span class="sub">在 Java 文件中点击行号或按 ⌘F8 添加</span></div>
         {/if}
       </div>
       <section class="pane">
         {#if sel?.kind === "exc"}
           <h3>Java 异常断点</h3>
-          <label class="check"><input type="checkbox" bind:checked={() => exc.uncaught, (c) => { exc = { ...exc, uncaught: c }; saveExc(); }} /> 抛出<b>没被接住</b>的异常时停</label>
-          <label class="check"><input type="checkbox" bind:checked={() => exc.caught, (c) => { exc = { ...exc, caught: c }; saveExc(); }} /> 被 catch 接住的也停</label>
-          <div class="lab">只看这几种（类的全名，一行一个；空 = 全部）</div>
+          <label class="check"><input type="checkbox" bind:checked={() => exc.uncaught, (c) => { exc = { ...exc, uncaught: c }; saveExc(); }} /> 抛出<b>未捕获</b>的异常时暂停</label>
+          <label class="check"><input type="checkbox" bind:checked={() => exc.caught, (c) => { exc = { ...exc, caught: c }; saveExc(); }} /> 已捕获的异常也暂停</label>
+          <div class="lab">仅限以下异常（完整类名，每行一个；留空表示全部）</div>
           <textarea class="field area" rows="4" spellcheck="false" placeholder={"java.lang.IllegalStateException\ncom.demo.OrderException"} bind:value={typesText} onchange={saveExc}></textarea>
           <p class="doc">
             Spring 的 Web 服务里异常基本都被框架接住了，只开「没被接住」几乎不会停；「被接住的也停」不写类型的话，启动时框架自己抛了又接住的能停几百次 ——
@@ -142,22 +142,22 @@
           {@const b = sel.bp}
           <h3>{name(sel.path)} 第 {b.line} 行</h3>
           <label class="check"><input type="checkbox" bind:checked={() => !b.off, () => toggleOn(sel)} /> 启用</label>
-          <div class="lab">条件（Java 表达式，为真才停）</div>
+          <div class="lab">条件（Java 表达式，为真时暂停）</div>
           <input class="field code" bind:value={() => b.cond ?? "", () => {}} placeholder="orderId == 42" spellcheck="false" onchange={(e) => edit("cond", e.currentTarget.value)} />
-          <div class="lab">第几次走到才停（空 = 每次）</div>
+          <div class="lab">命中次数（第 N 次时暂停；留空表示每次）</div>
           <input class="field num" bind:value={() => b.hit ?? "", () => {}} placeholder="3" inputmode="numeric" onchange={(e) => edit("hit", e.currentTarget.value)} />
-          <div class="lab">只打一句、不停（日志断点；空 = 普通断点）</div>
-          <input class="field code" bind:value={() => b.log ?? "", () => {}} placeholder={"进来了 orderId={orderId}"} spellcheck="false" onchange={(e) => edit("log", e.currentTarget.value)} />
-          <p class="doc">{"{表达式}"} 换成它此刻的值，打进运行窗的输出（行首标「[日志断点]」）。改了当场生效，正在调试的也是。</p>
+          <div class="lab">记录消息而不暂停（日志断点；留空为普通断点）</div>
+          <input class="field code" bind:value={() => b.log ?? "", () => {}} placeholder={"已进入 orderId={orderId}"} spellcheck="false" onchange={(e) => edit("log", e.currentTarget.value)} />
+          <p class="doc">{"{表达式}"} 将替换为其当前值，输出到运行窗口（行首标记「[日志断点]」）。修改立即生效，包括正在进行的调试。</p>
           <div class="row-acts">
-            <button class="btn sm" onclick={() => go(sel)}>跳过去</button>
-            <button class="btn sm quiet" onclick={() => remove(sel)}>删除这个断点</button>
+            <button class="btn sm" onclick={() => go(sel)}>转到源代码</button>
+            <button class="btn sm quiet" onclick={() => remove(sel)}>删除断点</button>
           </div>
         {/if}
       </section>
     </div>
     <div class="actions">
-      <span class="keys">↑↓ 选 · 空格 启用 / 停用 · ⌫ 删除 · ↵ 跳过去</span>
+      <span class="keys">↑↓ 选择 · 空格 启用 / 停用 · ⌫ 删除 · ↵ 转到源代码</span>
       <span class="gap"></span>
       <button class="btn primary" data-default onclick={onclose}>完成</button>
     </div>

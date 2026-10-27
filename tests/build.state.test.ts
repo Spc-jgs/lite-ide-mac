@@ -42,7 +42,7 @@ const r = () => runs.list.find((t) => t.name === "构建项目");
   ok(r()?.command === "mvn -B -ntp test-compile", `命令是 test-compile（连测试一起编）：${r()?.command}`);
   ok(await until(() => r()?.status === "done" && !!r()?.problems), `跑完、读了结果：${r()?.status}`);
   ok(r()?.problems?.items.length === 0, "没有错误");
-  ok(/^ok:构建完成，用了 [\d.]+ 秒$/.test(said()), `说了构建完成（做成了的颜色）：${said()}`);
+  ok(/^ok:构建完成，耗时 [\d.]+ 秒$/.test(said()), `说了构建完成（做成了的颜色）：${said()}`);
 }
 
 // ── 写错了一个变量名：失败，错误树里正好一条（输出里那条出现两遍），行、列、补充都对 ──

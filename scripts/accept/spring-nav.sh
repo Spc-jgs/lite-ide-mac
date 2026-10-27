@@ -82,7 +82,7 @@ cfg() { lite_eval main "__lite.caret($1, $2); __lite.key('Meta-b'); return true"
 # 第 11 行 demo.greetingText：三份配置里写法各不同（kebab、下划线、properties），宽松绑定都算 —— 好几处：列出来挑
 cfg 11 18
 lite_wait main "return !!document.querySelector('.usages')" 5 >/dev/null
-ok "$([ "$(lite_eval main "return document.querySelector('.usages .title')?.textContent + ' | ' + [...document.querySelectorAll('.usages [role=option]')].map((o) => o.innerText.replace(/\s+/g, ' ').trim().split(' ').slice(0, 1).join()).join(',')")" = "demo.greetingText 配在这几处 | application.yml:4,application-dev.yml:2,application-prod.properties:1" ] && echo 1)" "驼峰对得上 kebab / 下划线 / properties，三处都列、不带 profile 的在前：$(lite_eval main "return [...document.querySelectorAll('.usages [role=option]')].map((o) => o.innerText.replace(/\s+/g, ' ').trim()).join(' | ')")"
+ok "$([ "$(lite_eval main "return document.querySelector('.usages .title')?.textContent + ' | ' + [...document.querySelectorAll('.usages [role=option]')].map((o) => o.innerText.replace(/\s+/g, ' ').trim().split(' ').slice(0, 1).join()).join(',')")" = "demo.greetingText 的配置位置 | application.yml:4,application-dev.yml:2,application-prod.properties:1" ] && echo 1)" "驼峰对得上 kebab / 下划线 / properties，三处都列、不带 profile 的在前：$(lite_eval main "return [...document.querySelectorAll('.usages [role=option]')].map((o) => o.innerText.replace(/\s+/g, ' ').trim()).join(' | ')")"
 lite_eval main "__lite.key('Escape'); return true" >/dev/null
 # 第 14 行 server.port：只有一处，直接跳
 lite_wait main "return !document.querySelector('.usages')" 5 >/dev/null
@@ -94,7 +94,7 @@ ok "$([ "$(lite_eval main "return (__lite.tabs.active?.path ?? '').split('/').po
 lite_eval main "await __lite.tabflow.openPath('${CTL}', { preview: false }); return true" >/dev/null
 cfg 17 18
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('demo.nowhere')" 5 >/dev/null
-ok "$(lite_eval main "return __lite.tabs.active?.path === '${CTL}' && (document.querySelector('.toast')?.textContent ?? '').includes('配置文件里没有 demo.nowhere')" | grep -q true && echo 1)" "没有：留在原地，说「配置文件里没有 demo.nowhere」"
+ok "$(lite_eval main "return __lite.tabs.active?.path === '${CTL}' && (document.querySelector('.toast')?.textContent ?? '').includes('未在配置文件中找到 demo.nowhere')" | grep -q true && echo 1)" "没有：留在原地，说「配置文件里没有 demo.nowhere」"
 
 echo "== 没有副作用"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（不建索引文件）"

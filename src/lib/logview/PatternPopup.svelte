@@ -122,7 +122,7 @@
     if (!r) return;
     // 只在基准里有的类：这一份里一条都没有，按它筛只会得到一个空视图
     if (r.count === 0) {
-      notify.hint("这一类只在基准那份里有，这份里一条都没有");
+      notify.hint("此类别仅存在于基准日志中，当前日志中没有");
       return;
     }
     onPick(r.text);

@@ -72,7 +72,7 @@ ok(notify.toast?.kind === "fail" && notify.toast.act?.label === "撤销", "没�
 notify.dismiss();
 notify.ok("已保存");
 ok(notify.toast?.act === undefined, "不带的就没有：上一条的动作不残留");
-notify.fail("没改名：Customer.java 已经有了，不覆盖");
+notify.fail("重命名失败：Customer.java 已存在，未覆盖");
 notify.ok("已把 Client 改名为 Buyer：2 个文件 3 处", undefined, { label: "撤销", run: () => {} });
 ok(notify.toast?.act?.label === "撤销", "失败没读完时紧跟一条带「撤销」的：它顶掉失败 —— 那是人刚做的那一下，按钮不能被吞");
 

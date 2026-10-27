@@ -77,7 +77,7 @@
       resolvedCache.set(r, got);
       if (r === root) resolved = got;
     } catch (e) {
-      notify.fail(`算不出插件和依赖：${e}`);
+      notify.fail(`无法解析插件和依赖：${e}`);
     } finally {
       resolving = false;
     }
@@ -329,7 +329,7 @@
     if (!toks.length) return;
     const bad = toks.find((t) => !SAFE.test(t));
     if (bad) {
-      notify.hint(`「${bad}」里有 shell 会解释的字符（引号、; $ | & 之类），这里只能敲 Maven 的目标和 -D 参数`);
+      notify.hint(`「${bad}」包含 shell 特殊字符（引号、; $ | & 等），此处仅支持 Maven 目标和 -D 参数`);
       return;
     }
     const module = exec.module;

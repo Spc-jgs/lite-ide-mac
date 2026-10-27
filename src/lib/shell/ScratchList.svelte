@@ -137,7 +137,7 @@
     if (!at || !a.project) return;
     const full = `${a.project}/${at.path}`;
     if (!(await probePath(full).catch(() => null))) {
-      notify.fail(`${at.path} 已不在${a.branch ? ` ${a.branch} 上` : ""}`, 3200);
+      notify.fail(`${at.path} 已不存在${a.branch ? `于 ${a.branch}` : ""}`, 3200);
       return;
     }
     await nav.openAt(full, at.line);

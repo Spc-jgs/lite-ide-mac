@@ -35,9 +35,9 @@
     try {
       await navigator.clipboard.writeText(s);
       // 不把内容放进提示：一行可能有 1MB
-      notify.ok(cut && what === "整行" ? `已复制这一行的前 ${sizeOf(shown)}（整行 ${sizeOf(total)}，剩下的没取）` : `已复制${what}（${s.length} 个字）`);
+      notify.ok(cut && what === "整行" ? `已复制此行的前 ${sizeOf(shown)}（整行 ${sizeOf(total)}，其余部分未复制）` : `已复制${what}（${s.length} 个字符）`);
     } catch {
-      notify.fail("剪贴板不可用，没复制成");
+      notify.fail("剪贴板不可用，复制失败");
     }
   }
 </script>

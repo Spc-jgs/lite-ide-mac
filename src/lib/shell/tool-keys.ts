@@ -23,27 +23,27 @@ export function toggleToolKey(id: string) {
     case "tw-bookmarks":
       return layout.toggleTool("bookmarks");
     case "tw-todo":
-      if (!project.root) return void notify.hint("先打开一个项目：TODO 列的是这个项目注释里的 TODO / FIXME");
+      if (!project.root) return void notify.hint("请先打开项目：TODO 工具窗列出项目注释中的 TODO / FIXME");
       return layout.toggleTool("todo");
     case "tw-structure":
       // 侧边栏里的（IDEA 也在左边）：开着就收起，否则切过去
-      if (!project.root) return void notify.hint("先打开一个项目：结构列的是当前文件的类、方法、字段");
+      if (!project.root) return void notify.hint("请先打开项目：结构工具窗列出当前文件的类、方法和字段");
       if (layout.sidebar && layout.sideView === "structure") layout.sidebar = false;
       else layout.showSide("structure");
       return;
     case "tw-git":
-      if (!git.repo) return void notify.hint("这个项目不是 Git 仓库，没有 Git 工具窗");
+      if (!git.repo) return void notify.hint("此项目不是 Git 仓库");
       return layout.toggleTool("git");
     case "tw-services":
-      if (!project.root) return void notify.hint("先打开一个项目：Services 列的是这个项目里认出来的 Spring Boot 服务");
+      if (!project.root) return void notify.hint("请先打开项目：Services 工具窗列出项目中的 Spring Boot 服务");
       return layout.toggleTool("services");
     case "tw-run":
-      if (!runs.plain().length) return void notify.hint("还没跑过任务（⌃⌥R 选一个跑）");
+      if (!runs.plain().length) return void notify.hint("尚未运行任务（按 ⌃⌥R 选择任务）");
       return layout.toggleTool("run");
     case "tw-debug": {
       // 调试没有单独的工具窗：调试着起的那一次就是一格运行（服务在 Services 里），里面「调试器 / 控制台」两页（docs/IDEA.md 第 18 节）
       const r = [...runs.list].reverse().find((x) => x.debug && (x.status === "running" || x.status === "stopping"));
-      if (!r) return void notify.hint("没有在调试的程序（⌃D 调试上一个任务，⌃⇧D 调试光标所在的测试）");
+      if (!r) return void notify.hint("没有正在调试的程序（⌃D 调试上一个任务，⌃⇧D 调试光标处的测试）");
       if (r.service) {
         layout.toggleTool("services");
         if (layout.panel) void import("../state/runs-ops").then((m) => m.focusService(r.id));

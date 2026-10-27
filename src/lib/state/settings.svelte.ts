@@ -81,14 +81,14 @@ class SettingsStore {
     const cur = { "editor.minimap": this.v.minimap, "tree.compact": this.v.treeCompact, "tree.follow": this.v.treeFollow, "git.grouped": this.v.gitGrouped }[key];
     setUiState(key, !cur)
       .then((s) => this.apply(s))
-      .catch((e) => notify.fail(`改不了：${e}`));
+      .catch((e) => notify.fail(`无法修改设置：${e}`));
   }
 
   /** ⌘= / ⌘- / ⌘0（null） */
   zoom(delta: number | null) {
     stepFont(delta)
       .then((s) => this.apply(s))
-      .catch((e) => notify.fail(`改不了字号：${e}`));
+      .catch((e) => notify.fail(`无法修改字号：${e}`));
   }
 }
 

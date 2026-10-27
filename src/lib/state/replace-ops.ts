@@ -112,7 +112,7 @@ export async function landInTabs(o: ReplaceOutcome) {
 function skippedText(s: ReplaceSkip[]): string {
   if (s.length === 0) return "";
   const head = s.slice(0, 3).map((x) => `${x.rel}：${x.text}`).join("；");
-  return `；跳过 ${s.length} 个 —— ${head}${s.length > 3 ? " …" : ""}`;
+  return `；跳过 ${s.length} 个：${head}${s.length > 3 ? " …" : ""}`;
 }
 
 /** 执行。`allowNoUndo`：用户已经点了「这次撤销不了，仍然替换」 */
@@ -158,7 +158,7 @@ export const UNDO = { label: "撤销", run: () => void undo() };
  */
 export function undoFromMenu() {
   if (!replace.done || replace.done.root !== project.root) {
-    notify.hint("没有能撤销的替换 / 改名（只记最近一次；撤过、或者之后又替换过的就没了）");
+    notify.hint("没有可撤销的替换或重命名（仅保留最近一次）");
     return;
   }
   void undo();
@@ -171,13 +171,13 @@ export async function undo() {
     const p = await replacePending();
     if (!p || p.state !== "done" || (d && p.root !== d.root)) {
       replace.done = null;
-      notify.fail("那次替换已经不是最近一次了（之后在别的窗口里又替换过），撤销不了");
+      notify.fail("无法撤销：该替换已不是最近一次（其他窗口中执行过新的替换）");
       return;
     }
     const o = await replaceUndo(openDocs());
     await landInTabs(o);
     replace.done = null;
-    const text = `撤销了 ${o.changed.length} 个文件${skippedText(o.skipped)}`;
+    const text = `已撤销 ${o.changed.length} 个文件的更改${skippedText(o.skipped)}`;
     if (o.skipped.length) notify.fail(text, 8000);
     else notify.ok(text);
   } catch (e) {
@@ -215,7 +215,7 @@ export async function resolveInterrupted(rollback: boolean) {
   try {
     const o = await replaceRecover(rollback);
     await landInTabs(o);
-    if (rollback) notify.ok(`上次的替换已经退回（${o.changed.length} 个文件回到改前）`);
+    if (rollback) notify.ok(`已还原上次的替换（${o.changed.length} 个文件）`);
     else if (p) replace.done = { root: p.root, files: p.changed, hits: 0 };
   } catch (e) {
     notify.fail(message(e));

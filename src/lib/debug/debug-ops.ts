@@ -62,7 +62,7 @@ export async function debugTask(name: string, root: string | null = project.root
   if (!root) return;
   await listen();
   await syncAll(root);
-  if (!countOf(root)) notify.hint("还没有断点：点 Java 文件的行号下一个（⌘F8），调试着的时候也能下");
+  if (!countOf(root)) notify.hint("尚无断点：点击 Java 文件的行号或按 ⌘F8 添加，调试过程中也可添加");
   const { runTask } = await import("../state/runs-ops");
   await runTask(name, root, true);
 }
@@ -107,7 +107,7 @@ function apply(s: DebugState) {
  */
 export function showFrame(r: RunTab, f: DebugFrame | null, top: boolean) {
   if (!f || !f.path) {
-    if (f) notify.hint(`${f.name} 没有源码（运行时生成的类）`);
+    if (f) notify.hint(`${f.name} 没有源代码（运行时生成的类）`);
     return;
   }
   execOwner = r.id;
@@ -157,8 +157,8 @@ export async function step(action: DebugAction, id?: number) {
 export async function runToCursor() {
   const r = target();
   const t = tabs.active;
-  if (!r?.debug || r.debug.phase !== "paused") return void notify.hint("没有停着的调试：运行到光标要先停下来（撞上断点、或者暂停）");
-  if (!t || t.mode !== "edit" || !t.path.endsWith(".java")) return void notify.hint("光标要在一个 Java 文件里");
+  if (!r?.debug || r.debug.phase !== "paused") return void notify.hint("运行到光标需要调试会话处于暂停状态（命中断点或手动暂停）");
+  if (!t || t.mode !== "edit" || !t.path.endsWith(".java")) return void notify.hint("光标需位于 Java 文件中");
   const line = docs.viewOf(t)?.line;
   if (!line) return;
   try {

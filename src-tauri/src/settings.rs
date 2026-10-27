@@ -334,13 +334,13 @@ impl Problem {
     /// 给人看的一句话（状态栏、编辑器里那一行的诊断）
     pub fn text(&self) -> String {
         match self {
-            Problem::Syntax { msg, .. } => format!("设置文件写错了：{msg}"),
-            Problem::NotObject => "设置文件最外层要是一个 { … }".into(),
-            Problem::Unknown { key, .. } => format!("不认识的设置：{key}"),
-            Problem::WrongType { key, want, .. } => format!("{key} 要是{want}，这次用的默认值"),
-            Problem::Clamped { key, from, to, .. } => format!("{key} 是 {from}，超出范围，按 {to} 算"),
-            Problem::Duplicate { key, .. } => format!("{key} 写了不止一次，按最后一个算"),
-            Problem::BadShell { path, .. } => format!("terminal.shell 指的 {path} 不存在或者不能执行，终端用的是 $SHELL"),
+            Problem::Syntax { msg, .. } => format!("设置文件格式错误：{msg}"),
+            Problem::NotObject => "设置文件的顶层必须是对象 { … }".into(),
+            Problem::Unknown { key, .. } => format!("未知的设置项：{key}"),
+            Problem::WrongType { key, want, .. } => format!("{key} 应为{want}，已使用默认值"),
+            Problem::Clamped { key, from, to, .. } => format!("{key} 的值 {from} 超出范围，已按 {to} 处理"),
+            Problem::Duplicate { key, .. } => format!("{key} 重复出现，以最后一个为准"),
+            Problem::BadShell { path, .. } => format!("terminal.shell 指定的 {path} 不存在或不可执行，终端已改用 $SHELL"),
         }
     }
 }
@@ -630,7 +630,7 @@ pub fn template() -> String {
 
 /// 设置页交来的一个值能不能写：认识这个键、类型对、在范围里。和读文件时用的是同一个 [`check`] —— 写进去的东西读回来一定认
 pub fn validate(key: &str, v: &Value) -> Result<(), String> {
-    let d = def(key).ok_or_else(|| format!("不认识的设置：{key}"))?;
+    let d = def(key).ok_or_else(|| format!("未知的设置项：{key}"))?;
     match check(d, v) {
         Check::Ok => Ok(()),
         Check::Clamp(from, _) => Err(format!("{key} 是 {from}，超出范围")),

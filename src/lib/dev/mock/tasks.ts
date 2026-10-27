@@ -61,15 +61,15 @@ function list(root: string) {
   if (file) {
     try {
       const arr = jsonc(FILES[`${root}/${FILE}`]);
-      if (!Array.isArray(arr)) problems.push(`${FILE} 最外层要是 [ … ]（任务的列表）`);
+      if (!Array.isArray(arr)) problems.push(`${FILE} 的顶层必须是数组 [ … ]（任务列表）`);
       else
         arr.forEach((t: { name?: string; command?: string; cwd?: string }, i: number) => {
-          if (!t?.name?.trim() || !t?.command?.trim()) return void problems.push(`${FILE} 第 ${i + 1} 个任务缺 name 或 command（都要是非空的字符串），跳过了`);
-          if (defs.some((d) => d.name === t.name)) return void problems.push(`${FILE} 里的「${t.name}」 重名了，用的是前面那个`);
+          if (!t?.name?.trim() || !t?.command?.trim()) return void problems.push(`${FILE} 中第 ${i + 1} 个任务缺少 name 或 command（须为非空字符串），已跳过`);
+          if (defs.some((d) => d.name === t.name)) return void problems.push(`${FILE} 中的「${t.name}」 名称重复，使用第一个`);
           defs.push({ name: t.name.trim(), command: t.command.trim(), cwd: (t.cwd ?? "").replace(/^\.\/|\/$/g, ""), source: "file" });
         });
     } catch (e) {
-      problems.push(`${FILE} 写错了：${(e as Error).message}`);
+      problems.push(`${FILE} 格式错误：${(e as Error).message}`);
     }
   }
   const pkgs = Object.keys(FILES)
@@ -83,7 +83,7 @@ function list(root: string) {
     try {
       pj = JSON.parse(FILES[p]);
     } catch (e) {
-      problems.push(`${rel ? `${rel}/` : ""}package.json 解析不了：${(e as Error).message}`);
+      problems.push(`${rel ? `${rel}/` : ""}package.json 无法解析：${(e as Error).message}`);
       continue;
     }
     // JS 对象按插入顺序遍历（非数字键）—— 和 Rust 那边特意保住的文件顺序一致
@@ -121,7 +121,7 @@ function list(root: string) {
   // 你建的运行配置（真实现在 taskdefs::user_defs）：拼法照真实现
   for (const u of mockUserConfigs(root)) {
     if (defs.some((d) => d.name === u.name)) {
-      problems.push(`你建的运行配置「${u.name}」和别处的同名，没列 —— 改个名`);
+      problems.push(`运行配置「${u.name}」与其他配置重名，未列出，请重命名`);
       continue;
     }
     const mod = u.module;
@@ -339,7 +339,7 @@ export async function tasksCmd(cmd: string, a: A): Promise<unknown> {
         (goal && goal[2].split(/\s+/).every((t) => SAFE.test(t)) ? { name, command: `mvn -B -ntp ${goal[2]}`, cwd: "", source: "goal" as const } : undefined) ??
         (test ? { name, command: `mvn -B -ntp -Dtest=${test[2]} -Dsurefire.failIfNoSpecifiedTests=false -pl ${test[1]} -am test`, cwd: "", source: "goal" as const } : undefined) ??
         (build ? { name, command: `mvn -B -ntp ${name === "重新构建项目" ? "clean " : ""}test-compile`, cwd: "", source: "goal" as const } : undefined);
-      if (!def) throw new Error(`没有叫「${name}」的任务了（tasks.json 改过？）`);
+      if (!def) throw new Error(`任务「${name}」不存在（tasks.json 可能已修改）`);
       // 远程 JVM 调试（G23）：同真实现，只能调试 —— ▶ 也是挂上去
       const remote = def.source === "user" && "kind" in def && def.kind === "remote";
       if (remote) a.debug = true as unknown as A[string];

@@ -33,7 +33,7 @@ async function waitView(path: string) {
 
 export function openHistory(path: string | null = tabs.active?.path ?? null) {
   if (!path) {
-    notify.hint("先打开一个文件：本地历史是一个文件一个文件地记的");
+    notify.hint("请先打开文件：本地历史按文件记录");
     return;
   }
   close();
@@ -66,11 +66,11 @@ async function restore(path: string, text: string, when: string) {
     v = await waitView(path);
   }
   if (!v) {
-    notify.fail("编辑器没打开，没换成");
+    notify.fail("编辑器未打开，无法恢复");
     return;
   }
   // 按行的最小改动，不是整篇替换：没变的行上的断点留着（doc-diff.ts）
   v.dispatch({ changes: lineChanges(v.state.doc.toString(), text), userEvent: "input.paste", scrollIntoView: true });
   v.focus();
-  notify.ok(`换成了 ${when} 那一版，还没保存（⌘Z 撤回）`);
+  notify.ok(`已恢复为 ${when} 的版本，尚未保存（⌘Z 撤销）`);
 }

@@ -45,7 +45,7 @@ class Worktree {
     if (!(await docs.saveTab(t, text, { to }))) return;
     if (wasScratch) {
       // 写成了才移旧的；移不动（权限）也只是多一份，不回滚新文件
-      await trashEntry(from).catch((e) => notify.fail(`新文件已存好，旧草稿没能移到废纸篓：${e}`));
+      await trashEntry(from).catch((e) => notify.fail(`新文件已保存，但无法将原草稿移到废纸篓：${e}`));
       void scratches.refresh();
     }
     await this.changed();
@@ -59,7 +59,7 @@ class Worktree {
   async renameScratch(path: string, stem: string): Promise<boolean> {
     const name = `${stem.trim().replace(/\.md$/i, "")}.md`;
     if (name === ".md") {
-      notify.fail("名字不能为空");
+      notify.fail("名称不能为空");
       return false;
     }
     try {
@@ -146,7 +146,7 @@ class Worktree {
         if (now) now.handle = h;
         void closeLog(stale);
       } catch (e) {
-        notify.fail(`${before.name} 改名后重开日志失败，tail 会停：${String(e)}`);
+        notify.fail(`${before.name} 重命名后无法重新打开日志，实时跟踪已停止：${String(e)}`);
       }
     }
   }

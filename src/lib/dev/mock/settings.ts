@@ -163,7 +163,7 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
     case "settings_apply": {
       // 同 Rust：先全部校验，一个不对一个都不写
       const g = (a.global ?? {}) as Record<string, unknown>;
-      for (const [k, v] of Object.entries(g)) if (v !== null && !SCHEMA.some((d) => d.key === k)) throw new Error(`不认识的设置：${k}`);
+      for (const [k, v] of Object.entries(g)) if (v !== null && !SCHEMA.some((d) => d.key === k)) throw new Error(`未知的设置项：${k}`);
       for (const [k, v] of Object.entries(g)) if (v === null) delete WRITTEN[k];
       else WRITTEN[k] = v;
       const pr = a.project as { root: string; jdk: string; offline: boolean; skipTests: boolean } | null;
@@ -222,7 +222,7 @@ export async function settingsCmd(cmd: string, a: A): Promise<unknown> {
       if (!c.name) throw new Error("名字不能空着");
       const { mockTaskList } = await import("./tasks");
       const taken = mockTaskList(root).tasks.some((t) => t.name === c.name && !(t.name === old && t.source === "user"));
-      if (taken) throw new Error(`已经有一份叫「${c.name}」的了`);
+      if (taken) throw new Error(`已存在名为「${c.name}」的运行配置`);
       if (c.kind === "application" && !/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(c.mainClass.trim())) throw new Error("主类要写全名（com.demo.Tool）");
       if (c.kind === "maven" && !c.goals.trim()) throw new Error("目标要填（空格隔开，比如 clean package）");
       if (c.kind === "shell" && !c.command.trim()) throw new Error("命令不能空着");

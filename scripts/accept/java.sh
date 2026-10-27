@@ -280,8 +280,8 @@ CUST0=$(cat "${COMMON}/Customer.java")
 lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('new Money')); __lite.caret(l + 1, t[l].indexOf('new Money') + 6); __lite.key('Shift-F6'); return true" >/dev/null
 lite_wait main "return !!document.querySelector('.rename input')" 15 >/dev/null
 lite_eval main "__lite.fill('Customer', '.rename input'); document.querySelector('.rename input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); return true" >/dev/null
-lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('没改名')" 30 >/dev/null
-ok "$([ "$(lite_eval main "return (document.querySelector('.toast')?.textContent ?? '').includes('Customer.java 已经有了')")" = true ] && [ "$(cat "${COMMON}/Money.java")" = "${MONEY0}" ] && [ "$(cat "${COMMON}/Customer.java")" = "${CUST0}" ] && echo 1)" "撞名（改成已有的 Customer）：一个字都没改，胶囊说「Customer.java 已经有了」：$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")"
+lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('重命名失败')" 30 >/dev/null
+ok "$([ "$(lite_eval main "return (document.querySelector('.toast')?.textContent ?? '').includes('Customer.java 已存在')")" = true ] && [ "$(cat "${COMMON}/Money.java")" = "${MONEY0}" ] && [ "$(cat "${COMMON}/Customer.java")" = "${CUST0}" ] && echo 1)" "撞名（改成已有的 Customer）：一个字都没改，胶囊说「Customer.java 已经有了」：$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")"
 
 echo "== 格式化（⌥⌘L，docs/IDEA.md 第 15 节）：jdtls 排，照编辑器的缩进（4 个空格，不是 Eclipse 默认的 Tab）；⌘Z 一下全回去；选中几行只排那几行"
 FMT0=$(lite_eval main "return __lite.text()")
@@ -527,8 +527,8 @@ RENAME() { lite_wait main "return !!document.querySelector('.rename input')" 20 
 lite_eval main "${SEL} sel('qty * 100 + 5', 'qty * 100'); __lite.key('Alt-Mod-v'); return true" >/dev/null
 lite_wait main "return document.querySelectorAll('[role=option]').length >= 2" 20 >/dev/null
 OPTS=$(lite_eval main "return [...document.querySelectorAll('[role=option]')].map((o) => o.textContent.trim()).join(' / ')")
-ok "$(echo "${OPTS}" | grep -q '替换所有相同的' && echo 1)" "⌥⌘V：几种做法弹出来挑、标题是中文：${OPTS}"
-lite_eval main "const o = [...document.querySelectorAll('[role=option]')].find((x) => x.textContent.includes('替换所有相同的')); o.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); o.click(); return true" >/dev/null
+ok "$(echo "${OPTS}" | grep -q '替换所有匹配项' && echo 1)" "⌥⌘V：几种做法弹出来挑、标题是中文：${OPTS}"
+lite_eval main "const o = [...document.querySelectorAll('[role=option]')].find((x) => x.textContent.includes('替换所有匹配项')); o.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); o.click(); return true" >/dev/null
 RENAME base
 lite_wait main "return /int base = qty \\* 100;/.test(__lite.text())" 20 >/dev/null
 ok "$([ "$(lite_eval main "const t = __lite.text(); return /int base = qty \\* 100;/.test(t) && t.includes('int total = base + 5;') && t.includes('int other = base + 7;') && !/\\t/.test(t)")" = true ] && echo 1)" "抽完光标停在新名字上、改名框直接开着（jdtls 起的名字是「${N0}」），打 base 回车：声明一行、两处都换成 base；抽出来的代码是空格缩进（Eclipse 默认是 Tab）$([ "$(lite_eval main "return /\\t/.test(__lite.text())")" = true ] && echo "；此刻：$(lite_eval main "return JSON.stringify(__lite.text().split('\\n').slice(3, 9))")")"
@@ -557,7 +557,7 @@ lite_wait main "return __lite.text().includes('import java.util.*;')" 20 >/dev/n
 IMPS=$(lite_eval main "return __lite.text().split('\\n').filter((l) => l.startsWith('import') || l === '').slice(0, 6).join(' | ')")
 ok "$([ "$(lite_eval main "const t = __lite.text(); return t.includes('import java.util.*;') && !t.includes('import java.util.List;') && !t.includes('import com.demo.common.Money;') && t.indexOf('import java.util.*;') < t.indexOf('import static java.util.Collections.emptyList;')")" = true ] && echo 1)" "⌃⌥O：4 个 java.util 的类合成一行 .*（阈值 3）、同包的 Money 删掉、static 排在最后：${IMPS}"
 lite_eval main "__lite.key('Ctrl-Alt-o'); return true" >/dev/null; sleep 1
-ok "$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''" | grep -q '已经是这个样子' && echo 1)" "再按一次：没什么可改的，说一句（不是「已优化」）"
+ok "$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''" | grep -q '无需调整' && echo 1)" "再按一次：没什么可改的，说一句（不是「已优化」）"
 lite_eval main "__lite.caret(1, 1); __lite.key('Alt-Mod-l'); return true" >/dev/null
 lite_wait main "return !__lite.text().split('\\n').some((l) => l.length > 80)" 15 >/dev/null
 WRAP=$(lite_eval main "const t = __lite.text().split('\\n'); const i = t.findIndex((l) => l.includes('System.out.println(')); return t.slice(i, i + 2).map((l) => l.length + ':' + (l.match(/^ */)[0].length)).join(' ')")
@@ -598,9 +598,9 @@ open_file "${C}/Fee.java" >/dev/null
 lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('calc(')); __lite.caret(l + 1, t[l].indexOf('calc') + 2); __lite.key('Mod-F6'); return true" >/dev/null
 lite_wait main "return !!document.querySelector('.csig #csig-name')" 30 >/dev/null
 ok "$([ "$(lite_eval main "const d = document.querySelector('.csig'); return d.querySelector('#csig-name').value + '|' + [...d.querySelectorAll('.prow')].map((r) => r.querySelector('.ty').value + ' ' + r.querySelector('.nm').value).join(',')")" = "calc|int cents,String code" ] && echo 1)" "⌘F6 弹出改签名，读进来的是 jdtls 给的（java/getChangeSignatureInfo）：calc(int cents, String code)"
-lite_eval main "__lite.fill('fee', '.csig #csig-name'); [...document.querySelectorAll('.csig .prow')][0].querySelector('[aria-label^=\"把 cents 往后\"]').click(); return true" >/dev/null
+lite_eval main "__lite.fill('fee', '.csig #csig-name'); [...document.querySelectorAll('.csig .prow')][0].querySelector('[aria-label=\"下移 cents\"]').click(); return true" >/dev/null
 sleep 0.2
-lite_eval main "[...document.querySelectorAll('.csig button')].find((b) => b.textContent.includes('加一个')).click(); return true" >/dev/null
+lite_eval main "[...document.querySelectorAll('.csig button')].find((b) => b.textContent.includes('添加参数')).click(); return true" >/dev/null
 sleep 0.2
 lite_eval main "__lite.fill('boolean', '.csig .prow:nth-child(3) .ty'); return true" >/dev/null
 lite_eval main "__lite.fill('vip', '.csig .prow:nth-child(3) .nm'); return true" >/dev/null
@@ -612,7 +612,7 @@ lite_eval main "[...document.querySelectorAll('.csig button')].find((b) => b.tex
 lite_wait main "return !!document.querySelector('.csig .files') || !!document.querySelector('.csig .empty-msg.bad')" 60 >/dev/null
 PREV=$(lite_eval main "return [...document.querySelectorAll('.csig .files li')].map((e) => e.textContent).join(',') || document.querySelector('.csig .empty-msg.bad')?.textContent")
 ok "$([ "${PREV}" = "order-service/src/main/java/com/demo/order/FeeUse.java,shop-common/src/main/java/com/demo/common/Fee.java" ] && [ "$(cat "${C}/Fee.java")" = "${FEE0}" ] && echo 1)" "下一步：列出要改 Fee.java（声明）和另一个模块的 FeeUse.java（调用），盘上一个字还没动：${PREV}"
-lite_eval main "[...document.querySelectorAll('.csig button')].find((b) => b.textContent === '改签名').click(); return true" >/dev/null
+lite_eval main "[...document.querySelectorAll('.csig button')].find((b) => b.textContent === '更改签名').click(); return true" >/dev/null
 sig_done() { grep -q 'public long fee(String code, int cents, boolean vip)' "${C}/Fee.java" && grep -q 'new Fee().fee("A", 500, false)' "${FUSE}"; }
 wait_for 30 sig_done
 ok "$(sig_done && echo 1)" "点「改签名」：声明换了、FeeUse 里的调用跟着换成 fee(\"A\", 500, false)$(sig_done || echo "；此刻 Fee：$(grep -n 'long' "${C}/Fee.java" | tr '\n' ' ')；FeeUse：$(grep -n 'Fee()' "${FUSE}")；胶囊：$(lite_eval main "return document.querySelector('.toast')?.textContent ?? ''")")"
@@ -639,7 +639,7 @@ lite menu save main >/dev/null; sleep 1
 printf '%s\n' "${FEE0}" > "${C}/Fee.java"
 lite_wait main "return __lite.text().includes('v * 6 / 100') && !__lite.text().includes('rate')" 15 >/dev/null
 lite_eval main "const t = __lite.text().split('\\n'); const l = t.findIndex((x) => x.includes('* 3 / 100')); const c = t[l].indexOf('100'); __lite.select(l + 1, c + 1, l + 1, c + 4); __lite.key('Alt-Mod-p'); return true" >/dev/null
-lite_wait main "return __lite.notify.log.some((x) => x.text.includes('别的文件里也有调用'))" 30 >/dev/null
+lite_wait main "return __lite.notify.log.some((x) => x.text.includes('其他文件中也有调用'))" 30 >/dev/null
 ok "$([ "$(lite_eval main "return __lite.notify.log.some((x) => x.kind === 'fail' && x.text.includes('⌥⌘V') && x.text.includes('⌘F6'))")" = true ] && [ "$(cat "${FUSE}")" = "${FUSE0}" ] && echo 1)" "public 的 calc（调用在 order-service）：说清这时做不了、给出路（先 ⌥⌘V 再 ⌘F6），FeeUse 一字没动：$(lite_eval main "return __lite.notify.log.at(-1)?.text ?? ''")"
 
 echo "== 不往项目里写东西、退出不留 jdtls"

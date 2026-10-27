@@ -242,18 +242,18 @@ impl Debugs {
     /// 做法同 VS Code 的 Java 插件：在那一行临时下一个**普通**断点、继续，下一次停下时（停在那儿、或者先撞上了别的断点）照断点表把那个文件下回原样。
     /// 那一行停不了（空行、注释、没编译进去的）JVM 回「没对上」：不继续、照原样下回去、说清楚
     pub fn run_to(&self, run: u32, path: &str, line: u32) -> Result<(), String> {
-        let d = self.get(run).ok_or("这次运行没在调试")?;
+        let d = self.get(run).ok_or("此运行未处于调试状态")?;
         if d.snapshot().phase != Phase::Paused {
-            return Err("程序没停着：运行到光标要先停下来（撞上断点、或者暂停）".into());
+            return Err("程序未暂停：运行到光标需要先暂停（命中断点或手动暂停）".into());
         }
         if d.lost.lock().unwrap_or_else(|e| e.into_inner()).contains(path) {
-            return Err("这个文件热替换之后行号变了，这次调试里下不了断点（重新调试就好）".into());
+            return Err("此文件热替换后行号已变化，本次调试中无法设置断点（重新调试后恢复）".into());
         }
         let own = self.file_bps(&d.root, path);
-        let verified = d.send_breakpoints(path, &with_temp(&own, line)).ok_or("调试器没回话")?;
+        let verified = d.send_breakpoints(path, &with_temp(&own, line)).ok_or("调试器未响应")?;
         if !verified.contains(&line) {
             d.send_breakpoints(path, &own);
-            return Err(format!("第 {line} 行停不了（空行、注释，或者没编译进去）"));
+            return Err(format!("无法在第 {line} 行暂停（空行、注释或未编译的代码）"));
         }
         *d.temp.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.to_string());
         d.step("continue")
@@ -439,7 +439,7 @@ fn wait_listen(port: u16, alive: impl Fn() -> bool, poll: Duration) -> Result<u1
             return Ok(port);
         }
         if !running {
-            return Err("还没开调试端口就退出了（多半是编译没过，原因在输出里）".into());
+            return Err("程序在开启调试端口前已退出（可能是编译失败，详见输出）".into());
         }
         std::thread::sleep(poll);
     }
@@ -464,7 +464,7 @@ fn wait_jdwp(pgid: i32, seen: &mut std::collections::HashSet<i32>, alive: impl F
             }
         }
         if !running {
-            return Err("还没开调试端口就退出了（多半是编译没过，原因在输出里）".into());
+            return Err("程序在开启调试端口前已退出（可能是编译失败，详见输出）".into());
         }
         std::thread::sleep(poll);
     }
@@ -502,7 +502,7 @@ fn wait_port(log: &Path, from: &mut u64, alive: impl Fn() -> bool, poll: Duratio
         }
         // 这一轮读之前就已经退了：读完还没有，就是没有（先判活、再读，退出前最后写的那几行也读到了）
         if !running {
-            return Err("还没开调试端口就退出了（多半是编译没过，原因在输出里）".into());
+            return Err("程序在开启调试端口前已退出（可能是编译失败，详见输出）".into());
         }
         std::thread::sleep(poll);
     }
@@ -568,7 +568,7 @@ fn resolve_lazy(sess: &Session, raw: &[Value], vars: &mut [Var]) {
 
 impl Dbg {
     fn session(&self) -> Result<Arc<Session>, String> {
-        self.dap.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or_else(|| "调试器还没挂上".into())
+        self.dap.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or_else(|| "调试器尚未连接".into())
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -689,7 +689,7 @@ impl Dbg {
                 // threadId 0：java-debug 把它当成「整个 JVM」
                 return sess.request("pause", json!({ "threadId": 0 }), REQ).map(|_| ()).map_err(|e| e.to_string());
             }
-            _ => return Err(format!("不认识的动作 {action}")),
+            _ => return Err(format!("未知的操作 {action}")),
         };
         let Some(t) = snap.thread.filter(|_| snap.phase == Phase::Paused) else { return Ok(()) };
         let body = sess.request(cmd, json!({ "threadId": t }), REQ).map_err(|e| e.to_string())?;
@@ -701,7 +701,7 @@ impl Dbg {
     /// 换看另一个停着的线程
     pub fn select_thread(&self, thread: i64) -> Result<Snapshot, String> {
         if !self.stopped.lock().unwrap_or_else(|e| e.into_inner()).contains(&thread) {
-            return Err("这个线程没停着".into());
+            return Err("此线程未暂停".into());
         }
         let reason = self.snapshot().reason;
         self.show_paused(thread, &reason);
@@ -718,7 +718,7 @@ impl Dbg {
                 // 「贵的」作用域（静态字段那种）不自动展开，同 VS Code 的约定
                 b["scopes"].as_array().into_iter().flatten().filter(|sc| sc["expensive"] != true).filter_map(|sc| sc["variablesReference"].as_i64()).collect()
             }
-            (None, None) => return Err("要哪一帧的变量？".into()),
+            (None, None) => return Err("未指定栈帧".into()),
         };
         let mut raw = Vec::new();
         for r in refs {
@@ -840,7 +840,7 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
                 remote_used = true;
                 Ok(*p)
             }
-            Who::Remote(..) => Err("对面的 JVM 断开了".into()),
+            Who::Remote(..) => Err("远程 JVM 已断开".into()),
         };
         let mut attached = 0;
         let why = loop {
@@ -856,10 +856,10 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
                     // 远程：会话断了（对面退了、网络断了），占位的那一格也就没用了 —— 停掉它，说一句
                     if let Who::Remote(h, p) = &who {
                         task.stop(Duration::from_secs(2));
-                        break format!("{h}:{p} 那个 JVM 断开了（退出了，或者连不上了）");
+                        break format!("{h}:{p} 上的 JVM 已断开（已退出或无法连接）");
                     }
                     d.set(|s| {
-                        s.phase = Phase::Waiting("这个 JVM 跑完了，等下一个（surefire 可能还要再起一个）…".into());
+                        s.phase = Phase::Waiting("当前 JVM 已结束，正在等待下一个（surefire 可能会再启动一个）…".into());
                         s.thread = None;
                         s.frames.clear();
                         s.threads.clear();
@@ -871,7 +871,7 @@ pub fn start(app: &AppHandle, owner: &str, run: u32, root: &str, log: PathBuf, w
                 Err(e) if matches!(who, Who::Remote(..)) => {
                     task.stop(Duration::from_secs(2));
                     let Who::Remote(h, p) = &who else { unreachable!() };
-                    break format!("挂不上 {h}:{p}：{e}（对面的 JVM 要带着 -agentlib:jdwp=transport=dt_socket,server=y,address=*:{p} 起）");
+                    break format!("无法连接 {h}:{p}：{e}（目标 JVM 需使用 -agentlib:jdwp=transport=dt_socket,server=y,address=*:{p} 启动）");
                 }
                 Err(e) => break fail(&d, &task, e),
             }
@@ -901,7 +901,7 @@ fn fail(d: &Dbg, task: &tasksvc::Task, why: String) -> String {
     applog::write(applog::Level::Warn, "debug", &format!("调试器没挂上（运行 {}）：{why}", d.run));
     if task.alive() {
         task.stop(Duration::from_secs(5));
-        return format!("{why} —— 程序停在入口等调试器，已经停掉了");
+        return format!("{why}。程序在入口处等待调试器，已将其终止");
     }
     why
 }
@@ -913,11 +913,11 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u
         *h.base.lock().unwrap_or_else(|e| e.into_inner()) = hotswap::Baseline::scan(Path::new(&d.root));
     }
     d.lost.lock().unwrap_or_else(|e| e.into_inner()).clear();
-    d.set(|s| s.phase = Phase::Waiting("等 Java 语言服务器导入完…".into()));
+    d.set(|s| s.phase = Phase::Waiting("正在等待 Java 语言服务器完成导入…".into()));
     let st = app.state::<crate::state::AppState>();
     let java = st.java.ensure(app, &d.owner, &d.root).map_err(|s| match s.phase {
         crate::java::Phase::Failed(w) => w,
-        _ => "Java 语言服务器起不来".into(),
+        _ => "Java 语言服务器无法启动".into(),
     })?;
     *d.hold.lock().unwrap_or_else(|e| e.into_inner()) = Some(java.hold());
     let (dap_port, project) = match who {
@@ -930,10 +930,10 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u
         Who::Remote(h, _) => h.as_str(),
         _ => "127.0.0.1",
     };
-    d.set(|s| s.phase = Phase::Waiting("正在挂上调试器…".into()));
+    d.set(|s| s.phase = Phase::Waiting("正在连接调试器…".into()));
     let (tx, rx) = mpsc::channel::<Value>();
     let sess = Arc::new(
-        Session::connect(dap_port, Box::new(move |e| { let _ = tx.send(e); }), Box::new(|| {})).map_err(|e| format!("连不上调试插件：{e}"))?,
+        Session::connect(dap_port, Box::new(move |e| { let _ = tx.send(e); }), Box::new(|| {})).map_err(|e| format!("无法连接调试插件：{e}"))?,
     );
     sess.request(
         "initialize",
@@ -942,12 +942,12 @@ fn attach(app: &AppHandle, d: &Arc<Dbg>, next_port: &mut dyn FnMut() -> Result<u
     )
     .map_err(|e| format!("调试插件 initialize 失败：{e}"))?;
     sess.request("attach", json!({ "hostName": host, "port": jvm_port, "timeout": 10000, "projectName": project }), REQ)
-        .map_err(|e| format!("挂不上 JVM（端口 {jvm_port}）：{e}"))?;
+        .map_err(|e| format!("无法连接 JVM（端口 {jvm_port}）：{e}"))?;
     // 等 initialized 再下断点（DAP 的次序）。中间来的别的事件（版本不一致的提醒这类）记日志
     let deadline = std::time::Instant::now() + REQ;
     loop {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
-        let e = rx.recv_timeout(left).map_err(|_| "调试插件挂上之后没说「准备好了」".to_string())?;
+        let e = rx.recv_timeout(left).map_err(|_| "调试插件连接后未发出就绪信号".to_string())?;
         if e["event"] == "initialized" {
             break;
         }
@@ -1016,15 +1016,15 @@ fn cond_warning(msg: &str) -> String {
     if let Some(rest) = msg.strip_prefix("Breakpoint condition '") {
         if let Some((cond, why)) = rest.split_once("' error: ") {
             let why = match why.strip_prefix("Cannot evaluate because of compilation error(s): ") {
-                Some(w) => format!("编译不过：{}", w.trim_end_matches('.')),
+                Some(w) => format!("编译错误：{}", w.trim_end_matches('.')),
                 None => why.to_string(),
             };
-            return format!("条件 {cond} 算不了，照样停下了：{why}");
+            return format!("条件 {cond} 无法求值，已暂停：{why}");
         }
     }
     if let Some(rest) = msg.strip_prefix("Result of breakpoint condition '") {
         if let Some((cond, _)) = rest.split_once("' is not a boolean") {
-            return format!("条件 {cond} 的结果不是 true / false，照样停下了");
+            return format!("条件 {cond} 的结果不是布尔值，已暂停");
         }
     }
     msg.to_string()
@@ -1055,7 +1055,7 @@ fn run_events(d: &Dbg, rx: mpsc::Receiver<Value>, task: &tasksvc::Task) {
                 applog::write(applog::Level::Warn, "debug", &msg);
                 // 日志断点算不了：它不停，不能挂到「下一次停下来」时说 —— 那时说的是别的断点。就地打进输出，和它本该打的那句在同一个位置
                 if let Some(rest) = msg.strip_prefix("[Logpoint] ") {
-                    task.note(&format!("[日志断点] 算不了：{rest}"));
+                    task.note(&format!("[日志断点] 无法求值：{rest}"));
                 } else {
                     *d.warn.lock().unwrap_or_else(|e| e.into_inner()) = Some(cond_warning(&msg));
                 }
@@ -1129,10 +1129,10 @@ mod tests {
     fn 条件算不了_插件的原话翻成人话_认不出的原样给() {
         assert_eq!(
             cond_warning("Breakpoint condition 'nosuch == 1' error: Cannot evaluate because of compilation error(s): nosuch cannot be resolved to a variable."),
-            "条件 nosuch == 1 算不了，照样停下了：编译不过：nosuch cannot be resolved to a variable"
+            "条件 nosuch == 1 无法求值，已暂停：编译错误：nosuch cannot be resolved to a variable"
         );
-        assert_eq!(cond_warning("Breakpoint condition 'a.b()' error: java.lang.NullPointerException"), "条件 a.b() 算不了，照样停下了：java.lang.NullPointerException");
-        assert_eq!(cond_warning("Result of breakpoint condition 'cents' is not a boolean, please correct your expression."), "条件 cents 的结果不是 true / false，照样停下了");
+        assert_eq!(cond_warning("Breakpoint condition 'a.b()' error: java.lang.NullPointerException"), "条件 a.b() 无法求值，已暂停：java.lang.NullPointerException");
+        assert_eq!(cond_warning("Result of breakpoint condition 'cents' is not a boolean, please correct your expression."), "条件 cents 的结果不是布尔值，已暂停");
         assert_eq!(cond_warning("[Logpoint] Log message 'x' error: y"), "[Logpoint] Log message 'x' error: y");
     }
 

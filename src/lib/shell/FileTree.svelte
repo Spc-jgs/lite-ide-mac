@@ -388,7 +388,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     if (failed.length === 0) {
       notify.ok(m.rows.length === 1 ? `已移到 ${relOf(m.dest) || "项目根"}：${m.rows[0].name}` : `已移动 ${done} 个到 ${relOf(m.dest) || "项目根"}`);
     } else {
-      notify.fail(`${done} 个已移动，${failed.length} 个没动：${failed.join("；")}`, 5000);
+      notify.fail(`已移动 ${done} 个，${failed.length} 个移动失败：${failed.join("；")}`, 5000);
     }
   }
 
@@ -852,7 +852,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
         }
         ask = null;
         await reveal(to);
-        notify.ok(`已改名为 ${to.slice(to.lastIndexOf("/") + 1)}`);
+        notify.ok(`已重命名为 ${to.slice(to.lastIndexOf("/") + 1)}`);
       } else {
         const isDir = a.kind === "newDir";
         const path = await createEntry(a.dir, name, isDir);
@@ -895,7 +895,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     if (failed.length === 0) {
       notify.ok(t.rows.length === 1 ? `已移到废纸篓：${t.rows[0].name}` : `已移到废纸篓 ${done} 个`);
     } else {
-      notify.fail(`${done} 个已移到废纸篓，${failed.length} 个没动：${failed.join("；")}`, 5000);
+      notify.fail(`已将 ${done} 个移到废纸篓，${failed.length} 个失败：${failed.join("；")}`, 5000);
     }
   }
 
@@ -1102,7 +1102,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
       class="proj"
       class:droptarget={dropTarget === root}
       bind:this={headEl}
-      title="{root}（右键或点击：项目根的操作）"
+      title="{root}（单击或右键单击以显示项目操作）"
       onclick={(e) => {
         const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
         openMenuAtHead(r.left, r.bottom + 2);
@@ -1138,8 +1138,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
       class="ibtn"
       class:on={follow}
       onclick={() => settings.toggle("tree.follow")}
-      title={follow ? "跟随标签：开（切标签时树自动定位）" : "跟随标签：关"}
-      aria-label="跟随标签"
+      title={follow ? "跟随标签页：开（切换标签页时自动定位）" : "跟随标签页：关"}
+      aria-label="跟随标签页"
       aria-pressed={follow}
     >
       <Icon name="follow" />
@@ -1148,7 +1148,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
       class="ibtn"
       class:on={compact}
       onclick={() => settings.toggle("tree.compact")}
-      title={compact ? "合并单层目录：开（com/demo/order 画成 com.demo.order）" : "合并单层目录：关（一层一行）"}
+      title={compact ? "合并单层目录：开（com/demo/order 显示为 com.demo.order）" : "合并单层目录：关"}
       aria-label="合并单层目录"
       aria-pressed={compact}
     >
@@ -1198,7 +1198,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
         onkeydown={(e) => onRowKey(e, i)}
         oncontextmenu={(e) => openMenu(e, i)}
         title={row.generated
-          ? `${row.label} —— 生成物目录。搜索（⌘P / ⇧⌘F）不进这里，点开仍然可以看`
+          ? `${row.label}：生成目录，搜索（⇧⌘O / ⇧⌘F）时排除，仍可展开查看`
           : row.label}
       >
         {#if row.isDir && loading.has(row.path)}
@@ -1226,7 +1226,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
             <span class="gmark g-{d.cls}">{d.ch}</span>
           {:else}
             <!-- 目录自身没改，但里面有东西改了：一个点，不喧宾夺主 -->
-            <span class="gdot" aria-label="内含改动"></span>
+            <span class="gdot" aria-label="包含更改"></span>
           {/if}
         {/if}
       </button>
@@ -1304,7 +1304,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
         }}>取消</button
       >
       <button class="btn primary" disabled={ask.busy} class:busy={ask.busy} aria-busy={ask.busy} onclick={() => void submitAsk()}>
-        {ask.kind === "rename" ? "改名" : "新建"}
+        {ask.kind === "rename" ? "重命名" : "新建"}
       </button>
     </div>
   </div>
@@ -1343,9 +1343,9 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     <div class="pobj dest" title={move.dest}>
       <span class="ic"><Icon name="files" /></span>
       <span class="oname">{relOf(move.dest) || rootName}/</span>
-      <span class="opath">移到这里</span>
+      <span class="opath">移动到此处</span>
     </div>
-    <div class="phint">{move.rows.some((r) => r.isDir) ? "目录连同里面的全部内容一起移；" : ""}打开着的标签会跟过去</div>
+    <div class="phint">{move.rows.some((r) => r.isDir) ? "目录将连同其全部内容一起移动；" : ""}已打开的标签页将随之更新</div>
     <div class="prow">
       <button
         class="btn"
@@ -1381,14 +1381,14 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
       </div>
     {/each}
     {#if trash.rows.length > 3}<div class="pmore">还有 {trash.rows.length - 3} 个</div>{/if}
-    <div class="phint">{trash.rows.some((r) => r.isDir) ? "目录连同里面的全部内容一起进废纸篓；" : ""}可以在 Finder 里放回原处</div>
+    <div class="phint">{trash.rows.some((r) => r.isDir) ? "目录将连同其全部内容一起移到废纸篓；" : ""}可在 Finder 中放回原处</div>
     {#if trash.dirty > 0}
       <!--
         未保存的改动在废纸篓里是**找不回来的**：文件回来的是磁盘上那一份，
         编辑器里没保存的那些字随着标签一起没。这句必须说在前面
       -->
       <div class="pwarn">
-        有 {trash.dirty} 个未保存的标签会被一起关掉，那些改动找不回来。
+        {trash.dirty} 个包含未保存更改的标签页将被关闭，这些更改将无法恢复。
       </div>
     {/if}
     <div class="prow">

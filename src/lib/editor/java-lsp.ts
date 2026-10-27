@@ -65,7 +65,7 @@ export function onStatus(s: JavaStatus) {
   const busy = s.phase === "starting" || s.phase === "importing";
   const t = tasks.get(s.root);
   if (busy) {
-    const label = s.phase === "starting" ? "Java：正在起语言服务器" : `Java：导入中${s.message ? ` · ${s.message.replace(/^\d{1,3}%\s*/, "")}` : ""}`;
+    const label = s.phase === "starting" ? "Java：正在启动语言服务器" : `Java：正在导入${s.message ? ` · ${s.message.replace(/^\d{1,3}%\s*/, "")}` : ""}`;
     const percent = s.phase === "importing" ? percentOf(s.message) : null;
     if (t) t.set({ label, percent });
     else tasks.set(s.root, progress.start(label, { percent }));
@@ -75,7 +75,7 @@ export function onStatus(s: JavaStatus) {
   tasks.delete(s.root);
   if (s.phase === "failed" && !told.has(`${s.root}\n${s.message}`)) {
     told.add(`${s.root}\n${s.message}`);
-    notify.fail(`Java 智能没起来：${s.message}`);
+    notify.fail(`Java 语言服务器启动失败：${s.message}`);
   }
 }
 
@@ -342,7 +342,7 @@ export function lspSettle(view: EditorView): Promise<void> | null {
 async function generate(view: EditorView) {
   const s = syncs.get(view);
   if (!s) return;
-  if (!usable(s.root)) return void notify.hint("Java 语言服务器还没起好，稍等一下再按");
+  if (!usable(s.root)) return void notify.hint("Java 语言服务器尚未就绪，请稍后再试");
   const pos = view.state.selection.main.head;
   const l = view.state.doc.lineAt(pos);
   const [line, ch] = [l.number - 1, pos - l.from];
@@ -359,13 +359,13 @@ async function generate(view: EditorView) {
         const gen = view.state.field(genField, false) ?? 0;
         const r = await javaGenApply(s.root, s.path, view.state.doc.toString(), line, ch, what, raws);
         if (!view.dom.isConnected) return;
-        if ((view.state.field(genField, false) ?? 0) !== gen) throw new Error("生成回来时文件又改过了，没动它 —— 再按一次 ⌃↵");
+        if ((view.state.field(genField, false) ?? 0) !== gen) throw new Error("文件在生成期间已被修改，未应用更改，请重试（⌃↵）");
         const doc = view.state.doc;
         const changes = r.edits
           .map((e) => ({ from: offset(doc, e.line, e.character), to: offset(doc, e.endLine, e.endCharacter), insert: e.text }))
           .filter((c) => c.insert !== doc.sliceString(c.from, c.to))
           .sort((x, y) => x.from - y.from || x.to - y.to);
-        if (!changes.length) return void notify.hint("什么都没生成（要的那些已经有了）");
+        if (!changes.length) return void notify.hint("未生成代码：所选成员已存在");
         view.dispatch({ changes, userEvent: "input.generate", scrollIntoView: true });
       },
       onclose: () => {
@@ -382,7 +382,7 @@ async function generate(view: EditorView) {
 async function openHierarchy(view: EditorView, types: boolean) {
   const s = syncs.get(view);
   if (!s) return;
-  if (!usable(s.root)) return notify.hint("Java 语言服务器还没起好，稍等一下再按");
+  if (!usable(s.root)) return notify.hint("Java 语言服务器尚未就绪，请稍后再试");
   s.flush();
   const pos = view.state.selection.main.head;
   const l = view.state.doc.lineAt(pos);
@@ -390,9 +390,9 @@ async function openHierarchy(view: EditorView, types: boolean) {
   try {
     nodes = await javaHierPrepare(s.root, s.path, l.number - 1, pos - l.from, types);
   } catch (e) {
-    return notify.fail(`${types ? "类型" : "调用"}层级没打开：${e instanceof Error ? e.message : e}`);
+    return notify.fail(`无法打开${types ? "类型" : "调用"}层次结构：${e instanceof Error ? e.message : e}`);
   }
-  if (!nodes.length) return notify.hint(types ? "光标不在类型上（类、接口、枚举的名字）" : "光标不在方法上（方法名、构造器）");
+  if (!nodes.length) return notify.hint(types ? "光标处不是类型（类、接口或枚举名）" : "光标处不是方法（方法名或构造器）");
   hierarchy.open(s.root, nodes[0], types);
   layout.panelView = "hierarchy";
   layout.panel = true;
@@ -418,12 +418,12 @@ async function findUsages(view: EditorView): Promise<void> {
   const s = syncs.get(view);
   if (!s) return;
   if (!usable(s.root)) {
-    notify.hint("Java 语言服务器还没起好。先用「在项目里找这个名字」");
+    notify.hint("Java 语言服务器尚未就绪，可先使用「在项目中查找」");
     return;
   }
   const w = wordAt(view.state.doc, view.state.selection.main.head);
   if (!w) {
-    notify.hint("光标不在名字上");
+    notify.hint("光标处没有标识符");
     return;
   }
   s.flush();
@@ -435,7 +435,7 @@ async function findUsages(view: EditorView): Promise<void> {
   try {
     r = await javaReferences(s.root, s.path, line.number - 1, w.from - line.from);
   } catch (e) {
-    notify.fail(`查不了 ${name} 的用法：${e}`);
+    notify.fail(`无法查找 ${name} 的用法：${e}`);
     return;
   } finally {
     t.end();
@@ -459,7 +459,7 @@ async function findUsages(view: EditorView): Promise<void> {
         closePopup();
         const target = targetOf(loc, s.root, s.path);
         if (!target) {
-          notify.hint(`${loc.label} 不在这个项目里，这一版还跳不过去`);
+          notify.hint(`${loc.label} 不在此项目中，暂不支持跳转`);
           return;
         }
         void nav.jumpTo({ from: w.from, to: w.to, text: name, target });
@@ -478,12 +478,12 @@ async function jumpList(view: EditorView, what: string, ask: typeof javaImplemen
   const s = syncs.get(view);
   if (!s) return;
   if (!usable(s.root)) {
-    notify.hint("Java 语言服务器还没起好");
+    notify.hint("Java 语言服务器尚未就绪");
     return;
   }
   const w = wordAt(view.state.doc, view.state.selection.main.head);
   if (!w) {
-    notify.hint("光标不在名字上");
+    notify.hint("光标处没有标识符");
     return;
   }
   s.flush();
@@ -494,7 +494,7 @@ async function jumpList(view: EditorView, what: string, ask: typeof javaImplemen
   try {
     r = await ask(s.root, s.path, line.number - 1, w.from - line.from);
   } catch (e) {
-    notify.fail(`找不了 ${name} 的${what}：${e}`);
+    notify.fail(`无法查找 ${name} 的${what}：${e}`);
     return;
   } finally {
     t.end();
@@ -503,7 +503,7 @@ async function jumpList(view: EditorView, what: string, ask: typeof javaImplemen
   const go = (loc: JavaLocation) => {
     const hit = toHit(loc, s.root, s.path, w, view.state.doc);
     if (hit) void nav.jumpTo(hit);
-    else notify.hint(`${loc.label} 不在这个项目里，这一版还跳不过去`);
+    else notify.hint(`${loc.label} 不在此项目中，暂不支持跳转`);
   };
   if (!r.items.length) return void notify.hint(none(name));
   if (r.items.length === 1) return go(r.items[0]);
@@ -535,9 +535,9 @@ async function jumpList(view: EditorView, what: string, ask: typeof javaImplemen
 async function quickDoc(view: EditorView): Promise<void> {
   const s = syncs.get(view);
   if (!s) return;
-  if (!usable(s.root)) return void notify.hint("Java 语言服务器还没起好");
+  if (!usable(s.root)) return void notify.hint("Java 语言服务器尚未就绪");
   const w = wordAt(view.state.doc, view.state.selection.main.head);
-  if (!w) return void notify.hint("光标不在名字上");
+  if (!w) return void notify.hint("光标处没有标识符");
   s.flush();
   const name = view.state.doc.sliceString(w.from, w.to);
   const line = view.state.doc.lineAt(w.from);
@@ -545,7 +545,7 @@ async function quickDoc(view: EditorView): Promise<void> {
   try {
     md = await javaHover(s.root, s.path, line.number - 1, w.from - line.from);
   } catch (e) {
-    return void notify.fail(`拿不到 ${name} 的文档：${e}`);
+    return void notify.fail(`无法获取 ${name} 的文档：${e}`);
   }
   if (!view.dom.isConnected) return;
   if (!md.trim()) return void notify.hint(`${name} 没有文档`);
@@ -583,12 +583,12 @@ function configJump(view: EditorView, root: string): boolean {
     try {
       hits = await springConfig(root, key);
     } catch (e) {
-      notify.fail(`找不了配置 ${key}：${e}`);
+      notify.fail(`无法查找配置 ${key}：${e}`);
       return;
     }
     if (!view.dom.isConnected) return;
     if (!hits.length) {
-      notify.hint(`配置文件里没有 ${key}（application* / bootstrap* 的 yml、properties 里找过，宽松绑定也算了）`);
+      notify.hint(`未在配置文件中找到 ${key}（已搜索 application* / bootstrap* 的 yml 与 properties，含宽松绑定）`);
       return;
     }
     if (hits.length === 1) {
@@ -601,7 +601,7 @@ function configJump(view: EditorView, root: string): boolean {
       target: document.body,
       props: {
         name: key,
-        title: `${key} 配在这几处`,
+        title: `${key} 的配置位置`,
         items: hits.map((h) => ({ uri: "", path: h.path, label: h.name, line: h.line - 1, character: 0, endLine: h.line - 1, endCharacter: 0, text: h.text })),
         total: hits.length,
         x: c?.left ?? 200,
@@ -635,7 +635,7 @@ async function organizeImports(view: EditorView): Promise<void> {
   const s = syncs.get(view);
   if (!s) return;
   if (!usable(s.root)) {
-    notify.hint("Java 语言服务器还没起好，优化 import 要等它");
+    notify.hint("Java 语言服务器尚未就绪，暂时无法优化 import");
     return;
   }
   const gen = view.state.field(genField, false) ?? 0;
@@ -643,12 +643,12 @@ async function organizeImports(view: EditorView): Promise<void> {
   try {
     edits = await javaOrganizeImports(s.root, s.path, view.state.doc.toString());
   } catch (e) {
-    notify.fail(`没优化 import：${e instanceof Error ? e.message : String(e)}`);
+    notify.fail(`优化 import 失败：${e instanceof Error ? e.message : String(e)}`);
     return;
   }
   if (!view.dom.isConnected) return;
   if ((view.state.field(genField, false) ?? 0) !== gen) {
-    notify.hint("回来时文件又改过了，没动它 —— 再按一次 ⌃⌥O");
+    notify.hint("文件在处理期间已被修改，未应用更改，请重试（⌃⌥O）");
     return;
   }
   const doc = view.state.doc;
@@ -657,7 +657,7 @@ async function organizeImports(view: EditorView): Promise<void> {
     .filter((c) => c.insert !== doc.sliceString(c.from, c.to))
     .sort((a, b) => a.from - b.from || a.to - b.to);
   if (!changes.length) {
-    notify.hint("import 已经是这个样子了");
+    notify.hint("import 无需调整");
     return;
   }
   view.dispatch({ changes, userEvent: "input.format" });
@@ -668,7 +668,7 @@ async function formatJava(view: EditorView): Promise<void> {
   const s = syncs.get(view);
   if (!s) return;
   if (!usable(s.root)) {
-    notify.hint("Java 语言服务器还没起好，格式化要等它");
+    notify.hint("Java 语言服务器尚未就绪，暂时无法格式化");
     return;
   }
   const st = view.state;
@@ -686,12 +686,12 @@ async function formatJava(view: EditorView): Promise<void> {
   try {
     edits = await javaFormat(s.root, s.path, st.doc.toString(), range, tabs ? st.tabSize : unit.length, !tabs);
   } catch (e) {
-    notify.fail(`没格式化：${e instanceof Error ? e.message : String(e)}`);
+    notify.fail(`格式化失败：${e instanceof Error ? e.message : String(e)}`);
     return;
   }
   if (!view.dom.isConnected) return;
   if ((view.state.field(genField, false) ?? 0) !== gen) {
-    notify.hint("格式化回来时文件又改过了，没动它 —— 再按一次 ⌥⌘L");
+    notify.hint("文件在格式化期间已被修改，未应用更改，请重试（⌥⌘L）");
     return;
   }
   const doc = view.state.doc;
@@ -700,11 +700,11 @@ async function formatJava(view: EditorView): Promise<void> {
     .filter((c) => c.insert !== doc.sliceString(c.from, c.to))
     .sort((a, b) => a.from - b.from || a.to - b.to);
   if (!changes.length) {
-    notify.hint(range ? "选中的这几行已经是这个格式了" : "已经是这个格式了");
+    notify.hint(range ? "所选代码格式无需调整" : "代码格式无需调整");
     return;
   }
   view.dispatch({ changes, userEvent: "input.format" });
-  notify.ok(`已格式化${range ? "选中的几行" : ""}：${changes.length} 处`);
+  notify.ok(`已格式化${range ? "所选代码" : ""}：${changes.length} 处`);
 }
 
 // ── 快速修复（⌥↵，docs/IDEA.md 第 16 节） ──
@@ -718,7 +718,7 @@ async function quickFix(view: EditorView): Promise<void> {
   const s = syncs.get(view);
   if (!s) return;
   if (!usable(s.root)) {
-    notify.hint("Java 语言服务器还没起好，快速修复要等它");
+    notify.hint("Java 语言服务器尚未就绪，暂时无法快速修复");
     return;
   }
   const st = view.state;
@@ -730,12 +730,12 @@ async function quickFix(view: EditorView): Promise<void> {
   try {
     items = await javaCodeActions(s.root, s.path, st.doc.toString(), range);
   } catch (e) {
-    notify.fail(`问不到修复：${e instanceof Error ? e.message : String(e)}`);
+    notify.fail(`无法获取快速修复：${e instanceof Error ? e.message : String(e)}`);
     return;
   }
   if (!view.dom.isConnected) return;
   if (!items.length) {
-    notify.hint("这里没有可用的修复");
+    notify.hint("此处没有可用的快速修复");
     return;
   }
   const gen = view.state.field(genField, false) ?? 0;
@@ -774,14 +774,14 @@ async function refactor(view: EditorView, kind: string, what: string): Promise<v
   const s = syncs.get(view);
   if (!s) return;
   if (!usable(s.root)) {
-    notify.hint(`Java 语言服务器还没起好，${what}要等它`);
+    notify.hint(`Java 语言服务器尚未就绪，暂时无法${what}`);
     return;
   }
   const st = view.state;
   const sel = st.selection.main;
   const inline = kind === "refactor.inline";
   if (sel.empty && !inline) {
-    notify.hint(`先选中要${what}的那段（表达式，或者抽方法时的几行）`);
+    notify.hint(`请先选择要${what}的代码（表达式，或提取方法时的若干语句）`);
     return;
   }
   const a = st.doc.lineAt(sel.from);
@@ -791,12 +791,12 @@ async function refactor(view: EditorView, kind: string, what: string): Promise<v
   try {
     items = (await javaCodeActions(s.root, s.path, st.doc.toString(), range, kind)).filter((it) => it.kind.startsWith(kind));
   } catch (e) {
-    notify.fail(`没${what}：${e instanceof Error ? e.message : String(e)}`);
+    notify.fail(`${what}失败：${e instanceof Error ? e.message : String(e)}`);
     return;
   }
   if (!view.dom.isConnected) return;
   if (!items.length) {
-    notify.hint(inline ? "光标底下没有能内联的（局部变量、方法、常量才行）" : `选中的这段${what}不了（要是一个完整的表达式，或者几条完整的语句）`);
+    notify.hint(inline ? "光标处没有可内联的元素（支持局部变量、方法和常量）" : `所选代码无法${what}（需为完整的表达式或语句）`);
     return;
   }
   const gen = view.state.field(genField, false) ?? 0;
@@ -807,7 +807,7 @@ async function refactor(view: EditorView, kind: string, what: string): Promise<v
 
 /** `rename`：做完之后在新名字上接着开改名（抽取：名字是 jdtls 起的，`refactor.ts` 的 `nameSpot` 认它在哪） */
 async function applyAction(view: EditorView, s: Sync, title: string, raw: string, gen: number, rename: boolean) {
-  const t = progress.start(`正在做：${title}`);
+  const t = progress.start(`正在执行：${title}`);
   try {
     const ops = await import("../state/replace-ops");
     const r = await javaApplyAction(s.root, s.path, raw, ops.openDocs());
@@ -815,14 +815,14 @@ async function applyAction(view: EditorView, s: Sync, title: string, raw: string
       await ops.landInTabs(r.outcome);
       const { replace } = await import("../state/replace.svelte");
       const hits = r.outcome.changed.reduce((n, c) => n + c.count, 0);
-      const label = `${title}：改了 ${r.outcome.changed.length} 个文件 ${hits} 处`;
+      const label = `${title}：已修改 ${r.outcome.changed.length} 个文件 ${hits} 处`;
       replace.done = r.outcome.undo ? { root: s.root, files: r.outcome.changed.length, hits, label } : null;
       notify.ok(label, undefined, r.outcome.undo ? ops.UNDO : undefined);
       return;
     }
     if (!view.dom.isConnected) return;
     if ((view.state.field(genField, false) ?? 0) !== gen) {
-      notify.hint("修复回来时文件又改过了，没动它 —— 再按一次 ⌥↵");
+      notify.hint("文件在修复期间已被修改，未应用更改，请重试（⌥↵）");
       return;
     }
     const doc = view.state.doc;
@@ -831,7 +831,7 @@ async function applyAction(view: EditorView, s: Sync, title: string, raw: string
       .filter((c) => c.insert !== doc.sliceString(c.from, c.to))
       .sort((x, y) => x.from - y.from || x.to - y.to);
     if (!changes.length) {
-      notify.hint(`「${title}」什么都没改`);
+      notify.hint(`「${title}」未产生更改`);
       return;
     }
     const tr = view.state.update({ changes, userEvent: "input.fix", scrollIntoView: true });
@@ -845,7 +845,7 @@ async function applyAction(view: EditorView, s: Sync, title: string, raw: string
       void renameAt(view);
     }
   } catch (e) {
-    notify.fail(`没做成「${title}」：${e instanceof Error ? e.message : String(e)}`, 8000);
+    notify.fail(`「${title}」失败：${e instanceof Error ? e.message : String(e)}`, 8000);
   } finally {
     t.end();
   }
@@ -862,7 +862,7 @@ async function renameAt(view: EditorView): Promise<void> {
   const s = syncs.get(view);
   if (!s) return;
   if (!usable(s.root)) {
-    notify.hint("Java 语言服务器还没起好，改名要等它");
+    notify.hint("Java 语言服务器尚未就绪，暂时无法重命名");
     return;
   }
   const head = view.state.selection.main.head;
@@ -872,11 +872,11 @@ async function renameAt(view: EditorView): Promise<void> {
   try {
     target = await javaPrepareRename(s.root, s.path, view.state.doc.toString(), at.line, at.character);
   } catch (e) {
-    notify.fail(`改不了名：${e}`);
+    notify.fail(`无法重命名：${e}`);
     return;
   }
   if (!target) {
-    notify.hint("光标底下不是能改名的东西（类、方法、字段、变量才行）");
+    notify.hint("光标处的元素不支持重命名（支持类、方法、字段和变量）");
     return;
   }
   if (!view.dom.isConnected) return;
@@ -905,7 +905,7 @@ async function renameAt(view: EditorView): Promise<void> {
 
 async function doRename(view: EditorView, s: Sync, at: { line: number; character: number }, name: string, to: string) {
   // 第一次改名要搜全部索引（探针实测 4.3 秒）：进度格得说在干什么（150ms 之内回来的它自己不出现，ui.md 第八条）
-  const t = progress.start(`正在把 ${name} 改名为 ${to}`);
+  const t = progress.start(`正在将 ${name} 重命名为 ${to}`);
   try {
     const ops = await import("../state/replace-ops");
     const o = await javaRename(s.root, s.path, view.state.doc.toString(), at.line, at.character, to, ops.openDocs());
@@ -913,11 +913,11 @@ async function doRename(view: EditorView, s: Sync, at: { line: number; character
     const { replace } = await import("../state/replace.svelte");
     const hits = o.changed.reduce((n, c) => n + c.count, 0);
     const files = o.renamed.length ? `，文件 ${o.renamed.map((r) => `${base(r.from)} → ${base(r.to)}`).join("、")}` : "";
-    const label = `已把 ${name} 改名为 ${to}：${o.changed.length} 个文件 ${hits} 处${files}`;
+    const label = `已将 ${name} 重命名为 ${to}：${o.changed.length} 个文件 ${hits} 处${files}`;
     replace.done = o.undo ? { root: s.root, files: o.changed.length, hits, label } : null;
     notify.ok(label, undefined, o.undo ? ops.UNDO : undefined);
   } catch (e) {
-    notify.fail(`没改名：${e instanceof Error ? e.message : String(e)}`, 8000);
+    notify.fail(`重命名失败：${e instanceof Error ? e.message : String(e)}`, 8000);
   } finally {
     t.end();
   }
@@ -936,11 +936,11 @@ async function moveClass(view: EditorView): Promise<void> {
   const s = syncs.get(view);
   if (!s) return;
   if (!usable(s.root)) {
-    notify.hint("Java 语言服务器还没起好，移动类要等它");
+    notify.hint("Java 语言服务器尚未就绪，暂时无法移动类");
     return;
   }
   if (tabs.byPath(s.path)?.dirty) {
-    notify.hint("这个文件有没保存的改动：先 ⌘S 再挪");
+    notify.hint("此文件有未保存的更改，请先保存（⌘S）再移动");
     return;
   }
   const [{ openModal }, { default: MoveDialog }] = await Promise.all([import("../settings/modal-host"), import("./MoveDialog.svelte")]);
@@ -963,11 +963,11 @@ async function changeSignature(view: EditorView): Promise<void> {
   const s = syncs.get(view);
   if (!s) return;
   if (!usable(s.root)) {
-    notify.hint("Java 语言服务器还没起好，改签名要等它");
+    notify.hint("Java 语言服务器尚未就绪，暂时无法更改签名");
     return;
   }
   if (tabs.byPath(s.path)?.dirty) {
-    notify.hint("这个文件有没保存的改动：先 ⌘S 再改签名");
+    notify.hint("此文件有未保存的更改，请先保存（⌘S）再更改签名");
     return;
   }
   const st = view.state;
@@ -978,7 +978,7 @@ async function changeSignature(view: EditorView): Promise<void> {
   try {
     sig = await javaMethodSig(s.root, s.path, st.doc.toString(), at.line, at.character);
   } catch (e) {
-    notify.hint(`改不了签名：${e instanceof Error ? e.message : String(e)}`);
+    notify.hint(`无法更改签名：${e instanceof Error ? e.message : String(e)}`);
     return;
   }
   if (!view.dom.isConnected) return;
@@ -1000,18 +1000,18 @@ async function changeSignature(view: EditorView): Promise<void> {
 }
 
 async function doChangeSig(view: EditorView, s: Sync, at: { line: number; character: number }, sig: Awaited<ReturnType<typeof javaMethodSig>>, indent: { tabSize: number; spaces: boolean }, expect: string[]) {
-  const t = progress.start(`正在改 ${sig.name} 的签名`);
+  const t = progress.start(`正在更改 ${sig.name} 的签名`);
   try {
     const ops = await import("../state/replace-ops");
     const o = await javaChangeSignature(s.root, s.path, view.state.doc.toString(), at.line, at.character, sig, indent.tabSize, indent.spaces, expect, ops.openDocs());
     await ops.landInTabs(o);
     const { replace } = await import("../state/replace.svelte");
     const hits = o.changed.reduce((n, c) => n + c.count, 0);
-    const label = `改了 ${sig.name} 的签名：${o.changed.length} 个文件 ${hits} 处`;
+    const label = `已更改 ${sig.name} 的签名：${o.changed.length} 个文件 ${hits} 处`;
     replace.done = o.undo ? { root: s.root, files: o.changed.length, hits, label } : null;
     notify.ok(label, undefined, o.undo ? ops.UNDO : undefined);
   } catch (e) {
-    notify.fail(`没改签名：${e instanceof Error ? e.message : String(e)}`, 8000);
+    notify.fail(`更改签名失败：${e instanceof Error ? e.message : String(e)}`, 8000);
   } finally {
     t.end();
   }
@@ -1019,18 +1019,18 @@ async function doChangeSig(view: EditorView, s: Sync, at: { line: number; charac
 
 async function doMove(view: EditorView, s: Sync, pkg: string, dest: string, expect: string[]) {
   const name = base(s.path);
-  const t = progress.start(`正在把 ${name} 挪到 ${pkg}`);
+  const t = progress.start(`正在将 ${name} 移动到 ${pkg}`);
   try {
     const ops = await import("../state/replace-ops");
     const o = await javaMove(s.root, s.path, view.state.doc.toString(), dest, expect, ops.openDocs());
     await ops.landInTabs(o);
     const { replace } = await import("../state/replace.svelte");
     const hits = o.changed.reduce((n, c) => n + c.count, 0);
-    const label = `已把 ${name} 挪到 ${pkg}：改了 ${o.changed.length} 个文件 ${hits} 处`;
+    const label = `已将 ${name} 移动到 ${pkg}：修改了 ${o.changed.length} 个文件 ${hits} 处`;
     replace.done = o.undo ? { root: s.root, files: o.changed.length, hits, label } : null;
     notify.ok(label, undefined, o.undo ? ops.UNDO : undefined);
   } catch (e) {
-    notify.fail(`没挪：${e instanceof Error ? e.message : String(e)}`, 8000);
+    notify.fail(`移动失败：${e instanceof Error ? e.message : String(e)}`, 8000);
   } finally {
     t.end();
   }
@@ -1270,7 +1270,7 @@ export function javaLsp(root: string | null, path: string): Extension {
       idKeymap([
         { id: "find-usages", preventDefault: true, run: (v) => (void findUsages(v), true) },
         // IDEA 的 Go to Implementation(s) / Super Method（keymap.ts 登记成 cm6）。⌘U 盖掉 CM6 默认的「撤销选区」：Java 文件里照 IDEA
-        { id: "goto-impl", preventDefault: true, run: (v) => (void jumpList(v, "实现", javaImplementation, (n) => `${n} 没有实现（不是接口 / 抽象方法，或者没人实现它）`), true) },
+        { id: "goto-impl", preventDefault: true, run: (v) => (void jumpList(v, "实现", javaImplementation, (n) => `${n} 没有实现（不是接口或抽象方法，或尚无实现）`), true) },
         // IDEA 的 Generate（macOS 键位 ⌘N / ⌃↵；⌘N 在这里是「新建草稿」，先挂 ⌃↵。keymap.ts 登记成 cm6）
         { id: "generate", preventDefault: true, run: (v) => (void generate(v), true) },
         // IDEA 的 Call Hierarchy / Type Hierarchy（keymap.ts 登记成 cm6）
@@ -1278,7 +1278,7 @@ export function javaLsp(root: string | null, path: string): Extension {
         { id: "type-hierarchy", preventDefault: true, run: (v) => (void openHierarchy(v, true), true) },
         // IDEA 的 Quick Documentation（macOS 键位是 F1）
         { id: "quick-doc", preventDefault: true, run: (v) => (void quickDoc(v), true) },
-        { id: "goto-super", preventDefault: true, run: (v) => (void jumpList(v, "父方法", javaSuper, (n) => `${n} 没有覆盖父类 / 接口里的方法`), true) },
+        { id: "goto-super", preventDefault: true, run: (v) => (void jumpList(v, "父方法", javaSuper, (n) => `${n} 未覆盖父类或接口中的方法`), true) },
         // IDEA 的 Refactor → Rename（keymap.ts 登记成 cm6）
         { id: "rename", preventDefault: true, run: (v) => (void renameAt(v), true) },
         // IDEA 的 Show Context Actions（keymap.ts 登记成 cm6）
@@ -1288,10 +1288,10 @@ export function javaLsp(root: string | null, path: string): Extension {
         // IDEA 的 Optimize Imports（docs/TAKEOVER.md G22）
         { id: "optimize-imports", preventDefault: true, run: (v) => (void organizeImports(v), true) },
         // IDEA 的 Refactor › Extract / Inline（docs/TAKEOVER.md G12）
-        { id: "extract-variable", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.variable", "抽成变量"), true) },
-        { id: "extract-constant", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.constant", "抽成常量"), true) },
-        { id: "extract-field", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.field", "抽成字段"), true) },
-        { id: "extract-method", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.function", "抽成方法"), true) },
+        { id: "extract-variable", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.variable", "引入变量"), true) },
+        { id: "extract-constant", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.constant", "引入常量"), true) },
+        { id: "extract-field", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.field", "引入字段"), true) },
+        { id: "extract-method", preventDefault: true, run: (v) => (void refactor(v, "refactor.extract.function", "提取方法"), true) },
         { id: "inline", preventDefault: true, run: (v) => (void refactor(v, "refactor.inline", "内联"), true) },
         // IDEA 的 Refactor › Move（F6）
         { id: "move-class", preventDefault: true, run: (v) => (void moveClass(v), true) },

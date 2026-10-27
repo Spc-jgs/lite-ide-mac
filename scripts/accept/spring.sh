@@ -348,8 +348,8 @@ lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
 # 条件写错了（变量名打错）：java-debug 照样停下 —— 不说一句的话，看着和「条件成立」一模一样（2026-10-20 第一次探测时就是这样）
 lite_eval main "await __lite.debug.cond('${P}', '${MONEY}', 4, 'nosuch == 1'); return true" >/dev/null
 debug_again
-ok "$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('') + ' ' + d?.note" | grep -q '^paused Money.java:4 条件 nosuch == 1 算不了，照样停下了：编译不过：nosuch cannot be resolved to a variable$' && echo 1)" "条件写错了：照样停在第 4 行，停下时说清条件算不了、为什么：$(lite_eval main "${DBG} return d?.note")"
-ok "$(lite_eval main "return document.querySelector('.dbg .where.warn')?.textContent ?? ''" | grep -q '算不了' && echo 1)" "调试器那一行用琥珀色写着这句"
+ok "$(lite_eval main "${DBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('') + ' ' + d?.note" | grep -q '^paused Money.java:4 条件 nosuch == 1 无法求值，已暂停：编译错误：nosuch cannot be resolved to a variable$' && echo 1)" "条件写错了：照样停在第 4 行，停下时说清条件算不了、为什么：$(lite_eval main "${DBG} return d?.note")"
+ok "$(lite_eval main "return document.querySelector('.dbg .where.warn')?.textContent ?? ''" | grep -q '无法求值' && echo 1)" "调试器那一行用琥珀色写着这句"
 lite menu debug-resume main >/dev/null
 lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
 lite_eval main "await __lite.debug.breakpoints('${P}', '${MONEY}', []); return true" >/dev/null
@@ -399,7 +399,7 @@ echo "== 运行配置（docs/SETTINGS.md 13.6）：「运行 › 编辑配置…
 RC='const d = document.querySelector(".dialog.runcfg"); const put = (el, v) => { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); }; const tick = () => new Promise((r) => setTimeout(r, 80));'
 lite menu run-configs main >/dev/null
 lite_wait main "return !!document.querySelector('.dialog.runcfg #rc-profiles')" 30 >/dev/null
-lite_eval main "${RC} [...d.querySelectorAll('.svc')].find((b) => b.textContent.trim() === 'OrderApplication').click(); await tick(); put(d.querySelector('#rc-profiles'), 'cfgprof'); await tick(); put(d.querySelector('#rc-vm'), '-Dlite.vm=vm1'); await tick(); put(d.querySelector('#rc-args'), '--lite.arg=a1'); await tick(); [...d.querySelectorAll('.env .btn')].find((b) => b.textContent.includes('加一个')).click(); await tick(); const kv = d.querySelectorAll('.kv input'); put(kv[0], 'LITE_ENV'); await tick(); put(kv[1], 'env1'); await tick(); d.querySelector('[data-default]').click(); return true" >/dev/null
+lite_eval main "${RC} [...d.querySelectorAll('.svc')].find((b) => b.textContent.trim() === 'OrderApplication').click(); await tick(); put(d.querySelector('#rc-profiles'), 'cfgprof'); await tick(); put(d.querySelector('#rc-vm'), '-Dlite.vm=vm1'); await tick(); put(d.querySelector('#rc-args'), '--lite.arg=a1'); await tick(); [...d.querySelectorAll('.env .btn')].find((b) => b.textContent.trim().endsWith('添加')).click(); await tick(); const kv = d.querySelectorAll('.kv input'); put(kv[0], 'LITE_ENV'); await tick(); put(kv[1], 'env1'); await tick(); d.querySelector('[data-default]').click(); return true" >/dev/null
 lite_wait main "return !document.querySelector('.dialog.runcfg')" 10 >/dev/null
 pick OrderApplication >/dev/null
 ok "$(wait_for 120 "logtext OrderApplication | grep -q 'LITE-IDE-CFG vm1 env1 --lite.arg=a1 cfgprof'" && echo 1)" "起来的 JVM 拿到了 VM 参数、环境变量、程序参数、Spring profile：$(logtext OrderApplication | grep LITE-IDE-CFG | tail -1)"
@@ -430,7 +430,7 @@ lite_eval main "__lite.editLine(4, 'CNY ', 'HOT '); return true" >/dev/null
 save_money
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 240 >/dev/null
 TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? ''")
-ok "$(echo "${TOAST}" | grep -q '构建完成.*已热替换 Money（停着的那一帧跑完旧的' && echo 1)" "构建完了自动换上、一句话说完（只有 Money：入口类重编出来一字不差，不算）：${TOAST}"
+ok "$(echo "${TOAST}" | grep -q '构建完成.*已热替换 Money（当前暂停的栈帧仍执行旧代码' && echo 1)" "构建完了自动换上、一句话说完（只有 Money：入口类重编出来一字不差，不算）：${TOAST}"
 lite menu debug-resume main >/dev/null
 wait_for 30 "logtext OrderApplication | grep -q 'LITE-IDE-AGAIN'" >/dev/null
 lite_wait main "${DBG} return d?.phase === 'paused' || d?.phase === 'ended'" 30 >/dev/null
@@ -448,7 +448,7 @@ lite_eval main "__lite.editLine(5, '', '        s = s.replace(\"HOT\", \"SHIFT\"
 save_money
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 240 >/dev/null
 TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? ''")
-ok "$(echo "${TOAST}" | grep -q '已热替换 Money。Money.java 的行号变了，里面的断点这次调试不再停，重新调试就回来' && echo 1)" "行号变了：换上了，说清断点这次不停、为什么：${TOAST}"
+ok "$(echo "${TOAST}" | grep -q '已热替换 Money。Money.java 的行号已变化，其中的断点在本次调试中不再生效，重新调试后恢复' && echo 1)" "行号变了：换上了，说清断点这次不停、为什么：${TOAST}"
 lite menu debug-resume main >/dev/null
 lite_wait main "${DBG} return d?.phase === 'ended'" 60 >/dev/null
 ok "$(logtext OrderApplication | grep -q 'LITE-IDE-THIRD SHIFT 0.07' && [ "$(lite_eval main "${DBG} return d?.phase + ':' + r?.status")" = "ended:done" ] && echo 1)" "第三次调用没停（断点没往错的地方下）、跑的是新代码、程序正常结束：$(logtext OrderApplication | grep LITE-IDE-THIRD | tail -1) $(lite_eval main "${DBG} return d?.phase + ':' + r?.status")"
@@ -460,7 +460,7 @@ lite_eval main "__lite.editLine(5, 'SHIFT', 'NEW'); __lite.editLine(8, '', '    
 save_money
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('热替换')" 240 >/dev/null
 TOAST=$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? ''")
-ok "$(echo "${TOAST}" | grep -q '没热替换：加了方法 —— 运行中的 JVM 只能换方法体（Money）。要生效得重新调试' && echo 1)" "加了方法：换不了，说清为什么、要怎么办：${TOAST}"
+ok "$(echo "${TOAST}" | grep -q '热替换失败：加了方法 —— 运行中的 JVM 只能换方法体（Money）。需重新调试才能生效' && echo 1)" "加了方法：换不了，说清为什么、要怎么办：${TOAST}"
 for _ in 1 2 3; do lite menu debug-resume main >/dev/null; lite_wait main "${DBG} return d?.phase === 'ended'" 10 >/dev/null && break; done
 ok "$(logtext OrderApplication | grep -q 'LITE-IDE-THIRD SHIFT 0.07' && ! logtext OrderApplication | grep -q 'NEW 0.07' && echo 1)" "程序照跑原来的（一个类都没换，不是换了一半）：$(logtext OrderApplication | grep LITE-IDE-THIRD | tail -1)"
 # 设置里关掉（java.hotswapOnSave）：调试着存盘也不再自动构建
@@ -514,7 +514,7 @@ lite_wait main "return !document.querySelector('.toast')" 15 >/dev/null
 lite menu build-project main >/dev/null
 lite_wait main "${B} return !!r && r.status === 'done' && r.problems?.items.length === 0" 240 >/dev/null
 lite_wait main "return (document.querySelector('.toast')?.textContent ?? '').includes('构建完成')" 10 >/dev/null
-ok "$([ "$(lite_eval main "${B} return r?.status + ':' + r?.problems?.items.length + ':' + (document.querySelector('.bt .sum')?.textContent?.trim() ?? '')")" = "done:0:构建成功" ] && lite_eval main "return document.querySelector('.toast')?.textContent ?? ''" | grep -q '构建完成，用了' && echo 1)" "改好了再构建：成功、没有错误，说了「$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? '没有'")」"
+ok "$([ "$(lite_eval main "${B} return r?.status + ':' + r?.problems?.items.length + ':' + (document.querySelector('.bt .sum')?.textContent?.trim() ?? '')")" = "done:0:构建成功" ] && lite_eval main "return document.querySelector('.toast')?.textContent ?? ''" | grep -q '构建完成，耗时' && echo 1)" "改好了再构建：成功、没有错误，说了「$(lite_eval main "return document.querySelector('.toast')?.textContent?.trim() ?? '没有'")」"
 
 echo "== 按项目挑 JDK（docs/IDEA.md 第 23 节）：pom 要 21、你默认的是 17 —— 用 21 编；运行、单测、调试、构建都一样，写在命令最前面"
 J21=$(ls -d /Library/Java/JavaVirtualMachines/*21*/Contents/Home 2>/dev/null | head -1)
@@ -544,7 +544,7 @@ else
     ok "$(lite_eval main "${RB} return r?.command ?? ''" | grep -q "^export JAVA_HOME=${J17} " && echo 1)" "设置 › 此项目 里选了 Java 17：命令用它，不按 pom 挑 21：$(lite_eval main "${RB} return (r?.command ?? '').split(';')[0]")"
     lite menu open-settings main >/dev/null
     lite_wait main "return !!document.querySelector('.dialog.settings .cat')" 10 >/dev/null
-    lite_eval main "${SD} cat('此项目').click(); await new Promise((r) => setTimeout(r, 300)); [...d.querySelectorAll('.choice')].find((c) => c.textContent.includes('按 pom 自动')).click(); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null
+    lite_eval main "${SD} cat('此项目').click(); await new Promise((r) => setTimeout(r, 300)); [...d.querySelectorAll('.choice')].find((c) => c.textContent.includes('根据 pom 自动选择')).click(); await new Promise((r) => setTimeout(r, 100)); d.querySelector('[data-default]').click(); return true" >/dev/null
     lite_wait main "return !document.querySelector('.dialog.settings')" 10 >/dev/null
   else
     skip "这台机器上没有 JDK 17，「项目里明确选一个」那条没验"
@@ -634,7 +634,7 @@ lite menu run-configs main >/dev/null
 lite_wait main "return !!document.querySelector('.dialog.runcfg [aria-label=\"新建\"]')" 30 >/dev/null
 # 一步一个 lite_eval：每步之后 Svelte 要重画（表单换了一份），连着写在一个里会拿到旧的元素
 lite_eval main "${RC} d.querySelector('[aria-label=\"新建\"]').click(); await tick(); [...d.querySelectorAll('.addmenu .svc')].find((b) => b.textContent.trim() === '应用').click(); await tick(); return true" >/dev/null
-lite_eval main "${RC} put(d.querySelector('#rc-name'), '订单手建'); await tick(); put(d.querySelector('#rc-main'), 'com.demo.order.OrderApplication'); await tick(); [...d.querySelectorAll('[aria-label=\"哪个 Maven 模块\"] .choice')].find((c) => c.textContent.trim() === 'order-service').click(); await tick(); put(d.querySelector('#rc-uvm'), '-Dlite.vm=hand1'); await tick(); put(d.querySelector('#rc-uargs'), '--lite.arg=h1'); await tick(); d.querySelector('[data-default]').click(); return true" >/dev/null
+lite_eval main "${RC} put(d.querySelector('#rc-name'), '订单手建'); await tick(); put(d.querySelector('#rc-main'), 'com.demo.order.OrderApplication'); await tick(); [...d.querySelectorAll('[aria-label=\"Maven 模块\"] .choice')].find((c) => c.textContent.trim() === 'order-service').click(); await tick(); put(d.querySelector('#rc-uvm'), '-Dlite.vm=hand1'); await tick(); put(d.querySelector('#rc-uargs'), '--lite.arg=h1'); await tick(); d.querySelector('[data-default]').click(); return true" >/dev/null
 if lite_wait main "return !document.querySelector('.dialog.runcfg')" 10 >/dev/null; then
   pick '订单手建' >/dev/null
   ok "$(wait_for 120 "logtext '订单手建' | grep -q 'LITE-IDE-CFG hand1 null --lite.arg=h1'" && echo 1)" "起来的 JVM 拿到了 VM 参数和程序参数：$(logtext '订单手建' | grep LITE-IDE-CFG | tail -1)"
@@ -663,7 +663,7 @@ if [ -x "${JDK}/bin/javac" ]; then
   pick '远程循环' >/dev/null
   lite_wait main "${RDBG} return d?.phase === 'paused' || d?.phase === 'ended'" 300 >/dev/null
   ok "$([ "$(lite_eval main "${RDBG} return d?.phase + ' ' + (d?.frames ?? []).slice(0, 1).map((f) => f.path.split('/').pop() + ':' + f.line).join('')")" = "paused Loop.java:5" ] && echo 1)" "▶ 就是挂上去（远程那种只能调试）：停在别人起的 JVM 里、Loop.java:5：$(lite_eval main "${RDBG} return d?.phase + ' ' + (d?.note ?? '')")"
-  ok "$(logtext '远程循环' | grep -q "^挂到 127.0.0.1:${LPORT} 的 JVM 上调试" && echo 1)" "运行窗那一格说清挂在哪、⌘F2 只断开"
+  ok "$(logtext '远程循环' | grep -q "^正在调试 127.0.0.1:${LPORT} 上的 JVM" && echo 1)" "运行窗那一格说清挂在哪、⌘F2 只断开"
   lite_wait main "return [...document.querySelectorAll('.dbg .vrow')].some((v) => v.innerText.startsWith('i = '))" 20 >/dev/null
   ok "$(lite_eval main "return [...document.querySelectorAll('.dbg .vrow')].map((v) => v.innerText.replace(/\s+/g, ' ')).join(' / ')" | grep -qE '(^| )i = [0-9]+' && echo 1)" "变量看得到：$(lite_eval main "return [...document.querySelectorAll('.dbg .vrow')].map((v) => v.innerText.replace(/\s+/g, ' ')).join(' / ')")"
   lite_eval main "await __lite.debug.breakpoints('${P}', '${LOOPSRC}', []); return true" >/dev/null
@@ -683,7 +683,7 @@ if [ -x "${JDK}/bin/javac" ]; then
   lite_wait main "${RDBG} return d?.phase === 'running'" 120 >/dev/null
   kill "${LPID}" 2>/dev/null
   lite_wait main "${RDBG} return d?.phase === 'ended'" 15 >/dev/null
-  ok "$(lite_eval main "${RDBG} return d?.phase + ':' + r?.status + ':' + (d?.note ?? '')" | grep -q "^ended:.*:127.0.0.1:${LPORT} 那个 JVM 断开了" && echo 1)" "对面的 JVM 退了：会话结束、说清是对面断了：$(lite_eval main "${RDBG} return d?.phase + ':' + r?.status + ':' + (d?.note ?? '')")"
+  ok "$(lite_eval main "${RDBG} return d?.phase + ':' + r?.status + ':' + (d?.note ?? '')" | grep -q "^ended:.*:127.0.0.1:${LPORT} 上的 JVM 已断开" && echo 1)" "对面的 JVM 退了：会话结束、说清是对面断了：$(lite_eval main "${RDBG} return d?.phase + ':' + r?.status + ':' + (d?.note ?? '')")"
   lite_eval main "await window.__TAURI_INTERNALS__.invoke('run_config_user_delete', { root: __lite.project.root, name: '远程循环' }); return true" >/dev/null
   rm -f "${LOOPSRC}"
 else

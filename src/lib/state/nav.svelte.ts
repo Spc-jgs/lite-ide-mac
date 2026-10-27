@@ -118,7 +118,7 @@ class Nav {
   async go(dir: "back" | "fwd") {
     const from = dir === "back" ? this.back : this.fwd;
     if (from.length === 0) {
-      notify.ok(dir === "back" ? "没有可回退的位置" : "没有可前进的位置", 1600);
+      notify.hint(dir === "back" ? "没有可后退的位置" : "没有可前进的位置", 1600);
       return;
     }
     const spot = from[from.length - 1];

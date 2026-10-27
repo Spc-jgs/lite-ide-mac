@@ -74,9 +74,19 @@ fn init_script() -> Option<PathBuf> {
         if let Some(d) = f.parent() {
             std::fs::create_dir_all(d).ok()?;
         }
-        let tmp = f.with_extension("gradle.tmp");
+        // 临时文件名每次一个：两个窗口同时起 Gradle 任务（测试里是两条并行的测试）会同时走到这里，
+        // 共用一个固定的临时名时，后改名的那个发现临时文件已经被前一个挪走、整个返回 None —— 命令拼不出来（2026-10-27 并行测试撞出来的）
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = f.with_extension(format!("gradle.{}-{n}.tmp", std::process::id()));
         std::fs::write(&tmp, INIT_SCRIPT).ok()?;
-        std::fs::rename(&tmp, f).ok()?;
+        if std::fs::rename(&tmp, f).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+            // 改名失败但盘上已经是对的（别的调用写好了）：照样能用
+            if std::fs::read_to_string(f).ok().as_deref() != Some(INIT_SCRIPT) {
+                return None;
+            }
+        }
     }
     Some(f.clone())
 }
@@ -370,6 +380,22 @@ Pattern: clean<TaskName>: Cleans the output files of a task.
         assert!(c.starts_with("./gradlew --console=plain") && c.ends_with(" :shop-common:test --rerun --tests com.demo.MoneyTest"), "{c}");
         assert!(test_command(":", "A#x+y,b.B#z", "g").unwrap().ends_with(" :test --rerun --tests '*.A.x' --tests '*.A.y' --tests b.B.z"));
         assert!(test_command(":a", "A; rm -rf ~", "g").is_none());
+    }
+
+    #[test]
+    fn init_脚本_多个线程同时要_都拿得到() {
+        let d = std::env::temp_dir().join(format!("lite-gradle-init-race-{}", std::process::id()));
+        set_init_file(d.join("lite-ide-init.gradle"));
+        let f = INIT_FILE.get().unwrap().clone();
+        for _ in 0..20 {
+            // 每轮先把盘上的弄旧，逼所有线程都去写
+            #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
+            let _ = std::fs::write(&f, "old");
+            let hs: Vec<_> = (0..8).map(|_| std::thread::spawn(init_script)).collect();
+            assert!(hs.into_iter().all(|h| h.join().unwrap().is_some()), "并发写 init 脚本时有一个拿到 None");
+        }
+        #[allow(clippy::disallowed_methods)] // 测试自己的临时目录
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

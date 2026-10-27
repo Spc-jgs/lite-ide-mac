@@ -294,10 +294,10 @@ export const KEYS: KeyDef[] = [
    * 重构（docs/TAKEOVER.md G12），键位照 IDEA 的 Refactor › Extract / Inline。选中一段按，抽完接着在新名字上开改名（⇧F6 那个框）。
    * ⌥⌘F 原来是查找面板里一条 VS Code 的「替换」别名（没登记、速查表不列），让给 IDEA 的抽字段
    */
-  { id: "extract-variable", label: "抽成变量（Java）", accel: "⌥⌘V", group: "编辑", owner: "cm6" },
-  { id: "extract-constant", label: "抽成常量（Java）", accel: "⌥⌘C", group: "编辑", owner: "cm6" },
-  { id: "extract-field", label: "抽成字段（Java）", accel: "⌥⌘F", group: "编辑", owner: "cm6" },
-  { id: "extract-method", label: "抽成方法（Java）", accel: "⌥⌘M", group: "编辑", owner: "cm6" },
+  { id: "extract-variable", label: "引入变量（Java）", accel: "⌥⌘V", group: "编辑", owner: "cm6" },
+  { id: "extract-constant", label: "引入常量（Java）", accel: "⌥⌘C", group: "编辑", owner: "cm6" },
+  { id: "extract-field", label: "引入字段（Java）", accel: "⌥⌘F", group: "编辑", owner: "cm6" },
+  { id: "extract-method", label: "提取方法（Java）", accel: "⌥⌘M", group: "编辑", owner: "cm6" },
   { id: "inline", label: "内联（Java）", accel: "⌥⌘N", group: "编辑", owner: "cm6" },
   // IDEA 的 Refactor › Move（F6）：整个类挪进另一个包，包声明和引用方的 import 跟着改；先列出要改哪些，点了才改
   { id: "move-class", label: "移动类（Java）", accel: "F6", group: "编辑", owner: "cm6" },

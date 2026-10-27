@@ -56,8 +56,8 @@ async function ask(textWithCursor: string) {
 {
   const st = EditorState.create({ doc: '{\n  "editor.fontsize": 1\n}' });
   const deco = decorate(st.doc, [
-    { text: "不认识的设置：editor.fontsize", line: 2, col: 3, fatal: false },
-    { text: "最外层要是 {}", line: null, col: null, fatal: true },
+    { text: "未知的设置项：editor.fontsize", line: 2, col: 3, fatal: false },
+    { text: "顶层必须是对象 {}", line: null, col: null, fatal: true },
     { text: "按存盘那份算的，编辑器里已经删了几行", line: 99, col: 1, fatal: false },
   ]);
   const lines: number[] = [];

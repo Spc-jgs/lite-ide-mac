@@ -170,7 +170,7 @@
         if (dead) return;
         onSeekDone?.();
         if (line === null) {
-          notify.fail("这个文件里没认出时间戳（认 2026-08-24 14:03:21 / Aug 24 14:03:21 / nginx / JSON 那几种）", 3600);
+          notify.fail("未识别到时间戳（支持 2026-08-24 14:03:21、Aug 24 14:03:21、nginx 与 JSON 等格式）", 3600);
           return;
         }
         // 「只看命中」下视图行是命中序号，物理行跳不过去 —— 先切回全文
@@ -462,7 +462,7 @@
     const q = templateQuery(template);
     patternsAt = null;
     if (!q) {
-      notify.hint("这一类全是变量，没有能筛的字");
+      notify.hint("此类别全部由变量组成，没有可用于过滤的文字");
       return;
     }
     pattern = q;

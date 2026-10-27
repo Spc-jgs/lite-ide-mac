@@ -9,16 +9,16 @@
 
 /** jdtls 的标题（`CorrectionMessages.properties` / `ActionMessages.properties` 里的原文）→ 中文。没在表里的原样 */
 const TITLES: Record<string, string> = {
-  "Extract to local variable (replace all occurrences)": "抽成局部变量（替换所有相同的）",
-  "Extract to local variable": "抽成局部变量（只换这一处）",
-  "Extract to method": "抽成方法",
-  "Extract lambda body to method": "把 lambda 抽成方法",
-  "Extract to constant": "抽成常量",
-  "Extract to field": "抽成字段",
+  "Extract to local variable (replace all occurrences)": "引入局部变量（替换所有匹配项）",
+  "Extract to local variable": "引入局部变量（仅替换此处）",
+  "Extract to method": "提取方法",
+  "Extract lambda body to method": "将 lambda 主体提取为方法",
+  "Extract to constant": "引入常量",
+  "Extract to field": "引入字段",
   "Inline local variable": "内联局部变量",
   "Inline Method": "内联方法",
   "Inline Constant": "内联常量",
-  "Convert local variable to field": "局部变量改成字段",
+  "Convert local variable to field": "将局部变量转换为字段",
   "Introduce Parameter...": "引入参数",
 };
 

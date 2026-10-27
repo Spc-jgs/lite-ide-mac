@@ -36,7 +36,7 @@ import type { TabState } from "./tab";
 /** ⇧⌘T（docs/TAKEOVER.md G6）：最近关掉、现在没开着的那个，正式标签打开；位置照旧回到上次那一行（`posByPath` 关的时候没删）。一层层往回 */
 export async function reopenClosed() {
   const p = [...tabflow.closed].reverse().find((x) => !tabs.byPath(x));
-  if (!p) return void notify.hint("没有关掉的标签可以重新打开");
+  if (!p) return void notify.hint("没有可重新打开的标签页");
   tabflow.closed = tabflow.closed.filter((x) => x !== p);
   await tabflow.openPath(p, { preview: false });
 }
@@ -74,7 +74,7 @@ export async function openFolder() {
 export async function openRecent(dir: string) {
   const info = await probePath(dir).catch(() => null);
   if (info?.kind !== "dir") {
-    notify.fail(`打不开 ${dir} —— 已从最近记录里移除`, 3200);
+    notify.fail(`无法打开 ${dir}，已从最近打开中移除`, 3200);
     // 名单在 Rust（多窗口第 4 步）：它删完会广播 recent-changed，别的窗口跟着更新
     project.recent = project.recent.filter((r) => r !== dir);
     void forgetRecent(dir).then((r) => (project.recent = r.projects)).catch(() => {});
@@ -98,7 +98,7 @@ export async function openScratchDir() {
   try {
     const dir = await scratchDir();
     if (!(await probePath(dir).catch(() => null))) {
-      notify.hint("还没有草稿 —— ⌘N 记第一条");
+      notify.hint("暂无草稿，按 ⌘N 新建");
       return;
     }
     await revealInFinder(dir);
@@ -124,7 +124,7 @@ export async function trashScratch(path: string) {
       if (t.dirty && !(await docs.autosaveBeforeClose(t))) {
         tabs.show(t.id);
         tabflow.pendingClose = t;
-        notify.fail("这份草稿有没写进盘的改动，先处理它再移到废纸篓", 3200);
+        notify.fail("此草稿有尚未保存的更改，请先处理后再移到废纸篓", 3200);
         return;
       }
     }
@@ -162,7 +162,7 @@ export async function openClass(uri: string, label: string): Promise<boolean> {
   try {
     content = await (await import("../ipc/java")).javaClassContents(root, uri);
   } catch (e) {
-    notify.fail(`打不开 ${label}：${e}`);
+    notify.fail(`无法打开 ${label}：${e}`);
     return false;
   }
   // 标签名用地址里的文件名：有源码 jar 是 `X.java`，反编译的是 `X.class` —— 一眼看得出在看的是哪一种（同 IDEA）
@@ -185,16 +185,16 @@ export async function openMergedPath(path: string, opts: { quiet?: boolean } = {
 export function requestSwitchMode(tab: TabState) {
   // jar 里的类不是盘上的文件：没有日志模式可切，也没有「编辑」可言
   if (tab.mode === "class") {
-    notify.hint("jar 里的类只读，没有别的模式", 2200);
+    notify.hint("jar 中的类为只读，不支持切换模式", 2200);
     return;
   }
   // 合并标签背后是几份文件，没有「一份文本」可编辑
   if (tab.merge) {
-    notify.hint("合并视图只有日志模式。要改哪一份，单独打开它", 2600);
+    notify.hint("合并视图仅支持日志模式。如需编辑，请单独打开对应文件", 2600);
     return;
   }
   if (tab.dirty) {
-    notify.fail("有未保存的改动，请先保存（⌘S）再切换模式", 2600);
+    notify.fail("有未保存的更改，请先保存（⌘S）再切换模式", 2600);
     return;
   }
   /*
@@ -203,7 +203,7 @@ export function requestSwitchMode(tab: TabState) {
    */
   const svg = /\.svg$/i.test(tab.path);
   if (tab.mode === "image" && !svg) {
-    notify.hint("图片只有预览，没有别的模式", 2200);
+    notify.hint("图片仅支持预览模式", 2200);
     return;
   }
   const to = svg && tab.mode !== "log" ? (tab.mode === "image" ? "edit" : "image") : tab.mode === "edit" ? "log" : "edit";

@@ -40,7 +40,7 @@ export function switchTo(name: string, create = false, from = "") {
   branches.pendingCheckout = null;
   // base 要在切之前抓 —— 切完 git.status.branch 就是新的那个了
   const base = from || (git.status?.branch ?? "");
-  void git.run(create ? "新建分支失败" : "切分支失败", async () => {
+  void git.run(create ? "新建分支失败" : "签出失败", async () => {
     try {
       await gitSwitch(git.repo!, name, create, from);
     } catch (e) {
@@ -61,9 +61,9 @@ export function switchTo(name: string, create = false, from = "") {
     const now = git.status?.branch || name;
     const up = git.status?.upstream ? `（跟踪 ${git.status.upstream}）` : "";
     if (!git.status?.detached) noteRecent(git.repo!, now);
-    notify.ok(create ? `已从 ${base} 新建并切到 ${now}` : `已切到 ${now}${up}`, 2800);
+    notify.ok(create ? `已从 ${base} 新建并签出 ${now}` : `已签出 ${now}${up}`, 2800);
     await worktree.changed();
-  }, create ? "新建分支" : "切分支");
+  }, create ? "新建分支" : "签出");
 }
 
 /**
@@ -81,7 +81,7 @@ export async function stashThenCheckout() {
   branches.pendingCheckout = null;
   const repo = git.repo;
   const base = git.status?.branch ?? "";
-  const ok = await git.run("切分支失败", async () => {
+  const ok = await git.run("签出失败", async () => {
     await gitStashPush(repo);
     try {
       await gitSwitch(repo, p.name, p.create);
@@ -90,10 +90,10 @@ export async function stashThenCheckout() {
       throw e;
     }
     await gitStashPop(repo);
-  }, "切分支");
+  }, "签出");
   if (ok) {
     if (!git.status?.detached) noteRecent(repo, git.status?.branch || p.name);
-    notify.ok(`已切到 ${git.status?.branch || p.name}，改动已从 stash 取回`, 2800);
+    notify.ok(`已签出 ${git.status?.branch || p.name}，并已恢复储藏的更改`, 2800);
   }
   else {
     // `run` 失败不刷新，而这时分支多半已经切过去、盘上带着冲突标记
@@ -101,7 +101,7 @@ export async function stashThenCheckout() {
   }
   if (!ok && git.status?.branch && git.status.branch !== base) {
     // 切过去了但取回时撞上冲突：错误条已经在了，这里补一句分支的事实
-    notify.ok(`已切到 ${git.status.branch}`, 2800);
+    notify.ok(`已签出 ${git.status.branch}`, 2800);
   }
   await worktree.changed();
 }
@@ -129,14 +129,14 @@ export async function openWorktree(path: string) {
   await tabflow.openPath(path);
   if (project.root === before) return;
   const name = path.slice(path.lastIndexOf("/") + 1) || path;
-  notify.ok(`项目根已切到 ${name}（打开的标签没有动）`, 3200);
+  notify.ok(`项目根已切换为 ${name}（已打开的标签页保持不变）`, 3200);
 }
 
 export function newWorktree(dir: string, branch: string) {
   void git.run("新建工作树失败", async () => {
     // 分支存不存在由 gitsvc 判，这里只管「要一个跑着这个分支的目录」
     const path = await gitWorktreeAdd(git.repo!, dir, branch);
-    notify.ok(`工作树已建在 ${path}`, 3600);
+    notify.ok(`已在 ${path} 创建工作树`, 3600);
     await tabflow.openPath(path);
   }, "新建工作树");
 }
@@ -164,14 +164,14 @@ export async function mergeInto(ref: string) {
     await gitMergeUpstream(git.repo!, ref, "merge");
   }, "合并");
   await worktree.changed();
-  if (ok) notify.ok(`已把 ${ref} 合进 ${cur || "当前分支"}`, 2800);
+  if (ok) notify.ok(`已将 ${ref} 合并到 ${cur || "当前分支"}`, 2800);
   else await git.refresh(); // 冲突时 run 不刷新，而这时盘上已经带着冲突标记
 }
 
 export function renameBranch(old: string, next: string) {
   void git.run("重命名分支失败", async () => {
     await gitBranchRename(git.repo!, old, next);
-    notify.ok(`已把 ${old} 改名为 ${next}`, 2800);
+    notify.ok(`已将 ${old} 重命名为 ${next}`, 2800);
   }, "重命名分支");
 }
 

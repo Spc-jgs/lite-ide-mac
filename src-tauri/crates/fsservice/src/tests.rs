@@ -540,7 +540,7 @@ fn reveal不存在的路径不去起子进程() {
     let e = reveal_in_finder("/这个路径/根本/不存在.txt").unwrap_err();
     assert_eq!(e.kind(), io::ErrorKind::NotFound);
     assert!(
-        e.to_string().contains("不在盘上了"),
+        e.to_string().contains("已不存在"),
         "要给一句中文，而不是把 open 的英文原样透出来，实得：{e}"
     );
 }
@@ -1008,7 +1008,7 @@ fn 改不存在的东西要报中文() {
     let d = sandbox("rename-missing");
     let e = rename_entry(d.join("没有这个.txt"), "新名").unwrap_err();
     assert_eq!(e.kind(), io::ErrorKind::NotFound);
-    assert!(e.to_string().contains("不在盘上了"), "实得：{e}");
+    assert!(e.to_string().contains("已不存在"), "实得：{e}");
     fs::remove_dir_all(d).ok();
 }
 
@@ -1017,7 +1017,7 @@ fn 废纸篓拒绝不存在的路径() {
     // 和 reveal 一样：自己判一次给一句中文，而不是把 trash 的英文透出来
     let e = move_to_trash("/这个路径/根本/不存在.txt").unwrap_err();
     assert_eq!(e.kind(), io::ErrorKind::NotFound);
-    assert!(e.to_string().contains("不在盘上了"), "实得：{e}");
+    assert!(e.to_string().contains("已不存在"), "实得：{e}");
 }
 
 /// 都已经不在盘上：要的就是它们不在了，不报错、也不去叫 Finder

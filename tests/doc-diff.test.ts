@@ -154,5 +154,15 @@ const BPS = [7, 12];
   ok(r.text === after && same(r.at, ["head", "tail"]), `中间 2500 × 2500 行整段换：首尾断点都在（${ms.toFixed(0)}ms）：${r.at}`);
 }
 
+{
+  // 新文本带 CRLF（盘上的原文、本地历史）：CM6 的文档里没有 \r，换完不能每行多一个空行；第 3 行的断点照样留着
+  const before = "// 订单服务\nclass A {}\nint x;\n";
+  const after = "// 订单服务\r\nclass A {}\r\nint y;\r\n";
+  const r = run(before, after, [2]);
+  ok(r.text === "// 订单服务\nclass A {}\nint y;\n", `CRLF 的新文本：结果是三行、没有空行：${JSON.stringify(r.text)}`);
+  ok(same(r.at, ["class A {}"]), `CRLF 的新文本：没动的那行断点还在：${r.at}`);
+  ok(lineChanges("a\nb", "a\r\nb").length === 0, "只差换行符：没有改动");
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} 整篇换内容时的按行最小改动：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

@@ -52,7 +52,7 @@ impl TextFilter {
             .case_insensitive(case_insensitive)
             .unicode(unicode)
             .build()
-            .map_err(|e| format!("正则 /{src}/ 写错了：{e}"))
+            .map_err(|e| format!("正则表达式 /{src}/ 无效：{e}"))
     }
 }
 

@@ -714,7 +714,7 @@ export function grepMatcher(pattern: string, o: { case?: boolean; word?: boolean
   try {
     re = new RegExp(src, o.case ? "gmu" : "gimu");
   } catch (e) {
-    throw new Error(`正则写错了：${(e as Error).message}`);
+    throw new Error(`正则表达式无效：${(e as Error).message}`);
   }
   const wordch = /[\p{L}\p{N}\p{M}_]/u;
   return (text) => {

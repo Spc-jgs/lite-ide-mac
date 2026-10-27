@@ -41,7 +41,7 @@ pub async fn task_new_file(root: String) -> Result<String, String> {
     blocking(move || {
         crate::taskdefs::create_file(Path::new(&root))
             .map(|p| p.to_string_lossy().into_owned())
-            .map_err(|e| format!("建不了 {}：{e}", crate::taskdefs::FILE))
+            .map_err(|e| format!("无法创建 {}：{e}", crate::taskdefs::FILE))
     })
     .await
 }
@@ -53,10 +53,10 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
     let owner = window.label().to_string();
     blocking(move || {
         let st = app.state::<AppState>();
-        let mut def = crate::taskdefs::resolve(Path::new(&root), &name).ok_or_else(|| format!("没有叫「{name}」的任务了（tasks.json 改过？）"))?;
+        let mut def = crate::taskdefs::resolve(Path::new(&root), &name).ok_or_else(|| format!("任务「{name}」不存在（tasks.json 可能已修改）"))?;
         // 组合配置没有自己的命令：前端先问 `run_compound_items`、一份份起。走到这儿是前端漏了那一步
         if matches!(&def.source, crate::taskdefs::Source::User { kind, .. } if kind == "compound") {
-            return Err(format!("「{name}」是组合配置，要一份份起（这是个 bug）"));
+            return Err(format!("「{name}」是组合配置，需逐个启动（内部错误）"));
         }
         // 调试（docs/IDEA.md 第 18 节）：只有命令是我们拼的那两种 —— 认出来的 Spring Boot 应用（知道 `java` 在哪、主类是谁）、
         // 单测（`mvn -Dtest=… test`，JDWP 交给 surefire fork 的 JVM）
@@ -76,37 +76,37 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
                     Some(arg)
                 });
                 Some(if let Some(main) = crate::taskdefs::java_main(Path::new(&root), &name) {
-                    def.command = crate::debug::with_jdwp(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 java 起的，调试不了"))?;
+                    def.command = crate::debug::with_jdwp(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 java 启动的，无法调试"))?;
                     crate::debug::Who::Main(main)
                 } else if let Some(project) = crate::taskdefs::gradle_test_project(Path::new(&root), &name) {
                     // 测试的 JVM 是 Gradle daemon 起的、不在我们的进程组里，「问进程组里谁在听调试端口」那条够不着它：端口我们定（gradle.rs）
-                    let port = std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).map_err(|e| format!("找不到空着的调试端口：{e}"))?;
-                    def.command = crate::gradle::with_debug(&def.command, port).ok_or_else(|| format!("「{name}」的命令不是我们拼的 Gradle 单测，调试不了"))?;
+                    let port = std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).map_err(|e| format!("无法获取空闲的调试端口：{e}"))?;
+                    def.command = crate::gradle::with_debug(&def.command, port).ok_or_else(|| format!("「{name}」不是由 lite-ide 生成的 Gradle 测试命令，无法调试"))?;
                     crate::debug::Who::Port(project, port)
                 } else if let Some(project) = crate::taskdefs::test_project(Path::new(&root), &name).filter(|_| matches!(def.source, crate::taskdefs::Source::Goal { .. })) {
-                    def.command = crate::debug::with_surefire_debug(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 mvn 起的，调试不了"))?;
+                    def.command = crate::debug::with_surefire_debug(&def.command, agent.as_deref()).ok_or_else(|| format!("「{name}」的命令不是 mvn 启动的，无法调试"))?;
                     crate::debug::Who::Project(project)
                 } else {
-                    return Err(format!("「{name}」不是 Java 应用（认出来的 Spring Boot、你建的应用配置）也不是单测，调试不了"));
+                    return Err(format!("「{name}」既不是 Java 应用（Spring Boot 或应用配置）也不是测试，无法调试"));
                 })
             }
         };
         // 覆盖率（docs/TAKEOVER.md G15）：「模块 [cover …]」在 surefire fork 的测试 JVM 上挂 JaCoCo 的代理（理由在 coverage.rs 头上）
         if crate::coverage::is_cover_run(&name) {
             if debug.is_some() {
-                return Err("带覆盖率跑的时候不能同时调试（两样都要借 surefire 的同一个开关）".into());
+                return Err("运行覆盖率测试时无法同时调试（两者需使用同一个 surefire 选项）".into());
             }
-            let (agent, _, _) = crate::java::jacoco(&app).ok_or("这个构建没带 JaCoCo（开发构建）：用 pnpm app:bundle 打的包才有覆盖率")?;
-            let cache = app.path().app_cache_dir().map_err(|e| format!("找不到应用缓存目录：{e}"))?;
+            let (agent, _, _) = crate::java::jacoco(&app).ok_or("当前构建未包含 JaCoCo（开发构建），请使用 pnpm app:bundle 打包的版本运行覆盖率")?;
+            let cache = app.path().app_cache_dir().map_err(|e| format!("无法获取应用缓存目录：{e}"))?;
             let exec = crate::coverage::exec_path(&cache, &root, &name);
             if let Some(d) = exec.parent() {
-                std::fs::create_dir_all(d).map_err(|e| format!("建不了 {}：{e}", d.display()))?;
+                std::fs::create_dir_all(d).map_err(|e| format!("无法创建 {}：{e}", d.display()))?;
             }
             // 上一次的执行记录先删掉：这次测试一个都没跑起来（编译没过）的话，不能拿上一次的覆盖率冒充这次的
             #[allow(clippy::disallowed_methods)] // 应用缓存目录里自己生成的执行记录，范围卡死在 coverage/*.exec
             let _ = std::fs::remove_file(&exec);
             def.command = crate::coverage::with_agent(&def.command, &agent, &exec)
-                .ok_or("JaCoCo 的路径里有空格（.app 放在带空格的目录里？），surefire 会把它拆开、测试 JVM 起不来 —— 把 lite-ide.app 挪到不带空格的目录")?;
+                .ok_or("JaCoCo 路径中包含空格（lite-ide.app 位于含空格的目录中），测试 JVM 将无法启动。请将 lite-ide.app 移动到不含空格的目录")?;
         }
         // surefire 那条路径带空格时没把代理塞进去：控制目录也就用不上，这次没有热替换
         if hot_dir.is_some() && !def.command.contains("-javaagent:") {
@@ -114,7 +114,7 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
                 hotswap::remove_control_dir(&d);
             }
         }
-        let base = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("runs");
+        let base = app.path().app_data_dir().map_err(|e| format!("无法获取应用数据目录：{e}"))?.join("runs");
         // 起完、登记进运行表之前一直攥着：同一个任务的第二次 ⌃R 在这儿被挡住
         let _claim = st.begin_run(&owner, &root, &name)?;
         let spec = tasksvc::Spec {
@@ -125,7 +125,7 @@ pub async fn task_run(window: tauri::Window, app: tauri::AppHandle, root: String
             log: tasksvc::log_file(&base, &root, &name),
             cap: tasksvc::LOG_CAP,
         };
-        let task = std::sync::Arc::new(tasksvc::Task::start(&spec).map_err(|e| format!("「{name}」起不来：{e}"))?);
+        let task = std::sync::Arc::new(tasksvc::Task::start(&spec).map_err(|e| format!("无法启动「{name}」：{e}"))?);
         crate::diag!("task_run {name} pgid={} log={}", task.pgid(), spec.log.display());
         st.live_add(tasksvc::live::Live {
             pgid: task.pgid(),
@@ -201,7 +201,7 @@ pub async fn task_stuck(id: u32, state: State<'_, AppState>) -> Result<Vec<Stuck
 #[tauri::command]
 pub async fn build_problems(log: String) -> Result<BuildProblemsDto, String> {
     blocking(move || {
-        let (items, total) = crate::javac::parse_file(Path::new(&log)).map_err(|e| format!("读不了这次构建的输出：{e}"))?;
+        let (items, total) = crate::javac::parse_file(Path::new(&log)).map_err(|e| format!("无法读取构建输出：{e}"))?;
         Ok(BuildProblemsDto {
             items: items.into_iter().map(|p| BuildProblemDto { path: p.path, line: p.line, col: p.col, error: p.error, message: p.message }).collect(),
             total: total as u32,
@@ -245,8 +245,8 @@ pub async fn test_results(root: String, name: String, since_ms: u64) -> Result<T
 #[tauri::command]
 pub async fn coverage_report(app: tauri::AppHandle, root: String, name: String) -> Result<CoverageDto, String> {
     blocking(move || {
-        let (_, cli, java) = crate::java::jacoco(&app).ok_or("这个构建没带 JaCoCo（开发构建）")?;
-        let cache = app.path().app_cache_dir().map_err(|e| format!("找不到应用缓存目录：{e}"))?;
+        let (_, cli, java) = crate::java::jacoco(&app).ok_or("当前构建未包含 JaCoCo（开发构建）")?;
+        let cache = app.path().app_cache_dir().map_err(|e| format!("无法获取应用缓存目录：{e}"))?;
         let exec = crate::coverage::exec_path(&cache, &root, &name);
         let xml = exec.with_extension("xml");
         let r = Path::new(&root);
@@ -440,9 +440,9 @@ pub async fn maven_resolve(app: tauri::AppHandle, root: String) -> Result<MavenR
         let rootp = Path::new(&root);
         let prefs = crate::maven::prefs(rootp);
         let shell = crate::settingsctl::terminal_shell(&st);
-        let user = std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or("找不到用户目录（没有 HOME）")?;
+        let user = std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or("无法确定用户目录（未设置 HOME）")?;
         let repo = crate::maven::local_repo(&user);
-        let data = app.path().app_data_dir().map_err(|e| format!("找不到应用数据目录：{e}"))?.join("maven");
+        let data = app.path().app_data_dir().map_err(|e| format!("无法获取应用数据目录：{e}"))?.join("maven");
         let reactors = crate::maven::reactors(rootp)
             .into_iter()
             .map(|rel| {
@@ -483,7 +483,7 @@ pub async fn maven_resolve(app: tauri::AppHandle, root: String) -> Result<MavenR
 pub async fn maven_prefs_set(root: String, offline: bool, skip_tests: bool, profiles: Vec<String>) -> Result<(), String> {
     blocking(move || {
         let p = crate::maven::Prefs { offline, skip_tests, profiles };
-        crate::maven::set_prefs(Path::new(&root), &p).map_err(|e| format!("记不下 Maven 的开关：{e}"))
+        crate::maven::set_prefs(Path::new(&root), &p).map_err(|e| format!("无法保存 Maven 选项：{e}"))
     })
     .await
 }

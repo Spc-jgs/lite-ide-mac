@@ -81,7 +81,7 @@ lite_wait main "return !!document.querySelector('.dialog.settings .row')" 10 >/d
 BAN=$(lite_eval main "${SD} return (d.querySelector('.banner')?.textContent ?? '').trim() + ' | ' + d.querySelector('.row input').disabled")
 lite_eval main "document.querySelector('.dialog.settings [data-default]').click(); return true" >/dev/null
 lite_wait main "return !document.querySelector('.dialog.settings')" 5 >/dev/null
-ok "$(echo "${BAN}" | grep -q '先修好它.*| true$' && [ "$(shasum "${LITE_DATA}/settings.json")" = "${BEFORE}" ] && echo 1)" "settings.json 写坏了：说清楚、输入框灰掉，文件一个字节不动：${BAN}"
+ok "$(echo "${BAN}" | grep -q '请先修复该文件.*| true$' && [ "$(shasum "${LITE_DATA}/settings.json")" = "${BEFORE}" ] && echo 1)" "settings.json 写坏了：说清楚、输入框灰掉，文件一个字节不动：${BAN}"
 note_front
 
 echo "== 键位可改（docs/TAKEOVER.md R3）：设置里「保存」⌘S → ⌥⌘S、「复制行」⌘D → ⌥⌘D；录键时菜单上的键全摘掉；应用后 keymap.json 只存这两条、菜单挂新的、两个窗口里开着的编辑器当场换键；手改 keymap.json 也当场生效"

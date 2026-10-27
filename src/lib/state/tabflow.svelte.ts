@@ -329,7 +329,7 @@ class TabFlow {
     if (!tab) return;
     // 钉住的不跟着 ⌘W / ✕ 走（issue #33 ⑰）。右键「关闭」带 force
     if (tab.pinned && !force) {
-      notify.hint(`${tab.name} 已钉住 —— 点标签上的图钉取消钉住，或右键「关闭」`);
+      notify.hint(`${tab.name} 已固定。点击标签页上的图钉以取消固定，或右键选择「关闭」`);
       return;
     }
     if (tab.path.startsWith("/")) this.closed = [...this.closed.filter((p) => p !== tab.path).slice(-29), tab.path];

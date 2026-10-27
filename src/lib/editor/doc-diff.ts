@@ -31,6 +31,9 @@ const MAX_CELLS = 4_000_000;
 
 /** `before` 改成 `after` 的改动，位置都按 `before` 算、从前往后、互不重叠（CM6 的 `changes` 数组就要这种）。一样的话是空数组 */
 export function lineChanges(before: string, after: string): Change[] {
+  // CM6 的文档里没有 \r（`doc.toString()` 一律 \n 连行），而 `after` 可能是盘上 / 本地历史里的原文、带 CRLF。按 \n 切的话每行尾巴挂着 \r，
+  // 插进去时 CM6 把单个 \r 也当成换行 —— 每行后面多出一个空行（2026-10-27 history.sh：GBK + CRLF 的文件「换成这一版」撞见）。先统一成 \n
+  after = after.replace(/\r\n?/g, "\n");
   if (before === after) return [];
   const a = before.split("\n");
   const b = after.split("\n");

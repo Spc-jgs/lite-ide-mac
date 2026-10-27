@@ -32,7 +32,7 @@ export async function sendToTerminal(path = tabs.active?.path) {
   layout.panel = true;
   const h = await ready(id);
   if (!h) {
-    notify.fail("终端还没准备好，没发出去");
+    notify.fail("终端尚未就绪，未发送");
     return;
   }
   const started = terms.list.find((t) => t.id === id)?.cwd ?? null;

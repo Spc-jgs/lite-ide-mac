@@ -76,7 +76,7 @@ fn fold(block: &str) -> String {
     }
     let hidden = lines.len() - FOLD_KEEP * 2;
     let mut out: Vec<String> = lines[..FOLD_KEEP].iter().map(|l| l.to_string()).collect();
-    out.push(format!("…（中间 {hidden} 行没显示，替换照样改）…"));
+    out.push(format!("…（省略 {hidden} 行，替换仍会应用）…"));
     out.extend(lines[lines.len() - FOLD_KEEP..].iter().map(|l| l.to_string()));
     out.join("\n")
 }
@@ -140,15 +140,15 @@ impl Why {
     /// 给人看的一句话，界面原样显示（文案只在这儿写一份）
     pub fn text(&self) -> String {
         match self {
-            Why::Lossy => "有这个编码解不出来的字节，写回去会把它们永久换成 �".into(),
-            Why::MixedEol => "换行符混用（CRLF 和 LF 都有），写回去会被统一成 LF".into(),
-            Why::TooBig => "超过 8 MB，没有看".into(),
-            Why::Same { as_rel } => format!("和 {as_rel} 是同一个文件，只替换一次"),
-            Why::Changed => "预览之后被改过，没动它".into(),
-            Why::EditedSince => "替换之后又改过，没动它".into(),
-            Why::NeverSaved => "替换只进了编辑器、没存就关了，盘上那份本来就没被替换".into(),
-            Why::NotRenamedBack => "改过名的文件不在新名字上了、或者原来的名字被占了，没改回去".into(),
-            Why::Unreadable(e) => format!("读不了：{e}"),
+            Why::Lossy => "包含无法以当前编码解码的字节，写回时将被永久替换为 �".into(),
+            Why::MixedEol => "混用了 CRLF 和 LF 换行符，写回时将统一为 LF".into(),
+            Why::TooBig => "文件超过 8 MB，已跳过".into(),
+            Why::Same { as_rel } => format!("与 {as_rel} 为同一文件，仅替换一次"),
+            Why::Changed => "预览后文件已被修改，已跳过".into(),
+            Why::EditedSince => "替换后文件已被修改，已跳过".into(),
+            Why::NeverSaved => "替换仅应用于编辑器且未保存，磁盘上的文件未被替换".into(),
+            Why::NotRenamedBack => "重命名后的文件已不存在，或原名称已被占用，未能还原名称".into(),
+            Why::Unreadable(e) => format!("无法读取：{e}"),
         }
     }
 }
@@ -405,7 +405,7 @@ pub fn scan_edits(root: &Path, files: Vec<(PathBuf, Vec<LineEdit>)>, dirty: &Has
     let mut out = Vec::new();
     let mut skipped = Vec::new();
     for (abs, edits) in files {
-        let rel = abs.strip_prefix(root).map_err(|_| format!("{} 不在项目里，这一版不改项目外的文件", abs.display()))?.to_string_lossy().into_owned();
+        let rel = abs.strip_prefix(root).map_err(|_| format!("{} 不在项目中，暂不支持修改项目外的文件", abs.display()))?.to_string_lossy().into_owned();
         let (source, text, raw_fp) = if let Some(t) = dirty.get(&abs) {
             (Source::Editor, t.clone(), None)
         } else {
@@ -434,16 +434,16 @@ pub fn scan_edits(root: &Path, files: Vec<(PathBuf, Vec<LineEdit>)>, dirty: &Has
         let mut ranges = Vec::with_capacity(edits.len());
         for e in &edits {
             let (Some(a), Some(b)) = (byte_at(&text, e.line, e.character), byte_at(&text, e.end_line, e.end_character)) else {
-                return Err(format!("{rel}：第 {} 行第 {} 列对不上（语言服务器那份和盘上的不一样了），没改", e.line + 1, e.character + 1));
+                return Err(format!("{rel}：第 {} 行第 {} 列与磁盘内容不一致（语言服务器的版本已过期），未修改", e.line + 1, e.character + 1));
             };
             if b < a {
-                return Err(format!("{rel}：第 {} 行的改动起点在终点后面，没改", e.line + 1));
+                return Err(format!("{rel}：第 {} 行的更改范围无效，未修改", e.line + 1));
             }
             ranges.push((a, b, e.text.clone()));
         }
         ranges.sort_by_key(|r| (r.0, r.1));
         if ranges.windows(2).any(|w| w[1].0 < w[0].1) {
-            return Err(format!("{rel}：两处改动重叠，没改"));
+            return Err(format!("{rel}：存在重叠的更改，未修改"));
         }
         let mut hits = Vec::with_capacity(ranges.len());
         let mut line = 1u64;
@@ -724,7 +724,7 @@ pub fn apply(scan: &Scan, o: &ApplyOpts) -> Result<Outcome, ApplyError> {
         befores.push((name, p.before.clone()));
     }
     if journaled {
-        journal::create(o.journal, &manifest, &befores).map_err(|e| ApplyError::Failed { rel: String::new(), msg: format!("写替换日志失败：{e}") })?;
+        journal::create(o.journal, &manifest, &befores).map_err(|e| ApplyError::Failed { rel: String::new(), msg: format!("写入替换日志失败：{e}") })?;
     }
 
     // ── 3. 准备段。失败 → prepared 全部 drop（临时文件自己收掉），丢掉日志
@@ -746,7 +746,7 @@ pub fn apply(scan: &Scan, o: &ApplyOpts) -> Result<Outcome, ApplyError> {
     // ── 4. 提交段。硬链接排最后：它只能原地写，没有「准备好再一下子换上」
     if journaled {
         manifest.state = State::Committing;
-        journal::save(o.journal, &manifest).map_err(|e| ApplyError::Failed { rel: String::new(), msg: format!("写替换日志失败：{e}") })?;
+        journal::save(o.journal, &manifest).map_err(|e| ApplyError::Failed { rel: String::new(), msg: format!("写入替换日志失败：{e}") })?;
     }
     prepared.sort_by_key(|(_, x)| x.in_place());
     let mut committed: Vec<&Plan> = Vec::new();
@@ -769,7 +769,7 @@ pub fn apply(scan: &Scan, o: &ApplyOpts) -> Result<Outcome, ApplyError> {
             if journaled {
                 let _ = journal::remove(o.journal);
             }
-            return Err(ApplyError::Failed { rel: p.f.rel.clone(), msg: format!("{e}（已经改了的 {} 个文件退回去了）", committed.len()) });
+            return Err(ApplyError::Failed { rel: p.f.rel.clone(), msg: format!("{e}（已还原已修改的 {} 个文件）", committed.len()) });
         }
         committed.push(p);
     }
@@ -801,21 +801,21 @@ pub fn check_renames(renames: &[(PathBuf, PathBuf)]) -> Result<(), String> {
     let name = |p: &Path| p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned());
     for (from, to) in renames {
         if !fs::symlink_metadata(from).is_ok_and(|m| m.is_file()) {
-            return Err(format!("{} 不在盘上了", name(from)));
+            return Err(format!("{} 已不存在", name(from)));
         }
         if fs::symlink_metadata(to).is_ok() {
-            return Err(format!("{} 已经有了，不覆盖", name(to)));
+            return Err(format!("{} 已存在，未覆盖", name(to)));
         }
         if from.parent() != to.parent() {
             if from.file_name() != to.file_name() {
-                return Err(format!("{} → {}：换目录的同时又换名字，这一版不做", name(from), name(to)));
+                return Err(format!("{} → {}：暂不支持同时移动并重命名", name(from), name(to)));
             }
             if !to.parent().is_some_and(Path::is_dir) {
-                return Err(format!("{} 要挪去的目录不在盘上", name(from)));
+                return Err(format!("{} 的目标目录不存在", name(from)));
             }
         }
         if !seen.insert(from.clone()) || !seen.insert(to.clone()) {
-            return Err(format!("{} 被改了两次名", name(from)));
+            return Err(format!("{} 被重复重命名", name(from)));
         }
     }
     Ok(())
@@ -831,13 +831,13 @@ pub fn rename_files(dir: &Path, renames: &[(PathBuf, PathBuf)]) -> Result<Vec<(P
             for (f, t) in done.iter().rev() {
                 let _ = relocate(t, f);
             }
-            return Err(format!("{} 改名失败：{e}（已经改了名的 {} 个改回去了）", from.display(), done.len()));
+            return Err(format!("{} 重命名失败：{e}（已还原已重命名的 {} 个文件）", from.display(), done.len()));
         }
         done.push((from.clone(), to.clone()));
     }
     if let Some(mut m) = journal::load(dir).filter(|m| m.state == State::Done) {
         m.renames.extend(done.iter().map(|(f, t)| Renamed { from: f.to_string_lossy().into_owned(), to: t.to_string_lossy().into_owned() }));
-        journal::save(dir, &m).map_err(|e| format!("改名成功了，但记进替换日志失败（撤销时改不回名字）：{e}"))?;
+        journal::save(dir, &m).map_err(|e| format!("重命名已完成，但写入替换日志失败（撤销时将无法还原名称）：{e}"))?;
     }
     Ok(done)
 }
@@ -876,9 +876,9 @@ fn disk_now(p: &Path) -> Option<(Vec<u8>, fsservice::encoding::Decoded)> {
 /// 走哪条路按此刻算：开着就比编辑器里的、改编辑器（干净的顺带写盘）；没开就比盘上的、写盘。
 /// `open`：此刻开着的标签，绝对路径 → 文本和脏不脏。
 pub fn undo(dir: &Path, open: &HashMap<PathBuf, OpenNow>) -> Result<Outcome, String> {
-    let m = journal::load(dir).ok_or("没有可以撤销的替换")?;
+    let m = journal::load(dir).ok_or("没有可撤销的替换")?;
     if m.state != State::Done {
-        return Err("上一次替换没有做完，先在启动时的卡片上处理它".into());
+        return Err("上次替换未完成，请先在启动时显示的卡片中处理".into());
     }
     // 开着的标签按身份认：它可能开的是软链那条路径，日志里记的是真身
     let open_by_id: HashMap<(u64, u64), (&PathBuf, &OpenNow)> =
@@ -898,12 +898,12 @@ pub fn undo(dir: &Path, open: &HashMap<PathBuf, OpenNow>) -> Result<Outcome, Str
         }
         match relocate(&to, &from) {
             Ok(_) => renamed.push((to, from)),
-            Err(x) => skipped.push(Skipped { rel, why: Why::Unreadable(format!("改不回原来的名字：{x}")) }),
+            Err(x) => skipped.push(Skipped { rel, why: Why::Unreadable(format!("无法还原原名称：{x}")) }),
         }
     }
     for e in &m.entries {
         let target = PathBuf::from(&e.target);
-        let before = journal::read_before(dir, e).map_err(|x| format!("读替换日志失败：{x}"))?;
+        let before = journal::read_before(dir, e).map_err(|x| format!("读取替换日志失败：{x}"))?;
         let before_text = match e.kind {
             Kind::Disk => fsservice::decode_bytes(&before, &e.encoding).content,
             Kind::Editor => String::from_utf8_lossy(&before).into_owned(),
@@ -954,12 +954,12 @@ pub fn undo(dir: &Path, open: &HashMap<PathBuf, OpenNow>) -> Result<Outcome, Str
     // 已经退回去的那些此刻不等于「改后」，会被跳过，剩下的接着退
     let mut prepared = Vec::new();
     for (t, b) in &writes {
-        prepared.push(fsservice::prepare_bytes(t, b).map_err(|x| format!("撤销失败（一个文件都没动）：{}：{x}", t.display()))?);
+        prepared.push(fsservice::prepare_bytes(t, b).map_err(|x| format!("撤销失败（未修改任何文件）：{}：{x}", t.display()))?);
     }
     prepared.sort_by_key(|x| x.in_place());
     for x in prepared {
         let t = x.target().to_path_buf();
-        x.commit().map_err(|x| format!("撤销到一半失败：{}：{x}（再点一次撤销会接着退剩下的）", t.display()))?;
+        x.commit().map_err(|x| format!("撤销中途失败：{}：{x}（再次撤销将继续还原剩余文件）", t.display()))?;
     }
     journal::remove(dir).map_err(|x| x.to_string())?;
     Ok(Outcome { changed, skipped, undo: false, renamed })

@@ -145,7 +145,7 @@ export async function pull(mode?: "merge" | "rebase") {
   remote.hooks.warmUi?.();
   const upstream = git.status?.upstream;
   if (!upstream) {
-    notify.fail("这个分支没有上游，先推送一次", 3000);
+    notify.fail("此分支没有上游，请先推送", 3000);
     return;
   }
   const retry = await pullOnce(upstream, mode);
@@ -158,7 +158,7 @@ export async function askPush() {
   remote.hooks.warmUi?.();
   const branch = git.status.branch;
   if (!branch) {
-    notify.fail("游离状态下不能推送", 2600);
+    notify.fail("游离 HEAD 状态下无法推送", 2600);
     return;
   }
   const setUpstream = !git.status.upstream;

@@ -784,9 +784,9 @@ if rp_open; then
   else
     bad "预览不是 6 处 · 3 个文件：$(rp_info)"
   fi
-  # 展开「跳过 N 个」看名单。N 不止 1：fixture 里那个 26MB 的 big.log 超过 8MB，也会如实列成「没有看」
+  # 展开「跳过 N 个」看名单。N 不止 1：fixture 里那个 26MB 的 big.log 超过 8MB，也会如实列成「已跳过」
   SKIPS=$(lite eval "${W}" "[...document.querySelectorAll($(q "${RP} .info button"))].find((b) => b.innerText.startsWith('跳过'))?.click(); await new Promise(r => setTimeout(r, 100)); return document.querySelector($(q "${RP} .skipped"))?.innerText ?? ''" 2>/dev/null)
-  case "${SKIPS}" in *"link.txt"*"同一个文件"*) ok "软链那条列在「跳过」里，说清了为什么" ;; *) bad "软链没列在跳过里：${SKIPS}" ;; esac
+  case "${SKIPS}" in *"link.txt"*"同一文件"*) ok "软链那条列在「跳过」里，说清了为什么" ;; *) bad "软链没列在跳过里：${SKIPS}" ;; esac
   # 取消勾 b.txt 的第一处（验收 1：六处取消一处）
   BTN=$(lite eval "${W}" "const rows = [...document.querySelectorAll($(q "${RP} .row"))]; const i = rows.findIndex((r) => r.classList.contains('file') && r.querySelector('.fname')?.textContent === 'b.txt'); rows[i + 1].querySelector('input').click(); await new Promise(r => setTimeout(r, 100)); return document.querySelector($(q "${RP} .q.r .btn")).innerText" 2>/dev/null)
   check "${BTN}" "替换 5 处 · 3 个文件" "取消勾一处，按钮上跟着变"
@@ -1339,6 +1339,9 @@ lite_wait "${W}" "return document.querySelector('.op button.primary')?.disabled 
 # 点之前故意起一次刷新、等它画上去再点：文件监听随时会起这么一次。原来「继续」在刷新的那几十毫秒里是灰的，点了什么都不发生（间歇红了几轮）
 lite eval "${W}" "void __lite.git.refresh(); await new Promise((r) => setTimeout(r, 0)); [...document.querySelectorAll('.op button')].find((b) => b.textContent.trim() === '继续').click(); return true" >/dev/null 2>&1
 wait_for 40 '[ "$(git -C "'"${FIX}"'" rev-list --parents -n1 HEAD | wc -w | tr -d " ")" = 3 ]'
+# 合并提交落盘和横幅收起不是同一刻：git 先写好提交，应用这边「继续」那条写操作收尾时才刷新状态（状态栏这几十毫秒还是「继续合并」）。
+# 原来只等前一样就去查横幅，偶尔撞在中间（2026-10-27 一次：提交已在、横幅还在）—— 两样都等到再查
+lite_wait "${W}" "return !document.querySelector('.op')" 10 >/dev/null
 OPDIAG=$(lite eval "${W}" "return '说过的=' + __lite.notify.log.slice(-3).map((x) => x.kind + ':' + x.text.replace(/\s+/g, ' ').slice(0, 120)).join(' / ') + ' 状态栏=' + __lite.notify.doing + ' toast=' + (document.querySelector('.toast')?.textContent ?? '') + ' 横幅=' + (document.querySelector('.op')?.innerText.replace(/\\s+/g, ' ') ?? '无') + ' 对话框=' + (document.querySelector('.dialog, .confirm')?.innerText.replace(/\\s+/g, ' ').slice(0, 80) ?? '无')" 2>/dev/null)
 check "$(git -C "${FIX}" rev-list --parents -n1 HEAD | wc -w | tr -d ' ')|$(lite eval "${W}" "return !!document.querySelector('.op')" 2>/dev/null)" "3|false" "点「继续」：做出一个合并提交（两个父）、横幅收起（${OPDIAG}；git status：$(git -C "${FIX}" status --short | head -3 | tr '\n' ' ')）"
 HG switch -qc op-rb op-side; printf 'rb\n' > "${FIX}/op.txt"; HG commit -qam "op rb"
@@ -1463,7 +1466,7 @@ lite_wait "${W}" "return document.querySelector('[aria-label=\"通知\"] .badge'
 check "$(lite eval "${W}" "return document.querySelector('[aria-label=\"通知\"] .badge')?.textContent ?? '没有角标'" 2>/dev/null)" "1" "改了没存就切模式（没做成）：面板关着，铃上一个角标"
 menu tw-notifications
 lite_wait "${W}" "return !!document.querySelector('.notes .row')" 5 >/dev/null
-check "$(lite eval "${W}" "const t = [...document.querySelectorAll('.notes .row')].map((r) => r.textContent); return [t.some((x) => x.includes('有未保存的改动')), t.some((x) => x.includes('变基已完成')), document.querySelector('.notes .row')?.classList.contains('fail'), !document.querySelector('[aria-label=\"通知\"] .badge')].join('|')" 2>/dev/null)" "true|true|true|true" "记录里有刚才那条（在最上、标成没做成）和 ㊲ 早就走了的「变基已完成」；打开之后角标清了"
+check "$(lite eval "${W}" "const t = [...document.querySelectorAll('.notes .row')].map((r) => r.textContent); return [t.some((x) => x.includes('有未保存的更改')), t.some((x) => x.includes('变基已完成')), document.querySelector('.notes .row')?.classList.contains('fail'), !document.querySelector('[aria-label=\"通知\"] .badge')].join('|')" 2>/dev/null)" "true|true|true|true" "记录里有刚才那条（在最上、标成没做成）和 ㊲ 早就走了的「变基已完成」；打开之后角标清了"
 menu tw-notifications
 menu save; sleep 0.3
 menu close-tab; sleep 0.3

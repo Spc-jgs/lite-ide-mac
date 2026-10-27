@@ -138,7 +138,7 @@ pub fn report(java: &Path, cli: &Path, exec: &Path, out_xml: &Path, modules: &[(
     }
     let bytes = std::fs::read(out_xml).map_err(|e| format!("读不到报告：{e}"))?;
     if bytes.len() > XML_CAP {
-        return Err(format!("报告有 {} MB，太大了，没读", bytes.len() >> 20));
+        return Err(format!("报告大小为 {} MB，超出上限，未读取", bytes.len() >> 20));
     }
     let xml = String::from_utf8_lossy(&bytes);
     let srcs: Vec<&PathBuf> = modules.iter().map(|(_, s)| s).collect();

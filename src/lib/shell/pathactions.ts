@@ -29,7 +29,7 @@ export async function copyText(text: string, what: string) {
      * 失败要说清是**剪贴板**不让写，不能只说"复制失败" —— 后者会让人
      * 以为是路径有问题，去查文件树。顺带把内容放进消息里，至少能手动选中。
      */
-    notify.fail(`剪贴板不可用，${what}是：${text}`);
+    notify.fail(`剪贴板不可用，${what}：${text}`);
   }
 }
 

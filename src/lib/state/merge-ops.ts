@@ -24,16 +24,16 @@ export async function openMerged(paths: string[], opts: { quiet?: boolean; repla
   // 同一份选了两次（文件树里选了、面板里又选了一遍）：去掉，保持先后
   const list = [...new Set(paths)];
   if (list.length < 2) {
-    if (!opts.quiet) notify.hint("合并至少要两份日志");
+    if (!opts.quiet) notify.hint("合并至少需要两份日志");
     return;
   }
   if (list.length > MAX) {
-    if (!opts.quiet) notify.fail(`最多合并 ${MAX} 份，选了 ${list.length} 份`);
+    if (!opts.quiet) notify.fail(`最多可合并 ${MAX} 份，当前选择了 ${list.length} 份`);
     return;
   }
   const key = mergePath(list);
   if (!key) {
-    if (!opts.quiet) notify.fail("有一份文件的路径里带换行，合并不了");
+    if (!opts.quiet) notify.fail("无法合并：文件路径中包含换行符");
     return;
   }
   const exist = tabs.byPath(key);
