@@ -2,7 +2,7 @@
  * `.http` 文件里不碰编辑器的那一半（src/lib/http/http-file.ts）：切出每个请求、名字、头和体、`< 文件`、响应处理脚本、变量替换。
  * 每一条都是「发出去的东西和文件里写的不一样」的一种形状 —— 那种错不报错，只是服务器回一个莫名其妙的 400。
  */
-import { parseHttp, requestAt, resolve, dynamic, tabName, multipartParts } from "../src/lib/http/http-file.ts";
+import { parseHttp, requestAt, resolve, dynamic, tabName, multipartParts, maskUrl } from "../src/lib/http/http-file.ts";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -147,6 +147,11 @@ eq(mp, [
 ], "按段切：CRLF、文件换成路径（按 .http 所在目录解析）");
 eq(multipartParts("application/json", up.body, (x) => x), null, "不是 multipart：照原来的走");
 eq(multipartParts("multipart/form-data; boundary=B", "--B\r\n\r\nx\r\n--B--", (x) => x), [{ text: "--B\r\n\r\nx\r\n--B--\r\n", file: null }], "文件里本来就是 CRLF 的不变成 CR CR LF");
+
+// 请求历史的打码（同 httpsvc::history::mask_url 的那几条样例）
+eq(maskUrl("http://a/x?page=2&access_token=abc&apiKey=k1&q=s#top"), "http://a/x?page=2&access_token=***&apiKey=***&q=s#top", "像密钥的查询参数打码");
+eq(maskUrl("http://a/x?Signature=zz&empty_token="), "http://a/x?Signature=***&empty_token=", "空值不打码");
+eq(maskUrl("http://a/login"), "http://a/login", "没有查询参数原样");
 
 eq([tabName(get), tabName({ ...get, name: null }), tabName({ ...bare, name: null })], ["查订单", "GET /orders?status=PAID&page=1", "GET /health"], "运行窗那一格的名字");
 

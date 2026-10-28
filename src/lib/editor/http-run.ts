@@ -74,6 +74,14 @@ function envPanel(root: string, path: string) {
         }
         dom.append(segs);
       }
+      // 请求历史（#77）：发过的请求按时间列出来，能跳回文件、能再发
+      const hist = document.createElement("button");
+      hist.className = "btn sm quiet";
+      hist.textContent = "历史";
+      hist.title = "请求历史：按时间列出发过的请求";
+      hist.onmousedown = (e) => e.preventDefault();
+      hist.onclick = () => void ops?.openHistory(root);
+      dom.append(hist);
       const keys = document.createElement("span");
       keys.className = "keys";
       keys.textContent = "⌃⇧R 发光标所在的请求";

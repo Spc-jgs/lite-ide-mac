@@ -165,7 +165,7 @@ body() { lite_eval main "${R} return r('$1')?.log ?? ''"; }
 
 echo "== 行号旁的 ▶、顶上的运行环境"
 ok "$([ "$(lite_eval main "return document.querySelectorAll('.cm-http-send').length")" = 10 ] && echo 1)" "10 个请求各一个 ▶（「没定义」那个也有）"
-ENVS=$(lite_eval main "return [...document.querySelectorAll('.cm-http-env .btn')].map((b) => b.textContent).join(',')")
+ENVS=$(lite_eval main "return [...document.querySelectorAll('.cm-http-env .segs .btn')].map((b) => b.textContent).join(',')")
 ok "$([ "${ENVS}" = "无,local" ] && echo 1)" "环境条：${ENVS}（\$shared 不算一个环境）"
 
 echo "== 没选环境：{{host}} 没定义，不发"
@@ -265,6 +265,23 @@ send 2; done_ 上传
 UP=$(body 上传)
 WANT=$(shasum -a 256 "${P}/api/img/logo.bin" | cut -d' ' -f1)
 ok "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); p=d["parts"]; print(1 if [x["name"] for x in p]==["note","file"] and p[0]["text"]=="你好" and p[1]["filename"]=="logo.bin" and p[1]["len"]==4096 and p[1]["sha"]==sys.argv[2] and d["lf"]==d["crlf"]==2 else 0)' "${UP}" "${WANT}" 2>/dev/null)" "服务端拆出两段：note=你好、logo.bin 4096 字节 sha256 对得上，第一条边界在最开头，后两条前面都是 CRLF、没有光秃秃的 LF：$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(d, ensure_ascii=False)[:500])' "${UP}" 2>&1 | head -c 600)"
+
+echo "== 请求历史（#77）：顶上那条的「历史」列出发过的请求；重新发送照文件此刻的写法再发一次；打开跳回文件里那个请求"
+lite_eval main "await __lite.tabflow.openPath('${F}', { preview: false }); return true" >/dev/null
+sleep 0.8
+lite_eval main "[...document.querySelectorAll('.cm-http-env button')].find((b) => b.textContent === '历史')?.click(); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.dialog.httphist .row').length > 3" 8 >/dev/null
+HROWS=$(lite_eval main "return [...document.querySelectorAll('.dialog.httphist .row .what')].map((x) => x.textContent.trim()).join(' | ')")
+ok "$(echo "${HROWS}" | grep -q 'POST 下单' && echo "${HROWS}" | grep -q 'GET 茶壶' && echo 1)" "列出了前面发过的请求（最近的在前）：$(echo "${HROWS}" | cut -c1-120)"
+ok "$([ ! -e "${P}/.idea" ] && ls "${LITE_DATA}/http/history/"*.jsonl >/dev/null 2>&1 && ! grep -q 'secret-private' "${LITE_DATA}/http/history/"*.jsonl && echo 1)" "历史在应用数据目录、不往项目里写；没记请求头（私有环境里的 token 不在里面）"
+N0=$(hits)
+lite_eval main "const r = [...document.querySelectorAll('.dialog.httphist .row')].find((x) => x.querySelector('.what')?.textContent.trim() === 'POST 下单'); r?.querySelectorAll('button')[1].click(); return !!r" >/dev/null
+ok "$(wait_for 10 '[ $(hits) -gt ${N0} ]' && [ "$(tail -1 "${SRV}/requests.log")" = "POST /orders" ] && echo 1)" "「重新发送」：服务端又收到一次 POST /orders"
+lite_eval main "[...document.querySelectorAll('.cm-http-env button')].find((b) => b.textContent === '历史')?.click(); return true" >/dev/null
+lite_wait main "return !!document.querySelector('.dialog.httphist .row')" 8 >/dev/null
+lite_eval main "const r = [...document.querySelectorAll('.dialog.httphist .row')].find((x) => x.querySelector('.what')?.textContent.trim() === 'GET 茶壶'); r?.querySelectorAll('button')[0].click(); return !!r" >/dev/null
+sleep 0.8
+ok "$(lite_eval main "return !document.querySelector('.dialog.httphist') && __lite.tabs.active?.path.endsWith('orders.http')" | grep -qx true && lite_eval main "return (document.querySelector('.cm-activeLine')?.textContent ?? '').startsWith('GET {{base}}/status/418')" | grep -qx true && echo 1)" "「打开」：对话框收起、光标停在文件里那个请求的请求行上（$(lite_eval main "return document.querySelector('.cm-activeLine')?.textContent ?? ''")）"
 
 echo "== 没有副作用"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（响应体在应用数据目录里，不像 IDEA 那样写进 .idea/httpRequests）"

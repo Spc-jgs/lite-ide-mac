@@ -7,10 +7,13 @@
  * Cookie 罐（#75）照真实现按「项目 + 环境」一个：带 `/login` 的回 `Set-Cookie: SESSION=…` 和 `{"token": …}`（给响应脚本取），之后的请求在回显里带上 `cookie`。
  */
 import { type A, bump, FILES, NOT_MINE } from "./data";
+import { maskUrl } from "../../http/http-file";
 
 /** Cookie 罐：`项目\n环境` → 名字 → 值 */
 const JARS = new Map<string, Map<string, string>>();
 const jarKey = (a: A) => `${String(a.root)}\n${a.env ?? ""}`;
+
+const HIST: unknown[] = [];
 
 const PENDING = new Map<number, { reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 let seq = 0;
@@ -50,6 +53,18 @@ export function httpCmd(cmd: string, a: A): unknown {
       return envs(String(a.root), String(a.path));
     case "http_cookies":
       return [...(JARS.get(jarKey(a)) ?? new Map()).keys()].map((name) => ({ domain: "localhost", path: "/", name, expires: 0, httpOnly: true }));
+    // 请求历史（#77，真实现在 httpsvc::history）：内存里一份，最近的在前，打码照真实现
+    case "http_history_add": {
+      const e = a.entry as Record<string, unknown>;
+      HIST.unshift({ ...e, url: maskUrl(String(e.url)), template: maskUrl(String(e.template)) });
+      HIST.splice(200);
+      return null;
+    }
+    case "http_history":
+      return [...HIST];
+    case "http_history_clear":
+      HIST.splice(0);
+      return null;
     case "http_cookies_clear":
       JARS.delete(jarKey(a));
       return null;

@@ -269,6 +269,25 @@ export function multipartParts(contentType: string, body: string | null, abs: (r
   return out;
 }
 
+/**
+ * 查询参数里像密钥的值换成 `***`（请求历史只存打过码的，`httpsvc::history::mask_url` 的同一份规则 —— 两边各有一条用同样样例的测试）。
+ * 回到文件里找历史里的那个请求时，把文件里的 URL 也这样打码再比
+ */
+export function maskUrl(url: string): string {
+  const q = url.indexOf("?");
+  if (q < 0) return url;
+  const h = url.indexOf("#", q);
+  const query = url.slice(q + 1, h < 0 ? undefined : h);
+  const masked = query
+    .split("&")
+    .map((kv) => {
+      const i = kv.indexOf("=");
+      return i > 0 && i < kv.length - 1 && /token|key|secret|password|passwd|pwd|sig|auth|session|credential/i.test(kv.slice(0, i)) ? `${kv.slice(0, i)}=***` : kv;
+    })
+    .join("&");
+  return url.slice(0, q + 1) + masked + (h < 0 ? "" : url.slice(h));
+}
+
 /** 运行窗那一格叫什么：有名字用名字，没有就是「方法 + 路径」（不带主机：一排格子里主机都一样） */
 export function tabName(req: HttpReq): string {
   if (req.name) return req.name;

@@ -126,5 +126,32 @@ const other = tab("我")!;
 ok(other.http?.env === "test" && other.status === "done" && JSON.parse(FILES[other.log]).echo.cookie === null, `换个环境是另一个罐子：dev 登录拿到的 Cookie 不带到 test（${other.http?.env} ${other.status}）`);
 m.setEnv(ROOT, "dev");
 
+// ── 请求历史（#77）：发过的都记、最近的在前、URL 里的 token 打码、不记头和体；照历史重发走文件此刻的写法，找不到就不发 ──
+{
+  const { httpHistory } = await import("../src/lib/ipc/http");
+  const HIST = "/proj/api/hist.http";
+  const v1 = "### 列表\nGET http://{{host}}/orders?access_token=abc123\nX-Secret: s3\n\n### 详情\nGET http://{{host}}/orders/1\n";
+  FILES[HIST] = v1;
+  await m.sendAt(ROOT, HIST, v1, 2);
+  await m.sendAt(ROOT, HIST, v1, 6);
+  const h = await httpHistory(ROOT);
+  ok(h[0]?.name === "详情" && h[1]?.name === "列表", `最近的在前：${h.map((x) => x.name).join(",")}`);
+  ok(h[1].url.includes("access_token=***") && !JSON.stringify(h).includes("abc123") && !JSON.stringify(h).includes("s3"), `token 打码、头不记：${h[1].url}`);
+  ok(h[1].template === "http://{{host}}/orders?access_token=***" && h[1].env === "dev" && h[1].status === 200, `模板、环境、状态都记了：${JSON.stringify(h[1])}`);
+  // 文件改了：列表那个请求的路径变了，照历史重发发的是改过的
+  FILES[HIST] = v1.replace("/orders?access_token", "/orders/v2?access_token");
+  const before = runs.list.length;
+  ok(await m.resendHist(ROOT, HIST, "列表", "GET", h[1].template), "按名字在文件里找到了");
+  ok(tab("列表")?.command.includes("/orders/v2?"), `发的是文件此刻的写法：${tab("列表")?.command}`);
+  ok(!(await m.resendHist(ROOT, HIST, "删掉了的", "GET", "http://x")) && runs.list.length <= before + 1, "找不到就不发");
+  // 没名字的请求：按方法 + 文件里写的 URL 找，历史里那份是打过码的，比的时候文件里的也打码
+  const v3 = "GET http://{{host}}/ping?api_key=k-77\n";
+  FILES["/proj/api/anon.http"] = v3;
+  await m.sendAt(ROOT, "/proj/api/anon.http", v3, 1);
+  const a3 = (await httpHistory(ROOT))[0];
+  ok(a3.name === "" && a3.template === "http://{{host}}/ping?api_key=***", `没名字的记的是打过码的模板：${a3.template}`);
+  ok(await m.resendHist(ROOT, "/proj/api/anon.http", a3.name, a3.method, a3.template), "照打过码的模板在文件里找回来了");
+}
+
 console.log(`${fail === 0 ? "✅" : "❌"} HTTP 请求（状态层）：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

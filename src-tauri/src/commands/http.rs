@@ -92,3 +92,20 @@ pub async fn http_cookies_clear(app: tauri::AppHandle, root: String, env: Option
 pub fn http_cancel(window: tauri::Window, state: State<'_, AppState>, op: u32) {
     state.cancel_http(window.label(), op);
 }
+
+/// 记一条请求历史（#77）。URL 里像密钥的查询参数由 httpsvc 打码，头和体不记（理由在 `httpsvc::history` 头上）
+#[tauri::command]
+pub async fn http_history_add(app: tauri::AppHandle, root: String, entry: HttpHistDto) -> Result<(), String> {
+    blocking(move || httpsvc::history::append(&httpsvc::history::path(&http_dir(&app)?, &root), entry.into()).map_err(|e| format!("无法记录请求历史：{e}"))).await
+}
+
+/// 这个项目的请求历史，最近的在前
+#[tauri::command]
+pub async fn http_history(app: tauri::AppHandle, root: String) -> Result<Vec<HttpHistDto>, String> {
+    blocking(move || Ok(httpsvc::history::list(&httpsvc::history::path(&http_dir(&app)?, &root)).into_iter().map(Into::into).collect())).await
+}
+
+#[tauri::command]
+pub async fn http_history_clear(app: tauri::AppHandle, root: String) -> Result<(), String> {
+    blocking(move || httpsvc::history::clear(&httpsvc::history::path(&http_dir(&app)?, &root)).map_err(|e| format!("无法清除请求历史：{e}"))).await
+}

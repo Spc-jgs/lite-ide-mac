@@ -1,6 +1,6 @@
 /** HTTP 请求（docs/IDEA.md 第 19 节）的命令包装：只有 `.http` 文件和运行窗里那几块用，它们是懒的（同 ipc/tasks.ts 的理由） */
 import { invoke } from "@tauri-apps/api/core";
-import type { HttpCookie, HttpEnvs, HttpPart, HttpResponse } from "./commands";
+import type { HttpCookie, HttpEnvs, HttpHist, HttpPart, HttpResponse } from "./commands";
 
 /** 这个 `.http` 文件能用的环境（从它所在的目录往上到项目根找环境文件） */
 export const httpEnvs = (root: string, path: string) => invoke<HttpEnvs>("http_envs", { root, path });
@@ -30,3 +30,8 @@ export const httpCancel = (op: number) => invoke<void>("http_cancel", { op });
 export const httpCookies = (root: string, env: string | null) => invoke<HttpCookie[]>("http_cookies", { root, env });
 
 export const httpCookiesClear = (root: string, env: string | null) => invoke<void>("http_cookies_clear", { root, env });
+
+/** 请求历史（#77）：记一条、读这个项目的（最近的在前）、清空 */
+export const httpHistoryAdd = (root: string, entry: HttpHist) => invoke<void>("http_history_add", { root, entry });
+export const httpHistory = (root: string) => invoke<HttpHist[]>("http_history", { root });
+export const httpHistoryClear = (root: string) => invoke<void>("http_history_clear", { root });

@@ -1787,6 +1787,34 @@ pub struct GitAskpassDto {
     pub secret: bool,
 }
 
+/// 请求历史的一条（#77，`httpsvc::history::Entry`）。前端记的时候也用它（`http_history_add`），所以两个方向都要
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpHistDto {
+    pub at: u64,
+    pub file: String,
+    pub name: String,
+    pub method: String,
+    pub template: String,
+    pub url: String,
+    pub env: String,
+    pub status: u16,
+    pub ms: u64,
+    pub error: String,
+}
+
+impl From<HttpHistDto> for httpsvc::history::Entry {
+    fn from(d: HttpHistDto) -> Self {
+        httpsvc::history::Entry { at: d.at, file: d.file, name: d.name, method: d.method, template: d.template, url: d.url, env: d.env, status: d.status, ms: d.ms, error: d.error }
+    }
+}
+
+impl From<httpsvc::history::Entry> for HttpHistDto {
+    fn from(e: httpsvc::history::Entry) -> Self {
+        HttpHistDto { at: e.at, file: e.file, name: e.name, method: e.method, template: e.template, url: e.url, env: e.env, status: e.status, ms: e.ms, error: e.error }
+    }
+}
+
 /// Cookie 罐里的一条（#75）。不带值：值是登录态，界面上只要知道「记着哪些」
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

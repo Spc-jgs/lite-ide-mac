@@ -175,6 +175,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("HttpResponseDto", "HttpResponse"),
     ("HttpEnvsDto", "HttpEnvs"),
     ("HttpCookieDto", "HttpCookie"),
+    ("HttpHistDto", "HttpHist"),
     ("HttpPartDto", "HttpPart"),
     ("TaskLingerDto", "TaskLinger"),
     ("GitAskpassDto", "GitAskpass"),

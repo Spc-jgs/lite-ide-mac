@@ -19,6 +19,7 @@
 //! 里面是登录态：目录 0700、文件 0600，不进日志；界面上只列域名、名字、过期时间（[`cookies`]），不给值。
 
 pub mod env;
+pub mod history;
 pub mod json;
 
 use serde_json::Value;
@@ -320,6 +321,11 @@ pub fn send_capped(curl: &Path, r: &Request, dir: &Path, seq: u64, h: &Handle, c
 /// 这个项目、这个环境的 Cookie 罐。文件名是两段 FNV 指纹：项目路径和环境名（可能是中文）都不直接进文件名
 pub fn jar_path(dir: &Path, root: &str, env: Option<&str>) -> PathBuf {
     dir.join("cookies").join(format!("{:016x}-{:016x}.txt", fnv(root), fnv(env.unwrap_or(""))))
+}
+
+/// 同 [`fnv`]，给别的模块用（请求历史的文件名）
+pub(crate) fn fnv_pub(s: &str) -> u64 {
+    fnv(s)
 }
 
 fn fnv(s: &str) -> u64 {

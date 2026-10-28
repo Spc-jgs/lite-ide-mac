@@ -498,6 +498,21 @@ export interface HttpPart {
   file: string | null;
 }
 
+/** 请求历史的一条（#77）。不记头和体；`url` 里像密钥的查询参数已打码；`template` 是文件里写的 URL（回到文件里找这个请求用） */
+export interface HttpHist {
+  at: number;
+  file: string;
+  name: string;
+  method: string;
+  template: string;
+  url: string;
+  env: string;
+  /** 没发成是 0 */
+  status: number;
+  ms: number;
+  error: string;
+}
+
 /** Cookie 罐里的一条（#75）。不带值：值是登录态 */
 export interface HttpCookie {
   domain: string;

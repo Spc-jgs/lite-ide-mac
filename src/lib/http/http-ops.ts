@@ -11,8 +11,8 @@ import { notify } from "../state/notify.svelte";
 import { tabs } from "../state/tabs.svelte";
 import { docs } from "../state/docs.svelte";
 import { readText } from "../ipc/commands";
-import { httpCancel, httpEnvs, httpSend } from "../ipc/http";
-import { multipartParts, parseHttp, requestAt, resolve, tabName, type HttpFile, type HttpReq } from "./http-file";
+import { httpCancel, httpEnvs, httpHistoryAdd, httpSend } from "../ipc/http";
+import { maskUrl, multipartParts, parseHttp, requestAt, resolve, tabName, type HttpFile, type HttpReq } from "./http-file";
 import { runScript } from "./http-script";
 
 const KEY = "lite-ide.http-env";
@@ -133,6 +133,10 @@ async function send(root: string, path: string, f: HttpFile, req: HttpReq) {
   runs.activeId = id;
   layout.panelView = "run";
   layout.panel = true;
+  const sentAt = Date.now();
+  // 请求历史（#77）：发出去了就记一条（回来了、没发成、取消都记），头和体不记
+  const remember = (status: number, ms: number, error: string) =>
+    void httpHistoryAdd(root, { at: sentAt, file: path, name: req.name ?? "", method: r.req.method, template: req.url, url: r.req.url, env: env ?? "", status, ms, error }).catch(() => {});
   const parts = multipartParts(r.req.headers.find(([k]) => k.toLowerCase() === "content-type")?.[1] ?? "", r.req.body, (rel) => absPath(path, rel));
   try {
     const resp = await httpSend(op, root, {
@@ -149,6 +153,7 @@ async function send(root: string, path: string, f: HttpFile, req: HttpReq) {
     // 响应脚本：IDEA 不管状态码都跑（登录失败时 token 取不到，会记成「未设置」说出来）
     const script = req.script ? runScript(req.script, { headers: resp.headers, body: await readText(resp.body).then((t) => t.content).catch(() => "") }) : null;
     if (script?.set.length) GLOBALS.set(root, { ...globalsOf(root), ...Object.fromEntries(script.set) });
+    remember(resp.status, resp.ms, "");
     const now = tab(id);
     if (!now?.http) return;
     now.http.script = script;
@@ -158,12 +163,37 @@ async function send(root: string, path: string, f: HttpFile, req: HttpReq) {
     // 4xx / 5xx 格子上的点是红的（同任务「失败」）：一排请求里一眼看出哪个没成
     now.status = resp.status >= 400 ? "failed" : "done";
   } catch (e) {
+    const msg0 = e instanceof Error ? e.message : String(e);
+    remember(0, Date.now() - sentAt, msg0);
     const now = tab(id);
     if (!now?.http) return;
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = msg0;
     now.http.error = msg;
     now.status = msg === "已取消" ? "stopped" : "failed";
   }
+}
+
+/** 在文件里找回历史里的那个请求：有名字按名字，没有按方法 + 文件里写的 URL（历史里存的是打过码的，比之前文件里的也打码）。找不到（删了、改了）是 null */
+export function findRequest(f: HttpFile, name: string, method: string, template: string): HttpReq | null {
+  return f.requests.find((x) => (name ? x.name === name : x.method === method && maskUrl(x.url) === template)) ?? null;
+}
+
+/** 请求历史（#77）：`.http` 顶上那条的「历史」按钮 */
+export async function openHistory(root: string) {
+  const [{ openModal }, m] = await Promise.all([import("../settings/modal-host"), import("./HttpHistory.svelte")]);
+  openModal(m.default, { root });
+}
+
+/** 历史里的一条：照文件**此刻**的样子再发一次（同重发）。文件里找不到那个请求了就说一句，不发上次那份 —— 那份没有头和体 */
+export async function resendHist(root: string, file: string, name: string, method: string, template: string): Promise<boolean> {
+  const open = tabs.byPath(file);
+  const text = open ? docs.liveText(open) : await readText(file).then((t) => t.content).catch(() => null);
+  if (text === null) return void notify.fail(`无法读取 ${file}`), false;
+  const f = parseHttp(text);
+  const req = findRequest(f, name, method, template);
+  if (!req) return void notify.hint("文件中已找不到该请求（可能已被修改或删除）"), false;
+  await send(root, file, f, req);
+  return true;
 }
 
 /** 取消正在发的（运行窗的停止按钮、⌘F2、关掉那一格） */
