@@ -66,7 +66,7 @@
    */
   // `lang.mod` 没到手时空着 —— 和旁边语言名那格同一条规矩（issue #32）
   let indentNow = $derived<"tab" | number | null>(
-    active?.mode === "edit" && lang.mod ? (active.indent ?? lang.mod.detectIndent(active.content ?? "")) : null,
+    active?.mode === "edit" && lang.mod ? (active.indent ?? active.ecIndent ?? lang.mod.detectIndent(active.content ?? "")) : null,
   );
   let indent = $derived(lang.mod && active?.mode === "edit" ? lang.mod.indentLabel(indentNow) : "");
   const EOL_LABEL: Record<string, string> = { LF: "LF", CRLF: "CRLF", CR: "CR", mixed: "换行混用" };
@@ -245,7 +245,7 @@
         onclick={openFmt}
         title={active.eol === "mixed"
           ? "文件里 LF 和 CRLF 混用 —— 点这里选一种，保存时统一"
-          : "缩进（按文件内容判断）· 换行符（保存时原样写回）—— 点击可改"}
+          : "缩进（文件内容或 .editorconfig）· 换行符（保存时原样写回）—— 点击可改"}
       >{indent} · {eol}</button>
     {/if}
     <!-- 图片没有编码、没有「改没改」：尺寸和类型在预览自己的那条栏上 -->

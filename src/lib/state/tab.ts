@@ -107,6 +107,8 @@ export interface TabState {
    * 不进快照，理由同 `wrap`。只影响之后敲进去的缩进，不重排已有的行。
    */
   indent?: "tab" | number;
+  /** `.editorconfig` 定的缩进（编辑器挂载时问来的）。排在手动覆盖之后、按内容猜之前 —— 状态栏那格和编辑器用的是同一个答案 */
+  ecIndent?: "tab" | number | null;
   /** 见 `doc.ts` 的 `Doc.fmt`：换编码 / 换换行符之后、还没保存 */
   fmt?: boolean;
   /** 解码时有解不出的字节；带着它保存会把那些字节永久换成 U+FFFD */

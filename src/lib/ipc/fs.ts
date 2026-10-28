@@ -32,3 +32,6 @@ export const renameEntry = (path: string, name: string) =>
  * `fsservice::clipboard_text`
  */
 export const readClipboard = () => invoke<string>("read_clipboard");
+
+/** 这个文件生效的 `.editorconfig`（编辑器挂载时问一次） */
+export const editorConfig = (path: string) => invoke<import("./commands").EditorConfig>("editor_config", { path });

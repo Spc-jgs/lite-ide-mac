@@ -38,7 +38,7 @@ FILES[C] = "ZZOLD in c\n";
 await tabflow.openPath(A, { preview: false });
 await tabflow.openPath(B, { preview: false });
 let bLive = "ZZOLD in b\n我还没存的一行\n";
-docs.onEditorLive(B, () => bLive);
+docs.onEditorLive(B, (save?: string) => save ?? bLive);
 const tb = tabs.byPath(B)!;
 tb.dirty = true;
 

@@ -5,6 +5,7 @@
 //! 编码策略见 [`encoding`] 模块：**探测 → 记住 → 原样写回**。
 //! 用什么编码读进来的就用什么编码存回去，保存不做「顺手转成 UTF-8」这种擅自决定。
 
+pub mod editorconfig;
 pub mod encoding;
 pub mod eol;
 pub mod watch;

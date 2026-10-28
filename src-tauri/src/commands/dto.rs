@@ -1766,6 +1766,18 @@ pub struct HttpPartDto {
     pub file: Option<String>,
 }
 
+/// 一个文件生效的 `.editorconfig`（`fsservice::editorconfig::Props`）。没写的是 null
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorConfigDto {
+    /// "space" / "tab"
+    pub indent_style: Option<String>,
+    pub indent_size: Option<u32>,
+    pub tab_width: Option<u32>,
+    pub trim_trailing_whitespace: Option<bool>,
+    pub insert_final_newline: Option<bool>,
+}
+
 /// git 要凭据（#62，`git-askpass` 事件）：`prompt` 是 git 给的那句（`Username for 'https://…':`），`secret` = 问的是密码一类、输入框不回显
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]

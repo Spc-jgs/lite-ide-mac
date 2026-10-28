@@ -293,6 +293,7 @@ pub fn run() {
             commands::ignored_dirs,
             commands::read_text,
             commands::detect_encoding,
+            commands::editor_config,
             commands::list_encodings,
             commands::write_text,
             commands::file_stamp,

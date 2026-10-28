@@ -33,7 +33,10 @@
   import { diffLines } from "../git/linediff";
   import { resolveJump, rawWordAt, javaToolsOf, type JumpHit } from "./jump";
   import type { EditorMenuApi } from "./menu-api";
-  import { readClipboard } from "../ipc/fs";
+  import { readClipboard, editorConfig } from "../ipc/fs";
+  import type { EditorConfig } from "../ipc/commands";
+  import { saveChanges } from "./save-actions";
+  import { tabs } from "../state/tabs.svelte";
   import { jumpExtension, recheckJump } from "./jump-ext";
   import { foldFrontmatter } from "./frontmatter-fold";
   import { bodyPlaceholder } from "./body-placeholder";
@@ -179,7 +182,7 @@
      * 交函数而不是每次 onChange 都把全文传出去：后者在大文件上等于
      * 每敲一个键复制一份全文。
      */
-    onLive?: (path: string, get: (() => string) | null) => void;
+    onLive?: (path: string, get: ((save?: string) => string) | null) => void;
     onOutline?: (syms: Sym[]) => void;
     /**
      * 光标换行时报一次（1-based）。会话快照用它记住「上次看到哪」。
@@ -390,10 +393,63 @@
     return true;
   }
 
-  /** `indentUnit` 要的那个字符串：覆盖优先，没有就猜；猜不出按 4 空格 */
+  /** 这个文件生效的 `.editorconfig`（挂载时问一次；没问到是 null） */
+  let ec = $state<EditorConfig | null>(null);
+  /** `.editorconfig` 定的缩进：写了 Tab 就是 Tab；写了几格就是几个空格；只写了「空格」没写几格的，格数照内容猜 */
+  function ecIndentOf(c: EditorConfig | null): "tab" | number | null {
+    if (!c) return null;
+    if (c.indentStyle === "tab") return "tab";
+    if (c.indentSize) return c.indentSize;
+    if (c.indentStyle === "space") {
+      const d = detectIndent(baseline ?? initial);
+      return typeof d === "number" ? d : 4;
+    }
+    return null;
+  }
+
+  /** `indentUnit` 要的那个字符串：手动覆盖优先，再 `.editorconfig`，没有就猜；猜不出按 4 空格 */
   function indentUnitOf(over: "tab" | number | null): string {
-    const ind = over ?? detectIndent(baseline ?? initial);
+    const ind = over ?? ecIndentOf(ec) ?? detectIndent(baseline ?? initial);
     return ind === "tab" ? "\t" : " ".repeat(typeof ind === "number" ? ind : 4);
+  }
+
+  /**
+   * 存盘用的文本：照 `.editorconfig` 去行尾空格、补 / 去末尾换行（`save-actions.ts`），作为编辑器里的一笔修改落进去
+   * （⌘Z 撤得回、光标跟着挪），再交出处理后的全文。没写那两条、或者已经干净的：原样交出，撤销栈里不多一笔
+   */
+  function textForSave(v: EditorView): string {
+    if (ec && (ec.trimTrailingWhitespace !== null || ec.insertFinalNewline !== null)) {
+      const keep = new Set(v.state.selection.ranges.map((r) => v.state.doc.lineAt(r.head).number));
+      const cs = saveChanges(v.state.doc.toString(), { trim: ec.trimTrailingWhitespace, finalNewline: ec.insertFinalNewline }, keep);
+      // 自成一步撤销，靠的是 userEvent：CM6 的 history 只把 `input.type` / `delete` 开头的事务并进上一步（@codemirror/commands 6.11
+      // `joinableUserEvent`，读过源码）。验收里光标在末尾刚敲了 x 就存、补的换行紧挨着它，⌘Z 也只撤换行
+      if (cs.length) v.dispatch({ changes: cs, userEvent: "input.save" });
+    }
+    return v.state.doc.toString();
+  }
+
+  /**
+   * 交给 `docs` 的「读此刻文本」：挂载、换文件两处登记的是同一个（换文件那条原来是另一份写法，差一点就漏了存盘处理）。
+   * 带参数 = 「要存这份」：正是此刻的文本才做存盘处理、交回处理过的；不是（另存为传的是脱掉锚点头的）原样还回去
+   */
+  const liveGet = (save?: string) => {
+    if (!view) return save ?? "";
+    const now = view.state.doc.toString();
+    if (save === undefined) return now;
+    return save === now ? textForSave(view) : save;
+  };
+
+  /** 问这个文件的 `.editorconfig`。缩进交给缩进那条 effect 重配，状态栏那格读标签上的 `ecIndent`。回来时已经换了文件就不认 */
+  function loadEc(p: string) {
+    ec = null;
+    void editorConfig(p)
+      .then((c) => {
+        if (curPath !== p) return;
+        ec = c;
+        const t = tabs.byPath(p);
+        if (t) t.ecIndent = ecIndentOf(c);
+      })
+      .catch(() => {});
   }
 
   /**
@@ -596,7 +652,8 @@
       // 对齐计数器：挂载不是一次「刚保存」，见下面那条 effect 的注释
       seenTick = savedTick;
       seenSelfSave = selfSaveTick; // 同上：挂载不是一次「刚存的落盘了」
-      onLive?.(curPath, () => view?.state.doc.toString() ?? "");
+      onLive?.(curPath, liveGet);
+      loadEc(curPath);
       registerView(curPath, view);
       onView?.(curPath, () => viewNow());
       view.scrollDOM.addEventListener("scroll", onScroll, { passive: true });
@@ -701,7 +758,8 @@
     // 脏不脏看**文档**对基线，不看 prop：自己存的落盘那次文档可能已经领先 initial
     onChange(view.state.doc.toString() !== baseText);
     untrack(() => {
-      onLive?.(p, () => view?.state.doc.toString() ?? "");
+      onLive?.(p, liveGet);
+      if (换了文件) loadEc(p);
       if (view) registerView(p, view);
       onLinesProbe?.(p, linesNow);
     });
@@ -818,9 +876,12 @@
   // 缩进单位同理（issue #37）。`baseline` / `initial` 在 untrack 里读：它们变了不该重算
   $effect(() => {
     const over = indent;
+    const c = ec;
     if (!view) return;
     const unit = untrack(() => indentUnitOf(over));
-    view.dispatch({ effects: indentSlot.reconfigure(indentUnit.of(unit)) });
+    // Tab 显示几格宽：`.editorconfig` 写了 tab_width 就照它（不写是 CM6 默认的 4）
+    const width = c?.tabWidth ?? (c?.indentStyle === "tab" ? c.indentSize : null);
+    view.dispatch({ effects: indentSlot.reconfigure([indentUnit.of(unit), ...(width ? [EditorState.tabSize.of(width)] : [])]) });
   });
 
   /*

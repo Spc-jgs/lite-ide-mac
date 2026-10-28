@@ -167,6 +167,18 @@ export async function fsCmd(cmd: string, a: A): Promise<unknown> {
         chain: isDir && !GENERATED.has(name) && !CONTESTED.has(name) ? mockChain(`${path}/${name}`) : [],
       }));
     }
+    // `.editorconfig`（真实现在 fsservice::editorconfig）：桩只认项目根上那一份的 `[*]` 段，够在浏览器里看缩进和存盘处理
+    case "editor_config": {
+      const text = FILES["/proj/.editorconfig"] ?? "";
+      const kv: Record<string, string> = {};
+      let inStar = false;
+      for (const l of text.split("\n").map((x) => x.trim())) {
+        if (l.startsWith("[")) inStar = l === "[*]";
+        else if (inStar && l.includes("=")) kv[l.split("=")[0].trim()] = l.split("=")[1].trim().toLowerCase();
+      }
+      const flag = (v?: string) => (v === "true" ? true : v === "false" ? false : null);
+      return { indentStyle: kv.indent_style ?? null, indentSize: kv.indent_size ? Number(kv.indent_size) : null, tabWidth: kv.tab_width ? Number(kv.tab_width) : null, trimTrailingWhitespace: flag(kv.trim_trailing_whitespace), insertFinalNewline: flag(kv.insert_final_newline) };
+    }
     case "detect_encoding":
       return encOf(String(a.path));
     case "list_encodings":

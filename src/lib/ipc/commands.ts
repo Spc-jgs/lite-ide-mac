@@ -475,6 +475,16 @@ export interface HttpResponse {
   finalUrl: string;
 }
 
+/** 一个文件生效的 `.editorconfig`。没写的是 null */
+export interface EditorConfig {
+  /** "space" / "tab" */
+  indentStyle: string | null;
+  indentSize: number | null;
+  tabWidth: number | null;
+  trimTrailingWhitespace: boolean | null;
+  insertFinalNewline: boolean | null;
+}
+
 /** git 要凭据（#62，`git-askpass` 事件）：`prompt` 是 git 给的那句，`secret` = 问的是密码一类、输入框不回显 */
 export interface GitAskpass {
   id: number;

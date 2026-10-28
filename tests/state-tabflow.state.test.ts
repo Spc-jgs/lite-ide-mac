@@ -41,7 +41,8 @@ setInvariantSink((m) => ok(false, `不变量：${m}`));
 /** 编辑器替身：挂上 = 交出「此刻文本」；切走 = 交回草稿 */
 function mountEditor(path: string, text: string) {
   let live = text;
-  docs.onEditorLive(path, () => live);
+  // 带参数 = 「要存这份」（Editor 的 liveGet）：替身不做存盘处理，原样还回去
+  docs.onEditorLive(path, (save?: string) => save ?? live);
   return {
     type(s: string) {
       live += s;

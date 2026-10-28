@@ -76,13 +76,17 @@ class Docs {
    * 旧实例交回的那个 null 只删自己那条，不会把新实例的口子抹掉。
    * 一个文件只在一个组里（docs/SPLIT.md 第 2 节）是这里按路径键的前提。
    */
-  readonly #live = new Map<string, () => string>();
+  /**
+   * 挂着的编辑器交出的「读此刻文本」。带一个参数 = 「要存这份」：正是编辑器此刻的文本时，编辑器先照 `.editorconfig` 去行尾空格、补末尾换行
+   * （一笔修改），交回处理过的那份；不是（另存为传的是脱掉锚点头的）就原样还回来。比较放在编辑器里（懒块），入口里只剩一句
+   */
+  readonly #live = new Map<string, (save?: string) => string>();
   /** 「读出光标底下那个词」的口子。认领规则同 `#live` */
   readonly #wordProbe = new Map<string, () => string | null>();
   /** 「选中的几段落在哪几行」的口子（#45）。认领规则同 `#live` */
   readonly #linesProbe = new Map<string, () => LineSpan[]>();
 
-  onEditorLive(path: string, get: (() => string) | null) {
+  onEditorLive(path: string, get: ((save?: string) => string) | null) {
     if (get) this.#live.set(path, get);
     else this.#live.delete(path);
     // 自检器要知道谁真的挂着编辑器（issue #36），和这里是同一份答案
@@ -194,6 +198,9 @@ class Docs {
    */
   async saveTab(tab: TabState, content: string, opts: { quiet?: boolean; to?: string } = {}): Promise<boolean> {
     if (tab.mode !== "edit") return false;
+    // 编辑器挂着的：交给它照 `.editorconfig` 处理（处理是编辑器里的一笔修改，存完盘上和编辑器里一样、不再是「未保存」）。
+    // 要存的不是它此刻的文本时它原样还回来：另存为（草稿毕业）传的是脱掉锚点头的那份（状态测试第 3 节撞过）
+    content = this.#live.get(tab.path)?.(content) ?? content;
     try {
       // 保存返回新指纹，必须记下来，否则下次检查会把自己的保存当成外部修改。
       // `to`（另存为）：写到别处去，**写成了才换路径** —— 写失败时标签还指着原来那份

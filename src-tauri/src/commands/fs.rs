@@ -114,6 +114,22 @@ pub async fn read_text(path: String, label: Option<String>) -> Result<TextDto, S
 
 /// 探测一个文件的编码，只读头部采样。日志模式用它决定 TextDecoder 的标签。
 ///
+/// 这个文件生效的 `.editorconfig`（`fsservice::editorconfig`）：缩进、存盘时去行尾空格、补末尾换行。读盘（往上一层层找），走阻塞池
+#[tauri::command]
+pub async fn editor_config(path: String) -> Result<EditorConfigDto, String> {
+    blocking(move || {
+        let p = fsservice::editorconfig::resolve(Path::new(&path));
+        Ok(EditorConfigDto {
+            indent_style: p.indent_style,
+            indent_size: p.indent_size,
+            tab_width: p.tab_width,
+            trim_trailing_whitespace: p.trim_trailing_whitespace,
+            insert_final_newline: p.insert_final_newline,
+        })
+    })
+    .await
+}
+
 /// 采样 256KB 而不是读全文：日志可能有 1GB，而编码特征在头部就足够明显。
 /// 读盘，走阻塞池（2026-10-10 整体审核时从主线程挪过来；新建 / 移动 / 改名同一天一起挪）
 #[tauri::command]
