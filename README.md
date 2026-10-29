@@ -190,11 +190,11 @@ src-tauri/
 ## 测试
 
 ```bash
-cd src-tauri && cargo test --workspace    # Rust 438 条
+cd src-tauri && cargo test --workspace    # 最近核对：727 通过、4 跳过（见 docs/STATUS.md）
 pnpm check                                # 类型检查
-pnpm test                                 # 前端 99 个文件
-scripts/smoke.sh                          # 真 .app 端到端 141 条（测试身份、不抢焦点、不碰真实数据）
-scripts/accept/*.sh                       # 14 份按领域的验收（真 jdtls / mvn / Gradle / java-debug）：java.sh 94 条、spring.sh 109 条、gradle.sh 33 条……
+pnpm test                                 # 前端 111 个文件
+scripts/smoke.sh                          # 真 .app 端到端（测试身份、不抢焦点、不碰真实数据；默认不跑 AI）
+scripts/accept/*.sh                       # 19 份按领域的验收；实际通过 / 未验数量看脚本输出与 docs/STATUS.md
 ```
 
 前端测试不引测试框架：纯函数（diff 解析、双栏对照、泳道布局、冲突解析……）直接跑 `.ts`；
@@ -210,9 +210,12 @@ CI 每次 push 都跑这三样，外加一道**入口包体积门禁**（超过 
 
 ## 状态
 
-v1.5.0，日常在用。立项时的 M0–M16、之后的整理 / 多窗口 / 编辑器基本功 / 任务运行做完；取代 IDEA 的分期做到了 MVP-7 的一半
-（MVP-0 到 MVP-5 齐了，AI 助手第一版，Gradle、Spring 配置补全、自动更新器做完；声明式集成包、Python / TS、数据库还没做）。
-做到哪了、接下来按什么顺序，见 [TAKEOVER.md 第 8 节](docs/TAKEOVER.md)。
+v1.5.0。Java 后端日常主链路已有实现；Gradle、Spring 配置补全 / Bean 导航、自动更新、Rust / Python / TS 语言包及数据库客户端也已落地。
+仍有 Nested 测试目标、无效断点提示、改名前预览等缺口，以及真实项目连续使用和干净机器安装的验收。
+AI 第一版暂缓继续开发。
+
+当前实现、已知问题和本轮实际验证见 [STATUS.md](docs/STATUS.md)，现有 issues 的核对见 [ISSUE-TRIAGE.md](docs/ISSUE-TRIAGE.md)。
+原始设计和分期推导保留在 [TAKEOVER.md](docs/TAKEOVER.md)，不把分期里的勾当作全部验收通过。
 
 ## 许可
 
