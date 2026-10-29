@@ -17,6 +17,7 @@
   import { parseTestTask } from "../editor/java-tests";
   import { runs } from "../state/runs.svelte";
 
+  import { logFocus } from "./log-focus.svelte";
   let { log, id }: { log: string; id?: number } = $props();
   /** 这是哪一次运行：按输出文件找（每次运行一份，Rust 发的路径），调用方只传 `log` 就够。跑单测那一格（「模块 [test …]」）左边加结果树（docs/IDEA.md 第 17 节） */
   // 给了 id 按 id 找：HTTP 请求还在发的时候 `log` 是空串，按它找会认到别的格子上（运行窗传 id，Services 只有任务、按 log 就够）
@@ -56,6 +57,8 @@
   const FOLLOW = { levelBits: 0b111111, pattern: "", caseSensitive: false, tailing: true, collapseStacks: false, onlyHits: true };
   // HTTP 的响应体（docs/IDEA.md 第 19 节）：一次写完的东西，从头看 —— 跟随尾部的话一打开就在最底下（浏览器里看出来的）
   const STILL = { ...FOLLOW, tailing: false };
+  // 从响应头的链路 ID 跳过来的（#77，`log-focus`）：只看带这个 ID 的行、不跟随。序号一变就按新条件重挂
+  let focus = $derived(run && logFocus.req?.id === run.id ? logFocus.req : null);
 </script>
 
 {#snippet plain(h: number)}
@@ -86,8 +89,8 @@
       </div>
     {/if}
     <div class="body">
-      {#key h}
-        <LogPane handle={h} initialFilter={run?.http ? STILL : FOLLOW} onStatus={(s) => (status = s)} />
+      {#key `${h}:${focus?.nonce ?? 0}`}
+        <LogPane handle={h} initialFilter={focus ? { ...STILL, pattern: focus.pattern } : run?.http ? STILL : FOLLOW} onStatus={(s) => (status = s)} />
       {/key}
     </div>
     {#if status}<div class="status">{status}</div>{/if}

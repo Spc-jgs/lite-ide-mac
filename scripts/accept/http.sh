@@ -149,6 +149,29 @@ Content-Type: application/octet-stream
 < ./img/logo.bin
 --B--
 EOF
+# 链路 ID 的服务由应用的任务运行器起，端口和日志都是真实的；不能拿脚本自己起的 echo 冒充应用管理的服务。
+cat > "${SRV}/trace.py" <<'EOF'
+import sys
+from http.server import HTTPServer, BaseHTTPRequestHandler
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        print('INFO trace=-trace/7 request completed', flush=True)
+        print('INFO trace=another request completed', flush=True)
+        self.send_response(200)
+        self.send_header('X-Trace-Id', '-trace/7')
+        self.end_headers()
+        self.wfile.write(b'{}')
+srv = HTTPServer(('127.0.0.1', 0), H)
+with open(sys.argv[1], 'w') as f: f.write(str(srv.server_port))
+srv.serve_forever()
+EOF
+mkdir -p "${P}/.lite-ide"
+python3 - "${P}/.lite-ide/tasks.json" "${SRV}" <<'PY'
+import json, shlex, sys
+with open(sys.argv[1], 'w') as f:
+    json.dump([{'name': 'trace-server', 'command': 'python3 -u ' + shlex.quote(sys.argv[2] + '/trace.py') + ' ' + shlex.quote(sys.argv[2] + '/trace.port')}], f)
+PY
+printf 'GET http://127.0.0.1:1/trace\n' > "${P}/api/trace.http"
 BEFORE=$(cd "${P}" && find . -type f | sort | md5)
 F="${P}/api/orders.http"
 
@@ -282,6 +305,20 @@ lite_wait main "return !!document.querySelector('.dialog.httphist .row')" 8 >/de
 lite_eval main "const r = [...document.querySelectorAll('.dialog.httphist .row')].find((x) => x.querySelector('.what')?.textContent.trim() === 'GET 茶壶'); r?.querySelectorAll('button')[0].click(); return !!r" >/dev/null
 sleep 0.8
 ok "$(lite_eval main "return !document.querySelector('.dialog.httphist') && __lite.tabs.active?.path.endsWith('orders.http')" | grep -qx true && lite_eval main "return (document.querySelector('.cm-activeLine')?.textContent ?? '').startsWith('GET {{base}}/status/418')" | grep -qx true && echo 1)" "「打开」：对话框收起、光标停在文件里那个请求的请求行上（$(lite_eval main "return document.querySelector('.cm-activeLine')?.textContent ?? ''")）"
+
+echo "== 响应头里的链路 ID：点击后选中应用管理的任务，日志按完整 ID 过滤"
+lite_eval main "await __lite.runTask('trace-server'); return true" >/dev/null
+wait_for 15 "[ -s '${SRV}/trace.port' ]"
+TP=$(cat "${SRV}/trace.port")
+lite_eval main "await __lite.tabflow.openPath('${P}/api/trace.http', { preview: false }); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-http-send').length === 1" 10 >/dev/null
+lite_eval main "__lite.setText('### 联日志\nGET http://127.0.0.1:${TP}/trace\n'); return true" >/dev/null
+send 2; done_ 联日志
+lite_eval main "[...document.querySelectorAll('.http [role=tab]')].find((x) => x.textContent.startsWith('响应头'))?.click(); return true" >/dev/null
+ok "$(lite_wait main "return [...document.querySelectorAll('.http .hrow button')].some((x) => x.textContent === '在服务日志中查找')" 8 && echo 1)" "响应头旁有「在服务日志中查找」"
+lite_eval main "[...document.querySelectorAll('.http .hrow button')].find((x) => x.textContent === '在服务日志中查找')?.click(); return true" >/dev/null
+ok "$(lite_wait main "return document.querySelector('.panel-head .tw-name')?.textContent === '运行' && __lite.runs.list.find((x) => x.id === __lite.runs.activeId)?.name === 'trace-server' && document.querySelector('.run .search input')?.value === '\"-trace/7\"'" 10 && echo 1)" "运行窗选中 trace-server，过滤框保留完整字面量 ID"
+ok "$(lite_wait main "const t = document.querySelector('.run .body')?.textContent ?? ''; return t.includes('trace=-trace/7') && !t.includes('trace=another')" 10 && echo 1)" "日志只剩对应链路，其他请求不显示"
 
 echo "== 没有副作用"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（响应体在应用数据目录里，不像 IDEA 那样写进 .idea/httpRequests）"

@@ -270,6 +270,19 @@ export function multipartParts(contentType: string, body: string | null, abs: (r
 }
 
 /**
+ * 响应头里的链路 ID（#77）：`traceparent`（W3C，取中间那 32 位）、`X-Trace-Id` / `X-B3-TraceId` / `X-Request-Id` / `X-Correlation-Id` 这类取原值。
+ * 只认名字明确的，不猜（`ETag` 这种长得像 ID 的不算）
+ */
+export function traceIdOf(name: string, value: string): string | null {
+  const n = name.toLowerCase();
+  const v = value.trim();
+  // 过滤框用双引号包住整个 ID；它没有引号转义语法，不能把这样的响应头当作查询拼进去。
+  if (!v || /["\r\n]/.test(v)) return null;
+  if (n === "traceparent") return /^[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$/i.exec(v)?.[1] ?? null;
+  return /^(x-)?(b3-)?(trace|request|correlation)-?id$/.test(n) ? v : null;
+}
+
+/**
  * 查询参数里像密钥的值换成 `***`（请求历史只存打过码的，`httpsvc::history::mask_url` 的同一份规则 —— 两边各有一条用同样样例的测试）。
  * 回到文件里找历史里的那个请求时，把文件里的 URL 也这样打码再比
  */

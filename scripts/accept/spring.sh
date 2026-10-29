@@ -33,7 +33,7 @@ HISTF=$("${SHELL}" -ic 'print -r -- ${HISTFILE:-}' </dev/null 2>/dev/null | tail
 hist_sum() { [ -n "${HISTF}" ] && [ -f "${HISTF}" ] && md5 -q "${HISTF}"; }
 H0=$(hist_sum)
 # 本地仓库在哪由你的 settings.xml 说了算（这台机器上不是 ~/.m2）：问 mvn 自己
-REPO=$("${SHELL}" -ilc 'mvn -q help:evaluate -Dexpression=settings.localRepository -DforceStdout' </dev/null 2>/dev/null | tail -1)
+REPO=$("${SHELL}" -ilc 'mvn -o -q help:evaluate -Dexpression=settings.localRepository -DforceStdout' </dev/null 2>/dev/null | tail -1)
 
 listening() { lsof -nP -iTCP:"$1" -sTCP:LISTEN -t >/dev/null 2>&1; }
 pgid_of() { lsof -nP -iTCP:"$1" -sTCP:LISTEN -Fg 2>/dev/null | sed -n 's/^g//p' | head -1; }
@@ -47,6 +47,9 @@ pick() {
 }
 
 # ── 造项目：和 docs/IDEA.md 第 8 节实测用的是同一个样子 ──
+mkdir -p "${P}/.mvn"
+# 验收只用本机缓存，Maven 3.8 不认 MAVEN_ARGS，用临时项目的配置保证任务里的 mvn 也不上网下载。
+printf '%s\n' '-o' > "${P}/.mvn/maven.config"
 mkdir -p "${P}/shop-common/src/main/java/com/demo/common" "${P}/order-service/src/main/java/com/demo/order" "${P}/order-service/src/main/resources" \
   "${P}/user-service/src/main/java/com/demo/user" "${P}/user-service/src/main/resources"
 cat > "${P}/pom.xml" <<'EOF'
@@ -139,6 +142,21 @@ public class UserApplication {
 }
 EOF
 printf 'server:\n  port: %s\n' "${UP}" > "${P}/user-service/src/main/resources/application.yml"
+cat > "${P}/user-service/src/main/java/com/demo/user/TraceController.java" <<'EOF'
+package com.demo.user;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
+@RestController
+public class TraceController {
+    @GetMapping("/trace") public ResponseEntity<String> trace() {
+        System.out.println("INFO trace=spring-trace-7 completed");
+        System.out.println("INFO trace=other-request completed");
+        return ResponseEntity.ok().header("X-Trace-Id", "spring-trace-7").body("{}");
+    }
+}
+EOF
+printf '### 服务链路\nGET http://127.0.0.1:%s/trace\n' "${UP}" > "${P}/trace.http"
 
 lite_launch "${P}" || exit 1
 
@@ -175,6 +193,16 @@ if wait_for 120 "listening ${UP}"; then
   lite_wait main "return !!document.querySelector('.svc .bar .heap polyline')" 10 >/dev/null
   HEAP=$(lite_eval main "const h = document.querySelector('.svc .bar .heap'); const t = h?.title ?? ''; const n = [...t.matchAll(/(\\d+) MB/g)].map((m) => +m[1]); return (n.length === 3 && n[0] > 0 && n[0] <= n[1] && n[1] <= n[2] ? 'ok ' : 'bad ') + h?.textContent + ' | ' + t.split('\\n')[0]")
   ok "$(echo "${HEAP}" | grep -qE '^ok [0-9]+ MB \| 堆：已用' && echo 1)" "选中它，工具栏上带着它的堆和小曲线（读 JVM 自己的性能计数，不起子进程）：${HEAP}"
+  echo "== HTTP 响应头跳回 Spring 服务日志（#77）"
+  lite_eval main "await __lite.tabflow.openPath('${P}/trace.http', { preview: false }); return true" >/dev/null
+  lite_wait main "return document.querySelectorAll('.cm-http-send').length === 1" 10 >/dev/null
+  lite_eval main "__lite.caret(2, 1); __lite.key('Ctrl-Shift-r'); return true" >/dev/null
+  lite_wait main "return __lite.runs.list.find((r) => r.name === '服务链路')?.status === 'done'" 15 >/dev/null
+  lite_eval main "[...document.querySelectorAll('.http [role=tab]')].find((x) => x.textContent.startsWith('响应头'))?.click(); return true" >/dev/null
+  lite_wait main "return !!document.querySelector('.http .hrow button')" 8 >/dev/null
+  lite_eval main "document.querySelector('.http .hrow button')?.click(); return true" >/dev/null
+  ok "$(lite_wait main "${SVC} return document.querySelector('.panel-head .tw-name')?.textContent === 'Services' && row('UserApplication')?.getAttribute('aria-selected') === 'true' && document.querySelector('.svc .run .search input')?.value === '\"spring-trace-7\"'" 10 && echo 1)" "跳回 Services、选中 UserApplication、带上完整链路 ID"
+  ok "$(lite_wait main "const t = document.querySelector('.svc .run .body')?.textContent ?? ''; return t.includes('trace=spring-trace-7') && !t.includes('trace=other-request')" 10 && echo 1)" "服务日志只显示这条链路"
   lite menu run-stop main >/dev/null
   ok "$(wait_for 15 "! listening ${UP} && [ \"\$(group_left ${G})\" = 0 ]" && echo 1)" "⌘F2 停的是 Services 里选中的它：端口空了、组里剩 $(group_left "${G}") 个"
   lite_wait main "${SVC} return grp('UserApplication') === 'Finished'" 10 >/dev/null

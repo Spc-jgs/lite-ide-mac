@@ -2,7 +2,7 @@
  * `.http` 文件里不碰编辑器的那一半（src/lib/http/http-file.ts）：切出每个请求、名字、头和体、`< 文件`、响应处理脚本、变量替换。
  * 每一条都是「发出去的东西和文件里写的不一样」的一种形状 —— 那种错不报错，只是服务器回一个莫名其妙的 400。
  */
-import { parseHttp, requestAt, resolve, dynamic, tabName, multipartParts, maskUrl } from "../src/lib/http/http-file.ts";
+import { parseHttp, requestAt, resolve, dynamic, tabName, multipartParts, maskUrl, traceIdOf } from "../src/lib/http/http-file.ts";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -154,6 +154,12 @@ eq(maskUrl("http://a/x?Signature=zz&empty_token="), "http://a/x?Signature=***&em
 eq(maskUrl("http://a/login"), "http://a/login", "没有查询参数原样");
 
 eq([tabName(get), tabName({ ...get, name: null }), tabName({ ...bare, name: null })], ["查订单", "GET /orders?status=PAID&page=1", "GET /health"], "运行窗那一格的名字");
+
+// 响应头的链路 ID：不是任意一个长得像 ID 的头；W3C 的取 trace-id，不把 span-id 一起搜。
+eq(traceIdOf("TraceParent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"), "4bf92f3577b34da6a3ce929d0e0e4736", "traceparent 取链路 ID");
+eq(traceIdOf("traceparent", "bad"), null, "坏的 traceparent 不给日志入口");
+eq(["X-Trace-Id", "X-B3-TraceId", "X-Request-Id", "X-Correlation-Id"].map((n) => traceIdOf(n, " req-7 ")), ["req-7", "req-7", "req-7", "req-7"], "约定的响应头、不区分名字大小写");
+eq([traceIdOf("ETag", "req-7"), traceIdOf("X-Trace-Id", "  "), traceIdOf("X-Request-Id", 'a"b')], [null, null, null], "别的头、空值、过滤框不能表达的引号都不拼进查询");
 
 console.log(`${fail === 0 ? "✅" : "❌"} .http 文件：${pass} 通过，${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

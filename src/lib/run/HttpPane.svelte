@@ -16,6 +16,7 @@
   import { openRunLog } from "../state/runs-ops";
   import { notify } from "../state/notify.svelte";
   import type { HttpCookie } from "../ipc/commands";
+  import { traceIdOf } from "../http/http-file";
 
   let { run, body }: { run: RunTab; body: Snippet } = $props();
 
@@ -110,7 +111,8 @@
       <div class="page heads" class:hidden={page !== "headers"}>
         <div class="hrow first"><span class="hn">{resp.version}</span><span class="hv">{resp.status} {resp.reason}</span></div>
         {#each resp.headers as x, i (i)}
-          <div class="hrow"><span class="hn">{x.name}</span><span class="hv">{x.value}</span></div>
+          {@const trace = traceIdOf(x.name, x.value)}
+          <div class="hrow"><span class="hn">{x.name}</span><span class="hv">{x.value}{#if trace} <button class="btn sm quiet" onclick={() => void import("../http/http-ops").then((m) => m.findInLogs(run.root, resp!.finalUrl, trace))}>在服务日志中查找</button>{/if}</span></div>
         {/each}
         {#if resp.finalUrl !== h.url}<div class="hrow"><span class="hn">最终地址</span><span class="hv">{resp.finalUrl}</span></div>{/if}
       </div>

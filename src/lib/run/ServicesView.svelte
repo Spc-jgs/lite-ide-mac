@@ -18,6 +18,8 @@
    * 工具栏的动作作用在选中的那一行上：选中服务 → 启动（跑着就是重跑）/ 停；选中分组或「Spring Boot」→ 整组启动 / 整组停（同 IDEA）。
    * 双击服务启动，单击只选中。
    */
+  import { untrack } from "svelte";
+  import { logFocus } from "./log-focus.svelte";
   import Icon from "../shell/Icon.svelte";
   import { imeKey } from "../shell/ime";
   import RunView from "./RunView.svelte";
@@ -91,6 +93,18 @@
   });
 
   let sel = $state<string | null>(null);
+  // 从响应头的链路 ID 跳过来的（#77，`log-focus`）：选中那个服务，它的日志视图自己按那个 ID 过滤
+  $effect(() => {
+    const f = logFocus.req;
+    if (!f) return;
+    untrack(() => {
+      const r = runs.list.find((x) => x.id === f.id && x.root === root && x.service);
+      if (r) {
+        closed = new Set([...closed].filter((key) => key !== "boot" && key !== "g:running"));
+        sel = `s:${r.name}`;
+      }
+    });
+  });
   let selRow = $derived(rows.find((r) => r.key === sel) ?? null);
   /** 选中的服务（选中分组时为 null）和它那次运行：右边画它的输出 */
   let selSvc = $derived(selRow?.svc ?? null);
@@ -358,7 +372,7 @@
         <!-- 端口被占：同运行窗那张卡片（ui.md 第十三条第三档） -->
         <div class="cards">
           <div class="confirm warn">
-            <span>端口 <b>{h.port}</b> 被 <b>{h.command}</b>（PID {h.pid}）占着{h.ours ? `，为之前运行的「${h.ours}」，未完全停止` : ""}</span>
+            <span>端口 <b>{h.port}</b> 被 <b>{h.command}</b>（PID {h.pid}）占用{h.ours ? `，为之前运行的「${h.ours}」，未完全停止` : ""}</span>
             <button class="btn" onclick={() => dismissHolder(run.id)}>忽略</button>
             <button class="btn {h.ours ? 'primary' : 'danger'}" onclick={() => void freePortAndRerun(run.id)}>结束进程并重新运行</button>
           </div>

@@ -178,6 +178,39 @@ export function findRequest(f: HttpFile, name: string, method: string, template:
   return f.requests.find((x) => (name ? x.name === name : x.method === method && maskUrl(x.url) === template)) ?? null;
 }
 
+/**
+ * 响应头里的链路 ID → 服务日志（#77）：按请求地址的端口，找本项目在 lite-ide 里跑着、正在监听这个端口的那次运行，
+ * 把它的日志过滤成这个 ID（`run/log-focus`）。服务在 Services 里、别的任务在运行窗里，同 `runTask` 亮出来的地方。
+ * 端口问的是那次运行的进程组（`task_ports`）：Gradle 守护进程起的那种不在组里，认不出来就照实说
+ */
+export async function findInLogs(root: string, url: string, id: string): Promise<boolean> {
+  let port: number;
+  try {
+    const u = new URL(url);
+    if (!["http:", "https:"].includes(u.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)) {
+      notify.hint("仅支持查找本机服务日志：请复制链路 ID 到对应的日志中搜索");
+      return false;
+    }
+    port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
+  } catch {
+    return void notify.hint(`无法从地址中取得端口：${url}`), false;
+  }
+  const { taskPorts } = await import("../ipc/tasks");
+  const live = runs.list.filter((r) => r.root === root && r.status === "running" && !r.http);
+  for (const r of live) {
+    const ports = await taskPorts(r.id).catch(() => [] as number[]);
+    if (!ports.includes(port) || !runs.list.some((x) => x.id === r.id && x.status === "running")) continue;
+    const { logFocus } = await import("../run/log-focus.svelte");
+    logFocus.ask(r.id, `"${id}"`);
+    if (!r.service) runs.activeId = r.id;
+    layout.panelView = r.service ? "services" : "run";
+    layout.panel = true;
+    return true;
+  }
+  notify.hint(`未找到监听端口 ${port} 的服务：仅查找本项目在 lite-ide 中运行的服务`);
+  return false;
+}
+
 /** 请求历史（#77）：`.http` 顶上那条的「历史」按钮 */
 export async function openHistory(root: string) {
   const [{ openModal }, m] = await Promise.all([import("../settings/modal-host"), import("./HttpHistory.svelte")]);
