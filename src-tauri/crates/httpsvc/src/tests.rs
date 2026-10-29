@@ -110,6 +110,26 @@ fn get_json_头和状态_json_按原顺序排好_不读_curlrc() {
 }
 
 #[test]
+fn 缩进超限时保存的是完整原始响应() {
+    let raw = format!("{}0{}", "[".repeat(3000), "]".repeat(3000));
+    let reply = raw.clone();
+    let (port, _) = serve(move |_, _| {
+        resp(
+            "200 OK",
+            &[("Content-Type", "application/json")],
+            reply.as_bytes(),
+        )
+    });
+    let dir = tmp("pretty-cap");
+    let r = req("GET", format!("http://127.0.0.1:{port}/deep"));
+    let got = send(Path::new(CURL), &r, &dir, 1, &Handle::default()).unwrap();
+    assert!(!got.pretty && !got.truncated);
+    assert_eq!(got.bytes, raw.len() as u64);
+    assert_eq!(std::fs::read(&got.body).unwrap(), raw.as_bytes());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn post_请求体原样_不替你加表单的_content_type_写了的照带() {
     let (port, rx) = serve(|_, _| resp("201 Created", &[], b""));
     let dir = tmp("post");

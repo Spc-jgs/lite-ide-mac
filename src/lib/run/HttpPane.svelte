@@ -24,6 +24,7 @@
   let h = $derived(run.http!);
   let resp = $derived(h.resp);
   let sending = $derived(run.status === "running");
+  let rawJson = $derived(!!resp && resp.bytes > 0 && !resp.pretty && !resp.truncated && resp.body.endsWith(".json"));
   let sc = $derived(h.script ?? null);
 
   /** Cookie 罐（#75）：这个项目、这次用的环境记着的。响应回来时问一次（登录之后多出来的看得见），清掉之后再问 */
@@ -82,9 +83,10 @@
   {#if resp && sc?.set.length}
     <div class="notes ok">已设置变量：{sc.set.map(([k]) => k).join("、")}（后续请求可通过 <code>&#123;&#123;{sc.set[0][0]}&#125;&#125;</code> 引用，重启应用后清除）</div>
   {/if}
-  {#if resp && (resp.truncated || h.req.scriptFile || sc?.skipped.length || sc?.errors.length)}
+  {#if resp && (resp.truncated || rawJson || h.req.scriptFile || sc?.skipped.length || sc?.errors.length)}
     <div class="notes">
       {#if resp.truncated}<div>响应体过大：已接收超过 {size(resp.bytes)}，仅保存前 32 MB</div>{/if}
+      {#if rawJson}<div>JSON 未重新缩进，按原始响应显示</div>{/if}
       {#each sc?.errors ?? [] as e, i (i)}<div>{e}</div>{/each}
       {#if sc?.skipped.length}
         <div>以下语句未执行（响应处理脚本仅支持 <code>client.global.set(名称, 取值)</code>，不执行文件自带的代码）：<code>{sc.skipped.join("；")}</code></div>

@@ -48,6 +48,9 @@ class H(BaseHTTPRequestHandler):
         if self.path.startswith("/big"):
             data = b"x" * (3 << 20)
             self.send_response(200); self.send_header("Content-Type", "text/plain"); self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data); return
+        if self.path.startswith("/deep"):
+            data = b"[" * 3000 + b"0" + b"]" * 3000
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data); return
         code = int(self.path.split("/status/")[1]) if "/status/" in self.path else 200
         out = json.dumps({"method": self.command, "path": self.path, "headers": dict(self.headers), "body": body}, ensure_ascii=False).encode()
         self.send_response(code); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
@@ -172,6 +175,7 @@ with open(sys.argv[1], 'w') as f:
     json.dump([{'name': 'trace-server', 'command': 'python3 -u ' + shlex.quote(sys.argv[2] + '/trace.py') + ' ' + shlex.quote(sys.argv[2] + '/trace.port')}], f)
 PY
 printf 'GET http://127.0.0.1:1/trace\n' > "${P}/api/trace.http"
+printf '### 深层 JSON\nGET http://127.0.0.1:%s/deep\n' "${PORT}" > "${P}/api/deep.http"
 BEFORE=$(cd "${P}" && find . -type f | sort | md5)
 F="${P}/api/orders.http"
 
@@ -319,6 +323,18 @@ ok "$(lite_wait main "return [...document.querySelectorAll('.http .hrow button')
 lite_eval main "[...document.querySelectorAll('.http .hrow button')].find((x) => x.textContent === '在服务日志中查找')?.click(); return true" >/dev/null
 ok "$(lite_wait main "return document.querySelector('.panel-head .tw-name')?.textContent === '运行' && __lite.runs.list.find((x) => x.id === __lite.runs.activeId)?.name === 'trace-server' && document.querySelector('.run .search input')?.value === '\"-trace/7\"'" 10 && echo 1)" "运行窗选中 trace-server，过滤框保留完整字面量 ID"
 ok "$(lite_wait main "const t = document.querySelector('.run .body')?.textContent ?? ''; return t.includes('trace=-trace/7') && !t.includes('trace=another')" 10 && echo 1)" "日志只剩对应链路，其他请求不显示"
+
+echo "== JSON 缩进输出上限：6001 字节不能放大成 18 MB"
+lite_eval main "await __lite.tabflow.openPath('${P}/api/deep.http', { preview: false }); return true" >/dev/null
+lite_wait main "return document.querySelectorAll('.cm-http-send').length === 1" 10 >/dev/null
+send 2; done_ '深层 JSON'
+ok "$([ "$(lite_eval main "${R} const h = r('深层 JSON')?.http?.resp; return h?.bytes + ':' + h?.pretty + ':' + h?.truncated")" = '6001:false:false' ] && echo 1)" "输出超限回退原文，未截断，也未冒充格式化成功"
+ok "$(python3 - "$(body '深层 JSON')" <<'PY'
+import sys
+print(1 if open(sys.argv[1], 'rb').read() == b'[' * 3000 + b'0' + b']' * 3000 else 0)
+PY
+)" "保存的 6001 字节与原始响应逐字一致"
+ok "$(lite_wait main "return document.querySelector('.http .notes')?.textContent.includes('JSON 未重新缩进，按原始响应显示')" 5 && echo 1)" "界面说明按原始响应显示"
 
 echo "== 没有副作用"
 ok "$([ "$(cd "${P}" && find . -type f | sort | md5)" = "${BEFORE}" ] && echo 1)" "项目里一个文件都没多（响应体在应用数据目录里，不像 IDEA 那样写进 .idea/httpRequests）"

@@ -9,16 +9,35 @@
 const INDENT: &[u8] = b"  ";
 
 pub fn reindent(src: &[u8]) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(src.len() + src.len() / 4);
+    reindent_capped(src, super::PRETTY_MAX)
+}
+
+// 输入上限管不住缩进：很短的深层数组也能生成巨量空格。每次追加前判输出预算，超限交回原文。
+fn append(out: &mut Vec<u8>, bytes: &[u8], cap: usize) -> Option<()> {
+    if bytes.len() > cap.saturating_sub(out.len()) {
+        return None;
+    }
+    out.extend_from_slice(bytes);
+    Some(())
+}
+
+fn reindent_capped(src: &[u8], cap: usize) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(src.len().min(cap));
     let mut depth: usize = 0;
     let mut stack: Vec<u8> = Vec::new();
     let mut i = 0;
     let mut seen = false;
-    let newline = |out: &mut Vec<u8>, depth: usize| {
-        out.push(b'\n');
-        for _ in 0..depth {
-            out.extend_from_slice(INDENT);
+    let newline = |out: &mut Vec<u8>, depth: usize| -> Option<()> {
+        let len = out
+            .len()
+            .checked_add(1)?
+            .checked_add(depth.checked_mul(INDENT.len())?)?;
+        if len > cap {
+            return None;
         }
+        out.push(b'\n');
+        out.resize(len, b' ');
+        Some(())
     };
     while i < src.len() {
         let c = src[i];
@@ -36,24 +55,24 @@ pub fn reindent(src: &[u8]) -> Option<Vec<u8>> {
                 if i >= src.len() {
                     return None;
                 }
-                out.extend_from_slice(&src[start..=i]);
+                append(&mut out, &src[start..=i], cap)?;
                 seen = true;
             }
             b'{' | b'[' => {
                 stack.push(if c == b'{' { b'}' } else { b']' });
-                out.push(c);
+                append(&mut out, &[c], cap)?;
                 // 空的 {} / [] 不换行
                 let mut j = i + 1;
                 while j < src.len() && matches!(src[j], b' ' | b'\t' | b'\r' | b'\n') {
                     j += 1;
                 }
                 if j < src.len() && src[j] == *stack.last()? {
-                    out.push(src[j]);
+                    append(&mut out, &[src[j]], cap)?;
                     stack.pop();
                     i = j;
                 } else {
                     depth += 1;
-                    newline(&mut out, depth);
+                    newline(&mut out, depth)?;
                 }
                 seen = true;
             }
@@ -62,16 +81,16 @@ pub fn reindent(src: &[u8]) -> Option<Vec<u8>> {
                     return None;
                 }
                 depth = depth.checked_sub(1)?;
-                newline(&mut out, depth);
-                out.push(c);
+                newline(&mut out, depth)?;
+                append(&mut out, &[c], cap)?;
             }
             b',' => {
-                out.push(c);
-                newline(&mut out, depth);
+                append(&mut out, &[c], cap)?;
+                newline(&mut out, depth)?;
             }
-            b':' => out.extend_from_slice(b": "),
+            b':' => append(&mut out, b": ", cap)?,
             _ => {
-                out.push(c);
+                append(&mut out, &[c], cap)?;
                 seen = true;
             }
         }
@@ -106,5 +125,37 @@ mod tests {
         assert_eq!(s("\"没收尾"), None);
         assert_eq!(s(""), None, "空的不算");
         assert_eq!(s("   "), None);
+    }
+
+    #[test]
+    fn 嵌套输入不能靠缩进无限放大() {
+        let src = format!("{}0{}", "[".repeat(3000), "]".repeat(3000));
+        assert!(
+            reindent(src.as_bytes()).is_none(),
+            "6001 字节的输入会扩成约 18 MB，必须在写输出时停"
+        );
+    }
+
+    #[test]
+    fn 输出恰好到线能排_超过一字节也回原文() {
+        for src in [
+            r#"{"x":"中文\\\"\n","n":1e3}"#,
+            "[1,2]",
+            "[]",
+            "{}",
+            "null",
+            "\"long string\"",
+        ] {
+            let pretty = reindent(src.as_bytes()).unwrap();
+            assert_eq!(
+                reindent_capped(src.as_bytes(), pretty.len()),
+                Some(pretty.clone())
+            );
+            assert!(
+                reindent_capped(src.as_bytes(), pretty.len() - 1).is_none(),
+                "{src}"
+            );
+            assert!(reindent_capped(src.as_bytes(), 0).is_none());
+        }
     }
 }

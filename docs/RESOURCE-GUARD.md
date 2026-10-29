@@ -81,6 +81,8 @@ scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.j
 
 基于 2026-10-29 工作树源码；性能结论另看实测。历史设计文字不能替代实现。
 
+轮询的完整用途、成熟编辑器的做法及相邻异步/文件监听缺口，见 [轮询与后台设计评审](POLLING-AND-BACKGROUND-REVIEW.md)。其中外部重载清掉等待期间的新草稿、Git 刷新不合并重复工作已有受控状态层复现；其余源码风险与待量项分别标注，不把轮询存在本身判作缺陷。
+
 | 优先级 | 已确认行为 / 风险 | 代码证据 | 下一步与完成标准 |
 |---|---|---|---|
 | 保留 | Owned 按窗口登记；关闭先摘表、锁外析构；语言服务器/调试/数据库/agent/任务按 owner 释放 | `src-tauri/src/state.rs::release_window`、`owned.rs`，已有漏收表源码检查 | 新资源进入同一生命周期；专项关闭后句柄/子进程恢复 |
@@ -91,10 +93,12 @@ scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.j
 | 已测现象，先校准场景 | 快速打开 12 文件的全进程采样峰值超过 300 MiB 参考线 | schema 3 full 报告 §5.2；旧日常节奏不同，见 §3.1 | 峰值是真的，是否影响日常体验/应降至多少仍待验证；不直接判泄漏或实现缺陷 |
 | 已确认策略缺口，影响未测 | 历史每文件 4 MiB×200 版、30 天；只清刚记录的目录，无全局容量/过期目录扫除 | `crates/histsvc/src/lib.rs::record/prune` | 800 MiB/文件是极端理论值，有内容去重，非实测异常。先量代表性工作量的容量增长；需要总容量承诺时再补策略 |
 | 已确认策略缺口，影响未测 | HTTP 按项目保留约 50 份响应，原始响应接收上限 32 MiB，无全局字节预算 | `src/commands/http.rs`、`crates/httpsvc/src/lib.rs` | 50×32 MiB 只反映原始大响应的保留量级，不能当格式化文件的硬上限；长期真实占用未测，按使用场景排期 |
-| 已复现资源放大，待修 | JSON 重新缩进没有输出字节上限；输入设闸不能约束格式化后的体积 | `crates/httpsvc/src/json.rs::reindent`，调用在 `send_capped` 的响应处理 | 合法的 1000 层数组：2001 B → 2,004,001 B（约 1001.5 倍），本机小型复现；未制造 OOM。应给格式化输出设上限，超限保留原始响应，优先于无实测影响的轮询重构。本轮尚未修改该逻辑 |
+| 已修 P1（本地） | JSON 缩进原来只卡输入，现于每次追加前卡输出 8 MiB，超限保留完整原文并说明未格式化 | `crates/httpsvc/src/json.rs::reindent` / `send_capped`、HttpPane；[#85](https://github.com/Spc-jgs/lite-ide-mac/issues/85) | 旧实现 2001 B → 2,004,001 B；6001 B 放大样例验红后修复。httpsvc 22 项通过，含真实 curl 回退原文及输出边界 |
+| 已修 P1（本地） | 外部重载曾清掉等待期间的新草稿；现用重载代次、标签身份/路径/模式/指纹阻止过期写回 | `docs.svelte.ts::reloadGuard/checkExternalChanges`、docs-ops；[#84](https://github.com/Spc-jgs/lite-ide-mac/issues/84) | 旧实现在草稿保护断言验红；11 场景覆盖编辑/撤销/保存/改名/关闭重开/模式/编码/逆序及显式重载 |
+| 已修 P2（本地） | Git 刷新合并；日志/堆串行采样与回包失效；监听 Err/rescan 显式校准和受限降级 | [#86](https://github.com/Spc-jgs/lite-ide-mac/issues/86)、[#87](https://github.com/Spc-jgs/lite-ide-mac/issues/87)、[#88](https://github.com/Spc-jgs/lite-ide-mac/issues/88)；细节见轮询评审 §7 | 10 次 Git 触发首轮前查询 20→2、整批共 4；采样错误副本验红；watch 17 项。Java 通知不全时提示手动重启，不冒充自动修复所有索引 |
 | 观察项，暂不重构 | 两种 LSP 客户端 wire 后每秒醒一次；空文档集合也醒后返回 | `src/lib/editor/java-lsp.ts`、`lsp-generic.ts` | 行为已确认，但未测出它造成空闲 CPU/能耗问题；有信号再改启停，不仅凭 setInterval 存在就报 bug |
 | 小型保留项，严重度未量 | 两种 LSP 的 `viewsOf` 在 destroy 时只删 Set 内视图、不删空 Set 的路径键；诊断缓存只在 opened 关闭分支删路径 | 同上 `Sync.destroy` / `diagsOf` | 空键保留是真的，未证明 EditorView 泄漏；正常项目下可能很小。相关代码改动时可顺手清空键，当前不建立通用缓存治理框架 |
-| 观察项，保留现有机制 | Structure 400ms、Services 端口/堆、日志索引/过滤/跟随的轮询 | `StructureView.svelte`、`ServicesView.svelte`、日志组件 | Structure 有文档未变即返回和销毁清理；Services 只问运行中服务。尚未发现停不下来的计时器，暂不统一改事件驱动 |
+| 保留采样/兜底机制 | Structure 400ms、Services 端口/堆、日志索引/过滤/跟随 | `StructureView.svelte`、`ServicesView.svelte`、日志组件 | Structure 未变不重算；日志/堆已补串行与失效保护，周期为本轮完成后的等待时间；不全面改事件驱动。其余观察见 [#89](https://github.com/Spc-jgs/lite-ide-mac/issues/89) |
 | 待量，保留现状 | 自动保存/会话/历史可能放大写入；已有 dirty、防抖、历史内容去重 | autosave、persist 路径、`histsvc` | 尚无异常写入量证据；连续编辑/保存测 bytes/操作。保留原子性、恢复能力与 fsync，不能为省写丢可靠性 |
 
 旧 `mem.sh` 操作正式应用、用 AX/前台切换、按名字批量终止；WebKit 猜归属并把缺失采样合成 0。现已换安全入口。旧结果只保留历史参考身份，不作新方法的可比 before。`budget.sh` 可只读观察启动/主进程历史，但不是全进程资源验收。
@@ -135,6 +139,20 @@ scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.j
 下一步先把相同操作拆成只开纯文本、只开 JSON、交替开关一种语言，保留按进程样本；再用分配生命周期定位 WebContent 的瞬时对象和 GPU 的绘制资源。schema 2 的当前源码样本中，WebContent 打开窗口的单进程峰值约 398 MiB、GPU 约 151 MiB，关闭后分别约 157–190 MiB / 20–21 MiB；它用于定位方向，不能与 schema 3 做优化差值。保持 300 MiB 参考线，不主动触发 GC 来凑通过数字。
 
 最终 `LITE_BUILD_OFFLINE=1 CARGO_NET_OFFLINE=true pnpm app:bundle` 成功，正式 `.app` / `.dmg` 已更新；完成后源码指纹仍为上述值，测试身份剩余进程为 0。本轮未加依赖、未调整性能门槛。当前工作树正式前端入口为 162,328 B（158.52 KiB），处于现有 CI 的 >152 KiB 告警区、尚未越过 160 KiB 红线；后续功能需要继续控制入口体积。
+
+### 5.3 异步/轮询修复后的 full（第一轮）
+
+报告：`src-tauri/target/resource-reports.noindex/20261029T092756Z-lite-bridge.VqHmOW/report.json`，schema 3 / full。源代码 SHA-256 `99f16f5d49e7747068de16a88653e2296865dedeb3727b099aef0c10000cbddc`，测试二进制 SHA-256 `c229e97f3a4d08055a4d77c2b476096c9454edbe33ac76353f31016edd64b735`；HEAD `e5b5281` 上 dirty 工作树。源码/fixture 未变，压力字段前后为 1，确认主进程及 3 个 WebKit。
+
+初始空闲 98.11 MiB / 单核 CPU 0.067%；快速打开采样峰值 439.22 MiB。关闭后中位从 194.32 到 259.22 MiB，斜率 7.87 MiB/轮、R²=0.766；恢复空闲 272.05 MiB / CPU 0.33%。两段 60 秒空闲 logical writes 分别 24 KiB / 0；主进程 FD 每轮 11，关闭后编辑器每轮 0，退出残留 0。
+
+结果 **REVIEW**：同时触发 opened_memory_budget 和 retained_memory。拆进程后，主进程关闭后约 27.8 MiB、GPU 约 16.1–16.6 MiB，增长主要在 WebContent（各自中位约 145.83 → 210.28 MiB）；这些单进程中位数不能直接相加冒充整体中位数。不能仅凭本轮判泄漏，也不能用 FD/编辑器数量稳定抵消内存告警。已建 [#90](https://github.com/Spc-jgs/lite-ide-mac/issues/90) 并安排同构建复测，之后按文件类型与分配生命周期定位。
+
+本轮未取得启动观察数字，原因尚未定位，启动速度记 UNKNOWN。与 §5.2 的不同工作树不能作归因优化差值，尤其包含中间 UI 修改。没有放宽门槛、没有主动 GC 凑通过；本轮修复的正确性证据与未解决的内存调查分别记录。
+
+**同构建复测**：`20261029T093912Z-lite-bridge.8Afdgm/report.json` 的源码/二进制 SHA-256 均与上轮一致，source/fixture 未变、压力字段前后均 1。本轮关闭后中位 201.58 → 191.18 MiB，斜率 -3.75 MiB/轮、R²=0.422，未重现持续增长告警；恢复空闲 196.07 MiB / 单核 CPU 0.257%。主进程 FD 仍逐轮 11、退出残留 0；两段 60 秒空闲 logical writes 为 196 / 100 KiB。打开峰值 469.27 MiB，仍为 REVIEW（opened_memory_budget）。
+
+两轮同一构建的变化不能算优化收益，也不能以第二轮没触发增长抹掉第一轮。已向 #90 补充重复性结果：继续区分 WebContent 的活对象保留、GC/分配器缓存和异步积压，根因尚未确定。当前不为达到内存数字主动 GC 或调整预算。正式 app/dmg 打包成功；本轮前端 115 文件、Rust 740 项（4 ignored）、clippy、HTTP 36、Git UI 15、Spring/Services 111、任务 44 均通过，相关检查没有替代这两条资源调查。
 
 ## 6. 专项与后续顺序
 

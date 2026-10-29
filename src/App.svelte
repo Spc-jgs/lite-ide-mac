@@ -911,13 +911,19 @@
    * （网络卷、权限）时它是退路。
    */
   $effect(() => {
-    void watchRoot(project.root ?? "");
+    void watchRoot(project.root ?? "").catch(e => notify.hint(`无法监听文件变化，切回窗口时会重新核对：${String(e)}`));
     // 同一时刻报给路由：Finder 双击的文件要落到项目包含它的窗口（多窗口第 2 步）
     void setWindowRoot(project.root ?? "");
   });
   $effect(() => {
     // 只收这个窗口自己那个监听发来的（Rust 那边是 emit_to）
+    void project.root;
+    let warned = false;
     const reg = listenHere<string>("fs-changed", (e) => {
+      if (e.payload === "rescan" && !warned) {
+        warned = true;
+        notify.hint("文件变化通知不完整，正在重新核对文件；语言索引异常时请重启对应语言服务");
+      }
       if (e.payload === "git") {
         // 还不是仓库时就是仓库刚冒出来（git init）、是仓库就复查信任再刷 —— 判断在 git.onGitDirChanged
         void git.onGitDirChanged(project.root);

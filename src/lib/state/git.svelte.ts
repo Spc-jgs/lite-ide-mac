@@ -47,8 +47,8 @@ class Git {
   historyRevision = $state(0);
   /** 最近一次 `refresh()` 的序号，普通字段：没人要显示它 */
   private refreshSeq = 0;
-  /** 显式刷新不能被紧接着的普通状态刷新吞掉。 */
-  private historyRequested = false;
+  /** 每仓库只跑一轮，期间的触发合为补刷；history 意图跟这轮走，不串到别的仓库。 */
+  private refreshes = new Map<string, { pending: boolean; history: boolean; promise: Promise<void> }>();
   /** 待确认丢弃的条目 —— 丢弃不可撤销，必须过用户这一关 */
   pendingDiscard = $state<GitEntry[] | null>(null);
   /** 待确认撤销的那一块的 patch（issue #38）—— 和丢弃同一档：动的是盘上的文件，不可撤销 */
@@ -206,35 +206,44 @@ class Git {
   async refresh(history = false) {
     const r = this.repo;
     if (!r) return;
-    // git 的查询在阻塞池上跑（issue #12），两次刷新可以并发、**返回顺序不保证**：
-    // 保存 → watch 触发一次，随即用户点了刷新又一次，先发的那份可能后到。
-    // 后到的旧状态盖掉新状态，界面就会倒退一步（暂存过的文件又回到「改动」里）。
-    // 每次刷新领个序号，回来时不是最新的一次就整份丢掉。
-    this.historyRequested ||= history;
-    const seq = ++this.refreshSeq;
+    this.refreshSeq++;
     this.busy = true;
-    try {
-      // 两条子进程并行；stash 列表拿不到不算错（空仓库、老 git），当空表
-      const [st, stashes] = await Promise.all([gitStatus(r), gitStashList(r).catch(() => [])]);
-      // await 回来时仓库可能已经换了或关了（关闭项目 / 切项目正好撞上一次刷新）——
-      // 那份状态是别人的，写进去标题栏就会挂着一个已经不存在的分支
-      if (this.repo !== r || seq !== this.refreshSeq) return;
-      const old = this.status;
-      this.status = st;
-      this.stashes = stashes;
-      if (this.historyRequested || old?.head !== st.head || old?.branch !== st.branch || old?.ahead !== st.ahead || old?.behind !== st.behind) this.historyRevision++;
-      this.historyRequested = false;
-      // 打开着的工作区差异跟着更新，否则暂存完还停在旧内容上。
-      // 历史提交的差异是不变的，重拉纯属浪费一次子进程
-      await Promise.all(
-        tabs.list.filter((t) => t.mode === "diff" && !t.diffSha).map((t) => this.reloadDiff(t.id)),
-      );
-    } catch (e) {
-      notify.fail(String(e), 4000);
-    } finally {
-      // 过期的那次收尾时最新那次可能还在跑，别把它的「正在刷新」熄了
-      if (seq === this.refreshSeq) this.busy = false;
+    const running = this.refreshes.get(r);
+    if (running) {
+      running.pending = true;
+      running.history ||= history;
+      return running.promise;
     }
+    const work = { pending: true, history, promise: Promise.resolve() };
+    this.refreshes.set(r, work);
+    work.promise = (async () => {
+      try {
+        while (work.pending && this.repo === r) {
+          work.pending = false;
+          const seq = this.refreshSeq;
+          try {
+            // 两条只读子进程可并行；下一轮必须等这一轮（含差异更新）结束。
+            const [status, stash] = await Promise.allSettled([gitStatus(r), gitStashList(r)]);
+            if (this.repo !== r || seq !== this.refreshSeq) continue;
+            if (status.status === "rejected") throw status.reason;
+            const st = status.value;
+            const stashes = stash.status === "fulfilled" ? stash.value : [];
+            const old = this.status;
+            this.status = st;
+            this.stashes = stashes;
+            if (work.history || old?.head !== st.head || old?.branch !== st.branch || old?.ahead !== st.ahead || old?.behind !== st.behind) this.historyRevision++;
+            work.history = false;
+            await Promise.all(tabs.list.filter((t) => t.mode === "diff" && !t.diffSha).map((t) => this.reloadDiff(t.id)));
+          } catch (e) {
+            if (this.repo === r && seq === this.refreshSeq) notify.fail(String(e), 4000);
+          }
+        }
+      } finally {
+        this.refreshes.delete(r);
+        if (this.repo === r || !this.repo) this.busy = false;
+      }
+    })();
+    return work.promise;
   }
 
   /**

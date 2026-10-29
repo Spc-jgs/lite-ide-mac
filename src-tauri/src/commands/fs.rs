@@ -289,6 +289,7 @@ pub fn watch_root(
         let kind = match c {
             fsservice::watch::Change::Git => "git",
             fsservice::watch::Change::Files => "files",
+            fsservice::watch::Change::Rescan => "rescan",
         };
         // 只发给开着这个项目的窗口（多窗口第 2 步）：别的窗口收到也只是白刷一遍
         crate::diag!("fs-changed {kind} → {label}");

@@ -18,18 +18,22 @@ import type { TabState } from "./tab";
  */
 
 export async function resolveConflict(tab: TabState, take: "disk" | "mine") {
-  tab.conflict = false;
   if (take === "disk") {
+    const valid = docs.reloadGuard(tab);
     try {
       const t = await readText(tab.path, tab.encoding);
+      const stamp = await fileStamp(tab.path);
+      if (!valid()) return;
       Object.assign(tab, settled(t.content));
       tab.eol = t.eol;
-      tab.stamp = await fileStamp(tab.path);
+      tab.stamp = stamp;
+      tab.conflict = false;
       docs.savedTick++;
     } catch (e) {
       notify.fail(String(e));
     }
   }
+  else tab.conflict = false;
   // take === "mine"：什么都不做，保留编辑器里的内容，
   // 下次 ⌘S 会覆盖磁盘 —— 指纹已经更新过，不会再重复告警
 }
@@ -48,7 +52,9 @@ export async function reopenWith(label: string) {
       notify.fail("有未保存的更改，请先保存（⌘S）再以其他编码重新打开", 3000);
       return;
     }
+    const valid = docs.reloadGuard(tab);
     const t = await readText(tab.path, label);
+    if (!valid()) return;
     tab.content = t.content;
     tab.encoding = t.encoding;
     tab.bom = t.bom;
@@ -69,6 +75,7 @@ export async function reopenWith(label: string) {
 export function setEol(eol: "LF" | "CRLF") {
   const tab = tabs.active;
   if (!tab || tab.mode !== "edit" || tab.eol === eol) return;
+  docs.invalidateReload(tab);
   tab.eol = eol;
   tab.fmt = true;
   tab.dirty = true;
@@ -80,6 +87,7 @@ export function setEol(eol: "LF" | "CRLF") {
 export function saveAsEncoding(label: string, bom: boolean) {
   const tab = tabs.active;
   if (!tab || tab.mode !== "edit") return;
+  docs.invalidateReload(tab);
   tab.encoding = label;
   tab.bom = bom;
   // 内容没变但目标编码变了，得让用户知道要按 ⌘S 才会真的落盘。

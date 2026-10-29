@@ -27,6 +27,20 @@ const ops = () => import("./docs-ops");
  * 那两种情况原来并不刷 git，改成 effect 就不是零功能改动了。
  */
 class Docs {
+  // 只管未完成的重载，不进入会话快照；标签被释放后也不保留路径键。
+  #reloadEpoch = new WeakMap<TabState, number>();
+  invalidateReload(tab: TabState): number {
+    const epoch = (this.#reloadEpoch.get(tab) ?? 0) + 1;
+    this.#reloadEpoch.set(tab, epoch);
+    return epoch;
+  }
+
+  /** await 期间编辑、另一次重载或标签换身份之后，旧正文不能再成为基线。 */
+  reloadGuard(tab: TabState): () => boolean {
+    const epoch = this.invalidateReload(tab);
+    const { path, mode, stamp } = tab;
+    return () => this.#reloadEpoch.get(tab) === epoch && tabs.byId(tab.id) === tab && tab.path === path && tab.mode === mode && tab.stamp === stamp;
+  }
   /**
    * 「磁盘那份成了准」的计数。编辑器用它对齐 dirty 基线 —— 保存成功、
    * 外部改动后重读、冲突时选「用磁盘上的」、换编码重开，都加一。
@@ -141,6 +155,7 @@ class Docs {
   stashDraft(path: string, text: string) {
     const t = tabs.list.find((x) => x.path === path && x.mode === "edit");
     if (!t) return; // 标签已经被关掉了，草稿跟着作废
+    this.invalidateReload(t);
     Object.assign(t, stashed(t, text));
     this.retitle(t, text);
     // 编辑器刚交出草稿 = 人切走了。草稿在这一刻落盘，不等空闲期
@@ -198,6 +213,7 @@ class Docs {
    */
   async saveTab(tab: TabState, content: string, opts: { quiet?: boolean; to?: string } = {}): Promise<boolean> {
     if (tab.mode !== "edit") return false;
+    this.invalidateReload(tab);
     // 编辑器挂着的：交给它照 `.editorconfig` 处理（处理是编辑器里的一笔修改，存完盘上和编辑器里一样、不再是「未保存」）。
     // 要存的不是它此刻的文本时它原样还回来：另存为（草稿毕业）传的是脱掉锚点头的那份（状态测试第 3 节撞过）
     content = this.#live.get(tab.path)?.(content) ?? content;
@@ -262,6 +278,7 @@ class Docs {
   edited(id: number, textDiffers: boolean) {
     const t = tabs.byId(id);
     if (!t) return;
+    this.invalidateReload(t);
     // 编辑器只知道「文本和磁盘一不一样」；换过编码 / 换行符的标签内容没变也是脏的
     t.dirty = isDirty(t, textDiffers);
     // 动过手的预览标签就不再是「看一眼」了，保留下来（issue #33 ⑯）
@@ -379,14 +396,18 @@ class Docs {
   async checkExternalChanges() {
     for (const tab of tabs.list) {
       if (tab.mode !== "edit") continue;
+      const path = tab.path;
+      const before = tab.stamp;
+      const valid = this.reloadGuard(tab);
+      const same = () => tabs.byId(tab.id) === tab && tab.path === path && tab.mode === "edit" && tab.stamp === before;
       let now: Stamp;
       try {
-        now = await fileStamp(tab.path);
+        now = await fileStamp(path);
       } catch {
         // 文件没了或读不到：不打扰，用户保存时自然会报错
         continue;
       }
-      const before = tab.stamp;
+      if (!same()) continue;
       if (!before || (before.mtimeMs === now.mtimeMs && before.size === now.size)) continue;
 
       if (tab.dirty) {
@@ -394,10 +415,16 @@ class Docs {
         tab.conflict = true;
         tab.stamp = now;
       } else {
+        if (!valid()) continue;
         // 本地没动过，直接跟上外部的版本 —— 这是最常见也最无害的情况
         try {
           // 沿用已知编码重读，不重新探测 —— 文件只是内容变了，编码没道理换
-          const t = await readText(tab.path, tab.encoding);
+          const t = await readText(path, tab.encoding);
+          if (!valid()) {
+            // 输入发生在读盘期间：先保住新输入，并阻止自动保存盖掉外部版本。
+            if (same() && tab.dirty) tab.conflict = true;
+            continue;
+          }
           Object.assign(tab, settled(t.content));
           tab.lossy = t.lossy;
           tab.eol = t.eol;
@@ -405,7 +432,7 @@ class Docs {
           this.savedTick++;
           notify.ok(`${tab.name} 已被外部修改，已重新加载`, 2600);
         } catch (e) {
-          notify.fail(String(e));
+          if (valid()) notify.fail(String(e));
         }
       }
     }

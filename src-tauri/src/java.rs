@@ -865,7 +865,9 @@ impl Instance {
             return;
         }
         if b.overflow {
-            applog::write(applog::Level::Warn, "java", &format!("一次变了超过 {WATCH_CAP} 个文件，只告诉了 jdtls 前 {WATCH_CAP} 个：索引可能不全，状态栏「重起」可以补"));
+            applog::write(applog::Level::Warn, "java", "文件变化通知不完整（超容量、监听错误或重扫），索引可能不全，状态栏「重起」可以补");
+            // 不在回调里无界扫全项目；复用窗口的校准信号，明确告诉人索引降级，允许手动重启。
+            let _ = self.shared.app.emit_to(self.shared.owner.as_str(), "fs-changed", "rescan");
         }
         let changes: Vec<Value> = b
             .changes

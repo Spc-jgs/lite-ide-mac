@@ -70,12 +70,27 @@ pub enum Change {
     Git,
     /// 工作区文件变了（可能连 `.git/` 一起）：重读 + 重列 + 刷 git
     Files,
+    /// 通知不完整或监听出错：消费者须校准，不能只按这一批路径更新
+    Rescan,
 }
 
 #[derive(Default)]
 struct Pending {
     git: bool,
     files: bool,
+    rescan: bool,
+}
+
+impl Pending {
+    fn change(self) -> Change {
+        if self.rescan {
+            Change::Rescan
+        } else if self.files {
+            Change::Files
+        } else {
+            Change::Git
+        }
+    }
 }
 
 /// 一个活着的监听。**drop 即停**：notify 的 watcher 随之释放，防抖线程看到停止位退出。
@@ -103,6 +118,55 @@ fn touches_generated(p: &Path) -> bool {
         .any(|c| c.as_os_str().to_str().is_some_and(excludes::is_certain_generated_dir))
 }
 
+enum Input {
+    Ignore,
+    Rescan,
+    Event(Event),
+}
+
+// 错误流只报一次失效，等收到正常变化才重新允许报告；持续出错不能每 300ms 重扫。
+fn input(res: notify::Result<Event>, unreliable: &mut bool) -> Input {
+    match res {
+        Ok(ev) if !ev.need_rescan() => {
+            if matches!(ev.kind, notify::EventKind::Access(_)) || ev.paths.is_empty() {
+                return Input::Ignore;
+            }
+            *unreliable = false;
+            Input::Event(ev)
+        }
+        _ if std::mem::replace(unreliable, true) => Input::Ignore,
+        _ => Input::Rescan,
+    }
+}
+
+fn collect_root(pend: &mut Pending, event: Input) -> bool {
+    match event {
+        Input::Ignore => false,
+        Input::Rescan => {
+            pend.rescan = true;
+            true
+        }
+        Input::Event(ev) => {
+            for p in &ev.paths {
+                if touches_git(p) {
+                    pend.git = true;
+                } else if !touches_generated(p) {
+                    pend.files = true;
+                }
+            }
+            pend.git || pend.files
+        }
+    }
+}
+
+fn touches_file(event: Input, name: &std::ffi::OsStr) -> bool {
+    match event {
+        Input::Ignore => false,
+        Input::Rescan => true,
+        Input::Event(ev) => ev.paths.iter().any(|p| p.file_name() == Some(name)),
+    }
+}
+
 /// 监听 `root`（递归）。每次变化（防抖之后）调一次 `on_change`。
 ///
 /// `on_change` 在监听自己的线程上跑，**不要在里面做慢事** —— 前端那边发一个事件
@@ -116,30 +180,14 @@ pub fn watch(
 
     // notify 的回调：只置位，不做事
     let w2 = Arc::clone(&wake);
+    let mut unreliable = false;
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-        let Ok(ev) = res else { return };
-        // 只关心「内容 / 结构变了」。Access 那类（读了一下）FSEvents 不给，
-        // 但别的后端会给，过滤掉免得读文件也触发刷新
-        if matches!(ev.kind, notify::EventKind::Access(_)) {
-            return;
-        }
-        let mut git = false;
-        let mut files = false;
-        for p in &ev.paths {
-            if touches_git(p) {
-                git = true;
-            } else if !touches_generated(p) {
-                files = true;
-            }
-        }
-        if !git && !files {
-            return;
-        }
+        let event = input(res, &mut unreliable);
         let (lock, cv) = &*w2;
         let mut pend = lock.lock().unwrap_or_else(|e| e.into_inner());
-        pend.git |= git;
-        pend.files |= files;
-        cv.notify_one();
+        if collect_root(&mut pend, event) {
+            cv.notify_one();
+        }
     })
     .map_err(|e| format!("无法启动文件监听：{e}"))?;
 
@@ -153,7 +201,7 @@ pub fn watch(
     thread::Builder::new()
         .name("fs-watch-debounce".into())
         .spawn(move || {
-            debounce(&w3, &s3, |p| !p.git && !p.files, |taken| on_change(if taken.files { Change::Files } else { Change::Git }))
+            debounce(&w3, &s3, |p| !p.git && !p.files && !p.rescan, |taken| on_change(taken.change()))
         })
         .map_err(|e| format!("无法创建防抖线程：{e}"))?;
 
@@ -196,12 +244,9 @@ pub fn watch_file(path: impl AsRef<Path>, on_change: impl Fn() + Send + 'static)
     let stop = Arc::new(AtomicBool::new(false));
 
     let w2 = Arc::clone(&wake);
+    let mut unreliable = false;
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-        let Ok(ev) = res else { return };
-        if matches!(ev.kind, notify::EventKind::Access(_)) {
-            return;
-        }
-        if !ev.paths.iter().any(|p| p.file_name() == Some(name.as_os_str())) {
+        if !touches_file(input(res, &mut unreliable), name.as_os_str()) {
             return;
         }
         let (lock, cv) = &*w2;
@@ -234,7 +279,7 @@ pub enum PathChange {
     Removed,
 }
 
-/// 防抖之后的一批。`overflow`：这段时间里变的文件超过了上限，`changes` 只有前一截 —— 调用方要当成「收不全」处理（比如整个重来）
+/// 防抖之后的一批。`overflow`：容量超限、后端需重扫或监听错误，changes 不完整；调用方须校准或明确降级
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PathBatch {
     pub changes: Vec<(PathBuf, PathChange)>,
@@ -246,6 +291,42 @@ struct PathPending {
     /// 路径 → 这段时间里有没有「新建 / 改名」过
     seen: BTreeMap<PathBuf, bool>,
     overflow: bool,
+}
+
+fn collect_paths(
+    pend: &mut PathPending,
+    event: Input,
+    keep: &impl Fn(&Path) -> bool,
+    cap: usize,
+) -> bool {
+    let ev = match event {
+        Input::Ignore => return false,
+        Input::Rescan => {
+            pend.overflow = true;
+            return true;
+        }
+        Input::Event(ev) => ev,
+    };
+    let born = matches!(
+        ev.kind,
+        notify::EventKind::Create(_)
+            | notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
+    );
+    let mut hit = false;
+    for p in &ev.paths {
+        if touches_git(p) || touches_generated(p) || !keep(p) {
+            continue;
+        }
+        hit = true;
+        if let Some(b) = pend.seen.get_mut(p) {
+            *b |= born;
+        } else if pend.seen.len() < cap {
+            pend.seen.insert(p.clone(), born);
+        } else {
+            pend.overflow = true;
+        }
+    }
+    hit
 }
 
 /// 一个活着的按路径的监听（[`watch_paths`]）。**drop 即停**，同 [`Watch`]
@@ -293,29 +374,12 @@ pub fn watch_paths(
     let wake: Arc<(Mutex<PathPending>, Condvar)> = Arc::new((Mutex::new(PathPending::default()), Condvar::new()));
     let stop = Arc::new(AtomicBool::new(false));
     let w2 = Arc::clone(&wake);
+    let mut unreliable = false;
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-        let Ok(ev) = res else { return };
-        if matches!(ev.kind, notify::EventKind::Access(_)) {
-            return;
-        }
-        let born = matches!(ev.kind, notify::EventKind::Create(_) | notify::EventKind::Modify(notify::event::ModifyKind::Name(_)));
-        let mut hit = false;
+        let event = input(res, &mut unreliable);
         let (lock, cv) = &*w2;
         let mut pend = lock.lock().unwrap_or_else(|e| e.into_inner());
-        for p in &ev.paths {
-            if touches_git(p) || touches_generated(p) || !keep(p) {
-                continue;
-            }
-            hit = true;
-            if let Some(b) = pend.seen.get_mut(p) {
-                *b |= born;
-            } else if pend.seen.len() < cap {
-                pend.seen.insert(p.clone(), born);
-            } else {
-                pend.overflow = true;
-            }
-        }
-        if hit {
+        if collect_paths(&mut pend, event, &keep, cap) {
             cv.notify_one();
         }
     })
@@ -376,6 +440,58 @@ fn debounce<T: Default>(wake: &(Mutex<T>, Condvar), stop: &AtomicBool, idle: imp
 mod tests {
     use super::*;
     use std::sync::mpsc;
+
+    #[test]
+    fn 后端重扫和错误不丢_持续错误只校准一次_正常事件后可再次校准() {
+        let mut unreliable = false;
+        let mut p = Pending::default();
+        let rescan =
+            || Ok(Event::new(notify::EventKind::Other).set_flag(notify::event::Flag::Rescan));
+        assert!(collect_root(&mut p, input(rescan(), &mut unreliable)));
+        assert_eq!(p.change(), Change::Rescan, "没有路径也必须发重扫");
+        for _ in 0..1000 {
+            assert!(matches!(
+                input(Err(notify::Error::generic("watch failed")), &mut unreliable),
+                Input::Ignore
+            ));
+        }
+        let changed = Ok(
+            Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any))
+                .add_path("/p/a.txt".into()),
+        );
+        assert!(matches!(input(changed, &mut unreliable), Input::Event(_)));
+        assert!(matches!(
+            input(
+                Err(notify::Error::generic("watch failed again")),
+                &mut unreliable
+            ),
+            Input::Rescan
+        ));
+    }
+
+    #[test]
+    fn 不完整通知覆盖根_git标志_单文件也重读_路径监听仍有容量闸() {
+        let mut p = Pending {
+            git: true,
+            ..Default::default()
+        };
+        collect_root(&mut p, Input::Rescan);
+        assert_eq!(p.change(), Change::Rescan);
+        assert!(touches_file(
+            Input::Rescan,
+            std::ffi::OsStr::new("settings.json")
+        ));
+        let mut paths = PathPending::default();
+        assert!(collect_paths(&mut paths, Input::Rescan, &|_| true, 1));
+        assert!(classify(paths, |_| true).overflow);
+        let mut paths = PathPending::default();
+        let ev = Event::new(notify::EventKind::Create(notify::event::CreateKind::File))
+            .add_path("/p/A.java".into())
+            .add_path("/p/B.java".into());
+        collect_paths(&mut paths, Input::Event(ev), &|_| true, 1);
+        assert_eq!(paths.seen.len(), 1);
+        assert!(paths.overflow);
+    }
 
     #[test]
     fn 按路径_此刻在不在决定类型_不信事件说的() {

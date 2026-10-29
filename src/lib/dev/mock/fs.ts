@@ -80,7 +80,8 @@ function dropSubtree(p: string) {
 export async function fsCmd(cmd: string, a: A): Promise<unknown> {
   switch (cmd) {
     // 文件监听：浏览器里没有盘可监听。桩里改文件走 __mockEditFileOutside，
-    // 那条路自己不发事件 —— 焦点刷新那条路在桩上照常验
+    // 那条路自己不发事件 —— 焦点刷新那条路在桩上照常验。
+    // 需模拟通知不完整时走 mockEmit("fs-changed", "rescan")，与 Rust 新增的校准信号一致。
     case "watch_root":
       return null;
     case "probe_path": {

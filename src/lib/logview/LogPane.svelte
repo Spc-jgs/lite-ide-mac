@@ -16,6 +16,7 @@
   import { nav } from "../state/nav.svelte";
   import { stackFrame, frameResolver } from "./stack-frame";
   import { tabs } from "../state/tabs.svelte";
+  import { poll } from "../poll";
 
   let {
     handle,
@@ -272,20 +273,12 @@
   $effect(() => {
     const h = handle;
     epoch;
-    let stop = false;
-    logStat(h).then((s) => {
-      if (!stop) stat = s;
-    });
-    const id = setInterval(async () => {
+    return poll(100, async live => {
       const s = await logStat(h);
-      if (stop) return;
+      if (!live()) return false;
       stat = s;
-      if (s.complete && s.levelsComplete) clearInterval(id);
-    }, 100);
-    return () => {
-      stop = true;
-      clearInterval(id);
-    };
+      return !(s.complete && s.levelsComplete);
+    }, e => { error = String(e); idxTask?.end(); idxTask = null; }, true);
   });
 
   // 过滤条件变化 → 重跑。输入时 debounce，免得每敲一个字母就扫一遍 1GB
@@ -297,19 +290,29 @@
     const mask = merge ? srcMask : undefined;
     const h = handle;
     epoch;
-    let tick: ReturnType<typeof setInterval> | null = null;
+    let stopPoll: (() => void) | null = null;
     /*
      * `dead` 不能省。
      *
      * cleanup 只能清掉它**当时看得见**的东西：如果它正好赶在 `logFilter`
      * 的 await 中间跑，`tick` 还是 null，清了个寂寞 —— 而 await 回来之后
-     * 那行 `tick = setInterval(...)` 照样执行，装出一个再也没人清的轮询。
+     * 后面照样安装轮询，装出一个再也没人清的轮询。
      * 在 1GB 文件上连打十个字，就是十个 80ms 的轮询一起烧 IPC。
      */
     let dead = false;
     // 扫描进度报给状态栏那一格：`scannedLines / lineCount`。三处结束（扫完 / 出错 / cleanup）都要 end
     let task: TaskHandle | null = null;
     const total = stat?.lineCount ?? 0;
+    const failed = (e: unknown) => {
+      if (dead) return;
+      error = String(e);
+      // 失败时回到全文，不把上次查询的命中假装成当前结果。
+      filtered = false;
+      filterHits = null;
+      filterRunning = false;
+      task?.end();
+      task = null;
+    };
 
     const timer = setTimeout(async () => {
       try {
@@ -323,41 +326,33 @@
         }
         filterRunning = true;
         task = progress.start("过滤日志", { percent: 0 });
-        tick = setInterval(async () => {
+        stopPoll = poll(80, async live => {
           const fs = await logFilterStat(h);
-          if (dead) return;
+          if (!live()) return false;
           if (!fs) {
-            if (tick) clearInterval(tick);
+            filterRunning = false;
             task?.end();
             task = null;
-            return;
+            return false;
           }
           filterHits = fs.hits;
           task?.set({ percent: pct(fs.scannedLines, total) });
           if (fs.complete) {
             filterRunning = false;
-            if (tick) clearInterval(tick);
             task?.end();
             task = null;
           }
-        }, 80);
+          return !fs.complete;
+        }, failed);
       } catch (e) {
-        if (dead) return;
-        error = String(e);
-        // 过滤没跑成（正则 Rust 编不过）：回到全文，别让屏上停着上一个查询的结果 —— 那些行
-        // 看着像是这个查询筛出来的（review 2026-09-21）
-        filtered = false;
-        filterHits = null;
-        filterRunning = false;
-        task?.end();
-        task = null;
+        failed(e);
       }
     }, 180);
 
     return () => {
       dead = true;
       clearTimeout(timer);
-      if (tick) clearInterval(tick);
+      stopPoll?.();
       task?.end();
     };
   });
@@ -380,26 +375,26 @@
     const h = handle;
     // 合并视图不跟 tail（v1，docs/MERGE.md「没做的」）：按钮也不给
     if (!tailing || merge) return;
-    // 上一次还没回来就跳过这一拍：log_refresh 在 Rust 的阻塞池上跑（2026-10-10 从主线程挪过去），日志在网络卷上时一次能慢过 500ms，
-    // 不跳的话同一个句柄上两次刷新 / 两次轮转重开并排跑。原来在主线程上，天然一个接一个
-    let refreshing = false;
-    const id = setInterval(async () => {
-      if (refreshing) return;
-      refreshing = true;
+    // 网络卷上一次可能慢过 500ms，完成后才安排下一轮；关掉 tail 后的回包也不能再改 epoch。
+    return poll(500, async live => {
+      let r;
       try {
-        const r = await logRefresh(h);
-        if (r.kind === "grew") stat = await logStat(h);
-        else if (r.kind === "rotated") {
-          rotations += 1;
-          epoch += 1;
-        }
+        r = await logRefresh(h);
       } catch {
-        /* 文件临时不可读（轮转的空档、权限抖动），下一轮再试 */
-      } finally {
-        refreshing = false;
+        // 文件临时不可读（轮转的空档、权限抖动），保留 tail -F 的等待语义。
+        return true;
       }
-    }, 500);
-    return () => clearInterval(id);
+      if (!live()) return false;
+      if (r.kind === "grew") {
+        const s = await logStat(h);
+        if (!live()) return false;
+        stat = s;
+      } else if (r.kind === "rotated") {
+        rotations += 1;
+        epoch += 1;
+      }
+      return true;
+    }, e => { error = String(e); });
   });
 
   const fmtNum = (n: number) => n.toLocaleString("en-US");

@@ -36,6 +36,8 @@
   import { nav } from "../state/nav.svelte";
   import type { MenuItem } from "../shell/ContextMenu.svelte";
   import { cmenu } from "../shell/context-menu.svelte";
+  import { poll } from "../poll";
+  import { notify } from "../state/notify.svelte";
   import type { IconName } from "../shell/Icon.svelte";
 
   let { root }: { root: string } = $props();
@@ -168,15 +170,18 @@
     if (!list) return;
     const waiting = list.map(runOf).filter((r): r is RunTab => !!r && r.status === "running" && !ports[r.id]?.length && (polls.get(r.id) ?? 0) < 40);
     if (!waiting.length) return;
+    let dead = false;
     const t = setTimeout(async () => {
       const got: Record<number, number[]> = { ...ports };
       for (const r of waiting) {
+        if (dead) return;
         polls.set(r.id, (polls.get(r.id) ?? 0) + 1);
         got[r.id] = await taskPorts(r.id).catch(() => []);
+        if (dead) return;
       }
       ports = got;
     }, 1500);
-    return () => clearTimeout(t);
+    return () => { dead = true; clearTimeout(t); };
   });
 
   /*
@@ -190,13 +195,14 @@
     if (!list) return;
     const ids = list.map(runOf).filter((r): r is RunTab => !!r && r.status === "running").map((r) => r.id);
     if (!ids.length) return;
-    const t = setInterval(async () => {
-      const got = await taskHeap(ids).catch(() => [] as TaskHeap[]);
+    return poll(2000, async live => {
+      const got = await taskHeap(ids);
+      if (!live()) return false;
       const next: Record<number, TaskHeap[]> = {};
       for (const h of got) next[h.id] = [...(heaps[h.id] ?? []), h].slice(-HEAP_KEEP);
       heaps = next;
-    }, 2000);
-    return () => clearInterval(t);
+      return true;
+    }, e => { heaps = {}; notify.hint(`无法更新 JVM 堆用量，请重新打开 Services：${String(e)}`); });
   });
   const mb = (n: number) => `${Math.round(n / 1048576)} MB`;
   const heapTip = (h: TaskHeap) =>
