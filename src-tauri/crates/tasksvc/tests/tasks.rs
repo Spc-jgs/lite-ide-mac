@@ -220,16 +220,13 @@ fn 丢掉_task_不留孤儿() {
 }
 
 #[test]
-fn 写到上限在换行处轮转_一行不劈开_上一次的挪成点一() {
+fn 写到硬上限优先整行轮转_上一次的挪成点一() {
     let d = dir("rotate");
     let mut s = spec(&d.0, "");
     std::fs::create_dir_all(s.log.parent().unwrap()).unwrap();
     std::fs::write(&s.log, "上一次的输出\n").unwrap();
 
-    // 输出要**远大于读线程一次读的那块**（64KB）：读到的一块跨过上限时整块留在当前那份里（sink 的规矩），所以轮转几次取决于
-    // 每次读到多大。原来 400 行约 10KB —— 本机读线程跟得上、一小块一小块地读，轮转好几次；CI 忙的时候读线程醒得晚，
-    // 10KB 一次读完，一次都不转，「上一次的输出」还在 .1 里，间歇红（e976da7 那次，一次只改文档的提交）。
-    // 12000 行约 330KB：就算每次都读满 64KB 也至少五块、每块都跨上限
+    // 一次读 64KB 也必须在块内分段；上限不能依赖读线程碰巧每次拿多大。
     s.command = "awk 'BEGIN { for (i = 0; i < 12000; i++) print \"line \" i \" ................\" }'".into();
     s.cap = 1000;
     let t = Task::start(&s).unwrap();
@@ -239,12 +236,49 @@ fn 写到上限在换行处轮转_一行不劈开_上一次的挪成点一() {
     assert!(!old.is_empty(), "轮转过，.1 不该是空的");
     assert!(!old.contains("上一次的输出"), "12000 行早就轮转过好几次了，上一次的那份应该已经被顶掉");
     for f in [&cur, &old] {
-        for l in f.lines() {
-            assert!(l.starts_with("line ") && l.ends_with('.'), "有一行被劈开了：{l:?}");
+        if !f.contains("[lite-ide]") {
+            for l in f.lines() {
+                assert!(l.starts_with("line ") && l.ends_with('.'), "没有标记就把一行劈开了：{l:?}");
+            }
         }
     }
-    // 闸的意义：每份都在上限附近，不会无限长（上限 + 一块的余量）
-    assert!(cur.len() < 1000 + 64 * 1024 && old.len() < 1000 + 64 * 1024);
+    assert!(cur.len() <= 1000 && old.len() <= 1000, "两份都必须在硬上限以内");
+}
+
+#[test]
+fn 应用一直开着_任务启动和输出结束都会清理过期日志() {
+    let d = dir("live-prune");
+    let base = d.0.join("runs");
+    let expired = base.join("0000000000000011/old.log");
+    let write_old = || {
+        std::fs::create_dir_all(expired.parent().unwrap()).unwrap();
+        std::fs::write(&expired, "expired\n").unwrap();
+        std::fs::File::options().write(true).open(&expired).unwrap()
+            .set_modified(std::time::SystemTime::now() - Duration::from_secs(30 * 86400)).unwrap();
+    };
+    write_old();
+    let mut s = spec(&d.0, "echo ready; while [ ! -f go ]; do sleep 0.05; done; echo done");
+    s.log = tasksvc::log_file(&base, "fixture", "main");
+    let t = Task::start(&s).unwrap();
+    assert!(!expired.exists(), "启动前应清掉旧输出，不依赖应用重启");
+    assert!(until(5, || read(&s.log).contains("ready")));
+    write_old();
+    std::fs::write(d.0.join("go"), "").unwrap();
+    t.wait_exit(Duration::from_secs(10)).unwrap();
+    assert!(until(5, || !expired.exists()), "输出 EOF 后应再次清理；运行卡片仍持有 Task 也要生效");
+    assert!(read(&s.log).contains("done"));
+}
+
+#[test]
+fn 没有换行就退出_排队的日志断点也要写到输出() {
+    let d = dir("note-eof");
+    let s = spec(&d.0, "printf partial; while [ ! -f go ]; do sleep 0.05; done");
+    let t = Task::start(&s).unwrap();
+    assert!(until(5, || read(&s.log).contains("partial")));
+    t.note("queued note at EOF");
+    std::fs::write(d.0.join("go"), "").unwrap();
+    t.wait_exit(Duration::from_secs(10)).unwrap();
+    assert!(until(5, || read(&s.log).contains("queued note at EOF")), "不能因为最后没换行就丢插话");
 }
 
 #[test]

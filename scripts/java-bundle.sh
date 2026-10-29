@@ -17,6 +17,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# 按需资源验收只能用本机缓存；缺依赖时给人决定下载的机会。
+download() {
+  [ "${LITE_BUILD_OFFLINE:-}" != 1 ] || { echo "离线构建缺少已校验的缓存，停止下载：$*" >&2; return 1; }
+  curl "$@"
+}
+
 JDTLS_VERSION=1.61.0
 JDTLS_FILE=jdt-language-server-1.61.0-202609031315.tar.gz
 JDTLS_URL="https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/${JDTLS_FILE}"
@@ -66,7 +72,7 @@ mkdir -p "${CACHE}"
 tgz="${CACHE}/${JDTLS_FILE}"
 if [ ! -f "${tgz}" ] || [ "$(shasum -a 256 "${tgz}" | cut -d' ' -f1)" != "${JDTLS_SHA256}" ]; then
   echo "下载 jdtls ${JDTLS_VERSION}（约 49 MB）：${JDTLS_URL}"
-  curl -fL --proto =https --proto-redir =https -o "${tgz}.download" "${JDTLS_URL}"
+  download -fL --proto =https --proto-redir =https -o "${tgz}.download" "${JDTLS_URL}"
   got=$(shasum -a 256 "${tgz}.download" | cut -d' ' -f1)
   [ "${got}" = "${JDTLS_SHA256}" ] || { rm -f "${tgz}.download"; echo "jdtls 的 sha256 对不上：${got}" >&2; exit 1; }
   mv "${tgz}.download" "${tgz}"
@@ -75,7 +81,7 @@ fi
 dbg="${CACHE}/${DEBUG_FILE}"
 if [ ! -f "${dbg}" ] || [ "$(shasum -a 256 "${dbg}" | cut -d' ' -f1)" != "${DEBUG_SHA256}" ]; then
   echo "下载 java-debug ${DEBUG_VERSION}（约 3 MB）：${DEBUG_URL}"
-  curl -fL --proto '=https' --proto-redir '=https' -o "${dbg}.download" "${DEBUG_URL}"
+  download -fL --proto '=https' --proto-redir '=https' -o "${dbg}.download" "${DEBUG_URL}"
   got=$(shasum -a 256 "${dbg}.download" | cut -d' ' -f1)
   [ "${got}" = "${DEBUG_SHA256}" ] || { rm -f "${dbg}.download"; echo "java-debug 的 sha256 对不上：${got}" >&2; exit 1; }
   mv "${dbg}.download" "${dbg}"
@@ -86,7 +92,7 @@ fetch() {
   local f="${CACHE}/$1"
   if [ ! -f "${f}" ] || [ "$(shasum -a 256 "${f}" | cut -d' ' -f1)" != "$3" ]; then
     echo "下载 $4：$2"
-    curl -fL --proto '=https' --proto-redir '=https' -o "${f}.download" "$2"
+    download -fL --proto '=https' --proto-redir '=https' -o "${f}.download" "$2"
     local got; got=$(shasum -a 256 "${f}.download" | cut -d' ' -f1)
     [ "${got}" = "$3" ] || { rm -f "${f}.download"; echo "$4 的 sha256 对不上：${got}" >&2; exit 1; }
     mv "${f}.download" "${f}"

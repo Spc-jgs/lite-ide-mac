@@ -35,9 +35,12 @@ scripts/accept/lsp.sh          # 通用语言服务器（25 条，真 rust-analy
 scripts/accept/history.sh      # 本地历史（9 条）：GBK + CRLF 存的是原始字节、读回来解得对；外面改过补记一版；面板里恢复是编辑器里的一笔修改（不写盘）；不往项目里写
 scripts/accept/java.sh         # Java 智能（94 条，内置的 jdtls + Java 21）：跑的是 .app 里那份、Lombok 不报假错、实时报错、补全（自动 import、方法带括号）、参数提示（换参数、出了括号收起、⌘P 手动弹）、改名（文件跟着改名、jdtls 从文件监听知道、撤销、撞名不动）、格式化（照编辑器的缩进、一笔撤销、只排选中的）、快速修复（import 候选的次序、补上后波浪线消失）、⌘B 进兄弟模块 / jar / JDK 源码、⌥F7、⌥⌘B 跳到实现、⌘U 父方法（进 JDK 的 Object）、F1 快速文档（Javadoc 的 HTML 不当 HTML 画）、同名高亮（读写分色、同名的别的变量不标）、参数名提示（只给字面量、不进正文、设置里关掉当场收）、生成 ⌃↵（Getter 和 Setter 里 final 的没有 setter、toString、构造器、equals / hashCode、覆盖方法默认不勾）、调用 / 类型层级（调用方带调用那一行、↵ 跳到调用处、接口上 ⌃H 列实现、⌃H 不再删字）、⇧⇧ 找类（驼峰缩写、默认只找项目的、含 jar 里的、停在声明那行、p95 延迟）、代码模板（sout + Tab 展开、jdtls 的 .var 整行换掉、补上的 .sout）、代码风格照 IDEA（项目的 .idea/codeStyles：⌃⌥O 合成 .*、static 排最后，⌥⌘L 照行宽折行、续行缩进）、重构（⌥⌘V 几种做法挑、抽完接着改名、抽出来是空格不是 Tab；⌥⌘M / ⌥⌘C 同样；⌥⌘N 内联回去）、移动类（F6：列的包、先预览盘上不动、挪进去之后 import 跟着改、jdtls 不报错、撤销挪回来）、改签名（⌘F6：读进来的是 jdtls 给的、改名 + 对调 + 加参数、先列要改哪些、跨模块的调用跟着改、撤销）、引入参数（⌥⌘P：同文件的做、接着改名；调用在别的模块的说清做不了）、不往项目里写、退出不留。JDTLS_HOME=… 验「用自己那份」
 scripts/smoke.sh               # 发版前的端到端清单（142 条，约 100 秒），同样走测试通道，先打测试 .app。AI 助手那 10 条默认不跑（2026-10-27 用户：先不关注 AI），`LITE_SMOKE_AI=1` 打开
+scripts/resources.sh --build   # 按需资源验收（默认 quick）；--profile full 加长，--self-test 验采样/判定器，compare 比较两份 report.json。方法与专项见 docs/RESOURCE-GUARD.md
 ```
 
 ## 验证纪律
+
+**资源验收由 agent 判断触发，或人要求时执行。** 完成大功能，或改缓存、轮询、后台任务、子进程、窗口生命周期、自动保存/历史/日志时，先读 [docs/RESOURCE-GUARD.md](docs/RESOURCE-GUARD.md)，选择 quick/full 和受影响的专项场景；交付报告构建指纹、实际数字、异常及未测范围。小范围展示/文案/文档改动可说明理由后跳过。首轮只建基线；UNKNOWN 要解释，告警先对齐场景并复测，观察项不能直接当缺陷或强制重构任务。预算和调查线是项目决策，修订要有证据，不能为通过而放宽。按需脚本运行完退出，不配置定时任务或常驻监控。
 
 **验证只认 `pnpm app:build`。** `cargo build --release` 产出的是**开发模式**的 Tauri 壳 ——
 它去加载 `http://localhost:1420/` 而不是打包进去的前端，跑起来是白屏或者旧界面，
@@ -120,7 +123,7 @@ macOS 自带的 bash 3.2 在双引号里的 `$(…)` 里照样做花括号展开
 | `src-tauri/**` | [.claude/rules/rust.md](.claude/rules/rust.md) —— 子进程纪律、std API 会吃掉已有文件、废纸篓、DTO |
 | `src/**/*.svelte` `src/**/*.ts` | [.claude/rules/frontend.md](.claude/rules/frontend.md) —— Svelte 5 runes 的坑、CM6、懒加载、会话恢复、桩 |
 | 界面长什么样 | [.claude/rules/ui.md](.claude/rules/ui.md) —— 十四条写死的界面规矩、键位与菜单栏 |
-| 架构与性能预算 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| 架构与性能预算、资源回归 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；触发测量、判定增长或审计 CPU/内存/磁盘时读 [docs/RESOURCE-GUARD.md](docs/RESOURCE-GUARD.md) |
 | 窗口、事件发给谁、会话快照、退出 | [docs/MULTIWINDOW.md](docs/MULTIWINDOW.md) —— 一个项目一个窗口；进程级的资源要记 owner，跨窗口的东西只有 Rust 一个主人 |
 | 设置、偏好、`settings.json`、设置对话框、运行配置 | [docs/SETTINGS.md](docs/SETTINGS.md) —— 设置页和你都能写 `settings.json`（只改那一个值的字符，第 13 节），按钮改的另存一份；按项目的设置存在应用目录、不往项目里写；加设置项先改 `settings.rs` 的 `DEFS`（连同 `label`），别的都从它来 |
 | 任务运行（⌃R / ⌃⌥R / ⌘F2） | [docs/TASKS.md](docs/TASKS.md) —— 登录 shell、管道不用 pty、整组先软后硬地停、端口卡片、崩溃后收尸 |

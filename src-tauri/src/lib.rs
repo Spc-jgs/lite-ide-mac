@@ -231,8 +231,7 @@ pub fn run() {
                 projectcfg::set_file(dir.join("project-settings.json"));
                 let runs = dir.join("runs");
                 st.init_live(runs.join("live.json"));
-                // 任务输出的清理：14 天没跑过的项目、总量超过 5GB 的最旧的（tasksvc::prune）。启动时自己的任务一个都没在跑，
-                // 正好；碰盘，放后台线程（rust.md「同步命令跑在主线程上」那条的判据，setup 也在主线程上）
+                // 碰盘放后台；与任务启动共用 tasksvc 的写入登记锁，不能假设启动清理一定比第一条任务先跑完。
                 let _ = std::thread::Builder::new().name("runs-prune".into()).spawn(move || {
                     let r = tasksvc::prune::prune(&runs, tasksvc::prune::KEEP, tasksvc::prune::TOTAL_CAP, std::time::SystemTime::now());
                     if r.files > 0 {

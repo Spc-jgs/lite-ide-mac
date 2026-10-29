@@ -276,6 +276,7 @@ pub fn log_file(base: &Path, root: &str, name: &str) -> PathBuf {
 impl Task {
     /// 起。日志文件先开好再起进程：开不了（盘满、没权限）就直接报错，不留一个输出没处去的进程
     pub fn start(spec: &Spec) -> io::Result<Task> {
+        let output_guard = prune::protect(&spec.log);
         let out = Arc::new(Mutex::new(sink::Sink::open(&spec.log, spec.cap)?));
         let sink_w = Arc::clone(&out);
         let shell = if spec.shell.is_empty() {
@@ -306,6 +307,7 @@ impl Task {
         let shared = Arc::new(Shared { state: Mutex::new(State::Running), changed: Condvar::new(), stopped: AtomicBool::new(false) });
 
         std::thread::Builder::new().name(format!("task-out-{pgid}")).spawn(move || {
+            let _output_guard = output_guard;
             let mut buf = vec![0u8; 64 * 1024];
             let mut cleaner = Cleaner::new();
             let mut cleaned = Vec::with_capacity(buf.len());
@@ -322,7 +324,9 @@ impl Task {
             }
             cleaned.clear();
             cleaner.finish(&mut cleaned);
-            let _ = sink_w.lock().unwrap_or_else(|e| e.into_inner()).write(&cleaned);
+            let mut sink = sink_w.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = sink.write(&cleaned);
+            let _ = sink.finish();
         })?;
 
         let sh = shared.clone();
@@ -351,6 +355,7 @@ impl Task {
     /// 往这个任务的输出里插一整行（调试器的日志断点打的那句，docs/TAKEOVER.md G14）。程序正写到一行中间时攒着、等它写完那一行（`Sink::note`）。
     /// 写不进去（盘满）不报：插话丢了不该连累调试
     pub fn note(&self, line: &str) {
+        if self.exited() { return; }
         let _ = self.out.lock().unwrap_or_else(|e| e.into_inner()).note(line);
     }
 
