@@ -172,7 +172,15 @@
   </section>
 
   <section>
-    <h2>图标 <code>Icon</code> <small>{ICON_NAMES.length} 个 · JetBrains 新 UI 官方图标（来源见 public/icons/SOURCES.md）；一律 16，组件里不传尺寸；单色走 mask 跟着 color 变，彩色的画原色</small></h2>
+    <h2>图标 <code>Icon</code> <small>{ICON_NAMES.length} 个 · JetBrains 新 UI 与自绘补充（来源和规划见 public/icons/SOURCES.md、DESIGN.md）；一律 16，组件里不传尺寸；单色走 mask 跟着 color 变，彩色的画原色</small></h2>
+    <div class="row">
+      <span class="lbl">构建与运行</span>
+      <button class="ibtn" title="构建项目" aria-label="构建项目"><Icon name="build" /></button>
+      <button class="ibtn" title="运行" aria-label="运行"><Icon name="run" /></button>
+      <button class="ibtn" title="调试" aria-label="调试"><Icon name="debug" /></button>
+      <button class="ibtn" disabled title="停止" aria-label="停止"><Icon name="stop" /></button>
+      <button class="ibtn busy" disabled title="正在构建" aria-label="正在构建"><Icon name="build" /></button>
+    </div>
     <div class="icons">
       {#each ICON_NAMES as n (n)}
         <div class="ic"><Icon name={n} /><code>{n}</code></div>

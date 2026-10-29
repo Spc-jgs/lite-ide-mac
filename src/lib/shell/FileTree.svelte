@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HideSidebar from "./HideSidebar.svelte";
   import Icon from "./Icon.svelte";
   import { imeKey } from "./ime";
   import FileGlyph from "./FileGlyph.svelte";
@@ -12,6 +13,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
   import { settings } from "../state/settings.svelte";
   import { flatten, speedHit as speedHitIn, speedNext as speedNextIn, type Row } from "./tree-rows";
   import { gitMarks, decoOf } from "./tree-git";
+  import { fileGitMenu } from "../git/file-menu";
 
   let {
     root,
@@ -709,6 +711,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
    */
   let menu = $state<{ x: number; y: number; row: Row; fromHead?: boolean; multi?: boolean } | null>(null);
   let headEl = $state<HTMLElement | null>(null);
+  let viewMenu = $state<{ x: number; y: number } | null>(null);
 
   const relOf = (p: string) => relTo(root, p);
   const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/")) || "/";
@@ -755,6 +758,7 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     out.push({ label: "在 Finder 中显示", sep: true, run: () => void showInFinder(row.path) });
     out.push({ label: "复制路径", run: () => void copyText(row.path, "路径") });
     out.push({ label: "复制相对路径", run: () => void copyText(relOf(row.path), "相对路径") });
+    if (!row.isDir) out.push(...fileGitMenu(row.path));
     return out;
   });
 
@@ -1121,10 +1125,8 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     >{rootName}</button>
     <span class="gap"></span>
     <!--
-      树头的四个动作，照 IDEA 项目工具窗的头：定位当前文件 / 折叠全部 / 跟随开关 /
-      合并单层目录（IDEA 藏在齿轮菜单里的 Compact Middle Packages，这里没有齿轮，平铺出来）。
-      整条栏各只有一个，不是每一项上重复的东西，所以常驻（ui.md 第三条的例外），
-      但只用 --text-faint，hover 才亮。
+      定位 / 折叠是高频操作；跟随、合并单层目录是偏好，进带勾选态的更多菜单。
+      隐藏只收工具窗，和「折叠全部目录」分开，避免把两种收起混成一个动作。
     -->
     {#if activePath}
       <button class="ibtn" onclick={locate} title="在树里定位当前文件" aria-label="定位当前文件">
@@ -1136,24 +1138,19 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     </button>
     <button
       class="ibtn"
-      class:on={follow}
-      onclick={() => settings.toggle("tree.follow")}
-      title={follow ? "跟随标签页：开（切换标签页时自动定位）" : "跟随标签页：关"}
-      aria-label="跟随标签页"
-      aria-pressed={follow}
+      onclick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        menu = null;
+        viewMenu = { x: r.left, y: r.bottom + 4 };
+      }}
+      title="项目视图选项"
+      aria-label="项目视图选项"
+      aria-haspopup="menu"
+      aria-expanded={viewMenu !== null}
     >
-      <Icon name="follow" />
+      <Icon name="more-v" />
     </button>
-    <button
-      class="ibtn"
-      class:on={compact}
-      onclick={() => settings.toggle("tree.compact")}
-      title={compact ? "合并单层目录：开（com/demo/order 显示为 com.demo.order）" : "合并单层目录：关"}
-      aria-label="合并单层目录"
-      aria-pressed={compact}
-    >
-      <Icon name="compact" />
-    </button>
+    <HideSidebar />
   </div>
   {#if speed !== ""}
     <!-- 打的字浮在列表右上角（IDEA 的那个小框），没命中时说一声，别让人以为键盘坏了 -->
@@ -1234,6 +1231,19 @@ import { createEntry, listDir, renameEntry, moveEntry } from "../ipc/fs";
     {#if error}<div class="err">{error}</div>{/if}
   </div>
 </div>
+
+{#if viewMenu}
+  <ContextMenu
+    x={viewMenu.x}
+    y={viewMenu.y}
+    label="项目视图选项"
+    items={[
+      { label: "跟随标签页", checkType: "checkbox", checked: follow, run: () => settings.toggle("tree.follow") },
+      { label: "合并单层目录", checkType: "checkbox", checked: compact, run: () => settings.toggle("tree.compact") },
+    ]}
+    onclose={() => (viewMenu = null)}
+  />
+{/if}
 
 {#if menu}
   <ContextMenu

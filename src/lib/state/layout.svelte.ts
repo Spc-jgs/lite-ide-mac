@@ -31,7 +31,21 @@ class LayoutState {
   /** 侧边栏当前显示哪个视图。不在仓库里时渲染侧强制回文件树 */
   sideView = $state<Layout["sideView"]>(DEFAULT_LAYOUT.sideView);
   panel = $state(DEFAULT_LAYOUT.panel);
-  panelHeight = $state(DEFAULT_LAYOUT.panelHeight);
+  private baseHeight = $state(DEFAULT_LAYOUT.panelHeight);
+  paneSizes = $state<Record<string, number>>({});
+  toolHeights = $state<Record<string, number>>({});
+  panelMaximized = $state(false);
+  get panelHeight() { return this.toolHeights[this.panelView] ?? this.baseHeight; }
+  set panelHeight(value: number) { this.toolHeights[this.panelView] = value; }
+
+  resetSizes() {
+    this.sidebarWidth = DEFAULT_LAYOUT.sidebarWidth;
+    this.baseHeight = DEFAULT_LAYOUT.panelHeight;
+    this.toolHeights = {};
+    this.paneSizes = {};
+    this.panelMaximized = false;
+    this.splitRatio = DEFAULT_LAYOUT.splitRatio;
+  }
   /**
    * 底部是哪个工具窗（`term` / `git`），以及 Git 窗里选中的标签（#31）。
    * 都是**存下来的偏好**：可以是 `git` 而当下并没有仓库，渲染侧另算。
@@ -54,7 +68,10 @@ class LayoutState {
      * shell 是一个多余进程，没项目时它的 cwd 还是 `~`。Git 视图恢复：仓库还在就有内容。
      */
     this.panel = l.panel && l.panelView === "git";
-    this.panelHeight = l.panelHeight;
+    this.baseHeight = l.panelHeight;
+    this.toolHeights = l.toolHeights ?? {};
+    this.paneSizes = l.paneSizes ?? {};
+    this.panelMaximized = false;
     this.panelView = l.panelView;
     this.gitTab = l.gitTab;
     this.splitRatio = l.splitRatio;
@@ -63,6 +80,8 @@ class LayoutState {
   /** 拿去存快照的那份。在 effect 里调一次就把七个字段全订阅上了 */
   snapshot(): Layout {
     return {
+      ...(Object.keys(this.paneSizes).length ? { paneSizes: { ...this.paneSizes } } : {}),
+      ...(Object.keys(this.toolHeights).length ? { toolHeights: { ...this.toolHeights } } : {}),
       sidebar: this.sidebar,
       sidebarWidth: this.sidebarWidth,
       sideView: this.sideView,
@@ -98,6 +117,12 @@ class LayoutState {
   showSide(view: Layout["sideView"]) {
     this.sideView = view;
     this.sidebar = true;
+  }
+
+  /** 导轨同项再点收起；程序导航仍用 showSide，避免「要求显示」反而关掉它。 */
+  toggleSide(view: Layout["sideView"]) {
+    if (this.sidebar && this.sideView === view) this.sidebar = false;
+    else this.showSide(view);
   }
 
   /** ⌘K：已经在 Git 视图上再按一次就切回文件树 —— 一个键既是去也是回 */

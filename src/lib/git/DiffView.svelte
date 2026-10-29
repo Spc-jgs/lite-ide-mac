@@ -1,6 +1,13 @@
+<script module lang="ts">
+  let viewerCounter = 0;
+</script>
+
 <script lang="ts">
   import { tick } from "svelte";
+  import { imeKey } from "../shell/ime";
   import { splitHunks, hunkPatch, pickLines } from "./hunks";
+  import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
+  import { copyText } from "../shell/pathactions";
   import Icon from "../shell/Icon.svelte";
   import { notify } from "../state/notify.svelte";
   import { highlightDiff, type Tok } from "./diff-highlight";
@@ -28,7 +35,11 @@
     onApplyHunk,
     onRevertHunk,
     loadNew,
+    leftTitle = "",
+    rightTitle = "",
   }: {
+    leftTitle?: string;
+    rightTitle?: string;
     raw: string;
     path: string;
     /** 当前看的是暂存区还是工作区 */
@@ -69,6 +80,12 @@
      */
     loadNew?: () => Promise<{ text: string; truncated: boolean } | null>;
   } = $props();
+
+  const bodyId = `diff-body-${++viewerCounter}`;
+  let diffMenu = $state<{ x: number; y: number; text: string } | null>(null);
+  function openDiffMenu(x: number, y: number) {
+    diffMenu = { x, y, text: window.getSelection()?.toString() ?? "" };
+  }
 
   /** 每个 hunk 的原文，给按块暂存拼 patch 用。从 `raw` 拆，不从解析后的行反拼 */
   let patches = $derived(splitHunks(raw));
@@ -253,6 +270,8 @@
   });
   /** 真正在显示的形态 */
   let sideOn = $derived(side && !narrow && !oneSided);
+  const oldTitle = $derived(leftTitle || (commit ? toLocal ? commit : `${commit} 提交前` : staged ? "HEAD" : "暂存区"));
+  const newTitle = $derived(rightTitle || (commit ? toLocal ? "工作区" : commit : staged ? "暂存区" : "工作区"));
   /*
    * 语法着色（`diff-highlight.ts`）。异步：语言包要按需加载、解析要时间，先按平的画，
    * 算好了再上色 —— 一份 diff 通常几十毫秒，肉眼看不到那一下。`dead` 同 LogPane 那条：
@@ -325,23 +344,24 @@
 
   function measureSx() {
     const g = gridEl;
-    if (!g || wrap || !sideOn) {
+    if (!g || wrap) {
       maxSx = 0;
       sx = 0;
       return;
     }
-    const cell = g.querySelector<HTMLElement>(".tx");
+    const cell = g.querySelector<HTMLElement>(sideOn ? ".tx" : ".row:not(.hunk):not(.meta) .txt");
     if (!cell) return;
     const cs = getComputedStyle(cell);
     const inner = cell.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     let widest = 0;
-    for (const el of g.querySelectorAll<HTMLElement>(".tx > .in")) if (el.offsetWidth > widest) widest = el.offsetWidth;
+    for (const el of g.querySelectorAll<HTMLElement>(".tx > .in, .txt > .in")) if (el.offsetWidth > widest) widest = el.offsetWidth;
     colW = inner;
     maxSx = Math.max(0, Math.ceil(widest - inner));
     sx = clampSx(sx);
   }
   $effect(() => {
     void sideShown;
+    void uniShown;
     void wrap;
     void sideOn;
     void hl;
@@ -375,8 +395,14 @@
   /** 底下那条细条：滑块长度 = 可见宽 / 内容宽；点轨道跳过去，拖滑块跟着走 */
   let thumbPct = $derived(maxSx > 0 && colW > 0 ? Math.max(8, (100 * colW) / (colW + maxSx)) : 100);
   let thumbLeft = $derived(maxSx > 0 ? ((100 - thumbPct) * sx) / maxSx : 0);
+  let endDrag: (() => void) | undefined;
+  $effect(() => () => endDrag?.());
   function dragBar(e: PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    endDrag?.();
     const track = e.currentTarget as HTMLElement;
+    track.focus({ preventScroll: true });
     const range = track.clientWidth * (1 - thumbPct / 100);
     if (range <= 0) return;
     if (!(e.target as HTMLElement).classList.contains("thumb")) {
@@ -390,14 +416,27 @@
     const up = () => {
       track.removeEventListener("pointermove", move);
       track.removeEventListener("pointerup", up);
+      track.removeEventListener("pointercancel", up);
+      track.removeEventListener("lostpointercapture", up);
+      endDrag = undefined;
     };
     track.addEventListener("pointermove", move);
+    endDrag = up;
     track.addEventListener("pointerup", up);
+    track.addEventListener("pointercancel", up);
+    track.addEventListener("lostpointercapture", up);
+  }
+  function scrollKey(e: KeyboardEvent) {
+    if (imeKey(e)) return;
+    const delta = e.key === "ArrowLeft" ? -40 : e.key === "ArrowRight" ? 40 : null;
+    if (delta === null && e.key !== "Home" && e.key !== "End") return;
+    e.preventDefault(); e.stopPropagation();
+    sx = clampSx(e.key === "Home" ? 0 : e.key === "End" ? maxSx : sx + (delta ?? 0));
   }
   /** 行号栏宽度跟着最大行号的位数走（原来写死 46px：四位数行号挤、两位数的又空一大截） */
   let gw = $derived.by(() => {
     let max = 0;
-    for (const r of sideShown) max = Math.max(max, r.left?.oldNo ?? 0, r.right?.newNo ?? 0);
+    for (const f of view) for (const r of f.lines) max = Math.max(max, r.oldNo ?? 0, r.newNo ?? 0);
     return `calc(${Math.max(3, String(max).length)}ch + 18px)`;
   });
   /**
@@ -442,6 +481,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (imeKey(e)) return;
     /*
      * 这个监听挂在 window 上，而差异标签是打开着的时候底部终端可能正被聚焦 ——
      * 不排除掉可输入的目标，⌥Z 就会被我们截走，用户以为终端吞了键。
@@ -467,9 +507,17 @@
       wrap = !wrap;
     }
   }
+  const menuItems = $derived<MenuItem[]>([
+    { label: "复制所选内容", disabled: !diffMenu?.text, run: () => void copyText(diffMenu?.text ?? "", "文本") },
+    { label: "上一处更改", sep: true, disabled: !blocks.length, run: () => jump(-1) },
+    { label: "下一处更改", disabled: !blocks.length, run: () => jump(1) },
+    { label: "自动换行", sep: true, checked: wrap, checkType: "checkbox", run: () => wrap = !wrap },
+    { label: "双栏显示", checked: sideOn, disabled: narrow || !!oneSided, run: () => side = true },
+    { label: "统一显示", checked: !sideOn, run: () => side = false },
+  ]);
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onblur={() => endDrag?.()} />
 
 <!-- 一行代码：语法段 × 行内改动区间。平的段直接印文本，少一层 span -->
 <!-- 块头上的「N 行未改动」：能展开时是个按钮（点了从新侧全文补进来，照 IDEA），不能时就是一句话 -->
@@ -487,7 +535,7 @@
   {/each}
 {/snippet}
 
-<div class="diff" bind:clientWidth={boxW}>
+<div class="diff" bind:clientWidth={boxW} style:--gw={gw} style:--uni-start={oneSided ? "calc(var(--gw) + 20px)" : "calc(var(--gw) * 2 + 20px)"} style:--gutter-columns={oneSided ? "var(--gw)" : "var(--gw) var(--gw)"} style:--sx="{sx}px">
   <div class="bar">
     <span class="path" title={path}>{path}</span>
     {#if files[0]?.oldPath}
@@ -511,10 +559,11 @@
       </span>
     {/if}
 
-    <span class="segs">
+    <span class="segs" role="group" aria-label="差异显示方式">
       <button
         class="btn sm"
         class:on={sideOn}
+        aria-pressed={sideOn}
         disabled={narrow || !!oneSided}
         onclick={() => (side = true)}
         title={oneSided === "add"
@@ -525,7 +574,7 @@
               ? "窗口过窄，无法双栏显示；加宽窗口后将自动切换"
               : "左右分栏对照"}
       >双栏</button>
-      <button class="btn sm" class:on={!sideOn} onclick={() => (side = false)} title="统一视图（适合窄窗口）">统一</button>
+      <button class="btn sm" class:on={!sideOn} aria-pressed={!sideOn} onclick={() => (side = false)} title="统一视图（适合窄窗口）">统一</button>
     </span>
 
     <button
@@ -547,7 +596,16 @@
     {/if}
   </div>
 
-  <div class="body" bind:this={box}>
+  <div class="sources" class:side={sideOn} aria-label="比较版本">
+    <span class="source old" title={oldTitle}>{oldTitle}</span>
+    {#if sideOn}<span class="source-gap" aria-hidden="true"></span>{:else}<span class="source-arrow" aria-hidden="true">→</span>{/if}
+    <span class="source new" title={newTitle}>{newTitle}</span>
+  </div>
+  <!-- 可聚焦滚动区支持方向键滚动与 ⇧F10 菜单。 -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <div class="body" id={bodyId} role="region" tabindex="0" aria-label="差异内容" bind:this={box}
+    oncontextmenu={(e) => { e.preventDefault(); openDiffMenu(e.clientX, e.clientY); }}
+    onkeydown={(e) => { if (imeKey(e)) return; if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); openDiffMenu(r.left + 24, r.top + 12); } }}>
     {#if files.length === 0}
       <div class="empty-msg">
         {#if untracked}新增的文件，内容为空{:else}此侧没有更改{/if}
@@ -556,14 +614,14 @@
       <div class="empty-msg">二进制文件，不显示差异</div>
     {:else if sideOn}
       <!--
-        data-row 是跳转的锚点。双栏里一行是 4 个 grid 子元素拼出来的，
+        data-row 是跳转的锚点。双栏里一行由两侧行号、代码和中央分隔组成，
         没有「行」这个元素，所以标在每行的**第一个**子元素上 ——
-        两个分支都要标，漏掉 span4 的话落在 hunk 行上的跳转会静默失败。
+        两个分支都要标，漏掉 span-all 的话落在 hunk 行上的跳转会静默失败。
       -->
       <div class="grid" class:wrap bind:this={gridEl} style:--sx="{sx}px" style:--gw={gw}>
         {#each sideShown as r, i (i)}
           {#if r.kind === "hunk" || r.kind === "meta"}
-            <div class="span4 {r.kind}" data-row={i}>
+            <div class="span-all {r.kind}" data-row={i}>
               {#if r.kind === "hunk"}<span class="fold" aria-hidden="true"><Icon name="more-h" /></span>{/if}
               {#if r.kind === "hunk" && r.hidden}{@render fold(r.hidden, sideHunk[i])}{/if}
               <span class="htxt">{r.text}</span>
@@ -591,6 +649,7 @@
             <div class="tx {L ? (L.kind === 'del' ? 'del' : '') : 'blank'}" class:flat={flat.left[i]} class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>
               {#if L}<span class="in">{@render code(L)}</span>{/if}
             </div>
+            <div class="change-gutter" aria-hidden="true"></div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="no mid {R ? (R.kind === 'add' ? 'add' : '') : 'blank'}" class:sel={on} onmousedown={noShiftSel} onclick={(e) => pickRow([L, R], e)}>{R?.newNo ?? ""}</div>
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -599,18 +658,10 @@
             </div>
           {/if}
         {/each}
-        {#if maxSx > 0 && !wrap}
-          <!-- 两栏底下各一条横向滚动条，吸在可视区底边；两条推的是同一个偏移（上面「双栏横向滚动」那段） -->
-          <div class="hgap"></div>
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="hbar" onpointerdown={dragBar}><span class="thumb" style:width="{thumbPct}%" style:left="{thumbLeft}%"></span></div>
-          <div class="hgap"></div>
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="hbar" onpointerdown={dragBar}><span class="thumb" style:width="{thumbPct}%" style:left="{thumbLeft}%"></span></div>
-        {/if}
+
       </div>
     {:else}
-      <div class="uni" class:wrap>
+      <div class="uni" class:wrap bind:this={gridEl}>
         {#each uniShown as l, i (i)}
           {#if l.kind === "hunk" && oneSided && patches.hunks.length <= 1}
             <!-- 单边差异只有一块：那条「从第 1 行开始」的块头不是信息（跳转不指向块头，去掉安全） -->
@@ -640,7 +691,7 @@
               {#if oneSided !== "add"}<span class="no">{l.oldNo ?? ""}</span>{/if}
               {#if oneSided !== "del"}<span class="no">{l.newNo ?? ""}</span>{/if}
               <span class="sign">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : ""}</span>
-              <span class="txt">{@render code(l)}</span>
+              <span class="txt"><span class="in">{@render code(l)}</span></span>
             </div>
           {/if}
         {/each}
@@ -655,13 +706,29 @@
       <div class="empty-msg">差异过长，仅显示前 {MAX_ROWS} 行（共 {total} 行）</div>
     {/if}
   </div>
+  {#if maxSx > 0 && !wrap}
+    <div class="scrolls" class:side={sideOn}>
+      <span></span>
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+      <div class="hbar" tabindex="0" role="scrollbar" aria-controls={bodyId} aria-orientation="horizontal" aria-label="横向滚动差异" aria-valuemin="0" aria-valuemax={maxSx} aria-valuenow={Math.round(sx)} onkeydown={scrollKey} onpointerdown={dragBar}><span class="thumb" style:width="{thumbPct}%" style:left="{thumbLeft}%"></span></div>
+      {#if sideOn}
+        <span></span><span></span>
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+        <div class="hbar" tabindex="0" role="scrollbar" aria-controls={bodyId} aria-orientation="horizontal" aria-label="横向滚动差异右栏" aria-valuemin="0" aria-valuemax={maxSx} aria-valuenow={Math.round(sx)} onkeydown={scrollKey} onpointerdown={dragBar}><span class="thumb" style:width="{thumbPct}%" style:left="{thumbLeft}%"></span></div>
+      {/if}
+    </div>
+  {/if}
 </div>
+
+{#if diffMenu}<ContextMenu x={diffMenu.x} y={diffMenu.y} label="差异操作" items={menuItems} onclose={() => diffMenu = null} />{/if}
 
 <style>
   .diff {
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-width: 0;
+    --diff-line-height: calc(var(--editor-font-size, 13px) * 1.55);
     overflow: hidden;
     background: var(--editor-bg);
   }
@@ -670,6 +737,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    min-width: 0;
     height: 34px; /* M9：岛内工具栏统一 34（原来 28） */
     padding: 0 10px;
     background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
@@ -678,7 +746,10 @@
     color: var(--text-dim);
     user-select: none;
   }
+  .bar > :not(.path):not(.gap) { flex: none; }
   .bar .path {
+    min-width: 40px;
+    flex: 0 1 auto;
     font-family: var(--ui-font);
     color: var(--text);
     overflow: hidden;
@@ -715,15 +786,25 @@
   .nav .pos { font-family: var(--ui-font); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--text-faint); min-width: 30px; text-align: center; }
 
   /* 分段控件是 app.css 的 `.segs`；「换行」是独立开关，`on` 同一套长相 */
-  .bar .btn.on { background: var(--accent-sel); border-color: var(--accent); color: var(--text); }
+  .sources { flex: none; min-height: 28px; display: flex; align-items: center; gap: 10px; padding: 0 12px; color: var(--text-dim); font: var(--fs-sm) var(--ui-font); border-bottom: 1px solid var(--border-soft); }
+  .sources.side { display: grid; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); gap: 0; padding: 0; }
+  .source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sources.side .source { padding: 0 12px; }
+  .source-gap { height: 28px; background: var(--content-solid); border-inline: 1px solid var(--border-soft); }
+  .source-arrow { color: var(--text-faint); }
+  @media (max-width: 900px) { .bar { gap: 5px; padding-inline: 8px; } .bar .stat, .bar .renamed { display: none; } }
+  .bar .btn.on { background: var(--selected); border-color: transparent; color: var(--text); }
 
   /* 字号 / 行高同编辑器（13px × 1.55 ≈ 20）：一个文件在编辑器和差异里切来切去，字不该忽大忽小 */
   .body {
     flex: 1;
-    overflow: auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
     font-family: var(--code-font);
-    font-size: var(--fs-md);
-    line-height: 20px;
+    font-size: var(--editor-font-size, 13px);
+    font-variant-ligatures: none;
+    line-height: var(--diff-line-height);
   }
 
   /*
@@ -737,18 +818,18 @@
    */
   .grid {
     display: grid;
-    grid-template-columns: var(--gw, 46px) minmax(0, 1fr) var(--gw, 46px) minmax(0, 1fr);
+    grid-template-columns: var(--gw) minmax(0, 1fr) 18px var(--gw) minmax(0, 1fr);
     width: 100%;
     align-items: stretch;
   }
-  .grid > div { white-space: pre; height: 20px; }
+  .grid > div { min-width: 0; white-space: pre; height: var(--diff-line-height); }
   .grid .tx { overflow: hidden; }
   .grid .tx > .in { display: inline-block; transform: translateX(calc(-1 * var(--sx, 0px))); }
   /*
    * 块头：一条 `--hover` 的带子，**不画上下边线**（岛里不用线分项）。左边一个 ⋯ 说「这里折着
    * 没显示的行」，后面跟 git 报的函数上下文（斜体，它是注释性质的）。
    */
-  .span4 {
+  .span-all {
     grid-column: 1 / -1;
     padding-left: 12px;
     background: var(--hover);
@@ -756,20 +837,20 @@
     font-size: var(--fs-sm);
     font-style: italic;
   }
-  .span4.meta {
+  .span-all.meta {
     font-style: normal;
     color: var(--text);
     background: var(--selected);
   }
   /*
-   * 行号栏：不随横向滚动动（双栏平移的是代码格子里那层 `.in`；统一视图整行一起滚，行号跟着走也没关系）。
+   * 行号栏：不随横向滚动动（双栏和统一视图都只平移代码的 `.in`，行号固定）。
    * 增删行的行号格跟着上同一层底色（VS Code：行号栏是改动那一行的一部分），色值只有 --diff-*-bg 一份
    */
   .no {
     padding-right: 10px;
     text-align: right;
     color: var(--gutter-fg);
-    font-size: var(--fs-sm);
+    font-size: 0.9em;
     user-select: none;
     background: var(--content-solid);
     /* 同编辑器的行号栏：右边一条 soft 线把行号和正文分开 */
@@ -778,8 +859,9 @@
   .no.del { background: linear-gradient(var(--diff-del-bg), var(--diff-del-bg)), var(--content-solid); }
   .no.add { background: linear-gradient(var(--diff-add-bg), var(--diff-add-bg)), var(--content-solid); }
   .no.blank { background: var(--content-solid); }
-  /* 右栏的行号：左边那条是两栏的分界 —— 用实一档的 --border（原来是 soft，两栏看着连成一片） */
-  .no.mid { box-shadow: inset 1px 0 0 var(--border), inset -1px 0 0 var(--border-soft); }
+  /* 右栏行号和代码的分界；中央列单独画两栏间的分隔 */
+  .no.mid { box-shadow: inset -1px 0 0 var(--border-soft); }
+  .change-gutter { background: var(--content-solid); border-inline: 1px solid var(--border-soft); }
   .tx { padding: 0 14px 0 8px; }
   .tx.del { background: var(--diff-del-bg); }
   .tx.add { background: var(--diff-add-bg); }
@@ -796,7 +878,7 @@
    * 一两行合适，五行 import 那么一整块就盖过了旁边真正的代码。
    * 哪些行算「连着好几行」由 diff.ts 的 blankRuns 决定（那边有测试）。
    */
-  .tx.blank.flat { background: rgba(255, 255, 255, 0.03); }
+  .tx.blank.flat { background: rgba(255, 255, 255, 0.015); }
 
   /*
    * 软换行。两件事一起做才有意义：
@@ -816,44 +898,43 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     height: auto;
-    min-height: 20px;
+    min-height: var(--diff-line-height);
   }
   .uni.wrap .row {
     height: auto;
-    min-height: 20px;
+    min-height: var(--diff-line-height);
     /* min-content 会按最长那行撑宽整行，留着就等于没开换行 */
     min-width: 0;
   }
   .uni.wrap .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
 
   /*
-   * 锁死 20px 是为了行距整齐（同编辑器的行高）。
+   * 行高跟随编辑器字号，让差异和正文保持相同的阅读密度。
    *
    * 这**不再是**跳转的前提。以前「上一处 / 下一处改动」按 下标 × 行高 算，
    * 于是等高变成了一条藏在 CSS 里的隐性契约（改样式的人无从知道自己在动它）；
    * 现在 jump() 直接问 DOM 要位置，软换行开着、行高各不相同也照样对。
    */
-  .uni .row {
-    display: flex;
-    height: 20px;
-    white-space: pre;
-    min-width: min-content;
-  }
+  .uni .row { display: grid; grid-template-columns: var(--gutter-columns) 20px minmax(0, 1fr); height: var(--diff-line-height); white-space: pre; min-width: 0; }
   .uni .no {
     flex: none;
-    width: 46px;
+    width: var(--gw);
     position: static;
     box-shadow: none;
   }
   /* 统一视图两列行号是一个栏：线画在最后一列右边（单边差异只有一列，那就是它自己） */
   .uni .no:last-of-type { box-shadow: inset -1px 0 0 var(--border-soft); }
   .uni .sign { flex: none; width: 18px; text-align: center; user-select: none; }
-  .uni .txt { flex: 1; padding-right: 16px; }
+  .uni .txt { flex: 1; min-width: 0; overflow: hidden; padding-right: 16px; }
+  .uni .txt > .in { display: inline-block; transform: translateX(calc(-1 * var(--sx, 0px))); }
+  .uni.wrap .txt > .in { display: inline; transform: none; }
+  .uni.wrap .txt { overflow: visible; }
   .uni .row.add { background: var(--diff-add-bg); }
   .uni .row.del { background: var(--diff-del-bg); }
   .uni .row.add .sign { color: var(--diff-add-fg); }
   .uni .row.del .sign { color: var(--diff-del-fg); }
-  .uni .row.ctx { color: var(--text-dim); }
+  .uni .row.ctx { color: var(--text); }
+  .uni .row.hunk, .uni .row.meta { display: flex; }
   .uni .row.hunk {
     background: var(--hover);
     color: var(--text-faint);
@@ -887,12 +968,12 @@
   .grid .sel { filter: brightness(1.35); }
   .grid .no.sel[data-row] { box-shadow: inset 3px 0 0 var(--accent); }
   /* 块头比普通行高 4px：装得下 20 的 `.btn.sm` 还有呼吸位。它本来就是分隔，高一点反而更像分隔 */
-  .uni .row.hunk, .span4.hunk { min-height: 24px; }
-  .row.hunk:hover .hbtn, .span4.hunk:hover .hbtn, .hbtn:focus-visible { opacity: 1; }
-  .span4.hunk { display: flex; align-items: center; gap: 6px; }
+  .uni .row.hunk, .span-all.hunk { min-height: 24px; }
+  .row.hunk:hover .hbtn, .span-all.hunk:hover .hbtn, .hbtn:focus-visible { opacity: 1; }
+  .span-all.hunk { display: flex; align-items: center; gap: 6px; }
   /* 折叠标记：⋯ 图标，说「这上面有没显示的行」 */
   .fold { display: inline-flex; align-items: center; justify-content: center; color: var(--text-faint); }
-  .span4.hunk .htxt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .span-all.hunk .htxt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   /* 「12 行未改动」：照 VS Code 的折叠条说清这里跳过了多少；正体、亮一档，后面那截函数名照旧斜体、更淡 */
   .hcount { flex: none; font-style: normal; color: var(--text-muted); margin-right: 8px; }
   /* 能展开的那个：没有底和框的文字按钮，悬停变强调色 —— 它在一条带子上，再画个按钮就太重了 */
@@ -901,8 +982,11 @@
   .hcount.act:disabled { cursor: default; opacity: 0.6; }
   .uni .row.meta { color: var(--text-faint); font-size: var(--fs-sm); }
 
-  /* 双栏底下的横向滚动条：吸在可视区底边（grid 的最后一行，sticky），只在有长行时出现；平时淡、悬停亮 */
-  .grid > .hgap, .grid > .hbar { position: sticky; bottom: 0; height: 10px; z-index: 1; }
+  /* 横向滚动条留在视口底部；双栏共享偏移，行号不跟着移动 */
+  .scrolls { font-family: var(--code-font); font-size: var(--editor-font-size, 13px); flex: none; display: grid; grid-template-columns: var(--uni-start) minmax(0, 1fr); height: 12px; background: var(--content-solid); }
+  .scrolls.side { grid-template-columns: var(--gw) minmax(0, 1fr) 18px var(--gw) minmax(0, 1fr); }
+  .hbar { position: relative; min-width: 0; touch-action: none; }
+  .hbar:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
   .hbar .thumb {
     position: absolute;
     top: 3px;

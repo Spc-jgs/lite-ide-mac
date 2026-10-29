@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
-   * Git 改动面板的接线（2026-10-22 入口包瘦身，从 App.svelte 的 snippet 挪进来）：GitPane 本身照旧是只吃 props 的展示组件，
-   * 数据和动作在这里从 store 接上。原来这二十来个回调写在 App 的模板里，跟着 App 进入口包；挪到这里就跟着 GitPane 一起懒加载
+   * Git 改动面板的接线（2026-10-22 入口包瘦身，从 App.svelte 的 snippet 挪进来）：面板的数据和主操作在这里从 store 接上，单文件右键复用 file-menu。
+   * 原来这二十来个回调写在 App 的模板里，跟着 App 进入口包；挪到这里就跟着 GitPane 一起懒加载
    */
   import GitPane from "./GitPane.svelte";
   import { git } from "../state/git.svelte";
@@ -26,7 +26,7 @@
       // 提交成功才推；推之前照常走推送确认条（列出要推的提交）
       if (ok && push) void remote.askPush();
     })}
-  onRefresh={() => void git.refresh()}
+  onRefresh={() => void git.refresh(true)}
   stashCount={git.stashes.length}
   onStash={() => void git.stashPush()}
   onUnstash={() => void git.stashPop()}

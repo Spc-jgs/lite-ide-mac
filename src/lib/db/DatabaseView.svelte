@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HideSidebar from "../shell/HideSidebar.svelte";
   /**
    * 数据库工具窗（docs/DATABASE.md DB-1），照 IDEA 的 Database 工具窗：
    *
@@ -214,6 +215,7 @@
     <button class="ibtn" disabled={!selConn} onclick={() => selConn && void openConsole(selConn)} title="打开查询控制台" aria-label="打开查询控制台"><Icon name="terminal" /></button>
     <button class="ibtn" disabled={!selConn} onclick={() => selConn && edit(selConn)} title="编辑连接" aria-label="编辑连接"><Icon name="more-h" /></button>
     <button class="ibtn" onclick={refresh} title="刷新（关闭连接并重新读取）" aria-label="刷新"><Icon name="refresh" /></button>
+    <HideSidebar />
   </div>
   <div class="tree" role="tree" aria-label="数据库" tabindex="0" bind:this={treeEl} onkeydown={onKey}>
     {#if error}

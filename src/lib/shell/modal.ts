@@ -14,14 +14,17 @@
  * 只看 DOM 的话，关掉之后马上按的键、点的菜单会被一个已经答完的框拦下来再顶一下。由 Confirms 在 `asking` 变化时报过来
  * （它在状态变的那一拍就变；Svelte 的 `outrostart` 要等下一帧，试过，中间那一帧照样被拦）
  */
-let asking = false;
-export function setAsking(v: boolean) {
-  asking = v;
+const askers = new Set<object | string>();
+export function setAsking(v: boolean, owner: object | string = "confirm") {
+  if (v) askers.add(owner);
+  else askers.delete(owner);
 }
 
 /** 此刻在问的那个对话框；没有就 null */
 export function dialogUp(): HTMLElement | null {
-  return asking ? document.querySelector<HTMLElement>(".layer .dialog") : null;
+  if (!askers.size) return null;
+  const all = document.querySelectorAll<HTMLElement>(".layer:not(.leaving) .dialog");
+  return all.item(all.length - 1);
 }
 
 /**

@@ -144,7 +144,7 @@
   );
 
   async function apply(thenClose: boolean) {
-    if (!data) return;
+    if (!data || busy) return;
     error = "";
     busy = true;
     let at = "";
@@ -190,6 +190,7 @@
     if (imeKey(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
+      if (busy) return;
       if (adding) adding = false;
       else onclose();
     } else if (e.key === "Enter" && e.metaKey) {
@@ -254,8 +255,8 @@
 
 <div class="layer" role="presentation">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="dialog runcfg" role="dialog" aria-label="运行配置" tabindex="-1" onkeydown={onKey}>
-    <div class="main">
+  <div class="dialog runcfg" role="dialog" aria-modal="true" aria-busy={busy} aria-label="运行配置" tabindex="-1" onkeydown={onKey}>
+    <div class="main" inert={busy}>
       <nav class="list" aria-label="运行配置">
         <div class="tools">
           <button class="ibtn sm" title="新建运行配置" aria-label="新建" aria-expanded={adding} onclick={() => (adding = !adding)}><Icon name="plus" /></button>
@@ -406,8 +407,8 @@
     <div class="actions">
       <span class="note">{data?.problems.length ? data.problems.join("；") : data?.ideaProblems.length ? data.ideaProblems.join("；") : "仅保存在本机，不写入项目"}</span>
       <span class="gap"></span>
-      {#if error}<span class="err">{error}</span>{:else if applied}<span class="ok">已应用</span>{/if}
-      <button class="btn" data-dismiss onclick={onclose}>取消</button>
+      {#if error}<span class="err" role="alert">{error}</span>{:else if applied}<span class="ok">已应用</span>{/if}
+      <button class="btn" data-dismiss disabled={busy} onclick={onclose}>取消</button>
       <button class="btn" disabled={!dirtyCount || busy || !!badEnv} onclick={() => void apply(false)}>应用</button>
       <button class="btn primary" data-default disabled={busy || !!badEnv} onclick={() => void apply(true)}>确定</button>
     </div>

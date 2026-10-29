@@ -9,6 +9,7 @@ pub async fn task_list(root: String) -> Result<TaskListDto, String> {
     blocking(move || {
         let f = crate::taskdefs::discover(Path::new(&root));
         Ok(TaskListDto {
+            buildable: crate::taskdefs::buildable(Path::new(&root)),
             tasks: f
                 .defs
                 .into_iter()

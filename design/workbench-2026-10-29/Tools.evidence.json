@@ -1,0 +1,33 @@
+{
+  "passed": 7,
+  "checks": [
+    {
+      "message": "Services 树宽度可调",
+      "pass": true
+    },
+    {
+      "message": "手势取消后清掉拖动状态",
+      "pass": true
+    },
+    {
+      "message": "构建结果树宽度可调",
+      "pass": true
+    },
+    {
+      "message": "调试调用栈宽度可调",
+      "pass": true
+    },
+    {
+      "message": "侧边栏可用键盘调整",
+      "pass": true
+    },
+    {
+      "message": "侧边栏双击恢复默认宽度",
+      "pass": true
+    },
+    {
+      "message": "文件树两个独立开关使用 checkbox 语义",
+      "pass": true
+    }
+  ]
+}

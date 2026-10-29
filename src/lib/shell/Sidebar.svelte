@@ -11,6 +11,7 @@
    * grid 里并排的两列（`34px var(--side-w) 4px 1fr`），不能包一层。
    */
   import type { Snippet } from "svelte";
+  import Splitter from "./Splitter.svelte";
   import Crash from "./Crash.svelte";
   import { layout } from "../state/layout.svelte";
 
@@ -32,26 +33,7 @@
     mavenView: Snippet;
   } = $props();
 
-  /** 侧边栏横向拖拽。上限留出编辑区的活路，不让它被挤没 */
-  function startResize(e: PointerEvent) {
-    e.preventDefault();
-    layout.resizing = true;
-    const startX = e.clientX;
-    const startW = layout.sidebarWidth;
-    const move = (ev: PointerEvent) => {
-      layout.sidebarWidth = Math.max(
-        140,
-        Math.min(window.innerWidth - 360, startW + (ev.clientX - startX)),
-      );
-    };
-    const up = () => {
-      layout.resizing = false;
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
+  let windowWidth = $state(window.innerWidth);
 </script>
 
 <aside>
@@ -73,13 +55,9 @@
     {/snippet}
   </svelte:boundary>
 </aside>
-<div
-  class="side-resizer"
-  role="separator"
-  aria-label="调整侧边栏宽度"
-  aria-orientation="vertical"
-  onpointerdown={startResize}
-></div>
+<svelte:window bind:innerWidth={windowWidth} />
+<Splitter label="调整侧边栏宽度" value={layout.sidebarWidth} min={140} max={Math.max(140, windowWidth - 360)} defaultValue={240}
+  onchange={(v) => layout.sidebarWidth = v} ondrag={(v) => layout.resizing = v} />
 
 <style>
   /*
@@ -102,36 +80,4 @@
     background: transparent; /* 在岛里：底由岛画，这里不画（web 壳下 --panel-bg 是实色，画了会盖住岛） */
     height: 100%;
   }
-  /*
-   * 拖拽条：**热区和画出来的线要分开。**
-   *
-   * 原来是 `background: var(--border)` —— 热区多宽，亮条就多宽，
-   * 于是界面正中间横着一条 4px 的白条（876px 高，玻璃上更扎眼）。
-   * 但 4px 是好按的下限，不能为了好看把热区缩掉。
-   *
-   * 所以底留空，只用一个居中的 1px 伪元素画线。悬停时线变 accent，
-   * 按住时才把整条 4px 点亮 —— 那时人已经在拖了，反馈越实越好。
-   */
-  .side-resizer {
-    position: relative;
-    background: transparent;
-    cursor: col-resize;
-  }
-  /*
-   * M8：平时**不画线** —— 这条缝右边就是岛的圆角边，边界已经在了。
-   * 悬停 / 拖动时才亮一条 accent，告诉人「这儿能拖」。
-   */
-  .side-resizer::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 2.5px;
-    width: 1px;
-    background: transparent;
-    transition: background 0.1s;
-  }
-  .side-resizer:hover::after { background: var(--accent); }
-  .side-resizer:active::after { background: var(--accent); }
-  @media (prefers-reduced-motion: reduce) { .side-resizer::after { transition: none; } }
 </style>

@@ -17,6 +17,11 @@
    * 排在局部变量上面。算不出来的（变量这一帧里没有）照样留着、说一句为什么 —— 换到别的帧、下一次停下也许就有了
    */
   import type { Snippet } from "svelte";
+  let splitWidth = $state(0);
+  const splitMax = $derived(Math.max(140, splitWidth - 160));
+  const treeWidth = $derived(Math.max(140, Math.min(layout.paneSizes.debugFrames ?? 260, splitMax)));
+  import Splitter from "../shell/Splitter.svelte";
+  import { layout } from "../state/layout.svelte";
   import Icon from "../shell/Icon.svelte";
   import { imeKey } from "../shell/ime";
   import type { RunTab } from "../state/runs.svelte";
@@ -301,7 +306,7 @@
     </div>
   </div>
   <div class="pages">
-    <div class="page split" class:hidden={page !== "debugger"}>
+    <div class="page split" bind:clientWidth={splitWidth} style:--frames-width={`${treeWidth}px`} class:hidden={page !== "debugger"}>
       <div class="frames" role="listbox" aria-label="调用栈">
         {#if !paused}
           <div class="empty-msg">
@@ -318,6 +323,7 @@
           {#if d && d.totalFrames > d.frames.length}<div class="vmsg">还有 {d.totalFrames - d.frames.length} 帧没列出来</div>{/if}
         {/if}
       </div>
+      <Splitter label="调整调用栈宽度" value={treeWidth} min={140} max={splitMax} defaultValue={260} onchange={(v) => layout.paneSizes.debugFrames = v} />
       <div class="vars" role="tree" aria-label="变量">
         {#if paused}
           <div class="eval">
@@ -375,8 +381,8 @@
   .page { position: absolute; inset: 0; }
   .page.hidden { visibility: hidden; pointer-events: none; }
   .split { display: flex; }
-  /* 帧在左、变量在右（同 IDEA 的 Threads & Variables）。按比例不定宽：Services 里右边只剩一半宽，定 300 的话方法名全被截断（浏览器里看出来的） */
-  .frames { flex: none; width: 40%; min-width: 180px; max-width: 360px; overflow: auto; padding: 4px 6px 8px; border-right: 1px solid var(--border-soft); }
+  /* 调用栈宽度可调并记忆；嵌在 Services 的窄区域里时按当前空间约束，不覆盖已存宽度 */
+  .frames { flex: none; width: var(--frames-width); min-width: 0; overflow: auto; padding: 4px 6px 8px; border-right: 1px solid var(--border-soft); }
   .vars { flex: 1; min-width: 0; overflow: auto; padding: 4px 6px 8px; }
   .frow, .vrow { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px 0 6px; border-radius: var(--r-sm); color: var(--text-dim); font-size: var(--fs-md); white-space: nowrap; cursor: default; }
   .frow:hover, .vrow:hover { background: var(--hover); color: var(--text); }

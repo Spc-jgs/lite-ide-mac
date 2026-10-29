@@ -17,11 +17,15 @@
    * 退场 140ms 淡出要求「notify 已经清掉了，胶囊还在」—— 自己留一份。不用 Svelte 的 `out:` 过渡：
    * 那会把过渡的运行时拽进入口包（frontend.md：懒 chunk 用到的运行时函数也落在入口里）
    */
+  let hovered = false, focused = false;
+  function pause() { if (hovered || focused) notify.hold(); else notify.release(); }
   let shown = $state<Toast | null>(null);
   let leaving = $state(false);
   $effect(() => {
     const t = notify.toast;
     if (t) {
+      hovered = false;
+      focused = false;
       shown = t;
       leaving = false;
       return;
@@ -46,8 +50,10 @@
         class:leaving
         role={shown.kind === "fail" ? "alert" : "status"}
         title={shown.text}
-        onpointerenter={() => notify.hold()}
-        onpointerleave={() => notify.release()}
+        onpointerenter={() => { hovered = true; pause(); }}
+        onpointerleave={() => { hovered = false; pause(); }}
+        onfocusin={() => { focused = true; pause(); }}
+        onfocusout={(e) => { focused = e.currentTarget.contains(e.relatedTarget as Node); pause(); }}
         onclick={() => notify.dismiss()}
       >
         {#if shown.kind === "ok"}<span class="ic"><Icon name="check" /></span>
@@ -58,13 +64,14 @@
           <!-- 附的那条退路（「撤销」）：先关胶囊再做，点它不算「点掉」 -->
           <button class="act" onclick={(e) => (e.stopPropagation(), notify.dismiss(), act.run())}>{act.label}</button>
         {/if}
+        <button class="ibtn xs close" aria-label="关闭通知" title="关闭通知" onclick={(e) => { e.stopPropagation(); notify.dismiss(); }}><Icon name="x" /></button>
       </div>
     {/key}
   {/if}
 </div>
 
 <style>
-  /* 编辑岛（`.editor-island`，position: relative）的底边居中。卡片（30）之上、对话框的压暗层（35）之上：没做成的那句要看得见 */
+  /* 编辑岛（`.editor-island`，position: relative）的底边居中。卡片（30）之上、模态层（40）之下：先回答对话框，再操作通知 */
   .host {
     position: absolute;
     left: 0;
@@ -102,14 +109,11 @@
   @media (prefers-reduced-motion: reduce) {
     .toast, .toast.leaving { animation: none; }
   }
-  /* 最多三行：再长的是说明，该走卡片（notify.block） */
+  /* 长消息有界滚动，全文可读；多步骤决策仍走卡片。 */
   .tx {
     min-width: 0;
     overflow-wrap: anywhere;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+    max-height: 7em;
+    overflow: auto;
   }
 </style>

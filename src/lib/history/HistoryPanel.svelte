@@ -176,7 +176,7 @@
       {:else if text !== null && diff === null}
         <div class="empty-msg">两个版本差异过大（数万行被整体重写），无法在此比较<div class="sub">恢复照样能做：恢复之后 ⌘Z 撤得回</div></div>
       {:else if diff}
-        <DiffView raw={diff} path={rel} staged={false} commit="本地历史" onToggleStaged={() => {}} />
+        <DiffView raw={diff} path={rel} staged={false} commit="本地历史" leftTitle="所选历史版本" rightTitle="当前内容（含未保存更改）" onToggleStaged={() => {}} />
       {/if}
     </div>
   </div>

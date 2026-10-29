@@ -1,0 +1,37 @@
+{
+  "passed": 8,
+  "checks": [
+    {
+      "pass": true,
+      "message": "凭据窗口可输入，父窗口不抢焦点（false）"
+    },
+    {
+      "pass": true,
+      "message": "嵌套窗口 Tab 留在最上层（false）"
+    },
+    {
+      "pass": true,
+      "message": "上层关闭后焦点与模态返回底层"
+    },
+    {
+      "pass": true,
+      "message": "全部关闭后恢复背景（false）"
+    },
+    {
+      "pass": true,
+      "message": "凭据窗口可输入，父窗口不抢焦点（true）"
+    },
+    {
+      "pass": true,
+      "message": "嵌套窗口 Tab 留在最上层（true）"
+    },
+    {
+      "pass": true,
+      "message": "底层先关闭时上层继续可用"
+    },
+    {
+      "pass": true,
+      "message": "全部关闭后恢复背景（true）"
+    }
+  ]
+}

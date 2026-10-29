@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HideSidebar from "../shell/HideSidebar.svelte";
   /**
    * AI 助手（docs/TAKEOVER.md MVP-6），侧边栏里的一个视图。设计稿在 docs/TAKEOVER.md 那一节链着的画布上（主界面、第一次、审阅三张）。
    *
@@ -116,7 +117,10 @@
 
 <div class="agent">
   {#if !agent.kind}
-    <div class="head"><span class="title">AI 助手</span></div>
+    <div class="head">
+      <span class="title">AI 助手</span>
+      <HideSidebar />
+    </div>
     <div class="first">
       <div class="h">选一个 Agent</div>
       <p class="dim">它在这个项目里读代码、改文件、跑命令。先不先问你，跟着 agent 自己的模式走（输入框下面那个按钮，点一下换；Claude Code 的「Manual」每次都问）。用的是你自己的账号和额度。</p>
@@ -132,6 +136,7 @@
     <div class="head">
       <button class="btn sm quiet" onclick={() => (agent.reviewing = false)}>‹ 对话</button>
       <span class="ttl">改了 {agent.edits.length} 个文件</span>
+      <HideSidebar />
     </div>
     <p class="dim pad">已经写进编辑器、还没存盘。留下的存盘；退回的换回改之前那份（⌘Z 撤得回）。它新建的文件退回就进废纸篓。</p>
     <div class="edits">
@@ -174,6 +179,7 @@
         <button class="btn sm" onclick={() => (agent.reviewing = true)} title="agent 写过、还没留下 / 退回的文件">审阅 {agent.pendingEdits.length}</button>
       {/if}
       <button class="ibtn sm" title="新对话（停掉现在这个会话）" aria-label="新对话" disabled={agent.running} onclick={() => agent.reset()}><Icon name="plus" /></button>
+      <HideSidebar />
     </div>
     <div class="items" bind:this={list} onscroll={onScroll}>
       {#each items as it, i (i)}

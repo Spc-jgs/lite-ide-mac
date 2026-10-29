@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HideSidebar from "../shell/HideSidebar.svelte";
   /**
    * 结构工具窗（⌘7，docs/TAKEOVER.md G17，IDEA 的 Structure）：当前文件的类、方法、字段一棵缩进的列表，常驻在侧边栏。
    * 和 ⌘F12（浮层，用完就走）是同一份数据：Lezer 的语法树（`file-symbols.ts`），**不等 jdtls** —— 所有有语法树的语言都有，打开文件当场就有。
@@ -76,6 +77,7 @@
   <div class="head">
     <span class="title">结构</span>
     {#if name}<span class="file">{name}</span>{/if}
+    <HideSidebar />
   </div>
   <div class="body" bind:this={list} aria-label="结构">
     {#if !path}

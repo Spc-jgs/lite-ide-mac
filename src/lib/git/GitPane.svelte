@@ -1,10 +1,13 @@
 <script lang="ts">
+  import HideSidebar from "../shell/HideSidebar.svelte";
   import Icon from "../shell/Icon.svelte";
   import { imeKey } from "../shell/ime";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
   import type { GitEntry, GitStatus } from "../ipc/commands";
   import { groupByDir } from "./group";
   import { settings } from "../state/settings.svelte";
+  import { fileGitMenu, openWorkingFile } from "./file-menu";
+  import { copyText } from "../shell/pathactions";
 
   let {
     status,
@@ -193,6 +196,29 @@
    * 推之前照常走推送确认条（列出要推的提交），所以这里不是「不看一眼就推」。
    */
   let cmenu = $state<{ x: number; y: number } | null>(null);
+  let fileMenu = $state<{ x: number; y: number; path: string } | null>(null);
+  const fileItems = $derived.by((): MenuItem[] => {
+    const path = fileMenu?.path, root = status?.root;
+    if (!path || !root) return [];
+    const e = status?.entries.find(e => e.path === path);
+    return [
+      { label: "打开工作区文件", disabled: e?.work === "D" || (e?.index === "D" && !e.unstaged), run: () => openWorkingFile(`${root}/${path}`) },
+      ...fileGitMenu(`${root}/${path}`),
+      { label: "复制相对路径", sep: true, run: () => void copyText(path, "相对路径") },
+    ];
+  });
+  $effect(() => { status?.root; fileMenu = null; });
+  function openFileMenu(e: MouseEvent, path: string) {
+    e.preventDefault();
+    fileMenu = { x: e.clientX, y: e.clientY, path };
+  }
+  function fileKey(e: KeyboardEvent, path: string) {
+    if (imeKey(e)) return;
+    if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = e.currentTarget instanceof HTMLElement ? e.currentTarget.getBoundingClientRect() : null;
+    if (r) fileMenu = { x: r.left + 24, y: r.bottom, path };
+  }
   const cmenuItems: MenuItem[] = [{ label: "提交并推送…", run: () => doCommit(true) }];
   function openCommitMenu(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -206,7 +232,7 @@
 -->
 {#snippet fileRow(e: GitEntry, side: "index" | "work")}
   <div class="frow-wrap" class:in-group={grouped}>
-    <button class="frow" onclick={() => onOpenDiff(e, side === "index")} title={e.path}>
+    <button class="frow" onclick={() => onOpenDiff(e, side === "index")} oncontextmenu={(ev) => openFileMenu(ev, e.path)} onkeydown={(ev) => fileKey(ev, e.path)} title={e.path}>
       <span class="m {mark(e, side).cls}">{mark(e, side).ch}</span>
       <span class="fname" class:gone={(side === "index" ? e.index : e.work) === "D"}>{baseName(e.path)}</span>
       {#if !grouped}<span class="fdir">{dirName(e.path)}</span>{/if}
@@ -274,6 +300,7 @@
       <button class="ibtn" onclick={openMenu} title="更多操作" aria-label="更多操作">
         <Icon name="more-v" />
       </button>
+      <HideSidebar />
     </div>
 
     {#if status.op}
@@ -377,7 +404,7 @@
         </div>
         {#each conflicts as e (e.path)}
           <div class="frow-wrap">
-            <button class="frow" onclick={() => onOpenDiff(e, false)} title="{e.path}（点击以解决冲突）">
+            <button class="frow" onclick={() => onOpenDiff(e, false)} oncontextmenu={(ev) => openFileMenu(ev, e.path)} onkeydown={(ev) => fileKey(ev, e.path)} title="{e.path}（点击以解决冲突）">
               <span class="m conflict">!</span>
               <span class="fname">{baseName(e.path)}</span>
               <span class="fdir">{dirName(e.path)}</span>
@@ -432,6 +459,9 @@
 {/if}
 {#if cmenu}
   <ContextMenu x={cmenu.x} y={cmenu.y} label="提交方式" items={cmenuItems} onclose={() => (cmenu = null)} />
+{/if}
+{#if fileMenu}
+  <ContextMenu x={fileMenu.x} y={fileMenu.y} label="文件的 Git 操作" title={fileMenu.path} items={fileItems} onclose={() => fileMenu = null} />
 {/if}
 
 <style>

@@ -1,10 +1,16 @@
 <script lang="ts">
+  import { imeKey } from "../shell/ime";
+  import { tick, untrack } from "svelte";
+  import { git } from "../state/git.svelte";
+  import Splitter from "../shell/Splitter.svelte";
+  import { layout as workbench } from "../state/layout.svelte";
   import { layout, laneColor, rowWidth } from "./graph";
   import type { GitEntry, GitLogEntry } from "../ipc/commands";
   import { gitLogEntries, gitCommitFiles } from "../ipc/git";
   import ContextMenu, { type MenuItem } from "../shell/ContextMenu.svelte";
   import { copyText } from "../shell/pathactions";
   import { logFilter } from "./log-filter.svelte";
+  import { openWorkingFile } from "./file-menu";
   import Icon from "../shell/Icon.svelte";
 
   let {
@@ -24,6 +30,16 @@
     /** 右键「cherry-pick」（issue #39）：搬到当前分支。冲突那一路由上层接 */
     onCherryPick?: (sha: string, short: string) => void;
   } = $props();
+
+  let width = $state(0), height = $state(0), detailShown = $state(false);
+  const detailWidth = $derived(Math.max(180, Math.min(workbench.paneSizes.gitDetail ?? 320, width - 260)));
+  const messageHeight = $derived(Math.max(40, Math.min(workbench.paneSizes.gitMessage ?? 96, height - 110)));
+  let backButton = $state<HTMLButtonElement>();
+  async function openDetail(c: GitLogEntry | null) {
+    picked = c;
+    detailShown = width < 600;
+    if (width < 600) { await tick(); backButton?.focus({ preventScroll: true }); }
+  }
 
   /** 当前编辑的文件相对仓库根的路径；不在仓库里就是空 */
   let curRel = $derived(filePath.startsWith(`${repo}/`) ? filePath.slice(repo.length + 1) : "");
@@ -89,6 +105,8 @@
     return [
       { label: "查看此提交的更改", run: () => onOpenCommitDiff(c.sha, c.short, f.path) },
       { label: "和本地比较", run: () => onOpenCommitDiff(c.sha, c.short, f.path, true) },
+      { label: "打开工作区文件", sep: true, disabled: f.index === "D", run: () => openWorkingFile(`${repo}/${f.path}`) },
+      { label: "复制相对路径", run: () => void copyText(f.path, "相对路径") },
     ];
   });
 
@@ -103,8 +121,21 @@
   let picked = $state<GitLogEntry | null>(null);
   let files = $state<GitEntry[]>([]);
   let filesLoading = $state(false);
+  let filesError = $state("");
+  let retryFiles = $state(0);
   /** 关键字过滤，在已拉到的这批里筛，不再往 git 跑一趟 */
   let q = $state("");
+  let lastQuery = "";
+  let reload = $state(0);
+  let rowsEl = $state<HTMLDivElement>();
+  async function latest() {
+    q = "";
+    detailShown = false;
+    picked = commits[0] ?? null;
+    await tick();
+    if (rowsEl) rowsEl.scrollTop = 0;
+    rowEls[0]?.focus({ preventScroll: true });
+  }
 
   const ROW_H = 22;
   const LANE_W = 13;
@@ -116,45 +147,43 @@
     pinned ? pinned.rel : onlyFile && filePath.startsWith(`${repo}/`) ? filePath.slice(repo.length + 1) : "",
   );
 
-  // 条件变了就重拉。repo / all / onlyFile 任一变化都要重来
+  // 条件和选择变化后，旧请求的成功、失败、finally 都不能覆盖新对象。
   $effect(() => {
-    const r = repo;
-    const a = all;
-    const p = rel;
-    const ln = pinned?.lines ?? null;
-    void (async () => {
-      loading = true;
-      err = "";
-      try {
-        commits = await gitLogEntries(r, LIMIT, a, p, ln);
-        picked = commits[0] ?? null;
-      } catch (e) {
-        err = String(e);
-        commits = [];
-      } finally {
-        loading = false;
-      }
-    })();
+    const r = repo, a = all, p = rel, ln = pinned?.lines ?? null;
+    git.historyRevision;
+    reload;
+    const query = JSON.stringify([r, a, p, ln]);
+    const same = lastQuery === query;
+    lastQuery = query;
+    let dead = false;
+    loading = true;
+    err = "";
+    if (!same) { commits = []; picked = null; }
+    void gitLogEntries(r, LIMIT, a, p, ln).then((rows) => {
+      if (dead) return;
+      const previous = same ? untrack(() => picked) : null;
+      commits = rows;
+      const next = rows.find((c) => c.sha === previous?.sha) ?? rows[0] ?? null;
+      picked = next?.sha === previous?.sha ? previous : next;
+    }).catch((e) => { if (!dead) err = String(e); })
+      .finally(() => { if (!dead) loading = false; });
+    return () => { dead = true; };
   });
 
-  // 选中的提交换了就拉它动过哪些文件
   $effect(() => {
-    const c = picked;
-    const r = repo;
-    if (!c) {
-      files = [];
-      return;
-    }
-    void (async () => {
-      filesLoading = true;
-      try {
-        files = await gitCommitFiles(r, c.sha);
-      } catch {
-        files = [];
-      } finally {
-        filesLoading = false;
-      }
-    })();
+    const c = picked, r = repo;
+    retryFiles;
+    let dead = false;
+    files = [];
+    filesError = "";
+    fmenu = null;
+    filesLoading = !!c;
+    if (!c) return;
+    void gitCommitFiles(r, c.sha).then((rows) => {
+      if (!dead) files = rows;
+    }).catch((e) => { if (!dead) filesError = String(e); })
+      .finally(() => { if (!dead) filesLoading = false; });
+    return () => { dead = true; };
   });
 
   let shown = $derived.by(() => {
@@ -164,7 +193,7 @@
       (c) =>
         c.subject.toLowerCase().includes(k) ||
         c.author.toLowerCase().includes(k) ||
-        c.short.includes(k),
+        c.sha.toLowerCase().includes(k) || c.short.toLowerCase().includes(k),
     );
   });
 
@@ -200,6 +229,7 @@
   let rowEls = $state<HTMLButtonElement[]>([]);
 
   function onRowKey(e: KeyboardEvent, i: number) {
+    if (imeKey(e)) return;
     // 键盘也能开菜单（⇧F10 / ContextMenu），同文件树、标签栏
     if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
       e.preventDefault();
@@ -208,6 +238,7 @@
       cmenu = { x: r.left + 24, y: r.bottom + 2, c: shown[i] };
       return;
     }
+    if (e.key === "Enter") { e.preventDefault(); void openDetail(shown[i]); return; }
     let to = -1;
     if (e.key === "ArrowDown") to = i + 1;
     else if (e.key === "ArrowUp") to = i - 1;
@@ -222,6 +253,7 @@
 
   /** 在过滤框里按 ↓ 直接跳进列表，不用先摸一下鼠标 */
   function onQueryKey(e: KeyboardEvent) {
+    if (imeKey(e)) return;
     if (e.key !== "ArrowDown" || shown.length === 0) return;
     e.preventDefault();
     picked = shown[0];
@@ -229,7 +261,8 @@
   }
 </script>
 
-<div class="log">
+<div class="log-host" bind:clientWidth={width} bind:clientHeight={height}>
+<div class="log" class:detail-shown={detailShown} style:--detail-width={`${detailWidth}px`} style:--message-height={`${messageHeight}px`}>
   <div class="left">
     <div class="tools">
       <input
@@ -255,16 +288,17 @@
           <input type="checkbox" bind:checked={onlyFile} disabled={!filePath} /> <span>只看当前文件</span>
         </label>
       {/if}
+      <button class="btn quiet sm narrow-only" disabled={!picked} onclick={() => void openDetail(picked)}>详情</button>
       <span class="gap"></span>
-      <span class="cnt">
-        {#if loading}<span class="spinner sm"></span>{:else}{shown.length}{q.trim() ? ` / ${commits.length}` : ""} 条{/if}
+      <button class="ibtn sm" disabled={!commits.length} onclick={() => void latest()} title="跳到最新提交" aria-label="跳到最新提交"><Icon name="chevron-up" /></button>
+      <span class="cnt" title={commits.length === LIMIT ? "仅加载最近 300 条提交；可按文件或当前分支缩小范围" : undefined}>
+        {#if loading}<span class="spinner sm"></span>{:else}{!q.trim() && commits.length === LIMIT ? "最近 " : ""}{shown.length}{q.trim() ? ` / ${commits.length}` : ""} 条{/if}
       </span>
     </div>
 
-    <div class="rows">
-      {#if err}
-        <div class="msg err">{err}</div>
-      {:else if !loading && commits.length === 0}
+    {#if err}<div class="load-error" role="alert">无法更新提交历史：{err}<button class="btn sm" onclick={() => reload++}>重试</button></div>{/if}
+    <div class="rows" bind:this={rowsEl}>
+      {#if !err && !loading && commits.length === 0}
         <div class="msg">尚无提交</div>
       {:else}
         {#each shown as c, i (c.sha)}
@@ -273,7 +307,7 @@
             bind:this={rowEls[i]}
             class="crow"
             class:on={picked?.sha === c.sha}
-            onclick={() => (picked = c)}
+            onclick={() => void openDetail(c)}
             oncontextmenu={(e) => openCmenu(e, c)}
             onkeydown={(e) => onRowKey(e, i)}
             title={c.subject}
@@ -328,12 +362,16 @@
     </div>
   </div>
 
+  <div class="column-sizer">
+    <Splitter label="调整提交详情宽度" value={detailWidth} min={180} max={Math.max(180, width - 260)} defaultValue={320} reverse onchange={(v) => workbench.paneSizes.gitDetail = v} />
+  </div>
   <div class="right">
     {#if picked}
       <div class="dtools">
+        <button class="btn quiet sm narrow-only" bind:this={backButton} onclick={() => { detailShown = false; void tick().then(() => rowEls[shown.findIndex((c) => c.sha === picked?.sha)]?.focus({ preventScroll: true })); }}>返回列表</button>
         <span class="sha">{picked.short}</span>
         <span class="gap"></span>
-        {#if !filesLoading}<span>{files.length} 个文件</span>{/if}
+        {#if !filesLoading && !filesError}<span>{files.length} 个文件</span>{/if}
       </div>
       <div class="detail">
         <div class="dsubject">{picked.subject}</div>
@@ -346,11 +384,15 @@
           <div class="dmeta"><span class="tagx">合并提交 · {picked.parents.length} 个父</span></div>
         {/if}
       </div>
+      <Splitter label="调整提交说明高度" value={messageHeight} min={40} max={Math.max(40, height - 110)} defaultValue={96} horizontal onchange={(v) => workbench.paneSizes.gitMessage = v} />
       <div class="dfiles">
         {#if filesLoading}
           <div class="msg"><span class="spinner sm"></span></div>
+        {:else if filesError}
+          <div class="msg err" role="alert">无法读取提交文件：{filesError}</div>
+          <button class="btn sm retry" onclick={() => retryFiles++}>重试</button>
         {:else if files.length === 0}
-          <div class="msg">这次提交没有文件变化</div>
+          <div class="msg">此提交没有文件更改</div>
         {:else}
           {#each files as f (f.path)}
             <button
@@ -382,6 +424,8 @@
   </div>
 </div>
 
+</div>
+
 {#if cmenu}
   <ContextMenu x={cmenu.x} y={cmenu.y} label="{cmenu.c.short} 的操作" items={cmenuItems} onclose={() => (cmenu = null)} />
 {/if}
@@ -390,23 +434,36 @@
 {/if}
 
 <style>
+  .log-host { height: 100%; min-height: 0; container-type: inline-size; }
   .log {
     display: grid;
-    /* 左边列表吃掉主要宽度，右边详情固定一块 —— 与 IDEA 的日志窗同构 */
-    grid-template-columns: 1fr 320px;
+    grid-template-columns: minmax(0, 1fr) 6px var(--detail-width);
     height: 100%;
     overflow: hidden;
     background: var(--editor-bg);
   }
-  .left { display: flex; flex-direction: column; overflow: hidden; }
+  .left { min-width: 0; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; }
+  .column-sizer { display: flex; min-height: 0; }
+  .narrow-only { display: none; }
+  .load-error { flex: none; padding: 6px 10px; color: var(--lvl-error); font-size: var(--fs-sm); display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }
+  .retry { margin: 0 12px; }
+  @container (max-width: 600px) {
+    .log { grid-template-columns: minmax(0, 1fr); }
+    .log .column-sizer { display: none; }
+    .log:not(.detail-shown) > .right, .log.detail-shown > .left { display: none; }
+    .narrow-only { display: inline-flex; }
+  }
+  @container (max-width: 520px) { .crow .who { display: none; } }
+  @container (max-width: 350px) { .crow .when { display: none; } }
   /*
    * 详情栏（M8）：不再压一层 --hover 的白 —— 岛里再抬一块浅色板，看着像另一个面板。
    * 和左边靠一条 5% 的线分开就够；第一行是和左边过滤条等高的头（sha · N 个文件），
    * 两栏的第一行在同一条水平线上。
    */
   .right {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    min-width: 0;
+    grid-template-rows: 34px var(--message-height) 6px minmax(0, 1fr);
     overflow: hidden;
     border-left: 1px solid var(--border-soft);
   }
@@ -522,11 +579,12 @@
   .ref.remote { color: var(--git-untracked); }
 
   .detail {
-    flex: none;
+    min-height: 0;
+    overflow: auto;
     padding: 10px;
     border-bottom: 1px solid var(--border-soft);
   }
-  .dsubject { color: var(--text); font-size: var(--fs-md); line-height: 1.45; margin-bottom: 7px; }
+  .dsubject { overflow-wrap: anywhere; color: var(--text); font-size: var(--fs-md); line-height: 1.45; margin-bottom: 7px; }
   .dmeta {
     display: flex;
     flex-wrap: wrap;
@@ -544,7 +602,7 @@
     opacity: 0.85;
   }
 
-  .dfiles { flex: 1; overflow: auto; }
+  .dfiles { min-height: 0; overflow: auto; }
   .drow {
     display: flex;
     align-items: center;

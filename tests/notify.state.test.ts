@@ -42,10 +42,13 @@ await sleep(100);
 ok(notify.toast === null, "到点自己走");
 notify.ok("y", 80);
 notify.hold();
+notify.hold(); // 鼠标悬停后键盘进入同一通知：重复暂停不能丢掉剩余时长
 await sleep(150);
 ok(notify.toast?.text === "y", "鼠标停在上面：过了时间也不走（人在读）");
 notify.release();
 ok(notify.toast?.text === "y", "离开那一刻还在");
+await sleep(20);
+ok(notify.toast?.text === "y", "重复暂停后离开不会把通知立即清掉");
 await sleep(1100);
 ok(notify.toast === null, "离开之后至少再给 1 秒，然后走");
 

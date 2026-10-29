@@ -39,6 +39,10 @@ const r = () => runs.list.find((t) => t.name === "构建项目");
 // ── 干净的项目：成功、没有错误、说「构建完成」 ──
 {
   await ops.buildProject(false);
+  const id = r()?.id;
+  await ops.buildProject(false);
+  await ops.buildProject(true);
+  ok(r()?.id === id && !runs.list.some((t) => t.name === "重新构建项目"), "构建中重复构建或重新构建：不停止重起，也不并行 clean");
   ok(r()?.command === "mvn -B -ntp test-compile", `命令是 test-compile（连测试一起编）：${r()?.command}`);
   ok(await until(() => r()?.status === "done" && !!r()?.problems), `跑完、读了结果：${r()?.status}`);
   ok(r()?.problems?.items.length === 0, "没有错误");

@@ -44,6 +44,8 @@
     "run",
     "stop",
     "rerun",
+    // 项目构建：IDEA 原版 New UI 锤子，来源见 SOURCES.md
+    "build",
     // Maven 工具窗（docs/IDEA.md 第 1 步）
     "maven",
     // Maven 工具窗照 IDEA 重做（2026-10-15）：节点和工具栏的图标，SOURCES.md 里逐个记了来源
@@ -97,7 +99,7 @@
    * 之前是自己手画的 32 个：规矩是齐的（16 网格、1.25 描边、round 端点），但形状是我们画的，
    * 和 IDEA 并排一看就知道不是一家。现在整套取自 intellij-community 的 `platform/icons/src/expui/`
    * （Apache 2.0，许可和逐个来源见 `public/icons/`），深色主题版，文件原样不改。
-   * **例外**：`tag` 是自绘的 —— IDEA 新 UI 没有 git 标签的独立图标，见 `SOURCES.md`。
+   * 自绘补充是 `tag`、`ai`；来源与设计约束见 `SOURCES.md`。既有上游资产保持原样。
    *
    * # 为什么是 `public/` 里的文件，不是内联 SVG
    *
@@ -161,7 +163,8 @@
       [data-n="library"],
       [data-n="error"],
       [data-n="debug"],
-      [data-n="resume"]
+      [data-n="resume"],
+      [data-n="database"]
     ) {
     background: var(--src) center / contain no-repeat;
     -webkit-mask: none;

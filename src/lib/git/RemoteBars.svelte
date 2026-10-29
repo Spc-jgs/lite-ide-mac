@@ -60,7 +60,7 @@
 
 {#if part === "ask" && diverge}
   <!-- 不设默认按钮（上面「三条各是什么」）：合并和变基后果不一样，回车不该替人选 —— 焦点给「取消」 -->
-  <div class="dialog" role="alertdialog" aria-label="本地与远程分支已分叉" use:takeFocus>
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-label="本地与远程分支已分叉" use:takeFocus>
     <p class="title">本地分支与 {diverge.upstream} 已分叉</p>
     <p class="body">无法快进，请选择更新方式：合并将生成一个合并提交；变基将本地提交移到远程提交之后，保持线性历史。</p>
     <div class="actions">
@@ -75,7 +75,7 @@
     </div>
   </div>
 {:else if part === "ask" && push}
-  <div class="dialog" role="alertdialog" aria-label="推送" use:takeFocus>
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-label="推送" use:takeFocus>
     {#if push.setUpstream}
       <p class="title">推送并在远程新建 origin/{push.branch}？</p>
       <p class="body">该分支尚未设置上游。推送将在远程创建同名分支，并将本地分支设为跟踪它。</p>

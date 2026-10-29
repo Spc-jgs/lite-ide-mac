@@ -359,6 +359,7 @@ export const KEYS: KeyDef[] = [
   { id: "tw-bookmarks", label: "书签", accel: "⌘F3", group: "视图", owner: "menu" },
   // IDEA 的 Coverage 工具窗（docs/TAKEOVER.md G15）：IDEA 也没有默认键
   { id: "tw-coverage", label: "覆盖率", group: "视图", owner: "menu" },
+  { id: "reset-layout", label: "恢复默认布局", group: "视图", owner: "menu" },
   { id: "toggle-minimap", label: "代码缩略图", group: "视图", owner: "menu" },
   /*
    * 按标签切软换行。默认由扩展名定（md / txt / log 换，代码不换，

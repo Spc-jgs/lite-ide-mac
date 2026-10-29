@@ -153,6 +153,7 @@ export async function appCmd(cmd: string, a: A): Promise<unknown> {
       return v && v.trim() ? v.trim() : null;
     }
     // 菜单在浏览器里不存在，这两条是空操作 —— 但要显式写出来
+    // canBuild 与原生菜单使用同一份运行配置探测结果；浏览器没有 AppKit 菜单。
     case "sync_menu_state":
       return null;
     // ── 拉取与推送 ──

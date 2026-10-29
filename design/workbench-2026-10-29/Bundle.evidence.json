@@ -1,0 +1,15 @@
+{
+  "executable": {
+    "path": "src-tauri/target/release/bundle/macos/lite-ide.app/Contents/MacOS/lite-ide",
+    "bytes": 12158112,
+    "sha256": "af3bf355f409fd66dc4cafbd82b8c132fa806be7ccaf05caa0a990fe99d6a87d",
+    "mtime": "2026-10-29T13:30:30"
+  },
+  "dmg": {
+    "path": "src-tauri/target/release/bundle/dmg/lite-ide_1.5.0_aarch64.dmg",
+    "bytes": 102411192,
+    "sha256": "9bada96ce20fede8ceee4c401bc062827c197206a1a6f88c3835ae22d9fc4b87",
+    "mtime": "2026-10-29T13:31:02"
+  },
+  "frontendEntryBytes": 162045
+}

@@ -20,6 +20,11 @@
    */
   import { untrack } from "svelte";
   import { logFocus } from "./log-focus.svelte";
+  let splitWidth = $state(0);
+  const splitMax = $derived(Math.max(140, splitWidth - 160));
+  const treeWidth = $derived(Math.max(140, Math.min(layout.paneSizes.servicesTree ?? 300, splitMax)));
+  import Splitter from "../shell/Splitter.svelte";
+  import { layout } from "../state/layout.svelte";
   import Icon from "../shell/Icon.svelte";
   import { imeKey } from "../shell/ime";
   import RunView from "./RunView.svelte";
@@ -278,7 +283,7 @@
   }
 </script>
 
-<div class="svc">
+<div class="svc" bind:clientWidth={splitWidth} style:--tree-width={`${treeWidth}px`}>
   <div class="left">
     <div class="bar">
       <button class="ibtn" disabled={!canStart} onclick={() => start(targets)} title={selSvc ? (alive(selRun) ? `重新运行「${short(selSvc)}」` : `启动「${short(selSvc)}」`) : "启动此组中未运行的服务"} aria-label="启动">
@@ -364,6 +369,7 @@
       {/if}
     </div>
   </div>
+  <Splitter label="调整服务列表宽度" value={treeWidth} min={140} max={splitMax} defaultValue={300} onchange={(v) => layout.paneSizes.servicesTree = v} />
   <div class="right">
     {#if selRun}
       {@const run = selRun}
@@ -398,8 +404,8 @@
 
 <style>
   .svc { display: flex; height: 100%; min-height: 0; }
-  /* 左边树、右边输出，同 IDEA 的 Services。树那一栏定宽：输出才是要看的，树只要放得下类名和端口 */
-  .left { flex: none; width: 300px; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-soft); }
+  /* 左边服务树可调宽，右边输出至少留 160px；窗口收窄不覆盖使用者保存的宽度 */
+  .left { flex: none; width: var(--tree-width); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-soft); }
   .right { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
   .right > :global(*:last-child) { flex: 1; min-height: 0; }
   /* 岛内的工具栏：34 高（ui.md 一之二） */

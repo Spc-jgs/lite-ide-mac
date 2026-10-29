@@ -43,8 +43,12 @@ class Git {
   stashes = $state<GitStash[]>([]);
   /** 正在刷新状态（`writing` 是另一件事：正在写） */
   busy = $state(false);
+  /** 提交或引用变化才使历史失效；普通工作区保存不重读整份历史。 */
+  historyRevision = $state(0);
   /** 最近一次 `refresh()` 的序号，普通字段：没人要显示它 */
   private refreshSeq = 0;
+  /** 显式刷新不能被紧接着的普通状态刷新吞掉。 */
+  private historyRequested = false;
   /** 待确认丢弃的条目 —— 丢弃不可撤销，必须过用户这一关 */
   pendingDiscard = $state<GitEntry[] | null>(null);
   /** 待确认撤销的那一块的 patch（issue #38）—— 和丢弃同一档：动的是盘上的文件，不可撤销 */
@@ -89,7 +93,7 @@ class Git {
       return;
     }
     await this.recheckTrust();
-    await this.refresh();
+    await this.refresh(true);
   }
 
   /**
@@ -199,13 +203,14 @@ class Git {
    * 每次都要起一个 git 子进程（约 5–15ms），常年轮询是白烧电。
    * 用户在终端里 commit 完切回来，焦点事件正好把状态带新。
    */
-  async refresh() {
+  async refresh(history = false) {
     const r = this.repo;
     if (!r) return;
     // git 的查询在阻塞池上跑（issue #12），两次刷新可以并发、**返回顺序不保证**：
     // 保存 → watch 触发一次，随即用户点了刷新又一次，先发的那份可能后到。
     // 后到的旧状态盖掉新状态，界面就会倒退一步（暂存过的文件又回到「改动」里）。
     // 每次刷新领个序号，回来时不是最新的一次就整份丢掉。
+    this.historyRequested ||= history;
     const seq = ++this.refreshSeq;
     this.busy = true;
     try {
@@ -214,8 +219,11 @@ class Git {
       // await 回来时仓库可能已经换了或关了（关闭项目 / 切项目正好撞上一次刷新）——
       // 那份状态是别人的，写进去标题栏就会挂着一个已经不存在的分支
       if (this.repo !== r || seq !== this.refreshSeq) return;
+      const old = this.status;
       this.status = st;
       this.stashes = stashes;
+      if (this.historyRequested || old?.head !== st.head || old?.branch !== st.branch || old?.ahead !== st.ahead || old?.behind !== st.behind) this.historyRevision++;
+      this.historyRequested = false;
       // 打开着的工作区差异跟着更新，否则暂存完还停在旧内容上。
       // 历史提交的差异是不变的，重拉纯属浪费一次子进程
       await Promise.all(

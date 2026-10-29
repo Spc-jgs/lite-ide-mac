@@ -145,7 +145,7 @@ class Notify {
 
   /** 鼠标停在胶囊上：先别走（人在读）。离开之后再给剩下的时间、至少 1 秒 */
   hold() {
-    if (!this.toast) return;
+    if (!this.toast || this.#until === Number.MAX_SAFE_INTEGER) return;
     clearTimeout(this.#timer);
     this.#left = Math.max(0, this.#until - Date.now());
     this.#until = Number.MAX_SAFE_INTEGER;

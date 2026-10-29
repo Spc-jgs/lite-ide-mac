@@ -8,7 +8,7 @@
    *
    * 下拉框不用 `<select>`：Svelte 运行时里处理它的那段会落进入口包（frontend.md，调试面板那次）。JDK 这种几个选项的，摆成一列单选
    */
-  import { untrack } from "svelte";
+  import { untrack, tick } from "svelte";
   import Icon from "../shell/Icon.svelte";
   import type { SettingDef, SettingsPage } from "../ipc/commands";
   import { settingsApply, settingsPage } from "../ipc/settings";
@@ -28,6 +28,7 @@
   let loadError = $state("");
   let edits = $state<Edits>({});
   /** 输入框里填错的（整数不是整数、越界）：键 → 说明。有它就不让应用 */
+  let intTexts = $state<Record<string, string>>({});
   let errs = $state<Record<string, string>>({});
   /** 「此项目」那一栏改了还没应用的；null = 没动 */
   let proj = $state<{ jdk: string; offline: boolean; skipTests: boolean } | null>(null);
@@ -77,6 +78,7 @@
   }
 
   function setInt(d: SettingDef, text: string) {
+    intTexts = { ...intTexts, [d.key]: text };
     const r = parseIntField(d, text);
     const next = { ...errs };
     if ("error" in r) next[d.key] = r.error;
@@ -88,6 +90,7 @@
   }
 
   function reset(key: string) {
+    delete intTexts[key];
     const next = { ...errs };
     delete next[key];
     errs = next;
@@ -108,9 +111,17 @@
   }
 
   async function apply(thenClose: boolean) {
-    if (!page) return;
-    if (Object.keys(errs).length) {
-      error = "存在无效的设置项，请修正后再应用";
+    if (!page || busy) return;
+    const invalid = Object.keys(errs)[0];
+    if (invalid) {
+      const d = page.defs.find((d) => d.key === invalid);
+      error = `${d?.label ?? invalid}：${errs[invalid]}`;
+      cat = catOf(invalid);
+      q = "";
+      await tick();
+      const field = document.getElementById(`setting-${invalid}`);
+      field?.scrollIntoView({ block: "nearest" });
+      field?.focus({ preventScroll: true });
       return;
     }
     if (!dirty) {
@@ -131,6 +142,7 @@
     try {
       if (settingsDirty) page = await settingsApply(root, global, projDirty && projNow && page.project ? { root: page.project.root, ...projNow } : null);
       edits = {};
+      intTexts = {};
       proj = null;
       if (keyDirty) {
         await keymapSet(keyNext);
@@ -154,6 +166,7 @@
   }
 
   async function openFile() {
+    if (busy) return;
     onclose();
     (await import("../shell/menu-actions")).openSettingsFile();
   }
@@ -164,7 +177,7 @@
     if (imeKey(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
-      onclose();
+      if (!busy) onclose();
     } else if (e.key === "Enter" && e.metaKey) {
       e.preventDefault();
       void apply(true);
@@ -189,19 +202,19 @@
     {#if d.kind === "boolean"}
       <label class="check"><input type="checkbox" bind:checked={() => v === true, (c) => set(d.key, c)} disabled={locked} /> {v === true ? "开启" : "关闭"}</label>
     {:else if d.kind === "integer"}
-      <input class="field num" bind:value={() => String(v ?? ""), (t) => setInt(d, t)} disabled={locked} aria-label={d.label} />
+      <input class="field num" id={`setting-${d.key}`} aria-invalid={!!errs[d.key]} aria-describedby={errs[d.key] ? `error-${d.key}` : undefined} bind:value={() => intTexts[d.key] ?? String(v ?? ""), (t) => setInt(d, t)} disabled={locked} aria-label={d.label} />
     {:else}
       <input class="field" bind:value={() => String(v ?? ""), (t) => set(d.key, t)} disabled={locked} spellcheck="false" aria-label={d.label} />
     {/if}
-    {#if errs[d.key]}<p class="ferr">{errs[d.key]}{d.min !== null ? `（${d.min}–${d.max}）` : ""}</p>{/if}
+    {#if errs[d.key]}<p class="ferr" id={`error-${d.key}`}>{errs[d.key]}{d.min !== null ? `（${d.min}–${d.max}）` : ""}</p>{/if}
     <p class="doc">{d.doc}</p>
   </div>
 {/snippet}
 
 <div class="layer" role="presentation">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="dialog settings" role="dialog" aria-label="设置" tabindex="-1" onkeydown={onKey}>
-    <div class="main">
+  <div class="dialog settings" role="dialog" aria-modal="true" aria-busy={busy} aria-label="设置" tabindex="-1" onkeydown={onKey}>
+    <div class="main" inert={busy}>
       <nav class="cats" aria-label="设置的分类">
         <input class="field search" placeholder="搜索设置" spellcheck="false" bind:value={q} use:autofocus aria-label="搜索设置" />
         {#each cats as c (c.id)}
@@ -303,10 +316,10 @@
       </section>
     </div>
     <div class="actions">
-      <button class="btn quiet" onclick={openFile} title={page?.path}>打开 settings.json</button>
+      <button class="btn quiet" disabled={busy} onclick={openFile} title={page?.path}>打开 settings.json</button>
       <span class="gap"></span>
-      {#if error}<span class="err">{error}</span>{:else if applied}<span class="ok">已应用</span>{/if}
-      <button class="btn" data-dismiss onclick={onclose}>取消</button>
+      {#if error}<span class="err" role="alert">{error}</span>{:else if applied}<span class="ok">已应用</span>{/if}
+      <button class="btn" data-dismiss disabled={busy} onclick={onclose}>取消</button>
       <button class="btn" disabled={!dirty || busy} class:busy onclick={() => void apply(false)}>应用</button>
       <button class="btn primary" data-default disabled={busy} onclick={() => void apply(true)}>确定</button>
     </div>

@@ -8,6 +8,8 @@ export interface EditorMenuApi {
   /** 右键那个位置能不能 ⌘B —— 能就是跳到哪 */
   hit: JumpHit | null;
   hasSelection: boolean;
+  /** 右键文件的选区行号（无选区时是光标行），不借用全局活动编辑器 */
+  lines: [number, number];
   cut: () => Promise<void>;
   copy: () => Promise<void>;
   /**

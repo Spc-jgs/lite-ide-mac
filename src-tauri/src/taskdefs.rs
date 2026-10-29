@@ -678,6 +678,11 @@ pub fn is_build(name: &str) -> bool {
     name == BUILD || name == REBUILD
 }
 
+/// 工具栏先问能力，不试跑命令；和 build 使用同一份构建根识别，不探测 JDK 或起子进程。
+pub fn buildable(root: &Path) -> bool {
+    !crate::maven::reactors(root).is_empty() || !crate::gradle::roots(root).is_empty()
+}
+
 fn build(root: &Path, name: &str) -> Option<Def> {
     if !is_build(name) {
         return None;
@@ -715,6 +720,28 @@ pub fn create_file(root: &Path) -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 构建入口的能力_只认项目根与非隐藏的一层构建根() {
+        let cases: &[(&[&str], bool)] = &[
+            (&[], false),
+            (&["pom.xml"], true),
+            (&["backend/pom.xml"], true),
+            (&["build.gradle.kts"], true),
+            (&["backend/settings.gradle"], true),
+            (&[".hidden/pom.xml", ".hidden/build.gradle", "a/b/pom.xml", "a/b/settings.gradle"], false),
+        ];
+        for (i, (files, expected)) in cases.iter().enumerate() {
+            let root = tmp(&format!("buildable-{i}"));
+            for file in *files {
+                let path = root.join(file);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, "").unwrap();
+            }
+            assert_eq!(buildable(&root), *expected, "{files:?}");
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
 
     #[test]
     fn 远程调试的占位命令_主机名里的怪字符拼不进去() {

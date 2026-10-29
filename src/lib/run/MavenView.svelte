@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HideSidebar from "../shell/HideSidebar.svelte";
   /**
    * Maven 工具窗，照 IDEA 的（2026-10-15 重做，结构抄自 intellij-community 的 `MavenProjectsStructure`）：
    *
@@ -378,6 +379,7 @@
     </button>
     <button class="ibtn" onclick={expandAll} title="全部展开" aria-label="全部展开"><Icon name="expand" /></button>
     <button class="ibtn" onclick={() => (open = new Set())} title="全部收起" aria-label="全部收起"><Icon name="collapse" /></button>
+    <HideSidebar />
   </div>
   {#if exec}
     <div class="exec">

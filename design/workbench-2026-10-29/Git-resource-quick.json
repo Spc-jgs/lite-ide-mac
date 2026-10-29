@@ -1,0 +1,753 @@
+{
+  "schema": 3,
+  "context": {
+    "schema": 3,
+    "profile": "quick",
+    "scenario": {
+      "rounds": 4,
+      "warmups": 1,
+      "idle": 15,
+      "settle": 5,
+      "log_mib": 16,
+      "tab_limit": 25,
+      "fixture": "valid-syntax-v1"
+    },
+    "head": "b094ada043c6df4b81acbeef8c799de4a1a69b95",
+    "dirty": true,
+    "source_sha256": "d36850ee09d63f6f55d6b0f231af8edb1b63e752e1fb8090c15318c0bd19b699",
+    "binary_sha256": "c0b0dab893f8f73bd3adfc2540f5ee103c335867d9bb0ae1dd7ecbc465c92066",
+    "os": "27.2",
+    "arch": "arm64",
+    "system_before": {
+      "hw.model": "Mac17,8",
+      "hw.memsize": "51539607552",
+      "hw.ncpu": "18",
+      "kern.memorystatus_vm_pressure_level": "2",
+      "vm.swapusage": "total = 35840.00M  used = 34680.06M  free = 1159.94M  (encrypted)"
+    },
+    "surface": "test-identity-background",
+    "recorded_utc": "2026-10-29T08:43:33.653760+00:00",
+    "fixture_bytes": 16897826,
+    "baseline": null,
+    "system_after": {
+      "hw.model": "Mac17,8",
+      "hw.memsize": "51539607552",
+      "hw.ncpu": "18",
+      "kern.memorystatus_vm_pressure_level": "2",
+      "vm.swapusage": "total = 35840.00M  used = 34909.88M  free = 930.12M  (encrypted)"
+    },
+    "observer_python_cpu_s": 0.305795,
+    "boot_observed_ms": 1119,
+    "boot_classification": "本次构建后的启动观察值，未声称是热启动或 p95",
+    "source_unchanged": true,
+    "fixture_unchanged": true
+  },
+  "checkpoints": [
+    {
+      "phase": "baseline_idle",
+      "duration_s": 15.013466750009684,
+      "known_footprint_bytes": 98430384.0,
+      "known_footprint_peak_bytes": 201575856,
+      "missing_samples": 0,
+      "main_footprint_bytes": 32310496.0,
+      "main_fds": 11.0,
+      "main_threads": 23.0,
+      "cpu_percent_one_core": 1.9619044748596122,
+      "logical_write_bytes": 122880,
+      "disk_write_bytes": 4096,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 197,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 666770,
+          "allocated_bytes": 692224,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "opened-1",
+      "duration_s": 2.020320958006778,
+      "known_footprint_bytes": 414568312,
+      "known_footprint_peak_bytes": 423612280,
+      "missing_samples": 0,
+      "main_footprint_bytes": 30278880,
+      "main_fds": 11,
+      "main_threads": 21,
+      "cpu_percent_one_core": 2.9531879458827968,
+      "logical_write_bytes": 24576,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 1,
+        "nodes": 598,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 691490,
+          "allocated_bytes": 716800,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "closed-1",
+      "duration_s": 2.01413812499959,
+      "known_footprint_bytes": 197742456,
+      "known_footprint_peak_bytes": 199987064,
+      "missing_samples": 0,
+      "main_footprint_bytes": 29754592,
+      "main_fds": 11,
+      "main_threads": 20,
+      "cpu_percent_one_core": 0.09072734274370443,
+      "logical_write_bytes": 0,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 229,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 707970,
+          "allocated_bytes": 733184,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "opened-2",
+      "duration_s": 2.013294791991939,
+      "known_footprint_bytes": 450645904,
+      "known_footprint_peak_bytes": 454348688,
+      "missing_samples": 0,
+      "main_footprint_bytes": 30409952,
+      "main_fds": 11,
+      "main_threads": 21,
+      "cpu_percent_one_core": 2.219500302575606,
+      "logical_write_bytes": 28672,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 1,
+        "nodes": 598,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 724450,
+          "allocated_bytes": 802816,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "closed-2",
+      "duration_s": 2.0177220000041416,
+      "known_footprint_bytes": 227544976,
+      "known_footprint_peak_bytes": 228249488,
+      "missing_samples": 0,
+      "main_footprint_bytes": 29967584,
+      "main_fds": 11,
+      "main_threads": 20,
+      "cpu_percent_one_core": 0.09137363819179331,
+      "logical_write_bytes": 0,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 229,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 740930,
+          "allocated_bytes": 802816,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "opened-3",
+      "duration_s": 2.0185642919968814,
+      "known_footprint_bytes": 471125904,
+      "known_footprint_peak_bytes": 474337168,
+      "missing_samples": 0,
+      "main_footprint_bytes": 30049504,
+      "main_fds": 11,
+      "main_threads": 22,
+      "cpu_percent_one_core": 2.4684459740793323,
+      "logical_write_bytes": 24576,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 1,
+        "nodes": 598,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 757410,
+          "allocated_bytes": 802816,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "closed-3",
+      "duration_s": 2.016883374992176,
+      "known_footprint_bytes": 272961424,
+      "known_footprint_peak_bytes": 273223568,
+      "missing_samples": 0,
+      "main_footprint_bytes": 30065888,
+      "main_fds": 11,
+      "main_threads": 22,
+      "cpu_percent_one_core": 0.0910728415324027,
+      "logical_write_bytes": 0,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 229,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 773890,
+          "allocated_bytes": 802816,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "opened-4",
+      "duration_s": 2.0184586249961285,
+      "known_footprint_bytes": 503091112,
+      "known_footprint_peak_bytes": 503664552,
+      "missing_samples": 0,
+      "main_footprint_bytes": 30016736,
+      "main_fds": 11,
+      "main_threads": 21,
+      "cpu_percent_one_core": 1.7624442512448446,
+      "logical_write_bytes": 45056,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 1,
+        "nodes": 598,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 790370,
+          "allocated_bytes": 868352,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "closed-4",
+      "duration_s": 2.016272791006486,
+      "known_footprint_bytes": 317018024,
+      "known_footprint_peak_bytes": 317444008,
+      "missing_samples": 0,
+      "main_footprint_bytes": 29967584,
+      "main_fds": 11,
+      "main_threads": 22,
+      "cpu_percent_one_core": 0.32330689721532974,
+      "logical_write_bytes": 0,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 229,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 806850,
+          "allocated_bytes": 868352,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "log_open",
+      "duration_s": 3.0168315839982824,
+      "known_footprint_bytes": 374771672.0,
+      "known_footprint_peak_bytes": 438620120,
+      "missing_samples": 0,
+      "main_footprint_bytes": 30532880.0,
+      "main_fds": 11.0,
+      "main_threads": 22.0,
+      "cpu_percent_one_core": 0.497673124334691,
+      "logical_write_bytes": 20480,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 551,
+        "runs": 0,
+        "tabs": 1,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 815090,
+          "allocated_bytes": 868352,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "log_filtered",
+      "duration_s": 3.016028500001994,
+      "known_footprint_bytes": 382717936.0,
+      "known_footprint_peak_bytes": 437178352,
+      "missing_samples": 0,
+      "main_footprint_bytes": 32376080.0,
+      "main_fds": 11.0,
+      "main_threads": 22.0,
+      "cpu_percent_one_core": 1.8855964060008852,
+      "logical_write_bytes": 4096,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 608,
+        "runs": 0,
+        "tabs": 1,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 815090,
+          "allocated_bytes": 868352,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "phase": "recovered_idle",
+      "duration_s": 15.015123874996789,
+      "known_footprint_bytes": 257109952.0,
+      "known_footprint_peak_bytes": 266342336,
+      "missing_samples": 0,
+      "main_footprint_bytes": 29836512.0,
+      "main_fds": 11.0,
+      "main_threads": 19.0,
+      "cpu_percent_one_core": 0.14515336790722722,
+      "logical_write_bytes": 36864,
+      "disk_write_bytes": 0,
+      "idle_wakeups": 0,
+      "process_count": 4,
+      "confirmed_webkit_count": 3,
+      "process_names": {
+        "42771": "com.apple.WebKit.Networking",
+        "42770": "com.apple.WebKit.WebContent",
+        "42769": "com.apple.WebKit.GPU",
+        "42690": "lite-ide"
+      },
+      "attribution": "fresh-coalition",
+      "unattributed_new_webkit_count": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 234,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      },
+      "storage": {
+        "data": {
+          "bytes": 313,
+          "allocated_bytes": 12288,
+          "files": 3,
+          "errors": 0
+        },
+        "logs": {
+          "bytes": 212,
+          "allocated_bytes": 4096,
+          "files": 1,
+          "errors": 0
+        },
+        "webkit": {
+          "bytes": 823330,
+          "allocated_bytes": 868352,
+          "files": 15,
+          "errors": 0
+        },
+        "cache": {
+          "bytes": 16,
+          "allocated_bytes": 8192,
+          "files": 2,
+          "errors": 0
+        }
+      }
+    }
+  ],
+  "closed_memory_trend": {
+    "slope": 40324315.2,
+    "r2": 0.9920443495152502,
+    "growth": 119275568
+  },
+  "findings": [
+    {
+      "status": "WARN",
+      "metric": "retained_memory",
+      "reason": "预热后关完序列持续增长；需长测 / Allocations 确认，不直接判内存泄漏"
+    },
+    {
+      "status": "WARN",
+      "metric": "opened_memory_budget",
+      "value": 503664552,
+      "limit": 314572800,
+      "reason": "快速打开 12 文件的采样峰值超过 300 MiB 参考预算，需定位瞬时分配/缓存；不能用关闭后不增长代替峰值预算验收"
+    }
+  ],
+  "verdict": "REVIEW",
+  "leak_conclusion": "有限场景未发现增长线索不等于证明无泄漏",
+  "orphans": []
+}

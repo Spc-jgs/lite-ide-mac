@@ -1007,6 +1007,8 @@ pub struct TaskDefDto {
 #[serde(rename_all = "camelCase")]
 pub struct TaskListDto {
     pub tasks: Vec<TaskDefDto>,
+    /// 当前项目有 Maven / Gradle 构建根；不依赖当前运行配置
+    pub buildable: bool,
     /// `tasks.json` 在不在：列表底部给「打开」还是「新建」
     pub file: bool,
     /// 读的时候发现的问题，一条一句话（写错的那个任务跳过了、哪一行语法错）

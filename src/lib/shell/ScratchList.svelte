@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HideSidebar from "./HideSidebar.svelte";
   /**
    * 侧边栏的「草稿」视图（issue #40）：草稿目录里有什么，最近的在上。
    *
@@ -161,6 +162,7 @@
     <button class="ibtn" onclick={onNew} title="新建草稿 ⌘N" aria-label="新建草稿">
       <Icon name="plus" />
     </button>
+    <HideSidebar />
   </div>
   <div class="list">
     {#if project.root}

@@ -1,10 +1,11 @@
 # 图标来源
 
-全部来自 JetBrains/intellij-community（Apache License 2.0，见同目录 LICENSE-Apache-2.0.txt 与 NOTICE.txt）。
+除明确标注为 lite-ide 自绘的补充图标外，来自 JetBrains/intellij-community（Apache License 2.0，见同目录 LICENSE-Apache-2.0.txt 与 NOTICE.txt）。
 取的是深色主题版（`*_dark.svg`；没有深色版的取原版），文件内容未改动，只是按 lite-ide 的名字重命名。
 
 | lite-ide | 上游路径 |
 |---|---|
+| `icons/build.svg` | `platform/icons/src/expui/build/build_dark.svg`（IDEA 原版 New UI 构建；从本机 IDEA 261.26222.65 的 `intellij.platform.ide.jar!/expui/build/build_dark.svg` 原样提取。`PlatformIconMappings.json` 将 `expui/build/build.svg` 映射到 `actions/compile.svg`；保留 Apache 2.0 版权声明，未下载、未修改 SVG） |
 | `icons/pull.svg` | `platform/icons/src/expui/vcs/update_dark.svg` |
 | `icons/push.svg` | `platform/icons/src/expui/vcs/push_dark.svg` |
 | `icons/commit.svg` | `platform/icons/src/expui/vcs/commit_dark.svg` |

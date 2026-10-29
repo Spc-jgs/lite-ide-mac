@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HideSidebar from "../shell/HideSidebar.svelte";
   /**
    * Gradle 工具窗，照 IDEA 的（docs/TAKEOVER.md G24）：
    *
@@ -176,6 +177,7 @@
     </button>
     <button class="ibtn" onclick={() => (open = new Set(rows.filter((r) => r.parent).map((r) => r.key)))} title="展开一层" aria-label="展开一层"><Icon name="expand" /></button>
     <button class="ibtn" onclick={() => (open = new Set())} title="全部收起" aria-label="全部收起"><Icon name="collapse" /></button>
+    <HideSidebar />
   </div>
   <div class="tree" role="tree" aria-label="Gradle 项目" tabindex="0" bind:this={treeEl} onkeydown={onKey}>
     {#if error}

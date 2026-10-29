@@ -333,8 +333,9 @@ pub fn sync_menu_state(
     has_root: bool,
     can_move: bool,
     split: bool,
+    can_build: bool,
 ) {
-    let m = crate::windows::MenuState { has_tab, has_repo, has_term, has_root, can_move, split };
+    let m = crate::windows::MenuState { has_tab, has_repo, has_term, has_root, can_move, split, can_build };
     if state.windows.set_menu(window.label(), m) {
         crate::menu::apply(&app, m);
     }

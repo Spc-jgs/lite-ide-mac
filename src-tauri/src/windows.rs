@@ -114,7 +114,7 @@ pub fn should_prevent_exit(code: Option<i32>) -> bool {
     code.is_none()
 }
 
-/// 菜单的可用状态（`sync_menu_state` 推过来的那六个开关）。
+/// 菜单的可用状态（`sync_menu_state` 推过来的上下文开关）。
 /// 每个窗口各存一份，哪个窗口到前台就把它那份套到原生菜单上。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MenuState {
@@ -124,6 +124,7 @@ pub struct MenuState {
     pub has_root: bool,
     pub can_move: bool,
     pub split: bool,
+    pub can_build: bool,
 }
 
 #[derive(Default)]

@@ -7,6 +7,7 @@
    * 的 `panelTool` 里，所以这里收 `panelTool` 和 `onTogglePanel` ——
    * issue #9 第 2 步把底部面板抽出去时一起挪走。
    */
+  import { keyHint } from "./key-hint";
   import Icon from "./Icon.svelte";
   import { layout, type PanelTool } from "../state/layout.svelte";
   import { runs } from "../state/runs.svelte";
@@ -55,19 +56,20 @@
       侧边栏的四个视图一个模板（2026-10-22 结构窗 ⌘7 进来时合的，同底部那组 10-19 的做法：同样的一段写四遍要付四份，入口包离告警线只剩几百字节）。
       - Git 改动只在有仓库时出现；角标带数字（原来是不带数字的圆点，条数印在状态栏的「改动 9」上 —— 删那个按钮时计数不能跟着没；
         IDEA 的提交工具窗图标就是这么标的）。99 封顶：三位数会把 26px 的按钮撑变形，「128 还是 132」在这儿没人要看
-      - tooltip 里的 ⌘K、⌘7 是写死的：从 keymap.ts 取（byId）会把整张键位表拽进入口包（2026-09-23 实测 +6.8 KB）。改键位时这里跟着改
+      - tooltip 在悬停 / 聚焦时按需读生效键位，避免把键位表拉进入口包
       - Maven 工具窗（docs/IDEA.md 第 1 步）：Maven 项目才有。IDEA 里它是独立的工具窗，这里也是（抄层级）
       - 结构（⌘7，docs/TAKEOVER.md G17）：上游的 structure 图标（2026-10-23 拉下来的，D11）
       - AI 助手（docs/TAKEOVER.md MVP-6）：开着项目就在。图标自绘（IDEA 社区版没有）
     -->
-    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 更改", k: " ⌘K", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "gradle", on: gradle, i: "gradle", l: "Gradle", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: " ⌘7", n: 0 }, { v: "db", on: true, i: "database", l: "数据库", k: "", n: 0 }, { v: "agent", on: true, i: "ai", l: "AI 助手", k: "", n: 0 }] as const as b}
+    {#each [{ v: "files", on: true, i: "files", l: "文件树", k: "", n: 0 }, { v: "git", on: !!repo, i: "git", l: "Git 更改", k: "git-changes", n: changes }, { v: "maven", on: maven, i: "maven", l: "Maven", k: "", n: 0 }, { v: "gradle", on: gradle, i: "gradle", l: "Gradle", k: "", n: 0 }, { v: "structure", on: true, i: "structure", l: "结构", k: "tw-structure", n: 0 }, { v: "db", on: true, i: "database", l: "数据库", k: "", n: 0 }, { v: "agent", on: true, i: "ai", l: "AI 助手", k: "", n: 0 }] as const as b}
       {#if b.on}
         <button
           class="ibtn lg rbtn"
           class:on={layout.sidebar && layout.sideView === b.v}
-          onclick={() => layout.showSide(b.v)}
-          title={b.l + b.k}
+          onclick={() => layout.toggleSide(b.v)}
+          use:keyHint={{ id: b.k, label: (layout.sidebar && layout.sideView === b.v ? "隐藏" : "显示") + b.l }}
           aria-label={b.l}
+          aria-pressed={layout.sidebar && layout.sideView === b.v}
         >
           <Icon name={b.i} />
           {#if b.n > 0}
@@ -76,7 +78,7 @@
         </button>
       {/if}
     {/each}
-    <button class="ibtn lg rbtn" onclick={onSearch} title="在项目中搜内容 ⌘⇧F" aria-label="搜索">
+    <button class="ibtn lg rbtn" onclick={onSearch} use:keyHint={{ id: "quick-content", label: "在项目中搜内容" }} aria-label="搜索">
       <Icon name="search" />
     </button>
   {/if}
@@ -89,9 +91,10 @@
   <button
     class="ibtn lg rbtn"
     class:on={layout.sidebar && layout.sideView === "scratch"}
-    onclick={() => layout.showSide("scratch")}
-    title="草稿"
+    onclick={() => layout.toggleSide("scratch")}
+    title={layout.sidebar && layout.sideView === "scratch" ? "隐藏草稿" : "显示草稿"}
     aria-label="草稿"
+    aria-pressed={layout.sidebar && layout.sideView === "scratch"}
   >
     <Icon name="note" />
   </button>
@@ -110,7 +113,7 @@
     class="ibtn lg rbtn"
     class:on={layout.panel && panelTool === "term"}
     onclick={() => onTogglePanel("term")}
-    title="终端 ⌘J"
+    use:keyHint={{ id: "toggle-panel", label: "终端" }}
     aria-label="终端"
   >
     <Icon name="terminal" />
@@ -138,13 +141,13 @@
     两个按钮一个模板：入口包离告警线只剩几百字节，同样的一段写两遍要多付一份（2026-10-19 量的，-284 B）
   -->
   <!-- 通知记录（I11）：说过一句才出现；角标是上次看过之后又来了几条坏消息（没做成、卡片），看一眼就清 -->
-  {#each [{ v: "services", i: "services", on: runs.services > 0, n: runs.alive(true), l: "Services", k: "" }, { v: "run", i: "run", on: runs.plain().length > 0, n: runs.alive(), l: "运行", k: " ⌃⌥R" }, { v: "notifications", i: "bell", on: notify.log.length > 0, n: notify.unseen, l: "通知", k: "" }] as const as b}
+  {#each [{ v: "services", i: "services", on: runs.services > 0, n: runs.alive(true), l: "Services", k: "" }, { v: "run", i: "run", on: runs.plain().length > 0, n: runs.alive(), l: "运行", k: "tw-run" }, { v: "notifications", i: "bell", on: notify.log.length > 0, n: notify.unseen, l: "通知", k: "" }] as const as b}
     {#if b.on}
       <button
         class="ibtn lg rbtn"
         class:on={layout.panel && panelTool === b.v}
         onclick={() => onTogglePanel(b.v)}
-        title={b.l + b.k}
+        use:keyHint={{ id: b.k, label: b.l }}
         aria-label={b.l}
       >
         <Icon name={b.i} />

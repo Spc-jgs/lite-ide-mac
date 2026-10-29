@@ -1,0 +1,175 @@
+{
+  "date": "2026-10-29",
+  "environment": "Svelte development UI with IPC mocks; isolated headless Chromium; no native app launch",
+  "layout": {
+    "outerResize": {
+      "before": 260,
+      "after": 340,
+      "hitHeight": 6
+    },
+    "innerResize": {
+      "before": 320,
+      "after": 320,
+      "separators": 0
+    },
+    "widths": [
+      {
+        "viewport": 1280,
+        "left": 672,
+        "right": 319,
+        "subject": 394,
+        "subjectScroll": 394,
+        "filter": 198
+      },
+      {
+        "viewport": 1000,
+        "left": 392,
+        "right": 319,
+        "subject": 114,
+        "subjectScroll": 292,
+        "filter": 157
+      },
+      {
+        "viewport": 900,
+        "left": 292,
+        "right": 319,
+        "subject": 14,
+        "subjectScroll": 292,
+        "filter": 121
+      },
+      {
+        "viewport": 800,
+        "left": 192,
+        "right": 319,
+        "subject": 0,
+        "subjectScroll": 292,
+        "filter": 78
+      },
+      {
+        "viewport": 720,
+        "left": 112,
+        "right": 319,
+        "subject": 0,
+        "subjectScroll": 292,
+        "filter": 78
+      }
+    ],
+    "longCommit": {
+      "client": 299,
+      "scroll": 299,
+      "rightHeight": 300,
+      "detailHeight": 232,
+      "filesHeight": 33
+    },
+    "modalTab": {
+      "inside": false,
+      "active": "BUTTON",
+      "ariaModal": null,
+      "secondInside": false
+    },
+    "clippedConfirm": {
+      "dialog": {
+        "x": 567,
+        "y": 194,
+        "width": 420,
+        "height": 131.75,
+        "top": 194,
+        "right": 987,
+        "bottom": 325.75,
+        "left": 567
+      },
+      "island": {
+        "x": 280,
+        "y": 44,
+        "width": 994,
+        "height": 153,
+        "top": 44,
+        "right": 1274,
+        "bottom": 197,
+        "left": 280
+      },
+      "save": {
+        "x": 915,
+        "y": 281.75,
+        "width": 52,
+        "height": 28,
+        "top": 281.75,
+        "right": 967,
+        "bottom": 309.75,
+        "left": 915
+      },
+      "saveWithinIsland": false
+    },
+    "runConfigFocus": {
+      "initialInside": false,
+      "tabInside": false
+    },
+    "longHeader": {
+      "viewport": 720,
+      "toolbar": {
+        "x": 594,
+        "y": 7,
+        "width": 258.25,
+        "height": 24,
+        "top": 7,
+        "right": 852.25,
+        "bottom": 31,
+        "left": 594
+      },
+      "stop": {
+        "x": 820.25,
+        "y": 7,
+        "width": 24,
+        "height": 24,
+        "top": 7,
+        "right": 844.25,
+        "bottom": 31,
+        "left": 820.25
+      },
+      "header": {
+        "x": 0,
+        "y": 0,
+        "width": 864.25,
+        "height": 38,
+        "top": 0,
+        "right": 864.25,
+        "bottom": 38,
+        "left": 0
+      },
+      "stopVisible": false
+    }
+  },
+  "state": {
+    "commitRace": {
+      "calls": [
+        "f2",
+        "f1"
+      ],
+      "selected": "f100000",
+      "file": "f2.java"
+    },
+    "commitFailure": {
+      "injectedError": true,
+      "fileCountShown": 0,
+      "messageShown": "这次提交没有文件变化"
+    },
+    "shortcutDrift": {
+      "actualStructure": "⌥⌘7",
+      "printedStructure": "显示结构 ⌘7",
+      "actualDebug": "⌥⌘D",
+      "printedDebug": "调试「AdminApplication」（⌃D）"
+    },
+    "invalidSetting": {
+      "error": "存在无效的设置项，请修正后再应用",
+      "category": "终端",
+      "focused": "确定",
+      "invalidVisible": false
+    },
+    "cancelSave": {
+      "cancelEnabled": true,
+      "savedWhenClosed": false,
+      "savedAfterClose": true,
+      "injectedLatencyMs": 500
+    }
+  }
+}

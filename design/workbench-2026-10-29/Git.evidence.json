@@ -1,0 +1,166 @@
+{
+  "passed": 32,
+  "failed": 0,
+  "checks": [
+    {
+      "pass": true,
+      "label": "刷新保留关键词"
+    },
+    {
+      "pass": true,
+      "label": "刷新保留当前提交"
+    },
+    {
+      "pass": true,
+      "label": "跳到最新提交清除关键词并定位"
+    },
+    {
+      "pass": true,
+      "label": "窗口恢复焦点自动刷新历史"
+    },
+    {
+      "pass": true,
+      "label": ".git 事件在 HEAD 不变时也刷新"
+    },
+    {
+      "pass": true,
+      "label": "普通工作区保存不重读历史"
+    },
+    {
+      "pass": true,
+      "label": "刷新失败保留列表并报错"
+    },
+    {
+      "pass": true,
+      "label": "失败后原地重试"
+    },
+    {
+      "pass": true,
+      "label": "刷新中更换选择不被旧选择覆盖"
+    },
+    {
+      "pass": true,
+      "label": "文件树历史绑定右键文件"
+    },
+    {
+      "pass": true,
+      "label": "文件历史请求的相对路径正确"
+    },
+    {
+      "pass": true,
+      "label": "提交右键菜单保留"
+    },
+    {
+      "pass": true,
+      "label": "历史文件菜单补齐打开文件和路径"
+    },
+    {
+      "pass": true,
+      "label": "默认双栏"
+    },
+    {
+      "pass": true,
+      "label": "显示比较来源"
+    },
+    {
+      "pass": true,
+      "label": "中央独立分隔"
+    },
+    {
+      "pass": true,
+      "label": "长行不撑宽双栏"
+    },
+    {
+      "pass": true,
+      "label": "横向滚动条固定在可视底边"
+    },
+    {
+      "pass": true,
+      "label": "双栏均有横向滚动入口"
+    },
+    {
+      "pass": true,
+      "label": "双栏滚动同步"
+    },
+    {
+      "pass": true,
+      "label": "滚动条支持拖动"
+    },
+    {
+      "pass": true,
+      "label": "统一视图可切换"
+    },
+    {
+      "pass": true,
+      "label": "统一视图双行号且不被长行撑宽"
+    },
+    {
+      "pass": true,
+      "label": "统一视图横向滚动时行号固定"
+    },
+    {
+      "pass": true,
+      "label": "换行后收起横向滚动条"
+    },
+    {
+      "pass": true,
+      "label": "统一视图长行换行"
+    },
+    {
+      "pass": true,
+      "label": "双栏长行换行"
+    },
+    {
+      "pass": true,
+      "label": "双栏两侧行高对齐"
+    },
+    {
+      "pass": true,
+      "label": "差异区键盘菜单"
+    },
+    {
+      "pass": true,
+      "label": "窄区域自动统一"
+    },
+    {
+      "pass": true,
+      "label": "拉宽恢复用户双栏选择"
+    },
+    {
+      "pass": true,
+      "label": "更改列表键盘菜单"
+    }
+  ],
+  "data": {
+    "side": {
+      "body": {
+        "x": 281,
+        "y": 146,
+        "width": 1212,
+        "height": 545,
+        "top": 146,
+        "right": 1493,
+        "bottom": 691,
+        "left": 281
+      },
+      "scroll": {
+        "x": 281,
+        "y": 691,
+        "width": 1212,
+        "height": 12,
+        "top": 691,
+        "right": 1493,
+        "bottom": 703,
+        "left": 281
+      },
+      "width": 1212,
+      "grid": 1212
+    },
+    "unified": {
+      "width": 1212,
+      "row": 1212,
+      "numbers": []
+    }
+  },
+  "mutation": "旧 flex/min-content 布局在统一视图行宽检查处失败；恢复后通过。"
+}

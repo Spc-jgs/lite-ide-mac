@@ -1,0 +1,353 @@
+{
+  "context": {
+    "schema": 2,
+    "profile": "full",
+    "scenario": {
+      "rounds": 8,
+      "warmups": 2,
+      "idle": 60,
+      "settle": 15,
+      "log_mib": 64,
+      "tab_limit": 25
+    },
+    "head": "ce083c6bb6e69a778a1021052ff7963c12b54441",
+    "dirty": true,
+    "source_sha256": "2ff48aaa84bd448779dd8fe03c71236d151aefad6ccbab000dce49caab5bed6d",
+    "binary_sha256": "d6d89c47699fea9f5583e146cca85740610a5fe2b2c8dbb6bef9ea2865220949",
+    "os": "27.2",
+    "arch": "arm64",
+    "system_before": {
+      "hw.model": "Mac17,8",
+      "hw.memsize": "51539607552",
+      "hw.ncpu": "18",
+      "kern.memorystatus_vm_pressure_level": "1",
+      "vm.swapusage": "total = 10240.00M  used = 8508.69M  free = 1731.31M  (encrypted)"
+    },
+    "surface": "test-identity-background",
+    "recorded_utc": "2026-10-29T05:29:42.842176+00:00",
+    "fixture_bytes": 67211616,
+    "baseline": null,
+    "system_after": {
+      "hw.model": "Mac17,8",
+      "hw.memsize": "51539607552",
+      "hw.ncpu": "18",
+      "kern.memorystatus_vm_pressure_level": "1",
+      "vm.swapusage": "total = 9216.00M  used = 8382.75M  free = 833.25M  (encrypted)"
+    },
+    "observer_python_cpu_s": 0.9455530000000001,
+    "boot_observed_ms": null,
+    "boot_classification": "本次构建后的启动观察值，未声称是热启动或 p95",
+    "source_unchanged": true,
+    "fixture_unchanged": true
+  },
+  "closed_memory_trend": {
+    "slope": 90524.38095238095,
+    "r2": 0.00034620450247557777,
+    "growth": 3113128
+  },
+  "findings": [],
+  "verdict": "NO_SIGNAL",
+  "orphans": [],
+  "checkpoints": [
+    {
+      "phase": "baseline_idle",
+      "known_footprint_bytes": 101797392,
+      "main_footprint_bytes": 30639352,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.07805083957790399,
+      "logical_write_bytes": 28672,
+      "views": {
+        "editors": 0,
+        "nodes": 195,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "opened-1",
+      "known_footprint_bytes": 319491864,
+      "main_footprint_bytes": 31163640,
+      "main_fds": 11,
+      "cpu_percent_one_core": 2.2069093518395264,
+      "logical_write_bytes": 53248,
+      "views": {
+        "editors": 1,
+        "nodes": 468,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "closed-1",
+      "known_footprint_bytes": 209522456,
+      "main_footprint_bytes": 31065336,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.4486095702453851,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 227,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "opened-2",
+      "known_footprint_bytes": 384683896,
+      "main_footprint_bytes": 31196408,
+      "main_fds": 11,
+      "cpu_percent_one_core": 2.934983902812285,
+      "logical_write_bytes": 36864,
+      "views": {
+        "editors": 1,
+        "nodes": 468,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "closed-2",
+      "known_footprint_bytes": 212520824,
+      "main_footprint_bytes": 31130872,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.47482154777794117,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 227,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "opened-3",
+      "known_footprint_bytes": 346771320,
+      "main_footprint_bytes": 31196408,
+      "main_fds": 11,
+      "cpu_percent_one_core": 4.778430980933222,
+      "logical_write_bytes": 36864,
+      "views": {
+        "editors": 1,
+        "nodes": 468,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "closed-3",
+      "known_footprint_bytes": 183750520,
+      "main_footprint_bytes": 31130872,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.46196957439752406,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 227,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "opened-4",
+      "known_footprint_bytes": 348442536,
+      "main_footprint_bytes": 31180024,
+      "main_fds": 11,
+      "cpu_percent_one_core": 1.7272673976952737,
+      "logical_write_bytes": 36864,
+      "views": {
+        "editors": 1,
+        "nodes": 468,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "closed-4",
+      "known_footprint_bytes": 225464232,
+      "main_footprint_bytes": 31081720,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.45646614805524305,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 227,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "opened-5",
+      "known_footprint_bytes": 377065384,
+      "main_footprint_bytes": 31196408,
+      "main_fds": 11,
+      "cpu_percent_one_core": 2.534390997734227,
+      "logical_write_bytes": 36864,
+      "views": {
+        "editors": 1,
+        "nodes": 468,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "closed-5",
+      "known_footprint_bytes": 204083112,
+      "main_footprint_bytes": 31081720,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.4804739006679428,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 227,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "opened-6",
+      "known_footprint_bytes": 345493440,
+      "main_footprint_bytes": 31196408,
+      "main_fds": 11,
+      "cpu_percent_one_core": 3.012756916009936,
+      "logical_write_bytes": 36864,
+      "views": {
+        "editors": 1,
+        "nodes": 468,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "closed-6",
+      "known_footprint_bytes": 203378624,
+      "main_footprint_bytes": 31081720,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.46398662510705846,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 227,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "opened-7",
+      "known_footprint_bytes": 363728832,
+      "main_footprint_bytes": 31196408,
+      "main_fds": 11,
+      "cpu_percent_one_core": 2.7507453755928357,
+      "logical_write_bytes": 36864,
+      "views": {
+        "editors": 1,
+        "nodes": 468,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "closed-7",
+      "known_footprint_bytes": 202182616,
+      "main_footprint_bytes": 31130872,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.42734356688804065,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 227,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "opened-8",
+      "known_footprint_bytes": 357781440,
+      "main_footprint_bytes": 31180024,
+      "main_fds": 11,
+      "cpu_percent_one_core": 2.9852472910909476,
+      "logical_write_bytes": 36864,
+      "views": {
+        "editors": 1,
+        "nodes": 468,
+        "runs": 0,
+        "tabs": 12,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "closed-8",
+      "known_footprint_bytes": 212635584,
+      "main_footprint_bytes": 30999800,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.031974314122317604,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 227,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "log_open",
+      "known_footprint_bytes": 273756216.0,
+      "main_footprint_bytes": 29975872.0,
+      "main_fds": 11.0,
+      "cpu_percent_one_core": 0.4444232517828395,
+      "logical_write_bytes": 24576,
+      "views": {
+        "editors": 0,
+        "nodes": 549,
+        "runs": 0,
+        "tabs": 1,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "log_filtered",
+      "known_footprint_bytes": 225800248.0,
+      "main_footprint_bytes": 39634240.0,
+      "main_fds": 11.0,
+      "cpu_percent_one_core": 3.924766146721792,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 606,
+        "runs": 0,
+        "tabs": 1,
+        "terms": 0
+      }
+    },
+    {
+      "phase": "recovered_idle",
+      "known_footprint_bytes": 216436744,
+      "main_footprint_bytes": 39503096,
+      "main_fds": 11,
+      "cpu_percent_one_core": 0.44939304713889816,
+      "logical_write_bytes": 0,
+      "views": {
+        "editors": 0,
+        "nodes": 232,
+        "runs": 0,
+        "tabs": 0,
+        "terms": 0
+      }
+    }
+  ]
+}

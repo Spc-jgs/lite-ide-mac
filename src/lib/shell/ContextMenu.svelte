@@ -26,6 +26,7 @@
      * 否则打勾那一项的文字会比别的项靠右一格，像是另一种缩进。
      */
     checked?: boolean;
+    checkType?: "checkbox" | "radio";
     /**
      * 这一项的快捷键，印在右边（2026-10-12 设计稿②）。原来菜单上一个都不印：文件树里 F2 改名、⌘⌫ 进废纸篓早就能按，
      * 没人知道 —— 菜单是人「学键位」的地方（macOS 每个菜单都印）。**只印真按得出来的**：键位表里有的从 `byId` 取，
@@ -34,6 +35,7 @@
     keys?: string;
   }
 
+  import { windowLayer } from "./dialog-surface";
   import { tick } from "svelte";
   import Icon from "./Icon.svelte";
 
@@ -222,14 +224,14 @@
 
 <!--
   菜单画在触发它的容器**外面**：那些容器多半是 overflow: auto，画在里面会被
-  裁掉半截还跟着滚。position: fixed 逃得出 overflow，但逃不出 transform 祖先 ——
-  将来给侧边栏或标签栏加动画时要留意这条。
+  裁掉半截还跟着滚。直接挂到 body，避免 container-type / transform 把 fixed 坐标改成容器坐标。
 -->
 <div
   class="menu popup"
   role="menu"
   tabindex="-1"
   aria-label={label}
+  use:windowLayer
   bind:this={el}
   style:left="{x}px"
   style:top={up ? null : `${y}px`}
@@ -252,7 +254,7 @@
       class:sep={it.sep}
       class:danger={it.danger}
       class:checkable
-      role={it.checked === undefined ? "menuitem" : "menuitemradio"}
+      role={it.checked === undefined ? "menuitem" : it.checkType === "checkbox" ? "menuitemcheckbox" : "menuitemradio"}
       tabindex="-1"
       disabled={it.disabled}
       aria-disabled={it.disabled}

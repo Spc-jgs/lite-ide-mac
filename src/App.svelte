@@ -959,6 +959,7 @@
       project.root !== null,
       tabs.activeId !== null && tabs.canMove(tabs.activeId),
       tabs.split,
+      runs.buildRoot === project.root && runs.buildable,
     ).catch(() => {});
   });
 

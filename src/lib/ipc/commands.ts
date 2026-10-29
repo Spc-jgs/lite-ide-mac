@@ -1620,7 +1620,8 @@ export const syncMenuState = (
   /** 焦点组至少两个标签（分屏 / 挪走才有意义，issue #35） */
   canMove: boolean,
   split: boolean,
-) => invoke<void>("sync_menu_state", { hasTab, hasRepo, hasTerm, hasRoot, canMove, split });
+  canBuild: boolean,
+) => invoke<void>("sync_menu_state", { hasTab, hasRepo, hasTerm, hasRoot, canMove, split, canBuild });
 
 // ── 拉取与推送 ───────────────────────────────────────────────────────
 
@@ -1763,6 +1764,8 @@ export interface TaskDef {
 
 export interface TaskList {
   tasks: TaskDef[];
+  /** 当前项目有 Maven / Gradle 构建根；不依赖当前运行配置 */
+  buildable: boolean;
   /** `tasks.json` 在不在：列表底部给「打开」还是「新建」 */
   file: boolean;
   /** 读的时候发现的问题，一条一句话 */

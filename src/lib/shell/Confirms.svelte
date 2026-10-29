@@ -28,7 +28,8 @@
   import { project } from "../state/project.svelte";
   import { runs } from "../state/runs.svelte";
   import { keyVerdict, nudgesFor, takeFocus } from "./dialog-focus";
-  import { nudgeDialog, setAsking } from "./modal";
+  import { dialogUp, nudgeDialog, setAsking } from "./modal";
+  import { cycleFocus, isolateDialog, windowLayer } from "./dialog-surface";
   import Icon from "./Icon.svelte";
   import { cardOut, layerOut } from "./motion";
 
@@ -89,7 +90,7 @@
     },
   });
 
-  /** 此刻有没有要你先回答的对话框（有就压暗编辑岛） */
+  /** 此刻有没有要你先回答的对话框（有就压暗整个窗口） */
   const asking = $derived(
     !!(
       tabflow.pendingClose ||
@@ -131,7 +132,10 @@
    * 菜单那条路不经过这里（AppKit → Rust → `menu` 事件），在 `menu-actions.ts` 的 runMenu 门口另外拦
    */
   // 以 `asking` 为准，不看 DOM：答完那一拍起就不拦了，哪怕框还在淡出（modal.ts 的 setAsking 那段）
-  const dialogEl = () => (asking ? (layerEl?.querySelector<HTMLElement>(".dialog") ?? null) : null);
+  const dialogEl = () => {
+    const d = asking ? layerEl?.querySelector<HTMLElement>(".dialog") : null;
+    return d && d === dialogUp() ? d : null;
+  };
   $effect.pre(() => setAsking(asking));
   /*
    * 淡出到一半又要问（关掉一个、120ms 内又弹一个）：Svelte 把正在退场的那层倒回来接着用，不新建 ——
@@ -148,6 +152,12 @@
    */
   $effect(() => {
     layerEl?.classList.toggle("leaving", !asking);
+  });
+
+  $effect(() => {
+    if (!asking || !layerEl) return;
+    const d = layerEl.querySelector<HTMLElement>(".dialog");
+    if (d) return isolateDialog(d);
   });
 
   function guardKey(e: KeyboardEvent) {
@@ -174,15 +184,6 @@
     if (e.type === "pointerdown") nudgeDialog(d);
   }
 
-  /** Tab / ⇧Tab：在对话框里能拿焦点的东西之间转圈 */
-  function cycleFocus(d: HTMLElement, back: boolean) {
-    const all = [...d.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])")];
-    if (all.length === 0) return;
-    const i = all.indexOf(document.activeElement as HTMLElement);
-    const n = all.length;
-    all[i < 0 ? (back ? n - 1 : 0) : (i + (back ? -1 : 1) + n) % n].focus({ preventScroll: true });
-  }
-
   $effect(() => {
     const keys = ["keydown", "keyup"] as const;
     const mice = ["pointerdown", "mousedown", "mouseup", "click", "dblclick", "auxclick", "contextmenu"] as const;
@@ -197,7 +198,7 @@
 </script>
 
 <!--
-  两种长相（2026-10-12 设计稿①）：**要你先回答的**（你刚做的那个动作引起的选择题）是压暗编辑岛的对话框，在下面 `.layer` 里；
+  两种长相（2026-10-12 设计稿①）：**要你先回答的**（你刚做的那个动作引起的选择题）是压暗整个窗口的对话框，在下面 `.layer` 里；
   **告诉你一件事的**和启动时冒出来的（替换做完能撤销、报错、外部改过、上次没停干净、替换中断）是顶上的卡片 ——
   Apple HIG：别为了告诉人一件事弹对话框，别在启动时弹。
 
@@ -213,14 +214,14 @@
   会丢东西的（不是你点的那个动作本身）在最左、红字；「取消」挨着主按钮；主按钮最右。
 -->
 {#if asking}
-  <div class="layer" bind:this={layerEl} out:layerOut>
+  <div class="layer" use:windowLayer bind:this={layerEl} out:layerOut>
     {#if tabflow.pendingClose}
       <!--
         「关闭全部」逐个问时，A 问完换 B 是同一拍里的事（doClose 置空、askNextClose 设下一个），这个块不重建、
         `takeFocus` 不会再跑 —— 把 id 传进去，换了人它在 update 里把焦点放回「保存」（code review 2026-10-13：
         原来焦点停在上一下按过的「不保存」上，接着按回车就把 B 也丢了）
       -->
-      <div class="dialog" role="alertdialog" aria-label="保存更改" use:takeFocus={tabflow.pendingClose.id}>
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-label="保存更改" use:takeFocus={tabflow.pendingClose.id}>
         <p class="title">是否保存对 {tabflow.pendingClose.name} 的更改？</p>
         <p class="body">
           如果不保存，更改将丢失。
@@ -235,7 +236,7 @@
         </div>
       </div>
     {:else if tabflow.pendingSwitch}
-      <div class="dialog" role="alertdialog" aria-label="以编辑模式打开" use:takeFocus>
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-label="以编辑模式打开" use:takeFocus>
         <p class="title">以编辑模式打开 {tabflow.pendingSwitch.name}？</p>
         <p class="body">该文件大小为 {(tabflow.pendingSwitch.size / 1048576).toFixed(1)} MB。编辑模式将全文载入内存，可能导致明显卡顿。</p>
         <div class="actions">
@@ -246,7 +247,7 @@
       </div>
     {:else if branches.pendingWtRemove}
       {@const w = branches.pendingWtRemove}
-      <div class="dialog" role="alertdialog" aria-label="移除工作树" use:takeFocus>
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-label="移除工作树" use:takeFocus>
         <p class="title">移除工作树 {w.path.slice(w.path.lastIndexOf("/") + 1)}？</p>
         <p class="body">将删除目录 <b>{w.path}</b>，其中未提交的更改将丢失。</p>
         <div class="actions">
@@ -258,7 +259,7 @@
       </div>
     {:else if branches.pendingBranchDelete}
       {@const d = branches.pendingBranchDelete}
-      <div class="dialog" role="alertdialog" aria-label="删除分支" use:takeFocus>
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-label="删除分支" use:takeFocus>
         {#if d.notMerged}
           <p class="title">仍要删除分支 {d.name}？</p>
           <p class="body">该分支包含尚未合并的提交，Git 已阻止删除。继续删除将<b>丢失这些提交</b>。</p>
@@ -278,7 +279,7 @@
         这不是错误，是一个选择题：git 拒绝切分支这件事本身没什么可报的，
         真正要说的是「这几个文件挡着，你打算怎么办」（ui.md 第十三条第三档）
       -->
-      <div class="dialog wide" role="alertdialog" aria-label="签出将覆盖本地更改" use:takeFocus>
+      <div class="dialog wide" role="alertdialog" aria-modal="true" aria-label="签出将覆盖本地更改" use:takeFocus>
         <p class="title">签出 {c.name} 将覆盖 {c.files.length} 个文件的本地更改</p>
         <p class="body">{c.files.slice(0, 3).join("、")}{c.files.length > 3 ? ` 等 ${c.files.length} 个` : ""}</p>
         <div class="actions">
@@ -303,7 +304,7 @@
       </div>
     {:else if git.pendingDiscard}
       {@const ds = git.pendingDiscard}
-      <div class="dialog" role="alertdialog" aria-label="放弃更改" use:takeFocus>
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-label="放弃更改" use:takeFocus>
         <p class="title">放弃 {ds.length === 1 ? ds[0].path : `${ds.length} 个文件`} 的更改？</p>
         <p class="body">已修改的文件将还原为上次提交的版本，<b>此操作无法撤销</b>；未跟踪的文件将移到废纸篓。</p>
         <div class="actions">
@@ -315,7 +316,7 @@
     {:else if git.pendingOpAbort && git.status?.op}
       <!-- 放弃做到一半的变基 / 合并（docs/TAKEOVER.md G25）：解决到一半的冲突一起没了，和丢弃同一档 -->
       {@const name = { rebase: "变基", merge: "合并", "cherry-pick": "cherry-pick", revert: "回退" }[git.status.op.kind]}
-      <div class="dialog" role="alertdialog" aria-label="中止{name}" use:takeFocus>
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-label="中止{name}" use:takeFocus>
         <p class="title">中止{name}？</p>
         <p class="body">仓库将恢复到{name}开始前的状态，已解决的冲突和期间暂存的更改将全部丢失。</p>
         <div class="actions">
@@ -326,7 +327,7 @@
       </div>
     {:else if git.pendingRevertHunk}
       <!-- 撤销一块（issue #38）：和上面那条同一档 —— 动盘上的文件，不可撤销 -->
-      <div class="dialog" role="alertdialog" aria-label="回滚更改" use:takeFocus>
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-label="回滚更改" use:takeFocus>
         <p class="title">回滚此处更改？</p>
         <p class="body">工作区中这几行的更改将被放弃，<b>此操作无法撤销</b>。</p>
         <div class="actions">
@@ -341,7 +342,7 @@
         仓库信任（issue #24）。列的是白名单外的键 —— 人看的就是「它想跑什么」，所以值一定要露出来，
         origin 只在被 include 进来时才显示（那时危险在另一个文件里）。默认按钮是「先不动 git」：回车不该替人信任
       -->
-      <div class="dialog wide" role="alertdialog" aria-label="信任此仓库" use:takeFocus>
+      <div class="dialog wide" role="alertdialog" aria-modal="true" aria-label="信任此仓库" use:takeFocus>
         <p class="title">此仓库的配置可执行外部命令，Git 功能已暂停</p>
         <p class="body">.git/config 中包含 {r.suspects.length} 条可执行命令的配置：</p>
         <pre class="code">{r.suspects
@@ -470,21 +471,23 @@
   }
   .more:hover { background: var(--elevated-hi); color: var(--text); }
   /*
-   * 对话框那一层：盖住编辑岛、压暗，对话框在正中偏上（眼睛本来就在上半屏）。只盖编辑岛不盖侧边栏和状态栏：
-   * 问的是这一块里的事。点暗处不关 —— 选择要按按钮做
+   * 对话框那一层：盖住整个窗口，与键盘、菜单的模态范围一致；不受工具窗高度影响。点暗处不关 —— 选择要按按钮做
    */
   .layer {
-    position: absolute;
+    position: fixed;
     inset: 0;
-    z-index: 35;
+    z-index: 40;
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding-top: min(18vh, 160px);
+    padding: min(12vh, 96px) 16px 24px;
+    overflow: auto;
     background: rgba(0, 0, 0, 0.38);
     border-radius: inherit;
     animation: fade-in 90ms ease-out;
   }
+  .layer :global(.dialog) { max-height: 100%; min-height: 0; overflow: hidden; }
+  .layer :global(.dialog > .body) { min-height: 0; overflow: auto; }
   /* 淡出中的那层不再接鼠标：点穿它落到编辑区上（模态守卫那边也不再把它算成「在问」） */
   .layer:global(.leaving), .layer:global(.leaving) .dialog { pointer-events: none; }
   /* 信任仓库那张列配置的：值要原样露出来，等宽、保住换行，太多时可以滚 */

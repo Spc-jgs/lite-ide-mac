@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
-   * 标题栏 = IDEA 的 main toolbar：**「哪个项目 / 哪个分支」，只有这两件事。**
-   * 右边整片是窗口拖动区。
+   * 标题栏 = IDEA 的 main toolbar：左侧项目 / 分支，右侧懒加载构建与运行挂件。
+   * 中间留给窗口拖动，避免动作挤在项目挂件旁边。
    *
    * 项目挂件的下拉在这里（最近项目 / 打开 / 清除），三件事的逻辑都在 App
    * （`recent` / `openRecent` / `openFolder`），以回调传进来。分支挂件的 DOM
@@ -202,6 +202,7 @@
     /* 不画下边线（M8）：它自己压着 --chrome-scrim，和下面的玻璃已经分开了 */
     font-size: var(--fs-md);
     user-select: none;
+    min-width: 0;
   }
   /* tgap 是**拖动区**，不是留白 —— 面包屑搬走之后这一大片正是拿窗口的地方 */
   .titlebar .tgap { flex: 1; min-width: 12px; }
@@ -214,8 +215,9 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    flex: none;
-    max-width: 240px;
+    flex: 0 2 auto;
+    min-width: 48px;
+    max-width: min(240px, 22vw);
     height: 24px;
     padding: 0 6px;
     background: transparent;
@@ -230,7 +232,10 @@
   /* 浮层开着时挂件保持点亮 —— 否则那块浮层看着像凭空冒出来的 */
   .twidget.on { background: var(--selected); color: var(--text-dim); }
   .twidget:active { background: var(--pressed); }
+  .twidget.proj { flex-shrink: 1; }
+  .twidget :global(.icon) { flex: none; }
   .twidget .wlabel {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

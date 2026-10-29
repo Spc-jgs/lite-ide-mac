@@ -1,0 +1,15 @@
+{
+  "stateTests": 6,
+  "stateFilesPassed": 113,
+  "browserNew": 43,
+  "browserWorkbenchRegression": 34,
+  "nativeGit": 15,
+  "svelteErrors": 0,
+  "svelteWarnings": 0,
+  "mutations": {
+    "historySignal": "取消更新通知后，6 项中 5 项失败",
+    "unifiedLayout": "旧 flex/min-content 行宽失败",
+    "fileTarget": "读取活动文件导致分屏文件历史失败",
+    "lazyFailure": "旧订阅导致 1003 次请求；修复后 1 次请求 / 1 次通知"
+  }
+}

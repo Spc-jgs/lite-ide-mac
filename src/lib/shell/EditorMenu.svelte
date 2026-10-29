@@ -19,6 +19,9 @@
   import { sendToTerminal } from "../terminal/send";
   // 菜单上印的快捷键从键位表取（唯一出处）。这个组件是懒加载的，引它不进入口包（frontend.md「一个 import { byId }」那条）
   import { byId } from "../state/keymap";
+  import { logFilter } from "../git/log-filter.svelte";
+  import { layout } from "../state/layout.svelte";
+  import { fileGitMenu } from "../git/file-menu";
 
   let {
     x,
@@ -74,11 +77,10 @@
     ];
     if (git.repo && inProject) {
       out.push(
-        { label: "查看此文件的更改", sep: true, run: () => onMenuAction("git-file-diff") },
+        ...fileGitMenu(path),
         { label: "显示 / 隐藏注解（blame）", run: () => onMenuAction("git-blame") },
         // IDEA 右键 › Git › Show History / Show History for Selection（docs/TAKEOVER.md G16）
-        { label: "这个文件的历史", run: () => onMenuAction("git-file-history") },
-        { label: api.hasSelection ? "选中几行的历史" : "这一行的历史", run: () => onMenuAction("git-selection-history") },
+        { label: api.hasSelection ? "选中几行的历史" : "这一行的历史", run: () => { logFilter.v = { path, lines: api.lines }; layout.openGitTab("log"); } },
       );
     }
     return out;

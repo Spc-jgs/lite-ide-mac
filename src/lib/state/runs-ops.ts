@@ -52,6 +52,8 @@ export async function buildProject(clean: boolean) {
     notify.hint("请先打开项目：构建针对整个项目");
     return;
   }
+  // 锤子、菜单和 ⌘F9 共用这道闸：构建进行中再按不停止重起，也不与 clean 构建重叠。
+  if (starting.has(`${root}\n${BUILD}`) || starting.has(`${root}\n${REBUILD}`) || runs.list.some((r) => r.root === root && isBuildRun(r.name) && (r.status === "running" || r.status === "stopping"))) return;
   await runTask(clean ? REBUILD : BUILD, root);
 }
 

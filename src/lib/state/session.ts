@@ -202,6 +202,9 @@ export interface Layout {
   gitTab: "log" | "console";
   /** 分屏的分隔线：左组占的比例（issue #35）。老快照没有 → 0.5，`toLayout` 夹在 0.2–0.8 */
   splitRatio: number;
+  /** 仅记住使用者调整过的尺寸，旧快照无需迁移。 */
+  paneSizes?: Record<string, number>;
+  toolHeights?: Record<string, number>;
 }
 
 export interface Session {
@@ -280,9 +283,23 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, M
 const isStr = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
 /** 把任意值收成一个能用的布局，坏字段各自回退，不整份丢 */
+function dimensions(v: unknown, keys: string[], min: number, max: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof v !== "object" || !v || Array.isArray(v)) return out;
+  for (const k of keys) {
+    const n = (v as Record<string, unknown>)[k];
+    if (typeof n === "number" && Number.isFinite(n)) out[k] = clamp(n, min, max);
+  }
+  return out;
+}
+
 export function toLayout(v: unknown): Layout {
   const o = (v ?? {}) as Record<string, unknown>;
+  const panes = dimensions(o.paneSizes, ["gitDetail", "gitMessage", "servicesTree", "runTree", "debugFrames"], 40, 1200);
+  const heights = dimensions(o.toolHeights, ["term", "git", "run", "services", "problems", "hierarchy", "todo", "notifications", "bookmarks", "coverage", "db"], 180, PANEL_MAX);
   return {
+    ...(Object.keys(panes).length ? { paneSizes: panes } : {}),
+    ...(Object.keys(heights).length ? { toolHeights: heights } : {}),
     sidebar: typeof o.sidebar === "boolean" ? o.sidebar : DEFAULT_LAYOUT.sidebar,
     sidebarWidth:
       typeof o.sidebarWidth === "number" && Number.isFinite(o.sidebarWidth)

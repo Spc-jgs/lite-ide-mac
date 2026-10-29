@@ -208,6 +208,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     case "nav-fwd": return void nav.go("fwd");
     case "outline": return overlay.openOutline();
     case "toggle-sidebar": layout.toggleSidebar(project.root !== null); return;
+    case "reset-layout": layout.resetSizes(); return;
     case "toggle-panel": layout.panel = !layout.panel; return;
     // 工具窗的编号键（⌘4 / ⌘5 / ⌘6 / ⌘8 / ⌘9 / ⌥F12）：逻辑在懒的 tool-keys.ts，这里只交过去
     case "tw-terminal": case "tw-run": case "tw-debug": case "tw-problems": case "tw-structure": case "tw-services": case "tw-git": case "tw-todo": case "tw-notifications": case "tw-bookmarks": case "tw-coverage":
@@ -276,7 +277,7 @@ export async function runMenu(id: string, ctx: MenuCtx) {
     }
     case "git-console": layout.openGitTab("console"); return;
     case "git-branches": return ctx.openBranchPicker();
-    case "git-refresh": return void git.refresh();
+    case "git-refresh": return void git.refresh(true);
     case "git-pull": return void remote.pull();
     case "git-push": return void remote.askPush();
     case "git-fetch": return void remote.fetch("fetch");

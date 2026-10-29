@@ -369,6 +369,7 @@
     onContextMenu(e, {
       hit,
       hasSelection: !v.state.selection.main.empty,
+      lines: [v.state.doc.lineAt(v.state.selection.main.from).number, v.state.doc.lineAt(Math.max(v.state.selection.main.from, v.state.selection.main.to - 1)).number],
       copy: async () => {
         await navigator.clipboard.writeText(sel());
       },

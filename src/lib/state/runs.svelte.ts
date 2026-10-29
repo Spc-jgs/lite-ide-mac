@@ -61,6 +61,8 @@ export interface HttpRun {
 }
 
 class Runs {
+  buildRoot = $state("");
+  buildable = $state(false);
   list = $state<RunTab[]>([]);
   activeId = $state<number | null>(null);
   /** 上次应用崩了、没停干净的任务（这个项目的）：确认条上那张卡片。启动后项目根定了问一次 */

@@ -814,10 +814,10 @@ html, body {
  *
  * 卡片（上面的 `.confirm`）只留给「告诉你一件事」和启动时冒出来的（替换做完了能撤销、报错、外部改过、上次没停干净）——
  * Apple HIG · Alerts：别为了告诉人一件事弹对话框、别在启动时弹。**你刚做的那个动作引起的选择题**（关脏标签、丢弃改动、
- * 删分支、切分支被挡住、信任仓库）改成对话框：编辑岛压暗、正中偏上、标题是问句、一句后果、按钮照 macOS 排。
+ * 删分支、切分支被挡住、信任仓库）改成对话框：窗口压暗、正中偏上、标题是问句、一句后果、按钮照 macOS 排。
  * 原来它们也是横条卡片：横在代码第一行上、像工具栏，一行里塞着文件名和三个按钮，看不出「要你先回答」。
  *
- * 压暗只盖编辑岛（`Confirms.svelte` 的 `.layer`），不盖侧边栏和状态栏：问的是这一块里的事；**挡的是整个窗口**（键盘、鼠标、菜单，
+ * 压暗与拦截都覆盖整个窗口（`Confirms.svelte` 的 `.layer`）（键盘、鼠标、菜单，
  * `shell/modal.ts`，ui.md 第二之二条）。点暗处不关 —— 对话框不是浮层，
  * 选择要按按钮做（Esc = 那个 `data-dismiss` 的「取消」）。打开时焦点给 `data-default` 那个按钮：回车 = 它，
  * 也让焦点离开编辑器（不然字照样打进被压暗的正文里）。有丢东西后果的对话框，`data-default` 给「取消」—— 不让回车顺手确认
@@ -838,7 +838,7 @@ html, body {
 .dialog .title { margin: 0; font-size: var(--fs-lg); font-weight: 600; line-height: 1.35; color: var(--text); overflow-wrap: anywhere; }
 .dialog .body { margin: 0; font-size: var(--fs-md); line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
 .dialog .body b { color: var(--text); font-weight: 600; }
-.dialog .actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.dialog .actions { flex: none; flex-wrap: wrap; display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .dialog .actions .gap { flex: 1; }
 /* 对话框开着时别处的输入被挡下：顶一下（`shell/modal.ts` 的 nudgeDialog）。和 drop-in 写在一条 animation 上会互相顶掉，所以单独一条 */
 .dialog.nudge { animation: nudge 160ms ease-out; }

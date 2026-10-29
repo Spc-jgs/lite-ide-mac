@@ -147,7 +147,13 @@ function list(root: string) {
               : "";
     defs.push({ name: u.name, command, cwd: u.kind === "shell" ? u.cwd : "", source: "user", kind: u.kind, items: u.kind === "compound" ? u.items : [] });
   }
-  return { tasks: defs.map((d) => ({ kind: "", items: [], ...d })), file, problems };
+  // 同 Rust 的 maven::reactors / gradle::roots：只看根和非隐藏的一层子目录。
+  const buildable = Object.keys(FILES).some((p) => {
+    if (!p.startsWith(`${root}/`)) return false;
+    const rel = p.slice(root.length + 1).split("/");
+    return (rel.length === 1 || (rel.length === 2 && !rel[0].startsWith("."))) && /^(pom\.xml|(settings|build)\.gradle(\.kts)?)$/.test(rel[rel.length - 1]);
+  });
+  return { tasks: defs.map((d) => ({ kind: "", items: [], ...d })), buildable, file, problems };
 }
 
 type Run = { root: string; name: string; status: "running" | "stopping" | "gone"; timer?: ReturnType<typeof setTimeout>; service?: boolean; at?: number };

@@ -8,6 +8,11 @@
    * 跟随默认开着：跑任务就是为了看它此刻在说什么。重跑时 Rust 把上一次的挪成 `.1`、新开一份同名的 ——
    * 日志视图是 `tail -F` 的语义（按名字重开、句柄不变，LogPane 里 `rotated` 那段），这里不用管。
    */
+  let splitWidth = $state(0);
+  const splitMax = $derived(Math.max(140, splitWidth - 160));
+  const treeWidth = $derived(Math.max(140, Math.min(layout.paneSizes.runTree ?? 320, splitMax)));
+  import Splitter from "../shell/Splitter.svelte";
+  import { layout } from "../state/layout.svelte";
   import LogPane from "../logview/LogPane.svelte";
   import TestTree from "./TestTree.svelte";
   import BuildTree from "./BuildTree.svelte";
@@ -62,12 +67,13 @@
 </script>
 
 {#snippet plain(h: number)}
-  <div class="split" class:tests={isTest || isBuild}>
+  <div class="split" class:tests={isTest || isBuild} bind:clientWidth={splitWidth} style:--tree-width={`${treeWidth}px`}>
     {#if isTest && run}
       <div class="tests-pane"><TestTree {run} /></div>
     {:else if isBuild && run}
       <div class="tests-pane"><BuildTree {run} /></div>
     {/if}
+    {#if isTest || isBuild}<Splitter label="调整运行结果树宽度" value={treeWidth} min={140} max={splitMax} defaultValue={320} onchange={(v) => layout.paneSizes.runTree = v} />{/if}
     {@render output(h)}
   </div>
 {/snippet}
@@ -122,8 +128,8 @@
 
 <style>
   .split { display: flex; height: 100%; min-height: 0; }
-  /* 结果树在左、输出在右（同 IDEA 的测试视图）。树那一栏定宽：要看的是失败原因和输出 */
-  .tests-pane { flex: none; width: 320px; min-height: 0; border-right: 1px solid var(--border-soft); }
+  /* 结果树在左、输出在右；宽度按工作量调整，窄区域仍给输出留空间 */
+  .tests-pane { flex: none; width: var(--tree-width); min-height: 0; border-right: 1px solid var(--border-soft); }
   .run { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; }
   .body { flex: 1; min-height: 0; }
   .cards { flex: none; padding: 8px 10px 0; }

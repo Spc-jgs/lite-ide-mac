@@ -1,0 +1,183 @@
+{
+  "passed": 34,
+  "checks": [
+    {
+      "message": "乱序返回只展示当前提交文件",
+      "pass": true
+    },
+    {
+      "message": "读取失败不冒充空提交",
+      "pass": true
+    },
+    {
+      "message": "读取失败提供重试",
+      "pass": true
+    },
+    {
+      "message": "Git 分栏支持方向键",
+      "pass": true
+    },
+    {
+      "message": "Git 分栏支持拖动",
+      "pass": true
+    },
+    {
+      "message": "分隔条右键尺寸操作可用",
+      "pass": true
+    },
+    {
+      "message": "提交说明高度可调整",
+      "pass": true
+    },
+    {
+      "message": "最大化工具窗后恢复正常高度",
+      "pass": true
+    },
+    {
+      "message": "1280px 提交标题仍有可读空间",
+      "pass": true
+    },
+    {
+      "message": "1000px 提交标题仍有可读空间",
+      "pass": true
+    },
+    {
+      "message": "900px 提交标题仍有可读空间",
+      "pass": true
+    },
+    {
+      "message": "800px 提交标题仍有可读空间",
+      "pass": true
+    },
+    {
+      "message": "720px 提交标题仍有可读空间",
+      "pass": true
+    },
+    {
+      "message": "窄区域进入单栏详情",
+      "pass": true
+    },
+    {
+      "message": "窄区域可返回提交列表",
+      "pass": true
+    },
+    {
+      "message": "长项目名和分支不挤走停止按钮",
+      "pass": true
+    },
+    {
+      "message": "导轨提示读取生效键位",
+      "pass": true
+    },
+    {
+      "message": "运行提示随键位更新",
+      "pass": true
+    },
+    {
+      "message": "设置末尾 Tab 留在对话框内",
+      "pass": true
+    },
+    {
+      "message": "设置 Shift+Tab 留在对话框内",
+      "pass": true
+    },
+    {
+      "message": "设置声明模态并隔离背景",
+      "pass": true
+    },
+    {
+      "message": "错误字段自动显示且保留无效输入",
+      "pass": true
+    },
+    {
+      "message": "确定时聚焦首个错误字段",
+      "pass": true
+    },
+    {
+      "message": "提交保存后取消禁用",
+      "pass": true
+    },
+    {
+      "message": "保存中 Esc 不关闭表单",
+      "pass": true
+    },
+    {
+      "message": "关闭模态后背景恢复交互",
+      "pass": true
+    },
+    {
+      "message": "运行配置打开时获得焦点",
+      "pass": true
+    },
+    {
+      "message": "运行配置 Tab 循环",
+      "pass": true
+    },
+    {
+      "message": "高工具窗下保存按钮仍在窗口内",
+      "pass": true
+    },
+    {
+      "message": "确认框 Tab 留在内部",
+      "pass": true
+    },
+    {
+      "message": "移到窗口层的确认按钮事件仍有效",
+      "pass": true
+    },
+    {
+      "message": "确认关闭后归还原焦点",
+      "pass": true
+    },
+    {
+      "message": "键盘停在通知操作上暂停自动关闭",
+      "pass": true
+    },
+    {
+      "message": "通知有明确关闭入口",
+      "pass": true
+    }
+  ],
+  "measurements": {
+    "commitRace": {
+      "selected": "f100000",
+      "file": "f1.java",
+      "calls": [
+        "f2",
+        "f1"
+      ]
+    },
+    "widths": [
+      {
+        "width": 1280,
+        "titleWidth": 388
+      },
+      {
+        "width": 1000,
+        "titleWidth": 226
+      },
+      {
+        "width": 900,
+        "titleWidth": 230
+      },
+      {
+        "width": 800,
+        "titleWidth": 352
+      },
+      {
+        "width": 720,
+        "titleWidth": 272
+      }
+    ],
+    "stop": {
+      "right": 700,
+      "viewport": 720
+    },
+    "confirm": {
+      "top": 180.62908935546875,
+      "bottom": 208.62908935546875,
+      "viewport": 850,
+      "visible": true
+    }
+  }
+}

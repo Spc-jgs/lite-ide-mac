@@ -10,12 +10,14 @@
    * `panelTool` 是**实际在显示**的工具窗，由 App 按「偏好是 git 且真有仓库」算出来，
    * 导轨也用同一个值 —— 两处各算一遍就会有一天不一致。
    */
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
+  import Splitter from "./Splitter.svelte";
   import Icon from "./Icon.svelte";
   import ContextMenu, { type MenuItem } from "./ContextMenu.svelte";
   import { lazy } from "../lazy/lazy.svelte";
   import { notify } from "../state/notify.svelte";
   import { layout, type PanelTool } from "../state/layout.svelte";
+  import { git } from "../state/git.svelte";
   import { terms } from "../state/terms.svelte";
   import { runs, type RunStatus } from "../state/runs.svelte";
   import { results as dbResults } from "../db/results.svelte";
@@ -64,15 +66,15 @@
   const ops = () => import("../state/runs-ops");
 
   $effect(() => {
-    if (layout.panel && panelTool === "run") runView.load();
-    if (layout.panel && panelTool === "services") servicesView.load();
-    if (layout.panel && panelTool === "problems") problemsView.load();
-    if (layout.panel && panelTool === "hierarchy") hierView.load();
-    if (layout.panel && panelTool === "todo") todoView.load();
-    if (layout.panel && panelTool === "notifications") noteView.load();
-    if (layout.panel && panelTool === "bookmarks") bmView.load();
-    if (layout.panel && panelTool === "coverage") covView.load();
-    if (layout.panel && panelTool === "db") dbView.load();
+    if (layout.panel && panelTool === "run") untrack(() => runView.load());
+    if (layout.panel && panelTool === "services") untrack(() => servicesView.load());
+    if (layout.panel && panelTool === "problems") untrack(() => problemsView.load());
+    if (layout.panel && panelTool === "hierarchy") untrack(() => hierView.load());
+    if (layout.panel && panelTool === "todo") untrack(() => todoView.load());
+    if (layout.panel && panelTool === "notifications") untrack(() => noteView.load());
+    if (layout.panel && panelTool === "bookmarks") untrack(() => bmView.load());
+    if (layout.panel && panelTool === "coverage") untrack(() => covView.load());
+    if (layout.panel && panelTool === "db") untrack(() => dbView.load());
   });
 
   /** 状态点说什么（悬停时）。颜色在样式里：跑着绿、停止中琥珀、失败红、结束了灰 */
@@ -86,11 +88,11 @@
   let activeRun = $derived(runs.list.find((r) => r.id === runs.activeId) ?? null);
 
   $effect(() => {
-    if (layout.panel) terminal.load();
+    if (layout.panel) untrack(() => terminal.load());
   });
   $effect(() => {
     // Git 控制台只在真的切到那一页时才拉那个 chunk
-    if (layout.panel && panelTool === "git" && layout.gitTab === "console") gitcon.load();
+    if (layout.panel && panelTool === "git" && layout.gitTab === "console") untrack(() => gitcon.load());
   });
   /*
    * 按需加载失败要说出来。App 那张汇总名单「漏一个就是一处静默失败」——
@@ -99,7 +101,7 @@
    */
   $effect(() => {
     const e = terminal.error || gitcon.error || runView.error || servicesView.error || problemsView.error || hierView.error || todoView.error || noteView.error || bmView.error || covView.error || dbView.error;
-    if (e) notify.fail(e);
+    if (e) untrack(() => notify.fail(e));
   });
 
   // 打开面板时若一个终端都没有，自动起一个 —— 「开着」和「有内容」要同时成立
@@ -112,21 +114,23 @@
   });
 
   /** 面板头右边那两个下拉：`list` 是全部终端，`more` 是更多操作 */
-  let panelMenu = $state<{ x: number; y: number; kind: "list" | "more" | "run" } | null>(null);
+  let panelMenu = $state<{ x: number; y: number; kind: "list" | "more" | "run" | "layout" } | null>(null);
 
-  function openPanelMenu(e: MouseEvent, kind: "list" | "more" | "run") {
+  function openPanelMenu(e: MouseEvent, kind: "list" | "more" | "run" | "layout") {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     panelMenu = { x: r.left, y: r.bottom + 2, kind };
   }
 
   let panelMenuItems = $derived.by<MenuItem[]>(() => {
     if (!panelMenu) return [];
+    if (panelMenu.kind === "layout") return layoutItems;
     if (panelMenu.kind === "run") {
       const id = runs.activeId;
       const r = runs.list.find((x) => x.id === id);
       return [
         { label: "在编辑器中打开此输出", run: () => void ops().then((m) => m.openRunLog(id)) },
         { label: "打开 tasks.json", run: () => void ops().then((m) => m.openTasksFile(r?.root ?? root)) },
+        ...layoutItems.map((it, i) => ({ ...it, sep: i === 0 || it.sep })),
       ];
     }
     if (panelMenu.kind === "list") {
@@ -153,26 +157,22 @@
     if (terms.list.length > 1) {
       items.push({ label: "全部关闭", sep: true, danger: true, run: () => terms.closeAll() });
     }
-    return items;
+    return [...items, ...layoutItems.map((it, i) => ({ ...it, sep: i === 0 || it.sep }))];
   });
 
-  function startResize(e: PointerEvent) {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startH = layout.panelHeight;
-    const move = (ev: PointerEvent) => {
-      // 往上拖变高：面板贴在底部，位移要反号
-      layout.panelHeight = Math.max(90, Math.min(window.innerHeight - 200, startH - (ev.clientY - startY)));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
+  let windowHeight = $state(window.innerHeight);
+  const maxHeight = $derived(Math.max(180, windowHeight - 180));
+  const shownHeight = $derived(layout.panelMaximized ? maxHeight : Math.min(maxHeight, Math.max(180, layout.panelHeight)));
+  function setHeight(v: number) { layout.panelMaximized = false; layout.panelHeight = v; }
+  const layoutItems = $derived<MenuItem[]>([
+    { label: layout.panelMaximized ? "恢复工具窗" : "最大化工具窗", run: () => layout.panelMaximized = !layout.panelMaximized },
+    { label: "增大工具窗高度", run: () => setHeight(Math.min(maxHeight, shownHeight + 48)) },
+    { label: "减小工具窗高度", run: () => setHeight(Math.max(180, shownHeight - 48)) },
+    { label: "恢复默认布局", sep: true, run: () => layout.resetSizes() },
+  ]);
 </script>
 
+<svelte:window bind:innerHeight={windowHeight} />
 <!--
   条件是 `layout.panel || terms.list.length > 0`，不是 `layout.panel`。
 
@@ -184,14 +184,10 @@
   也保证关掉最后一个终端后这块能真正消失（`terms.close` 会清空列表）。
 -->
 {#if layout.panel || terms.list.length > 0}
-  <div
-    class="resizer"
-    class:hidden={!layout.panel}
-    role="separator"
-    aria-label="调整终端高度"
-    onpointerdown={startResize}
-  ></div>
-  <div class="panel" class:hidden={!layout.panel} style:height="{layout.panelHeight}px">
+  {#if layout.panel}
+    <Splitter label="调整底部工具窗高度" value={shownHeight} min={180} max={maxHeight} defaultValue={260} horizontal reverse onchange={setHeight} />
+  {/if}
+  <div class="panel" class:hidden={!layout.panel} style:height="{shownHeight}px">
     <!--
       工具窗的头：**名字在最左，标签页跟在后面，动作靠右**。
 
@@ -310,24 +306,12 @@
           title={r.status === "stopping" ? "强制结束（不等它收尾）" : "停止 ⌘F2"}
           aria-label={r.status === "stopping" ? "强制结束" : "停止"}
         ><Icon name="stop" /></button>
-        <button class="ibtn" onclick={(e) => openPanelMenu(e, "run")} title="更多操作" aria-label="更多操作">
-          <Icon name="more-v" />
-        </button>
       {/if}
-      <!--
-        「更多」只在终端页出 —— 提交历史那边一条真动作都没有，
-        摆一个点开是空的按钮，比没有这个按钮糟。
-      -->
-      {#if panelTool === "term" && terms.list.length > 0}
-        <button
-          class="ibtn"
-          onclick={(e) => openPanelMenu(e, "more")}
-          title="更多操作"
-          aria-label="更多操作"
-        >
-          <Icon name="more-v" />
-        </button>
+      {#if panelTool === "git"}
+        <button class="ibtn" disabled={git.busy} class:busy={git.busy} onclick={() => void git.refresh(true)} title="刷新 Git：更改与提交历史" aria-label="刷新 Git"><Icon name="refresh" /></button>
       {/if}
+      <button class="ibtn" onclick={(e) => openPanelMenu(e, panelTool === "term" ? "more" : panelTool === "run" ? "run" : "layout")} title="工具窗操作与布局" aria-label="工具窗操作与布局"><Icon name="more-v" /></button>
+      <button class="ibtn" onclick={() => layout.panelMaximized = !layout.panelMaximized} title={layout.panelMaximized ? "恢复工具窗" : "最大化工具窗"} aria-label={layout.panelMaximized ? "恢复工具窗" : "最大化工具窗"}><Icon name={layout.panelMaximized ? "chevron-down" : "chevron-up"} /></button>
       <button
         class="ibtn"
         onclick={() => (layout.panel = false)}
@@ -479,7 +463,7 @@
   <ContextMenu
     x={panelMenu.x}
     y={panelMenu.y}
-    label={panelMenu.kind === "list" ? "全部终端" : panelMenu.kind === "run" ? "运行的操作" : "终端的操作"}
+    label={panelMenu.kind === "list" ? "全部终端" : panelMenu.kind === "run" ? "运行的操作" : panelMenu.kind === "layout" ? "工具窗布局" : "终端的操作"}
     items={panelMenuItems}
     onclose={() => (panelMenu = null)}
   />
@@ -487,35 +471,6 @@
 
 <style>
   /* 与 .side-resizer 同一条判据（M8）：热区就是岛之间那条 6px 的缝，平时不画线 */
-  .resizer {
-    position: relative;
-    flex: none;
-    height: var(--island-gap);
-    background: transparent;
-    cursor: row-resize;
-  }
-  .resizer::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 2.5px;
-    height: 1px;
-    background: transparent;
-    transition: background 0.1s;
-  }
-  .resizer:hover::after { background: var(--accent); }
-  .resizer:active::after { background: var(--accent); }
-  @media (prefers-reduced-motion: reduce) { .resizer::after { transition: none; } }
-  /* 收起时整块不占位也不可见，但**仍然挂在 DOM 上** —— 见上面那段注释 */
-  .resizer.hidden,
-  .panel.hidden { display: none; }
-  /*
-   * **上边不画线。** 和侧边栏那条是同一个毛病：`.resizer` 已经用伪元素画了
-   * 一条，这里再来一条，两条隔 1.5px。`.resizer` 和 `.panel` 共用同一个
-   * `class:hidden={!panel}`，收起时一起走，线不会落单。
-   */
-  /* 底部工具窗整块是一座岛（M8），头在岛里 —— 头和内容是同一件东西的两层，不该隔着缝 */
   .panel {
     flex: none;
     display: grid;

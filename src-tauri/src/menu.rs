@@ -73,6 +73,7 @@ pub struct MenuHandles {
     pub needs_term: Vec<MenuItem<Wry>>,
     /// 要有项目根才有意义的（「关闭项目」）
     pub needs_root: Vec<MenuItem<Wry>>,
+    pub needs_build: Vec<MenuItem<Wry>>,
     /// 分屏（issue #35）：焦点组至少两个标签才能分出去 / 挪走（挪走最后一个 = 那组收起，白做）
     pub needs_two: Vec<MenuItem<Wry>>,
     /// 已经分屏才有意义的（切到另一组、合并）
@@ -255,6 +256,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .item(&item(app, "toggle-sidebar", "侧边栏", Some("CmdOrCtrl+1"))?)
         .item(&item(app, "toggle-panel", "终端面板", Some("CmdOrCtrl+J"))?)
         .item(&tools)
+        .item(&item(app, "reset-layout", "恢复默认布局", None)?)
         .item(&item(app, "toggle-scratch", "草稿列表", None)?)
         .separator()
         .item(&item(app, "toggle-minimap", "代码缩略图", None)?)
@@ -329,9 +331,13 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         .build()?;
 
     // 构建（docs/IDEA.md 第 22 节）：IDEA 的 Build 菜单，排在「运行」前面
+    let build_project = item(app, "build-project", "构建项目", Some("CmdOrCtrl+F9"))?;
+    let rebuild_project = item(app, "rebuild-project", "重新构建项目", None)?;
+    build_project.set_enabled(false)?;
+    rebuild_project.set_enabled(false)?;
     let build = SubmenuBuilder::new(app, "构建")
-        .item(&item(app, "build-project", "构建项目", Some("CmdOrCtrl+F9"))?)
-        .item(&item(app, "rebuild-project", "重新构建项目", None)?)
+        .item(&build_project)
+        .item(&rebuild_project)
         .build()?;
 
     let run = SubmenuBuilder::new(app, "运行")
@@ -430,6 +436,7 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<(Menu<Wry>, MenuHandles)> {
         ],
         needs_term: vec![close_terminal],
         needs_root: vec![close_project, run_last, run_pick, run_stop, tasks_file, debug_last],
+        needs_build: vec![build_project, rebuild_project],
         needs_two: vec![split_right, move_other],
         needs_split: vec![focus_other, unsplit],
         debug_paused: vec![debug_resume, debug_over, debug_into, debug_out, debug_run_to],
@@ -482,7 +489,7 @@ pub fn sync_debug(app: &AppHandle<Wry>, paused: bool, running: bool) {
 
 /// 把某个窗口存着的那份状态套到原生菜单上（窗口到前台时，见 `lib.rs`）
 pub fn apply(app: &AppHandle<Wry>, m: crate::windows::MenuState) {
-    sync_enabled(app, m.has_tab, m.has_repo, m.has_term, m.has_root, m.can_move, m.split);
+    sync_enabled(app, m.has_tab, m.has_repo, m.has_term, m.has_root, m.can_move, m.split, m.can_build);
 }
 
 /// 按当下的上下文让菜单项变灰。
@@ -494,6 +501,7 @@ pub fn sync_enabled(
     has_root: bool,
     can_move: bool,
     split: bool,
+    can_build: bool,
 ) {
     let Some(h) = app.try_state::<MenuHandles>() else {
         return;
@@ -506,6 +514,9 @@ pub fn sync_enabled(
     }
     for it in &h.needs_term {
         let _ = it.set_enabled(has_term);
+    }
+    for it in &h.needs_build {
+        let _ = it.set_enabled(has_root && can_build);
     }
     for it in &h.needs_root {
         let _ = it.set_enabled(has_root);
