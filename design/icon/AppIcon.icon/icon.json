@@ -1,13 +1,13 @@
 {
   "fill": {
-    "solid": "srgb:1.00000,1.00000,1.00000,1.00000"
+    "solid": "srgb:0.07843,0.13725,0.19216,1.00000"
   },
   "groups": [
     {
       "layers": [
         {
-          "image-name": "meteor.svg",
-          "name": "meteor",
+          "image-name": "slash.svg",
+          "name": "slash",
           "glass": false
         }
       ],
@@ -23,8 +23,8 @@
     {
       "layers": [
         {
-          "image-name": "chaser.svg",
-          "name": "chaser",
+          "image-name": "brackets.svg",
+          "name": "brackets",
           "glass": false
         }
       ],
