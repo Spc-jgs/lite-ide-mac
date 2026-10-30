@@ -9,6 +9,7 @@ pnpm dev            # 浏览器 + IPC 桩（src/lib/dev/mock-ipc.ts + mock/）�
 pnpm app            # Tauri 开发模式
 pnpm app:build      # 只编可执行文件
 pnpm app:bundle     # 打包 .app + .dmg，产物在 src-tauri/target/release/bundle/。先跑 scripts/java-bundle.sh（内置的 jdtls + 裁过的 Java 21，没变就跳过）
+pnpm bundle:check   # 独立目录构建并检查入口/静态依赖字节；口径与决策见 docs/BUNDLE-GUARD.md
 pnpm check          # svelte-check
 pnpm test           # 前端测试：纯函数 + 状态层（*.state.test.ts，runes 在裸 node 里跑，见 tests/runes/）
 cd src-tauri && cargo test --workspace
@@ -39,6 +40,8 @@ scripts/resources.sh --build   # 按需资源验收（默认 quick）；--profil
 ```
 
 ## 验证纪律
+
+**新增/调整功能前先读 [STATUS.md 第 2 节](docs/STATUS.md) 确认已有能力与边界，每轮交付前核对功能清单。** 新增/删除能力，或改变入口、限制、实现归属、验收入口时同步对应行，区分源码证据与本轮实际验证；能力未变就在交付说明已核对，无须机械改日期。分期/历史设计按日期参考。
 
 **资源验收由 agent 判断触发，或人要求时执行。** 完成大功能，或改缓存、轮询、后台任务、子进程、窗口生命周期、自动保存/历史/日志时，先按 [资源与性能检查清单](docs/RESOURCE-CHECKLIST.md) 逐项登记本次应测、不适用或暂缓理由（历史正常项仍按触发条件复测），再依 [docs/RESOURCE-GUARD.md](docs/RESOURCE-GUARD.md) 选择 quick/full 和受影响的专项场景；交付报告构建指纹、实际数字、异常及未测范围。小范围展示/文案/文档改动可说明理由后跳过。首轮只建基线；UNKNOWN 要解释，告警先对齐场景并复测，观察项不能直接当缺陷或强制重构任务。预算和调查线是项目决策，修订要有证据，不能为通过而放宽。按需脚本运行完退出，不配置定时任务或常驻监控。
 
@@ -123,6 +126,8 @@ macOS 自带的 bash 3.2 在双引号里的 `$(…)` 里照样做花括号展开
 | `src-tauri/**` | [.claude/rules/rust.md](.claude/rules/rust.md) —— 子进程纪律、std API 会吃掉已有文件、废纸篓、DTO |
 | `src/**/*.svelte` `src/**/*.ts` | [.claude/rules/frontend.md](.claude/rules/frontend.md) —— Svelte 5 runes 的坑、CM6、懒加载、会话恢复、桩 |
 | 界面长什么样 | [.claude/rules/ui.md](.claude/rules/ui.md) —— 十四条写死的界面规矩、键位与菜单栏 |
+| 入口包、静态依赖、懒加载边界 | [docs/BUNDLE-GUARD.md](docs/BUNDLE-GUARD.md) —— 门槛依据、完整静态闭包与按需/预拉的区别 |
+| 项目已有功能、能力边界与功能增删 | [docs/STATUS.md](docs/STATUS.md) 第 2 节 —— 持续维护的功能清单 |
 | 架构与性能预算、资源回归 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；触发测量、判定增长或审计 CPU/内存/磁盘时读 [docs/RESOURCE-GUARD.md](docs/RESOURCE-GUARD.md) |
 | 窗口、事件发给谁、会话快照、退出 | [docs/MULTIWINDOW.md](docs/MULTIWINDOW.md) —— 一个项目一个窗口；进程级的资源要记 owner，跨窗口的东西只有 Rust 一个主人 |
 | 设置、偏好、`settings.json`、设置对话框、运行配置 | [docs/SETTINGS.md](docs/SETTINGS.md) —— 设置页和你都能写 `settings.json`（只改那一个值的字符，第 13 节），按钮改的另存一份；按项目的设置存在应用目录、不往项目里写；加设置项先改 `settings.rs` 的 `DEFS`（连同 `label`），别的都从它来 |

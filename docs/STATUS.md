@@ -1,11 +1,11 @@
-# 当前状态与接手清单（2026-10-29）
+# 当前功能清单与接手状态
 
-这份记录回答「现在能做什么、哪里还差、下一步做什么」。起点是 `0e0fda9`，连同当时未提交的 HTTP 链路 ID 改动一起检查；不是重新设计一套路线。
+第 2 节是持续维护的功能清单，源码入口复核于 **2026-10-30**。每轮开发按下方约定核对能力、边界和证据入口。第 1、3–7 节保留 **2026-10-29 接手快照**的判断/验收日期，不能当成每次都重新执行过的结果；后续资源调查另见 [RESOURCE-CHECKLIST](RESOURCE-CHECKLIST.md)。原接手起点为 `0e0fda9`。
 `TAKEOVER.md`、`IDEA.md`、`DIRECTION.md` 保留了分期和历史推导，里面的「现在」「还没做」不能脱离日期使用。
 GitHub issues 的逐条核对见 [ISSUE-TRIAGE.md](ISSUE-TRIAGE.md)。
-用户授权后已同步远端：8 条 completed、#57 not planned、8 条收窄范围，新增构建卡顿 [#82](https://github.com/Spc-jgs/lite-ide-mac/issues/82) 和 SQL 分句 [#83](https://github.com/Spc-jgs/lite-ide-mac/issues/83)；当前 17 open、66 closed。
+用户授权后已同步远端：8 条 completed、#57 not planned、8 条收窄范围，新增构建卡顿 [#82](https://github.com/Spc-jgs/lite-ide-mac/issues/82) 和 SQL 分句 [#83](https://github.com/Spc-jgs/lite-ide-mac/issues/83)；当时 17 open、66 closed；这是 2026-10-29 的统计，不是实时计数。
 
-## 1. 判断与证据边界
+## 1. 判断与证据边界（2026-10-29 接手快照）
 
 Java 后端日常的主链路已经有实现，生态扩展也进入了数据库、多语言和自动更新。下一步的关键是修正剩余行为、把已有能力在真实项目上验稳，不能用功能数量或 MVP 的勾代替完成度。
 本次是接手盘点与重点路径检查，没有穷尽全部界面与项目类型。
@@ -17,26 +17,35 @@ Java 后端日常的主链路已经有实现，生态扩展也进入了数据库
 - **历史验收**：JOURNAL 中有 Java / Maven / Gradle / 数据库的真实运行记录；保留它们的日期，不当成本轮执行结果。
 - **尚未证明**：用户实际项目连续使用、真实 macOS 按键 / 输入法 / 原生右键、干净机器安装、公开发布的更新链路。
 
-## 2. 已有能力与仍然存在的边界
+## 2. 持续维护的功能清单
 
-| 区域 | 已有实现 | 尚未做完整 / 不能据此声称的能力 |
-|---|---|---|
-| 编辑器与外壳 | 多光标、分屏、草稿、会话恢复、多窗口、书签、最近位置、欢迎页、图片预览、通知记录、标签上限 | 浅色主题、工具窗右侧布局 / 移动、完整的布局设置；PDF 是交给系统「预览」，不是内嵌阅读器 |
-| Java 读写 | jdtls 补全、import、定义 / 实现 / 父方法、文档、用法、类型 / 调用层级、生成代码、改名、抽取、内联、移动类、改签名 | 原地联动改名、改名前预览；跨文件引入参数受限；没有 IDEA 全套 inspection / intention / 结构化替换 |
-| 构建与运行 | Maven / Gradle、Spring Boot 识别、统一运行配置入口、Services、停止与端口占用提示 | 任意自定义 Gradle `bootRun` 的组外进程停止仍要单独验证；配置类型 / before-run 任务 / 共享 `.run` 文件仍不齐 |
-| 调试 | 条件 / 日志 / 命中次数 / 异常断点、断点列表、变量、求值、单步、监视、运行到光标、远程 attach、方法体热替换 | 无效断点没有灰色未验证态；不是任意结构变化都能热替换；构建卡顿历史问题根因未定 |
-| 单测 | 类 / 方法运行、失败重跑、调试、按类更新结果、JaCoCo 覆盖率 | `@Nested` 的结果名可显示，但内部类 / 方法的运行目标不正确；不等于单个测试方法实时完成事件 |
-| Spring / MyBatis | 路由搜索、`@Value` 跳配置、Bean 注入导航、配置元数据补全、枚举值补全、Mapper ↔ XML | Bean 导航靠文本识别，不能等同于完整容器模型、动态条件 / profile / 工厂语义；没有 Actuator 全套视图 |
-| Git | 提交、历史、分支、工作树、推拉、冲突、stash、cherry-pick、交互式 rebase、文件 / 行历史、凭据提问 | GitHub PR 评审尚无集成；改变文件的操作没有统一写入本地历史 |
-| HTTP | 环境、文件体、取消、Cookie、受限 `client.global.set`、multipart、历史、JSON 着色、响应头联日志 | 不是任意 JavaScript 响应脚本 / client.test 运行器；联日志只认本机、当前项目、应用管理的运行，不能自动跨远程 / 代理追踪 |
-| 日志 | GB 文件、过滤、跟随、堆栈跳转、合并、归类 / 对比、长行详情 | 从服务器拉日志尚未定义方案；GPU 多窗口占用调查未完 |
-| 数据库 | JDBC 边车、钥匙串、结构树、控制台、分批结果、取消、历史、保护确认、单元格编辑、导出、补全、IDEA 导入；MySQL / PG / SQLite / H2 驱动 | 一个连接一个游标；更多数据库驱动未加；不是完整 DataGrip。真 MySQL / PG 本轮未重验 |
-| 多语言与设置 | Rust / Python / TS 的声明式语言包、通用 LSP 能力、包声明任务、键位覆盖、IDEA Java 风格、`.editorconfig` 的缩进及保存处理 | Java 尚未搬到通用包；运行配置表单不能声明；`.editorconfig` 的 charset / end_of_line 未接；部分固定键位不能改 |
-| AI 与发版 | ACP 第一版、权限卡片、签名更新器、本地模拟更新验收脚本 | 真 Claude 适配器直接改盘的审阅未收完，AI 暂缓；Actions secret 是否已配置、实际 Release 安装 / 升级未确认 |
+**维护约定**：每轮开发交付前核对本表。新增/删除功能，或改变用户入口、支持范围、限制、实现归属、验收入口时，更新对应行并记录本轮证据日期；只改内部实现或文档、能力边界未变时，在交付说明“功能清单已核对，无能力变化”即可。新增能力要先核对是否属于既有行，避免为同一能力建两份清单。
+
+源码入口证明有实现，验收脚本证明有可运行的验证入口；只有实际执行并记录日期的结果才叫本轮验证。本表 2026-10-30 复核了实现归属/验收入口，没有重跑全部功能。详细用法见 USAGE，设计推导见各领域文档，任务状态见 issues；本表不复制快捷键全集、验收条数或实时 issue 总数。
+
+
+| ID / 区域 | 已有实现 | 边界 / 未完成项 | 实现与验证入口（脚本在 `scripts/accept/`） |
+|---|---|---|---|
+| F01 · 编辑器与外壳 | 多光标、分屏、草稿、会话恢复、多窗口、书签、最近位置、欢迎页、图片预览、通知记录、标签上限，文件树新建/复制/移动/废纸篓 | 浅色主题、工具窗右侧布局 / 移动、完整的布局设置；PDF 是交给系统「预览」，不是内嵌阅读器 | [Content.svelte](../src/lib/shell/Content.svelte)、[FileTree.svelte](../src/lib/shell/FileTree.svelte)；`settings.sh / editorconfig.sh / minimap.sh` |
+| F02 · Java 读写 | jdtls 补全、import、定义 / 实现 / 父方法、文档、用法、类型 / 调用层级、生成代码、改名、抽取、内联、移动类、改签名 | 原地联动改名、改名前预览；跨文件引入参数受限；没有 IDEA 全套 inspection / intention / 结构化替换 | [java-lsp.ts](../src/lib/editor/java-lsp.ts)；`java.sh` |
+| F03 · 构建与运行 | Maven / Gradle、Spring Boot 识别、统一运行配置入口、Services、停止与端口占用提示 | 任意自定义 Gradle `bootRun` 的组外进程停止仍要单独验证；配置类型 / before-run 任务 / 共享 `.run` 文件仍不齐 | [runs-ops.ts](../src/lib/state/runs-ops.ts)；`tasks.sh / spring.sh / gradle.sh` |
+| F04 · 调试 | 条件 / 日志 / 命中次数 / 异常断点、断点列表、变量、求值、单步、监视、运行到光标、远程 attach、方法体热替换 | 无效断点没有灰色未验证态；不是任意结构变化都能热替换；构建卡顿历史问题根因未定 | [debug.rs](../src-tauri/src/debug.rs)；`spring.sh` |
+| F05 · 单测 | 类 / 方法运行、失败重跑、调试、按类更新结果、JaCoCo 覆盖率 | `@Nested` 的结果名可显示，但内部类 / 方法的运行目标不正确；不等于单个测试方法实时完成事件 | [java-tests.ts](../src/lib/editor/java-tests.ts)；`spring.sh / gradle.sh` |
+| F06 · Spring / MyBatis | 路由搜索、`@Value` 跳配置、Bean 注入导航、配置元数据补全、枚举值补全、Mapper ↔ XML | Bean 导航靠文本识别，不能等同于完整容器模型、动态条件 / profile / 工厂语义；没有 Actuator 全套视图 | [spring-config.ts](../src/lib/editor/spring-config.ts)；`spring-nav.sh / mybatis.sh / gradle.sh` |
+| F07 · Git | 提交、历史、分支、工作树、推拉、冲突、stash、cherry-pick、交互式 rebase、文件 / 行历史、凭据提问 | GitHub PR 评审尚无集成；改变文件的操作没有统一写入本地历史 | [lib.rs](../src-tauri/crates/gitsvc/src/lib.rs)；`git-ui.sh / git-auth.sh` |
+| F08 · HTTP | 环境、文件体、取消、Cookie、受限 `client.global.set`、multipart、历史、JSON 着色、响应头联日志 | 不是任意 JavaScript 响应脚本 / client.test 运行器；联日志只认本机、当前项目、应用管理的运行，不能自动跨远程 / 代理追踪 | [HttpPane.svelte](../src/lib/run/HttpPane.svelte)；`http.sh` |
+| F09 · 日志 | GB 文件、过滤、跟随、堆栈跳转、合并、归类 / 对比、长行详情 | 从服务器拉日志尚未定义方案；GPU 多窗口占用调查未完 | [lib.rs](../src-tauri/crates/logengine/src/lib.rs)；`merge.sh / patterns.sh`；资源另见清单 R03/R09 |
+| F10 · 数据库 | JDBC 边车、钥匙串、结构树、控制台、分批结果、取消、历史、保护确认、单元格编辑、导出、补全、IDEA 导入；MySQL / PG / SQLite / H2 驱动 | 一个连接一个游标；更多数据库驱动未加；不是完整 DataGrip。真 MySQL / PG 本轮未重验 | [db.rs](../src-tauri/src/db.rs)；`db.sh / db-real.sh` |
+| F11 · 多语言与设置 | Rust / Python / TS 的声明式语言包、通用 LSP 能力、包声明任务、键位覆盖、IDEA Java 风格、`.editorconfig` 的缩进及保存处理 | Java 尚未搬到通用包；运行配置表单不能声明；`.editorconfig` 的 charset / end_of_line 未接；部分固定键位不能改 | [langs.rs](../src-tauri/src/langs.rs)、[settings.rs](../src-tauri/src/settings.rs)；`lsp.sh / settings.sh / editorconfig.sh` |
+| F12 · AI 助手 | ACP 第一版、会话、权限卡片和改动审阅入口 | 真实适配器直接改盘的审阅未收完；用户决定暂缓 AI，不默认启动付费 agent | [AI.md](AI.md)、[AgentPane.svelte](../src/lib/agent/AgentPane.svelte)；`smoke.sh` 的 AI 段按开关执行，默认关闭 |
+| F13 · 自动更新与分发 | 签名更新器、版本判断、下载验签与重启替换、本机模拟更新验收 | Actions secret、真实 Release 安装/升级、干净机器与 Gatekeeper 尚未完整验证 | [update.rs](../src-tauri/src/update.rs)、[RELEASE.md](RELEASE.md)；`update.sh` |
+| F14 · 本地历史与变更恢复 | 保存前/外部变化快照、历史面板、恢复进编辑器；跨文件替换另有持久撤销 | 重构/Git 改盘前的保护尚未统一；历史不等于完整备份，长期总容量另查 R13 | [history.rs](../src-tauri/src/history.rs)、[REPLACE.md](REPLACE.md)；`history.sh`、跨文件替换状态测试 |
+| F15 · 搜索、导航与跨文件替换 | 文件/内容/类/操作/接口搜索、跳行、结构导航、前进后退；跨文件替换预览、两段提交与持久撤销 | 不是 IDEA 结构化搜索；结果上限/截断需遵守现有边界，引用/语义能力受语言服务限制 | [QuickSearch.svelte](../src/lib/search/QuickSearch.svelte)、[REPLACE.md](REPLACE.md)；[replace.state.test.ts](../tests/replace.state.test.ts)、[replace-model.test.ts](../tests/replace-model.test.ts)，相关路径另有 smoke 覆盖 |
+| F16 · 内置终端 | PTY shell、多终端、终端内查找、恢复目录/布局与发送编辑器内容入口 | 终端与默认管道任务是不同路径；重启不保留原 shell 进程，任务 PTY 支持另按需求处理 | [Terminal.svelte](../src/lib/terminal/Terminal.svelte)、[MULTIWINDOW.md](MULTIWINDOW.md)；`scripts/smoke.sh` 的终端路径（脚本位于仓库根 scripts） |
 
 对应实现集中在 `src/lib/editor/java-lsp.ts`、`src-tauri/src/{java,debug,gradle,spring_beans,spring_meta,langs,db,update}.rs`、`src-tauri/crates/` 和 `src/lib/{run,db,http,debug}/`。
 
-## 3. 当前已确认的问题
+## 3. 已确认的问题（2026-10-29 接手快照）
 
 | 优先级 | 问题 / 触发条件 | 证据与影响 | 后续动作 |
 |---|---|---|---|
@@ -47,7 +56,7 @@ Java 后端日常的主链路已经有实现，生态扩展也进入了数据库
 | P2 | 原地改名与改名前预览未做 | `renameAt → RenamePopup → doRename → javaRename` 直接执行；移动类 / 改签名有预览，不能反推 rename 也有 | 收窄 #81；先做改名前预览，再评估原地联动 |
 | P2 | `.editorconfig` 只覆盖一部分 | 已有缩进和保存清理，未接 charset / end_of_line；固定离开自动保存也没有开关 | 明确设置边界，按实际项目需求补齐，不把设置树的每个 ➕ 都机械实现 |
 
-## 4. 仍待复现 / 人工或环境验收
+## 4. 仍待复现 / 人工或环境验收（2026-10-29 接手快照）
 
 - **构建间歇卡住**：JOURNAL 2026-10-28 记录过约 240 秒后才真正起 JVM，埋点后 12 / 12 通过；没有坐实根因。保留时间线，下一次失败记录一次完整日志，不写成已修。
 - **#50 / #53**：原生右键后的焦点、AppKit / WebKit 分发真实键位；DOM 合成事件不能覆盖这一层。保存键跟随设置与错误注释已修，但整张真实按键矩阵未验。
@@ -55,7 +64,7 @@ Java 后端日常的主链路已经有实现，生态扩展也进入了数据库
 - **#47**：干净 macOS 用户 / 机器安装与 Gatekeeper、首次打开；当前机器已有缓存和配置，不能替代干净环境。
 - **真实项目**：建议用一个正在维护的多模块 Java 项目，连续验证导入、跨模块重构、运行、调试、测试、切分支及会话恢复。只读真实数据；涉及共享写入另行确认。
 
-## 5. 仓库留下的后续路线，按接手价值重排
+## 5. 接手时的后续路线（2026-10-29）
 
 以下从分期文档、issues 和源码缺口恢复，不是读取到的 agent 私有任务队列；排序是这次核对后的建议。
 
@@ -68,7 +77,7 @@ Java 后端日常的主链路已经有实现，生态扩展也进入了数据库
 7. **待需求再定**：#51 拉服务器日志；#58 pty 任务；#60 任意 bootRun 的停止；GitHub PR 集成。
 8. **明确暂缓**：#46 AI 的真实 agent 审阅与提交信息；#57 shell 环境缓存已测得约 240 ms 的成本，历史结论是暂不做，不是遗忘。
 
-## 6. 本轮收尾与验收记录
+## 6. 接手轮次的收尾与验收记录（2026-10-29）
 
 - traceId：接上响应头按钮，跳普通任务的运行窗或 Spring 的 Services；搜索整个 ID；查端口期间关闭的任务不再被选中；远程地址不给本机同端口的假结果。
 - Services：补齐缺失导入；聚焦请求只消费对应的变化，自动展开服务所在分组，不因后台运行状态变化反复抢回选中项。
@@ -96,4 +105,4 @@ smoke 仍会留下一个自己生成的 `lite-ide-smoke-trash-*` 测试文件在
 ## 7. 维护上的问题
 
 完成标记、README、issues 长时间不同步，是这次接手最容易误判的地方。MVP 的 ✅ 也混入了主动延期项；`TAKEOVER.md` 同时保存最初设计和后续结论，读一个局部会得出相反结果。
-以后每轮把「本轮实际跑过哪些、没跑哪些、原 issue 剩什么」一并写到这份状态页和 issue 核对表；历史推导留原日期，避免为追求整洁抹掉已知限制。
+当前维护以第 2 节为准：能力变化更新功能行；本轮实际验证、未测范围与问题进展写到对应领域记录/issue，表里链接证据。ISSUE-TRIAGE 保留当次整理快照；历史推导留原日期，避免不断往状态页和 issue 表复制同一串数字。

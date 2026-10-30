@@ -138,6 +138,8 @@ libgit2 静态链进来要多 2MB。起子进程的那套纪律（两个管道�
 
 | | 是什么 |
 |---|---|
+| [STATUS.md](docs/STATUS.md) | 当前功能清单、支持边界、实现与验收入口；新增/改变功能时同步 |
+| [BUNDLE-GUARD.md](docs/BUNDLE-GUARD.md) | 入口与静态依赖门禁、按需加载与预拉的取舍 |
 | [USAGE.md](docs/USAGE.md) | 怎么装、快捷键速查、每个功能怎么用 |
 | [TAKEOVER.md](docs/TAKEOVER.md) | 取代 IDEA 还缺什么、分几期做、替用户拍板的那几件（D11） |
 | [IDEA.md](docs/IDEA.md) | 接住 IDEA 的 Java 后端日常：语言服务器、Maven、Spring Boot、调试怎么接的，每一步的第 0 步实测 |

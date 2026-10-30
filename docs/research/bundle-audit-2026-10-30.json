@@ -1,0 +1,275 @@
+{
+  "date": "2026-10-30",
+  "applicationSourceRef": "c94e4ae9046ab7bfe9c362d3352c635f53c02102",
+  "note": "产品加载逻辑未改；生产基线带 manifest 不带 sourcemap。静态闭包不等于运行时加载/执行量。方法实现随本次提交入库。",
+  "versions": {
+    "vite": "6.4.3",
+    "svelte": "5.56.10",
+    "@tauri-apps/api": "2.11.1"
+  },
+  "production": {
+    "schema": 1,
+    "entries": [
+      {
+        "file": "assets/index-DRCU2pui.js",
+        "bytes": 163548,
+        "gzipBytes": 59869
+      }
+    ],
+    "staticDependencies": [
+      {
+        "file": "assets/preload-helper-BlTxHScW.js",
+        "bytes": 1110,
+        "gzipBytes": 650
+      }
+    ],
+    "initialJsBytes": 164658,
+    "initialJsGzipBytes": 60519,
+    "staticDependencyBytes": 1110,
+    "initialCssBytes": 29567,
+    "allJsBytes": 2766232,
+    "allJsChunks": 211,
+    "limits": {
+      "entryWarn": 155648,
+      "entryHard": 163840,
+      "initialHard": 165888
+    },
+    "findings": [
+      {
+        "level": "warning",
+        "metric": "entry",
+        "file": "assets/index-DRCU2pui.js",
+        "bytes": 163548,
+        "limit": 155648
+      }
+    ],
+    "status": "WARN"
+  },
+  "assetSha256": {
+    "assets/index-DRCU2pui.js": "73785a801ebab0605592e6b5924a1c2f37b6579ab5d3d0dadb778664ff792203",
+    "assets/preload-helper-BlTxHScW.js": "1a526fef747c3ce4f3c9dd4b3191886606ffb0447dfd46fb875e565f8381108b"
+  },
+  "lazyGroups": [
+    {
+      "source": "editor",
+      "key": "_Editor-BRG02wbR.js",
+      "file": "assets/Editor-BRG02wbR.js",
+      "ownBytes": 90955,
+      "additionalStaticJsBytes": 493359
+    },
+    {
+      "source": "src/lib/terminal/Terminal.svelte",
+      "key": "src/lib/terminal/Terminal.svelte",
+      "file": "assets/Terminal-D3sa-hSW.js",
+      "ownBytes": 372649,
+      "additionalStaticJsBytes": 375289
+    },
+    {
+      "source": "log",
+      "key": "_LogPane-DITdBBBw.js",
+      "file": "assets/LogPane-DITdBBBw.js",
+      "ownBytes": 39305,
+      "additionalStaticJsBytes": 51248
+    },
+    {
+      "source": "src/lib/shell/FileTree.svelte",
+      "key": "src/lib/shell/FileTree.svelte",
+      "file": "assets/FileTree-T79OQGXj.js",
+      "ownBytes": 26576,
+      "additionalStaticJsBytes": 35864
+    },
+    {
+      "source": "src/lib/shell/Panel.svelte",
+      "key": "src/lib/shell/Panel.svelte",
+      "file": "assets/Panel-Axs7ELf2.js",
+      "ownBytes": 18448,
+      "additionalStaticJsBytes": 32839
+    },
+    {
+      "source": "src/lib/agent/AgentPane.svelte",
+      "key": "src/lib/agent/AgentPane.svelte",
+      "file": "assets/AgentPane--DziJD1G.js",
+      "ownBytes": 13299,
+      "additionalStaticJsBytes": 27140
+    },
+    {
+      "source": "src/lib/db/DatabaseView.svelte",
+      "key": "src/lib/db/DatabaseView.svelte",
+      "file": "assets/DatabaseView-BS6X-IT3.js",
+      "ownBytes": 16221,
+      "additionalStaticJsBytes": 22591
+    },
+    {
+      "source": "src/lib/run/MavenView.svelte",
+      "key": "src/lib/run/MavenView.svelte",
+      "file": "assets/MavenView-Dca6K6N7.js",
+      "ownBytes": 12695,
+      "additionalStaticJsBytes": 27047
+    },
+    {
+      "source": "src/lib/run/GradleView.svelte",
+      "key": "src/lib/run/GradleView.svelte",
+      "file": "assets/GradleView-8m1w2FZ6.js",
+      "ownBytes": 6704,
+      "additionalStaticJsBytes": 20131
+    }
+  ],
+  "explicitStartupPreload": {
+    "roots": [
+      "src/lib/shell/FileTree.svelte",
+      "src/lib/shell/Confirms.svelte",
+      "src/lib/shell/ContextMenu.svelte",
+      "src/lib/search/QuickSearch.svelte",
+      "src/lib/search/Outline.svelte",
+      "src/lib/search/GotoLine.svelte",
+      "src/lib/shell/menu-actions.ts",
+      "src/lib/shell/Panel.svelte",
+      "src/lib/state/keymap.ts"
+    ],
+    "combinedWithInitialJsBytes": 310317,
+    "jsFiles": 31,
+    "classification": "静态并集下界；不是完整启动耗时或全部实际加载"
+  },
+  "sourceMapAttribution": {
+    "classification": "单独带 map 构建，仅作候选归因，不能作为可节省字节数",
+    "topSources": [
+      {
+        "source": "src/App.svelte",
+        "estimatedGeneratedBytes": 14662
+      },
+      {
+        "source": "src/lib/shell/StatusBar.svelte",
+        "estimatedGeneratedBytes": 8068
+      },
+      {
+        "source": "src/lib/shell/Content.svelte",
+        "estimatedGeneratedBytes": 7226
+      },
+      {
+        "source": "node_modules/.pnpm/svelte@5.56.10/node_modules/svelte/src/internal/client/reactivity/batch.js",
+        "estimatedGeneratedBytes": 6499
+      },
+      {
+        "source": "src/lib/shell/Overlays.svelte",
+        "estimatedGeneratedBytes": 5866
+      },
+      {
+        "source": "src/lib/shell/Tabs.svelte",
+        "estimatedGeneratedBytes": 5495
+      },
+      {
+        "source": "src/lib/state/docs.svelte.ts",
+        "estimatedGeneratedBytes": 4783
+      },
+      {
+        "source": "src/lib/state/session.ts",
+        "estimatedGeneratedBytes": 4782
+      },
+      {
+        "source": "src/lib/state/persist.svelte.ts",
+        "estimatedGeneratedBytes": 4755
+      },
+      {
+        "source": "src/lib/state/git.svelte.ts",
+        "estimatedGeneratedBytes": 4425
+      },
+      {
+        "source": "src/lib/state/tabflow.svelte.ts",
+        "estimatedGeneratedBytes": 4300
+      },
+      {
+        "source": "src/lib/state/tabs.svelte.ts",
+        "estimatedGeneratedBytes": 4289
+      },
+      {
+        "source": "(unmapped)",
+        "estimatedGeneratedBytes": 4086
+      },
+      {
+        "source": "src/main.ts",
+        "estimatedGeneratedBytes": 3913
+      },
+      {
+        "source": "node_modules/.pnpm/svelte@5.56.10/node_modules/svelte/src/internal/client/runtime.js",
+        "estimatedGeneratedBytes": 3808
+      },
+      {
+        "source": "node_modules/.pnpm/svelte@5.56.10/node_modules/svelte/src/internal/client/dom/blocks/each.js",
+        "estimatedGeneratedBytes": 3808
+      },
+      {
+        "source": "src/lib/state/settings.svelte.ts",
+        "estimatedGeneratedBytes": 3209
+      },
+      {
+        "source": "node_modules/.pnpm/svelte@5.56.10/node_modules/svelte/src/internal/client/reactivity/effects.js",
+        "estimatedGeneratedBytes": 3157
+      },
+      {
+        "source": "src/lib/shell/Rail.svelte",
+        "estimatedGeneratedBytes": 2970
+      },
+      {
+        "source": "node_modules/.pnpm/svelte@5.56.10/node_modules/svelte/src/internal/client/dom/blocks/boundary.js",
+        "estimatedGeneratedBytes": 2938
+      },
+      {
+        "source": "src/lib/shell/Splitter.svelte",
+        "estimatedGeneratedBytes": 2794
+      },
+      {
+        "source": "src/lib/state/layout.svelte.ts",
+        "estimatedGeneratedBytes": 2701
+      },
+      {
+        "source": "src/lib/state/invariant.ts",
+        "estimatedGeneratedBytes": 2547
+      },
+      {
+        "source": "src/lib/shell/TitleBar.svelte",
+        "estimatedGeneratedBytes": 2375
+      },
+      {
+        "source": "src/lib/shell/FileGlyph.svelte",
+        "estimatedGeneratedBytes": 2188
+      },
+      {
+        "source": "src/lib/ipc/commands.ts",
+        "estimatedGeneratedBytes": 2066
+      },
+      {
+        "source": "src/lib/state/overlay.svelte.ts",
+        "estimatedGeneratedBytes": 2066
+      },
+      {
+        "source": "node_modules/.pnpm/svelte@5.56.10/node_modules/svelte/src/internal/client/proxy.js",
+        "estimatedGeneratedBytes": 1990
+      },
+      {
+        "source": "node_modules/.pnpm/svelte@5.56.10/node_modules/svelte/src/internal/client/reactivity/deriveds.js",
+        "estimatedGeneratedBytes": 1742
+      },
+      {
+        "source": "src/lib/state/worktree.svelte.ts",
+        "estimatedGeneratedBytes": 1664
+      }
+    ]
+  },
+  "runtimeProbe": {
+    "surface": "isolated test identity background, LITE_IDE_DEBUG=1",
+    "initial": {
+      "hidden": true,
+      "resourceTimingEntries": 0,
+      "editors": 0
+    },
+    "afterTextOpen": {
+      "hidden": true,
+      "resourceTimingEntries": 0,
+      "editors": 1
+    },
+    "conclusion": "Resource Timing 不提供有效条目，不据此推断加载量；当前前台性能 UNKNOWN",
+    "commandExitCode": 1,
+    "exitExplanation": "正常 quit 后临时脚本的 set -e 清理 trap 因 pkill 未匹配进程而退出；不能当应用失败",
+    "cleanup": "按创建时间与 fixture 内容唯一匹配，确认无测试进程后清理本轮目录/测试数据并注销测试应用"
+  }
+}

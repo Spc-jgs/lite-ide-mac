@@ -15,7 +15,8 @@
     "app:build": "tauri build --no-bundle",
     "app:bundle": "scripts/java-bundle.sh && tauri build --config src-tauri/tauri.java.json && scripts/ls-clean.sh",
     "app:bundle:devtools": "scripts/java-bundle.sh && tauri build --features devtools --config src-tauri/tauri.java.json",
-    "test": "node tests/run.mjs"
+    "test": "node tests/run.mjs",
+    "bundle:check": "vite build --manifest --outDir src-tauri/target/bundle-budget.noindex/dist && node scripts/bundle-budget.mjs src-tauri/target/bundle-budget.noindex/dist"
   },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.3",
