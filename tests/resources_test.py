@@ -37,6 +37,44 @@ def report():
 
 
 class Analysis(unittest.TestCase):
+    def test_isolated_log_scenario_does_not_open_editors(self):
+        self.assertEqual(g.fixture_documents("logs"), {})
+        a = g.scenario("quick", "logs", "burst", log_mib=64)
+        b = g.scenario("quick", "logs", "burst", log_mib=1024)
+        c = g.scenario("quick", "logs", "burst", log_mib=64, native_diagnostics=True)
+        self.assertEqual(a["warmups"], 0)
+        self.assertEqual(a["focus"], "logs")
+        self.assertNotEqual(a, b)
+        self.assertNotEqual(a, c)
+        self.assertEqual(len(a["log_method_sha256"]), 64)
+
+    def test_log_fixture_hash_is_streamed_and_count_checks_complete_lines(self):
+        import resource_log as logs
+        line = b"2026-01-01 00:00:00 INFO trace=resource-check bounded fixture\n"
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "large.log"
+            p.write_bytes(line * 3)
+            self.assertEqual(logs.expected_lines(p), 3)
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("whole fixture read")):
+                self.assertEqual(logs.file_sha(p), __import__("hashlib").sha256(line * 3).hexdigest())
+            p.write_bytes(line + b"partial")
+            with self.assertRaises(RuntimeError):
+                logs.expected_lines(p)
+
+    def test_native_diagnostics_rejects_reused_pid(self):
+        import resource_log as logs
+        r = mock.Mock()
+        r.discover.return_value = ([7], [{"pid": 7, "name": "lite-ide"}])
+        before, after = row(pid=7, start=1), row(pid=7, start=2)
+        metadata = []
+        with tempfile.TemporaryDirectory() as d:
+            r.out = Path(d)
+            with mock.patch.object(g, "probe", side_effect=[[before], [after]]), mock.patch.object(g, "run", return_value="snapshot"):
+                logs.native_snapshot(r, "test", metadata)
+            self.assertEqual(list(r.out.iterdir()), [])
+        self.assertEqual(len(metadata), 1)
+        self.assertIn("身份改变", metadata[0]["native_error"])
+
     def test_diagnostic_scenarios_have_separate_identity(self):
         a, b = report(), report()
         a["context"]["scenario"] = g.scenario("full", "mixed", "paced")

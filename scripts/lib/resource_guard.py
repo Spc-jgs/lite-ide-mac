@@ -22,7 +22,7 @@ PROFILES = {
     "quick": {"rounds": 4, "warmups": 1, "idle": 15, "settle": 5, "log_mib": 16, "tab_limit": 25, "fixture": "valid-syntax-v1"},
     "full": {"rounds": 8, "warmups": 2, "idle": 60, "settle": 15, "log_mib": 64, "tab_limit": 25, "fixture": "valid-syntax-v1"},
 }
-WORKLOADS = ("mixed", "json", "json-text")
+WORKLOADS = ("mixed", "json", "json-text", "logs")
 PACES = {"burst": 0, "paced": 1.8}
 MIB = 1024 * 1024
 JS_CALLS = 0
@@ -198,6 +198,8 @@ def fixture_text(ext):
 
 
 def fixture_documents(workload):
+    if workload == "logs":
+        return {}
     if workload == "mixed":
         return {f"sample.{ext}": fixture_text(ext) for ext in ["txt", "json", "md", "html", "css", "xml", "sql", "csv", "ini", "toml", "yaml", "properties"]}
     # 对照组逐字相同，仅扩展名不同；不把文件大小差异误归因于语法处理。
@@ -205,8 +207,14 @@ def fixture_documents(workload):
     return {f"sample-{i:02}.{ext}": fixture_text("json") for i in range(12)}
 
 
-def scenario(profile, workload, pace, minimap="on", lifetimes=False, control="none", lifetime_sampling="final"):
+def scenario(profile, workload, pace, minimap="on", lifetimes=False, control="none", lifetime_sampling="final", log_mib=None, native_diagnostics=False):
     p = dict(PROFILES[profile])
+    if workload == "logs":
+        from resource_log import method_sha
+        p.update(fixture="isolated-log-v1", focus="logs", warmups=0, native_diagnostics=native_diagnostics, log_method_sha256=method_sha())
+        if log_mib is not None:
+            p["log_mib"] = log_mib
+        return p
     # 默认场景保持原样；新变量写进可比性键，不能与旧场景算优化差值。
     if workload != "mixed":
         p["fixture"] = f"valid-syntax-v1-{workload}"
@@ -244,7 +252,7 @@ def prepare(args):
     for name, text in fixture_documents(args.workload).items():
         # 不用 Java / Rust / Python / TS 扩展名，普通编辑场景不能顺带启动语言服务器或下载安装。
         (fixture / name).write_text(text)
-    p = scenario(args.profile, args.workload, args.pace, args.minimap, args.inspect_lifetimes, args.control, args.lifetime_sampling)
+    p = scenario(args.profile, args.workload, args.pace, args.minimap, args.inspect_lifetimes, args.control, args.lifetime_sampling, args.log_mib, args.native_diagnostics)
     line = b"2026-01-01 00:00:00 INFO trace=resource-check bounded fixture\n"
     chunk = line * (MIB // len(line))
     with (fixture / "large.log").open("xb") as f:
@@ -252,6 +260,9 @@ def prepare(args):
             f.write(chunk)
     out = Path(args.output) if args.output else ROOT / "src-tauri/target/resource-reports.noindex" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + work.name)
     out.mkdir(parents=True, exist_ok=False)
+    if args.workload == "logs":
+        from resource_log import archive_method
+        archive_method(out)
     if args.inspect_lifetimes:
         (out / "lifetime-probe.js").write_bytes(LIFETIME_SCRIPT.read_bytes())
     context = {"schema": 3, "profile": args.profile, "scenario": p, "head": run(["git", "rev-parse", "HEAD"]).strip(),
@@ -414,7 +425,7 @@ def analyse(context, points, orphans):
     closed = [x for x in points if x["phase"].startswith("closed-")]
     growth = trend([p["known_footprint_bytes"] for p in closed])
     if growth["slope"] is not None and growth["slope"] > MIB and growth["growth"] > 8 * MIB and growth["r2"] > .7:
-        findings.append({"status": "WARN", "metric": "retained_memory", "reason": "预热后关完序列持续增长；需长测 / Allocations 确认，不直接判内存泄漏"})
+        findings.append({"status": "WARN", "metric": "retained_memory", "reason": "关完序列持续增长；无预热的场景需另排首次初始化，长测 / Allocations 确认，不直接判内存泄漏"})
     opened = [p for p in points if p["phase"].startswith("opened-") and p["attribution"] != "partial"]
     peak = max((p.get("known_footprint_peak_bytes") or p["known_footprint_bytes"] or 0 for p in opened), default=0)
     if peak > 300 * MIB and context.get("scenario", {}).get("control") != "ipc":
@@ -478,6 +489,9 @@ def compare(a, b):
 
 def measure():
     state = json.loads((Path(os.environ["LITE_WORK"]) / "resources.json").read_text())
+    if state["context"]["scenario"].get("focus") == "logs":
+        from resource_log import measure as measure_logs
+        return measure_logs(state)
     r = Recorder(state)
     p = state["context"]["scenario"]
     fixture = Path(state["fixture"])
@@ -608,12 +622,18 @@ def main():
     ap.add_argument("--inspect-lifetimes", action="store_true")
     ap.add_argument("--lifetime-sampling", choices=["final", "checkpoints"], default="final")
     ap.add_argument("--control", choices=["none", "ipc"], default="none")
+    ap.add_argument("--log-mib", type=int, choices=[16, 64, 1024])
+    ap.add_argument("--native-diagnostics", action="store_true")
     ap.add_argument("--output")
     ap.add_argument("--baseline")
     ap.add_argument("reports", nargs="*")
     args = ap.parse_args()
     if args.mode == "prepare" and (args.inspect_lifetimes or args.control == "ipc") and args.pace != "paced":
         ap.error("生命周期诊断 / IPC 对照需要 --pace paced，以便观察每次挂载")
+    if args.mode == "prepare" and ((args.log_mib is not None or args.native_diagnostics) and args.workload != "logs"):
+        ap.error("--log-mib / --native-diagnostics 仅用于 --workload logs")
+    if args.mode == "prepare" and args.workload == "logs" and (args.inspect_lifetimes or args.control != "none" or args.minimap != "on" or args.pace != "burst"):
+        ap.error("独立日志场景不混入编辑器诊断/配置变量")
     try:
         if args.mode == "cleanup": cleanup()
         elif args.mode == "build": build()

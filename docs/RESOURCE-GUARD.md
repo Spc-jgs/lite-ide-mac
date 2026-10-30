@@ -26,6 +26,7 @@ scripts/resources.sh --profile full --pace paced
 scripts/resources.sh --profile full --pace paced --minimap off
 scripts/resources.sh --profile full --pace paced --inspect-lifetimes
 scripts/resources.sh --profile full --pace paced --inspect-lifetimes --control ipc
+scripts/resources.sh --workload logs --profile quick --log-mib 1024 --native-diagnostics
 scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.json
 ```
 
@@ -249,6 +250,54 @@ scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.j
 因此 #90 继续调查：下一步是 R03 的引用链/分配定位、R09 的独立日志规模与瞬时分配、R22 的长时稳定工作量；没有足够证据做新的应用重构。资源报告补充了每阶段采样峰值和已知进程全流程峰值，避免只看 opened 的 300 MiB 调查线漏掉日志阶段；保持原门槛不变。
 
 本轮检查范围：R01、R02、R03、R04、R05、R06 的普通测试身份范围；R09 的约 64 MiB 日志局部场景；R20 的构建与测试身份收尾；R21 的对象存活诊断。R04 的连续编辑/读放大、R06 的重工具、R09 的 1 GiB 部分仍未执行。R07/R08 前台分布、R10–R12 工具专项、R13/R14 长期容量/故障注入、R15 事件风暴、R16 多窗口、R17 恢复、R18 其他协议、R19 硬件指标、R22 长时工作量，本轮未执行：当前改动限于诊断和清单，相关项目保留待测/原有证据，不以本轮普通场景冒充通过。
+
+### 5.7 独立日志：图形记账、结果表与分配器保留（2026-10-30）
+
+本轮选择 R01–R06 的隔离单窗口范围、R09 独立日志、R20 测试收尾，以及 R21 的编辑器保留代码核对。应用源码/测试二进制仍为 §5.6 的 `1a3e7396…` / `994c5d21…`，没有改应用实现。三次新进程都没有编辑器使用历史，均后台、无 JVM、4 轮打开→全命中过滤→关闭，不请求 GC、不调用 allocator purge。内存压力前后均 1，fresh coalition 归属完整，源码/fixture 未改，主进程 FD 各阶段均 11、退出残留 0。整机已使用约 7 GiB swap，不能把压力等级 1 写成整机无内存负担。
+
+先行定位使用有限临时脚本：初始/恢复空闲各 30 秒、关闭等 5 秒、打开阶段并发采样 6 秒、过滤阶段 8 秒，完成后各采样 5 秒；在第一轮及初始/恢复阶段另取 vmmap。随后把方法整理成正式的 `--workload logs` 入口，以 16 MiB/quick 走通真应用。quick 空闲 15 秒、full 60 秒；full 关闭等 15 秒、8 轮，quick 等 5 秒、4 轮。均无预热，首轮单列；不能将 quick 的首轮初始化混入后当成稳定增长的证明。
+
+| 文件 / 方法 | 过滤完成后整应用中位 MiB（4 轮） | 全流程采样峰 MiB | 关闭后整应用中位 MiB（4 轮） | 恢复空闲 MiB | 原始判定 |
+|---|---|---:|---|---:|---|
+| 约 64 MiB · 先行定位 | 170.98 / 174.29 / 179.28 / 153.25 | 352.22 | 162.80 / 127.39 / 169.92 / 145.35 | 132.94 | NO_SIGNAL |
+| 约 1 GiB · 先行定位 | 244.68 / 370.49 / 230.36 / 290.62 | 474.94 | 231.93 / 233.76 / 236.61 / 228.21 | 223.91 | NO_SIGNAL |
+| 约 16 MiB · 新入口 quick | 169.20 / 192.07 / 193.99 / 198.48 | 336.39 | 119.13 / 144.96 / 144.09 / 149.71 | 145.16 | REVIEW（关闭序列增长） |
+
+报告目录均在 `src-tauri/target/resource-reports.noindex/`：
+
+- 64 MiB：`20261030T063937Z-lite-bridge.DGNhcY/report.json`。
+- 1 GiB：`20261030T064326Z-lite-bridge.1Q8HUd/report.json`。
+- 16 MiB：`20261030T064715Z-lite-bridge.8nzxZK/report.json`。
+
+先行脚本及原 `resource_guard.py`、方法 SHA 清单另存各报告目录，原始报告未改写。64 MiB 先行脚本的 DOM 行数 selector 写成不存在的 `.log-view`，其 `rows:0` **无效**，不拿它证明前端没渲染；native 索引/级别/命中数量均核对完成。1 GiB 和新入口已改为实际 `.lv`，每轮记录 46 个 DOM 行。1 GiB 的 SHA 使用流式 1 MiB 缓冲；64 MiB 的早期诊断在准备/收尾读过整份 fixture，两种方法有观察者差异，不直接算缩放倍率或优化收益。
+
+本轮可确认的事实与解释：
+
+1. **图形内存不能只看 GPU 进程，也不能只看 canvas 对象。** 64 MiB 第一轮 WebContent 的 vmmap `owned unmapped (graphics)` 打开时 resident 约 89.0 MiB、过滤后约 105.5 MiB；同阶段 GPU 有约 135 MiB 的 footprint 采样峰值。图形记账能解释峰值的一部分，尚未定位到具体合成层/表面，不把整块 WebContent 当 JS 堆。没有因此修改透明窗口、CSS 或应用配置。
+2. **全命中行号表有真实容量成本。** 1 GiB fixture 实际 1,073,709,056 B / 17,317,888 行，过滤每轮全部命中。`logengine/src/filter.rs` 的结果为 `Vec<u64>`，元素 payload 138,543,104 B（132.125 MiB）；第一轮过滤前后主进程中位 38.31 → 170.58 MiB，vmmap `Malloc Large` 约 140.4 MiB。结果在 Rust，前端只画 46 行，不能误诊为全文传入浏览器。
+3. **关闭后的高 footprint 不等于同量活跃对象。** 1 GiB 恢复空闲主进程约 160.19 MiB；原生快照 `Malloc Large (empty)` resident/dirty 约 132.4 MiB，malloc zones 的活跃分配总量约 15.2 MiB。支持“已释放区域仍被分配器保留”的解释，不足以给每块内存建立历史引用链，也不能解释此前全部编辑器 WebContent 保留。未加定期 purge/强制 GC。
+4. 64 MiB / 1 GiB 关闭序列没有持续线性增长；16 MiB quick 则触发约 30.58 MiB 首末增长的调查线（斜率约 9.09 MiB/轮、R² 约 0.724）。原始自动理由当时写“预热后”，但本场景没有预热；现已修正文案。保留 REVIEW，不用另两轮 NO_SIGNAL 抹掉，也不把它直接定为泄漏。
+5. 1 GiB 常驻预算尚不能标通过：第一次未过滤阶段中位约 100.79 MiB，后续带使用历史的未过滤阶段中位最高约 233.65 MiB；过滤后也高于历史 200 MB 目标。MB 与 MiB 未悄悄互换。未测前台首屏/滚动，刚生成文件缓存热，不能声称冷启动、60fps 或 <1s 验收已完成。
+
+恢复空闲 CPU 分别约 0.054% / 0.070% / 0.217%，对应 30 / 30 / 15 秒 logical writes 均 4 KiB；主进程恢复线程 16 / 17 / 17。只是本场景结果，不涉及温度或 NAND 寿命。
+
+**后续决策**：[#90](https://github.com/Spc-jgs/lite-ide-mac/issues/90) 保留编辑器引用/分配及长时调查；新增 [#92](https://github.com/Spc-jgs/lite-ide-mac/issues/92) 跟踪高命中结果表容量，先测不同命中率并比较简单表示方案，再改应用。图形合成层峰值尚未定根因，不能按猜测去掉界面效果。#89 仍是独立观察项。
+
+可复用命令：
+
+```bash
+scripts/resources.sh --workload logs --profile quick --log-mib 64
+scripts/resources.sh --workload logs --profile quick --log-mib 1024 --native-diagnostics
+# 持续增长或生命周期变更时再选 full；相同方法/场景匹配后 compare
+```
+
+新入口只生成日志，不先循环编辑器；fixture 规模限制为 16/64/1024 MiB、轮数按 profile 有限。并发采样覆盖 open/filter 的操作窗口，核对索引/扫描/命中数，再记录完成窗口；每秒采样仍会遗漏更短峰值。`--native-diagnostics` 在采样窗外读取 vmmap，仍会扰动进程，开关/方法文件 SHA 都进入 scenario；档案保存方法源码，运行中改方法判 INVALID。它不把日志套进“12 文件 300 MiB”线，也不靠已有 NO_SIGNAL 宣称 1 GiB 全面达标。
+
+验证：资源自检 25 项通过，前端测试 116 个文件通过；三项新测试按真实错法确认断言红。新日志入口在隔离真应用跑完 quick 4 轮并保存 REVIEW；`pnpm app:bundle` 离线成功，应用源码/测试构建凭据未变，入口仍 163548 B。未修改 Rust/Svelte 实现，本轮不重复 Rust 全量测试和 smoke，历史通过记录不冒充本轮结果。
+
+其余范围：R03 编辑器真实引用链仍缺失；R04 连续编辑/读放大、R06 重工具、R09 前台首屏/滚动未覆盖。R07/R08 前台分布暂缓，不打断前台；R10–R12 无 JVM 场景不适用；R13/R14 长期容量/故障、R15 风暴、R16 多窗口、R17 恢复、R18 其他协议、R19 热/能耗暂缓，优先缩小内存来源；R22 30–60 分钟组合场景仍待测。历史正常项保持复测条件。
+
+原生解释的外部依据：[WebKit 的内存分类说明](https://docs.webkit.org/Infrastructure/MemoryInspection.html)、[Apple 的 vmmap/heap 分析讲解](https://developer.apple.com/videos/play/wwdc2022/10106/)、[Apple libmalloc 的 large cache 实现](https://github.com/apple-oss-distributions/libmalloc/blob/main/src/magazine_large.c)。公开源码说明存在缓存/延迟回收机制，不代表已核对当前 OS 每项实现；本轮“分配器保留”仍是与实测分类相符的解释。
 
 ## 6. 按清单选专项并更新结果
 
