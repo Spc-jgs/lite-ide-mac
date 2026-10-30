@@ -18,10 +18,18 @@
 scripts/resources.sh --self-test
 scripts/resources.sh --build --profile quick
 scripts/resources.sh --profile full --baseline /path/to/before/report.json
+scripts/resources.sh --profile full --workload json-text
+scripts/resources.sh --profile full --workload json
+scripts/resources.sh --profile full --pace paced
+scripts/resources.sh --profile full --pace paced --minimap off
 scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.json
 ```
 
 首次或应用源码/构建变化后带 `--build`，走仓库测试构建、Cargo 离线。不安装依赖、不下载工具或数据；缺本机依赖直接失败，构建日志保留在 `target/resource-tools.noindex/test-build.log`。旧入口 `scripts/mem.sh` 转到这里，`mem.sh 8` 对应 full。
+
+默认 `--workload mixed --pace burst` 保持原有 12 种小文件场景。调查 WebContent 时，`json` 和 `json-text` 各生成 12 份逐字相同的合法 JSON（每份 400 条），仅扩展名为 `.json` / `.txt`；文件数、内容及字节数一致，避免把大小差异误归因于语法处理。`--pace paced` 在每份文件成为当前标签且编辑器出现后再等 1.8 秒；它是日常节奏对照，不保证异步语言处理已完成，也不代表前台响应时间。文件场景与打开间隔写入 report 的 scenario，不同场景的 compare 返回 UNKNOWN，不能算作优化收益。`--minimap off` 通过测试应用原有菜单关闭代码缩略图，核对设置读回和编辑器没有缩略图 DOM；只影响本轮测试身份。该变量也写入 scenario，不能拿减少绘制工作的配置对照冒充修复收益。
+
+打开阶段目前仍在 12 份全部打开后采样 2 秒；这个“采样峰值”不覆盖逐文件打开过程，也不是瞬时最高值。paced 保留相同的关闭等待与日志场景，用于拆分节奏变量，不冒充与历史 `mem.sh`（关后等 25 秒）的完全同条件复现。
 
 | 场景 | quick | full | 用途 |
 |---|---:|---:|---|
@@ -93,9 +101,9 @@ scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.j
 | 已测现象，先校准场景 | 快速打开 12 文件的全进程采样峰值超过 300 MiB 参考线 | schema 3 full 报告 §5.2；旧日常节奏不同，见 §3.1 | 峰值是真的，是否影响日常体验/应降至多少仍待验证；不直接判泄漏或实现缺陷 |
 | 已确认策略缺口，影响未测 | 历史每文件 4 MiB×200 版、30 天；只清刚记录的目录，无全局容量/过期目录扫除 | `crates/histsvc/src/lib.rs::record/prune` | 800 MiB/文件是极端理论值，有内容去重，非实测异常。先量代表性工作量的容量增长；需要总容量承诺时再补策略 |
 | 已确认策略缺口，影响未测 | HTTP 按项目保留约 50 份响应，原始响应接收上限 32 MiB，无全局字节预算 | `src/commands/http.rs`、`crates/httpsvc/src/lib.rs` | 50×32 MiB 只反映原始大响应的保留量级，不能当格式化文件的硬上限；长期真实占用未测，按使用场景排期 |
-| 已修 P1（本地） | JSON 缩进原来只卡输入，现于每次追加前卡输出 8 MiB，超限保留完整原文并说明未格式化 | `crates/httpsvc/src/json.rs::reindent` / `send_capped`、HttpPane；[#85](https://github.com/Spc-jgs/lite-ide-mac/issues/85) | 旧实现 2001 B → 2,004,001 B；6001 B 放大样例验红后修复。httpsvc 22 项通过，含真实 curl 回退原文及输出边界 |
-| 已修 P1（本地） | 外部重载曾清掉等待期间的新草稿；现用重载代次、标签身份/路径/模式/指纹阻止过期写回 | `docs.svelte.ts::reloadGuard/checkExternalChanges`、docs-ops；[#84](https://github.com/Spc-jgs/lite-ide-mac/issues/84) | 旧实现在草稿保护断言验红；11 场景覆盖编辑/撤销/保存/改名/关闭重开/模式/编码/逆序及显式重载 |
-| 已修 P2（本地） | Git 刷新合并；日志/堆串行采样与回包失效；监听 Err/rescan 显式校准和受限降级 | [#86](https://github.com/Spc-jgs/lite-ide-mac/issues/86)、[#87](https://github.com/Spc-jgs/lite-ide-mac/issues/87)、[#88](https://github.com/Spc-jgs/lite-ide-mac/issues/88)；细节见轮询评审 §7 | 10 次 Git 触发首轮前查询 20→2、整批共 4；采样错误副本验红；watch 17 项。Java 通知不全时提示手动重启，不冒充自动修复所有索引 |
+| 已修 P1（4ccae8e） | JSON 缩进原来只卡输入，现于每次追加前卡输出 8 MiB，超限保留完整原文并说明未格式化 | `crates/httpsvc/src/json.rs::reindent` / `send_capped`、HttpPane；[#85](https://github.com/Spc-jgs/lite-ide-mac/issues/85) | 旧实现 2001 B → 2,004,001 B；6001 B 放大样例验红后修复。httpsvc 22 项通过，含真实 curl 回退原文及输出边界 |
+| 已修 P1（4ccae8e） | 外部重载曾清掉等待期间的新草稿；现用重载代次、标签身份/路径/模式/指纹阻止过期写回 | `docs.svelte.ts::reloadGuard/checkExternalChanges`、docs-ops；[#84](https://github.com/Spc-jgs/lite-ide-mac/issues/84) | 旧实现在草稿保护断言验红；11 场景覆盖编辑/撤销/保存/改名/关闭重开/模式/编码/逆序及显式重载 |
+| 已修 P2（4ccae8e） | Git 刷新合并；日志/堆串行采样与回包失效；监听 Err/rescan 显式校准和受限降级 | [#86](https://github.com/Spc-jgs/lite-ide-mac/issues/86)、[#87](https://github.com/Spc-jgs/lite-ide-mac/issues/87)、[#88](https://github.com/Spc-jgs/lite-ide-mac/issues/88)；细节见轮询评审 §7 | 10 次 Git 触发首轮前查询 20→2、整批共 4；采样错误副本验红；watch 17 项。Java 通知不全时提示手动重启，不冒充自动修复所有索引 |
 | 观察项，暂不重构 | 两种 LSP 客户端 wire 后每秒醒一次；空文档集合也醒后返回 | `src/lib/editor/java-lsp.ts`、`lsp-generic.ts` | 行为已确认，但未测出它造成空闲 CPU/能耗问题；有信号再改启停，不仅凭 setInterval 存在就报 bug |
 | 小型保留项，严重度未量 | 两种 LSP 的 `viewsOf` 在 destroy 时只删 Set 内视图、不删空 Set 的路径键；诊断缓存只在 opened 关闭分支删路径 | 同上 `Sync.destroy` / `diagsOf` | 空键保留是真的，未证明 EditorView 泄漏；正常项目下可能很小。相关代码改动时可顺手清空键，当前不建立通用缓存治理框架 |
 | 保留采样/兜底机制 | Structure 400ms、Services 端口/堆、日志索引/过滤/跟随 | `StructureView.svelte`、`ServicesView.svelte`、日志组件 | Structure 未变不重算；日志/堆已补串行与失效保护，周期为本轮完成后的等待时间；不全面改事件驱动。其余观察见 [#89](https://github.com/Spc-jgs/lite-ide-mac/issues/89) |
@@ -154,9 +162,61 @@ scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.j
 
 两轮同一构建的变化不能算优化收益，也不能以第二轮没触发增长抹掉第一轮。已向 #90 补充重复性结果：继续区分 WebContent 的活对象保留、GC/分配器缓存和异步积压，根因尚未确定。当前不为达到内存数字主动 GC 或调整预算。正式 app/dmg 打包成功；本轮前端 115 文件、Rust 740 项（4 ignored）、clippy、HTTP 36、Git UI 15、Spring/Services 111、任务 44 均通过，相关检查没有替代这两条资源调查。
 
+### 5.4 同构建拆分内容与打开节奏（2026-10-30）
+
+以下配置对照保持应用源码、测试二进制与 §5.3 完全相同，新增脚本场景；不是应用优化的 before/after。源码 SHA-256 `99f16f5d49e7747068de16a88653e2296865dedeb3727b099aef0c10000cbddc`，二进制 SHA-256 `c229e97f3a4d08055a4d77c2b476096c9454edbe33ac76353f31016edd64b735`。HEAD 为 `4ccae8e`，dirty 来自脚本、测试和文档修改。各组独立启动并清空测试身份数据，不能把不同进程的回收时机当作固定差值。
+
+前两组都用 12 份相同的 JSON 内容，仅扩展名不同。full 仍为预热 2 轮、测量 8 轮、关后等 15 秒、初始/恢复空闲各 60 秒、最后走 64 MiB 日志打开/过滤。第三组沿用原 mixed 文件，只改变每文件打开后的等待。各项均未主动 GC、修改预算或配置定时任务。
+
+| 场景 | 报告目录（`target/resource-reports.noindex/`） | 打开后采样峰值 MiB | 首/末关闭中位 MiB | 关闭斜率 MiB/轮；R² | 恢复空闲 MiB |
+|---|---|---:|---:|---:|---:|
+| `json-text` / burst | `20261030T012403Z-lite-bridge.AGvGMC` | 478.61 | 175.08 / 220.08 | +5.65；0.433 | 183.80 |
+| `json` / burst | `20261030T012950Z-lite-bridge.B2LGyN` | 481.25 | 214.43 / 164.50 | -9.61；0.724 | 171.22 |
+| `mixed` / paced | `20261030T013819Z-lite-bridge.lhrwwt` | 551.22 | 218.13 / 417.00 | +28.53；0.978 | 419.79 |
+| `mixed` / paced / minimap off | `20261030T014908Z-lite-bridge.GREkVJ` | 309.57 | 192.36 / 196.94 | +1.35；0.046 | 206.38 |
+
+前两组（json-text/json）均为 REVIEW，仅触发 `opened_memory_budget`；未触发持续增长条件。`json-text` 首末上升不能因 R² 未达线而忽略，其序列为 175.08、189.61、207.16、225.41、242.80、209.32、216.77、220.08 MiB，末尾恢复空闲又降到 183.80 MiB。JSON 组序列为 214.43、239.18、185.13、181.86、184.77、160.33、161.97、164.50 MiB。仍只能描述观测，不能用某一轮下降证明无泄漏。
+
+两轮主进程 FD 每轮 11、关闭时标签/编辑器均 0、退出确认残留 0、4 个进程归属完整、源码/fixture 未变、压力字段前后均 1。恢复空闲单核 CPU 分别 0.212% / 0.197%，60 秒 logical writes 为 108 / 100 KiB；它们不代表物理 SSD 写入或整机发热。启动观察 455 / 454 ms，不是热启动分布。
+
+两轮首/末关闭时 WebContent 中位分别为 125.55 / 171.11、165.24 / 116.56 MiB，主进程约 27.5 / 27.9 MiB。纯文本也出现峰值，说明“必须有语法解析才出现峰值”不成立；各一轮且回收有波动，不能据此证明语言处理没有额外成本。GC/分配器缓存、共享编辑器/绘制路径或仍活着的对象尚未区分；没有可归因的修复证据，不改缓存或回收策略来凑预算。
+
+慢速完整组再次触发 `retained_memory`，关闭序列为 218.13、224.75、284.72、295.72、327.36、340.74、385.77、417.00 MiB，恢复空闲也没有明显回落。首/末关闭 WebContent 为 164.09 / 368.24 MiB、GPU 为 17.41 / 17.34 MiB，增长仍主要在 WebContent；主进程 FD 每轮 11，关闭标签/编辑器 0、退出残留 0、归属完整、源码/fixture 未变、压力前后均 1。恢复空闲单核 CPU 0.507%、logical writes 0；本轮未得到数值启动行，启动观察 UNKNOWN。
+
+这一轮的恢复空闲阶段额外只读取一次 vmmap（耗时约 0.6 秒），结果保存在同报告目录的 `webcontent-vmmap-summary.txt`。该时点 WebContent footprint 约 360.5 MiB；WebKit Malloc dirty 约 255.8 MiB，owned unmapped graphics dirty 约 183.7 MiB。VM 类别不能相加当 footprint，更不能说明是哪段应用代码保留；这次额外探针可能扰动恢复段 CPU/I/O，不影响调用前已完成的关闭序列。它提示要追加相同 paced/full、仅关闭缩略图的对照，不能直接断言 canvas 泄漏。
+
+缩略图关闭组的完整序列为 192.36、202.30、217.18、231.69、228.80、204.63、226.71、196.94 MiB，没有触发持续增长；打开峰值仍约 309.57 MiB，结论 REVIEW。WebContent 首/末关闭中位 138.30 / 142.89 MiB；主进程 FD 每轮 11，关闭标签/编辑器和各阶段缩略图 DOM 均 0，退出残留 0。恢复空闲单核 CPU 0.672%、60 秒 logical writes 0，启动观察 458 ms；归属完整、源码/fixture 未变、压力前后均 1。此组未额外跑 vmmap。
+
+配置对照各一轮只能支持继续检查缩略图，不能把关闭功能后的数字算成代码收益。后续真应用画布探针确认首次打开会建 4 张画布（正常一组为可见画布 + 离屏瓦片 2 张），开关 effect 用新的 ViewPlugin 声明替换 build 中刚装好的声明；destroy 只摘 DOM，位图尺寸仍非零。`accept/minimap.sh` 保持画布引用，对原实现有 3 通过 / 6 断言失败，分别指向重复创建与关闭后清理。已新建 [#91](https://github.com/Spc-jgs/lite-ide-mac/issues/91) 做局部修复；#90 的整体增长仍待同场景复测。
+
+慢速组首轮在预热阶段因脚本将 `/tmp` 输入路径直接和应用规范化后的 `/private/tmp` 标签路径比较而超时；只有 baseline_idle 的 `20261030T013538Z-lite-bridge.f8UwLB` 不算完整报告。已修正就绪检查并补父目录软链接回归：旧比较断言验红，工具自检现为 18 项通过。没有将这次脚本失败归因于应用或计入资源对照。
+
+### 5.5 缩略图局部修复后的同场景 full（2026-10-30）
+
+修复 [#91](https://github.com/Spc-jgs/lite-ide-mac/issues/91)：每个 Editor 的 build/开关 effect 共用同一份 minimap 扩展声明；销毁时把可见画布及离屏瓦片都清为 0×0，并清 context 引用。未关闭默认功能、未改预算。插件复用依据为已读的本机 CodeMirror `updatePlugins` 和 [官方 ViewPlugin 文档](https://codemirror.net/docs/ref/#view.ViewPlugin)；canvas 位图尺寸规则参照 [HTML Standard](https://html.spec.whatwg.org/multipage/canvas.html#the-canvas-element)。不据规范推导具体释放量，实际占用另量。
+
+工具自检 18 项通过；`scripts/accept/minimap.sh` 从旧实现 3 通过 / 6 失败变为新构建 9/9。该验收主动保留画布引用，验证首次只建两张、功能开关/关标签后位图清零、重新打开正常绘制；不是依靠 GC 碰巧发生。前端 115 文件通过，svelte-check 0 错误/0 警告；真应用 smoke 142/142。smoke 仍按既有行为向废纸篓留下 1 个本轮临时文件，CLI 清理被系统 PermissionError 拒绝，未改权限或碰其他条目；这是既有 [#54](https://github.com/Spc-jgs/lite-ide-mac/issues/54) 的验收收尾缺口，不冒充本轮已清理。
+
+报告 `20261030T020620Z-lite-bridge.YbRKuj/report.json`：应用源码 SHA-256 `1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a`，测试二进制 SHA-256 `994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822`。同机同 OS、full / mixed / 每文件等 1.8 秒，**缩略图保持开启**；与修复前 paced 场景比较。源码/fixture 未变、归属完整、前后压力字段均 1，主进程 FD 每轮 11、关闭标签/编辑器/缩略图 DOM 均 0，退出残留 0；本轮未调用额外 vmmap。
+
+| 指标 | 修复前 | 修复后第一轮 |
+|---|---:|---:|
+| 打开后采样峰值 MiB | 551.22 | 290.72 |
+| 首/末关闭中位 MiB | 218.13 / 417.00 | 157.36 / 275.05 |
+| 关闭斜率 MiB/轮；R² | +28.53；0.978 | +15.86；0.647 |
+| 恢复空闲 MiB | 419.79 | 294.99 |
+
+第一轮恢复空闲单核 CPU 0.382%、60 秒 logical writes 0；启动观察 393 ms（非热启动 p95）。峰值已落到 300 MiB 参考线内，但关闭序列仍为 157.36、164.19、177.32、193.49、135.91、224.50、249.16、275.05 MiB，首末增长约 117.69 MiB。未满足自动 retained_memory 的 R² 条件不能抹掉这段增长；#90 继续打开，不声称根因全部解决或无泄漏。
+
+该报告自身 findings 为空，但与修复前比较时 opened-5 的 2 秒窗口单核 CPU 从 0.571% 到 2.855%，自动 comparison 提示复测，因此最终 verdict **REVIEW**。这不是空闲 CPU 门槛，也不足以认定持续性能回退；按同构建/同场景再跑一轮，不豁免告警或调预算。
+
+同源码/二进制复测报告 `20261030T021911Z-lite-bridge.yrs8hL/report.json`：打开后采样峰值 321.30 MiB，关闭序列 204.13、219.05、243.97、263.27、186.69、210.57、226.72、245.94 MiB，斜率 +1.84 MiB/轮、R²=0.032，恢复空闲 239.02 MiB。FD 每轮 11，关闭标签/编辑器/缩略图 DOM 为 0，退出残留 0，源码/fixture 未变、归属完整；启动观察 426 ms。恢复空闲单核 CPU 0.412%、60 秒 logical writes 0；opened-5 观察值为 0.164%，本轮未额外调用 vmmap。
+
+**本次前后系统压力从 1 变成 2，比较器返回 UNKNOWN，不能把下降当作优化或据此排除 CPU 回退。** 该轮自身也触发 opened_memory_budget（321.30 > 300 MiB），最终仍 REVIEW。复测记录支持继续调查，不支持宣称全部场景达标。#91 的重复创建/位图清理有独立回归证据可交付；#90 继续跟踪关闭后保留与峰值，下一步需要压力稳定时的重复样本和分配/对象归属，不能只看是否碰巧满足 R² 门槛。#89 的其他观察项仍不自动转成必做重构。
+
 ## 6. 专项与后续顺序
 
-1. P1 任务日志容量边界已修；新复现的 JSON 格式化输出放大优先补输出上限。性能侧优先对齐日常打开节奏与压力场景、重复确认峰值；同时补键入/切标签/补全/搜索/保存/取消的前台反馈及完成延迟分布（p95/p99），避免只优化内存数字而忽略卡顿。后台自动化不能代替前台交互测量。
+1. P1 任务日志容量与 JSON 缩进输出上限均已修复。性能侧优先对齐日常打开节奏与压力场景、重复确认峰值；同时补键入/切标签/补全/搜索/保存/取消的前台反馈及完成延迟分布（p95/p99），避免只优化内存数字而忽略卡顿。后台自动化不能代替前台交互测量。
 2. JVM/LSP、数据库边车、构建工具、任务分别测：启动前 → 使用中 → 停止/关闭 → 等回收；列出本体和工具进程。沿用 `accept/java.sh`、`spring.sh`、`gradle.sh`、`db.sh`、`lsp.sh` 隔离 fixture，不自动下载缺失依赖。普通文件场景不能替这些通过。
 3. 多窗口/大项目改动增加反复切项目/开关窗口，以及 30–60 分钟稳定工作量 soak；比较末尾稳定窗口。quick/full 都不是长时泄漏证明。
 4. 内存增长用 Instruments Allocations、Leaks、Memory Graph 查归属；CPU 用 Time Profiler；磁盘用 File Activity 查路径/频率。Leaks 覆盖不了仍被引用的无用对象。前台手动测量由人选择时机。

@@ -22,6 +22,8 @@ PROFILES = {
     "quick": {"rounds": 4, "warmups": 1, "idle": 15, "settle": 5, "log_mib": 16, "tab_limit": 25, "fixture": "valid-syntax-v1"},
     "full": {"rounds": 8, "warmups": 2, "idle": 60, "settle": 15, "log_mib": 64, "tab_limit": 25, "fixture": "valid-syntax-v1"},
 }
+WORKLOADS = ("mixed", "json", "json-text")
+PACES = {"burst": 0, "paced": 1.8}
 MIB = 1024 * 1024
 EXE = ROOT / "src-tauri/target/test-app.noindex/lite-ide-mwtest.app/Contents/MacOS/lite-ide"
 PROBE = ROOT / "src-tauri/target/resource-tools.noindex/resource-probe"
@@ -193,15 +195,45 @@ def fixture_text(ext):
     return ("[sample]\n" if ext == "ini" else "") + "\n".join(line(i) for i in rows) + "\n"
 
 
+def fixture_documents(workload):
+    if workload == "mixed":
+        return {f"sample.{ext}": fixture_text(ext) for ext in ["txt", "json", "md", "html", "css", "xml", "sql", "csv", "ini", "toml", "yaml", "properties"]}
+    # 对照组逐字相同，仅扩展名不同；不把文件大小差异误归因于语法处理。
+    ext = "txt" if workload == "json-text" else "json"
+    return {f"sample-{i:02}.{ext}": fixture_text("json") for i in range(12)}
+
+
+def scenario(profile, workload, pace, minimap="on"):
+    p = dict(PROFILES[profile])
+    # 默认场景保持原样；新变量写进可比性键，不能与旧场景算优化差值。
+    if workload != "mixed":
+        p["fixture"] = f"valid-syntax-v1-{workload}"
+    if pace != "burst":
+        p["open_delay_s"] = PACES[pace]
+    if minimap == "off":
+        p["minimap"] = False
+    return p
+
+
+def open_documents(paths, delay):
+    for path in paths:
+        js(f"await __lite.tabflow.openPath({json.dumps(str(path))}, {{preview:false}}); return true")
+        if delay:
+            # probe 返回规范路径；macOS 的 /tmp 实际指向 /private/tmp。
+            wait_js(f"return __lite.tabs.active?.path === {json.dumps(str(path.resolve()))} && !!document.querySelector('.cm-content')")
+            time.sleep(delay)
+    wait_js(f"return __lite.tabs.list.length === {len(paths)} && !!document.querySelector('.cm-content')")
+
+
 def prepare(args):
     preflight()
     work = Path(os.environ["LITE_WORK"])
     fixture = work / "fixture"
     fixture.mkdir()
-    for ext in ["txt", "json", "md", "html", "css", "xml", "sql", "csv", "ini", "toml", "yaml", "properties"]:
+    for name, text in fixture_documents(args.workload).items():
         # 不用 Java / Rust / Python / TS 扩展名，普通编辑场景不能顺带启动语言服务器或下载安装。
-        (fixture / f"sample.{ext}").write_text(fixture_text(ext))
-    p = PROFILES[args.profile]
+        (fixture / name).write_text(text)
+    p = scenario(args.profile, args.workload, args.pace, args.minimap)
     line = b"2026-01-01 00:00:00 INFO trace=resource-check bounded fixture\n"
     chunk = line * (MIB // len(line))
     with (fixture / "large.log").open("xb") as f:
@@ -235,7 +267,7 @@ def wait_js(body, seconds=12):
 
 
 def view_counts():
-    return js("return {tabs:__lite.tabs.list.length,editors:document.querySelectorAll('.cm-content').length,nodes:document.querySelectorAll('*').length,terms:__lite.terms.list.length,runs:__lite.runs.list.length}")
+    return js("return {tabs:__lite.tabs.list.length,editors:document.querySelectorAll('.cm-content').length,minimaps:document.querySelectorAll('.cm-minimap').length,nodes:document.querySelectorAll('*').length,terms:__lite.terms.list.length,runs:__lite.runs.list.length}")
 
 
 class Recorder:
@@ -369,7 +401,7 @@ def analyse(context, points, orphans):
     peak = max((p.get("known_footprint_peak_bytes") or p["known_footprint_bytes"] or 0 for p in opened), default=0)
     if peak > 300 * MIB:
         findings.append({"status": "WARN", "metric": "opened_memory_budget", "value": peak, "limit": 300 * MIB,
-                         "reason": "快速打开 12 文件的采样峰值超过 300 MiB 参考预算，需定位瞬时分配/缓存；不能用关闭后不增长代替峰值预算验收"})
+                         "reason": "约定场景打开 12 文件后的采样峰值超过 300 MiB 参考预算，需定位瞬时分配/缓存；不能用关闭后不增长代替峰值预算验收"})
     for p in idle:
         for key, limit, label in [("cpu_percent_one_core", 2, "idle_cpu"), ("logical_write_bytes", p["duration_s"] / 60 * MIB, "idle_logical_writes")]:
             value = p.get(key)
@@ -436,10 +468,14 @@ def measure():
         wait_js("return __lite.tabs.list.length === 0 && document.querySelectorAll('.cm-content').length === 0")
 
     def cycle():
-        for path in paths:
-            js(f"await __lite.tabflow.openPath({json.dumps(str(path))}, {{preview:false}}); return true")
-        wait_js(f"return __lite.tabs.list.length === {len(paths)} && !!document.querySelector('.cm-content')")
+        open_documents(paths, p.get("open_delay_s", 0))
+        if p.get("minimap") is False:
+            wait_js("return !document.querySelector('.cm-minimap')")
 
+    if p.get("minimap") is False:
+        wait_js("return __lite.settings.v.minimap === true")
+        call({"cmd": "menu", "id": "toggle-minimap", "window": "main"})
+        wait_js("return __lite.settings.v.minimap === false")
     close()
     time.sleep(5)
     r.window("baseline_idle", p["idle"])
@@ -485,7 +521,7 @@ def measure():
             report["verdict"] = "REVIEW"
     out = Path(state["output"])
     (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
-    lines = [f"# 资源测量：{report['verdict']}", "", f"场景：{context['profile']}；HEAD：{context['head']}；dirty：{context['dirty']}",
+    lines = [f"# 资源测量：{report['verdict']}", "", f"场景：{context['profile']} / {p['fixture']}；每文件打开后等待：{p.get('open_delay_s', 0)}s；缩略图：{p.get('minimap', True)}；HEAD：{context['head']}；dirty：{context['dirty']}",
              "", "| 场景 | 已知 footprint MiB | 单核 CPU % | logical writes KiB | 主进程 FD | WebKit 归属 |", "|---|---:|---:|---:|---:|---|"]
     def fmt(v, scale=1):
         return "UNKNOWN" if v is None else f"{v / scale:.2f}"
@@ -528,6 +564,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("mode", choices=["prepare", "measure", "compare", "build", "cleanup"])
     ap.add_argument("--profile", choices=PROFILES, default="quick")
+    ap.add_argument("--workload", choices=WORKLOADS, default="mixed")
+    ap.add_argument("--pace", choices=PACES, default="burst")
+    ap.add_argument("--minimap", choices=["on", "off"], default="on")
     ap.add_argument("--output")
     ap.add_argument("--baseline")
     ap.add_argument("reports", nargs="*")

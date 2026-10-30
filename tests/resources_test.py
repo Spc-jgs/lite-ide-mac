@@ -37,6 +37,58 @@ def report():
 
 
 class Analysis(unittest.TestCase):
+    def test_isolation_fixtures_keep_bytes_and_file_count_equal(self):
+        text, code = g.fixture_documents("json-text"), g.fixture_documents("json")
+        self.assertEqual(len(text), 12)
+        self.assertEqual(len(code), 12)
+        self.assertTrue(all(Path(x).suffix == ".txt" for x in text))
+        self.assertTrue(all(Path(x).suffix == ".json" for x in code))
+        self.assertEqual({Path(k).stem: v.encode() for k, v in text.items()},
+                         {Path(k).stem: v.encode() for k, v in code.items()})
+        self.assertTrue(all(len(json.loads(v)) == 400 for v in code.values()))
+        self.assertEqual(len(g.fixture_documents("mixed")), 12)
+
+    def test_new_scenarios_cannot_be_compared_as_an_optimization(self):
+        original = copy.deepcopy(g.PROFILES)
+        base = g.scenario("full", "mixed", "burst")
+        self.assertEqual(base, original["full"])
+        for workload, pace in [("json", "burst"), ("json-text", "burst"), ("mixed", "paced")]:
+            a, b = report(), report()
+            a["context"]["scenario"] = base
+            b["context"]["scenario"] = g.scenario("full", workload, pace)
+            self.assertEqual(g.compare(a, b)["status"], "UNKNOWN")
+        self.assertNotEqual(g.scenario("full", "json", "burst"), g.scenario("full", "json-text", "burst"))
+        self.assertEqual(g.scenario("full", "mixed", "paced")["open_delay_s"], 1.8)
+        a, b = report(), report()
+        a["context"]["scenario"] = g.scenario("full", "mixed", "paced")
+        b["context"]["scenario"] = g.scenario("full", "mixed", "paced", "off")
+        self.assertIs(b["context"]["scenario"].get("minimap"), False)
+        self.assertEqual(g.compare(a, b)["status"], "UNKNOWN")
+        self.assertEqual(g.PROFILES, original)
+
+    def test_paced_opens_wait_for_each_editor_before_delay(self):
+        calls = []
+        with mock.patch.object(g, "js", side_effect=lambda s: calls.append("open")), \
+             mock.patch.object(g, "wait_js", side_effect=lambda s: calls.append("ready")), \
+             mock.patch.object(g.time, "sleep", side_effect=lambda s: calls.append(s)):
+            g.open_documents([Path("/fixture/a.txt"), Path("/fixture/b.txt")], 1.8)
+            self.assertEqual(calls, ["open", "ready", 1.8, "open", "ready", 1.8, "ready"])
+            calls.clear()
+            g.open_documents([Path("/fixture/a.txt"), Path("/fixture/b.txt")], 0)
+            self.assertEqual(calls, ["open", "open", "ready"])
+
+    def test_paced_ready_uses_the_same_canonical_path_as_probe(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "real").mkdir()
+            (root / "alias").symlink_to(root / "real", target_is_directory=True)
+            path = root / "alias/sample.json"
+            path.write_text("[]")
+            with mock.patch.object(g, "js"), mock.patch.object(g, "wait_js") as ready, mock.patch.object(g.time, "sleep"):
+                g.open_documents([path], 1.8)
+            self.assertIn(json.dumps(str(path.resolve())), ready.call_args_list[0].args[0])
+            self.assertNotIn(json.dumps(str(path)), ready.call_args_list[0].args[0])
+
     def test_fixtures_are_source_documents_not_repeated_invalid_text(self):
         self.assertEqual(len(json.loads(g.fixture_text("json"))), 400)
         self.assertEqual(len(ET.fromstring(g.fixture_text("xml"))), 400)

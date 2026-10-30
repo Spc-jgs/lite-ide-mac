@@ -294,6 +294,8 @@
   }
   /** 缩略图同理：开关一下不该把光标和撤销栈也重置掉 */
   const mapSlot = new Compartment();
+  // CM6 按插件声明的身份复用；build 与开关 effect 共用，避免首次挂载又换一组画布。
+  const mapExt = minimap();
   const wrapSlot = new Compartment();
   /** 缩进单位同理（issue #37）：状态栏改一下不该把撤销栈也重置掉 */
   const indentSlot = new Compartment();
@@ -511,7 +513,7 @@
         // 装两遍的话后一个 `createPanel` 静默不生效，画出来的还是默认面板。
         searchPanel(),
         placeholder ? bodyPlaceholder(placeholder) : [],
-        mapSlot.of(showMinimap ? minimap() : []),
+        mapSlot.of(showMinimap ? mapExt : []),
         wrapSlot.of(wrap ? EditorView.lineWrapping : []),
         /*
          * 缩进单位（issue #33 ③）按盘上那份内容猜（`editor/indent.ts`）：回车、Tab、
@@ -859,7 +861,7 @@
   $effect(() => {
     const on = showMinimap;
     if (!view) return;
-    view.dispatch({ effects: mapSlot.reconfigure(on ? minimap() : []) });
+    view.dispatch({ effects: mapSlot.reconfigure(on ? mapExt : []) });
   });
   let seenFocus = 0;
   $effect(() => {

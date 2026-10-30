@@ -148,6 +148,10 @@ class MinimapPlugin implements PluginValue {
     window.removeEventListener("pointermove", this.onMove);
     window.removeEventListener("pointerup", this.onUp);
     this.wrap.remove();
+    // 已无绘制需求：同时清掉可见位图与离屏瓦片，不把大块绘图资源留到对象回收。
+    this.canvas.width = this.canvas.height = 0;
+    this.tile.width = this.tile.height = 0;
+    this.ctx = null;
   }
 
   private onScroll = () => this.schedule();
