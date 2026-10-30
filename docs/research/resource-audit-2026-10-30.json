@@ -1,0 +1,2338 @@
+{
+  "date": "2026-10-30",
+  "scope": "测试身份、有限场景；完整报告留在本机 target，本文件是白名单导出的便携摘要，不能替代全部采样或引用链。null 表示原报告未提供。",
+  "units": {
+    "memory": "bytes",
+    "duration": "seconds",
+    "cpu": "percent of one core",
+    "logical_writes": "bytes, not NAND writes"
+  },
+  "checkpoint_columns": ["phase", "duration_s", "known_footprint_bytes", "known_footprint_peak_bytes", "main_footprint_bytes", "cpu_percent_one_core", "logical_write_bytes", "main_fds", "main_threads", "attribution"],
+  "runs": [
+    {
+      "run_id": "20261030T012403Z-lite-bridge.AGvGMC",
+      "source_report_sha256": "572117a0e181ab9eedbab9b447f6c978dfa0e241d55fc63524f3079afa68922d",
+      "context": {
+        "profile": "full",
+        "scenario": {
+          "rounds": 8,
+          "warmups": 2,
+          "idle": 60,
+          "settle": 15,
+          "log_mib": 64,
+          "tab_limit": 25,
+          "fixture": "valid-syntax-v1-json-text"
+        },
+        "head": "4ccae8e6701e3aca2421321d2c6296cc567a4b15",
+        "dirty": true,
+        "source_sha256": "99f16f5d49e7747068de16a88653e2296865dedeb3727b099aef0c10000cbddc",
+        "binary_sha256": "c229e97f3a4d08055a4d77c2b476096c9454edbe33ac76353f31016edd64b735",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T01:24:03.339006+00:00",
+        "fixture_bytes": 67239932,
+        "observer_eval_calls": null,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": null,
+        "expected_lines": null,
+        "boot_observed_ms": 455,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4534.94M  free = 1609.06M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4526.94M  free = 1617.06M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "REVIEW",
+      "findings": [
+        {
+          "status": "WARN",
+          "metric": "opened_memory_budget",
+          "value": 501862504,
+          "limit": 314572800,
+          "reason": "快速打开 12 文件的采样峰值超过 300 MiB 参考预算，需定位瞬时分配/缓存；不能用关闭后不增长代替峰值预算验收"
+        }
+      ],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": 5924978.095238095,
+        "r2": 0.4326582194193688,
+        "growth": 47186040
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 60.021013374993345, 90656416, 100798112, 31098128, 0.2364412911747439, 102400, 11, 19, "fresh-coalition"],
+        ["opened-1", 2.021275084000081, 414404616, 421629936, 28869904, 2.7322254866323674, 40960, 11, 20, "fresh-coalition"],
+        ["closed-1", 2.0174168329976965, 183586824, 183586824, 28787984, 0.2265004894011022, 4096, 11, 18, "fresh-coalition"],
+        ["opened-2", 2.019651167007396, 429969440, 432869408, 28837136, 2.415549169923627, 45056, 11, 19, "fresh-coalition"],
+        ["closed-2", 2.0226355000049807, 198823968, 198823968, 28771600, 0.08264178098307302, 0, 11, 17, "fresh-coalition"],
+        ["opened-3", 2.021889416995691, 350572624, 451022928, 28837136, 2.025220007375273, 24576, 11, 19, "fresh-coalition"],
+        ["closed-3", 2.0208412909996696, 217223248, 217223248, 28804368, 0.13821179389195568, 4096, 11, 17, "fresh-coalition"],
+        ["opened-4", 2.021953832998406, 470552656, 478351440, 28853520, 2.2454662049663026, 40960, 11, 20, "fresh-coalition"],
+        ["closed-4", 2.022872792003909, 236359760, 236359760, 28771600, 0.09490423755703419, 0, 11, 17, "fresh-coalition"],
+        ["opened-5", 2.0174722090014257, 474566736, 482299984, 28837136, 2.238124659092545, 36864, 11, 20, "fresh-coalition"],
+        ["closed-5", 2.0228454589960165, 254595152, 254595152, 28771600, 0.13043299913328654, 4096, 11, 18, "fresh-coalition"],
+        ["opened-6", 2.017576292011654, 479826024, 501862504, 28837136, 1.9236323877152208, 20480, 11, 20, "fresh-coalition"],
+        ["closed-6", 2.023820833011996, 219484264, 219484264, 28804368, 0.2711146120496269, 4096, 11, 18, "fresh-coalition"],
+        ["opened-7", 2.021758166985819, 458215552, 458952832, 28886288, 2.80250506342569, 36864, 11, 19, "fresh-coalition"],
+        ["closed-7", 2.0224286660086364, 227299456, 227446912, 28820752, 0.20016567545936442, 20480, 11, 17, "fresh-coalition"],
+        ["opened-8", 2.0232575410045683, 474828928, 477941888, 28902672, 3.9038262504526933, 36864, 11, 20, "fresh-coalition"],
+        ["closed-8", 2.0235824160045013, 230772864, 230772864, 28869904, 0.2692173027850565, 4096, 11, 19, "fresh-coalition"],
+        ["log_open", 3.0261908330139704, 258494688.0, 358125792, 29533504.0, 1.5903519194811409, 24576, 11.0, 20.0, "fresh-coalition"],
+        ["log_filtered", 3.020464625005843, 264745196.0, 322605304, 39232832.0, 3.3664991524210715, 4096, 11.0, 19.0, "fresh-coalition"],
+        ["recovered_idle", 60.01810575000127, 192729288, 192860360, 39159056, 0.21169285403512977, 110592, 11, 17, "fresh-coalition"]
+      ],
+      "lifetimes": [],
+      "native_observations": []
+    },
+    {
+      "run_id": "20261030T012950Z-lite-bridge.B2LGyN",
+      "source_report_sha256": "ffdef16db5af2ad4de5fa344e2ae22cf66397f146391720d4283b19d5aeed1fb",
+      "context": {
+        "profile": "full",
+        "scenario": {
+          "rounds": 8,
+          "warmups": 2,
+          "idle": 60,
+          "settle": 15,
+          "log_mib": 64,
+          "tab_limit": 25,
+          "fixture": "valid-syntax-v1-json"
+        },
+        "head": "4ccae8e6701e3aca2421321d2c6296cc567a4b15",
+        "dirty": true,
+        "source_sha256": "99f16f5d49e7747068de16a88653e2296865dedeb3727b099aef0c10000cbddc",
+        "binary_sha256": "c229e97f3a4d08055a4d77c2b476096c9454edbe33ac76353f31016edd64b735",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T01:29:50.960562+00:00",
+        "fixture_bytes": 67239932,
+        "observer_eval_calls": null,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": null,
+        "expected_lines": null,
+        "boot_observed_ms": 454,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4526.94M  free = 1617.06M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4510.94M  free = 1633.06M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "REVIEW",
+      "findings": [
+        {
+          "status": "WARN",
+          "metric": "opened_memory_budget",
+          "value": 504631208,
+          "limit": 314572800,
+          "reason": "约定场景打开 12 文件后的采样峰值超过 300 MiB 参考预算，需定位瞬时分配/缓存；不能用关闭后不增长代替峰值预算验收"
+        }
+      ],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": -10073223.42857143,
+        "r2": 0.7243375470071459,
+        "growth": -52346808
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 60.02288470900385, 89771416, 98127256, 31048928, 0.25691680056301525, 110592, 11, 18, "fresh-coalition"],
+        ["opened-1", 2.024716832995182, 457494416, 464588664, 29230304, 3.87856902853076, 36864, 11, 19, "fresh-coalition"],
+        ["closed-1", 2.0195259169850033, 224841616, 224841616, 29197536, 0.20946539801357808, 4096, 11, 18, "fresh-coalition"],
+        ["opened-2", 2.017753874999471, 480579472, 481464208, 29246688, 3.075738561028226, 20480, 11, 19, "fresh-coalition"],
+        ["closed-2", 2.0207120410050265, 250793872, 250793872, 29181152, 0.07279196491888183, 0, 11, 18, "fresh-coalition"],
+        ["opened-3", 2.018866790982429, 463982504, 504631208, 29230304, 4.414962363942107, 40960, 11, 20, "fresh-coalition"],
+        ["closed-3", 2.023909083014587, 194121640, 194121640, 29197536, 0.145469330846359, 20480, 11, 18, "fresh-coalition"],
+        ["opened-4", 2.0211118329898454, 438325208, 441241560, 29263072, 3.026945664332636, 40960, 11, 19, "fresh-coalition"],
+        ["closed-4", 2.0211857499962207, 190697432, 190697432, 29246688, 0.07604447043043293, 0, 11, 19, "fresh-coalition"],
+        ["opened-5", 2.0166785420151427, 421089264, 425693168, 29263072, 3.99636696285108, 20480, 11, 20, "fresh-coalition"],
+        ["closed-5", 2.0226074579986744, 193744832, 193744832, 29197536, 0.12052922035658774, 4096, 11, 18, "fresh-coalition"],
+        ["opened-6", 2.0216941660037264, 411930584, 442339288, 29230304, 2.7956338772902125, 40960, 11, 20, "fresh-coalition"],
+        ["closed-6", 2.0255978330096696, 168120256, 168120256, 29164768, 0.07695876124056647, 0, 11, 18, "fresh-coalition"],
+        ["opened-7", 2.022992249985691, 399724528, 402280432, 29279456, 3.3810106786362515, 36864, 11, 19, "fresh-coalition"],
+        ["closed-7", 2.0196334590145852, 169840600, 169840600, 29213920, 0.20477928712955298, 4096, 11, 17, "fresh-coalition"],
+        ["opened-8", 2.0197109169967007, 408014808, 410832856, 29246688, 2.531773164648569, 20480, 11, 19, "fresh-coalition"],
+        ["closed-8", 2.0272090829967055, 172494808, 172494808, 29213920, 0.2900148805227879, 4096, 11, 17, "fresh-coalition"],
+        ["log_open", 3.020516167016467, 231788600.0, 301322296, 29558032.0, 0.7259796931217833, 40960, 11.0, 19.0, "fresh-coalition"],
+        ["log_filtered", 3.0136427499819547, 251646008.0, 312168504, 39257360.0, 3.163700309221154, 4096, 11.0, 19.0, "fresh-coalition"],
+        ["recovered_idle", 60.02433462499175, 179539952, 179900400, 39208160, 0.1971671168691714, 102400, 11, 17, "fresh-coalition"]
+      ],
+      "lifetimes": [],
+      "native_observations": []
+    },
+    {
+      "run_id": "20261030T013819Z-lite-bridge.lhrwwt",
+      "source_report_sha256": "6980fc420926d719cffa5aa6725e579e48b95f41b8b92b63bd86759c1c4e1feb",
+      "context": {
+        "profile": "full",
+        "scenario": {
+          "rounds": 8,
+          "warmups": 2,
+          "idle": 60,
+          "settle": 15,
+          "log_mib": 64,
+          "tab_limit": 25,
+          "fixture": "valid-syntax-v1",
+          "open_delay_s": 1.8
+        },
+        "head": "4ccae8e6701e3aca2421321d2c6296cc567a4b15",
+        "dirty": true,
+        "source_sha256": "99f16f5d49e7747068de16a88653e2296865dedeb3727b099aef0c10000cbddc",
+        "binary_sha256": "c229e97f3a4d08055a4d77c2b476096c9454edbe33ac76353f31016edd64b735",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T01:38:19.134131+00:00",
+        "fixture_bytes": 67227938,
+        "observer_eval_calls": null,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": null,
+        "expected_lines": null,
+        "boot_observed_ms": null,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4510.94M  free = 1633.06M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4510.94M  free = 1633.06M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "REVIEW",
+      "findings": [
+        {
+          "status": "WARN",
+          "metric": "retained_memory",
+          "reason": "预热后关完序列持续增长；需长测 / Allocations 确认，不直接判内存泄漏"
+        },
+        {
+          "status": "WARN",
+          "metric": "opened_memory_budget",
+          "value": 577999072,
+          "limit": 314572800,
+          "reason": "约定场景打开 12 文件后的采样峰值超过 300 MiB 参考预算，需定位瞬时分配/缓存；不能用关闭后不增长代替峰值预算验收"
+        }
+      ],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": 29920528.095238097,
+        "r2": 0.9781186830869045,
+        "growth": 208535744
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 60.02268466699752, 101879456, 235212448, 30098680, 0.0919388516294442, 32768, 11, 17, "fresh-coalition"],
+        ["opened-1", 2.0242444579780567, 335368224, 378425376, 33817848, 0.9817633399797323, 4096, 11, 20, "fresh-coalition"],
+        ["closed-1", 2.0200001670164056, 228724768, 228757536, 33686776, 0.008349850794771255, 0, 11, 16, "fresh-coalition"],
+        ["opened-2", 2.0178598749917, 367186000, 409423952, 33817848, 0.49044738550246003, 4096, 11, 20, "fresh-coalition"],
+        ["closed-2", 2.0212088330008555, 235671632, 235720784, 33686776, 0.007802607896080437, 0, 11, 16, "fresh-coalition"],
+        ["opened-3", 2.0205004579911474, 308826216, 326586472, 33850616, 1.6824668792106228, 20480, 11, 21, "fresh-coalition"],
+        ["closed-3", 2.0230457080178894, 298553448, 298569832, 33719544, 0.030595403630619633, 0, 11, 16, "fresh-coalition"],
+        ["opened-4", 2.024044749996392, 327192704, 392646784, 33850616, 0.43832197880090423, 4096, 11, 20, "fresh-coalition"],
+        ["closed-4", 2.019073708972428, 310087808, 310104192, 33719544, 0.03282653808301611, 0, 11, 16, "fresh-coalition"],
+        ["opened-5", 2.0242653750174213, 450531480, 518885528, 33850616, 0.5713471732875174, 4096, 11, 20, "fresh-coalition"],
+        ["closed-5", 2.013088459003484, 343265432, 343265432, 33785080, 1.9859762158584215, 0, 11, 18, "fresh-coalition"],
+        ["opened-6", 2.021450166008435, 468259016, 493523144, 33867000, 0.4977985690277961, 4096, 11, 20, "fresh-coalition"],
+        ["closed-6", 2.0184859589789994, 357290184, 357322952, 33768696, 0.0073218740681632675, 0, 11, 16, "fresh-coalition"],
+        ["opened-7", 2.022506582987262, 515920096, 577999072, 33867000, 0.546197332207624, 4096, 11, 20, "fresh-coalition"],
+        ["closed-7", 2.0237327500071842, 404508896, 404541664, 29590776, 0.12020485412371588, 0, 11, 19, "fresh-coalition"],
+        ["opened-8", 2.0209157500066794, 455233760, 517886176, 28296440, 0.6276878192452147, 4096, 11, 19, "fresh-coalition"],
+        ["closed-8", 2.018103999987943, 437260512, 437276896, 28214520, 0.034783043886945066, 0, 11, 16, "fresh-coalition"],
+        ["log_open", 3.0237355419958476, 442978624.0, 541724992, 28542272.0, 1.0278028805219726, 28672, 11.0, 20.0, "fresh-coalition"],
+        ["log_filtered", 3.0209185410058126, 501092720.0, 630378864, 38077760.0, 3.5749598519145303, 0, 11.0, 20.0, "fresh-coalition"],
+        ["recovered_idle", 60.022651375009445, 440176936, 440193320, 37963000, 0.5073109784796674, 0, 11, 18, "fresh-coalition"]
+      ],
+      "lifetimes": [],
+      "native_observations": [
+        {
+          "file": "webcontent-vmmap-summary.txt",
+          "sha256": "2aabf11288d0841a36b0e786b94ed4f6c3a0120d88412bd4d102d2cd4ff4a9e9",
+          "selected_lines": ["Physical footprint:         360.5M", "Physical footprint (peak):  457.9M", "WebKit Malloc                    416.0M   281.1M   255.8M       0K       0K       0K       0K       14 ", "WebKit Malloc metadata           256.1M     832K     800K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)        381.2M   381.2M   183.7M       0K       0K       0K       0K      309 ", "TOTAL                            458.3G     1.5G   472.7M       0K       0K     480K       0K     3973 ", "TOTAL                                        1.7G     305.1M     275.9M         0K     889490     239.2M      36.6M     14%     450"]
+        }
+      ]
+    },
+    {
+      "run_id": "20261030T014908Z-lite-bridge.GREkVJ",
+      "source_report_sha256": "8d03ed89d0bfdb1cbfc2c573705294d8399354a6d19c11bceb698b4acea6d4ba",
+      "context": {
+        "profile": "full",
+        "scenario": {
+          "rounds": 8,
+          "warmups": 2,
+          "idle": 60,
+          "settle": 15,
+          "log_mib": 64,
+          "tab_limit": 25,
+          "fixture": "valid-syntax-v1",
+          "open_delay_s": 1.8,
+          "minimap": false
+        },
+        "head": "4ccae8e6701e3aca2421321d2c6296cc567a4b15",
+        "dirty": true,
+        "source_sha256": "99f16f5d49e7747068de16a88653e2296865dedeb3727b099aef0c10000cbddc",
+        "binary_sha256": "c229e97f3a4d08055a4d77c2b476096c9454edbe33ac76353f31016edd64b735",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T01:49:08.359062+00:00",
+        "fixture_bytes": 67227938,
+        "observer_eval_calls": null,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": null,
+        "expected_lines": null,
+        "boot_observed_ms": 458,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4510.94M  free = 1633.06M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4486.94M  free = 1657.06M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "REVIEW",
+      "findings": [
+        {
+          "status": "WARN",
+          "metric": "opened_memory_budget",
+          "value": 324603696,
+          "limit": 314572800,
+          "reason": "约定场景打开 12 文件后的采样峰值超过 300 MiB 参考预算，需定位瞬时分配/缓存；不能用关闭后不增长代替峰值预算验收"
+        }
+      ],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": 1417437.619047619,
+        "r2": 0.0459223125826671,
+        "growth": 4800704
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 60.01591049999115, 115838384, 152522160, 32179448, 0.26829864557336636, 102400, 11, 18, "fresh-coalition"],
+        ["opened-1", 2.020339042006526, 248434408, 285675240, 30393592, 0.4411058151481889, 4096, 11, 20, "fresh-coalition"],
+        ["closed-1", 2.024928083992563, 201707240, 201707240, 30328056, 0.21932877691355634, 0, 11, 18, "fresh-coalition"],
+        ["opened-2", 2.020513416005997, 258821888, 295259904, 30377208, 0.26628959537599184, 0, 11, 20, "fresh-coalition"],
+        ["closed-2", 2.0208253329910804, 212127488, 212127488, 30344440, 0.20845859022188903, 4096, 11, 18, "fresh-coalition"],
+        ["opened-3", 2.0229912910144776, 273927984, 311529264, 30393592, 0.4289481639660652, 4096, 11, 20, "fresh-coalition"],
+        ["closed-3", 2.022687874996336, 227725104, 227725104, 30328056, 0.23491222045361826, 4096, 11, 18, "fresh-coalition"],
+        ["opened-4", 2.0208199999760836, 288165680, 324603696, 30377208, 0.3961840737965159, 4096, 11, 19, "fresh-coalition"],
+        ["closed-4", 2.0249645420117304, 242945840, 243142448, 30328056, 0.15366115976079028, 0, 11, 17, "fresh-coalition"],
+        ["opened-5", 2.021817959001055, 286363464, 322867016, 30377208, 0.2553395065572917, 0, 11, 19, "fresh-coalition"],
+        ["closed-5", 2.019159541989211, 239914824, 240078664, 30328056, 0.1870786295707278, 20480, 11, 17, "fresh-coalition"],
+        ["opened-6", 2.024047500017332, 238522208, 275926880, 30426360, 0.5316328297585832, 4096, 11, 19, "fresh-coalition"],
+        ["closed-6", 2.0189060409902595, 214568800, 214601568, 30393592, 0.4930537032380907, 0, 11, 18, "fresh-coalition"],
+        ["opened-7", 2.0238092090003192, 247992208, 250466192, 30459128, 1.000392769731527, 4096, 11, 21, "fresh-coalition"],
+        ["closed-7", 2.0214303329994436, 237719440, 237735824, 30344440, 0.5616217791267866, 0, 11, 18, "fresh-coalition"],
+        ["opened-8", 2.0205731250171084, 256004008, 295178152, 30459128, 0.9648603536600502, 4096, 11, 21, "fresh-coalition"],
+        ["closed-8", 2.020187291986076, 206507944, 206524328, 30344440, 0.572733629495564, 0, 11, 18, "fresh-coalition"],
+        ["log_open", 3.0253155839745887, 206819312.0, 206852080, 30278976.0, 0.9231708965485099, 40960, 11.0, 21.0, "fresh-coalition"],
+        ["log_filtered", 3.0237785000063013, 284332064.0, 404934688, 39273792.0, 4.700143115631777, 4096, 11.0, 21.0, "fresh-coalition"],
+        ["recovered_idle", 60.022186666989, 216403952, 216584176, 39142648, 0.6720809227396253, 0, 11, 18, "fresh-coalition"]
+      ],
+      "lifetimes": [],
+      "native_observations": []
+    },
+    {
+      "run_id": "20261030T020620Z-lite-bridge.YbRKuj",
+      "source_report_sha256": "91efad502124b0fa83f6f699a004e75d73757fd1ddae2736057d95f2d7297634",
+      "context": {
+        "profile": "full",
+        "scenario": {
+          "rounds": 8,
+          "warmups": 2,
+          "idle": 60,
+          "settle": 15,
+          "log_mib": 64,
+          "tab_limit": 25,
+          "fixture": "valid-syntax-v1",
+          "open_delay_s": 1.8
+        },
+        "head": "4ccae8e6701e3aca2421321d2c6296cc567a4b15",
+        "dirty": true,
+        "source_sha256": "1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a",
+        "binary_sha256": "994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T02:06:20.429426+00:00",
+        "fixture_bytes": 67227938,
+        "observer_eval_calls": null,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": null,
+        "expected_lines": null,
+        "boot_observed_ms": 393,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4486.94M  free = 1657.06M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4486.94M  free = 1657.06M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "REVIEW",
+      "findings": [],
+      "comparison": {
+        "status": "REVIEW",
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": 16635436.952380951,
+        "r2": 0.6466185116502396,
+        "growth": 123404432
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 60.0160494169977, 92802480, 102043056, 31704288, 0.15584108902294824, 106496, 11, 22, "fresh-coalition"],
+        ["opened-1", 2.0157589159789495, 179588672, 190385728, 29492448, 0.24260912161834491, 4096, 11, 23, "fresh-coalition"],
+        ["closed-1", 2.0189193339901976, 165006912, 165006912, 29459680, 0.14172804984460527, 4096, 11, 22, "fresh-coalition"],
+        ["opened-2", 2.0158270410029218, 186551896, 197611096, 29492448, 0.22722480187194596, 8192, 11, 23, "fresh-coalition"],
+        ["closed-2", 2.0159532909747213, 172166744, 172166744, 29476064, 0.09383476335830046, 0, 11, 22, "fresh-coalition"],
+        ["opened-3", 2.0136326250212733, 199347824, 210865776, 29492448, 0.1524338134900636, 0, 11, 23, "fresh-coalition"],
+        ["closed-3", 2.016324333992088, 185929328, 185929328, 29459680, 0.08101791822180181, 0, 11, 22, "fresh-coalition"],
+        ["opened-4", 2.0149261670012493, 218173064, 229183112, 29476064, 0.6156594818787873, 0, 11, 23, "fresh-coalition"],
+        ["closed-4", 2.0134755830222275, 202886792, 202886792, 29443296, 0.13575615334242794, 20480, 11, 22, "fresh-coalition"],
+        ["opened-5", 2.0172759589913767, 218402464, 229772960, 29459680, 2.8552613113378316, 4096, 11, 23, "fresh-coalition"],
+        ["closed-5", 2.0154873749997932, 142511776, 142511776, 29459680, 0.0, 0, 11, 21, "fresh-coalition"],
+        ["opened-6", 2.0152562919829506, 242814648, 260656824, 29836512, 0.3219792949320262, 4096, 11, 21, "fresh-coalition"],
+        ["closed-6", 2.0128927920013666, 235409080, 235851448, 29557984, 0.01814552674893537, 0, 11, 17, "fresh-coalition"],
+        ["opened-7", 2.017485457996372, 270618320, 280743632, 29672672, 0.2502827457807173, 4096, 11, 20, "fresh-coalition"],
+        ["closed-7", 2.015826750022825, 261263032, 261394104, 29557984, 0.3823142043289552, 0, 11, 18, "fresh-coalition"],
+        ["opened-8", 2.0173944999987725, 288116432, 304844496, 29672672, 0.2999723157767944, 4096, 11, 20, "fresh-coalition"],
+        ["closed-8", 2.0176138750102837, 288411344, 288591568, 29689056, 0.016996116266213335, 0, 11, 17, "fresh-coalition"],
+        ["log_open", 3.0174994170083664, 294612736.0, 404770560, 30704912.0, 0.6610923563914872, 24576, 11.0, 21.0, "fresh-coalition"],
+        ["log_filtered", 3.017412042012438, 304549632.0, 304893696, 40371472.0, 3.3574673458396167, 4096, 11.0, 21.0, "fresh-coalition"],
+        ["recovered_idle", 60.01887829200132, 309317352, 313003752, 40223968, 0.38248958749799583, 0, 11, 18, "fresh-coalition"]
+      ],
+      "lifetimes": [],
+      "native_observations": []
+    },
+    {
+      "run_id": "20261030T021911Z-lite-bridge.yrs8hL",
+      "source_report_sha256": "e8866bc7e3c828eb36087ad37325f987f4fb8aad29098cd13346d208177ee042",
+      "context": {
+        "profile": "full",
+        "scenario": {
+          "rounds": 8,
+          "warmups": 2,
+          "idle": 60,
+          "settle": 15,
+          "log_mib": 64,
+          "tab_limit": 25,
+          "fixture": "valid-syntax-v1",
+          "open_delay_s": 1.8
+        },
+        "head": "4ccae8e6701e3aca2421321d2c6296cc567a4b15",
+        "dirty": true,
+        "source_sha256": "1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a",
+        "binary_sha256": "994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T02:19:11.470871+00:00",
+        "fixture_bytes": 67227938,
+        "observer_eval_calls": null,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": null,
+        "expected_lines": null,
+        "boot_observed_ms": 426,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 6144.00M  used = 4486.94M  free = 1657.06M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "2",
+          "vm.swapusage": "total = 6144.00M  used = 4478.94M  free = 1665.06M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "2"
+      },
+      "verdict": "REVIEW",
+      "findings": [
+        {
+          "status": "UNKNOWN",
+          "metric": "memory_pressure",
+          "reason": "测量前后系统内存压力变化，回收/压缩会影响 footprint；内存下降不能当优化收益",
+          "before": "1",
+          "after": "2"
+        },
+        {
+          "status": "WARN",
+          "metric": "opened_memory_budget",
+          "value": 336907960,
+          "limit": 314572800,
+          "reason": "约定场景打开 12 文件后的采样峰值超过 300 MiB 参考预算，需定位瞬时分配/缓存；不能用关闭后不增长代替峰值预算验收"
+        }
+      ],
+      "comparison": {
+        "status": "UNKNOWN",
+        "reason": "系统内存压力变化，拒绝把回收/压缩影响当性能差异"
+      },
+      "closed_memory_trend": {
+        "slope": 1925522.380952381,
+        "r2": 0.03209399836536997,
+        "growth": 43843680
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 60.01648175000446, 92196176, 100994384, 31753416, 0.10900936224905444, 114688, 11, 18, "fresh-coalition"],
+        ["opened-1", 2.018775000004098, 226823768, 238128728, 36996296, 0.2211674901854311, 20480, 11, 19, "fresh-coalition"],
+        ["closed-1", 2.0183102499868255, 214044248, 214142552, 37012680, 0.2367987775928501, 0, 11, 20, "fresh-coalition"],
+        ["opened-2", 2.0137249999970663, 244289136, 255594096, 36996296, 0.1600971334221255, 0, 11, 20, "fresh-coalition"],
+        ["closed-2", 2.0197300419968087, 229690992, 229690992, 36979912, 0.07277170559620375, 0, 11, 19, "fresh-coalition"],
+        ["opened-3", 2.0171326250128914, 271388296, 281955976, 37045448, 0.17467453336031794, 0, 11, 20, "fresh-coalition"],
+        ["closed-3", 2.0180459580151364, 255823496, 255970952, 36930760, 0.14711830462573297, 4096, 11, 17, "fresh-coalition"],
+        ["opened-4", 2.0175119580235332, 290295456, 301010592, 36996296, 0.772013119330335, 4096, 11, 20, "fresh-coalition"],
+        ["closed-4", 2.017070000001695, 276057736, 276074120, 36930760, 0.09083928668804059, 0, 11, 18, "fresh-coalition"],
+        ["opened-5", 2.016353833983885, 294932152, 305696440, 36979912, 0.1638870095270397, 0, 11, 19, "fresh-coalition"],
+        ["closed-5", 2.0185132500191685, 195759800, 195759800, 36979912, 0.06254816509071767, 0, 11, 19, "fresh-coalition"],
+        ["opened-6", 2.01553704199614, 324587192, 336907960, 35931336, 0.2470081619075267, 0, 11, 20, "fresh-coalition"],
+        ["closed-6", 2.0176610839844216, 220794528, 220810912, 35767496, 0.0224558526502015, 0, 11, 16, "fresh-coalition"],
+        ["opened-7", 2.0134296670148615, 244862648, 263065272, 35914952, 0.31093085110252283, 4096, 11, 20, "fresh-coalition"],
+        ["closed-7", 2.018403791997116, 237735584, 237751968, 35783880, 0.01811248083507972, 0, 11, 16, "fresh-coalition"],
+        ["opened-8", 2.017900832986925, 265359032, 282545848, 35931336, 0.9556672302600193, 4096, 11, 20, "fresh-coalition"],
+        ["closed-8", 2.0212546249968, 257887928, 258133688, 35980488, 0.4030375935447963, 0, 11, 20, "fresh-coalition"],
+        ["log_open", 3.0147785000153817, 262434560.0, 366513920, 35620112.0, 0.6715225679066209, 36864, 11.0, 21.0, "fresh-coalition"],
+        ["log_filtered", 3.0190479579905514, 263343920.0, 264474416, 40117544.0, 2.874984737167651, 4096, 11.0, 21.0, "fresh-coalition"],
+        ["recovered_idle", 60.01879179201205, 250629840, 250826448, 29787336, 0.4119531310407128, 0, 11, 18, "fresh-coalition"]
+      ],
+      "lifetimes": [],
+      "native_observations": []
+    },
+    {
+      "run_id": "20261030T030340Z-lite-bridge.f6tJhL",
+      "source_report_sha256": "4f3cb32c4a24b2914e657bc5c726d4099441cc673c9230f43af5bcb4937a0f89",
+      "context": {
+        "profile": "full",
+        "scenario": {
+          "rounds": 8,
+          "warmups": 2,
+          "idle": 60,
+          "settle": 15,
+          "log_mib": 64,
+          "tab_limit": 25,
+          "fixture": "valid-syntax-v1",
+          "open_delay_s": 1.8,
+          "lifetime_probe": "7534341b94a6f0e028e8dc571e968f92a8121e3e912152534393afb114e05648"
+        },
+        "head": "5a2e2b269a5f2dc793e59232ab0451049f4b7df9",
+        "dirty": true,
+        "source_sha256": "1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a",
+        "binary_sha256": "994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T03:03:40.865282+00:00",
+        "fixture_bytes": 67227938,
+        "observer_eval_calls": 409,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": true,
+        "expected_lines": null,
+        "boot_observed_ms": 496,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 12288.00M  used = 10849.25M  free = 1438.75M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 11264.00M  used = 10432.06M  free = 831.94M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "NO_SIGNAL",
+      "findings": [],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": -154657.33333333334,
+        "r2": 0.00053402852100215,
+        "growth": 15499360
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 60.02137716699508, 91082160, 100666800, 30524592, 0.18267547193217668, 102400, 11, 19, "fresh-coalition"],
+        ["opened-1", 2.0203368329966906, 180162184, 190041736, 29361328, 0.7039915210031364, 0, 11, 21, "fresh-coalition"],
+        ["closed-1", 2.0187174169986974, 166448776, 166448776, 29328560, 0.37364897813257764, 4096, 11, 19, "fresh-coalition"],
+        ["opened-2", 2.022779166989494, 186257032, 197004936, 29361328, 0.4074715191113499, 4096, 11, 20, "fresh-coalition"],
+        ["closed-2", 2.0203946249966975, 173411976, 173411976, 29312176, 0.167032121262227, 0, 11, 19, "fresh-coalition"],
+        ["opened-3", 2.0226843749987893, 203067064, 214617784, 29344944, 1.9045297168532809, 0, 11, 20, "fresh-coalition"],
+        ["closed-3", 2.022054291999666, 189648568, 189648568, 29279408, 0.2770449350526601, 4096, 11, 18, "fresh-coalition"],
+        ["opened-4", 2.0192131249932572, 149393104, 166055632, 29361328, 0.6125921947957478, 4096, 11, 19, "fresh-coalition"],
+        ["closed-4", 2.0222518329974264, 141676240, 141692624, 29295792, 0.037250108404325466, 0, 11, 16, "fresh-coalition"],
+        ["opened-5", 2.019823832990369, 159780560, 164810448, 29394096, 1.1015812189451522, 4096, 11, 21, "fresh-coalition"],
+        ["closed-5", 2.0212799169821665, 151113424, 151129808, 29197488, 0.5834710423288717, 0, 11, 18, "fresh-coalition"],
+        ["opened-6", 2.0238212919794023, 168185576, 174673640, 29344944, 0.4144551711775037, 4096, 11, 20, "fresh-coalition"],
+        ["closed-6", 2.0173432500159834, 152342248, 152375016, 29213872, 0.033874998714005934, 0, 11, 16, "fresh-coalition"],
+        ["opened-7", 2.013442916009808, 177147624, 193728232, 29295792, 6.992282864368736, 4096, 11, 20, "fresh-coalition"],
+        ["closed-7", 2.0228638330008835, 169610984, 169627368, 29197488, 0.6782257300852147, 0, 11, 18, "fresh-coalition"],
+        ["opened-8", 2.021951333998004, 188419840, 189058816, 29312176, 0.5250249509719644, 4096, 11, 20, "fresh-coalition"],
+        ["closed-8", 2.0187212919990998, 181948136, 181964520, 29246640, 0.6376478541647908, 0, 11, 18, "fresh-coalition"],
+        ["log_open", 3.0209844159835484, 185814904.0, 292605816, 29623544.0, 1.1528815844176028, 40960, 11.0, 20.0, "fresh-coalition"],
+        ["log_filtered", 3.022686790995067, 193499000.0, 193924984, 39077112.0, 4.4634573255135574, 4096, 11.0, 20.0, "fresh-coalition"],
+        ["recovered_idle", 60.02176708300249, 189239136, 189370208, 38913200, 0.6193348964317172, 0, 11, 18, "fresh-coalition"]
+      ],
+      "lifetimes": [
+        {
+          "phase": "baseline_idle",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "opened-1",
+          "counts": {
+            "canvases": {
+              "alive": 12,
+              "cleared": 60,
+              "connected": 1,
+              "nonzero": 2,
+              "observed": 72,
+              "pixels": 175032
+            },
+            "docs": {
+              "alive": 13,
+              "cleared": 23,
+              "observed": 36
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 12,
+              "cleared": 24,
+              "connected": 1,
+              "observed": 36
+            }
+          }
+        },
+        {
+          "phase": "closed-1",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 72,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 72,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 12,
+              "cleared": 24,
+              "observed": 36
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 12,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 36
+            }
+          }
+        },
+        {
+          "phase": "opened-2",
+          "counts": {
+            "canvases": {
+              "alive": 8,
+              "cleared": 88,
+              "connected": 1,
+              "nonzero": 2,
+              "observed": 96,
+              "pixels": 175032
+            },
+            "docs": {
+              "alive": 24,
+              "cleared": 24,
+              "observed": 48
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 24,
+              "cleared": 24,
+              "connected": 1,
+              "observed": 48
+            }
+          }
+        },
+        {
+          "phase": "closed-2",
+          "counts": {
+            "canvases": {
+              "alive": 8,
+              "cleared": 88,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 96,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 24,
+              "cleared": 24,
+              "observed": 48
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 24,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 48
+            }
+          }
+        },
+        {
+          "phase": "opened-3",
+          "counts": {
+            "canvases": {
+              "alive": 8,
+              "cleared": 112,
+              "connected": 1,
+              "nonzero": 2,
+              "observed": 120,
+              "pixels": 175032
+            },
+            "docs": {
+              "alive": 36,
+              "cleared": 24,
+              "observed": 60
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 36,
+              "cleared": 24,
+              "connected": 1,
+              "observed": 60
+            }
+          }
+        },
+        {
+          "phase": "closed-3",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 120,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 120,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 36,
+              "cleared": 24,
+              "observed": 60
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 36,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 60
+            }
+          }
+        },
+        {
+          "phase": "opened-4",
+          "counts": {
+            "canvases": {
+              "alive": 4,
+              "cleared": 140,
+              "connected": 1,
+              "nonzero": 2,
+              "observed": 144,
+              "pixels": 175032
+            },
+            "docs": {
+              "alive": 48,
+              "cleared": 24,
+              "observed": 72
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 48,
+              "cleared": 24,
+              "connected": 1,
+              "observed": 72
+            }
+          }
+        },
+        {
+          "phase": "closed-4",
+          "counts": {
+            "canvases": {
+              "alive": 4,
+              "cleared": 140,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 144,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 48,
+              "cleared": 24,
+              "observed": 72
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 48,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 72
+            }
+          }
+        },
+        {
+          "phase": "opened-5",
+          "counts": {
+            "canvases": {
+              "alive": 20,
+              "cleared": 148,
+              "connected": 1,
+              "nonzero": 2,
+              "observed": 168,
+              "pixels": 175032
+            },
+            "docs": {
+              "alive": 60,
+              "cleared": 24,
+              "observed": 84
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 60,
+              "cleared": 24,
+              "connected": 1,
+              "observed": 84
+            }
+          }
+        },
+        {
+          "phase": "closed-5",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 168,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 168,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 60,
+              "cleared": 24,
+              "observed": 84
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 60,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 84
+            }
+          }
+        },
+        {
+          "phase": "opened-6",
+          "counts": {
+            "canvases": {
+              "alive": 14,
+              "cleared": 178,
+              "connected": 1,
+              "nonzero": 2,
+              "observed": 192,
+              "pixels": 175032
+            },
+            "docs": {
+              "alive": 72,
+              "cleared": 24,
+              "observed": 96
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 72,
+              "cleared": 24,
+              "connected": 1,
+              "observed": 96
+            }
+          }
+        },
+        {
+          "phase": "closed-6",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 192,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 192,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 72,
+              "cleared": 24,
+              "observed": 96
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 72,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 96
+            }
+          }
+        },
+        {
+          "phase": "opened-7",
+          "counts": {
+            "canvases": {
+              "alive": 2,
+              "cleared": 214,
+              "connected": 1,
+              "nonzero": 2,
+              "observed": 216,
+              "pixels": 175032
+            },
+            "docs": {
+              "alive": 84,
+              "cleared": 24,
+              "observed": 108
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 84,
+              "cleared": 24,
+              "connected": 1,
+              "observed": 108
+            }
+          }
+        },
+        {
+          "phase": "closed-7",
+          "counts": {
+            "canvases": {
+              "alive": 2,
+              "cleared": 214,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 216,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 84,
+              "cleared": 24,
+              "observed": 108
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 84,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 108
+            }
+          }
+        },
+        {
+          "phase": "opened-8",
+          "counts": {
+            "canvases": {
+              "alive": 16,
+              "cleared": 224,
+              "connected": 1,
+              "nonzero": 2,
+              "observed": 240,
+              "pixels": 175032
+            },
+            "docs": {
+              "alive": 96,
+              "cleared": 24,
+              "observed": 120
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 96,
+              "cleared": 24,
+              "connected": 1,
+              "observed": 120
+            }
+          }
+        },
+        {
+          "phase": "closed-8",
+          "counts": {
+            "canvases": {
+              "alive": 16,
+              "cleared": 224,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 240,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 96,
+              "cleared": 24,
+              "observed": 120
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 96,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 120
+            }
+          }
+        },
+        {
+          "phase": "log_open",
+          "counts": {
+            "canvases": {
+              "alive": 16,
+              "cleared": 224,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 240,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 96,
+              "cleared": 24,
+              "observed": 120
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 96,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 120
+            }
+          }
+        },
+        {
+          "phase": "log_filtered",
+          "counts": {
+            "canvases": {
+              "alive": 16,
+              "cleared": 224,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 240,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 96,
+              "cleared": 24,
+              "observed": 120
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 96,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 120
+            }
+          }
+        },
+        {
+          "phase": "recovered_idle",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 240,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 240,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 96,
+              "cleared": 24,
+              "observed": 120
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 96,
+              "cleared": 24,
+              "connected": 0,
+              "observed": 120
+            }
+          }
+        }
+      ],
+      "native_observations": []
+    },
+    {
+      "run_id": "20261030T031430Z-lite-bridge.7orW9s",
+      "source_report_sha256": "840e24fafb9428d35522e6ec8571f37f2c4e488a2b7ff9ac899c51fb1696c817",
+      "context": {
+        "profile": "full",
+        "scenario": {
+          "rounds": 8,
+          "warmups": 2,
+          "idle": 60,
+          "settle": 15,
+          "log_mib": 64,
+          "tab_limit": 25,
+          "fixture": "valid-syntax-v1",
+          "open_delay_s": 1.8,
+          "lifetime_probe": "7534341b94a6f0e028e8dc571e968f92a8121e3e912152534393afb114e05648",
+          "control": "ipc"
+        },
+        "head": "5a2e2b269a5f2dc793e59232ab0451049f4b7df9",
+        "dirty": true,
+        "source_sha256": "1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a",
+        "binary_sha256": "994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T03:14:30.456203+00:00",
+        "fixture_bytes": 67227938,
+        "observer_eval_calls": 408,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": true,
+        "expected_lines": null,
+        "boot_observed_ms": null,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 11264.00M  used = 10424.06M  free = 839.94M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 11264.00M  used = 10296.06M  free = 967.94M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "NO_SIGNAL",
+      "findings": [],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": 56758.857142857145,
+        "r2": 0.8197659222257718,
+        "growth": 278528
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 60.016207417007536, 102239808, 204787264, 30459104, 0.1063676559174072, 32768, 11, 17, "fresh-coalition"],
+        ["opened-1", 2.0216946250002366, 101191232, 101207616, 30475488, 0.3262711845019239, 4096, 11, 18, "fresh-coalition"],
+        ["closed-1", 2.026071416999912, 101191232, 101207616, 30426336, 0.01436277110265421, 0, 11, 16, "fresh-coalition"],
+        ["opened-2", 2.0270020829921123, 101289536, 101404224, 30524640, 0.40191335116806104, 24576, 11, 18, "fresh-coalition"],
+        ["closed-2", 2.0249277080001775, 101207616, 101207616, 30491872, 0.4624815475140498, 0, 11, 18, "fresh-coalition"],
+        ["opened-3", 2.026808208989678, 101420608, 101436992, 30524640, 0.375448696440461, 4096, 11, 19, "fresh-coalition"],
+        ["closed-3", 2.0287663750059437, 101322304, 101338688, 30393568, 0.00902844222265185, 0, 11, 16, "fresh-coalition"],
+        ["opened-4", 2.0284948330081534, 101387840, 101404224, 30508256, 0.3050126576277619, 4096, 11, 18, "fresh-coalition"],
+        ["closed-4", 2.0267797090054955, 101338688, 101338688, 30475488, 0.4437581430304132, 0, 11, 18, "fresh-coalition"],
+        ["opened-5", 2.021083625004394, 101502528, 101502528, 30524640, 0.7306146473760035, 20480, 11, 19, "fresh-coalition"],
+        ["closed-5", 2.022830709000118, 101420608, 101436992, 30442720, 0.00609912631101908, 0, 11, 16, "fresh-coalition"],
+        ["opened-6", 2.0224669160088524, 101535296, 101535296, 30524640, 0.6125110330331741, 0, 11, 19, "fresh-coalition"],
+        ["closed-6", 2.0213902090035845, 101551680, 101568064, 30442720, 0.010425992916226017, 0, 11, 16, "fresh-coalition"],
+        ["opened-7", 2.023462249984732, 101682752, 101682752, 30524640, 0.6781858174079376, 0, 11, 19, "fresh-coalition"],
+        ["closed-7", 2.022759416984627, 101617216, 101617216, 30475488, 0.44716756348037523, 0, 11, 18, "fresh-coalition"],
+        ["opened-8", 2.0235434169881046, 101649984, 101764672, 30475488, 0.28133609351824773, 0, 11, 18, "fresh-coalition"],
+        ["closed-8", 2.0273793329834007, 101469760, 101486144, 30442720, 0.006831430001616474, 0, 11, 16, "fresh-coalition"],
+        ["log_open", 3.027409250003984, 113454776.0, 212061880, 31245608.0, 1.1137740627553285, 24576, 11.0, 20.0, "fresh-coalition"],
+        ["log_filtered", 3.025009125005454, 180588360.0, 320835352, 36652352.0, 3.62559924508665, 4096, 11.0, 20.0, "fresh-coalition"],
+        ["recovered_idle", 60.01419170800364, 115740416, 115773184, 36570360, 0.4332146840616818, 0, 11, 18, "fresh-coalition"]
+      ],
+      "lifetimes": [
+        {
+          "phase": "baseline_idle",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "opened-1",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "closed-1",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "opened-2",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "closed-2",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "opened-3",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "closed-3",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "opened-4",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "closed-4",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "opened-5",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "closed-5",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "opened-6",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "closed-6",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "opened-7",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "closed-7",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "opened-8",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "closed-8",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "log_open",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "log_filtered",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        },
+        {
+          "phase": "recovered_idle",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 0,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 0,
+              "cleared": 0,
+              "observed": 0
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 0,
+              "cleared": 0,
+              "connected": 0,
+              "observed": 0
+            }
+          }
+        }
+      ],
+      "native_observations": []
+    },
+    {
+      "run_id": "20261030T032406Z-lite-bridge.EewKmj",
+      "source_report_sha256": "ba6f6783a2f87d01e0b81212592f00f72a93e998952dc338cca93a171a68d2bb",
+      "context": {
+        "profile": "full",
+        "scenario": {
+          "rounds": 8,
+          "warmups": 2,
+          "idle": 60,
+          "settle": 15,
+          "log_mib": 64,
+          "tab_limit": 25,
+          "fixture": "valid-syntax-v1",
+          "open_delay_s": 1.8,
+          "lifetime_probe": "7534341b94a6f0e028e8dc571e968f92a8121e3e912152534393afb114e05648",
+          "lifetime_sampling": "final"
+        },
+        "head": "5a2e2b269a5f2dc793e59232ab0451049f4b7df9",
+        "dirty": true,
+        "source_sha256": "1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a",
+        "binary_sha256": "994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T03:24:06.167424+00:00",
+        "fixture_bytes": 67227938,
+        "observer_eval_calls": 409,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": true,
+        "expected_lines": null,
+        "boot_observed_ms": 339736,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 11264.00M  used = 10280.06M  free = 983.94M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 10240.00M  used = 9486.31M  free = 753.69M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "NO_SIGNAL",
+      "findings": [],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": 3944468.5714285714,
+        "r2": 0.4105841955152806,
+        "growth": 42434680
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 60.028314708994, 102583728, 205082032, 30934240, 0.09079215577550463, 28672, 11, 17, "fresh-coalition"],
+        ["opened-1", 2.0231985000136774, 200986392, 202886936, 34292960, 0.37899148303778224, 4096, 11, 20, "fresh-coalition"],
+        ["closed-1", 2.02843145802035, 191336216, 191352600, 34161888, 0.029887674912696897, 0, 11, 16, "fresh-coalition"],
+        ["opened-2", 2.0259796250029467, 211078936, 275451672, 34292960, 0.5269940461511042, 4096, 11, 20, "fresh-coalition"],
+        ["closed-2", 2.01346674998058, 200838936, 200871704, 34211040, 0.06537028734210262, 0, 11, 18, "fresh-coalition"],
+        ["opened-3", 2.0200083749950863, 221794120, 241127240, 28755168, 1.362739746069962, 4096, 11, 21, "fresh-coalition"],
+        ["closed-3", 2.0245963749766815, 211996464, 212012848, 28607712, 0.5023799373402092, 0, 11, 18, "fresh-coalition"],
+        ["opened-4", 2.022236958000576, 239521608, 301682504, 28722400, 0.4631381581147688, 4096, 11, 20, "fresh-coalition"],
+        ["closed-4", 2.0238493750221096, 227430216, 227462984, 28722400, 0.5175183553314376, 0, 11, 20, "fresh-coalition"],
+        ["opened-5", 2.02400958299404, 240422800, 260181904, 28722400, 0.5289850942386337, 4096, 11, 20, "fresh-coalition"],
+        ["closed-5", 2.022833042021375, 206786448, 213536656, 28656864, 0.1992523315702003, 20480, 11, 18, "fresh-coalition"],
+        ["opened-6", 2.0251807919994462, 253792144, 293851024, 28804320, 1.35390174093689, 4096, 11, 20, "fresh-coalition"],
+        ["closed-6", 2.017588540998986, 196939640, 196956024, 28689632, 0.038569112789206265, 0, 11, 17, "fresh-coalition"],
+        ["opened-7", 2.0216843340022024, 255856552, 295407528, 28722400, 0.8361344407579302, 4096, 11, 20, "fresh-coalition"],
+        ["closed-7", 2.022335749992635, 220860304, 220860304, 28673248, 0.2682933335881423, 4096, 11, 18, "fresh-coalition"],
+        ["opened-8", 2.018605582998134, 268210088, 307777448, 28722400, 0.31990939955732645, 4096, 11, 19, "fresh-coalition"],
+        ["closed-8", 2.022597709001275, 233770896, 233770896, 28673248, 0.16936759024074624, 0, 11, 17, "fresh-coalition"],
+        ["log_open", 3.0233115000010002, 361861176.0, 489263160, 29386024.0, 0.6900394153891553, 45056, 11.0, 19.5, "fresh-coalition"],
+        ["log_filtered", 3.025035458005732, 289927224.0, 424775736, 39044392.0, 5.349307809657198, 4096, 11.0, 19.0, "fresh-coalition"],
+        ["recovered_idle", 60.02329012498376, 221597680, 238145520, 38962400, 0.2021143905097335, 94208, 11, 18, "fresh-coalition"]
+      ],
+      "lifetimes": [
+        {
+          "phase": "recovered_idle",
+          "counts": {
+            "canvases": {
+              "alive": 0,
+              "cleared": 240,
+              "connected": 0,
+              "nonzero": 0,
+              "observed": 240,
+              "pixels": 0
+            },
+            "docs": {
+              "alive": 24,
+              "cleared": 96,
+              "observed": 120
+            },
+            "version": "weakref-v1",
+            "views": {
+              "alive": 24,
+              "cleared": 96,
+              "connected": 0,
+              "observed": 120
+            }
+          }
+        }
+      ],
+      "native_observations": []
+    },
+    {
+      "run_id": "20261030T063937Z-lite-bridge.DGNhcY",
+      "source_report_sha256": "f4f524b1a4252ff1a5f895d4b157ccba1026f81d9b66c8317e2e085dbc81b802",
+      "context": {
+        "profile": "isolated-log",
+        "scenario": {
+          "fixture": "isolated-log-v1",
+          "log_mib": 64,
+          "rounds": 4,
+          "warmups": 0,
+          "idle": 30,
+          "settle": 5,
+          "native_diagnostics": true
+        },
+        "head": "961aca75dec8cba1155a7404d1bfc24893ceba41",
+        "dirty": false,
+        "source_sha256": "1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a",
+        "binary_sha256": "994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T06:39:37.108377+00:00",
+        "fixture_bytes": 67106816,
+        "observer_eval_calls": 50,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": null,
+        "expected_lines": 1082368,
+        "boot_observed_ms": null,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 8192.00M  used = 7126.19M  free = 1065.81M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 8192.00M  used = 7102.19M  free = 1089.81M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "NO_SIGNAL",
+      "findings": [],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": -1030522.4,
+        "r2": 0.0044462409438632555,
+        "growth": -18300832.0
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 30.016121958004078, 101043728, 203017744, 31393016, 0.11945136367104552, 24576, 11, 19, "fresh-coalition"],
+        ["log-open-1", 6.017497875000117, 105352816, 110988912, 31016256, 4.627136374352181, 28672, 11, 20, "fresh-coalition"],
+        ["log-ready-1", 5.017152790998807, 118148792.0, 305483448, 31081792.0, 0.6559447234503771, 20480, 11.0, 21.0, "fresh-coalition"],
+        ["log-filter-1", 8.012856792018283, 169430760, 179146472, 39421272, 1.218857325608087, 4096, 11, 20, "fresh-coalition"],
+        ["log-filter-ready-1", 5.017184124997584, 179285760.0, 316804864, 39437656.0, 0.456401448093377, 0, 11.0, 20.0, "fresh-coalition"],
+        ["closed-1", 3.01402554201195, 170708640.0, 170725024, 39404816.0, 0.3354524989609366, 0, 11.0, 20.0, "fresh-coalition"],
+        ["log-open-2", 6.014545416022884, 127127272, 308498152, 39634264, 3.270141139445536, 24576, 11, 21, "fresh-coalition"],
+        ["log-ready-2", 5.017344667023281, 131952384.0, 318869248, 39634264.0, 0.4659553120529426, 4096, 11.0, 21.0, "fresh-coalition"],
+        ["log-filter-2", 8.01770233301795, 184160000, 203853568, 38585688, 1.2002342317412715, 4096, 11, 20, "fresh-coalition"],
+        ["log-filter-ready-2", 5.0134004580031615, 182759168.0, 323800832, 38585688.0, 0.6500079391818544, 4096, 11.0, 20.0, "fresh-coalition"],
+        ["closed-2", 3.0137801250093617, 133574328.0, 133713592, 38126864.0, 0.3535565488529758, 0, 11.0, 20.0, "fresh-coalition"],
+        ["log-open-3", 6.012548958999105, 121835288, 133386008, 38192472, 3.608518075769939, 24576, 11, 21, "fresh-coalition"],
+        ["log-ready-3", 5.013238999992609, 129535768.0, 318377752, 38192472.0, 0.6468547579727958, 8192, 11.0, 21.0, "fresh-coalition"],
+        ["log-filter-3", 8.012812916975236, 189075224, 201297688, 46859608, 1.1623846577358927, 4096, 11, 20, "fresh-coalition"],
+        ["log-filter-ready-3", 5.018722042004811, 187993880.0, 316935960, 46826840.0, 0.1834713483419326, 4096, 11.0, 19.0, "fresh-coalition"],
+        ["closed-3", 3.0127803749928717, 178171600.0, 185519824, 46777616.0, 0.31461666036716757, 0, 11.0, 20.0, "fresh-coalition"],
+        ["log-open-4", 6.0089252080069855, 148852504, 318918424, 46859608, 3.2471579399923387, 24576, 11, 21, "fresh-coalition"],
+        ["log-ready-4", 5.013008999987505, 150007576.0, 337432344, 47760728.0, 0.48014908810377144, 8192, 11.0, 21.0, "fresh-coalition"],
+        ["log-filter-4", 8.012325999996392, 160960328, 369332040, 56444248, 0.9147161885329304, 4096, 11, 19, "fresh-coalition"],
+        ["log-filter-ready-4", 5.012444332998712, 160689992.0, 344362824, 56460632.0, 0.6279122102722831, 4096, 11.0, 20.0, "fresh-coalition"],
+        ["closed-4", 3.009060749987839, 152407808.0, 152588032, 47138064.0, 0.30603403404325474, 0, 11.0, 20.0, "fresh-coalition"],
+        ["recovered_idle", 30.01212941700942, 139398912, 172805888, 46941456, 0.05408423965678552, 4096, 11, 16, "fresh-coalition"]
+      ],
+      "lifetimes": [],
+      "native_observations": [
+        {
+          "file": "baseline-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "8929ed423b54ef5e67eb1ce94a51908bace39484a8acc5bc2c01e711c7290c09",
+          "selected_lines": ["Physical footprint:         17.9M", "Physical footprint (peak):  124.1M", "WebKit Malloc                    128.0M     944K     528K       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           256.1M     256K     176K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         28.5M    26.5M    2560K       0K       0K       0K       0K       28 ", "TOTAL                            393.2G   635.7M    20.1M       0K       0K    1680K       0K     3891 ", "TOTAL                                         433.3M      10.8M      8832K         0K      39686      5462K      3370K     39%     614"]
+        },
+        {
+          "file": "baseline-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "b336b6cb9f28090e3da3846ebf2f6db2fa2573c60304c7a6fb847e835739d0fb",
+          "selected_lines": ["Physical footprint:         47.3M", "Physical footprint (peak):  80.6M", "WebKit Malloc                     96.0M    33.8M    21.6M       0K       0K       0K       0K        3 ", "WebKit Malloc metadata           256.1M     432K     400K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         40.3M    40.3M    20.1M       0K       0K       0K       0K       12 ", "TOTAL                            457.6G   645.5M    51.1M       0K       0K     208K       0K     3612 ", "TOTAL                                        1.4G      45.8M      27.2M         0K      78020      15.5M      11.7M     43%     476"]
+        },
+        {
+          "file": "baseline-lite-ide.vmmap.txt",
+          "sha256": "f2d8ae1c77969cb2ff055b46621703919a3a56fb7bc66f973dd906da2581cc91",
+          "selected_lines": ["Physical footprint:         29.8M", "Physical footprint (peak):  33.7M", "Malloc Large (empty)              4128K     128K     128K       0K       0K       0K       0K        1         see MALLOC ZONE table below", "WebKit Malloc                     32.0M    4752K    2256K       0K       0K       0K       0K        2 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           320.0M     288K     240K       0K       0K       0K       0K        4 ", "TOTAL                            393.4G   837.3M    30.1M       0K       0K     224K       0K     6486 ", "TOTAL                                      430.3M      23.1M      20.6M         0K      69686      9811K      11.0M     54%      91"]
+        },
+        {
+          "file": "filtered-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "455589ab73e60b9ce6bc1dffccccd7d2fa8fd06393f55dab3cff8087615f95d6",
+          "selected_lines": ["Physical footprint:         25.7M", "Physical footprint (peak):  136.5M", "WebKit Malloc                    128.0M    1072K     608K       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           256.1M     256K     208K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         39.3M    37.3M    5440K       0K       0K       0K       0K       30 ", "TOTAL                            393.3G   653.2M    28.2M       0K       0K    1728K       0K     4018 ", "TOTAL                                         437.3M      12.3M       9.8M         0K      42155      6541K      3491K     35%     674"]
+        },
+        {
+          "file": "filtered-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "b6a8ac383b6aff5f5ca592ef2d08dfb09ad596b1548404401a6978d6b56ee0e5",
+          "selected_lines": ["Physical footprint:         102.9M", "Physical footprint (peak):  139.8M", "WebKit Malloc                    128.0M    41.8M    33.2M       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           256.1M     448K     416K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)        105.5M   105.5M    68.9M       0K       0K       0K       0K       23 ", "TOTAL                            457.8G   721.2M   113.0M       0K       0K     240K       0K     3673 ", "TOTAL                                        1.4G      54.6M      40.3M         0K     134453      27.5M      12.7M     32%     508"]
+        },
+        {
+          "file": "filtered-lite-ide.vmmap.txt",
+          "sha256": "05761505c971c8aae8768359b5d15c44ccc2bf93664763a0098163d378f4413f",
+          "selected_lines": ["Physical footprint:         37.6M", "Physical footprint (peak):  37.7M", "Malloc Large                      8480K    8464K    8464K       0K       0K       0K       0K        3         see MALLOC ZONE table below", "WebKit Malloc                     32.0M    4816K    2208K       0K       0K       0K       0K        2 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           320.0M     288K     240K       0K       0K       0K       0K        4 ", "TOTAL                            393.5G   911.5M    38.0M       0K       0K     224K       0K     6509 ", "TOTAL                                      438.6M      33.1M      28.5M         0K      70433      18.5M       9.9M     35%      98"]
+        },
+        {
+          "file": "log-ready-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "0deb1cde4ecd46618f2e50c32a7b266c50ebeb7b913fbc2cb47386237dfafb7a",
+          "selected_lines": ["Physical footprint:         25.3M", "Physical footprint (peak):  136.5M", "WebKit Malloc                    128.0M    1040K     592K       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           256.1M     256K     192K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         38.2M    36.2M    4272K       0K       0K       0K       0K       30 ", "TOTAL                            393.3G   652.6M    27.6M       0K       0K    1712K       0K     3989 ", "TOTAL                                         437.3M      12.1M      9792K         0K      41502      6365K      3427K     35%     648"]
+        },
+        {
+          "file": "log-ready-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "335eb1e0c1b17f76f9f486067d0a675c176f0cf545f1bddad53e1c44dfad756d",
+          "selected_lines": ["Physical footprint:         120.9M", "Physical footprint (peak):  121.7M", "WebKit Malloc                    128.0M    39.5M    30.0M       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           256.1M     448K     416K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         89.0M    89.0M    89.0M       0K       0K       0K       0K       22 ", "TOTAL                            457.7G   702.6M   130.0M       0K       0K     240K       0K     3697 ", "TOTAL                                        1.4G      52.1M      37.0M         0K     121477      23.6M      13.3M     37%     506"]
+        },
+        {
+          "file": "log-ready-lite-ide.vmmap.txt",
+          "sha256": "0c6c6d4957539b21495b7dfde627176e457415a8eb52e2a0739b63dc6da28568",
+          "selected_lines": ["Physical footprint:         29.6M", "Physical footprint (peak):  33.7M", "Malloc Large (empty)              4128K     128K     128K       0K       0K       0K       0K        1         see MALLOC ZONE table below", "WebKit Malloc                     32.0M    4816K    2128K       0K       0K       0K       0K        2 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           320.0M     288K     240K       0K       0K       0K       0K        4 ", "TOTAL                            393.5G   902.5M    29.9M       0K       0K     224K       0K     6502 ", "TOTAL                                      430.3M      23.8M      20.3M         0K      70381      10.2M      10.0M     50%      93"]
+        },
+        {
+          "file": "recovered-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "8a26b4ff9f0d1ad62268425604ac62505e17ee1e6989e046ddae511969982a7c",
+          "selected_lines": ["Physical footprint:         21.1M", "Physical footprint (peak):  139.3M", "WebKit Malloc                    128.0M    1120K     864K      16K       0K       0K       0K        4 ", "WebKit Malloc metadata           256.1M     224K     192K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         7488K    5440K    5440K       0K       0K       0K       0K       22 ", "TOTAL                            393.3G   611.6M    18.9M    2752K       0K    1744K     416K     4033 ", "TOTAL                                         437.3M      10.5M      9584K      1872K      46436      7922K      3534K     31%     684"]
+        },
+        {
+          "file": "recovered-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "0a832ad56bfd56ffef3e82c4ae890ab4e7f40c1437413729c3da3a44ebdbe08f",
+          "selected_lines": ["Physical footprint:         65.0M", "Physical footprint (peak):  168.5M", "WebKit Malloc                    128.0M    44.4M    35.5M     736K       0K       0K       0K        4 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           256.1M     432K     432K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)        126.2M   125.8M    20.6M       0K       0K       0K       0K       32 ", "TOTAL                            457.8G   741.0M    67.2M    2112K       0K     256K      32K     3708 ", "TOTAL                                        1.4G      51.2M      42.2M      1264K     142992      28.9M      14.6M     34%     516"]
+        },
+        {
+          "file": "recovered-lite-ide.vmmap.txt",
+          "sha256": "e8ec065aadc88c07354daf3c4756bd496db935cc9528680db1c12dca10ac5e07",
+          "selected_lines": ["Physical footprint:         36.0M", "Physical footprint (peak):  53.9M", "Malloc Large (empty)              8528K    8464K    8464K       0K       0K       0K       0K        3         see MALLOC ZONE table below", "WebKit Malloc                     32.0M    2800K    2064K      96K       0K       0K       0K        2 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           320.0M     272K     256K       0K       0K       0K       0K        4 ", "TOTAL                            393.4G   838.2M    28.9M    7488K       0K     224K       0K     6504 ", "TOTAL                                      430.3M      15.6M      14.2M      4448K      69915      9873K      9103K     48%      95"]
+        }
+      ]
+    },
+    {
+      "run_id": "20261030T064326Z-lite-bridge.1Q8HUd",
+      "source_report_sha256": "23d98d8f93f197f539934a9b583289bb04c9e9d84e36836a092de345df06a521",
+      "context": {
+        "profile": "isolated-log",
+        "scenario": {
+          "fixture": "isolated-log-v1",
+          "log_mib": 1024,
+          "rounds": 4,
+          "warmups": 0,
+          "idle": 30,
+          "settle": 5,
+          "native_diagnostics": true
+        },
+        "head": "961aca75dec8cba1155a7404d1bfc24893ceba41",
+        "dirty": true,
+        "source_sha256": "1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a",
+        "binary_sha256": "994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T06:43:26.351962+00:00",
+        "fixture_bytes": 1073709056,
+        "observer_eval_calls": 50,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": null,
+        "expected_lines": 17317888,
+        "boot_observed_ms": null,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 8192.00M  used = 7102.19M  free = 1089.81M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 8192.00M  used = 7102.19M  free = 1089.81M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "NO_SIGNAL",
+      "findings": [],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": -874064.8,
+        "r2": 0.0935631529824168,
+        "growth": -3907512.0
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 30.012858500005677, 84872720, 184028688, 31638752, 0.2463882805431079, 32768, 11, 18, "fresh-coalition"],
+        ["log-open-1", 6.0091878329985775, 98586968, 101667136, 40110072, 44.272665440588334, 24576, 11, 19, "fresh-coalition"],
+        ["log-ready-1", 5.0124135419900995, 105681240.0, 227430744, 40175608.0, 1.0429290512858336, 4096, 11.0, 20.0, "fresh-coalition"],
+        ["log-filter-1", 8.0098860830185, 251515320, 256397752, 178849880, 6.296571546370082, 4096, 11, 19, "fresh-coalition"],
+        ["log-filter-ready-1", 5.011239499988733, 256561592.0, 368546232, 178866264.0, 0.587678956475064, 4096, 11.0, 19.0, "fresh-coalition"],
+        ["closed-1", 3.0121925410057884, 243199672.0, 243371704, 178324824.0, 0.41583354415377427, 0, 11.0, 19.0, "fresh-coalition"],
+        ["log-open-2", 6.01239666598849, 239866296, 244027832, 176883800, 42.063772826342685, 12288, 11, 21, "fresh-coalition"],
+        ["log-ready-2", 5.012399375002133, 245002680.0, 366121400, 176867416.0, 0.7546003454679608, 4096, 11.0, 20.0, "fresh-coalition"],
+        ["log-filter-2", 8.011788667005021, 388256280, 390173208, 307103928, 6.391727606457584, 4096, 11, 19, "fresh-coalition"],
+        ["log-filter-ready-2", 5.012846208002884, 388485656.0, 498012696, 307071160.0, 0.34642742425003614, 4096, 11.0, 18.0, "fresh-coalition"],
+        ["closed-2", 3.0074669170135166, 245116624.0, 249319120, 167986544.0, 0.418714730618046, 0, 11.0, 19.0, "fresh-coalition"],
+        ["log-open-3", 6.009045124985278, 239735248, 355962648, 168740976, 41.61585559745862, 8192, 11, 20, "fresh-coalition"],
+        ["log-ready-3", 5.012008500023512, 112103768.0, 232591704, 38504440.0, 0.6375762132057456, 4096, 11.0, 20.0, "fresh-coalition"],
+        ["log-filter-3", 8.011772333004046, 242209208, 338694584, 168740952, 5.7131298665893935, 20480, 11, 18, "fresh-coalition"],
+        ["log-filter-ready-3", 5.009575042000506, 241545656.0, 362074552, 168757336.0, 0.6319057551707757, 4096, 11.0, 19.0, "fresh-coalition"],
+        ["closed-3", 3.0124617909896187, 248098512.0, 252301008, 168232280.0, 0.3983577164660992, 0, 11.0, 19.0, "fresh-coalition"],
+        ["log-open-4", 6.012095332989702, 242930128, 358862640, 168773720, 41.134925878997805, 8192, 11, 20, "fresh-coalition"],
+        ["log-ready-4", 5.012554042012198, 241480144.0, 363401680, 168577112.0, 1.0146441030605498, 4096, 11.0, 20.0, "fresh-coalition"],
+        ["log-filter-4", 8.013029542024015, 369873480, 466096712, 298813624, 5.666364957457925, 20480, 11, 19, "fresh-coalition"],
+        ["log-filter-ready-4", 5.009801750013139, 304738852.0, 490263112, 233678996.0, 0.6159500024111547, 4096, 11.0, 19.0, "fresh-coalition"],
+        ["closed-4", 3.021164791978663, 239292160.0, 239456000, 168068464.0, 0.5844572612153196, 0, 11.0, 19.0, "fresh-coalition"],
+        ["recovered_idle", 30.01923054200597, 234786536, 244469480, 167970160, 0.06986091122706908, 4096, 11, 17, "fresh-coalition"]
+      ],
+      "lifetimes": [],
+      "native_observations": [
+        {
+          "file": "baseline-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "ec334044edaafe84c1b23c9a6951146ffa8e6cd27326bd917716dbce45cfd602",
+          "selected_lines": ["Physical footprint:         16.8M", "Physical footprint (peak):  116.8M", "WebKit Malloc                    128.0M     768K     512K       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           320.1M     464K     176K       0K       0K       0K       0K        5 ", "owned unmapped (graphics)         23.5M    21.5M    1552K       0K       0K       0K       0K       27 ", "TOTAL                            393.2G   634.1M    19.6M       0K       0K    1568K       0K     3897 ", "TOTAL                                         501.3M      12.5M      9504K         0K      40313      7496K      2008K     22%     643"]
+        },
+        {
+          "file": "baseline-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "04179c7e635e350a1e4633699d3be0c59b6f68008e46e10cd81e1f0ede59a996",
+          "selected_lines": ["Physical footprint:         32.4M", "Physical footprint (peak):  55.9M", "WebKit Malloc                     96.0M    34.1M    21.6M       0K       0K       0K       0K        3 ", "WebKit Malloc metadata           256.1M     432K     400K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         15.3M    15.3M    5232K       0K       0K       0K       0K       18 ", "TOTAL                            457.6G   623.2M    36.1M       0K       0K     208K       0K     3596 ", "TOTAL                                        1.4G      46.0M      27.2M         0K      78216      15.6M      11.7M     43%     452"]
+        },
+        {
+          "file": "baseline-lite-ide.vmmap.txt",
+          "sha256": "f4fd1ee404415d1d9c6b210ea3bb4eb2768c858927e8d210a1e180fa5bfc3785",
+          "selected_lines": ["Physical footprint:         30.0M", "Physical footprint (peak):  33.5M", "Malloc Large (empty)              4128K     128K     128K       0K       0K       0K       0K        1         see MALLOC ZONE table below", "WebKit Malloc                     32.0M    4544K    2096K       0K       0K       0K       0K        2 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           320.0M     288K     240K       0K       0K       0K       0K        4 ", "TOTAL                            393.3G   839.9M    30.1M       0K       0K     224K       0K     6484 ", "TOTAL                                      426.3M      23.2M      20.8M         0K      70077      15.2M      5711K     27%      93"]
+        },
+        {
+          "file": "filtered-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "def14161ab439fcadcdd1cc08ddb1e98f1ceccdcfe66f38d6d2beb40643e5f82",
+          "selected_lines": ["Physical footprint:         18.8M", "Physical footprint (peak):  118.3M", "WebKit Malloc                    160.0M     912K     592K       0K       0K       0K       0K        5 ", "WebKit Malloc metadata           288.1M     384K     208K       0K       0K       0K       0K        4 ", "owned unmapped (graphics)         36.5M    34.5M    2560K       0K       0K       0K       0K       30 ", "TOTAL                            393.3G   642.4M    21.9M       0K       0K    1680K       0K     4015 ", "TOTAL                                         505.3M      14.0M      10.4M         0K      42531      8525K      2115K     20%     684"]
+        },
+        {
+          "file": "filtered-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "a044d58dbafdbc1ddaf74ec38b2bc5694cd35e0e90027c6ce9f37acbb6ac01ed",
+          "selected_lines": ["Physical footprint:         50.5M", "Physical footprint (peak):  59.9M", "WebKit Malloc                    128.0M    40.3M    31.6M       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           256.1M     448K     416K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         32.1M    32.1M    17.8M       0K       0K       0K       0K       29 ", "TOTAL                            457.6G   641.9M    60.4M       0K       0K     240K       0K     3659 ", "TOTAL                                        1.4G      53.4M      38.8M         0K     131126      25.8M      13.0M     34%     489"]
+        },
+        {
+          "file": "filtered-lite-ide.vmmap.txt",
+          "sha256": "d4efdbbba8e2542ec8bfdcafe6b92e2366e1163878c34d2735714cd0cd01e733",
+          "selected_lines": ["Physical footprint:         170.6M", "Physical footprint (peak):  170.6M", "Malloc Large                     140.4M   140.4M   140.4M       0K       0K       0K       0K        8         see MALLOC ZONE table below", "Malloc Large (empty)             124.0M     128K     128K       0K       0K       0K       0K        2         see MALLOC ZONE table below", "WebKit Malloc                     32.0M    4592K    2208K       0K       0K       0K       0K        2 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           320.0M     288K     240K       0K       0K       0K       0K        4 ", "TOTAL                            394.6G     2.0G   171.1M       0K       0K     224K       0K     6512 ", "TOTAL                                      566.7M     164.3M     161.2M         0K      70824     155.8M      5508K      4%     105"]
+        },
+        {
+          "file": "log-ready-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "f68fa4e73f3f6e307118d420e3f90ef4fed9452f9534d76174f3138b5a091845",
+          "selected_lines": ["Physical footprint:         19.3M", "Physical footprint (peak):  118.3M", "WebKit Malloc                    160.0M     912K     592K       0K       0K       0K       0K        5 ", "WebKit Malloc metadata           288.1M     384K     208K       0K       0K       0K       0K        4 ", "owned unmapped (graphics)         28.0M    26.0M    2096K       0K       0K       0K       0K       28 ", "TOTAL                            393.3G   635.9M    22.3M       0K       0K    1632K       0K     4000 ", "TOTAL                                         505.3M      13.8M      10.3M         0K      42257      8428K      2132K     21%     670"]
+        },
+        {
+          "file": "log-ready-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "aa1056de9da43f3625bf1db64c17ac6d5d9519c24d7ee31cfd93b4ec3b7a3114",
+          "selected_lines": ["Physical footprint:         38.0M", "Physical footprint (peak):  56.4M", "WebKit Malloc                    128.0M    40.0M    30.7M       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           256.1M     448K     416K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         28.0M    28.0M    5664K       0K       0K       0K       0K       28 ", "TOTAL                            457.6G   638.9M    47.4M       0K       0K     240K       0K     3685 ", "TOTAL                                        1.4G      53.0M      37.8M         0K     124856      24.4M      13.4M     36%     489"]
+        },
+        {
+          "file": "log-ready-lite-ide.vmmap.txt",
+          "sha256": "b9590012c3d9ceea5a0222ac9dadc08deccb1c98c3541e0dad982ac828743636",
+          "selected_lines": ["Physical footprint:         38.3M", "Physical footprint (peak):  38.3M", "Malloc Large                      8496K    8464K    8464K       0K       0K       0K       0K        2         see MALLOC ZONE table below", "Malloc Large (empty)              4128K     128K     128K       0K       0K       0K       0K        1         see MALLOC ZONE table below", "WebKit Malloc                     32.0M    4592K    2208K       0K       0K       0K       0K        2 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           320.0M     288K     240K       0K       0K       0K       0K        4 ", "TOTAL                            394.4G     1.8G    38.9M       0K       0K     224K       0K     6500 ", "TOTAL                                      434.6M      32.1M      29.0M         0K      70772      23.7M      5436K     19%      97"]
+        },
+        {
+          "file": "recovered-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "d2aa6784b43689f5e3234924d94e7d0f8fcd8062b06fa9b0f3bd348e9efd8d64",
+          "selected_lines": ["Physical footprint:         15.9M", "Physical footprint (peak):  120.4M", "WebKit Malloc                    160.0M    1184K     832K       0K       0K       0K       0K        5 ", "WebKit Malloc metadata           288.1M     384K     208K       0K       0K       0K       0K        4 ", "owned unmapped (graphics)         4608K    2560K    2560K       0K       0K       0K       0K       22 ", "TOTAL                            393.2G   612.0M    19.4M       0K       0K    1680K       0K     4041 ", "TOTAL                                         505.3M      16.0M      11.9M         0K      47081      9925K      2251K     19%     715"]
+        },
+        {
+          "file": "recovered-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "e567dc7edb7c6fd162f85ef86d06cc4404d5e6812c733cf7ceaecbf42c9d9761",
+          "selected_lines": ["Physical footprint:         43.4M", "Physical footprint (peak):  70.4M", "WebKit Malloc                    128.0M    51.5M    38.5M       0K       0K       0K       0K        4 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           256.1M     448K     416K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         32.4M    32.4M    5664K       0K       0K       0K       0K       32 ", "TOTAL                            457.7G   657.5M    55.9M       0K       0K     240K       0K     3691 ", "TOTAL                                        1.4G      64.8M      45.9M         0K     148444      27.9M      18.1M     40%     489"]
+        },
+        {
+          "file": "recovered-lite-ide.vmmap.txt",
+          "sha256": "533f453662ac48f0f47232ddddfff6535850b011aa76bc723bdd915081264562",
+          "selected_lines": ["Physical footprint:         160.2M", "Physical footprint (peak):  292.9M", "Malloc Large (empty)             260.4M   132.4M   132.4M       0K       0K       0K       0K        9         see MALLOC ZONE table below", "WebKit Malloc                     32.0M    4624K    2560K       0K       0K       0K       0K        2 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           320.0M     288K     240K       0K       0K       0K       0K        4 ", "TOTAL                            393.6G   968.9M   161.5M       0K       0K     240K       0K     6501 ", "TOTAL                                      430.3M      24.2M      19.9M         0K      70172      15.2M      4765K     24%      98"]
+        }
+      ]
+    },
+    {
+      "run_id": "20261030T064715Z-lite-bridge.8nzxZK",
+      "source_report_sha256": "d4a69868c593e1116cd9ba3fbce3c6704eed9b91482a7580b050e0a16f2b5d57",
+      "context": {
+        "profile": "quick",
+        "scenario": {
+          "rounds": 4,
+          "warmups": 0,
+          "idle": 15,
+          "settle": 5,
+          "log_mib": 16,
+          "tab_limit": 25,
+          "fixture": "isolated-log-v1",
+          "focus": "logs",
+          "native_diagnostics": true,
+          "log_method_sha256": "f961c2bc0b78e784e3521334fa3b522ad207e16cce31b4e6e1cbe6b71ac7f9d1"
+        },
+        "head": "961aca75dec8cba1155a7404d1bfc24893ceba41",
+        "dirty": true,
+        "source_sha256": "1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a",
+        "binary_sha256": "994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822",
+        "os": "27.2",
+        "arch": "arm64",
+        "surface": "test-identity-background",
+        "recorded_utc": "2026-10-30T06:47:15.397181+00:00",
+        "fixture_bytes": 16776704,
+        "observer_eval_calls": 50,
+        "source_unchanged": true,
+        "fixture_unchanged": true,
+        "diagnostic_unchanged": true,
+        "expected_lines": 270592,
+        "boot_observed_ms": null,
+        "system_before": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 8192.00M  used = 7102.19M  free = 1089.81M  (encrypted)"
+        },
+        "system_after": {
+          "hw.model": "Mac17,8",
+          "hw.memsize": "51539607552",
+          "hw.ncpu": "18",
+          "kern.memorystatus_vm_pressure_level": "1",
+          "vm.swapusage": "total = 8192.00M  used = 7094.19M  free = 1097.81M  (encrypted)"
+        }
+      },
+      "memory_pressure": {
+        "system_before": "1",
+        "system_after": "1"
+      },
+      "verdict": "REVIEW",
+      "findings": [
+        {
+          "status": "WARN",
+          "metric": "retained_memory",
+          "reason": "预热后关完序列持续增长；需长测 / Allocations 确认，不直接判内存泄漏"
+        }
+      ],
+      "comparison": {
+        "status": null,
+        "reason": null
+      },
+      "closed_memory_trend": {
+        "slope": 9527303.2,
+        "r2": 0.7240417787390812,
+        "growth": 32063512.0
+      },
+      "orphans": [],
+      "checkpoints": [
+        ["baseline_idle", 15.013878750003641, 105410256.0, 117690064, 30852344.0, 0.22147008480398137, 36864, 11.0, 20.0, "fresh-coalition"],
+        ["log-open-1", 6.023789124999894, 179965744, 301338416, 31491344, 2.8137439157119064, 28672, 11, 20, "fresh-coalition"],
+        ["log-ready-1", 5.023483083990868, 178753328.0, 179572528, 31499536.0, 0.28294609063773324, 8192, 11.0, 19.0, "fresh-coalition"],
+        ["log-filter-1", 8.020309000014095, 183062368, 323456816, 32720144, 1.302330334153166, 28672, 11, 18, "fresh-coalition"],
+        ["log-filter-ready-1", 5.025584832997993, 177418080.0, 182751072, 32703760.0, 0.19543745308027763, 8192, 11.0, 17.0, "fresh-coalition"],
+        ["closed-1", 3.0182791670085862, 124915528.0, 125112136, 31737080.0, 0.522236053321146, 4096, 11.0, 18.5, "fresh-coalition"],
+        ["log-open-2", 6.029419667000184, 202968952, 340660088, 31753488, 1.7286213393047072, 8192, 11, 20, "fresh-coalition"],
+        ["log-ready-2", 5.013270583003759, 202772344.0, 202919800, 31720720.0, 0.23830834187373529, 24576, 11.0, 19.0, "fresh-coalition"],
+        ["log-filter-2", 8.01781070799916, 201543544, 339447672, 30885136, 1.5736927771831504, 8192, 11, 19, "fresh-coalition"],
+        ["log-filter-ready-2", 5.023382624989608, 201404280.0, 201461624, 30885136.0, 0.25713002501032295, 4096, 11.0, 19.0, "fresh-coalition"],
+        ["closed-2", 3.0228858329937793, 152006496.0, 152129376, 30786808.0, 0.31701772840389375, 4096, 11.0, 18.0, "fresh-coalition"],
+        ["log-open-3", 6.017033624986652, 207261560, 345198456, 31163664, 2.0535181071100315, 12288, 11, 20, "fresh-coalition"],
+        ["log-ready-3", 5.022823749983218, 206507896.0, 207097720, 31163664.0, 0.2350196938532721, 20480, 11.0, 20.0, "fresh-coalition"],
+        ["log-filter-3", 8.021753000008175, 207245176, 349720440, 32032016, 1.143747831676025, 8192, 11, 19, "fresh-coalition"],
+        ["log-filter-ready-3", 5.021499833004782, 203411320.0, 207130488, 31950096.0, 0.22513030719818478, 4096, 11.0, 18.0, "fresh-coalition"],
+        ["closed-3", 3.0227967080136295, 151088992.0, 151162720, 29312248.0, 0.2265327662242884, 4096, 11.0, 18.0, "fresh-coalition"],
+        ["log-open-4", 6.0211572499829344, 206671736, 344625016, 29361424, 1.6944313321212323, 32768, 11, 19, "fresh-coalition"],
+        ["log-ready-4", 5.014540333999321, 206491512.0, 206638968, 29361424.0, 0.2471279952816046, 4096, 11.0, 19.0, "fresh-coalition"],
+        ["log-filter-4", 8.020267874991987, 213553016, 352735096, 31524112, 1.3218329319219393, 8192, 11, 18, "fresh-coalition"],
+        ["log-filter-ready-4", 5.022306625003694, 208121720.0, 213438328, 31524112.0, 0.23852832760865508, 4096, 11.0, 18.0, "fresh-coalition"],
+        ["closed-4", 3.0225802499917336, 156979040.0, 157110112, 31491320.0, 0.20190256321620215, 4096, 11.0, 17.0, "fresh-coalition"],
+        ["recovered_idle", 15.01961170899449, 152211296.0, 156454752, 31442168.0, 0.22145767576721714, 32768, 11.0, 17.0, "fresh-coalition"]
+      ],
+      "lifetimes": [],
+      "native_observations": [
+        {
+          "file": "baseline-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "d26d5b3bdff05e4111db4dfd4820a6f38ad7b46e04c1355f3c35656dd791ca85",
+          "selected_lines": ["Physical footprint:         13.9M", "Physical footprint (peak):  127.2M", "WebKit Malloc                    128.0M     768K     528K       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           320.1M     464K     192K       0K       0K       0K       0K        5 ", "owned unmapped (graphics)         4432K    2384K    2384K       0K       0K       0K       0K       22 ", "TOTAL                            393.3G   605.0M    16.1M       0K       0K    1632K       0K     3859 ", "TOTAL                                         497.3M      10.8M      8944K         0K      39929      5524K      3420K     39%     583"]
+        },
+        {
+          "file": "baseline-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "29d38b89485673854d657f7722dd4d4ddfffee36467623daacb5db6f8e42324d",
+          "selected_lines": ["Physical footprint:         52.3M", "Physical footprint (peak):  101.2M", "WebKit Malloc                     96.0M    33.9M    25.0M       0K       0K       0K       0K        3 ", "WebKit Malloc metadata           256.1M     432K     416K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)         60.4M    60.4M    20.1M       0K       0K       0K       0K       18 ", "TOTAL                            457.6G   661.0M    54.9M       0K       0K     224K       0K     3570 ", "TOTAL                                        1.4G      42.3M      31.1M         0K     108858      20.7M      10.4M     34%     432"]
+        },
+        {
+          "file": "baseline-lite-ide.vmmap.txt",
+          "sha256": "1e48392f1b3e9a6ec4478c0bedde646044caf31ff7dacecfc21b734e90f52070",
+          "selected_lines": ["Physical footprint:         29.3M", "Physical footprint (peak):  33.0M", "Malloc Large (empty)              4128K     128K     128K       0K       0K       0K       0K        1         see MALLOC ZONE table below", "WebKit Malloc                     64.0M    4704K    2240K       0K       0K       0K       0K        3 ", "WebKit Malloc metadata           320.0M     288K     256K       0K       0K       0K       0K        4 ", "TOTAL                            393.4G   834.7M    29.5M       0K       0K     240K       0K     6485 ", "TOTAL                                      454.3M      22.5M      20.0M         0K      69824      9849K      10.4M     52%      93"]
+        },
+        {
+          "file": "filtered-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "bc5dfbe6e4b88e66ff2ff38e1450bf5bcbd3ffd68a50788085b85276d67592b5",
+          "selected_lines": ["Physical footprint:         18.5M", "Physical footprint (peak):  138.6M", "WebKit Malloc                    160.0M     960K     672K       0K       0K       0K       0K        5 ", "WebKit Malloc metadata           288.1M     384K     208K       0K       0K       0K       0K        4 ", "owned unmapped (graphics)         7488K    5440K    5440K       0K       0K       0K       0K       22 ", "TOTAL                            393.3G   611.9M    21.0M       0K       0K    1696K       0K     4024 ", "TOTAL                                         501.3M      12.5M      10.1M         0K      43129      6800K      3520K     35%     639"]
+        },
+        {
+          "file": "filtered-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "e60b09cf071bb826c62aa770ab50bdcdd8a7fd39107175709dc65b346336b1b3",
+          "selected_lines": ["Physical footprint:         109.9M", "Physical footprint (peak):  148.7M", "WebKit Malloc                    128.0M    45.4M    35.4M       0K       0K       0K       0K        4 ", "WebKit Malloc (reserved)          32.0M       0K       0K       0K       0K       0K       0K        1         reserved VM address space (unallocated)", "WebKit Malloc metadata           256.1M     448K     384K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)        125.8M   125.8M    68.9M       0K       0K       0K       0K       34 ", "TOTAL                            457.8G   741.3M   115.8M       0K       0K     624K       0K     3650 ", "TOTAL                                        1.4G      55.1M      42.7M         0K     153636      30.4M      12.2M     29%     474"]
+        },
+        {
+          "file": "filtered-lite-ide.vmmap.txt",
+          "sha256": "194cc6f18c89363ee086fedd19595e8df85a9c6eaae53fc7ea838ccd75af43ad",
+          "selected_lines": ["Physical footprint:         31.2M", "Physical footprint (peak):  33.0M", "Malloc Large                      4128K    2144K    2144K       0K       0K       0K       0K        1         see MALLOC ZONE table below", "WebKit Malloc                     64.0M    4816K    2320K       0K       0K       0K       0K        3 ", "WebKit Malloc metadata           320.0M     288K     256K       0K       0K       0K       0K        4 ", "TOTAL                            393.5G   854.8M    31.6M       0K       0K     240K       0K     6501 ", "TOTAL                                      462.3M      26.2M      22.1M         0K      70649      13.9M      8418K     38%     101"]
+        },
+        {
+          "file": "log-ready-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "543e86d5a7707d5ba6cffb703efafcb2b29b9a3789b1c893a9d6492c7b86651d",
+          "selected_lines": ["Physical footprint:         16.9M", "Physical footprint (peak):  135.0M", "WebKit Malloc                    160.0M     928K     624K       0K       0K       0K       0K        5 ", "WebKit Malloc metadata           288.1M     384K     208K       0K       0K       0K       0K        4 ", "owned unmapped (graphics)         6048K    4000K    4000K       0K       0K       0K       0K       22 ", "TOTAL                            393.4G   609.9M    19.3M       0K       0K    1696K       0K     3987 ", "TOTAL                                         501.3M      12.3M       9.9M         0K      42426      6611K      3501K     35%     622"]
+        },
+        {
+          "file": "log-ready-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "04523dfbf46d625cfbd6257db0d67f8c051c4b7d3f87835ced63cd9029757417",
+          "selected_lines": ["Physical footprint:         108.1M", "Physical footprint (peak):  130.9M", "WebKit Malloc                    128.0M    41.9M    33.5M       0K       0K       0K       0K        4 ", "WebKit Malloc metadata           256.1M     448K     400K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)        109.3M   109.3M    68.9M       0K       0K       0K       0K       32 ", "TOTAL                            457.7G   720.9M   113.6M       0K       0K     464K       0K     3642 ", "TOTAL                                        1.4G      51.4M      40.7M         0K     147083      28.4M      12.3M     31%     467"]
+        },
+        {
+          "file": "log-ready-lite-ide.vmmap.txt",
+          "sha256": "dea57fedd531bd89c93869b9c74c3008d77bc2f389e44fcee3d7141386c1ec12",
+          "selected_lines": ["Physical footprint:         30.0M", "Physical footprint (peak):  33.0M", "Malloc Large (empty)              4128K     128K     128K       0K       0K       0K       0K        1         see MALLOC ZONE table below", "WebKit Malloc                     64.0M    4816K    2160K       0K       0K       0K       0K        3 ", "WebKit Malloc metadata           320.0M     288K     256K       0K       0K       0K       0K        4 ", "TOTAL                            393.5G   851.9M    30.2M       0K       0K     240K       0K     6502 ", "TOTAL                                      458.3M      23.2M      20.6M         0K      70618       9.9M      10.7M     52%     100"]
+        },
+        {
+          "file": "recovered-com.apple.WebKit.GPU.vmmap.txt",
+          "sha256": "9d12ccf4bb7bf09b0d21b105ef68f510e1b79a1268a6757d3a9afc42e2987024",
+          "selected_lines": ["Physical footprint:         18.5M", "Physical footprint (peak):  138.6M", "WebKit Malloc                    160.0M    1184K     848K       0K       0K       0K       0K        5 ", "WebKit Malloc metadata           288.1M     384K     192K       0K       0K       0K       0K        4 ", "owned unmapped (graphics)         7488K    5440K    5440K       0K       0K       0K       0K       22 ", "TOTAL                            393.3G   612.5M    21.2M       0K       0K    1712K       0K     4041 ", "TOTAL                                         501.3M      13.0M      10.5M         0K      45381      7140K      3564K     34%     651"]
+        },
+        {
+          "file": "recovered-com.apple.WebKit.WebContent.vmmap.txt",
+          "sha256": "2f3f4d92344f7466f8d8382ec251b147e96b98e54dde29c8234a468a9c4af1d4",
+          "selected_lines": ["Physical footprint:         92.2M", "Physical footprint (peak):  179.2M", "WebKit Malloc                    160.0M    59.2M    48.8M       0K       0K       0K       0K        5 ", "WebKit Malloc metadata           256.1M     464K     400K       0K       0K       0K       0K        3 ", "owned unmapped (graphics)        126.7M   126.7M    40.7M       0K       0K       0K       0K       43 ", "TOTAL                            457.8G   758.5M   103.3M       0K       0K    1888K       0K     3688 ", "TOTAL                                        1.5G      69.2M      56.3M         0K     195756      43.7M      12.6M     23%     475"]
+        },
+        {
+          "file": "recovered-lite-ide.vmmap.txt",
+          "sha256": "409246cff909b2b3c5d9809ea9ff2c90100802412b8b38d3b11d285bfefe4782",
+          "selected_lines": ["Physical footprint:         30.0M", "Physical footprint (peak):  33.0M", "Malloc Large (empty)              2176K    2128K    2128K       0K       0K       0K       0K        1         see MALLOC ZONE table below", "WebKit Malloc                     64.0M    4848K    2368K       0K       0K       0K       0K        3 ", "WebKit Malloc metadata           320.0M     288K     256K       0K       0K       0K       0K        4 ", "TOTAL                            393.4G   840.2M    30.6M       0K       0K     240K       0K     6492 ", "TOTAL                                      458.3M      25.3M      19.2M         0K      70064      9892K      9756K     50%     100"]
+        }
+      ]
+    }
+  ],
+  "incomplete_runs": [
+    {
+      "run_id": "20261030T013538Z-lite-bridge.f8UwLB",
+      "completed_phases": ["baseline_idle"],
+      "classification": "无最终报告，不作资源基线；规范路径比较失败，见 RESOURCE-GUARD §5.4"
+    }
+  ],
+  "export_schema": 1
+}
