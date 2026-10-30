@@ -14,6 +14,8 @@
 
 ## 2. 执行
 
+检查范围与历史状态先看 [RESOURCE-CHECKLIST.md](RESOURCE-CHECKLIST.md)。
+
 ```bash
 scripts/resources.sh --self-test
 scripts/resources.sh --build --profile quick
@@ -22,6 +24,8 @@ scripts/resources.sh --profile full --workload json-text
 scripts/resources.sh --profile full --workload json
 scripts/resources.sh --profile full --pace paced
 scripts/resources.sh --profile full --pace paced --minimap off
+scripts/resources.sh --profile full --pace paced --inspect-lifetimes
+scripts/resources.sh --profile full --pace paced --inspect-lifetimes --control ipc
 scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.json
 ```
 
@@ -214,16 +218,43 @@ scripts/resources.sh compare /path/to/before/report.json /path/to/after/report.j
 
 **本次前后系统压力从 1 变成 2，比较器返回 UNKNOWN，不能把下降当作优化或据此排除 CPU 回退。** 该轮自身也触发 opened_memory_budget（321.30 > 300 MiB），最终仍 REVIEW。复测记录支持继续调查，不支持宣称全部场景达标。#91 的重复创建/位图清理有独立回归证据可交付；#90 继续跟踪关闭后保留与峰值，下一步需要压力稳定时的重复样本和分配/对象归属，不能只看是否碰巧满足 R² 门槛。#89 的其他观察项仍不自动转成必做重构。
 
-## 6. 专项与后续顺序
+### 5.6 总清单建立与进一步内存定位（2026-10-30）
 
-1. P1 任务日志容量与 JSON 缩进输出上限均已修复。性能侧优先对齐日常打开节奏与压力场景、重复确认峰值；同时补键入/切标签/补全/搜索/保存/取消的前台反馈及完成延迟分布（p95/p99），避免只优化内存数字而忽略卡顿。后台自动化不能代替前台交互测量。
-2. JVM/LSP、数据库边车、构建工具、任务分别测：启动前 → 使用中 → 停止/关闭 → 等回收；列出本体和工具进程。沿用 `accept/java.sh`、`spring.sh`、`gradle.sh`、`db.sh`、`lsp.sh` 隔离 fixture，不自动下载缺失依赖。普通文件场景不能替这些通过。
-3. 多窗口/大项目改动增加反复切项目/开关窗口，以及 30–60 分钟稳定工作量 soak；比较末尾稳定窗口。quick/full 都不是长时泄漏证明。
-4. 内存增长用 Instruments Allocations、Leaks、Memory Graph 查归属；CPU 用 Time Profiler；磁盘用 File Activity 查路径/频率。Leaks 覆盖不了仍被引用的无用对象。前台手动测量由人选择时机。
-5. 1 GiB 日志、前台 60fps、热启动 <0.5s、每窗口预算逐项验；16/64 MiB 后台场景不替它们背书。默认不启用 sudo 系统追踪、不安装依赖/常驻服务。
-6. 补真实规模的 Java 项目下启动/导入/补全/关闭资源采样，分别列 JVM 与壳成本、冷热状态。已有专项验收覆盖部分功能，缺的是与资源数字对齐，并非所有功能都没测。
+本轮建立 [RESOURCE-CHECKLIST.md](RESOURCE-CHECKLIST.md) 的 R01–R22，总表包括历史正常项、已修复后的回归和未测专项。三轮均沿用 §5.5 的应用源码/测试二进制（SHA-256 分别为 `1a3e7396ada5bf249347da108380ea0f904bb3438f9464abb2389300e748262a` / `994c5d21ab80fa84452fdeaeb06cf8bfdbeeb487fa0133e333bd57cec12b5822`），没有改应用实现；新增诊断改变了测量场景，不能把新数字当优化收益。
 
-上面的专项不是每次改动的必跑清单：只在相关路径改动、人要求或实测出现信号时执行。历史/HTTP 全局容量、缓存与轮询项按 §4 的影响证据决定是否排期；当前不扩建成通用监控/缓存/配额平台。后续还需在相关功能改动时关注取消后的残留、磁盘满/断网的恢复、休眠唤醒与长时间运行，优先复用现有验收。
+三轮均 full、每文件等待 1.8 秒、压力前后 1、4 个进程归属完整、源码/fixture/诊断脚本未变，主进程 FD 每轮 11、关闭 DOM 清空、退出残留 0。每轮输出原判定均 NO_SIGNAL；这不替代下面的人工判断及总清单的专项覆盖。日志仍为约 64 MiB、在编辑/IPC 循环之后打开/过滤；下表全部为整应用数据，不是某个功能的增量。
+
+| 诊断场景 | 外部 eval 数 | opened 阶段采样峰值 MiB | 日志打开 / 过滤采样峰值 MiB | 恢复空闲 MiB | 最终 view alive/observed | 最终 canvas alive/observed |
+|---|---:|---:|---:|---:|---:|---:|
+| 编辑器 · 分阶段解引用 | 409 | 204.68 | 279.05 / 184.94 | 180.47 | 96/120 | 0/240 |
+| IPC 对照 · 分阶段解引用 | 408 | 97.05 | 202.24 / 305.97 | 110.38 | 0/0 | 0/0 |
+| 编辑器 · 仅末尾解引用 | 409 | 293.52 | 466.60 / 405.10 | 211.33 | 24/120 | 0/240 |
+
+报告目录均在 `src-tauri/target/resource-reports.noindex/`：
+
+- 分阶段编辑器：`20261030T030340Z-lite-bridge.f6tJhL/report.json`。
+- IPC 对照：`20261030T031430Z-lite-bridge.7orW9s/report.json`。
+- 仅末尾编辑器：`20261030T032406Z-lite-bridge.EewKmj/report.json`。
+
+原探针源码已另存各目录的 `lifetime-probe.js`，与该报告记录的探针 SHA-256 一致。分阶段模式会在检查点解引用；后加的默认 final 模式仅在恢复空闲末尾解引用一次，两种方法分别记录 scenario。WeakRef 仍 alive 不等于有无用的强引用，解引用本身会短暂保活目标；GC 时点和观察方式均影响计数。
+
+本轮能缩小的范围：
+
+1. IPC 对照关闭中位 96.50 → 96.77 MiB，增长约 0.27 MiB；409/408 次外部 eval 的规模接近，但业务 IPC 并不相同。单靠测试 eval 的数量不足以解释编辑器场景的大幅保留，不能据此排除所有观察者影响。
+2. 分阶段模式恢复空闲时 240 张 canvas 全部回收；仅末尾模式也全部回收，非零位图为 0。没有发现 #91 修复后的旧画布持续留活或非零位图回归，不能据此排除所有图形/native 缓存。
+3. 仅末尾模式观察过的 120 个 view/doc 中各有 96 个已回收、24 个仍 alive；分阶段模式各有 96 个仍 alive。不能按某次 alive 数认定泄漏，也不能把差异全归因于探针，因为 GC 时点没有被控制；尚缺真实引用链/分配来源。
+4. 仅末尾模式的关闭序列为 182.47、191.53、202.18、216.89、197.21、187.82、210.63、222.94 MiB，斜率 +3.76 MiB/轮、R²=0.411。未触发自动增长线不抹掉约 40.47 MiB 的首末变化。
+5. 日志打开/过滤有独立的瞬时分配峰值；即使 IPC 对照没有编辑器使用历史，日志过滤也采到约 305.97 MiB。另一轮混合历史下日志打开采到 466.60 MiB。它们不等于日志常驻占用，也不等于完成原 1 GiB 日志预算验收。R09 继续单列。
+
+因此 #90 继续调查：下一步是 R03 的引用链/分配定位、R09 的独立日志规模与瞬时分配、R22 的长时稳定工作量；没有足够证据做新的应用重构。资源报告补充了每阶段采样峰值和已知进程全流程峰值，避免只看 opened 的 300 MiB 调查线漏掉日志阶段；保持原门槛不变。
+
+本轮检查范围：R01、R02、R03、R04、R05、R06 的普通测试身份范围；R09 的约 64 MiB 日志局部场景；R20 的构建与测试身份收尾；R21 的对象存活诊断。R04 的连续编辑/读放大、R06 的重工具、R09 的 1 GiB 部分仍未执行。R07/R08 前台分布、R10–R12 工具专项、R13/R14 长期容量/故障注入、R15 事件风暴、R16 多窗口、R17 恢复、R18 其他协议、R19 硬件指标、R22 长时工作量，本轮未执行：当前改动限于诊断和清单，相关项目保留待测/原有证据，不以本轮普通场景冒充通过。
+
+## 6. 按清单选专项并更新结果
+
+长期检查项、历史正常项的复测条件、当前缺口和每轮记录模板，统一维护在 [资源与性能检查清单](RESOURCE-CHECKLIST.md)。每次资源验收先逐项选覆盖范围，再使用本文的方法与调查线；正常项仍保留回归入口，功能验收不能替代资源测量。人可指定 Rxx，agent 也依据相关改动选择并记录覆盖与跳过理由。
+
+当前优先调查 R03 的内存保留与峰值（#90）；R07/R08 前台延迟/启动分布、R09 1 GiB 日志、R10–R12 工具进程资源、R13 长期磁盘增长、R16/R22 多窗口/长时工作量等各自保留待测状态。R19 的热/能耗/物理写入不由 CPU 或 logical writes 代替。完整定义与执行条件以检查清单为准。
 
 ## 依据
 

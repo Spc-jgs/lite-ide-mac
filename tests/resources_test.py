@@ -37,6 +37,42 @@ def report():
 
 
 class Analysis(unittest.TestCase):
+    def test_diagnostic_scenarios_have_separate_identity(self):
+        a, b = report(), report()
+        a["context"]["scenario"] = g.scenario("full", "mixed", "paced")
+        b["context"]["scenario"] = g.scenario("full", "mixed", "paced", lifetimes=True)
+        self.assertEqual(len(b["context"]["scenario"]["lifetime_probe"]), 64)
+        self.assertEqual(b["context"]["scenario"]["lifetime_sampling"], "final")
+        self.assertEqual(g.compare(a, b)["status"], "UNKNOWN")
+        a = copy.deepcopy(b)
+        b["context"]["scenario"] = g.scenario("full", "mixed", "paced", lifetimes=True, lifetime_sampling="checkpoints")
+        self.assertEqual(g.compare(a, b)["status"], "UNKNOWN")
+        b["context"]["scenario"] = g.scenario("full", "mixed", "paced", lifetimes=True, control="ipc")
+        self.assertEqual(g.compare(a, b)["status"], "UNKNOWN")
+
+    def test_final_census_does_not_deref_in_intermediate_checkpoints(self):
+        with mock.patch.object(g, "js") as js:
+            g.view_counts(False)
+            self.assertNotIn("snapshot()", js.call_args.args[0])
+            g.view_counts(True)
+            self.assertIn("snapshot()", js.call_args.args[0])
+
+    def test_control_matches_probe_schedule_without_opening_documents(self):
+        calls = []
+        def js(body):
+            calls.append("record" if "record()" in body else "open")
+            if "record()" not in body:
+                self.assertNotIn("openPath", body)
+            return False
+        with mock.patch.object(g, "js", side_effect=js), \
+             mock.patch.object(g, "wait_js", side_effect=lambda s: calls.append("ready")), \
+             mock.patch.object(g.time, "sleep", side_effect=lambda s: calls.append(s)):
+            g.open_documents([Path("/fixture/a.txt")], 1.8, True, "ipc")
+        self.assertEqual(calls, ["open", "ready", "record", 1.8, "ready"])
+        with mock.patch.object(g, "js", return_value=False), mock.patch.object(g, "wait_js"):
+            with self.assertRaisesRegex(RuntimeError, "未找到当前编辑器"):
+                g.open_documents([Path("/fixture/a.txt")], 1.8, True)
+
     def test_isolation_fixtures_keep_bytes_and_file_count_equal(self):
         text, code = g.fixture_documents("json-text"), g.fixture_documents("json")
         self.assertEqual(len(text), 12)
@@ -161,6 +197,16 @@ class Analysis(unittest.TestCase):
         self.assertTrue(any(x["metric"] == "opened_memory_budget" for x in r["findings"]))
         p["attribution"] = "partial"
         self.assertFalse(any(x["metric"] == "opened_memory_budget" for x in g.analyse({}, ps, [])["findings"]))
+
+    def test_workflow_peak_includes_log_not_only_editor_window(self):
+        opened, log = point("opened-1", 180 * g.MIB), point("log_open", 220 * g.MIB)
+        opened["known_footprint_peak_bytes"] = 250 * g.MIB
+        log["known_footprint_peak_bytes"] = 450 * g.MIB
+        r = g.analyse({}, [opened, log], [])
+        self.assertEqual(r["known_workflow_peak_bytes"], 450 * g.MIB)
+        self.assertFalse(any(f["metric"] == "opened_memory_budget" for f in r["findings"]))
+        self.assertIsNone(g.analyse({}, [], [])["known_workflow_peak_bytes"])
+        self.assertEqual(g.analyse({}, [point("log_open", 0)], [])["known_workflow_peak_bytes"], 0)
 
     def test_sustained_growth_is_a_signal_not_proof(self):
         ps = [point(f"closed-{i}", (100 + 4 * i) * g.MIB) for i in range(4)]

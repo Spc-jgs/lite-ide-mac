@@ -13,6 +13,7 @@ fi
 if [ "${1:-}" = --help ]; then
   echo 'scripts/resources.sh [--build] [--profile quick|full] [--workload mixed|json|json-text] [--pace burst|paced] [--minimap on|off] [--output 新目录] [--baseline report.json]'
   echo 'scripts/resources.sh compare before/report.json after/report.json'
+  echo 'scripts/resources.sh --profile full --pace paced --inspect-lifetimes [--lifetime-sampling final|checkpoints] [--control ipc]'
   echo 'scripts/resources.sh --self-test'
   exit 0
 fi

@@ -25,9 +25,11 @@ PROFILES = {
 WORKLOADS = ("mixed", "json", "json-text")
 PACES = {"burst": 0, "paced": 1.8}
 MIB = 1024 * 1024
+JS_CALLS = 0
 EXE = ROOT / "src-tauri/target/test-app.noindex/lite-ide-mwtest.app/Contents/MacOS/lite-ide"
 PROBE = ROOT / "src-tauri/target/resource-tools.noindex/resource-probe"
 BUILD_STAMP = PROBE.parent / "test-build.json"
+LIFETIME_SCRIPT = ROOT / "scripts/lib/resource-lifetimes.js"
 SOURCE_ROOTS = ["src", "public", "src-tauri/src", "src-tauri/crates", "src-tauri/icons", "src-tauri/capabilities"]
 SOURCE_FILES = ["index.html", "vite.config.ts", "svelte.config.js", "package.json", "pnpm-lock.yaml", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "src-tauri/build.rs", "src-tauri/tauri.conf.json", "src-tauri/tauri.java.json", "src-tauri/Info.plist"]
 
@@ -203,7 +205,7 @@ def fixture_documents(workload):
     return {f"sample-{i:02}.{ext}": fixture_text("json") for i in range(12)}
 
 
-def scenario(profile, workload, pace, minimap="on"):
+def scenario(profile, workload, pace, minimap="on", lifetimes=False, control="none", lifetime_sampling="final"):
     p = dict(PROFILES[profile])
     # 默认场景保持原样；新变量写进可比性键，不能与旧场景算优化差值。
     if workload != "mixed":
@@ -212,17 +214,26 @@ def scenario(profile, workload, pace, minimap="on"):
         p["open_delay_s"] = PACES[pace]
     if minimap == "off":
         p["minimap"] = False
+    if lifetimes:
+        p["lifetime_probe"] = hashlib.sha256(LIFETIME_SCRIPT.read_bytes()).hexdigest()
+        p["lifetime_sampling"] = lifetime_sampling
+    if control != "none":
+        p["control"] = control
     return p
 
 
-def open_documents(paths, delay):
+def open_documents(paths, delay, lifetimes=False, control="none"):
     for path in paths:
-        js(f"await __lite.tabflow.openPath({json.dumps(str(path))}, {{preview:false}}); return true")
+        js("return true" if control == "ipc" else f"await __lite.tabflow.openPath({json.dumps(str(path))}, {{preview:false}}); return true")
         if delay:
             # probe 返回规范路径；macOS 的 /tmp 实际指向 /private/tmp。
-            wait_js(f"return __lite.tabs.active?.path === {json.dumps(str(path.resolve()))} && !!document.querySelector('.cm-content')")
+            wait_js("return true" if control == "ipc" else f"return __lite.tabs.active?.path === {json.dumps(str(path.resolve()))} && !!document.querySelector('.cm-content')")
+            if lifetimes:
+                recorded = js("return window.__resourceLifetimes.record()")
+                if control != "ipc" and not recorded:
+                    raise RuntimeError("生命周期探针未找到当前编辑器，不把漏采记为已回收")
             time.sleep(delay)
-    wait_js(f"return __lite.tabs.list.length === {len(paths)} && !!document.querySelector('.cm-content')")
+    wait_js("return __lite.tabs.list.length === 0" if control == "ipc" else f"return __lite.tabs.list.length === {len(paths)} && !!document.querySelector('.cm-content')")
 
 
 def prepare(args):
@@ -233,7 +244,7 @@ def prepare(args):
     for name, text in fixture_documents(args.workload).items():
         # 不用 Java / Rust / Python / TS 扩展名，普通编辑场景不能顺带启动语言服务器或下载安装。
         (fixture / name).write_text(text)
-    p = scenario(args.profile, args.workload, args.pace, args.minimap)
+    p = scenario(args.profile, args.workload, args.pace, args.minimap, args.inspect_lifetimes, args.control, args.lifetime_sampling)
     line = b"2026-01-01 00:00:00 INFO trace=resource-check bounded fixture\n"
     chunk = line * (MIB // len(line))
     with (fixture / "large.log").open("xb") as f:
@@ -241,6 +252,8 @@ def prepare(args):
             f.write(chunk)
     out = Path(args.output) if args.output else ROOT / "src-tauri/target/resource-reports.noindex" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + work.name)
     out.mkdir(parents=True, exist_ok=False)
+    if args.inspect_lifetimes:
+        (out / "lifetime-probe.js").write_bytes(LIFETIME_SCRIPT.read_bytes())
     context = {"schema": 3, "profile": args.profile, "scenario": p, "head": run(["git", "rev-parse", "HEAD"]).strip(),
                "dirty": bool(run(["git", "status", "--porcelain"]).strip()), "source_sha256": fingerprint(),
                "binary_sha256": hashlib.sha256(EXE.read_bytes()).hexdigest(), "os": platform.mac_ver()[0], "arch": platform.machine(),
@@ -254,6 +267,8 @@ def prepare(args):
 
 
 def js(body):
+    global JS_CALLS
+    JS_CALLS += 1
     return call({"cmd": "eval", "window": "main", "js": body}, timeout=25)
 
 
@@ -266,8 +281,10 @@ def wait_js(body, seconds=12):
     raise RuntimeError("测试页面未达到场景所需状态")
 
 
-def view_counts():
-    return js("return {tabs:__lite.tabs.list.length,editors:document.querySelectorAll('.cm-content').length,minimaps:document.querySelectorAll('.cm-minimap').length,nodes:document.querySelectorAll('*').length,terms:__lite.terms.list.length,runs:__lite.runs.list.length}")
+def view_counts(lifetimes=True):
+    # 默认只在恢复空闲末尾解引用，减少反复观察对回收时机的干扰。
+    census = "window.__resourceLifetimes?{lifetimes:window.__resourceLifetimes.snapshot()}:{}" if lifetimes else "{}"
+    return js("return {tabs:__lite.tabs.list.length,editors:document.querySelectorAll('.cm-content').length,minimaps:document.querySelectorAll('.cm-minimap').length,nodes:document.querySelectorAll('*').length,terms:__lite.terms.list.length,runs:__lite.runs.list.length,...(" + census + ")}")
 
 
 class Recorder:
@@ -379,7 +396,8 @@ class Recorder:
                  "process_count": len(end_ids), "confirmed_webkit_count": len(known_webkit),
                  "process_names": {str(r["pid"]): r["name"] for r in after_catalog if r["pid"] in end_ids},
                  "attribution": "partial" if not known_webkit or self.ambiguous else "fresh-coalition" if self.coalition_confirmed else "responsible-pid",
-                 "unattributed_new_webkit_count": len(self.ambiguous), "views": view_counts(), "storage": storage()}
+                 "unattributed_new_webkit_count": len(self.ambiguous),
+                 "views": view_counts(self.state["context"].get("scenario", {}).get("lifetime_sampling") != "final" or name == "recovered_idle"), "storage": storage()}
         self.checkpoints.append(point)
         (self.out / "checkpoints.json").write_text(json.dumps(self.checkpoints, indent=2))
         return point
@@ -399,7 +417,7 @@ def analyse(context, points, orphans):
         findings.append({"status": "WARN", "metric": "retained_memory", "reason": "预热后关完序列持续增长；需长测 / Allocations 确认，不直接判内存泄漏"})
     opened = [p for p in points if p["phase"].startswith("opened-") and p["attribution"] != "partial"]
     peak = max((p.get("known_footprint_peak_bytes") or p["known_footprint_bytes"] or 0 for p in opened), default=0)
-    if peak > 300 * MIB:
+    if peak > 300 * MIB and context.get("scenario", {}).get("control") != "ipc":
         findings.append({"status": "WARN", "metric": "opened_memory_budget", "value": peak, "limit": 300 * MIB,
                          "reason": "约定场景打开 12 文件后的采样峰值超过 300 MiB 参考预算，需定位瞬时分配/缓存；不能用关闭后不增长代替峰值预算验收"})
     for p in idle:
@@ -425,7 +443,10 @@ def analyse(context, points, orphans):
         findings.append({"status": "FAIL", "metric": "closed_views", "reason": "关闭后标签或编辑器仍在"})
     if orphans:
         findings.append({"status": "FAIL", "metric": "child_processes", "reason": "退出后仍有本轮确认的子进程存活", "count": len(orphans)})
+    all_peaks = [p.get("known_footprint_peak_bytes") if p.get("known_footprint_peak_bytes") is not None else p.get("known_footprint_bytes") for p in points]
+    known_workflow_peak = max((v for v in all_peaks if v is not None), default=None)
     return {"schema": 3, "context": context, "checkpoints": points, "closed_memory_trend": growth,
+            "known_workflow_peak_bytes": known_workflow_peak,
             "findings": findings, "verdict": "FAIL" if any(f["status"] == "FAIL" for f in findings) else "REVIEW" if findings else "NO_SIGNAL",
             "leak_conclusion": "有限场景未发现增长线索不等于证明无泄漏", "orphans": orphans}
 
@@ -468,10 +489,12 @@ def measure():
         wait_js("return __lite.tabs.list.length === 0 && document.querySelectorAll('.cm-content').length === 0")
 
     def cycle():
-        open_documents(paths, p.get("open_delay_s", 0))
+        open_documents(paths, p.get("open_delay_s", 0), "lifetime_probe" in p, p.get("control", "none"))
         if p.get("minimap") is False:
             wait_js("return !document.querySelector('.cm-minimap')")
 
+    if "lifetime_probe" in p:
+        js(LIFETIME_SCRIPT.read_text())
     if p.get("minimap") is False:
         wait_js("return __lite.settings.v.minimap === true")
         call({"cmd": "menu", "id": "toggle-minimap", "window": "main"})
@@ -497,6 +520,8 @@ def measure():
     close()
     time.sleep(p["settle"])
     r.window("recovered_idle", p["idle"])
+    if "lifetime_probe" in p:
+        js("return window.__resourceLifetimes.stop()")
     identities = probe("--sample", *sorted(r.children | {r.main}))
     call({"cmd": "menu", "id": "quit", "window": "main"})
     time.sleep(5)
@@ -505,16 +530,18 @@ def measure():
     context = state["context"]
     context["system_after"] = system()
     context["observer_python_cpu_s"] = time.process_time() - r.observer_cpu_start
+    context["observer_eval_calls"] = JS_CALLS
     log = Path.home() / "Library/Logs/com.liteide.mwtest/app.log"
     budget = re.findall(r"\[budget\].*?boot=(\d+)ms", log.read_text(errors="replace")[-2 * MIB:]) if log.exists() else []
     context["boot_observed_ms"] = int(budget[-1]) if budget else None
     context["boot_classification"] = "本次构建后的启动观察值，未声称是热启动或 p95"
     context["source_unchanged"] = fingerprint() == context["source_sha256"]
     context["fixture_unchanged"] = before == {x.name: hashlib.sha256(x.read_bytes()).hexdigest() for x in fixture.iterdir()}
+    context["diagnostic_unchanged"] = "lifetime_probe" not in p or hashlib.sha256(LIFETIME_SCRIPT.read_bytes()).hexdigest() == p["lifetime_probe"]
     report = analyse(context, r.checkpoints, orphans)
-    if not context["source_unchanged"] or not context["fixture_unchanged"]:
+    if not context["source_unchanged"] or not context["fixture_unchanged"] or not context["diagnostic_unchanged"]:
         report["verdict"] = "INVALID"
-        report["findings"].append({"status": "FAIL", "metric": "context", "reason": "测量期间源码或只读 fixture 改变；本轮不作基线"})
+        report["findings"].append({"status": "FAIL", "metric": "context", "reason": "测量期间源码、只读 fixture 或生命周期探针改变；本轮不作基线"})
     if context["baseline"]:
         report["comparison"] = compare(json.loads(Path(context["baseline"]).read_text()), report)
         if report["comparison"]["status"] != "NO_SIGNAL" and report["verdict"] == "NO_SIGNAL":
@@ -522,11 +549,22 @@ def measure():
     out = Path(state["output"])
     (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
     lines = [f"# 资源测量：{report['verdict']}", "", f"场景：{context['profile']} / {p['fixture']}；每文件打开后等待：{p.get('open_delay_s', 0)}s；缩略图：{p.get('minimap', True)}；HEAD：{context['head']}；dirty：{context['dirty']}",
-             "", "| 场景 | 已知 footprint MiB | 单核 CPU % | logical writes KiB | 主进程 FD | WebKit 归属 |", "|---|---:|---:|---:|---:|---|"]
+             "", "| 场景 | 已知 footprint 中位 MiB | 采样峰值 MiB | 单核 CPU % | logical writes KiB | 主进程 FD | WebKit 归属 |", "|---|---:|---:|---:|---:|---:|---|"]
     def fmt(v, scale=1):
         return "UNKNOWN" if v is None else f"{v / scale:.2f}"
     for x in r.checkpoints:
-        lines.append(f"| {x['phase']} | {fmt(x['known_footprint_bytes'], MIB)} | {fmt(x['cpu_percent_one_core'])} | {fmt(x['logical_write_bytes'], 1024)} | {fmt(x['main_fds'])} | {x['attribution']} |")
+        lines.append(f"| {x['phase']} | {fmt(x['known_footprint_bytes'], MIB)} | {fmt(x.get('known_footprint_peak_bytes'), MIB)} | {fmt(x['cpu_percent_one_core'])} | {fmt(x['logical_write_bytes'], 1024)} | {fmt(x['main_fds'])} | {x['attribution']} |")
+    lines += ["", f"已知进程全流程采样峰值：{fmt(report['known_workflow_peak_bytes'], MIB)} MiB（含日志阶段；归属不完整时只是下界）。",
+              "NO_SIGNAL 仅表示本方法已有调查线未触发；日志等专项的完整覆盖与结论仍按 RESOURCE-CHECKLIST 逐项记录。"]
+    if "lifetime_probe" in p:
+        lines += ["", f"## 弱引用观测（{p.get('lifetime_sampling', 'checkpoints')}；alive 不等于泄漏；未主动 GC）", "", "| 阶段 | view 活着/观察过 | doc 活着/观察过 | canvas 活着/观察过 | 非零画布 |", "|---|---:|---:|---:|---:|"]
+        for x in r.checkpoints:
+            census = x["views"].get("lifetimes")
+            if census:
+                counts = [f"{census[k]['alive']}/{census[k]['observed']}" for k in ["views", "docs", "canvases"]]
+                lines.append(f"| {x['phase']} | {' | '.join(counts)} | {census['canvases']['nonzero']} |")
+    if p.get("control") == "ipc":
+        lines += ["", "本轮为 IPC 对照：opened-* 不打开编辑器；之后日志仍真实打开/过滤，用于观察无编辑器历史的日志场景。"]
     lines += ["", "## 线索 / 缺失", "", *[f"- {json.dumps(f,ensure_ascii=False)}" for f in report["findings"]], "", report["leak_conclusion"]]
     (out / "report.md").write_text("\n".join(lines) + "\n")
     print(f"报告：{out / 'report.md'}", flush=True)
@@ -567,10 +605,15 @@ def main():
     ap.add_argument("--workload", choices=WORKLOADS, default="mixed")
     ap.add_argument("--pace", choices=PACES, default="burst")
     ap.add_argument("--minimap", choices=["on", "off"], default="on")
+    ap.add_argument("--inspect-lifetimes", action="store_true")
+    ap.add_argument("--lifetime-sampling", choices=["final", "checkpoints"], default="final")
+    ap.add_argument("--control", choices=["none", "ipc"], default="none")
     ap.add_argument("--output")
     ap.add_argument("--baseline")
     ap.add_argument("reports", nargs="*")
     args = ap.parse_args()
+    if args.mode == "prepare" and (args.inspect_lifetimes or args.control == "ipc") and args.pace != "paced":
+        ap.error("生命周期诊断 / IPC 对照需要 --pace paced，以便观察每次挂载")
     try:
         if args.mode == "cleanup": cleanup()
         elif args.mode == "build": build()
